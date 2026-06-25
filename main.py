@@ -1,7 +1,7 @@
 import asyncio
 from telegram import Bot
 
-TOKEN = "YOUR_BOT_TOKEN"
+TOKEN = HTTP API:8684817654:AAHBznxya0yR7pTRtyjZXIFmGDX9DfWb8K
 CHAT_ID = "YOUR_CHAT_ID"
 
 async def main():
