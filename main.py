@@ -27,7 +27,6 @@ SUBSCRIBE_MESSAGE = {
     ]
 }
 
-
 # =====================================
 # Helpers
 # =====================================
@@ -40,16 +39,16 @@ def log(*args):
 async def send(text):
     """Send Telegram message safely."""
     try:
-        if len(text) > 3900:
-            text = text[:3900] + "\n...(truncated)"
+        if len(str(text)) > 3900:
+            text = str(text)[:3900] + "\n...(truncated)"
 
         await bot.send_message(
             chat_id=CHAT_ID,
-            text=text
+            text=str(text)
         )
 
     except Exception as e:
-        log("Telegram Error:", e)
+        log(f"Telegram Error: {e}")
 
 
 # =====================================
@@ -57,111 +56,37 @@ async def send(text):
 # =====================================
 
 async def connect():
-
     while True:
-
         try:
-
             log("Connecting to WEEX...")
 
             async with websockets.connect(
                 WS_URL,
-                additional_headers={
-                    "User-Agent": "Python"
-                },
                 ping_interval=20,
-                ping_timeout=20,
-                max_size=None
+                ping_timeout=20
             ) as ws:
 
-                log("CONNECTED")
+                log("✅ CONNECTED")
 
-                await send("✅ CONNECTED to WEEX WebSocket")
-
-                # Subscribe
                 await ws.send(json.dumps(SUBSCRIBE_MESSAGE))
-
-                log("Subscription sent:")
-                log(json.dumps(SUBSCRIBE_MESSAGE))
-
-                await send("📡 Subscription sent.")
+                log("📡 Subscription sent.")
 
                 while True:
-
                     message = await ws.recv()
-
-                    log("=" * 60)
-                    log("RAW MESSAGE")
-                    log(message)
-                    log("=" * 60)
+                    log("📩", message)
 
                     await send(f"📩 {message}")
 
-                    try:
-                        data = json.loads(message)
-
-                    except Exception:
-                        continue
-
-                    if not isinstance(data, dict):
-                        continue
-
-                    # --------------------------------
-                    # Heartbeat: {"event":"ping","time":"..."}
-                    # --------------------------------
-                    if data.get("event") == "ping":
-
-                        pong = {
-                            "event": "pong",
-                            "time": data.get("time")
-                        }
-
-                        await ws.send(json.dumps(pong))
-                        log("Sent:", pong)
-
-                    # --------------------------------
-                    # Heartbeat: {"ping":123456}
-                    # --------------------------------
-                    elif "ping" in data:
-
-                        pong = {
-                            "pong": data["ping"]
-                        }
-
-                        await ws.send(json.dumps(pong))
-                        log("Sent:", pong)
-
-                    # --------------------------------
-                    # Heartbeat: {"op":"ping"}
-                    # --------------------------------
-                    elif data.get("op") == "ping":
-
-                        pong = {
-                            "op": "pong"
-                        }
-
-                        await ws.send(json.dumps(pong))
-                        log("Sent:", pong)
-
-        except websockets.ConnectionClosed as e:
-
-            log(f"Connection closed: {e}")
-
-            await send(f"❌ Connection closed:\n{e}")
-
         except Exception as e:
-
-            log("Connection Error:", e)
-
+            log("❌ Connection Error:", e)
             await send(f"❌ Connection Error:\n{e}")
 
         log("Reconnecting in 5 seconds...")
-
         await asyncio.sleep(5)
 
 
 # =====================================
-# Start
+# Start Program
 # =====================================
 
 if __name__ == "__main__":
