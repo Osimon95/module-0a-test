@@ -18,7 +18,6 @@ SUBSCRIBE_MESSAGE = {
     "id": 1
 }
 
-
 # =====================================
 # Helpers
 # =====================================
@@ -26,7 +25,6 @@ SUBSCRIBE_MESSAGE = {
 def log(*args):
     now = datetime.now().strftime("%H:%M:%S")
     print(f"[{now}]", *args)
-
 
 # =====================================
 # Main
@@ -37,6 +35,9 @@ async def main():
         try:
             async with websockets.connect(
                 WS_URL,
+                additional_headers={
+                    "User-Agent": "Python-Module-0D"
+                },
                 ping_interval=None,
                 close_timeout=10,
             ) as ws:
@@ -55,7 +56,7 @@ async def main():
                     except Exception:
                         continue
 
-                    # Reply to ping
+                    # Respond to server ping
                     if data.get("event") == "ping":
                         pong = {
                             "method": "PONG",
@@ -69,6 +70,9 @@ async def main():
             log("🔄 Reconnecting in 5 seconds...")
             await asyncio.sleep(5)
 
+# =====================================
+# Start
+# =====================================
 
 if __name__ == "__main__":
     asyncio.run(main())
