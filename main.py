@@ -8,8 +8,8 @@ from telegram import Bot
 # Configuration
 # ==========================
 
-BOT_TOKEN = os.getenv("8684817654:AAG48fn13BtVazkR9dCIneC_dItUFUxrXAU")
-CHAT_ID = os.getenv("8587384068")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
 bot = Bot(token=BOT_TOKEN)
 
