@@ -11,10 +11,11 @@ import websockets
 WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
 
 SUBSCRIBE_MESSAGE = {
-    "op": "subscribe",
-    "args": [
-        "ticker.BTCUSDT"
-    ]
+    "method": "SUBSCRIBE",
+    "params": [
+        "BTCUSDT@ticker"
+    ],
+    "id": 1
 }
 
 
@@ -24,7 +25,7 @@ SUBSCRIBE_MESSAGE = {
 
 def log(*args):
     now = datetime.now().strftime("%H:%M:%S")
-    print(f"[{now}]", *args, flush=True)
+    print(f"[{now}]", *args)
 
 
 # =====================================
@@ -36,29 +37,32 @@ async def main():
         try:
             async with websockets.connect(
                 WS_URL,
-                ping_interval=20,
-                ping_timeout=20,
+                ping_interval=None,
+                close_timeout=10,
             ) as ws:
 
                 log("✅ CONNECTED to WEEX WebSocket")
 
-                # Subscribe to BTCUSDT ticker
                 await ws.send(json.dumps(SUBSCRIBE_MESSAGE))
                 log("📡 Subscription sent:", SUBSCRIBE_MESSAGE)
 
-                # Receive messages
-                async for message in ws:
+                while True:
+                    message = await ws.recv()
+                    log("📩", message)
+
                     try:
                         data = json.loads(message)
                     except Exception:
-                        log("📩", message)
                         continue
 
-                    # Ignore ping events
+                    # Reply to ping
                     if data.get("event") == "ping":
-                        continue
-
-                    log("📩", json.dumps(data))
+                        pong = {
+                            "method": "PONG",
+                            "id": 1
+                        }
+                        await ws.send(json.dumps(pong))
+                        log("🏓 PONG sent")
 
         except Exception as e:
             log("❌ Connection Error:", e)
