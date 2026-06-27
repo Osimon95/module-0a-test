@@ -3,17 +3,13 @@ import json
 import websockets
 from telegram import Bot
 
-# ===========================
-# Telegram Configuration
-# ===========================
+# Telegram settings
 TOKEN = "8684817654:AAG48fn13BtVazkR9dCIneC_dItUFUxrXAU"
 CHAT_ID = "8587384068"
 
 bot = Bot(token=TOKEN)
 
-# ===========================
 # WEEX WebSocket
-# ===========================
 WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
 
 SUBSCRIBE_MESSAGE = {
@@ -27,6 +23,8 @@ SUBSCRIBE_MESSAGE = {
 async def send(text):
     """Send a Telegram message."""
     try:
+        if len(text) > 3900:
+            text = text[:3900] + "\n...(truncated)"
         await bot.send_message(chat_id=CHAT_ID, text=text)
     except Exception as e:
         print("Telegram Error:", e)
@@ -43,7 +41,7 @@ async def connect():
                 print("CONNECTED")
                 await send("✅ CONNECTED to WEEX WebSocket")
 
-                # Subscribe
+                # Subscribe to ticker
                 await ws.send(json.dumps(SUBSCRIBE_MESSAGE))
                 print("Subscription sent.")
                 await send("📡 Subscription sent.")
@@ -51,13 +49,9 @@ async def connect():
                 while True:
                     message = await ws.recv()
 
-                    print(message)
+                    print("RECEIVED:", message)
 
-                    # Telegram messages have a size limit.
-                    if len(message) > 3500:
-                        message = message[:3500] + "\n...(truncated)"
-
-                    await send(message)
+                    await send(f"📩 {message}")
 
         except Exception as e:
             print("Connection Error:", e)
@@ -67,9 +61,4 @@ async def connect():
             await asyncio.sleep(5)
 
 
-async def main():
-    await connect()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(connect())
