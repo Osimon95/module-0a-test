@@ -2,7 +2,7 @@ import asyncio
 import websockets
 from telegram import Bot
 
-TOKEN = "8684817654:AAEVawL3CPotxilgkxapCcXMs18mV8GdFK"
+TOKEN = "8684817654:AAG48fn13BtVazkR9dCIneC_dItUFUxrXAU"
 CHAT_ID = "8587384068"
 
 async def test():
