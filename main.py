@@ -1,40 +1,70 @@
 import asyncio
+import json
+from datetime import datetime
+
 import websockets
-from telegram import Bot
 
-TOKEN = "8684817654:AAG48fn13BtVazkR9dCIneC_dItUFUxrXAU"
-CHAT_ID = "8587384068"
+# =====================================
+# WEEX Settings
+# =====================================
 
-async def test():
-    bot = Bot(token=TOKEN)
-    uri = "wss://ws-contract.weex.com/v3/ws/public"
+WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
 
-    try:
-        async with websockets.connect(
-            uri,
-            additional_headers={"User-Agent": "Python"}
-        ) as ws:
-            print("CONNECTED")
+SUBSCRIBE_MESSAGE = {
+    "op": "subscribe",
+    "args": [
+        "ticker.BTCUSDT"
+    ]
+}
 
-            await bot.send_message(
-                chat_id=CHAT_ID,
-                text="✅ CONNECTED to WEEX WebSocket"
-            )
 
-            # Keep the connection alive
-            while True:
-                await asyncio.sleep(60)
+# =====================================
+# Helpers
+# =====================================
 
-    except Exception as e:
-        print(f"ERROR: {e}")
+def log(*args):
+    now = datetime.now().strftime("%H:%M:%S")
+    print(f"[{now}]", *args, flush=True)
 
+
+# =====================================
+# Main
+# =====================================
+
+async def main():
+    while True:
         try:
-            await bot.send_message(
-                chat_id=CHAT_ID,
-                text=f"❌ WEEX Connection Error:\n{e}"
-            )
-        except Exception:
-            pass
+            async with websockets.connect(
+                WS_URL,
+                ping_interval=20,
+                ping_timeout=20,
+            ) as ws:
 
-asyncio.run(test())
-i
+                log("✅ CONNECTED to WEEX WebSocket")
+
+                # Subscribe to BTCUSDT ticker
+                await ws.send(json.dumps(SUBSCRIBE_MESSAGE))
+                log("📡 Subscription sent:", SUBSCRIBE_MESSAGE)
+
+                # Receive messages
+                async for message in ws:
+                    try:
+                        data = json.loads(message)
+                    except Exception:
+                        log("📩", message)
+                        continue
+
+                    # Ignore ping events
+                    if data.get("event") == "ping":
+                        continue
+
+                    log("📩", json.dumps(data))
+
+        except Exception as e:
+            log("❌ Connection Error:", e)
+            log("🔄 Reconnecting in 5 seconds...")
+            await asyncio.sleep(5)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
