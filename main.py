@@ -49,7 +49,7 @@ async def connect_weex():
                 # Keep the connection alive
                 while True:
                     await ws.ping()
-                    await asyncio.sleep(20)
+                    await asyncio.sleep(15)
 
         except Exception as e:
             print(f"❌ ERROR: {e}")
