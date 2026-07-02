@@ -32,32 +32,38 @@ async def startup():
 async def connect_weex():
     uri = "wss://ws-contract.weex.com/v3/ws/public"
 
-    try:
-        async with websockets.connect(
-            uri,
-            additional_headers={"User-Agent": "Python"}
-        ) as ws:
-
-            print("CONNECTED")
-
-            await bot.send_message(
-                chat_id=CHAT_ID,
-                text="✅ CONNECTED to WEEX WebSocket"
-            )
-
-            while True:
-                await asyncio.sleep(60)
-
-    except Exception as e:
-        print(f"ERROR: {e}")
-
+    while True:
         try:
-            await bot.send_message(
-                chat_id=CHAT_ID,
-                text=f"❌ WEEX Connection Error:\n{e}"
-            )
-        except Exception:
-            pass
+            async with websockets.connect(
+                uri,
+                additional_headers={"User-Agent": "Python"}
+            ) as ws:
+
+                print("✅ CONNECTED")
+
+                await bot.send_message(
+                    chat_id=CHAT_ID,
+                    text="✅ CONNECTED to WEEX WebSocket"
+                )
+
+                # Keep the connection alive
+                while True:
+                    await asyncio.sleep(60)
+
+        except Exception as e:
+            print(f"❌ ERROR: {e}")
+
+            try:
+                await bot.send_message(
+                    chat_id=CHAT_ID,
+                    text=f"❌ WEEX Connection Error:\n{e}"
+                )
+            except Exception:
+                pass
+
+            print("🔄 Reconnecting in 5 seconds...")
+            await asyncio.sleep(5)
+            
 
 # =====================================
 # Main
