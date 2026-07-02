@@ -1,4 +1,21 @@
+except Exception as e:  
+    print(f"ERROR: {e}")  
+
+    try:  
+        await bot.send_message(  
+            chat_id=CHAT_ID,  
+            text=f"❌ WEEX Connection Error:\n{e}"  
+        )  
+    except Exception:  
+        pass 
+
+asyncio.run(test())
+
+ import asyncio
+ from telegram import Bot
+=====================================
 Telegram Settings
+
 =====================================
 TOKEN = "8684817654:AAG48fn13BtVazkR9dCIneC_dItUFUxrXAU"
  CHAT_ID = "8587384068"
