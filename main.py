@@ -2,57 +2,31 @@ import asyncio
 import websockets
 from telegram import Bot
 
-# =====================================
-# Telegram Settings
-# =====================================
+TOKEN = "YOUR_BOT_TOKEN"
+CHAT_ID = "YOUR_CHAT_ID"
 
-TOKEN = "8684817654:AAGt2sBu2INI1RPVS5trGnf4jkIW2N7TnDY"
-CHAT_ID = "8587384068"
-
-bot = Bot(token=TOKEN)
-
-# =====================================
-# Telegram Startup Message
-# =====================================
-
-async def startup():
-    try:
-        await bot.send_message(
-            chat_id=CHAT_ID,
-            text="✅ Bot started on Render"
-        )
-        print("✅ Telegram startup message sent successfully.")
-    except Exception as e:
-        print(f"❌ Telegram startup error: {e}")
-
-# =====================================
-# WEEX Connection
-# =====================================
-
-async def connect_weex():
+async def test():
+    bot = Bot(token=TOKEN)
     uri = "wss://ws-contract.weex.com/v3/ws/public"
 
     try:
         async with websockets.connect(
             uri,
-            additional_headers={
-                "User-Agent": "Python"
-            }
+            additional_headers={"User-Agent": "Python"}
         ) as ws:
-
-            print("✅ CONNECTED to WEEX WebSocket")
+            print("CONNECTED")
 
             await bot.send_message(
                 chat_id=CHAT_ID,
                 text="✅ CONNECTED to WEEX WebSocket"
             )
 
-            # Keep connection alive
+            # Keep the connection alive
             while True:
                 await asyncio.sleep(60)
 
     except Exception as e:
-        print(f"❌ WEEX ERROR: {e}")
+        print(f"ERROR: {e}")
 
         try:
             await bot.send_message(
@@ -62,18 +36,7 @@ async def connect_weex():
         except Exception:
             pass
 
-# =====================================
-# Main
-# =====================================
+asyncio.run(test())
 
-async def main():
-    print("🚀 Starting Render service...")
-    await startup()
-    await connect_weex()
-
-# =====================================
-# Entry Point
-# =====================================
-
-if __name__ == "__main__":
-    asyncio.run(main())
+impor
+from  
