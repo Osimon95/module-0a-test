@@ -6,8 +6,8 @@ from telegram import Bot
 # Telegram Settings
 # =====================================
 
-TOKEN = "8684817654:AAELTeEuXGxn9dRUaE_QRJRqAspSTraitjk"
-CHAT_ID = "8587384068"
+TOKEN = "YOUR_BOT_TOKEN"
+CHAT_ID = "YOUR_CHAT_ID"
 
 bot = Bot(token=TOKEN)
 
@@ -35,22 +35,21 @@ async def connect_weex():
     while True:
         try:
             async with websockets.connect(
-    uri,
-    additional_headers={"User-Agent": "Python"}
-) as ws:
+                uri,
+                additional_headers={"User-Agent": "Python"}
+            ) as ws:
 
-    print("✅ CONNECTED")
+                print("✅ CONNECTED")
 
-    await bot.send_message(
-        chat_id=CHAT_ID,
-        text="✅ CONNECTED to WEEX WebSocket"
-    )
+                await bot.send_message(
+                    chat_id=CHAT_ID,
+                    text="✅ CONNECTED to WEEX WebSocket"
+                )
 
-    # Keep the connection alive
-    while True:
-        await ws.ping()
-        await asyncio.sleep(20)
-        
+                # Keep the connection alive
+                while True:
+                    await ws.ping()
+                    await asyncio.sleep(20)
 
         except Exception as e:
             print(f"❌ ERROR: {e}")
@@ -65,7 +64,6 @@ async def connect_weex():
 
             print("🔄 Reconnecting in 5 seconds...")
             await asyncio.sleep(5)
-            
 
 # =====================================
 # Main
@@ -78,4 +76,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+    
+
+            
  
