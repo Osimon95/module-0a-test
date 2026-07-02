@@ -1,4 +1,21 @@
+  
+    async with websockets.connect(  
+        uri,  
+        additional_headers={"User-Agent": "Python"}  
+    ) as ws:  
+        print("CONNECTED")  
+
+        await bot.send_message(  
+            chat_id=CHAT_ID,  
+            text="✅ CONNECTED to WEEX WebSocket"  
+        )  
+
+        # Keep the connection alive  
+        while True:  
+            await asyncio.sleep(60)  
+
 except Exception as e:  
+
     print(f"ERROR: {e}")  
 
     try:  
@@ -11,8 +28,7 @@ except Exception as e:
 
 asyncio.run(test())
 
- import asyncio
- from telegram import Bot
+
 =====================================
 Telegram Settings
 
