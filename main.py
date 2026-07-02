@@ -1,17 +1,18 @@
-import asyncio
+imporimport asyncio
+import websockets
 from telegram import Bot
 
 # =====================================
 # Telegram Settings
 # =====================================
 
-TOKEN = "8684817654:AAG48fn13BtVazkR9dCIneC_dItUFUxrXAU"
+TOKEN = "YOUR_NEW_BOT_TOKEN"
 CHAT_ID = "8587384068"
 
 bot = Bot(token=TOKEN)
 
 # =====================================
-# Telegram Startup Test
+# Telegram Startup Message
 # =====================================
 
 async def startup():
@@ -22,16 +23,57 @@ async def startup():
         )
         print("✅ Telegram startup message sent successfully.")
     except Exception as e:
-        print(f"❌ Telegram error: {e}")
+        print(f"❌ Telegram startup error: {e}")
+
+# =====================================
+# WEEX Connection
+# =====================================
+
+async def connect_weex():
+    uri = "wss://ws-contract.weex.com/v3/ws/public"
+
+    try:
+        async with websockets.connect(
+            uri,
+            additional_headers={
+                "User-Agent": "Python"
+            }
+        ) as ws:
+
+            print("✅ CONNECTED to WEEX WebSocket")
+
+            await bot.send_message(
+                chat_id=CHAT_ID,
+                text="✅ CONNECTED to WEEX WebSocket"
+            )
+
+            # Keep connection alive
+            while True:
+                await asyncio.sleep(60)
+
+    except Exception as e:
+        print(f"❌ WEEX ERROR: {e}")
+
+        try:
+            await bot.send_message(
+                chat_id=CHAT_ID,
+                text=f"❌ WEEX Connection Error:\n{e}"
+            )
+        except Exception:
+            pass
 
 # =====================================
 # Main
 # =====================================
 
 async def main():
-    print("🚀 Starting Telegram test...")
+    print("🚀 Starting Render service...")
     await startup()
-    print("🏁 Test completed.")
+    await connect_weex()
+
+# =====================================
+# Entry Point
+# =====================================
 
 if __name__ == "__main__":
     asyncio.run(main())
