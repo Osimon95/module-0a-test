@@ -1,5 +1,15 @@
   
+    import asyncio
+ import websockets
+ from telegram import Bot
+TOKEN = "YOUR_BOT_TOKEN"
+ CHAT_ID = "YOUR_CHAT_ID"
+async def test():
+ bot = Bot(token=TOKEN)
+ uri = "wss://ws-contract.weex.com/v3/ws/public"
+try:  
     async with websockets.connect(  
+
         uri,  
         additional_headers={"User-Agent": "Python"}  
     ) as ws:  
