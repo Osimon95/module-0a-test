@@ -1,4 +1,3 @@
-  
  import asyncio
  import websockets
  from telegram import Bot
