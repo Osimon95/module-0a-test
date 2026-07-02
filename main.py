@@ -6,8 +6,8 @@ from telegram import Bot
 # Telegram Settings
 # =====================================
 
-TOKEN = "YOUR_BOT_TOKEN"
-CHAT_ID = "YOUR_CHAT_ID"
+TOKEN = "8684817654:AAGEg4UwrTbeTMzaSyt4idE1TFYnPqFXtjw"
+CHAT_ID = "8587384068"
 
 bot = Bot(token=TOKEN)
 
