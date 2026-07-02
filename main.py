@@ -2,8 +2,8 @@
     import asyncio
  import websockets
  from telegram import Bot
-TOKEN = "YOUR_BOT_TOKEN"
- CHAT_ID = "YOUR_CHAT_ID"
+TOKEN = "8684817654:AAGt2sBu2INI1RPVS5trGnf4jkIW2N7TnDY"
+ CHAT_ID = "8587384068"
 async def test():
  bot = Bot(token=TOKEN)
  uri = "wss://ws-contract.weex.com/v3/ws/public"
