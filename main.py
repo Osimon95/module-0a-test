@@ -36,7 +36,8 @@ async def connect_weex():
         try:
             async with websockets.connect(
                 uri,
-                additional_headers={"User-Agent": "Python"}
+                additional_headers={"User-Agent": "Python"},
+                ping_interval=None  # We will handle pings ourselves
             ) as ws:
 
                 print("✅ CONNECTED")
@@ -46,10 +47,26 @@ async def connect_weex():
                     text="✅ CONNECTED to WEEX WebSocket"
                 )
 
-                # Keep the connection alive
+                # Subscribe to a market channel immediately
+                await ws.send("""
+                {
+                    "op":"subscribe",
+                    "args":["ticker.BTCUSDT"]
+                }
+                """)
+
                 while True:
+                    # Send heartbeat
                     await ws.ping()
-                    await asyncio.sleep(15)
+
+                    # Receive server messages
+                    try:
+                        message = await asyncio.wait_for(ws.recv(), timeout=15)
+                        print(message)
+                    except asyncio.TimeoutError:
+                        pass
+
+                    await asyncio.sleep(10)
 
         except Exception as e:
             print(f"❌ ERROR: {e}")
@@ -64,6 +81,7 @@ async def connect_weex():
 
             print("🔄 Reconnecting in 5 seconds...")
             await asyncio.sleep(5)
+    
 
 # =====================================
 # Main
