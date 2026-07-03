@@ -33,55 +33,48 @@ async def connect_weex():
     uri = "wss://ws-contract.weex.com/v3/ws/public"
 
     while True:
-        try:
-            async with websockets.connect(
-                uri,
-                additional_headers={"User-Agent": "Python"},
-                ping_interval=None  # We will handle pings ourselves
-            ) as ws:
+    try:
+        print("Connecting to WEEX...")
 
-                print("✅ CONNECTED")
+        async with websockets.connect(
+            uri,
+            additional_headers={"User-Agent": "Python"},
+            ping_interval=None
+        ) as ws:
 
-                await bot.send_message(
-                    chat_id=CHAT_ID,
-                    text="✅ CONNECTED to WEEX WebSocket"
-                )
+            print("CONNECTED")
 
-                # Subscribe to a market channel immediately
-                await ws.send("""
-                {
-                    "op":"subscribe",
-                    "args":["ticker.BTCUSDT"]
-                }
-                """)
+            await ws.send(json.dumps({
+                "op": "subscribe",
+                "args": ["ticker.BTCUSDT"]
+            }))
 
-                while True:
-                    # Send heartbeat
+            print("Subscribed")
+
+            while True:
+                try:
+                    msg = await asyncio.wait_for(ws.recv(), timeout=20)
+
+                    print(msg)
+
+                except asyncio.TimeoutError:
+                    print("Sending ping...")
                     await ws.ping()
 
-                    # Receive server messages
-                    try:
-                        message = await asyncio.wait_for(ws.recv(), timeout=15)
-                        print(message)
-                    except asyncio.TimeoutError:
-                        pass
+    except Exception as e:
+        print(f"WEEX ERROR: {repr(e)}")
 
-                    await asyncio.sleep(10)
+        try:
+            await bot.send_message(
+                CHAT_ID,
+                f"WEEX ERROR:\n{repr(e)}"
+            )
+        except Exception:
+            pass
 
-        except Exception as e:
-            print(f"❌ ERROR: {e}")
-
-            try:
-                await bot.send_message(
-                    chat_id=CHAT_ID,
-                    text=f"❌ WEEX Connection Error:\n{e}"
-                )
-            except Exception:
-                pass
-
-            print("🔄 Reconnecting in 5 seconds...")
-            await asyncio.sleep(5)
-    
+        print("Reconnect in 5 seconds...")
+        await asyncio.sleep(5)
+        
 
 # =====================================
 # Main
