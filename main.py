@@ -1,93 +1,70 @@
 import asyncio
+import json
 import websockets
-from telegram import Bot
 
 # =====================================
-# Telegram Settings
+# WEEX WebSocket Settings
 # =====================================
 
-TOKEN = "8684817654:AAGEg4UwrTbeTMzaSyt4idE1TFYnPqFXtjw"
-CHAT_ID = "8587384068"
+WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
 
-bot = Bot(token=TOKEN)
 
-# =====================================
-# Startup Message
-# =====================================
-
-async def startup():
+async def main():
     try:
-        await bot.send_message(
-            chat_id=CHAT_ID,
-            text="✅ Bot started on Render"
-        )
-        print("✅ Telegram startup message sent successfully.")
-    except Exception as e:
-        print(f"❌ Telegram error: {e}")
-
-# =====================================
-# WEEX WebSocket Connection
-# =====================================
-
-async def connect_weex():
-    uri = "wss://ws-contract.weex.com/v3/ws/public"
-
-    while True:
-    try:
-        print("Connecting to WEEX...")
-
         async with websockets.connect(
-            uri,
-            additional_headers={"User-Agent": "Python"},
-            ping_interval=None
+            WS_URL,
+            ping_interval=20,
+            ping_timeout=20
         ) as ws:
 
             print("CONNECTED")
 
-            await ws.send(json.dumps({
+            # Subscribe to BTCUSDT ticker
+            subscribe = {
                 "op": "subscribe",
-                "args": ["ticker.BTCUSDT"]
-            }))
+                "args": [
+                    "ticker.BTCUSDT"
+                ]
+            }
 
-            print("Subscribed")
+            await ws.send(json.dumps(subscribe))
 
             while True:
                 try:
-                    msg = await asyncio.wait_for(ws.recv(), timeout=20)
+                    message = await ws.recv()
 
-                    print(msg)
+                    # Parse JSON
+                    try:
+                        data = json.loads(message)
+                    except:
+                        continue
 
-                except asyncio.TimeoutError:
-                    print("Sending ping...")
-                    await ws.ping()
+                    # Ignore ping/pong and subscription acknowledgements
+                    if "ping" in data or "pong" in data:
+                        continue
+
+                    # Look for ticker data
+                    if "data" in data:
+                        ticker = data["data"]
+
+                        if isinstance(ticker, dict):
+                            price = (
+                                ticker.get("lastPrice")
+                                or ticker.get("last")
+                                or ticker.get("price")
+                                or ticker.get("close")
+                            )
+
+                            if price is not None:
+                                print(price)
+
+                except websockets.ConnectionClosed:
+                    print("DISCONNECTED")
+                    break
 
     except Exception as e:
-        print(f"WEEX ERROR: {repr(e)}")
+        print(f"Connection Error: {e}")
 
-        try:
-            await bot.send_message(
-                CHAT_ID,
-                f"WEEX ERROR:\n{repr(e)}"
-            )
-        except Exception:
-            pass
-
-        print("Reconnect in 5 seconds...")
-        await asyncio.sleep(5)
-        
-
-# =====================================
-# Main
-# =====================================
-
-async def main():
-    print("🚀 Starting bot...")
-    await startup()
-    await connect_weex()
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
-
-            
- 
