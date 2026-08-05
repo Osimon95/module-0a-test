@@ -13,8 +13,8 @@ from telegram import Bot
 WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
 
 # Add these as Environment Variables on Render
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TELEGRAM_BOT_TOKEN = os.getenv("8684817654:AAG48fn13BtVazkR9dCIneC_dItUFUxrXAU")
+TELEGRAM_CHAT_ID = os.getenv("8587384068")
 
 
 async def send_telegram(bot: Bot, message: str) -> None:
