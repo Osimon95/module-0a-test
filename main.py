@@ -14,7 +14,7 @@ from telegram import Bot
 WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
 SYMBOL = os.getenv("SYMBOL", "BTCUSDT").upper()
 
-TELEGRAM_BOT_TOKEN = os.getenv("8684817654:AAG48fn13BtVazkR9dCIneC_dItUFUxrXAU")
+TELEGRAM_BOT_TOKEN = os.getenv("8684817654:AAGEg4UwrTbeTMzaSyt4idE1TFYnPqFXtjw")
 TELEGRAM_CHAT_ID = os.getenv("8587384068")
 
 # Send Telegram updates at most once every 60 seconds.
