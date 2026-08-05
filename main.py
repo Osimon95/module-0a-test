@@ -10,61 +10,91 @@ WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
 
 
 async def main():
-    try:
-        async with websockets.connect(
-            WS_URL,
-            ping_interval=20,
-            ping_timeout=20
-        ) as ws:
+    while True:
+        try:
+            async with websockets.connect(
+                WS_URL,
+                additional_headers={
+                    "User-Agent": "WEEX-BTC-Bot/1.0"
+                },
+                ping_interval=20,
+                ping_timeout=20,
+                close_timeout=10
+            ) as ws:
 
-            print("CONNECTED")
+                print("CONNECTED")
 
-            # Subscribe to BTCUSDT ticker
-            subscribe = {
-                "op": "subscribe",
-                "args": [
-                    "ticker.BTCUSDT"
-                ]
-            }
+                # Correct WEEX V3 ticker subscription
+                subscribe_message = {
+                    "method": "SUBSCRIBE",
+                    "params": [
+                        "BTCUSDT@ticker"
+                    ],
+                    "id": 1
+                }
 
-            await ws.send(json.dumps(subscribe))
+                await ws.send(json.dumps(subscribe_message))
 
-            while True:
-                try:
+                while True:
                     message = await ws.recv()
 
-                    # Parse JSON
                     try:
                         data = json.loads(message)
-                    except:
+                    except json.JSONDecodeError:
                         continue
 
-                    # Ignore ping/pong and subscription acknowledgements
-                    if "ping" in data or "pong" in data:
+                    # WEEX application-level ping
+                    if data.get("event") == "ping":
+                        pong_message = {
+                            "method": "PONG",
+                            "id": 1
+                        }
+
+                        await ws.send(json.dumps(pong_message))
                         continue
 
-                    # Look for ticker data
-                    if "data" in data:
-                        ticker = data["data"]
-
-                        if isinstance(ticker, dict):
-                            price = (
-                                ticker.get("lastPrice")
-                                or ticker.get("last")
-                                or ticker.get("price")
-                                or ticker.get("close")
+                    # Subscription acknowledgement
+                    if "result" in data:
+                        if data.get("result") is True:
+                            print("SUBSCRIBED")
+                        else:
+                            print(
+                                "SUBSCRIPTION ERROR:",
+                                data.get("msg", data)
                             )
+                        continue
 
-                            if price is not None:
-                                print(price)
+                    # Ticker update
+                    if data.get("e") == "ticker":
+                        ticker_list = data.get("d", [])
 
-                except websockets.ConnectionClosed:
-                    print("DISCONNECTED")
-                    break
+                        if isinstance(ticker_list, list):
+                            for ticker in ticker_list:
+                                if not isinstance(ticker, dict):
+                                    continue
 
-    except Exception as e:
-        print(f"Connection Error: {e}")
+                                price = ticker.get("c")
+
+                                if price is not None:
+                                    print(price)
+
+        except asyncio.CancelledError:
+            raise
+
+        except websockets.ConnectionClosed as error:
+            print(f"DISCONNECTED: {error}")
+
+        except Exception as error:
+            print(f"CONNECTION ERROR: {error}")
+
+        # Reconnect after disconnection
+        print("RECONNECTING IN 5 SECONDS...")
+        await asyncio.sleep(5)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("STOPPED")
+imp
