@@ -16,6 +16,12 @@ SYMBOL = os.getenv("SYMBOL", "BTCUSDT").upper()
 
 TELEGRAM_BOT_TOKEN = os.getenv("8684817654:AAGI7l96augCUlSaBx1xEReq7AZFfQtJhZc")
 TELEGRAM_CHAT_ID = os.getenv("8587384068")
+print(
+    "TELEGRAM ENV CHECK:",
+    f"TOKEN={'FOUND' if TELEGRAM_BOT_TOKEN else 'MISSING'}",
+    f"CHAT_ID={'FOUND' if TELEGRAM_CHAT_ID else 'MISSING'}",
+    flush=True,
+)
 
 # Send Telegram updates at most once every 60 seconds.
 # Set this to 0 to send every price change.
