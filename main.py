@@ -166,15 +166,19 @@ async def stream_prices(bot: Optional[Bot]) -> None:
                 continue
 
             # Ignore repeated prices
-            if price == last_price:
-                continue
+          if price:
+    price = float(price)
 
-            last_price = price
+    if price != last_price:
+        last_price = price
 
-            print(
-                f"{SYMBOL} PRICE: {price}",
-                flush=True,
-            )
+        print(f"BTCUSDT PRICE: {price}", flush=True)
+
+        await send_telegram(
+            bot,
+            f"📈 BTCUSDT price: {price}"
+        )
+        
 
             now = time.monotonic()
 
