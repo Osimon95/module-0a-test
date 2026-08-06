@@ -240,7 +240,7 @@ async def monitor_prices(bot: Optional[Bot]) -> None:
             bot,
             f"✅ WEEX bot connected\nWatching {SYMBOL}",
         )
-       while True:
+    while True:
             raw_message = await websocket.recv()
 
             try:
