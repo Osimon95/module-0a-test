@@ -35,35 +35,17 @@ MINIMUM_PERCENT_CHANGE = Decimal("0")
 RECONNECT_DELAY_SECONDS = 5
 MAX_RECONNECT_DELAY_SECONDS = 60
 
+# =====================================
+# Telegram Settings
+# =====================================
 
-# ============================================================
-# TELEGRAM
-# ============================================================
+TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID"
 
-def telegram_is_configured() -> bool:
-    """Check whether usable Telegram details have been supplied."""
-    token_missing = (
-        not TELEGRAM_BOT_TOKEN
-        or TELEGRAM_BOT_TOKEN
-        == "PASTE_YOUR_TELEGRAM_BOT_TOKEN_HERE"
-    )
-
-    chat_id_missing = (
-        not TELEGRAM_CHAT_ID
-        or TELEGRAM_CHAT_ID
-        == "PASTE_YOUR_TELEGRAM_CHAT_ID_HERE"
-    )
-
-    return not token_missing and not chat_id_missing
-
-
-async def send_telegram(bot: Bot, message: str) -> None:
-    """Send a Telegram message without stopping the price bot."""
-    if not telegram_is_configured():
-        print(
-            "TELEGRAM WARNING: Token or chat ID is missing.",
-            flush=True,
-        )
+if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+    print("TELEGRAM CONFIG: LOADED", flush=True)
+else:
+    print("TELEGRAM CONFIG: MISSING", flush=True)
         return
 
     try:
