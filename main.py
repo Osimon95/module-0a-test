@@ -55,7 +55,7 @@ try:
         )
         print("TELEGRAM MESSAGE SENT", flush=True)
 
-    except Exception as error:
+except Exception as error:
         print(
             f"TELEGRAM ERROR: {type(error).__name__}: {error}",
             flush=True,
