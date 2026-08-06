@@ -43,6 +43,18 @@ def display_telegram_status() -> None:
             "Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.",
             flush=True,
         )
+def display_telegram_status() -> None:
+    if telegram_is_configured():
+        print("TELEGRAM CONFIG: READY", flush=True)
+    else:
+        print(
+            "TELEGRAM CONFIG: MISSING. "
+            "Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.",
+            flush=True,
+        )
+
+
+async def send_telegram(bot: Optional[Bot], message: str) -> None:
 async def send_telegram(bot: Optional[Bot], message: str) -> None:
     """Send a Telegram message without stopping the price monitor."""
 
