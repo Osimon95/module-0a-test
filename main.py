@@ -46,7 +46,7 @@ if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
     print("TELEGRAM CONFIG: LOADED", flush=True)
 else:
     print("TELEGRAM CONFIG: MISSING", flush=True)
-        return
+return
 
     try:
         await bot.send_message(
