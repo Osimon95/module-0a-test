@@ -48,7 +48,7 @@ else:
     print("TELEGRAM CONFIG: MISSING", flush=True)
 return
 
-    try:
+try:
         await bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
             text=message,
