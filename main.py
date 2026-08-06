@@ -19,12 +19,10 @@ SUBSCRIPTION_CHANNEL = f"{SYMBOL}@ticker"
 # Temporary hard-coded Telegram details.
 # Paste your existing token and chat ID between the normal quotation marks.
 TELEGRAM_BOT_TOKEN = os.getenv(
-    "TELEGRAM_BOT_TOKEN",
     "8684817654:AAGI7l96augCUlSaBx1xEReq7AZFfQtJhZc",
 )
 
 TELEGRAM_CHAT_ID = os.getenv(
-    "TELEGRAM_CHAT_ID",
     "8587384068",
 )
 
