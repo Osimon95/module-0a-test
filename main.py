@@ -7,7 +7,6 @@ from typing import Any, Optional
 import websockets
 from telegram import Bot
 
-
 # ============================================================
 # CONFIGURATION
 # ============================================================
@@ -16,12 +15,11 @@ WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
 SYMBOL = "BTCUSDT"
 SUBSCRIPTION_CHANNEL = f"{SYMBOL}@ticker"
 
-# Read the values from Render Environment Variables.
-TELEGRAM_BOT_TOKEN = os.getenv("8684817654:AAGI7l96augCUlSaBx1xEReq7AZFfQtJhZc", "").strip()
-TELEGRAM_CHAT_ID = os.getenv("8587384068", "").strip()
+# Read values from Render Environment Variables.
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
-# Minimum percentage movement required before sending an alert.
-# Decimal("0") means every real price change.
+# Decimal("0") sends an alert for every actual price change.
 MINIMUM_PERCENT_CHANGE = Decimal(
     os.getenv("MINIMUM_PERCENT_CHANGE", "0")
 )
@@ -41,6 +39,30 @@ def display_telegram_status() -> None:
         print(
             "TELEGRAM CONFIG: MISSING. "
             "Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.",
+            flush=True,
+        )
+
+
+async def send_telegram(bot: Optional[Bot], message: str) -> None:
+    """Send a Telegram message without stopping the price monitor."""
+
+    if bot is None or not telegram_is_configured():
+        print(
+            "TELEGRAM WARNING: Token or chat ID is missing.",
+            flush=True,
+        )
+        return
+
+    try:
+        await bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=message,
+        )
+        print("TELEGRAM MESSAGE SENT", flush=True)
+
+    except Exception as error:
+        print(
+            f"TELEGRAM ERROR: {type(error).__name__}: {error}",
             flush=True,
         )
 def display_telegram_status() -> None:
