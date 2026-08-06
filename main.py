@@ -16,9 +16,9 @@ WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
 SYMBOL = "BTCUSDT"
 SUBSCRIPTION_CHANNEL = f"{SYMBOL}@ticker"
 
-# Add these in Render Environment Variables.
-TELEGRAM_BOT_TOKEN = os.getenv("8684817654:AAGI7l96augCUlSaBx1xEReq7AZFfQtJhZc", "").strip()
-TELEGRAM_CHAT_ID = os.getenv("8587384068", "").strip()
+# Read the values from Render Environment Variables.
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
 # Minimum percentage movement required before sending an alert.
 # Decimal("0") means every real price change.
