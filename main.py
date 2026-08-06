@@ -20,12 +20,12 @@ SUBSCRIPTION_CHANNEL = f"{SYMBOL}@ticker"
 # Paste your existing token and chat ID between the normal quotation marks.
 TELEGRAM_BOT_TOKEN = os.getenv(
     "TELEGRAM_BOT_TOKEN",
-    "PASTE_YOUR_TELEGRAM_BOT_TOKEN_HERE",
+    "8684817654:AAGI7l96augCUlSaBx1xEReq7AZFfQtJhZc",
 )
 
 TELEGRAM_CHAT_ID = os.getenv(
     "TELEGRAM_CHAT_ID",
-    "PASTE_YOUR_TELEGRAM_CHAT_ID_HERE",
+    "8587384068",
 )
 
 # Send on every actual price change.
