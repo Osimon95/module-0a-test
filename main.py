@@ -45,13 +45,13 @@ def telegram_is_configured() -> bool:
     token_missing = (
         not TELEGRAM_BOT_TOKEN
         or TELEGRAM_BOT_TOKEN
-        == "PASTE_YOUR_TELEGRAM_BOT_TOKEN_HERE"
+        == "8684817654:AAGI7l96augCUlSaBx1xEReq7AZFfQtJhZc"
     )
 
     chat_id_missing = (
         not TELEGRAM_CHAT_ID
         or TELEGRAM_CHAT_ID
-        == "PASTE_YOUR_TELEGRAM_CHAT_ID_HERE"
+        == "8587384068"
     )
 
     return not token_missing and not chat_id_missing
