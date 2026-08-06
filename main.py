@@ -14,10 +14,11 @@ from telegram import Bot
 WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
 SYMBOL = os.getenv("SYMBOL", "BTCUSDT").upper()
 
-TELEGRAM_BOT_TOKEN = "8684817654:AAGI7l96augCUlSaBx1xEReq7AZFfQtJhZc”
+# Temporary hard-coded Telegram credentials
+TELEGRAM_BOT_TOKEN = "8684817654:AAGI7l96augCUlSaBx1xEReq7AZFfQtJhZc"
 TELEGRAM_CHAT_ID = "8587384068"
-print("TELEGRAM CONFIG: USING HARD-CODED VALUES", flush=True)
 
+print("TELEGRAM CONFIG: USING HARD-CODED VALUES", flush=True)
 
 # Send Telegram updates at most once every 60 seconds.
 # Set this to 0 to send every price change.
@@ -27,6 +28,7 @@ TELEGRAM_PRICE_INTERVAL_SECONDS = int(
 
 RECONNECT_DELAY_SECONDS = 5
 MAX_RECONNECT_DELAY_SECONDS = 60
+
 
 
 def extract_price(message: dict[str, Any]) -> Optional[float]:
