@@ -43,15 +43,15 @@ MAX_RECONNECT_DELAY_SECONDS = 60
 def telegram_is_configured() -> bool:
     """Check whether usable Telegram details have been supplied."""
     token_missing = (
-        not TELEGRAM_BOT_TOKEN
-        or TELEGRAM_BOT_TOKEN
-        == "8684817654:AAGI7l96augCUlSaBx1xEReq7AZFfQtJhZc"
+        not 8684817654:AAGI7l96augCUlSaBx1xEReq7AZFfQtJhZc
+        or 8684817654:AAGI7l96augCUlSaBx1xEReq7AZFfQtJhZc
+        == "PASTE_YOUR_TELEGRAM_BOT_TOKEN_HERE"
     )
 
     chat_id_missing = (
-        not TELEGRAM_CHAT_ID
-        or TELEGRAM_CHAT_ID
-        == "8587384068"
+        not 8587384068
+        or 8587384068
+        == "PASTE_YOUR_TELEGRAM_CHAT_ID_HERE"
     )
 
     return not token_missing and not chat_id_missing
