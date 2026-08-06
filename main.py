@@ -35,8 +35,8 @@ def telegram_is_configured() -> bool:
     """Check whether Telegram credentials are available."""
     invalid_values = {
         "",
-        "PASTE_YOUR_TELEGRAM_BOT_TOKEN_HERE",
-        "PASTE_YOUR_TELEGRAM_CHAT_ID_HERE",
+        "8684817654:AAGI7l96augCUlSaBx1xEReq7AZFfQtJhZc",
+        "8587384068",
     }
 
     return (
