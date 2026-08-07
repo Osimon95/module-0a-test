@@ -597,7 +597,6 @@ async def run_websocket(
             MAX_RECONNECT_DELAY_SECONDS,
         )
 
-
 # ============================================================
 # MAIN
 # ============================================================
@@ -615,5 +614,42 @@ async def main() -> None:
 
         print(
             "TELEGRAM CONFIG: MISSING",
-            flush=True,)
-        
+            flush=True,
+        )
+
+
+    print(
+        f"BTC ALERT THRESHOLD: "
+        f"{ALERT_THRESHOLD_PERCENT}%",
+        flush=True,
+    )
+
+
+    bot = Bot(
+        token=TELEGRAM_BOT_TOKEN
+    )
+
+
+    await run_websocket(
+        bot
+    )
+
+
+# ============================================================
+# START APPLICATION
+# ============================================================
+
+if __name__ == "__main__":
+
+    try:
+
+        asyncio.run(
+            main()
+        )
+
+    except KeyboardInterrupt:
+
+        print(
+            "BOT STOPPED",
+            flush=True,
+        )
