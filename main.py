@@ -55,7 +55,7 @@ TELEGRAM_CHAT_ID = os.getenv(
 ALERT_THRESHOLD_PERCENT = Decimal(
     os.getenv(
         "BTC_ALERT_THRESHOLD",
-        "0.02",
+        "0.03",
     )
 )
 
