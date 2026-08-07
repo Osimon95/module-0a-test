@@ -9,21 +9,25 @@ from telegram import Bot
 
 
 # ============================================================
-# 0A — CONFIGURATION
+# CONFIGURATION
 # ============================================================
 
 WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
 
 SYMBOL = "BTCUSDT"
+
 SUBSCRIPTION_CHANNEL = f"{SYMBOL}@ticker"
 
 
-# Add these two values in Render Environment Variables:
+# ============================================================
+# TELEGRAM CONFIGURATION
+# ============================================================
+
+# Add these in Render Environment Variables:
 #
 # TELEGRAM_BOT_TOKEN
 # TELEGRAM_CHAT_ID
-#
-# Do not put the actual token inside os.getenv().
+
 TELEGRAM_BOT_TOKEN = os.getenv(
     "TELEGRAM_BOT_TOKEN",
     "",
@@ -35,43 +39,53 @@ TELEGRAM_CHAT_ID = os.getenv(
 ).strip()
 
 
-# Minimum percentage movement from the previous alert price.
+# ============================================================
+# BTC PRICE ALERT CONFIGURATION
+# ============================================================
+
+# 0.1 means 0.1%
 #
-# Default is now 1%.
+# Example:
 #
-# Examples:
-# "1"   = notify after a 1% movement
-# "0.5" = notify after a 0.5% movement
-# "2"   = notify after a 2% movement
+# Reference price = 65000
 #
-# You can override this with MINIMUM_PERCENT_CHANGE in Render.
-MINIMUM_PERCENT_CHANGE = Decimal(
+# 0.1% movement = approximately $65
+#
+# UP trigger   = approximately 65065
+# DOWN trigger = approximately 64935
+
+BTC_ALERT_THRESHOLD_PERCENT = Decimal(
     os.getenv(
-        "MINIMUM_PERCENT_CHANGE",
-        "1",
+        "BTC_ALERT_THRESHOLD_PERCENT",
+        "0.1",
     )
 )
 
 
+# ============================================================
+# RECONNECT CONFIGURATION
+# ============================================================
+
 RECONNECT_DELAY_SECONDS = 5
+
 MAX_RECONNECT_DELAY_SECONDS = 60
 
 
-# Prevent repeated Telegram connection messages after reconnection.
+# ============================================================
+# GLOBAL STATE
+# ============================================================
+
 connection_notification_sent = False
 
-
-# Price used for comparison.
-last_alert_price: Optional[Decimal] = None
+reference_price: Optional[Decimal] = None
 
 
 # ============================================================
-# 0B — TELEGRAM AND PRICE FUNCTIONS
+# TELEGRAM STATUS
 # ============================================================
-
 
 def telegram_is_configured() -> bool:
-    """Return True when both Telegram settings are available."""
+
     return bool(
         TELEGRAM_BOT_TOKEN
         and TELEGRAM_CHAT_ID
@@ -79,34 +93,43 @@ def telegram_is_configured() -> bool:
 
 
 def display_telegram_status() -> None:
-    """Show whether Telegram settings were loaded."""
+
     if telegram_is_configured():
+
         print(
             "TELEGRAM CONFIG: READY",
             flush=True,
         )
+
     else:
+
         print(
-            "TELEGRAM CONFIG: MISSING. "
-            "Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.",
+            "TELEGRAM CONFIG: MISSING",
             flush=True,
         )
 
 
+# ============================================================
+# TELEGRAM MESSAGE FUNCTION
+# ============================================================
+
 async def send_telegram(
     bot: Bot,
     message: str,
-) -> bool:
-    """Send a Telegram message without stopping the price bot."""
+) -> None:
+
     if not telegram_is_configured():
+
         print(
             "TELEGRAM WARNING: "
             "Token or chat ID is missing.",
             flush=True,
         )
-        return False
+
+        return
 
     try:
+
         await bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
             text=message,
@@ -116,190 +139,412 @@ async def send_telegram(
             "TELEGRAM MESSAGE SENT",
             flush=True,
         )
-        return True
 
     except Exception as error:
+
         print(
-            "TELEGRAM ERROR: "
+            f"TELEGRAM ERROR: "
             f"{type(error).__name__}: {error}",
             flush=True,
         )
-        return False
-
-
-def calculate_percentage_change(
-    old_price: Decimal,
-    new_price: Decimal,
-) -> Decimal:
-    """Calculate the absolute percentage movement."""
-    if old_price <= 0:
-        return Decimal("0")
-
-    return abs(
-        (new_price - old_price)
-        / old_price
-        * Decimal("100")
-    )
-
-
-def format_decimal(value: Decimal) -> str:
-    """Format a decimal without unnecessary trailing zeroes."""
-    text = format(value, "f")
-
-    if "." in text:
-        text = text.rstrip("0").rstrip(".")
-
-    return text
 
 
 # ============================================================
-# 0C — PRICE PROCESSING
+# PRICE CONVERSION
 # ============================================================
 
+def decimal_price(
+    value: Any,
+) -> Optional[Decimal]:
 
-async def process_price(
-    bot: Bot,
-    price: Decimal,
-) -> None:
-    """Process a valid price and send percentage-based alerts."""
-    global last_alert_price
+    if value is None:
 
-    if price <= 0:
-        return
-
-    print(
-        f"{SYMBOL} PRICE: {format_decimal(price)}",
-        flush=True,
-    )
-
-    # First valid price becomes the starting comparison price.
-    if last_alert_price is None:
-        last_alert_price = price
-
-        await send_telegram(
-            bot,
-            f"📈 {SYMBOL} starting price: "
-            f"{format_decimal(price)}",
-        )
-        return
-
-    # Ignore duplicate prices.
-    if price == last_alert_price:
-        return
-
-    percentage_change = calculate_percentage_change(
-        last_alert_price,
-        price,
-    )
-
-    # Do not alert until the configured percentage is reached.
-    if percentage_change < MINIMUM_PERCENT_CHANGE:
-        return
-
-    direction = (
-        "🟢 UP"
-        if price > last_alert_price
-        else "🔴 DOWN"
-    )
-
-    previous_price = last_alert_price
-
-    message = (
-        f"{direction}\n"
-        f"{SYMBOL}\n"
-        f"Previous: {format_decimal(previous_price)}\n"
-        f"Current: {format_decimal(price)}\n"
-        f"Change: {format_decimal(percentage_change)}%"
-    )
-
-    message_sent = await send_telegram(
-        bot,
-        message,
-    )
-
-    # Update only after a successful message.
-    #
-    # When Telegram is not configured, update it anyway to prevent
-    # repeatedly processing the same accumulated movement.
-    if message_sent or not telegram_is_configured():
-        last_alert_price = price
-
-
-def extract_price(data: Any) -> Optional[Decimal]:
-    """Extract a valid ticker price from a WEEX message."""
-    if not isinstance(data, dict):
-        return None
-
-    ticker_items = data.get("d")
-
-    if not isinstance(ticker_items, list):
-        return None
-
-    if not ticker_items:
-        return None
-
-    first_ticker = ticker_items[0]
-
-    if not isinstance(first_ticker, dict):
-        return None
-
-    price_text = first_ticker.get("c")
-
-    if price_text in (None, ""):
         return None
 
     try:
+
         price = Decimal(
-            str(price_text)
+            str(value)
         )
+
     except (
         InvalidOperation,
         ValueError,
         TypeError,
     ):
+
         return None
 
+
     if price <= 0:
+
         return None
+
 
     return price
 
 
 # ============================================================
-# 0D — WEEX CONNECTION AND APPLICATION STARTUP
+# PRICE EXTRACTION
 # ============================================================
 
+def extract_price(
+    message: Any,
+) -> Optional[Decimal]:
 
-async def run_websocket(bot: Bot) -> None:
-    """Connect to WEEX and automatically reconnect when necessary."""
+    if not isinstance(
+        message,
+        dict,
+    ):
+
+        return None
+
+
+    # --------------------------------------------------------
+    # Direct price fields
+    # --------------------------------------------------------
+
+    for field in (
+        "lastPrice",
+        "last",
+        "price",
+        "close",
+    ):
+
+        if field in message:
+
+            price = decimal_price(
+                message.get(field)
+            )
+
+            if price is not None:
+
+                return price
+
+
+    # --------------------------------------------------------
+    # data can be dictionary
+    # --------------------------------------------------------
+
+    data = message.get(
+        "data"
+    )
+
+
+    if isinstance(
+        data,
+        dict,
+    ):
+
+        for field in (
+            "lastPrice",
+            "last",
+            "price",
+            "close",
+        ):
+
+            if field in data:
+
+                price = decimal_price(
+                    data.get(field)
+                )
+
+                if price is not None:
+
+                    return price
+
+
+    # --------------------------------------------------------
+    # data can also be list
+    # --------------------------------------------------------
+
+    if isinstance(
+        data,
+        list,
+    ):
+
+        for item in data:
+
+            if not isinstance(
+                item,
+                dict,
+            ):
+
+                continue
+
+
+            for field in (
+                "lastPrice",
+                "last",
+                "price",
+                "close",
+            ):
+
+                if field in item:
+
+                    price = decimal_price(
+                        item.get(field)
+                    )
+
+                    if price is not None:
+
+                        return price
+
+
+    return None
+
+
+# ============================================================
+# PERCENTAGE CHANGE
+# ============================================================
+
+def calculate_percentage_change(
+    old_price: Decimal,
+    new_price: Decimal,
+) -> Decimal:
+
+    if old_price == 0:
+
+        return Decimal("0")
+
+
+    difference = abs(
+        new_price
+        - old_price
+    )
+
+
+    percentage = (
+        difference
+        / old_price
+    ) * Decimal("100")
+
+
+    return percentage
+
+
+# ============================================================
+# BTC ALERT ENGINE
+# ============================================================
+
+async def process_price(
+    bot: Bot,
+    price: Decimal,
+) -> None:
+
+    global reference_price
+
+
+    # --------------------------------------------------------
+    # First valid BTC price
+    # becomes our reference price.
+    # --------------------------------------------------------
+
+    if reference_price is None:
+
+        reference_price = price
+
+
+        print(
+            f"{SYMBOL} REFERENCE PRICE: "
+            f"{reference_price}",
+            flush=True,
+        )
+
+
+        await send_telegram(
+            bot,
+            (
+                f"📈 {SYMBOL} starting price: "
+                f"{reference_price}\n\n"
+                f"Alert threshold: "
+                f"{BTC_ALERT_THRESHOLD_PERCENT}%"
+            ),
+        )
+
+
+        return
+
+
+    # --------------------------------------------------------
+    # Ignore identical ticker values
+    # --------------------------------------------------------
+
+    if price == reference_price:
+
+        return
+
+
+    # --------------------------------------------------------
+    # Calculate accumulated movement from reference
+    # --------------------------------------------------------
+
+    percentage_change = (
+        calculate_percentage_change(
+            reference_price,
+            price,
+        )
+    )
+
+
+    print(
+        f"{SYMBOL} PRICE: {price} "
+        f"| REFERENCE: {reference_price} "
+        f"| CHANGE: "
+        f"{percentage_change:.6f}%",
+        flush=True,
+    )
+
+
+    # --------------------------------------------------------
+    # IMPORTANT:
+    #
+    # Do NOT change reference_price here.
+    #
+    # The movement must accumulate until
+    # the 0.1% threshold is reached.
+    # --------------------------------------------------------
+
+    if (
+        percentage_change
+        < BTC_ALERT_THRESHOLD_PERCENT
+    ):
+
+        return
+
+
+    # --------------------------------------------------------
+    # Threshold reached
+    # --------------------------------------------------------
+
+    previous_reference = (
+        reference_price
+    )
+
+
+    if price > previous_reference:
+
+        direction = "🟢 UP"
+
+    else:
+
+        direction = "🔴 DOWN"
+
+
+    signed_change = (
+        (
+            price
+            - previous_reference
+        )
+        / previous_reference
+    ) * Decimal("100")
+
+
+    alert_message = (
+        f"{direction}\n"
+        f"{SYMBOL}\n\n"
+        f"Reference: "
+        f"{previous_reference}\n"
+        f"Current: "
+        f"{price}\n"
+        f"Change: "
+        f"{signed_change:.4f}%\n\n"
+        f"Threshold: "
+        f"{BTC_ALERT_THRESHOLD_PERCENT}%"
+    )
+
+
+    await send_telegram(
+        bot,
+        alert_message,
+    )
+
+
+    print(
+        f"BTC ALERT TRIGGERED: "
+        f"{signed_change:.4f}%",
+        flush=True,
+    )
+
+
+    # --------------------------------------------------------
+    # RESET REFERENCE PRICE
+    #
+    # The alert price now becomes the
+    # starting/reference price for the
+    # next accumulated 0.1% move.
+    # --------------------------------------------------------
+
+    reference_price = price
+
+
+    print(
+        f"NEW REFERENCE PRICE: "
+        f"{reference_price}",
+        flush=True,
+    )
+
+
+# ============================================================
+# WEBSOCKET HANDLER
+# ============================================================
+
+async def run_websocket(
+    bot: Bot,
+) -> None:
+
     global connection_notification_sent
 
-    reconnect_delay = RECONNECT_DELAY_SECONDS
+
+    reconnect_delay = (
+        RECONNECT_DELAY_SECONDS
+    )
+
 
     while True:
+
         try:
+
             async with websockets.connect(
+
                 WS_URL,
+
                 additional_headers={
-                    "User-Agent": "WEEX-BTC-Bot/1.0",
+                    "User-Agent":
+                    "WEEX-BTC-Bot/1.0"
                 },
+
                 ping_interval=None,
+
                 ping_timeout=None,
+
                 close_timeout=10,
+
             ) as websocket:
+
 
                 print(
                     "CONNECTED TO WEEX",
                     flush=True,
                 )
 
+
+                # --------------------------------------------
+                # Subscribe to BTC ticker
+                # --------------------------------------------
+
                 subscribe_message = {
-                    "method": "SUBSCRIBE",
+
+                    "method":
+                    "SUBSCRIBE",
+
                     "params": [
-                        SUBSCRIPTION_CHANNEL,
+                        SUBSCRIPTION_CHANNEL
                     ],
+
                     "id": 1,
                 }
+
 
                 await websocket.send(
                     json.dumps(
@@ -307,187 +552,215 @@ async def run_websocket(bot: Bot) -> None:
                     )
                 )
 
+
                 print(
                     f"SUBSCRIBED TO "
                     f"{SUBSCRIPTION_CHANNEL}",
                     flush=True,
                 )
 
-                # Send the connection notification only once
-                # during the lifetime of this program.
-                if not connection_notification_sent:
-                    notification_sent = await send_telegram(
+
+                # --------------------------------------------
+                # Send connection notification only once
+                # per application process
+                # --------------------------------------------
+
+                if (
+                    not
+                    connection_notification_sent
+                ):
+
+                    await send_telegram(
                         bot,
-                        "✅ WEEX bot connected\n"
-                        f"Watching {SYMBOL}\n"
-                        f"Alert threshold: "
-                        f"{format_decimal(MINIMUM_PERCENT_CHANGE)}%",
+                        (
+                            "✅ WEEX bot connected\n"
+                            f"Watching {SYMBOL}\n"
+                            f"Alert threshold: "
+                            f"{BTC_ALERT_THRESHOLD_PERCENT}%"
+                        ),
                     )
 
-                    if notification_sent:
-                        connection_notification_sent = True
 
-                # Reset the delay after a successful connection.
-                reconnect_delay = RECONNECT_DELAY_SECONDS
+                    connection_notification_sent = True
+
+
+                # Successful connection resets
+                # reconnect delay.
+
+                reconnect_delay = (
+                    RECONNECT_DELAY_SECONDS
+                )
+
+
+                # --------------------------------------------
+                # Receive websocket messages
+                # --------------------------------------------
 
                 async for raw_message in websocket:
+
                     try:
-                        data = json.loads(
+
+                        # ------------------------------------
+                        # WEEX application ping
+                        # ------------------------------------
+
+                        if raw_message == "ping":
+
+                            await websocket.send(
+                                "pong"
+                            )
+
+                            print(
+                                "APPLICATION PONG SENT",
+                                flush=True,
+                            )
+
+                            continue
+
+
+                        # ------------------------------------
+                        # Parse JSON
+                        # ------------------------------------
+
+                        message = json.loads(
                             raw_message
                         )
-                    except (
-                        json.JSONDecodeError,
-                        TypeError,
-                    ):
-                        continue
 
-                    if not isinstance(
-                        data,
-                        dict,
-                    ):
-                        continue
 
-                    # WEEX application-level ping.
-                    if data.get("event") == "ping":
-                        pong_message = {
-                            "method": "PONG",
-                            "id": 1,
-                        }
+                        # ------------------------------------
+                        # Subscription confirmation
+                        # ------------------------------------
 
-                        await websocket.send(
-                            json.dumps(
-                                pong_message
+                        if isinstance(
+                            message,
+                            dict,
+                        ):
+
+                            message_id = (
+                                message.get("id")
                             )
-                        )
 
-                        print(
-                            "APPLICATION PONG SENT",
-                            flush=True,
-                        )
-                        continue
 
-                    # Some WEEX messages may use a ping field.
-                    if "ping" in data:
-                        pong_message = {
-                            "pong": data.get("ping"),
-                        }
+                            if message_id == 1:
 
-                        await websocket.send(
-                            json.dumps(
-                                pong_message
-                            )
-                        )
+                                print(
+                                    "SUBSCRIPTION CONFIRMED",
+                                    flush=True,
+                                )
 
-                        print(
-                            "APPLICATION PONG SENT",
-                            flush=True,
-                        )
-                        continue
+                                continue
 
-                    # Subscription confirmation.
-                    if data.get("result") is True:
-                        print(
-                            "SUBSCRIPTION CONFIRMED",
-                            flush=True,
-                        )
-                        continue
 
-                    # Ignore error responses but show them in logs.
-                    if data.get("code") not in (
-                        None,
-                        0,
-                        "0",
-                    ):
-                        print(
-                            f"WEEX MESSAGE ERROR: {data}",
-                            flush=True,
-                        )
-                        continue
+                        # ------------------------------------
+                        # Extract valid BTC price
+                        # ------------------------------------
 
-                    # Process ticker updates.
-                    if data.get("e") == "ticker":
                         price = extract_price(
-                            data
+                            message
                         )
 
-                        if price is not None:
-                            await process_price(
-                                bot,
-                                price,
-                            )
 
-        except websockets.exceptions.ConnectionClosedOK:
-            print(
-                "WEEX CLOSED CONNECTION NORMALLY",
-                flush=True,
-            )
+                        if price is None:
 
-        except websockets.exceptions.ConnectionClosedError as error:
+                            continue
+
+
+                        print(
+                            f"{SYMBOL} PRICE: "
+                            f"{price}",
+                            flush=True,
+                        )
+
+
+                        # ------------------------------------
+                        # Send price to 0.1% alert engine
+                        # ------------------------------------
+
+                        await process_price(
+                            bot,
+                            price,
+                        )
+
+
+                    except json.JSONDecodeError:
+
+                        # Some websocket messages
+                        # may not be JSON.
+
+                        continue
+
+
+                    except Exception as error:
+
+                        print(
+                            "MESSAGE ERROR: "
+                            f"{type(error).__name__}: "
+                            f"{error}",
+                            flush=True,
+                        )
+
+
+        except Exception as error:
+
             print(
-                "WEEX CONNECTION CLOSED: "
+                "CONNECTION ERROR: "
+                f"{type(error).__name__}: "
                 f"{error}",
                 flush=True,
             )
 
-        except asyncio.CancelledError:
-            print(
-                "APPLICATION STOPPED",
-                flush=True,
-            )
-            raise
 
-        except Exception as error:
             print(
-                "CONNECTION ERROR: "
-                f"{type(error).__name__}: {error}",
+                f"RECONNECTING IN "
+                f"{reconnect_delay} SECONDS",
                 flush=True,
             )
 
-        print(
-            f"RECONNECTING IN "
-            f"{reconnect_delay} SECONDS",
-            flush=True,
-        )
 
-        await asyncio.sleep(
-            reconnect_delay
-        )
+            await asyncio.sleep(
+                reconnect_delay
+            )
 
-        reconnect_delay = min(
-            reconnect_delay * 2,
-            MAX_RECONNECT_DELAY_SECONDS,
-        )
 
+            reconnect_delay = min(
+
+                reconnect_delay * 2,
+
+                MAX_RECONNECT_DELAY_SECONDS,
+            )
+
+
+# ============================================================
+# MAIN
+# ============================================================
 
 async def main() -> None:
-    """Start the Telegram and WEEX price-monitoring bot."""
+
     display_telegram_status()
+
 
     print(
         "BTC ALERT THRESHOLD: "
-        f"{format_decimal(MINIMUM_PERCENT_CHANGE)}%",
+        f"{BTC_ALERT_THRESHOLD_PERCENT}%",
         flush=True,
     )
 
+
     bot = Bot(
-        token=(
-            TELEGRAM_BOT_TOKEN
-            if TELEGRAM_BOT_TOKEN
-            else "TELEGRAM_TOKEN_NOT_CONFIGURED"
-        )
+        token=TELEGRAM_BOT_TOKEN
     )
+
 
     await run_websocket(
         bot
     )
 
 
+# ============================================================
+# START APPLICATION
+# ============================================================
+
 if __name__ == "__main__":
-    try:
-        asyncio.run(
-            main()
-        )
-    except KeyboardInterrupt:
-        print(
-            "BOT STOPPED BY USER",
-            flush=True,)
+
+    asyncio.run(
+        main())
