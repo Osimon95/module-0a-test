@@ -45,10 +45,9 @@ TELEGRAM_CHAT_ID = os.getenv(
 # You can add MINIMUM_PERCENT_CHANGE in Render.
 MINIMUM_PERCENT_CHANGE = Decimal(
     os.getenv(
-       MINIMUM_PERCENT_CHANGE = Decimal(
-    os.getenv("MINIMUM_PERCENT_CHANGE", "0.1")
-)
-        
+        "MINIMUM_PERCENT_CHANGE",
+        "10",
+    )
 )
 
 
