@@ -46,7 +46,7 @@ TELEGRAM_CHAT_ID = os.getenv(
 MINIMUM_PERCENT_CHANGE = Decimal(
     os.getenv(
         "MINIMUM_PERCENT_CHANGE",
-        "0",
+        "2",
     )
 )
 
@@ -439,4 +439,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print(
             "BOT STOPPED BY USER",
-            flush=True,
+            flush=True,)
