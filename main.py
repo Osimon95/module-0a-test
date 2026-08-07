@@ -37,16 +37,18 @@ TELEGRAM_CHAT_ID = os.getenv(
 
 # Minimum percentage movement from the previous alert price.
 #
-# Examples:
-# "0"   = notify on every actual price change
-# "0.1" = notify after a 0.1% movement
-# "0.5" = notify after a 0.5% movement
+# Default is now 1%.
 #
-# You can add MINIMUM_PERCENT_CHANGE in Render.
+# Examples:
+# "1"   = notify after a 1% movement
+# "0.5" = notify after a 0.5% movement
+# "2"   = notify after a 2% movement
+#
+# You can override this with MINIMUM_PERCENT_CHANGE in Render.
 MINIMUM_PERCENT_CHANGE = Decimal(
     os.getenv(
         "MINIMUM_PERCENT_CHANGE",
-        "2",
+        "1",
     )
 )
 
@@ -61,6 +63,8 @@ connection_notification_sent = False
 
 # Price used for comparison.
 last_alert_price: Optional[Decimal] = None
+
+
 # ============================================================
 # 0B — TELEGRAM AND PRICE FUNCTIONS
 # ============================================================
@@ -146,6 +150,8 @@ def format_decimal(value: Decimal) -> str:
         text = text.rstrip("0").rstrip(".")
 
     return text
+
+
 # ============================================================
 # 0C — PRICE PROCESSING
 # ============================================================
@@ -190,7 +196,11 @@ async def process_price(
     if percentage_change < MINIMUM_PERCENT_CHANGE:
         return
 
-    direction = "🟢 UP" if price > last_alert_price else "🔴 DOWN"
+    direction = (
+        "🟢 UP"
+        if price > last_alert_price
+        else "🔴 DOWN"
+    )
 
     previous_price = last_alert_price
 
@@ -208,6 +218,7 @@ async def process_price(
     )
 
     # Update only after a successful message.
+    #
     # When Telegram is not configured, update it anyway to prevent
     # repeatedly processing the same accumulated movement.
     if message_sent or not telegram_is_configured():
@@ -238,14 +249,22 @@ def extract_price(data: Any) -> Optional[Decimal]:
         return None
 
     try:
-        price = Decimal(str(price_text))
-    except (InvalidOperation, ValueError, TypeError):
+        price = Decimal(
+            str(price_text)
+        )
+    except (
+        InvalidOperation,
+        ValueError,
+        TypeError,
+    ):
         return None
 
     if price <= 0:
         return None
 
     return price
+
+
 # ============================================================
 # 0D — WEEX CONNECTION AND APPLICATION STARTUP
 # ============================================================
@@ -283,11 +302,14 @@ async def run_websocket(bot: Bot) -> None:
                 }
 
                 await websocket.send(
-                    json.dumps(subscribe_message)
+                    json.dumps(
+                        subscribe_message
+                    )
                 )
 
                 print(
-                    f"SUBSCRIBED TO {SUBSCRIPTION_CHANNEL}",
+                    f"SUBSCRIBED TO "
+                    f"{SUBSCRIPTION_CHANNEL}",
                     flush=True,
                 )
 
@@ -297,7 +319,9 @@ async def run_websocket(bot: Bot) -> None:
                     notification_sent = await send_telegram(
                         bot,
                         "✅ WEEX bot connected\n"
-                        f"Watching {SYMBOL}",
+                        f"Watching {SYMBOL}\n"
+                        f"Alert threshold: "
+                        f"{format_decimal(MINIMUM_PERCENT_CHANGE)}%",
                     )
 
                     if notification_sent:
@@ -308,14 +332,19 @@ async def run_websocket(bot: Bot) -> None:
 
                 async for raw_message in websocket:
                     try:
-                        data = json.loads(raw_message)
+                        data = json.loads(
+                            raw_message
+                        )
                     except (
                         json.JSONDecodeError,
                         TypeError,
                     ):
                         continue
 
-                    if not isinstance(data, dict):
+                    if not isinstance(
+                        data,
+                        dict,
+                    ):
                         continue
 
                     # WEEX application-level ping.
@@ -326,7 +355,9 @@ async def run_websocket(bot: Bot) -> None:
                         }
 
                         await websocket.send(
-                            json.dumps(pong_message)
+                            json.dumps(
+                                pong_message
+                            )
                         )
 
                         print(
@@ -342,7 +373,9 @@ async def run_websocket(bot: Bot) -> None:
                         }
 
                         await websocket.send(
-                            json.dumps(pong_message)
+                            json.dumps(
+                                pong_message
+                            )
                         )
 
                         print(
@@ -360,7 +393,11 @@ async def run_websocket(bot: Bot) -> None:
                         continue
 
                     # Ignore error responses but show them in logs.
-                    if data.get("code") not in (None, 0, "0"):
+                    if data.get("code") not in (
+                        None,
+                        0,
+                        "0",
+                    ):
                         print(
                             f"WEEX MESSAGE ERROR: {data}",
                             flush=True,
@@ -369,7 +406,9 @@ async def run_websocket(bot: Bot) -> None:
 
                     # Process ticker updates.
                     if data.get("e") == "ticker":
-                        price = extract_price(data)
+                        price = extract_price(
+                            data
+                        )
 
                         if price is not None:
                             await process_price(
@@ -424,18 +463,30 @@ async def main() -> None:
     """Start the Telegram and WEEX price-monitoring bot."""
     display_telegram_status()
 
-    bot = Bot(
-        token=TELEGRAM_BOT_TOKEN
-        if TELEGRAM_BOT_TOKEN
-        else "TELEGRAM_TOKEN_NOT_CONFIGURED"
+    print(
+        "BTC ALERT THRESHOLD: "
+        f"{format_decimal(MINIMUM_PERCENT_CHANGE)}%",
+        flush=True,
     )
 
-    await run_websocket(bot)
+    bot = Bot(
+        token=(
+            TELEGRAM_BOT_TOKEN
+            if TELEGRAM_BOT_TOKEN
+            else "TELEGRAM_TOKEN_NOT_CONFIGURED"
+        )
+    )
+
+    await run_websocket(
+        bot
+    )
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(
+            main()
+        )
     except KeyboardInterrupt:
         print(
             "BOT STOPPED BY USER",
