@@ -101,9 +101,7 @@ async def send_telegram(
 # ============================================================
 
 EMA19_PERIOD = 19
-
 EMA50_PERIOD = 50
-
 EMA200_PERIOD = 200
 
 
@@ -157,7 +155,8 @@ def calculate_initial_ema(
 
         ema = (
             price * multiplier
-            + ema * (
+            + ema
+            * (
                 Decimal("1")
                 - multiplier
             )
@@ -317,21 +316,20 @@ async def load_historical_candles() -> list[Decimal]:
         try:
 
             if not isinstance(candle, list):
-
                 continue
 
             if len(candle) < 5:
-
                 continue
 
-            timestamp = int(candle[0])
+            timestamp = int(
+                candle[0]
+            )
 
             close_price = Decimal(
                 str(candle[4])
             )
 
             if close_price <= 0:
-
                 continue
 
             candles.append(
@@ -350,7 +348,6 @@ async def load_historical_candles() -> list[Decimal]:
 
             continue
 
-    # Ensure candles are chronological.
     candles.sort(
         key=lambda item: item[0]
     )
@@ -394,24 +391,24 @@ def find_kline_data(
 
             value = message.get(key)
 
-            result = find_kline_data(value)
+            result = find_kline_data(
+                value
+            )
 
             if result is not None:
-
                 return result
 
         for value in message.values():
 
-            result = find_kline_data(value)
+            result = find_kline_data(
+                value
+            )
 
             if result is not None:
-
                 return result
 
     elif isinstance(message, list):
 
-        # Direct kline structure:
-        # timestamp, open, high, low, close, ...
         if (
             len(message) >= 5
             and isinstance(
@@ -438,10 +435,11 @@ def find_kline_data(
 
         for item in message:
 
-            result = find_kline_data(item)
+            result = find_kline_data(
+                item
+            )
 
             if result is not None:
-
                 return result
 
     return None
@@ -453,10 +451,11 @@ def extract_candle(
     tuple[int, Decimal]
 ]:
 
-    kline = find_kline_data(message)
+    kline = find_kline_data(
+        message
+    )
 
     if kline is None:
-
         return None
 
     try:
@@ -470,7 +469,6 @@ def extract_candle(
         )
 
         if close_price <= 0:
-
             return None
 
         return (
@@ -629,11 +627,92 @@ async def check_crossovers(
 
 
 # ============================================================
+# SIMULATED CROSSOVER TEST
+# ============================================================
+
+async def run_simulated_crossover_test(
+    bot: Bot,
+) -> None:
+
+    print(
+        "========================================",
+        flush=True,
+    )
+
+    print(
+        "MODULE 0E-3 SIMULATED CROSSOVER TEST",
+        flush=True,
+    )
+
+    print(
+        "SIMULATING EMA19 / EMA50 "
+        "BULLISH CROSS...",
+        flush=True,
+    )
+
+    # Before crossover:
+    #
+    # EMA19 is BELOW EMA50.
+    #
+    # After crossover:
+    #
+    # EMA19 is ABOVE EMA50.
+
+    previous_ema19 = Decimal(
+        "64990"
+    )
+
+    previous_ema50 = Decimal(
+        "65000"
+    )
+
+    previous_ema200 = Decimal(
+        "64900"
+    )
+
+    ema19 = Decimal(
+        "65010"
+    )
+
+    ema50 = Decimal(
+        "65000"
+    )
+
+    ema200 = Decimal(
+        "64900"
+    )
+
+    test_price = Decimal(
+        "65020"
+    )
+
+    await check_crossovers(
+        bot,
+        test_price,
+        previous_ema19,
+        previous_ema50,
+        previous_ema200,
+        ema19,
+        ema50,
+        ema200,
+    )
+
+    print(
+        "SIMULATED CROSSOVER TEST COMPLETE",
+        flush=True,
+    )
+
+    print(
+        "========================================",
+        flush=True,
+    )
+
+
+# ============================================================
 # WEBSOCKET
 # ============================================================
 
 RECONNECT_DELAY_SECONDS = 5
-
 MAX_RECONNECT_DELAY_SECONDS = 60
 
 
@@ -645,9 +724,7 @@ async def run_websocket(
 ) -> None:
 
     ema19 = initial_ema19
-
     ema50 = initial_ema50
-
     ema200 = initial_ema200
 
     reconnect_delay = (
@@ -704,9 +781,7 @@ async def run_websocket(
                     RECONNECT_DELAY_SECONDS
                 )
 
-                if (
-                    not connection_notification_sent
-                ):
+                if not connection_notification_sent:
 
                     await send_telegram(
                         bot,
@@ -732,7 +807,9 @@ async def run_websocket(
 
                         continue
 
-                    # WEEX application heartbeat.
+                    # ----------------------------------------
+                    # WEEX APPLICATION HEARTBEAT
+                    # ----------------------------------------
 
                     if isinstance(
                         message,
@@ -800,12 +877,15 @@ async def run_websocket(
                                 flush=True,
                             )
 
+                    # ----------------------------------------
+                    # EXTRACT LIVE CANDLE
+                    # ----------------------------------------
+
                     candle = extract_candle(
                         message
                     )
 
                     if candle is None:
-
                         continue
 
                     (
@@ -813,12 +893,11 @@ async def run_websocket(
                         close_price,
                     ) = candle
 
-                    # First live candle received.
+                    # ----------------------------------------
+                    # FIRST LIVE CANDLE
+                    # ----------------------------------------
 
-                    if (
-                        last_candle_timestamp
-                        is None
-                    ):
+                    if last_candle_timestamp is None:
 
                         last_candle_timestamp = (
                             candle_timestamp
@@ -836,8 +915,9 @@ async def run_websocket(
 
                         continue
 
-                    # Still receiving updates for
-                    # the currently open candle.
+                    # ----------------------------------------
+                    # SAME OPEN CANDLE
+                    # ----------------------------------------
 
                     if (
                         candle_timestamp
@@ -850,9 +930,9 @@ async def run_websocket(
 
                         continue
 
-                    # Timestamp changed.
-                    # Therefore previous 1m candle
-                    # has closed.
+                    # ----------------------------------------
+                    # PREVIOUS CANDLE HAS CLOSED
+                    # ----------------------------------------
 
                     if (
                         candle_timestamp
@@ -926,7 +1006,7 @@ async def run_websocket(
                         )
 
                         print(
-                            f"STRUCTURE: "
+                            "STRUCTURE: "
                             f"{structure}",
                             flush=True,
                         )
@@ -1026,6 +1106,10 @@ async def main() -> None:
             flush=True,
         )
 
+    # ========================================================
+    # LOAD HISTORY
+    # ========================================================
+
     closes = await load_historical_candles()
 
     if len(closes) < EMA200_PERIOD:
@@ -1038,6 +1122,10 @@ async def main() -> None:
         )
 
         return
+
+    # ========================================================
+    # INITIAL EMA ENGINE
+    # ========================================================
 
     ema19 = calculate_initial_ema(
         closes,
@@ -1090,9 +1178,30 @@ async def main() -> None:
         flush=True,
     )
 
+    # ========================================================
+    # TELEGRAM BOT
+    # ========================================================
+
     bot = Bot(
         token=TELEGRAM_BOT_TOKEN
     )
+
+    # ========================================================
+    # SIMULATED CROSSOVER TEST
+    #
+    # TEMPORARY:
+    # This deliberately creates a fake EMA19/EMA50
+    # bullish crossover so we can prove the
+    # crossover -> Telegram alert path works.
+    # ========================================================
+
+    await run_simulated_crossover_test(
+        bot
+    )
+
+    # ========================================================
+    # START REAL LIVE 0E-3 ENGINE
+    # ========================================================
 
     await run_websocket(
         bot,
@@ -1102,8 +1211,11 @@ async def main() -> None:
     )
 
 
+# ============================================================
+# START APPLICATION
+# ============================================================
+
 if __name__ == "__main__":
 
     asyncio.run(
         main())
-    
