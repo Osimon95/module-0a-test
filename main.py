@@ -64,7 +64,7 @@ EMA200_PERIOD = 200
 # After Telegram receives the simulated confirmation message,
 # change this to False and redeploy.
 
-RUN_SIMULATED_PENDING_TEST = False
+RUN_SIMULATED_PENDING_TEST_ENABLED = False
 
 
 # ============================================================
