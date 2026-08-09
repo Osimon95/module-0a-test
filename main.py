@@ -1328,4 +1328,7 @@ async def main():
     await monitor_weex()
 
 
-if __na
+if __name__ == "__main__":
+
+    asyncio.run(
+        main())
