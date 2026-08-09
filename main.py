@@ -1,9 +1,7 @@
 import asyncio
 import json
 import os
-from dataclasses import dataclass, field
-from decimal import Decimal
-from typing import Optional
+from decimal import Decimal, InvalidOperation
 
 import websockets
 from telegram import Bot
@@ -13,99 +11,22 @@ from telegram import Bot
 # MODULE
 # ============================================================
 
-MODULE = "0F-4D"
+MODULE_NAME = "0F-4E"
+
+
+# ============================================================
+# MARKET CONFIGURATION
+# ============================================================
 
 SYMBOL = "BTCUSDT"
 
 WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
 
-CHANNEL = f"{SYMBOL}@kline_1m_LAST_PRICE"
-
-
-# ============================================================
-# TRADE CONFIGURATION
-# ============================================================
-
-ENTRY_PCT = Decimal(
-    os.getenv("ENTRY_PCT", "5")
+SUBSCRIPTION_CHANNEL = (
+    f"{SYMBOL}@kline_1m_LAST_PRICE"
 )
 
-LEVERAGE = Decimal(
-    os.getenv("LEVERAGE", "5")
-)
-
-MAX_LEVERAGE = Decimal(
-    os.getenv("MAX_LEVERAGE", "10")
-)
-
-MAX_PYRAMIDS = int(
-    os.getenv("MAX_PYRAMIDS", "1")
-)
-
-MAX_BACKUPS = int(
-    os.getenv("MAX_BACKUPS", "3")
-)
-
-MAX_FUND_EXPOSURE_PCT = Decimal(
-    os.getenv("MAX_FUND_EXPOSURE_PCT", "35")
-)
-
-
-# ============================================================
-# TAKE PROFIT CONFIGURATION
-# ============================================================
-
-TP1_SHARE = Decimal(
-    os.getenv("TP1_SHARE", "20")
-)
-
-TP2_SHARE = Decimal(
-    os.getenv("TP2_SHARE", "20")
-)
-
-TP3_SHARE = Decimal(
-    os.getenv("TP3_SHARE", "60")
-)
-
-TP1_TRIGGER = Decimal(
-    os.getenv("TP1_TRIGGER", "0.50")
-)
-
-TP2_TRIGGER = Decimal(
-    os.getenv("TP2_TRIGGER", "1.00")
-)
-
-TRAILING_DISTANCE = Decimal(
-    os.getenv("TRAILING_DISTANCE", "0.20")
-)
-
-
-# ============================================================
-# PYRAMID CONFIGURATION
-# ============================================================
-
-PYRAMID_TRIGGER = Decimal(
-    os.getenv("PYRAMID_TRIGGER", "0.30")
-)
-
-PYRAMID_SIZE_PCT = Decimal(
-    os.getenv("PYRAMID_SIZE_PCT", "5")
-)
-
-
-# ============================================================
-# SAFETY
-# ============================================================
-
-LIVE_ORDER_EXECUTION = False
-
-RUN_SIMULATED_LIFECYCLE_TEST = (
-    os.getenv(
-        "RUN_SIMULATED_LIFECYCLE_TEST",
-        "true",
-    ).lower()
-    == "true"
-)
+RECONNECT_DELAY_SECONDS = 5
 
 
 # ============================================================
@@ -123,126 +44,194 @@ TELEGRAM_CHAT_ID = os.getenv(
 ).strip()
 
 
+def telegram_is_configured():
+    return bool(
+        TELEGRAM_BOT_TOKEN
+        and TELEGRAM_CHAT_ID
+    )
+
+
+async def send_telegram(message):
+
+    if not telegram_is_configured():
+        print("TELEGRAM CONFIG: MISSING")
+        return
+
+    try:
+
+        bot = Bot(
+            token=TELEGRAM_BOT_TOKEN
+        )
+
+        await bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=message,
+        )
+
+        print("TELEGRAM MESSAGE SENT")
+
+    except Exception as error:
+
+        print(
+            "TELEGRAM ERROR:",
+            error,
+        )
+
+
 # ============================================================
-# CONSTANTS
+# TRADE CONFIGURATION
 # ============================================================
 
-D100 = Decimal("100")
+INITIAL_ENTRY_PERCENT = Decimal("5")
+
+LEVERAGE = Decimal("5")
+
+MAX_LEVERAGE = Decimal("10")
+
+MAX_PYRAMID_ADDS = 1
+
+PYRAMID_SIZE_PERCENT = Decimal("5")
+
+MAX_BACKUPS = 3
+
+BACKUP_SIZES_PERCENT = [
+    Decimal("5"),
+    Decimal("5"),
+    Decimal("5"),
+]
+
+MAX_FUND_EXPOSURE_PERCENT = Decimal("35")
+
+TP1_PERCENT = Decimal("20")
+
+TP2_PERCENT = Decimal("20")
+
+TP3_PERCENT = Decimal("60")
+
+TP1_TRIGGER_PERCENT = Decimal("0.50")
+
+TP2_TRIGGER_PERCENT = Decimal("1.00")
+
+TRAILING_DISTANCE_PERCENT = Decimal("0.20")
+
+PYRAMID_TRIGGER_PERCENT = Decimal("0.30")
+
+
+# ============================================================
+# SAFETY CONFIGURATION
+# ============================================================
+
+LIVE_ORDER_EXECUTION = False
+
+IDLE_PYRAMID_CLEANUP = True
+
+ANTI_DUPLICATE_ORDERS = True
+
+ONE_DIRECTION_ONLY = True
+
+SAFETY_CONTROLS_ACTIVE = True
 
 
 # ============================================================
 # HELPERS
 # ============================================================
 
-def decimal_value(value):
+def D(value):
 
-    return Decimal(
-        str(value)
-    )
+    try:
+        return Decimal(
+            str(value)
+        )
+
+    except (
+        InvalidOperation,
+        ValueError,
+        TypeError,
+    ):
+        return None
 
 
 def percentage_move(
     entry,
-    price,
-    side,
+    current,
 ):
 
-    if side == "LONG":
-
-        return (
-            (price - entry)
-            / entry
-        ) * D100
+    if entry <= 0:
+        return Decimal("0")
 
     return (
-        (entry - price)
+        (
+            current - entry
+        )
         / entry
-    ) * D100
+    ) * Decimal("100")
 
 
 # ============================================================
-# TRADE STATE
+# SIMULATED TRADE STATE
 # ============================================================
 
-@dataclass
-class Trade:
+class SimulatedTrade:
 
-    side: str
-
-    entry: Decimal
-
-    size_pct: Decimal = ENTRY_PCT
-
-    remaining_pct: Decimal = D100
-
-    pyramids: int = 0
-
-    backups: int = 0
-
-    tp1_done: bool = False
-
-    tp2_done: bool = False
-
-    trailing: bool = False
-
-    trail_extreme: Optional[
-        Decimal
-    ] = None
-
-    closed: bool = False
-
-    events: list[str] = field(
-        default_factory=list
-    )
-
-    def log(
+    def __init__(
         self,
-        text,
+        side,
+        entry_price,
     ):
 
-        self.events.append(
-            text
+        self.side = side
+
+        self.initial_entry = entry_price
+
+        self.average_entry = entry_price
+
+        self.total_size = (
+            INITIAL_ENTRY_PERCENT
         )
 
-        print(
-            text,
-            flush=True,
+        self.remaining_percent = (
+            Decimal("100")
         )
 
+        self.pyramids = 0
 
-    # ========================================================
-    # PYRAMID
-    # ========================================================
+        self.tp1_done = False
+
+        self.tp2_done = False
+
+        self.trailing_active = False
+
+        self.trailing_high = None
+
+        self.closed = False
+
 
     def add_pyramid(
         self,
         price,
     ):
 
-        if self.closed:
-
-            return
-
         if (
             self.pyramids
-            >= MAX_PYRAMIDS
+            >= MAX_PYRAMID_ADDS
         ):
+            return False
 
-            return
+        old_size = self.total_size
 
-        self.pyramids += 1
-
-        old_size = self.size_pct
+        add_size = (
+            PYRAMID_SIZE_PERCENT
+        )
 
         new_size = (
             old_size
-            + PYRAMID_SIZE_PCT
+            + add_size
         )
 
-        self.entry = (
+        self.average_entry = (
 
             (
-                self.entry
+                self.average_entry
                 * old_size
             )
 
@@ -250,91 +239,51 @@ class Trade:
 
             (
                 price
-                * PYRAMID_SIZE_PCT
+                * add_size
             )
 
         ) / new_size
 
-        self.size_pct = new_size
+        self.total_size = new_size
 
-        self.log(
+        self.pyramids += 1
 
+        print(
             f"PYRAMID #{self.pyramids}: "
-            f"+{PYRAMID_SIZE_PCT}% "
-            f"at {price:.2f} | "
-            f"new avg {self.entry:.2f} | "
-            f"total size {self.size_pct}%"
-
+            f"+{add_size}% at {price:.2f} "
+            f"| new avg {self.average_entry:.2f} "
+            f"| total size {self.total_size}%"
         )
 
-
-    # ========================================================
-    # PARTIAL CLOSE
-    # ========================================================
-
-    def close_share(
-        self,
-        share,
-        label,
-        price,
-    ):
-
-        self.remaining_pct = max(
-
-            Decimal("0"),
-
-            self.remaining_pct
-            - share,
-
-        )
-
-        self.log(
-
-            f"{label}: "
-            f"closed {share}% "
-            f"at {price:.2f} | "
-            f"remaining "
-            f"{self.remaining_pct}%"
-
-        )
+        return True
 
 
-    # ========================================================
-    # POSITION MANAGEMENT
-    # ========================================================
-
-    def update(
+    def process_price(
         self,
         price,
     ):
 
         if self.closed:
-
             return
 
         move = percentage_move(
-
-            self.entry,
+            self.average_entry,
             price,
-            self.side,
-
         )
 
+        if self.side == "SHORT":
+            move = -move
 
-        # ----------------------------------------------------
+
+        # ================================================
         # PYRAMID
-        # ----------------------------------------------------
+        # ================================================
 
         if (
-
             self.pyramids
-            < MAX_PYRAMIDS
-
-            and
-
-            move
-            >= PYRAMID_TRIGGER
-
+            < MAX_PYRAMID_ADDS
+            and move
+            >= PYRAMID_TRIGGER_PERCENT
         ):
 
             self.add_pyramid(
@@ -342,335 +291,214 @@ class Trade:
             )
 
             move = percentage_move(
-
-                self.entry,
+                self.average_entry,
                 price,
-                self.side,
-
             )
 
+            if self.side == "SHORT":
+                move = -move
 
-        # ----------------------------------------------------
+
+        # ================================================
         # TP1
-        # ----------------------------------------------------
+        # ================================================
 
         if (
-
             not self.tp1_done
-
-            and
-
-            move
-            >= TP1_TRIGGER
-
+            and move
+            >= TP1_TRIGGER_PERCENT
         ):
 
             self.tp1_done = True
 
-            self.close_share(
+            self.remaining_percent -= (
+                TP1_PERCENT
+            )
 
-                TP1_SHARE,
-                "TP1",
-                price,
-
+            print(
+                f"TP1: closed "
+                f"{TP1_PERCENT}% "
+                f"at {price:.2f} "
+                f"| remaining "
+                f"{self.remaining_percent}%"
             )
 
 
-        # ----------------------------------------------------
+        # ================================================
         # TP2
-        # ----------------------------------------------------
+        # ================================================
 
         if (
-
-            not self.tp2_done
-
-            and
-
-            move
-            >= TP2_TRIGGER
-
+            self.tp1_done
+            and not self.tp2_done
+            and move
+            >= TP2_TRIGGER_PERCENT
         ):
 
             self.tp2_done = True
 
-            self.close_share(
-
-                TP2_SHARE,
-                "TP2",
-                price,
-
+            self.remaining_percent -= (
+                TP2_PERCENT
             )
 
-            self.trailing = True
+            print(
+                f"TP2: closed "
+                f"{TP2_PERCENT}% "
+                f"at {price:.2f} "
+                f"| remaining "
+                f"{self.remaining_percent}%"
+            )
 
-            self.trail_extreme = price
+            self.trailing_active = True
 
-            self.log(
+            self.trailing_high = price
 
+            print(
                 "TRAILING ACTIVATED "
                 f"for final "
-                f"{self.remaining_pct}% | "
-                f"distance "
-                f"{TRAILING_DISTANCE}%"
-
+                f"{self.remaining_percent}% "
+                f"| distance "
+                f"{TRAILING_DISTANCE_PERCENT}%"
             )
 
 
-        # ----------------------------------------------------
-        # TRAILING TP3
-        # ----------------------------------------------------
+        # ================================================
+        # TRAILING PROFIT
+        # ================================================
 
-        if (
+        if not self.trailing_active:
+            return
 
-            self.trailing
 
-            and
+        if self.side == "LONG":
 
-            not self.closed
+            if (
+                self.trailing_high is None
+                or price
+                > self.trailing_high
+            ):
 
-        ):
+                self.trailing_high = price
 
-            if self.side == "LONG":
 
-                self.trail_extreme = max(
+            trail_stop = (
 
-                    self.trail_extreme
-                    or price,
+                self.trailing_high
 
-                    price,
+                * (
 
-                )
+                    Decimal("1")
 
-                trailing_stop = (
-
-                    self.trail_extreme
-
-                    *
+                    -
 
                     (
-                        D100
-                        - TRAILING_DISTANCE
+                        TRAILING_DISTANCE_PERCENT
+                        / Decimal("100")
                     )
 
-                    / D100
+                )
+            )
 
+
+            if price <= trail_stop:
+
+                self.close_trailing(
+                    price
                 )
 
-                if price <= trailing_stop:
 
-                    self.close_share(
+        else:
 
-                        self.remaining_pct,
-                        "TRAIL EXIT",
-                        price,
+            if (
+                self.trailing_high is None
+                or price
+                < self.trailing_high
+            ):
 
-                    )
-
-                    self.closed = True
+                self.trailing_high = price
 
 
-            else:
+            trail_stop = (
 
-                self.trail_extreme = min(
+                self.trailing_high
 
-                    self.trail_extreme
-                    or price,
+                * (
 
-                    price,
+                    Decimal("1")
 
-                )
-
-                trailing_stop = (
-
-                    self.trail_extreme
-
-                    *
+                    +
 
                     (
-                        D100
-                        + TRAILING_DISTANCE
+                        TRAILING_DISTANCE_PERCENT
+                        / Decimal("100")
                     )
-
-                    / D100
 
                 )
-
-                if price >= trailing_stop:
-
-                    self.close_share(
-
-                        self.remaining_pct,
-                        "TRAIL EXIT",
-                        price,
-
-                    )
-
-                    self.closed = True
+            )
 
 
-# ============================================================
-# TELEGRAM
-# ============================================================
+            if price >= trail_stop:
 
-async def send_telegram(
-    text,
-):
+                self.close_trailing(
+                    price
+                )
 
-    if (
 
-        not TELEGRAM_BOT_TOKEN
-
-        or
-
-        not TELEGRAM_CHAT_ID
-
+    def close_trailing(
+        self,
+        price,
     ):
 
-        print(
-            "TELEGRAM CONFIG: MISSING",
-            flush=True,
+        amount = (
+            self.remaining_percent
         )
 
-        return
-
-    try:
-
-        bot = Bot(
-            TELEGRAM_BOT_TOKEN
+        self.remaining_percent = (
+            Decimal("0")
         )
 
-        await bot.send_message(
-
-            chat_id=TELEGRAM_CHAT_ID,
-
-            text=text,
-
-        )
+        self.closed = True
 
         print(
-            "TELEGRAM MESSAGE SENT",
-            flush=True,
-        )
-
-    except Exception as error:
-
-        print(
-
-            f"TELEGRAM ERROR: "
-            f"{error}",
-
-            flush=True,
-
+            f"TRAIL EXIT: closed "
+            f"{amount}% "
+            f"at {price:.2f} "
+            "| remaining 0%"
         )
 
 
 # ============================================================
-# SAFETY VALIDATION
+# SIMULATION
 # ============================================================
 
-def validate_configuration():
+async def run_full_lifecycle_test():
 
-    if (
-        LEVERAGE
-        > MAX_LEVERAGE
-    ):
-
-        raise ValueError(
-
-            "LEVERAGE exceeds "
-            "MAX_LEVERAGE"
-
-        )
-
-
-    if (
-
-        ENTRY_PCT
-        > MAX_FUND_EXPOSURE_PCT
-
-    ):
-
-        raise ValueError(
-
-            "ENTRY_PCT exceeds "
-            "MAX_FUND_EXPOSURE_PCT"
-
-        )
-
-
-    total_tp = (
-
-        TP1_SHARE
-        + TP2_SHARE
-        + TP3_SHARE
-
-    )
-
-    if total_tp != D100:
-
-        raise ValueError(
-
-            "TP1 + TP2 + TP3 "
-            "must equal 100%"
-
-        )
-
-
-# ============================================================
-# 0F-4D SIMULATED FULL TRADE TEST
-# ============================================================
-
-async def simulated_lifecycle_test():
+    print("=" * 60)
 
     print(
-        "=" * 60,
-        flush=True,
+        "0F-4E SIMULATED "
+        "FULL TRADE LIFECYCLE TEST"
     )
 
     print(
-        "0F-4D SIMULATED FULL "
-        "TRADE LIFECYCLE TEST",
-        flush=True,
+        "NO LIVE ORDERS WILL BE SENT"
     )
 
-    print(
-        "NO LIVE ORDERS "
-        "WILL BE SENT",
-        flush=True,
-    )
-
-    print(
-        "=" * 60,
-        flush=True,
-    )
+    print("=" * 60)
 
 
-    # --------------------------------------------------------
-    # SIMULATED LONG ENTRY
-    # --------------------------------------------------------
-
-    trade = Trade(
-
+    trade = SimulatedTrade(
         side="LONG",
-
-        entry=Decimal(
-            "100.00"
-        ),
-
-    )
-
-    trade.log(
-
-        "SIM ENTRY: "
-        "LONG at 100.00 | "
-        "initial position 5%"
-
+        entry_price=Decimal("100.00"),
     )
 
 
-    # --------------------------------------------------------
-    # CONTROLLED PRICE PATH
-    # --------------------------------------------------------
+    print(
+        "SIM ENTRY: LONG at 100.00 "
+        f"| initial position "
+        f"{INITIAL_ENTRY_PERCENT}%"
+    )
+
 
     simulated_prices = [
 
@@ -691,245 +519,151 @@ async def simulated_lifecycle_test():
 
     for price in simulated_prices:
 
-        trade.log(
-
-            f"SIM PRICE: "
-            f"{price:.2f}"
-
+        print(
+            f"SIM PRICE: {price:.2f}"
         )
 
-        trade.update(
+        trade.process_price(
             price
         )
 
-        await asyncio.sleep(
-            0.15
+
+    if trade.closed:
+
+        if IDLE_PYRAMID_CLEANUP:
+
+            print(
+                "IDLE PYRAMID CLEANUP: "
+                "COMPLETE"
+            )
+
+        print(
+            "TRADE STATE RESET: COMPLETE"
+        )
+
+        print(
+            "0F-4E SIMULATION: PASSED"
+        )
+
+    else:
+
+        print(
+            "0F-4E SIMULATION: FAILED"
         )
 
 
-    # --------------------------------------------------------
-    # VERIFY COMPLETE EXIT
-    # --------------------------------------------------------
-
-    if not trade.closed:
-
-        raise RuntimeError(
-
-            "Simulation failed: "
-            "trade did not close"
-
-        )
-
-
-    # --------------------------------------------------------
-    # CLEANUP
-    # --------------------------------------------------------
-
-    trade.log(
-
-        "IDLE PYRAMID CLEANUP: "
-        "COMPLETE"
-
-    )
-
-    trade.log(
-
-        "TRADE STATE RESET: "
-        "COMPLETE"
-
-    )
-
-    trade.log(
-
-        "0F-4D SIMULATION: "
-        "PASSED"
-
-    )
-
-
-    # --------------------------------------------------------
-    # TELEGRAM RESULT
-    # --------------------------------------------------------
-
-    await send_telegram(
-
-        "🧪 MODULE 0F-4D TEST PASSED\n"
-        "BTCUSDT simulated full trade lifecycle\n\n"
-
-        "✅ Initial entry\n"
-        "✅ Pyramid\n"
-        "✅ TP1 20%\n"
-        "✅ TP2 20%\n"
-        "✅ TP3 60% trailing exit\n"
-        "✅ Idle pyramid cleanup\n"
-        "✅ Trade state reset\n\n"
-
-        "⚠️ Live order execution disabled"
-
-    )
+    print("=" * 60)
 
 
 # ============================================================
-# WEEX PRICE EXTRACTION
+# WEEX MESSAGE PROCESSOR
 # ============================================================
 
-def extract_price(
-    message,
+def extract_kline_price(
+    data,
 ):
 
-    try:
-
-        obj = json.loads(
-            message
-        )
-
-    except Exception:
-
-        return None
-
-
-    data = obj.get(
-        "data"
-    )
-
-
-    candidates = []
-
-
-    if isinstance(
+    if not isinstance(
         data,
         dict,
     ):
-
-        candidates.append(
-            data
-        )
+        return None
 
 
-    elif isinstance(
-        data,
+    if data.get("e") != "kline":
+        return None
+
+
+    candles = data.get("d")
+
+    if not isinstance(
+        candles,
         list,
     ):
-
-        for item in data:
-
-            if isinstance(
-                item,
-                dict,
-            ):
-
-                candidates.append(
-                    item
-                )
+        return None
 
 
-    candidates.append(
-        obj
+    if not candles:
+        return None
+
+
+    candle = candles[-1]
+
+    if not isinstance(
+        candle,
+        dict,
+    ):
+        return None
+
+
+    price = D(
+        candle.get("c")
     )
 
 
-    price_fields = (
-
-        "close",
-        "lastPrice",
-        "last",
-        "price",
-        "c",
-
-    )
+    if (
+        price is None
+        or price <= 0
+    ):
+        return None
 
 
-    for candidate in candidates:
-
-        for field in price_fields:
-
-            value = candidate.get(
-                field
-            )
-
-            if value in (
-
-                None,
-                "",
-                0,
-                "0",
-
-            ):
-
-                continue
-
-            try:
-
-                price = decimal_value(
-                    value
-                )
-
-                if price > 0:
-
-                    return price
-
-            except Exception:
-
-                continue
-
-
-    return None
+    return price
 
 
 # ============================================================
-# LIVE WEEX MARKET MONITOR
+# LIVE WEEX MONITOR
 # ============================================================
 
-async def market_monitor():
-
-    reconnect_delay = 5
-
+async def live_market_monitor():
 
     while True:
 
         try:
 
             print(
-                "CONNECTING TO WEEX...",
-                flush=True,
+                "CONNECTING TO WEEX..."
             )
+
+
+            headers = {
+
+                "User-Agent":
+                "WEEX-0F-4E-BOT/1.0"
+
+            }
 
 
             async with websockets.connect(
 
                 WS_URL,
 
+                additional_headers=headers,
+
                 ping_interval=None,
 
-                close_timeout=10,
+                ping_timeout=None,
 
-                additional_headers={
-
-                    "User-Agent":
-                    "WEEX-BTC-Bot/0F-4D"
-
-                },
+                close_timeout=5,
 
             ) as websocket:
 
 
                 print(
-                    "CONNECTED TO WEEX",
-                    flush=True,
+                    "CONNECTED TO WEEX"
                 )
 
 
-                subscribe_payload = {
+                subscribe_message = {
 
                     "method":
                     "SUBSCRIBE",
 
                     "params": [
-                        CHANNEL
+                        SUBSCRIPTION_CHANNEL
                     ],
 
-                    "id":
-                    1,
+                    "id": 1,
 
                 }
 
@@ -937,125 +671,188 @@ async def market_monitor():
                 await websocket.send(
 
                     json.dumps(
-                        subscribe_payload
+                        subscribe_message
                     )
 
                 )
 
 
                 print(
-
-                    f"SUBSCRIBED TO "
-                    f"{CHANNEL}",
-
-                    flush=True,
-
+                    "SUBSCRIBED TO "
+                    f"{SUBSCRIPTION_CHANNEL}"
                 )
 
 
-                reconnect_delay = 5
+                subscription_confirmed = False
+
+                last_price = None
 
 
-                async for raw in websocket:
+                async for raw_message in websocket:
 
 
-                    if isinstance(
-                        raw,
-                        bytes,
-                    ):
+                    # ====================================
+                    # DECODE MESSAGE
+                    # ====================================
 
-                        raw = raw.decode(
+                    try:
 
-                            "utf-8",
+                        if isinstance(
+                            raw_message,
+                            bytes,
+                        ):
 
-                            errors="ignore",
+                            raw_message = (
+                                raw_message.decode(
+                                    "utf-8"
+                                )
+                            )
 
+
+                        message = json.loads(
+                            raw_message
                         )
 
 
-                    # ----------------------------------------
-                    # SIMPLE PING/PONG
-                    # ----------------------------------------
+                    except Exception as error:
 
-                    if raw == "ping":
-
-                        await websocket.send(
-                            "pong"
+                        print(
+                            "WEEX MESSAGE "
+                            "DECODE ERROR:",
+                            error,
                         )
 
                         continue
 
 
-                    try:
+                    # ====================================
+                    # APPLICATION HEARTBEAT
+                    # ====================================
 
-                        obj = json.loads(
-                            raw
+                    if isinstance(
+                        message,
+                        dict,
+                    ):
+
+                        event = message.get(
+                            "event"
+                        )
+
+                        msg_type = message.get(
+                            "type"
                         )
 
 
                         if (
-                            obj.get("event")
-                            == "ping"
+                            event == "ping"
+                            or msg_type == "ping"
                         ):
+
+                            pong = {
+
+                                "method":
+                                "PONG",
+
+                                "id": 1,
+
+                            }
+
 
                             await websocket.send(
 
-                                json.dumps({
+                                json.dumps(
+                                    pong
+                                )
 
-                                    "event":
-                                    "pong"
+                            )
 
-                                })
 
+                            print(
+                                "WEEX PING → "
+                                "PONG SENT"
                             )
 
                             continue
 
 
-                    except Exception:
-
-                        pass
-
-
-                    # ----------------------------------------
-                    # SUBSCRIPTION ACK
-                    # ----------------------------------------
+                    # ====================================
+                    # SUBSCRIPTION ACKNOWLEDGEMENT
+                    # ====================================
 
                     if (
-                        "subscribe"
-                        in raw.lower()
-                    ):
-
-                        print(
-
-                            "SUBSCRIPTION "
-                            "CONFIRMED",
-
-                            flush=True,
-
+                        isinstance(
+                            message,
+                            dict,
                         )
 
+                        and message.get(
+                            "id"
+                        ) == 1
 
-                    # ----------------------------------------
-                    # LIVE PRICE
-                    # ----------------------------------------
+                        and "result"
+                        in message
+                    ):
 
-                    price = extract_price(
-                        raw
+
+                        if (
+                            message.get(
+                                "result"
+                            )
+                            is True
+                        ):
+
+                            if (
+                                not
+                                subscription_confirmed
+                            ):
+
+                                print(
+                                    "SUBSCRIPTION "
+                                    "CONFIRMED"
+                                )
+
+                                subscription_confirmed = (
+                                    True
+                                )
+
+
+                        else:
+
+                            print(
+                                "SUBSCRIPTION "
+                                "REJECTED:",
+                                message,
+                            )
+
+
+                        continue
+
+
+                    # ====================================
+                    # MARKET PRICE
+                    # ====================================
+
+                    price = extract_kline_price(
+                        message
                     )
 
 
-                    if price:
+                    if price is None:
+                        continue
+
+
+                    if (
+                        last_price is None
+                        or price
+                        != last_price
+                    ):
 
                         print(
-
-                            f"{SYMBOL} "
-                            f"LIVE PRICE: "
-                            f"{price}",
-
-                            flush=True,
-
+                            f"{SYMBOL} LIVE PRICE: "
+                            f"{price}"
                         )
+
+                        last_price = price
 
 
         except asyncio.CancelledError:
@@ -1066,266 +863,167 @@ async def market_monitor():
         except Exception as error:
 
             print(
-
-                "WEEX CONNECTION "
-                f"ERROR: {error}",
-
-                flush=True,
-
+                "WEEX CONNECTION ERROR:",
+                error,
             )
 
 
-            print(
-
-                "RECONNECTING IN "
-                f"{reconnect_delay}s...",
-
-                flush=True,
-
-            )
+        print(
+            "RECONNECTING IN "
+            f"{RECONNECT_DELAY_SECONDS}s..."
+        )
 
 
-            await asyncio.sleep(
-                reconnect_delay
-            )
-
-
-            reconnect_delay = min(
-
-                reconnect_delay * 2,
-
-                60,
-
-            )
+        await asyncio.sleep(
+            RECONNECT_DELAY_SECONDS
+        )
 
 
 # ============================================================
-# MAIN
+# STARTUP
 # ============================================================
 
 async def main():
 
-    validate_configuration()
-
+    print("=" * 60)
 
     print(
-        "=" * 60,
-        flush=True,
+        f"MODULE {MODULE_NAME} STARTING"
     )
 
     print(
+        "BTCUSDT STABILIZED WEEX "
+        "CONNECTION + TRADE LIFECYCLE ENGINE"
+    )
 
-        f"MODULE {MODULE} STARTING",
+    print("=" * 60)
 
-        flush=True,
-
+    print(
+        f"Entry: "
+        f"{INITIAL_ENTRY_PERCENT}%"
     )
 
     print(
-
-        "BTCUSDT SIMULATED FULL "
-        "TRADE LIFECYCLE + "
-        "LIVE MONITOR",
-
-        flush=True,
-
+        f"Leverage: "
+        f"{LEVERAGE}x"
     )
 
     print(
-        "=" * 60,
-        flush=True,
-    )
-
-
-    print(
-        f"Entry: {ENTRY_PCT}%",
-        flush=True,
-    )
-
-    print(
-        f"Leverage: {LEVERAGE}x",
-        flush=True,
-    )
-
-    print(
-
         f"Max Leverage: "
-        f"{MAX_LEVERAGE}x",
-
-        flush=True,
-
+        f"{MAX_LEVERAGE}x"
     )
 
     print(
-
         f"Max Pyramids: "
-        f"{MAX_PYRAMIDS}",
-
-        flush=True,
-
+        f"{MAX_PYRAMID_ADDS}"
     )
 
     print(
-
         f"Max Backups: "
-        f"{MAX_BACKUPS}",
-
-        flush=True,
-
+        f"{MAX_BACKUPS}"
     )
 
     print(
-
-        "Max Fund Exposure: "
-        f"{MAX_FUND_EXPOSURE_PCT}%",
-
-        flush=True,
-
+        f"Max Fund Exposure: "
+        f"{MAX_FUND_EXPOSURE_PERCENT}%"
     )
 
     print(
-
         "TP1 / TP2 / TP3: "
-        f"{TP1_SHARE}% / "
-        f"{TP2_SHARE}% / "
-        f"{TP3_SHARE}%",
-
-        flush=True,
-
+        f"{TP1_PERCENT}% / "
+        f"{TP2_PERCENT}% / "
+        f"{TP3_PERCENT}%"
     )
 
     print(
-
         f"TP1 Trigger: "
-        f"{TP1_TRIGGER}%",
-
-        flush=True,
-
+        f"{TP1_TRIGGER_PERCENT}%"
     )
 
     print(
-
         f"TP2 Trigger: "
-        f"{TP2_TRIGGER}%",
-
-        flush=True,
-
+        f"{TP2_TRIGGER_PERCENT}%"
     )
 
     print(
-
-        "Trailing Distance: "
-        f"{TRAILING_DISTANCE}%",
-
-        flush=True,
-
+        f"Trailing Distance: "
+        f"{TRAILING_DISTANCE_PERCENT}%"
     )
 
     print(
-
         "Idle pyramid cleanup: "
-        "ACTIVE",
-
-        flush=True,
-
+        "ACTIVE"
     )
 
     print(
-
-        "Safety controls: "
-        "ACTIVE",
-
-        flush=True,
-
+        "Safety controls: ACTIVE"
     )
 
     print(
-
         "LIVE ORDER EXECUTION: "
-        "DISABLED",
-
-        flush=True,
-
+        "DISABLED"
     )
 
-    print(
-        "=" * 60,
-        flush=True,
-    )
+    print("=" * 60)
 
-
-    # ========================================================
-    # STARTUP TELEGRAM
-    # ========================================================
 
     await send_telegram(
 
-        "✅ MODULE 0F-4D ONLINE\n"
+        "✅ MODULE 0F-4E ONLINE\n"
         "BTCUSDT\n"
-        "Simulated Full Trade Lifecycle Engine\n\n"
-
+        "Stabilized WEEX WebSocket + "
+        "Trade Lifecycle Engine\n\n"
         "🛡 Safety controls active\n"
         "⚠️ Live order execution disabled"
 
     )
 
 
-    # ========================================================
-    # SIMULATION
-    # ========================================================
-
-    if RUN_SIMULATED_LIFECYCLE_TEST:
-
-        await simulated_lifecycle_test()
-
-    else:
-
-        print(
-
-            "SIMULATED LIFECYCLE "
-            "TEST: DISABLED",
-
-            flush=True,
-
-        )
+    await run_full_lifecycle_test()
 
 
-    # ========================================================
-    # LIVE MONITOR
-    # ========================================================
+    await send_telegram(
 
-    print(
-        "=" * 60,
-        flush=True,
-    )
-
-    print(
-
-        "LIVE MARKET "
-        "MONITORING ACTIVE",
-
-        flush=True,
-
-    )
-
-    print(
-
-        "WAITING FOR WEEX "
-        "MARKET DATA...",
-
-        flush=True,
+        "🧪 MODULE 0F-4E TEST\n"
+        "BTCUSDT\n\n"
+        "✅ Full simulated trade "
+        "lifecycle completed\n"
+        "✅ Pyramid\n"
+        "✅ TP1\n"
+        "✅ TP2\n"
+        "✅ Trailing exit\n"
+        "✅ State cleanup\n\n"
+        "No live order was sent."
 
     )
 
 
-    await market_monitor()
+    print(
+        "LIVE MARKET MONITORING ACTIVE"
+    )
+
+    print(
+        "WAITING FOR WEEX MARKET DATA..."
+    )
+
+
+    await live_market_monitor()
 
 
 # ============================================================
-# START
+# RUN
 # ============================================================
 
 if __name__ == "__main__":
 
-    asyncio.run(
-        main())
+    try:
+
+        asyncio.run(
+            main()
+        )
+
+    except KeyboardInterrupt:
+
+        print(
+            "MODULE STOPPED"
+        )
