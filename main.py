@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import time
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
@@ -33,10 +34,37 @@ HISTORICAL_URL = (
     "/capi/v3/market/klines"
 )
 
+# Request 251 so we can retain 250 fully closed candles.
+HISTORICAL_REQUEST_LIMIT = 251
+
 HISTORICAL_LIMIT = 250
 
 RECONNECT_DELAY_SECONDS = 5
+
 MAX_RECONNECT_DELAY_SECONDS = 60
+
+
+# ============================================================
+# EMA SETTINGS
+# ============================================================
+
+EMA19_PERIOD = 19
+EMA50_PERIOD = 50
+EMA200_PERIOD = 200
+
+
+# ============================================================
+# SIMULATED VERIFICATION TEST
+# ============================================================
+
+# IMPORTANT:
+#
+# Leave True for the FIRST deployment.
+#
+# After Telegram receives the simulated confirmation message,
+# change this to False and redeploy.
+
+SIMULATED_PENDING_TEST_ENABLED = True
 
 
 # ============================================================
@@ -70,8 +98,7 @@ async def send_telegram(
     if not telegram_is_configured():
 
         print(
-            "TELEGRAM WARNING: "
-            "TOKEN OR CHAT ID MISSING",
+            "TELEGRAM WARNING: Token or chat ID is missing.",
             flush=True,
         )
 
@@ -128,48 +155,61 @@ def to_decimal(
 
 
 # ============================================================
-# EMA
+# EMA CALCULATION
 # ============================================================
 
-def calculate_ema(
+def calculate_initial_ema(
     prices: list[Decimal],
     period: int,
-) -> Optional[Decimal]:
+) -> Decimal:
 
-    if len(prices) < period:
-        return None
+    if not prices:
+
+        raise ValueError(
+            "No prices supplied for EMA calculation."
+        )
 
     multiplier = (
         Decimal("2")
         / Decimal(period + 1)
     )
 
-    initial_prices = prices[:period]
+    ema = prices[0]
 
-    ema = (
-        sum(initial_prices)
-        / Decimal(period)
-    )
-
-    for price in prices[period:]:
+    for price in prices[1:]:
 
         ema = (
-            price * multiplier
+            (price - ema)
+            * multiplier
             + ema
-            * (
-                Decimal("1")
-                - multiplier
-            )
         )
 
     return ema
 
 
+def update_ema(
+    previous_ema: Decimal,
+    new_price: Decimal,
+    period: int,
+) -> Decimal:
+
+    multiplier = (
+        Decimal("2")
+        / Decimal(period + 1)
+    )
+
+    return (
+        (new_price - previous_ema)
+        * multiplier
+        + previous_ema
+    )
+
+
 # ============================================================
-# STRUCTURE
+# EMA STRUCTURE
 # ============================================================
 
-def get_structure(
+def describe_structure(
     ema19: Decimal,
     ema50: Decimal,
     ema200: Decimal,
@@ -219,282 +259,313 @@ def get_structure(
 
 
 # ============================================================
-# HISTORICAL CANDLE EXTRACTION
+# HISTORICAL CANDLES
 # ============================================================
 
-def extract_historical_data(
-    payload: Any,
-) -> list:
-
-    if isinstance(payload, list):
-        return payload
-
-    if not isinstance(payload, dict):
-        return []
-
-    possible_keys = (
-        "data",
-        "result",
-        "list",
-        "rows",
-    )
-
-    for key in possible_keys:
-
-        value = payload.get(key)
-
-        if isinstance(value, list):
-            return value
-
-        if isinstance(value, dict):
-
-            for nested_key in (
-                "list",
-                "rows",
-                "data",
-            ):
-
-                nested = value.get(
-                    nested_key
-                )
-
-                if isinstance(
-                    nested,
-                    list,
-                ):
-                    return nested
-
-    return []
-
-
-def extract_historical_close(
-    candle: Any,
-) -> Optional[Decimal]:
-
-    if isinstance(candle, dict):
-
-        for key in (
-            "close",
-            "c",
-            "closePrice",
-            "lastPrice",
-        ):
-
-            price = to_decimal(
-                candle.get(key)
-            )
-
-            if price is not None:
-                return price
-
-    if isinstance(candle, list):
-
-        if len(candle) >= 5:
-
-            price = to_decimal(
-                candle[4]
-            )
-
-            if price is not None:
-                return price
-
-    return None
-
-
-# ============================================================
-# LOAD HISTORICAL CANDLES
-# ============================================================
-
-async def load_historical_prices() -> list[Decimal]:
+async def load_historical_candles(
+    session: aiohttp.ClientSession,
+) -> list[Decimal]:
 
     print(
         "LOADING 1m HISTORICAL CANDLES...",
         flush=True,
     )
 
-    parameters = {
+    params = {
         "symbol": SYMBOL,
         "interval": "1m",
-        "limit": HISTORICAL_LIMIT,
+        "limit": HISTORICAL_REQUEST_LIMIT,
     }
 
-    async with aiohttp.ClientSession() as session:
+    try:
 
-        try:
-
-            async with session.get(
-                HISTORICAL_URL,
-                params=parameters,
-                timeout=20,
-            ) as response:
-
-                print(
-                    "HISTORICAL HTTP STATUS:",
-                    response.status,
-                    flush=True,
-                )
-
-                if response.status != 200:
-                    return []
-
-                payload = await response.json()
-
-        except Exception as error:
+        async with session.get(
+            HISTORICAL_URL,
+            params=params,
+            timeout=aiohttp.ClientTimeout(
+                total=20
+            ),
+        ) as response:
 
             print(
-                "HISTORICAL ERROR:",
-                f"{type(error).__name__}: "
-                f"{error}",
+                "HISTORICAL HTTP STATUS:",
+                response.status,
                 flush=True,
             )
 
-            return []
+            if response.status != 200:
 
-    candles = extract_historical_data(
-        payload
-    )
+                return []
 
-    prices = []
+            data = await response.json()
 
-    for candle in candles:
+    except Exception as error:
 
-        close = extract_historical_close(
-            candle
+        print(
+            "HISTORICAL ERROR: "
+            f"{type(error).__name__}: {error}",
+            flush=True,
         )
 
-        if close is not None:
-            prices.append(close)
+        return []
+
+    # Some API responses may wrap the array.
+    if isinstance(data, dict):
+
+        for key in (
+            "data",
+            "result",
+            "list",
+        ):
+
+            candidate = data.get(key)
+
+            if isinstance(candidate, list):
+
+                data = candidate
+                break
+
+    if not isinstance(data, list):
+
+        print(
+            "HISTORICAL ERROR: "
+            "Unexpected response format.",
+            flush=True,
+        )
+
+        return []
+
+    candles = []
+
+    now_ms = int(
+        time.time() * 1000
+    )
+
+    for item in data:
+
+        if not isinstance(
+            item,
+            (list, tuple),
+        ):
+
+            continue
+
+        if len(item) < 7:
+
+            continue
+
+        try:
+
+            open_time = int(
+                item[0]
+            )
+
+            close_time = int(
+                item[6]
+            )
+
+        except (
+            ValueError,
+            TypeError,
+        ):
+
+            continue
+
+        close_price = to_decimal(
+            item[4]
+        )
+
+        if close_price is None:
+
+            continue
+
+        # Keep only candles whose close time
+        # has already passed.
+        if close_time > now_ms:
+
+            continue
+
+        candles.append(
+            (
+                open_time,
+                close_price,
+            )
+        )
+
+    candles.sort(
+        key=lambda candle: candle[0]
+    )
+
+    # Retain the most recent 250 closed candles.
+    candles = candles[
+        -HISTORICAL_LIMIT:
+    ]
+
+    closes = [
+        candle[1]
+        for candle in candles
+    ]
 
     print(
-        "HISTORICAL CANDLES LOADED: "
-        f"{len(prices)}",
+        "HISTORICAL CANDLES LOADED:",
+        len(closes),
         flush=True,
     )
 
-    return prices
+    if closes:
 
-
-# ============================================================
-# LIVE KLINE EXTRACTION
-# ============================================================
-
-def extract_live_candle(
-    message: Any,
-) -> Optional[tuple[str, Decimal]]:
-
-    if not isinstance(message, dict):
-        return None
-
-    data = message.get("data")
-
-    if data is None:
-        return None
-
-    # --------------------------------------------------------
-    # DATA AS DICTIONARY
-    # --------------------------------------------------------
-
-    if isinstance(data, dict):
-
-        timestamp = (
-            data.get("timestamp")
-            or data.get("ts")
-            or data.get("time")
-            or data.get("t")
+        print(
+            "LATEST CLOSED PRICE:",
+            closes[-1],
+            flush=True,
         )
 
-        close = None
+    return closes
 
-        for key in (
-            "close",
-            "c",
-            "closePrice",
-            "lastPrice",
-            "price",
-        ):
 
-            close = to_decimal(
-                data.get(key)
-            )
+# ============================================================
+# SIMULATED PENDING CONFIRMATION TEST
+# ============================================================
 
-            if close is not None:
-                break
+async def run_simulated_pending_confirmation_test(
+    bot: Bot,
+) -> None:
 
-        if (
-            timestamp is not None
-            and close is not None
-        ):
+    if not SIMULATED_PENDING_TEST_ENABLED:
 
-            return (
-                str(timestamp),
-                close,
-            )
+        print(
+            "SIMULATED TEST DISABLED",
+            flush=True,
+        )
 
-    # --------------------------------------------------------
-    # DATA AS LIST
-    # --------------------------------------------------------
+        return
 
-    if isinstance(data, list):
+    print(
+        "========================================",
+        flush=True,
+    )
 
-        if not data:
-            return None
+    print(
+        "MODULE 0F-2 SIMULATED PENDING TEST",
+        flush=True,
+    )
 
-        candle = data[0]
+    print(
+        "SIMULATING EMA19 / EMA50 "
+        "BULLISH CROSS...",
+        flush=True,
+    )
 
-        if isinstance(candle, list):
+    # ----------------------------------------
+    # BEFORE CROSS
+    # ----------------------------------------
 
-            if len(candle) >= 5:
+    ema19_before = Decimal("100")
 
-                timestamp = candle[0]
+    ema50_before = Decimal("101")
 
-                close = to_decimal(
-                    candle[4]
-                )
+    # ----------------------------------------
+    # AFTER CROSS
+    # ----------------------------------------
 
-                if close is not None:
+    ema19_after = Decimal("102")
 
-                    return (
-                        str(timestamp),
-                        close,
-                    )
+    ema50_after = Decimal("101")
 
-        if isinstance(candle, dict):
+    bullish_cross = (
+        ema19_before
+        <= ema50_before
+        and ema19_after
+        > ema50_after
+    )
 
-            timestamp = (
-                candle.get("timestamp")
-                or candle.get("ts")
-                or candle.get("time")
-                or candle.get("t")
-            )
+    if not bullish_cross:
 
-            close = None
+        print(
+            "SIMULATED TEST FAILED: "
+            "NO CROSSOVER",
+            flush=True,
+        )
 
-            for key in (
-                "close",
-                "c",
-                "closePrice",
-                "lastPrice",
-                "price",
-            ):
+        return
 
-                close = to_decimal(
-                    candle.get(key)
-                )
+    print(
+        "SIMULATED BULLISH CROSSOVER DETECTED",
+        flush=True,
+    )
 
-                if close is not None:
-                    break
+    print(
+        "SIMULATED SIGNAL STATUS: PENDING",
+        flush=True,
+    )
 
-            if (
-                timestamp is not None
-                and close is not None
-            ):
+    # ----------------------------------------
+    # NEXT CANDLE
+    # ----------------------------------------
 
-                return (
-                    str(timestamp),
-                    close,
-                )
+    confirmation_ema19 = Decimal(
+        "103"
+    )
 
-    return None
+    confirmation_ema50 = Decimal(
+        "101.5"
+    )
+
+    confirmation_ema200 = Decimal(
+        "99"
+    )
+
+    confirmed = (
+        confirmation_ema19
+        > confirmation_ema50
+        > confirmation_ema200
+    )
+
+    if not confirmed:
+
+        print(
+            "SIMULATED SIGNAL REJECTED",
+            flush=True,
+        )
+
+        return
+
+    print(
+        "SIMULATED SIGNAL CONFIRMED",
+        flush=True,
+    )
+
+    message = (
+        "🧪 MODULE 0F-2 TEST\n\n"
+        "BTCUSDT\n\n"
+        "✅ BULLISH CROSSOVER DETECTED\n"
+        "⏳ SIGNAL ENTERED PENDING STATE\n"
+        "✅ NEXT-CANDLE CONFIRMATION PASSED\n\n"
+        "🟢 TEST LONG SIGNAL CONFIRMED\n\n"
+        "EMA19 > EMA50 > EMA200\n\n"
+        "This is a SIMULATED TEST only.\n"
+        "No live trade signal was generated."
+    )
+
+    await send_telegram(
+        bot,
+        message,
+    )
+
+    print(
+        "SIMULATED TELEGRAM ALERT SENT",
+        flush=True,
+    )
+
+    print(
+        "SIMULATED PENDING TEST COMPLETE",
+        flush=True,
+    )
+
+    print(
+        "========================================",
+        flush=True,
+    )
 
 
 # ============================================================
@@ -505,598 +576,439 @@ class SignalEngine:
 
     def __init__(
         self,
-        prices: list[Decimal],
-    ) -> None:
-
-        self.prices = prices[-500:]
-
-        self.previous_ema19 = calculate_ema(
-            self.prices,
-            19,
-        )
-
-        self.previous_ema50 = calculate_ema(
-            self.prices,
-            50,
-        )
-
-        self.previous_ema200 = calculate_ema(
-            self.prices,
-            200,
-        )
-
-        # ----------------------------------------------------
-        # LAST SUCCESSFULLY SENT SIGNAL
-        # ----------------------------------------------------
-
-        self.last_signal: Optional[str] = None
-
-        # ----------------------------------------------------
-        # PENDING SIGNAL
-        #
-        # LONG:
-        # EMA19 crossed above EMA50 but price
-        # has not yet confirmed above EMA200.
-        #
-        # SHORT:
-        # EMA19 crossed below EMA50 but price
-        # has not yet confirmed below EMA200.
-        # ----------------------------------------------------
-
-        self.pending_signal: Optional[str] = None
-
-        # ----------------------------------------------------
-        # INITIAL RELATIONSHIP
-        # ----------------------------------------------------
-
-        if (
-            self.previous_ema19 is not None
-            and self.previous_ema50 is not None
-        ):
-
-            if (
-                self.previous_ema19
-                > self.previous_ema50
-            ):
-
-                self.last_relationship = "ABOVE"
-
-            elif (
-                self.previous_ema19
-                < self.previous_ema50
-            ):
-
-                self.last_relationship = "BELOW"
-
-            else:
-
-                self.last_relationship = "EQUAL"
-
-        else:
-
-            self.last_relationship = None
-
-
-    # ========================================================
-    # SEND LONG
-    # ========================================================
-
-    async def send_long_signal(
-        self,
-        bot: Bot,
-        close: Decimal,
         ema19: Decimal,
         ema50: Decimal,
         ema200: Decimal,
-        structure: str,
-        confirmation_type: str,
-    ) -> None:
-
-        if self.last_signal == "LONG":
-
-            print(
-                "DUPLICATE LONG SIGNAL BLOCKED",
-                flush=True,
-            )
-
-            return
-
-        message = (
-            "🟢 BTCUSDT LONG SIGNAL\n\n"
-            "EMA19 ABOVE EMA50\n\n"
-            f"PRICE: {close}\n"
-            f"EMA19: {ema19:.2f}\n"
-            f"EMA50: {ema50:.2f}\n"
-            f"EMA200: {ema200:.2f}\n\n"
-            f"{structure}\n\n"
-            "✅ CONFIRMATION:\n"
-            "Price is ABOVE EMA200\n\n"
-            f"{confirmation_type}\n\n"
-            "MODULE 0F-2"
-        )
-
-        await send_telegram(
-            bot,
-            message,
-        )
-
-        self.last_signal = "LONG"
-
-        self.pending_signal = None
-
-
-    # ========================================================
-    # SEND SHORT
-    # ========================================================
-
-    async def send_short_signal(
-        self,
         bot: Bot,
-        close: Decimal,
-        ema19: Decimal,
-        ema50: Decimal,
-        ema200: Decimal,
-        structure: str,
-        confirmation_type: str,
     ) -> None:
 
-        if self.last_signal == "SHORT":
+        self.ema19 = ema19
 
-            print(
-                "DUPLICATE SHORT SIGNAL BLOCKED",
-                flush=True,
-            )
+        self.ema50 = ema50
 
-            return
+        self.ema200 = ema200
 
-        message = (
-            "🔴 BTCUSDT SHORT SIGNAL\n\n"
-            "EMA19 BELOW EMA50\n\n"
-            f"PRICE: {close}\n"
-            f"EMA19: {ema19:.2f}\n"
-            f"EMA50: {ema50:.2f}\n"
-            f"EMA200: {ema200:.2f}\n\n"
-            f"{structure}\n\n"
-            "✅ CONFIRMATION:\n"
-            "Price is BELOW EMA200\n\n"
-            f"{confirmation_type}\n\n"
-            "MODULE 0F-2"
-        )
+        self.previous_ema19 = ema19
 
-        await send_telegram(
-            bot,
-            message,
-        )
+        self.previous_ema50 = ema50
 
-        self.last_signal = "SHORT"
+        self.bot = bot
 
-        self.pending_signal = None
+        self.pending_signal: Optional[
+            dict[str, Any]
+        ] = None
 
+        self.last_confirmed_signal: Optional[
+            str
+        ] = None
 
-    # ========================================================
-    # PROCESS CLOSED CANDLE
-    # ========================================================
 
     async def process_closed_candle(
         self,
-        bot: Bot,
-        close: Decimal,
+        close_price: Decimal,
+        candle_time: int,
     ) -> None:
 
-        self.prices.append(close)
+        # Save previous EMA19 / EMA50
+        # for crossover detection.
 
-        self.prices = self.prices[-500:]
+        previous_ema19 = self.ema19
 
-        ema19 = calculate_ema(
-            self.prices,
-            19,
+        previous_ema50 = self.ema50
+
+        # Update all EMAs using the newly
+        # closed 1-minute candle.
+
+        self.ema19 = update_ema(
+            self.ema19,
+            close_price,
+            EMA19_PERIOD,
         )
 
-        ema50 = calculate_ema(
-            self.prices,
-            50,
+        self.ema50 = update_ema(
+            self.ema50,
+            close_price,
+            EMA50_PERIOD,
         )
 
-        ema200 = calculate_ema(
-            self.prices,
-            200,
+        self.ema200 = update_ema(
+            self.ema200,
+            close_price,
+            EMA200_PERIOD,
         )
-
-        if (
-            ema19 is None
-            or ema50 is None
-            or ema200 is None
-        ):
-            return
 
         print(
-            "=" * 40,
+            "========================================",
             flush=True,
         )
 
         print(
-            "MODULE 0F-2 - "
-            "CLOSED 1m CANDLE",
+            "MODULE 0F-2 - CLOSED 1m CANDLE",
             flush=True,
         )
 
         print(
-            f"{SYMBOL} CLOSE: {close}",
+            f"{SYMBOL} CLOSE: {close_price}",
             flush=True,
         )
 
         print(
-            f"EMA19: {ema19:.2f}",
+            "EMA19:",
+            round(self.ema19, 2),
             flush=True,
         )
 
         print(
-            f"EMA50: {ema50:.2f}",
+            "EMA50:",
+            round(self.ema50, 2),
             flush=True,
         )
 
         print(
-            f"EMA200: {ema200:.2f}",
+            "EMA200:",
+            round(self.ema200, 2),
             flush=True,
         )
 
-        structure = get_structure(
-            ema19,
-            ema50,
-            ema200,
+        structure = describe_structure(
+            self.ema19,
+            self.ema50,
+            self.ema200,
         )
 
         print(
-            f"STRUCTURE: {structure}",
+            "STRUCTURE:",
+            structure,
             flush=True,
         )
 
-        # ----------------------------------------------------
-        # CURRENT EMA19 / EMA50 RELATIONSHIP
-        # ----------------------------------------------------
+        # ====================================================
+        # STEP 1
+        # CONFIRM OR REJECT AN EXISTING PENDING SIGNAL
+        #
+        # This runs BEFORE checking for a new crossover.
+        # Therefore a signal created on this candle cannot
+        # be confirmed until the NEXT closed candle.
+        # ====================================================
 
-        if ema19 > ema50:
+        if self.pending_signal is not None:
 
-            current_relationship = "ABOVE"
+            await self.confirm_pending_signal(
+                close_price=close_price,
+                candle_time=candle_time,
+            )
 
-        elif ema19 < ema50:
-
-            current_relationship = "BELOW"
-
-        else:
-
-            current_relationship = "EQUAL"
-
-        # ----------------------------------------------------
-        # CROSSOVER DETECTION
-        # ----------------------------------------------------
+        # ====================================================
+        # STEP 2
+        # DETECT A NEW CROSSOVER
+        # ====================================================
 
         bullish_cross = (
-            self.last_relationship
-            in (
-                "BELOW",
-                "EQUAL",
-            )
-            and
-            current_relationship == "ABOVE"
+            previous_ema19
+            <= previous_ema50
+            and self.ema19
+            > self.ema50
         )
 
         bearish_cross = (
-            self.last_relationship
-            in (
-                "ABOVE",
-                "EQUAL",
-            )
-            and
-            current_relationship == "BELOW"
+            previous_ema19
+            >= previous_ema50
+            and self.ema19
+            < self.ema50
         )
-
-        # ====================================================
-        # BULLISH CROSSOVER
-        # ====================================================
 
         if bullish_cross:
 
             print(
-                "REAL BULLISH CROSSOVER "
-                "DETECTED",
+                "CROSSOVER DETECTED: "
+                "EMA19 ABOVE EMA50",
                 flush=True,
             )
 
-            # A complete bearish-to-bullish cycle
-            # re-arms the LONG signal.
-
-            if self.last_signal == "LONG":
-
-                self.last_signal = None
-
-                print(
-                    "LONG SIGNAL RE-ARMED",
-                    flush=True,
-                )
-
-            # Cancel any old SHORT waiting for
-            # confirmation.
-
-            if self.pending_signal == "SHORT":
-
-                print(
-                    "PENDING SHORT CANCELLED",
-                    flush=True,
-                )
-
-                self.pending_signal = None
-
-            # Immediate confirmation.
-
-            if close > ema200:
-
-                print(
-                    "BULLISH CROSS "
-                    "IMMEDIATELY CONFIRMED",
-                    flush=True,
-                )
-
-                await self.send_long_signal(
-                    bot,
-                    close,
-                    ema19,
-                    ema50,
-                    ema200,
-                    structure,
-                    "⚡ CROSSOVER CONFIRMED "
-                    "IMMEDIATELY",
-                )
-
-            else:
-
-                self.pending_signal = "LONG"
-
-                print(
-                    "PENDING LONG CREATED",
-                    flush=True,
-                )
-
-                print(
-                    "WAITING FOR PRICE "
-                    "ABOVE EMA200",
-                    flush=True,
-                )
-
-        # ====================================================
-        # BEARISH CROSSOVER
-        # ====================================================
-
-        if bearish_cross:
+            self.pending_signal = {
+                "direction": "LONG",
+                "created_time": candle_time,
+                "price": close_price,
+            }
 
             print(
-                "REAL BEARISH CROSSOVER "
-                "DETECTED",
+                "LONG SIGNAL STATUS: PENDING",
                 flush=True,
             )
 
-            # A complete bullish-to-bearish cycle
-            # re-arms the SHORT signal.
+            print(
+                "WAITING FOR NEXT CLOSED "
+                "1m CANDLE CONFIRMATION",
+                flush=True,
+            )
 
-            if self.last_signal == "SHORT":
+        elif bearish_cross:
 
-                self.last_signal = None
+            print(
+                "CROSSOVER DETECTED: "
+                "EMA19 BELOW EMA50",
+                flush=True,
+            )
 
-                print(
-                    "SHORT SIGNAL RE-ARMED",
-                    flush=True,
-                )
+            self.pending_signal = {
+                "direction": "SHORT",
+                "created_time": candle_time,
+                "price": close_price,
+            }
 
-            # Cancel any old LONG waiting for
-            # confirmation.
+            print(
+                "SHORT SIGNAL STATUS: PENDING",
+                flush=True,
+            )
 
-            if self.pending_signal == "LONG":
+            print(
+                "WAITING FOR NEXT CLOSED "
+                "1m CANDLE CONFIRMATION",
+                flush=True,
+            )
 
-                print(
-                    "PENDING LONG CANCELLED",
-                    flush=True,
-                )
+        self.previous_ema19 = self.ema19
 
-                self.pending_signal = None
+        self.previous_ema50 = self.ema50
 
-            # Immediate confirmation.
 
-            if close < ema200:
-
-                print(
-                    "BEARISH CROSS "
-                    "IMMEDIATELY CONFIRMED",
-                    flush=True,
-                )
-
-                await self.send_short_signal(
-                    bot,
-                    close,
-                    ema19,
-                    ema50,
-                    ema200,
-                    structure,
-                    "⚡ CROSSOVER CONFIRMED "
-                    "IMMEDIATELY",
-                )
-
-            else:
-
-                self.pending_signal = "SHORT"
-
-                print(
-                    "PENDING SHORT CREATED",
-                    flush=True,
-                )
-
-                print(
-                    "WAITING FOR PRICE "
-                    "BELOW EMA200",
-                    flush=True,
-                )
-
-        # ====================================================
-        # PENDING LONG ENGINE
-        # ====================================================
-
-        if self.pending_signal == "LONG":
-
-            # Bullish EMA relationship disappeared.
-            # Pending LONG is no longer valid.
-
-            if ema19 <= ema50:
-
-                print(
-                    "PENDING LONG INVALIDATED",
-                    flush=True,
-                )
-
-                print(
-                    "EMA19 NO LONGER "
-                    "ABOVE EMA50",
-                    flush=True,
-                )
-
-                self.pending_signal = None
-
-            # Bullish relationship remains valid
-            # and price finally confirms.
-
-            elif close > ema200:
-
-                print(
-                    "PENDING LONG CONFIRMED",
-                    flush=True,
-                )
-
-                print(
-                    "PRICE MOVED ABOVE EMA200",
-                    flush=True,
-                )
-
-                await self.send_long_signal(
-                    bot,
-                    close,
-                    ema19,
-                    ema50,
-                    ema200,
-                    structure,
-                    "⏳ DELAYED EMA200 "
-                    "CONFIRMATION",
-                )
-
-            else:
-
-                print(
-                    "PENDING LONG ACTIVE",
-                    flush=True,
-                )
-
-                print(
-                    "PRICE STILL BELOW EMA200",
-                    flush=True,
-                )
-
-        # ====================================================
-        # PENDING SHORT ENGINE
-        # ====================================================
-
-        if self.pending_signal == "SHORT":
-
-            # Bearish EMA relationship disappeared.
-            # Pending SHORT is no longer valid.
-
-            if ema19 >= ema50:
-
-                print(
-                    "PENDING SHORT INVALIDATED",
-                    flush=True,
-                )
-
-                print(
-                    "EMA19 NO LONGER "
-                    "BELOW EMA50",
-                    flush=True,
-                )
-
-                self.pending_signal = None
-
-            # Bearish relationship remains valid
-            # and price finally confirms.
-
-            elif close < ema200:
-
-                print(
-                    "PENDING SHORT CONFIRMED",
-                    flush=True,
-                )
-
-                print(
-                    "PRICE MOVED BELOW EMA200",
-                    flush=True,
-                )
-
-                await self.send_short_signal(
-                    bot,
-                    close,
-                    ema19,
-                    ema50,
-                    ema200,
-                    structure,
-                    "⏳ DELAYED EMA200 "
-                    "CONFIRMATION",
-                )
-
-            else:
-
-                print(
-                    "PENDING SHORT ACTIVE",
-                    flush=True,
-                )
-
-                print(
-                    "PRICE STILL ABOVE EMA200",
-                    flush=True,
-                )
-
-        # ----------------------------------------------------
-        # PENDING STATUS
-        # ----------------------------------------------------
+    async def confirm_pending_signal(
+        self,
+        close_price: Decimal,
+        candle_time: int,
+    ) -> None:
 
         if self.pending_signal is None:
 
+            return
+
+        direction = self.pending_signal.get(
+            "direction"
+        )
+
+        created_time = self.pending_signal.get(
+            "created_time"
+        )
+
+        # Do not confirm on the same candle
+        # that created the pending signal.
+
+        if candle_time == created_time:
+
+            return
+
+        if direction == "LONG":
+
+            confirmed = (
+                self.ema19
+                > self.ema50
+                > self.ema200
+            )
+
+            if confirmed:
+
+                print(
+                    "PENDING LONG SIGNAL CONFIRMED",
+                    flush=True,
+                )
+
+                await self.send_live_signal(
+                    direction="LONG",
+                    close_price=close_price,
+                )
+
+            else:
+
+                print(
+                    "PENDING LONG SIGNAL REJECTED",
+                    flush=True,
+                )
+
+                print(
+                    "REASON: "
+                    "EMA19 > EMA50 > EMA200 "
+                    "NOT CONFIRMED",
+                    flush=True,
+                )
+
+        elif direction == "SHORT":
+
+            confirmed = (
+                self.ema19
+                < self.ema50
+                < self.ema200
+            )
+
+            if confirmed:
+
+                print(
+                    "PENDING SHORT SIGNAL CONFIRMED",
+                    flush=True,
+                )
+
+                await self.send_live_signal(
+                    direction="SHORT",
+                    close_price=close_price,
+                )
+
+            else:
+
+                print(
+                    "PENDING SHORT SIGNAL REJECTED",
+                    flush=True,
+                )
+
+                print(
+                    "REASON: "
+                    "EMA19 < EMA50 < EMA200 "
+                    "NOT CONFIRMED",
+                    flush=True,
+                )
+
+        self.pending_signal = None
+
+
+    async def send_live_signal(
+        self,
+        direction: str,
+        close_price: Decimal,
+    ) -> None:
+
+        # Anti-duplicate protection.
+        #
+        # A fresh opposite crossover will be
+        # required before the same directional
+        # sequence can naturally occur again.
+
+        if (
+            self.last_confirmed_signal
+            == direction
+        ):
+
             print(
-                "PENDING SIGNAL: NONE",
+                "DUPLICATE SIGNAL BLOCKED:",
+                direction,
                 flush=True,
+            )
+
+            return
+
+        self.last_confirmed_signal = direction
+
+        if direction == "LONG":
+
+            message = (
+                "🟢 BTCUSDT LONG SIGNAL\n\n"
+                "✅ EMA19 / EMA50 "
+                "BULLISH CROSSOVER\n"
+                "✅ NEXT 1m CANDLE CONFIRMED\n"
+                "✅ EMA19 > EMA50 > EMA200\n\n"
+                f"Price: {close_price}\n"
+                f"EMA19: {self.ema19:.2f}\n"
+                f"EMA50: {self.ema50:.2f}\n"
+                f"EMA200: {self.ema200:.2f}\n\n"
+                "MODULE 0F-2"
             )
 
         else:
 
-            print(
-                "PENDING SIGNAL: "
-                f"{self.pending_signal}",
-                flush=True,
+            message = (
+                "🔴 BTCUSDT SHORT SIGNAL\n\n"
+                "✅ EMA19 / EMA50 "
+                "BEARISH CROSSOVER\n"
+                "✅ NEXT 1m CANDLE CONFIRMED\n"
+                "✅ EMA19 < EMA50 < EMA200\n\n"
+                f"Price: {close_price}\n"
+                f"EMA19: {self.ema19:.2f}\n"
+                f"EMA50: {self.ema50:.2f}\n"
+                f"EMA200: {self.ema200:.2f}\n\n"
+                "MODULE 0F-2"
             )
 
-        # ----------------------------------------------------
-        # UPDATE ENGINE STATE
-        # ----------------------------------------------------
-
-        self.last_relationship = (
-            current_relationship
+        await send_telegram(
+            self.bot,
+            message,
         )
 
-        self.previous_ema19 = ema19
-        self.previous_ema50 = ema50
-        self.previous_ema200 = ema200
+
+# ============================================================
+# WEBSOCKET MESSAGE HANDLING
+# ============================================================
+
+def extract_kline(
+    message: Any,
+) -> Optional[dict[str, Any]]:
+
+    if not isinstance(
+        message,
+        dict,
+    ):
+
+        return None
+
+    if message.get("e") != "kline":
+
+        return None
+
+    data = message.get("d")
+
+    if not isinstance(
+        data,
+        list,
+    ):
+
+        return None
+
+    if not data:
+
+        return None
+
+    candle = data[0]
+
+    if not isinstance(
+        candle,
+        dict,
+    ):
+
+        return None
+
+    try:
+
+        start_time = int(
+            candle.get("t")
+        )
+
+        close_time = int(
+            candle.get("T")
+        )
+
+    except (
+        ValueError,
+        TypeError,
+    ):
+
+        return None
+
+    close_price = to_decimal(
+        candle.get("c")
+    )
+
+    if close_price is None:
+
+        return None
+
+    return {
+        "start_time": start_time,
+        "close_time": close_time,
+        "close_price": close_price,
+    }
 
 
 # ============================================================
-# WEBSOCKET ENGINE
+# LIVE WEBSOCKET ENGINE
 # ============================================================
 
-async def run_websocket(
-    bot: Bot,
+async def run_live_engine(
     signal_engine: SignalEngine,
 ) -> None:
 
@@ -1104,21 +1016,13 @@ async def run_websocket(
         RECONNECT_DELAY_SECONDS
     )
 
-    current_candle_time = None
-    current_candle_close = None
-
     while True:
 
         try:
 
             async with websockets.connect(
                 WS_URL,
-                additional_headers={
-                    "User-Agent":
-                    "WEEX-BTC-Bot/1.0"
-                },
                 ping_interval=None,
-                ping_timeout=None,
                 close_timeout=10,
             ) as websocket:
 
@@ -1127,7 +1031,7 @@ async def run_websocket(
                     flush=True,
                 )
 
-                subscribe_message = {
+                subscription = {
                     "method": "SUBSCRIBE",
                     "params": [
                         SUBSCRIPTION_CHANNEL
@@ -1137,7 +1041,7 @@ async def run_websocket(
 
                 await websocket.send(
                     json.dumps(
-                        subscribe_message
+                        subscription
                     )
                 )
 
@@ -1151,7 +1055,32 @@ async def run_websocket(
                     RECONNECT_DELAY_SECONDS
                 )
 
+                live_candle_start: Optional[
+                    int
+                ] = None
+
+                live_candle_close: Optional[
+                    Decimal
+                ] = None
+
                 async for raw_message in websocket:
+
+                    # ----------------------------------------
+                    # TEXT PING
+                    # ----------------------------------------
+
+                    if raw_message == "ping":
+
+                        await websocket.send(
+                            "pong"
+                        )
+
+                        print(
+                            "APPLICATION PONG SENT",
+                            flush=True,
+                        )
+
+                        continue
 
                     try:
 
@@ -1159,163 +1088,193 @@ async def run_websocket(
                             raw_message
                         )
 
-                    except json.JSONDecodeError:
+                    except (
+                        json.JSONDecodeError,
+                        TypeError,
+                    ):
 
                         continue
 
                     # ----------------------------------------
-                    # SUBSCRIPTION CONFIRMATION
+                    # SUBSCRIPTION ACK
                     # ----------------------------------------
-
-                    if isinstance(
-                        message,
-                        dict,
-                    ):
-
-                        if (
-                            message.get("id")
-                            == 1
-                        ):
-
-                            print(
-                                "SUBSCRIPTION "
-                                "CONFIRMED",
-                                flush=True,
-                            )
-
-                            continue
-
-                    # ----------------------------------------
-                    # APPLICATION PING / PONG
-                    # ----------------------------------------
-
-                    if isinstance(
-                        message,
-                        dict,
-                    ):
-
-                        event = str(
-                            message.get(
-                                "event",
-                                "",
-                            )
-                        ).lower()
-
-                        method = str(
-                            message.get(
-                                "method",
-                                "",
-                            )
-                        ).lower()
-
-                        if (
-                            event == "ping"
-                            or method == "ping"
-                        ):
-
-                            pong_message = {
-                                "event": "pong"
-                            }
-
-                            await websocket.send(
-                                json.dumps(
-                                    pong_message
-                                )
-                            )
-
-                            print(
-                                "APPLICATION "
-                                "PONG SENT",
-                                flush=True,
-                            )
-
-                            continue
-
-                    # ----------------------------------------
-                    # LIVE CANDLE
-                    # ----------------------------------------
-
-                    candle = extract_live_candle(
-                        message
-                    )
-
-                    if candle is None:
-                        continue
-
-                    candle_time, close = candle
-
-                    # First candle received.
 
                     if (
-                        current_candle_time
-                        is None
+                        isinstance(message, dict)
+                        and message.get("id") == 1
+                        and message.get("result")
+                        is True
                     ):
 
-                        current_candle_time = (
-                            candle_time
-                        )
-
-                        current_candle_close = (
-                            close
-                        )
-
                         print(
-                            "LIVE 1m CANDLE "
-                            f"STARTED: {close}",
+                            "SUBSCRIPTION CONFIRMED",
                             flush=True,
                         )
 
                         continue
 
-                    # Same candle still updating.
+                    # ----------------------------------------
+                    # JSON PING HANDLING
+                    # ----------------------------------------
 
-                    if (
-                        candle_time
-                        == current_candle_time
+                    if isinstance(
+                        message,
+                        dict,
                     ):
 
-                        current_candle_close = (
-                            close
+                        if "ping" in message:
+
+                            await websocket.send(
+                                json.dumps(
+                                    {
+                                        "pong":
+                                        message[
+                                            "ping"
+                                        ]
+                                    }
+                                )
+                            )
+
+                            print(
+                                "APPLICATION PONG SENT",
+                                flush=True,
+                            )
+
+                            continue
+
+                        if (
+                            str(
+                                message.get(
+                                    "event",
+                                    ""
+                                )
+                            ).lower()
+                            == "ping"
+                        ):
+
+                            await websocket.send(
+                                json.dumps(
+                                    {
+                                        "event":
+                                        "pong"
+                                    }
+                                )
+                            )
+
+                            print(
+                                "APPLICATION PONG SENT",
+                                flush=True,
+                            )
+
+                            continue
+
+                    # ----------------------------------------
+                    # EXTRACT KLINE
+                    # ----------------------------------------
+
+                    candle = extract_kline(
+                        message
+                    )
+
+                    if candle is None:
+
+                        continue
+
+                    candle_start = candle[
+                        "start_time"
+                    ]
+
+                    candle_close = candle[
+                        "close_price"
+                    ]
+
+                    # ----------------------------------------
+                    # FIRST LIVE CANDLE
+                    # ----------------------------------------
+
+                    if live_candle_start is None:
+
+                        live_candle_start = (
+                            candle_start
+                        )
+
+                        live_candle_close = (
+                            candle_close
+                        )
+
+                        print(
+                            "LIVE 1m CANDLE STARTED:",
+                            candle_close,
+                            flush=True,
                         )
 
                         continue
 
                     # ----------------------------------------
-                    # NEW CANDLE =
-                    # PREVIOUS CANDLE CLOSED
+                    # SAME FORMING CANDLE
                     # ----------------------------------------
 
                     if (
-                        current_candle_close
-                        is not None
+                        candle_start
+                        == live_candle_start
                     ):
 
-                        await (
-                            signal_engine
-                            .process_closed_candle(
-                                bot,
-                                current_candle_close,
-                            )
+                        live_candle_close = (
+                            candle_close
                         )
 
-                    current_candle_time = (
-                        candle_time
-                    )
+                        continue
 
-                    current_candle_close = (
-                        close
-                    )
+                    # ----------------------------------------
+                    # NEW CANDLE STARTED
+                    #
+                    # Therefore previous candle has closed.
+                    # ----------------------------------------
 
-                    print(
-                        "NEW LIVE 1m CANDLE: "
-                        f"{close}",
-                        flush=True,
-                    )
+                    if (
+                        candle_start
+                        > live_candle_start
+                    ):
+
+                        if (
+                            live_candle_close
+                            is not None
+                        ):
+
+                            await (
+                                signal_engine
+                                .process_closed_candle(
+                                    close_price=(
+                                        live_candle_close
+                                    ),
+                                    candle_time=(
+                                        live_candle_start
+                                    ),
+                                )
+                            )
+
+                        live_candle_start = (
+                            candle_start
+                        )
+
+                        live_candle_close = (
+                            candle_close
+                        )
+
+                        print(
+                            "NEW LIVE 1m CANDLE:",
+                            candle_close,
+                            flush=True,
+                        )
+
+        except asyncio.CancelledError:
+
+            raise
 
         except Exception as error:
 
             print(
-                "WEBSOCKET ERROR:",
+                "WEBSOCKET ERROR: "
                 f"{type(error).__name__}: "
                 f"{error}",
                 flush=True,
@@ -1323,8 +1282,7 @@ async def run_websocket(
 
             print(
                 "RECONNECTING IN "
-                f"{reconnect_delay} "
-                "SECONDS...",
+                f"{reconnect_delay} SECONDS...",
                 flush=True,
             )
 
@@ -1345,12 +1303,12 @@ async def run_websocket(
 async def main() -> None:
 
     print(
-        "=" * 40,
+        "========================================",
         flush=True,
     )
 
     print(
-        "MODULE 0F-2 STARTING",
+        f"MODULE {MODULE_NAME} STARTING",
         flush=True,
     )
 
@@ -1366,13 +1324,12 @@ async def main() -> None:
     )
 
     print(
-        "CROSSOVER + PENDING "
-        "CONFIRMATION",
+        "CROSSOVER + PENDING CONFIRMATION",
         flush=True,
     )
 
     print(
-        "=" * 40,
+        "========================================",
         flush=True,
     )
 
@@ -1390,61 +1347,43 @@ async def main() -> None:
             flush=True,
         )
 
-    prices = (
-        await load_historical_prices()
-    )
+    # ----------------------------------------
+    # LOAD HISTORICAL DATA
+    # ----------------------------------------
 
-    if len(prices) < 200:
+    async with aiohttp.ClientSession() as session:
+
+        closes = await load_historical_candles(
+            session
+        )
+
+    if len(closes) < EMA200_PERIOD:
 
         print(
-            "ERROR: NOT ENOUGH "
-            "HISTORICAL CANDLES "
-            "FOR EMA200",
+            "ERROR: NOT ENOUGH HISTORICAL "
+            "CANDLES FOR EMA200",
             flush=True,
         )
 
         return
 
-    print(
-        "LATEST CLOSED PRICE: "
-        f"{prices[-1]}",
-        flush=True,
+    # ----------------------------------------
+    # INITIAL EMA ENGINE
+    # ----------------------------------------
+
+    ema19 = calculate_initial_ema(
+        closes,
+        EMA19_PERIOD,
     )
 
-    signal_engine = SignalEngine(
-        prices
+    ema50 = calculate_initial_ema(
+        closes,
+        EMA50_PERIOD,
     )
 
-    ema19 = (
-        signal_engine.previous_ema19
-    )
-
-    ema50 = (
-        signal_engine.previous_ema50
-    )
-
-    ema200 = (
-        signal_engine.previous_ema200
-    )
-
-    if (
-        ema19 is None
-        or ema50 is None
-        or ema200 is None
-    ):
-
-        print(
-            "ERROR INITIALIZING "
-            "EMA ENGINE",
-            flush=True,
-        )
-
-        return
-
-    structure = get_structure(
-        ema19,
-        ema50,
-        ema200,
+    ema200 = calculate_initial_ema(
+        closes,
+        EMA200_PERIOD,
     )
 
     print(
@@ -1453,22 +1392,32 @@ async def main() -> None:
     )
 
     print(
-        f"EMA19: {ema19:.2f}",
+        "EMA19:",
+        round(ema19, 2),
         flush=True,
     )
 
     print(
-        f"EMA50: {ema50:.2f}",
+        "EMA50:",
+        round(ema50, 2),
         flush=True,
     )
 
     print(
-        f"EMA200: {ema200:.2f}",
+        "EMA200:",
+        round(ema200, 2),
         flush=True,
     )
 
+    structure = describe_structure(
+        ema19,
+        ema50,
+        ema200,
+    )
+
     print(
-        f"STRUCTURE: {structure}",
+        "STRUCTURE:",
+        structure,
         flush=True,
     )
 
@@ -1477,8 +1426,31 @@ async def main() -> None:
         flush=True,
     )
 
+    # ----------------------------------------
+    # TELEGRAM BOT
+    # ----------------------------------------
+
+    bot = Bot(
+        token=TELEGRAM_BOT_TOKEN
+    )
+
+    # ----------------------------------------
+    # STARTUP TELEGRAM VERIFICATION
+    # ----------------------------------------
+
+    await send_telegram(
+        bot,
+        (
+            "✅ MODULE 0F-2 ONLINE\n\n"
+            "BTCUSDT Pending Signal "
+            "Confirmation Engine\n"
+            "EMA19 / EMA50 / EMA200\n\n"
+            "Live monitoring active."
+        ),
+    )
+
     print(
-        "=" * 40,
+        "========================================",
         flush=True,
     )
 
@@ -1488,28 +1460,36 @@ async def main() -> None:
     )
 
     print(
-        "PENDING CONFIRMATION "
-        "ENGINE ACTIVE",
+        "PENDING CONFIRMATION ENGINE ACTIVE",
         flush=True,
+    )
+
+    # ----------------------------------------
+    # ONE-SHOT SIMULATED TEST
+    # ----------------------------------------
+
+    await run_simulated_pending_confirmation_test(
+        bot
     )
 
     print(
-        "SIMULATED TEST DISABLED",
+        "========================================",
         flush=True,
     )
 
-    print(
-        "=" * 40,
-        flush=True,
+    # ----------------------------------------
+    # START LIVE SIGNAL ENGINE
+    # ----------------------------------------
+
+    signal_engine = SignalEngine(
+        ema19=ema19,
+        ema50=ema50,
+        ema200=ema200,
+        bot=bot,
     )
 
-    bot = Bot(
-        token=TELEGRAM_BOT_TOKEN
-    )
-
-    await run_websocket(
-        bot,
-        signal_engine,
+    await run_live_engine(
+        signal_engine
     )
 
 
@@ -1521,7 +1501,9 @@ if __name__ == "__main__":
 
     try:
 
-        asyncio.run(main())
+        asyncio.run(
+            main()
+        )
 
     except KeyboardInterrupt:
 
