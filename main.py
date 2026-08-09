@@ -1,922 +1,945 @@
-import os, time, asyncio
-from dataclasses import dataclass, field
-from decimal import Decimal as D
+import asyncio
+import json
+import os
+from decimal import Decimal, InvalidOperation
+
+import aiohttp
+import websockets
 from telegram import Bot
 
 
 # ============================================================
-# MODULE 0F-4C
+# MODULE
 # ============================================================
 
 MODULE = "0F-4C"
+SYMBOL = "BTCUSDT"
 
-SYMBOL = os.getenv("SYMBOL", "BTCUSDT")
+WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
+CHANNEL = f"{SYMBOL}@kline_1m_LAST_PRICE"
 
-LIVE_ORDERS = (
-    os.getenv("LIVE_ORDERS", "false").lower()
-    == "true"
+HISTORICAL_URL = (
+    "https://api-contract.weex.com"
+    "/capi/v3/market/klines"
 )
 
-TG_TOKEN = os.getenv(
-    "TELEGRAM_BOT_TOKEN",
-    ""
-).strip()
+HISTORICAL_LIMIT = 250
 
-TG_CHAT = os.getenv(
-    "TELEGRAM_CHAT_ID",
-    ""
-).strip()
+RECONNECT_DELAY = 5
+MAX_RECONNECT_DELAY = 60
 
 
 # ============================================================
 # HELPERS
 # ============================================================
 
-def envd(name, default):
-    return D(os.getenv(name, str(default)))
+def env_decimal(name, default):
+    try:
+        return Decimal(
+            os.getenv(name, str(default))
+        )
+    except Exception:
+        return Decimal(str(default))
 
 
-def envi(name, default):
-    return int(os.getenv(name, str(default)))
+def env_int(name, default):
+    try:
+        return int(os.getenv(name, str(default)))
+    except Exception:
+        return int(default)
 
 
-def envb(name, default):
-    return os.getenv(
-        name,
-        str(default)
-    ).lower() in (
-        "1", "true", "yes", "on"
-    )
+def D(value):
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
 
 
-def clamp(value, minimum, maximum):
-    return max(
-        minimum,
-        min(maximum, value)
-    )
+def pct(value):
+    return Decimal(str(value)) / Decimal("100")
 
 
 # ============================================================
 # TRADE CONFIGURATION
 # ============================================================
 
-ENTRY_PCT = envd(
-    "INITIAL_ENTRY_PCT",
-    5
+INITIAL_ENTRY_PERCENT = env_decimal(
+    "INITIAL_ENTRY_PERCENT",
+    "5",
 )
 
-LEVERAGE = envd(
+LEVERAGE = env_decimal(
     "LEVERAGE",
-    5
+    "5",
 )
 
-MAX_LEVERAGE = envd(
+MAX_LEVERAGE = env_decimal(
     "MAX_LEVERAGE",
-    10
+    "10",
 )
 
-
-# ============================================================
-# PYRAMID CONFIGURATION
-# ============================================================
-
-MAX_PYRAMIDS = envi(
-    "MAX_PYRAMIDS",
-    1
+MAX_PYRAMID_ADDS = env_int(
+    "MAX_PYRAMID_ADDS",
+    1,
 )
 
-PYRAMID_PCTS = [
-    D(x)
-    for x in os.getenv(
-        "PYRAMID_PCTS",
-        "2.5"
-    ).split(",")
-    if x.strip()
-]
-
-PYRAMID_TRIGGER = envd(
-    "PYRAMID_TRIGGER_PCT",
-    0.35
+PYRAMID_1_PERCENT = env_decimal(
+    "PYRAMID_1_PERCENT",
+    "5",
 )
 
-IDLE_PYRAMID_CLEANUP_SEC = envi(
-    "IDLE_PYRAMID_CLEANUP_SEC",
-    180
+PYRAMID_2_PERCENT = env_decimal(
+    "PYRAMID_2_PERCENT",
+    "5",
 )
 
+PYRAMID_3_PERCENT = env_decimal(
+    "PYRAMID_3_PERCENT",
+    "5",
+)
 
-# ============================================================
-# BACKUP CONFIGURATION
-# ============================================================
-
-MAX_BACKUPS = envi(
+MAX_BACKUPS = env_int(
     "MAX_BACKUPS",
-    3
+    3,
 )
 
-BACKUP_PCTS = [
-    D(x)
-    for x in os.getenv(
-        "BACKUP_PCTS",
-        "5,7.5,10"
-    ).split(",")
-    if x.strip()
-]
-
-BACKUP_BUFFER_PCT = envd(
-    "BACKUP_LIQ_BUFFER_PCT",
-    0.35
+BACKUP_1_PERCENT = env_decimal(
+    "BACKUP_1_PERCENT",
+    "5",
 )
 
-MIN_LIQ_DISTANCE_PCT = envd(
-    "MIN_LIQ_DISTANCE_PCT",
-    1
+BACKUP_2_PERCENT = env_decimal(
+    "BACKUP_2_PERCENT",
+    "5",
 )
 
-
-# ============================================================
-# PROFIT MANAGEMENT
-# ============================================================
-
-TP1_PCT = envd(
-    "TP1_POSITION_PCT",
-    20
+BACKUP_3_PERCENT = env_decimal(
+    "BACKUP_3_PERCENT",
+    "5",
 )
 
-TP2_PCT = envd(
-    "TP2_POSITION_PCT",
-    20
+MAX_FUND_EXPOSURE_PERCENT = env_decimal(
+    "MAX_FUND_EXPOSURE_PERCENT",
+    "35",
 )
 
-TP3_PCT = envd(
-    "TP3_POSITION_PCT",
-    60
+MAX_TRADE_LOSS_PERCENT = env_decimal(
+    "MAX_TRADE_LOSS_PERCENT",
+    "10",
 )
 
-TP1_TRIGGER = envd(
-    "TP1_TRIGGER_PCT",
-    0.50
+MIN_LIQUIDATION_DISTANCE_PERCENT = env_decimal(
+    "MIN_LIQUIDATION_DISTANCE_PERCENT",
+    "1",
 )
 
-TP2_TRIGGER = envd(
-    "TP2_TRIGGER_PCT",
-    1.00
-)
-
-TRAIL_DISTANCE = envd(
-    "TRAIL_DISTANCE_PCT",
-    0.20
+BACKUP_LIQUIDATION_BUFFER_PERCENT = env_decimal(
+    "BACKUP_LIQUIDATION_BUFFER_PERCENT",
+    "0.50",
 )
 
 
 # ============================================================
-# SAFETY CONTROLS
+# PROFIT CONFIGURATION
 # ============================================================
 
-MAX_FUND_EXPOSURE_PCT = envd(
-    "MAX_FUND_EXPOSURE_PCT",
-    35
+TP1_CLOSE_PERCENT = env_decimal(
+    "TP1_CLOSE_PERCENT",
+    "20",
 )
 
-MAX_TRADE_LOSS_PCT = envd(
-    "MAX_TRADE_LOSS_PCT",
-    8
+TP2_CLOSE_PERCENT = env_decimal(
+    "TP2_CLOSE_PERCENT",
+    "20",
 )
 
-SIGNAL_EXPIRY_SEC = envi(
-    "SIGNAL_EXPIRY_SEC",
-    180
+TP3_CLOSE_PERCENT = env_decimal(
+    "TP3_CLOSE_PERCENT",
+    "60",
 )
 
-COOLDOWN_SEC = envi(
-    "LOSS_COOLDOWN_SEC",
-    300
+TP1_TRIGGER_PERCENT = env_decimal(
+    "TP1_TRIGGER_PERCENT",
+    "0.50",
 )
 
-ONE_DIRECTION_ONLY = envb(
-    "ONE_DIRECTION_ONLY",
-    True
+TP2_TRIGGER_PERCENT = env_decimal(
+    "TP2_TRIGGER_PERCENT",
+    "1.00",
 )
 
-ANTI_DUPLICATE = envb(
-    "ANTI_DUPLICATE_ORDERS",
-    True
-)
-
-TREND_REVERSAL_EXIT = envb(
-    "TREND_REVERSAL_EXIT",
-    True
+TRAILING_DISTANCE_PERCENT = env_decimal(
+    "TRAILING_DISTANCE_PERCENT",
+    "0.20",
 )
 
 
 # ============================================================
-# TRADE STATE
+# SAFETY
 # ============================================================
 
-@dataclass
-class Trade:
-
-    side: str
-    entry: D
-    equity: D
-
-    opened: float = field(
-        default_factory=time.time
-    )
-
-    qty_pct: D = ENTRY_PCT
-
-    avg: D = D("0")
-
-    pyramids: int = 0
-    backups: int = 0
-
-    tp1: bool = False
-    tp2: bool = False
-
-    trailing: bool = False
-
-    peak: D = D("0")
-    trough: D = D("0")
-
-    last_action: str = "ENTRY"
-
-    pending_pyramids: list = field(
-        default_factory=list
-    )
-
-    def __post_init__(self):
-
-        self.side = self.side.upper()
-
-        self.avg = self.entry
-
-        self.peak = self.entry
-        self.trough = self.entry
-
-
-    # --------------------------------------------------------
-    # PROFIT / LOSS
-    # --------------------------------------------------------
-
-    def pnl_pct(self, price):
-
-        movement = (
-            price / self.avg - 1
-        ) * 100
-
-        if self.side == "LONG":
-            return movement
-
-        return -movement
-
-
-    # --------------------------------------------------------
-    # ESTIMATED LIQUIDATION
-    # --------------------------------------------------------
-
-    def est_liq(self):
-
-        leverage = clamp(
-            LEVERAGE,
-            D("1"),
-            MAX_LEVERAGE
-        )
-
-        movement = (
-            D("100")
-            / leverage
-        )
-
-        if self.side == "LONG":
-
-            return self.avg * (
-                1 - movement / 100
-            )
-
-        return self.avg * (
-            1 + movement / 100
-        )
-
-
-    # --------------------------------------------------------
-    # NEXT BACKUP PRICE
-    # --------------------------------------------------------
-
-    def next_backup_price(self):
-
-        liquidation = self.est_liq()
-
-        buffer = (
-            BACKUP_BUFFER_PCT
-            / 100
-        )
-
-        if self.side == "LONG":
-
-            return liquidation * (
-                1 + buffer
-            )
-
-        return liquidation * (
-            1 - buffer
-        )
-
-
-    # --------------------------------------------------------
-    # ADD POSITION
-    # --------------------------------------------------------
-
-    def add(self, price, pct, kind):
-
-        available = (
-            MAX_FUND_EXPOSURE_PCT
-            - self.qty_pct
-        )
-
-        pct = min(
-            pct,
-            available
-        )
-
-        if pct <= 0:
-            return False
-
-        self.avg = (
-            self.avg * self.qty_pct
-            + price * pct
-        ) / (
-            self.qty_pct + pct
-        )
-
-        self.qty_pct += pct
-
-        self.last_action = kind
-
-        return True
-
-
-    # --------------------------------------------------------
-    # REDUCE POSITION
-    # --------------------------------------------------------
-
-    def reduce(self, pct, label):
-
-        amount = min(
-            self.qty_pct,
-            pct
-        )
-
-        self.qty_pct -= amount
-
-        self.last_action = (
-            f"{label} -{amount}%"
-        )
-
-        return amount
-
-
-# ============================================================
-# CONFIG VALIDATION
-# ============================================================
-
-def validate():
-
-    if LEVERAGE > MAX_LEVERAGE:
-
-        raise ValueError(
-            "LEVERAGE exceeds MAX_LEVERAGE"
-        )
-
-    if (
-        TP1_PCT
-        + TP2_PCT
-        + TP3_PCT
-        != 100
-    ):
-
-        raise ValueError(
-            "TP1 + TP2 + TP3 must equal 100%"
-        )
-
-    if (
-        ENTRY_PCT
-        > MAX_FUND_EXPOSURE_PCT
-    ):
-
-        raise ValueError(
-            "INITIAL_ENTRY_PCT exceeds "
-            "MAX_FUND_EXPOSURE_PCT"
-        )
-
-
-# ============================================================
-# SIGNAL SAFETY
-# ============================================================
-
-def signal_ok(
-    side,
-    signal_time,
-    active_side=None,
-    last_signal=None
-):
-
-    if (
-        time.time()
-        - signal_time
-        > SIGNAL_EXPIRY_SEC
-    ):
-
-        return False, "signal expired"
-
-    if (
-        ONE_DIRECTION_ONLY
-        and active_side
-        and active_side != side
-    ):
-
-        return (
-            False,
-            "opposite position active"
-        )
-
-    if (
-        ANTI_DUPLICATE
-        and last_signal == side
-    ):
-
-        return (
-            False,
-            "duplicate signal"
-        )
-
-    return True, "ok"
-
-
-# ============================================================
-# TRADE MANAGEMENT ENGINE
-# ============================================================
-
-def manage(
-    trade,
-    price,
-    trend_side=None
-):
-
-    price = D(str(price))
-
-    actions = []
-
-    pnl = trade.pnl_pct(price)
-
-    trade.peak = max(
-        trade.peak,
-        price
-    )
-
-    trade.trough = min(
-        trade.trough,
-        price
-    )
-
-
-    # ========================================================
-    # TREND REVERSAL EXIT
-    # ========================================================
-
-    if (
-        TREND_REVERSAL_EXIT
-        and trend_side
-        and trend_side != trade.side
-    ):
-
-        actions.append(
-            (
-                "EXIT",
-                trade.qty_pct,
-                price,
-                "trend reversal"
-            )
-        )
-
-        trade.qty_pct = D("0")
-
-        return actions
-
-
-    # ========================================================
-    # MAXIMUM TRADE LOSS
-    # ========================================================
-
-    if pnl <= -MAX_TRADE_LOSS_PCT:
-
-        actions.append(
-            (
-                "EXIT",
-                trade.qty_pct,
-                price,
-                "max trade loss"
-            )
-        )
-
-        trade.qty_pct = D("0")
-
-        return actions
-
-
-    # ========================================================
-    # SEQUENTIAL BACKUP
-    # ========================================================
-
-    if trade.backups < MAX_BACKUPS:
-
-        target = (
-            trade.next_backup_price()
-        )
-
-        if trade.side == "LONG":
-
-            backup_triggered = (
-                price <= target
-            )
-
-        else:
-
-            backup_triggered = (
-                price >= target
-            )
-
-        if backup_triggered:
-
-            index = min(
-                trade.backups,
-                len(BACKUP_PCTS) - 1
-            )
-
-            pct = BACKUP_PCTS[index]
-
-            if trade.add(
-                price,
-                pct,
-                f"BACKUP-{trade.backups + 1}"
-            ):
-
-                trade.backups += 1
-
-                actions.append(
-                    (
-                        "BACKUP",
-                        pct,
-                        price,
-                        f"backup {trade.backups}"
-                    )
-                )
-
-
-    # ========================================================
-    # PYRAMIDING
-    # ========================================================
-
-    while (
-        trade.pyramids
-        < MAX_PYRAMIDS
-        and pnl
-        >= PYRAMID_TRIGGER
-        * (trade.pyramids + 1)
-    ):
-
-        index = min(
-            trade.pyramids,
-            len(PYRAMID_PCTS) - 1
-        )
-
-        pct = PYRAMID_PCTS[index]
-
-        if not trade.add(
-            price,
-            pct,
-            f"PYRAMID-{trade.pyramids + 1}"
-        ):
-
-            break
-
-        trade.pyramids += 1
-
-        actions.append(
-            (
-                "PYRAMID",
-                pct,
-                price,
-                f"pyramid {trade.pyramids}"
-            )
-        )
-
-
-    # ========================================================
-    # TP1
-    # ========================================================
-
-    if (
-        not trade.tp1
-        and pnl >= TP1_TRIGGER
-    ):
-
-        amount = (
-            trade.qty_pct
-            * TP1_PCT
-            / 100
-        )
-
-        trade.reduce(
-            amount,
-            "TP1"
-        )
-
-        trade.tp1 = True
-
-        actions.append(
-            (
-                "TP1",
-                amount,
-                price,
-                "20% partial profit"
-            )
-        )
-
-
-    # ========================================================
-    # TP2
-    # ========================================================
-
-    if (
-        not trade.tp2
-        and pnl >= TP2_TRIGGER
-    ):
-
-        amount = (
-            trade.qty_pct
-            * TP2_PCT
-            / (
-                D("100")
-                - TP1_PCT
-            )
-        )
-
-        trade.reduce(
-            amount,
-            "TP2"
-        )
-
-        trade.tp2 = True
-
-        # TP3 starts trailing immediately
-        trade.trailing = True
-
-        actions.append(
-            (
-                "TP2",
-                amount,
-                price,
-                "TP3 trailing activated"
-            )
-        )
-
-
-    # ========================================================
-    # TP3 TRAILING PROFIT
-    # ========================================================
-
-    if (
-        trade.trailing
-        and trade.qty_pct > 0
-    ):
-
-        if trade.side == "LONG":
-
-            trailing_stop = (
-                trade.peak
-                * (
-                    1
-                    - TRAIL_DISTANCE
-                    / 100
-                )
-            )
-
-            trailing_hit = (
-                price
-                <= trailing_stop
-            )
-
-        else:
-
-            trailing_stop = (
-                trade.trough
-                * (
-                    1
-                    + TRAIL_DISTANCE
-                    / 100
-                )
-            )
-
-            trailing_hit = (
-                price
-                >= trailing_stop
-            )
-
-
-        if trailing_hit:
-
-            amount = trade.qty_pct
-
-            trade.qty_pct = D("0")
-
-            actions.append(
-                (
-                    "TRAIL-EXIT",
-                    amount,
-                    price,
-                    f"stop {trailing_stop:.2f}"
-                )
-            )
-
-
-    # ========================================================
-    # IDLE PYRAMID CLEANUP
-    # ========================================================
-
-    if (
-        trade.pending_pyramids
-        and
-        time.time()
-        - trade.opened
-        >= IDLE_PYRAMID_CLEANUP_SEC
-    ):
-
-        count = len(
-            trade.pending_pyramids
-        )
-
-        trade.pending_pyramids.clear()
-
-        actions.append(
-            (
-                "CLEANUP",
-                D(count),
-                price,
-                "idle pyramids removed"
-            )
-        )
-
-
-    return actions
+LIVE_EXECUTION = False
+
+IDLE_PYRAMID_CLEANUP = True
+ONE_DIRECTION_ONLY = True
+ANTI_DUPLICATE_ORDERS = True
+TREND_REVERSAL_EXIT = True
 
 
 # ============================================================
 # TELEGRAM
 # ============================================================
 
-async def notify(text):
+TELEGRAM_BOT_TOKEN = os.getenv(
+    "TELEGRAM_BOT_TOKEN",
+    "",
+).strip()
 
-    if not (
-        TG_TOKEN
-        and TG_CHAT
-    ):
+TELEGRAM_CHAT_ID = os.getenv(
+    "TELEGRAM_CHAT_ID",
+    "",
+).strip()
 
+telegram_bot = None
+
+if TELEGRAM_BOT_TOKEN:
+    telegram_bot = Bot(
+        token=TELEGRAM_BOT_TOKEN
+    )
+
+
+async def send_telegram(message):
+    if not telegram_bot or not TELEGRAM_CHAT_ID:
         return
 
     try:
-
-        await Bot(
-            TG_TOKEN
-        ).send_message(
-            chat_id=TG_CHAT,
-            text=text
+        await telegram_bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=message,
         )
 
-    except Exception as error:
+    except Exception as e:
+        print(
+            f"TELEGRAM ERROR: {e}",
+            flush=True,
+        )
+
+
+# ============================================================
+# POSITION STATE
+# ============================================================
+
+class PositionState:
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.active = False
+        self.side = None
+
+        self.entry_price = None
+        self.average_price = None
+        self.current_price = None
+
+        self.position_percent = Decimal("0")
+
+        self.pyramids_used = 0
+        self.backups_used = 0
+
+        self.tp1_done = False
+        self.tp2_done = False
+        self.trailing_active = False
+
+        self.highest_price = None
+        self.lowest_price = None
+
+        self.last_action = None
+
+
+position = PositionState()
+
+
+# ============================================================
+# EXPOSURE CONTROL
+# ============================================================
+
+def exposure_allowed(add_percent):
+    new_total = (
+        position.position_percent
+        + Decimal(str(add_percent))
+    )
+
+    return (
+        new_total
+        <= MAX_FUND_EXPOSURE_PERCENT
+    )
+
+
+# ============================================================
+# PYRAMID SIZE
+# ============================================================
+
+def pyramid_size(number):
+
+    sizes = [
+        PYRAMID_1_PERCENT,
+        PYRAMID_2_PERCENT,
+        PYRAMID_3_PERCENT,
+    ]
+
+    index = number - 1
+
+    if index < 0 or index >= len(sizes):
+        return Decimal("0")
+
+    return sizes[index]
+
+
+# ============================================================
+# BACKUP SIZE
+# ============================================================
+
+def backup_size(number):
+
+    sizes = [
+        BACKUP_1_PERCENT,
+        BACKUP_2_PERCENT,
+        BACKUP_3_PERCENT,
+    ]
+
+    index = number - 1
+
+    if index < 0 or index >= len(sizes):
+        return Decimal("0")
+
+    return sizes[index]
+
+
+# ============================================================
+# SIMULATED ENTRY
+# ============================================================
+
+async def simulate_entry(side, price):
+
+    if position.active:
+        return False
+
+    if LEVERAGE > MAX_LEVERAGE:
+        print(
+            "ENTRY BLOCKED: LEVERAGE ABOVE MAXIMUM",
+            flush=True,
+        )
+        return False
+
+    if INITIAL_ENTRY_PERCENT > MAX_FUND_EXPOSURE_PERCENT:
+        print(
+            "ENTRY BLOCKED: FUND EXPOSURE LIMIT",
+            flush=True,
+        )
+        return False
+
+    position.active = True
+    position.side = side
+    position.entry_price = price
+    position.average_price = price
+    position.current_price = price
+
+    position.position_percent = (
+        INITIAL_ENTRY_PERCENT
+    )
+
+    position.highest_price = price
+    position.lowest_price = price
+
+    print(
+        f"SIMULATED {side} ENTRY @ {price}",
+        flush=True,
+    )
+
+    await send_telegram(
+        f"🧪 {MODULE} SIMULATED ENTRY\n"
+        f"{SYMBOL}\n"
+        f"Side: {side}\n"
+        f"Price: {price}\n"
+        f"Position: {INITIAL_ENTRY_PERCENT}%\n"
+        f"Leverage: {LEVERAGE}x\n"
+        f"⚠️ No live WEEX order sent."
+    )
+
+    return True
+
+
+# ============================================================
+# PYRAMID
+# ============================================================
+
+async def add_pyramid(price):
+
+    if not position.active:
+        return
+
+    if position.pyramids_used >= MAX_PYRAMID_ADDS:
+        return
+
+    number = position.pyramids_used + 1
+    size = pyramid_size(number)
+
+    if size <= 0:
+        return
+
+    if not exposure_allowed(size):
+        print(
+            "PYRAMID BLOCKED: EXPOSURE LIMIT",
+            flush=True,
+        )
+        return
+
+    old_size = position.position_percent
+    new_size = old_size + size
+
+    position.average_price = (
+        (
+            position.average_price
+            * old_size
+        )
+        +
+        (
+            price
+            * size
+        )
+    ) / new_size
+
+    position.position_percent = new_size
+    position.pyramids_used += 1
+
+    print(
+        f"PYRAMID #{number} SIMULATED @ {price}",
+        flush=True,
+    )
+
+
+# ============================================================
+# PROFIT %
+# ============================================================
+
+def profit_percent(price):
+
+    if not position.active:
+        return Decimal("0")
+
+    if position.side == "LONG":
+
+        return (
+            (
+                price
+                - position.average_price
+            )
+            /
+            position.average_price
+        ) * Decimal("100")
+
+    return (
+        (
+            position.average_price
+            - price
+        )
+        /
+        position.average_price
+    ) * Decimal("100")
+
+
+# ============================================================
+# TP / TRAILING ENGINE
+# ============================================================
+
+async def manage_profit(price):
+
+    if not position.active:
+        return
+
+    profit = profit_percent(price)
+
+    # ---------------- TP1 ----------------
+
+    if (
+        not position.tp1_done
+        and profit >= TP1_TRIGGER_PERCENT
+    ):
+        position.tp1_done = True
 
         print(
-            "TELEGRAM ERROR:",
-            error
+            f"TP1 TRIGGERED: +{profit:.3f}%",
+            flush=True,
+        )
+
+        await send_telegram(
+            f"✅ {SYMBOL} TP1 TRIGGERED\n"
+            f"Profit: +{profit:.3f}%\n"
+            f"Close: {TP1_CLOSE_PERCENT}%\n"
+            f"⚠️ Simulation only."
+        )
+
+    # ---------------- TP2 ----------------
+
+    if (
+        position.tp1_done
+        and not position.tp2_done
+        and profit >= TP2_TRIGGER_PERCENT
+    ):
+        position.tp2_done = True
+        position.trailing_active = True
+
+        position.highest_price = price
+        position.lowest_price = price
+
+        print(
+            f"TP2 TRIGGERED: +{profit:.3f}%",
+            flush=True,
+        )
+
+        print(
+            "TP3 TRAILING ACTIVATED",
+            flush=True,
+        )
+
+        await send_telegram(
+            f"✅ {SYMBOL} TP2 TRIGGERED\n"
+            f"Profit: +{profit:.3f}%\n"
+            f"Close: {TP2_CLOSE_PERCENT}%\n"
+            f"🏃 TP3 trailing now active\n"
+            f"Trailing distance: "
+            f"{TRAILING_DISTANCE_PERCENT}%"
+        )
+
+    # ---------------- TP3 TRAILING ----------------
+
+    if not position.trailing_active:
+        return
+
+    distance = pct(
+        TRAILING_DISTANCE_PERCENT
+    )
+
+    if position.side == "LONG":
+
+        if price > position.highest_price:
+            position.highest_price = price
+
+        trailing_price = (
+            position.highest_price
+            * (Decimal("1") - distance)
+        )
+
+        if price <= trailing_price:
+
+            await close_position(
+                "TP3 TRAILING EXIT",
+                price,
+            )
+
+    else:
+
+        if price < position.lowest_price:
+            position.lowest_price = price
+
+        trailing_price = (
+            position.lowest_price
+            * (Decimal("1") + distance)
+        )
+
+        if price >= trailing_price:
+
+            await close_position(
+                "TP3 TRAILING EXIT",
+                price,
+            )
+
+
+# ============================================================
+# CLOSE POSITION
+# ============================================================
+
+async def close_position(reason, price):
+
+    if not position.active:
+        return
+
+    side = position.side
+    profit = profit_percent(price)
+
+    print(
+        f"POSITION CLOSED: {reason}",
+        flush=True,
+    )
+
+    await send_telegram(
+        f"🏁 {SYMBOL} POSITION CLOSED\n"
+        f"Side: {side}\n"
+        f"Reason: {reason}\n"
+        f"Price: {price}\n"
+        f"P/L: {profit:+.3f}%\n"
+        f"⚠️ Simulation only."
+    )
+
+    position.reset()
+
+
+# ============================================================
+# MARKET PRICE EXTRACTION
+# ============================================================
+
+def find_price(obj):
+
+    if isinstance(obj, dict):
+
+        for key in (
+            "close",
+            "c",
+            "lastPrice",
+            "last",
+            "price",
+        ):
+            value = obj.get(key)
+
+            price = D(value)
+
+            if price is not None and price > 0:
+                return price
+
+        for value in obj.values():
+
+            result = find_price(value)
+
+            if result is not None:
+                return result
+
+    elif isinstance(obj, list):
+
+        # Typical candle arrays may contain close price
+        if len(obj) >= 5:
+
+            price = D(obj[4])
+
+            if price is not None and price > 0:
+                return price
+
+        for value in obj:
+
+            result = find_price(value)
+
+            if result is not None:
+                return result
+
+    return None
+
+
+# ============================================================
+# MARKET UPDATE
+# ============================================================
+
+last_logged_price = None
+
+
+async def handle_market_message(data):
+
+    global last_logged_price
+
+    price = find_price(data)
+
+    if price is None:
+        return
+
+    position.current_price = price
+
+    # Avoid printing every websocket packet.
+    if price != last_logged_price:
+
+        last_logged_price = price
+
+        if position.active:
+            await manage_profit(price)
+
+
+# ============================================================
+# WEEX CONNECTION
+# ============================================================
+
+async def websocket_session():
+
+    print(
+        "CONNECTING TO WEEX...",
+        flush=True,
+    )
+
+    async with websockets.connect(
+        WS_URL,
+        ping_interval=None,
+        close_timeout=10,
+    ) as ws:
+
+        print(
+            "CONNECTED TO WEEX",
+            flush=True,
+        )
+
+        subscribe = {
+            "method": "SUBSCRIBE",
+            "params": [CHANNEL],
+            "id": 1,
+        }
+
+        await ws.send(
+            json.dumps(subscribe)
+        )
+
+        print(
+            f"SUBSCRIBED TO {CHANNEL}",
+            flush=True,
+        )
+
+        async for raw in ws:
+
+            try:
+                data = json.loads(raw)
+
+            except Exception:
+                continue
+
+            # WEEX application ping
+            if isinstance(data, dict):
+
+                if "ping" in data:
+
+                    await ws.send(
+                        json.dumps(
+                            {
+                                "pong": data["ping"]
+                            }
+                        )
+                    )
+
+                    continue
+
+            # Subscription acknowledgement
+            if isinstance(data, dict):
+
+                if (
+                    data.get("id") == 1
+                    or data.get("event")
+                    == "subscribe"
+                ):
+                    print(
+                        "SUBSCRIPTION CONFIRMED",
+                        flush=True,
+                    )
+
+            await handle_market_message(
+                data
+            )
+
+
+# ============================================================
+# PERMANENT MONITORING LOOP
+# ============================================================
+
+async def market_loop():
+
+    delay = RECONNECT_DELAY
+
+    while True:
+
+        try:
+
+            await websocket_session()
+
+            # If websocket exits normally,
+            # reconnect instead of ending program.
+            print(
+                "WEEX CONNECTION CLOSED - RECONNECTING",
+                flush=True,
+            )
+
+        except asyncio.CancelledError:
+            raise
+
+        except Exception as e:
+
+            print(
+                f"WEEX CONNECTION ERROR: {e}",
+                flush=True,
+            )
+
+        print(
+            f"RECONNECTING IN {delay}s...",
+            flush=True,
+        )
+
+        await asyncio.sleep(delay)
+
+        delay = min(
+            delay * 2,
+            MAX_RECONNECT_DELAY,
         )
 
 
 # ============================================================
-# STARTUP
+# STARTUP MESSAGE
 # ============================================================
 
-def startup():
+async def startup_message():
 
-    validate()
-
-    print("=" * 60)
-
-    print(
-        f"MODULE {MODULE} STARTING"
-    )
-
-    print(
-        f"{SYMBOL} PYRAMID + TP + "
-        "TRAILING MANAGEMENT ENGINE"
-    )
-
-    print("=" * 60)
-
-    print(
-        f"Entry: {ENTRY_PCT}%"
-    )
-
-    print(
-        f"Leverage: {LEVERAGE}x"
-    )
-
-    print(
-        f"Max Leverage: "
-        f"{MAX_LEVERAGE}x"
-    )
-
-    print(
-        f"Max Pyramids: "
-        f"{MAX_PYRAMIDS}"
-    )
-
-    print(
-        f"Max Backups: "
-        f"{MAX_BACKUPS}"
-    )
-
-    print(
-        f"Max Fund Exposure: "
-        f"{MAX_FUND_EXPOSURE_PCT}%"
-    )
-
-    print(
+    await send_telegram(
+        f"✅ MODULE {MODULE} ONLINE\n"
+        f"{SYMBOL}\n"
+        f"Pyramid + TP + Trailing Management Engine\n"
         f"TP1 / TP2 / TP3: "
-        f"{TP1_PCT}% / "
-        f"{TP2_PCT}% / "
-        f"{TP3_PCT}%"
+        f"{TP1_CLOSE_PERCENT}% / "
+        f"{TP2_CLOSE_PERCENT}% / "
+        f"{TP3_CLOSE_PERCENT}%\n"
+        f"Max Pyramids: {MAX_PYRAMID_ADDS}\n"
+        f"Max Backups: {MAX_BACKUPS}\n"
+        f"🛡 Safety controls active\n"
+        f"⚠️ Live order execution disabled"
     )
-
-    print(
-        f"TP1 Trigger: "
-        f"{TP1_TRIGGER}%"
-    )
-
-    print(
-        f"TP2 Trigger: "
-        f"{TP2_TRIGGER}%"
-    )
-
-    print(
-        f"Trailing Distance: "
-        f"{TRAIL_DISTANCE}%"
-    )
-
-    print(
-        "Idle pyramid cleanup: "
-        "ACTIVE"
-    )
-
-    print(
-        "Safety controls: ACTIVE"
-    )
-
-    print(
-        "LIVE ORDER EXECUTION:",
-        "ENABLED"
-        if LIVE_ORDERS
-        else "DISABLED"
-    )
-
-    print("=" * 60)
 
 
 # ============================================================
 # MAIN
 # ============================================================
 
+async def main():
+
+    print(
+        "=" * 60,
+        flush=True,
+    )
+
+    print(
+        f"MODULE {MODULE} STARTING",
+        flush=True,
+    )
+
+    print(
+        f"{SYMBOL} PYRAMID + TP + "
+        f"TRAILING MANAGEMENT ENGINE",
+        flush=True,
+    )
+
+    print(
+        "=" * 60,
+        flush=True,
+    )
+
+    print(
+        f"Entry: {INITIAL_ENTRY_PERCENT}%",
+        flush=True,
+    )
+
+    print(
+        f"Leverage: {LEVERAGE}x",
+        flush=True,
+    )
+
+    print(
+        f"Max Leverage: {MAX_LEVERAGE}x",
+        flush=True,
+    )
+
+    print(
+        f"Max Pyramids: {MAX_PYRAMID_ADDS}",
+        flush=True,
+    )
+
+    print(
+        f"Max Backups: {MAX_BACKUPS}",
+        flush=True,
+    )
+
+    print(
+        f"Max Fund Exposure: "
+        f"{MAX_FUND_EXPOSURE_PERCENT}%",
+        flush=True,
+    )
+
+    print(
+        f"TP1 / TP2 / TP3: "
+        f"{TP1_CLOSE_PERCENT}% / "
+        f"{TP2_CLOSE_PERCENT}% / "
+        f"{TP3_CLOSE_PERCENT}%",
+        flush=True,
+    )
+
+    print(
+        f"TP1 Trigger: "
+        f"{TP1_TRIGGER_PERCENT}%",
+        flush=True,
+    )
+
+    print(
+        f"TP2 Trigger: "
+        f"{TP2_TRIGGER_PERCENT}%",
+        flush=True,
+    )
+
+    print(
+        f"Trailing Distance: "
+        f"{TRAILING_DISTANCE_PERCENT}%",
+        flush=True,
+    )
+
+    print(
+        "Idle pyramid cleanup: ACTIVE",
+        flush=True,
+    )
+
+    print(
+        "Safety controls: ACTIVE",
+        flush=True,
+    )
+
+    print(
+        "LIVE ORDER EXECUTION: DISABLED",
+        flush=True,
+    )
+
+    print(
+        "=" * 60,
+        flush=True,
+    )
+
+    # Startup Telegram is sent ONCE
+    # during each actual process startup.
+    await startup_message()
+
+    print(
+        "LIVE MARKET MONITORING ACTIVE",
+        flush=True,
+    )
+
+    print(
+        "WAITING FOR WEEX MARKET DATA...",
+        flush=True,
+    )
+
+    # IMPORTANT:
+    # This never normally returns.
+    await market_loop()
+
+
+# ============================================================
+# RUN
+# ============================================================
+
 if __name__ == "__main__":
 
-    startup()
+    try:
+        asyncio.run(main())
 
-    asyncio.run(
-        notify(
-            f"✅ MODULE {MODULE} ONLINE\n"
-            f"{SYMBOL}\n"
-            "Pyramid + TP + Trailing "
-            "Management Engine\n"
-            "TP1 / TP2 / TP3: "
-            f"{TP1_PCT}% / "
-            f"{TP2_PCT}% / "
-            f"{TP3_PCT}%\n"
-            f"Max Pyramids: {MAX_PYRAMIDS}\n"
-            f"Max Backups: {MAX_BACKUPS}\n"
-            "🛡 Safety controls active\n"
-            "⚠️ Live order execution "
-            + (
-               "ENABLED"
-                if LIVE_ORDERS
-                else "disabled"
-            )
+    except KeyboardInterrupt:
+
+        print(
+            "BOT STOPPED",
+            flush=True,
         )
-    )
