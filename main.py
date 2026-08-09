@@ -431,7 +431,7 @@ async def run_simulated_pending_confirmation_test(
     bot: Bot,
 ) -> None:
 
-    if not SIMULATED_PENDING_TEST_ENABLED:
+    if not RUN_SIMULATED_PENDING_TEST_ENABLED:
 
         print(
             "SIMULATED TEST DISABLED",
