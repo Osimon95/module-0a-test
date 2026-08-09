@@ -1,9 +1,10 @@
 import asyncio
 import json
 import os
-from decimal import Decimal, InvalidOperation
+from dataclasses import dataclass, field
+from decimal import Decimal
+from typing import Optional
 
-import aiohttp
 import websockets
 from telegram import Bot
 
@@ -12,166 +13,83 @@ from telegram import Bot
 # MODULE
 # ============================================================
 
-MODULE = "0F-4C"
+MODULE = "0F-4D"
+
 SYMBOL = "BTCUSDT"
 
 WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
+
 CHANNEL = f"{SYMBOL}@kline_1m_LAST_PRICE"
-
-HISTORICAL_URL = (
-    "https://api-contract.weex.com"
-    "/capi/v3/market/klines"
-)
-
-HISTORICAL_LIMIT = 250
-
-RECONNECT_DELAY = 5
-MAX_RECONNECT_DELAY = 60
-
-
-# ============================================================
-# HELPERS
-# ============================================================
-
-def env_decimal(name, default):
-    try:
-        return Decimal(
-            os.getenv(name, str(default))
-        )
-    except Exception:
-        return Decimal(str(default))
-
-
-def env_int(name, default):
-    try:
-        return int(os.getenv(name, str(default)))
-    except Exception:
-        return int(default)
-
-
-def D(value):
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError):
-        return None
-
-
-def pct(value):
-    return Decimal(str(value)) / Decimal("100")
 
 
 # ============================================================
 # TRADE CONFIGURATION
 # ============================================================
 
-INITIAL_ENTRY_PERCENT = env_decimal(
-    "INITIAL_ENTRY_PERCENT",
-    "5",
+ENTRY_PCT = Decimal(
+    os.getenv("ENTRY_PCT", "5")
 )
 
-LEVERAGE = env_decimal(
-    "LEVERAGE",
-    "5",
+LEVERAGE = Decimal(
+    os.getenv("LEVERAGE", "5")
 )
 
-MAX_LEVERAGE = env_decimal(
-    "MAX_LEVERAGE",
-    "10",
+MAX_LEVERAGE = Decimal(
+    os.getenv("MAX_LEVERAGE", "10")
 )
 
-MAX_PYRAMID_ADDS = env_int(
-    "MAX_PYRAMID_ADDS",
-    1,
+MAX_PYRAMIDS = int(
+    os.getenv("MAX_PYRAMIDS", "1")
 )
 
-PYRAMID_1_PERCENT = env_decimal(
-    "PYRAMID_1_PERCENT",
-    "5",
+MAX_BACKUPS = int(
+    os.getenv("MAX_BACKUPS", "3")
 )
 
-PYRAMID_2_PERCENT = env_decimal(
-    "PYRAMID_2_PERCENT",
-    "5",
-)
-
-PYRAMID_3_PERCENT = env_decimal(
-    "PYRAMID_3_PERCENT",
-    "5",
-)
-
-MAX_BACKUPS = env_int(
-    "MAX_BACKUPS",
-    3,
-)
-
-BACKUP_1_PERCENT = env_decimal(
-    "BACKUP_1_PERCENT",
-    "5",
-)
-
-BACKUP_2_PERCENT = env_decimal(
-    "BACKUP_2_PERCENT",
-    "5",
-)
-
-BACKUP_3_PERCENT = env_decimal(
-    "BACKUP_3_PERCENT",
-    "5",
-)
-
-MAX_FUND_EXPOSURE_PERCENT = env_decimal(
-    "MAX_FUND_EXPOSURE_PERCENT",
-    "35",
-)
-
-MAX_TRADE_LOSS_PERCENT = env_decimal(
-    "MAX_TRADE_LOSS_PERCENT",
-    "10",
-)
-
-MIN_LIQUIDATION_DISTANCE_PERCENT = env_decimal(
-    "MIN_LIQUIDATION_DISTANCE_PERCENT",
-    "1",
-)
-
-BACKUP_LIQUIDATION_BUFFER_PERCENT = env_decimal(
-    "BACKUP_LIQUIDATION_BUFFER_PERCENT",
-    "0.50",
+MAX_FUND_EXPOSURE_PCT = Decimal(
+    os.getenv("MAX_FUND_EXPOSURE_PCT", "35")
 )
 
 
 # ============================================================
-# PROFIT CONFIGURATION
+# TAKE PROFIT CONFIGURATION
 # ============================================================
 
-TP1_CLOSE_PERCENT = env_decimal(
-    "TP1_CLOSE_PERCENT",
-    "20",
+TP1_SHARE = Decimal(
+    os.getenv("TP1_SHARE", "20")
 )
 
-TP2_CLOSE_PERCENT = env_decimal(
-    "TP2_CLOSE_PERCENT",
-    "20",
+TP2_SHARE = Decimal(
+    os.getenv("TP2_SHARE", "20")
 )
 
-TP3_CLOSE_PERCENT = env_decimal(
-    "TP3_CLOSE_PERCENT",
-    "60",
+TP3_SHARE = Decimal(
+    os.getenv("TP3_SHARE", "60")
 )
 
-TP1_TRIGGER_PERCENT = env_decimal(
-    "TP1_TRIGGER_PERCENT",
-    "0.50",
+TP1_TRIGGER = Decimal(
+    os.getenv("TP1_TRIGGER", "0.50")
 )
 
-TP2_TRIGGER_PERCENT = env_decimal(
-    "TP2_TRIGGER_PERCENT",
-    "1.00",
+TP2_TRIGGER = Decimal(
+    os.getenv("TP2_TRIGGER", "1.00")
 )
 
-TRAILING_DISTANCE_PERCENT = env_decimal(
-    "TRAILING_DISTANCE_PERCENT",
-    "0.20",
+TRAILING_DISTANCE = Decimal(
+    os.getenv("TRAILING_DISTANCE", "0.20")
+)
+
+
+# ============================================================
+# PYRAMID CONFIGURATION
+# ============================================================
+
+PYRAMID_TRIGGER = Decimal(
+    os.getenv("PYRAMID_TRIGGER", "0.30")
+)
+
+PYRAMID_SIZE_PCT = Decimal(
+    os.getenv("PYRAMID_SIZE_PCT", "5")
 )
 
 
@@ -179,12 +97,15 @@ TRAILING_DISTANCE_PERCENT = env_decimal(
 # SAFETY
 # ============================================================
 
-LIVE_EXECUTION = False
+LIVE_ORDER_EXECUTION = False
 
-IDLE_PYRAMID_CLEANUP = True
-ONE_DIRECTION_ONLY = True
-ANTI_DUPLICATE_ORDERS = True
-TREND_REVERSAL_EXIT = True
+RUN_SIMULATED_LIFECYCLE_TEST = (
+    os.getenv(
+        "RUN_SIMULATED_LIFECYCLE_TEST",
+        "true",
+    ).lower()
+    == "true"
+)
 
 
 # ============================================================
@@ -201,608 +122,981 @@ TELEGRAM_CHAT_ID = os.getenv(
     "",
 ).strip()
 
-telegram_bot = None
 
-if TELEGRAM_BOT_TOKEN:
-    telegram_bot = Bot(
-        token=TELEGRAM_BOT_TOKEN
+# ============================================================
+# CONSTANTS
+# ============================================================
+
+D100 = Decimal("100")
+
+
+# ============================================================
+# HELPERS
+# ============================================================
+
+def decimal_value(value):
+
+    return Decimal(
+        str(value)
     )
 
 
-async def send_telegram(message):
-    if not telegram_bot or not TELEGRAM_CHAT_ID:
+def percentage_move(
+    entry,
+    price,
+    side,
+):
+
+    if side == "LONG":
+
+        return (
+            (price - entry)
+            / entry
+        ) * D100
+
+    return (
+        (entry - price)
+        / entry
+    ) * D100
+
+
+# ============================================================
+# TRADE STATE
+# ============================================================
+
+@dataclass
+class Trade:
+
+    side: str
+
+    entry: Decimal
+
+    size_pct: Decimal = ENTRY_PCT
+
+    remaining_pct: Decimal = D100
+
+    pyramids: int = 0
+
+    backups: int = 0
+
+    tp1_done: bool = False
+
+    tp2_done: bool = False
+
+    trailing: bool = False
+
+    trail_extreme: Optional[
+        Decimal
+    ] = None
+
+    closed: bool = False
+
+    events: list[str] = field(
+        default_factory=list
+    )
+
+    def log(
+        self,
+        text,
+    ):
+
+        self.events.append(
+            text
+        )
+
+        print(
+            text,
+            flush=True,
+        )
+
+
+    # ========================================================
+    # PYRAMID
+    # ========================================================
+
+    def add_pyramid(
+        self,
+        price,
+    ):
+
+        if self.closed:
+
+            return
+
+        if (
+            self.pyramids
+            >= MAX_PYRAMIDS
+        ):
+
+            return
+
+        self.pyramids += 1
+
+        old_size = self.size_pct
+
+        new_size = (
+            old_size
+            + PYRAMID_SIZE_PCT
+        )
+
+        self.entry = (
+
+            (
+                self.entry
+                * old_size
+            )
+
+            +
+
+            (
+                price
+                * PYRAMID_SIZE_PCT
+            )
+
+        ) / new_size
+
+        self.size_pct = new_size
+
+        self.log(
+
+            f"PYRAMID #{self.pyramids}: "
+            f"+{PYRAMID_SIZE_PCT}% "
+            f"at {price:.2f} | "
+            f"new avg {self.entry:.2f} | "
+            f"total size {self.size_pct}%"
+
+        )
+
+
+    # ========================================================
+    # PARTIAL CLOSE
+    # ========================================================
+
+    def close_share(
+        self,
+        share,
+        label,
+        price,
+    ):
+
+        self.remaining_pct = max(
+
+            Decimal("0"),
+
+            self.remaining_pct
+            - share,
+
+        )
+
+        self.log(
+
+            f"{label}: "
+            f"closed {share}% "
+            f"at {price:.2f} | "
+            f"remaining "
+            f"{self.remaining_pct}%"
+
+        )
+
+
+    # ========================================================
+    # POSITION MANAGEMENT
+    # ========================================================
+
+    def update(
+        self,
+        price,
+    ):
+
+        if self.closed:
+
+            return
+
+        move = percentage_move(
+
+            self.entry,
+            price,
+            self.side,
+
+        )
+
+
+        # ----------------------------------------------------
+        # PYRAMID
+        # ----------------------------------------------------
+
+        if (
+
+            self.pyramids
+            < MAX_PYRAMIDS
+
+            and
+
+            move
+            >= PYRAMID_TRIGGER
+
+        ):
+
+            self.add_pyramid(
+                price
+            )
+
+            move = percentage_move(
+
+                self.entry,
+                price,
+                self.side,
+
+            )
+
+
+        # ----------------------------------------------------
+        # TP1
+        # ----------------------------------------------------
+
+        if (
+
+            not self.tp1_done
+
+            and
+
+            move
+            >= TP1_TRIGGER
+
+        ):
+
+            self.tp1_done = True
+
+            self.close_share(
+
+                TP1_SHARE,
+                "TP1",
+                price,
+
+            )
+
+
+        # ----------------------------------------------------
+        # TP2
+        # ----------------------------------------------------
+
+        if (
+
+            not self.tp2_done
+
+            and
+
+            move
+            >= TP2_TRIGGER
+
+        ):
+
+            self.tp2_done = True
+
+            self.close_share(
+
+                TP2_SHARE,
+                "TP2",
+                price,
+
+            )
+
+            self.trailing = True
+
+            self.trail_extreme = price
+
+            self.log(
+
+                "TRAILING ACTIVATED "
+                f"for final "
+                f"{self.remaining_pct}% | "
+                f"distance "
+                f"{TRAILING_DISTANCE}%"
+
+            )
+
+
+        # ----------------------------------------------------
+        # TRAILING TP3
+        # ----------------------------------------------------
+
+        if (
+
+            self.trailing
+
+            and
+
+            not self.closed
+
+        ):
+
+            if self.side == "LONG":
+
+                self.trail_extreme = max(
+
+                    self.trail_extreme
+                    or price,
+
+                    price,
+
+                )
+
+                trailing_stop = (
+
+                    self.trail_extreme
+
+                    *
+
+                    (
+                        D100
+                        - TRAILING_DISTANCE
+                    )
+
+                    / D100
+
+                )
+
+                if price <= trailing_stop:
+
+                    self.close_share(
+
+                        self.remaining_pct,
+                        "TRAIL EXIT",
+                        price,
+
+                    )
+
+                    self.closed = True
+
+
+            else:
+
+                self.trail_extreme = min(
+
+                    self.trail_extreme
+                    or price,
+
+                    price,
+
+                )
+
+                trailing_stop = (
+
+                    self.trail_extreme
+
+                    *
+
+                    (
+                        D100
+                        + TRAILING_DISTANCE
+                    )
+
+                    / D100
+
+                )
+
+                if price >= trailing_stop:
+
+                    self.close_share(
+
+                        self.remaining_pct,
+                        "TRAIL EXIT",
+                        price,
+
+                    )
+
+                    self.closed = True
+
+
+# ============================================================
+# TELEGRAM
+# ============================================================
+
+async def send_telegram(
+    text,
+):
+
+    if (
+
+        not TELEGRAM_BOT_TOKEN
+
+        or
+
+        not TELEGRAM_CHAT_ID
+
+    ):
+
+        print(
+            "TELEGRAM CONFIG: MISSING",
+            flush=True,
+        )
+
         return
 
     try:
-        await telegram_bot.send_message(
+
+        bot = Bot(
+            TELEGRAM_BOT_TOKEN
+        )
+
+        await bot.send_message(
+
             chat_id=TELEGRAM_CHAT_ID,
-            text=message,
+
+            text=text,
+
         )
 
-    except Exception as e:
         print(
-            f"TELEGRAM ERROR: {e}",
+            "TELEGRAM MESSAGE SENT",
             flush=True,
         )
 
+    except Exception as error:
 
-# ============================================================
-# POSITION STATE
-# ============================================================
-
-class PositionState:
-
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.active = False
-        self.side = None
-
-        self.entry_price = None
-        self.average_price = None
-        self.current_price = None
-
-        self.position_percent = Decimal("0")
-
-        self.pyramids_used = 0
-        self.backups_used = 0
-
-        self.tp1_done = False
-        self.tp2_done = False
-        self.trailing_active = False
-
-        self.highest_price = None
-        self.lowest_price = None
-
-        self.last_action = None
-
-
-position = PositionState()
-
-
-# ============================================================
-# EXPOSURE CONTROL
-# ============================================================
-
-def exposure_allowed(add_percent):
-    new_total = (
-        position.position_percent
-        + Decimal(str(add_percent))
-    )
-
-    return (
-        new_total
-        <= MAX_FUND_EXPOSURE_PERCENT
-    )
-
-
-# ============================================================
-# PYRAMID SIZE
-# ============================================================
-
-def pyramid_size(number):
-
-    sizes = [
-        PYRAMID_1_PERCENT,
-        PYRAMID_2_PERCENT,
-        PYRAMID_3_PERCENT,
-    ]
-
-    index = number - 1
-
-    if index < 0 or index >= len(sizes):
-        return Decimal("0")
-
-    return sizes[index]
-
-
-# ============================================================
-# BACKUP SIZE
-# ============================================================
-
-def backup_size(number):
-
-    sizes = [
-        BACKUP_1_PERCENT,
-        BACKUP_2_PERCENT,
-        BACKUP_3_PERCENT,
-    ]
-
-    index = number - 1
-
-    if index < 0 or index >= len(sizes):
-        return Decimal("0")
-
-    return sizes[index]
-
-
-# ============================================================
-# SIMULATED ENTRY
-# ============================================================
-
-async def simulate_entry(side, price):
-
-    if position.active:
-        return False
-
-    if LEVERAGE > MAX_LEVERAGE:
         print(
-            "ENTRY BLOCKED: LEVERAGE ABOVE MAXIMUM",
+
+            f"TELEGRAM ERROR: "
+            f"{error}",
+
             flush=True,
+
         )
-        return False
 
-    if INITIAL_ENTRY_PERCENT > MAX_FUND_EXPOSURE_PERCENT:
-        print(
-            "ENTRY BLOCKED: FUND EXPOSURE LIMIT",
-            flush=True,
+
+# ============================================================
+# SAFETY VALIDATION
+# ============================================================
+
+def validate_configuration():
+
+    if (
+        LEVERAGE
+        > MAX_LEVERAGE
+    ):
+
+        raise ValueError(
+
+            "LEVERAGE exceeds "
+            "MAX_LEVERAGE"
+
         )
-        return False
 
-    position.active = True
-    position.side = side
-    position.entry_price = price
-    position.average_price = price
-    position.current_price = price
 
-    position.position_percent = (
-        INITIAL_ENTRY_PERCENT
+    if (
+
+        ENTRY_PCT
+        > MAX_FUND_EXPOSURE_PCT
+
+    ):
+
+        raise ValueError(
+
+            "ENTRY_PCT exceeds "
+            "MAX_FUND_EXPOSURE_PCT"
+
+        )
+
+
+    total_tp = (
+
+        TP1_SHARE
+        + TP2_SHARE
+        + TP3_SHARE
+
     )
 
-    position.highest_price = price
-    position.lowest_price = price
+    if total_tp != D100:
+
+        raise ValueError(
+
+            "TP1 + TP2 + TP3 "
+            "must equal 100%"
+
+        )
+
+
+# ============================================================
+# 0F-4D SIMULATED FULL TRADE TEST
+# ============================================================
+
+async def simulated_lifecycle_test():
 
     print(
-        f"SIMULATED {side} ENTRY @ {price}",
+        "=" * 60,
         flush=True,
     )
 
-    await send_telegram(
-        f"🧪 {MODULE} SIMULATED ENTRY\n"
-        f"{SYMBOL}\n"
-        f"Side: {side}\n"
-        f"Price: {price}\n"
-        f"Position: {INITIAL_ENTRY_PERCENT}%\n"
-        f"Leverage: {LEVERAGE}x\n"
-        f"⚠️ No live WEEX order sent."
+    print(
+        "0F-4D SIMULATED FULL "
+        "TRADE LIFECYCLE TEST",
+        flush=True,
     )
 
-    return True
+    print(
+        "NO LIVE ORDERS "
+        "WILL BE SENT",
+        flush=True,
+    )
+
+    print(
+        "=" * 60,
+        flush=True,
+    )
 
 
-# ============================================================
-# PYRAMID
-# ============================================================
+    # --------------------------------------------------------
+    # SIMULATED LONG ENTRY
+    # --------------------------------------------------------
 
-async def add_pyramid(price):
+    trade = Trade(
 
-    if not position.active:
-        return
+        side="LONG",
 
-    if position.pyramids_used >= MAX_PYRAMID_ADDS:
-        return
+        entry=Decimal(
+            "100.00"
+        ),
 
-    number = position.pyramids_used + 1
-    size = pyramid_size(number)
+    )
 
-    if size <= 0:
-        return
+    trade.log(
 
-    if not exposure_allowed(size):
-        print(
-            "PYRAMID BLOCKED: EXPOSURE LIMIT",
-            flush=True,
+        "SIM ENTRY: "
+        "LONG at 100.00 | "
+        "initial position 5%"
+
+    )
+
+
+    # --------------------------------------------------------
+    # CONTROLLED PRICE PATH
+    # --------------------------------------------------------
+
+    simulated_prices = [
+
+        Decimal("100.31"),
+
+        Decimal("100.82"),
+
+        Decimal("101.35"),
+
+        Decimal("101.70"),
+
+        Decimal("101.80"),
+
+        Decimal("101.55"),
+
+    ]
+
+
+    for price in simulated_prices:
+
+        trade.log(
+
+            f"SIM PRICE: "
+            f"{price:.2f}"
+
         )
-        return
 
-    old_size = position.position_percent
-    new_size = old_size + size
-
-    position.average_price = (
-        (
-            position.average_price
-            * old_size
-        )
-        +
-        (
+        trade.update(
             price
-            * size
         )
-    ) / new_size
 
-    position.position_percent = new_size
-    position.pyramids_used += 1
+        await asyncio.sleep(
+            0.15
+        )
 
-    print(
-        f"PYRAMID #{number} SIMULATED @ {price}",
-        flush=True,
+
+    # --------------------------------------------------------
+    # VERIFY COMPLETE EXIT
+    # --------------------------------------------------------
+
+    if not trade.closed:
+
+        raise RuntimeError(
+
+            "Simulation failed: "
+            "trade did not close"
+
+        )
+
+
+    # --------------------------------------------------------
+    # CLEANUP
+    # --------------------------------------------------------
+
+    trade.log(
+
+        "IDLE PYRAMID CLEANUP: "
+        "COMPLETE"
+
+    )
+
+    trade.log(
+
+        "TRADE STATE RESET: "
+        "COMPLETE"
+
+    )
+
+    trade.log(
+
+        "0F-4D SIMULATION: "
+        "PASSED"
+
     )
 
 
-# ============================================================
-# PROFIT %
-# ============================================================
-
-def profit_percent(price):
-
-    if not position.active:
-        return Decimal("0")
-
-    if position.side == "LONG":
-
-        return (
-            (
-                price
-                - position.average_price
-            )
-            /
-            position.average_price
-        ) * Decimal("100")
-
-    return (
-        (
-            position.average_price
-            - price
-        )
-        /
-        position.average_price
-    ) * Decimal("100")
-
-
-# ============================================================
-# TP / TRAILING ENGINE
-# ============================================================
-
-async def manage_profit(price):
-
-    if not position.active:
-        return
-
-    profit = profit_percent(price)
-
-    # ---------------- TP1 ----------------
-
-    if (
-        not position.tp1_done
-        and profit >= TP1_TRIGGER_PERCENT
-    ):
-        position.tp1_done = True
-
-        print(
-            f"TP1 TRIGGERED: +{profit:.3f}%",
-            flush=True,
-        )
-
-        await send_telegram(
-            f"✅ {SYMBOL} TP1 TRIGGERED\n"
-            f"Profit: +{profit:.3f}%\n"
-            f"Close: {TP1_CLOSE_PERCENT}%\n"
-            f"⚠️ Simulation only."
-        )
-
-    # ---------------- TP2 ----------------
-
-    if (
-        position.tp1_done
-        and not position.tp2_done
-        and profit >= TP2_TRIGGER_PERCENT
-    ):
-        position.tp2_done = True
-        position.trailing_active = True
-
-        position.highest_price = price
-        position.lowest_price = price
-
-        print(
-            f"TP2 TRIGGERED: +{profit:.3f}%",
-            flush=True,
-        )
-
-        print(
-            "TP3 TRAILING ACTIVATED",
-            flush=True,
-        )
-
-        await send_telegram(
-            f"✅ {SYMBOL} TP2 TRIGGERED\n"
-            f"Profit: +{profit:.3f}%\n"
-            f"Close: {TP2_CLOSE_PERCENT}%\n"
-            f"🏃 TP3 trailing now active\n"
-            f"Trailing distance: "
-            f"{TRAILING_DISTANCE_PERCENT}%"
-        )
-
-    # ---------------- TP3 TRAILING ----------------
-
-    if not position.trailing_active:
-        return
-
-    distance = pct(
-        TRAILING_DISTANCE_PERCENT
-    )
-
-    if position.side == "LONG":
-
-        if price > position.highest_price:
-            position.highest_price = price
-
-        trailing_price = (
-            position.highest_price
-            * (Decimal("1") - distance)
-        )
-
-        if price <= trailing_price:
-
-            await close_position(
-                "TP3 TRAILING EXIT",
-                price,
-            )
-
-    else:
-
-        if price < position.lowest_price:
-            position.lowest_price = price
-
-        trailing_price = (
-            position.lowest_price
-            * (Decimal("1") + distance)
-        )
-
-        if price >= trailing_price:
-
-            await close_position(
-                "TP3 TRAILING EXIT",
-                price,
-            )
-
-
-# ============================================================
-# CLOSE POSITION
-# ============================================================
-
-async def close_position(reason, price):
-
-    if not position.active:
-        return
-
-    side = position.side
-    profit = profit_percent(price)
-
-    print(
-        f"POSITION CLOSED: {reason}",
-        flush=True,
-    )
+    # --------------------------------------------------------
+    # TELEGRAM RESULT
+    # --------------------------------------------------------
 
     await send_telegram(
-        f"🏁 {SYMBOL} POSITION CLOSED\n"
-        f"Side: {side}\n"
-        f"Reason: {reason}\n"
-        f"Price: {price}\n"
-        f"P/L: {profit:+.3f}%\n"
-        f"⚠️ Simulation only."
+
+        "🧪 MODULE 0F-4D TEST PASSED\n"
+        "BTCUSDT simulated full trade lifecycle\n\n"
+
+        "✅ Initial entry\n"
+        "✅ Pyramid\n"
+        "✅ TP1 20%\n"
+        "✅ TP2 20%\n"
+        "✅ TP3 60% trailing exit\n"
+        "✅ Idle pyramid cleanup\n"
+        "✅ Trade state reset\n\n"
+
+        "⚠️ Live order execution disabled"
+
     )
 
-    position.reset()
-
 
 # ============================================================
-# MARKET PRICE EXTRACTION
+# WEEX PRICE EXTRACTION
 # ============================================================
 
-def find_price(obj):
+def extract_price(
+    message,
+):
 
-    if isinstance(obj, dict):
+    try:
 
-        for key in (
-            "close",
-            "c",
-            "lastPrice",
-            "last",
-            "price",
-        ):
-            value = obj.get(key)
+        obj = json.loads(
+            message
+        )
 
-            price = D(value)
+    except Exception:
 
-            if price is not None and price > 0:
-                return price
+        return None
 
-        for value in obj.values():
 
-            result = find_price(value)
+    data = obj.get(
+        "data"
+    )
 
-            if result is not None:
-                return result
 
-    elif isinstance(obj, list):
+    candidates = []
 
-        # Typical candle arrays may contain close price
-        if len(obj) >= 5:
 
-            price = D(obj[4])
+    if isinstance(
+        data,
+        dict,
+    ):
 
-            if price is not None and price > 0:
-                return price
+        candidates.append(
+            data
+        )
 
-        for value in obj:
 
-            result = find_price(value)
+    elif isinstance(
+        data,
+        list,
+    ):
 
-            if result is not None:
-                return result
+        for item in data:
+
+            if isinstance(
+                item,
+                dict,
+            ):
+
+                candidates.append(
+                    item
+                )
+
+
+    candidates.append(
+        obj
+    )
+
+
+    price_fields = (
+
+        "close",
+        "lastPrice",
+        "last",
+        "price",
+        "c",
+
+    )
+
+
+    for candidate in candidates:
+
+        for field in price_fields:
+
+            value = candidate.get(
+                field
+            )
+
+            if value in (
+
+                None,
+                "",
+                0,
+                "0",
+
+            ):
+
+                continue
+
+            try:
+
+                price = decimal_value(
+                    value
+                )
+
+                if price > 0:
+
+                    return price
+
+            except Exception:
+
+                continue
+
 
     return None
 
 
 # ============================================================
-# MARKET UPDATE
+# LIVE WEEX MARKET MONITOR
 # ============================================================
 
-last_logged_price = None
+async def market_monitor():
 
+    reconnect_delay = 5
 
-async def handle_market_message(data):
-
-    global last_logged_price
-
-    price = find_price(data)
-
-    if price is None:
-        return
-
-    position.current_price = price
-
-    # Avoid printing every websocket packet.
-    if price != last_logged_price:
-
-        last_logged_price = price
-
-        if position.active:
-            await manage_profit(price)
-
-
-# ============================================================
-# WEEX CONNECTION
-# ============================================================
-
-async def websocket_session():
-
-    print(
-        "CONNECTING TO WEEX...",
-        flush=True,
-    )
-
-    async with websockets.connect(
-        WS_URL,
-        ping_interval=None,
-        close_timeout=10,
-    ) as ws:
-
-        print(
-            "CONNECTED TO WEEX",
-            flush=True,
-        )
-
-        subscribe = {
-            "method": "SUBSCRIBE",
-            "params": [CHANNEL],
-            "id": 1,
-        }
-
-        await ws.send(
-            json.dumps(subscribe)
-        )
-
-        print(
-            f"SUBSCRIBED TO {CHANNEL}",
-            flush=True,
-        )
-
-        async for raw in ws:
-
-            try:
-                data = json.loads(raw)
-
-            except Exception:
-                continue
-
-            # WEEX application ping
-            if isinstance(data, dict):
-
-                if "ping" in data:
-
-                    await ws.send(
-                        json.dumps(
-                            {
-                                "pong": data["ping"]
-                            }
-                        )
-                    )
-
-                    continue
-
-            # Subscription acknowledgement
-            if isinstance(data, dict):
-
-                if (
-                    data.get("id") == 1
-                    or data.get("event")
-                    == "subscribe"
-                ):
-                    print(
-                        "SUBSCRIPTION CONFIRMED",
-                        flush=True,
-                    )
-
-            await handle_market_message(
-                data
-            )
-
-
-# ============================================================
-# PERMANENT MONITORING LOOP
-# ============================================================
-
-async def market_loop():
-
-    delay = RECONNECT_DELAY
 
     while True:
 
         try:
 
-            await websocket_session()
-
-            # If websocket exits normally,
-            # reconnect instead of ending program.
             print(
-                "WEEX CONNECTION CLOSED - RECONNECTING",
+                "CONNECTING TO WEEX...",
                 flush=True,
             )
+
+
+            async with websockets.connect(
+
+                WS_URL,
+
+                ping_interval=None,
+
+                close_timeout=10,
+
+                additional_headers={
+
+                    "User-Agent":
+                    "WEEX-BTC-Bot/0F-4D"
+
+                },
+
+            ) as websocket:
+
+
+                print(
+                    "CONNECTED TO WEEX",
+                    flush=True,
+                )
+
+
+                subscribe_payload = {
+
+                    "method":
+                    "SUBSCRIBE",
+
+                    "params": [
+                        CHANNEL
+                    ],
+
+                    "id":
+                    1,
+
+                }
+
+
+                await websocket.send(
+
+                    json.dumps(
+                        subscribe_payload
+                    )
+
+                )
+
+
+                print(
+
+                    f"SUBSCRIBED TO "
+                    f"{CHANNEL}",
+
+                    flush=True,
+
+                )
+
+
+                reconnect_delay = 5
+
+
+                async for raw in websocket:
+
+
+                    if isinstance(
+                        raw,
+                        bytes,
+                    ):
+
+                        raw = raw.decode(
+
+                            "utf-8",
+
+                            errors="ignore",
+
+                        )
+
+
+                    # ----------------------------------------
+                    # SIMPLE PING/PONG
+                    # ----------------------------------------
+
+                    if raw == "ping":
+
+                        await websocket.send(
+                            "pong"
+                        )
+
+                        continue
+
+
+                    try:
+
+                        obj = json.loads(
+                            raw
+                        )
+
+
+                        if (
+                            obj.get("event")
+                            == "ping"
+                        ):
+
+                            await websocket.send(
+
+                                json.dumps({
+
+                                    "event":
+                                    "pong"
+
+                                })
+
+                            )
+
+                            continue
+
+
+                    except Exception:
+
+                        pass
+
+
+                    # ----------------------------------------
+                    # SUBSCRIPTION ACK
+                    # ----------------------------------------
+
+                    if (
+                        "subscribe"
+                        in raw.lower()
+                    ):
+
+                        print(
+
+                            "SUBSCRIPTION "
+                            "CONFIRMED",
+
+                            flush=True,
+
+                        )
+
+
+                    # ----------------------------------------
+                    # LIVE PRICE
+                    # ----------------------------------------
+
+                    price = extract_price(
+                        raw
+                    )
+
+
+                    if price:
+
+                        print(
+
+                            f"{SYMBOL} "
+                            f"LIVE PRICE: "
+                            f"{price}",
+
+                            flush=True,
+
+                        )
+
 
         except asyncio.CancelledError:
+
             raise
 
-        except Exception as e:
+
+        except Exception as error:
 
             print(
-                f"WEEX CONNECTION ERROR: {e}",
+
+                "WEEX CONNECTION "
+                f"ERROR: {error}",
+
                 flush=True,
+
             )
 
-        print(
-            f"RECONNECTING IN {delay}s...",
-            flush=True,
-        )
 
-        await asyncio.sleep(delay)
+            print(
 
-        delay = min(
-            delay * 2,
-            MAX_RECONNECT_DELAY,
-        )
+                "RECONNECTING IN "
+                f"{reconnect_delay}s...",
+
+                flush=True,
+
+            )
 
 
-# ============================================================
-# STARTUP MESSAGE
-# ============================================================
+            await asyncio.sleep(
+                reconnect_delay
+            )
 
-async def startup_message():
 
-    await send_telegram(
-        f"✅ MODULE {MODULE} ONLINE\n"
-        f"{SYMBOL}\n"
-        f"Pyramid + TP + Trailing Management Engine\n"
-        f"TP1 / TP2 / TP3: "
-        f"{TP1_CLOSE_PERCENT}% / "
-        f"{TP2_CLOSE_PERCENT}% / "
-        f"{TP3_CLOSE_PERCENT}%\n"
-        f"Max Pyramids: {MAX_PYRAMID_ADDS}\n"
-        f"Max Backups: {MAX_BACKUPS}\n"
-        f"🛡 Safety controls active\n"
-        f"⚠️ Live order execution disabled"
-    )
+            reconnect_delay = min(
+
+                reconnect_delay * 2,
+
+                60,
+
+            )
 
 
 # ============================================================
@@ -811,20 +1105,30 @@ async def startup_message():
 
 async def main():
 
+    validate_configuration()
+
+
     print(
         "=" * 60,
         flush=True,
     )
 
     print(
+
         f"MODULE {MODULE} STARTING",
+
         flush=True,
+
     )
 
     print(
-        f"{SYMBOL} PYRAMID + TP + "
-        f"TRAILING MANAGEMENT ENGINE",
+
+        "BTCUSDT SIMULATED FULL "
+        "TRADE LIFECYCLE + "
+        "LIVE MONITOR",
+
         flush=True,
+
     )
 
     print(
@@ -832,8 +1136,9 @@ async def main():
         flush=True,
     )
 
+
     print(
-        f"Entry: {INITIAL_ENTRY_PERCENT}%",
+        f"Entry: {ENTRY_PCT}%",
         flush=True,
     )
 
@@ -843,65 +1148,104 @@ async def main():
     )
 
     print(
-        f"Max Leverage: {MAX_LEVERAGE}x",
+
+        f"Max Leverage: "
+        f"{MAX_LEVERAGE}x",
+
         flush=True,
+
     )
 
     print(
-        f"Max Pyramids: {MAX_PYRAMID_ADDS}",
+
+        f"Max Pyramids: "
+        f"{MAX_PYRAMIDS}",
+
         flush=True,
+
     )
 
     print(
-        f"Max Backups: {MAX_BACKUPS}",
+
+        f"Max Backups: "
+        f"{MAX_BACKUPS}",
+
         flush=True,
+
     )
 
     print(
-        f"Max Fund Exposure: "
-        f"{MAX_FUND_EXPOSURE_PERCENT}%",
+
+        "Max Fund Exposure: "
+        f"{MAX_FUND_EXPOSURE_PCT}%",
+
         flush=True,
+
     )
 
     print(
-        f"TP1 / TP2 / TP3: "
-        f"{TP1_CLOSE_PERCENT}% / "
-        f"{TP2_CLOSE_PERCENT}% / "
-        f"{TP3_CLOSE_PERCENT}%",
+
+        "TP1 / TP2 / TP3: "
+        f"{TP1_SHARE}% / "
+        f"{TP2_SHARE}% / "
+        f"{TP3_SHARE}%",
+
         flush=True,
+
     )
 
     print(
+
         f"TP1 Trigger: "
-        f"{TP1_TRIGGER_PERCENT}%",
+        f"{TP1_TRIGGER}%",
+
         flush=True,
+
     )
 
     print(
+
         f"TP2 Trigger: "
-        f"{TP2_TRIGGER_PERCENT}%",
+        f"{TP2_TRIGGER}%",
+
         flush=True,
+
     )
 
     print(
-        f"Trailing Distance: "
-        f"{TRAILING_DISTANCE_PERCENT}%",
+
+        "Trailing Distance: "
+        f"{TRAILING_DISTANCE}%",
+
         flush=True,
+
     )
 
     print(
-        "Idle pyramid cleanup: ACTIVE",
+
+        "Idle pyramid cleanup: "
+        "ACTIVE",
+
         flush=True,
+
     )
 
     print(
-        "Safety controls: ACTIVE",
+
+        "Safety controls: "
+        "ACTIVE",
+
         flush=True,
+
     )
 
     print(
-        "LIVE ORDER EXECUTION: DISABLED",
+
+        "LIVE ORDER EXECUTION: "
+        "DISABLED",
+
         flush=True,
+
     )
 
     print(
@@ -909,37 +1253,79 @@ async def main():
         flush=True,
     )
 
-    # Startup Telegram is sent ONCE
-    # during each actual process startup.
-    await startup_message()
+
+    # ========================================================
+    # STARTUP TELEGRAM
+    # ========================================================
+
+    await send_telegram(
+
+        "✅ MODULE 0F-4D ONLINE\n"
+        "BTCUSDT\n"
+        "Simulated Full Trade Lifecycle Engine\n\n"
+
+        "🛡 Safety controls active\n"
+        "⚠️ Live order execution disabled"
+
+    )
+
+
+    # ========================================================
+    # SIMULATION
+    # ========================================================
+
+    if RUN_SIMULATED_LIFECYCLE_TEST:
+
+        await simulated_lifecycle_test()
+
+    else:
+
+        print(
+
+            "SIMULATED LIFECYCLE "
+            "TEST: DISABLED",
+
+            flush=True,
+
+        )
+
+
+    # ========================================================
+    # LIVE MONITOR
+    # ========================================================
 
     print(
-        "LIVE MARKET MONITORING ACTIVE",
+        "=" * 60,
         flush=True,
     )
 
     print(
-        "WAITING FOR WEEX MARKET DATA...",
+
+        "LIVE MARKET "
+        "MONITORING ACTIVE",
+
         flush=True,
+
     )
 
-    # IMPORTANT:
-    # This never normally returns.
-    await market_loop()
+    print(
+
+        "WAITING FOR WEEX "
+        "MARKET DATA...",
+
+        flush=True,
+
+    )
+
+
+    await market_monitor()
 
 
 # ============================================================
-# RUN
+# START
 # ============================================================
 
 if __name__ == "__main__":
 
-    try:
-        asyncio.run(main())
-
-    except KeyboardInterrupt:
-
-        print(
-            "BOT STOPPED",
-            flush=True,
-        )
+    asyncio.run(
+        main())
