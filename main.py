@@ -914,8 +914,9 @@ if __name__ == "__main__":
             "🛡 Safety controls active\n"
             "⚠️ Live order execution "
             + (
-                "ENABLED"
+               "ENABLED"
                 if LIVE_ORDERS
                 else "disabled"
             )
-        
+        )
+    )
