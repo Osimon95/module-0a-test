@@ -13,7 +13,7 @@ from telegram import Bot
 # MODULE
 # ============================================================
 
-MODULE_NAME = "0F-1"
+MODULE_NAME = "0F-2"
 
 
 # ============================================================
@@ -139,8 +139,9 @@ def calculate_ema(
     if len(prices) < period:
         return None
 
-    multiplier = Decimal("2") / Decimal(
-        period + 1
+    multiplier = (
+        Decimal("2")
+        / Decimal(period + 1)
     )
 
     initial_prices = prices[:period]
@@ -154,7 +155,8 @@ def calculate_ema(
 
         ema = (
             price * multiplier
-            + ema * (
+            + ema
+            * (
                 Decimal("1")
                 - multiplier
             )
@@ -287,17 +289,6 @@ def extract_historical_close(
 
     if isinstance(candle, list):
 
-        # Standard kline format commonly:
-        #
-        # [
-        # timestamp,
-        # open,
-        # high,
-        # low,
-        # close,
-        # ...
-        # ]
-
         if len(candle) >= 5:
 
             price = to_decimal(
@@ -344,7 +335,6 @@ async def load_historical_prices() -> list[Decimal]:
                 )
 
                 if response.status != 200:
-
                     return []
 
                 payload = await response.json()
@@ -376,7 +366,7 @@ async def load_historical_prices() -> list[Decimal]:
             prices.append(close)
 
     print(
-        f"HISTORICAL CANDLES LOADED: "
+        "HISTORICAL CANDLES LOADED: "
         f"{len(prices)}",
         flush=True,
     )
@@ -451,10 +441,7 @@ def extract_live_candle(
 
         candle = data[0]
 
-        if isinstance(
-            candle,
-            list,
-        ):
+        if isinstance(candle, list):
 
             if len(candle) >= 5:
 
@@ -471,10 +458,7 @@ def extract_live_candle(
                         close,
                     )
 
-        if isinstance(
-            candle,
-            dict,
-        ):
+        if isinstance(candle, dict):
 
             timestamp = (
                 candle.get("timestamp")
@@ -526,37 +510,48 @@ class SignalEngine:
 
         self.prices = prices[-500:]
 
-        self.previous_ema19 = (
-            calculate_ema(
-                self.prices,
-                19,
-            )
+        self.previous_ema19 = calculate_ema(
+            self.prices,
+            19,
         )
 
-        self.previous_ema50 = (
-            calculate_ema(
-                self.prices,
-                50,
-            )
+        self.previous_ema50 = calculate_ema(
+            self.prices,
+            50,
         )
 
-        self.previous_ema200 = (
-            calculate_ema(
-                self.prices,
-                200,
-            )
+        self.previous_ema200 = calculate_ema(
+            self.prices,
+            200,
         )
+
+        # ----------------------------------------------------
+        # LAST SUCCESSFULLY SENT SIGNAL
+        # ----------------------------------------------------
 
         self.last_signal: Optional[str] = None
 
-        # Prevent startup state from being treated
-        # as a fresh crossover.
+        # ----------------------------------------------------
+        # PENDING SIGNAL
+        #
+        # LONG:
+        # EMA19 crossed above EMA50 but price
+        # has not yet confirmed above EMA200.
+        #
+        # SHORT:
+        # EMA19 crossed below EMA50 but price
+        # has not yet confirmed below EMA200.
+        # ----------------------------------------------------
+
+        self.pending_signal: Optional[str] = None
+
+        # ----------------------------------------------------
+        # INITIAL RELATIONSHIP
+        # ----------------------------------------------------
 
         if (
-            self.previous_ema19
-            is not None
-            and self.previous_ema50
-            is not None
+            self.previous_ema19 is not None
+            and self.previous_ema50 is not None
         ):
 
             if (
@@ -564,29 +559,123 @@ class SignalEngine:
                 > self.previous_ema50
             ):
 
-                self.last_relationship = (
-                    "ABOVE"
-                )
+                self.last_relationship = "ABOVE"
 
             elif (
                 self.previous_ema19
                 < self.previous_ema50
             ):
 
-                self.last_relationship = (
-                    "BELOW"
-                )
+                self.last_relationship = "BELOW"
 
             else:
 
-                self.last_relationship = (
-                    "EQUAL"
-                )
+                self.last_relationship = "EQUAL"
 
         else:
 
             self.last_relationship = None
 
+
+    # ========================================================
+    # SEND LONG
+    # ========================================================
+
+    async def send_long_signal(
+        self,
+        bot: Bot,
+        close: Decimal,
+        ema19: Decimal,
+        ema50: Decimal,
+        ema200: Decimal,
+        structure: str,
+        confirmation_type: str,
+    ) -> None:
+
+        if self.last_signal == "LONG":
+
+            print(
+                "DUPLICATE LONG SIGNAL BLOCKED",
+                flush=True,
+            )
+
+            return
+
+        message = (
+            "🟢 BTCUSDT LONG SIGNAL\n\n"
+            "EMA19 ABOVE EMA50\n\n"
+            f"PRICE: {close}\n"
+            f"EMA19: {ema19:.2f}\n"
+            f"EMA50: {ema50:.2f}\n"
+            f"EMA200: {ema200:.2f}\n\n"
+            f"{structure}\n\n"
+            "✅ CONFIRMATION:\n"
+            "Price is ABOVE EMA200\n\n"
+            f"{confirmation_type}\n\n"
+            "MODULE 0F-2"
+        )
+
+        await send_telegram(
+            bot,
+            message,
+        )
+
+        self.last_signal = "LONG"
+
+        self.pending_signal = None
+
+
+    # ========================================================
+    # SEND SHORT
+    # ========================================================
+
+    async def send_short_signal(
+        self,
+        bot: Bot,
+        close: Decimal,
+        ema19: Decimal,
+        ema50: Decimal,
+        ema200: Decimal,
+        structure: str,
+        confirmation_type: str,
+    ) -> None:
+
+        if self.last_signal == "SHORT":
+
+            print(
+                "DUPLICATE SHORT SIGNAL BLOCKED",
+                flush=True,
+            )
+
+            return
+
+        message = (
+            "🔴 BTCUSDT SHORT SIGNAL\n\n"
+            "EMA19 BELOW EMA50\n\n"
+            f"PRICE: {close}\n"
+            f"EMA19: {ema19:.2f}\n"
+            f"EMA50: {ema50:.2f}\n"
+            f"EMA200: {ema200:.2f}\n\n"
+            f"{structure}\n\n"
+            "✅ CONFIRMATION:\n"
+            "Price is BELOW EMA200\n\n"
+            f"{confirmation_type}\n\n"
+            "MODULE 0F-2"
+        )
+
+        await send_telegram(
+            bot,
+            message,
+        )
+
+        self.last_signal = "SHORT"
+
+        self.pending_signal = None
+
+
+    # ========================================================
+    # PROCESS CLOSED CANDLE
+    # ========================================================
 
     async def process_closed_candle(
         self,
@@ -618,7 +707,6 @@ class SignalEngine:
             or ema50 is None
             or ema200 is None
         ):
-
             return
 
         print(
@@ -627,14 +715,13 @@ class SignalEngine:
         )
 
         print(
-            "MODULE 0F-1 - "
+            "MODULE 0F-2 - "
             "CLOSED 1m CANDLE",
             flush=True,
         )
 
         print(
-            f"{SYMBOL} CLOSE: "
-            f"{close}",
+            f"{SYMBOL} CLOSE: {close}",
             flush=True,
         )
 
@@ -665,7 +752,7 @@ class SignalEngine:
         )
 
         # ----------------------------------------------------
-        # CURRENT RELATIONSHIP
+        # CURRENT EMA19 / EMA50 RELATIONSHIP
         # ----------------------------------------------------
 
         if ema19 > ema50:
@@ -681,7 +768,7 @@ class SignalEngine:
             current_relationship = "EQUAL"
 
         # ----------------------------------------------------
-        # BULLISH CROSSOVER
+        # CROSSOVER DETECTION
         # ----------------------------------------------------
 
         bullish_cross = (
@@ -691,13 +778,8 @@ class SignalEngine:
                 "EQUAL",
             )
             and
-            current_relationship
-            == "ABOVE"
+            current_relationship == "ABOVE"
         )
-
-        # ----------------------------------------------------
-        # BEARISH CROSSOVER
-        # ----------------------------------------------------
 
         bearish_cross = (
             self.last_relationship
@@ -706,16 +788,12 @@ class SignalEngine:
                 "EQUAL",
             )
             and
-            current_relationship
-            == "BELOW"
+            current_relationship == "BELOW"
         )
 
-        # ----------------------------------------------------
-        # LONG CONFIRMATION
-        #
-        # EMA19 crosses above EMA50
-        # AND price is above EMA200.
-        # ----------------------------------------------------
+        # ====================================================
+        # BULLISH CROSSOVER
+        # ====================================================
 
         if bullish_cross:
 
@@ -725,64 +803,69 @@ class SignalEngine:
                 flush=True,
             )
 
+            # A complete bearish-to-bullish cycle
+            # re-arms the LONG signal.
+
+            if self.last_signal == "LONG":
+
+                self.last_signal = None
+
+                print(
+                    "LONG SIGNAL RE-ARMED",
+                    flush=True,
+                )
+
+            # Cancel any old SHORT waiting for
+            # confirmation.
+
+            if self.pending_signal == "SHORT":
+
+                print(
+                    "PENDING SHORT CANCELLED",
+                    flush=True,
+                )
+
+                self.pending_signal = None
+
+            # Immediate confirmation.
+
             if close > ema200:
 
-                signal_id = "LONG"
+                print(
+                    "BULLISH CROSS "
+                    "IMMEDIATELY CONFIRMED",
+                    flush=True,
+                )
 
-                if (
-                    self.last_signal
-                    != signal_id
-                ):
-
-                    message = (
-                        "🟢 BTCUSDT LONG SIGNAL\n\n"
-                        "EMA19 crossed ABOVE EMA50\n\n"
-                        f"PRICE: {close}\n"
-                        f"EMA19: {ema19:.2f}\n"
-                        f"EMA50: {ema50:.2f}\n"
-                        f"EMA200: {ema200:.2f}\n\n"
-                        f"{structure}\n\n"
-                        "✅ CONFIRMATION:\n"
-                        "Price is ABOVE EMA200\n\n"
-                        "MODULE 0F-1"
-                    )
-
-                    await send_telegram(
-                        bot,
-                        message,
-                    )
-
-                    self.last_signal = (
-                        signal_id
-                    )
-
-                else:
-
-                    print(
-                        "DUPLICATE LONG SIGNAL "
-                        "BLOCKED",
-                        flush=True,
-                    )
+                await self.send_long_signal(
+                    bot,
+                    close,
+                    ema19,
+                    ema50,
+                    ema200,
+                    structure,
+                    "⚡ CROSSOVER CONFIRMED "
+                    "IMMEDIATELY",
+                )
 
             else:
 
+                self.pending_signal = "LONG"
+
                 print(
-                    "BULLISH CROSS NOT "
-                    "CONFIRMED:",
+                    "PENDING LONG CREATED",
                     flush=True,
                 )
 
                 print(
-                    "PRICE IS BELOW EMA200",
+                    "WAITING FOR PRICE "
+                    "ABOVE EMA200",
                     flush=True,
                 )
 
-        # ----------------------------------------------------
-        # SHORT CONFIRMATION
-        #
-        # EMA19 crosses below EMA50
-        # AND price is below EMA200.
-        # ----------------------------------------------------
+        # ====================================================
+        # BEARISH CROSSOVER
+        # ====================================================
 
         if bearish_cross:
 
@@ -792,57 +875,212 @@ class SignalEngine:
                 flush=True,
             )
 
+            # A complete bullish-to-bearish cycle
+            # re-arms the SHORT signal.
+
+            if self.last_signal == "SHORT":
+
+                self.last_signal = None
+
+                print(
+                    "SHORT SIGNAL RE-ARMED",
+                    flush=True,
+                )
+
+            # Cancel any old LONG waiting for
+            # confirmation.
+
+            if self.pending_signal == "LONG":
+
+                print(
+                    "PENDING LONG CANCELLED",
+                    flush=True,
+                )
+
+                self.pending_signal = None
+
+            # Immediate confirmation.
+
             if close < ema200:
 
-                signal_id = "SHORT"
+                print(
+                    "BEARISH CROSS "
+                    "IMMEDIATELY CONFIRMED",
+                    flush=True,
+                )
 
-                if (
-                    self.last_signal
-                    != signal_id
-                ):
+                await self.send_short_signal(
+                    bot,
+                    close,
+                    ema19,
+                    ema50,
+                    ema200,
+                    structure,
+                    "⚡ CROSSOVER CONFIRMED "
+                    "IMMEDIATELY",
+                )
 
-                    message = (
-                        "🔴 BTCUSDT SHORT SIGNAL\n\n"
-                        "EMA19 crossed BELOW EMA50\n\n"
-                        f"PRICE: {close}\n"
-                        f"EMA19: {ema19:.2f}\n"
-                        f"EMA50: {ema50:.2f}\n"
-                        f"EMA200: {ema200:.2f}\n\n"
-                        f"{structure}\n\n"
-                        "✅ CONFIRMATION:\n"
-                        "Price is BELOW EMA200\n\n"
-                        "MODULE 0F-1"
-                    )
+            else:
 
-                    await send_telegram(
-                        bot,
-                        message,
-                    )
+                self.pending_signal = "SHORT"
 
-                    self.last_signal = (
-                        signal_id
-                    )
+                print(
+                    "PENDING SHORT CREATED",
+                    flush=True,
+                )
 
-                else:
+                print(
+                    "WAITING FOR PRICE "
+                    "BELOW EMA200",
+                    flush=True,
+                )
 
-                    print(
-                        "DUPLICATE SHORT SIGNAL "
-                        "BLOCKED",
-                        flush=True,
-                    )
+        # ====================================================
+        # PENDING LONG ENGINE
+        # ====================================================
+
+        if self.pending_signal == "LONG":
+
+            # Bullish EMA relationship disappeared.
+            # Pending LONG is no longer valid.
+
+            if ema19 <= ema50:
+
+                print(
+                    "PENDING LONG INVALIDATED",
+                    flush=True,
+                )
+
+                print(
+                    "EMA19 NO LONGER "
+                    "ABOVE EMA50",
+                    flush=True,
+                )
+
+                self.pending_signal = None
+
+            # Bullish relationship remains valid
+            # and price finally confirms.
+
+            elif close > ema200:
+
+                print(
+                    "PENDING LONG CONFIRMED",
+                    flush=True,
+                )
+
+                print(
+                    "PRICE MOVED ABOVE EMA200",
+                    flush=True,
+                )
+
+                await self.send_long_signal(
+                    bot,
+                    close,
+                    ema19,
+                    ema50,
+                    ema200,
+                    structure,
+                    "⏳ DELAYED EMA200 "
+                    "CONFIRMATION",
+                )
 
             else:
 
                 print(
-                    "BEARISH CROSS NOT "
-                    "CONFIRMED:",
+                    "PENDING LONG ACTIVE",
                     flush=True,
                 )
 
                 print(
-                    "PRICE IS ABOVE EMA200",
+                    "PRICE STILL BELOW EMA200",
                     flush=True,
                 )
+
+        # ====================================================
+        # PENDING SHORT ENGINE
+        # ====================================================
+
+        if self.pending_signal == "SHORT":
+
+            # Bearish EMA relationship disappeared.
+            # Pending SHORT is no longer valid.
+
+            if ema19 >= ema50:
+
+                print(
+                    "PENDING SHORT INVALIDATED",
+                    flush=True,
+                )
+
+                print(
+                    "EMA19 NO LONGER "
+                    "BELOW EMA50",
+                    flush=True,
+                )
+
+                self.pending_signal = None
+
+            # Bearish relationship remains valid
+            # and price finally confirms.
+
+            elif close < ema200:
+
+                print(
+                    "PENDING SHORT CONFIRMED",
+                    flush=True,
+                )
+
+                print(
+                    "PRICE MOVED BELOW EMA200",
+                    flush=True,
+                )
+
+                await self.send_short_signal(
+                    bot,
+                    close,
+                    ema19,
+                    ema50,
+                    ema200,
+                    structure,
+                    "⏳ DELAYED EMA200 "
+                    "CONFIRMATION",
+                )
+
+            else:
+
+                print(
+                    "PENDING SHORT ACTIVE",
+                    flush=True,
+                )
+
+                print(
+                    "PRICE STILL ABOVE EMA200",
+                    flush=True,
+                )
+
+        # ----------------------------------------------------
+        # PENDING STATUS
+        # ----------------------------------------------------
+
+        if self.pending_signal is None:
+
+            print(
+                "PENDING SIGNAL: NONE",
+                flush=True,
+            )
+
+        else:
+
+            print(
+                "PENDING SIGNAL: "
+                f"{self.pending_signal}",
+                flush=True,
+            )
+
+        # ----------------------------------------------------
+        # UPDATE ENGINE STATE
+        # ----------------------------------------------------
 
         self.last_relationship = (
             current_relationship
@@ -1043,7 +1281,8 @@ async def run_websocket(
                         continue
 
                     # ----------------------------------------
-                    # NEW CANDLE = PREVIOUS CANDLE CLOSED
+                    # NEW CANDLE =
+                    # PREVIOUS CANDLE CLOSED
                     # ----------------------------------------
 
                     if (
@@ -1111,12 +1350,12 @@ async def main() -> None:
     )
 
     print(
-        "MODULE 0F-1 STARTING",
+        "MODULE 0F-2 STARTING",
         flush=True,
     )
 
     print(
-        "BTCUSDT TRADE SIGNAL "
+        "BTCUSDT PENDING SIGNAL "
         "CONFIRMATION ENGINE",
         flush=True,
     )
@@ -1127,8 +1366,8 @@ async def main() -> None:
     )
 
     print(
-        "CROSSOVER + SIGNAL + "
-        "ANTI-DUPLICATE ALERTS",
+        "CROSSOVER + PENDING "
+        "CONFIRMATION",
         flush=True,
     )
 
@@ -1167,7 +1406,7 @@ async def main() -> None:
         return
 
     print(
-        f"LATEST CLOSED PRICE: "
+        "LATEST CLOSED PRICE: "
         f"{prices[-1]}",
         flush=True,
     )
@@ -1177,18 +1416,15 @@ async def main() -> None:
     )
 
     ema19 = (
-        signal_engine
-        .previous_ema19
+        signal_engine.previous_ema19
     )
 
     ema50 = (
-        signal_engine
-        .previous_ema50
+        signal_engine.previous_ema50
     )
 
     ema200 = (
-        signal_engine
-        .previous_ema200
+        signal_engine.previous_ema200
     )
 
     if (
@@ -1198,7 +1434,8 @@ async def main() -> None:
     ):
 
         print(
-            "ERROR INITIALIZING EMA ENGINE",
+            "ERROR INITIALIZING "
+            "EMA ENGINE",
             flush=True,
         )
 
@@ -1251,8 +1488,13 @@ async def main() -> None:
     )
 
     print(
-        "SIMULATED CROSSOVER "
-        "TEST DISABLED",
+        "PENDING CONFIRMATION "
+        "ENGINE ACTIVE",
+        flush=True,
+    )
+
+    print(
+        "SIMULATED TEST DISABLED",
         flush=True,
     )
 
@@ -1284,5 +1526,5 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
 
         print(
-            "MODULE 0F-1 STOPPED",
+            "MODULE 0F-2 STOPPED",
             flush=True,)
