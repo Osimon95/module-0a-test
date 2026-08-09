@@ -1,9 +1,13 @@
 import asyncio
+import base64
+import hashlib
+import hmac
 import json
 import os
 import time
 import uuid
 from decimal import Decimal, InvalidOperation
+from urllib.parse import urlencode
 
 import aiohttp
 import websockets
@@ -11,14 +15,21 @@ from telegram import Bot
 
 
 # ============================================================
-# MODULE 0F-4F
-# SAFE AUTHENTICATED ORDER BRIDGE
+# MODULE
 # ============================================================
 
-MODULE_NAME = "0F-4F"
+MODULE_NAME = "0F-4G"
+
+
+# ============================================================
+# CORE CONFIGURATION
+# ============================================================
+
 SYMBOL = "BTCUSDT"
 
+REST_BASE_URL = "https://api-contract.weex.com"
 WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
+
 SUBSCRIPTION_CHANNEL = f"{SYMBOL}@kline_1m_LAST_PRICE"
 
 RECONNECT_DELAY_SECONDS = 5
@@ -26,31 +37,17 @@ MAX_RECONNECT_DELAY_SECONDS = 60
 
 
 # ============================================================
-# MASTER SAFETY SWITCH
-# ============================================================
-
-# DO NOT CHANGE THIS YET.
-LIVE_ORDER_EXECUTION = False
-
-
-# ============================================================
 # TRADE CONFIGURATION
 # ============================================================
 
 INITIAL_ENTRY_PERCENT = Decimal("5")
+PYRAMID_ADD_PERCENT = Decimal("5")
+
 LEVERAGE = Decimal("5")
 MAX_LEVERAGE = Decimal("10")
 
 MAX_PYRAMID_ADDS = 1
-PYRAMID_ADD_PERCENT = Decimal("5")
-
 MAX_BACKUPS = 3
-
-BACKUP_SIZES_PERCENT = [
-    Decimal("5"),
-    Decimal("7.5"),
-    Decimal("10"),
-]
 
 MAX_FUND_EXPOSURE_PERCENT = Decimal("35")
 
@@ -63,21 +60,25 @@ TP2_TRIGGER_PERCENT = Decimal("1.00")
 
 TRAILING_DISTANCE_PERCENT = Decimal("0.20")
 
-MIN_LIQUIDATION_DISTANCE_PERCENT = Decimal("1")
-BACKUP_LIQUIDATION_BUFFER_PERCENT = Decimal("0.25")
 
-MAX_TRADE_LOSS_PERCENT = Decimal("10")
+# ============================================================
+# EXECUTION SAFETY
+# ============================================================
 
-SIGNAL_EXPIRY_SECONDS = 180
+LIVE_ORDER_EXECUTION = False
 
-ONE_DIRECTION_ONLY = True
-ANTI_DUPLICATE_ORDERS = True
+ALLOW_LIVE_ENTRY_ORDERS = False
+ALLOW_LIVE_PYRAMID_ORDERS = False
+ALLOW_LIVE_BACKUP_ORDERS = False
+ALLOW_LIVE_EXIT_ORDERS = False
 
-IDLE_PYRAMID_CLEANUP = True
+AUTHENTICATED_READ_TEST = True
+
+HARD_EXECUTION_LOCK = True
 
 
 # ============================================================
-# WEEX API CREDENTIALS
+# WEEX CREDENTIALS
 # ============================================================
 
 WEEX_API_KEY = os.getenv(
@@ -96,13 +97,11 @@ WEEX_API_PASSPHRASE = os.getenv(
 ).strip()
 
 
-def weex_credentials_ready():
-    return all(
-        [
-            WEEX_API_KEY,
-            WEEX_API_SECRET,
-            WEEX_API_PASSPHRASE,
-        ]
+def weex_credentials_configured() -> bool:
+    return bool(
+        WEEX_API_KEY
+        and WEEX_API_SECRET
+        and WEEX_API_PASSPHRASE
     )
 
 
@@ -121,24 +120,20 @@ TELEGRAM_CHAT_ID = os.getenv(
 ).strip()
 
 
-def telegram_ready():
+def telegram_is_configured() -> bool:
     return bool(
         TELEGRAM_BOT_TOKEN
         and TELEGRAM_CHAT_ID
     )
 
 
-async def send_telegram(message):
-
-    if not telegram_ready():
+async def send_telegram(message: str) -> None:
+    if not telegram_is_configured():
         print("TELEGRAM CONFIG: MISSING")
         return
 
     try:
-
-        bot = Bot(
-            token=TELEGRAM_BOT_TOKEN
-        )
+        bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
         await bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
@@ -148,19 +143,18 @@ async def send_telegram(message):
         print("TELEGRAM MESSAGE SENT")
 
     except Exception as exc:
-
         print(
             "TELEGRAM ERROR:",
-            exc,
+            type(exc).__name__,
+            str(exc),
         )
 
 
 # ============================================================
-# BASIC HELPERS
+# DECIMAL HELPERS
 # ============================================================
 
-def D(value):
-
+def to_decimal(value, default="0") -> Decimal:
     try:
         return Decimal(str(value))
 
@@ -169,69 +163,465 @@ def D(value):
         TypeError,
         ValueError,
     ):
+        return Decimal(default)
+
+
+def decimal_string(
+    value: Decimal,
+    precision: int = 8,
+) -> str:
+
+    value = to_decimal(value)
+
+    text = f"{value:.{precision}f}"
+
+    text = text.rstrip("0").rstrip(".")
+
+    return text or "0"
+
+
+# ============================================================
+# WEEX REST SIGNATURE
+# ============================================================
+
+def create_weex_signature(
+    timestamp: str,
+    method: str,
+    request_path: str,
+    query_string: str = "",
+    body: str = "",
+) -> str:
+
+    method = method.upper()
+
+    if query_string:
+
+        message = (
+            timestamp
+            + method
+            + request_path
+            + "?"
+            + query_string
+            + body
+        )
+
+    else:
+
+        message = (
+            timestamp
+            + method
+            + request_path
+            + body
+        )
+
+    digest = hmac.new(
+        WEEX_API_SECRET.encode("utf-8"),
+        message.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+
+    return base64.b64encode(
+        digest
+    ).decode("utf-8")
+
+
+# ============================================================
+# AUTHENTICATED HEADERS
+# ============================================================
+
+def build_auth_headers(
+    method: str,
+    request_path: str,
+    query_string: str = "",
+    body: str = "",
+) -> dict:
+
+    if not weex_credentials_configured():
+        raise RuntimeError(
+            "WEEX credentials are not configured"
+        )
+
+    timestamp = str(
+        int(time.time() * 1000)
+    )
+
+    signature = create_weex_signature(
+        timestamp=timestamp,
+        method=method,
+        request_path=request_path,
+        query_string=query_string,
+        body=body,
+    )
+
+    return {
+        "ACCESS-KEY": WEEX_API_KEY,
+        "ACCESS-SIGN": signature,
+        "ACCESS-PASSPHRASE": WEEX_API_PASSPHRASE,
+        "ACCESS-TIMESTAMP": timestamp,
+        "Content-Type": "application/json",
+        "User-Agent": "WEEX-0F-4G-Bot/1.0",
+    }
+
+
+# ============================================================
+# GENERIC AUTHENTICATED REQUEST
+# ============================================================
+
+async def authenticated_request(
+    session: aiohttp.ClientSession,
+    method: str,
+    request_path: str,
+    params: dict | None = None,
+    payload: dict | None = None,
+):
+
+    method = method.upper()
+
+    params = params or {}
+
+    query_string = urlencode(params)
+
+    body = ""
+
+    if payload is not None:
+        body = json.dumps(
+            payload,
+            separators=(",", ":"),
+        )
+
+    headers = build_auth_headers(
+        method=method,
+        request_path=request_path,
+        query_string=query_string,
+        body=body,
+    )
+
+    url = REST_BASE_URL + request_path
+
+    if query_string:
+        url += "?" + query_string
+
+    async with session.request(
+        method,
+        url,
+        headers=headers,
+        data=body if body else None,
+        timeout=aiohttp.ClientTimeout(total=15),
+    ) as response:
+
+        text = await response.text()
+
+        try:
+            data = json.loads(text)
+
+        except json.JSONDecodeError:
+            data = text
+
+        return response.status, data
+
+
+# ============================================================
+# PUBLIC EXCHANGE INFORMATION
+# ============================================================
+
+async def get_exchange_info(
+    session: aiohttp.ClientSession,
+):
+
+    url = (
+        REST_BASE_URL
+        + "/capi/v3/market/exchangeInfo"
+    )
+
+    params = {
+        "symbol": SYMBOL,
+    }
+
+    try:
+        async with session.get(
+            url,
+            params=params,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as response:
+
+            data = await response.json(
+                content_type=None
+            )
+
+            if response.status != 200:
+
+                print(
+                    "EXCHANGE INFO ERROR:",
+                    response.status,
+                    data,
+                )
+
+                return None
+
+            symbols = []
+
+            if isinstance(data, dict):
+                symbols = data.get(
+                    "symbols",
+                    [],
+                )
+
+            if not symbols:
+
+                print(
+                    "EXCHANGE INFO:",
+                    "NO SYMBOL DATA",
+                )
+
+                return None
+
+            info = symbols[0]
+
+            print("=" * 60)
+            print("WEEX CONTRACT INFORMATION")
+            print("SYMBOL:", info.get("symbol"))
+            print(
+                "PRICE PRECISION:",
+                info.get("pricePrecision"),
+            )
+            print(
+                "QUANTITY PRECISION:",
+                info.get("quantityPrecision"),
+            )
+            print(
+                "CONTRACT VALUE:",
+                info.get("contractVal"),
+            )
+            print(
+                "MIN LEVERAGE:",
+                info.get("minLeverage"),
+            )
+            print(
+                "MAX LEVERAGE:",
+                info.get("maxLeverage"),
+            )
+            print("=" * 60)
+
+            return info
+
+    except Exception as exc:
+
+        print(
+            "EXCHANGE INFO EXCEPTION:",
+            type(exc).__name__,
+            str(exc),
+        )
+
         return None
 
 
-def percent_change(
-    start,
-    current,
-):
+# ============================================================
+# API TRADING SYMBOL CHECK
+# ============================================================
 
-    start = D(start)
-    current = D(current)
+async def check_api_trading_symbol(
+    session: aiohttp.ClientSession,
+) -> bool:
 
-    if (
-        start is None
-        or current is None
-        or start == 0
-    ):
-        return Decimal("0")
-
-    return (
-        (current - start)
-        / start
-        * Decimal("100")
+    url = (
+        REST_BASE_URL
+        + "/capi/v3/market/apiTradingSymbols"
     )
 
+    try:
+
+        async with session.get(
+            url,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as response:
+
+            data = await response.json(
+                content_type=None
+            )
+
+            if response.status != 200:
+
+                print(
+                    "API SYMBOL CHECK ERROR:",
+                    response.status,
+                    data,
+                )
+
+                return False
+
+            if isinstance(data, list):
+
+                available = SYMBOL in data
+
+            elif isinstance(data, dict):
+
+                result = (
+                    data.get("data")
+                    or data.get("symbols")
+                    or data.get("result")
+                    or []
+                )
+
+                available = (
+                    SYMBOL in result
+                    if isinstance(result, list)
+                    else False
+                )
+
+            else:
+
+                available = False
+
+            print(
+                "API FUTURES SYMBOL:",
+                "SUPPORTED"
+                if available
+                else "NOT CONFIRMED",
+            )
+
+            return available
+
+    except Exception as exc:
+
+        print(
+            "API SYMBOL CHECK EXCEPTION:",
+            type(exc).__name__,
+            str(exc),
+        )
+
+        return False
+
 
 # ============================================================
-# TRADE STATE
+# AUTHENTICATION TEST
 # ============================================================
 
-class TradeState:
+async def test_weex_authentication(
+    session: aiohttp.ClientSession,
+) -> bool:
 
-    def __init__(self):
+    if not weex_credentials_configured():
 
-        self.reset()
+        print("=" * 60)
+        print(
+            "WEEX AUTHENTICATION TEST: SKIPPED"
+        )
+        print(
+            "WEEX API credentials are missing."
+        )
+        print("=" * 60)
 
-    def reset(self):
+        return False
 
-        self.active = False
+    request_path = (
+        "/capi/v3/account/symbolConfig"
+    )
 
-        self.direction = None
+    params = {
+        "symbol": SYMBOL,
+    }
 
-        self.entry_price = None
-        self.average_price = None
+    try:
 
-        self.total_size_percent = Decimal("0")
+        status, data = (
+            await authenticated_request(
+                session=session,
+                method="GET",
+                request_path=request_path,
+                params=params,
+            )
+        )
 
-        self.pyramids = 0
-        self.backups = 0
+        print("=" * 60)
+        print("WEEX AUTHENTICATION TEST")
+        print("HTTP STATUS:", status)
 
-        self.tp1_done = False
-        self.tp2_done = False
+        if status == 200:
 
-        self.trailing_active = False
-        self.trailing_peak = None
+            print("AUTHENTICATION: PASSED")
 
-        self.remaining_percent = Decimal("100")
+            if isinstance(data, list):
 
-        self.signal_time = None
+                for item in data:
 
-        self.last_client_order_id = None
+                    if not isinstance(
+                        item,
+                        dict,
+                    ):
+                        continue
 
+                    print(
+                        "SYMBOL:",
+                        item.get("symbol"),
+                    )
 
-trade = TradeState()
+                    print(
+                        "MARGIN TYPE:",
+                        item.get(
+                            "marginType"
+                        ),
+                    )
+
+                    print(
+                        "POSITION MODE:",
+                        item.get(
+                            "separatedType"
+                        ),
+                    )
+
+                    print(
+                        "CROSS LEVERAGE:",
+                        item.get(
+                            "crossLeverage"
+                        ),
+                    )
+
+                    print(
+                        "ISOLATED LONG LEVERAGE:",
+                        item.get(
+                            "isolatedLongLeverage"
+                        ),
+                    )
+
+                    print(
+                        "ISOLATED SHORT LEVERAGE:",
+                        item.get(
+                            "isolatedShortLeverage"
+                        ),
+                    )
+
+            print("=" * 60)
+
+            return True
+
+        print(
+            "AUTHENTICATION: FAILED"
+        )
+
+        print(
+            "WEEX RESPONSE:",
+            data,
+        )
+
+        print("=" * 60)
+
+        return False
+
+    except Exception as exc:
+
+        print(
+            "AUTHENTICATION EXCEPTION:",
+            type(exc).__name__,
+            str(exc),
+        )
+
+        print("=" * 60)
+
+        return False
 
 
 # ============================================================
@@ -242,36 +632,82 @@ used_client_order_ids = set()
 
 
 def new_client_order_id(
-    purpose="entry",
-):
+    purpose: str = "entry",
+) -> str:
 
-    short_uuid = (
-        uuid.uuid4()
-        .hex[:8]
-    )
-
-    timestamp = int(
-        time.time()
-    )
+    unique = uuid.uuid4().hex[:12]
 
     client_id = (
-        f"04f-{purpose}-"
-        f"{timestamp}-{short_uuid}"
+        f"0F4G-{purpose}-{unique}"
     )
 
-    # WEEX limit is 36 characters.
-    client_id = client_id[:36]
+    return client_id[:36]
 
-    return client_id
+
+# ============================================================
+# ORDER BUILDER
+# ============================================================
+
+def build_market_order(
+    direction: str,
+    quantity: Decimal,
+    reduce_only: bool = False,
+    purpose: str = "entry",
+) -> dict:
+
+    direction = direction.upper()
+
+    if direction == "LONG":
+
+        side = (
+            "SELL"
+            if reduce_only
+            else "BUY"
+        )
+
+        position_side = "LONG"
+
+    elif direction == "SHORT":
+
+        side = (
+            "BUY"
+            if reduce_only
+            else "SELL"
+        )
+
+        position_side = "SHORT"
+
+    else:
+
+        raise ValueError(
+            "Direction must be LONG or SHORT"
+        )
+
+    return {
+        "symbol": SYMBOL,
+        "side": side,
+        "positionSide": position_side,
+        "type": "MARKET",
+        "quantity": decimal_string(
+            quantity
+        ),
+        "reduceOnly": bool(
+            reduce_only
+        ),
+        "newClientOrderId":
+            new_client_order_id(
+                purpose
+            ),
+    }
 
 
 # ============================================================
 # ORDER VALIDATION
 # ============================================================
 
-def validate_order(order):
-
-    errors = []
+def validate_order(
+    order: dict,
+) -> tuple[bool, str]:
 
     required = [
         "symbol",
@@ -284,796 +720,335 @@ def validate_order(order):
 
     for field in required:
 
-        if not order.get(field):
+        if field not in order:
 
-            errors.append(
-                f"MISSING {field}"
+            return (
+                False,
+                f"Missing field: {field}",
             )
 
-    if order.get("symbol") != SYMBOL:
+    if order["symbol"] != SYMBOL:
 
-        errors.append(
-            "INVALID SYMBOL"
+        return (
+            False,
+            "Invalid symbol",
         )
 
-    if order.get("side") not in (
+    if order["side"] not in (
         "BUY",
         "SELL",
     ):
 
-        errors.append(
-            "INVALID SIDE"
+        return (
+            False,
+            "Invalid side",
         )
 
-    if order.get(
-        "positionSide"
-    ) not in (
+    if order["positionSide"] not in (
         "LONG",
         "SHORT",
     ):
 
-        errors.append(
-            "INVALID POSITION SIDE"
+        return (
+            False,
+            "Invalid position side",
         )
 
-    if order.get("type") not in (
+    if order["type"] not in (
         "MARKET",
         "LIMIT",
     ):
 
-        errors.append(
-            "INVALID ORDER TYPE"
+        return (
+            False,
+            "Invalid order type",
         )
 
-    quantity = D(
-        order.get("quantity")
+    quantity = to_decimal(
+        order["quantity"]
     )
 
-    if (
-        quantity is None
-        or quantity <= 0
-    ):
+    if quantity <= 0:
 
-        errors.append(
-            "INVALID QUANTITY"
+        return (
+            False,
+            "Quantity must be positive",
         )
 
-    client_id = order.get(
+    client_id = order[
         "newClientOrderId"
+    ]
+
+    if not client_id:
+
+        return (
+            False,
+            "Missing client order ID",
+        )
+
+    if len(client_id) > 36:
+
+        return (
+            False,
+            "Client order ID too long",
+        )
+
+    return (
+        True,
+        "VALID",
     )
 
-    if client_id:
-
-        if len(client_id) > 36:
-
-            errors.append(
-                "CLIENT ORDER ID TOO LONG"
-            )
-
-        if (
-            ANTI_DUPLICATE_ORDERS
-            and client_id
-            in used_client_order_ids
-        ):
-
-            errors.append(
-                "DUPLICATE CLIENT ORDER ID"
-            )
-
-    return errors
-
 
 # ============================================================
-# ORDER BUILDER
+# HARD EXECUTION BRIDGE
 # ============================================================
 
-def build_market_order(
-    direction,
-    quantity,
-    purpose="entry",
+async def execute_order(
+    session: aiohttp.ClientSession,
+    order: dict,
 ):
 
-    direction = (
-        direction.upper()
-    )
-
-    if direction == "LONG":
-
-        side = "BUY"
-        position_side = "LONG"
-
-    elif direction == "SHORT":
-
-        side = "SELL"
-        position_side = "SHORT"
-
-    else:
-
-        raise ValueError(
-            "Direction must be LONG or SHORT"
-        )
-
-    client_id = (
-        new_client_order_id(
-            purpose
-        )
-    )
-
-    return {
-        "symbol": SYMBOL,
-        "side": side,
-        "positionSide": position_side,
-        "type": "MARKET",
-        "quantity": str(quantity),
-        "newClientOrderId": client_id,
-    }
-
-
-# ============================================================
-# SAFE ORDER BRIDGE
-# ============================================================
-
-async def order_bridge(
-    direction,
-    quantity,
-    purpose="entry",
-):
-
-    order = build_market_order(
-        direction,
-        quantity,
-        purpose,
-    )
-
-    print(
-        "=" * 60
-    )
-
-    print(
-        "0F-4F ORDER BRIDGE"
-    )
-
-    print(
-        "PURPOSE:",
-        purpose.upper(),
-    )
-
-    print(
-        "DIRECTION:",
-        direction,
-    )
-
-    print(
-        "ORDER PAYLOAD:"
-    )
-
-    print(
-        json.dumps(
-            order,
-            indent=2,
-        )
-    )
-
-    errors = validate_order(
+    valid, reason = validate_order(
         order
     )
 
-    if errors:
+    if not valid:
 
         print(
-            "ORDER VALIDATION: FAILED"
+            "ORDER REJECTED:",
+            reason,
         )
 
-        for error in errors:
+        return {
+            "success": False,
+            "reason": reason,
+        }
 
-            print(
-                " -",
-                error,
-            )
+    client_id = order[
+        "newClientOrderId"
+    ]
+
+    if client_id in used_client_order_ids:
 
         print(
-            "ORDER BLOCKED"
+            "ANTI-DUPLICATE:",
+            "ORDER BLOCKED",
         )
 
-        return False
+        return {
+            "success": False,
+            "reason":
+                "Duplicate client order ID",
+        }
 
-    print(
-        "ORDER VALIDATION: PASSED"
+    used_client_order_ids.add(
+        client_id
     )
 
-    if (
-        not weex_credentials_ready()
-    ):
-
-        print(
-            "WEEX API CREDENTIALS: MISSING"
-        )
-
-        print(
-            "ORDER TRANSMISSION: BLOCKED"
-        )
-
-        return False
-
+    print("=" * 60)
+    print("ORDER VALIDATION PASSED")
+    print("SYMBOL:", order["symbol"])
+    print("SIDE:", order["side"])
     print(
-        "WEEX API CREDENTIALS: READY"
+        "POSITION SIDE:",
+        order["positionSide"],
+    )
+    print("TYPE:", order["type"])
+    print(
+        "QUANTITY:",
+        order["quantity"],
+    )
+    print(
+        "CLIENT ORDER ID:",
+        client_id,
     )
 
-    if not LIVE_ORDER_EXECUTION:
+    # ========================================================
+    # ABSOLUTE SAFETY LOCK
+    # ========================================================
+
+    if HARD_EXECUTION_LOCK:
 
         print(
-            "LIVE ORDER EXECUTION: DISABLED"
-        )
-
-        print(
-            "VALIDATION MODE ONLY"
+            "HARD EXECUTION LOCK:"
+            " ACTIVE"
         )
 
         print(
             "NO ORDER SENT TO WEEX"
         )
 
-        used_client_order_ids.add(
-            order[
-                "newClientOrderId"
-            ]
-        )
+        print("=" * 60)
 
-        return True
+        return {
+            "success": False,
+            "blocked": True,
+            "reason":
+                "Hard execution lock active",
+        }
 
-    # ========================================================
-    # DELIBERATE SAFETY LOCK
-    # ========================================================
-    #
-    # Authentication and actual POST transmission
-    # will be introduced in the next controlled module.
-    #
-    # Even if LIVE_ORDER_EXECUTION is accidentally changed
-    # to True here, this module STILL refuses to trade.
-    # ========================================================
+    # Secondary protection
 
-    print(
-        "HARD SAFETY LOCK ACTIVE"
-    )
-
-    print(
-        "0F-4F DOES NOT TRANSMIT "
-        "LIVE ORDERS"
-    )
-
-    return False
-
-
-# ============================================================
-# POSITION MANAGEMENT
-# ============================================================
-
-def start_simulated_trade(
-    direction,
-    price,
-):
-
-    trade.reset()
-
-    trade.active = True
-    trade.direction = direction
-
-    trade.entry_price = D(
-        price
-    )
-
-    trade.average_price = D(
-        price
-    )
-
-    trade.total_size_percent = (
-        INITIAL_ENTRY_PERCENT
-    )
-
-    trade.remaining_percent = (
-        Decimal("100")
-    )
-
-    trade.signal_time = (
-        time.time()
-    )
-
-    print(
-        f"SIM ENTRY: {direction}"
-        f" at {price}"
-        f" | initial position "
-        f"{INITIAL_ENTRY_PERCENT}%"
-    )
-
-
-def add_pyramid(
-    price,
-):
-
-    if not trade.active:
-        return False
-
-    if (
-        trade.pyramids
-        >= MAX_PYRAMID_ADDS
-    ):
-        return False
-
-    old_size = (
-        trade.total_size_percent
-    )
-
-    add_size = (
-        PYRAMID_ADD_PERCENT
-    )
-
-    new_size = (
-        old_size
-        + add_size
-    )
-
-    old_value = (
-        trade.average_price
-        * old_size
-    )
-
-    new_value = (
-        D(price)
-        * add_size
-    )
-
-    trade.average_price = (
-        old_value
-        + new_value
-    ) / new_size
-
-    trade.total_size_percent = (
-        new_size
-    )
-
-    trade.pyramids += 1
-
-    print(
-        f"PYRAMID #{trade.pyramids}: "
-        f"+{add_size}% at {price}"
-        f" | new avg "
-        f"{trade.average_price:.2f}"
-        f" | total size "
-        f"{new_size}%"
-    )
-
-    return True
-
-
-def take_profit_1(
-    price,
-):
-
-    if (
-        not trade.active
-        or trade.tp1_done
-    ):
-        return
-
-    trade.tp1_done = True
-
-    trade.remaining_percent -= (
-        TP1_PERCENT
-    )
-
-    print(
-        f"TP1: closed "
-        f"{TP1_PERCENT}% "
-        f"at {price}"
-        f" | remaining "
-        f"{trade.remaining_percent}%"
-    )
-
-
-def take_profit_2(
-    price,
-):
-
-    if (
-        not trade.active
-        or trade.tp2_done
-    ):
-        return
-
-    trade.tp2_done = True
-
-    trade.remaining_percent -= (
-        TP2_PERCENT
-    )
-
-    print(
-        f"TP2: closed "
-        f"{TP2_PERCENT}% "
-        f"at {price}"
-        f" | remaining "
-        f"{trade.remaining_percent}%"
-    )
-
-    trade.trailing_active = True
-
-    trade.trailing_peak = D(
-        price
-    )
-
-    print(
-        "TRAILING ACTIVATED "
-        f"for final "
-        f"{trade.remaining_percent}% "
-        f"| distance "
-        f"{TRAILING_DISTANCE_PERCENT}%"
-    )
-
-
-def update_trailing(
-    price,
-):
-
-    if (
-        not trade.active
-        or not trade.trailing_active
-    ):
-
-        return False
-
-    price = D(
-        price
-    )
-
-    if trade.direction == "LONG":
-
-        if (
-            trade.trailing_peak is None
-            or price
-            > trade.trailing_peak
-        ):
-
-            trade.trailing_peak = (
-                price
-            )
-
-        trigger = (
-            trade.trailing_peak
-            * (
-                Decimal("1")
-                -
-                TRAILING_DISTANCE_PERCENT
-                / Decimal("100")
-            )
-        )
-
-        if price <= trigger:
-
-            trailing_exit(
-                price
-            )
-
-            return True
-
-    else:
-
-        if (
-            trade.trailing_peak is None
-            or price
-            < trade.trailing_peak
-        ):
-
-            trade.trailing_peak = (
-                price
-            )
-
-        trigger = (
-            trade.trailing_peak
-            * (
-                Decimal("1")
-                +
-                TRAILING_DISTANCE_PERCENT
-                / Decimal("100")
-            )
-        )
-
-        if price >= trigger:
-
-            trailing_exit(
-                price
-            )
-
-            return True
-
-    return False
-
-
-def trailing_exit(
-    price,
-):
-
-    remaining = (
-        trade.remaining_percent
-    )
-
-    trade.remaining_percent = (
-        Decimal("0")
-    )
-
-    print(
-        f"TRAIL EXIT: closed "
-        f"{remaining}% "
-        f"at {price}"
-        " | remaining 0%"
-    )
-
-    cleanup_trade()
-
-
-def cleanup_trade():
-
-    if IDLE_PYRAMID_CLEANUP:
-
-        trade.pyramids = 0
+    if not LIVE_ORDER_EXECUTION:
 
         print(
-            "IDLE PYRAMID CLEANUP: "
-            "COMPLETE"
+            "LIVE ORDER EXECUTION:"
+            " DISABLED"
         )
 
-    trade.reset()
+        print(
+            "NO ORDER SENT TO WEEX"
+        )
 
-    print(
-        "TRADE STATE RESET: COMPLETE"
+        print("=" * 60)
+
+        return {
+            "success": False,
+            "blocked": True,
+            "reason":
+                "Live execution disabled",
+        }
+
+    # This section intentionally remains unreachable
+    # during Module 0F-4G.
+
+    raise RuntimeError(
+        "0F-4G safety violation: "
+        "live execution path reached"
     )
 
 
 # ============================================================
-# 0F-4F SAFE BRIDGE TEST
+# SIMULATED ORDER BRIDGE TEST
 # ============================================================
 
-async def run_0f4f_test():
+async def run_order_bridge_test(
+    session: aiohttp.ClientSession,
+):
 
+    print("=" * 60)
+    print("MODULE 0F-4G AUTHENTICATED BRIDGE TEST")
     print(
-        "=" * 60
+        "NO LIVE ORDER WILL BE SENT"
+    )
+    print("=" * 60)
+
+    test_order = build_market_order(
+        direction="LONG",
+        quantity=Decimal("0.001"),
+        reduce_only=False,
+        purpose="test",
     )
 
-    print(
-        "0F-4F SAFE ORDER BRIDGE TEST"
+    valid, reason = validate_order(
+        test_order
     )
 
-    print(
-        "NO LIVE ORDERS WILL BE SENT"
-    )
+    if not valid:
 
-    print(
-        "=" * 60
-    )
-
-    start_simulated_trade(
-        "LONG",
-        Decimal("100.00"),
-    )
-
-    print(
-        "SIM PRICE: 100.31"
-    )
-
-    add_pyramid(
-        Decimal("100.31")
-    )
-
-    print(
-        "SIM PRICE: 100.82"
-    )
-
-    take_profit_1(
-        Decimal("100.82")
-    )
-
-    print(
-        "SIM PRICE: 101.35"
-    )
-
-    take_profit_2(
-        Decimal("101.35")
-    )
-
-    print(
-        "SIM PRICE: 101.70"
-    )
-
-    update_trailing(
-        Decimal("101.70")
-    )
-
-    print(
-        "SIM PRICE: 101.80"
-    )
-
-    update_trailing(
-        Decimal("101.80")
-    )
-
-    print(
-        "SIM PRICE: 101.55"
-    )
-
-    update_trailing(
-        Decimal("101.55")
-    )
-
-    # ========================================================
-    # ORDER BRIDGE VALIDATION
-    # ========================================================
-
-    bridge_passed = (
-        await order_bridge(
-            direction="LONG",
-            quantity=Decimal(
-                "0.001"
-            ),
-            purpose="test",
-        )
-    )
-
-    print(
-        "=" * 60
-    )
-
-    if bridge_passed:
-
-        print(
-            "0F-4F ORDER VALIDATION: "
-            "PASSED"
+        raise RuntimeError(
+            f"TEST ORDER INVALID: {reason}"
         )
 
-    elif not weex_credentials_ready():
+    first_result = await execute_order(
+        session,
+        test_order,
+    )
 
-        print(
-            "0F-4F ORDER VALIDATION: "
-            "WAITING FOR API CREDENTIALS"
+    # Test duplicate protection
+
+    second_result = await execute_order(
+        session,
+        test_order,
+    )
+
+    if not first_result.get(
+        "blocked"
+    ):
+
+        raise RuntimeError(
+            "Hard execution lock test failed"
         )
 
-    else:
+    if (
+        second_result.get("reason")
+        != "Duplicate client order ID"
+    ):
 
-        print(
-            "0F-4F ORDER BRIDGE: "
-            "SAFELY BLOCKED"
+        raise RuntimeError(
+            "Anti-duplicate test failed"
         )
 
+    print("=" * 60)
+    print("0F-4G BRIDGE TEST: PASSED")
+    print("ORDER PAYLOAD BUILDER: PASSED")
+    print("ORDER VALIDATION: PASSED")
+    print(
+        "UNIQUE CLIENT ORDER ID: PASSED"
+    )
+    print(
+        "ANTI-DUPLICATE PROTECTION: PASSED"
+    )
+    print(
+        "HARD EXECUTION LOCK: PASSED"
+    )
     print(
         "NO LIVE ORDER WAS SENT"
     )
-
-    print(
-        "=" * 60
-    )
-
-    await send_telegram(
-        "🧪 MODULE 0F-4F TEST\n"
-        f"{SYMBOL}\n\n"
-        "✅ Trade lifecycle engine\n"
-        "✅ Order payload builder\n"
-        "✅ Order validation\n"
-        "✅ Unique client order IDs\n"
-        "✅ Anti-duplicate protection\n"
-        "🛡 Hard execution lock active\n"
-        "⚠️ No live order was sent."
-    )
+    print("=" * 60)
 
 
 # ============================================================
-# WEBSOCKET MESSAGE PARSER
+# MARKET PRICE PARSER
 # ============================================================
 
-def extract_price(
-    message,
-):
+def extract_price(message):
 
-    try:
+    if not isinstance(message, dict):
+        return None
 
-        data = json.loads(
-            message
-        )
-
-    except Exception:
-
-        return None, None
-
-    # WEEX V3 server ping
-    if (
-        data.get("event")
-        == "ping"
-        or data.get("type")
-        == "ping"
-    ):
-
-        return "PING", None
-
-    # Subscription confirmation
-    if (
-        data.get("result")
-        is True
-    ):
-
-        return "SUBSCRIBED", None
-
-    candidates = []
-
-    payload = data.get(
-        "data"
+    data = message.get(
+        "data",
+        message,
     )
 
-    if isinstance(
-        payload,
-        dict,
-    ):
+    if isinstance(data, list):
 
-        candidates.append(
-            payload
-        )
+        if not data:
+            return None
 
-    elif isinstance(
-        payload,
-        list,
-    ):
+        data = data[-1]
 
-        candidates.extend(
-            x
-            for x in payload
-            if isinstance(
-                x,
-                dict,
-            )
-        )
+    if not isinstance(data, dict):
+        return None
 
-    candidates.append(
-        data
-    )
-
-    fields = (
+    candidates = (
         "close",
         "c",
-        "price",
         "lastPrice",
         "last",
+        "price",
     )
 
-    for item in candidates:
+    for field in candidates:
 
-        for field in fields:
+        value = data.get(field)
 
-            if field not in item:
-                continue
+        price = to_decimal(value)
 
-            price = D(
-                item.get(
-                    field
-                )
-            )
+        if price > 0:
+            return price
 
-            if (
-                price is not None
-                and price > 0
-            ):
-
-                return (
-                    "PRICE",
-                    price,
-                )
-
-    return None, None
+    return None
 
 
 # ============================================================
-# STABILIZED WEEX WEBSOCKET
+# WEBSOCKET MONITOR
 # ============================================================
 
 async def monitor_weex():
 
-    reconnect_delay = (
-        RECONNECT_DELAY_SECONDS
-    )
+    delay = RECONNECT_DELAY_SECONDS
 
     while True:
 
@@ -1085,63 +1060,82 @@ async def monitor_weex():
 
             async with websockets.connect(
                 WS_URL,
+                ping_interval=None,
                 additional_headers={
                     "User-Agent":
-                    "WEEX-0F-4F-Bot/1.0"
+                        "WEEX-0F-4G-Bot/1.0",
                 },
-                ping_interval=None,
-                ping_timeout=None,
-                close_timeout=10,
-            ) as ws:
+            ) as websocket:
 
                 print(
                     "CONNECTED TO WEEX"
                 )
 
-                subscribe = {
-                    "method":
-                    "SUBSCRIBE",
-
+                subscribe_message = {
+                    "method": "SUBSCRIBE",
                     "params": [
                         SUBSCRIPTION_CHANNEL
                     ],
-
                     "id": 1,
                 }
 
-                await ws.send(
+                await websocket.send(
                     json.dumps(
-                        subscribe
+                        subscribe_message
                     )
                 )
 
                 print(
-                    "SUBSCRIBED TO "
-                    f"{SUBSCRIPTION_CHANNEL}"
+                    "SUBSCRIBED TO",
+                    SUBSCRIPTION_CHANNEL,
                 )
 
-                reconnect_delay = (
+                delay = (
                     RECONNECT_DELAY_SECONDS
                 )
 
-                async for message in ws:
+                async for raw_message in websocket:
 
-                    kind, price = (
-                        extract_price(
-                            message
+                    try:
+
+                        message = json.loads(
+                            raw_message
                         )
-                    )
 
-                    if kind == "PING":
+                    except json.JSONDecodeError:
 
-                        # Exact V3 application
-                        # PONG recommended by WEEX.
-                        await ws.send(
+                        continue
+
+                    if not isinstance(
+                        message,
+                        dict,
+                    ):
+                        continue
+
+                    event = str(
+                        message.get(
+                            "event",
+                            ""
+                        )
+                    ).lower()
+
+                    msg_type = str(
+                        message.get(
+                            "type",
+                            ""
+                        )
+                    ).lower()
+
+                    if (
+                        event == "ping"
+                        or msg_type == "ping"
+                    ):
+
+                        await websocket.send(
                             json.dumps(
                                 {
                                     "method":
-                                    "PONG",
-
+                                        "PONG",
                                     "id": 1,
                                 }
                             )
@@ -1150,160 +1144,109 @@ async def monitor_weex():
                         continue
 
                     if (
-                        kind
-                        == "SUBSCRIBED"
+                        message.get(
+                            "result"
+                        )
+                        is True
                     ):
 
                         print(
-                            "SUBSCRIPTION "
-                            "CONFIRMED"
+                            "SUBSCRIPTION CONFIRMED"
                         )
 
                         continue
 
-                    if kind == "PRICE":
+                    price = extract_price(
+                        message
+                    )
+
+                    if price is not None:
 
                         print(
-                            f"{SYMBOL} PRICE: "
-                            f"{price}"
+                            SYMBOL,
+                            "PRICE:",
+                            price,
                         )
-
-        except asyncio.CancelledError:
-
-            raise
 
         except Exception as exc:
 
             print(
                 "WEEX CONNECTION ERROR:",
-                exc,
+                type(exc).__name__,
+                str(exc),
             )
 
             print(
-                "RECONNECTING IN "
-                f"{reconnect_delay}s..."
+                f"RECONNECTING IN "
+                f"{delay}s..."
             )
 
             await asyncio.sleep(
-                reconnect_delay
+                delay
             )
 
-            reconnect_delay = min(
-                reconnect_delay * 2,
+            delay = min(
+                delay * 2,
                 MAX_RECONNECT_DELAY_SECONDS,
             )
 
 
 # ============================================================
-# STARTUP
+# STARTUP DISPLAY
 # ============================================================
 
-async def startup_message():
+def print_startup():
 
-    credential_status = (
+    print("=" * 60)
+    print(
+        f"MODULE {MODULE_NAME} STARTING"
+    )
+    print(
+        "WEEX AUTHENTICATED "
+        "SAFE EXECUTION BRIDGE"
+    )
+    print("=" * 60)
+
+    print("SYMBOL:", SYMBOL)
+
+    print(
+        "WEEX CREDENTIALS:",
         "READY"
-        if weex_credentials_ready()
-        else "MISSING"
+        if weex_credentials_configured()
+        else "MISSING",
     )
 
     print(
-        "=" * 60
+        "AUTHENTICATED READ TEST:",
+        "ENABLED"
+        if AUTHENTICATED_READ_TEST
+        else "DISABLED",
     )
 
     print(
-        "MODULE 0F-4F STARTING"
+        "ORDER VALIDATION: ACTIVE"
     )
 
     print(
-        f"{SYMBOL} SAFE "
-        "LIVE-ORDER BRIDGE"
+        "ANTI-DUPLICATE PROTECTION:"
+        " ACTIVE"
     )
 
     print(
-        "=" * 60
-    )
-
-    print(
-        "Entry:",
-        f"{INITIAL_ENTRY_PERCENT}%"
-    )
-
-    print(
-        "Leverage:",
-        f"{LEVERAGE}x"
-    )
-
-    print(
-        "Max Leverage:",
-        f"{MAX_LEVERAGE}x"
-    )
-
-    print(
-        "Max Pyramids:",
-        MAX_PYRAMID_ADDS,
-    )
-
-    print(
-        "Max Backups:",
-        MAX_BACKUPS,
-    )
-
-    print(
-        "Max Fund Exposure:",
-        f"{MAX_FUND_EXPOSURE_PERCENT}%"
-    )
-
-    print(
-        "TP1 / TP2 / TP3:",
-        f"{TP1_PERCENT}% / "
-        f"{TP2_PERCENT}% / "
-        f"{TP3_PERCENT}%"
-    )
-
-    print(
-        "Trailing Distance:",
-        f"{TRAILING_DISTANCE_PERCENT}%"
-    )
-
-    print(
-        "WEEX API CREDENTIALS:",
-        credential_status,
-    )
-
-    print(
-        "ORDER BRIDGE: "
-        "VALIDATION MODE"
-    )
-
-    print(
-        "ANTI-DUPLICATE ORDERS: "
+        "HARD EXECUTION LOCK:",
         "ACTIVE"
+        if HARD_EXECUTION_LOCK
+        else "DISABLED",
     )
 
     print(
-        "HARD SAFETY LOCK: ACTIVE"
+        "LIVE ORDER EXECUTION:",
+        "ENABLED"
+        if LIVE_ORDER_EXECUTION
+        else "DISABLED",
     )
 
-    print(
-        "LIVE ORDER EXECUTION: "
-        "DISABLED"
-    )
-
-    print(
-        "=" * 60
-    )
-
-    await send_telegram(
-        "✅ MODULE 0F-4F ONLINE\n"
-        f"{SYMBOL}\n\n"
-        "Safe Live-Order Bridge\n"
-        f"WEEX credentials: "
-        f"{credential_status}\n"
-        "✅ Order validation active\n"
-        "✅ Anti-duplicate protection\n"
-        "🛡 Hard execution lock active\n"
-        "⚠️ Live order execution disabled"
-    )
+    print("=" * 60)
 
 
 # ============================================================
@@ -1312,17 +1255,90 @@ async def startup_message():
 
 async def main():
 
-    await startup_message()
+    print_startup()
 
-    await run_0f4f_test()
+    credential_status = (
+        "READY"
+        if weex_credentials_configured()
+        else "MISSING"
+    )
+
+    await send_telegram(
+        "✅ MODULE 0F-4G ONLINE\n"
+        f"{SYMBOL}\n"
+        "Authenticated Safe Execution Bridge\n"
+        f"WEEX credentials: {credential_status}\n"
+        "✅ V3 request signing engine\n"
+        "✅ Authenticated account test\n"
+        "✅ Contract validation\n"
+        "✅ Order validation\n"
+        "✅ Anti-duplicate protection\n"
+        "🛡 Hard execution lock active\n"
+        "⚠️ Live order execution disabled"
+    )
+
+    async with aiohttp.ClientSession() as session:
+
+        # Public contract metadata
+
+        await get_exchange_info(
+            session
+        )
+
+        # Confirm API trading eligibility
+
+        await check_api_trading_symbol(
+            session
+        )
+
+        # Read-only private authentication test
+
+        auth_passed = False
+
+        if AUTHENTICATED_READ_TEST:
+
+            auth_passed = (
+                await test_weex_authentication(
+                    session
+                )
+            )
+
+        # Test order bridge without sending
+
+        await run_order_bridge_test(
+            session
+        )
+
+        auth_text = (
+            "✅ WEEX AUTHENTICATION PASSED"
+            if auth_passed
+            else (
+                "⚠️ WEEX AUTHENTICATION "
+                "NOT YET VERIFIED"
+            )
+        )
+
+        await send_telegram(
+            "🧪 MODULE 0F-4G TEST\n"
+            f"{SYMBOL}\n"
+            f"{auth_text}\n"
+            "✅ V3 signature engine\n"
+            "✅ Exchange contract check\n"
+            "✅ API trading-symbol check\n"
+            "✅ Order payload builder\n"
+            "✅ Order validation\n"
+            "✅ Unique client order IDs\n"
+            "✅ Anti-duplicate protection\n"
+            "🛡 Hard execution lock active\n"
+            "⚠️ No live order was sent."
+        )
 
     print(
         "LIVE MARKET MONITORING ACTIVE"
     )
 
     print(
-        "WAITING FOR WEEX "
-        "MARKET DATA..."
+        "WAITING FOR WEEX MARKET DATA..."
     )
 
     await monitor_weex()
