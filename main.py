@@ -1,8 +1,7 @@
 import asyncio
 import json
 import os
-import time
-from dataclasses import dataclass
+from collections import deque
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
@@ -17,88 +16,25 @@ from telegram import Bot
 
 MODULE_NAME = "0F-4A"
 
-print("=" * 60)
-print(f"MODULE {MODULE_NAME} STARTING")
-print("BTCUSDT SAFETY + TRADE CONFIGURATION ENGINE")
-print("EMA19 / EMA50 / EMA200")
-print("CROSSOVER + PENDING CONFIRMATION + QUALITY FILTER")
-print("RISK / PYRAMID / BACKUP / TP CONFIGURATION")
-print("LIVE ORDER EXECUTION: DISABLED")
-print("=" * 60)
-
 
 # ============================================================
-# GENERAL CONFIG HELPERS
+# CORE MARKET CONFIGURATION
 # ============================================================
 
-def env_decimal(name: str, default: str) -> Decimal:
-    raw = os.getenv(name, default).strip()
+SYMBOL = "BTCUSDT"
 
-    try:
-        return Decimal(raw)
-    except (InvalidOperation, ValueError):
-        print(
-            f"WARNING: INVALID {name}={raw!r}. "
-            f"USING DEFAULT {default}"
-        )
-        return Decimal(default)
-
-
-def env_int(name: str, default: int) -> int:
-    raw = os.getenv(name, str(default)).strip()
-
-    try:
-        return int(raw)
-    except ValueError:
-        print(
-            f"WARNING: INVALID {name}={raw!r}. "
-            f"USING DEFAULT {default}"
-        )
-        return default
-
-
-def env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(
-        name,
-        "true" if default else "false",
-    ).strip().lower()
-
-    return raw in {
-        "1",
-        "true",
-        "yes",
-        "on",
-        "enabled",
-    }
-
-
-# ============================================================
-# MARKET CONFIGURATION
-# ============================================================
-
-# Deliberately kept as an environment variable so that
-# multi-coin support can be added later without redesigning
-# the complete strategy engine.
-
-SYMBOL = os.getenv(
-    "SYMBOL",
-    "BTCUSDT",
-).strip().upper()
-
-WS_URL = os.getenv(
-    "WEEX_WS_URL",
-    "wss://ws-contract.weex.com/v3/ws/public",
-).strip()
-
-HISTORICAL_URL = os.getenv(
-    "WEEX_HISTORICAL_URL",
-    "https://api-contract.weex.com/capi/v3/market/klines",
-).strip()
+WS_URL = "wss://ws-contract.weex.com/v3/ws/public"
 
 SUBSCRIPTION_CHANNEL = (
     f"{SYMBOL}@kline_1m_LAST_PRICE"
 )
 
+HISTORICAL_URL = (
+    "https://api-contract.weex.com"
+    "/capi/v3/market/klines"
+)
+
+HISTORICAL_INTERVAL = "1m"
 HISTORICAL_LIMIT = 250
 
 RECONNECT_DELAY_SECONDS = 5
@@ -106,7 +42,7 @@ MAX_RECONNECT_DELAY_SECONDS = 60
 
 
 # ============================================================
-# TELEGRAM CONFIGURATION
+# TELEGRAM
 # ============================================================
 
 TELEGRAM_BOT_TOKEN = os.getenv(
@@ -120,84 +56,81 @@ TELEGRAM_CHAT_ID = os.getenv(
 ).strip()
 
 
-def telegram_is_configured() -> bool:
-    return bool(
-        TELEGRAM_BOT_TOKEN
-        and TELEGRAM_CHAT_ID
-    )
+# ============================================================
+# HELPERS FOR ENVIRONMENT VARIABLES
+# ============================================================
 
+def env_decimal(
+    name: str,
+    default: str,
+) -> Decimal:
 
-async def send_telegram(
-    bot: Optional[Bot],
-    message: str,
-) -> None:
-
-    if bot is None:
-        return
+    value = os.getenv(name, default).strip()
 
     try:
-        await bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text=message,
-        )
+        return Decimal(value)
 
-        print("TELEGRAM MESSAGE SENT")
+    except InvalidOperation:
+        return Decimal(default)
 
-    except Exception as exc:
-        print(
-            "TELEGRAM SEND ERROR:",
-            repr(exc),
-        )
+
+def env_int(
+    name: str,
+    default: int,
+) -> int:
+
+    value = os.getenv(
+        name,
+        str(default),
+    ).strip()
+
+    try:
+        return int(value)
+
+    except ValueError:
+        return default
+
+
+def env_bool(
+    name: str,
+    default: bool,
+) -> bool:
+
+    default_text = (
+        "true"
+        if default
+        else "false"
+    )
+
+    value = os.getenv(
+        name,
+        default_text,
+    ).strip().lower()
+
+    return value in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 # ============================================================
-# 0F-3 SIGNAL QUALITY CONFIGURATION
-# ============================================================
-
-MIN_EMA19_50_SEPARATION_PERCENT = env_decimal(
-    "MIN_EMA19_50_SEPARATION_PERCENT",
-    "0.005",
-)
-
-PRICE_CONFIRMATION_ENABLED = env_bool(
-    "PRICE_CONFIRMATION_ENABLED",
-    True,
-)
-
-EMA19_MOMENTUM_ENABLED = env_bool(
-    "EMA19_MOMENTUM_ENABLED",
-    True,
-)
-
-
-# ============================================================
-# 0F-4A INITIAL ENTRY CONFIGURATION
-# ============================================================
-
-# Percentage of the permitted account/trading allocation
-# intended for the INITIAL entry.
+# TRADE CONFIGURATION
 #
-# This is only CONFIGURED in 0F-4A.
-# No actual WEEX order is submitted.
+# ALL VALUES CAN LATER BE CHANGED FROM RENDER ENVIRONMENT
+# WITHOUT EDITING main.py
+# ============================================================
 
-INITIAL_ENTRY_SIZE_PERCENT = env_decimal(
-    "INITIAL_ENTRY_SIZE_PERCENT",
+INITIAL_POSITION_PERCENT = env_decimal(
+    "INITIAL_POSITION_PERCENT",
     "5",
 )
-
-
-# ============================================================
-# 0F-4A LEVERAGE CONFIGURATION
-# ============================================================
-
-# Intended leverage for future execution module.
 
 LEVERAGE = env_decimal(
     "LEVERAGE",
     "5",
 )
-
-# Absolute safety ceiling.
 
 MAX_LEVERAGE = env_decimal(
     "MAX_LEVERAGE",
@@ -206,7 +139,9 @@ MAX_LEVERAGE = env_decimal(
 
 
 # ============================================================
-# 0F-4A PYRAMID CONFIGURATION
+# PYRAMID CONFIGURATION
+#
+# MAX_PYRAMID_ADDS CAN BE CHANGED LATER WITHOUT CODE EDIT
 # ============================================================
 
 MAX_PYRAMID_ADDS = env_int(
@@ -214,55 +149,24 @@ MAX_PYRAMID_ADDS = env_int(
     1,
 )
 
-# We support up to 10 future pyramid levels without
-# requiring code editing.
-#
-# Only levels <= MAX_PYRAMID_ADDS are active.
-
-MAX_SUPPORTED_PYRAMID_LEVELS = 10
-
-PYRAMID_SIZE_PERCENTS = []
-
-for level in range(
-    1,
-    MAX_SUPPORTED_PYRAMID_LEVELS + 1,
-):
-    value = env_decimal(
-        f"PYRAMID_SIZE_{level}_PERCENT",
-        "5",
-    )
-
-    PYRAMID_SIZE_PERCENTS.append(value)
-
-
-# ============================================================
-# PYRAMID MOMENTUM REQUIREMENTS
-# ============================================================
-
-# Additional positions must NEVER be added simply because
-# price moved in the desired direction.
-#
-# Future execution modules will require renewed momentum
-# confirmation before each pyramid.
-
-PYRAMID_REQUIRE_EMA_ALIGNMENT = env_bool(
-    "PYRAMID_REQUIRE_EMA_ALIGNMENT",
-    True,
+PYRAMID_1_PERCENT = env_decimal(
+    "PYRAMID_1_PERCENT",
+    "5",
 )
 
-PYRAMID_REQUIRE_EMA19_MOMENTUM = env_bool(
-    "PYRAMID_REQUIRE_EMA19_MOMENTUM",
-    True,
+PYRAMID_2_PERCENT = env_decimal(
+    "PYRAMID_2_PERCENT",
+    "5",
 )
 
-PYRAMID_MIN_SEPARATION_PERCENT = env_decimal(
-    "PYRAMID_MIN_SEPARATION_PERCENT",
-    "0.01",
+PYRAMID_3_PERCENT = env_decimal(
+    "PYRAMID_3_PERCENT",
+    "5",
 )
 
 
 # ============================================================
-# 0F-4A BACKUP CONFIGURATION
+# BACKUP CONFIGURATION
 # ============================================================
 
 MAX_BACKUPS = env_int(
@@ -270,32 +174,32 @@ MAX_BACKUPS = env_int(
     3,
 )
 
-MAX_SUPPORTED_BACKUP_LEVELS = 10
+BACKUP_1_PERCENT = env_decimal(
+    "BACKUP_1_PERCENT",
+    "5",
+)
 
-BACKUP_SIZE_PERCENTS = []
+BACKUP_2_PERCENT = env_decimal(
+    "BACKUP_2_PERCENT",
+    "5",
+)
 
-for level in range(
-    1,
-    MAX_SUPPORTED_BACKUP_LEVELS + 1,
-):
-    value = env_decimal(
-        f"BACKUP_SIZE_{level}_PERCENT",
-        "5",
-    )
-
-    BACKUP_SIZE_PERCENTS.append(value)
+BACKUP_3_PERCENT = env_decimal(
+    "BACKUP_3_PERCENT",
+    "5",
+)
 
 
-# Backup should be positioned relative to the CURRENT
-# liquidation price.
+# ============================================================
+# LIQUIDATION SAFETY CONFIGURATION
 #
-# After each backup executes, future execution module MUST
-# obtain/recalculate the NEW liquidation price before
-# calculating the next backup.
+# BACKUPS ARE NOT PLACED BY THIS MODULE.
+# THESE SETTINGS PREPARE THE SAFETY LAYER ONLY.
+# ============================================================
 
-BACKUP_LIQUIDATION_BUFFER_PERCENT = env_decimal(
-    "BACKUP_LIQUIDATION_BUFFER_PERCENT",
-    "0.30",
+LIQUIDATION_SAFETY_BUFFER_PERCENT = env_decimal(
+    "LIQUIDATION_SAFETY_BUFFER_PERCENT",
+    "0.50",
 )
 
 MIN_LIQUIDATION_DISTANCE_PERCENT = env_decimal(
@@ -305,10 +209,12 @@ MIN_LIQUIDATION_DISTANCE_PERCENT = env_decimal(
 
 
 # ============================================================
-# TAKE-PROFIT CONFIGURATION
+# TAKE PROFIT CONFIGURATION
+#
+# TP1 = 20%
+# TP2 = 20%
+# TP3 = remaining 60%, intended for trailing profit
 # ============================================================
-
-# Percentage OF POSITION closed/managed by each TP stage.
 
 TP1_POSITION_PERCENT = env_decimal(
     "TP1_POSITION_PERCENT",
@@ -325,80 +231,59 @@ TP3_POSITION_PERCENT = env_decimal(
     "60",
 )
 
-
-# Profit target measured from average position entry.
-# Adjustable from Render.
-
 TP1_TARGET_PERCENT = env_decimal(
     "TP1_TARGET_PERCENT",
-    "0.50",
+    "0.30",
 )
 
 TP2_TARGET_PERCENT = env_decimal(
     "TP2_TARGET_PERCENT",
-    "1.00",
+    "0.60",
 )
-
-
-# TP3 trailing starts immediately after TP2 by default.
-#
-# Setting this to 0 means no additional profit move is
-# required after TP2 before trailing becomes active.
 
 TRAILING_ACTIVATION_PERCENT = env_decimal(
     "TRAILING_ACTIVATION_PERCENT",
-    "0",
+    "0.80",
 )
 
 TRAILING_DISTANCE_PERCENT = env_decimal(
     "TRAILING_DISTANCE_PERCENT",
-    "0.20",
+    "0.25",
 )
 
 
 # ============================================================
-# ACCOUNT / EXPOSURE SAFETY
+# TOTAL EXPOSURE / SAFETY CONTROLS
 # ============================================================
-
-# Maximum total combined exposure for:
-#
-# INITIAL ENTRY
-# + PYRAMIDS
-# + BACKUPS
-#
-# Future executor must block additional orders when this
-# ceiling would be exceeded.
-
-MAX_TOTAL_EXPOSURE_PERCENT = env_decimal(
-    "MAX_TOTAL_EXPOSURE_PERCENT",
-    "30",
-)
-
-
-# Maximum actual account funds permitted for one complete
-# trade campaign.
 
 MAX_FUND_EXPOSURE_PERCENT = env_decimal(
     "MAX_FUND_EXPOSURE_PERCENT",
-    "20",
+    "40",
 )
 
-
-# Maximum permitted loss for the complete trade campaign.
-
-MAX_TRADE_LOSS_PERCENT = env_decimal(
-    "MAX_TRADE_LOSS_PERCENT",
-    "5",
+MAX_TOTAL_LEVERAGED_EXPOSURE_PERCENT = env_decimal(
+    "MAX_TOTAL_LEVERAGED_EXPOSURE_PERCENT",
+    "200",
 )
 
+MAX_LOSS_PER_TRADE_PERCENT = env_decimal(
+    "MAX_LOSS_PER_TRADE_PERCENT",
+    "10",
+)
 
-# ============================================================
-# SIGNAL EXPIRY
-# ============================================================
+MAX_CONSECUTIVE_LOSSES = env_int(
+    "MAX_CONSECUTIVE_LOSSES",
+    3,
+)
 
-SIGNAL_EXPIRY_SECONDS = env_int(
-    "SIGNAL_EXPIRY_SECONDS",
-    180,
+LOSS_COOLDOWN_MINUTES = env_int(
+    "LOSS_COOLDOWN_MINUTES",
+    30,
+)
+
+SIGNAL_EXPIRY_MINUTES = env_int(
+    "SIGNAL_EXPIRY_MINUTES",
+    3,
 )
 
 
@@ -416,988 +301,141 @@ ANTI_DUPLICATE_ORDERS = env_bool(
     True,
 )
 
-TREND_REVERSAL_EXIT = env_bool(
-    "TREND_REVERSAL_EXIT",
+TREND_REVERSAL_EXIT_ENABLED = env_bool(
+    "TREND_REVERSAL_EXIT_ENABLED",
     True,
 )
 
 
 # ============================================================
-# LOSS COOLDOWN
+# SIGNAL QUALITY CONFIGURATION
 # ============================================================
 
-LOSS_COOLDOWN_SECONDS = env_int(
-    "LOSS_COOLDOWN_SECONDS",
-    300,
+REQUIRE_PRICE_CONFIRMATION = env_bool(
+    "REQUIRE_PRICE_CONFIRMATION",
+    True,
+)
+
+REQUIRE_EMA19_MOMENTUM = env_bool(
+    "REQUIRE_EMA19_MOMENTUM",
+    True,
+)
+
+MIN_EMA_SEPARATION_PERCENT = env_decimal(
+    "MIN_EMA_SEPARATION_PERCENT",
+    "0.005",
 )
 
 
 # ============================================================
-# FUTURE MULTI-COIN PORTFOLIO SAFETY
-# ============================================================
-
-# Not actively used while running single-symbol BTCUSDT.
+# CRITICAL EXECUTION SAFETY SWITCH
 #
-# Added now so 0F-4A architecture does not need to be
-# redesigned when ETHUSDT / SOLUSDT etc. are introduced.
+# DO NOT CHANGE THIS TO TRUE YET.
+# MODULE 0F-4A DOES NOT PLACE REAL ORDERS.
+# ============================================================
 
-MAX_PORTFOLIO_EXPOSURE_PERCENT = env_decimal(
-    "MAX_PORTFOLIO_EXPOSURE_PERCENT",
-    "40",
+LIVE_ORDER_EXECUTION = False
+
+
+# ============================================================
+# RUNTIME STATE
+# ============================================================
+
+MAX_CANDLES_STORED = 500
+
+closed_prices = deque(
+    maxlen=MAX_CANDLES_STORED
 )
 
-
-# ============================================================
-# CONFIGURATION VALIDATION
-# ============================================================
-
-def validate_percent(
-    name: str,
-    value: Decimal,
-    minimum: Decimal = Decimal("0"),
-    maximum: Decimal = Decimal("100"),
-) -> None:
-
-    if value < minimum or value > maximum:
-        raise ValueError(
-            f"{name} MUST BE BETWEEN "
-            f"{minimum}% AND {maximum}%"
-        )
-
-
-def validate_configuration() -> None:
-
-    print("=" * 60)
-    print("VALIDATING 0F-4A CONFIGURATION")
-
-    validate_percent(
-        "INITIAL_ENTRY_SIZE_PERCENT",
-        INITIAL_ENTRY_SIZE_PERCENT,
-    )
-
-    validate_percent(
-        "MAX_TOTAL_EXPOSURE_PERCENT",
-        MAX_TOTAL_EXPOSURE_PERCENT,
-    )
-
-    validate_percent(
-        "MAX_FUND_EXPOSURE_PERCENT",
-        MAX_FUND_EXPOSURE_PERCENT,
-    )
-
-    validate_percent(
-        "MAX_TRADE_LOSS_PERCENT",
-        MAX_TRADE_LOSS_PERCENT,
-    )
-
-    validate_percent(
-        "MAX_PORTFOLIO_EXPOSURE_PERCENT",
-        MAX_PORTFOLIO_EXPOSURE_PERCENT,
-    )
-
-    validate_percent(
-        "TP1_POSITION_PERCENT",
-        TP1_POSITION_PERCENT,
-    )
-
-    validate_percent(
-        "TP2_POSITION_PERCENT",
-        TP2_POSITION_PERCENT,
-    )
-
-    validate_percent(
-        "TP3_POSITION_PERCENT",
-        TP3_POSITION_PERCENT,
-    )
-
-    validate_percent(
-        "TP1_TARGET_PERCENT",
-        TP1_TARGET_PERCENT,
-    )
-
-    validate_percent(
-        "TP2_TARGET_PERCENT",
-        TP2_TARGET_PERCENT,
-    )
-
-    validate_percent(
-        "TRAILING_ACTIVATION_PERCENT",
-        TRAILING_ACTIVATION_PERCENT,
-    )
-
-    validate_percent(
-        "TRAILING_DISTANCE_PERCENT",
-        TRAILING_DISTANCE_PERCENT,
-    )
-
-    validate_percent(
-        "BACKUP_LIQUIDATION_BUFFER_PERCENT",
-        BACKUP_LIQUIDATION_BUFFER_PERCENT,
-    )
-
-    validate_percent(
-        "MIN_LIQUIDATION_DISTANCE_PERCENT",
-        MIN_LIQUIDATION_DISTANCE_PERCENT,
-    )
-
-    if LEVERAGE <= 0:
-        raise ValueError(
-            "LEVERAGE MUST BE GREATER THAN ZERO"
-        )
-
-    if MAX_LEVERAGE <= 0:
-        raise ValueError(
-            "MAX_LEVERAGE MUST BE GREATER THAN ZERO"
-        )
-
-    if LEVERAGE > MAX_LEVERAGE:
-        raise ValueError(
-            "LEVERAGE CANNOT EXCEED MAX_LEVERAGE"
-        )
-
-    if MAX_PYRAMID_ADDS < 0:
-        raise ValueError(
-            "MAX_PYRAMID_ADDS CANNOT BE NEGATIVE"
-        )
-
-    if (
-        MAX_PYRAMID_ADDS
-        > MAX_SUPPORTED_PYRAMID_LEVELS
-    ):
-        raise ValueError(
-            "MAX_PYRAMID_ADDS EXCEEDS "
-            f"SUPPORTED LIMIT "
-            f"{MAX_SUPPORTED_PYRAMID_LEVELS}"
-        )
-
-    if MAX_BACKUPS < 0:
-        raise ValueError(
-            "MAX_BACKUPS CANNOT BE NEGATIVE"
-        )
-
-    if (
-        MAX_BACKUPS
-        > MAX_SUPPORTED_BACKUP_LEVELS
-    ):
-        raise ValueError(
-            "MAX_BACKUPS EXCEEDS "
-            f"SUPPORTED LIMIT "
-            f"{MAX_SUPPORTED_BACKUP_LEVELS}"
-        )
-
-    if SIGNAL_EXPIRY_SECONDS <= 0:
-        raise ValueError(
-            "SIGNAL_EXPIRY_SECONDS MUST BE > 0"
-        )
-
-    if LOSS_COOLDOWN_SECONDS < 0:
-        raise ValueError(
-            "LOSS_COOLDOWN_SECONDS CANNOT BE NEGATIVE"
-        )
-
-    tp_total = (
-        TP1_POSITION_PERCENT
-        + TP2_POSITION_PERCENT
-        + TP3_POSITION_PERCENT
-    )
-
-    if tp_total != Decimal("100"):
-        raise ValueError(
-            "TP POSITION PERCENTAGES MUST TOTAL 100%. "
-            f"CURRENT TOTAL={tp_total}%"
-        )
-
-    active_pyramid_total = sum(
-        PYRAMID_SIZE_PERCENTS[
-            :MAX_PYRAMID_ADDS
-        ],
-        Decimal("0"),
-    )
-
-    active_backup_total = sum(
-        BACKUP_SIZE_PERCENTS[
-            :MAX_BACKUPS
-        ],
-        Decimal("0"),
-    )
-
-    theoretical_campaign_allocation = (
-        INITIAL_ENTRY_SIZE_PERCENT
-        + active_pyramid_total
-        + active_backup_total
-    )
-
-    print(
-        "THEORETICAL CONFIGURED CAMPAIGN SIZE:",
-        f"{theoretical_campaign_allocation}%",
-    )
-
-    if (
-        theoretical_campaign_allocation
-        > MAX_TOTAL_EXPOSURE_PERCENT
-    ):
-        print(
-            "WARNING: CONFIGURED ENTRY + PYRAMIDS "
-            "+ BACKUPS CAN EXCEED "
-            "MAX_TOTAL_EXPOSURE_PERCENT."
-        )
-
-        print(
-            "THIS IS ALLOWED AS CONFIGURATION, "
-            "BUT FUTURE EXECUTION ENGINE MUST "
-            "BLOCK ADDITIONS AT THE SAFETY LIMIT."
-        )
-
-    print("CONFIGURATION VALIDATION: PASSED")
-    print("=" * 60)
-
-
-# ============================================================
-# PRINT CONFIGURATION
-# ============================================================
-
-def print_configuration() -> None:
-
-    print("=" * 60)
-    print("0F-4A ACTIVE CONFIGURATION")
-    print("=" * 60)
-
-    print("SYMBOL:", SYMBOL)
-
-    print("-" * 60)
-    print("SIGNAL QUALITY")
-
-    print(
-        "MIN EMA19/50 SEPARATION:",
-        f"{MIN_EMA19_50_SEPARATION_PERCENT}%",
-    )
-
-    print(
-        "PRICE CONFIRMATION:",
-        (
-            "ENABLED"
-            if PRICE_CONFIRMATION_ENABLED
-            else "DISABLED"
-        ),
-    )
-
-    print(
-        "EMA19 MOMENTUM:",
-        (
-            "ENABLED"
-            if EMA19_MOMENTUM_ENABLED
-            else "DISABLED"
-        ),
-    )
-
-    print("-" * 60)
-    print("INITIAL ENTRY")
-
-    print(
-        "INITIAL ENTRY SIZE:",
-        f"{INITIAL_ENTRY_SIZE_PERCENT}%",
-    )
-
-    print(
-        "LEVERAGE:",
-        f"{LEVERAGE}x",
-    )
-
-    print(
-        "MAX LEVERAGE:",
-        f"{MAX_LEVERAGE}x",
-    )
-
-    print("-" * 60)
-    print("PYRAMID SETTINGS")
-
-    print(
-        "MAX PYRAMID ADDS:",
-        MAX_PYRAMID_ADDS,
-    )
-
-    for i in range(MAX_PYRAMID_ADDS):
-        print(
-            f"PYRAMID {i + 1} SIZE:",
-            f"{PYRAMID_SIZE_PERCENTS[i]}%",
-        )
-
-    print(
-        "PYRAMID MIN SEPARATION:",
-        f"{PYRAMID_MIN_SEPARATION_PERCENT}%",
-    )
-
-    print("-" * 60)
-    print("BACKUP SETTINGS")
-
-    print(
-        "MAX BACKUPS:",
-        MAX_BACKUPS,
-    )
-
-    for i in range(MAX_BACKUPS):
-        print(
-            f"BACKUP {i + 1} SIZE:",
-            f"{BACKUP_SIZE_PERCENTS[i]}%",
-        )
-
-    print(
-        "BACKUP LIQUIDATION BUFFER:",
-        f"{BACKUP_LIQUIDATION_BUFFER_PERCENT}%",
-    )
-
-    print(
-        "MIN LIQUIDATION DISTANCE:",
-        f"{MIN_LIQUIDATION_DISTANCE_PERCENT}%",
-    )
-
-    print("-" * 60)
-    print("TAKE PROFIT")
-
-    print(
-        "TP1 POSITION:",
-        f"{TP1_POSITION_PERCENT}%",
-    )
-
-    print(
-        "TP1 TARGET:",
-        f"{TP1_TARGET_PERCENT}%",
-    )
-
-    print(
-        "TP2 POSITION:",
-        f"{TP2_POSITION_PERCENT}%",
-    )
-
-    print(
-        "TP2 TARGET:",
-        f"{TP2_TARGET_PERCENT}%",
-    )
-
-    print(
-        "TP3 TRAILING POSITION:",
-        f"{TP3_POSITION_PERCENT}%",
-    )
-
-    print(
-        "TRAILING ACTIVATION:",
-        f"{TRAILING_ACTIVATION_PERCENT}%",
-    )
-
-    print(
-        "TRAILING DISTANCE:",
-        f"{TRAILING_DISTANCE_PERCENT}%",
-    )
-
-    print("-" * 60)
-    print("SAFETY LIMITS")
-
-    print(
-        "MAX TOTAL EXPOSURE:",
-        f"{MAX_TOTAL_EXPOSURE_PERCENT}%",
-    )
-
-    print(
-        "MAX FUND EXPOSURE:",
-        f"{MAX_FUND_EXPOSURE_PERCENT}%",
-    )
-
-    print(
-        "MAX TRADE LOSS:",
-        f"{MAX_TRADE_LOSS_PERCENT}%",
-    )
-
-    print(
-        "MAX PORTFOLIO EXPOSURE:",
-        f"{MAX_PORTFOLIO_EXPOSURE_PERCENT}%",
-    )
-
-    print(
-        "SIGNAL EXPIRY:",
-        f"{SIGNAL_EXPIRY_SECONDS}s",
-    )
-
-    print(
-        "LOSS COOLDOWN:",
-        f"{LOSS_COOLDOWN_SECONDS}s",
-    )
-
-    print("-" * 60)
-    print("PROTECTIONS")
-
-    print(
-        "ONE DIRECTION ONLY:",
-        ONE_DIRECTION_ONLY,
-    )
-
-    print(
-        "ANTI DUPLICATE ORDERS:",
-        ANTI_DUPLICATE_ORDERS,
-    )
-
-    print(
-        "TREND REVERSAL EXIT:",
-        TREND_REVERSAL_EXIT,
-    )
-
-    print("-" * 60)
-    print("ORDER EXECUTION: DISABLED")
-    print("=" * 60)
-
-
-# ============================================================
-# EMA FUNCTIONS
-# ============================================================
-
-def calculate_ema(
-    prices: list[Decimal],
-    period: int,
-) -> Decimal:
-
-    if len(prices) < period:
-        raise ValueError(
-            f"NOT ENOUGH PRICES FOR EMA{period}"
-        )
-
-    multiplier = (
-        Decimal("2")
-        / Decimal(period + 1)
-    )
-
-    initial = (
-        sum(
-            prices[:period],
-            Decimal("0"),
-        )
-        / Decimal(period)
-    )
-
-    ema = initial
-
-    for price in prices[period:]:
-        ema = (
-            (price - ema)
-            * multiplier
-            + ema
-        )
-
-    return ema
-
-
-def update_ema(
-    previous_ema: Decimal,
-    price: Decimal,
-    period: int,
-) -> Decimal:
-
-    multiplier = (
-        Decimal("2")
-        / Decimal(period + 1)
-    )
-
-    return (
-        (price - previous_ema)
-        * multiplier
-        + previous_ema
-    )
-
-
-# ============================================================
-# EMA / SIGNAL STATE
-# ============================================================
-
-ema19: Optional[Decimal] = None
-ema50: Optional[Decimal] = None
-ema200: Optional[Decimal] = None
+current_candle_start: Optional[int] = None
+current_candle_close: Optional[Decimal] = None
 
 previous_ema19: Optional[Decimal] = None
 previous_ema50: Optional[Decimal] = None
 previous_ema200: Optional[Decimal] = None
 
-last_processed_candle_id: Optional[str] = None
+pending_signal: Optional[dict] = None
 
+last_confirmed_signal: Optional[str] = None
 
-@dataclass
-class PendingSignal:
-    direction: str
-    created_at: float
-    crossover_candle_id: str
-    crossover_price: Decimal
-
-
-pending_signal: Optional[PendingSignal] = None
-
-last_confirmed_direction: Optional[str] = None
+closed_candle_counter = 0
 
 
 # ============================================================
-# MARKET STRUCTURE
+# RENDER LOGGING
 # ============================================================
 
-def market_structure(
-    e19: Decimal,
-    e50: Decimal,
-    e200: Decimal,
-) -> str:
-
-    if e19 > e50 > e200:
-        return (
-            "🟢 STRONG BULLISH "
-            "EMA19 > EMA50 > EMA200"
-        )
-
-    if e19 < e50 < e200:
-        return (
-            "🔴 STRONG BEARISH "
-            "EMA19 < EMA50 < EMA200"
-        )
-
-    if e19 > e50:
-        return (
-            "🟡 EARLY BULLISH / "
-            "RECOVERY STRUCTURE"
-        )
-
-    if e19 < e50:
-        return (
-            "🟡 EARLY BEARISH / "
-            "WEAKENING STRUCTURE"
-        )
-
-    return "⚪ NEUTRAL STRUCTURE"
-
-
-# ============================================================
-# QUALITY FILTER
-# ============================================================
-
-def percentage_distance(
-    value_a: Decimal,
-    value_b: Decimal,
-) -> Decimal:
-
-    if value_b == 0:
-        return Decimal("0")
-
-    return (
-        abs(value_a - value_b)
-        / abs(value_b)
-        * Decimal("100")
-    )
-
-
-def quality_filter_passes(
-    direction: str,
-    close_price: Decimal,
-) -> tuple[bool, str]:
-
-    global ema19
-    global ema50
-    global ema200
-    global previous_ema19
-
-    if (
-        ema19 is None
-        or ema50 is None
-        or ema200 is None
-    ):
-        return False, "EMA DATA NOT READY"
-
-    separation = percentage_distance(
-        ema19,
-        ema50,
-    )
-
-    if (
-        separation
-        < MIN_EMA19_50_SEPARATION_PERCENT
-    ):
-        return (
-            False,
-            (
-                "EMA19/50 SEPARATION TOO SMALL: "
-                f"{separation:.5f}%"
-            ),
-        )
-
-    if direction == "LONG":
-
-        if not (
-            ema19 > ema50 > ema200
-        ):
-            return (
-                False,
-                "LONG EMA ALIGNMENT FAILED",
-            )
-
-        if (
-            PRICE_CONFIRMATION_ENABLED
-            and close_price <= ema19
-        ):
-            return (
-                False,
-                "LONG PRICE CONFIRMATION FAILED",
-            )
-
-        if (
-            EMA19_MOMENTUM_ENABLED
-            and previous_ema19 is not None
-            and ema19 <= previous_ema19
-        ):
-            return (
-                False,
-                "LONG EMA19 MOMENTUM FAILED",
-            )
-
-    elif direction == "SHORT":
-
-        if not (
-            ema19 < ema50 < ema200
-        ):
-            return (
-                False,
-                "SHORT EMA ALIGNMENT FAILED",
-            )
-
-        if (
-            PRICE_CONFIRMATION_ENABLED
-            and close_price >= ema19
-        ):
-            return (
-                False,
-                "SHORT PRICE CONFIRMATION FAILED",
-            )
-
-        if (
-            EMA19_MOMENTUM_ENABLED
-            and previous_ema19 is not None
-            and ema19 >= previous_ema19
-        ):
-            return (
-                False,
-                "SHORT EMA19 MOMENTUM FAILED",
-            )
-
-    else:
-        return (
-            False,
-            "UNKNOWN SIGNAL DIRECTION",
-        )
-
-    return (
-        True,
-        (
-            "QUALITY FILTER PASSED "
-            f"| EMA19/50 SEPARATION "
-            f"{separation:.5f}%"
-        ),
-    )
-
-
-# ============================================================
-# SIGNAL EXPIRY
-# ============================================================
-
-def pending_signal_expired(
-    signal: PendingSignal,
-) -> bool:
-
-    age = (
-        time.time()
-        - signal.created_at
-    )
-
-    return (
-        age
-        > SIGNAL_EXPIRY_SECONDS
-    )
-
-
-# ============================================================
-# CROSSOVER DETECTION
-# ============================================================
-
-def detect_crossover() -> Optional[str]:
-
-    if (
-        previous_ema19 is None
-        or previous_ema50 is None
-        or ema19 is None
-        or ema50 is None
-    ):
-        return None
-
-    bullish = (
-        previous_ema19 <= previous_ema50
-        and ema19 > ema50
-    )
-
-    bearish = (
-        previous_ema19 >= previous_ema50
-        and ema19 < ema50
-    )
-
-    if bullish:
-        return "LONG"
-
-    if bearish:
-        return "SHORT"
-
-    return None
-
-
-# ============================================================
-# CONFIRMED SIGNAL HANDLER
-# ============================================================
-
-async def confirmed_signal(
-    bot: Optional[Bot],
-    direction: str,
-    price: Decimal,
+def render_log(
+    message: str = "",
 ) -> None:
 
-    global last_confirmed_direction
-
-    # This is SIGNAL ONLY.
-    #
-    # 0F-4A MUST NOT submit an exchange order.
-
-    if (
-        ONE_DIRECTION_ONLY
-        and last_confirmed_direction == direction
-    ):
-        print(
-            "ANTI-DUPLICATE SIGNAL PROTECTION:",
-            direction,
-        )
-        return
-
-    last_confirmed_direction = direction
-
-    emoji = (
-        "🟢"
-        if direction == "LONG"
-        else "🔴"
-    )
-
-    message = (
-        f"{emoji} {SYMBOL} {direction} SIGNAL\n\n"
-        f"✅ EMA19 / EMA50 CROSSOVER\n"
-        f"✅ NEXT 1m CANDLE CONFIRMED\n"
-        f"✅ 0F-3 QUALITY FILTER PASSED\n\n"
-        f"Price: {price}\n"
-        f"EMA19: {ema19:.2f}\n"
-        f"EMA50: {ema50:.2f}\n"
-        f"EMA200: {ema200:.2f}\n\n"
-        f"INITIAL ENTRY CONFIG: "
-        f"{INITIAL_ENTRY_SIZE_PERCENT}%\n"
-        f"LEVERAGE CONFIG: {LEVERAGE}x\n\n"
-        f"⚠️ MODULE {MODULE_NAME}\n"
-        f"ORDER EXECUTION DISABLED"
-    )
-
-    print("=" * 60)
     print(
-        f"{direction} SIGNAL CONFIRMED"
-    )
-    print(
-        "PRICE:",
-        price,
-    )
-    print(
-        "INITIAL ENTRY CONFIG:",
-        f"{INITIAL_ENTRY_SIZE_PERCENT}%",
-    )
-    print(
-        "NO LIVE ORDER SUBMITTED"
-    )
-    print("=" * 60)
-
-    await send_telegram(
-        bot,
         message,
+        flush=True,
     )
 
 
 # ============================================================
-# CLOSED CANDLE PROCESSING
+# TELEGRAM HELPERS
 # ============================================================
 
-async def process_closed_candle(
-    bot: Optional[Bot],
-    close_price: Decimal,
-    candle_id: str,
+def telegram_is_configured() -> bool:
+
+    return bool(
+        TELEGRAM_BOT_TOKEN
+        and TELEGRAM_CHAT_ID
+    )
+
+
+async def send_telegram(
+    message: str,
 ) -> None:
 
-    global ema19
-    global ema50
-    global ema200
+    if not telegram_is_configured():
 
-    global previous_ema19
-    global previous_ema50
-    global previous_ema200
+        render_log(
+            "TELEGRAM MESSAGE SKIPPED: CONFIG MISSING"
+        )
 
-    global pending_signal
-
-    previous_ema19 = ema19
-    previous_ema50 = ema50
-    previous_ema200 = ema200
-
-    if (
-        ema19 is None
-        or ema50 is None
-        or ema200 is None
-    ):
         return
 
-    ema19 = update_ema(
-        ema19,
-        close_price,
-        19,
-    )
+    try:
 
-    ema50 = update_ema(
-        ema50,
-        close_price,
-        50,
-    )
-
-    ema200 = update_ema(
-        ema200,
-        close_price,
-        200,
-    )
-
-    print("=" * 60)
-    print(
-        f"MODULE {MODULE_NAME} - "
-        "CLOSED 1m CANDLE"
-    )
-
-    print(
-        f"{SYMBOL} CLOSE:",
-        close_price,
-    )
-
-    print(
-        "EMA19:",
-        f"{ema19:.2f}",
-    )
-
-    print(
-        "EMA50:",
-        f"{ema50:.2f}",
-    )
-
-    print(
-        "EMA200:",
-        f"{ema200:.2f}",
-    )
-
-    print(
-        "STRUCTURE:",
-        market_structure(
-            ema19,
-            ema50,
-            ema200,
-        ),
-    )
-
-    # --------------------------------------------------------
-    # FIRST: PROCESS EXISTING PENDING SIGNAL
-    # --------------------------------------------------------
-
-    if pending_signal is not None:
-
-        if pending_signal_expired(
-            pending_signal
-        ):
-            print(
-                "PENDING SIGNAL EXPIRED:",
-                pending_signal.direction,
-            )
-
-            pending_signal = None
-
-        elif (
-            candle_id
-            != pending_signal.crossover_candle_id
-        ):
-            direction = (
-                pending_signal.direction
-            )
-
-            quality_ok, reason = (
-                quality_filter_passes(
-                    direction,
-                    close_price,
-                )
-            )
-
-            print(
-                "PENDING SIGNAL CHECK:",
-                direction,
-            )
-
-            print(
-                "QUALITY RESULT:",
-                reason,
-            )
-
-            if quality_ok:
-                await confirmed_signal(
-                    bot,
-                    direction,
-                    close_price,
-                )
-
-            else:
-                print(
-                    "PENDING SIGNAL REJECTED"
-                )
-
-            # Pending signal is consumed after
-            # the next closed candle.
-            pending_signal = None
-
-    # --------------------------------------------------------
-    # SECOND: LOOK FOR NEW CROSSOVER
-    # --------------------------------------------------------
-
-    crossover = detect_crossover()
-
-    if crossover is not None:
-
-        pending_signal = PendingSignal(
-            direction=crossover,
-            created_at=time.time(),
-            crossover_candle_id=candle_id,
-            crossover_price=close_price,
+        bot = Bot(
+            token=TELEGRAM_BOT_TOKEN
         )
 
-        print(
-            f"{crossover} CROSSOVER DETECTED"
+        await bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=message,
         )
 
-        print(
-            "SIGNAL ENTERED PENDING STATE"
+        render_log(
+            "TELEGRAM MESSAGE SENT"
         )
 
-        print(
-            "WAITING FOR NEXT CLOSED "
-            "1m CANDLE"
+    except Exception as error:
+
+        render_log(
+            "TELEGRAM ERROR: "
+            f"{type(error).__name__}: "
+            f"{error}"
         )
 
 
 # ============================================================
-# HISTORICAL DATA PARSING
+# SAFE DECIMAL CONVERSION
 # ============================================================
 
-def decimal_or_none(
+def to_decimal(
     value: Any,
 ) -> Optional[Decimal]:
 
+    if value is None:
+        return None
+
     try:
+
         result = Decimal(
             str(value)
         )
@@ -1412,115 +450,507 @@ def decimal_or_none(
         ValueError,
         TypeError,
     ):
+
         return None
 
 
-def extract_close_from_row(
-    row: Any,
+# ============================================================
+# EMA CALCULATION
+# ============================================================
+
+def calculate_ema(
+    prices,
+    period: int,
 ) -> Optional[Decimal]:
 
-    # Common kline list forms:
-    #
-    # [timestamp, open, high, low, close, ...]
-    #
-    # WEEX responses may vary, so several
-    # formats are tolerated.
-
-    if isinstance(row, list):
-
-        if len(row) >= 5:
-            close = decimal_or_none(
-                row[4]
-            )
-
-            if close is not None:
-                return close
-
+    if len(prices) < period:
         return None
 
-    if isinstance(row, dict):
+    multiplier = (
+        Decimal("2")
+        /
+        Decimal(period + 1)
+    )
 
-        for key in (
-            "close",
-            "c",
-            "closePrice",
-            "last",
-            "lastPrice",
-            "price",
-        ):
-            if key in row:
-                close = decimal_or_none(
-                    row[key]
-                )
+    price_list = list(prices)
 
-                if close is not None:
-                    return close
+    starting_prices = (
+        price_list[:period]
+    )
 
-    return None
+    ema = (
+        sum(starting_prices)
+        /
+        Decimal(period)
+    )
 
+    for price in price_list[period:]:
 
-def find_kline_rows(
-    payload: Any,
-) -> list[Any]:
+        ema = (
+            (
+                price - ema
+            )
+            * multiplier
+            + ema
+        )
 
-    if isinstance(payload, list):
-        return payload
-
-    if not isinstance(payload, dict):
-        return []
-
-    candidates = [
-        payload.get("data"),
-        payload.get("result"),
-        payload.get("rows"),
-        payload.get("list"),
-    ]
-
-    for candidate in candidates:
-
-        if isinstance(candidate, list):
-            return candidate
-
-        if isinstance(candidate, dict):
-
-            for key in (
-                "list",
-                "rows",
-                "data",
-            ):
-                nested = candidate.get(key)
-
-                if isinstance(
-                    nested,
-                    list,
-                ):
-                    return nested
-
-    return []
+    return ema
 
 
 # ============================================================
-# LOAD HISTORICAL CANDLES
+# EMA STRUCTURE
 # ============================================================
 
-async def load_historical_candles() -> list[Decimal]:
+def describe_structure(
+    ema19: Decimal,
+    ema50: Decimal,
+    ema200: Decimal,
+) -> str:
 
-    print(
+    if (
+        ema19
+        > ema50
+        > ema200
+    ):
+
+        return (
+            "🟢 STRONG BULLISH "
+            "EMA19 > EMA50 > EMA200"
+        )
+
+    if (
+        ema19
+        < ema50
+        < ema200
+    ):
+
+        return (
+            "🔴 STRONG BEARISH "
+            "EMA19 < EMA50 < EMA200"
+        )
+
+    if (
+        ema19 > ema50
+        and ema50 <= ema200
+    ):
+
+        return (
+            "🟡 EARLY BULLISH / "
+            "RECOVERY STRUCTURE"
+        )
+
+    if (
+        ema19 < ema50
+        and ema50 >= ema200
+    ):
+
+        return (
+            "🟡 EARLY BEARISH / "
+            "WEAKENING STRUCTURE"
+        )
+
+    return (
+        "⚪ MIXED / NEUTRAL EMA STRUCTURE"
+    )
+
+
+# ============================================================
+# EMA SEPARATION
+# ============================================================
+
+def ema_separation_percent(
+    ema_fast: Decimal,
+    ema_slow: Decimal,
+) -> Decimal:
+
+    if ema_slow == 0:
+        return Decimal("0")
+
+    return (
+        abs(
+            ema_fast - ema_slow
+        )
+        /
+        ema_slow
+        * Decimal("100")
+    )
+
+
+# ============================================================
+# SAFETY CONFIGURATION VALIDATION
+# ============================================================
+
+def validate_configuration() -> None:
+
+    errors = []
+
+    if (
+        INITIAL_POSITION_PERCENT
+        <= 0
+    ):
+        errors.append(
+            "INITIAL_POSITION_PERCENT "
+            "must be greater than 0"
+        )
+
+    if (
+        LEVERAGE <= 0
+    ):
+        errors.append(
+            "LEVERAGE must be greater than 0"
+        )
+
+    if (
+        LEVERAGE
+        > MAX_LEVERAGE
+    ):
+        errors.append(
+            "LEVERAGE exceeds MAX_LEVERAGE"
+        )
+
+    if (
+        MAX_PYRAMID_ADDS < 0
+    ):
+        errors.append(
+            "MAX_PYRAMID_ADDS cannot be negative"
+        )
+
+    if (
+        MAX_BACKUPS < 0
+    ):
+        errors.append(
+            "MAX_BACKUPS cannot be negative"
+        )
+
+    if (
+        MAX_BACKUPS > 3
+    ):
+        errors.append(
+            "MAX_BACKUPS cannot exceed 3 "
+            "in Module 0F-4A"
+        )
+
+    tp_total = (
+        TP1_POSITION_PERCENT
+        + TP2_POSITION_PERCENT
+        + TP3_POSITION_PERCENT
+    )
+
+    if (
+        tp_total
+        != Decimal("100")
+    ):
+        errors.append(
+            "TP1 + TP2 + TP3 position percentages "
+            "must equal 100%"
+        )
+
+    if (
+        MAX_FUND_EXPOSURE_PERCENT
+        <= 0
+        or
+        MAX_FUND_EXPOSURE_PERCENT
+        > 100
+    ):
+        errors.append(
+            "MAX_FUND_EXPOSURE_PERCENT "
+            "must be between 0 and 100"
+        )
+
+    if errors:
+
+        render_log(
+            "=" * 60
+        )
+
+        render_log(
+            "CONFIGURATION VALIDATION FAILED"
+        )
+
+        for error in errors:
+
+            render_log(
+                f"ERROR: {error}"
+            )
+
+        render_log(
+            "=" * 60
+        )
+
+        raise ValueError(
+            "INVALID 0F-4A CONFIGURATION"
+        )
+
+    render_log(
+        "CONFIGURATION VALIDATION: PASSED"
+    )
+
+
+# ============================================================
+# STARTUP CONFIGURATION LOG
+# ============================================================
+
+def log_configuration() -> None:
+
+    render_log(
+        "=" * 60
+    )
+
+    render_log(
+        f"MODULE {MODULE_NAME} STARTING"
+    )
+
+    render_log(
+        f"{SYMBOL} SAFETY + "
+        "TRADE CONFIGURATION ENGINE"
+    )
+
+    render_log(
+        "EMA19 / EMA50 / EMA200"
+    )
+
+    render_log(
+        "=" * 60
+    )
+
+    render_log(
+        "TRADE CONFIGURATION"
+    )
+
+    render_log(
+        f"INITIAL ENTRY: "
+        f"{INITIAL_POSITION_PERCENT}%"
+    )
+
+    render_log(
+        f"LEVERAGE: {LEVERAGE}x"
+    )
+
+    render_log(
+        f"MAX LEVERAGE: {MAX_LEVERAGE}x"
+    )
+
+    render_log(
+        "-" * 60
+    )
+
+    render_log(
+        "PYRAMID CONFIGURATION"
+    )
+
+    render_log(
+        f"MAX PYRAMIDS: "
+        f"{MAX_PYRAMID_ADDS}"
+    )
+
+    render_log(
+        f"PYRAMID 1 SIZE: "
+        f"{PYRAMID_1_PERCENT}%"
+    )
+
+    render_log(
+        f"PYRAMID 2 SIZE: "
+        f"{PYRAMID_2_PERCENT}%"
+    )
+
+    render_log(
+        f"PYRAMID 3 SIZE: "
+        f"{PYRAMID_3_PERCENT}%"
+    )
+
+    render_log(
+        "-" * 60
+    )
+
+    render_log(
+        "BACKUP CONFIGURATION"
+    )
+
+    render_log(
+        f"MAX BACKUPS: {MAX_BACKUPS}"
+    )
+
+    render_log(
+        f"BACKUP 1 SIZE: "
+        f"{BACKUP_1_PERCENT}%"
+    )
+
+    render_log(
+        f"BACKUP 2 SIZE: "
+        f"{BACKUP_2_PERCENT}%"
+    )
+
+    render_log(
+        f"BACKUP 3 SIZE: "
+        f"{BACKUP_3_PERCENT}%"
+    )
+
+    render_log(
+        "BACKUP LIQUIDATION LEVEL: "
+        "RECALCULATE AFTER EACH EXECUTION"
+    )
+
+    render_log(
+        f"LIQUIDATION SAFETY BUFFER: "
+        f"{LIQUIDATION_SAFETY_BUFFER_PERCENT}%"
+    )
+
+    render_log(
+        f"MIN LIQUIDATION DISTANCE: "
+        f"{MIN_LIQUIDATION_DISTANCE_PERCENT}%"
+    )
+
+    render_log(
+        "-" * 60
+    )
+
+    render_log(
+        "TAKE PROFIT CONFIGURATION"
+    )
+
+    render_log(
+        f"TP1 POSITION: "
+        f"{TP1_POSITION_PERCENT}%"
+    )
+
+    render_log(
+        f"TP2 POSITION: "
+        f"{TP2_POSITION_PERCENT}%"
+    )
+
+    render_log(
+        f"TP3 TRAILING POSITION: "
+        f"{TP3_POSITION_PERCENT}%"
+    )
+
+    render_log(
+        f"TP1 TARGET: "
+        f"{TP1_TARGET_PERCENT}%"
+    )
+
+    render_log(
+        f"TP2 TARGET: "
+        f"{TP2_TARGET_PERCENT}%"
+    )
+
+    render_log(
+        f"TRAIL ACTIVATION: "
+        f"{TRAILING_ACTIVATION_PERCENT}%"
+    )
+
+    render_log(
+        f"TRAIL DISTANCE: "
+        f"{TRAILING_DISTANCE_PERCENT}%"
+    )
+
+    render_log(
+        "-" * 60
+    )
+
+    render_log(
+        "SAFETY CONTROLS"
+    )
+
+    render_log(
+        f"MAX FUND EXPOSURE: "
+        f"{MAX_FUND_EXPOSURE_PERCENT}%"
+    )
+
+    render_log(
+        "MAX LEVERAGED EXPOSURE: "
+        f"{MAX_TOTAL_LEVERAGED_EXPOSURE_PERCENT}%"
+    )
+
+    render_log(
+        f"MAX LOSS PER TRADE: "
+        f"{MAX_LOSS_PER_TRADE_PERCENT}%"
+    )
+
+    render_log(
+        f"SIGNAL EXPIRY: "
+        f"{SIGNAL_EXPIRY_MINUTES} MIN"
+    )
+
+    render_log(
+        f"MAX CONSECUTIVE LOSSES: "
+        f"{MAX_CONSECUTIVE_LOSSES}"
+    )
+
+    render_log(
+        f"LOSS COOLDOWN: "
+        f"{LOSS_COOLDOWN_MINUTES} MIN"
+    )
+
+    render_log(
+        "ONE DIRECTION ONLY: "
+        f"{ONE_DIRECTION_ONLY}"
+    )
+
+    render_log(
+        "ANTI DUPLICATE ORDERS: "
+        f"{ANTI_DUPLICATE_ORDERS}"
+    )
+
+    render_log(
+        "TREND REVERSAL EXIT: "
+        f"{TREND_REVERSAL_EXIT_ENABLED}"
+    )
+
+    render_log(
+        "-" * 60
+    )
+
+    render_log(
+        "SIGNAL QUALITY SETTINGS"
+    )
+
+    render_log(
+        "PRICE CONFIRMATION: "
+        f"{REQUIRE_PRICE_CONFIRMATION}"
+    )
+
+    render_log(
+        "EMA19 MOMENTUM REQUIRED: "
+        f"{REQUIRE_EMA19_MOMENTUM}"
+    )
+
+    render_log(
+        "MIN EMA19/50 SEPARATION: "
+        f"{MIN_EMA_SEPARATION_PERCENT}%"
+    )
+
+    render_log(
+        "-" * 60
+    )
+
+    render_log(
+        "SAFETY CONTROLS: ACTIVE"
+    )
+
+    render_log(
+        "LIVE ORDER EXECUTION: DISABLED"
+    )
+
+    render_log(
+        "=" * 60
+    )
+
+
+# ============================================================
+# HISTORICAL CANDLES
+# ============================================================
+
+async def load_historical_candles() -> None:
+
+    render_log(
         "LOADING 1m HISTORICAL CANDLES..."
     )
 
-    parameter_sets = [
-        {
-            "symbol": SYMBOL,
-            "interval": "1m",
-            "limit": HISTORICAL_LIMIT,
-        },
-        {
-            "symbol": SYMBOL,
-            "period": "1m",
-            "limit": HISTORICAL_LIMIT,
-        },
-    ]
+    params = {
+        "symbol": SYMBOL,
+        "interval": HISTORICAL_INTERVAL,
+        "limit": HISTORICAL_LIMIT,
+    }
 
     headers = {
         "User-Agent":
@@ -1528,377 +958,838 @@ async def load_historical_candles() -> list[Decimal]:
     }
 
     timeout = aiohttp.ClientTimeout(
-        total=20,
+        total=20
     )
 
     async with aiohttp.ClientSession(
-        timeout=timeout,
-        headers=headers,
+        timeout=timeout
     ) as session:
 
-        for params in parameter_sets:
+        async with session.get(
+            HISTORICAL_URL,
+            params=params,
+            headers=headers,
+        ) as response:
 
-            try:
-                async with session.get(
-                    HISTORICAL_URL,
-                    params=params,
-                ) as response:
+            render_log(
+                "HISTORICAL HTTP STATUS: "
+                f"{response.status}"
+            )
 
-                    print(
-                        "HISTORICAL HTTP STATUS:",
-                        response.status,
-                    )
+            if response.status != 200:
 
-                    if response.status != 200:
-                        continue
+                body = await response.text()
 
-                    payload = (
-                        await response.json(
-                            content_type=None
-                        )
-                    )
-
-                    rows = find_kline_rows(
-                        payload
-                    )
-
-                    prices = []
-
-                    for row in rows:
-                        close = (
-                            extract_close_from_row(
-                                row
-                            )
-                        )
-
-                        if close is not None:
-                            prices.append(close)
-
-                    if len(prices) >= 200:
-
-                        # Some APIs return newest-first.
-                        # Attempt basic timestamp detection
-                        # and reverse if necessary.
-
-                        if (
-                            len(rows) >= 2
-                            and isinstance(
-                                rows[0],
-                                list,
-                            )
-                            and isinstance(
-                                rows[1],
-                                list,
-                            )
-                            and len(rows[0]) > 0
-                            and len(rows[1]) > 0
-                        ):
-                            try:
-                                first_ts = Decimal(
-                                    str(rows[0][0])
-                                )
-
-                                second_ts = Decimal(
-                                    str(rows[1][0])
-                                )
-
-                                if first_ts > second_ts:
-                                    prices.reverse()
-
-                            except Exception:
-                                pass
-
-                        print(
-                            "HISTORICAL CANDLES LOADED:",
-                            len(prices),
-                        )
-
-                        print(
-                            "LATEST CLOSED PRICE:",
-                            prices[-1],
-                        )
-
-                        return prices
-
-            except Exception as exc:
-                print(
-                    "HISTORICAL LOAD ERROR:",
-                    repr(exc),
+                render_log(
+                    "HISTORICAL ERROR BODY: "
+                    f"{body[:500]}"
                 )
 
-    return []
+                raise RuntimeError(
+                    "FAILED TO LOAD "
+                    "HISTORICAL CANDLES"
+                )
 
+            data = await response.json()
 
-# ============================================================
-# INITIALIZE EMA ENGINE
-# ============================================================
+    if not isinstance(
+        data,
+        list,
+    ):
 
-async def initialize_ema_engine() -> None:
+        raise RuntimeError(
+            "UNEXPECTED HISTORICAL "
+            "CANDLE RESPONSE"
+        )
 
-    global ema19
-    global ema50
-    global ema200
+    parsed_candles = []
 
-    prices = (
-        await load_historical_candles()
+    for candle in data:
+
+        if (
+            not isinstance(candle, list)
+            or len(candle) < 5
+        ):
+            continue
+
+        try:
+
+            open_time = int(
+                candle[0]
+            )
+
+        except (
+            ValueError,
+            TypeError,
+        ):
+
+            continue
+
+        close_price = to_decimal(
+            candle[4]
+        )
+
+        if close_price is None:
+            continue
+
+        parsed_candles.append(
+            (
+                open_time,
+                close_price,
+            )
+        )
+
+    parsed_candles.sort(
+        key=lambda item: item[0]
     )
 
-    if len(prices) < 200:
+    closed_prices.clear()
+
+    for _, close_price in parsed_candles:
+
+        closed_prices.append(
+            close_price
+        )
+
+    render_log(
+        "HISTORICAL CANDLES LOADED: "
+        f"{len(closed_prices)}"
+    )
+
+    if (
+        len(closed_prices)
+        < 200
+    ):
+
         raise RuntimeError(
             "NOT ENOUGH HISTORICAL "
             "CANDLES FOR EMA200"
         )
 
+    render_log(
+        "LATEST CLOSED PRICE: "
+        f"{closed_prices[-1]}"
+    )
+
+
+# ============================================================
+# INITIAL EMA ENGINE
+# ============================================================
+
+def initialize_ema_engine() -> None:
+
+    global previous_ema19
+    global previous_ema50
+    global previous_ema200
+
     ema19 = calculate_ema(
-        prices,
+        closed_prices,
         19,
     )
 
     ema50 = calculate_ema(
-        prices,
+        closed_prices,
         50,
     )
 
     ema200 = calculate_ema(
-        prices,
+        closed_prices,
         200,
     )
 
-    print("=" * 60)
-    print("INITIAL EMA ENGINE")
+    if (
+        ema19 is None
+        or ema50 is None
+        or ema200 is None
+    ):
 
-    print(
-        "EMA19:",
-        f"{ema19:.2f}",
+        raise RuntimeError(
+            "EMA INITIALIZATION FAILED"
+        )
+
+    previous_ema19 = ema19
+    previous_ema50 = ema50
+    previous_ema200 = ema200
+
+    render_log(
+        "INITIAL EMA ENGINE"
     )
 
-    print(
-        "EMA50:",
-        f"{ema50:.2f}",
+    render_log(
+        f"EMA19: {ema19:.2f}"
     )
 
-    print(
-        "EMA200:",
-        f"{ema200:.2f}",
+    render_log(
+        f"EMA50: {ema50:.2f}"
     )
 
-    print(
-        "STRUCTURE:",
-        market_structure(
+    render_log(
+        f"EMA200: {ema200:.2f}"
+    )
+
+    render_log(
+        "STRUCTURE: "
+        + describe_structure(
             ema19,
             ema50,
             ema200,
-        ),
+        )
     )
 
-    print("EMA ENGINE READY")
-    print("=" * 60)
+    render_log(
+        "EMA ENGINE READY"
+    )
 
 
 # ============================================================
-# WEBSOCKET CANDLE PARSING
+# SIGNAL QUALITY CHECK
 # ============================================================
 
-def extract_candle_message(
-    payload: Any,
-) -> Optional[
-    tuple[
-        Decimal,
-        str,
-        bool,
-    ]
-]:
+def signal_quality_passes(
+    direction: str,
+    close_price: Decimal,
+    ema19: Decimal,
+    ema50: Decimal,
+    ema200: Decimal,
+    previous_fast: Decimal,
+) -> tuple[bool, str]:
 
-    if not isinstance(
-        payload,
-        dict,
-    ):
-        return None
-
-    data = payload.get(
-        "data"
+    separation = (
+        ema_separation_percent(
+            ema19,
+            ema50,
+        )
     )
-
-    # Sometimes data arrives inside list.
 
     if (
-        isinstance(data, list)
-        and data
+        separation
+        < MIN_EMA_SEPARATION_PERCENT
     ):
-        if isinstance(
-            data[0],
-            dict,
+
+        return (
+            False,
+            "EMA19/50 separation too small",
+        )
+
+    if direction == "LONG":
+
+        if not (
+            ema19
+            > ema50
+            > ema200
         ):
-            data = data[0]
 
-        elif isinstance(
-            data[0],
-            list,
-        ):
-            row = data[0]
-
-            if len(row) >= 5:
-
-                close = decimal_or_none(
-                    row[4]
-                )
-
-                if close is None:
-                    return None
-
-                candle_id = str(
-                    row[0]
-                )
-
-                # Kline streams often send only
-                # completed rows. Treat this as
-                # closed if no explicit flag exists.
-
-                return (
-                    close,
-                    candle_id,
-                    True,
-                )
-
-    if not isinstance(
-        data,
-        dict,
-    ):
-        return None
-
-    close = None
-
-    for key in (
-        "close",
-        "c",
-        "closePrice",
-        "price",
-        "lastPrice",
-    ):
-
-        if key in data:
-            close = decimal_or_none(
-                data[key]
+            return (
+                False,
+                "Bullish EMA structure not confirmed",
             )
 
-            if close is not None:
-                break
+        if (
+            REQUIRE_PRICE_CONFIRMATION
+            and close_price <= ema19
+        ):
 
-    if close is None:
-        return None
-
-    candle_id = None
-
-    for key in (
-        "startTime",
-        "start",
-        "timestamp",
-        "ts",
-        "time",
-        "t",
-    ):
-
-        if key in data:
-            candle_id = str(
-                data[key]
+            return (
+                False,
+                "Price is not above EMA19",
             )
-            break
 
-    if candle_id is None:
-        return None
+        if (
+            REQUIRE_EMA19_MOMENTUM
+            and ema19 <= previous_fast
+        ):
 
-    closed = False
+            return (
+                False,
+                "EMA19 bullish momentum not confirmed",
+            )
 
-    for key in (
-        "closed",
-        "isClosed",
-        "confirm",
-        "final",
-        "x",
-    ):
+        return (
+            True,
+            "Bullish quality filters passed",
+        )
 
-        if key in data:
+    if direction == "SHORT":
 
-            value = data[key]
+        if not (
+            ema19
+            < ema50
+            < ema200
+        ):
 
-            if isinstance(
-                value,
-                bool,
-            ):
-                closed = value
+            return (
+                False,
+                "Bearish EMA structure not confirmed",
+            )
 
-            elif str(
-                value
-            ).lower() in {
-                "1",
-                "true",
-                "yes",
-            }:
-                closed = True
+        if (
+            REQUIRE_PRICE_CONFIRMATION
+            and close_price >= ema19
+        ):
 
-            break
+            return (
+                False,
+                "Price is not below EMA19",
+            )
+
+        if (
+            REQUIRE_EMA19_MOMENTUM
+            and ema19 >= previous_fast
+        ):
+
+            return (
+                False,
+                "EMA19 bearish momentum not confirmed",
+            )
+
+        return (
+            True,
+            "Bearish quality filters passed",
+        )
 
     return (
-        close,
-        candle_id,
-        closed,
+        False,
+        "Unknown direction",
     )
 
 
 # ============================================================
-# APPLICATION PING HANDLER
+# CONFIRMED SIGNAL
 # ============================================================
 
-async def handle_application_ping(
-    websocket,
-    payload: Any,
-) -> bool:
-
-    if not isinstance(
-        payload,
-        dict,
-    ):
-        return False
-
-    if payload.get(
-        "event"
-    ) == "ping":
-
-        await websocket.send(
-            json.dumps(
-                {
-                    "event": "pong",
-                }
-            )
-        )
-
-        return True
-
-    if "ping" in payload:
-
-        await websocket.send(
-            json.dumps(
-                {
-                    "pong":
-                        payload["ping"],
-                }
-            )
-        )
-
-        return True
-
-    return False
-
-
-# ============================================================
-# WEBSOCKET LIVE LOOP
-# ============================================================
-
-async def websocket_loop(
-    bot: Optional[Bot],
+async def confirm_signal(
+    direction: str,
+    close_price: Decimal,
+    ema19: Decimal,
+    ema50: Decimal,
+    ema200: Decimal,
 ) -> None:
 
-    global last_processed_candle_id
+    global last_confirmed_signal
+
+    if (
+        ANTI_DUPLICATE_ORDERS
+        and
+        last_confirmed_signal
+        == direction
+    ):
+
+        render_log(
+            "SIGNAL BLOCKED: "
+            f"DUPLICATE {direction}"
+        )
+
+        return
+
+    last_confirmed_signal = direction
+
+    icon = (
+        "🟢"
+        if direction == "LONG"
+        else "🔴"
+    )
+
+    render_log(
+        "=" * 60
+    )
+
+    render_log(
+        f"{direction} SIGNAL CONFIRMED"
+    )
+
+    render_log(
+        f"PRICE: {close_price}"
+    )
+
+    render_log(
+        f"EMA19: {ema19:.2f}"
+    )
+
+    render_log(
+        f"EMA50: {ema50:.2f}"
+    )
+
+    render_log(
+        f"EMA200: {ema200:.2f}"
+    )
+
+    render_log(
+        "QUALITY FILTER: PASSED"
+    )
+
+    render_log(
+        "SAFETY ENGINE: ACTIVE"
+    )
+
+    render_log(
+        "LIVE ORDER EXECUTION: DISABLED"
+    )
+
+    render_log(
+        "=" * 60
+    )
+
+    telegram_message = (
+        f"{icon} {SYMBOL} "
+        f"{direction} SIGNAL\n\n"
+        f"✅ EMA19 / EMA50 CROSSOVER\n"
+        f"✅ NEXT 1m CANDLE CONFIRMED\n"
+        f"✅ SIGNAL QUALITY PASSED\n\n"
+        f"Price: {close_price}\n"
+        f"EMA19: {ema19:.2f}\n"
+        f"EMA50: {ema50:.2f}\n"
+        f"EMA200: {ema200:.2f}\n\n"
+        f"🛡 Safety configuration active\n"
+        f"⚠️ Live order execution disabled\n\n"
+        f"MODULE {MODULE_NAME}"
+    )
+
+    await send_telegram(
+        telegram_message
+    )
+
+
+# ============================================================
+# CLOSED CANDLE PROCESSING
+# ============================================================
+
+async def process_closed_candle(
+    close_price: Decimal,
+) -> None:
+
+    global previous_ema19
+    global previous_ema50
+    global previous_ema200
+    global pending_signal
+    global closed_candle_counter
+
+    closed_prices.append(
+        close_price
+    )
+
+    closed_candle_counter += 1
+
+    ema19 = calculate_ema(
+        closed_prices,
+        19,
+    )
+
+    ema50 = calculate_ema(
+        closed_prices,
+        50,
+    )
+
+    ema200 = calculate_ema(
+        closed_prices,
+        200,
+    )
+
+    if (
+        ema19 is None
+        or ema50 is None
+        or ema200 is None
+    ):
+        return
+
+    render_log(
+        "=" * 60
+    )
+
+    render_log(
+        f"MODULE {MODULE_NAME} "
+        "- CLOSED 1m CANDLE"
+    )
+
+    render_log(
+        f"{SYMBOL} CLOSE: "
+        f"{close_price}"
+    )
+
+    render_log(
+        f"EMA19: {ema19:.2f}"
+    )
+
+    render_log(
+        f"EMA50: {ema50:.2f}"
+    )
+
+    render_log(
+        f"EMA200: {ema200:.2f}"
+    )
+
+    render_log(
+        "STRUCTURE: "
+        + describe_structure(
+            ema19,
+            ema50,
+            ema200,
+        )
+    )
+
+    separation = (
+        ema_separation_percent(
+            ema19,
+            ema50,
+        )
+    )
+
+    render_log(
+        "EMA19/50 SEPARATION: "
+        f"{separation:.6f}%"
+    )
+
+    if (
+        previous_ema19 is None
+        or previous_ema50 is None
+        or previous_ema200 is None
+    ):
+
+        previous_ema19 = ema19
+        previous_ema50 = ema50
+        previous_ema200 = ema200
+
+        return
+
+    old_ema19 = previous_ema19
+    old_ema50 = previous_ema50
+
+    # --------------------------------------------------------
+    # FIRST CHECK AN EXISTING PENDING SIGNAL
+    # --------------------------------------------------------
+
+    if pending_signal is not None:
+
+        direction = pending_signal[
+            "direction"
+        ]
+
+        created_at_counter = pending_signal[
+            "candle_counter"
+        ]
+
+        candles_elapsed = (
+            closed_candle_counter
+            - created_at_counter
+        )
+
+        render_log(
+            "PENDING SIGNAL CHECK: "
+            f"{direction}"
+        )
+
+        if candles_elapsed >= 1:
+
+            quality_passed, reason = (
+                signal_quality_passes(
+                    direction=direction,
+                    close_price=close_price,
+                    ema19=ema19,
+                    ema50=ema50,
+                    ema200=ema200,
+                    previous_fast=old_ema19,
+                )
+            )
+
+            render_log(
+                "QUALITY RESULT: "
+                f"{quality_passed}"
+            )
+
+            render_log(
+                "QUALITY REASON: "
+                f"{reason}"
+            )
+
+            if quality_passed:
+
+                await confirm_signal(
+                    direction=direction,
+                    close_price=close_price,
+                    ema19=ema19,
+                    ema50=ema50,
+                    ema200=ema200,
+                )
+
+            else:
+
+                render_log(
+                    "PENDING SIGNAL REJECTED"
+                )
+
+            pending_signal = None
+
+    # --------------------------------------------------------
+    # DETECT NEW CROSSOVER
+    # --------------------------------------------------------
+
+    bullish_cross = (
+        old_ema19
+        <= old_ema50
+        and
+        ema19
+        > ema50
+    )
+
+    bearish_cross = (
+        old_ema19
+        >= old_ema50
+        and
+        ema19
+        < ema50
+    )
+
+    if (
+        pending_signal is None
+        and bullish_cross
+    ):
+
+        pending_signal = {
+            "direction": "LONG",
+            "candle_counter":
+                closed_candle_counter,
+            "price": close_price,
+        }
+
+        render_log(
+            "CROSSOVER DETECTED: "
+            "EMA19 ABOVE EMA50"
+        )
+
+        render_log(
+            "SIGNAL ENTERED PENDING STATE"
+        )
+
+        render_log(
+            "WAITING FOR NEXT CLOSED "
+            "1m CANDLE CONFIRMATION"
+        )
+
+    elif (
+        pending_signal is None
+        and bearish_cross
+    ):
+
+        pending_signal = {
+            "direction": "SHORT",
+            "candle_counter":
+                closed_candle_counter,
+            "price": close_price,
+        }
+
+        render_log(
+            "CROSSOVER DETECTED: "
+            "EMA19 BELOW EMA50"
+        )
+
+        render_log(
+            "SIGNAL ENTERED PENDING STATE"
+        )
+
+        render_log(
+            "WAITING FOR NEXT CLOSED "
+            "1m CANDLE CONFIRMATION"
+        )
+
+    previous_ema19 = ema19
+    previous_ema50 = ema50
+    previous_ema200 = ema200
+
+
+# ============================================================
+# WEBSOCKET MESSAGE PROCESSING
+# ============================================================
+
+async def handle_ws_message(
+    websocket,
+    raw_message: str,
+) -> None:
+
+    global current_candle_start
+    global current_candle_close
+
+    try:
+
+        message = json.loads(
+            raw_message
+        )
+
+    except json.JSONDecodeError:
+
+        render_log(
+            "NON-JSON WEBSOCKET MESSAGE "
+            "IGNORED"
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # WEEX PING
+    # --------------------------------------------------------
+
+    if (
+        isinstance(message, dict)
+        and message.get("event")
+        == "ping"
+    ):
+
+        await websocket.send(
+            json.dumps(
+                {
+                    "method": "PONG",
+                    "id": 1,
+                }
+            )
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # SUBSCRIPTION ACKNOWLEDGEMENT
+    # --------------------------------------------------------
+
+    if (
+        isinstance(message, dict)
+        and message.get("id") == 1
+        and message.get("result")
+        is True
+    ):
+
+        render_log(
+            "SUBSCRIPTION CONFIRMED"
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # KLINE MESSAGE
+    # --------------------------------------------------------
+
+    if not isinstance(
+        message,
+        dict,
+    ):
+        return
+
+    if message.get("e") != "kline":
+        return
+
+    candle_data = message.get(
+        "d"
+    )
+
+    if (
+        not isinstance(
+            candle_data,
+            list,
+        )
+        or not candle_data
+    ):
+
+        return
+
+    candle = candle_data[0]
+
+    if not isinstance(
+        candle,
+        dict,
+    ):
+
+        return
+
+    try:
+
+        candle_start = int(
+            candle.get("t")
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+
+        return
+
+    close_price = to_decimal(
+        candle.get("c")
+    )
+
+    if close_price is None:
+        return
+
+    # --------------------------------------------------------
+    # FIRST LIVE CANDLE
+    # --------------------------------------------------------
+
+    if current_candle_start is None:
+
+        current_candle_start = (
+            candle_start
+        )
+
+        current_candle_close = (
+            close_price
+        )
+
+        render_log(
+            "LIVE 1m CANDLE STARTED: "
+            f"{close_price}"
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # SAME FORMING CANDLE
+    # --------------------------------------------------------
+
+    if (
+        candle_start
+        == current_candle_start
+    ):
+
+        current_candle_close = (
+            close_price
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # NEW CANDLE MEANS PREVIOUS ONE CLOSED
+    # --------------------------------------------------------
+
+    if (
+        candle_start
+        > current_candle_start
+    ):
+
+        previous_close = (
+            current_candle_close
+        )
+
+        current_candle_start = (
+            candle_start
+        )
+
+        current_candle_close = (
+            close_price
+        )
+
+        if previous_close is not None:
+
+            await process_closed_candle(
+                previous_close
+            )
+
+        render_log(
+            "NEW LIVE 1m CANDLE: "
+            f"{close_price}"
+        )
+
+
+# ============================================================
+# WEBSOCKET CONNECTION
+# ============================================================
+
+async def run_websocket() -> None:
 
     reconnect_delay = (
         RECONNECT_DELAY_SECONDS
@@ -1907,21 +1798,24 @@ async def websocket_loop(
     while True:
 
         try:
+
+            headers = {
+                "User-Agent":
+                    "WEEX-BTC-Bot/1.0",
+            }
+
             async with websockets.connect(
                 WS_URL,
-                additional_headers={
-                    "User-Agent":
-                        "WEEX-BTC-Bot/1.0",
-                },
+                additional_headers=headers,
                 ping_interval=None,
-                ping_timeout=None,
                 close_timeout=10,
-                open_timeout=20,
             ) as websocket:
 
-                print("CONNECTED TO WEEX")
+                render_log(
+                    "CONNECTED TO WEEX"
+                )
 
-                subscription = {
+                subscribe_payload = {
                     "method": "SUBSCRIBE",
                     "params": [
                         SUBSCRIPTION_CHANNEL
@@ -1931,102 +1825,49 @@ async def websocket_loop(
 
                 await websocket.send(
                     json.dumps(
-                        subscription
+                        subscribe_payload
                     )
                 )
 
-                print(
-                    "SUBSCRIBED TO",
-                    SUBSCRIPTION_CHANNEL,
+                render_log(
+                    "SUBSCRIBED TO "
+                    f"{SUBSCRIPTION_CHANNEL}"
                 )
 
                 reconnect_delay = (
                     RECONNECT_DELAY_SECONDS
                 )
 
-                async for raw in websocket:
+                async for raw_message in websocket:
 
-                    try:
-                        payload = (
-                            json.loads(raw)
-                        )
-
-                    except json.JSONDecodeError:
-                        continue
-
-                    if (
-                        await handle_application_ping(
-                            websocket,
-                            payload,
-                        )
-                    ):
-                        continue
-
-                    if (
-                        isinstance(
-                            payload,
-                            dict,
-                        )
-                        and (
-                            payload.get(
-                                "result"
-                            )
-                            is True
-                        )
-                    ):
-                        print(
-                            "SUBSCRIPTION CONFIRMED"
-                        )
-                        continue
-
-                    candle = (
-                        extract_candle_message(
-                            payload
-                        )
-                    )
-
-                    if candle is None:
-                        continue
-
-                    (
-                        close_price,
-                        candle_id,
-                        closed,
-                    ) = candle
-
-                    if not closed:
-                        continue
-
-                    if (
-                        candle_id
-                        == last_processed_candle_id
-                    ):
-                        continue
-
-                    last_processed_candle_id = (
-                        candle_id
-                    )
-
-                    await process_closed_candle(
-                        bot,
-                        close_price,
-                        candle_id,
+                    await handle_ws_message(
+                        websocket,
+                        raw_message,
                     )
 
         except asyncio.CancelledError:
+
             raise
 
-        except Exception as exc:
+        except Exception as error:
 
-            print(
-                "WEBSOCKET ERROR:",
-                repr(exc),
+            render_log(
+                "=" * 60
             )
 
-            print(
-                "RECONNECTING IN",
-                reconnect_delay,
-                "SECONDS",
+            render_log(
+                "WEBSOCKET ERROR: "
+                f"{type(error).__name__}: "
+                f"{error}"
+            )
+
+            render_log(
+                "RECONNECTING IN "
+                f"{reconnect_delay} SECONDS"
+            )
+
+            render_log(
+                "=" * 60
             )
 
             await asyncio.sleep(
@@ -2043,12 +1884,18 @@ async def websocket_loop(
 # STARTUP TELEGRAM MESSAGE
 # ============================================================
 
-async def send_startup_message(
-    bot: Optional[Bot],
-) -> None:
+async def send_startup_message() -> None:
 
-    if bot is None:
-        return
+    telegram_status = (
+        "READY"
+        if telegram_is_configured()
+        else "MISSING"
+    )
+
+    render_log(
+        "TELEGRAM CONFIG: "
+        f"{telegram_status}"
+    )
 
     message = (
         f"✅ MODULE {MODULE_NAME} ONLINE\n\n"
@@ -2056,10 +1903,11 @@ async def send_startup_message(
         f"Safety + Trade Configuration Engine\n"
         f"EMA19 / EMA50 / EMA200\n\n"
         f"Initial Entry: "
-        f"{INITIAL_ENTRY_SIZE_PERCENT}%\n"
+        f"{INITIAL_POSITION_PERCENT}%\n"
         f"Leverage: {LEVERAGE}x\n"
         f"Max Leverage: {MAX_LEVERAGE}x\n"
-        f"Max Pyramids: {MAX_PYRAMID_ADDS}\n"
+        f"Max Pyramids: "
+        f"{MAX_PYRAMID_ADDS}\n"
         f"Max Backups: {MAX_BACKUPS}\n"
         f"TP1/TP2/TP3: "
         f"{TP1_POSITION_PERCENT}% / "
@@ -2070,8 +1918,7 @@ async def send_startup_message(
     )
 
     await send_telegram(
-        bot,
-        message,
+        message
     )
 
 
@@ -2081,76 +1928,92 @@ async def send_startup_message(
 
 async def main() -> None:
 
+    render_log(
+        ""
+    )
+
+    log_configuration()
+
     validate_configuration()
-    print_configuration()
 
-    if telegram_is_configured():
-
-        print(
-            "TELEGRAM CONFIG: READY"
+    render_log(
+        "TELEGRAM CONFIG: "
+        + (
+            "READY"
+            if telegram_is_configured()
+            else "MISSING"
         )
+    )
 
-        bot: Optional[Bot] = Bot(
-            token=TELEGRAM_BOT_TOKEN
-        )
+    await load_historical_candles()
 
-    else:
+    initialize_ema_engine()
 
-        print(
-            "TELEGRAM CONFIG: MISSING"
-        )
+    await send_startup_message()
 
-        bot = None
+    render_log(
+        "=" * 60
+    )
 
-    await initialize_ema_engine()
+    render_log(
+        "LIVE SIGNAL MODE ACTIVE"
+    )
 
-    print("=" * 60)
-    print("LIVE SIGNAL MODE ACTIVE")
-    print(
+    render_log(
         "PENDING CONFIRMATION ENGINE ACTIVE"
     )
-    print(
-        "0F-3 QUALITY FILTER ACTIVE"
+
+    render_log(
+        "SIGNAL QUALITY ENGINE ACTIVE"
     )
-    print(
-        "0F-4A SAFETY CONFIGURATION ACTIVE"
+
+    render_log(
+        "SAFETY CONFIGURATION ENGINE ACTIVE"
     )
-    print(
-        "SIMULATED TEST DISABLED"
-    )
-    print(
+
+    render_log(
         "LIVE ORDER EXECUTION DISABLED"
     )
-    print("=" * 60)
 
-    await send_startup_message(
-        bot
+    render_log(
+        "=" * 60
     )
 
-    await websocket_loop(
-        bot
-    )
+    await run_websocket()
 
 
 # ============================================================
-# PROGRAM ENTRY
+# PROGRAM START
 # ============================================================
 
 if __name__ == "__main__":
 
     try:
+
         asyncio.run(
             main()
         )
 
     except KeyboardInterrupt:
-        print(
-            f"MODULE {MODULE_NAME} STOPPED"
+
+        render_log(
+            "MODULE STOPPED BY USER"
         )
 
-    except Exception as exc:
-        print(
-            "FATAL ERROR:",
-            repr(exc),
+    except Exception as error:
+
+        render_log(
+            "=" * 60
         )
+
+        render_log(
+            "FATAL ERROR: "
+            f"{type(error).__name__}: "
+            f"{error}"
+        )
+
+        render_log(
+            "=" * 60
+        )
+
         raise
