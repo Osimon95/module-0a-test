@@ -6,7 +6,7 @@ import json
 import os
 import time
 
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal, ROUND_DOWN, ROUND_CEILING
 from urllib.parse import urlencode
 
 import aiohttp
@@ -17,8 +17,10 @@ from telegram import Bot
 # MODULE
 # ============================================================
 
-MODULE_NAME = "0F-4H"
+MODULE_NAME = "0F-4H-R2"
+
 SYMBOL = "BTCUSDT"
+
 API_BASE_URL = "https://api-contract.weex.com"
 
 
@@ -60,6 +62,7 @@ MAX_FUND_EXPOSURE_PERCENT = Decimal(
 # ============================================================
 
 LIVE_ORDER_EXECUTION = False
+
 HARD_EXECUTION_LOCK = True
 
 
@@ -99,416 +102,255 @@ TELEGRAM_CHAT_ID = os.getenv(
 
 
 # ============================================================
-# BASIC HELPERS
-# ============================================================
-
-def credentials_ready():
-    return bool(
-        WEEX_API_KEY
-        and WEEX_API_SECRET
-        and WEEX_API_PASSPHRASE
-    )
-
-
-def telegram_ready():
-    return bool(
-        TELEGRAM_BOT_TOKEN
-        and TELEGRAM_CHAT_ID
-    )
-
-
-async def send_telegram(message):
-    if not telegram_ready():
-        print("TELEGRAM CONFIG: MISSING")
-        return
-
-    try:
-        bot = Bot(
-            token=TELEGRAM_BOT_TOKEN
-        )
-
-        await bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text=message,
-        )
-
-        print("TELEGRAM MESSAGE SENT")
-
-    except Exception as exc:
-        print(
-            "TELEGRAM ERROR:",
-            exc,
-        )
-
-
-# ============================================================
 # DECIMAL HELPERS
 # ============================================================
 
 def D(value, default="0"):
+
     try:
-        return Decimal(
-            str(value)
-        )
+
+        return Decimal(str(value))
 
     except Exception:
-        return Decimal(
-            default
-        )
+
+        return Decimal(default)
 
 
-def round_down(
-    value,
-    precision,
-):
+def fmt(value, places=8):
+
     value = D(value)
 
-    step = Decimal(
-        "1"
-    ).scaleb(
-        -precision
+    text = f"{value:.{places}f}"
+
+    text = text.rstrip("0").rstrip(".")
+
+    return text or "0"
+
+
+def floor_to_precision(value, precision):
+
+    step = Decimal("1").scaleb(
+        -int(precision)
     )
 
-    return value.quantize(
+    return D(value).quantize(
         step,
         rounding=ROUND_DOWN,
     )
 
 
-def pretty_decimal(
-    value,
-    places=8,
-):
-    value = D(value)
+def ceil_integer(value):
 
-    text = (
-        f"{value:.{places}f}"
+    return int(
+        D(value).to_integral_value(
+            rounding=ROUND_CEILING
+        )
     )
-
-    text = text.rstrip(
-        "0"
-    ).rstrip(
-        "."
-    )
-
-    return text or "0"
 
 
 # ============================================================
-# WEEX V3 SIGNATURE
+# WEEX SIGNATURE
 # ============================================================
 
 def create_signature(
     timestamp,
     method,
-    request_path,
+    path,
     query_string="",
     body="",
 ):
-    method = method.upper()
 
     if query_string:
+
         message = (
-            str(timestamp)
-            + method
-            + request_path
-            + "?"
-            + query_string
-            + body
+            f"{timestamp}"
+            f"{method.upper()}"
+            f"{path}"
+            f"?"
+            f"{query_string}"
+            f"{body}"
         )
 
     else:
+
         message = (
-            str(timestamp)
-            + method
-            + request_path
-            + body
+            f"{timestamp}"
+            f"{method.upper()}"
+            f"{path}"
+            f"{body}"
         )
 
     digest = hmac.new(
-        WEEX_API_SECRET.encode(
-            "utf-8"
-        ),
-        message.encode(
-            "utf-8"
-        ),
+        WEEX_API_SECRET.encode("utf-8"),
+        message.encode("utf-8"),
         hashlib.sha256,
     ).digest()
 
     return base64.b64encode(
         digest
-    ).decode(
-        "utf-8"
-    )
+    ).decode("utf-8")
 
 
-def authenticated_headers(
-    method,
-    request_path,
-    query_string="",
-    body="",
+# ============================================================
+# PUBLIC GET
+# ============================================================
+
+async def public_get(
+    session,
+    path,
+    params=None,
 ):
+
+    async with session.get(
+        API_BASE_URL + path,
+        params=params or {},
+        timeout=aiohttp.ClientTimeout(
+            total=15
+        ),
+    ) as response:
+
+        text = await response.text()
+
+        if response.status != 200:
+
+            raise RuntimeError(
+                f"WEEX PUBLIC HTTP "
+                f"{response.status}: "
+                f"{text[:500]}"
+            )
+
+        return json.loads(text)
+
+
+# ============================================================
+# PRIVATE AUTHENTICATED GET
+# ============================================================
+
+async def private_get(
+    session,
+    path,
+    params=None,
+):
+
+    params = params or {}
+
+    query_string = urlencode(params)
+
     timestamp = str(
-        int(
-            time.time() * 1000
-        )
+        int(time.time() * 1000)
     )
 
     signature = create_signature(
         timestamp=timestamp,
-        method=method,
-        request_path=request_path,
+        method="GET",
+        path=path,
         query_string=query_string,
-        body=body,
     )
 
-    return {
+    headers = {
+
         "ACCESS-KEY":
             WEEX_API_KEY,
 
         "ACCESS-SIGN":
             signature,
 
-        "ACCESS-PASSPHRASE":
-            WEEX_API_PASSPHRASE,
-
         "ACCESS-TIMESTAMP":
             timestamp,
 
+        "ACCESS-PASSPHRASE":
+            WEEX_API_PASSPHRASE,
+
         "Content-Type":
             "application/json",
-
-        "User-Agent":
-            "0F-4H-WEEX-BOT",
     }
 
-
-# ============================================================
-# HTTP HELPERS
-# ============================================================
-
-async def public_get(
-    session,
-    request_path,
-    params=None,
-):
-    params = params or {}
-
     url = (
         API_BASE_URL
-        + request_path
-    )
-
-    async with session.get(
-        url,
-        params=params,
-    ) as response:
-        text = await response.text()
-
-        if response.status != 200:
-            raise RuntimeError(
-                f"PUBLIC GET FAILED "
-                f"{response.status}: "
-                f"{text}"
-            )
-
-        return json.loads(
-            text
-        )
-
-
-async def authenticated_get(
-    session,
-    request_path,
-    params=None,
-):
-    params = params or {}
-
-    query_string = urlencode(
-        params
-    )
-
-    url = (
-        API_BASE_URL
-        + request_path
+        + path
     )
 
     if query_string:
+
         url += (
             "?"
             + query_string
         )
 
-    headers = authenticated_headers(
-        method="GET",
-        request_path=request_path,
-        query_string=query_string,
-    )
-
     async with session.get(
         url,
         headers=headers,
+        timeout=aiohttp.ClientTimeout(
+            total=15
+        ),
     ) as response:
+
         text = await response.text()
 
         if response.status != 200:
+
             raise RuntimeError(
-                f"AUTH GET FAILED "
+                f"WEEX PRIVATE HTTP "
                 f"{response.status}: "
-                f"{text}"
+                f"{text[:500]}"
             )
 
-        return json.loads(
-            text
-        )
+        return json.loads(text)
 
 
 # ============================================================
-# ACCOUNT BALANCE
-# ============================================================
-
-async def get_account_balance(
-    session,
-):
-    path = (
-        "/capi/v3/account/balance"
-    )
-
-    data = await authenticated_get(
-        session,
-        path,
-    )
-
-    if not isinstance(
-        data,
-        list,
-    ):
-        raise RuntimeError(
-            "Unexpected balance response"
-        )
-
-    for item in data:
-        if (
-            str(
-                item.get(
-                    "asset",
-                    ""
-                )
-            ).upper()
-            == "USDT"
-        ):
-            return item
-
-    raise RuntimeError(
-        "USDT balance not found"
-    )
-
-
-# ============================================================
-# EXCHANGE CONTRACT INFORMATION
+# CONTRACT INFORMATION
 # ============================================================
 
 async def get_contract_info(
     session,
 ):
-    path = (
-        "/capi/v3/market/exchangeInfo"
-    )
 
-    data = await public_get(
+    payload = await public_get(
         session,
-        path,
+        "/capi/v3/market/exchangeInfo",
         {
             "symbol":
                 SYMBOL
         },
     )
 
-    symbols = data.get(
+    symbols = payload.get(
         "symbols",
         [],
     )
 
     for item in symbols:
+
         if (
             str(
                 item.get(
                     "symbol",
-                    ""
+                    "",
                 )
             ).upper()
             == SYMBOL
         ):
+
             return item
 
     raise RuntimeError(
-        f"{SYMBOL} contract "
-        f"information not found"
+        f"{SYMBOL} not found "
+        f"in WEEX exchangeInfo"
     )
 
 
 # ============================================================
-# SYMBOL ACCOUNT CONFIGURATION
+# LIVE BTC PRICE
 # ============================================================
 
-async def get_symbol_configuration(
+async def get_price(
     session,
 ):
-    path = (
-        "/capi/v3/account/symbolConfig"
-    )
 
-    data = await authenticated_get(
+    payload = await public_get(
         session,
-        path,
-        {
-            "symbol":
-                SYMBOL
-        },
-    )
-
-    if not isinstance(
-        data,
-        list,
-    ):
-        raise RuntimeError(
-            "Unexpected symbol "
-            "configuration response"
-        )
-
-    for item in data:
-        if (
-            str(
-                item.get(
-                    "symbol",
-                    ""
-                )
-            ).upper()
-            == SYMBOL
-        ):
-            return item
-
-    raise RuntimeError(
-        f"{SYMBOL} configuration "
-        f"not found"
-    )
-
-
-# ============================================================
-# LIVE MARKET PRICE
-# ============================================================
-
-async def get_live_price(
-    session,
-):
-    path = (
-        "/capi/v3/market/ticker/"
-        "bookTicker"
-    )
-
-    data = await public_get(
-        session,
-        path,
+        "/capi/v3/market/ticker/price",
         {
             "symbol":
                 SYMBOL
@@ -516,355 +358,218 @@ async def get_live_price(
     )
 
     if isinstance(
-        data,
+        payload,
         list,
     ):
-        if not data:
-            raise RuntimeError(
-                "Ticker response empty"
-            )
 
-        ticker = data[0]
+        for item in payload:
 
-    elif isinstance(
-        data,
+            if (
+                str(
+                    item.get(
+                        "symbol",
+                        "",
+                    )
+                ).upper()
+                == SYMBOL
+            ):
+
+                return D(
+                    item.get(
+                        "price"
+                    )
+                )
+
+    if isinstance(
+        payload,
         dict,
     ):
-        ticker = data
 
-    else:
-        raise RuntimeError(
-            "Unexpected ticker response"
+        price = D(
+            payload.get(
+                "price"
+            )
         )
 
-    bid = D(
-        ticker.get(
-            "bidPrice"
-        )
-    )
+        if price > 0:
 
-    ask = D(
-        ticker.get(
-            "askPrice"
-        )
-    )
+            return price
 
-    if bid <= 0 or ask <= 0:
-        raise RuntimeError(
-            "Invalid bid/ask price"
-        )
-
-    mid = (
-        bid + ask
-    ) / Decimal(
-        "2"
-    )
-
-    return (
-        bid,
-        ask,
-        mid,
+    raise RuntimeError(
+        "Unable to read "
+        "BTCUSDT price"
     )
 
 
 # ============================================================
-# ORDER READINESS CALCULATION
+# ACCOUNT BALANCE
 # ============================================================
 
-def calculate_readiness(
-    available_balance,
-    live_price,
-    contract,
+async def get_available_usdt(
+    session,
 ):
-    quantity_precision = int(
-        contract.get(
-            "quantityPrecision",
-            6,
-        )
+
+    balances = await private_get(
+        session,
+        "/capi/v3/account/balance",
     )
 
-    min_order_size = D(
-        contract.get(
-            "minOrderSize"
+    if not isinstance(
+        balances,
+        list,
+    ):
+
+        raise RuntimeError(
+            "Unexpected WEEX "
+            "balance response"
         )
+
+    for item in balances:
+
+        if (
+            str(
+                item.get(
+                    "asset",
+                    "",
+                )
+            ).upper()
+            == "USDT"
+        ):
+
+            return D(
+                item.get(
+                    "availableBalance"
+                )
+            )
+
+    raise RuntimeError(
+        "USDT balance "
+        "not found"
     )
 
-    max_order_size = D(
-        contract.get(
-            "maxOrderSize"
-        )
-    )
 
-    market_open_limit = D(
-        contract.get(
-            "marketOpenLimitSize"
-        )
-    )
+# ============================================================
+# TELEGRAM
+# ============================================================
 
-    min_leverage = D(
-        contract.get(
-            "minLeverage",
-            1,
-        )
-    )
-
-    exchange_max_leverage = D(
-        contract.get(
-            "maxLeverage",
-            0,
-        )
-    )
-
-    # --------------------------------------------------------
-    # PLANNED ENTRY
-    # --------------------------------------------------------
-
-    entry_margin = (
-        available_balance
-        * INITIAL_ENTRY_PERCENT
-        / Decimal(
-            "100"
-        )
-    )
-
-    leveraged_notional = (
-        entry_margin
-        * LEVERAGE
-    )
-
-    if live_price > 0:
-        raw_quantity = (
-            leveraged_notional
-            / live_price
-        )
-
-    else:
-        raw_quantity = Decimal(
-            "0"
-        )
-
-    quantity = round_down(
-        raw_quantity,
-        quantity_precision,
-    )
-
-    actual_notional = (
-        quantity
-        * live_price
-    )
-
-    if LEVERAGE > 0:
-        actual_margin = (
-            actual_notional
-            / LEVERAGE
-        )
-
-    else:
-        actual_margin = Decimal(
-            "0"
-        )
-
-    # --------------------------------------------------------
-    # MINIMUM ORDER REQUIREMENTS
-    # --------------------------------------------------------
+async def send_telegram(
+    message,
+):
 
     if (
-        min_order_size > 0
-        and live_price > 0
-        and LEVERAGE > 0
-        and INITIAL_ENTRY_PERCENT > 0
+        not TELEGRAM_BOT_TOKEN
+        or not TELEGRAM_CHAT_ID
     ):
-        minimum_order_notional = (
-            min_order_size
-            * live_price
+
+        print(
+            "TELEGRAM CONFIG: MISSING"
         )
 
-        minimum_order_margin = (
-            minimum_order_notional
-            / LEVERAGE
+        return
+
+    try:
+
+        bot = Bot(
+            token=
+            TELEGRAM_BOT_TOKEN
         )
 
-        minimum_balance_required = (
-            minimum_order_margin
-            * Decimal(
-                "100"
-            )
-            / INITIAL_ENTRY_PERCENT
+        await bot.send_message(
+            chat_id=
+                TELEGRAM_CHAT_ID,
+            text=
+                message,
         )
 
-    else:
-        minimum_order_notional = Decimal(
-            "0"
+        print(
+            "TELEGRAM MESSAGE SENT"
         )
 
-        minimum_order_margin = Decimal(
-            "0"
+    except Exception as exc:
+
+        print(
+            "TELEGRAM ERROR:",
+            exc,
         )
-
-        minimum_balance_required = Decimal(
-            "0"
-        )
-
-    # --------------------------------------------------------
-    # SAFETY VALIDATION
-    # --------------------------------------------------------
-
-    checks = {}
-
-    checks[
-        "available_balance_positive"
-    ] = (
-        available_balance > 0
-    )
-
-    checks[
-        "entry_percent_valid"
-    ] = (
-        INITIAL_ENTRY_PERCENT > 0
-        and INITIAL_ENTRY_PERCENT
-        <= MAX_FUND_EXPOSURE_PERCENT
-    )
-
-    checks[
-        "leverage_above_min"
-    ] = (
-        LEVERAGE
-        >= min_leverage
-    )
-
-    checks[
-        "leverage_under_bot_max"
-    ] = (
-        LEVERAGE
-        <= MAX_LEVERAGE
-    )
-
-    checks[
-        "leverage_under_exchange_max"
-    ] = (
-        exchange_max_leverage <= 0
-        or LEVERAGE
-        <= exchange_max_leverage
-    )
-
-    checks[
-        "quantity_positive"
-    ] = (
-        quantity > 0
-    )
-
-    checks[
-        "meets_min_order"
-    ] = (
-        min_order_size <= 0
-        or quantity
-        >= min_order_size
-    )
-
-    checks[
-        "balance_sufficient_for_min_order"
-    ] = (
-        minimum_balance_required <= 0
-        or available_balance
-        >= minimum_balance_required
-    )
-
-    checks[
-        "below_max_order"
-    ] = (
-        max_order_size <= 0
-        or quantity
-        <= max_order_size
-    )
-
-    checks[
-        "below_market_open_limit"
-    ] = (
-        market_open_limit <= 0
-        or quantity
-        <= market_open_limit
-    )
-
-    checks[
-        "margin_within_balance"
-    ] = (
-        actual_margin
-        <= available_balance
-    )
-
-    readiness_passed = all(
-        checks.values()
-    )
-
-    return {
-        "entry_margin":
-            entry_margin,
-
-        "leveraged_notional":
-            leveraged_notional,
-
-        "raw_quantity":
-            raw_quantity,
-
-        "quantity":
-            quantity,
-
-        "actual_notional":
-            actual_notional,
-
-        "actual_margin":
-            actual_margin,
-
-        "quantity_precision":
-            quantity_precision,
-
-        "min_order_size":
-            min_order_size,
-
-        "max_order_size":
-            max_order_size,
-
-        "market_open_limit":
-            market_open_limit,
-
-        "min_leverage":
-            min_leverage,
-
-        "exchange_max_leverage":
-            exchange_max_leverage,
-
-        "minimum_order_notional":
-            minimum_order_notional,
-
-        "minimum_order_margin":
-            minimum_order_margin,
-
-        "minimum_balance_required":
-            minimum_balance_required,
-
-        "checks":
-            checks,
-
-        "passed":
-            readiness_passed,
-    }
 
 
 # ============================================================
-# READINESS TEST
+# LOCAL CONFIG VALIDATION
 # ============================================================
 
-async def run_readiness_test():
+def validate_configuration():
+
+    errors = []
+
+    if INITIAL_ENTRY_PERCENT <= 0:
+
+        errors.append(
+            "INITIAL_ENTRY_PERCENT "
+            "must be greater than 0"
+        )
+
+    if (
+        INITIAL_ENTRY_PERCENT
+        >
+        MAX_FUND_EXPOSURE_PERCENT
+    ):
+
+        errors.append(
+            "INITIAL_ENTRY_PERCENT "
+            "exceeds "
+            "MAX_FUND_EXPOSURE_PERCENT"
+        )
+
+    if LEVERAGE <= 0:
+
+        errors.append(
+            "LEVERAGE must be "
+            "greater than 0"
+        )
+
+    if (
+        LEVERAGE
+        >
+        MAX_LEVERAGE
+    ):
+
+        errors.append(
+            "LEVERAGE exceeds "
+            "MAX_LEVERAGE"
+        )
+
+    if (
+        not WEEX_API_KEY
+        or not WEEX_API_SECRET
+        or not WEEX_API_PASSPHRASE
+    ):
+
+        errors.append(
+            "WEEX credentials "
+            "are missing"
+        )
+
+    return errors
+
+
+# ============================================================
+# READINESS CHECK
+# ============================================================
+
+async def readiness_check():
+
     print(
         "=" * 60
     )
 
     print(
-        f"MODULE {MODULE_NAME} STARTING"
+        f"MODULE "
+        f"{MODULE_NAME} "
+        f"STARTING"
     )
 
     print(
-        "WEEX LIVE ACCOUNT "
+        "WEEX MINIMUM-ORDER-AWARE "
         "READINESS VERIFICATION"
     )
 
@@ -876,702 +581,546 @@ async def run_readiness_test():
         "=" * 60
     )
 
+
+    # --------------------------------------------------------
+    # LOCAL CONFIG
+    # --------------------------------------------------------
+
+    errors = (
+        validate_configuration()
+    )
+
+    if errors:
+
+        print(
+            "CONFIGURATION ERROR"
+        )
+
+        for error in errors:
+
+            print(
+                "ERROR:",
+                error,
+            )
+
+        message = (
+            f"⚠️ MODULE "
+            f"{MODULE_NAME} "
+            f"CONFIG ERROR\n"
+            f"{SYMBOL}\n\n"
+        )
+
+        for error in errors:
+
+            message += (
+                f"❌ {error}\n"
+            )
+
+        message += (
+            "\n"
+            "🛡 Hard execution "
+            "lock active\n"
+            "⚠️ No live order "
+            "was sent."
+        )
+
+        await send_telegram(
+            message
+        )
+
+        return
+
+
+    # --------------------------------------------------------
+    # LIVE DATA
+    # --------------------------------------------------------
+
+    async with (
+        aiohttp.ClientSession()
+        as session
+    ):
+
+        contract = (
+            await get_contract_info(
+                session
+            )
+        )
+
+        price = (
+            await get_price(
+                session
+            )
+        )
+
+        available = (
+            await get_available_usdt(
+                session
+            )
+        )
+
+
+    # --------------------------------------------------------
+    # CONTRACT SETTINGS
+    # --------------------------------------------------------
+
+    quantity_precision = int(
+        contract.get(
+            "quantityPrecision",
+            6,
+        )
+    )
+
+    min_order_size = D(
+        contract.get(
+            "minOrderSize",
+            "0",
+        )
+    )
+
+    contract_value = D(
+        contract.get(
+            "contractVal",
+            "0",
+        )
+    )
+
+    exchange_min_leverage = D(
+        contract.get(
+            "minLeverage",
+            "1",
+        )
+    )
+
+    exchange_max_leverage = D(
+        contract.get(
+            "maxLeverage",
+            "0",
+        )
+    )
+
+
+    # --------------------------------------------------------
+    # OUR ENTRY CALCULATION
+    # --------------------------------------------------------
+
+    entry_fraction = (
+        INITIAL_ENTRY_PERCENT
+        /
+        Decimal("100")
+    )
+
+    allocated_margin = (
+        available
+        *
+        entry_fraction
+    )
+
+    target_notional = (
+        allocated_margin
+        *
+        LEVERAGE
+    )
+
+
+    # --------------------------------------------------------
+    # BTC QUANTITY
+    # --------------------------------------------------------
+
+    if price > 0:
+
+        raw_quantity = (
+            target_notional
+            /
+            price
+        )
+
+    else:
+
+        raw_quantity = (
+            Decimal("0")
+        )
+
+    calculated_quantity = (
+        floor_to_precision(
+            raw_quantity,
+            quantity_precision,
+        )
+    )
+
+
+    # --------------------------------------------------------
+    # WEEX MINIMUM POSITION VALUE
+    # --------------------------------------------------------
+
+    minimum_notional = (
+        min_order_size
+        *
+        price
+    )
+
+
+    # --------------------------------------------------------
+    # MARGIN REQUIRED AT OUR CURRENT LEVERAGE
+    # --------------------------------------------------------
+
+    if LEVERAGE > 0:
+
+        minimum_margin = (
+            minimum_notional
+            /
+            LEVERAGE
+        )
+
+    else:
+
+        minimum_margin = (
+            Decimal("0")
+        )
+
+
+    # --------------------------------------------------------
+    # BALANCE NEEDED IF WE INSIST ON 5% ENTRY
+    # --------------------------------------------------------
+
+    if entry_fraction > 0:
+
+        minimum_balance = (
+            minimum_margin
+            /
+            entry_fraction
+        )
+
+    else:
+
+        minimum_balance = (
+            Decimal("0")
+        )
+
+
+    # --------------------------------------------------------
+    # WHAT WOULD A $1 MARGIN TRADE REQUIRE?
+    # --------------------------------------------------------
+
+    if minimum_notional > 0:
+
+        leverage_for_one_usdt = (
+            ceil_integer(
+                minimum_notional
+                /
+                Decimal("1")
+            )
+        )
+
+    else:
+
+        leverage_for_one_usdt = 0
+
+
+    # --------------------------------------------------------
+    # CHECKS
+    # --------------------------------------------------------
+
+    checks = {
+
+        "price_positive":
+            price > 0,
+
+        "balance_positive":
+            available > 0,
+
+        "quantity_positive":
+            calculated_quantity > 0,
+
+        "meets_min_order":
+            calculated_quantity
+            >=
+            min_order_size,
+
+        "exchange_leverage_valid":
+            (
+                LEVERAGE
+                >=
+                exchange_min_leverage
+                and
+                (
+                    exchange_max_leverage
+                    <= 0
+                    or
+                    LEVERAGE
+                    <=
+                    exchange_max_leverage
+                )
+            ),
+
+        "hard_lock_active":
+            HARD_EXECUTION_LOCK,
+
+        "live_execution_disabled":
+            not LIVE_ORDER_EXECUTION,
+    }
+
+
+    ready_for_min_order = all(
+        [
+            checks[
+                "price_positive"
+            ],
+            checks[
+                "balance_positive"
+            ],
+            checks[
+                "quantity_positive"
+            ],
+            checks[
+                "meets_min_order"
+            ],
+            checks[
+                "exchange_leverage_valid"
+            ],
+        ]
+    )
+
+
+    # --------------------------------------------------------
+    # RENDER LOG
+    # --------------------------------------------------------
+
+    print(
+        f"Available USDT: "
+        f"{fmt(available, 4)}"
+    )
+
+    print(
+        f"BTC Price: "
+        f"{fmt(price, 2)}"
+    )
+
     print(
         f"Initial Entry: "
-        f"{INITIAL_ENTRY_PERCENT}%"
+        f"{fmt(INITIAL_ENTRY_PERCENT, 2)}%"
+    )
+
+    print(
+        f"Allocated Margin: "
+        f"{fmt(allocated_margin, 6)} "
+        f"USDT"
     )
 
     print(
         f"Leverage: "
-        f"{LEVERAGE}x"
+        f"{fmt(LEVERAGE, 2)}x"
     )
 
     print(
-        f"Bot Max Leverage: "
-        f"{MAX_LEVERAGE}x"
+        f"Target Position Notional: "
+        f"{fmt(target_notional, 6)} "
+        f"USDT"
     )
 
     print(
-        f"Max Fund Exposure: "
-        f"{MAX_FUND_EXPOSURE_PERCENT}%"
+        f"Raw BTC Quantity: "
+        f"{fmt(raw_quantity, 10)}"
     )
 
     print(
-        "LIVE ORDER EXECUTION: "
-        "DISABLED"
+        f"Rounded BTC Quantity: "
+        f"{fmt(calculated_quantity, 10)}"
     )
 
     print(
-        "HARD EXECUTION LOCK: "
-        "ACTIVE"
+        f"WEEX Quantity Precision: "
+        f"{quantity_precision}"
     )
+
+    print(
+        f"WEEX Contract Value: "
+        f"{fmt(contract_value, 10)} "
+        f"BTC"
+    )
+
+    print(
+        f"WEEX Minimum Order: "
+        f"{fmt(min_order_size, 10)} "
+        f"BTC"
+    )
+
+    print(
+        f"Minimum Order Notional: "
+        f"{fmt(minimum_notional, 6)} "
+        f"USDT"
+    )
+
+    print(
+        f"Minimum Margin Needed "
+        f"At {fmt(LEVERAGE, 2)}x: "
+        f"{fmt(minimum_margin, 6)} "
+        f"USDT"
+    )
+
+    print(
+        f"Minimum Account Balance "
+        f"At "
+        f"{fmt(INITIAL_ENTRY_PERCENT, 2)}% "
+        f"Entry: "
+        f"{fmt(minimum_balance, 6)} "
+        f"USDT"
+    )
+
+    print(
+        "Approximate Leverage Needed "
+        "For $1 Margin: "
+        f"{leverage_for_one_usdt}x"
+    )
+
+    print(
+        "-" * 60
+    )
+
+    for (
+        check_name,
+        passed,
+    ) in checks.items():
+
+        if passed:
+
+            print(
+                f"PASS: "
+                f"{check_name}"
+            )
+
+        else:
+
+            print(
+                f"FAIL: "
+                f"{check_name}"
+            )
+
+
+    # --------------------------------------------------------
+    # TELEGRAM STATUS
+    # --------------------------------------------------------
+
+    if ready_for_min_order:
+
+        status_icon = "✅"
+
+        status_text = "READY"
+
+        sizing_text = (
+            "✅ Minimum order "
+            "sizing passes"
+        )
+
+    else:
+
+        status_icon = "⚠️"
+
+        status_text = (
+            "NOT READY"
+        )
+
+        sizing_text = (
+            "❌ Current percentage "
+            "sizing is below "
+            "WEEX minimum"
+        )
+
+
+    message = (
+
+        f"{status_icon} "
+        f"MODULE "
+        f"{MODULE_NAME} "
+        f"{status_text}\n"
+
+        f"{SYMBOL}\n\n"
+
+        f"Available USDT: "
+        f"{fmt(available, 4)}\n"
+
+        f"BTC Price: "
+        f"{fmt(price, 2)}\n"
+
+        f"Entry: "
+        f"{fmt(INITIAL_ENTRY_PERCENT, 2)}%\n"
+
+        f"Allocated Margin: "
+        f"{fmt(allocated_margin, 4)} "
+        f"USDT\n"
+
+        f"Leverage: "
+        f"{fmt(LEVERAGE, 2)}x\n"
+
+        f"Target Notional: "
+        f"{fmt(target_notional, 4)} "
+        f"USDT\n"
+
+        f"Calculated Quantity: "
+        f"{fmt(calculated_quantity, 10)} "
+        f"BTC\n"
+
+        f"WEEX Minimum: "
+        f"{fmt(min_order_size, 10)} "
+        f"BTC\n"
+
+        f"Minimum Notional: "
+        f"{fmt(minimum_notional, 4)} "
+        f"USDT\n"
+
+        f"Minimum Margin @ "
+        f"{fmt(LEVERAGE, 2)}x: "
+        f"{fmt(minimum_margin, 4)} "
+        f"USDT\n"
+
+        f"Minimum Balance @ "
+        f"{fmt(INITIAL_ENTRY_PERCENT, 2)}% "
+        f"entry: "
+        f"{fmt(minimum_balance, 4)} "
+        f"USDT\n"
+
+        f"Approx. leverage for "
+        f"$1 margin: "
+        f"{leverage_for_one_usdt}x\n\n"
+
+        f"{sizing_text}\n"
+
+        f"🛡 Hard execution "
+        f"lock active\n"
+
+        f"⚠️ No live order "
+        f"was sent."
+    )
+
+    await send_telegram(
+        message
+    )
+
+
+    # --------------------------------------------------------
+    # FINAL LOG
+    # --------------------------------------------------------
 
     print(
         "=" * 60
     )
 
-    if not credentials_ready():
-        print(
-            "WEEX CREDENTIALS: MISSING"
-        )
-
-        await send_telegram(
-            "❌ MODULE 0F-4H FAILED\n"
-            "BTCUSDT\n\n"
-            "WEEX credentials missing.\n"
-            "🛡 Hard execution lock active\n"
-            "⚠️ No live order was sent."
-        )
-
-        return
+    print(
+        "0F-4H-R2 READINESS "
+        "CHECK COMPLETE"
+    )
 
     print(
-        "WEEX CREDENTIALS: READY"
+        "NO LIVE ORDERS "
+        "WERE SENT"
     )
 
-    timeout = aiohttp.ClientTimeout(
-        total=20
+    print(
+        "PROCESS REMAINS ALIVE"
     )
 
-    async with aiohttp.ClientSession(
-        timeout=timeout
-    ) as session:
-
-        try:
-            # =================================================
-            # CHECK 1 - ACCOUNT BALANCE
-            # =================================================
-
-            print(
-                "CHECK 1: "
-                "ACCOUNT BALANCE"
-            )
-
-            balance = (
-                await get_account_balance(
-                    session
-                )
-            )
-
-            total_balance = D(
-                balance.get(
-                    "balance"
-                )
-            )
-
-            available_balance = D(
-                balance.get(
-                    "availableBalance"
-                )
-            )
-
-            frozen = D(
-                balance.get(
-                    "frozen"
-                )
-            )
-
-            unrealized_pnl = D(
-                balance.get(
-                    "unrealizePnl"
-                )
-            )
-
-            print(
-                "✅ AUTHENTICATED "
-                "ACCOUNT ACCESS"
-            )
-
-            print(
-                "USDT TOTAL BALANCE:",
-                pretty_decimal(
-                    total_balance
-                ),
-            )
-
-            print(
-                "USDT AVAILABLE:",
-                pretty_decimal(
-                    available_balance
-                ),
-            )
-
-            print(
-                "USDT FROZEN:",
-                pretty_decimal(
-                    frozen
-                ),
-            )
-
-            print(
-                "UNREALIZED PNL:",
-                pretty_decimal(
-                    unrealized_pnl
-                ),
-            )
-
-            print(
-                "-" * 60
-            )
-
-            # =================================================
-            # CHECK 2 - CONTRACT
-            # =================================================
-
-            print(
-                "CHECK 2: "
-                "BTCUSDT CONTRACT"
-            )
-
-            contract = (
-                await get_contract_info(
-                    session
-                )
-            )
-
-            print(
-                "✅ CONTRACT FOUND"
-            )
-
-            print(
-                "MIN ORDER SIZE:",
-                contract.get(
-                    "minOrderSize"
-                ),
-            )
-
-            print(
-                "MAX ORDER SIZE:",
-                contract.get(
-                    "maxOrderSize"
-                ),
-            )
-
-            print(
-                "MARKET OPEN LIMIT:",
-                contract.get(
-                    "marketOpenLimitSize"
-                ),
-            )
-
-            print(
-                "QUANTITY PRECISION:",
-                contract.get(
-                    "quantityPrecision"
-                ),
-            )
-
-            print(
-                "MIN LEVERAGE:",
-                contract.get(
-                    "minLeverage"
-                ),
-            )
-
-            print(
-                "MAX LEVERAGE:",
-                contract.get(
-                    "maxLeverage"
-                ),
-            )
-
-            print(
-                "-" * 60
-            )
-
-            # =================================================
-            # CHECK 3 - SYMBOL CONFIGURATION
-            # =================================================
-
-            print(
-                "CHECK 3: "
-                "ACCOUNT SYMBOL CONFIG"
-            )
-
-            symbol_config = (
-                await
-                get_symbol_configuration(
-                    session
-                )
-            )
-
-            margin_type = (
-                symbol_config.get(
-                    "marginType",
-                    "UNKNOWN",
-                )
-            )
-
-            separated_type = (
-                symbol_config.get(
-                    "separatedType",
-                    "UNKNOWN",
-                )
-            )
-
-            cross_leverage = (
-                symbol_config.get(
-                    "crossLeverage",
-                    "UNKNOWN",
-                )
-            )
-
-            isolated_long = (
-                symbol_config.get(
-                    "isolatedLongLeverage",
-                    "UNKNOWN",
-                )
-            )
-
-            isolated_short = (
-                symbol_config.get(
-                    "isolatedShortLeverage",
-                    "UNKNOWN",
-                )
-            )
-
-            print(
-                "✅ SYMBOL CONFIG "
-                "RECEIVED"
-            )
-
-            print(
-                "MARGIN MODE:",
-                margin_type,
-            )
-
-            print(
-                "POSITION MODE:",
-                separated_type,
-            )
-
-            print(
-                "CROSS LEVERAGE:",
-                cross_leverage,
-            )
-
-            print(
-                "ISOLATED LONG LEVERAGE:",
-                isolated_long,
-            )
-
-            print(
-                "ISOLATED SHORT LEVERAGE:",
-                isolated_short,
-            )
-
-            print(
-                "-" * 60
-            )
-
-            # =================================================
-            # CHECK 4 - LIVE PRICE
-            # =================================================
-
-            print(
-                "CHECK 4: "
-                "LIVE MARKET PRICE"
-            )
-
-            (
-                bid,
-                ask,
-                mid,
-            ) = await get_live_price(
-                session
-            )
-
-            print(
-                "✅ LIVE PRICE RECEIVED"
-            )
-
-            print(
-                "BID:",
-                pretty_decimal(
-                    bid,
-                    2,
-                ),
-            )
-
-            print(
-                "ASK:",
-                pretty_decimal(
-                    ask,
-                    2,
-                ),
-            )
-
-            print(
-                "CALCULATION PRICE:",
-                pretty_decimal(
-                    mid,
-                    2,
-                ),
-            )
-
-            print(
-                "-" * 60
-            )
-
-            # =================================================
-            # CHECK 5 - ORDER CALCULATION
-            # =================================================
-
-            print(
-                "CHECK 5: "
-                "PLANNED ORDER "
-                "CALCULATION"
-            )
-
-            readiness = (
-                calculate_readiness(
-                    available_balance=
-                        available_balance,
-
-                    live_price=
-                        mid,
-
-                    contract=
-                        contract,
-                )
-            )
-
-            print(
-                "ENTRY MARGIN:",
-                pretty_decimal(
-                    readiness[
-                        "entry_margin"
-                    ]
-                ),
-                "USDT",
-            )
-
-            print(
-                "LEVERAGED NOTIONAL:",
-                pretty_decimal(
-                    readiness[
-                        "leveraged_notional"
-                    ]
-                ),
-                "USDT",
-            )
-
-            print(
-                "RAW QUANTITY:",
-                pretty_decimal(
-                    readiness[
-                        "raw_quantity"
-                    ]
-                ),
-                "BTC",
-            )
-
-            print(
-                "CALCULATED QUANTITY:",
-                pretty_decimal(
-                    readiness[
-                        "quantity"
-                    ]
-                ),
-                "BTC",
-            )
-
-            print(
-                "ACTUAL ORDER NOTIONAL:",
-                pretty_decimal(
-                    readiness[
-                        "actual_notional"
-                    ]
-                ),
-                "USDT",
-            )
-
-            print(
-                "ESTIMATED MARGIN USED:",
-                pretty_decimal(
-                    readiness[
-                        "actual_margin"
-                    ]
-                ),
-                "USDT",
-            )
-
-            print(
-                "-" * 60
-            )
-
-            # =================================================
-            # MINIMUM ORDER DIAGNOSTICS
-            # =================================================
-
-            print(
-                "MINIMUM ORDER DIAGNOSTICS"
-            )
-
-            print(
-                "MINIMUM BTC ORDER:",
-                pretty_decimal(
-                    readiness[
-                        "min_order_size"
-                    ]
-                ),
-                "BTC",
-            )
-
-            print(
-                "MINIMUM ORDER NOTIONAL:",
-                pretty_decimal(
-                    readiness[
-                        "minimum_order_notional"
-                    ]
-                ),
-                "USDT",
-            )
-
-            print(
-                "MINIMUM MARGIN NEEDED:",
-                pretty_decimal(
-                    readiness[
-                        "minimum_order_margin"
-                    ]
-                ),
-                "USDT",
-            )
-
-            print(
-                "MINIMUM ACCOUNT BALANCE "
-                "FOR CURRENT ENTRY:",
-                pretty_decimal(
-                    readiness[
-                        "minimum_balance_required"
-                    ]
-                ),
-                "USDT",
-            )
-
-            print(
-                "-" * 60
-            )
-
-            # =================================================
-            # SAFETY VALIDATION
-            # =================================================
-
-            print(
-                "SAFETY VALIDATION"
-            )
-
-            for (
-                name,
-                passed,
-            ) in readiness[
-                "checks"
-            ].items():
-
-                icon = (
-                    "✅"
-                    if passed
-                    else "❌"
-                )
-
-                print(
-                    icon,
-                    name.upper(),
-                )
-
-            print(
-                "=" * 60
-            )
-
-            # =================================================
-            # PASS
-            # =================================================
-
-            if readiness[
-                "passed"
-            ]:
-
-                print(
-                    "MODULE 0F-4H: PASSED"
-                )
-
-                print(
-                    "✅ ACCOUNT READINESS "
-                    "VERIFIED"
-                )
-
-                print(
-                    "✅ ORDER SIZE "
-                    "CALCULATION VALID"
-                )
-
-                print(
-                    "🛡 HARD EXECUTION "
-                    "LOCK ACTIVE"
-                )
-
-                print(
-                    "⚠️ NO LIVE ORDER "
-                    "WAS SENT"
-                )
-
-                message = (
-                    "✅ MODULE 0F-4H PASSED\n"
-                    "BTCUSDT\n\n"
-
-                    "Live Account Readiness "
-                    "Verification\n\n"
-
-                    "✅ WEEX authentication\n"
-                    "✅ Account balance read\n"
-                    "✅ Contract limits read\n"
-                    "✅ Symbol configuration read\n"
-                    "✅ Live market price read\n"
-                    "✅ Order size calculation\n"
-                    "✅ Minimum order verification\n"
-                    "✅ Safety validation\n\n"
-
-                    f"Available USDT: "
-                    f"{pretty_decimal(available_balance)}\n"
-
-                    f"Entry: "
-                    f"{INITIAL_ENTRY_PERCENT}%\n"
-
-                    f"Leverage: "
-                    f"{LEVERAGE}x\n"
-
-                    f"Planned Margin: "
-                    f"{pretty_decimal(readiness['actual_margin'])} "
-                    f"USDT\n"
-
-                    f"Planned Quantity: "
-                    f"{pretty_decimal(readiness['quantity'])} "
-                    f"BTC\n"
-
-                    f"Approx Notional: "
-                    f"{pretty_decimal(readiness['actual_notional'])} "
-                    f"USDT\n\n"
-
-                    f"Minimum Order: "
-                    f"{pretty_decimal(readiness['min_order_size'])} "
-                    f"BTC\n"
-
-                    f"Minimum Balance Required: "
-                    f"{pretty_decimal(readiness['minimum_balance_required'])} "
-                    f"USDT\n\n"
-
-                    f"Margin Mode: "
-                    f"{margin_type}\n"
-
-                    f"Position Mode: "
-                    f"{separated_type}\n\n"
-
-                    "🛡 Hard execution lock active\n"
-                    "⚠️ Live order execution disabled\n"
-                    "⚠️ No live order was sent."
-                )
-
-            # =================================================
-            # FAIL
-            # =================================================
-
-            else:
-                print(
-                    "MODULE 0F-4H: "
-                    "READINESS CHECK FAILED"
-                )
-
-                print(
-                    "🛡 HARD EXECUTION "
-                    "LOCK REMAINS ACTIVE"
-                )
-
-                print(
-                    "⚠️ NO LIVE ORDER "
-                    "WAS SENT"
-                )
-
-                failed_checks = [
-                    name
-                    for (
-                        name,
-                        passed,
-                    ) in readiness[
-                        "checks"
-                    ].items()
-                    if not passed
-                ]
-
-                message = (
-                    "⚠️ MODULE 0F-4H "
-                    "NOT READY\n"
-                    "BTCUSDT\n\n"
-
-                    f"Available USDT: "
-                    f"{pretty_decimal(available_balance)}\n"
-
-                    f"Calculated Quantity: "
-                    f"{pretty_decimal(readiness['quantity'])} "
-                    f"BTC\n"
-
-                    f"Minimum Order: "
-                    f"{pretty_decimal(readiness['min_order_size'])} "
-                    f"BTC\n"
-
-                    f"Minimum Balance Required: "
-                    f"{pretty_decimal(readiness['minimum_balance_required'])} "
-                    f"USDT\n\n"
-
-                    "Failed checks:\n"
-                    + "\n".join(
-                        f"❌ {x}"
-                        for x
-                        in failed_checks
-                    )
-                    + "\n\n"
-                    "🛡 Hard execution lock active\n"
-                    "⚠️ No live order was sent."
-                )
-
-            await send_telegram(
-                message
-            )
-
-        except Exception as exc:
-            print(
-                "=" * 60
-            )
-
-            print(
-                "MODULE 0F-4H ERROR"
-            )
-
-            print(
-                type(
-                    exc
-                ).__name__,
-                ":",
-                exc,
-            )
-
-            print(
-                "🛡 HARD EXECUTION "
-                "LOCK ACTIVE"
-            )
-
-            print(
-                "⚠️ NO LIVE ORDER "
-                "WAS SENT"
-            )
-
-            await send_telegram(
-                "❌ MODULE 0F-4H ERROR\n"
-                "BTCUSDT\n\n"
-                f"{type(exc).__name__}: "
-                f"{exc}\n\n"
-                "🛡 Hard execution lock active\n"
-                "⚠️ No live order was sent."
-            )
+    print(
+        "=" * 60
+    )
 
 
 # ============================================================
@@ -1579,9 +1128,56 @@ async def run_readiness_test():
 # ============================================================
 
 async def main():
-    await run_readiness_test()
 
+    try:
+
+        await readiness_check()
+
+    except Exception as exc:
+
+        print(
+            f"0F-4H-R2 ERROR: "
+            f"{type(exc).__name__}: "
+            f"{exc}"
+        )
+
+        await send_telegram(
+
+            f"❌ MODULE "
+            f"{MODULE_NAME} ERROR\n"
+
+            f"{SYMBOL}\n\n"
+
+            f"{type(exc).__name__}: "
+            f"{exc}\n\n"
+
+            f"🛡 Hard execution "
+            f"lock active\n"
+
+            f"⚠️ No live order "
+            f"was sent."
+        )
+
+
+    # ========================================================
+    # KEEP RENDER PROCESS ALIVE
+    #
+    # Prevents startup/restart loops from repeatedly sending
+    # the same Telegram readiness report.
+    # ========================================================
+
+    while True:
+
+        await asyncio.sleep(
+            3600
+        )
+
+
+# ============================================================
+# START
+# ============================================================
 
 if __name__ == "__main__":
+
     asyncio.run(
         main())
