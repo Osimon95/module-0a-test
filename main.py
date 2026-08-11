@@ -18,9 +18,7 @@ from telegram import Bot
 # ============================================================
 
 MODULE_NAME = "0F-4H"
-
 SYMBOL = "BTCUSDT"
-
 API_BASE_URL = "https://api-contract.weex.com"
 
 
@@ -62,7 +60,6 @@ MAX_FUND_EXPOSURE_PERCENT = Decimal(
 # ============================================================
 
 LIVE_ORDER_EXECUTION = False
-
 HARD_EXECUTION_LOCK = True
 
 
@@ -106,7 +103,6 @@ TELEGRAM_CHAT_ID = os.getenv(
 # ============================================================
 
 def credentials_ready():
-
     return bool(
         WEEX_API_KEY
         and WEEX_API_SECRET
@@ -115,7 +111,6 @@ def credentials_ready():
 
 
 def telegram_ready():
-
     return bool(
         TELEGRAM_BOT_TOKEN
         and TELEGRAM_CHAT_ID
@@ -123,13 +118,11 @@ def telegram_ready():
 
 
 async def send_telegram(message):
-
     if not telegram_ready():
         print("TELEGRAM CONFIG: MISSING")
         return
 
     try:
-
         bot = Bot(
             token=TELEGRAM_BOT_TOKEN
         )
@@ -142,7 +135,6 @@ async def send_telegram(message):
         print("TELEGRAM MESSAGE SENT")
 
     except Exception as exc:
-
         print(
             "TELEGRAM ERROR:",
             exc,
@@ -154,38 +146,21 @@ async def send_telegram(message):
 # ============================================================
 
 def D(value, default="0"):
-
     try:
-
         return Decimal(
             str(value)
         )
 
     except Exception:
-
         return Decimal(
             default
         )
-
-
-def decimal_places(value):
-
-    value = D(value)
-
-    exponent = value.as_tuple().exponent
-
-    if exponent >= 0:
-
-        return 0
-
-    return abs(exponent)
 
 
 def round_down(
     value,
     precision,
 ):
-
     value = D(value)
 
     step = Decimal(
@@ -204,7 +179,6 @@ def pretty_decimal(
     value,
     places=8,
 ):
-
     value = D(value)
 
     text = (
@@ -231,11 +205,9 @@ def create_signature(
     query_string="",
     body="",
 ):
-
     method = method.upper()
 
     if query_string:
-
         message = (
             str(timestamp)
             + method
@@ -246,7 +218,6 @@ def create_signature(
         )
 
     else:
-
         message = (
             str(timestamp)
             + method
@@ -277,7 +248,6 @@ def authenticated_headers(
     query_string="",
     body="",
 ):
-
     timestamp = str(
         int(
             time.time() * 1000
@@ -293,7 +263,6 @@ def authenticated_headers(
     )
 
     return {
-
         "ACCESS-KEY":
             WEEX_API_KEY,
 
@@ -323,7 +292,6 @@ async def public_get(
     request_path,
     params=None,
 ):
-
     params = params or {}
 
     url = (
@@ -335,11 +303,9 @@ async def public_get(
         url,
         params=params,
     ) as response:
-
         text = await response.text()
 
         if response.status != 200:
-
             raise RuntimeError(
                 f"PUBLIC GET FAILED "
                 f"{response.status}: "
@@ -356,7 +322,6 @@ async def authenticated_get(
     request_path,
     params=None,
 ):
-
     params = params or {}
 
     query_string = urlencode(
@@ -369,7 +334,6 @@ async def authenticated_get(
     )
 
     if query_string:
-
         url += (
             "?"
             + query_string
@@ -385,11 +349,9 @@ async def authenticated_get(
         url,
         headers=headers,
     ) as response:
-
         text = await response.text()
 
         if response.status != 200:
-
             raise RuntimeError(
                 f"AUTH GET FAILED "
                 f"{response.status}: "
@@ -408,7 +370,6 @@ async def authenticated_get(
 async def get_account_balance(
     session,
 ):
-
     path = (
         "/capi/v3/account/balance"
     )
@@ -422,13 +383,11 @@ async def get_account_balance(
         data,
         list,
     ):
-
         raise RuntimeError(
             "Unexpected balance response"
         )
 
     for item in data:
-
         if (
             str(
                 item.get(
@@ -438,7 +397,6 @@ async def get_account_balance(
             ).upper()
             == "USDT"
         ):
-
             return item
 
     raise RuntimeError(
@@ -453,7 +411,6 @@ async def get_account_balance(
 async def get_contract_info(
     session,
 ):
-
     path = (
         "/capi/v3/market/exchangeInfo"
     )
@@ -473,7 +430,6 @@ async def get_contract_info(
     )
 
     for item in symbols:
-
         if (
             str(
                 item.get(
@@ -483,7 +439,6 @@ async def get_contract_info(
             ).upper()
             == SYMBOL
         ):
-
             return item
 
     raise RuntimeError(
@@ -499,7 +454,6 @@ async def get_contract_info(
 async def get_symbol_configuration(
     session,
 ):
-
     path = (
         "/capi/v3/account/symbolConfig"
     )
@@ -517,14 +471,12 @@ async def get_symbol_configuration(
         data,
         list,
     ):
-
         raise RuntimeError(
             "Unexpected symbol "
             "configuration response"
         )
 
     for item in data:
-
         if (
             str(
                 item.get(
@@ -534,7 +486,6 @@ async def get_symbol_configuration(
             ).upper()
             == SYMBOL
         ):
-
             return item
 
     raise RuntimeError(
@@ -550,7 +501,6 @@ async def get_symbol_configuration(
 async def get_live_price(
     session,
 ):
-
     path = (
         "/capi/v3/market/ticker/"
         "bookTicker"
@@ -569,9 +519,7 @@ async def get_live_price(
         data,
         list,
     ):
-
         if not data:
-
             raise RuntimeError(
                 "Ticker response empty"
             )
@@ -582,11 +530,9 @@ async def get_live_price(
         data,
         dict,
     ):
-
         ticker = data
 
     else:
-
         raise RuntimeError(
             "Unexpected ticker response"
         )
@@ -604,7 +550,6 @@ async def get_live_price(
     )
 
     if bid <= 0 or ask <= 0:
-
         raise RuntimeError(
             "Invalid bid/ask price"
         )
@@ -631,7 +576,6 @@ def calculate_readiness(
     live_price,
     contract,
 ):
-
     quantity_precision = int(
         contract.get(
             "quantityPrecision",
@@ -671,6 +615,10 @@ def calculate_readiness(
         )
     )
 
+    # --------------------------------------------------------
+    # PLANNED ENTRY
+    # --------------------------------------------------------
+
     entry_margin = (
         available_balance
         * INITIAL_ENTRY_PERCENT
@@ -684,10 +632,16 @@ def calculate_readiness(
         * LEVERAGE
     )
 
-    raw_quantity = (
-        leveraged_notional
-        / live_price
-    )
+    if live_price > 0:
+        raw_quantity = (
+            leveraged_notional
+            / live_price
+        )
+
+    else:
+        raw_quantity = Decimal(
+            "0"
+        )
 
     quantity = round_down(
         raw_quantity,
@@ -699,18 +653,74 @@ def calculate_readiness(
         * live_price
     )
 
-    actual_margin = (
-        actual_notional
-        / LEVERAGE
-    )
+    if LEVERAGE > 0:
+        actual_margin = (
+            actual_notional
+            / LEVERAGE
+        )
+
+    else:
+        actual_margin = Decimal(
+            "0"
+        )
+
+    # --------------------------------------------------------
+    # MINIMUM ORDER REQUIREMENTS
+    # --------------------------------------------------------
+
+    if (
+        min_order_size > 0
+        and live_price > 0
+        and LEVERAGE > 0
+        and INITIAL_ENTRY_PERCENT > 0
+    ):
+        minimum_order_notional = (
+            min_order_size
+            * live_price
+        )
+
+        minimum_order_margin = (
+            minimum_order_notional
+            / LEVERAGE
+        )
+
+        minimum_balance_required = (
+            minimum_order_margin
+            * Decimal(
+                "100"
+            )
+            / INITIAL_ENTRY_PERCENT
+        )
+
+    else:
+        minimum_order_notional = Decimal(
+            "0"
+        )
+
+        minimum_order_margin = Decimal(
+            "0"
+        )
+
+        minimum_balance_required = Decimal(
+            "0"
+        )
+
+    # --------------------------------------------------------
+    # SAFETY VALIDATION
+    # --------------------------------------------------------
 
     checks = {}
 
     checks[
+        "available_balance_positive"
+    ] = (
+        available_balance > 0
+    )
+
+    checks[
         "entry_percent_valid"
     ] = (
-        INITIAL_ENTRY_PERCENT
-        > 0
+        INITIAL_ENTRY_PERCENT > 0
         and INITIAL_ENTRY_PERCENT
         <= MAX_FUND_EXPOSURE_PERCENT
     )
@@ -752,6 +762,14 @@ def calculate_readiness(
     )
 
     checks[
+        "balance_sufficient_for_min_order"
+    ] = (
+        minimum_balance_required <= 0
+        or available_balance
+        >= minimum_balance_required
+    )
+
+    checks[
         "below_max_order"
     ] = (
         max_order_size <= 0
@@ -779,7 +797,6 @@ def calculate_readiness(
     )
 
     return {
-
         "entry_margin":
             entry_margin,
 
@@ -816,6 +833,15 @@ def calculate_readiness(
         "exchange_max_leverage":
             exchange_max_leverage,
 
+        "minimum_order_notional":
+            minimum_order_notional,
+
+        "minimum_order_margin":
+            minimum_order_margin,
+
+        "minimum_balance_required":
+            minimum_balance_required,
+
         "checks":
             checks,
 
@@ -829,7 +855,6 @@ def calculate_readiness(
 # ============================================================
 
 async def run_readiness_test():
-
     print(
         "=" * 60
     )
@@ -886,7 +911,6 @@ async def run_readiness_test():
     )
 
     if not credentials_ready():
-
         print(
             "WEEX CREDENTIALS: MISSING"
         )
@@ -914,6 +938,9 @@ async def run_readiness_test():
     ) as session:
 
         try:
+            # =================================================
+            # CHECK 1 - ACCOUNT BALANCE
+            # =================================================
 
             print(
                 "CHECK 1: "
@@ -987,6 +1014,10 @@ async def run_readiness_test():
                 "-" * 60
             )
 
+            # =================================================
+            # CHECK 2 - CONTRACT
+            # =================================================
+
             print(
                 "CHECK 2: "
                 "BTCUSDT CONTRACT"
@@ -1017,6 +1048,13 @@ async def run_readiness_test():
             )
 
             print(
+                "MARKET OPEN LIMIT:",
+                contract.get(
+                    "marketOpenLimitSize"
+                ),
+            )
+
+            print(
                 "QUANTITY PRECISION:",
                 contract.get(
                     "quantityPrecision"
@@ -1040,6 +1078,10 @@ async def run_readiness_test():
             print(
                 "-" * 60
             )
+
+            # =================================================
+            # CHECK 3 - SYMBOL CONFIGURATION
+            # =================================================
 
             print(
                 "CHECK 3: "
@@ -1122,6 +1164,10 @@ async def run_readiness_test():
                 "-" * 60
             )
 
+            # =================================================
+            # CHECK 4 - LIVE PRICE
+            # =================================================
+
             print(
                 "CHECK 4: "
                 "LIVE MARKET PRICE"
@@ -1167,6 +1213,10 @@ async def run_readiness_test():
                 "-" * 60
             )
 
+            # =================================================
+            # CHECK 5 - ORDER CALCULATION
+            # =================================================
+
             print(
                 "CHECK 5: "
                 "PLANNED ORDER "
@@ -1207,6 +1257,16 @@ async def run_readiness_test():
             )
 
             print(
+                "RAW QUANTITY:",
+                pretty_decimal(
+                    readiness[
+                        "raw_quantity"
+                    ]
+                ),
+                "BTC",
+            )
+
+            print(
                 "CALCULATED QUANTITY:",
                 pretty_decimal(
                     readiness[
@@ -1240,6 +1300,63 @@ async def run_readiness_test():
                 "-" * 60
             )
 
+            # =================================================
+            # MINIMUM ORDER DIAGNOSTICS
+            # =================================================
+
+            print(
+                "MINIMUM ORDER DIAGNOSTICS"
+            )
+
+            print(
+                "MINIMUM BTC ORDER:",
+                pretty_decimal(
+                    readiness[
+                        "min_order_size"
+                    ]
+                ),
+                "BTC",
+            )
+
+            print(
+                "MINIMUM ORDER NOTIONAL:",
+                pretty_decimal(
+                    readiness[
+                        "minimum_order_notional"
+                    ]
+                ),
+                "USDT",
+            )
+
+            print(
+                "MINIMUM MARGIN NEEDED:",
+                pretty_decimal(
+                    readiness[
+                        "minimum_order_margin"
+                    ]
+                ),
+                "USDT",
+            )
+
+            print(
+                "MINIMUM ACCOUNT BALANCE "
+                "FOR CURRENT ENTRY:",
+                pretty_decimal(
+                    readiness[
+                        "minimum_balance_required"
+                    ]
+                ),
+                "USDT",
+            )
+
+            print(
+                "-" * 60
+            )
+
+            # =================================================
+            # SAFETY VALIDATION
+            # =================================================
+
             print(
                 "SAFETY VALIDATION"
             )
@@ -1265,6 +1382,10 @@ async def run_readiness_test():
             print(
                 "=" * 60
             )
+
+            # =================================================
+            # PASS
+            # =================================================
 
             if readiness[
                 "passed"
@@ -1307,6 +1428,7 @@ async def run_readiness_test():
                     "✅ Symbol configuration read\n"
                     "✅ Live market price read\n"
                     "✅ Order size calculation\n"
+                    "✅ Minimum order verification\n"
                     "✅ Safety validation\n\n"
 
                     f"Available USDT: "
@@ -1330,6 +1452,14 @@ async def run_readiness_test():
                     f"{pretty_decimal(readiness['actual_notional'])} "
                     f"USDT\n\n"
 
+                    f"Minimum Order: "
+                    f"{pretty_decimal(readiness['min_order_size'])} "
+                    f"BTC\n"
+
+                    f"Minimum Balance Required: "
+                    f"{pretty_decimal(readiness['minimum_balance_required'])} "
+                    f"USDT\n\n"
+
                     f"Margin Mode: "
                     f"{margin_type}\n"
 
@@ -1341,8 +1471,11 @@ async def run_readiness_test():
                     "⚠️ No live order was sent."
                 )
 
-            else:
+            # =================================================
+            # FAIL
+            # =================================================
 
+            else:
                 print(
                     "MODULE 0F-4H: "
                     "READINESS CHECK FAILED"
@@ -1359,24 +1492,35 @@ async def run_readiness_test():
                 )
 
                 failed_checks = [
-
                     name
-
                     for (
                         name,
                         passed,
                     ) in readiness[
                         "checks"
                     ].items()
-
                     if not passed
-
                 ]
 
                 message = (
                     "⚠️ MODULE 0F-4H "
                     "NOT READY\n"
                     "BTCUSDT\n\n"
+
+                    f"Available USDT: "
+                    f"{pretty_decimal(available_balance)}\n"
+
+                    f"Calculated Quantity: "
+                    f"{pretty_decimal(readiness['quantity'])} "
+                    f"BTC\n"
+
+                    f"Minimum Order: "
+                    f"{pretty_decimal(readiness['min_order_size'])} "
+                    f"BTC\n"
+
+                    f"Minimum Balance Required: "
+                    f"{pretty_decimal(readiness['minimum_balance_required'])} "
+                    f"USDT\n\n"
 
                     "Failed checks:\n"
                     + "\n".join(
@@ -1394,7 +1538,6 @@ async def run_readiness_test():
             )
 
         except Exception as exc:
-
             print(
                 "=" * 60
             )
@@ -1436,11 +1579,9 @@ async def run_readiness_test():
 # ============================================================
 
 async def main():
-
     await run_readiness_test()
 
 
 if __name__ == "__main__":
-
     asyncio.run(
         main())
