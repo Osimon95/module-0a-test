@@ -5,7 +5,8 @@ import hmac
 import json
 import os
 import time
-from decimal import Decimal, InvalidOperation, ROUND_DOWN
+
+from decimal import Decimal, ROUND_DOWN
 from urllib.parse import urlencode
 
 import aiohttp
@@ -15,17 +16,19 @@ import aiohttp
 # MODULE
 # ============================================================
 
-MODULE_NAME = "0F-4H-R8"
+MODULE_NAME = "0F-4H-R9"
+
 API_BASE_URL = "https://api-contract.weex.com"
 
+SYMBOL = os.getenv(
+    "SYMBOL",
+    "BTCUSDT",
+).strip().upper()
+
 
 # ============================================================
-# ADJUSTABLE CONFIGURATION
-# Change later with Render environment variables.
+# ADJUSTABLE CONFIG
 # ============================================================
-
-SYMBOL = os.getenv("SYMBOL", "BTCUSDT").strip().upper()
-MARGIN_ASSET = os.getenv("MARGIN_ASSET", "USDT").strip().upper()
 
 INITIAL_ENTRY_PERCENT = Decimal(
     os.getenv(
@@ -48,9 +51,9 @@ MAX_LEVERAGE = Decimal(
     )
 )
 
-MAX_PYRAMIDS = int(
+MAX_PYRAMID_ADDS = int(
     os.getenv(
-        "MAX_PYRAMIDS",
+        "MAX_PYRAMID_ADDS",
         "1",
     )
 )
@@ -76,33 +79,17 @@ BACKUP_SIZE_PERCENT = Decimal(
     )
 )
 
-BACKUP_BUFFER_PERCENT = Decimal(
-    os.getenv(
-        "BACKUP_BUFFER_PERCENT",
-        "0.3",
-    )
-)
-
-MIN_LIQ_DISTANCE_PERCENT = Decimal(
-    os.getenv(
-        "MIN_LIQ_DISTANCE_PERCENT",
-        "0.2",
-    )
-)
-
-PLANNING_MMR_PERCENT = Decimal(
-    os.getenv(
-        "PLANNING_MMR_PERCENT",
-        "0.5",
-    )
-)
-
 MAX_FUND_EXPOSURE_PERCENT = Decimal(
     os.getenv(
         "MAX_FUND_EXPOSURE_PERCENT",
         "35",
     )
 )
+
+
+# ============================================================
+# TP / TRAILING
+# ============================================================
 
 TP1_PERCENT = Decimal(
     os.getenv(
@@ -135,7 +122,7 @@ TP1_TRIGGER_PERCENT = Decimal(
 TP2_TRIGGER_PERCENT = Decimal(
     os.getenv(
         "TP2_TRIGGER_PERCENT",
-        "1.0",
+        "1",
     )
 )
 
@@ -145,6 +132,11 @@ TRAILING_DISTANCE_PERCENT = Decimal(
         "0.2",
     )
 )
+
+
+# ============================================================
+# PROTECTION
+# ============================================================
 
 SIGNAL_EXPIRY_SECONDS = int(
     os.getenv(
@@ -164,30 +156,54 @@ ONE_DIRECTION_ONLY = (
     os.getenv(
         "ONE_DIRECTION_ONLY",
         "true",
+    ).strip().lower()
+    == "true"
+)
+
+BACKUP_BUFFER_PERCENT = Decimal(
+    os.getenv(
+        "BACKUP_BUFFER_PERCENT",
+        "0.3",
     )
-    .strip()
-    .lower()
-    in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+)
+
+MIN_LIQ_DISTANCE_PERCENT = Decimal(
+    os.getenv(
+        "MIN_LIQ_DISTANCE_PERCENT",
+        "0.2",
+    )
+)
+
+PLANNING_MMR_PERCENT = Decimal(
+    os.getenv(
+        "PLANNING_MMR_PERCENT",
+        "0.5",
+    )
 )
 
 
 # ============================================================
-# SAFETY LOCKS
+# R9 TEST SIGNAL
 # ============================================================
 
-# R8 is diagnostic/simulation only.
+R9_SIGNAL_SIDE = os.getenv(
+    "R9_SIGNAL_SIDE",
+    "LONG",
+).strip().upper()
+
+
+# ============================================================
+# ABSOLUTE EXECUTION LOCK
+# ============================================================
 #
-# There is deliberately NO live order POST function
-# anywhere in this file.
+# DO NOT convert these to environment variables in R9.
+#
+# There is also NO WEEX order-post function anywhere in R9.
 #
 # ============================================================
 
 LIVE_ORDER_EXECUTION = False
+
 HARD_EXECUTION_LOCK = True
 
 
@@ -225,119 +241,40 @@ TELEGRAM_CHAT_ID = os.getenv(
     "",
 ).strip()
 
-SEND_TELEGRAM = (
-    os.getenv(
-        "SEND_TELEGRAM",
-        "true",
-    )
-    .strip()
-    .lower()
-    in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-)
+telegram_attempted = False
 
 
 # ============================================================
-# RENDER KEEP-ALIVE
-# ============================================================
-#
-# Prevents the Python process from finishing immediately
-# after the diagnostic.
-#
-# This helps prevent:
-#
-# diagnostic
-# -> Python exits
-# -> Render restarts
-# -> Telegram sent again
-# -> Python exits
-# -> repeated Telegram messages
-#
+# CONSTANTS
 # ============================================================
 
-KEEP_ALIVE = (
-    os.getenv(
-        "KEEP_ALIVE",
-        "true",
-    )
-    .strip()
-    .lower()
-    in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-)
-
-KEEP_ALIVE_SECONDS = max(
-    30,
-    int(
-        os.getenv(
-            "KEEP_ALIVE_SECONDS",
-            "300",
-        )
-    ),
-)
-
-HTTP_TIMEOUT_SECONDS = max(
-    5,
-    int(
-        os.getenv(
-            "HTTP_TIMEOUT_SECONDS",
-            "15",
-        )
-    ),
-)
+ZERO = Decimal("0")
+ONE = Decimal("1")
+HUNDRED = Decimal("100")
 
 
 # ============================================================
-# DECIMAL HELPERS
+# HELPERS
 # ============================================================
-
-D0 = Decimal("0")
-D100 = Decimal("100")
-
 
 def dec(value, default="0"):
     try:
-        if value is None:
-            return Decimal(default)
-
-        if isinstance(value, bool):
-            return Decimal(default)
-
         return Decimal(str(value))
-
-    except (
-        InvalidOperation,
-        ValueError,
-        TypeError,
-    ):
+    except Exception:
         return Decimal(default)
 
 
-def fmt(value, places=None):
-    value = dec(value)
+def fmt(value):
+    if value is None:
+        return "N/A"
 
-    if places is not None:
-        quantum = Decimal("1").scaleb(
-            -places
+    if isinstance(value, Decimal):
+        text = format(
+            value,
+            "f",
         )
-
-        value = value.quantize(
-            quantum,
-            rounding=ROUND_DOWN,
-        )
-
-    text = format(
-        value,
-        "f",
-    )
+    else:
+        text = str(value)
 
     if "." in text:
         text = text.rstrip("0").rstrip(".")
@@ -345,32 +282,7 @@ def fmt(value, places=None):
     return text or "0"
 
 
-def floor_decimal(
-    value,
-    precision,
-):
-    quantum = Decimal("1").scaleb(
-        -int(precision)
-    )
-
-    return dec(value).quantize(
-        quantum,
-        rounding=ROUND_DOWN,
-    )
-
-
-def percent_amount(
-    balance,
-    percent,
-):
-    return (
-        balance
-        * percent
-        / D100
-    )
-
-
-def yn(value):
+def yes_no(value):
     return (
         "✅ YES"
         if value
@@ -378,180 +290,156 @@ def yn(value):
     )
 
 
-# ============================================================
-# WEEX AUTH
-# ============================================================
+def floor_quantity(
+    value,
+    precision,
+):
+    quantum = Decimal("1").scaleb(
+        -int(precision)
+    )
 
-
-def credentials_ready():
-    return all(
-        (
-            WEEX_API_KEY,
-            WEEX_API_SECRET,
-            WEEX_API_PASSPHRASE,
-        )
+    return value.quantize(
+        quantum,
+        rounding=ROUND_DOWN,
     )
 
 
-def sign_request(
+def get_order_side(
+    position_side,
+):
+    if position_side == "LONG":
+        return (
+            "BUY",
+            "LONG",
+        )
+
+    if position_side == "SHORT":
+        return (
+            "SELL",
+            "SHORT",
+        )
+
+    raise ValueError(
+        "R9_SIGNAL_SIDE must be LONG or SHORT"
+    )
+
+
+def make_client_order_id(
+    signal_id,
+):
+    digest = hashlib.sha256(
+        signal_id.encode()
+    ).hexdigest()[:18]
+
+    return f"r9-{digest}"
+
+
+# ============================================================
+# WEEX SIGNING
+# ============================================================
+
+def make_signature(
     timestamp,
     method,
     path,
-    query_string="",
+    query="",
     body="",
 ):
-    request_path = path
-
-    if query_string:
-        request_path += (
-            "?"
-            + query_string
-        )
-
     message = (
-        f"{timestamp}"
-        f"{method.upper()}"
-        f"{request_path}"
-        f"{body}"
+        str(timestamp)
+        + method.upper()
+        + path
+        + query
+        + body
     )
 
     digest = hmac.new(
-        WEEX_API_SECRET.encode(
-            "utf-8"
-        ),
-        message.encode(
-            "utf-8"
-        ),
+        WEEX_API_SECRET.encode(),
+        message.encode(),
         hashlib.sha256,
     ).digest()
 
     return base64.b64encode(
         digest
-    ).decode(
-        "utf-8"
-    )
+    ).decode()
 
 
-# ============================================================
-# HTTP ENGINE
-# ============================================================
-
-
-async def request_json(
-    session,
+def auth_headers(
     method,
     path,
-    params=None,
-    private=False,
+    query="",
+    body="",
 ):
-    params = params or {}
-
-    query_string = urlencode(
-        params
-    )
-
-    url = (
-        API_BASE_URL
-        + path
-    )
-
-    if query_string:
-        url += (
-            "?"
-            + query_string
+    timestamp = str(
+        int(
+            time.time()
+            * 1000
         )
+    )
 
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "locale": "en-US",
-        "User-Agent": (
-            f"{MODULE_NAME}/1.0"
-        ),
+    return {
+        "ACCESS-KEY":
+            WEEX_API_KEY,
+
+        "ACCESS-SIGN":
+            make_signature(
+                timestamp,
+                method,
+                path,
+                query,
+                body,
+            ),
+
+        "ACCESS-PASSPHRASE":
+            WEEX_API_PASSPHRASE,
+
+        "ACCESS-TIMESTAMP":
+            timestamp,
+
+        "Content-Type":
+            "application/json",
     }
 
-    if private:
-        if not credentials_ready():
-            raise RuntimeError(
-                "WEEX credentials are missing"
-            )
 
-        timestamp = str(
-            int(
-                time.time()
-                * 1000
-            )
-        )
-
-        signature = sign_request(
-            timestamp,
-            method,
-            path,
-            query_string,
-            "",
-        )
-
-        headers.update(
-            {
-                "ACCESS-KEY":
-                    WEEX_API_KEY,
-
-                "ACCESS-SIGN":
-                    signature,
-
-                "ACCESS-PASSPHRASE":
-                    WEEX_API_PASSPHRASE,
-
-                "ACCESS-TIMESTAMP":
-                    timestamp,
-            }
-        )
-
-    async with session.request(
-        method,
-        url,
-        headers=headers,
-    ) as response:
-
-        text = await response.text()
-
-        if (
-            response.status < 200
-            or response.status >= 300
-        ):
-            raise RuntimeError(
-                f"WEEX HTTP "
-                f"{response.status} "
-                f"{path}: "
-                f"{text[:500]}"
-            )
-
-        try:
-            return json.loads(
-                text
-            )
-
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                f"WEEX returned "
-                f"non-JSON data "
-                f"from {path}: "
-                f"{text[:500]}"
-            ) from exc
-
+# ============================================================
+# HTTP
+# ============================================================
 
 async def public_get(
     session,
     path,
     params=None,
 ):
-    return await request_json(
-        session,
-        "GET",
-        path,
-        params,
-        private=False,
+    params = params or {}
+
+    query = (
+        "?"
+        + urlencode(params)
+        if params
+        else ""
     )
+
+    url = (
+        API_BASE_URL
+        + path
+        + query
+    )
+
+    async with session.get(
+        url,
+        timeout=15,
+    ) as response:
+
+        text = await response.text()
+
+        if response.status != 200:
+            raise RuntimeError(
+                "WEEX PUBLIC HTTP "
+                f"{response.status}: "
+                f"{text[:500]}"
+            )
+
+        return json.loads(text)
 
 
 async def private_get(
@@ -559,241 +447,77 @@ async def private_get(
     path,
     params=None,
 ):
-    return await request_json(
-        session,
+    params = params or {}
+
+    query = (
+        "?"
+        + urlencode(params)
+        if params
+        else ""
+    )
+
+    url = (
+        API_BASE_URL
+        + path
+        + query
+    )
+
+    headers = auth_headers(
         "GET",
         path,
-        params,
-        private=True,
+        query,
     )
 
+    async with session.get(
+        url,
+        headers=headers,
+        timeout=15,
+    ) as response:
 
-# ============================================================
-# WEEX CONTRACT
-# ============================================================
+        text = await response.text()
 
-
-async def get_contract(
-    session,
-):
-    data = await public_get(
-        session,
-        "/capi/v3/market/exchangeInfo",
-        {
-            "symbol": SYMBOL,
-        },
-    )
-
-    symbols = (
-        data.get(
-            "symbols",
-            [],
-        )
-        if isinstance(
-            data,
-            dict,
-        )
-        else []
-    )
-
-    for item in symbols:
-
-        item_symbol = str(
-            item.get(
-                "symbol",
-                "",
-            )
-        ).upper()
-
-        if item_symbol == SYMBOL:
-            return item
-
-    raise RuntimeError(
-        f"{SYMBOL} "
-        "not found in "
-        "WEEX exchangeInfo"
-    )
-
-
-# ============================================================
-# MARK PRICE
-# ============================================================
-
-
-async def get_mark_price(
-    session,
-):
-    data = await public_get(
-        session,
-        "/capi/v3/market/symbolPrice",
-        {
-            "symbol": SYMBOL,
-            "priceType": "MARK",
-        },
-    )
-
-    price = dec(
-        data.get(
-            "price"
-        )
-        if isinstance(
-            data,
-            dict,
-        )
-        else None
-    )
-
-    if price <= 0:
-        raise RuntimeError(
-            "Invalid WEEX "
-            "mark price response: "
-            f"{data}"
-        )
-
-    return price
-
-
-# ============================================================
-# ACCOUNT BALANCE
-# ============================================================
-
-
-async def get_available_balance(
-    session,
-):
-    data = await private_get(
-        session,
-        "/capi/v3/account/balance",
-    )
-
-    rows = (
-        data
-        if isinstance(
-            data,
-            list,
-        )
-        else [data]
-    )
-
-    for item in rows:
-
-        if not isinstance(
-            item,
-            dict,
-        ):
-            continue
-
-        asset = str(
-            item.get(
-                "asset",
-                "",
-            )
-        ).upper()
-
-        if asset == MARGIN_ASSET:
-
-            available = dec(
-                item.get(
-                    "availableBalance"
-                )
+        if response.status != 200:
+            raise RuntimeError(
+                "WEEX PRIVATE HTTP "
+                f"{response.status}: "
+                f"{text[:500]}"
             )
 
-            return (
-                available,
-                item,
-            )
-
-    raise RuntimeError(
-        f"{MARGIN_ASSET} "
-        "balance not found"
-    )
-
-
-# ============================================================
-# CURRENT POSITION
-# ============================================================
-
-
-async def get_positions(
-    session,
-):
-    data = await private_get(
-        session,
-        "/capi/v3/account/"
-        "position/singlePosition",
-        {
-            "symbol": SYMBOL,
-        },
-    )
-
-    if data is None:
-        return []
-
-    if isinstance(
-        data,
-        list,
-    ):
-        return [
-            item
-            for item in data
-            if isinstance(
-                item,
-                dict,
-            )
-        ]
-
-    if isinstance(
-        data,
-        dict,
-    ):
-        wrapped = data.get(
-            "data"
-        )
-
-        if isinstance(
-            wrapped,
-            list,
-        ):
-            return [
-                item
-                for item in wrapped
-                if isinstance(
-                    item,
-                    dict,
-                )
-            ]
-
-        return [data]
-
-    return []
+        return json.loads(text)
 
 
 # ============================================================
 # TELEGRAM
 # ============================================================
+#
+# ONE Telegram attempt per running process.
+#
+# No startup message.
+# No separate test message.
+# No repeating diagnostic loop.
+#
+# ============================================================
 
-
-async def send_telegram(
+async def send_telegram_once(
     session,
     message,
 ):
-    if not SEND_TELEGRAM:
-        print(
-            "TELEGRAM: "
-            "DISABLED BY "
-            "SEND_TELEGRAM"
-        )
-        return False
+    global telegram_attempted
+
+    if telegram_attempted:
+        return
+
+    telegram_attempted = True
 
     if (
         not TELEGRAM_BOT_TOKEN
         or not TELEGRAM_CHAT_ID
     ):
         print(
-            "TELEGRAM: TOKEN "
-            "OR CHAT ID MISSING"
+            "TELEGRAM SKIPPED: "
+            "credentials missing"
         )
-        return False
+        return
 
     url = (
         "https://api.telegram.org/bot"
@@ -816,894 +540,1108 @@ async def send_telegram(
         async with session.post(
             url,
             json=payload,
+            timeout=15,
         ) as response:
 
-            text = (
-                await response.text()
-            )
+            text = await response.text()
 
-            if (
-                200
-                <= response.status
-                < 300
-            ):
+            if response.status == 200:
                 print(
                     "TELEGRAM MESSAGE SENT"
                 )
 
-                return True
-
-            print(
-                f"TELEGRAM ERROR "
-                f"{response.status}: "
-                f"{text[:500]}"
-            )
-
-            return False
+            else:
+                print(
+                    "TELEGRAM HTTP "
+                    f"{response.status}: "
+                    f"{text[:300]}"
+                )
 
     except Exception as exc:
-
         print(
             "TELEGRAM ERROR: "
             f"{type(exc).__name__}: "
             f"{exc}"
         )
 
-        return False
-
 
 # ============================================================
-# STATIC CONFIG VALIDATION
+# SIGNAL / PROTECTION TESTS
 # ============================================================
 
+def run_signal_tests():
+    now = time.time()
 
-def validate_static_config():
+    # ------------------------------------
+    # Fresh signal
+    # ------------------------------------
 
-    checks = {
-        "entry_percent_positive":
-            INITIAL_ENTRY_PERCENT > 0,
+    fresh_signal_time = now
 
-        "leverage_positive":
-            LEVERAGE > 0,
+    fresh_age = (
+        now
+        - fresh_signal_time
+    )
 
-        "configured_leverage_cap":
-            LEVERAGE
-            <= MAX_LEVERAGE,
+    fresh_allowed = (
+        fresh_age
+        <= SIGNAL_EXPIRY_SECONDS
+    )
 
-        "max_pyramids_valid":
-            MAX_PYRAMIDS >= 0,
+    # ------------------------------------
+    # Simulated expired signal
+    # ------------------------------------
 
-        "max_backups_valid":
-            MAX_BACKUPS >= 0,
+    expired_signal_time = (
+        now
+        - SIGNAL_EXPIRY_SECONDS
+        - 1
+    )
 
-        "pyramid_size_nonnegative":
-            PYRAMID_SIZE_PERCENT >= 0,
+    expired_age = (
+        now
+        - expired_signal_time
+    )
 
-        "backup_size_nonnegative":
-            BACKUP_SIZE_PERCENT >= 0,
+    expired_rejected = (
+        expired_age
+        > SIGNAL_EXPIRY_SECONDS
+    )
 
-        "max_exposure_valid":
-            (
-                D0
-                < MAX_FUND_EXPOSURE_PERCENT
-                <= D100
-            ),
+    # ------------------------------------
+    # Normal cooldown clear
+    # ------------------------------------
 
-        "tp_split_equals_100":
-            (
-                TP1_PERCENT
-                + TP2_PERCENT
-                + TP3_PERCENT
-                == D100
-            ),
+    last_loss_time = None
 
-        "tp1_trigger_positive":
-            TP1_TRIGGER_PERCENT > 0,
+    cooldown_clear = (
+        last_loss_time is None
+        or (
+            now
+            - last_loss_time
+            >= LOSS_COOLDOWN_SECONDS
+        )
+    )
 
-        "tp2_after_tp1":
-            (
-                TP2_TRIGGER_PERCENT
-                > TP1_TRIGGER_PERCENT
-            ),
+    # ------------------------------------
+    # Simulated recent loss
+    # ------------------------------------
 
-        "trailing_positive":
-            (
-                TRAILING_DISTANCE_PERCENT
-                > 0
-            ),
+    recent_loss_time = (
+        now
+        - max(
+            1,
+            LOSS_COOLDOWN_SECONDS // 2,
+        )
+    )
 
-        "signal_expiry_positive":
-            SIGNAL_EXPIRY_SECONDS > 0,
+    recent_loss_blocked = (
+        now
+        - recent_loss_time
+        < LOSS_COOLDOWN_SECONDS
+    )
 
-        "cooldown_nonnegative":
-            LOSS_COOLDOWN_SECONDS >= 0,
+    # ------------------------------------
+    # Duplicate signal protection
+    # ------------------------------------
 
-        "hard_execution_lock":
-            HARD_EXECUTION_LOCK,
+    signal_id = (
+        f"{SYMBOL}:"
+        f"{R9_SIGNAL_SIDE}:"
+        f"{int(now)}"
+    )
 
-        "live_execution_disabled":
-            not LIVE_ORDER_EXECUTION,
-    }
+    processed_signals = set()
 
-    return checks
+    first_signal_allowed = (
+        signal_id
+        not in processed_signals
+    )
 
-
-# ============================================================
-# POSITION HELPERS
-# ============================================================
-
-
-def active_position_summary(
-    positions,
-):
-    active = []
-
-    for position in positions:
-
-        size = dec(
-            position.get(
-                "size"
-            )
+    if first_signal_allowed:
+        processed_signals.add(
+            signal_id
         )
 
-        if size > 0:
-            active.append(
-                position
-            )
-
-    return active
-
-
-# ============================================================
-# ORDER PAYLOAD SIMULATION
-# ============================================================
-
-
-def build_order_payload_simulation(
-    quantity,
-):
-    # SIMULATION ONLY.
-    #
-    # This dictionary is never
-    # transmitted to WEEX.
+    duplicate_rejected = (
+        signal_id
+        in processed_signals
+    )
 
     return {
-        "symbol":
-            SYMBOL,
+        "signal_id":
+            signal_id,
 
-        "side":
-            "BUY",
+        "fresh_allowed":
+            fresh_allowed,
 
-        "positionSide":
-            "LONG",
+        "expired_rejected":
+            expired_rejected,
 
-        "type":
-            "MARKET",
+        "cooldown_clear":
+            cooldown_clear,
 
-        "quantity":
-            fmt(quantity),
+        "recent_loss_blocked":
+            recent_loss_blocked,
 
-        "newClientOrderId":
-            (
-                f"r8sim-"
-                f"{int(time.time())}"
-            )[:36],
+        "duplicate_rejected":
+            duplicate_rejected,
     }
 
 
 # ============================================================
-# PLANNING LIQUIDATION ESTIMATE
+# R9 DIAGNOSTIC
 # ============================================================
 
+async def run_r9():
 
-def approximate_liquidation(
-    entry_price,
-    leverage,
-    mmr_percent,
-    side="LONG",
-):
-    # Planning estimate only.
-    #
-    # WEEX's real liquidation
-    # price remains authoritative.
-
-    if (
-        entry_price <= 0
-        or leverage <= 0
-    ):
-        return D0
-
-    mmr = (
-        mmr_percent
-        / D100
+    credentials_ready = all(
+        [
+            WEEX_API_KEY,
+            WEEX_API_SECRET,
+            WEEX_API_PASSPHRASE,
+        ]
     )
 
-    inverse_leverage = (
-        Decimal("1")
-        / leverage
-    )
-
-    if side.upper() == "SHORT":
-
-        result = (
-            entry_price
-            * (
-                Decimal("1")
-                + inverse_leverage
-                - mmr
-            )
+    if not credentials_ready:
+        raise RuntimeError(
+            "WEEX credentials are missing"
         )
 
-    else:
+    (
+        order_side,
+        position_side,
+    ) = get_order_side(
+        R9_SIGNAL_SIDE
+    )
 
-        result = (
-            entry_price
-            * (
-                Decimal("1")
-                - inverse_leverage
-                + mmr
-            )
+    async with aiohttp.ClientSession() as session:
+
+        # ====================================================
+        # FRESH CONTRACT DATA
+        # ====================================================
+
+        exchange_info = await public_get(
+            session,
+            "/capi/v3/market/exchangeInfo",
+            {
+                "symbol":
+                    SYMBOL,
+            },
         )
 
-    return max(
-        D0,
-        result,
-    )
+        symbols = exchange_info.get(
+            "symbols",
+            [],
+        )
 
-
-# ============================================================
-# R8 DIAGNOSTIC
-# ============================================================
-
-
-async def run_diagnostic():
-
-    print(
-        "=" * 64
-    )
-
-    print(
-        f"MODULE "
-        f"{MODULE_NAME} "
-        "STARTING"
-    )
-
-    print(
-        f"{SYMBOL} "
-        "ADJUSTABLE WEEX "
-        "READINESS + "
-        "R8 SIMULATION"
-    )
-
-    print(
-        "=" * 64
-    )
-
-    print(
-        "Entry: "
-        f"{fmt(INITIAL_ENTRY_PERCENT)}%"
-    )
-
-    print(
-        "Leverage: "
-        f"{fmt(LEVERAGE)}x"
-    )
-
-    print(
-        "Max configured leverage: "
-        f"{fmt(MAX_LEVERAGE)}x"
-    )
-
-    print(
-        "Max pyramids: "
-        f"{MAX_PYRAMIDS}"
-    )
-
-    print(
-        "Pyramid size: "
-        f"{fmt(PYRAMID_SIZE_PERCENT)}%"
-    )
-
-    print(
-        "Max backups: "
-        f"{MAX_BACKUPS}"
-    )
-
-    print(
-        "Backup size: "
-        f"{fmt(BACKUP_SIZE_PERCENT)}% "
-        "each"
-    )
-
-    print(
-        "Max fund exposure: "
-        f"{fmt(MAX_FUND_EXPOSURE_PERCENT)}%"
-    )
-
-    print(
-        "LIVE ORDER EXECUTION: "
-        "DISABLED"
-    )
-
-    print(
-        "HARD EXECUTION LOCK: "
-        "ACTIVE"
-    )
-
-    print(
-        "=" * 64
-    )
-
-    static_checks = (
-        validate_static_config()
-    )
-
-    timeout = aiohttp.ClientTimeout(
-        total=HTTP_TIMEOUT_SECONDS
-    )
-
-    async with aiohttp.ClientSession(
-        timeout=timeout
-    ) as session:
-
-        try:
-
-            # ================================================
-            # CREDENTIAL CHECK
-            # ================================================
-
-            if not credentials_ready():
-
-                raise RuntimeError(
-                    "WEEX_API_KEY / "
-                    "WEEX_API_SECRET / "
-                    "WEEX_API_PASSPHRASE "
-                    "missing"
-                )
-
-
-            # ================================================
-            # WEEX READ-ONLY DATA
-            # ================================================
-
-            contract = await get_contract(
-                session
-            )
-
-            mark_price = (
-                await get_mark_price(
-                    session
-                )
-            )
-
+        contract = next(
             (
-                balance,
-                _balance_row,
-            ) = await get_available_balance(
-                session
+                item
+                for item in symbols
+                if item.get("symbol")
+                == SYMBOL
+            ),
+            None,
+        )
+
+        if not contract:
+            raise RuntimeError(
+                f"{SYMBOL} not found "
+                "in exchangeInfo"
             )
 
-            positions = await get_positions(
-                session
+        quantity_precision = int(
+            contract.get(
+                "quantityPrecision",
+                0,
+            )
+        )
+
+        min_order = dec(
+            contract.get(
+                "minOrderSize"
+            )
+        )
+
+        contract_value = dec(
+            contract.get(
+                "contractVal"
+            )
+        )
+
+        weex_min_leverage = dec(
+            contract.get(
+                "minLeverage",
+                1,
+            )
+        )
+
+        weex_max_leverage = dec(
+            contract.get(
+                "maxLeverage"
+            )
+        )
+
+
+        # ====================================================
+        # API TRADING SYMBOL CHECK
+        # ====================================================
+
+        api_symbols = await public_get(
+            session,
+            "/capi/v3/market/apiTradingSymbols",
+        )
+
+        api_trading_allowed = (
+            SYMBOL
+            in api_symbols
+        )
+
+
+        # ====================================================
+        # FRESH MARK PRICE
+        # ====================================================
+
+        price_data = await public_get(
+            session,
+            "/capi/v3/market/symbolPrice",
+            {
+                "symbol":
+                    SYMBOL,
+
+                "priceType":
+                    "MARK",
+            },
+        )
+
+        mark_price = dec(
+            price_data.get(
+                "price"
+            )
+        )
+
+        if mark_price <= ZERO:
+            raise RuntimeError(
+                "Invalid WEEX mark price"
             )
 
 
-            # ================================================
-            # CONTRACT DETAILS
-            # ================================================
+        # ====================================================
+        # FRESH ACCOUNT BALANCE
+        # ====================================================
 
-            min_order = dec(
-                contract.get(
-                    "minOrderSize"
+        balance_data = await private_get(
+            session,
+            "/capi/v3/account/balance",
+        )
+
+        usdt = next(
+            (
+                item
+                for item
+                in balance_data
+                if item.get("asset")
+                == "USDT"
+            ),
+            None,
+        )
+
+        if not usdt:
+            raise RuntimeError(
+                "USDT balance not found"
+            )
+
+        available_balance = dec(
+            usdt.get(
+                "availableBalance"
+            )
+        )
+
+
+        # ====================================================
+        # REAL WEEX POSITION
+        # ====================================================
+
+        position_data = await private_get(
+            session,
+            "/capi/v3/account/position/singlePosition",
+            {
+                "symbol":
+                    SYMBOL,
+            },
+        )
+
+        open_positions = [
+            position
+            for position
+            in position_data
+            if dec(
+                position.get(
+                    "size"
+                )
+            ) > ZERO
+        ]
+
+        real_position = (
+            open_positions[0]
+            if open_positions
+            else None
+        )
+
+        if real_position:
+
+            real_position_side = str(
+                real_position.get(
+                    "side",
+                    "",
+                )
+            ).upper()
+
+            real_position_size = dec(
+                real_position.get(
+                    "size"
                 )
             )
 
-            qty_precision = int(
-                contract.get(
-                    "quantityPrecision",
-                    6,
+            real_liq_price = dec(
+                real_position.get(
+                    "liquidatePrice"
                 )
             )
 
-            contract_value = dec(
-                contract.get(
-                    "contractVal"
-                )
+        else:
+
+            real_position_side = "NONE"
+
+            real_position_size = ZERO
+
+            real_liq_price = ZERO
+
+
+        # ====================================================
+        # ONE-DIRECTION GATE
+        # ====================================================
+
+        direction_gate = (
+            not ONE_DIRECTION_ONLY
+            or real_position is None
+            or (
+                real_position_side
+                == R9_SIGNAL_SIDE
             )
+        )
 
-            weex_max_leverage = dec(
-                contract.get(
-                    "maxLeverage"
-                )
+
+        # ====================================================
+        # INITIAL ENTRY SAFETY
+        # ====================================================
+        #
+        # R9 intentionally blocks a new INITIAL entry if any
+        # existing/manual position is detected.
+        #
+        # Later modules can distinguish controlled pyramids.
+        #
+        # ====================================================
+
+        external_position_clear = (
+            real_position is None
+        )
+
+
+        # ====================================================
+        # DYNAMIC ENTRY SIZE
+        # ====================================================
+
+        entry_margin = (
+            available_balance
+            * INITIAL_ENTRY_PERCENT
+            / HUNDRED
+        )
+
+        entry_notional = (
+            entry_margin
+            * LEVERAGE
+        )
+
+        raw_quantity = (
+            entry_notional
+            / mark_price
+        )
+
+        quantity = floor_quantity(
+            raw_quantity,
+            quantity_precision,
+        )
+
+        quantity_positive = (
+            quantity
+            > ZERO
+        )
+
+        minimum_passed = (
+            quantity
+            >= min_order
+        )
+
+
+        # ====================================================
+        # WORST-CASE EXPOSURE
+        # ====================================================
+
+        pyramid_exposure = (
+            Decimal(
+                MAX_PYRAMID_ADDS
             )
+            * PYRAMID_SIZE_PERCENT
+        )
 
-
-            # ================================================
-            # ENTRY SIZING
-            # ================================================
-
-            entry_margin = (
-                percent_amount(
-                    balance,
-                    INITIAL_ENTRY_PERCENT,
-                )
+        backup_exposure = (
+            Decimal(
+                MAX_BACKUPS
             )
+            * BACKUP_SIZE_PERCENT
+        )
 
-            entry_notional = (
-                entry_margin
-                * LEVERAGE
-            )
+        total_exposure = (
+            INITIAL_ENTRY_PERCENT
+            + pyramid_exposure
+            + backup_exposure
+        )
 
-            if mark_price > 0:
-
-                raw_quantity = (
-                    entry_notional
-                    / mark_price
-                )
-
-            else:
-
-                raw_quantity = D0
-
-            quantity = floor_decimal(
-                raw_quantity,
-                qty_precision,
-            )
+        exposure_passed = (
+            total_exposure
+            <= MAX_FUND_EXPOSURE_PERCENT
+        )
 
 
-            # ================================================
-            # EXPOSURE PLAN
-            # ================================================
+        # ====================================================
+        # LEVERAGE GATE
+        # ====================================================
 
-            initial_exposure = (
-                INITIAL_ENTRY_PERCENT
-            )
+        leverage_passed = (
+            LEVERAGE
+            > ZERO
 
-            pyramid_exposure = (
-                PYRAMID_SIZE_PERCENT
-                * Decimal(
-                    MAX_PYRAMIDS
-                )
-            )
+            and LEVERAGE
+            <= MAX_LEVERAGE
 
-            backup_exposure = (
-                BACKUP_SIZE_PERCENT
-                * Decimal(
-                    MAX_BACKUPS
-                )
-            )
+            and LEVERAGE
+            >= weex_min_leverage
 
-            total_planned_exposure = (
-                initial_exposure
-                + pyramid_exposure
-                + backup_exposure
-            )
+            and LEVERAGE
+            <= weex_max_leverage
+        )
 
 
-            # ================================================
-            # LIVE VALIDATION
-            # ================================================
+        # ====================================================
+        # TP SPLIT
+        # ====================================================
 
-            static_checks.update(
-                {
-                    "symbol_valid":
-                        bool(contract),
+        tp_total = (
+            TP1_PERCENT
+            + TP2_PERCENT
+            + TP3_PERCENT
+        )
 
-                    "mark_price_positive":
-                        mark_price > 0,
-
-                    "balance_nonnegative":
-                        balance >= 0,
-
-                    "weex_leverage_allowed":
-                        (
-                            LEVERAGE
-                            <= weex_max_leverage
-                        ),
-
-                    "quantity_positive":
-                        quantity > 0,
-
-                    "minimum_order_met":
-                        quantity >= min_order,
-
-                    "fund_exposure_within_cap":
-                        (
-                            total_planned_exposure
-                            <= MAX_FUND_EXPOSURE_PERCENT
-                        ),
-                }
-            )
+        tp_split_passed = (
+            tp_total
+            == HUNDRED
+        )
 
 
-            # ================================================
-            # REAL POSITIONS
-            # ================================================
+        # ====================================================
+        # SIGNAL SAFETY TESTS
+        # ====================================================
 
-            active_positions = (
-                active_position_summary(
-                    positions
-                )
-            )
+        signal = run_signal_tests()
 
-            real_liq_prices = []
+        signal_gate_passed = all(
+            [
+                signal[
+                    "fresh_allowed"
+                ],
 
-            for position in active_positions:
+                signal[
+                    "expired_rejected"
+                ],
 
-                liq = dec(
-                    position.get(
-                        "liquidatePrice"
-                    )
-                )
+                signal[
+                    "cooldown_clear"
+                ],
 
-                if liq > 0:
-                    real_liq_prices.append(
-                        liq
-                    )
+                signal[
+                    "recent_loss_blocked"
+                ],
 
-
-            # ================================================
-            # PLANNING LIQUIDATION
-            # ================================================
-
-            planning_liq = (
-                approximate_liquidation(
-                    mark_price,
-                    LEVERAGE,
-                    PLANNING_MMR_PERCENT,
-                    "LONG",
-                )
-            )
-
-            if (
-                mark_price > 0
-                and planning_liq > 0
-            ):
-
-                planning_liq_distance = (
-                    (
-                        mark_price
-                        - planning_liq
-                    )
-                    / mark_price
-                    * D100
-                )
-
-            else:
-
-                planning_liq_distance = D0
-
-
-            # ================================================
-            # SIMULATED ORDER PAYLOAD
-            # ================================================
-
-            payload = (
-                build_order_payload_simulation(
-                    quantity
-                )
-            )
-
-
-            # ================================================
-            # RESULT
-            # ================================================
-
-            all_passed = all(
-                static_checks.values()
-            )
-
-            status_icon = (
-                "✅"
-                if all_passed
-                else "⚠️"
-            )
-
-            status_text = (
-                "DIAGNOSTIC PASSED"
-                if all_passed
-                else "NOT READY"
-            )
-
-            failed_checks = [
-                name
-                for name, passed
-                in static_checks.items()
-                if not passed
+                signal[
+                    "duplicate_rejected"
+                ],
             ]
+        )
 
 
-            # ================================================
-            # SINGLE CONSOLIDATED TELEGRAM REPORT
-            # ================================================
+        # ====================================================
+        # LIQUIDATION PLANNING
+        # ====================================================
 
-            report_lines = [
+        planning_mmr = (
+            PLANNING_MMR_PERCENT
+            / HUNDRED
+        )
 
-                (
-                    f"{status_icon} MODULE "
-                    f"{MODULE_NAME} "
-                    f"{status_text}"
-                ),
+        leverage_fraction = (
+            ONE
+            / LEVERAGE
+        )
 
+        if R9_SIGNAL_SIDE == "LONG":
+
+            estimated_liq = (
+                mark_price
+                * (
+                    ONE
+                    - leverage_fraction
+                    + planning_mmr
+                )
+            )
+
+        else:
+
+            estimated_liq = (
+                mark_price
+                * (
+                    ONE
+                    + leverage_fraction
+                    - planning_mmr
+                )
+            )
+
+        estimated_liq_distance = (
+            abs(
+                mark_price
+                - estimated_liq
+            )
+            / mark_price
+            * HUNDRED
+        )
+
+        liq_distance_passed = (
+            estimated_liq_distance
+            >= MIN_LIQ_DISTANCE_PERCENT
+        )
+
+
+        # ====================================================
+        # UNIQUE CLIENT ORDER ID
+        # ====================================================
+
+        client_order_id = (
+            make_client_order_id(
+                signal[
+                    "signal_id"
+                ]
+            )
+        )
+
+
+        # ====================================================
+        # EXACT R9 ORDER PAYLOAD
+        # ====================================================
+        #
+        # BUILT ONLY.
+        #
+        # NEVER POSTED.
+        #
+        # ====================================================
+
+        order_payload = {
+            "symbol":
                 SYMBOL,
 
-                "",
+            "side":
+                order_side,
 
+            "positionSide":
+                position_side,
+
+            "type":
+                "MARKET",
+
+            "quantity":
+                fmt(quantity),
+
+            "newClientOrderId":
+                client_order_id,
+        }
+
+
+        # ====================================================
+        # EXECUTION LOCK VALIDATION
+        # ====================================================
+
+        safety_lock_passed = (
+            HARD_EXECUTION_LOCK
+            is True
+
+            and LIVE_ORDER_EXECUTION
+            is False
+        )
+
+
+        # ====================================================
+        # FINAL CHECKS
+        # ====================================================
+
+        checks = {
+            "credentials_ready":
+                credentials_ready,
+
+            "api_trading_allowed":
+                api_trading_allowed,
+
+            "quantity_positive":
+                quantity_positive,
+
+            "minimum_passed":
+                minimum_passed,
+
+            "exposure_passed":
+                exposure_passed,
+
+            "leverage_passed":
+                leverage_passed,
+
+            "tp_split_passed":
+                tp_split_passed,
+
+            "signal_gate_passed":
+                signal_gate_passed,
+
+            "direction_gate":
+                direction_gate,
+
+            "external_position_clear":
+                external_position_clear,
+
+            "liq_distance_passed":
+                liq_distance_passed,
+
+            "safety_lock_passed":
+                safety_lock_passed,
+        }
+
+        all_passed = all(
+            checks.values()
+        )
+
+        failed_checks = [
+            name
+            for name, passed
+            in checks.items()
+            if not passed
+        ]
+
+
+        # ====================================================
+        # REPORT STATUS
+        # ====================================================
+
+        status_icon = (
+            "✅"
+            if all_passed
+            else "⚠️"
+        )
+
+        status_text = (
+            "DIAGNOSTIC PASSED"
+            if all_passed
+            else "NOT READY"
+        )
+
+
+        # ====================================================
+        # SINGLE CONSOLIDATED REPORT
+        # ====================================================
+
+        lines = [
+
+            (
+                f"{status_icon} MODULE "
+                f"{MODULE_NAME} "
+                f"{status_text}"
+            ),
+
+            SYMBOL,
+
+            "",
+
+            (
+                "Available USDT: "
+                f"{fmt(available_balance)}"
+            ),
+
+            (
+                "Mark Price: "
+                f"{fmt(mark_price)} USDT"
+            ),
+
+            "",
+
+            "FINAL EXECUTION GATE",
+
+            (
+                "API Trading Symbol: "
+                f"{yes_no(api_trading_allowed)}"
+            ),
+
+            (
+                "Fresh Signal Accepted: "
+                f"{yes_no(signal['fresh_allowed'])}"
+            ),
+
+            (
+                "Expired Signal Rejected: "
+                f"{yes_no(signal['expired_rejected'])}"
+            ),
+
+            (
+                "Loss Cooldown Test: "
+                f"{yes_no(signal['recent_loss_blocked'])}"
+            ),
+
+            (
+                "Duplicate Signal Rejected: "
+                f"{yes_no(signal['duplicate_rejected'])}"
+            ),
+
+            (
+                "One Direction Gate: "
+                f"{yes_no(direction_gate)}"
+            ),
+
+            (
+                "External Position Clear: "
+                f"{yes_no(external_position_clear)}"
+            ),
+
+            "",
+
+            "ADJUSTABLE CONFIG",
+
+            (
+                "Entry: "
+                f"{fmt(INITIAL_ENTRY_PERCENT)}%"
+            ),
+
+            (
+                "Leverage: "
+                f"{fmt(LEVERAGE)}x"
+            ),
+
+            (
+                "Max Config Leverage: "
+                f"{fmt(MAX_LEVERAGE)}x"
+            ),
+
+            (
+                "Max Pyramids: "
+                f"{MAX_PYRAMID_ADDS}"
+            ),
+
+            (
+                "Pyramid Size: "
+                f"{fmt(PYRAMID_SIZE_PERCENT)}%"
+            ),
+
+            (
+                "Max Backups: "
+                f"{MAX_BACKUPS}"
+            ),
+
+            (
+                "Backup Size: "
+                f"{fmt(BACKUP_SIZE_PERCENT)}% each"
+            ),
+
+            (
+                "Max Fund Exposure: "
+                f"{fmt(MAX_FUND_EXPOSURE_PERCENT)}%"
+            ),
+
+            "",
+
+            "WEEX CONTRACT",
+
+            (
+                "Minimum Order: "
+                f"{fmt(min_order)}"
+            ),
+
+            (
+                "Quantity Precision: "
+                f"{quantity_precision}"
+            ),
+
+            (
+                "Contract Value: "
+                f"{fmt(contract_value)}"
+            ),
+
+            (
+                "WEEX Min Leverage: "
+                f"{fmt(weex_min_leverage)}x"
+            ),
+
+            (
+                "WEEX Max Leverage: "
+                f"{fmt(weex_max_leverage)}x"
+            ),
+
+            (
+                "Leverage Gate: "
+                f"{yes_no(leverage_passed)}"
+            ),
+
+            "",
+
+            "DYNAMIC ENTRY",
+
+            (
+                "Margin: "
+                f"{fmt(entry_margin)} USDT"
+            ),
+
+            (
+                "Notional: "
+                f"{fmt(entry_notional)} USDT"
+            ),
+
+            (
+                "Quantity: "
+                f"{fmt(quantity)}"
+            ),
+
+            (
+                "Minimum Passed: "
+                f"{yes_no(minimum_passed)}"
+            ),
+
+            "",
+
+            "WORST-CASE EXPOSURE",
+
+            (
+                "Initial: "
+                f"{fmt(INITIAL_ENTRY_PERCENT)}%"
+            ),
+
+            (
+                "Pyramids: "
+                f"{fmt(pyramid_exposure)}%"
+            ),
+
+            (
+                "Backups: "
+                f"{fmt(backup_exposure)}%"
+            ),
+
+            (
+                "Total: "
+                f"{fmt(total_exposure)}% / "
+                f"{fmt(MAX_FUND_EXPOSURE_PERCENT)}%"
+            ),
+
+            (
+                "Exposure Passed: "
+                f"{yes_no(exposure_passed)}"
+            ),
+
+            "",
+
+            "TP / TRAILING",
+
+            (
+                "TP1 / TP2 / TP3: "
+                f"{fmt(TP1_PERCENT)}% / "
+                f"{fmt(TP2_PERCENT)}% / "
+                f"{fmt(TP3_PERCENT)}%"
+            ),
+
+            (
+                "TP Split = 100%: "
+                f"{yes_no(tp_split_passed)}"
+            ),
+
+            (
+                "TP1 Trigger: "
+                f"{fmt(TP1_TRIGGER_PERCENT)}%"
+            ),
+
+            (
+                "TP2 Trigger: "
+                f"{fmt(TP2_TRIGGER_PERCENT)}%"
+            ),
+
+            (
+                "Trailing Distance: "
+                f"{fmt(TRAILING_DISTANCE_PERCENT)}%"
+            ),
+
+            "",
+
+            "PROTECTION",
+
+            (
+                "Signal Expiry: "
+                f"{SIGNAL_EXPIRY_SECONDS}s"
+            ),
+
+            (
+                "Loss Cooldown: "
+                f"{LOSS_COOLDOWN_SECONDS}s"
+            ),
+
+            (
+                "One Direction Only: "
+                + (
+                    "ACTIVE"
+                    if ONE_DIRECTION_ONLY
+                    else "OFF"
+                )
+            ),
+
+            (
+                "Backup Buffer: "
+                f"{fmt(BACKUP_BUFFER_PERCENT)}%"
+            ),
+
+            (
+                "Min Liq Distance: "
+                f"{fmt(MIN_LIQ_DISTANCE_PERCENT)}%"
+            ),
+
+            (
+                "Planning MMR: "
+                f"{fmt(PLANNING_MMR_PERCENT)}%"
+            ),
+
+            "",
+
+            "REAL WEEX POSITION",
+
+        ]
+
+
+        # ====================================================
+        # REAL POSITION REPORT
+        # ====================================================
+
+        if real_position is None:
+
+            lines.append(
+                "No open position detected"
+            )
+
+            lines.append(
+                "WEEX Liquidation Price: N/A"
+            )
+
+        else:
+
+            lines.append(
                 (
-                    f"Available "
-                    f"{MARGIN_ASSET}: "
-                    f"{fmt(balance)}"
-                ),
+                    "Open Position: "
+                    f"{real_position_side}"
+                )
+            )
 
+            lines.append(
                 (
-                    "Mark Price: "
-                    f"{fmt(mark_price)} USDT"
-                ),
+                    "Position Size: "
+                    f"{fmt(real_position_size)}"
+                )
+            )
 
-                "",
+            if real_liq_price > ZERO:
 
-                "ADJUSTABLE CONFIG",
-
-                (
-                    "Entry: "
-                    f"{fmt(INITIAL_ENTRY_PERCENT)}%"
-                ),
-
-                (
-                    "Leverage: "
-                    f"{fmt(LEVERAGE)}x"
-                ),
-
-                (
-                    "Max Config Leverage: "
-                    f"{fmt(MAX_LEVERAGE)}x"
-                ),
-
-                (
-                    "Max Pyramids: "
-                    f"{MAX_PYRAMIDS}"
-                ),
-
-                (
-                    "Pyramid Size: "
-                    f"{fmt(PYRAMID_SIZE_PERCENT)}%"
-                ),
-
-                (
-                    "Max Backups: "
-                    f"{MAX_BACKUPS}"
-                ),
-
-                (
-                    "Backup Size: "
-                    f"{fmt(BACKUP_SIZE_PERCENT)}% "
-                    "each"
-                ),
-
-                (
-                    "Max Fund Exposure: "
-                    f"{fmt(MAX_FUND_EXPOSURE_PERCENT)}%"
-                ),
-
-                "",
-
-                "WEEX CONTRACT",
-
-                (
-                    "Minimum Order: "
-                    f"{fmt(min_order)}"
-                ),
-
-                (
-                    "Quantity Precision: "
-                    f"{qty_precision}"
-                ),
-
-                (
-                    "Contract Value: "
-                    f"{fmt(contract_value)}"
-                ),
-
-                (
-                    "WEEX Max Leverage: "
-                    f"{fmt(weex_max_leverage)}x"
-                ),
-
-                "",
-
-                "CURRENT ENTRY",
-
-                (
-                    "Margin: "
-                    f"{fmt(entry_margin)} USDT"
-                ),
-
-                (
-                    "Notional: "
-                    f"{fmt(entry_notional)} USDT"
-                ),
-
-                (
-                    "Quantity: "
-                    f"{fmt(quantity)}"
-                ),
-
-                (
-                    "Minimum Passed: "
-                    f"{yn(
-                        quantity >= min_order
-                        and quantity > 0
-                    )}"
-                ),
-
-                "",
-
-                "WORST-CASE EXPOSURE",
-
-                (
-                    "Initial: "
-                    f"{fmt(initial_exposure)}%"
-                ),
-
-                (
-                    "Pyramids: "
-                    f"{fmt(pyramid_exposure)}%"
-                ),
-
-                (
-                    "Backups: "
-                    f"{fmt(backup_exposure)}%"
-                ),
-
-                (
-                    "Total: "
-                    f"{fmt(total_planned_exposure)}% "
-                    f"/ "
-                    f"{fmt(MAX_FUND_EXPOSURE_PERCENT)}%"
-                ),
-
-                (
-                    "Exposure Passed: "
-                    f"{yn(
-                        total_planned_exposure
-                        <= MAX_FUND_EXPOSURE_PERCENT
-                    )}"
-                ),
-
-                "",
-
-                "TP / TRAILING",
-
-                (
-                    "TP1 / TP2 / TP3: "
-                    f"{fmt(TP1_PERCENT)}% / "
-                    f"{fmt(TP2_PERCENT)}% / "
-                    f"{fmt(TP3_PERCENT)}%"
-                ),
-
-                (
-                    "TP1 Trigger: "
-                    f"{fmt(TP1_TRIGGER_PERCENT)}%"
-                ),
-
-                (
-                    "TP2 Trigger: "
-                    f"{fmt(TP2_TRIGGER_PERCENT)}%"
-                ),
-
-                (
-                    "Trailing Distance: "
-                    f"{fmt(TRAILING_DISTANCE_PERCENT)}%"
-                ),
-
-                "",
-
-                "PROTECTION",
-
-                (
-                    "Signal Expiry: "
-                    f"{SIGNAL_EXPIRY_SECONDS}s"
-                ),
-
-                (
-                    "Loss Cooldown: "
-                    f"{LOSS_COOLDOWN_SECONDS}s"
-                ),
-
-                (
-                    "One Direction Only: "
-                    + (
-                        "ACTIVE"
-                        if ONE_DIRECTION_ONLY
-                        else "OFF"
-                    )
-                ),
-
-                (
-                    "Backup Buffer: "
-                    f"{fmt(BACKUP_BUFFER_PERCENT)}%"
-                ),
-
-                (
-                    "Min Liq Distance: "
-                    f"{fmt(MIN_LIQ_DISTANCE_PERCENT)}%"
-                ),
-
-                (
-                    "Planning MMR: "
-                    f"{fmt(PLANNING_MMR_PERCENT)}%"
-                ),
-
-                "",
-
-                "REAL WEEX POSITION",
-
-                (
-                    (
-                        "Open position(s): "
-                        f"{len(active_positions)}"
-                    )
-                    if active_positions
-                    else
-                    "No open position detected"
-                ),
-
-                (
+                lines.append(
                     (
                         "WEEX Liquidation Price: "
-                        + ", ".join(
-                            fmt(value)
-                            for value
-                            in real_liq_prices
-                        )
+                        f"{fmt(real_liq_price)}"
                     )
-                    if real_liq_prices
-                    else
+                )
+
+            else:
+
+                lines.append(
                     "WEEX Liquidation Price: N/A"
-                ),
+                )
+
+
+        # ====================================================
+        # LIQUIDATION PLANNING REPORT
+        # ====================================================
+
+        lines.extend(
+            [
 
                 "",
 
-                "R8 PLANNING ONLY",
+                "R9 LIQUIDATION PLANNING ONLY",
 
                 (
-                    "Estimated Long Liq: "
-                    f"{fmt(planning_liq)}"
+                    "Estimated "
+                    f"{R9_SIGNAL_SIDE.title()} "
+                    "Liq: "
+                    f"{fmt(estimated_liq)}"
                 ),
 
                 (
                     "Estimated Liq Distance: "
-                    f"{fmt(planning_liq_distance)}%"
+                    f"{fmt(estimated_liq_distance)}%"
                 ),
 
                 (
-                    "Actual WEEX liquidation "
-                    "price remains authoritative."
+                    "Min Distance Passed: "
+                    f"{yes_no(liq_distance_passed)}"
+                ),
+
+                (
+                    "Actual WEEX liquidation price "
+                    "remains authoritative."
                 ),
 
                 "",
 
-                "R8 ORDER PAYLOAD SIMULATION",
+                "R9 EXACT ORDER PAYLOAD SIMULATION",
+
+                "Endpoint: POST /capi/v3/order",
 
                 (
                     "Symbol: "
-                    f"{payload['symbol']}"
+                    f"{order_payload['symbol']}"
                 ),
 
                 (
                     "Side: "
-                    f"{payload['side']} / "
-                    f"{payload['positionSide']}"
+                    f"{order_payload['side']} / "
+                    f"{order_payload['positionSide']}"
                 ),
 
                 (
                     "Type: "
-                    f"{payload['type']}"
+                    f"{order_payload['type']}"
                 ),
 
                 (
                     "Quantity: "
-                    f"{payload['quantity']}"
+                    f"{order_payload['quantity']}"
+                ),
+
+                (
+                    "newClientOrderId: "
+                    f"{order_payload['newClientOrderId']}"
                 ),
 
                 (
@@ -1718,177 +1656,141 @@ async def run_diagnostic():
                 "⚠️ Live order execution disabled",
 
                 "⚠️ NO LIVE ORDER WAS SENT",
+
             ]
+        )
 
 
-            # ================================================
-            # FAILED CHECKS
-            # ================================================
+        # ====================================================
+        # FAILED CHECKS
+        # ====================================================
 
-            if failed_checks:
+        if failed_checks:
 
-                report_lines.extend(
-                    [
-                        "",
-                        "FAILED CHECKS",
-                    ]
-                )
-
-                report_lines.extend(
-                    [
-                        f"❌ {name}"
-                        for name
-                        in failed_checks
-                    ]
-                )
-
-
-            # ================================================
-            # FINAL REPORT
-            # ================================================
-
-            report = "\n".join(
-                report_lines
-            )
-
-            print(
-                report
-            )
-
-            print(
-                "=" * 64
-            )
-
-
-            # ================================================
-            # ONLY ONE TELEGRAM CALL
-            # ================================================
-
-            await send_telegram(
-                session,
-                report,
-            )
-
-            return all_passed
-
-
-        except Exception as exc:
-
-            # ================================================
-            # SINGLE ERROR REPORT
-            # ================================================
-
-            error_report = "\n".join(
+            lines.extend(
                 [
-                    (
-                        f"❌ MODULE "
-                        f"{MODULE_NAME} "
-                        "ERROR"
-                    ),
-
-                    SYMBOL,
-
                     "",
-
-                    (
-                        f"{type(exc).__name__}: "
-                        f"{exc}"
-                    ),
-
-                    "",
-
-                    "🛡 Hard execution lock active",
-
-                    "⚠️ Live order execution disabled",
-
-                    "⚠️ NO LIVE ORDER WAS SENT",
+                    "FAILED CHECKS",
                 ]
             )
 
-            print(
-                error_report
-            )
+            for check in failed_checks:
 
-            print(
-                "=" * 64
-            )
+                lines.append(
+                    f"❌ {check}"
+                )
 
 
-            # Only one Telegram call
-            # on the error path.
+        # ====================================================
+        # OUTPUT
+        # ====================================================
 
-            await send_telegram(
-                session,
-                error_report,
-            )
-
-            return False
-
-
-# ============================================================
-# KEEP RENDER PROCESS ALIVE
-# ============================================================
-
-
-async def keep_service_alive():
-
-    if not KEEP_ALIVE:
-        return
-
-    print(
-        "R8 KEEP-ALIVE ACTIVE"
-    )
-
-    print(
-        "Process will remain running "
-        "after the diagnostic."
-    )
-
-    print(
-        "This prevents normal "
-        "diagnostic completion from "
-        "causing repeated startup "
-        "Telegram messages."
-    )
-
-    print(
-        "=" * 64
-    )
-
-    while True:
-
-        await asyncio.sleep(
-            KEEP_ALIVE_SECONDS
+        report = "\n".join(
+            lines
         )
+
+        print(
+            "=" * 60
+        )
+
+        print(
+            report
+        )
+
+        print(
+            "=" * 60
+        )
+
+        print(
+            "SIMULATED PAYLOAD JSON"
+        )
+
+        print(
+            json.dumps(
+                order_payload,
+                indent=2,
+            )
+        )
+
+        print(
+            "=" * 60
+        )
+
+
+        # ====================================================
+        # ONLY TELEGRAM MESSAGE THIS RUN
+        # ====================================================
+
+        await send_telegram_once(
+            session,
+            report,
+        )
+
+        return all_passed
 
 
 # ============================================================
 # MAIN
 # ============================================================
 
-
 async def main():
 
-    await run_diagnostic()
+    try:
 
-    await keep_service_alive()
+        await run_r9()
+
+    except Exception as exc:
+
+        error_report = (
+            f"❌ MODULE {MODULE_NAME} ERROR\n"
+            f"{SYMBOL}\n\n"
+            f"{type(exc).__name__}: {exc}\n\n"
+            "🛡 Hard execution lock active\n"
+            "⚠️ Live order execution disabled\n"
+            "⚠️ NO LIVE ORDER WAS SENT"
+        )
+
+        print(
+            error_report
+        )
+
+        async with aiohttp.ClientSession() as session:
+
+            await send_telegram_once(
+                session,
+                error_report,
+            )
+
+
+    # ========================================================
+    # KEEP PROCESS ALIVE
+    # ========================================================
+    #
+    # Diagnostic does NOT repeat.
+    # Telegram does NOT repeat.
+    #
+    # ========================================================
+
+    print(
+        "R9 diagnostic complete."
+    )
+
+    print(
+        "Process remains alive."
+    )
+
+    print(
+        "No repeat diagnostic cycle."
+    )
+
+    await asyncio.Event().wait()
 
 
 # ============================================================
 # START
 # ============================================================
 
-
 if __name__ == "__main__":
 
-    try:
-
-        asyncio.run(
-            main()
-        )
-
-    except KeyboardInterrupt:
-
-        print(
-            "MODULE STOPPED"
-        )
+    asyncio.run(
+        main())
