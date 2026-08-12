@@ -5,8 +5,7 @@ import hmac
 import json
 import os
 import time
-
-from decimal import Decimal, InvalidOperation, ROUND_DOWN
+from decimal import Decimal, ROUND_DOWN
 from urllib.parse import urlencode
 
 import aiohttp
@@ -16,232 +15,190 @@ import aiohttp
 # MODULE
 # ============================================================
 
-MODULE_NAME = "0F-4H-R5"
+MODULE_NAME = "0F-4H-R6"
+
+API_BASE_URL = "https://api-contract.weex.com"
 
 SYMBOL = os.getenv(
     "SYMBOL",
     "BTCUSDT",
 ).strip().upper()
 
-API_BASE_URL = "https://api-contract.weex.com"
-
 
 # ============================================================
-# ENVIRONMENT HELPERS
+# ADJUSTABLE CONFIGURATION
 # ============================================================
 
-def env_decimal(name, default):
-
-    raw = os.getenv(
-        name,
-        default,
-    ).strip()
-
-    try:
-        return Decimal(raw)
-
-    except InvalidOperation as exc:
-        raise RuntimeError(
-            f"Invalid decimal environment variable "
-            f"{name}={raw!r}"
-        ) from exc
-
-
-def env_int(name, default):
-
-    raw = os.getenv(
-        name,
-        default,
-    ).strip()
-
-    try:
-        return int(raw)
-
-    except ValueError as exc:
-        raise RuntimeError(
-            f"Invalid integer environment variable "
-            f"{name}={raw!r}"
-        ) from exc
-
-
-def env_bool(name, default=True):
-
-    raw = os.getenv(
-        name,
-        "true" if default else "false",
+INITIAL_ENTRY_PERCENT = Decimal(
+    os.getenv(
+        "INITIAL_ENTRY_PERCENT",
+        "5",
     )
+)
 
-    return raw.strip().lower() in (
+LEVERAGE = Decimal(
+    os.getenv(
+        "LEVERAGE",
+        "100",
+    )
+)
+
+MAX_LEVERAGE = Decimal(
+    os.getenv(
+        "MAX_LEVERAGE",
+        "100",
+    )
+)
+
+MAX_PYRAMID_ADDS = int(
+    os.getenv(
+        "MAX_PYRAMID_ADDS",
         "1",
-        "true",
-        "yes",
-        "on",
     )
-
-
-# ============================================================
-# BTCUSDT CONFIRMED TEST BASELINE
-# ============================================================
-
-INITIAL_ENTRY_PERCENT = env_decimal(
-    "INITIAL_ENTRY_PERCENT",
-    "5",
 )
 
-LEVERAGE = env_decimal(
-    "LEVERAGE",
-    "100",
+PYRAMID_ADD_PERCENT = Decimal(
+    os.getenv(
+        "PYRAMID_ADD_PERCENT",
+        "5",
+    )
 )
 
-MAX_LEVERAGE = env_decimal(
-    "MAX_LEVERAGE",
-    "100",
+MAX_BACKUPS = int(
+    os.getenv(
+        "MAX_BACKUPS",
+        "3",
+    )
 )
 
-
-# ============================================================
-# PYRAMID CONFIGURATION
-# ============================================================
-
-MAX_PYRAMID_ADDS = env_int(
-    "MAX_PYRAMID_ADDS",
-    "1",
+BACKUP_SIZE_PERCENT = Decimal(
+    os.getenv(
+        "BACKUP_SIZE_PERCENT",
+        "5",
+    )
 )
 
-PYRAMID_ADD_PERCENTS_TEXT = os.getenv(
-    "PYRAMID_ADD_PERCENTS",
-    "5",
-).strip()
-
-PYRAMID_MOMENTUM_CONFIRMATION_PERCENT = env_decimal(
-    "PYRAMID_MOMENTUM_CONFIRMATION_PERCENT",
-    "0.30",
+MAX_FUND_EXPOSURE_PERCENT = Decimal(
+    os.getenv(
+        "MAX_FUND_EXPOSURE_PERCENT",
+        "35",
+    )
 )
 
 
 # ============================================================
-# BACKUP CONFIGURATION
+# TP / TRAILING
 # ============================================================
 
-MAX_BACKUPS = env_int(
-    "MAX_BACKUPS",
-    "3",
+TP1_PERCENT = Decimal(
+    os.getenv(
+        "TP1_PERCENT",
+        "20",
+    )
 )
 
-BACKUP_SIZE_PERCENTS_TEXT = os.getenv(
-    "BACKUP_SIZE_PERCENTS",
-    "5,5,5",
-).strip()
-
-BACKUP_LIQUIDATION_BUFFER_PERCENT = env_decimal(
-    "BACKUP_LIQUIDATION_BUFFER_PERCENT",
-    "1.00",
+TP2_PERCENT = Decimal(
+    os.getenv(
+        "TP2_PERCENT",
+        "20",
+    )
 )
 
-MIN_LIQUIDATION_DISTANCE_PERCENT = env_decimal(
-    "MIN_LIQUIDATION_DISTANCE_PERCENT",
-    "2.00",
+TP3_PERCENT = Decimal(
+    os.getenv(
+        "TP3_PERCENT",
+        "60",
+    )
 )
 
-
-# ============================================================
-# TAKE PROFIT CONFIGURATION
-# ============================================================
-
-TP1_PERCENT = env_decimal(
-    "TP1_PERCENT",
-    "20",
+TP1_TRIGGER_PERCENT = Decimal(
+    os.getenv(
+        "TP1_TRIGGER_PERCENT",
+        "0.5",
+    )
 )
 
-TP2_PERCENT = env_decimal(
-    "TP2_PERCENT",
-    "20",
+TP2_TRIGGER_PERCENT = Decimal(
+    os.getenv(
+        "TP2_TRIGGER_PERCENT",
+        "1",
+    )
 )
 
-TP3_PERCENT = env_decimal(
-    "TP3_PERCENT",
-    "60",
-)
-
-TP1_TRIGGER_PERCENT = env_decimal(
-    "TP1_TRIGGER_PERCENT",
-    "0.50",
-)
-
-TP2_TRIGGER_PERCENT = env_decimal(
-    "TP2_TRIGGER_PERCENT",
-    "1.00",
-)
-
-TRAILING_DISTANCE_PERCENT = env_decimal(
-    "TRAILING_DISTANCE_PERCENT",
-    "0.20",
+TRAILING_DISTANCE_PERCENT = Decimal(
+    os.getenv(
+        "TRAILING_DISTANCE_PERCENT",
+        "0.2",
+    )
 )
 
 
 # ============================================================
-# SAFETY / CONTROL CONFIGURATION
+# LIQUIDATION / BACKUP CONFIG
 # ============================================================
 
-MAX_FUND_EXPOSURE_PERCENT = env_decimal(
-    "MAX_FUND_EXPOSURE_PERCENT",
-    "35",
+BACKUP_LIQUIDATION_BUFFER_PERCENT = Decimal(
+    os.getenv(
+        "BACKUP_LIQUIDATION_BUFFER_PERCENT",
+        "0.30",
+    )
 )
 
-MAX_TRADE_LOSS_PERCENT = env_decimal(
-    "MAX_TRADE_LOSS_PERCENT",
-    "5",
+MIN_LIQUIDATION_DISTANCE_PERCENT = Decimal(
+    os.getenv(
+        "MIN_LIQUIDATION_DISTANCE_PERCENT",
+        "0.20",
+    )
 )
 
-SIGNAL_EXPIRY_SECONDS = env_int(
-    "SIGNAL_EXPIRY_SECONDS",
-    "180",
-)
+# Planning estimate only.
+# Real WEEX liquidatePrice overrides this for actual positions.
 
-LOSS_SEQUENCE_LIMIT = env_int(
-    "LOSS_SEQUENCE_LIMIT",
-    "2",
-)
-
-COOLDOWN_SECONDS = env_int(
-    "COOLDOWN_SECONDS",
-    "900",
-)
-
-ONE_DIRECTION_ONLY = env_bool(
-    "ONE_DIRECTION_ONLY",
-    True,
-)
-
-ANTI_DUPLICATE_ORDERS = env_bool(
-    "ANTI_DUPLICATE_ORDERS",
-    True,
-)
-
-TREND_REVERSAL_EXIT = env_bool(
-    "TREND_REVERSAL_EXIT",
-    True,
-)
-
-IDLE_PYRAMID_CLEANUP = env_bool(
-    "IDLE_PYRAMID_CLEANUP",
-    True,
+ESTIMATED_MAINTENANCE_MARGIN_RATE = Decimal(
+    os.getenv(
+        "ESTIMATED_MAINTENANCE_MARGIN_RATE",
+        "0.005",
+    )
 )
 
 
 # ============================================================
-# ABSOLUTE EXECUTION SAFETY LOCKS
+# SAFETY CONFIGURATION
 # ============================================================
-#
-# These are deliberately hardcoded.
-#
-# Render environment variables CANNOT enable live trading.
-#
-# There is NO live order submission function in this R5.
-#
+
+SIGNAL_EXPIRY_SECONDS = int(
+    os.getenv(
+        "SIGNAL_EXPIRY_SECONDS",
+        "180",
+    )
+)
+
+LOSS_COOLDOWN_AFTER = int(
+    os.getenv(
+        "LOSS_COOLDOWN_AFTER",
+        "2",
+    )
+)
+
+LOSS_COOLDOWN_SECONDS = int(
+    os.getenv(
+        "LOSS_COOLDOWN_SECONDS",
+        "900",
+    )
+)
+
+ONE_DIRECTION_ONLY = True
+ANTI_DUPLICATE_ORDERS = True
+TREND_REVERSAL_EXIT = True
+IDLE_PYRAMID_CLEANUP = True
+
+
+# ============================================================
+# HARD SAFETY LOCKS
 # ============================================================
 
 LIVE_ORDER_EXECUTION = False
+
 HARD_EXECUTION_LOCK = True
 
 
@@ -281,154 +238,94 @@ TELEGRAM_CHAT_ID = os.getenv(
 
 
 # ============================================================
-# DECIMAL HELPERS
+# DECIMAL CONSTANTS
 # ============================================================
 
-ZERO = Decimal("0")
-HUNDRED = Decimal("100")
+D = Decimal
+
+ZERO = D("0")
+
+HUNDRED = D("100")
 
 
-def D(value):
-    return Decimal(str(value))
+# ============================================================
+# HELPERS
+# ============================================================
 
-
-def fmt(value):
-
-    if not isinstance(
+def fmt(
+    value,
+    places=10,
+):
+    if isinstance(
         value,
         Decimal,
     ):
-        value = D(value)
-
-    text = format(
-        value.normalize(),
-        "f",
-    )
-
-    if "." in text:
-        text = (
-            text
+        result = (
+            f"{value:.{places}f}"
             .rstrip("0")
             .rstrip(".")
         )
 
-    return text or "0"
+        return result or "0"
+
+    return str(value)
 
 
-def percent_amount(
-    balance,
-    percent,
-):
-
-    return (
-        balance
-        * percent
-        / HUNDRED
-    )
-
-
-def parse_decimal_list(
-    text,
-    name,
-):
-
-    if not text:
-        return []
-
-    result = []
-
-    for item in text.split(","):
-
-        item = item.strip()
-
-        if not item:
-            continue
-
-        try:
-            result.append(
-                Decimal(item)
-            )
-
-        except InvalidOperation as exc:
-            raise RuntimeError(
-                f"Invalid decimal in "
-                f"{name}: {item!r}"
-            ) from exc
-
-    return result
-
-
-PYRAMID_ADD_PERCENTS = parse_decimal_list(
-    PYRAMID_ADD_PERCENTS_TEXT,
-    "PYRAMID_ADD_PERCENTS",
-)
-
-BACKUP_SIZE_PERCENTS = parse_decimal_list(
-    BACKUP_SIZE_PERCENTS_TEXT,
-    "BACKUP_SIZE_PERCENTS",
-)
-
-
-# ============================================================
-# QUANTITY HELPERS
-# ============================================================
-
-def quantity_step_from_precision(
+def floor_qty(
+    value,
     precision,
 ):
-
-    return Decimal(
-        "1"
-    ).scaleb(
-        -int(precision)
+    step = D("1").scaleb(
+        -precision
     )
 
-
-def floor_quantity(
-    quantity,
-    precision,
-):
-
-    step = quantity_step_from_precision(
-        precision
-    )
-
-    return quantity.quantize(
+    return value.quantize(
         step,
         rounding=ROUND_DOWN,
     )
 
 
-# ============================================================
-# WEEX V3 SIGNATURE
-# ============================================================
-
-def build_signature(
-    timestamp,
-    method,
-    request_path,
-    query_string="",
-    body="",
+def percent_of(
+    value,
+    percent,
 ):
-
-    message = (
-        timestamp
-        + method.upper()
-        + request_path
+    return (
+        value
+        * percent
+        / HUNDRED
     )
 
-    if query_string:
-        message += (
-            "?"
-            + query_string
-        )
 
-    if body:
-        message += body
+# ============================================================
+# WEEX SIGNING
+# ============================================================
+
+def sign_request(
+    timestamp,
+    method,
+    path,
+    query="",
+    body="",
+):
+    request_path = (
+        path
+        + (
+            "?" + query
+            if query
+            else ""
+        )
+    )
+
+    prehash = (
+        f"{timestamp}"
+        f"{method.upper()}"
+        f"{request_path}"
+        f"{body}"
+    )
 
     digest = hmac.new(
         WEEX_API_SECRET.encode(),
-        message.encode(),
+        prehash.encode(),
         hashlib.sha256,
     ).digest()
 
@@ -438,118 +335,18 @@ def build_signature(
 
 
 # ============================================================
-# AUTHENTICATED GET
+# HTTP REQUESTS
 # ============================================================
 
-async def weex_private_get(
+async def public_get(
     session,
     path,
     params=None,
 ):
-
-    if not (
-        WEEX_API_KEY
-        and WEEX_API_SECRET
-        and WEEX_API_PASSPHRASE
-    ):
-        raise RuntimeError(
-            "WEEX API credentials are missing."
-        )
-
-    params = params or {}
-
-    query_string = urlencode(
-        params
-    )
-
-    timestamp = str(
-        int(
-            time.time()
-            * 1000
-        )
-    )
-
-    signature = build_signature(
-        timestamp=timestamp,
-        method="GET",
-        request_path=path,
-        query_string=query_string,
-    )
-
-    headers = {
-        "ACCESS-KEY": WEEX_API_KEY,
-        "ACCESS-SIGN": signature,
-        "ACCESS-PASSPHRASE": WEEX_API_PASSPHRASE,
-        "ACCESS-TIMESTAMP": timestamp,
-        "Content-Type": "application/json",
-    }
-
-    url = (
-        API_BASE_URL
-        + path
-    )
-
-    if query_string:
-        url += (
-            "?"
-            + query_string
-        )
-
     async with session.get(
-        url,
-        headers=headers,
-    ) as response:
-
-        text = await response.text()
-
-        if response.status != 200:
-            raise RuntimeError(
-                f"WEEX PRIVATE HTTP "
-                f"{response.status}: "
-                f"{text}"
-            )
-
-        try:
-            return json.loads(
-                text
-            )
-
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                "Invalid JSON received "
-                "from WEEX private API."
-            ) from exc
-
-
-# ============================================================
-# PUBLIC GET
-# ============================================================
-
-async def weex_public_get(
-    session,
-    path,
-    params=None,
-):
-
-    params = params or {}
-
-    query_string = urlencode(
-        params
-    )
-
-    url = (
-        API_BASE_URL
-        + path
-    )
-
-    if query_string:
-        url += (
-            "?"
-            + query_string
-        )
-
-    async with session.get(
-        url
+        API_BASE_URL + path,
+        params=params,
+        timeout=15,
     ) as response:
 
         text = await response.text()
@@ -561,1013 +358,617 @@ async def weex_public_get(
                 f"{text}"
             )
 
-        try:
-            return json.loads(
-                text
+        return json.loads(
+            text
+        )
+
+
+async def private_get(
+    session,
+    path,
+    params=None,
+):
+    if not (
+        WEEX_API_KEY
+        and WEEX_API_SECRET
+        and WEEX_API_PASSPHRASE
+    ):
+        raise RuntimeError(
+            "WEEX credentials are missing"
+        )
+
+    params = params or {}
+
+    query = urlencode(
+        params
+    )
+
+    timestamp = str(
+        int(
+            time.time()
+            * 1000
+        )
+    )
+
+    headers = {
+        "ACCESS-KEY":
+            WEEX_API_KEY,
+
+        "ACCESS-SIGN":
+            sign_request(
+                timestamp,
+                "GET",
+                path,
+                query,
+            ),
+
+        "ACCESS-PASSPHRASE":
+            WEEX_API_PASSPHRASE,
+
+        "ACCESS-TIMESTAMP":
+            timestamp,
+
+        "Content-Type":
+            "application/json",
+    }
+
+    url = (
+        API_BASE_URL
+        + path
+        + (
+            "?" + query
+            if query
+            else ""
+        )
+    )
+
+    async with session.get(
+        url,
+        headers=headers,
+        timeout=15,
+    ) as response:
+
+        text = await response.text()
+
+        if response.status != 200:
+            raise RuntimeError(
+                f"WEEX PRIVATE HTTP "
+                f"{response.status}: "
+                f"{text}"
             )
 
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                "Invalid JSON received "
-                "from WEEX public API."
-            ) from exc
+        return json.loads(
+            text
+        )
 
 
 # ============================================================
 # TELEGRAM
 # ============================================================
 
-async def send_telegram(
+async def telegram(
     session,
     message,
 ):
-
     if not (
         TELEGRAM_BOT_TOKEN
         and TELEGRAM_CHAT_ID
     ):
-
         print(
-            "TELEGRAM CONFIG: MISSING"
+            "TELEGRAM: credentials missing; "
+            "message not sent"
         )
 
-        return False
+        return
 
     url = (
         "https://api.telegram.org/bot"
-        + TELEGRAM_BOT_TOKEN
-        + "/sendMessage"
+        f"{TELEGRAM_BOT_TOKEN}"
+        "/sendMessage"
     )
 
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
+        "chat_id":
+            TELEGRAM_CHAT_ID,
+
+        "text":
+            message,
     }
 
     try:
-
         async with session.post(
             url,
             json=payload,
+            timeout=15,
         ) as response:
 
             text = await response.text()
 
-            if response.status == 200:
-
+            if response.status != 200:
+                print(
+                    f"TELEGRAM HTTP "
+                    f"{response.status}: "
+                    f"{text}"
+                )
+            else:
                 print(
                     "TELEGRAM MESSAGE SENT"
                 )
 
-                return True
-
-            print(
-                "TELEGRAM ERROR:",
-                response.status,
-                text,
-            )
-
-            return False
-
     except Exception as exc:
-
         print(
-            "TELEGRAM ERROR:",
-            repr(exc),
+            "TELEGRAM ERROR: "
+            f"{type(exc).__name__}: "
+            f"{exc}"
         )
 
-        return False
-
 
 # ============================================================
-# ACCOUNT BALANCE
+# EXCHANGE INFO
 # ============================================================
 
-async def get_available_usdt(
-    session,
+def get_symbol_info(
+    exchange_info,
 ):
-
-    data = await weex_private_get(
-        session,
-        "/capi/v3/account/balance",
+    symbols = exchange_info.get(
+        "symbols",
+        [],
     )
 
+    for item in symbols:
+
+        if (
+            str(
+                item.get(
+                    "symbol",
+                    "",
+                )
+            ).upper()
+            == SYMBOL
+        ):
+            return item
+
+    raise RuntimeError(
+        f"{SYMBOL} not found "
+        "in exchangeInfo"
+    )
+
+
+# ============================================================
+# BALANCE
+# ============================================================
+
+def get_usdt_balance(
+    balance_data,
+):
     if isinstance(
-        data,
-        dict,
-    ):
-
-        if isinstance(
-            data.get("data"),
-            list,
-        ):
-            data = data["data"]
-
-        elif isinstance(
-            data.get("result"),
-            list,
-        ):
-            data = data["result"]
-
-    if not isinstance(
-        data,
+        balance_data,
         list,
     ):
-        raise RuntimeError(
-            "Unexpected WEEX balance response: "
-            + str(data)
+        rows = balance_data
+
+    else:
+        rows = balance_data.get(
+            "data",
+            balance_data,
         )
 
-    for asset in data:
+    if isinstance(
+        rows,
+        dict,
+    ):
+        rows = [
+            rows
+        ]
 
-        if str(
-            asset.get(
-                "asset",
-                "",
-            )
-        ).upper() == "USDT":
+    for row in rows or []:
 
-            return Decimal(
+        if (
+            str(
+                row.get(
+                    "asset",
+                    "",
+                )
+            ).upper()
+            == "USDT"
+        ):
+            return D(
                 str(
-                    asset.get(
+                    row.get(
                         "availableBalance",
-                        "0",
+                        row.get(
+                            "balance",
+                            "0",
+                        ),
                     )
                 )
             )
 
     raise RuntimeError(
-        "USDT balance was not found "
-        "in WEEX account response."
+        "USDT balance not found"
     )
 
 
 # ============================================================
-# CONTRACT INFORMATION
+# EXISTING POSITION
 # ============================================================
 
-async def get_contract_info(
-    session,
+def find_position(
+    position_data,
 ):
-
-    data = await weex_public_get(
-        session,
-        "/capi/v3/market/exchangeInfo",
-        {
-            "symbol": SYMBOL,
-        },
-    )
-
-    symbols = []
-
     if isinstance(
-        data,
-        dict,
+        position_data,
+        list,
     ):
+        rows = position_data
 
-        symbols = data.get(
-            "symbols",
-            [],
+    else:
+        rows = position_data.get(
+            "data",
+            position_data,
         )
 
-        if not symbols:
+    if isinstance(
+        rows,
+        dict,
+    ):
+        rows = [
+            rows
+        ]
 
-            nested = data.get(
-                "data",
-                {},
-            )
+    for row in rows or []:
 
-            if isinstance(
-                nested,
-                dict,
-            ):
-
-                symbols = nested.get(
-                    "symbols",
-                    [],
-                )
-
-    for contract in symbols:
-
-        if str(
-            contract.get(
+        symbol = str(
+            row.get(
                 "symbol",
                 "",
             )
-        ).upper() == SYMBOL:
+        ).upper()
 
-            return contract
-
-    raise RuntimeError(
-        f"{SYMBOL} contract information "
-        "was not returned by WEEX."
-    )
-
-
-# ============================================================
-# MARK PRICE
-# ============================================================
-
-async def get_mark_price(
-    session,
-):
-
-    data = await weex_public_get(
-        session,
-        "/capi/v3/market/symbolPrice",
-        {
-            "symbol": SYMBOL,
-            "priceType": "MARK",
-        },
-    )
-
-    if isinstance(
-        data,
-        dict,
-    ):
-
-        if "price" in data:
-
-            return Decimal(
-                str(
-                    data["price"]
+        size = D(
+            str(
+                row.get(
+                    "size",
+                    "0",
                 )
             )
-
-        nested = data.get(
-            "data"
         )
 
         if (
-            isinstance(
-                nested,
-                dict,
-            )
-            and
-            "price" in nested
+            symbol == SYMBOL
+            and size > ZERO
         ):
+            return row
 
-            return Decimal(
-                str(
-                    nested["price"]
+    return None
+
+
+# ============================================================
+# LIQUIDATION ESTIMATOR
+# ============================================================
+
+def estimate_liquidation(
+    entry,
+    leverage,
+    side,
+):
+    """
+    Planning estimate only.
+
+    Actual WEEX liquidatePrice,
+    when supplied by WEEX for a real
+    position, remains authoritative.
+    """
+
+    initial_margin_rate = (
+        D("1")
+        / leverage
+    )
+
+    maintenance_rate = (
+        ESTIMATED_MAINTENANCE_MARGIN_RATE
+    )
+
+    if side == "LONG":
+
+        factor = (
+            D("1")
+            - initial_margin_rate
+            + maintenance_rate
+        )
+
+    else:
+
+        factor = (
+            D("1")
+            + initial_margin_rate
+            - maintenance_rate
+        )
+
+    return max(
+        entry * factor,
+        ZERO,
+    )
+
+
+# ============================================================
+# BACKUP TRIGGER
+# ============================================================
+
+def backup_trigger(
+    liquidation_price,
+    side,
+):
+    buffer_ratio = (
+        BACKUP_LIQUIDATION_BUFFER_PERCENT
+        / HUNDRED
+    )
+
+    if side == "LONG":
+
+        return (
+            liquidation_price
+            * (
+                D("1")
+                + buffer_ratio
+            )
+        )
+
+    return (
+        liquidation_price
+        * (
+            D("1")
+            - buffer_ratio
+        )
+    )
+
+
+# ============================================================
+# LIQUIDATION DISTANCE
+# ============================================================
+
+def liquidation_distance(
+    entry,
+    liquidation_price,
+):
+    if entry <= ZERO:
+        return ZERO
+
+    return (
+        abs(
+            entry
+            - liquidation_price
+        )
+        / entry
+        * HUNDRED
+    )
+
+
+# ============================================================
+# WEIGHTED AVERAGE
+# ============================================================
+
+def weighted_average(
+    old_average,
+    old_notional,
+    add_price,
+    add_notional,
+):
+    total_notional = (
+        old_notional
+        + add_notional
+    )
+
+    if total_notional <= ZERO:
+        return old_average
+
+    if old_average > ZERO:
+
+        old_quantity = (
+            old_notional
+            / old_average
+        )
+
+    else:
+        old_quantity = ZERO
+
+    if add_price > ZERO:
+
+        add_quantity = (
+            add_notional
+            / add_price
+        )
+
+    else:
+        add_quantity = ZERO
+
+    total_quantity = (
+        old_quantity
+        + add_quantity
+    )
+
+    if total_quantity <= ZERO:
+        return old_average
+
+    return (
+        total_notional
+        / total_quantity
+    )
+
+
+# ============================================================
+# SIMULATED BACKUP ENGINE
+# ============================================================
+
+def simulate_side(
+    balance,
+    mark_price,
+    side,
+):
+    initial_margin = percent_of(
+        balance,
+        INITIAL_ENTRY_PERCENT,
+    )
+
+    initial_notional = (
+        initial_margin
+        * LEVERAGE
+    )
+
+    average_price = mark_price
+
+    total_notional = (
+        initial_notional
+    )
+
+    exposure = (
+        INITIAL_ENTRY_PERCENT
+    )
+
+    results = []
+
+    liquidation_price = (
+        estimate_liquidation(
+            average_price,
+            LEVERAGE,
+            side,
+        )
+    )
+
+    distance = (
+        liquidation_distance(
+            average_price,
+            liquidation_price,
+        )
+    )
+
+    results.append(
+        (
+            "INITIAL",
+            average_price,
+            liquidation_price,
+            None,
+            exposure,
+            distance,
+            True,
+        )
+    )
+
+    for backup_number in range(
+        1,
+        MAX_BACKUPS + 1,
+    ):
+
+        trigger = (
+            backup_trigger(
+                liquidation_price,
+                side,
+            )
+        )
+
+        next_exposure = (
+            exposure
+            + BACKUP_SIZE_PERCENT
+        )
+
+        exposure_ok = (
+            next_exposure
+            <= MAX_FUND_EXPOSURE_PERCENT
+        )
+
+        distance_ok = (
+            liquidation_distance(
+                average_price,
+                liquidation_price,
+            )
+            >=
+            MIN_LIQUIDATION_DISTANCE_PERCENT
+        )
+
+        allowed = (
+            exposure_ok
+            and distance_ok
+            and trigger > ZERO
+        )
+
+        if allowed:
+
+            add_margin = (
+                percent_of(
+                    balance,
+                    BACKUP_SIZE_PERCENT,
                 )
             )
 
-    raise RuntimeError(
-        "WEEX mark price could "
-        "not be extracted."
-    )
-
-
-# ============================================================
-# CONFIGURATION VALIDATION
-# ============================================================
-
-def validate_configuration(
-    weex_min_leverage,
-    weex_max_leverage,
-):
-
-    checks = {}
-
-    checks[
-        "entry_positive"
-    ] = (
-        INITIAL_ENTRY_PERCENT
-        > ZERO
-    )
-
-    checks[
-        "entry_not_over_100"
-    ] = (
-        INITIAL_ENTRY_PERCENT
-        <= HUNDRED
-    )
-
-    checks[
-        "leverage_positive"
-    ] = (
-        LEVERAGE
-        > ZERO
-    )
-
-    checks[
-        "leverage_within_local_cap"
-    ] = (
-        LEVERAGE
-        <= MAX_LEVERAGE
-    )
-
-    checks[
-        "leverage_above_weex_min"
-    ] = (
-        LEVERAGE
-        >= weex_min_leverage
-    )
-
-    checks[
-        "leverage_allowed_by_weex"
-    ] = (
-        LEVERAGE
-        <= weex_max_leverage
-    )
-
-    checks[
-        "tp_total_100"
-    ] = (
-        TP1_PERCENT
-        + TP2_PERCENT
-        + TP3_PERCENT
-        == HUNDRED
-    )
-
-    checks[
-        "tp_values_nonnegative"
-    ] = (
-        TP1_PERCENT >= ZERO
-        and
-        TP2_PERCENT >= ZERO
-        and
-        TP3_PERCENT >= ZERO
-    )
-
-    checks[
-        "tp_triggers_positive"
-    ] = (
-        TP1_TRIGGER_PERCENT > ZERO
-        and
-        TP2_TRIGGER_PERCENT > ZERO
-    )
-
-    checks[
-        "tp2_trigger_above_tp1"
-    ] = (
-        TP2_TRIGGER_PERCENT
-        > TP1_TRIGGER_PERCENT
-    )
-
-    checks[
-        "pyramid_count_nonnegative"
-    ] = (
-        MAX_PYRAMID_ADDS >= 0
-    )
-
-    checks[
-        "pyramid_count_valid"
-    ] = (
-        len(
-            PYRAMID_ADD_PERCENTS
-        )
-        >= MAX_PYRAMID_ADDS
-    )
-
-    checks[
-        "pyramid_sizes_positive"
-    ] = all(
-        x > ZERO
-        for x
-        in PYRAMID_ADD_PERCENTS[
-            :MAX_PYRAMID_ADDS
-        ]
-    )
-
-    checks[
-        "backup_count_nonnegative"
-    ] = (
-        MAX_BACKUPS >= 0
-    )
-
-    checks[
-        "backup_count_valid"
-    ] = (
-        len(
-            BACKUP_SIZE_PERCENTS
-        )
-        >= MAX_BACKUPS
-    )
-
-    checks[
-        "backup_sizes_positive"
-    ] = all(
-        x > ZERO
-        for x
-        in BACKUP_SIZE_PERCENTS[
-            :MAX_BACKUPS
-        ]
-    )
-
-    checks[
-        "backup_buffer_positive"
-    ] = (
-        BACKUP_LIQUIDATION_BUFFER_PERCENT
-        > ZERO
-    )
-
-    checks[
-        "min_liquidation_distance_positive"
-    ] = (
-        MIN_LIQUIDATION_DISTANCE_PERCENT
-        > ZERO
-    )
-
-    checks[
-        "trailing_positive"
-    ] = (
-        TRAILING_DISTANCE_PERCENT
-        > ZERO
-    )
-
-    checks[
-        "signal_expiry_positive"
-    ] = (
-        SIGNAL_EXPIRY_SECONDS
-        > 0
-    )
-
-    checks[
-        "loss_sequence_limit_positive"
-    ] = (
-        LOSS_SEQUENCE_LIMIT
-        > 0
-    )
-
-    checks[
-        "cooldown_nonnegative"
-    ] = (
-        COOLDOWN_SECONDS
-        >= 0
-    )
-
-    checks[
-        "max_trade_loss_valid"
-    ] = (
-        MAX_TRADE_LOSS_PERCENT
-        > ZERO
-        and
-        MAX_TRADE_LOSS_PERCENT
-        <= HUNDRED
-    )
-
-    checks[
-        "max_fund_exposure_valid"
-    ] = (
-        MAX_FUND_EXPOSURE_PERCENT
-        > ZERO
-        and
-        MAX_FUND_EXPOSURE_PERCENT
-        <= HUNDRED
-    )
-
-    return checks
-
-
-# ============================================================
-# EXPOSURE CALCULATION
-# ============================================================
-
-def calculate_planned_exposure():
-
-    initial = INITIAL_ENTRY_PERCENT
-
-    pyramids = sum(
-        PYRAMID_ADD_PERCENTS[
-            :MAX_PYRAMID_ADDS
-        ],
-        ZERO,
-    )
-
-    backups = sum(
-        BACKUP_SIZE_PERCENTS[
-            :MAX_BACKUPS
-        ],
-        ZERO,
-    )
-
-    total = (
-        initial
-        + pyramids
-        + backups
-    )
-
-    return {
-        "initial": initial,
-        "pyramids": pyramids,
-        "backups": backups,
-        "total": total,
-        "within_limit": (
-            total
-            <= MAX_FUND_EXPOSURE_PERCENT
-        ),
-    }
-
-
-# ============================================================
-# POSITION SIZING
-# ============================================================
-
-def calculate_position(
-    balance,
-    mark_price,
-    entry_percent,
-    leverage,
-    quantity_precision,
-):
-
-    margin = percent_amount(
-        balance,
-        entry_percent,
-    )
-
-    notional = (
-        margin
-        * leverage
-    )
-
-    raw_quantity = (
-        notional
-        / mark_price
-    )
-
-    quantity = floor_quantity(
-        raw_quantity,
-        quantity_precision,
-    )
-
-    return {
-        "margin": margin,
-        "notional": notional,
-        "raw_quantity": raw_quantity,
-        "quantity": quantity,
-    }
-
-
-# ============================================================
-# $1 MARGIN TEST
-# ============================================================
-
-def calculate_one_dollar_test(
-    mark_price,
-    leverage,
-    quantity_precision,
-):
-
-    margin = Decimal(
-        "1"
-    )
-
-    notional = (
-        margin
-        * leverage
-    )
-
-    raw_quantity = (
-        notional
-        / mark_price
-    )
-
-    quantity = floor_quantity(
-        raw_quantity,
-        quantity_precision,
-    )
-
-    return {
-        "margin": margin,
-        "notional": notional,
-        "quantity": quantity,
-    }
-
-
-# ============================================================
-# DISPLAY HELPERS
-# ============================================================
-
-def list_percentages(
-    values,
-):
-
-    return (
-        ", ".join(
-            f"{fmt(x)}%"
-            for x
-            in values
-        )
-        or "NONE"
-    )
-
-
-def control_status(
-    enabled,
-):
-
-    return (
-        "✅ ACTIVE"
-        if enabled
-        else "⚪ DISABLED"
-    )
-
-
-def build_adjustable_simulation():
-
-    return [
-        (
-            "Initial Entry",
-            f"{fmt(INITIAL_ENTRY_PERCENT)}%",
-        ),
-        (
-            "Leverage",
-            f"{fmt(LEVERAGE)}x",
-        ),
-        (
-            "Local Max Leverage",
-            f"{fmt(MAX_LEVERAGE)}x",
-        ),
-        (
-            "Max Pyramids",
-            str(
-                MAX_PYRAMID_ADDS
-            ),
-        ),
-        (
-            "Pyramid Sizes",
-            list_percentages(
-                PYRAMID_ADD_PERCENTS
-            ),
-        ),
-        (
-            "Pyramid Momentum",
-            (
-                f"{fmt(PYRAMID_MOMENTUM_CONFIRMATION_PERCENT)}%"
-            ),
-        ),
-        (
-            "Max Backups",
-            str(
-                MAX_BACKUPS
-            ),
-        ),
-        (
-            "Backup Sizes",
-            list_percentages(
-                BACKUP_SIZE_PERCENTS
-            ),
-        ),
-        (
-            "Backup Liq Buffer",
-            (
-                f"{fmt(BACKUP_LIQUIDATION_BUFFER_PERCENT)}%"
-            ),
-        ),
-        (
-            "Min Liq Distance",
-            (
-                f"{fmt(MIN_LIQUIDATION_DISTANCE_PERCENT)}%"
-            ),
-        ),
-        (
-            "TP1 / TP2 / TP3",
-            (
-                f"{fmt(TP1_PERCENT)}% / "
-                f"{fmt(TP2_PERCENT)}% / "
-                f"{fmt(TP3_PERCENT)}%"
-            ),
-        ),
-        (
-            "TP1 Trigger",
-            f"{fmt(TP1_TRIGGER_PERCENT)}%",
-        ),
-        (
-            "TP2 Trigger",
-            f"{fmt(TP2_TRIGGER_PERCENT)}%",
-        ),
-        (
-            "Trailing Distance",
-            (
-                f"{fmt(TRAILING_DISTANCE_PERCENT)}%"
-            ),
-        ),
-        (
-            "Max Fund Exposure",
-            (
-                f"{fmt(MAX_FUND_EXPOSURE_PERCENT)}%"
-            ),
-        ),
-        (
-            "Max Trade Loss",
-            (
-                f"{fmt(MAX_TRADE_LOSS_PERCENT)}%"
-            ),
-        ),
-        (
-            "Signal Expiry",
-            f"{SIGNAL_EXPIRY_SECONDS}s",
-        ),
-        (
-            "Loss Sequence Limit",
-            str(
-                LOSS_SEQUENCE_LIMIT
-            ),
-        ),
-        (
-            "Cooldown",
-            f"{COOLDOWN_SECONDS}s",
-        ),
-        (
-            "One Direction Only",
-            (
-                "ACTIVE"
-                if ONE_DIRECTION_ONLY
-                else "DISABLED"
-            ),
-        ),
-        (
-            "Anti Duplicate",
-            (
-                "ACTIVE"
-                if ANTI_DUPLICATE_ORDERS
-                else "DISABLED"
-            ),
-        ),
-        (
-            "Trend Reversal Exit",
-            (
-                "ACTIVE"
-                if TREND_REVERSAL_EXIT
-                else "DISABLED"
-            ),
-        ),
-        (
-            "Idle Pyramid Cleanup",
-            (
-                "ACTIVE"
-                if IDLE_PYRAMID_CLEANUP
-                else "DISABLED"
-            ),
-        ),
-    ]
-
-
-# ============================================================
-# TELEGRAM REPORT BUILDER
-# ============================================================
-#
-# IMPORTANT:
-#
-# Building the Telegram report as a list of lines avoids the
-# f-string / concatenation SyntaxError that occurred previously.
-#
-# ============================================================
-
-def build_telegram_message(
-    all_passed,
-    balance,
-    mark_price,
-    min_order,
-    quantity_precision,
-    contract_value,
-    weex_max_leverage,
-    position,
-    entry_minimum_passed,
-    exposure,
-    one_dollar,
-    one_dollar_passed,
-    checks,
-):
-
-    status_icon = (
-        "✅"
-        if all_passed
-        else "⚠️"
-    )
-
-    status_text = (
-        "DIAGNOSTIC PASSED"
-        if all_passed
-        else "NOT READY"
-    )
-
-    failed_checks = [
-        name
-        for name, passed
-        in checks.items()
-        if not passed
-    ]
-
-    lines = [
-        (
-            f"{status_icon} MODULE "
-            f"{MODULE_NAME} "
-            f"{status_text}"
-        ),
-        SYMBOL,
-        "",
-        (
-            f"Available USDT: "
-            f"{fmt(balance)}"
-        ),
-        (
-            f"Mark Price: "
-            f"{fmt(mark_price)} USDT"
-        ),
-        "",
-        "ADJUSTABLE TEST CONFIG",
-        (
-            f"Entry: "
-            f"{fmt(INITIAL_ENTRY_PERCENT)}%"
-        ),
-        (
-            f"Leverage: "
-            f"{fmt(LEVERAGE)}x"
-        ),
-        (
-            f"Max Pyramids: "
-            f"{MAX_PYRAMID_ADDS}"
-        ),
-        (
-            f"Max Backups: "
-            f"{MAX_BACKUPS}"
-        ),
-        (
-            f"Max Fund Exposure: "
-            f"{fmt(MAX_FUND_EXPOSURE_PERCENT)}%"
-        ),
-        "",
-        "WEEX CONTRACT",
-        (
-            f"Minimum Order: "
-            f"{fmt(min_order)}"
-        ),
-        (
-            f"Quantity Precision: "
-            f"{quantity_precision}"
-        ),
-        (
-            f"Contract Value: "
-            f"{fmt(contract_value)}"
-        ),
-        (
-            f"WEEX Max Leverage: "
-            f"{fmt(weex_max_leverage)}x"
-        ),
-        "",
-        "CURRENT ENTRY",
-        (
-            f"Margin: "
-            f"{fmt(position['margin'])} USDT"
-        ),
-        (
-            f"Notional: "
-            f"{fmt(position['notional'])} USDT"
-        ),
-        (
-            f"Quantity: "
-            f"{fmt(position['quantity'])}"
-        ),
-        (
-            "Minimum Passed: ✅ YES"
-            if entry_minimum_passed
-            else "Minimum Passed: ❌ NO"
-        ),
-        "",
-        "$1 MARGIN TEST",
-        (
-            f"Notional: "
-            f"{fmt(one_dollar['notional'])} USDT"
-        ),
-        (
-            f"Quantity: "
-            f"{fmt(one_dollar['quantity'])}"
-        ),
-        (
-            "Minimum Passed: ✅ YES"
-            if one_dollar_passed
-            else "Minimum Passed: ❌ NO"
-        ),
-        "",
-        "FULL EXPOSURE PLAN",
-        (
-            f"Initial: "
-            f"{fmt(exposure['initial'])}%"
-        ),
-        (
-            f"Pyramids: "
-            f"{fmt(exposure['pyramids'])}%"
-        ),
-        (
-            f"Backups: "
-            f"{fmt(exposure['backups'])}%"
-        ),
-        (
-            f"Total: "
-            f"{fmt(exposure['total'])}% / "
-            f"{fmt(MAX_FUND_EXPOSURE_PERCENT)}%"
-        ),
-        (
-            "Exposure Passed: ✅ YES"
-            if exposure[
-                "within_limit"
-            ]
-            else "Exposure Passed: ❌ NO"
-        ),
-        "",
-        "TP ENGINE",
-        (
-            f"TP1 / TP2 / TP3: "
-            f"{fmt(TP1_PERCENT)}% / "
-            f"{fmt(TP2_PERCENT)}% / "
-            f"{fmt(TP3_PERCENT)}%"
-        ),
-        (
-            f"TP1 Trigger: "
-            f"{fmt(TP1_TRIGGER_PERCENT)}%"
-        ),
-        (
-            f"TP2 Trigger: "
-            f"{fmt(TP2_TRIGGER_PERCENT)}%"
-        ),
-        (
-            f"Trailing: "
-            f"{fmt(TRAILING_DISTANCE_PERCENT)}%"
-        ),
-        "",
-        "SAFETY CONTROLS",
-        (
-            "One-direction: "
-            + control_status(
-                ONE_DIRECTION_ONLY
+            add_notional = (
+                add_margin
+                * LEVERAGE
             )
-        ),
-        (
-            "Anti-duplicate: "
-            + control_status(
-                ANTI_DUPLICATE_ORDERS
-            )
-        ),
-        (
-            f"Signal expiry: ✅ "
-            f"{SIGNAL_EXPIRY_SECONDS}s"
-        ),
-        (
-            f"Loss cooldown: ✅ after "
-            f"{LOSS_SEQUENCE_LIMIT} losses / "
-            f"{COOLDOWN_SECONDS}s"
-        ),
-        (
-            "Trend reversal exit: "
-            + control_status(
-                TREND_REVERSAL_EXIT
-            )
-        ),
-        (
-            "Idle pyramid cleanup: "
-            + control_status(
-                IDLE_PYRAMID_CLEANUP
-            )
-        ),
-    ]
 
-    if failed_checks:
+            average_price = (
+                weighted_average(
+                    average_price,
+                    total_notional,
+                    trigger,
+                    add_notional,
+                )
+            )
 
-        lines.extend(
-            [
-                "",
-                "FAILED CHECKS",
-            ]
+            total_notional += (
+                add_notional
+            )
+
+            exposure = (
+                next_exposure
+            )
+
+            liquidation_price = (
+                estimate_liquidation(
+                    average_price,
+                    LEVERAGE,
+                    side,
+                )
+            )
+
+            distance = (
+                liquidation_distance(
+                    average_price,
+                    liquidation_price,
+                )
+            )
+
+        else:
+
+            distance = (
+                liquidation_distance(
+                    average_price,
+                    liquidation_price,
+                )
+            )
+
+        results.append(
+            (
+                f"BACKUP {backup_number}",
+                average_price,
+                liquidation_price,
+                trigger,
+                exposure,
+                distance,
+                allowed,
+            )
         )
 
-        lines.extend(
-            f"❌ {name}"
-            for name
-            in failed_checks
-        )
+        if not allowed:
+            break
 
-    lines.extend(
-        [
-            "",
-            (
-                "⚠️ Backup liquidation triggers "
-                "NOT ARMED in R5"
-            ),
-            (
-                "⚠️ R5 does not estimate "
-                "liquidation prices"
-            ),
-            "",
-            "🛡 Hard execution lock active",
-            "⚠️ Live order execution disabled",
-            "⚠️ NO LIVE ORDER WAS SENT",
-        ]
-    )
-
-    return "\n".join(
-        lines
-    )
+    return results
 
 
 # ============================================================
-# MAIN R5 DIAGNOSTIC
+# MAIN
 # ============================================================
 
-async def run_r5():
+async def main():
 
     print(
         "=" * 60
@@ -1578,117 +979,118 @@ async def run_r5():
     )
 
     print(
-        f"{SYMBOL} ADJUSTABLE CONFIGURATION "
-        "SIMULATION"
+        f"{SYMBOL} "
+        "LIQUIDATION + BACKUP DIAGNOSTIC"
+    )
+
+    print(
+        "NO LIVE ORDERS WILL BE SENT"
     )
 
     print(
         "=" * 60
     )
 
-    print(
-        "LIVE ORDER EXECUTION: DISABLED"
-    )
-
-    print(
-        "HARD EXECUTION LOCK: ACTIVE"
-    )
-
-    print(
-        "NO LIVE ORDER FUNCTION EXISTS IN R5"
-    )
-
-    print(
-        "=" * 60
-    )
-
-    timeout = aiohttp.ClientTimeout(
-        total=20
-    )
-
-    async with aiohttp.ClientSession(
-        timeout=timeout
-    ) as session:
+    async with aiohttp.ClientSession() as session:
 
         try:
 
-            # ================================================
-            # LIVE WEEX DATA
-            # ================================================
+            (
+                exchange_info,
+                mark_data,
+                balance_data,
+                position_data,
+            ) = await asyncio.gather(
 
-            balance = await get_available_usdt(
-                session
+                public_get(
+                    session,
+                    "/capi/v3/market/exchangeInfo",
+                    {
+                        "symbol":
+                            SYMBOL
+                    },
+                ),
+
+                public_get(
+                    session,
+                    "/capi/v3/market/symbolPrice",
+                    {
+                        "symbol":
+                            SYMBOL,
+
+                        "priceType":
+                            "MARK",
+                    },
+                ),
+
+                private_get(
+                    session,
+                    "/capi/v3/account/balance",
+                ),
+
+                private_get(
+                    session,
+                    "/capi/v3/account/position/singlePosition",
+                    {
+                        "symbol":
+                            SYMBOL
+                    },
+                ),
             )
-
-            contract = await get_contract_info(
-                session
-            )
-
-            mark_price = await get_mark_price(
-                session
-            )
-
-
-            # ================================================
-            # BASIC LIVE DATA VALIDATION
-            # ================================================
-
-            if balance < ZERO:
-
-                raise RuntimeError(
-                    "Available USDT balance "
-                    "is negative."
-                )
-
-            if mark_price <= ZERO:
-
-                raise RuntimeError(
-                    f"Invalid WEEX mark price: "
-                    f"{mark_price}"
-                )
 
 
             # ================================================
             # CONTRACT DATA
             # ================================================
 
+            info = get_symbol_info(
+                exchange_info
+            )
+
+            balance = get_usdt_balance(
+                balance_data
+            )
+
+            mark_price = D(
+                str(
+                    mark_data.get(
+                        "price",
+                        "0",
+                    )
+                )
+            )
+
             quantity_precision = int(
-                contract.get(
+                info.get(
                     "quantityPrecision",
                     4,
                 )
             )
 
-            min_order = Decimal(
+            minimum_order = D(
                 str(
-                    contract.get(
+                    info.get(
                         "minOrderSize",
-                        "0",
+                        info.get(
+                            "minOrderQty",
+                            "0.0001",
+                        ),
                     )
                 )
             )
 
-            contract_value = Decimal(
+            contract_value = D(
                 str(
-                    contract.get(
+                    info.get(
                         "contractVal",
-                        "0",
+                        "0.0001",
                     )
                 )
             )
 
-            weex_min_leverage = Decimal(
+            weex_max_leverage = D(
                 str(
-                    contract.get(
-                        "minLeverage",
-                        "1",
-                    )
-                )
-            )
-
-            weex_max_leverage = Decimal(
-                str(
-                    contract.get(
+                    info.get(
                         "maxLeverage",
                         "0",
                     )
@@ -1697,329 +1099,39 @@ async def run_r5():
 
 
             # ================================================
-            # CONTRACT SANITY CHECK
-            # ================================================
-
-            if quantity_precision < 0:
-
-                raise RuntimeError(
-                    "WEEX returned an invalid "
-                    "quantity precision."
-                )
-
-            if min_order <= ZERO:
-
-                raise RuntimeError(
-                    f"WEEX returned invalid "
-                    f"minimum order size: "
-                    f"{min_order}"
-                )
-
-            if weex_max_leverage <= ZERO:
-
-                raise RuntimeError(
-                    f"WEEX returned invalid "
-                    f"maximum leverage: "
-                    f"{weex_max_leverage}"
-                )
-
-
-            # ================================================
-            # PREVENT INVALID DIVISION
-            # ================================================
-
-            if LEVERAGE <= ZERO:
-
-                raise RuntimeError(
-                    "Configured LEVERAGE must "
-                    "be greater than zero."
-                )
-
-
-            # ================================================
-            # CONFIGURATION VALIDATION
-            # ================================================
-
-            checks = validate_configuration(
-                weex_min_leverage,
-                weex_max_leverage,
-            )
-
-            exposure = (
-                calculate_planned_exposure()
-            )
-
-            checks[
-                "planned_exposure_within_limit"
-            ] = exposure[
-                "within_limit"
-            ]
-
-
-            # ================================================
-            # CURRENT ENTRY POSITION
-            # ================================================
-
-            position = calculate_position(
-                balance=balance,
-                mark_price=mark_price,
-                entry_percent=INITIAL_ENTRY_PERCENT,
-                leverage=LEVERAGE,
-                quantity_precision=quantity_precision,
-            )
-
-            entry_minimum_passed = (
-                position[
-                    "quantity"
-                ]
-                >= min_order
-                and
-                position[
-                    "quantity"
-                ]
-                > ZERO
-            )
-
-            checks[
-                "current_entry_meets_minimum"
-            ] = entry_minimum_passed
-
-
-            # ================================================
-            # TRUE MINIMUM
-            # ================================================
-
-            minimum_notional = (
-                min_order
-                * mark_price
-            )
-
-            minimum_margin_required = (
-                minimum_notional
-                / LEVERAGE
-            )
-
-
-            # ================================================
-            # $1 MARGIN TEST
-            # ================================================
-
-            one_dollar = (
-                calculate_one_dollar_test(
-                    mark_price=mark_price,
-                    leverage=LEVERAGE,
-                    quantity_precision=quantity_precision,
-                )
-            )
-
-            one_dollar_passed = (
-                one_dollar[
-                    "quantity"
-                ]
-                >= min_order
-                and
-                one_dollar[
-                    "quantity"
-                ]
-                > ZERO
-            )
-
-
-            # ================================================
-            # OVERALL RESULT
-            # ================================================
-
-            all_passed = all(
-                checks.values()
-            )
-
-
-            # ================================================
-            # ADJUSTABLE CONFIGURATION
-            # ================================================
-
-            print(
-                "\nADJUSTABLE CONFIGURATION"
-            )
-
-            print(
-                "-" * 60
-            )
-
-            for name, value in (
-                build_adjustable_simulation()
-            ):
-
-                print(
-                    f"{name}: {value}"
-                )
-
-
-            # ================================================
-            # WEEX CONTRACT
-            # ================================================
-
-            print(
-                "\nWEEX CONTRACT"
-            )
-
-            print(
-                "-" * 60
-            )
-
-            print(
-                f"Symbol: {SYMBOL}"
-            )
-
-            print(
-                f"Mark Price: "
-                f"{fmt(mark_price)} USDT"
-            )
-
-            print(
-                f"Available USDT: "
-                f"{fmt(balance)}"
-            )
-
-            print(
-                f"Minimum Order: "
-                f"{fmt(min_order)}"
-            )
-
-            print(
-                f"Quantity Precision: "
-                f"{quantity_precision}"
-            )
-
-            print(
-                f"Contract Value: "
-                f"{fmt(contract_value)}"
-            )
-
-            print(
-                f"WEEX Min Leverage: "
-                f"{fmt(weex_min_leverage)}x"
-            )
-
-            print(
-                f"WEEX Max Leverage: "
-                f"{fmt(weex_max_leverage)}x"
-            )
-
-
-            # ================================================
-            # LEVERAGE VALIDATION
-            # ================================================
-
-            print(
-                "\nLEVERAGE VALIDATION"
-            )
-
-            print(
-                "-" * 60
-            )
-
-            print(
-                f"Requested Leverage: "
-                f"{fmt(LEVERAGE)}x"
-            )
-
-            print(
-                "Within Local Limit: "
-                + (
-                    "YES"
-                    if checks[
-                        "leverage_within_local_cap"
-                    ]
-                    else "NO"
-                )
-            )
-
-            print(
-                "Above WEEX Minimum: "
-                + (
-                    "YES"
-                    if checks[
-                        "leverage_above_weex_min"
-                    ]
-                    else "NO"
-                )
-            )
-
-            print(
-                "Allowed By WEEX: "
-                + (
-                    "YES"
-                    if checks[
-                        "leverage_allowed_by_weex"
-                    ]
-                    else "NO"
-                )
-            )
-
-
-            # ================================================
             # CURRENT ENTRY
             # ================================================
 
-            print(
-                "\nCURRENT ENTRY"
-            )
-
-            print(
-                "-" * 60
-            )
-
-            print(
-                f"Entry: "
-                f"{fmt(INITIAL_ENTRY_PERCENT)}%"
-            )
-
-            print(
-                f"Margin: "
-                f"{fmt(position['margin'])} USDT"
-            )
-
-            print(
-                f"Notional: "
-                f"{fmt(position['notional'])} USDT"
-            )
-
-            print(
-                f"Quantity: "
-                f"{fmt(position['quantity'])}"
-            )
-
-            print(
-                "Minimum Passed: "
-                + (
-                    "YES"
-                    if entry_minimum_passed
-                    else "NO"
+            entry_margin = (
+                percent_of(
+                    balance,
+                    INITIAL_ENTRY_PERCENT,
                 )
             )
 
-
-            # ================================================
-            # TRUE MINIMUM
-            # ================================================
-
-            print(
-                "\nTRUE MINIMUM AT CURRENT LEVERAGE"
+            entry_notional = (
+                entry_margin
+                * LEVERAGE
             )
 
-            print(
-                "-" * 60
-            )
+            if mark_price > ZERO:
 
-            print(
-                f"Minimum Notional: "
-                f"{fmt(minimum_notional)} USDT"
-            )
+                entry_quantity = (
+                    floor_qty(
+                        entry_notional
+                        / mark_price,
+                        quantity_precision,
+                    )
+                )
 
-            print(
-                f"Minimum Margin Required: "
-                f"{fmt(minimum_margin_required)} USDT"
+            else:
+
+                entry_quantity = ZERO
+
+            entry_minimum_ok = (
+                entry_quantity
+                >= minimum_order
+                and entry_quantity > ZERO
             )
 
 
@@ -2027,175 +1139,616 @@ async def run_r5():
             # EXPOSURE
             # ================================================
 
-            print(
-                "\nFULL PLANNED FUND EXPOSURE"
+            planned_pyramids = (
+                PYRAMID_ADD_PERCENT
+                * D(
+                    MAX_PYRAMID_ADDS
+                )
             )
 
-            print(
-                "-" * 60
+            planned_backups = (
+                BACKUP_SIZE_PERCENT
+                * D(
+                    MAX_BACKUPS
+                )
             )
 
-            print(
-                f"Initial Entry: "
-                f"{fmt(exposure['initial'])}%"
+            planned_total = (
+                INITIAL_ENTRY_PERCENT
+                + planned_pyramids
+                + planned_backups
             )
 
-            print(
-                f"Pyramid Allocation: "
-                f"{fmt(exposure['pyramids'])}%"
+            exposure_ok = (
+                planned_total
+                <= MAX_FUND_EXPOSURE_PERCENT
             )
 
-            print(
-                f"Backup Allocation: "
-                f"{fmt(exposure['backups'])}%"
+
+            # ================================================
+            # LEVERAGE CHECK
+            # ================================================
+
+            leverage_ok = (
+                LEVERAGE
+                <= weex_max_leverage
+                and LEVERAGE
+                <= MAX_LEVERAGE
             )
 
-            print(
-                f"Maximum Planned: "
-                f"{fmt(exposure['total'])}%"
+
+            # ================================================
+            # TP CHECK
+            # ================================================
+
+            tp_ok = (
+                TP1_PERCENT
+                + TP2_PERCENT
+                + TP3_PERCENT
+                ==
+                HUNDRED
             )
 
-            print(
-                f"Configured Limit: "
-                f"{fmt(MAX_FUND_EXPOSURE_PERCENT)}%"
+
+            # ================================================
+            # REAL WEEX POSITION
+            # ================================================
+
+            position = find_position(
+                position_data
             )
 
-            print(
-                "Exposure Passed: "
-                + (
-                    "YES"
-                    if exposure[
-                        "within_limit"
-                    ]
-                    else "NO"
+            real_liquidation = ZERO
+
+            real_side = "NONE"
+
+            real_average = ZERO
+
+            if position:
+
+                real_liquidation = D(
+                    str(
+                        position.get(
+                            "liquidatePrice",
+                            "0",
+                        )
+                    )
+                )
+
+                real_side = str(
+                    position.get(
+                        "side",
+                        "",
+                    )
+                ).upper()
+
+                real_size = D(
+                    str(
+                        position.get(
+                            "size",
+                            "0",
+                        )
+                    )
+                )
+
+                real_open_value = D(
+                    str(
+                        position.get(
+                            "openValue",
+                            "0",
+                        )
+                    )
+                )
+
+                if real_size > ZERO:
+
+                    real_average = (
+                        real_open_value
+                        / real_size
+                    )
+
+
+            # ================================================
+            # SIMULATED BACKUP PLANS
+            # ================================================
+
+            long_plan = simulate_side(
+                balance,
+                mark_price,
+                "LONG",
+            )
+
+            short_plan = simulate_side(
+                balance,
+                mark_price,
+                "SHORT",
+            )
+
+
+            backup_plan_ok = (
+                all(
+                    row[6]
+                    for row
+                    in long_plan[1:]
+                )
+                and
+                all(
+                    row[6]
+                    for row
+                    in short_plan[1:]
                 )
             )
 
 
             # ================================================
-            # $1 TEST
+            # MASTER CHECKS
             # ================================================
 
-            print(
-                "\n$1 MARGIN TEST"
+            checks = {
+
+                "mark_price_positive":
+                    mark_price > ZERO,
+
+                "balance_positive":
+                    balance > ZERO,
+
+                "leverage_allowed":
+                    leverage_ok,
+
+                "entry_meets_minimum":
+                    entry_minimum_ok,
+
+                "exposure_within_limit":
+                    exposure_ok,
+
+                "tp_split_valid":
+                    tp_ok,
+
+                "backup_plan_valid":
+                    backup_plan_ok,
+
+                "hard_execution_lock":
+                    HARD_EXECUTION_LOCK,
+
+                "live_execution_disabled":
+                    not LIVE_ORDER_EXECUTION,
+            }
+
+
+            all_passed = all(
+                checks.values()
             )
 
-            print(
-                "-" * 60
-            )
 
-            print(
-                f"Notional: "
-                f"{fmt(one_dollar['notional'])} USDT"
-            )
-
-            print(
-                f"Quantity: "
-                f"{fmt(one_dollar['quantity'])}"
-            )
-
-            print(
-                "Minimum Passed: "
-                + (
-                    "YES"
-                    if one_dollar_passed
-                    else "NO"
-                )
-            )
-
-
-            # ================================================
-            # SAFETY / CONFIGURATION CHECKS
-            # ================================================
-
-            print(
-                "\nSAFETY / CONFIGURATION CHECKS"
-            )
-
-            print(
-                "-" * 60
-            )
-
-            for name, passed in (
-                checks.items()
-            ):
-
-                print(
-                    f"{'PASS' if passed else 'FAIL'}: "
-                    f"{name}"
-                )
-
-
-            # ================================================
-            # LIQUIDATION / BACKUP ENGINE
-            # ================================================
-
-            print(
-                "\nLIQUIDATION / BACKUP ENGINE"
-            )
-
-            print(
-                "-" * 60
-            )
-
-            print(
-                "Backup count and sizes: CONFIGURED"
-            )
-
-            print(
-                "Liquidation buffer: CONFIGURED"
-            )
-
-            print(
-                "Minimum liquidation distance: CONFIGURED"
-            )
-
-            print(
-                "Actual backup trigger prices: NOT ARMED"
-            )
-
-            print(
-                "R5 will not estimate liquidation price."
-            )
-
-            print(
-                "Later live-position module will use "
-                "WEEX position liquidation data."
+            status_icon = (
+                "✅"
+                if all_passed
+                else "⚠️"
             )
 
 
             # ================================================
-            # FINAL RESULT
+            # TELEGRAM / LOG REPORT
             # ================================================
 
-            print(
-                "\n" + "=" * 60
-            )
+            lines = [
 
-            if all_passed:
+                (
+                    f"{status_icon} MODULE "
+                    f"{MODULE_NAME} "
+                    +
+                    (
+                        "DIAGNOSTIC PASSED"
+                        if all_passed
+                        else "NOT READY"
+                    )
+                ),
 
-                print(
-                    f"MODULE {MODULE_NAME} "
-                    "DIAGNOSTIC PASSED"
-                )
+                SYMBOL,
+
+                "",
+
+                (
+                    "Available USDT: "
+                    f"{fmt(balance)}"
+                ),
+
+                (
+                    "Mark Price: "
+                    f"{fmt(mark_price)} USDT"
+                ),
+
+                "",
+
+                "ADJUSTABLE CONFIG",
+
+                (
+                    "Entry: "
+                    f"{fmt(INITIAL_ENTRY_PERCENT)}%"
+                ),
+
+                (
+                    "Leverage: "
+                    f"{fmt(LEVERAGE)}x"
+                ),
+
+                (
+                    "Max Pyramids: "
+                    f"{MAX_PYRAMID_ADDS}"
+                ),
+
+                (
+                    "Pyramid Size: "
+                    f"{fmt(PYRAMID_ADD_PERCENT)}%"
+                ),
+
+                (
+                    "Max Backups: "
+                    f"{MAX_BACKUPS}"
+                ),
+
+                (
+                    "Backup Size: "
+                    f"{fmt(BACKUP_SIZE_PERCENT)}% each"
+                ),
+
+                (
+                    "Max Fund Exposure: "
+                    f"{fmt(MAX_FUND_EXPOSURE_PERCENT)}%"
+                ),
+
+                "",
+
+                "WEEX CONTRACT",
+
+                (
+                    "Minimum Order: "
+                    f"{fmt(minimum_order)}"
+                ),
+
+                (
+                    "Quantity Precision: "
+                    f"{quantity_precision}"
+                ),
+
+                (
+                    "Contract Value: "
+                    f"{fmt(contract_value)}"
+                ),
+
+                (
+                    "WEEX Max Leverage: "
+                    f"{fmt(weex_max_leverage)}x"
+                ),
+
+                "",
+
+                "CURRENT ENTRY",
+
+                (
+                    "Margin: "
+                    f"{fmt(entry_margin)} USDT"
+                ),
+
+                (
+                    "Notional: "
+                    f"{fmt(entry_notional)} USDT"
+                ),
+
+                (
+                    "Quantity: "
+                    f"{fmt(entry_quantity)}"
+                ),
+
+                (
+                    "Minimum Passed: "
+                    +
+                    (
+                        "✅ YES"
+                        if entry_minimum_ok
+                        else "❌ NO"
+                    )
+                ),
+
+                "",
+
+                "FULL EXPOSURE PLAN",
+
+                (
+                    "Initial: "
+                    f"{fmt(INITIAL_ENTRY_PERCENT)}%"
+                ),
+
+                (
+                    "Pyramids: "
+                    f"{fmt(planned_pyramids)}%"
+                ),
+
+                (
+                    "Backups: "
+                    f"{fmt(planned_backups)}%"
+                ),
+
+                (
+                    "Total: "
+                    f"{fmt(planned_total)}% / "
+                    f"{fmt(MAX_FUND_EXPOSURE_PERCENT)}%"
+                ),
+
+                (
+                    "Exposure Passed: "
+                    +
+                    (
+                        "✅ YES"
+                        if exposure_ok
+                        else "❌ NO"
+                    )
+                ),
+
+                "",
+
+                "LIQUIDATION SETTINGS",
+
+                (
+                    "Backup Buffer: "
+                    f"{fmt(BACKUP_LIQUIDATION_BUFFER_PERCENT)}%"
+                ),
+
+                (
+                    "Min Liq Distance: "
+                    f"{fmt(MIN_LIQUIDATION_DISTANCE_PERCENT)}%"
+                ),
+
+                (
+                    "Planning MMR: "
+                    f"{fmt(ESTIMATED_MAINTENANCE_MARGIN_RATE * HUNDRED)}%"
+                ),
+
+                "",
+
+                "REAL WEEX POSITION",
+            ]
+
+
+            # ================================================
+            # REAL POSITION REPORT
+            # ================================================
+
+            if position:
+
+                lines += [
+
+                    (
+                        "Side: "
+                        f"{real_side}"
+                    ),
+
+                    (
+                        "Approx Avg Entry: "
+                        f"{fmt(real_average)}"
+                    ),
+
+                    (
+                        "WEEX Liquidation Price: "
+                        f"{fmt(real_liquidation)}"
+                    ),
+
+                    (
+                        "✅ Live position liquidation "
+                        "field read from WEEX"
+                    ),
+                ]
 
             else:
 
-                print(
-                    f"MODULE {MODULE_NAME} "
-                    "DIAGNOSTIC NOT READY"
+                lines += [
+
+                    "No open position detected",
+
+                    (
+                        "WEEX Liquidation Price: "
+                        "N/A"
+                    ),
+                ]
+
+
+            # ================================================
+            # PLAN FORMATTER
+            # ================================================
+
+            def append_plan(
+                title,
+                rows,
+            ):
+
+                lines.extend(
+                    [
+                        "",
+                        title,
+                    ]
                 )
 
-            print(
-                "HARD EXECUTION LOCK: ACTIVE"
+                for row in rows:
+
+                    (
+                        label,
+                        average,
+                        liquidation,
+                        trigger,
+                        exposure,
+                        distance,
+                        allowed,
+                    ) = row
+
+                    if label == "INITIAL":
+
+                        lines.append(
+
+                            "Initial Avg "
+                            f"{fmt(average)}"
+                            " | Est Liq "
+                            f"{fmt(liquidation)}"
+                            " | Distance "
+                            f"{fmt(distance)}%"
+                        )
+
+                    else:
+
+                        lines.append(
+
+                            f"{label}: "
+                            "Trigger "
+                            f"{fmt(trigger)}"
+                            " | New Avg "
+                            f"{fmt(average)}"
+                            " | New Est Liq "
+                            f"{fmt(liquidation)}"
+                            " | Exposure "
+                            f"{fmt(exposure)}%"
+                            " | "
+                            +
+                            (
+                                "✅"
+                                if allowed
+                                else "❌"
+                            )
+                        )
+
+
+            append_plan(
+                "SIMULATED LONG BACKUP PLAN",
+                long_plan,
             )
 
-            print(
-                "LIVE ORDER EXECUTION: DISABLED"
+            append_plan(
+                "SIMULATED SHORT BACKUP PLAN",
+                short_plan,
             )
 
+
+            # ================================================
+            # REMAINING REPORT
+            # ================================================
+
+            lines += [
+
+                "",
+
+                "TP ENGINE",
+
+                (
+                    "TP1 / TP2 / TP3: "
+                    f"{fmt(TP1_PERCENT)}% / "
+                    f"{fmt(TP2_PERCENT)}% / "
+                    f"{fmt(TP3_PERCENT)}%"
+                ),
+
+                (
+                    "TP1 Trigger: "
+                    f"{fmt(TP1_TRIGGER_PERCENT)}%"
+                ),
+
+                (
+                    "TP2 Trigger: "
+                    f"{fmt(TP2_TRIGGER_PERCENT)}%"
+                ),
+
+                (
+                    "Trailing: "
+                    f"{fmt(TRAILING_DISTANCE_PERCENT)}%"
+                ),
+
+                "",
+
+                "SAFETY CONTROLS",
+
+                (
+                    "One-direction: "
+                    +
+                    (
+                        "✅ ACTIVE"
+                        if ONE_DIRECTION_ONLY
+                        else "❌ OFF"
+                    )
+                ),
+
+                (
+                    "Anti-duplicate: "
+                    +
+                    (
+                        "✅ ACTIVE"
+                        if ANTI_DUPLICATE_ORDERS
+                        else "❌ OFF"
+                    )
+                ),
+
+                (
+                    "Signal expiry: ✅ "
+                    f"{SIGNAL_EXPIRY_SECONDS}s"
+                ),
+
+                (
+                    "Loss cooldown: ✅ after "
+                    f"{LOSS_COOLDOWN_AFTER} losses / "
+                    f"{LOSS_COOLDOWN_SECONDS}s"
+                ),
+
+                (
+                    "Trend reversal exit: "
+                    +
+                    (
+                        "✅ ACTIVE"
+                        if TREND_REVERSAL_EXIT
+                        else "❌ OFF"
+                    )
+                ),
+
+                (
+                    "Idle pyramid cleanup: "
+                    +
+                    (
+                        "✅ ACTIVE"
+                        if IDLE_PYRAMID_CLEANUP
+                        else "❌ OFF"
+                    )
+                ),
+
+                "",
+
+                (
+                    "⚠️ Simulated liquidation prices "
+                    "are planning estimates only"
+                ),
+
+                (
+                    "⚠️ WEEX liquidatePrice is "
+                    "authoritative for real open positions"
+                ),
+
+                (
+                    "⚠️ Backup orders are NOT armed "
+                    "in R6"
+                ),
+
+                "🛡 Hard execution lock active",
+
+                "⚠️ Live order execution disabled",
+
+                "⚠️ NO LIVE ORDER WAS SENT",
+            ]
+
+
+            message = "\n".join(
+                lines
+            )
+
+
+            # ================================================
+            # CONSOLE
+            # ================================================
+
             print(
-                "NO LIVE ORDER WAS SENT"
+                message
             )
 
             print(
@@ -2204,114 +1757,41 @@ async def run_r5():
 
 
             # ================================================
-            # TELEGRAM REPORT
+            # TELEGRAM
             # ================================================
 
-            telegram_message = (
-                build_telegram_message(
-                    all_passed=all_passed,
-                    balance=balance,
-                    mark_price=mark_price,
-                    min_order=min_order,
-                    quantity_precision=quantity_precision,
-                    contract_value=contract_value,
-                    weex_max_leverage=weex_max_leverage,
-                    position=position,
-                    entry_minimum_passed=entry_minimum_passed,
-                    exposure=exposure,
-                    one_dollar=one_dollar,
-                    one_dollar_passed=one_dollar_passed,
-                    checks=checks,
-                )
-            )
-
-            await send_telegram(
+            await telegram(
                 session,
-                telegram_message,
+                message,
             )
-
-            return all_passed
 
 
         except Exception as exc:
 
-            print(
-                "\n" + "=" * 60
-            )
+            message = (
 
-            print(
-                f"MODULE {MODULE_NAME} ERROR"
-            )
+                f"❌ MODULE {MODULE_NAME} ERROR\n"
 
-            print(
+                f"{SYMBOL}\n\n"
+
                 f"{type(exc).__name__}: "
-                f"{exc}"
+                f"{exc}\n\n"
+
+                "🛡 Hard execution lock active\n"
+
+                "⚠️ Live order execution disabled\n"
+
+                "⚠️ NO LIVE ORDER WAS SENT"
             )
 
             print(
-                "HARD EXECUTION LOCK: ACTIVE"
+                message
             )
 
-            print(
-                "LIVE ORDER EXECUTION: DISABLED"
-            )
-
-            print(
-                "NO LIVE ORDER WAS SENT"
-            )
-
-            print(
-                "=" * 60
-            )
-
-            error_message = "\n".join(
-                [
-                    (
-                        f"❌ MODULE "
-                        f"{MODULE_NAME} ERROR"
-                    ),
-                    SYMBOL,
-                    "",
-                    (
-                        f"{type(exc).__name__}: "
-                        f"{exc}"
-                    ),
-                    "",
-                    "🛡 Hard execution lock active",
-                    "⚠️ Live order execution disabled",
-                    "⚠️ NO LIVE ORDER WAS SENT",
-                ]
-            )
-
-            await send_telegram(
+            await telegram(
                 session,
-                error_message,
+                message,
             )
-
-            return False
-
-
-# ============================================================
-# SERVICE KEEP-ALIVE
-# ============================================================
-
-async def main():
-
-    await run_r5()
-
-    print(
-        "\nR5 DIAGNOSTIC COMPLETE"
-    )
-
-    print(
-        "SERVICE REMAINS ONLINE"
-    )
-
-    while True:
-
-        await asyncio.sleep(
-            3600
-        )
 
 
 # ============================================================
@@ -2320,13 +1800,5 @@ async def main():
 
 if __name__ == "__main__":
 
-    try:
-
-        asyncio.run(
-            main()
-        )
-
-    except KeyboardInterrupt:
-
-        print(
-            "MODULE STOPPED")
+    asyncio.run(
+        main())
