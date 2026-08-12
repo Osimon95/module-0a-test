@@ -285,21 +285,23 @@ WEEX_API_PASSPHRASE = os.getenv(
     "",
 ).strip()
 
+            # ================================================
+            # TELEGRAM REPORT
+            # ================================================
 
-# ============================================================
-# TELEGRAM
-# ============================================================
+            status_icon = "✅" if all_passed else "⚠️"
 
-TELEGRAM_BOT_TOKEN = os.getenv(
-    "TELEGRAM_BOT_TOKEN",
-    "",
-).strip()
+            status_text = (
+                "DIAGNOSTIC PASSED"
+                if all_passed
+                else "NOT READY"
+            )
 
-TELEGRAM_CHAT_ID = os.getenv(
-    "TELEGRAM_CHAT_ID",
-    "",
-).strip()
-
+            telegram_message = (
+                f"{status_icon} MODULE {MODULE_NAME} {status_text}\n"
+                f"{SYMBOL}\n\n"
+                f"Available USDT: {fmt(balance)}\n"
+                f"Mark Price: {fmt(mark_price)} USDT\n")
 
 # ============================================================
 # DECIMAL HELPERS
