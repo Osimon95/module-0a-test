@@ -289,7 +289,7 @@ WEEX_API_PASSPHRASE = os.getenv(
             # TELEGRAM REPORT
             # ================================================
 
-            status_icon = "✅" if all_passed else "⚠️"
+status_icon = "✅" if all_passed else "⚠️"
 
             status_text = (
                 "DIAGNOSTIC PASSED"
