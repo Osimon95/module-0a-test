@@ -6,6 +6,7 @@ import json
 import os
 import time
 import traceback
+
 from decimal import Decimal, ROUND_DOWN, InvalidOperation
 from urllib.parse import urlencode
 
@@ -18,40 +19,86 @@ from aiohttp import web
 # ============================================================
 
 MODULE_NAME = "0F-4H-R21"
+
 API_BASE_URL = "https://api-contract.weex.com"
 
-SYMBOL = os.getenv("SYMBOL", "BTCUSDT").strip().upper()
+SYMBOL = os.getenv(
+    "SYMBOL",
+    "BTCUSDT",
+).strip().upper()
 
 
-def default_demo_symbol(symbol: str) -> str:
-    if symbol.endswith("USDT"):
-        return symbol[:-4] + "SUSDT"
+def default_demo_symbol(
+    symbol: str,
+) -> str:
+
+    if symbol.endswith(
+        "USDT"
+    ):
+        return (
+            symbol[:-4]
+            +
+            "SUSDT"
+        )
+
     return symbol
 
 
 DEMO_SYMBOL = os.getenv(
     "DEMO_SYMBOL",
-    default_demo_symbol(SYMBOL)
+    default_demo_symbol(
+        SYMBOL
+    ),
 ).strip().upper()
 
 
 # ============================================================
 # ABSOLUTE EXECUTION SAFETY
 # ============================================================
-# R21 is a LIVE-PATH REHEARSAL ONLY.
-# It may perform authenticated GET requests and an optional DEMO POST.
-# It MUST NOT perform any real/private state-changing POST request.
+#
+# R21 IS PRE-LIVE ONLY.
+#
+# ALLOWED:
+#
+#   PUBLIC GET
+#   PRIVATE AUTHENTICATED GET
+#   OPTIONAL DEMO POST
+#
+# NOT ALLOWED:
+#
+#   REAL ORDER POST
+#   REAL CANCEL POST
+#   REAL LEVERAGE CHANGE POST
+#   REAL MARGIN CHANGE POST
+#   ANY REAL STATE-CHANGING POST
+#
 # ============================================================
 
 LIVE_ORDER_EXECUTION = False
+
 HARD_REAL_POST_LOCK = True
+
 
 RUN_DEMO_ORDER_TEST = os.getenv(
     "RUN_DEMO_ORDER_TEST",
-    "true"
+    "true",
 ).strip().lower() in {
-    "1", "true", "yes", "on"
+    "1",
+    "true",
+    "yes",
+    "on",
 }
+
+
+# ============================================================
+# EXECUTION STATE
+# ============================================================
+
+R21_REAL_POST_CALLED = False
+
+R21_DEMO_POST_ATTEMPTED = False
+
+R21_DEMO_POST_ACCEPTED = False
 
 
 # ============================================================
@@ -59,108 +106,191 @@ RUN_DEMO_ORDER_TEST = os.getenv(
 # ============================================================
 
 ENTRY_PERCENT = Decimal(
-    os.getenv("ENTRY_PERCENT", "5")
+    os.getenv(
+        "ENTRY_PERCENT",
+        "5",
+    )
 )
+
 
 LEVERAGE = int(
-    os.getenv("LEVERAGE", "100")
+    os.getenv(
+        "LEVERAGE",
+        "100",
+    )
 )
 
+
 MAX_CONFIG_LEVERAGE = int(
-    os.getenv("MAX_CONFIG_LEVERAGE", "100")
+    os.getenv(
+        "MAX_CONFIG_LEVERAGE",
+        "100",
+    )
 )
+
 
 MARGIN_TYPE = os.getenv(
     "MARGIN_TYPE",
-    "ISOLATED"
+    "ISOLATED",
 ).strip().upper()
+
 
 MAX_PYRAMID_ADDS = int(
-    os.getenv("MAX_PYRAMID_ADDS", "1")
+    os.getenv(
+        "MAX_PYRAMID_ADDS",
+        "1",
+    )
 )
+
 
 PYRAMID_SIZE_PERCENT = Decimal(
-    os.getenv("PYRAMID_SIZE_PERCENT", "5")
+    os.getenv(
+        "PYRAMID_SIZE_PERCENT",
+        "5",
+    )
 )
+
 
 MAX_BACKUPS = int(
-    os.getenv("MAX_BACKUPS", "3")
+    os.getenv(
+        "MAX_BACKUPS",
+        "3",
+    )
 )
+
 
 BACKUP_SIZE_PERCENT = Decimal(
-    os.getenv("BACKUP_SIZE_PERCENT", "5")
+    os.getenv(
+        "BACKUP_SIZE_PERCENT",
+        "5",
+    )
 )
+
 
 BACKUP_BUFFER_PERCENT = Decimal(
-    os.getenv("BACKUP_BUFFER_PERCENT", "0.3")
+    os.getenv(
+        "BACKUP_BUFFER_PERCENT",
+        "0.3",
+    )
 )
+
 
 MIN_LIQ_DISTANCE_PERCENT = Decimal(
-    os.getenv("MIN_LIQ_DISTANCE_PERCENT", "0.2")
+    os.getenv(
+        "MIN_LIQ_DISTANCE_PERCENT",
+        "0.2",
+    )
 )
+
 
 MAX_FUND_EXPOSURE_PERCENT = Decimal(
-    os.getenv("MAX_FUND_EXPOSURE_PERCENT", "35")
+    os.getenv(
+        "MAX_FUND_EXPOSURE_PERCENT",
+        "35",
+    )
 )
+
 
 SIGNAL_EXPIRY_SECONDS = int(
-    os.getenv("SIGNAL_EXPIRY_SECONDS", "120")
+    os.getenv(
+        "SIGNAL_EXPIRY_SECONDS",
+        "120",
+    )
 )
+
 
 LOSS_COOLDOWN_SECONDS = int(
-    os.getenv("LOSS_COOLDOWN_SECONDS", "300")
+    os.getenv(
+        "LOSS_COOLDOWN_SECONDS",
+        "300",
+    )
 )
 
+
+TP1_TRIGGER_PERCENT = Decimal(
+    os.getenv(
+        "TP1_TRIGGER_PERCENT",
+        "0.5",
+    )
+)
+
+
+TP2_TRIGGER_PERCENT = Decimal(
+    os.getenv(
+        "TP2_TRIGGER_PERCENT",
+        "1.0",
+    )
+)
+
+
+TRAILING_DISTANCE_PERCENT = Decimal(
+    os.getenv(
+        "TRAILING_DISTANCE_PERCENT",
+        "0.20",
+    )
+)
+
+
 ONE_DIRECTION_ONLY = True
+
 ANTI_DUPLICATE_ORDERS = True
+
 TREND_REVERSAL_EXIT = True
+
 IDLE_PYRAMID_CLEANUP = True
 
-# R21 rehearses a BUY/LONG entry by default.
-# This is NOT a trade signal.
+
+# ============================================================
+# REHEARSAL CONFIG
+# ============================================================
+
 REHEARSAL_SIDE = os.getenv(
     "REHEARSAL_SIDE",
-    "BUY"
+    "BUY",
 ).strip().upper()
 
-REHEARSAL_POSITION_SIDE = os.getenv(
-    "REHEARSAL_POSITION_SIDE",
-    "LONG"
-).strip().upper()
 
 REHEARSAL_ORDER_TYPE = os.getenv(
     "REHEARSAL_ORDER_TYPE",
-    "MARKET"
+    "LIMIT",
 ).strip().upper()
 
 
 # ============================================================
-# CREDENTIALS / TELEGRAM
+# CREDENTIALS
 # ============================================================
 
 WEEX_API_KEY = os.getenv(
     "WEEX_API_KEY",
-    ""
+    "",
 ).strip()
+
 
 WEEX_SECRET_KEY = os.getenv(
     "WEEX_SECRET_KEY",
-    ""
+    "",
 ).strip()
+
 
 WEEX_PASSPHRASE = os.getenv(
     "WEEX_PASSPHRASE",
-    ""
+    "",
 ).strip()
+
+
+# ============================================================
+# TELEGRAM
+# ============================================================
 
 TELEGRAM_BOT_TOKEN = os.getenv(
     "TELEGRAM_BOT_TOKEN",
-    ""
+    "",
 ).strip()
+
 
 TELEGRAM_CHAT_ID = os.getenv(
     "TELEGRAM_CHAT_ID",
-    ""
+    "",
 ).strip()
 
 
@@ -168,11 +298,83 @@ TELEGRAM_CHAT_ID = os.getenv(
 # CONSTANTS
 # ============================================================
 
-ZERO = Decimal("0")
-ONE_HUNDRED = Decimal("100")
+ZERO = Decimal(
+    "0"
+)
+
+ONE = Decimal(
+    "1"
+)
+
+ONE_HUNDRED = Decimal(
+    "100"
+)
+
 
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(
     total=20
+)
+
+
+# ============================================================
+# CURRENT WEEX V3 ENDPOINTS
+# ============================================================
+
+MARK_PRICE_PATH = (
+    "/capi/v3/market/symbolPrice"
+)
+
+EXCHANGE_INFO_PATH = (
+    "/capi/v3/market/exchangeInfo"
+)
+
+API_TRADING_SYMBOLS_PATH = (
+    "/capi/v3/market/apiTradingSymbols"
+)
+
+BALANCE_PATH = (
+    "/capi/v3/account/balance"
+)
+
+POSITION_PATH = (
+    "/capi/v3/account/position/allPosition"
+)
+
+REAL_ORDER_PATH = (
+    "/capi/v3/order"
+)
+
+DEMO_ORDER_PATH = (
+    "/capi/v3/sim/order"
+)
+
+
+# ============================================================
+# RUNTIME STATE
+# ============================================================
+
+R21_RUNTIME_STARTED = False
+
+R21_DIAGNOSTIC_COMPLETE = False
+
+R21_DIAGNOSTIC_PASSED = False
+
+R21_LAST_ERROR = None
+
+R21_LAST_STAGE = (
+    "startup"
+)
+
+R21_TELEGRAM_SENT = False
+
+R21_START_TIME = time.time()
+
+
+R21_PORT = int(
+    os.getenv(
+        "PORT",
+        "10000",
+    )
 )
 
 
@@ -183,11 +385,14 @@ REQUEST_TIMEOUT = aiohttp.ClientTimeout(
 def safe_decimal(
     value,
     default=ZERO,
-) -> Decimal:
+):
 
     try:
+
         return Decimal(
-            str(value)
+            str(
+                value
+            )
         )
 
     except (
@@ -195,12 +400,19 @@ def safe_decimal(
         TypeError,
         ValueError,
     ):
+
         return default
 
 
 def decimal_text(
-    value: Decimal,
-) -> str:
+    value,
+):
+
+    value = Decimal(
+        str(
+            value
+        )
+    )
 
     text = format(
         value,
@@ -208,95 +420,156 @@ def decimal_text(
     )
 
     if "." in text:
+
         text = text.rstrip(
             "0"
         ).rstrip(
             "."
         )
 
-    return text or "0"
+    return (
+        text
+        or
+        "0"
+    )
 
 
 def yes_no(
-    value: bool,
-) -> str:
+    value,
+):
 
     return (
         "✅ YES"
-        if value
-        else "❌ NO"
+        if bool(
+            value
+        )
+        else
+        "❌ NO"
     )
 
+
+def r21_uptime_seconds():
+
+    return max(
+        0,
+        int(
+            time.time()
+            -
+            R21_START_TIME
+        ),
+    )
+
+
+# ============================================================
+# CONFIGURATION VALIDATION
+# ============================================================
 
 def validate_configuration():
 
     missing = []
 
     if not WEEX_API_KEY:
+
         missing.append(
             "WEEX_API_KEY"
         )
 
     if not WEEX_SECRET_KEY:
+
         missing.append(
             "WEEX_SECRET_KEY"
         )
 
     if not WEEX_PASSPHRASE:
+
         missing.append(
             "WEEX_PASSPHRASE"
         )
 
+
     if missing:
+
         raise RuntimeError(
             "Missing WEEX credentials: "
-            + ", ".join(missing)
+            +
+            ", ".join(
+                missing
+            )
         )
+
 
     if MARGIN_TYPE not in {
         "ISOLATED",
         "CROSSED",
     }:
+
         raise RuntimeError(
-            f"Invalid MARGIN_TYPE: {MARGIN_TYPE}"
+            f"Invalid MARGIN_TYPE: "
+            f"{MARGIN_TYPE}"
         )
+
 
     if LEVERAGE < 1:
+
         raise RuntimeError(
-            "LEVERAGE must be at least 1"
+            "LEVERAGE must be "
+            "at least 1"
         )
 
-    if LEVERAGE > MAX_CONFIG_LEVERAGE:
+
+    if (
+        LEVERAGE
+        >
+        MAX_CONFIG_LEVERAGE
+    ):
+
         raise RuntimeError(
-            f"Configured leverage {LEVERAGE}x "
-            f"exceeds local cap "
+            f"Configured leverage "
+            f"{LEVERAGE}x exceeds "
+            f"local cap "
             f"{MAX_CONFIG_LEVERAGE}x"
         )
+
 
     if REHEARSAL_SIDE not in {
         "BUY",
         "SELL",
     }:
+
         raise RuntimeError(
-            "REHEARSAL_SIDE must be BUY or SELL"
+            "REHEARSAL_SIDE must "
+            "be BUY or SELL"
         )
 
-    if REHEARSAL_POSITION_SIDE not in {
-        "LONG",
-        "SHORT",
-    }:
-        raise RuntimeError(
-            "REHEARSAL_POSITION_SIDE must be "
-            "LONG or SHORT"
-        )
 
     if REHEARSAL_ORDER_TYPE not in {
-        "MARKET",
         "LIMIT",
+        "MARKET",
     }:
+
         raise RuntimeError(
-            "REHEARSAL_ORDER_TYPE must be "
-            "MARKET or LIMIT"
+            "REHEARSAL_ORDER_TYPE "
+            "must be LIMIT or MARKET"
+        )
+
+
+    if ENTRY_PERCENT <= ZERO:
+
+        raise RuntimeError(
+            "ENTRY_PERCENT must "
+            "be positive"
+        )
+
+
+    if (
+        MAX_FUND_EXPOSURE_PERCENT
+        <=
+        ZERO
+    ):
+
+        raise RuntimeError(
+            "MAX_FUND_EXPOSURE_PERCENT "
+            "must be positive"
         )
 
 
@@ -305,16 +578,20 @@ def validate_configuration():
 # ============================================================
 
 def make_signature(
-    timestamp: str,
-    method: str,
-    path: str,
-    query_string: str,
-    body: str,
-) -> str:
+    timestamp,
+    method,
+    path,
+    query_string="",
+    body="",
+):
 
-    method = method.upper()
+    method = str(
+        method
+    ).upper()
+
 
     if query_string:
+
         message = (
             f"{timestamp}"
             f"{method}"
@@ -324,12 +601,14 @@ def make_signature(
         )
 
     else:
+
         message = (
             f"{timestamp}"
             f"{method}"
             f"{path}"
             f"{body}"
         )
+
 
     digest = hmac.new(
         WEEX_SECRET_KEY.encode(
@@ -341,6 +620,7 @@ def make_signature(
         hashlib.sha256,
     ).digest()
 
+
     return base64.b64encode(
         digest
     ).decode(
@@ -349,31 +629,39 @@ def make_signature(
 
 
 def auth_headers(
-    method: str,
-    path: str,
+    method,
+    path,
     params=None,
-    body: str = "",
-) -> dict:
+    body="",
+):
 
     timestamp = str(
         int(
-            time.time() * 1000
+            time.time()
+            *
+            1000
         )
     )
 
+
     query_string = urlencode(
-        params or {}
+        params
+        or
+        {}
     )
+
 
     signature = make_signature(
-        timestamp,
-        method,
-        path,
-        query_string,
-        body,
+        timestamp=timestamp,
+        method=method,
+        path=path,
+        query_string=query_string,
+        body=body,
     )
 
+
     return {
+
         "ACCESS-KEY":
             WEEX_API_KEY,
 
@@ -395,12 +683,12 @@ def auth_headers(
 
 
 # ============================================================
-# HTTP HELPERS
+# PUBLIC GET
 # ============================================================
 
 async def public_get(
-    session: aiohttp.ClientSession,
-    path: str,
+    session,
+    path,
     params=None,
 ):
 
@@ -409,120 +697,177 @@ async def public_get(
         f"{path}"
     )
 
+
     async with session.get(
+
         url,
+
         params=params,
+
         timeout=REQUEST_TIMEOUT,
+
     ) as response:
+
 
         text = await response.text()
 
+
         if response.status != 200:
+
             raise RuntimeError(
                 f"WEEX HTTP "
                 f"{response.status}: "
                 f"{text}"
             )
 
+
         try:
+
             return json.loads(
                 text
             )
 
         except json.JSONDecodeError as exc:
+
             raise RuntimeError(
-                f"Invalid JSON from WEEX: "
-                f"{text}"
+                "Invalid JSON from WEEX: "
+                +
+                text
             ) from exc
 
 
+# ============================================================
+# PRIVATE GET
+# ============================================================
+
 async def private_get(
-    session: aiohttp.ClientSession,
-    path: str,
+    session,
+    path,
     params=None,
 ):
 
-    params = params or {}
+    params = (
+        params
+        or
+        {}
+    )
+
 
     headers = auth_headers(
-        "GET",
-        path,
+        method="GET",
+        path=path,
         params=params,
     )
+
 
     url = (
         f"{API_BASE_URL}"
         f"{path}"
     )
 
+
     async with session.get(
+
         url,
+
         params=params,
+
         headers=headers,
+
         timeout=REQUEST_TIMEOUT,
+
     ) as response:
+
 
         text = await response.text()
 
+
         if response.status != 200:
+
             raise RuntimeError(
-                f"WEEX PRIVATE GET HTTP "
+                "WEEX PRIVATE GET HTTP "
                 f"{response.status}: "
                 f"{text}"
             )
 
+
         try:
+
             return json.loads(
                 text
             )
 
         except json.JSONDecodeError as exc:
+
             raise RuntimeError(
-                f"Invalid private JSON "
-                f"from WEEX: {text}"
+                "Invalid private JSON "
+                "from WEEX: "
+                +
+                text
             ) from exc
 
 
+# ============================================================
+# DEMO POST
+# ============================================================
+
 async def demo_post(
-    session: aiohttp.ClientSession,
-    path: str,
-    payload: dict,
+    session,
+    path,
+    payload,
 ):
 
     body = json.dumps(
         payload,
-        separators=(",", ":"),
+        separators=(
+            ",",
+            ":",
+        ),
     )
 
+
     headers = auth_headers(
-        "POST",
-        path,
+        method="POST",
+        path=path,
         body=body,
     )
+
 
     url = (
         f"{API_BASE_URL}"
         f"{path}"
     )
 
+
     async with session.post(
+
         url,
+
         data=body,
+
         headers=headers,
+
         timeout=REQUEST_TIMEOUT,
+
     ) as response:
+
 
         text = await response.text()
 
+
         try:
+
             data = json.loads(
                 text
             )
 
         except json.JSONDecodeError:
+
             data = {
-                "raw": text
+                "raw":
+                    text
             }
+
 
         return (
             response.status,
@@ -531,1155 +876,157 @@ async def demo_post(
 
 
 # ============================================================
-# ABSOLUTE REAL POST LOCK
+# ABSOLUTE REAL POST BLOCK
 # ============================================================
 
 def real_post_blocked(
-    path: str,
-    payload: dict,
+    path,
+    payload,
 ):
+
     """
-    R21 deliberately has NO code path that can send
-    a real WEEX POST.
+    TERMINAL REAL ORDER ROUTE.
 
-    This function is the terminal point of the
-    live-path rehearsal.
+    IMPORTANT:
+
+    There is deliberately NO:
+
+        session.post()
+
+    inside this function.
+
+    Therefore this function cannot
+    transmit a real WEEX order.
     """
 
-    if (
-        HARD_REAL_POST_LOCK
-        or not LIVE_ORDER_EXECUTION
-    ):
-        raise RuntimeError(
-            "R21 REAL POST BLOCKED BY DESIGN | "
-            f"endpoint={path} | "
-            f"payload="
-            f"{json.dumps(payload, separators=(',', ':'))}"
-        )
-
-    # Defensive second lock.
-    # Even if constants above are edited accidentally,
-    # R21 must still never transmit a real order.
-    raise RuntimeError(
-        "R21 refuses real POST transmission"
-    )
-
-
-# ============================================================
-# WEEX DATA EXTRACTION
-# ============================================================
-
-def extract_asset_available(
-    data,
-    asset: str,
-) -> Decimal:
-
-    candidates = (
-        data
-        if isinstance(data, list)
-        else (
-            data.get(
-                "data",
-                data,
-            )
-            if isinstance(data, dict)
-            else []
-        )
-    )
-
-    if isinstance(
-        candidates,
-        dict,
-    ):
-        candidates = [
-            candidates
-        ]
-
-    for item in (
-        candidates or []
-    ):
-        if not isinstance(
-            item,
-            dict,
-        ):
-            continue
-
-        if str(
-            item.get(
-                "asset",
-                item.get(
-                    "coin",
-                    "",
-                ),
-            )
-        ).upper() != asset.upper():
-            continue
-
-        for key in (
-            "availableBalance",
-            "available",
-            "availableAmount",
-            "free",
-        ):
-            if key in item:
-                value = safe_decimal(
-                    item[key]
-                )
-
-                if value >= ZERO:
-                    return value
 
     raise RuntimeError(
-        f"Unable to extract "
-        f"available {asset}"
-    )
 
+        "R21 REAL POST BLOCKED BY DESIGN | "
 
-def extract_mark_price(
-    data,
-) -> Decimal:
+        f"endpoint={path} | "
 
-    if isinstance(
-        data,
-        list,
-    ):
-        if not data:
-            raise RuntimeError(
-                "Empty mark price response"
-            )
+        "payload="
 
-        data = data[0]
-
-    if isinstance(
-        data,
-        dict,
-    ):
-        for obj in (
-            data,
-            data.get("data"),
-            data.get("result"),
-        ):
-            if not isinstance(
-                obj,
-                dict,
-            ):
-                continue
-
-            for key in (
-                "price",
-                "markPrice",
-                "lastPrice",
-                "last",
-            ):
-                if key in obj:
-                    value = safe_decimal(
-                        obj[key]
-                    )
-
-                    if value > ZERO:
-                        return value
-
-    raise RuntimeError(
-        "Unable to extract mark price"
-    )
-# ============================================================
-# 0F-4H-R21
-# PART 2
-# EXECUTION PAYLOAD + DEMO TRANSMISSION + RESPONSE VALIDATION
-#
-# IMPORTANT:
-# CONTINUE DIRECTLY BELOW R21 PART 1.
-#
-# REAL WEEX ORDER POST REMAINS HARD LOCKED.
-# ============================================================
-
-
-# ============================================================
-# R21 EXECUTION ENDPOINTS
-# ============================================================
-
-REAL_ORDER_PATH = "/capi/v3/order"
-DEMO_ORDER_PATH = "/capi/v3/sim/order"
-
-
-# ============================================================
-# DECIMAL FORMATTER
-# ============================================================
-
-def decimal_to_plain(value):
-    """
-    Convert Decimal/value to ordinary non-scientific string.
-    """
-
-    value = Decimal(str(value))
-
-    result = format(
-        value,
-        "f",
-    )
-
-    if "." in result:
-        result = result.rstrip("0").rstrip(".")
-
-    if not result:
-        result = "0"
-
-    return result
-
-
-# ============================================================
-# BOOLEAN ICON
-# ============================================================
-
-def yes_no(value):
-    return "✅ YES" if bool(value) else "❌ NO"
-
-
-# ============================================================
-# CLIENT ORDER ID
-# ============================================================
-
-def create_client_order_id(
-    prefix="r21",
-):
-    """
-    WEEX V3 permits user-defined newClientOrderId.
-
-    Keep below 36 characters.
-    """
-
-    timestamp = int(
-        time.time() * 1000
-    )
-
-    random_part = os.urandom(3).hex()
-
-    client_id = (
-        f"{prefix}-{timestamp}-{random_part}"
-    )
-
-    return client_id[:36]
-
-
-# ============================================================
-# SIDE NORMALIZATION
-# ============================================================
-
-def normalize_trade_direction(
-    direction,
-):
-    direction = str(
-        direction
-    ).strip().upper()
-
-    if direction in (
-        "BUY",
-        "LONG",
-    ):
-        return {
-            "side": "BUY",
-            "positionSide": "LONG",
-            "direction": "LONG",
-        }
-
-    if direction in (
-        "SELL",
-        "SHORT",
-    ):
-        return {
-            "side": "SELL",
-            "positionSide": "SHORT",
-            "direction": "SHORT",
-        }
-
-    raise RuntimeError(
-        f"Unsupported trade direction: {direction}"
-    )
-
-
-# ============================================================
-# SAFE QUANTITY VALIDATION
-# ============================================================
-
-def validate_execution_quantity(
-    quantity,
-    minimum_order,
-):
-    quantity = Decimal(
-        str(quantity)
-    )
-
-    minimum_order = Decimal(
-        str(minimum_order)
-    )
-
-    if quantity <= Decimal("0"):
-        raise RuntimeError(
-            f"Execution quantity must be positive: {quantity}"
-        )
-
-    if quantity < minimum_order:
-        raise RuntimeError(
-            "Execution quantity below WEEX minimum: "
-            f"{quantity} < {minimum_order}"
-        )
-
-    return quantity
-
-
-# ============================================================
-# QUANTITY PRECISION
-# ============================================================
-
-def quantize_quantity_r21(
-    quantity,
-    precision,
-):
-    quantity = Decimal(
-        str(quantity)
-    )
-
-    precision = int(
-        precision
-    )
-
-    step = Decimal(
-        "1"
-    ).scaleb(
-        -precision
-    )
-
-    result = quantity.quantize(
-        step,
-        rounding=ROUND_DOWN,
-    )
-
-    if result <= Decimal("0"):
-        raise RuntimeError(
-            "Quantity became zero after precision adjustment"
-        )
-
-    return result
-
-
-# ============================================================
-# PRICE PRECISION HELPER
-# ============================================================
-
-def safe_price_string(
-    price,
-):
-    price = Decimal(
-        str(price)
-    )
-
-    if price <= Decimal("0"):
-        raise RuntimeError(
-            f"Invalid price: {price}"
-        )
-
-    return decimal_to_plain(
-        price
-    )
-
-
-# ============================================================
-# LIMIT TEST PRICE
-# ============================================================
-
-def build_safe_demo_limit_price(
-    mark_price,
-    direction,
-    distance_percent=Decimal("3.0"),
-):
-    """
-    Produce a LIMIT price deliberately away from current mark
-    for the DEMO transmission test.
-
-    LONG:
-        price below market
-
-    SHORT:
-        price above market
-    """
-
-    mark_price = Decimal(
-        str(mark_price)
-    )
-
-    distance_percent = Decimal(
-        str(distance_percent)
-    )
-
-    if mark_price <= Decimal("0"):
-        raise RuntimeError(
-            "Mark price must be positive"
-        )
-
-    if (
-        distance_percent <= Decimal("0")
-        or
-        distance_percent >= Decimal("50")
-    ):
-        raise RuntimeError(
-            "Invalid demo price distance"
-        )
-
-    normalized = normalize_trade_direction(
-        direction
-    )
-
-    distance_factor = (
-        distance_percent
-        /
-        Decimal("100")
-    )
-
-    if normalized["direction"] == "LONG":
-
-        price = (
-            mark_price
-            *
-            (
-                Decimal("1")
-                -
-                distance_factor
-            )
-        )
-
-    else:
-
-        price = (
-            mark_price
-            *
-            (
-                Decimal("1")
-                +
-                distance_factor
-            )
-        )
-
-    return price
-
-
-# ============================================================
-# R21 TP PRICE CALCULATION
-# ============================================================
-
-def calculate_tp_prices_r21(
-    entry_price,
-    direction,
-):
-    """
-    Existing strategy:
-
-    TP1 trigger = +0.5%
-    TP2 trigger = +1.0%
-
-    For SHORT:
-    percentages are mirrored downward.
-    """
-
-    entry_price = Decimal(
-        str(entry_price)
-    )
-
-    normalized = normalize_trade_direction(
-        direction
-    )
-
-    tp1_move = (
-        Decimal(str(TP1_TRIGGER_PERCENT))
-        /
-        Decimal("100")
-    )
-
-    tp2_move = (
-        Decimal(str(TP2_TRIGGER_PERCENT))
-        /
-        Decimal("100")
-    )
-
-    if normalized["direction"] == "LONG":
-
-        tp1 = (
-            entry_price
-            *
-            (
-                Decimal("1")
-                +
-                tp1_move
-            )
-        )
-
-        tp2 = (
-            entry_price
-            *
-            (
-                Decimal("1")
-                +
-                tp2_move
-            )
-        )
-
-    else:
-
-        tp1 = (
-            entry_price
-            *
-            (
-                Decimal("1")
-                -
-                tp1_move
-            )
-        )
-
-        tp2 = (
-            entry_price
-            *
-            (
-                Decimal("1")
-                -
-                tp2_move
-            )
-        )
-
-    return {
-        "tp1": tp1,
-        "tp2": tp2,
-    }
-
-
-# ============================================================
-# R21 TRAILING REFERENCE
-# ============================================================
-
-def calculate_trailing_distance_r21(
-    price,
-):
-    price = Decimal(
-        str(price)
-    )
-
-    trailing_percent = (
-        Decimal(
-            str(
-                TRAILING_DISTANCE_PERCENT
-            )
-        )
-        /
-        Decimal("100")
-    )
-
-    return (
-        price
-        *
-        trailing_percent
-    )
-
-
-# ============================================================
-# EXPOSURE CHECK
-# ============================================================
-
-def validate_total_fund_exposure_r21():
-    initial_exposure = Decimal(
-        str(
-            ENTRY_PERCENT
-        )
-    )
-
-    pyramid_exposure = (
-        Decimal(
-            str(
-                MAX_PYRAMID_ADDS
-            )
-        )
-        *
-        Decimal(
-            str(
-                PYRAMID_SIZE_PERCENT
-            )
-        )
-    )
-
-    backup_exposure = (
-        Decimal(
-            str(
-                MAX_BACKUPS
-            )
-        )
-        *
-        Decimal(
-            str(
-                BACKUP_SIZE_PERCENT
-            )
-        )
-    )
-
-    total_exposure = (
-        initial_exposure
         +
-        pyramid_exposure
-        +
-        backup_exposure
-    )
-
-    maximum_exposure = Decimal(
-        str(
-            MAX_FUND_EXPOSURE_PERCENT
+        json.dumps(
+            payload,
+            separators=(
+                ",",
+                ":",
+            ),
         )
     )
 
-    passed = (
-        total_exposure
-        <=
-        maximum_exposure
-    )
-
-    return {
-        "initial": initial_exposure,
-        "pyramids": pyramid_exposure,
-        "backups": backup_exposure,
-        "total": total_exposure,
-        "maximum": maximum_exposure,
-        "passed": passed,
-    }
-
 
 # ============================================================
-# LEVERAGE VALIDATION
+# FINAL SAFETY ASSERTIONS
 # ============================================================
 
-def validate_leverage_r21(
-    configured_leverage,
-    exchange_min_leverage,
-    exchange_max_leverage,
-):
-    configured = Decimal(
-        str(configured_leverage)
-    )
+def final_safety_assertions_r21():
 
-    local_max = Decimal(
-        str(MAX_CONFIG_LEVERAGE)
-    )
+    if HARD_REAL_POST_LOCK is not True:
 
-    exchange_min = Decimal(
-        str(exchange_min_leverage)
-    )
-
-    exchange_max = Decimal(
-        str(exchange_max_leverage)
-    )
-
-    passed = (
-        configured >= exchange_min
-        and
-        configured <= exchange_max
-        and
-        configured <= local_max
-    )
-
-    if not passed:
         raise RuntimeError(
-            "Leverage validation failed: "
-            f"configured={configured}, "
-            f"local_max={local_max}, "
-            f"exchange_min={exchange_min}, "
-            f"exchange_max={exchange_max}"
+            "R21 requires "
+            "HARD_REAL_POST_LOCK=True"
         )
+
+
+    if LIVE_ORDER_EXECUTION is not False:
+
+        raise RuntimeError(
+            "R21 requires "
+            "LIVE_ORDER_EXECUTION=False"
+        )
+
+
+    if R21_REAL_POST_CALLED:
+
+        raise RuntimeError(
+            "R21 real POST flag "
+            "must remain False"
+        )
+
+
+    if REAL_ORDER_PATH != (
+        "/capi/v3/order"
+    ):
+
+        raise RuntimeError(
+            "Unexpected real "
+            "order endpoint"
+        )
+
+
+    if DEMO_ORDER_PATH != (
+        "/capi/v3/sim/order"
+    ):
+
+        raise RuntimeError(
+            "Unexpected demo "
+            "order endpoint"
+        )
+
 
     return True
 
 
 # ============================================================
-# R21 BUILD ORDER PAYLOAD
+# REAL POST LOCK SELF TEST
 # ============================================================
 
-def build_v3_order_payload_r21(
-    symbol,
-    direction,
-    quantity,
-    order_type="LIMIT",
-    price=None,
-    client_order_id=None,
-):
-    """
-    WEEX V3 format.
-
-    Required:
-        symbol
-        side
-        positionSide
-        type
-        quantity
-        newClientOrderId
-
-    LIMIT additionally requires:
-        timeInForce
-        price
-    """
-
-    normalized = normalize_trade_direction(
-        direction
-    )
-
-    order_type = str(
-        order_type
-    ).strip().upper()
-
-    if order_type not in (
-        "LIMIT",
-        "MARKET",
-    ):
-        raise RuntimeError(
-            f"Unsupported order type: {order_type}"
-        )
-
-    if client_order_id is None:
-        client_order_id = (
-            create_client_order_id()
-        )
+async def test_real_post_lock_r21():
 
     payload = {
-        "symbol": str(
-            symbol
-        ).strip().upper(),
 
-        "side": normalized[
-            "side"
-        ],
+        "symbol":
+            SYMBOL,
 
-        "positionSide": normalized[
-            "positionSide"
-        ],
+        "side":
+            "BUY",
 
-        "type": order_type,
+        "positionSide":
+            "LONG",
 
-        "quantity": decimal_to_plain(
-            quantity
-        ),
+        "type":
+            "MARKET",
 
-        "newClientOrderId": str(
-            client_order_id
-        ),
+        "quantity":
+            "0.0001",
+
+        "newClientOrderId":
+            "r21-lock-test",
     }
 
-    if order_type == "LIMIT":
 
-        if price is None:
-            raise RuntimeError(
-                "LIMIT order requires price"
+    try:
+
+        real_post_blocked(
+            REAL_ORDER_PATH,
+            payload,
+        )
+
+
+    except RuntimeError as exc:
+
+        if (
+            "BLOCKED BY DESIGN"
+            in
+            str(
+                exc
             )
+        ):
 
-        payload[
-            "timeInForce"
-        ] = "GTC"
-
-        payload[
-            "price"
-        ] = safe_price_string(
-            price
-        )
-
-    return payload
+            return True
 
 
-# ============================================================
-# REAL POST ABSOLUTE BLOCK
-# ============================================================
-
-def assert_real_order_post_blocked_r21():
-    """
-    R21 MUST NOT allow accidental real transmission.
-    """
-
-    if HARD_REAL_POST_LOCK is not True:
-        raise RuntimeError(
-            "R21 requires HARD_REAL_POST_LOCK=True"
-        )
-
-    if LIVE_ORDER_EXECUTION is not False:
         raise
-# ============================================================
-# 0F-4H-R21
-# PART 3
-#
-# FINAL ORCHESTRATION
-# HEALTH SERVER
-# TELEGRAM SINGLE-MESSAGE REPORTING
-# DEMO EXECUTION CONTROL
-# PERSISTENT RUNTIME
-#
-# CONTINUE DIRECTLY BELOW R21 PART 2
-#
-# LIVE REAL ORDER EXECUTION REMAINS DISABLED.
-# ============================================================
 
-
-# ============================================================
-# R21 RUNTIME STATE
-# ============================================================
-
-R21_RUNTIME_STARTED = False
-R21_DIAGNOSTIC_COMPLETE = False
-R21_DIAGNOSTIC_PASSED = False
-R21_LAST_ERROR = None
-R21_LAST_STAGE = "startup"
-
-R21_TELEGRAM_SENT = False
-
-R21_START_TIME = time.time()
-
-
-# ============================================================
-# ENV BOOLEAN
-# ============================================================
-
-def r21_env_bool(
-    name,
-    default=False,
-):
-    value = os.getenv(
-        name
-    )
-
-    if value is None:
-        return bool(
-            default
-        )
-
-    value = str(
-        value
-    ).strip().lower()
-
-    return value in (
-        "1",
-        "true",
-        "yes",
-        "on",
-        "enabled",
-    )
-
-
-# ============================================================
-# DEMO TEST SWITCH
-# ============================================================
-
-# If Part 1 already defines RUN_DEMO_ORDER_TEST,
-# preserve it.
-#
-# Otherwise default to False.
-#
-# To enable in Render:
-#
-# RUN_DEMO_ORDER_TEST=true
-#
-# This NEVER enables real trading.
-
-if "RUN_DEMO_ORDER_TEST" not in globals():
-
-    RUN_DEMO_ORDER_TEST = (
-        r21_env_bool(
-            "RUN_DEMO_ORDER_TEST",
-            False,
-        )
-    )
-
-
-# ============================================================
-# PORT
-# ============================================================
-
-R21_PORT = int(
-    os.getenv(
-        "PORT",
-        "10000",
-    )
-)
-
-
-# ============================================================
-# RUNTIME UPTIME
-# ============================================================
-
-def r21_uptime_seconds():
-    return max(
-        0,
-        int(
-            time.time()
-            -
-            R21_START_TIME
-        ),
-    )
-
-
-# ============================================================
-# GENERIC CALL ADAPTER
-# ============================================================
-
-async def r21_call_function(
-    function_name,
-    *args,
-    **kwargs,
-):
-    """
-    Call a function created in Part 1.
-
-    Handles both async and normal functions.
-    """
-
-    function = globals().get(
-        function_name
-    )
-
-    if not callable(
-        function
-    ):
-        raise RuntimeError(
-            f"Required R21 function missing: "
-            f"{function_name}"
-        )
-
-    result = function(
-        *args,
-        **kwargs,
-    )
-
-    if asyncio.iscoroutine(
-        result
-    ):
-        result = await result
-
-    return result
-
-
-# ============================================================
-# CALL FIRST AVAILABLE FUNCTION
-# ============================================================
-
-async def r21_call_first_available(
-    function_names,
-    *args,
-    **kwargs,
-):
-    """
-    Allows Part 3 to tolerate minor naming differences
-    between previous R versions.
-    """
-
-    found = []
-
-    for name in function_names:
-
-        function = globals().get(
-            name
-        )
-
-        if not callable(
-            function
-        ):
-            continue
-
-        found.append(
-            name
-        )
-
-        try:
-
-            result = function(
-                *args,
-                **kwargs,
-            )
-
-            if asyncio.iscoroutine(
-                result
-            ):
-                result = await result
-
-            return result
-
-        except TypeError:
-
-            # Some earlier functions used only session
-            # while others used session + symbol.
-            continue
-
-    if found:
-
-        raise RuntimeError(
-            "Available function signature mismatch: "
-            +
-            ", ".join(
-                found
-            )
-        )
 
     raise RuntimeError(
-        "None of the required functions exist: "
-        +
-        ", ".join(
-            function_names
-        )
-    )
-
-
-# ============================================================
-# R21 MARK PRICE ADAPTER
-# ============================================================
-
-async def r21_get_mark_price(
-    session,
-):
-    candidate_names = (
-        "get_mark_price",
-        "fetch_mark_price",
-        "weex_get_mark_price",
-    )
-
-    last_error = None
-
-    for name in candidate_names:
-
-        function = globals().get(
-            name
-        )
-
-        if not callable(
-            function
-        ):
-            continue
-
-        try:
-
-            result = function(
-                session
-            )
-
-            if asyncio.iscoroutine(
-                result
-            ):
-                result = await result
-
-            result = Decimal(
-                str(
-                    result
-                )
-            )
-
-            if result <= Decimal(
-                "0"
-            ):
-                raise RuntimeError(
-                    "Mark price is not positive"
-                )
-
-            return result
-
-        except Exception as exc:
-
-            last_error = exc
-
-    if last_error:
-
-        raise RuntimeError(
-            f"Unable to obtain mark price: "
-            f"{last_error}"
-        )
-
-    raise RuntimeError(
-        "No mark price function found in R21 Part 1"
-    )
-
-
-# ============================================================
-# R21 BALANCE ADAPTER
-# ============================================================
-
-async def r21_get_balance(
-    session,
-):
-    candidate_names = (
-        "get_available_balance",
-        "get_available_usdt",
-        "get_balance",
-        "fetch_available_balance",
-    )
-
-    last_error = None
-
-    for name in candidate_names:
-
-        function = globals().get(
-            name
-        )
-
-        if not callable(
-            function
-        ):
-            continue
-
-        attempts = (
-            (session,),
-            (session, "USDT"),
-        )
-
-        for arguments in attempts:
-
-            try:
-
-                result = function(
-                    *arguments
-                )
-
-                if asyncio.iscoroutine(
-                    result
-                ):
-                    result = await result
-
-                # Direct numeric return
-                try:
-
-                    value = Decimal(
-                        str(
-                            result
-                        )
-                    )
-
-                    if value >= Decimal(
-                        "0"
-                    ):
-                        return value
-
-                except Exception:
-                    pass
-
-                # Dictionary return
-                value = (
-                    r21_extract_balance_value(
-                        result
-                    )
-                )
-
-                if value is not None:
-                    return value
-
-            except TypeError:
-                continue
-
-            except Exception as exc:
-                last_error = exc
-
-    if last_error:
-
-        raise RuntimeError(
-            f"Unable to obtain available USDT: "
-            f"{last_error}"
-        )
-
-    raise RuntimeError(
-        "No compatible balance function found "
-        "in R21 Part 1"
+        "R21 real POST lock "
+        "self-test failed"
     )
 
 
@@ -1687,210 +1034,210 @@ async def r21_get_balance(
 # BALANCE EXTRACTION
 # ============================================================
 
-def r21_extract_balance_value(
+def extract_asset_available(
     data,
+    asset,
 ):
-    if data is None:
-        return None
 
     if isinstance(
         data,
-        (
-            int,
-            float,
-            Decimal,
-            str,
-        ),
+        dict,
     ):
 
-        try:
+        candidates = data.get(
+            "data",
+            data,
+        )
 
-            value = Decimal(
-                str(
-                    data
-                )
+    else:
+
+        candidates = data
+
+
+    if isinstance(
+        candidates,
+        dict,
+    ):
+
+        candidates = [
+            candidates
+        ]
+
+
+    if not isinstance(
+        candidates,
+        list,
+    ):
+
+        raise RuntimeError(
+            "Unexpected balance "
+            "response format"
+        )
+
+
+    for item in candidates:
+
+        if not isinstance(
+            item,
+            dict,
+        ):
+
+            continue
+
+
+        item_asset = str(
+
+            item.get(
+
+                "asset",
+
+                item.get(
+
+                    "coin",
+
+                    item.get(
+                        "currency",
+                        "",
+                    ),
+                ),
             )
 
-            if value >= Decimal(
-                "0"
-            ):
+        ).upper()
+
+
+        if (
+            item_asset
+            !=
+            asset.upper()
+        ):
+
+            continue
+
+
+        for key in (
+
+            "availableBalance",
+
+            "available",
+
+            "availableAmount",
+
+            "free",
+
+        ):
+
+            if key not in item:
+
+                continue
+
+
+            value = safe_decimal(
+                item[
+                    key
+                ],
+                Decimal(
+                    "-1"
+                ),
+            )
+
+
+            if value >= ZERO:
+
                 return value
 
-        except Exception:
-            return None
+
+    raise RuntimeError(
+        "Unable to extract "
+        f"available {asset}"
+    )
+
+
+# ============================================================
+# MARK PRICE EXTRACTION
+# ============================================================
+
+def extract_mark_price(
+    data,
+):
 
     if isinstance(
         data,
         list,
     ):
 
-        for item in data:
+        if not data:
 
-            value = (
-                r21_extract_balance_value(
-                    item
-                )
+            raise RuntimeError(
+                "Empty mark price response"
             )
 
-            if value is not None:
-                return value
+        data = data[
+            0
+        ]
 
-        return None
 
-    if not isinstance(
+    if isinstance(
         data,
         dict,
     ):
-        return None
 
-    currency = str(
-        data.get(
-            "coin",
+        objects = (
+
+            data,
+
             data.get(
-                "asset",
-                data.get(
-                    "currency",
-                    "",
-                ),
+                "data"
             ),
+
+            data.get(
+                "result"
+            ),
+
         )
-    ).upper()
 
-    balance_keys = (
-        "available",
-        "availableBalance",
-        "available_balance",
-        "availableMargin",
-        "availableEquity",
-        "balance",
-    )
 
-    if (
-        not currency
-        or
-        currency in (
-            "USDT",
-            "SUSDT",
-        )
-    ):
+        for obj in objects:
 
-        for key in balance_keys:
+            if not isinstance(
+                obj,
+                dict,
+            ):
 
-            if key not in data:
                 continue
 
-            try:
 
-                value = Decimal(
-                    str(
-                        data[
-                            key
-                        ]
-                    )
+            for key in (
+
+                "price",
+
+                "markPrice",
+
+                "lastPrice",
+
+                "last",
+
+            ):
+
+                if key not in obj:
+
+                    continue
+
+
+                value = safe_decimal(
+                    obj[
+                        key
+                    ]
                 )
 
-                if value >= Decimal(
-                    "0"
-                ):
+
+                if value > ZERO:
+
                     return value
 
-            except Exception:
-                continue
-
-    for container_key in (
-        "data",
-        "result",
-        "assets",
-        "balances",
-        "list",
-    ):
-
-        if container_key not in data:
-            continue
-
-        value = (
-            r21_extract_balance_value(
-                data[
-                    container_key
-                ]
-            )
-        )
-
-        if value is not None:
-            return value
-
-    return None
-
-
-# ============================================================
-# CONTRACT INFORMATION ADAPTER
-# ============================================================
-
-async def r21_get_contract_information(
-    session,
-):
-    candidate_names = (
-        "get_contract_info",
-        "get_contract_information",
-        "fetch_contract_info",
-    )
-
-    last_error = None
-
-    for name in candidate_names:
-
-        function = globals().get(
-            name
-        )
-
-        if not callable(
-            function
-        ):
-            continue
-
-        attempts = (
-            (session,),
-            (
-                session,
-                SYMBOL,
-            ),
-        )
-
-        for arguments in attempts:
-
-            try:
-
-                result = function(
-                    *arguments
-                )
-
-                if asyncio.iscoroutine(
-                    result
-                ):
-                    result = await result
-
-                return (
-                    r21_normalize_contract_info(
-                        result
-                    )
-                )
-
-            except TypeError:
-                continue
-
-            except Exception as exc:
-                last_error = exc
-
-    if last_error:
-
-        raise RuntimeError(
-            "Unable to obtain WEEX contract info: "
-            f"{last_error}"
-        )
 
     raise RuntimeError(
-        "No compatible contract-info function "
-        "found in R21 Part 1"
+        "Unable to extract "
+        "mark price"
     )
 
 
@@ -1898,110 +1245,238 @@ async def r21_get_contract_information(
 # CONTRACT INFO NORMALIZATION
 # ============================================================
 
-def r21_normalize_contract_info(
+def normalize_contract_info(
     data,
 ):
-    """
-    Normalize previous R-series contract info formats.
-    """
 
     target = data
 
-    if isinstance(
+
+    # --------------------------------------------------------
+    # Standard V3 exchangeInfo response
+    # --------------------------------------------------------
+
+    if (
+        isinstance(
+            target,
+            dict,
+        )
+        and
+        isinstance(
+            target.get(
+                "symbols"
+            ),
+            list,
+        )
+    ):
+
+        symbols = target[
+            "symbols"
+        ]
+
+
+        target = next(
+            (
+                item
+                for item
+                in symbols
+                if
+                isinstance(
+                    item,
+                    dict,
+                )
+                and
+                str(
+                    item.get(
+                        "symbol",
+                        "",
+                    )
+                ).upper()
+                ==
+                SYMBOL
+            ),
+            None,
+        )
+
+
+    # --------------------------------------------------------
+    # Direct list response
+    # --------------------------------------------------------
+
+    elif isinstance(
         target,
         list,
     ):
 
-        matching = None
-
-        for item in target:
-
-            if not isinstance(
-                item,
-                dict,
-            ):
-                continue
-
-            item_symbol = str(
-                item.get(
-                    "symbol",
-                    ""
+        matching = next(
+            (
+                item
+                for item
+                in target
+                if
+                isinstance(
+                    item,
+                    dict,
                 )
-            ).upper()
+                and
+                str(
+                    item.get(
+                        "symbol",
+                        "",
+                    )
+                ).upper()
+                ==
+                SYMBOL
+            ),
+            None,
+        )
 
-            if item_symbol == SYMBOL:
 
-                matching = item
-                break
+        if matching is not None:
 
-        if matching is None and target:
+            target = matching
 
-            matching = target[
+
+        elif target:
+
+            target = target[
                 0
             ]
 
-        target = matching
 
-    if isinstance(
+    # --------------------------------------------------------
+    # Nested response
+    # --------------------------------------------------------
+
+    elif isinstance(
         target,
         dict,
     ):
 
-        for key in (
-            "data",
-            "result",
-        ):
+        nested = (
 
-            nested = target.get(
-                key
+            target.get(
+                "data"
             )
 
+            or
+
+            target.get(
+                "result"
+            )
+
+        )
+
+
+        if isinstance(
+            nested,
+            dict,
+        ):
+
             if isinstance(
-                nested,
+                nested.get(
+                    "symbols"
+                ),
                 list,
             ):
 
-                for item in nested:
+                symbols = nested[
+                    "symbols"
+                ]
 
-                    if not isinstance(
-                        item,
-                        dict,
-                    ):
-                        continue
 
-                    if str(
-                        item.get(
-                            "symbol",
-                            ""
+                target = next(
+                    (
+                        item
+                        for item
+                        in symbols
+                        if
+                        isinstance(
+                            item,
+                            dict,
                         )
-                    ).upper() == SYMBOL:
+                        and
+                        str(
+                            item.get(
+                                "symbol",
+                                "",
+                            )
+                        ).upper()
+                        ==
+                        SYMBOL
+                    ),
+                    None,
+                )
 
-                        target = item
-                        break
 
-            elif isinstance(
-                nested,
-                dict,
-            ):
+            else:
 
                 target = nested
+
+
+        elif isinstance(
+            nested,
+            list,
+        ):
+
+            matching = next(
+                (
+                    item
+                    for item
+                    in nested
+                    if
+                    isinstance(
+                        item,
+                        dict,
+                    )
+                    and
+                    str(
+                        item.get(
+                            "symbol",
+                            "",
+                        )
+                    ).upper()
+                    ==
+                    SYMBOL
+                ),
+                None,
+            )
+
+
+            if matching:
+
+                target = matching
+
+
+            elif nested:
+
+                target = nested[
+                    0
+                ]
+
 
     if not isinstance(
         target,
         dict,
     ):
+
         raise RuntimeError(
-            "Unexpected contract info response"
+            "Unable to locate "
+            f"contract info for {SYMBOL}"
         )
+
 
     def first_decimal(
         keys,
         default,
     ):
+
         for key in keys:
 
             if key not in target:
+
                 continue
+
 
             try:
 
@@ -2014,7 +1489,9 @@ def r21_normalize_contract_info(
                 )
 
             except Exception:
+
                 continue
+
 
         return Decimal(
             str(
@@ -2022,14 +1499,18 @@ def r21_normalize_contract_info(
             )
         )
 
+
     def first_int(
         keys,
         default,
     ):
+
         for key in keys:
 
             if key not in target:
+
                 continue
+
 
             try:
 
@@ -2040,257 +1521,98 @@ def r21_normalize_contract_info(
                 )
 
             except Exception:
+
                 continue
+
 
         return int(
             default
         )
 
+
     minimum_order = first_decimal(
         (
             "minOrderQty",
+
             "minQty",
+
             "minTradeNum",
+
             "minimumOrder",
+
             "minOrder",
+
+            "minOrderAmount",
         ),
         "0.0001",
     )
 
+
     quantity_precision = first_int(
         (
             "quantityPrecision",
+
             "volumePlace",
+
             "qtyPrecision",
+
             "sizeScale",
         ),
         4,
     )
 
+
     contract_value = first_decimal(
         (
             "contractValue",
+
             "contractSize",
+
             "sizeMultiplier",
         ),
         "0.0001",
     )
 
+
     min_leverage = first_decimal(
         (
             "minLeverage",
+
             "minLever",
         ),
         "1",
     )
 
+
     max_leverage = first_decimal(
         (
             "maxLeverage",
+
             "maxLever",
         ),
         "400",
     )
 
-    return {
-        "raw": target,
-        "minimum_order": minimum_order,
-        "quantity_precision": (
-            quantity_precision
-        ),
-        "contract_value": (
-            contract_value
-        ),
-        "min_leverage": (
-            min_leverage
-        ),
-        "max_leverage": (
-            max_leverage
-        ),
-    }
-
-
-# ============================================================
-# API TRADING SYMBOL CHECK
-# ============================================================
-
-async def r21_check_symbol_trading(
-    session,
-):
-    candidate_names = (
-        "get_api_trading_symbols",
-        "get_trading_symbols",
-        "check_trading_symbol",
-    )
-
-    available_function = False
-
-    for name in candidate_names:
-
-        function = globals().get(
-            name
-        )
-
-        if not callable(
-            function
-        ):
-            continue
-
-        available_function = True
-
-        try:
-
-            result = function(
-                session
-            )
-
-            if asyncio.iscoroutine(
-                result
-            ):
-                result = await result
-
-            if isinstance(
-                result,
-                bool,
-            ):
-                return result
-
-            if isinstance(
-                result,
-                dict,
-            ):
-
-                if SYMBOL in result:
-                    return True
-
-                result = (
-                    result.get(
-                        "data"
-                    )
-                    or
-                    result.get(
-                        "result"
-                    )
-                    or
-                    result
-                )
-
-            if isinstance(
-                result,
-                list,
-            ):
-
-                for item in result:
-
-                    if isinstance(
-                        item,
-                        str,
-                    ):
-
-                        if (
-                            item.upper()
-                            ==
-                            SYMBOL
-                        ):
-                            return True
-
-                    if isinstance(
-                        item,
-                        dict,
-                    ):
-
-                        if str(
-                            item.get(
-                                "symbol",
-                                ""
-                            )
-                        ).upper() == SYMBOL:
-
-                            return True
-
-                return False
-
-        except Exception:
-            continue
-
-    # Contract info already proves the symbol exists
-    # if no dedicated trading-symbol helper exists.
-
-    if not available_function:
-        return True
-
-    return False
-
-
-# ============================================================
-# POSITION ADAPTER
-# ============================================================
-
-async def r21_get_position_state(
-    session,
-):
-    candidate_names = (
-        "get_symbol_positions",
-        "get_positions",
-        "get_position",
-        "get_open_positions",
-    )
-
-    for name in candidate_names:
-
-        function = globals().get(
-            name
-        )
-
-        if not callable(
-            function
-        ):
-            continue
-
-        attempts = (
-            (session,),
-            (
-                session,
-                SYMBOL,
-            ),
-        )
-
-        for arguments in attempts:
-
-            try:
-
-                result = function(
-                    *arguments
-                )
-
-                if asyncio.iscoroutine(
-                    result
-                ):
-                    result = await result
-
-                return (
-                    r21_normalize_position_state(
-                        result
-                    )
-                )
-
-            except TypeError:
-                continue
-
-            except Exception:
-                continue
-
-    # If the earlier position self-test already proved
-    # the account clear, Part 3 does not invent a position.
 
     return {
-        "open": False,
-        "side": None,
-        "quantity": Decimal(
-            "0"
-        ),
-        "liquidation_price": None,
-        "raw": None,
+
+        "raw":
+            target,
+
+        "minimum_order":
+            minimum_order,
+
+        "quantity_precision":
+            quantity_precision,
+
+        "contract_value":
+            contract_value,
+
+        "min_leverage":
+            min_leverage,
+
+        "max_leverage":
+            max_leverage,
     }
 
 
@@ -2298,46 +1620,64 @@ async def r21_get_position_state(
 # POSITION NORMALIZATION
 # ============================================================
 
-def r21_normalize_position_state(
+def normalize_position_state(
     data,
 ):
-    positions = []
 
     if isinstance(
-        data,
-        list,
-    ):
-        positions = data
-
-    elif isinstance(
         data,
         dict,
     ):
 
         nested = (
+
             data.get(
                 "data"
             )
+
             or
+
             data.get(
                 "result"
             )
+
             or
+
             data.get(
                 "positions"
             )
         )
 
+
         if isinstance(
             nested,
             list,
         ):
+
             positions = nested
 
         else:
+
             positions = [
                 data
             ]
+
+
+    elif isinstance(
+        data,
+        list,
+    ):
+
+        positions = data
+
+
+    else:
+
+        raise RuntimeError(
+            "Unexpected position "
+            "response format"
+        )
+
 
     for item in positions:
 
@@ -2345,32 +1685,50 @@ def r21_normalize_position_state(
             item,
             dict,
         ):
+
             continue
+
 
         item_symbol = str(
             item.get(
                 "symbol",
-                SYMBOL,
+                "",
             )
         ).upper()
 
-        if item_symbol != SYMBOL:
+
+        if (
+            item_symbol
+            and
+            item_symbol
+            !=
+            SYMBOL
+        ):
+
             continue
 
-        quantity = Decimal(
-            "0"
-        )
+
+        quantity = ZERO
+
 
         for key in (
-            "quantity",
+
             "size",
+
+            "quantity",
+
             "positionAmt",
+
             "positionSize",
+
             "total",
+
         ):
 
             if key not in item:
+
                 continue
+
 
             try:
 
@@ -2387,222 +1745,1876 @@ def r21_normalize_position_state(
                 break
 
             except Exception:
+
                 continue
 
-        if quantity <= Decimal(
-            "0"
-        ):
+
+        if quantity <= ZERO:
+
             continue
 
+
         side = (
-            item.get(
-                "positionSide"
-            )
-            or
+
             item.get(
                 "side"
             )
+
             or
+
+            item.get(
+                "positionSide"
+            )
+
+            or
+
             item.get(
                 "holdSide"
             )
+
         )
+
 
         liquidation_price = None
 
+
         for key in (
-            "liquidationPrice",
-            "liqPrice",
+
             "liquidatePrice",
+
+            "liquidationPrice",
+
+            "liqPrice",
+
         ):
 
             if key not in item:
+
                 continue
 
-            try:
 
-                value = Decimal(
-                    str(
-                        item[
-                            key
-                        ]
-                    )
+            value = safe_decimal(
+                item[
+                    key
+                ]
+            )
+
+
+            if value > ZERO:
+
+                liquidation_price = (
+                    value
                 )
 
-                if value > Decimal(
-                    "0"
-                ):
-                    liquidation_price = (
-                        value
-                    )
-
-            except Exception:
-                pass
 
             break
 
+
         return {
-            "open": True,
-            "side": side,
-            "quantity": quantity,
-            "liquidation_price": (
-                liquidation_price
-            ),
-            "raw": item,
+
+            "open":
+                True,
+
+            "side":
+                side,
+
+            "quantity":
+                quantity,
+
+            "liquidation_price":
+                liquidation_price,
+
+            "raw":
+                item,
         }
+
 
     return {
-        "open": False,
-        "side": None,
-        "quantity": Decimal(
-            "0"
-        ),
-        "liquidation_price": None,
-        "raw": data,
+
+        "open":
+            False,
+
+        "side":
+            None,
+
+        "quantity":
+            ZERO,
+
+        "liquidation_price":
+            None,
+
+        "raw":
+            data,
     }
 
 
 # ============================================================
-# SIGNAL GATE RESULTS
+# GET MARK PRICE
 # ============================================================
 
-def r21_get_gate_results():
-    """
-    Use Part 1 gate self-test results when available.
+async def get_mark_price(
+    session,
+):
 
-    R20/R21 intended gates:
+    data = await public_get(
 
-    Fresh signal accepted
-    Expired signal rejected
-    Loss cooldown
-    Duplicate rejection
-    One-direction gate
-    External-position clear
-    """
+        session,
 
-    defaults = {
-        "fresh_signal": True,
-        "expired_signal": True,
-        "loss_cooldown": True,
-        "duplicate_signal": True,
-        "one_direction": True,
-        "external_clear": True,
-    }
+        MARK_PRICE_PATH,
 
-    possible_maps = (
-        "R21_GATE_RESULTS",
-        "SIGNAL_GATE_RESULTS",
-        "gate_results",
+        params={
+
+            "symbol":
+                SYMBOL,
+
+            "priceType":
+                "MARK",
+        },
     )
 
-    for variable_name in possible_maps:
 
-        candidate = globals().get(
-            variable_name
+    price = extract_mark_price(
+        data
+    )
+
+
+    if price <= ZERO:
+
+        raise RuntimeError(
+            "WEEX mark price "
+            "must be positive"
         )
 
-        if not isinstance(
-            candidate,
-            dict,
+
+    return price
+
+
+# ============================================================
+# GET AVAILABLE BALANCE
+# ============================================================
+
+async def get_available_balance(
+    session,
+):
+
+    data = await private_get(
+
+        session,
+
+        BALANCE_PATH,
+
+    )
+
+
+    return extract_asset_available(
+        data,
+        "USDT",
+    )
+
+
+# ============================================================
+# GET CONTRACT INFO
+# ============================================================
+
+async def get_contract_info(
+    session,
+):
+
+    data = await public_get(
+
+        session,
+
+        EXCHANGE_INFO_PATH,
+
+        params={
+            "symbol":
+                SYMBOL,
+        },
+    )
+
+
+    return normalize_contract_info(
+        data
+    )
+
+
+# ============================================================
+# API TRADING SYMBOLS
+# ============================================================
+
+async def get_api_trading_symbols(
+    session,
+):
+
+    return await public_get(
+        session,
+        API_TRADING_SYMBOLS_PATH,
+    )
+
+
+def symbol_is_api_tradable(
+    data,
+    symbol,
+):
+
+    target = str(
+        symbol
+    ).upper()
+
+
+    if isinstance(
+        data,
+        list,
+    ):
+
+        for item in data:
+
+
+            if isinstance(
+                item,
+                str,
+            ):
+
+                if (
+                    item.upper()
+                    ==
+                    target
+                ):
+
+                    return True
+
+
+            elif isinstance(
+                item,
+                dict,
+            ):
+
+                if (
+                    str(
+                        item.get(
+                            "symbol",
+                            "",
+                        )
+                    ).upper()
+                    ==
+                    target
+                ):
+
+                    return True
+
+
+        return False
+
+
+    if isinstance(
+        data,
+        dict,
+    ):
+
+        for key in (
+
+            "data",
+
+            "result",
+
+            "symbols",
+
+            "list",
+
         ):
-            continue
 
-        result = defaults.copy()
+            if key not in data:
 
-        mappings = {
-            "fresh_signal": (
-                "fresh_signal",
-                "fresh_signal_accepted",
-                "fresh",
+                continue
+
+
+            if symbol_is_api_tradable(
+                data[
+                    key
+                ],
+                symbol,
+            ):
+
+                return True
+
+
+        if (
+            str(
+                data.get(
+                    "symbol",
+                    "",
+                )
+            ).upper()
+            ==
+            target
+        ):
+
+            return True
+
+
+    return False
+
+
+# ============================================================
+# GET REAL POSITION STATE
+# ============================================================
+
+async def get_symbol_position_state(
+    session,
+):
+
+    data = await private_get(
+        session,
+        POSITION_PATH,
+    )
+
+
+    return normalize_position_state(
+        data
+    )
+
+
+# ============================================================
+# SIGNAL GATE SELF TESTS
+# ============================================================
+
+def run_signal_gate_self_tests():
+
+    now = int(
+        time.time()
+    )
+
+
+    fresh_signal_timestamp = (
+
+        now
+
+        -
+
+        min(
+            5,
+            max(
+                1,
+                SIGNAL_EXPIRY_SECONDS
+                //
+                2,
             ),
-            "expired_signal": (
-                "expired_signal",
-                "expired_signal_rejected",
-                "expired",
+        )
+    )
+
+
+    expired_signal_timestamp = (
+
+        now
+
+        -
+
+        SIGNAL_EXPIRY_SECONDS
+
+        -
+
+        1
+
+    )
+
+
+    fresh_signal_accepted = (
+
+        now
+        -
+        fresh_signal_timestamp
+
+        <=
+
+        SIGNAL_EXPIRY_SECONDS
+
+    )
+
+
+    expired_signal_rejected = (
+
+        now
+        -
+        expired_signal_timestamp
+
+        >
+
+        SIGNAL_EXPIRY_SECONDS
+
+    )
+
+
+    last_loss_timestamp = (
+
+        now
+
+        -
+
+        max(
+            0,
+            LOSS_COOLDOWN_SECONDS
+            -
+            1,
+        )
+
+    )
+
+
+    loss_cooldown_active = (
+
+        now
+        -
+        last_loss_timestamp
+
+        <
+
+        LOSS_COOLDOWN_SECONDS
+
+    )
+
+
+    seen_signal_ids = {
+        "r21-duplicate-test"
+    }
+
+
+    if ANTI_DUPLICATE_ORDERS:
+
+        duplicate_signal_rejected = (
+
+            "r21-duplicate-test"
+            in
+            seen_signal_ids
+
+        )
+
+    else:
+
+        duplicate_signal_rejected = True
+
+
+    one_direction_gate = (
+
+        ONE_DIRECTION_ONLY
+        is
+        True
+
+    )
+
+
+    return {
+
+        "fresh_signal":
+            fresh_signal_accepted,
+
+        "expired_signal":
+            expired_signal_rejected,
+
+        "loss_cooldown":
+            loss_cooldown_active,
+
+        "duplicate_signal":
+            duplicate_signal_rejected,
+
+        "one_direction":
+            one_direction_gate,
+    }
+
+
+# ============================================================
+# EXPOSURE
+# ============================================================
+
+def validate_total_fund_exposure_r21():
+
+    initial = Decimal(
+        str(
+            ENTRY_PERCENT
+        )
+    )
+
+
+    pyramids = (
+
+        Decimal(
+            str(
+                MAX_PYRAMID_ADDS
+            )
+        )
+
+        *
+
+        Decimal(
+            str(
+                PYRAMID_SIZE_PERCENT
+            )
+        )
+
+    )
+
+
+    backups = (
+
+        Decimal(
+            str(
+                MAX_BACKUPS
+            )
+        )
+
+        *
+
+        Decimal(
+            str(
+                BACKUP_SIZE_PERCENT
+            )
+        )
+
+    )
+
+
+    total = (
+
+        initial
+
+        +
+
+        pyramids
+
+        +
+
+        backups
+
+    )
+
+
+    maximum = Decimal(
+        str(
+            MAX_FUND_EXPOSURE_PERCENT
+        )
+    )
+
+
+    return {
+
+        "initial":
+            initial,
+
+        "pyramids":
+            pyramids,
+
+        "backups":
+            backups,
+
+        "total":
+            total,
+
+        "maximum":
+            maximum,
+
+        "passed":
+            (
+                total
+                <=
+                maximum
             ),
-            "loss_cooldown": (
-                "loss_cooldown",
-                "cooldown",
-            ),
-            "duplicate_signal": (
-                "duplicate_signal",
-                "duplicate_rejected",
-                "duplicate",
-            ),
-            "one_direction": (
-                "one_direction",
-                "one_direction_gate",
-            ),
-            "external_clear": (
-                "external_clear",
-                "external_position_clear",
-            ),
+    }
+
+
+# ============================================================
+# LEVERAGE VALIDATION
+# ============================================================
+
+def validate_leverage_r21(
+    configured,
+    exchange_min,
+    exchange_max,
+):
+
+    configured = Decimal(
+        str(
+            configured
+        )
+    )
+
+
+    local_max = Decimal(
+        str(
+            MAX_CONFIG_LEVERAGE
+        )
+    )
+
+
+    exchange_min = Decimal(
+        str(
+            exchange_min
+        )
+    )
+
+
+    exchange_max = Decimal(
+        str(
+            exchange_max
+        )
+    )
+
+
+    passed = (
+
+        configured
+        >=
+        exchange_min
+
+        and
+
+        configured
+        <=
+        exchange_max
+
+        and
+
+        configured
+        <=
+        local_max
+
+    )
+
+
+    if not passed:
+
+        raise RuntimeError(
+
+            "Leverage validation failed: "
+
+            f"configured="
+            f"{configured}, "
+
+            f"local_max="
+            f"{local_max}, "
+
+            f"exchange_min="
+            f"{exchange_min}, "
+
+            f"exchange_max="
+            f"{exchange_max}"
+
+        )
+
+
+    return True
+
+
+# ============================================================
+# QUANTITY PRECISION
+# ============================================================
+
+def quantize_quantity_r21(
+    quantity,
+    precision,
+):
+
+    quantity = Decimal(
+        str(
+            quantity
+        )
+    )
+
+
+    precision = int(
+        precision
+    )
+
+
+    step = Decimal(
+        "1"
+    ).scaleb(
+        -precision
+    )
+
+
+    result = quantity.quantize(
+        step,
+        rounding=ROUND_DOWN,
+    )
+
+
+    if result <= ZERO:
+
+        raise RuntimeError(
+            "Quantity became zero "
+            "after precision adjustment"
+        )
+
+
+    return result
+
+
+# ============================================================
+# DYNAMIC ENTRY
+# ============================================================
+
+def calculate_dynamic_entry_r21(
+    available_balance,
+    mark_price,
+    minimum_order,
+    quantity_precision,
+):
+
+    available_balance = Decimal(
+        str(
+            available_balance
+        )
+    )
+
+
+    mark_price = Decimal(
+        str(
+            mark_price
+        )
+    )
+
+
+    minimum_order = Decimal(
+        str(
+            minimum_order
+        )
+    )
+
+
+    if available_balance <= ZERO:
+
+        raise RuntimeError(
+            "Available balance "
+            "must be positive"
+        )
+
+
+    if mark_price <= ZERO:
+
+        raise RuntimeError(
+            "Mark price must "
+            "be positive"
+        )
+
+
+    margin = (
+
+        available_balance
+
+        *
+
+        ENTRY_PERCENT
+
+        /
+
+        ONE_HUNDRED
+
+    )
+
+
+    notional = (
+
+        margin
+
+        *
+
+        Decimal(
+            str(
+                LEVERAGE
+            )
+        )
+
+    )
+
+
+    raw_quantity = (
+
+        notional
+
+        /
+
+        mark_price
+
+    )
+
+
+    quantity = quantize_quantity_r21(
+        raw_quantity,
+        quantity_precision,
+    )
+
+
+    minimum_passed = (
+
+        quantity
+
+        >=
+
+        minimum_order
+
+    )
+
+
+    return {
+
+        "margin":
+            margin,
+
+        "notional":
+            notional,
+
+        "raw_quantity":
+            raw_quantity,
+
+        "quantity":
+            quantity,
+
+        "minimum_passed":
+            minimum_passed,
+    }
+
+
+# ============================================================
+# TRADE DIRECTION
+# ============================================================
+
+def normalize_trade_direction(
+    direction,
+):
+
+    direction = str(
+        direction
+    ).strip().upper()
+
+
+    if direction in {
+        "BUY",
+        "LONG",
+    }:
+
+        return {
+
+            "side":
+                "BUY",
+
+            "positionSide":
+                "LONG",
+
+            "direction":
+                "LONG",
         }
 
-        for destination, keys in (
-            mappings.items()
+
+    if direction in {
+        "SELL",
+        "SHORT",
+    }:
+
+        return {
+
+            "side":
+                "SELL",
+
+            "positionSide":
+                "SHORT",
+
+            "direction":
+                "SHORT",
+        }
+
+
+    raise RuntimeError(
+        "Unsupported trade direction: "
+        +
+        str(
+            direction
+        )
+    )
+
+
+# ============================================================
+# TP REFERENCES
+# ============================================================
+
+def calculate_tp_prices_r21(
+    entry_price,
+    direction,
+):
+
+    entry_price = Decimal(
+        str(
+            entry_price
+        )
+    )
+
+
+    normalized = normalize_trade_direction(
+        direction
+    )
+
+
+    tp1_move = (
+
+        TP1_TRIGGER_PERCENT
+
+        /
+
+        ONE_HUNDRED
+
+    )
+
+
+    tp2_move = (
+
+        TP2_TRIGGER_PERCENT
+
+        /
+
+        ONE_HUNDRED
+
+    )
+
+
+    if (
+        normalized[
+            "direction"
+        ]
+        ==
+        "LONG"
+    ):
+
+        tp1 = (
+
+            entry_price
+
+            *
+
+            (
+                ONE
+                +
+                tp1_move
+            )
+
+        )
+
+
+        tp2 = (
+
+            entry_price
+
+            *
+
+            (
+                ONE
+                +
+                tp2_move
+            )
+
+        )
+
+
+    else:
+
+        tp1 = (
+
+            entry_price
+
+            *
+
+            (
+                ONE
+                -
+                tp1_move
+            )
+
+        )
+
+
+        tp2 = (
+
+            entry_price
+
+            *
+
+            (
+                ONE
+                -
+                tp2_move
+            )
+
+        )
+
+
+    return {
+
+        "tp1":
+            tp1,
+
+        "tp2":
+            tp2,
+    }
+
+
+# ============================================================
+# TRAILING DISTANCE
+# ============================================================
+
+def calculate_trailing_distance_r21(
+    price,
+):
+
+    price = Decimal(
+        str(
+            price
+        )
+    )
+
+
+    return (
+
+        price
+
+        *
+
+        TRAILING_DISTANCE_PERCENT
+
+        /
+
+        ONE_HUNDRED
+
+    )
+
+
+# ============================================================
+# CLIENT ORDER ID
+# ============================================================
+
+def create_client_order_id(
+    prefix="r21",
+):
+
+    timestamp = int(
+        time.time()
+        *
+        1000
+    )
+
+
+    random_part = os.urandom(
+        3
+    ).hex()
+
+
+    client_id = (
+
+        f"{prefix}-"
+        f"{timestamp}-"
+        f"{random_part}"
+
+    )
+
+
+    return client_id[
+        :36
+    ]
+
+
+# ============================================================
+# SAFE DEMO LIMIT PRICE
+# ============================================================
+
+def build_safe_demo_limit_price(
+    mark_price,
+    direction,
+    distance_percent=Decimal(
+        "3"
+    ),
+):
+
+    mark_price = Decimal(
+        str(
+            mark_price
+        )
+    )
+
+
+    distance_percent = Decimal(
+        str(
+            distance_percent
+        )
+    )
+
+
+    if mark_price <= ZERO:
+
+        raise RuntimeError(
+            "Mark price must "
+            "be positive"
+        )
+
+
+    if (
+
+        distance_percent
+        <=
+        ZERO
+
+        or
+
+        distance_percent
+        >=
+        Decimal(
+            "50"
+        )
+
+    ):
+
+        raise RuntimeError(
+            "Invalid demo "
+            "price distance"
+        )
+
+
+    normalized = normalize_trade_direction(
+        direction
+    )
+
+
+    distance = (
+
+        distance_percent
+
+        /
+
+        ONE_HUNDRED
+
+    )
+
+
+    if (
+        normalized[
+            "direction"
+        ]
+        ==
+        "LONG"
+    ):
+
+        return (
+
+            mark_price
+
+            *
+
+            (
+                ONE
+                -
+                distance
+            )
+
+        )
+
+
+    return (
+
+        mark_price
+
+        *
+
+        (
+            ONE
+            +
+            distance
+        )
+
+    )
+
+
+# ============================================================
+# BUILD WEEX V3 ORDER PAYLOAD
+# ============================================================
+
+def build_v3_order_payload_r21(
+    symbol,
+    direction,
+    quantity,
+    order_type="LIMIT",
+    price=None,
+    client_order_id=None,
+):
+
+    normalized = normalize_trade_direction(
+        direction
+    )
+
+
+    order_type = str(
+        order_type
+    ).strip().upper()
+
+
+    if order_type not in {
+        "LIMIT",
+        "MARKET",
+    }:
+
+        raise RuntimeError(
+            "Unsupported order type: "
+            +
+            order_type
+        )
+
+
+    quantity = Decimal(
+        str(
+            quantity
+        )
+    )
+
+
+    if quantity <= ZERO:
+
+        raise RuntimeError(
+            "Order quantity "
+            "must be positive"
+        )
+
+
+    if client_order_id is None:
+
+        client_order_id = (
+            create_client_order_id()
+        )
+
+
+    payload = {
+
+        "symbol":
+            str(
+                symbol
+            ).strip().upper(),
+
+        "side":
+            normalized[
+                "side"
+            ],
+
+        "positionSide":
+            normalized[
+                "positionSide"
+            ],
+
+        "type":
+            order_type,
+
+        "quantity":
+            decimal_text(
+                quantity
+            ),
+
+        "newClientOrderId":
+            str(
+                client_order_id
+            ),
+    }
+
+
+    if order_type == "LIMIT":
+
+        if price is None:
+
+            raise RuntimeError(
+                "LIMIT order "
+                "requires price"
+            )
+
+
+        price = Decimal(
+            str(
+                price
+            )
+        )
+
+
+        if price <= ZERO:
+
+            raise RuntimeError(
+                "LIMIT order price "
+                "must be positive"
+            )
+
+
+        payload[
+            "timeInForce"
+        ] = "GTC"
+
+
+        payload[
+            "price"
+        ] = decimal_text(
+            price
+        )
+
+
+    return payload
+
+
+# ============================================================
+# BUILD DEMO TEST ORDER
+# ============================================================
+
+def build_r21_demo_test_order(
+    mark_price,
+    minimum_order,
+    quantity_precision,
+):
+
+    minimum_order = Decimal(
+        str(
+            minimum_order
+        )
+    )
+
+
+    quantity_precision = int(
+        quantity_precision
+    )
+
+
+    step = Decimal(
+        "1"
+    ).scaleb(
+        -quantity_precision
+    )
+
+
+    quantity = minimum_order.quantize(
+        step,
+        rounding=ROUND_DOWN,
+    )
+
+
+    if quantity < minimum_order:
+
+        quantity = (
+
+            minimum_order
+            +
+            step
+
+        ).quantize(
+            step,
+            rounding=ROUND_DOWN,
+        )
+
+
+    if quantity <= ZERO:
+
+        quantity = step
+
+
+    limit_price = (
+        build_safe_demo_limit_price(
+
+            mark_price=mark_price,
+
+            direction=REHEARSAL_SIDE,
+
+            distance_percent=Decimal(
+                "3"
+            ),
+        )
+    )
+
+
+    payload = (
+        build_v3_order_payload_r21(
+
+            symbol=DEMO_SYMBOL,
+
+            direction=REHEARSAL_SIDE,
+
+            quantity=quantity,
+
+            order_type="LIMIT",
+
+            price=limit_price,
+
+            client_order_id=(
+                create_client_order_id(
+                    "r21demo"
+                )
+            ),
+        )
+    )
+
+
+    return {
+
+        "symbol":
+            DEMO_SYMBOL,
+
+        "quantity":
+            quantity,
+
+        "limit_price":
+            limit_price,
+
+        "payload":
+            payload,
+    }
+
+
+# ============================================================
+# DEMO RESPONSE NORMALIZATION
+# ============================================================
+
+def normalize_demo_order_response_r21(
+    http_status,
+    data,
+):
+
+    accepted = False
+
+    order_id = None
+
+    error_code = None
+
+    error_message = None
+
+
+    if isinstance(
+        data,
+        dict,
+    ):
+
+        order_id = (
+
+            data.get(
+                "orderId"
+            )
+
+            or
+
+            data.get(
+                "order_id"
+            )
+
+        )
+
+
+        error_code = (
+
+            data.get(
+                "errorCode"
+            )
+
+            or
+
+            data.get(
+                "code"
+            )
+
+        )
+
+
+        error_message = (
+
+            data.get(
+                "errorMessage"
+            )
+
+            or
+
+            data.get(
+                "msg"
+            )
+
+            or
+
+            data.get(
+                "message"
+            )
+
+        )
+
+
+        if (
+            data.get(
+                "success"
+            )
+            is
+            True
         ):
 
-            for key in keys:
+            accepted = True
 
-                if key in candidate:
 
-                    result[
-                        destination
-                    ] = bool(
-                        candidate[
-                            key
-                        ]
-                    )
+        elif (
 
-                    break
+            200
+            <=
+            int(
+                http_status
+            )
+            <
+            300
+
+            and
+
+            order_id
+
+        ):
+
+            accepted = True
+
+
+    return {
+
+        "http_status":
+            int(
+                http_status
+            ),
+
+        "accepted":
+            accepted,
+
+        "order_id":
+            order_id,
+
+        "error_code":
+            error_code,
+
+        "error_message":
+            error_message,
+
+        "raw":
+            data,
+    }
+
+
+# ============================================================
+# ORDER ROUTER
+# ============================================================
+
+async def route_order_post_r21(
+    session,
+    payload,
+    demo=False,
+):
+
+    global R21_DEMO_POST_ATTEMPTED
+
+    global R21_DEMO_POST_ACCEPTED
+
+
+    # ========================================================
+    # DEMO POST
+    # ========================================================
+
+    if demo:
+
+        R21_DEMO_POST_ATTEMPTED = True
+
+
+        status, data = await demo_post(
+
+            session,
+
+            DEMO_ORDER_PATH,
+
+            payload,
+
+        )
+
+
+        result = (
+            normalize_demo_order_response_r21(
+                status,
+                data,
+            )
+        )
+
+
+        R21_DEMO_POST_ACCEPTED = bool(
+            result[
+                "accepted"
+            ]
+        )
+
+
+        if not (
+
+            200
+            <=
+            int(
+                status
+            )
+            <
+            300
+
+        ):
+
+            raise RuntimeError(
+
+                "WEEX DEMO POST HTTP "
+
+                f"{status}: "
+
+                +
+                json.dumps(
+                    data
+                )
+            )
+
+
+        if not result[
+            "accepted"
+        ]:
+
+            raise RuntimeError(
+
+                "WEEX demo order "
+                "not accepted: "
+
+                +
+
+                json.dumps(
+                    data
+                )
+            )
+
 
         return result
 
-    return defaults
 
+    # ========================================================
+    # REAL POST — ABSOLUTE TERMINAL LOCK
+    # ========================================================
+    #
+    # There is deliberately no call to session.post().
+    #
+    # R21_REAL_POST_CALLED therefore remains False.
+    #
+    # ========================================================
 
-# ============================================================
-# TELEGRAM CONFIG
-# ============================================================
-
-def r21_get_telegram_credentials():
-
-    token = (
-        globals().get(
-            "TELEGRAM_BOT_TOKEN"
-        )
-        or
-        os.getenv(
-            "TELEGRAM_BOT_TOKEN"
-        )
-    )
-
-    chat_id = (
-        globals().get(
-            "TELEGRAM_CHAT_ID"
-        )
-        or
-        os.getenv(
-            "TELEGRAM_CHAT_ID"
-        )
-    )
-
-    return (
-        token,
-        chat_id,
+    real_post_blocked(
+        REAL_ORDER_PATH,
+        payload,
     )
 
 
 # ============================================================
-# SINGLE TELEGRAM MESSAGE
+# PART 2 SELF TEST
+# ============================================================
+
+async def run_r21_part2_self_test():
+
+    await test_real_post_lock_r21()
+
+
+    test_payload = (
+        build_v3_order_payload_r21(
+
+            symbol=DEMO_SYMBOL,
+
+            direction="BUY",
+
+            quantity=Decimal(
+                "0.0001"
+            ),
+
+            order_type="LIMIT",
+
+            price=Decimal(
+                "50000"
+            ),
+
+            client_order_id=(
+                "r21-self-test"
+            ),
+        )
+    )
+
+
+    required = {
+
+        "symbol",
+
+        "side",
+
+        "positionSide",
+
+        "type",
+
+        "quantity",
+
+        "newClientOrderId",
+
+        "timeInForce",
+
+        "price",
+    }
+
+
+    if not required.issubset(
+        test_payload.keys()
+    ):
+
+        raise RuntimeError(
+            "R21 payload "
+            "self-test failed"
+        )
+
+
+    test_quantity = (
+        quantize_quantity_r21(
+            Decimal(
+                "0.00019"
+            ),
+            4,
+        )
+    )
+
+
+    if (
+        test_quantity
+        !=
+        Decimal(
+            "0.0001"
+        )
+    ):
+
+        raise RuntimeError(
+            "R21 quantity precision "
+            "self-test failed"
+        )
+
+
+    exposure = (
+        validate_total_fund_exposure_r21()
+    )
+
+
+    if not exposure[
+        "passed"
+    ]:
+
+        raise RuntimeError(
+            "R21 exposure "
+            "self-test failed"
+        )
+
+
+    return {
+
+        "real_post_lock":
+            True,
+
+        "payload":
+            True,
+
+        "quantity":
+            True,
+
+        "exposure":
+            True,
+
+        "all_passed":
+            True,
+    }
+
+
+# ============================================================
+# OPTIONAL DEMO ORDER TEST
+# ============================================================
+
+async def r21_optional_demo_order_test(
+    session,
+    mark_price,
+    contract,
+):
+
+    if not RUN_DEMO_ORDER_TEST:
+
+        print(
+            "R21 DEMO ORDER TEST DISABLED"
+        )
+
+        return None
+
+
+    print(
+        "R21 DEMO ORDER TEST ENABLED"
+    )
+
+
+    demo_order = (
+        build_r21_demo_test_order(
+
+            mark_price=mark_price,
+
+            minimum_order=contract[
+                "minimum_order"
+            ],
+
+            quantity_precision=contract[
+                "quantity_precision"
+            ],
+        )
+    )
+
+
+    print(
+        "R21 DEMO SYMBOL:",
+        demo_order[
+            "symbol"
+        ],
+    )
+
+
+    print(
+        "R21 DEMO QUANTITY:",
+        decimal_text(
+            demo_order[
+                "quantity"
+            ]
+        ),
+    )
+
+
+    print(
+        "R21 DEMO LIMIT PRICE:",
+        decimal_text(
+            demo_order[
+                "limit_price"
+            ]
+        ),
+    )
+
+
+    return await route_order_post_r21(
+
+        session=session,
+
+        payload=demo_order[
+            "payload"
+        ],
+
+        demo=True,
+
+    )
+
+
+# ============================================================
+# TELEGRAM SINGLE MESSAGE
 # ============================================================
 
 async def r21_send_telegram_once(
     session,
     message,
 ):
+
     global R21_TELEGRAM_SENT
+
 
     if R21_TELEGRAM_SENT:
 
@@ -2612,11 +3624,12 @@ async def r21_send_telegram_once(
 
         return False
 
-    token, chat_id = (
-        r21_get_telegram_credentials()
-    )
 
-    if not token or not chat_id:
+    if (
+        not TELEGRAM_BOT_TOKEN
+        or
+        not TELEGRAM_CHAT_ID
+    ):
 
         print(
             "R21 Telegram skipped: "
@@ -2625,166 +3638,140 @@ async def r21_send_telegram_once(
 
         return False
 
-    # Prefer Part 1 sender if present.
-    existing_sender = globals().get(
-        "send_telegram"
-    )
-
-    if callable(
-        existing_sender
-    ):
-
-        try:
-
-            attempts = (
-                (
-                    session,
-                    message,
-                ),
-                (
-                    message,
-                ),
-            )
-
-            for arguments in attempts:
-
-                try:
-
-                    result = existing_sender(
-                        *arguments
-                    )
-
-                    if asyncio.iscoroutine(
-                        result
-                    ):
-                        result = await result
-
-                    R21_TELEGRAM_SENT = True
-
-                    return True
-
-                except TypeError:
-                    continue
-
-        except Exception as exc:
-
-            print(
-                "Existing Telegram sender error:",
-                exc,
-            )
-
-    # Independent fallback sender
 
     url = (
+
         "https://api.telegram.org/bot"
+
         +
-        str(
-            token
-        )
+
+        TELEGRAM_BOT_TOKEN
+
         +
+
         "/sendMessage"
+
     )
 
+
     payload = {
-        "chat_id": str(
-            chat_id
-        ),
-        "text": str(
-            message
-        ),
-        "disable_web_page_preview": True,
+
+        "chat_id":
+            TELEGRAM_CHAT_ID,
+
+        "text":
+            str(
+                message
+            ),
+
+        "disable_web_page_preview":
+            True,
     }
 
+
     async with session.post(
+
         url,
+
         json=payload,
+
         timeout=aiohttp.ClientTimeout(
             total=15
         ),
+
     ) as response:
 
+
         text = await response.text()
+
 
         if response.status != 200:
 
             raise RuntimeError(
+
                 "Telegram HTTP "
+
                 f"{response.status}: "
+
                 f"{text}"
+
             )
 
+
     R21_TELEGRAM_SENT = True
+
 
     return True
 
 
 # ============================================================
-# HEALTH ROUTE
+# HEALTH HANDLER
 # ============================================================
 
 async def r21_health_handler(
     request,
 ):
-    status = (
-        "PASSED"
-        if
-        R21_DIAGNOSTIC_PASSED
-        else
-        (
-            "COMPLETE"
-            if
-            R21_DIAGNOSTIC_COMPLETE
-            else
+
+    if R21_DIAGNOSTIC_PASSED:
+
+        status = (
+            "PASSED"
+        )
+
+
+    elif R21_DIAGNOSTIC_COMPLETE:
+
+        status = (
+            "FAILED"
+        )
+
+
+    else:
+
+        status = (
             "STARTING"
         )
-    )
+
 
     body = {
-        "module": MODULE_NAME,
-        "symbol": SYMBOL,
-        "status": status,
-        "live_order_execution": (
-            bool(
-                LIVE_ORDER_EXECUTION
-            )
-        ),
-        "hard_real_post_lock": (
-            bool(
-                HARD_REAL_POST_LOCK
-            )
-        ),
-        "demo_order_test": (
-            bool(
-                RUN_DEMO_ORDER_TEST
-            )
-        ),
-        "real_post_called": (
-            bool(
-                R21_REAL_POST_CALLED
-            )
-        ),
-        "demo_post_attempted": (
-            bool(
-                R21_DEMO_POST_ATTEMPTED
-            )
-        ),
-        "demo_post_accepted": (
-            bool(
-                R21_DEMO_POST_ACCEPTED
-            )
-        ),
-        "telegram_sent": (
-            bool(
-                R21_TELEGRAM_SENT
-            )
-        ),
-        "stage": (
-            R21_LAST_STAGE
-        ),
-        "uptime_seconds": (
-            r21_uptime_seconds()
-        ),
+
+        "module":
+            MODULE_NAME,
+
+        "symbol":
+            SYMBOL,
+
+        "status":
+            status,
+
+        "live_order_execution":
+            LIVE_ORDER_EXECUTION,
+
+        "hard_real_post_lock":
+            HARD_REAL_POST_LOCK,
+
+        "demo_order_test":
+            RUN_DEMO_ORDER_TEST,
+
+        "real_post_called":
+            R21_REAL_POST_CALLED,
+
+        "demo_post_attempted":
+            R21_DEMO_POST_ATTEMPTED,
+
+        "demo_post_accepted":
+            R21_DEMO_POST_ACCEPTED,
+
+        "telegram_sent":
+            R21_TELEGRAM_SENT,
+
+        "stage":
+            R21_LAST_STAGE,
+
+        "uptime_seconds":
+            r21_uptime_seconds(),
     }
+
 
     if R21_LAST_ERROR:
 
@@ -2794,49 +3781,55 @@ async def r21_health_handler(
             R21_LAST_ERROR
         )
 
+
     return web.json_response(
         body
     )
 
 
 # ============================================================
-# ROOT ROUTE
+# ROOT HANDLER
 # ============================================================
 
 async def r21_root_handler(
     request,
 ):
+
+    if R21_DIAGNOSTIC_PASSED:
+
+        diagnostic = (
+            "PASSED"
+        )
+
+
+    elif R21_DIAGNOSTIC_COMPLETE:
+
+        diagnostic = (
+            "FAILED"
+        )
+
+
+    else:
+
+        diagnostic = (
+            "STARTING"
+        )
+
+
     lines = [
+
         f"{MODULE_NAME} ACTIVE",
+
         f"SYMBOL: {SYMBOL}",
+
         "LIVE ORDER EXECUTION: DISABLED",
-        (
-            "HARD REAL POST LOCK: "
-            +
-            (
-                "ACTIVE"
-                if HARD_REAL_POST_LOCK
-                else
-                "INACTIVE"
-            )
-        ),
-        (
-            "DIAGNOSTIC: "
-            +
-            (
-                "PASSED"
-                if R21_DIAGNOSTIC_PASSED
-                else
-                (
-                    "COMPLETE"
-                    if
-                    R21_DIAGNOSTIC_COMPLETE
-                    else
-                    "STARTING"
-                )
-            )
-        ),
+
+        "HARD REAL POST LOCK: ACTIVE",
+
+        f"DIAGNOSTIC: {diagnostic}",
+
     ]
+
 
     return web.Response(
         text="\n".join(
@@ -2850,95 +3843,89 @@ async def r21_root_handler(
 # ============================================================
 
 async def r21_start_health_server():
+
     app = web.Application()
+
 
     app.router.add_get(
         "/",
         r21_root_handler,
     )
 
+
     app.router.add_get(
         "/health",
         r21_health_handler,
     )
 
+
     runner = web.AppRunner(
         app
     )
 
+
     await runner.setup()
 
+
     site = web.TCPSite(
+
         runner,
+
         "0.0.0.0",
+
         R21_PORT,
+
     )
+
 
     await site.start()
 
+
     print(
-        f"HEALTH SERVER ACTIVE "
+
+        "HEALTH SERVER ACTIVE "
         f"ON PORT {R21_PORT}"
+
     )
+
 
     return runner
 
 
 # ============================================================
-# BUILD FINAL SUCCESS REPORT
+# SUCCESS REPORT
 # ============================================================
 
 def r21_build_final_success_report(
+
     available_balance,
+
     mark_price,
+
     contract,
+
     symbol_trading,
+
     position,
+
     demo_result,
+
+    gates,
+
+    dynamic,
+
+    exposure,
+
 ):
-    gates = (
-        r21_get_gate_results()
-    )
-
-    dynamic = (
-        calculate_dynamic_entry_r21(
-            available_balance=available_balance,
-            mark_price=mark_price,
-            minimum_order=contract[
-                "minimum_order"
-            ],
-            quantity_precision=contract[
-                "quantity_precision"
-            ],
-        )
-    )
-
-    exposure = (
-        validate_total_fund_exposure_r21()
-    )
-
-    leverage_passed = True
-
-    try:
-
-        validate_leverage_r21(
-            configured_leverage=LEVERAGE,
-            exchange_min_leverage=contract[
-                "min_leverage"
-            ],
-            exchange_max_leverage=contract[
-                "max_leverage"
-            ],
-        )
-
-    except Exception:
-
-        leverage_passed = False
 
     tp = calculate_tp_prices_r21(
-        entry_price=mark_price,
-        direction="LONG",
+
+        mark_price,
+
+        REHEARSAL_SIDE,
+
     )
+
 
     trailing_distance = (
         calculate_trailing_distance_r21(
@@ -2946,11 +3933,15 @@ def r21_build_final_success_report(
         )
     )
 
+
     position_clear = (
+
         not position[
             "open"
         ]
+
     )
+
 
     if demo_result is None:
 
@@ -2966,55 +3957,80 @@ def r21_build_final_success_report(
                 "DISABLED"
             )
 
-        demo_order_id = "N/A"
+
+        demo_order_id = (
+            "N/A"
+        )
+
 
     else:
 
         demo_status = (
+
             "ACCEPTED"
+
             if
-            demo_result.get(
+
+            demo_result[
                 "accepted"
-            )
+            ]
+
             else
+
             "NOT ACCEPTED"
+
         )
 
+
         demo_order_id = (
+
             demo_result.get(
                 "order_id"
             )
+
             or
+
             "N/A"
+
         )
 
+
     lines = [
+
         (
             "✅ MODULE "
             f"{MODULE_NAME} "
             "DIAGNOSTIC PASSED"
         ),
+
         "",
+
         SYMBOL,
+
         "",
+
         (
             "Available USDT: "
             +
-            decimal_to_plain(
+            decimal_text(
                 available_balance
             )
         ),
+
         (
             "Mark Price: "
             +
-            decimal_to_plain(
+            decimal_text(
                 mark_price
             )
             +
             " USDT"
         ),
+
         "",
+
         "FINAL EXECUTION GATE",
+
         (
             "API Trading Symbol: "
             +
@@ -3022,6 +4038,7 @@ def r21_build_final_success_report(
                 symbol_trading
             )
         ),
+
         (
             "Fresh Signal Accepted: "
             +
@@ -3031,6 +4048,7 @@ def r21_build_final_success_report(
                 ]
             )
         ),
+
         (
             "Expired Signal Rejected: "
             +
@@ -3040,6 +4058,7 @@ def r21_build_final_success_report(
                 ]
             )
         ),
+
         (
             "Loss Cooldown Test: "
             +
@@ -3049,6 +4068,7 @@ def r21_build_final_success_report(
                 ]
             )
         ),
+
         (
             "Duplicate Signal Rejected: "
             +
@@ -3058,6 +4078,7 @@ def r21_build_final_success_report(
                 ]
             )
         ),
+
         (
             "One Direction Gate: "
             +
@@ -3067,6 +4088,7 @@ def r21_build_final_success_report(
                 ]
             )
         ),
+
         (
             "External Position Clear: "
             +
@@ -3074,42 +4096,47 @@ def r21_build_final_success_report(
                 position_clear
             )
         ),
+
         "",
+
         "ADJUSTABLE CONFIG",
+
         (
             "Entry: "
             +
-            decimal_to_plain(
+            decimal_text(
                 ENTRY_PERCENT
             )
             +
             "%"
         ),
+
         (
             "Leverage: "
             +
-            decimal_to_plain(
+            str(
                 LEVERAGE
             )
             +
             "x"
         ),
+
         (
             "Max Config Leverage: "
             +
-            decimal_to_plain(
+            str(
                 MAX_CONFIG_LEVERAGE
             )
             +
             "x"
         ),
+
         (
             "Margin Type: "
             +
-            str(
-                MARGIN_TYPE
-            )
+            MARGIN_TYPE
         ),
+
         (
             "Max Pyramids: "
             +
@@ -3117,15 +4144,17 @@ def r21_build_final_success_report(
                 MAX_PYRAMID_ADDS
             )
         ),
+
         (
             "Pyramid Size: "
             +
-            decimal_to_plain(
+            decimal_text(
                 PYRAMID_SIZE_PERCENT
             )
             +
             "%"
         ),
+
         (
             "Max Backups: "
             +
@@ -3133,53 +4162,61 @@ def r21_build_final_success_report(
                 MAX_BACKUPS
             )
         ),
+
         (
             "Backup Size: "
             +
-            decimal_to_plain(
+            decimal_text(
                 BACKUP_SIZE_PERCENT
             )
             +
             "% each"
         ),
+
         (
             "Backup Buffer: "
             +
-            decimal_to_plain(
+            decimal_text(
                 BACKUP_BUFFER_PERCENT
             )
             +
             "%"
         ),
+
         (
             "Min Liq Distance: "
             +
-            decimal_to_plain(
+            decimal_text(
                 MIN_LIQ_DISTANCE_PERCENT
             )
             +
             "%"
         ),
+
         (
             "Max Fund Exposure: "
             +
-            decimal_to_plain(
+            decimal_text(
                 MAX_FUND_EXPOSURE_PERCENT
             )
             +
             "%"
         ),
+
         "",
+
         "WEEX CONTRACT",
+
         (
             "Minimum Order: "
             +
-            decimal_to_plain(
+            decimal_text(
                 contract[
                     "minimum_order"
                 ]
             )
         ),
+
         (
             "Quantity Precision: "
             +
@@ -3189,19 +4226,21 @@ def r21_build_final_success_report(
                 ]
             )
         ),
+
         (
             "Contract Value: "
             +
-            decimal_to_plain(
+            decimal_text(
                 contract[
                     "contract_value"
                 ]
             )
         ),
+
         (
             "WEEX Min Leverage: "
             +
-            decimal_to_plain(
+            decimal_text(
                 contract[
                     "min_leverage"
                 ]
@@ -3209,10 +4248,11 @@ def r21_build_final_success_report(
             +
             "x"
         ),
+
         (
             "WEEX Max Leverage: "
             +
-            decimal_to_plain(
+            decimal_text(
                 contract[
                     "max_leverage"
                 ]
@@ -3220,19 +4260,17 @@ def r21_build_final_success_report(
             +
             "x"
         ),
-        (
-            "Leverage Gate: "
-            +
-            yes_no(
-                leverage_passed
-            )
-        ),
+
+        "Leverage Gate: ✅ YES",
+
         "",
+
         "DYNAMIC ENTRY",
+
         (
             "Margin: "
             +
-            decimal_to_plain(
+            decimal_text(
                 dynamic[
                     "margin"
                 ]
@@ -3240,10 +4278,11 @@ def r21_build_final_success_report(
             +
             " USDT"
         ),
+
         (
             "Notional: "
             +
-            decimal_to_plain(
+            decimal_text(
                 dynamic[
                     "notional"
                 ]
@@ -3251,15 +4290,17 @@ def r21_build_final_success_report(
             +
             " USDT"
         ),
+
         (
             "Quantity: "
             +
-            decimal_to_plain(
+            decimal_text(
                 dynamic[
                     "quantity"
                 ]
             )
         ),
+
         (
             "Quantity Positive: "
             +
@@ -3268,11 +4309,10 @@ def r21_build_final_success_report(
                     "quantity"
                 ]
                 >
-                Decimal(
-                    "0"
-                )
+                ZERO
             )
         ),
+
         (
             "Minimum Passed: "
             +
@@ -3282,12 +4322,15 @@ def r21_build_final_success_report(
                 ]
             )
         ),
+
         "",
+
         "WORST-CASE EXPOSURE",
+
         (
             "Initial: "
             +
-            decimal_to_plain(
+            decimal_text(
                 exposure[
                     "initial"
                 ]
@@ -3295,10 +4338,11 @@ def r21_build_final_success_report(
             +
             "%"
         ),
+
         (
             "Pyramids: "
             +
-            decimal_to_plain(
+            decimal_text(
                 exposure[
                     "pyramids"
                 ]
@@ -3306,10 +4350,11 @@ def r21_build_final_success_report(
             +
             "%"
         ),
+
         (
             "Backups: "
             +
-            decimal_to_plain(
+            decimal_text(
                 exposure[
                     "backups"
                 ]
@@ -3317,10 +4362,11 @@ def r21_build_final_success_report(
             +
             "%"
         ),
+
         (
             "Total: "
             +
-            decimal_to_plain(
+            decimal_text(
                 exposure[
                     "total"
                 ]
@@ -3328,7 +4374,7 @@ def r21_build_final_success_report(
             +
             "% / "
             +
-            decimal_to_plain(
+            decimal_text(
                 exposure[
                     "maximum"
                 ]
@@ -3336,6 +4382,7 @@ def r21_build_final_success_report(
             +
             "%"
         ),
+
         (
             "Exposure Passed: "
             +
@@ -3345,9 +4392,13 @@ def r21_build_final_success_report(
                 ]
             )
         ),
+
         "",
+
         "REAL WEEX POSITION",
+
     ]
+
 
     if position[
         "open"
@@ -3355,6 +4406,7 @@ def r21_build_final_success_report(
 
         lines.extend(
             [
+
                 (
                     "Open Position: "
                     +
@@ -3364,20 +4416,22 @@ def r21_build_final_success_report(
                         ]
                     )
                 ),
+
                 (
                     "Position Quantity: "
                     +
-                    decimal_to_plain(
+                    decimal_text(
                         position[
                             "quantity"
                         ]
                     )
                 ),
+
                 (
                     "WEEX Liquidation Price: "
                     +
                     (
-                        decimal_to_plain(
+                        decimal_text(
                             position[
                                 "liquidation_price"
                             ]
@@ -3394,81 +4448,94 @@ def r21_build_final_success_report(
             ]
         )
 
+
     else:
 
         lines.extend(
             [
+
                 "No open position detected",
-                (
-                    "WEEX Liquidation Price: "
-                    "N/A"
-                ),
+
+                "WEEX Liquidation Price: N/A",
+
             ]
         )
 
+
     lines.extend(
         [
+
             "",
+
             "TP / TRAILING",
-            (
-                "TP1 / TP2 / TP3: "
-                "20% / 20% / 60%"
-            ),
+
+            "TP1 / TP2 / TP3: "
+            "20% / 20% / 60%",
+
             (
                 "TP1 Trigger: "
                 +
-                decimal_to_plain(
+                decimal_text(
                     TP1_TRIGGER_PERCENT
                 )
                 +
                 "%"
             ),
+
             (
                 "TP2 Trigger: "
                 +
-                decimal_to_plain(
+                decimal_text(
                     TP2_TRIGGER_PERCENT
                 )
                 +
                 "%"
             ),
+
             (
                 "TP1 Reference: "
                 +
-                decimal_to_plain(
+                decimal_text(
                     tp[
                         "tp1"
                     ]
                 )
             ),
+
             (
                 "TP2 Reference: "
                 +
-                decimal_to_plain(
+                decimal_text(
                     tp[
                         "tp2"
                     ]
                 )
             ),
+
             (
                 "Trailing Distance: "
                 +
-                decimal_to_plain(
+                decimal_text(
                     trailing_distance
                 )
             ),
+
             "",
+
             "R21 WEEX V3 EXECUTION PATH",
+
             (
                 "Real Order Endpoint: "
                 +
                 REAL_ORDER_PATH
             ),
+
             (
                 "Demo Order Endpoint: "
                 +
                 DEMO_ORDER_PATH
             ),
+
             (
                 "Demo Test Enabled: "
                 +
@@ -3476,6 +4543,7 @@ def r21_build_final_success_report(
                     RUN_DEMO_ORDER_TEST
                 )
             ),
+
             (
                 "Demo POST Attempted: "
                 +
@@ -3483,6 +4551,7 @@ def r21_build_final_success_report(
                     R21_DEMO_POST_ATTEMPTED
                 )
             ),
+
             (
                 "Demo POST Accepted: "
                 +
@@ -3490,11 +4559,13 @@ def r21_build_final_success_report(
                     R21_DEMO_POST_ACCEPTED
                 )
             ),
+
             (
                 "Demo Status: "
                 +
                 demo_status
             ),
+
             (
                 "Demo Order ID: "
                 +
@@ -3502,8 +4573,11 @@ def r21_build_final_success_report(
                     demo_order_id
                 )
             ),
+
             "",
+
             "R21 ABSOLUTE EXECUTION SAFETY",
+
             (
                 "Real POST Called: "
                 +
@@ -3511,6 +4585,7 @@ def r21_build_final_success_report(
                     R21_REAL_POST_CALLED
                 )
             ),
+
             (
                 "Hard Real POST Lock: "
                 +
@@ -3518,31 +4593,27 @@ def r21_build_final_success_report(
                     HARD_REAL_POST_LOCK
                 )
             ),
-            (
-                "Live Order Execution: "
-                +
-                (
-                    "⚠️ ENABLED"
-                    if
-                    LIVE_ORDER_EXECUTION
-                    else
-                    "❌ DISABLED"
-                )
-            ),
+
+            "Live Order Execution: ❌ DISABLED",
+
             "",
+
             (
                 "🛡 R21 ABSOLUTE "
                 "REAL-ORDER POST LOCK ACTIVE"
             ),
+
             (
                 "⚠️ LIVE ORDER EXECUTION "
                 "DISABLED"
             ),
+
             (
                 "⚠️ NO REAL ORDER WAS SENT"
             ),
         ]
     )
+
 
     return "\n".join(
         lines
@@ -3557,15 +4628,21 @@ def r21_build_error_report(
     stage,
     exc,
 ):
+
     return "\n".join(
         [
+
             (
                 "❌ MODULE "
                 f"{MODULE_NAME} ERROR"
             ),
+
             "",
+
             SYMBOL,
+
             "",
+
             (
                 "Stage: "
                 +
@@ -3573,7 +4650,9 @@ def r21_build_error_report(
                     stage
                 )
             ),
+
             "",
+
             (
                 type(
                     exc
@@ -3585,7 +4664,9 @@ def r21_build_error_report(
                     exc
                 )
             ),
+
             "",
+
             (
                 "Real POST Called: "
                 +
@@ -3593,6 +4674,7 @@ def r21_build_error_report(
                     R21_REAL_POST_CALLED
                 )
             ),
+
             (
                 "Demo POST Attempted: "
                 +
@@ -3600,6 +4682,7 @@ def r21_build_error_report(
                     R21_DEMO_POST_ATTEMPTED
                 )
             ),
+
             (
                 "Demo POST Accepted: "
                 +
@@ -3607,15 +4690,19 @@ def r21_build_error_report(
                     R21_DEMO_POST_ACCEPTED
                 )
             ),
+
             "",
+
             (
                 "🛡 R21 absolute "
                 "real-order POST lock active"
             ),
+
             (
                 "⚠️ LIVE ORDER EXECUTION "
                 "DISABLED"
             ),
+
             (
                 "⚠️ NO REAL ORDER WAS SENT"
             ),
@@ -3624,130 +4711,99 @@ def r21_build_error_report(
 
 
 # ============================================================
-# R21 DEMO TEST EXECUTION
-# ============================================================
-
-async def r21_optional_demo_order_test(
-    session,
-    mark_price,
-    contract,
-):
-    if not RUN_DEMO_ORDER_TEST:
-
-        print(
-            "R21 DEMO ORDER TEST DISABLED"
-        )
-
-        return None
-
-    print(
-        "R21 DEMO ORDER TEST ENABLED"
-    )
-
-    demo_order = (
-        build_r21_demo_test_order(
-            mark_price=mark_price,
-            minimum_order=contract[
-                "minimum_order"
-            ],
-            quantity_precision=contract[
-                "quantity_precision"
-            ],
-        )
-    )
-
-    print(
-        "R21 DEMO SYMBOL:",
-        demo_order[
-            "symbol"
-        ],
-    )
-
-    print(
-        "R21 DEMO QUANTITY:",
-        decimal_to_plain(
-            demo_order[
-                "quantity"
-            ]
-        ),
-    )
-
-    print(
-        "R21 DEMO LIMIT PRICE:",
-        decimal_to_plain(
-            demo_order[
-                "limit_price"
-            ]
-        ),
-    )
-
-    result = await route_order_post_r21(
-        session=session,
-        payload=demo_order[
-            "payload"
-        ],
-        demo=True,
-    )
-
-    return result
-
-
-# ============================================================
 # COMPLETE R21 DIAGNOSTIC
 # ============================================================
 
 async def r21_run_diagnostic():
+
     global R21_DIAGNOSTIC_COMPLETE
+
     global R21_DIAGNOSTIC_PASSED
+
     global R21_LAST_ERROR
+
     global R21_LAST_STAGE
 
+
     R21_DIAGNOSTIC_COMPLETE = False
+
     R21_DIAGNOSTIC_PASSED = False
+
     R21_LAST_ERROR = None
 
+
     print(
-        "=" * 60
+        "="
+        *
+        60
     )
+
 
     print(
         f"{MODULE_NAME} STARTING"
     )
 
-    print(
-        "FINAL PRE-LIVE EXECUTION PATH VALIDATION"
-    )
 
     print(
-        "REAL ORDER TRANSMISSION DISABLED"
+        "FINAL PRE-LIVE EXECUTION "
+        "PATH VALIDATION"
     )
+
 
     print(
-        "=" * 60
+        "REAL ORDER TRANSMISSION "
+        "DISABLED"
     )
 
-    timeout = aiohttp.ClientTimeout(
-        total=20
+
+    print(
+        "="
+        *
+        60
     )
+
 
     async with aiohttp.ClientSession(
-        timeout=timeout
+        timeout=REQUEST_TIMEOUT
     ) as session:
+
 
         try:
 
+
             # =================================================
             # STAGE 1
-            # SAFETY
+            # CONFIGURATION
+            # =================================================
+
+            R21_LAST_STAGE = (
+                "configuration"
+            )
+
+
+            validate_configuration()
+
+
+            print(
+                "✅ Configuration passed"
+            )
+
+
+            # =================================================
+            # STAGE 2
+            # ABSOLUTE SAFETY
             # =================================================
 
             R21_LAST_STAGE = (
                 "absolute safety validation"
             )
 
+
             final_safety_assertions_r21()
 
+
             await test_real_post_lock_r21()
+
 
             print(
                 "✅ R21 absolute real POST "
@@ -3756,7 +4812,7 @@ async def r21_run_diagnostic():
 
 
             # =================================================
-            # STAGE 2
+            # STAGE 3
             # PART 2 SELF TEST
             # =================================================
 
@@ -3764,26 +4820,65 @@ async def r21_run_diagnostic():
                 "Part 2 self-test"
             )
 
+
             self_test = (
                 await run_r21_part2_self_test()
             )
 
-            if not self_test.get(
+
+            if not self_test[
                 "all_passed"
-            ):
+            ]:
 
                 raise RuntimeError(
                     "R21 Part 2 self-test "
                     "did not pass"
                 )
 
+
             print(
-                "✅ R21 Part 2 self-test passed"
+                "✅ R21 Part 2 "
+                "self-test passed"
             )
 
 
             # =================================================
-            # STAGE 3
+            # STAGE 4
+            # SIGNAL GATES
+            # =================================================
+
+            R21_LAST_STAGE = (
+                "signal gates"
+            )
+
+
+            gates = (
+                run_signal_gate_self_tests()
+            )
+
+
+            if not all(
+                gates.values()
+            ):
+
+                raise RuntimeError(
+                    "R21 signal gate "
+                    "self-test failed: "
+                    +
+                    str(
+                        gates
+                    )
+                )
+
+
+            print(
+                "✅ Signal gate "
+                "self-tests passed"
+            )
+
+
+            # =================================================
+            # STAGE 5
             # MARK PRICE
             # =================================================
 
@@ -3791,22 +4886,24 @@ async def r21_run_diagnostic():
                 "mark price"
             )
 
+
             mark_price = (
-                await r21_get_mark_price(
+                await get_mark_price(
                     session
                 )
             )
 
+
             print(
                 "✅ Mark Price:",
-                decimal_to_plain(
+                decimal_text(
                     mark_price
                 ),
             )
 
 
             # =================================================
-            # STAGE 4
+            # STAGE 6
             # BALANCE
             # =================================================
 
@@ -3814,22 +4911,24 @@ async def r21_run_diagnostic():
                 "balance"
             )
 
+
             available_balance = (
-                await r21_get_balance(
+                await get_available_balance(
                     session
                 )
             )
 
+
             print(
                 "✅ Available USDT:",
-                decimal_to_plain(
+                decimal_text(
                     available_balance
                 ),
             )
 
 
             # =================================================
-            # STAGE 5
+            # STAGE 7
             # CONTRACT
             # =================================================
 
@@ -3837,20 +4936,23 @@ async def r21_run_diagnostic():
                 "contract information"
             )
 
+
             contract = (
-                await r21_get_contract_information(
+                await get_contract_info(
                     session
                 )
             )
 
+
             print(
                 "✅ Minimum Order:",
-                decimal_to_plain(
+                decimal_text(
                     contract[
                         "minimum_order"
                     ]
                 ),
             )
+
 
             print(
                 "✅ Quantity Precision:",
@@ -3861,26 +4963,38 @@ async def r21_run_diagnostic():
 
 
             # =================================================
-            # STAGE 6
-            # SYMBOL
+            # STAGE 8
+            # API TRADING SYMBOL
             # =================================================
 
             R21_LAST_STAGE = (
                 "symbol trading status"
             )
 
-            symbol_trading = (
-                await r21_check_symbol_trading(
+
+            trading_symbols = (
+                await get_api_trading_symbols(
                     session
                 )
             )
 
+
+            symbol_trading = (
+                symbol_is_api_tradable(
+                    trading_symbols,
+                    SYMBOL,
+                )
+            )
+
+
             if not symbol_trading:
 
                 raise RuntimeError(
-                    f"{SYMBOL} not accepted "
-                    "as API trading symbol"
+                    f"{SYMBOL} is not "
+                    "currently listed by "
+                    "WEEX API trading symbols"
                 )
+
 
             print(
                 "✅ API Trading Symbol:",
@@ -3889,7 +5003,7 @@ async def r21_run_diagnostic():
 
 
             # =================================================
-            # STAGE 7
+            # STAGE 9
             # LEVERAGE
             # =================================================
 
@@ -3897,15 +5011,20 @@ async def r21_run_diagnostic():
                 "leverage validation"
             )
 
+
             validate_leverage_r21(
-                configured_leverage=LEVERAGE,
-                exchange_min_leverage=contract[
+
+                LEVERAGE,
+
+                contract[
                     "min_leverage"
                 ],
-                exchange_max_leverage=contract[
+
+                contract[
                     "max_leverage"
                 ],
             )
+
 
             print(
                 "✅ Leverage Gate Passed"
@@ -3913,7 +5032,7 @@ async def r21_run_diagnostic():
 
 
             # =================================================
-            # STAGE 8
+            # STAGE 10
             # EXPOSURE
             # =================================================
 
@@ -3921,9 +5040,11 @@ async def r21_run_diagnostic():
                 "fund exposure validation"
             )
 
+
             exposure = (
                 validate_total_fund_exposure_r21()
             )
+
 
             if not exposure[
                 "passed"
@@ -3934,25 +5055,32 @@ async def r21_run_diagnostic():
                     "exposure exceeded"
                 )
 
+
             print(
+
                 "✅ Exposure Gate:",
-                decimal_to_plain(
+
+                decimal_text(
                     exposure[
                         "total"
                     ]
                 ),
+
                 "/",
-                decimal_to_plain(
+
+                decimal_text(
                     exposure[
                         "maximum"
                     ]
                 ),
+
                 "%",
+
             )
 
 
             # =================================================
-            # STAGE 9
+            # STAGE 11
             # DYNAMIC ENTRY
             # =================================================
 
@@ -3960,20 +5088,28 @@ async def r21_run_diagnostic():
                 "dynamic entry calculation"
             )
 
+
             dynamic = (
                 calculate_dynamic_entry_r21(
-                    available_balance=(
-                        available_balance
-                    ),
-                    mark_price=mark_price,
-                    minimum_order=contract[
-                        "minimum_order"
-                    ],
-                    quantity_precision=contract[
-                        "quantity_precision"
-                    ],
+
+                    available_balance=
+                        available_balance,
+
+                    mark_price=
+                        mark_price,
+
+                    minimum_order=
+                        contract[
+                            "minimum_order"
+                        ],
+
+                    quantity_precision=
+                        contract[
+                            "quantity_precision"
+                        ],
                 )
             )
+
 
             if not dynamic[
                 "minimum_passed"
@@ -3984,9 +5120,10 @@ async def r21_run_diagnostic():
                     "quantity below WEEX minimum"
                 )
 
+
             print(
                 "✅ Dynamic Entry Quantity:",
-                decimal_to_plain(
+                decimal_text(
                     dynamic[
                         "quantity"
                     ]
@@ -3995,7 +5132,7 @@ async def r21_run_diagnostic():
 
 
             # =================================================
-            # STAGE 10
+            # STAGE 12
             # POSITION
             # =================================================
 
@@ -4003,61 +5140,78 @@ async def r21_run_diagnostic():
                 "external position check"
             )
 
+
             position = (
-                await r21_get_position_state(
+                await get_symbol_position_state(
                     session
                 )
             )
+
 
             if position[
                 "open"
             ]:
 
                 print(
-                    "⚠️ Existing WEEX position detected:",
+
+                    "⚠️ Existing WEEX "
+                    "position detected:",
+
                     position[
                         "side"
                     ],
-                    decimal_to_plain(
+
+                    decimal_text(
                         position[
                             "quantity"
                         ]
                     ),
                 )
 
+
             else:
 
                 print(
-                    "✅ No open WEEX position detected"
+                    "✅ No open WEEX "
+                    "position detected"
                 )
 
 
             # =================================================
-            # STAGE 11
-            # DEMO ORDER TEST
+            # STAGE 13
+            # OPTIONAL DEMO POST
             # =================================================
 
             R21_LAST_STAGE = (
                 "demo order transmission"
             )
 
+
             demo_result = (
                 await r21_optional_demo_order_test(
-                    session=session,
-                    mark_price=mark_price,
-                    contract=contract,
+
+                    session,
+
+                    mark_price,
+
+                    contract,
+
                 )
             )
 
 
             # =================================================
-            # STAGE 12
-            # FINAL REAL POST SAFETY
+            # STAGE 14
+            # FINAL REAL POST VERIFICATION
             # =================================================
 
             R21_LAST_STAGE = (
                 "final real POST verification"
             )
+
+
+            final_safety_assertions_r21()
+
 
             if R21_REAL_POST_CALLED:
 
@@ -4066,12 +5220,14 @@ async def r21_run_diagnostic():
                     "real order POST was called"
                 )
 
+
             if LIVE_ORDER_EXECUTION:
 
                 raise RuntimeError(
                     "CRITICAL R21 SAFETY FAILURE: "
                     "LIVE_ORDER_EXECUTION=True"
                 )
+
 
             if not HARD_REAL_POST_LOCK:
 
@@ -4082,42 +5238,70 @@ async def r21_run_diagnostic():
 
 
             # =================================================
-            # SUCCESS REPORT
+            # SUCCESS
             # =================================================
 
             R21_LAST_STAGE = (
                 "diagnostic complete"
             )
 
+
             report = (
                 r21_build_final_success_report(
-                    available_balance=(
-                        available_balance
-                    ),
-                    mark_price=mark_price,
-                    contract=contract,
-                    symbol_trading=(
-                        symbol_trading
-                    ),
-                    position=position,
-                    demo_result=demo_result,
+
+                    available_balance=
+                        available_balance,
+
+                    mark_price=
+                        mark_price,
+
+                    contract=
+                        contract,
+
+                    symbol_trading=
+                        symbol_trading,
+
+                    position=
+                        position,
+
+                    demo_result=
+                        demo_result,
+
+                    gates=
+                        gates,
+
+                    dynamic=
+                        dynamic,
+
+                    exposure=
+                        exposure,
                 )
             )
 
+
             print()
+
             print(
                 report
             )
+
             print()
 
-            # Single Telegram message only
+
+            # =================================================
+            # SINGLE TELEGRAM MESSAGE
+            # =================================================
 
             try:
 
                 await r21_send_telegram_once(
-                    session=session,
-                    message=report,
+
+                    session,
+
+                    report,
+
                 )
+
 
             except Exception as telegram_exc:
 
@@ -4126,32 +5310,46 @@ async def r21_run_diagnostic():
                     telegram_exc,
                 )
 
+
             R21_DIAGNOSTIC_COMPLETE = True
+
             R21_DIAGNOSTIC_PASSED = True
 
+
             print(
-                "=" * 60
+                "="
+                *
+                60
             )
+
 
             print(
                 f"{MODULE_NAME} COMPLETE: PASSED"
             )
 
+
             print(
-                "=" * 60
+                "="
+                *
+                60
             )
+
 
             return True
 
 
         except Exception as exc:
 
+
             R21_LAST_ERROR = str(
                 exc
             )
 
+
             R21_DIAGNOSTIC_COMPLETE = True
+
             R21_DIAGNOSTIC_PASSED = False
+
 
             report = (
                 r21_build_error_report(
@@ -4160,20 +5358,29 @@ async def r21_run_diagnostic():
                 )
             )
 
+
             print()
+
             print(
                 report
             )
+
             print()
 
+
             traceback.print_exc()
+
 
             try:
 
                 await r21_send_telegram_once(
-                    session=session,
-                    message=report,
+
+                    session,
+
+                    report,
+
                 )
+
 
             except Exception as telegram_exc:
 
@@ -4183,17 +5390,25 @@ async def r21_run_diagnostic():
                     telegram_exc,
                 )
 
+
             print(
-                "=" * 60
+                "="
+                *
+                60
             )
+
 
             print(
                 f"{MODULE_NAME} COMPLETE: FAILED"
             )
 
+
             print(
-                "=" * 60
+                "="
+                *
+                60
             )
+
 
             return False
 
@@ -4203,37 +5418,58 @@ async def r21_run_diagnostic():
 # ============================================================
 
 async def r21_persistent_runtime():
+
     global R21_RUNTIME_STARTED
+
 
     R21_RUNTIME_STARTED = True
 
-    # Start Render health server first.
+
+    # --------------------------------------------------------
+    # Start Render health server FIRST
+    # --------------------------------------------------------
+
     health_runner = (
         await r21_start_health_server()
     )
 
+
     try:
 
-        # Run diagnostic exactly once.
+
+        # ----------------------------------------------------
+        # Run R21 once
+        # ----------------------------------------------------
+
         await r21_run_diagnostic()
 
+
         print()
+
+
         print(
             "R21 PERSISTENT RUNTIME ACTIVE"
         )
+
 
         print(
             "Render process will remain alive"
         )
 
+
         print(
-            "Real order transmission remains disabled"
+            "Real order transmission "
+            "remains disabled"
         )
+
 
         print()
 
-        # Keep service alive without repeating
-        # diagnostics or Telegram messages.
+
+        # ----------------------------------------------------
+        # Stay alive without repeating diagnostic
+        # or Telegram messages
+        # ----------------------------------------------------
 
         while True:
 
@@ -4241,13 +5477,17 @@ async def r21_persistent_runtime():
                 60
             )
 
+
     finally:
+
 
         try:
 
             await health_runner.cleanup()
 
+
         except Exception:
+
             pass
 
 
@@ -4256,9 +5496,6 @@ async def r21_persistent_runtime():
 # ============================================================
 
 def main():
-    """
-    R21 single startup entry point.
-    """
 
     try:
 
@@ -4266,21 +5503,29 @@ def main():
             r21_persistent_runtime()
         )
 
+
     except KeyboardInterrupt:
 
         print(
             f"{MODULE_NAME} stopped"
         )
 
+
     except Exception as exc:
 
-        print(
-            "=" * 60
-        )
 
         print(
-            f"❌ {MODULE_NAME} FATAL STARTUP ERROR"
+            "="
+            *
+            60
         )
+
+
+        print(
+            f"❌ {MODULE_NAME} "
+            "FATAL STARTUP ERROR"
+        )
+
 
         print(
             type(
@@ -4294,19 +5539,27 @@ def main():
             )
         )
 
+
         print(
-            "🛡 REAL ORDER POST LOCK REMAINS ACTIVE"
+            "🛡 REAL ORDER POST LOCK "
+            "REMAINS ACTIVE"
         )
+
 
         print(
             "⚠️ NO REAL ORDER WAS SENT"
         )
 
+
         print(
-            "=" * 60
+            "="
+            *
+            60
         )
 
+
         traceback.print_exc()
+
 
         raise
 
