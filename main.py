@@ -1582,7 +1582,7 @@ class DemoLifecycleResult:
     client_order_id_valid: bool
     post_attempted: bool
     post_accepted: bool
-order_id: str
+    order_id: str
     response_client_id_match: bool
     history_lookup_attempted: bool
     history_poll_attempts: int
@@ -1610,7 +1610,9 @@ async def run_demo_lifecycle(
     intent: ExecutionIntent,
 ) -> DemoLifecycleResult:
     if not DEMO_ORDER_ENABLED:
-        raise RuntimeError("DEMO_ORDER_ENABLED must remain true for R26 validation")
+        raise RuntimeError(
+            "DEMO_ORDER_ENABLED must remain true for R26 validation"
+        )
 
     if DEMO_SIDE == "BUY":
         raw_price = mark_price * (Decimal("1") - DEMO_PRICE_OFFSET_PERCENT / D100)
