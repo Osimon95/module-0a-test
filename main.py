@@ -1,4 +1,686 @@
-        global R26_REAL_POST_CALLED
+import asyncio
+import base64
+import hashlib
+import hmac
+import json
+import os
+import re
+import time
+import traceback
+from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
+from typing import Any, Dict, List, Optional, Set, Tuple
+from urllib.parse import urlencode
+
+import aiohttp
+from aiohttp import web
+
+
+# ============================================================
+# MODULE
+# ============================================================
+
+MODULE_NAME = "0F-4H-R26"
+API_BASE_URL = "https://api-contract.weex.com"
+
+SYMBOL = os.getenv("SYMBOL", "BTCUSDT").strip().upper()
+
+
+def default_demo_symbol(symbol: str) -> str:
+    if symbol.endswith("USDT"):
+        return symbol[:-4] + "SUSDT"
+    return symbol
+
+
+DEMO_SYMBOL = os.getenv("DEMO_SYMBOL", default_demo_symbol(SYMBOL)).strip().upper()
+
+
+# ============================================================
+# ABSOLUTE EXECUTION SAFETY
+# ============================================================
+#
+# R26 IS PRE-LIVE ONLY.
+#
+# ALLOWED:
+#   - Public GET requests
+#   - Authenticated/private GET requests
+#   - One DEMO order POST to /capi/v3/sim/order
+#
+# FORBIDDEN:
+#   - Any real/private state-changing POST
+#   - Any POST to /capi/v3/order
+#
+# The real-order payload is built, signed, classified and rehearsed locally,
+# but it is NEVER transmitted.
+# ============================================================
+
+LIVE_ORDER_EXECUTION = False
+HARD_REAL_POST_LOCK = True
+REAL_ORDER_PATH = "/capi/v3/order"
+DEMO_ORDER_PATH = "/capi/v3/sim/order"
+
+R26_REAL_POST_CALLED = False
+R26_DEMO_POST_ATTEMPTED = False
+R26_DEMO_POST_ACCEPTED = False
+
+
+# ============================================================
+# USER-ADJUSTABLE STRATEGY CONFIG
+# ============================================================
+
+ENTRY_PERCENT = Decimal(os.getenv("ENTRY_PERCENT", "5"))
+LEVERAGE = int(os.getenv("LEVERAGE", "100"))
+MAX_CONFIG_LEVERAGE = int(os.getenv("MAX_CONFIG_LEVERAGE", "100"))
+MARGIN_TYPE = os.getenv("MARGIN_TYPE", "ISOLATED").strip().upper()
+
+MAX_PYRAMID_ADDS = int(os.getenv("MAX_PYRAMID_ADDS", "1"))
+PYRAMID_SIZE_PERCENT = Decimal(os.getenv("PYRAMID_SIZE_PERCENT", "5"))
+
+MAX_BACKUPS = int(os.getenv("MAX_BACKUPS", "3"))
+BACKUP_SIZE_PERCENT = Decimal(os.getenv("BACKUP_SIZE_PERCENT", "5"))
+BACKUP_BUFFER_PERCENT = Decimal(os.getenv("BACKUP_BUFFER_PERCENT", "0.3"))
+
+MIN_LIQ_DISTANCE_PERCENT = Decimal(os.getenv("MIN_LIQ_DISTANCE_PERCENT", "0.2"))
+MAX_FUND_EXPOSURE_PERCENT = Decimal(os.getenv("MAX_FUND_EXPOSURE_PERCENT", "35"))
+
+TP1_PERCENT = Decimal(os.getenv("TP1_PERCENT", "20"))
+TP2_PERCENT = Decimal(os.getenv("TP2_PERCENT", "20"))
+TP3_PERCENT = Decimal(os.getenv("TP3_PERCENT", "60"))
+TP1_TRIGGER_PERCENT = Decimal(os.getenv("TP1_TRIGGER_PERCENT", "0.5"))
+TP2_TRIGGER_PERCENT = Decimal(os.getenv("TP2_TRIGGER_PERCENT", "1"))
+TRAILING_DISTANCE_PERCENT = Decimal(os.getenv("TRAILING_DISTANCE_PERCENT", "0.2"))
+
+SIGNAL_EXPIRY_SECONDS = int(os.getenv("SIGNAL_EXPIRY_SECONDS", "120"))
+LOSS_COOLDOWN_SECONDS = int(os.getenv("LOSS_COOLDOWN_SECONDS", "300"))
+
+ONE_DIRECTION_ONLY = True
+ANTI_DUPLICATE_ORDERS = True
+TREND_REVERSAL_EXIT = True
+IDLE_PYRAMID_CLEANUP = True
+
+
+# ============================================================
+# R26 DIAGNOSTIC SETTINGS
+# ============================================================
+
+DEMO_ORDER_ENABLED = os.getenv("DEMO_ORDER_ENABLED", "true").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+DEMO_SIDE = os.getenv("DEMO_SIDE", "BUY").strip().upper()
+DEMO_POSITION_SIDE = os.getenv("DEMO_POSITION_SIDE", "LONG").strip().upper()
+DEMO_ORDER_TYPE = "LIMIT"
+DEMO_TIME_IN_FORCE = "IOC"
+DEMO_PRICE_OFFSET_PERCENT = Decimal(os.getenv("DEMO_PRICE_OFFSET_PERCENT", "0.5"))
+
+HISTORY_POLL_ATTEMPTS = int(os.getenv("HISTORY_POLL_ATTEMPTS", "6"))
+HISTORY_POLL_DELAY_SECONDS = float(os.getenv("HISTORY_POLL_DELAY_SECONDS", "1.0"))
+
+PORT = int(os.getenv("PORT", "10000"))
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+
+WEEX_API_KEY = os.getenv("WEEX_API_KEY", "").strip()
+WEEX_SECRET_KEY = os.getenv("WEEX_SECRET_KEY", "").strip()
+WEEX_PASSPHRASE = os.getenv("WEEX_PASSPHRASE", "").strip()
+
+
+# ============================================================
+# ENDPOINTS
+# ============================================================
+
+EP_MARK_PRICE = "/capi/v3/market/symbolPrice"
+EP_EXCHANGE_INFO = "/capi/v3/market/exchangeInfo"
+EP_REAL_BALANCE = "/capi/v3/account/balance"
+EP_REAL_POSITIONS = "/capi/v3/account/position/allPosition"
+EP_DEMO_BALANCE = "/capi/v3/sim/balance"
+EP_DEMO_POSITIONS = "/capi/v3/sim/position/allPosition"
+EP_DEMO_HISTORY = "/capi/v3/sim/order/history"
+
+
+# ============================================================
+# SMALL HELPERS
+# ============================================================
+
+D0 = Decimal("0")
+D100 = Decimal("100")
+
+
+def D(value: Any, default: Decimal = D0) -> Decimal:
+    try:
+        if value is None or value == "":
+            return default
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return default
+
+
+def yesno(value: bool) -> str:
+    return "✅ YES" if value else "❌ NO"
+
+
+def decimal_text(value: Decimal) -> str:
+    s = format(value, "f")
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
+    return s or "0"
+
+
+def floor_to_step(value: Decimal, step: Decimal) -> Decimal:
+    if step <= 0:
+        return value
+    units = (value / step).to_integral_value(rounding=ROUND_DOWN)
+    return units * step
+
+
+def precision_from_step(step: Decimal) -> int:
+    normalized = step.normalize()
+    return max(0, -normalized.as_tuple().exponent)
+
+
+def floor_with_precision(
+    value: Decimal,
+    step: Decimal,
+    precision: int,
+) -> Decimal:
+    floored = floor_to_step(value, step)
+    quantum = Decimal("1").scaleb(-precision)
+    return floored.quantize(quantum, rounding=ROUND_DOWN)
+
+
+def step_match(value: Decimal, step: Decimal) -> bool:
+    if step <= 0:
+        return True
+    return value == floor_to_step(value, step)
+
+
+def now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def safe_json_text(data: Any) -> str:
+    return json.dumps(
+        data,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+
+
+def extract_list(payload: Any) -> List[Any]:
+    if isinstance(payload, list):
+        return payload
+
+    if isinstance(payload, dict):
+        for key in ("data", "list", "rows", "result"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return value
+
+    return []
+
+
+def first_present(
+    mapping: Dict[str, Any],
+    keys: Tuple[str, ...],
+    default: Any = None,
+) -> Any:
+    for key in keys:
+        if key in mapping and mapping[key] is not None:
+            return mapping[key]
+
+    return default
+
+
+# ============================================================
+# CONTRACT MODEL
+# ============================================================
+
+@dataclass
+class ContractInfo:
+    symbol: str
+    min_qty: Decimal
+    qty_step: Decimal
+    qty_precision: int
+    price_step: Decimal
+    price_precision: int
+    contract_value: Decimal
+    min_leverage: int
+    max_leverage: int
+
+
+def find_symbol_object(
+    payload: Any,
+    symbol: str,
+) -> Optional[Dict[str, Any]]:
+    target = symbol.upper()
+
+    if isinstance(payload, dict):
+        symbols = payload.get("symbols")
+
+        if isinstance(symbols, list):
+            for item in symbols:
+                if (
+                    isinstance(item, dict)
+                    and str(item.get("symbol", "")).upper() == target
+                ):
+                    return item
+
+        data = payload.get("data")
+
+        if isinstance(data, dict):
+            found = find_symbol_object(data, symbol)
+            if found:
+                return found
+
+        if isinstance(data, list):
+            for item in data:
+                if (
+                    isinstance(item, dict)
+                    and str(item.get("symbol", "")).upper() == target
+                ):
+                    return item
+
+    if isinstance(payload, list):
+        for item in payload:
+            if (
+                isinstance(item, dict)
+                and str(item.get("symbol", "")).upper() == target
+            ):
+                return item
+
+    return None
+
+
+def parse_contract_info(
+    payload: Any,
+    symbol: str,
+) -> ContractInfo:
+    item = find_symbol_object(payload, symbol)
+
+    if not item:
+        raise RuntimeError(
+            f"Unable to find contract info for {symbol}"
+        )
+
+    filters = (
+        item.get("filters")
+        if isinstance(item.get("filters"), list)
+        else []
+    )
+
+    min_qty = D(
+        first_present(
+            item,
+            ("minQty", "minOrderQty", "minOrderSize"),
+        )
+    )
+
+    qty_step = D(
+        first_present(
+            item,
+            ("quantityStep", "qtyStep", "stepSize", "sizeStep"),
+        )
+    )
+
+    price_step = D(
+        first_present(
+            item,
+            ("priceStep", "tickSize", "priceTick"),
+        )
+    )
+
+    for f in filters:
+        if not isinstance(f, dict):
+            continue
+
+        ftype = str(
+            f.get("filterType", "")
+        ).upper()
+
+        if ftype in {
+            "LOT_SIZE",
+            "MARKET_LOT_SIZE",
+        }:
+            if min_qty <= 0:
+                min_qty = D(
+                    f.get("minQty")
+                )
+
+            if qty_step <= 0:
+                qty_step = D(
+                    f.get("stepSize")
+                )
+
+        elif ftype == "PRICE_FILTER":
+            if price_step <= 0:
+                price_step = D(
+                    f.get("tickSize")
+                )
+
+    qty_precision_raw = first_present(
+        item,
+        (
+            "quantityPrecision",
+            "qtyPrecision",
+            "sizePrecision",
+        ),
+    )
+
+    price_precision_raw = first_present(
+        item,
+        (
+            "pricePrecision",
+            "priceScale",
+        ),
+    )
+
+    if qty_step <= 0:
+        qty_step = Decimal("0.0001")
+
+    if min_qty <= 0:
+        min_qty = qty_step
+
+    if price_step <= 0:
+        price_step = Decimal("0.1")
+
+    try:
+        qty_precision = (
+            int(qty_precision_raw)
+            if qty_precision_raw is not None
+            else precision_from_step(qty_step)
+        )
+    except (ValueError, TypeError):
+        qty_precision = precision_from_step(
+            qty_step
+        )
+
+    try:
+        price_precision = (
+            int(price_precision_raw)
+            if price_precision_raw is not None
+            else precision_from_step(price_step)
+        )
+    except (ValueError, TypeError):
+        price_precision = precision_from_step(
+            price_step
+        )
+
+    contract_value = D(
+        first_present(
+            item,
+            (
+                "contractValue",
+                "contract_val",
+                "contractVal",
+            ),
+        ),
+        Decimal("0.0001"),
+    )
+
+    try:
+        min_lev = int(
+            first_present(
+                item,
+                ("minLeverage",),
+                1,
+            )
+        )
+    except (ValueError, TypeError):
+        min_lev = 1
+
+    try:
+        max_lev = int(
+            first_present(
+                item,
+                ("maxLeverage",),
+                100,
+            )
+        )
+    except (ValueError, TypeError):
+        max_lev = 100
+
+    return ContractInfo(
+        symbol=symbol,
+        min_qty=min_qty,
+        qty_step=qty_step,
+        qty_precision=qty_precision,
+        price_step=price_step,
+        price_precision=price_precision,
+        contract_value=contract_value,
+        min_leverage=min_lev,
+        max_leverage=max_lev,
+    )
+
+
+# ============================================================
+# HTTP + SIGNING
+# ============================================================
+
+class WeexClient:
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+    ):
+        self.session = session
+
+    @staticmethod
+    def _signature(
+        timestamp: str,
+        method: str,
+        path: str,
+        query_string: str,
+        body_text: str,
+    ) -> str:
+        if query_string:
+            prehash = (
+                timestamp
+                + method.upper()
+                + path
+                + "?"
+                + query_string
+                + body_text
+            )
+        else:
+            prehash = (
+                timestamp
+                + method.upper()
+                + path
+                + body_text
+            )
+
+        digest = hmac.new(
+            WEEX_SECRET_KEY.encode("utf-8"),
+            prehash.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+
+        return base64.b64encode(
+            digest
+        ).decode("utf-8")
+
+    @staticmethod
+    def _auth_headers(
+        method: str,
+        path: str,
+        query_string: str = "",
+        body_text: str = "",
+    ) -> Dict[str, str]:
+        timestamp = str(
+            now_ms()
+        )
+
+        signature = WeexClient._signature(
+            timestamp,
+            method,
+            path,
+            query_string,
+            body_text,
+        )
+
+        return {
+            "ACCESS-KEY": WEEX_API_KEY,
+            "ACCESS-SIGN": signature,
+            "ACCESS-PASSPHRASE": WEEX_PASSPHRASE,
+            "ACCESS-TIMESTAMP": timestamp,
+            "Content-Type": "application/json",
+        }
+
+    async def public_get(
+        self,
+        path: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        async with self.session.get(
+            API_BASE_URL + path,
+            params=params,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as r:
+            text = await r.text()
+
+            if r.status < 200 or r.status >= 300:
+                raise RuntimeError(
+                    f"WEEX PUBLIC GET HTTP "
+                    f"{r.status}: {text}"
+                )
+
+            try:
+                return json.loads(
+                    text
+                )
+            except json.JSONDecodeError:
+                raise RuntimeError(
+                    "WEEX PUBLIC GET "
+                    f"invalid JSON: {text}"
+                )
+
+    async def private_get(
+        self,
+        path: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        params = params or {}
+
+        query = urlencode(
+            params
+        )
+
+        headers = self._auth_headers(
+            "GET",
+            path,
+            query,
+            "",
+        )
+
+        url = (
+            API_BASE_URL
+            + path
+            + (
+                "?" + query
+                if query
+                else ""
+            )
+        )
+
+        async with self.session.get(
+            url,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as r:
+            text = await r.text()
+
+            if r.status < 200 or r.status >= 300:
+                raise RuntimeError(
+                    f"WEEX GET HTTP "
+                    f"{r.status}: {text}"
+                )
+
+            try:
+                return json.loads(
+                    text
+                )
+            except json.JSONDecodeError:
+                raise RuntimeError(
+                    "WEEX GET invalid JSON: "
+                    f"{text}"
+                )
+
+    async def demo_post(
+        self,
+        path: str,
+        body: Dict[str, Any],
+    ) -> Any:
+        global R26_DEMO_POST_ATTEMPTED
+        global R26_DEMO_POST_ACCEPTED
+
+        if path != DEMO_ORDER_PATH:
+            raise RuntimeError(
+                "R26 demo_post rejected "
+                f"non-demo path: {path}"
+            )
+
+        R26_DEMO_POST_ATTEMPTED = True
+
+        body_text = safe_json_text(
+            body
+        )
+
+        headers = self._auth_headers(
+            "POST",
+            path,
+            "",
+            body_text,
+        )
+
+        async with self.session.post(
+            API_BASE_URL + path,
+            headers=headers,
+            data=body_text,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as r:
+            text = await r.text()
+
+            if r.status < 200 or r.status >= 300:
+                raise RuntimeError(
+                    f"WEEX DEMO POST HTTP "
+                    f"{r.status}: {text}"
+                )
+
+            try:
+                payload = json.loads(
+                    text
+                )
+            except json.JSONDecodeError:
+                raise RuntimeError(
+                    "WEEX DEMO POST invalid JSON: "
+                    f"{text}"
+                )
+
+            accepted = classify_order_response(
+                payload
+            )[0]
+
+            R26_DEMO_POST_ACCEPTED = accepted
+
+            if not accepted:
+                raise RuntimeError(
+                    "WEEX DEMO POST rejected: "
+                    f"{text}"
+                )
+
+            return payload
+
+    async def real_post_forbidden(
+        self,
+        path: str,
+        body: Dict[str, Any],
+    ) -> Any:
+global R26_REAL_POST_CALLED
 
         R26_REAL_POST_CALLED = True
 
