@@ -680,7 +680,7 @@ class WeexClient:
         path: str,
         body: Dict[str, Any],
     ) -> Any:
-global R26_REAL_POST_CALLED
+     global R26_REAL_POST_CALLED
 
         R26_REAL_POST_CALLED = True
 
