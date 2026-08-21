@@ -1,4 +1,911 @@
+        global R26_REAL_POST_CALLED
+
+        R26_REAL_POST_CALLED = True
+
+        raise RuntimeError(
+            "R26 ABSOLUTE SAFETY LOCK: "
+            f"real POST blocked before transmission: {path}"
+        )
+
+
+# ============================================================
+# CREDENTIALS + CONFIG SAFETY
+# ============================================================
+
+def validate_credentials() -> None:
+    missing = []
+
+    if not WEEX_API_KEY:
+        missing.append("WEEX_API_KEY")
+
+    if not WEEX_SECRET_KEY:
+        missing.append("WEEX_SECRET_KEY")
+
+    if not WEEX_PASSPHRASE:
+        missing.append("WEEX_PASSPHRASE")
+
+    if missing:
+        raise RuntimeError(
+            "Missing WEEX credentials: "
+            + ", ".join(missing)
+        )
+
+
+def final_safety_assertions_r26() -> None:
+    if LIVE_ORDER_EXECUTION:
+        raise RuntimeError(
+            "R26 must not run with "
+            "LIVE_ORDER_EXECUTION=True"
+        )
+
+    if not HARD_REAL_POST_LOCK:
+        raise RuntimeError(
+            "R26 requires HARD_REAL_POST_LOCK=True"
+        )
+
+    if REAL_ORDER_PATH == DEMO_ORDER_PATH:
+        raise RuntimeError(
+            "Real and demo paths unexpectedly identical"
+        )
+
+    if (
+        ENTRY_PERCENT <= 0
+        or ENTRY_PERCENT > MAX_FUND_EXPOSURE_PERCENT
+    ):
+        raise RuntimeError(
+            "ENTRY_PERCENT outside allowed exposure"
+        )
+
+    if (
+        LEVERAGE <= 0
+        or LEVERAGE > MAX_CONFIG_LEVERAGE
+    ):
+        raise RuntimeError(
+            "Configured leverage exceeds local cap"
+        )
+
+    if MARGIN_TYPE != "ISOLATED":
+        raise RuntimeError(
+            "R26 requires ISOLATED margin configuration"
+        )
+
+    if (
+        TP1_PERCENT
+        + TP2_PERCENT
+        + TP3_PERCENT
+        != Decimal("100")
+    ):
+        raise RuntimeError(
+            "TP allocation must total 100%"
+        )
+
+
+# ============================================================
+# SIGNAL + ENTRY GATES
+# ============================================================
+
+@dataclass
+class Signal:
+    signal_id: str
+    symbol: str
+    direction: str
+    created_at: float
+
+
+class SignalGate:
+    def __init__(self):
+        self.processed: Set[str] = set()
+        self.last_loss_time: Optional[float] = None
+
+    def accept(
+        self,
+        signal: Signal,
+        now: Optional[float] = None,
+    ) -> Tuple[bool, str]:
+
+        current = (
+            time.time()
+            if now is None
+            else now
+        )
+
+        if (
+            current - signal.created_at
+            > SIGNAL_EXPIRY_SECONDS
+        ):
+            return False, "expired"
+
+        if (
+            self.last_loss_time is not None
+            and current - self.last_loss_time
+            < LOSS_COOLDOWN_SECONDS
+        ):
+            return False, "loss-cooldown"
+
+        if signal.signal_id in self.processed:
+            return False, "duplicate"
+
+        self.processed.add(
+            signal.signal_id
+        )
+
+        return True, "accepted"
+
+
+# ============================================================
+# ORDER STATE MACHINE
+# ============================================================
+
+TERMINAL_ORDER_STATES = {
+    "FILLED",
+    "CANCELED",
+    "CANCELLED",
+    "REJECTED",
+    "EXPIRED",
+}
+
+ORDER_STATE_RANK = {
+    "NEW": 10,
+    "PARTIALLY_FILLED": 20,
+    "FILLED": 30,
+    "CANCELED": 30,
+    "CANCELLED": 30,
+    "REJECTED": 30,
+    "EXPIRED": 30,
+}
+
+
+@dataclass
+class OrderTracker:
     order_id: str
+    status: Optional[str] = None
+    executed_qty: Decimal = D0
+    seen_event_keys: Set[str] = field(
+        default_factory=set
+    )
+    terminal: bool = False
+
+    def apply(
+        self,
+        status: str,
+        executed_qty: Decimal,
+        event_key: str,
+    ) -> Tuple[bool, Decimal, str]:
+
+        status = status.upper()
+
+        if event_key in self.seen_event_keys:
+            return (
+                False,
+                D0,
+                "duplicate-event",
+            )
+
+        self.seen_event_keys.add(
+            event_key
+        )
+
+        if (
+            self.terminal
+            and status not in TERMINAL_ORDER_STATES
+        ):
+            return (
+                False,
+                D0,
+                "terminal-regression",
+            )
+
+        if self.status is not None:
+            old_rank = ORDER_STATE_RANK.get(
+                self.status,
+                0,
+            )
+
+            new_rank = ORDER_STATE_RANK.get(
+                status,
+                0,
+            )
+
+            if new_rank < old_rank:
+                return (
+                    False,
+                    D0,
+                    "state-regression",
+                )
+
+        delta = (
+            executed_qty
+            - self.executed_qty
+        )
+
+        if delta < 0:
+            return (
+                False,
+                D0,
+                "quantity-regression",
+            )
+
+        self.executed_qty = executed_qty
+        self.status = status
+        self.terminal = (
+            status
+            in TERMINAL_ORDER_STATES
+        )
+
+        return (
+            True,
+            delta,
+            "accepted",
+        )
+
+
+# ============================================================
+# EXECUTION INTENT STATE MACHINE
+# ============================================================
+
+INTENT_RANK = {
+    "NEW": 10,
+    "PREFLIGHT": 20,
+    "READY": 30,
+    "SUBMITTED": 40,
+    "RECONCILING": 50,
+    "RECONCILED": 60,
+    "REJECTED": 60,
+    "EXPIRED": 60,
+}
+
+INTENT_TERMINAL = {
+    "RECONCILED",
+    "REJECTED",
+    "EXPIRED",
+}
+
+
+@dataclass
+class ExecutionIntent:
+    intent_id: str
+    signal_id: str
+    symbol: str
+    direction: str
+    side: str
+    position_side: str
+    quantity: Decimal
+    created_at: float
+    state: str = "NEW"
+    client_order_id: str = ""
+
+    def transition(
+        self,
+        target: str,
+    ) -> bool:
+
+        target = target.upper()
+        current = self.state.upper()
+
+        if current in INTENT_TERMINAL:
+            return False
+
+        if (
+            INTENT_RANK.get(target, -1)
+            <= INTENT_RANK.get(current, -1)
+        ):
+            return False
+
+        self.state = target
+
+        return True
+
+
+class IntentGate:
+    def __init__(self):
+        self.intent_ids: Set[str] = set()
+
+    def create(
+        self,
+        intent: ExecutionIntent,
+    ) -> bool:
+
+        if intent.intent_id in self.intent_ids:
+            return False
+
+        self.intent_ids.add(
+            intent.intent_id
+        )
+
+        return True
+
+
+# ============================================================
+# R26 CLIENT ORDER ID / IDEMPOTENCY
+# ============================================================
+
+CLIENT_ID_RE = re.compile(
+    r"^[\.A-Z\:/a-z0-9_-]{1,36}$"
+)
+
+
+def deterministic_client_order_id(
+    intent: ExecutionIntent,
+    namespace: str = "r26",
+) -> str:
+
+    material = (
+        f"{intent.signal_id}|"
+        f"{intent.symbol}|"
+        f"{intent.side}|"
+        f"{intent.position_side}|"
+        f"{decimal_text(intent.quantity)}"
+    )
+
+    digest = hashlib.sha256(
+        material.encode("utf-8")
+    ).hexdigest()[:20]
+
+    cid = (
+        f"{namespace}-{digest}"
+    )
+
+    return cid[:36]
+
+
+# ============================================================
+# R26 REAL-PAYLOAD REHEARSAL
+# ============================================================
+
+@dataclass
+class PayloadRehearsal:
+    payload: Dict[str, Any]
+    body_text: str
+    client_id_valid: bool
+    required_fields_present: bool
+    quantity_step_match: bool
+    price_step_match: bool
+    deterministic_rebuild_match: bool
+    signature_generated: bool
+    real_path_blocked: bool
+    response_accept_classification_test: bool
+    response_reject_classification_test: bool
+    ambiguous_response_classification_test: bool
+
+
+def build_order_payload(
+    symbol: str,
+    side: str,
+    position_side: str,
+    quantity: Decimal,
+    price: Decimal,
+    client_order_id: str,
+    tif: str = "IOC",
+) -> Dict[str, Any]:
+
+    return {
+        "symbol": symbol,
+        "side": side,
+        "positionSide": position_side,
+        "type": "LIMIT",
+        "timeInForce": tif,
+        "quantity": decimal_text(
+            quantity
+        ),
+        "price": decimal_text(
+            price
+        ),
+        "newClientOrderId": (
+            client_order_id
+        ),
+    }
+
+
+def classify_order_response(
+    payload: Any,
+) -> Tuple[bool, str, str]:
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+        return (
+            False,
+            "AMBIGUOUS",
+            "response is not an object",
+        )
+
+    success = payload.get(
+        "success"
+    )
+
+    order_id = str(
+        first_present(
+            payload,
+            (
+                "orderId",
+                "order_id",
+            ),
+            "",
+        )
+        or ""
+    )
+
+    error_code = str(
+        first_present(
+            payload,
+            (
+                "errorCode",
+                "code",
+            ),
+            "",
+        )
+        or ""
+    )
+
+    error_message = str(
+        first_present(
+            payload,
+            (
+                "errorMessage",
+                "msg",
+                "message",
+            ),
+            "",
+        )
+        or ""
+    )
+
+    if (
+        success is True
+        and order_id
+    ):
+        return (
+            True,
+            "ACCEPTED",
+            order_id,
+        )
+
+    if (
+        success is False
+        or (
+            error_code
+            and error_code
+            not in {
+                "0",
+                "200",
+            }
+        )
+    ):
+        return (
+            False,
+            "REJECTED",
+            (
+                f"{error_code} "
+                f"{error_message}"
+            ).strip(),
+        )
+
+    if (
+        order_id
+        and success is not False
+    ):
+        return (
+            True,
+            "ACCEPTED",
+            order_id,
+        )
+
+    return (
+        False,
+        "AMBIGUOUS",
+        (
+            error_message
+            or "missing acceptance fields"
+        ),
+    )
+
+
+def rehearse_real_payload(
+    intent: ExecutionIntent,
+    contract: ContractInfo,
+    price: Decimal,
+) -> PayloadRehearsal:
+
+    cid1 = (
+        deterministic_client_order_id(
+            intent,
+            "r26",
+        )
+    )
+
+    cid2 = (
+        deterministic_client_order_id(
+            intent,
+            "r26",
+        )
+    )
+
+    payload = build_order_payload(
+        SYMBOL,
+        intent.side,
+        intent.position_side,
+        intent.quantity,
+        price,
+        cid1,
+        "IOC",
+    )
+
+    body_text = safe_json_text(
+        payload
+    )
+
+    required = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "timeInForce",
+        "quantity",
+        "price",
+        "newClientOrderId",
+    }
+
+    timestamp = str(
+        now_ms()
+    )
+
+    signature = (
+        WeexClient._signature(
+            timestamp,
+            "POST",
+            REAL_ORDER_PATH,
+            "",
+            body_text,
+        )
+    )
+
+    accept_test = (
+        classify_order_response(
+            {
+                "orderId": (
+                    "702345678901234567"
+                ),
+                "clientOrderId": cid1,
+                "success": True,
+                "errorCode": "",
+                "errorMessage": "",
+            }
+        )[1]
+        == "ACCEPTED"
+    )
+
+    reject_test = (
+        classify_order_response(
+            {
+                "orderId": "",
+                "clientOrderId": cid1,
+                "success": False,
+                "errorCode": "-1052",
+                "errorMessage": (
+                    "Permission denied"
+                ),
+            }
+        )[1]
+        == "REJECTED"
+    )
+
+    ambiguous_test = (
+        classify_order_response(
+            {
+                "clientOrderId": cid1,
+            }
+        )[1]
+        == "AMBIGUOUS"
+    )
+
+    return PayloadRehearsal(
+        payload=payload,
+        body_text=body_text,
+        client_id_valid=bool(
+            CLIENT_ID_RE.fullmatch(
+                cid1
+            )
+        ),
+        required_fields_present=(
+            required.issubset(
+                payload.keys()
+            )
+        ),
+        quantity_step_match=(
+            step_match(
+                intent.quantity,
+                contract.qty_step,
+            )
+        ),
+        price_step_match=(
+            step_match(
+                price,
+                contract.price_step,
+            )
+        ),
+        deterministic_rebuild_match=(
+            cid1 == cid2
+        ),
+        signature_generated=bool(
+            signature
+        ),
+        real_path_blocked=(
+            not LIVE_ORDER_EXECUTION
+            and HARD_REAL_POST_LOCK
+        ),
+        response_accept_classification_test=(
+            accept_test
+        ),
+        response_reject_classification_test=(
+            reject_test
+        ),
+        ambiguous_response_classification_test=(
+            ambiguous_test
+        ),
+    )
+
+
+# ============================================================
+# DATA EXTRACTION
+# ============================================================
+
+def extract_available_balance(
+    payload: Any,
+    asset: str = "USDT",
+) -> Decimal:
+
+    target = asset.upper()
+    rows = extract_list(
+        payload
+    )
+
+    if (
+        not rows
+        and isinstance(
+            payload,
+            dict,
+        )
+    ):
+        rows = [
+            payload
+        ]
+
+    for row in rows:
+        if not isinstance(
+            row,
+            dict,
+        ):
+            continue
+
+        row_asset = str(
+            first_present(
+                row,
+                (
+                    "asset",
+                    "coin",
+                    "currency",
+                ),
+                "",
+            )
+        ).upper()
+
+        if row_asset == target:
+            value = first_present(
+                row,
+                (
+                    "availableBalance",
+                    "available",
+                    "availableMargin",
+                    "free",
+                    "balance",
+                ),
+            )
+
+            parsed = D(
+                value,
+                Decimal("-1"),
+            )
+
+            if parsed >= 0:
+                return parsed
+
+    raise RuntimeError(
+        f"Unable to extract available {asset}"
+    )
+
+
+def extract_mark_price(
+    payload: Any,
+) -> Decimal:
+
+    if isinstance(
+        payload,
+        dict,
+    ):
+        for key in (
+            "price",
+            "markPrice",
+            "mark_price",
+        ):
+            value = D(
+                payload.get(key),
+                Decimal("-1"),
+            )
+
+            if value > 0:
+                return value
+
+        data = payload.get(
+            "data"
+        )
+
+        if isinstance(
+            data,
+            dict,
+        ):
+            return extract_mark_price(
+                data
+            )
+
+    raise RuntimeError(
+        "Unable to extract mark price "
+        f"from: {payload}"
+    )
+
+
+def position_size_from_payload(
+    payload: Any,
+    symbol: str,
+    position_side: str,
+) -> Decimal:
+
+    target_symbol = (
+        symbol.upper()
+    )
+
+    target_side = (
+        position_side.upper()
+    )
+
+    total = D0
+
+    rows = extract_list(
+        payload
+    )
+
+    for row in rows:
+        if not isinstance(
+            row,
+            dict,
+        ):
+            continue
+
+        row_symbol = str(
+            row.get(
+                "symbol",
+                "",
+            )
+        ).upper()
+
+        row_side = str(
+            first_present(
+                row,
+                (
+                    "positionSide",
+                    "holdSide",
+                    "side",
+                ),
+                "",
+            )
+        ).upper()
+
+        if (
+            row_symbol
+            != target_symbol
+        ):
+            continue
+
+        if (
+            row_side
+            and target_side
+            and row_side
+            != target_side
+        ):
+            continue
+
+        size = D(
+            first_present(
+                row,
+                (
+                    "positionAmt",
+                    "size",
+                    "quantity",
+                    "total",
+                    "available",
+                ),
+            )
+        )
+
+        total += abs(
+            size
+        )
+
+    return total
+
+
+def find_history_order(
+    payload: Any,
+    order_id: str,
+    client_order_id: str,
+) -> Optional[Dict[str, Any]]:
+
+    for row in extract_list(
+        payload
+    ):
+        if not isinstance(
+            row,
+            dict,
+        ):
+            continue
+
+        oid = str(
+            first_present(
+                row,
+                (
+                    "orderId",
+                    "order_id",
+                ),
+                "",
+            )
+            or ""
+        )
+
+        cid = str(
+            first_present(
+                row,
+                (
+                    "clientOrderId",
+                    "client_oid",
+                ),
+                "",
+            )
+            or ""
+        )
+
+        if (
+            order_id
+            and oid == order_id
+        ):
+            return row
+
+        if (
+            client_order_id
+            and cid == client_order_id
+        ):
+            return row
+
+    return None
+
+
+# ============================================================
+# DEMO ORDER LIFECYCLE
+# ============================================================
+
+@dataclass
+class DemoLifecycleResult:
+    demo_symbol: str
+    side: str
+    position_side: str
+    order_type: str
+    tif: str
+    limit_price: Decimal
+    price_step_match: bool
+    client_order_id: str
+    client_order_id_valid: bool
+    post_attempted: bool
+    post_accepted: bool
+order_id: str
     response_client_id_match: bool
     history_lookup_attempted: bool
     history_poll_attempts: int
