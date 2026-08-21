@@ -675,7 +675,7 @@ class WeexClient:
 
             return payload
 
-    async def real_post_forbidden(
+async def real_post_forbidden(
         self,
         path: str,
         body: Dict[str, Any],
