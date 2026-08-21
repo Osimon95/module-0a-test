@@ -682,7 +682,7 @@ async def real_post_forbidden(
     ) -> Any:
      global R26_REAL_POST_CALLED
 
-        R26_REAL_POST_CALLED = True
+ R26_REAL_POST_CALLED = True
 
         raise RuntimeError(
             "R26 ABSOLUTE SAFETY LOCK: "
