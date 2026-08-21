@@ -675,19 +675,14 @@ class WeexClient:
 
             return payload
 
-async def real_post_forbidden(
-        self,
-        path: str,
-        body: Dict[str, Any],
-    ) -> Any:
-     global R26_REAL_POST_CALLED
+def real_post_blocked_r26(*args, **kwargs):
+    global R26_REAL_POST_CALLED
 
- R26_REAL_POST_CALLED = True
+    R26_REAL_POST_CALLED = True
 
-        raise RuntimeError(
-            "R26 ABSOLUTE SAFETY LOCK: "
-            f"real POST blocked before transmission: {path}"
-        )
+    raise RuntimeError(
+        "R26 SAFETY BLOCK: REAL/private state-changing POST request blocked."
+    )
 
 
 # ============================================================
