@@ -2733,7 +2733,7 @@ async def obtain_contract_info(
     # R28 fails closed instead of guessing
     # live execution parameters.
 
-    raise RuntimeError(
+        raise RuntimeError(
         "Unable to obtain contract "
         f"metadata for {symbol}. "
         + " | ".join(
