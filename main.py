@@ -3090,7 +3090,7 @@ async def get_mark_price(
     raise RuntimeError(
         f"Unable to obtain mark price for "
         f"{symbol}. "
-        + " | ".join(err
+        + " | ".join(errors))
 
 
 
