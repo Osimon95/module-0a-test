@@ -5875,7 +5875,264 @@ _DIAGNOSTIC_LOCK = asyncio.Lock()
 
 _DIAGNOSTIC_RAN = False
 
+# ============================================================
+# R28 AVAILABLE USDT BALANCE
+# ============================================================
 
+async def obtain_available_balance(
+    client: WeexClient,
+) -> Decimal:
+
+    errors: List[str] = []
+
+    # ========================================================
+    # TRY KNOWN PRIVATE ACCOUNT ENDPOINTS
+    # ========================================================
+
+    endpoints = [
+        "/capi/v2/account/assets",
+        "/capi/v2/account/account",
+        "/capi/v3/account/assets",
+    ]
+
+    for path in endpoints:
+
+        try:
+
+            # ------------------------------------------------
+            # USE THE CLIENT'S EXISTING PRIVATE GET METHOD
+            # ------------------------------------------------
+
+            if hasattr(
+                client,
+                "private_get",
+            ):
+
+                data = await client.private_get(
+                    path
+                )
+
+            elif hasattr(
+                client,
+                "_private_get",
+            ):
+
+                data = await client._private_get(
+                    path
+                )
+
+            elif hasattr(
+                client,
+                "get_private",
+            ):
+
+                data = await client.get_private(
+                    path
+                )
+
+            else:
+
+                raise RuntimeError(
+                    "WeexClient has no private GET "
+                    "method available"
+                )
+
+            # =================================================
+            # NORMALIZE COMMON RESPONSE WRAPPERS
+            # =================================================
+
+            payload = data
+
+            if isinstance(
+                payload,
+                dict,
+            ):
+
+                for key in (
+                    "data",
+                    "result",
+                ):
+
+                    nested = payload.get(
+                        key
+                    )
+
+                    if nested is not None:
+
+                        payload = nested
+                        break
+
+            # =================================================
+            # LIST OF ASSETS
+            # =================================================
+
+            if isinstance(
+                payload,
+                list,
+            ):
+
+                for asset in payload:
+
+                    if not isinstance(
+                        asset,
+                        dict,
+                    ):
+
+                        continue
+
+                    coin = str(
+                        asset.get(
+                            "coin",
+                            asset.get(
+                                "currency",
+                                asset.get(
+                                    "asset",
+                                    "",
+                                ),
+                            ),
+                        )
+                    ).upper()
+
+                    if coin != "USDT":
+
+                        continue
+
+                    for balance_key in (
+                        "available",
+                        "availableBalance",
+                        "availableEquity",
+                        "availableMargin",
+                        "free",
+                        "balance",
+                        "equity",
+                    ):
+
+                        value = asset.get(
+                            balance_key
+                        )
+
+                        if value is None:
+
+                            continue
+
+                        balance = Decimal(
+                            str(
+                                value
+                            )
+                        )
+
+                        if balance >= 0:
+
+                            return balance
+
+            # =================================================
+            # SINGLE ACCOUNT OBJECT
+            # =================================================
+
+            if isinstance(
+                payload,
+                dict,
+            ):
+
+                # ---------------------------------------------
+                # POSSIBLE NESTED USDT OBJECT
+                # ---------------------------------------------
+
+                for usdt_key in (
+                    "USDT",
+                    "usdt",
+                ):
+
+                    usdt_data = payload.get(
+                        usdt_key
+                    )
+
+                    if isinstance(
+                        usdt_data,
+                        dict,
+                    ):
+
+                        for balance_key in (
+                            "available",
+                            "availableBalance",
+                            "availableEquity",
+                            "availableMargin",
+                            "free",
+                            "balance",
+                            "equity",
+                        ):
+
+                            value = usdt_data.get(
+                                balance_key
+                            )
+
+                            if value is None:
+
+                                continue
+
+                            balance = Decimal(
+                                str(
+                                    value
+                                )
+                            )
+
+                            if balance >= 0:
+
+                                return balance
+
+                # ---------------------------------------------
+                # DIRECT BALANCE FIELDS
+                # ---------------------------------------------
+
+                for balance_key in (
+                    "available",
+                    "availableBalance",
+                    "availableEquity",
+                    "availableMargin",
+                    "free",
+                    "balance",
+                    "equity",
+                ):
+
+                    value = payload.get(
+                        balance_key
+                    )
+
+                    if value is None:
+
+                        continue
+
+                    balance = Decimal(
+                        str(
+                            value
+                        )
+                    )
+
+                    if balance >= 0:
+
+                        return balance
+
+            raise RuntimeError(
+                "USDT available balance "
+                "not found in response"
+            )
+
+        except Exception as exc:
+
+            errors.append(
+                f"{path}: {exc}"
+            )
+
+    # ========================================================
+    # FAIL CLOSED
+    # ========================================================
+
+    raise RuntimeError(
+        "Unable to obtain available USDT balance. "
+        + " | ".join(
+            errors
+        )
+    )
 async def run_r28_diagnostic(
     session: aiohttp.ClientSession,
 ) -> None:
