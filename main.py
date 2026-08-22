@@ -2869,11 +2869,13 @@ async def get_mark_price(
     # FAIL CLOSED
     # ========================================================
 
-    raise RuntimeError(
+        raise RuntimeError(
         f"Unable to obtain mark price for {symbol}. "
         + " | ".join(errors)
     )
-    async def obtain_mark_price(
+
+
+async def obtain_mark_price(
     session: aiohttp.ClientSession,
     symbol: str,
 ) -> Decimal:
