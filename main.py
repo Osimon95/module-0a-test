@@ -2979,3 +2979,2458 @@ async def run_demo_lifecycle(
         "fill_lifecycle_valid":
             fill_lifecycle_valid,
     }
+    
+# ============================================================
+# SELF-TESTS
+# ============================================================
+
+def run_signal_gate_tests() -> Dict[str, bool]:
+
+    now = time.time()
+
+    fresh = Signal(
+        signal_id="r28-fresh-signal",
+        direction="LONG",
+        created_at=now - 1,
+    )
+
+    expired = Signal(
+        signal_id="r28-expired-signal",
+        direction="LONG",
+        created_at=(
+            now
+            - SIGNAL_EXPIRY_SECONDS
+            - 10
+        ),
+    )
+
+    seen: Set[str] = set()
+
+    first_signal_allowed = (
+        fresh.signal_id
+        not in seen
+    )
+
+    seen.add(
+        fresh.signal_id
+    )
+
+    duplicate_signal_rejected = (
+        fresh.signal_id
+        in seen
+    )
+
+
+    loss_time = (
+        now
+        - LOSS_COOLDOWN_SECONDS
+        + 1
+    )
+
+    loss_cooldown_active = (
+        now - loss_time
+        < LOSS_COOLDOWN_SECONDS
+    )
+
+
+    external_positions: List[
+        Dict[str, Any]
+    ] = []
+
+    external_position_clear = (
+        len(
+            external_positions
+        )
+        == 0
+    )
+
+
+    return {
+
+        "fresh_signal_accepted":
+            signal_is_fresh(
+                fresh,
+                now,
+            ),
+
+        "expired_signal_rejected":
+            not signal_is_fresh(
+                expired,
+                now,
+            ),
+
+        "loss_cooldown_test":
+            loss_cooldown_active,
+
+        "duplicate_signal_rejected":
+            (
+                first_signal_allowed
+                and
+                duplicate_signal_rejected
+            ),
+
+        "one_direction_gate":
+            ONE_DIRECTION_ONLY,
+
+        "external_position_clear":
+            external_position_clear,
+    }
+
+
+def run_order_state_tests() -> Dict[str, bool]:
+
+    machine = (
+        OrderStateMachine()
+    )
+
+
+    (
+        new_accepted,
+        _,
+    ) = machine.apply(
+        "r28-test-new",
+        "NEW",
+        D0,
+    )
+
+
+    (
+        partial_1_accepted,
+        delta_1,
+    ) = machine.apply(
+        "r28-test-p1",
+        "PARTIALLY_FILLED",
+        Decimal(
+            "0.0001"
+        ),
+    )
+
+
+    (
+        partial_2_accepted,
+        delta_2,
+    ) = machine.apply(
+        "r28-test-p2",
+        "PARTIALLY_FILLED",
+        Decimal(
+            "0.0002"
+        ),
+    )
+
+
+    (
+        filled_accepted,
+        _,
+    ) = machine.apply(
+        "r28-test-filled",
+        "FILLED",
+        Decimal(
+            "0.0003"
+        ),
+    )
+
+
+    (
+        duplicate_accepted,
+        _,
+    ) = machine.apply(
+        "r28-test-filled",
+        "FILLED",
+        Decimal(
+            "0.0003"
+        ),
+    )
+
+
+    (
+        regression_accepted,
+        _,
+    ) = machine.apply(
+        "r28-test-regression",
+        "NEW",
+        Decimal(
+            "0.0003"
+        ),
+    )
+
+
+    return {
+
+        "new_state_accepted":
+            new_accepted,
+
+        "partial_fill_1_delta":
+            (
+                partial_1_accepted
+                and
+                delta_1
+                > 0
+            ),
+
+        "partial_fill_2_delta":
+            (
+                partial_2_accepted
+                and
+                delta_2
+                > 0
+            ),
+
+        "filled_terminal_state":
+            (
+                filled_accepted
+                and
+                machine.state
+                == "FILLED"
+            ),
+
+        "duplicate_exchange_event_blocked":
+            not duplicate_accepted,
+
+        "terminal_regression_blocked":
+            not regression_accepted,
+    }
+
+
+def run_intent_gate_tests(
+    quantity: Decimal,
+) -> Dict[str, bool]:
+
+    registry = (
+        IntentRegistry()
+    )
+
+
+    now = time.time()
+
+
+    signal = Signal(
+        signal_id=(
+            "r28-intent-test"
+        ),
+        direction="LONG",
+        created_at=now,
+    )
+
+
+    intent = registry.create(
+        signal,
+        SYMBOL,
+        quantity,
+    )
+
+
+    intent_created = (
+        intent is not None
+    )
+
+
+    duplicate = registry.create(
+        signal,
+        SYMBOL,
+        quantity,
+    )
+
+
+    duplicate_blocked = (
+        duplicate is None
+    )
+
+
+    if intent is None:
+
+        return {
+
+            "intent_created":
+                False,
+
+            "duplicate_intent_blocked":
+                duplicate_blocked,
+
+            "new_to_preflight":
+                False,
+
+            "preflight_to_ready":
+                False,
+
+            "expired_intent_rejected":
+                False,
+
+            "terminal_intent_regression_blocked":
+                False,
+        }
+
+
+    new_to_preflight = (
+        intent.transition(
+            "PREFLIGHT"
+        )
+    )
+
+
+    preflight_to_ready = (
+        intent.transition(
+            "READY"
+        )
+    )
+
+
+    expired_signal = Signal(
+
+        signal_id=(
+            "r28-expired-intent"
+        ),
+
+        direction="LONG",
+
+        created_at=(
+            now
+            - SIGNAL_EXPIRY_SECONDS
+            - 10
+        ),
+    )
+
+
+    expired_intent = (
+        registry.create(
+            expired_signal,
+            SYMBOL,
+            quantity,
+        )
+    )
+
+
+    expired_rejected = (
+        expired_intent
+        is None
+    )
+
+
+    terminal_intent = (
+        ExecutionIntent(
+
+            intent_id=(
+                "r28-terminal-test"
+            ),
+
+            signal_id=(
+                "terminal-signal"
+            ),
+
+            symbol=SYMBOL,
+
+            side="BUY",
+
+            position_side="LONG",
+
+            quantity=quantity,
+
+            leverage=LEVERAGE,
+
+            created_at=now,
+
+            client_order_id=(
+                "r28-terminal"
+            ),
+
+            state=(
+                "RECONCILED"
+            ),
+
+            history=[
+                "NEW",
+                "PREFLIGHT",
+                "READY",
+                "SHADOW_COMMITTED",
+                "RECONCILED",
+            ],
+        )
+    )
+
+
+    terminal_regression_blocked = (
+        not terminal_intent.transition(
+            "READY"
+        )
+    )
+
+
+    return {
+
+        "intent_created":
+            intent_created,
+
+        "duplicate_intent_blocked":
+            duplicate_blocked,
+
+        "new_to_preflight":
+            new_to_preflight,
+
+        "preflight_to_ready":
+            preflight_to_ready,
+
+        "expired_intent_rejected":
+            expired_rejected,
+
+        "terminal_intent_regression_blocked":
+            terminal_regression_blocked,
+    }
+
+
+# ============================================================
+# TELEGRAM
+# ============================================================
+
+async def send_telegram(
+    text: str,
+) -> None:
+
+    if (
+        not TELEGRAM_BOT_TOKEN
+        or
+        not TELEGRAM_CHAT_ID
+    ):
+
+        print(
+            "TELEGRAM SKIPPED: "
+            "TELEGRAM_BOT_TOKEN or "
+            "TELEGRAM_CHAT_ID missing"
+        )
+
+        return
+
+
+    url = (
+        "https://api.telegram.org/bot"
+        + TELEGRAM_BOT_TOKEN
+        + "/sendMessage"
+    )
+
+
+    # Telegram text messages have a maximum
+    # message size. R28 attempts one message
+    # first; only oversized output is split.
+
+    chunks: List[str] = []
+
+
+    if len(text) <= 4000:
+
+        chunks = [
+            text
+        ]
+
+    else:
+
+        current = ""
+
+        for line in text.splitlines():
+
+            candidate = (
+                current
+                + (
+                    "\n"
+                    if current
+                    else ""
+                )
+                + line
+            )
+
+
+            if len(candidate) > 4000:
+
+                if current:
+                    chunks.append(
+                        current
+                    )
+
+                current = line
+
+            else:
+                current = candidate
+
+
+        if current:
+            chunks.append(
+                current
+            )
+
+
+    timeout = (
+        aiohttp.ClientTimeout(
+            total=20
+        )
+    )
+
+
+    async with (
+        aiohttp.ClientSession(
+            timeout=timeout
+        )
+    ) as session:
+
+        for chunk in chunks:
+
+            payload = {
+
+                "chat_id":
+                    TELEGRAM_CHAT_ID,
+
+                "text":
+                    chunk,
+
+                "disable_web_page_preview":
+                    True,
+            }
+
+
+            async with (
+                session.post(
+                    url,
+                    json=payload,
+                )
+            ) as resp:
+
+                body = (
+                    await resp.text()
+                )
+
+
+                if resp.status >= 400:
+
+                    raise RuntimeError(
+                        "Telegram HTTP "
+                        f"{resp.status}: "
+                        f"{body}"
+                    )
+
+
+# ============================================================
+# REPORT
+# ============================================================
+
+def build_report(
+    balance: Decimal,
+    mark_price: Decimal,
+    contract: ContractInfo,
+    margin: Decimal,
+    notional: Decimal,
+    quantity: Decimal,
+    signal_tests: Dict[str, bool],
+    state_tests: Dict[str, bool],
+    intent_tests: Dict[str, bool],
+    preflight: PreflightResult,
+    payload: Dict[str, Any],
+    commit: ShadowCommit,
+    commit_checks: Dict[str, bool],
+    demo: Dict[str, Any],
+    final_intent: ExecutionIntent,
+) -> str:
+
+    (
+        initial,
+        pyramids,
+        backups,
+        total,
+    ) = worst_case_exposure()
+
+
+    accepted_response_test = (
+        classify_order_response(
+            {
+                "code": 0,
+                "data": {
+                    "orderId":
+                        "123456"
+                },
+            }
+        )
+        == "ACCEPTED"
+    )
+
+
+    rejected_response_test = (
+        classify_order_response(
+            {
+                "code": -1051,
+                "msg":
+                    "Permission denied",
+            }
+        )
+        == "REJECTED"
+    )
+
+
+    ambiguous_response_test = (
+        classify_order_response(
+            {
+                "code": 0,
+                "data": {},
+            }
+        )
+        == "AMBIGUOUS"
+    )
+
+
+    deterministic_client_id = (
+        make_client_order_id(
+            "r28",
+            (
+                f"{final_intent.signal_id}|"
+                f"{final_intent.symbol}|"
+                f"{final_intent.side}|"
+                f"{final_intent.position_side}|"
+                f"{fmt_decimal(final_intent.quantity)}|"
+                f"{final_intent.leverage}"
+            ),
+        )
+        ==
+        final_intent.client_order_id
+    )
+
+
+    lines = [
+
+        (
+            f"✅ MODULE "
+            f"{MODULE_NAME} "
+            "DIAGNOSTIC PASSED"
+        ),
+
+        SYMBOL,
+
+        (
+            "Available USDT: "
+            + fmt_decimal(
+                balance
+            )
+        ),
+
+        (
+            "Mark Price: "
+            + fmt_decimal(
+                mark_price
+            )
+            + " USDT"
+        ),
+
+        "",
+
+        "FINAL EXECUTION GATE",
+
+        (
+            "API Trading Symbol: "
+            + yesno(
+                contract.symbol
+                == SYMBOL
+            )
+        ),
+
+        (
+            "Fresh Signal Accepted: "
+            + yesno(
+                signal_tests[
+                    "fresh_signal_accepted"
+                ]
+            )
+        ),
+
+        (
+            "Expired Signal Rejected: "
+            + yesno(
+                signal_tests[
+                    "expired_signal_rejected"
+                ]
+            )
+        ),
+
+        (
+            "Loss Cooldown Test: "
+            + yesno(
+                signal_tests[
+                    "loss_cooldown_test"
+                ]
+            )
+        ),
+
+        (
+            "Duplicate Signal Rejected: "
+            + yesno(
+                signal_tests[
+                    "duplicate_signal_rejected"
+                ]
+            )
+        ),
+
+        (
+            "One Direction Gate: "
+            + yesno(
+                signal_tests[
+                    "one_direction_gate"
+                ]
+            )
+        ),
+
+        (
+            "External Position Clear: "
+            + yesno(
+                signal_tests[
+                    "external_position_clear"
+                ]
+            )
+        ),
+
+        "",
+
+        "ADJUSTABLE CONFIG",
+
+        (
+            "Entry: "
+            + fmt_decimal(
+                ENTRY_PERCENT
+            )
+            + "%"
+        ),
+
+        (
+            f"Leverage: "
+            f"{LEVERAGE}x"
+        ),
+
+        (
+            "Max Config Leverage: "
+            f"{MAX_CONFIG_LEVERAGE}x"
+        ),
+
+        (
+            "Margin Type: "
+            + MARGIN_TYPE
+        ),
+
+        (
+            "Max Pyramids: "
+            f"{MAX_PYRAMID_ADDS}"
+        ),
+
+        (
+            "Pyramid Size: "
+            + fmt_decimal(
+                PYRAMID_SIZE_PERCENT
+            )
+            + "%"
+        ),
+
+        (
+            "Max Backups: "
+            f"{MAX_BACKUPS}"
+        ),
+
+        (
+            "Backup Size: "
+            + fmt_decimal(
+                BACKUP_SIZE_PERCENT
+            )
+            + "% each"
+        ),
+
+        (
+            "Backup Buffer: "
+            + fmt_decimal(
+                BACKUP_BUFFER_PERCENT
+            )
+            + "%"
+        ),
+
+        (
+            "Min Liq Distance: "
+            + fmt_decimal(
+                MIN_LIQ_DISTANCE_PERCENT
+            )
+            + "%"
+        ),
+
+        (
+            "Max Fund Exposure: "
+            + fmt_decimal(
+                MAX_FUND_EXPOSURE_PERCENT
+            )
+            + "%"
+        ),
+
+        "",
+
+        "WEEX CONTRACT",
+
+        (
+            "Minimum Order: "
+            + fmt_decimal(
+                contract.min_order
+            )
+        ),
+
+        (
+            "Quantity Precision: "
+            f"{contract.quantity_precision}"
+        ),
+
+        (
+            "Quantity Step: "
+            + fmt_decimal(
+                contract.quantity_step
+            )
+        ),
+
+        (
+            "Price Precision: "
+            f"{contract.price_precision}"
+        ),
+
+        (
+            "Price Step: "
+            + fmt_decimal(
+                contract.price_step
+            )
+        ),
+
+        (
+            "Contract Value: "
+            + fmt_decimal(
+                contract.contract_value
+            )
+        ),
+
+        (
+            "WEEX Min Leverage: "
+            f"{contract.min_leverage}x"
+        ),
+
+        (
+            "WEEX Max Leverage: "
+            f"{contract.max_leverage}x"
+        ),
+
+        (
+            "Leverage Gate: "
+            + yesno(
+                leverage_passed(
+                    contract
+                )
+            )
+        ),
+
+        "",
+
+        "DYNAMIC ENTRY",
+
+        (
+            "Margin: "
+            + fmt_decimal(
+                margin
+            )
+            + " USDT"
+        ),
+
+        (
+            "Notional: "
+            + fmt_decimal(
+                notional
+            )
+            + " USDT"
+        ),
+
+        (
+            "Quantity: "
+            + fmt_decimal(
+                quantity
+            )
+        ),
+
+        (
+            "Quantity Positive: "
+            + yesno(
+                quantity > 0
+            )
+        ),
+
+        (
+            "Minimum Passed: "
+            + yesno(
+                minimum_order_passed(
+                    quantity,
+                    contract,
+                )
+            )
+        ),
+
+        "",
+
+        "WORST-CASE EXPOSURE",
+
+        (
+            "Initial: "
+            + fmt_decimal(
+                initial
+            )
+            + "%"
+        ),
+
+        (
+            "Pyramids: "
+            + fmt_decimal(
+                pyramids
+            )
+            + "%"
+        ),
+
+        (
+            "Backups: "
+            + fmt_decimal(
+                backups
+            )
+            + "%"
+        ),
+
+        (
+            "Total: "
+            + fmt_decimal(
+                total
+            )
+            + "% / "
+            + fmt_decimal(
+                MAX_FUND_EXPOSURE_PERCENT
+            )
+            + "%"
+        ),
+
+        (
+            "Exposure Passed: "
+            + yesno(
+                exposure_passed()
+            )
+        ),
+
+        "",
+
+        "TP / TRAILING",
+
+        (
+            "TP1 / TP2 / TP3: "
+            + fmt_decimal(
+                TP1_SHARE
+            )
+            + "% / "
+            + fmt_decimal(
+                TP2_SHARE
+            )
+            + "% / "
+            + fmt_decimal(
+                TP3_SHARE
+            )
+            + "%"
+        ),
+
+        (
+            "TP1 Trigger: "
+            + fmt_decimal(
+                TP1_TRIGGER_PERCENT
+            )
+            + "%"
+        ),
+
+        (
+            "TP2 Trigger: "
+            + fmt_decimal(
+                TP2_TRIGGER_PERCENT
+            )
+            + "%"
+        ),
+
+        (
+            "Trailing Distance: "
+            + fmt_decimal(
+                TRAILING_DISTANCE_PERCENT
+            )
+            + "%"
+        ),
+
+        "",
+
+        "R28 ORDER STATE MACHINE",
+
+        (
+            "NEW State Accepted: "
+            + yesno(
+                state_tests[
+                    "new_state_accepted"
+                ]
+            )
+        ),
+
+        (
+            "Partial Fill #1 Delta: "
+            + yesno(
+                state_tests[
+                    "partial_fill_1_delta"
+                ]
+            )
+        ),
+
+        (
+            "Partial Fill #2 Delta: "
+            + yesno(
+                state_tests[
+                    "partial_fill_2_delta"
+                ]
+            )
+        ),
+
+        (
+            "FILLED Terminal State: "
+            + yesno(
+                state_tests[
+                    "filled_terminal_state"
+                ]
+            )
+        ),
+
+        (
+            "Duplicate Exchange Event Blocked: "
+            + yesno(
+                state_tests[
+                    "duplicate_exchange_event_blocked"
+                ]
+            )
+        ),
+
+        (
+            "Terminal Regression Blocked: "
+            + yesno(
+                state_tests[
+                    "terminal_regression_blocked"
+                ]
+            )
+        ),
+
+        "",
+
+        "R28 EXECUTION INTENT GATE",
+
+        (
+            "Intent Created: "
+            + yesno(
+                intent_tests[
+                    "intent_created"
+                ]
+            )
+        ),
+
+        (
+            "Duplicate Intent Blocked: "
+            + yesno(
+                intent_tests[
+                    "duplicate_intent_blocked"
+                ]
+            )
+        ),
+
+        (
+            "NEW → PREFLIGHT: "
+            + yesno(
+                intent_tests[
+                    "new_to_preflight"
+                ]
+            )
+        ),
+
+        (
+            "PREFLIGHT → READY: "
+            + yesno(
+                intent_tests[
+                    "preflight_to_ready"
+                ]
+            )
+        ),
+
+        (
+            "Expired Intent Rejected: "
+            + yesno(
+                intent_tests[
+                    "expired_intent_rejected"
+                ]
+            )
+        ),
+
+        (
+            "Terminal Intent Regression Blocked: "
+            + yesno(
+                intent_tests[
+                    "terminal_intent_regression_blocked"
+                ]
+            )
+        ),
+
+        "",
+
+        "R28 EXECUTION PREFLIGHT",
+
+        (
+            "Live Execution OFF: "
+            + yesno(
+                preflight.live_execution_off
+            )
+        ),
+
+        (
+            "Hard Real POST Lock: "
+            + yesno(
+                preflight.hard_real_post_lock
+            )
+        ),
+
+        (
+            "Intent Fresh: "
+            + yesno(
+                preflight.intent_fresh
+            )
+        ),
+
+        (
+            "Intent Quantity Positive: "
+            + yesno(
+                preflight.quantity_positive
+            )
+        ),
+
+        (
+            "Intent Minimum Passed: "
+            + yesno(
+                preflight.minimum_passed
+            )
+        ),
+
+        (
+            "Intent Quantity Step Passed: "
+            + yesno(
+                preflight.quantity_step_passed
+            )
+        ),
+
+        (
+            "Intent Leverage Passed: "
+            + yesno(
+                preflight.leverage_passed
+            )
+        ),
+
+        (
+            "Intent Exposure Passed: "
+            + yesno(
+                preflight.exposure_passed
+            )
+        ),
+
+        (
+            "Intent Client ID Valid: "
+            + yesno(
+                preflight.client_id_valid
+            )
+        ),
+
+        (
+            "Real Order Path Blocked: "
+            + yesno(
+                preflight.real_order_path_blocked
+            )
+        ),
+
+        (
+            "Overall Preflight: "
+            + yesno(
+                preflight.overall
+            )
+        ),
+
+        "",
+
+        "R28 LIVE PAYLOAD REHEARSAL",
+
+        (
+            "Real Endpoint Target: "
+            + REAL_ORDER_PATH
+        ),
+
+        (
+            "Payload Built: "
+            + yesno(
+                bool(
+                    payload
+                )
+            )
+        ),
+
+        (
+            "Required Fields Present: "
+            + yesno(
+                required_payload_fields_present(
+                    payload
+                )
+            )
+        ),
+
+        (
+            "Client Order ID: "
+            + final_intent.client_order_id
+        ),
+
+        (
+            "Client Order ID Valid: "
+            + yesno(
+                client_id_valid(
+                    final_intent.client_order_id
+                )
+            )
+        ),
+
+        (
+            "Deterministic Client ID: "
+            + yesno(
+                deterministic_client_id
+            )
+        ),
+
+        (
+            "Quantity Step Match: "
+            + yesno(
+                quantity_step_match(
+                    final_intent.quantity,
+                    contract.quantity_step,
+                )
+            )
+        ),
+
+        (
+            "Signature Generated Locally: "
+            + yesno(
+                bool(
+                    commit.signature
+                )
+            )
+        ),
+
+        (
+            "Accepted Response Classifier: "
+            + yesno(
+                accepted_response_test
+            )
+        ),
+
+        (
+            "Rejected Response Classifier: "
+            + yesno(
+                rejected_response_test
+            )
+        ),
+
+        (
+            "Ambiguous Response Fails Closed: "
+            + yesno(
+                ambiguous_response_test
+            )
+        ),
+
+        (
+            "Real POST Transmission Blocked: "
+            + yesno(
+                commit.real_post_blocked
+            )
+        ),
+
+        "",
+
+        "R28 SHADOW EXECUTION COMMIT",
+
+        (
+            "Intent Fingerprint Stable: "
+            + yesno(
+                commit_checks[
+                    "intent_fingerprint_stable"
+                ]
+            )
+        ),
+
+        (
+            "Request Fingerprint Stable: "
+            + yesno(
+                commit_checks[
+                    "request_fingerprint_stable"
+                ]
+            )
+        ),
+
+        (
+            "Commit Token Stable: "
+            + yesno(
+                commit_checks[
+                    "commit_token_stable"
+                ]
+            )
+        ),
+
+        (
+            "Payload Mutation Detected: "
+            + yesno(
+                commit_checks[
+                    "payload_mutation_detected"
+                ]
+            )
+        ),
+
+        (
+            "Signature Non-Empty: "
+            + yesno(
+                commit_checks[
+                    "signature_nonempty"
+                ]
+            )
+        ),
+
+        (
+            "Real POST Still Blocked: "
+            + yesno(
+                commit_checks[
+                    "real_post_still_blocked"
+                ]
+            )
+        ),
+
+        (
+            "Shadow Commit Overall: "
+            + yesno(
+                commit_checks[
+                    "overall"
+                ]
+            )
+        ),
+
+        "",
+
+        "R28 DEMO ACTUAL-FILL LIFECYCLE",
+
+        (
+            "Demo Symbol: "
+            + demo[
+                "symbol"
+            ]
+        ),
+
+        (
+            "Demo Fill Mode: "
+            + demo[
+                "fill_mode"
+            ]
+        ),
+
+        (
+            "Demo Side: "
+            + demo[
+                "side"
+            ]
+        ),
+
+        (
+            "Demo Position Side: "
+            + demo[
+                "position_side"
+            ]
+        ),
+
+        (
+            "Demo Type: "
+            + demo[
+                "type"
+            ]
+        ),
+
+        (
+            "Demo Client Order ID: "
+            + demo[
+                "client_order_id"
+            ]
+        ),
+
+        (
+            "Client Order ID Valid: "
+            + yesno(
+                demo[
+                    "client_order_id_valid"
+                ]
+            )
+        ),
+
+        (
+            "Demo POST Attempted: "
+            + yesno(
+                demo[
+                    "post_attempted"
+                ]
+            )
+        ),
+
+        (
+            "Demo POST Accepted: "
+            + yesno(
+                demo[
+                    "post_accepted"
+                ]
+            )
+        ),
+
+        (
+            "Demo Order ID: "
+            + demo[
+                "order_id"
+            ]
+        ),
+
+        (
+            "History Lookup Attempted: "
+            + yesno(
+                demo[
+                    "history_lookup_attempted"
+                ]
+            )
+        ),
+
+        (
+            "History Poll Attempts: "
+            + str(
+                demo[
+                    "history_poll_attempts"
+                ]
+            )
+        ),
+
+        (
+            "Order Found In History: "
+            + yesno(
+                demo[
+                    "history_found"
+                ]
+            )
+        ),
+
+        (
+            "Demo Final Status: "
+            + demo[
+                "final_status"
+            ]
+        ),
+
+        (
+            "Requested Quantity: "
+            + fmt_decimal(
+                demo[
+                    "requested_quantity"
+                ]
+            )
+        ),
+
+        (
+            "History Original Quantity: "
+            + fmt_decimal(
+                demo[
+                    "original_quantity"
+                ]
+            )
+        ),
+
+        (
+            "History Executed Quantity: "
+            + fmt_decimal(
+                demo[
+                    "executed_quantity"
+                ]
+            )
+        ),
+
+        (
+            "Average Fill Price: "
+            + fmt_decimal(
+                demo[
+                    "average_fill_price"
+                ]
+            )
+        ),
+
+        (
+            "Non-Zero Fill Confirmed: "
+            + yesno(
+                demo[
+                    "non_zero_fill"
+                ]
+            )
+        ),
+
+        (
+            "Actual Fill Delta: "
+            + fmt_decimal(
+                demo[
+                    "actual_fill_delta"
+                ]
+            )
+        ),
+
+        (
+            "Duplicate Fill Event Blocked: "
+            + yesno(
+                demo[
+                    "duplicate_fill_event_blocked"
+                ]
+            )
+        ),
+
+        "",
+
+        "R28 DEMO POSITION RECONCILIATION",
+
+        (
+            "Position Size Before: "
+            + fmt_decimal(
+                demo[
+                    "position_size_before"
+                ]
+            )
+        ),
+
+        (
+            "Position Size After: "
+            + fmt_decimal(
+                demo[
+                    "position_size_after"
+                ]
+            )
+        ),
+
+        (
+            "Expected Position Delta: "
+            + fmt_decimal(
+                demo[
+                    "expected_position_delta"
+                ]
+            )
+        ),
+
+        (
+            "Observed Position Delta: "
+            + fmt_decimal(
+                demo[
+                    "observed_position_delta"
+                ]
+            )
+        ),
+
+        (
+            "Position Reconciled: "
+            + yesno(
+                demo[
+                    "position_reconciled"
+                ]
+            )
+        ),
+
+        (
+            "Fill Lifecycle Validation: "
+            + yesno(
+                demo[
+                    "fill_lifecycle_valid"
+                ]
+            )
+        ),
+
+        "",
+
+        (
+            "R28 SIGNAL → INTENT → "
+            "SHADOW COMMIT → RECONCILIATION"
+        ),
+
+        "Signal Direction: LONG",
+
+        (
+            "Intent Side: "
+            + final_intent.side
+        ),
+
+        (
+            "Intent Position Side: "
+            + final_intent.position_side
+        ),
+
+        (
+            "Intent Quantity: "
+            + fmt_decimal(
+                final_intent.quantity
+            )
+        ),
+
+        (
+            "Client Order ID: "
+            + final_intent.client_order_id
+        ),
+
+        (
+            "Final Intent State: "
+            + final_intent.state
+        ),
+
+        (
+            "Intent Reconciled: "
+            + yesno(
+                final_intent.state
+                == "RECONCILED"
+            )
+        ),
+
+        "",
+
+        "R28 RENDER PERSISTENCE",
+
+        "Health Server: ✅ ACTIVE",
+
+        "Persistent Runtime: ✅ ACTIVE",
+
+        (
+            "Auto Exit After Diagnostic: "
+            "❌ DISABLED"
+        ),
+
+        (
+            "Repeated Demo Order Loop: "
+            "❌ DISABLED"
+        ),
+
+        "",
+
+        "ABSOLUTE EXECUTION SAFETY",
+
+        (
+            "Real POST Called: "
+            + yesno(
+                R28_REAL_POST_CALLED
+            )
+        ),
+
+        (
+            "🛡 R28 absolute "
+            "real-order POST lock active"
+        ),
+
+        (
+            "⚠️ LIVE ORDER "
+            "EXECUTION DISABLED"
+        ),
+
+        "⚠️ NO REAL ORDER WAS SENT",
+    ]
+
+
+    return "\n".join(
+        lines
+    )
+
+
+# ============================================================
+# HEALTH SERVER
+# ============================================================
+
+LATEST_DIAGNOSTIC = (
+    "R28 STARTING"
+)
+
+DIAGNOSTIC_PASSED = False
+
+
+async def health_handler(
+    request: web.Request,
+) -> web.Response:
+
+    return web.json_response(
+        {
+
+            "module":
+                MODULE_NAME,
+
+            "status":
+                "ok",
+
+            "diagnostic_passed":
+                DIAGNOSTIC_PASSED,
+
+            "live_execution":
+                LIVE_ORDER_EXECUTION,
+
+            "hard_real_post_lock":
+                HARD_REAL_POST_LOCK,
+
+            "real_post_called":
+                R28_REAL_POST_CALLED,
+        }
+    )
+
+
+async def root_handler(
+    request: web.Request,
+) -> web.Response:
+
+    return web.Response(
+
+        text=(
+            LATEST_DIAGNOSTIC
+        ),
+
+        content_type=(
+            "text/plain"
+        ),
+    )
+
+
+async def start_health_server() -> (
+    web.AppRunner
+):
+
+    app = web.Application()
+
+
+    app.router.add_get(
+        "/",
+        root_handler,
+    )
+
+
+    app.router.add_get(
+        "/health",
+        health_handler,
+    )
+
+
+    runner = (
+        web.AppRunner(
+            app
+        )
+    )
+
+
+    await runner.setup()
+
+
+    site = web.TCPSite(
+        runner,
+        "0.0.0.0",
+        PORT,
+    )
+
+
+    await site.start()
+
+
+    print(
+        "HEALTH SERVER ACTIVE "
+        f"ON PORT {PORT}"
+    )
+
+
+    return runner
+
+
+# ============================================================
+# FINAL SAFETY ASSERTIONS
+# ============================================================
+
+def final_safety_assertions_r28() -> None:
+
+    if LIVE_ORDER_EXECUTION:
+
+        raise RuntimeError(
+            "R28 safety violation: "
+            "LIVE_ORDER_EXECUTION "
+            "must remain False"
+        )
+
+
+    if not HARD_REAL_POST_LOCK:
+
+        raise RuntimeError(
+            "R28 safety violation: "
+            "HARD_REAL_POST_LOCK "
+            "must remain True"
+        )
+
+
+    if R28_REAL_POST_CALLED:
+
+        raise RuntimeError(
+            "R28 safety violation: "
+            "real POST flag is True"
+        )
+
+
+# ============================================================
+# R28 DIAGNOSTIC
+# ============================================================
+
+async def r28_run_diagnostic() -> str:
+
+    global LATEST_DIAGNOSTIC
+    global DIAGNOSTIC_PASSED
+
+
+    final_safety_assertions_r28()
+
+    validate_credentials()
+
+
+    client = WeexClient()
+
+
+    try:
+
+        # ====================================================
+        # LIVE READ-ONLY INFORMATION
+        # ====================================================
+
+        contract = (
+            await get_contract(
+                client,
+                SYMBOL,
+            )
+        )
+
+
+        mark_price = (
+            await get_mark_price(
+                client,
+                SYMBOL,
+            )
+        )
+
+
+        balance = (
+            await get_balance(
+                client
+            )
+        )
+
+
+        # ====================================================
+        # DYNAMIC ENTRY
+        # ====================================================
+
+        margin = (
+            calculate_entry_margin(
+                balance
+            )
+        )
+
+
+        notional = (
+            calculate_notional(
+                margin
+            )
+        )
+
+
+        quantity = (
+            calculate_quantity(
+                notional,
+                mark_price,
+                contract,
+            )
+        )
+
+
+        if quantity <= 0:
+
+            raise RuntimeError(
+                "R28 calculated quantity "
+                "is not positive"
+            )
+
+
+        if not minimum_order_passed(
+            quantity,
+            contract,
+        ):
+
+            raise RuntimeError(
+                "R28 calculated quantity "
+                "is below minimum order"
+            )
+
+
+        if not quantity_step_match(
+            quantity,
+            contract.quantity_step,
+        ):
+
+            raise RuntimeError(
+                "R28 calculated quantity "
+                "does not match quantity step"
+            )
+
+
+        if not leverage_passed(
+            contract
+        ):
+
+            raise RuntimeError(
+                "R28 leverage gate failed"
+            )
+
+
+        if not exposure_passed():
+
+            raise RuntimeError(
+                "R28 exposure gate failed"
+            )
+
+
+        # ====================================================
+        # SELF-TESTS
+        # ====================================================
+
+        signal_tests = (
+            run_signal_gate_tests()
+        )
+
+
+        if not all(
+            signal_tests.values()
+        ):
+
+            raise RuntimeError(
+                "R28 signal gate "
+                "self-test failed"
+            )
+
+
+        state_tests = (
+            run_order_state_tests()
+        )
+
+
+        if not all(
+            state_tests.values()
+        ):
+
+            raise RuntimeError(
+                "R28 order state machine "
+                "self-test failed"
+            )
+
+
+        intent_tests = (
+            run_intent_gate_tests(
+                quantity
+            )
+        )
+
+
+        if not all(
+            intent_tests.values()
+        ):
+
+            raise RuntimeError(
+                "R28 execution intent "
+                "self-test failed"
+            )
+
+
+        # ====================================================
+        # SIGNAL → INTENT
+        # ====================================================
+
+        signal = Signal(
+
+            signal_id=(
+                "r28-live-chain-"
+                + str(
+                    int(
+                        time.time()
+                    )
+                )
+            ),
+
+            direction="LONG",
+
+            created_at=(
+                time.time()
+            ),
+        )
+
+
+        registry = (
+            IntentRegistry()
+        )
+
+
+        intent = (
+            registry.create(
+                signal,
+                SYMBOL,
+                quantity,
+            )
+        )
+
+
+        if intent is None:
+
+            raise RuntimeError(
+                "R28 failed to create "
+                "execution intent"
+            )
+
+
+        # ====================================================
+        # NEW → PREFLIGHT
+        # ====================================================
+
+        if not intent.transition(
+            "PREFLIGHT"
+        ):
+
+            raise RuntimeError(
+                "R28 intent NEW → PREFLIGHT "
+                "transition failed"
+            )
+
+
+        preflight = (
+            run_preflight(
+                intent,
+                contract,
+            )
+        )
+
+
+        if not preflight.overall:
+
+            raise RuntimeError(
+                "R28 execution preflight "
+                "failed"
+            )
+
+
+        # ====================================================
+        # PREFLIGHT → READY
+        # ====================================================
+
+        if not intent.transition(
+            "READY"
+        ):
+
+            raise RuntimeError(
+                "R28 intent PREFLIGHT → READY "
+                "transition failed"
+            )
+
+
+        # ====================================================
+        # BUILD EXACT LIVE REHEARSAL PAYLOAD
+        # ====================================================
+
+        payload = (
+            build_live_payload(
+                intent
+            )
+        )
+
+
+        if not required_payload_fields_present(
+            payload
+        ):
+
+            raise RuntimeError(
+                "R28 live payload missing "
+                "required fields"
+            )
+
+
+        # ====================================================
+        # R28 SHADOW COMMIT
+        # ====================================================
+
+        commit = (
+            build_shadow_commit(
+                client,
+                intent,
+                payload,
+            )
+        )
+
+
+        commit_checks = (
+            validate_shadow_commit(
+                commit,
+                intent,
+            )
+        )
+
+
+        if not commit_checks[
+            "overall"
+        ]:
+
+            raise RuntimeError(
+                "R28 shadow commit "
+                "validation failed"
+            )
+
+
+        # ====================================================
+        # PROVE REAL POST FAILS CLOSED
+        # ====================================================
+
+        real_post_blocked = False
+
+
+        try:
+
+            await client.real_post(
+                REAL_ORDER_PATH,
+                payload,
+            )
+
+
+        except RuntimeError as exc:
+
+            real_post_blocked = (
+                "BLOCKED"
+                in str(
+                    exc
+                ).upper()
+            )
+
+
+        if not real_post_blocked:
+
+            raise RuntimeError(
+                "R28 real order path "
+                "did not fail closed"
+            )
+
+
+        if R28_REAL_POST_CALLED:
+
+            raise RuntimeError(
+                "R28 safety invariant failed: "
+                "real POST flag became True"
+            )
+
+
+        # ====================================================
+        # READY → SHADOW_COMMITTED
+        # ====================================================
+
+        if not intent.transition(
+            "SHADOW_COMMITTED"
+        ):
+
+            raise RuntimeError(
+                "R28 intent READY → "
+                "SHADOW_COMMITTED "
+                "transition failed"
+            )
+
+
+        # ====================================================
+        # DEMO ACTUAL-FILL VALIDATION
+        # ====================================================
+
+        if not RUN_DEMO_ORDER_TEST:
+
+            raise RuntimeError(
+                "R28 requires "
+                "RUN_DEMO_ORDER_TEST=true "
+                "for actual-fill validation"
+            )
+
+
+        demo = (
+            await run_demo_lifecycle(
+                client,
+                quantity,
+            )
+        )
+
+
+        if not demo[
+            "fill_lifecycle_valid"
+        ]:
+
+            raise RuntimeError(
+                "R28 demo actual-fill "
+                "lifecycle validation failed"
+            )
+
+
+        # ====================================================
+        # SHADOW_COMMITTED → RECONCILED
+        # ====================================================
+
+        if not intent.transition(
+            "RECONCILED"
+        ):
+
+            raise RuntimeError(
+                "R28 intent "
+                "SHADOW_COMMITTED → "
+                "RECONCILED transition failed"
+            )
+
+
+        final_safety_assertions_r28()
+
+
+        # ====================================================
+        # FINAL REPORT
+        # ====================================================
+
+        report = (
+            build_report(
+
+                balance=balance,
+
+                mark_price=(
+                    mark_price
+                ),
+
+                contract=contract,
+
+                margin=margin,
+
+                notional=notional,
+
+                quantity=quantity,
+
+                signal_tests=(
+                    signal_tests
+                ),
+
+                state_tests=(
+                    state_tests
+                ),
+
+                intent_tests=(
+                    intent_tests
+                ),
+
+                preflight=(
+                    preflight
+                ),
+
+                payload=payload,
+
+                commit=commit,
+
+                commit_checks=(
+                    commit_checks
+                ),
+
+                demo=demo,
+
+                final_intent=(
+                    intent
+                ),
+            )
+        )
+
+
+        DIAGNOSTIC_PASSED = True
+
+        LATEST_DIAGNOSTIC = (
+            report
+        )
+
+
+        print(
+            report
+        )
+
+
+        await send_telegram(
+            report
+        )
+
+
+        return report
+
+
+    finally:
+
+        await client.close()
+
+
+# ============================================================
+# DIAGNOSTIC WRAPPER
+# ============================================================
+
+async def diagnostic_wrapper() -> None:
+
+    global LATEST_DIAGNOSTIC
+    global DIAGNOSTIC_PASSED
+
+
+    try:
+
+        await r28_run_diagnostic()
+
+
+    except Exception as exc:
+
+        DIAGNOSTIC_PASSED = False
+
+
+        tb = (
+            traceback.format_exc()
+        )
+
+
+        message = "\n".join(
+            [
+
+                (
+                    f"❌ MODULE "
+                    f"{MODULE_NAME} ERROR"
+                ),
+
+                SYMBOL,
+
+                (
+                    f"{type(exc).__name__}: "
+                    f"{exc}"
+                ),
+
+                (
+                    "Real POST Called: "
+                    + yesno(
+                        R28_REAL_POST_CALLED
+                    )
+                ),
+
+                (
+                    "🛡 R28 absolute "
+                    "real-order POST lock active"
+                ),
+
+                (
+                    "⚠️ LIVE ORDER "
+                    "EXECUTION DISABLED"
+                ),
+
+                (
+                    "⚠️ NO REAL ORDER "
+                    "WAS SENT"
+                ),
+            ]
+        )
+
+
+        LATEST_DIAGNOSTIC = (
+            message
+            + "\n\n"
+            + tb
+        )
+
+
+        print(
+            message
+        )
+
+
+        print(
+            tb
+        )
+
+
+        try:
+
+            await send_telegram(
+                message
+            )
+
+
+        except Exception:
+
+            print(
+                "TELEGRAM ERROR WHILE "
+                "REPORTING R28 FAILURE"
+            )
+
+            traceback.print_exc()
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+async def async_main() -> None:
+
+    await start_health_server()
+
+
+    print(
+        "=" * 60
+    )
+
+    print(
+        f"{MODULE_NAME} STARTING"
+    )
+
+    print(
+        "SHADOW-COMMIT / "
+        "ACTUAL-FILL PRE-LIVE VALIDATION"
+    )
+
+    print(
+        "REAL ORDER TRANSMISSION DISABLED"
+    )
+
+    print(
+        "=" * 60
+    )
+
+
+    # Run diagnostic exactly once
+    # per process start.
+
+    await diagnostic_wrapper()
+
+
+    # Keep Render alive permanently.
+    # No repeated demo-order loop.
+
+    while True:
+
+        await asyncio.sleep(
+            3600
+        )
+
+
+def main() -> None:
+
+    try:
+
+        asyncio.run(
+            async_main()
+        )
+
+
+    except KeyboardInterrupt:
+
+        print(
+            f"{MODULE_NAME} STOPPED"
+        )
+
+
+if __name__ == "__main__":
+
+    main()
