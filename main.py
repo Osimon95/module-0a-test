@@ -3103,8 +3103,8 @@ async def get_demo_positions(
     ] = []
 
     endpoints = [
-        "/capi/v3/sim/position",
-        "/capi/v3/sim/positions",
+      "/capi/v3/sim/position
+      /allPosition",
     ]
 
     for path in endpoints:
