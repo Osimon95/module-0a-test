@@ -1793,6 +1793,613 @@ def calculate_entry_margin(
     return (
         balance
         
+         ENTRY_PERCENT
+        / D100
+    )
+
+
+def calculate_notional(
+    margin: Decimal,
+) -> Decimal:
+
+    return (
+        margin
+        * Decimal(
+            LEVERAGE
+        )
+    )
+
+
+def calculate_quantity(
+    notional: Decimal,
+    mark_price: Decimal,
+    contract: ContractInfo,
+) -> Decimal:
+
+    if mark_price <= 0:
+
+        raise RuntimeError(
+            "Mark price must be positive"
+        )
+
+    raw_quantity = (
+        notional
+        / mark_price
+    )
+
+    quantity = floor_to_step(
+        raw_quantity,
+        contract.quantity_step,
+    )
+
+    return quantity
+
+
+def quantity_step_match(
+    quantity: Decimal,
+    step: Decimal,
+) -> bool:
+
+    if (
+        quantity <= 0
+        or step <= 0
+    ):
+        return False
+
+    return (
+        quantity
+        == floor_to_step(
+            quantity,
+            step,
+        )
+    )
+
+
+def price_step_match(
+    price: Decimal,
+    step: Decimal,
+) -> bool:
+
+    if (
+        price <= 0
+        or step <= 0
+    ):
+        return False
+
+    return (
+        price
+        == floor_to_step(
+            price,
+            step,
+        )
+    )
+
+
+def minimum_order_passed(
+    quantity: Decimal,
+    contract: ContractInfo,
+) -> bool:
+
+    return (
+        quantity
+        >= contract.min_order
+    )
+
+
+def leverage_passed(
+    contract: ContractInfo,
+) -> bool:
+
+    return (
+        LEVERAGE
+        <= MAX_CONFIG_LEVERAGE
+        and LEVERAGE
+        >= contract.min_leverage
+        and LEVERAGE
+        <= contract.max_leverage
+    )
+
+
+def worst_case_exposure() -> Tuple[
+    Decimal,
+    Decimal,
+    Decimal,
+    Decimal,
+]:
+
+    initial = ENTRY_PERCENT
+
+    pyramids = (
+        Decimal(
+            MAX_PYRAMID_ADDS
+        )
+        * PYRAMID_SIZE_PERCENT
+    )
+
+    backups = (
+        Decimal(
+            MAX_BACKUPS
+        )
+        * BACKUP_SIZE_PERCENT
+    )
+
+    total = (
+        initial
+        + pyramids
+        + backups
+    )
+
+    return (
+        initial,
+        pyramids,
+        backups,
+        total,
+    )
+
+
+def exposure_passed() -> bool:
+
+    (
+        _,
+        _,
+        _,
+        total,
+    ) = worst_case_exposure()
+
+    return (
+        total
+        <= MAX_FUND_EXPOSURE_PERCENT
+    )
+
+
+# ============================================================
+# SIGNAL GATE
+# ============================================================
+
+def signal_is_fresh(
+    signal: Signal,
+    now: Optional[float] = None,
+) -> bool:
+
+    current = (
+        now
+        if now is not None
+        else time.time()
+    )
+
+    age = (
+        current
+        - signal.created_at
+    )
+
+    return (
+        age >= 0
+        and age
+        <= SIGNAL_EXPIRY_SECONDS
+    )
+
+
+def signal_direction_valid(
+    direction: str,
+) -> bool:
+
+    return (
+        direction.upper()
+        in {
+            "LONG",
+            "SHORT",
+        }
+    )
+
+
+def execution_direction(
+    direction: str,
+) -> Tuple[str, str]:
+
+    normalized = (
+        direction.upper()
+    )
+
+    if normalized == "LONG":
+
+        return (
+            "BUY",
+            "LONG",
+        )
+
+    if normalized == "SHORT":
+
+        return (
+            "SELL",
+            "SHORT",
+        )
+
+    raise RuntimeError(
+        "Invalid signal direction: "
+        f"{direction}"
+    )
+
+
+# ============================================================
+# INTENT REGISTRY
+# ============================================================
+
+class IntentRegistry:
+
+    def __init__(
+        self,
+    ) -> None:
+
+        self.signal_ids: Set[
+            str
+        ] = set()
+
+        self.intent_ids: Set[
+            str
+        ] = set()
+
+
+    def create(
+        self,
+        signal: Signal,
+        symbol: str,
+        quantity: Decimal,
+    ) -> Optional[
+        ExecutionIntent
+    ]:
+
+        if signal.signal_id in (
+            self.signal_ids
+        ):
+            return None
+
+        if not signal_is_fresh(
+            signal
+        ):
+            return None
+
+        if not signal_direction_valid(
+            signal.direction
+        ):
+            return None
+
+        side, position_side = (
+            execution_direction(
+                signal.direction
+            )
+        )
+
+        intent_seed = (
+            f"{signal.signal_id}|"
+            f"{symbol}|"
+            f"{side}|"
+            f"{position_side}|"
+            f"{fmt_decimal(quantity)}|"
+            f"{LEVERAGE}"
+        )
+
+        intent_id = (
+            "r28i-"
+            + sha256_hex(
+                intent_seed
+            )[:20]
+        )
+
+        if intent_id in (
+            self.intent_ids
+        ):
+            return None
+
+        client_order_id = (
+            make_client_order_id(
+                "r28",
+                intent_seed,
+            )
+        )
+
+        intent = ExecutionIntent(
+
+            intent_id=intent_id,
+
+            signal_id=(
+                signal.signal_id
+            ),
+
+            symbol=(
+                symbol.upper()
+            ),
+
+            side=side,
+
+            position_side=(
+                position_side
+            ),
+
+            quantity=quantity,
+
+            leverage=LEVERAGE,
+
+            created_at=time.time(),
+
+            client_order_id=(
+                client_order_id
+            ),
+        )
+
+        self.signal_ids.add(
+            signal.signal_id
+        )
+
+        self.intent_ids.add(
+            intent_id
+        )
+
+        return intent
+
+
+# ============================================================
+# LIVE PAYLOAD REHEARSAL
+# ============================================================
+
+def build_live_payload(
+    intent: ExecutionIntent,
+) -> Dict[str, Any]:
+
+    return {
+
+        "symbol":
+            intent.symbol,
+
+        "side":
+            intent.side,
+
+        "positionSide":
+            intent.position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            fmt_decimal(
+                intent.quantity
+            ),
+
+        "clientOrderId":
+            intent.client_order_id,
+    }
+
+
+def required_payload_fields_present(
+    payload: Dict[str, Any],
+) -> bool:
+
+    required = (
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "clientOrderId",
+    )
+
+    return all(
+        key in payload
+        and payload[key]
+        not in (
+            None,
+            "",
+        )
+        for key in required
+    )
+
+
+# ============================================================
+# RESPONSE CLASSIFIER
+# ============================================================
+
+def classify_order_response(
+    response: Any,
+) -> str:
+
+    if not isinstance(
+        response,
+        dict,
+    ):
+        return "AMBIGUOUS"
+
+    code = response_code(
+        response
+    )
+
+    order_id = extract_order_id(
+        response
+    )
+
+    message = response_message(
+        response
+    ).lower()
+
+    accepted_codes = {
+        0,
+        200,
+    }
+
+    if (
+        code in accepted_codes
+        and order_id
+    ):
+        return "ACCEPTED"
+
+    if (
+        code is not None
+        and code not in accepted_codes
+    ):
+        return "REJECTED"
+
+    rejection_words = (
+        "reject",
+        "invalid",
+        "denied",
+        "insufficient",
+        "error",
+        "failed",
+    )
+
+    if any(
+        word in message
+        for word in rejection_words
+    ):
+        return "REJECTED"
+
+    return "AMBIGUOUS"
+
+
+# ============================================================
+# R28 PREFLIGHT
+# ============================================================
+
+@dataclass
+class PreflightResult:
+
+    live_execution_off: bool
+
+    hard_real_post_lock: bool
+
+    intent_fresh: bool
+
+    quantity_positive: bool
+
+    minimum_passed: bool
+
+    quantity_step_passed: bool
+
+    leverage_passed: bool
+
+    exposure_passed: bool
+
+    client_id_valid: bool
+
+    real_order_path_blocked: bool
+
+    overall: bool
+
+
+def run_preflight(
+    intent: ExecutionIntent,
+    contract: ContractInfo,
+) -> PreflightResult:
+
+    live_off = (
+        not LIVE_ORDER_EXECUTION
+    )
+
+    hard_lock = (
+        HARD_REAL_POST_LOCK
+    )
+
+    fresh = (
+        time.time()
+        - intent.created_at
+        <= SIGNAL_EXPIRY_SECONDS
+    )
+
+    positive = (
+        intent.quantity > 0
+    )
+
+    minimum = (
+        minimum_order_passed(
+            intent.quantity,
+            contract,
+        )
+    )
+
+    step_ok = (
+        quantity_step_match(
+            intent.quantity,
+            contract.quantity_step,
+        )
+    )
+
+    leverage_ok = (
+        leverage_passed(
+            contract
+        )
+    )
+
+    exposure_ok = (
+        exposure_passed()
+    )
+
+    cid_ok = (
+        client_id_valid(
+            intent.client_order_id
+        )
+    )
+
+    path_blocked = (
+        HARD_REAL_POST_LOCK
+        or not LIVE_ORDER_EXECUTION
+    )
+
+    overall = all(
+        (
+            live_off,
+            hard_lock,
+            fresh,
+            positive,
+            minimum,
+            step_ok,
+            leverage_ok,
+            exposure_ok,
+            cid_ok,
+            path_blocked,
+        )
+    )
+
+    return PreflightResult(
+
+        live_execution_off=(
+            live_off
+        ),
+
+        hard_real_post_lock=(
+            hard_lock
+        ),
+
+        intent_fresh=fresh,
+
+        quantity_positive=(
+            positive
+        ),
+
+        minimum_passed=(
+            minimum
+        ),
+
+        quantity_step_passed=(
+            step_ok
+        ),
+
+        leverage_passed=(
+            leverage_ok
+        ),
+
+        exposure_passed=(
+            exposure_ok
+        ),
+
+        client_id_valid=(
+            cid_ok
+        ),
+
+        real_order_path_blocked=(
+            path_blocked
+        ),
+
+        overall=overall,
+    )
+
 # ============================================================
 # R28 SHADOW EXECUTION COMMIT GATE
 # ============================================================
