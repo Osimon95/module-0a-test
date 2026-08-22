@@ -6628,6 +6628,56 @@ async def diagnostic_wrapper(
 # PERSISTENT RENDER RUNTIME
 # ============================================================
 
+# ============================================================
+# PERSISTENT RENDER RUNTIME
+# ============================================================
+
+async def main_async(
+) -> None:
+
+    await start_health_server()
+
+    timeout = aiohttp.ClientTimeout(
+        total=30
+    )
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+
+        # Keep the session block valid.
+        # Your actual R28 runtime logic should remain
+        # inside this block if it uses `session`.
+        pass
+
+
+# ============================================================
+# R28 ORDER STATE MACHINE SELF-TEST
+# ============================================================
+
+def test_order_state_machine() -> bool:
+    """
+    R28 diagnostic-only order state-machine validation.
+
+    This does NOT transmit any order.
+    It only verifies that the expected execution-state
+    transitions behave correctly.
+    """
+
+    valid_transitions = {
+        "CREATED": {
+            "VALIDATED",
+            "REJECTED",
+        },
+        "VALIDATED": {
+            "SHADOW_COMMITTED",
+            "REJECTED",
+        },
+        "SHADOW_COMMITTED": {
+            "DEMO_PENDING",
+            "REJECTED",
+        },
+        
 async def main_async(
 ) -> None:
 
