@@ -5879,6 +5879,10 @@ _DIAGNOSTIC_RAN = False
 # R28 AVAILABLE USDT BALANCE
 # ============================================================
 
+# ============================================================
+# R28 — OBTAIN AVAILABLE FUTURES USDT BALANCE
+# ============================================================
+
 async def obtain_available_balance(
     client: WeexClient,
 ) -> Decimal:
@@ -5886,242 +5890,163 @@ async def obtain_available_balance(
     errors: List[str] = []
 
     # ========================================================
-    # TRY KNOWN PRIVATE ACCOUNT ENDPOINTS
+    # PRIMARY — WEEX V3 CONTRACT ACCOUNT BALANCE
+    # Official endpoint:
+    # GET /capi/v3/account/balance
     # ========================================================
 
-    endpoints = [
-        "/capi/v2/account/assets",
-        "/capi/v2/account/account",
-        "/capi/v3/account/assets",
-    ]
+    try:
 
-    for path in endpoints:
+        path = (
+            "/capi/v3/account/balance"
+        )
 
-        try:
+        response = await client.private_get(
+            path
+        )
 
-            # ------------------------------------------------
-            # USE THE CLIENT'S EXISTING PRIVATE GET METHOD
-            # ------------------------------------------------
+        # ----------------------------------------------------
+        # NORMALIZE POSSIBLE RESPONSE WRAPPERS
+        # ----------------------------------------------------
 
-            if hasattr(
-                client,
-                "private_get",
+        data = response
+
+        if isinstance(
+            response,
+            dict,
+        ):
+
+            if (
+                "data"
+                in response
+                and response["data"]
+                is not None
             ):
 
-                data = await client.private_get(
-                    path
-                )
+                data = response["data"]
 
-            elif hasattr(
-                client,
-                "_private_get",
-            ):
+        # ----------------------------------------------------
+        # NORMALIZE SINGLE OBJECT INTO LIST
+        # ----------------------------------------------------
 
-                data = await client._private_get(
-                    path
-                )
+        if isinstance(
+            data,
+            dict,
+        ):
 
-            elif hasattr(
-                client,
-                "get_private",
-            ):
+            data = [
+                data
+            ]
 
-                data = await client.get_private(
-                    path
-                )
-
-            else:
-
-                raise RuntimeError(
-                    "WeexClient has no private GET "
-                    "method available"
-                )
-
-            # =================================================
-            # NORMALIZE COMMON RESPONSE WRAPPERS
-            # =================================================
-
-            payload = data
-
-            if isinstance(
-                payload,
-                dict,
-            ):
-
-                for key in (
-                    "data",
-                    "result",
-                ):
-
-                    nested = payload.get(
-                        key
-                    )
-
-                    if nested is not None:
-
-                        payload = nested
-                        break
-
-            # =================================================
-            # LIST OF ASSETS
-            # =================================================
-
-            if isinstance(
-                payload,
-                list,
-            ):
-
-                for asset in payload:
-
-                    if not isinstance(
-                        asset,
-                        dict,
-                    ):
-
-                        continue
-
-                    coin = str(
-                        asset.get(
-                            "coin",
-                            asset.get(
-                                "currency",
-                                asset.get(
-                                    "asset",
-                                    "",
-                                ),
-                            ),
-                        )
-                    ).upper()
-
-                    if coin != "USDT":
-
-                        continue
-
-                    for balance_key in (
-                        "available",
-                        "availableBalance",
-                        "availableEquity",
-                        "availableMargin",
-                        "free",
-                        "balance",
-                        "equity",
-                    ):
-
-                        value = asset.get(
-                            balance_key
-                        )
-
-                        if value is None:
-
-                            continue
-
-                        balance = Decimal(
-                            str(
-                                value
-                            )
-                        )
-
-                        if balance >= 0:
-
-                            return balance
-
-            # =================================================
-            # SINGLE ACCOUNT OBJECT
-            # =================================================
-
-            if isinstance(
-                payload,
-                dict,
-            ):
-
-                # ---------------------------------------------
-                # POSSIBLE NESTED USDT OBJECT
-                # ---------------------------------------------
-
-                for usdt_key in (
-                    "USDT",
-                    "usdt",
-                ):
-
-                    usdt_data = payload.get(
-                        usdt_key
-                    )
-
-                    if isinstance(
-                        usdt_data,
-                        dict,
-                    ):
-
-                        for balance_key in (
-                            "available",
-                            "availableBalance",
-                            "availableEquity",
-                            "availableMargin",
-                            "free",
-                            "balance",
-                            "equity",
-                        ):
-
-                            value = usdt_data.get(
-                                balance_key
-                            )
-
-                            if value is None:
-
-                                continue
-
-                            balance = Decimal(
-                                str(
-                                    value
-                                )
-                            )
-
-                            if balance >= 0:
-
-                                return balance
-
-                # ---------------------------------------------
-                # DIRECT BALANCE FIELDS
-                # ---------------------------------------------
-
-                for balance_key in (
-                    "available",
-                    "availableBalance",
-                    "availableEquity",
-                    "availableMargin",
-                    "free",
-                    "balance",
-                    "equity",
-                ):
-
-                    value = payload.get(
-                        balance_key
-                    )
-
-                    if value is None:
-
-                        continue
-
-                    balance = Decimal(
-                        str(
-                            value
-                        )
-                    )
-
-                    if balance >= 0:
-
-                        return balance
+        if not isinstance(
+            data,
+            list,
+        ):
 
             raise RuntimeError(
-                "USDT available balance "
-                "not found in response"
+                "Unexpected WEEX balance "
+                f"response type: "
+                f"{type(data).__name__}"
             )
 
-        except Exception as exc:
+        # ----------------------------------------------------
+        # FIND USDT FUTURES BALANCE
+        # ----------------------------------------------------
 
-            errors.append(
-                f"{path}: {exc}"
+        for item in data:
+
+            if not isinstance(
+                item,
+                dict,
+            ):
+
+                continue
+
+            asset = str(
+                item.get(
+                    "asset",
+                    item.get(
+                        "coinName",
+                        item.get(
+                            "coin",
+                            "",
+                        ),
+                    ),
+                )
+            ).strip().upper()
+
+            if asset != "USDT":
+
+                continue
+
+            # =================================================
+            # OFFICIAL V3 FIELD
+            # =================================================
+
+            value = item.get(
+                "availableBalance"
             )
+
+            # =================================================
+            # SAFE COMPATIBILITY FALLBACKS
+            # =================================================
+
+            if value is None:
+
+                value = item.get(
+                    "available"
+                )
+
+            if value is None:
+
+                value = item.get(
+                    "free"
+                )
+
+            if value is None:
+
+                value = item.get(
+                    "available_balance"
+                )
+
+            if value is None:
+
+                raise RuntimeError(
+                    "USDT balance entry found "
+                    "but available balance field "
+                    "was missing"
+                )
+
+            balance = Decimal(
+                str(
+                    value
+                )
+            )
+
+            if balance < Decimal(
+                "0"
+            ):
+
+                raise RuntimeError(
+                    "Available USDT balance "
+                    "cannot be negative"
+                )
+
+            return balance
+
+        raise RuntimeError(
+            "USDT asset not found "
+            "in WEEX V3 balance response"
+        )
+
+    except Exception as exc:
+
+        errors.append(
+            "/capi/v3/account/balance: "
+            + str(
+                exc
+            )
+        )
 
     # ========================================================
     # FAIL CLOSED
@@ -6133,6 +6058,7 @@ async def obtain_available_balance(
             errors
         )
     )
+    
 async def run_r28_diagnostic(
     session: aiohttp.ClientSession,
 ) -> None:
