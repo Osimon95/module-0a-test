@@ -1,4 +1,1453 @@
 # ============================================================
+# R28 SHADOW EXECUTION COMMIT GATE
+# ============================================================
+
+def build_shadow_commit(
+    client: WeexClient,
+    intent: ExecutionIntent,
+    payload: Dict[str, Any],
+) -> ShadowCommit:
+
+    body = raw_json(
+        payload
+    )
+
+    timestamp = str(
+        int(
+            time.time()
+            * 1000
+        )
+    )
+
+    signature = (
+        client._signature(
+            timestamp,
+            "POST",
+            REAL_ORDER_PATH,
+            body=body,
+        )
+    )
+
+    canonical_payload = (
+        stable_json(
+            payload
+        )
+    )
+
+    request_fingerprint = (
+        sha256_hex(
+            "POST|"
+            + REAL_ORDER_PATH
+            + "|"
+            + canonical_payload
+        )
+    )
+
+    intent_fingerprint = (
+        sha256_hex(
+            "|".join(
+                [
+                    intent.intent_id,
+                    intent.signal_id,
+                    intent.symbol,
+                    intent.side,
+                    intent.position_side,
+                    fmt_decimal(
+                        intent.quantity
+                    ),
+                    str(
+                        intent.leverage
+                    ),
+                    intent.client_order_id,
+                ]
+            )
+        )
+    )
+
+    commit_token = (
+        sha256_hex(
+            "R28-SHADOW|"
+            + intent_fingerprint
+            + "|"
+            + request_fingerprint
+        )[:32]
+    )
+
+    return ShadowCommit(
+
+        endpoint=(
+            REAL_ORDER_PATH
+        ),
+
+        payload=payload,
+
+        body=body,
+
+        timestamp=timestamp,
+
+        signature=signature,
+
+        request_fingerprint=(
+            request_fingerprint
+        ),
+
+        intent_fingerprint=(
+            intent_fingerprint
+        ),
+
+        commit_token=(
+            commit_token
+        ),
+
+        real_post_blocked=(
+            HARD_REAL_POST_LOCK
+            and
+            not LIVE_ORDER_EXECUTION
+        ),
+    )
+
+
+def validate_shadow_commit(
+    commit: ShadowCommit,
+    intent: ExecutionIntent,
+) -> Dict[str, bool]:
+
+    rebuilt_request_fingerprint = (
+        sha256_hex(
+            "POST|"
+            + commit.endpoint
+            + "|"
+            + stable_json(
+                commit.payload
+            )
+        )
+    )
+
+    rebuilt_intent_fingerprint = (
+        sha256_hex(
+            "|".join(
+                [
+                    intent.intent_id,
+                    intent.signal_id,
+                    intent.symbol,
+                    intent.side,
+                    intent.position_side,
+                    fmt_decimal(
+                        intent.quantity
+                    ),
+                    str(
+                        intent.leverage
+                    ),
+                    intent.client_order_id,
+                ]
+            )
+        )
+    )
+
+    rebuilt_commit_token = (
+        sha256_hex(
+            "R28-SHADOW|"
+            + rebuilt_intent_fingerprint
+            + "|"
+            + rebuilt_request_fingerprint
+        )[:32]
+    )
+
+    altered_payload = dict(
+        commit.payload
+    )
+
+    altered_payload[
+        "quantity"
+    ] = fmt_decimal(
+        D(
+            altered_payload[
+                "quantity"
+            ]
+        )
+        + Decimal(
+            "0.0001"
+        )
+    )
+
+    altered_fingerprint = (
+        sha256_hex(
+            "POST|"
+            + commit.endpoint
+            + "|"
+            + stable_json(
+                altered_payload
+            )
+        )
+    )
+
+    checks = {
+
+        "intent_fingerprint_stable":
+            (
+                rebuilt_intent_fingerprint
+                ==
+                commit.intent_fingerprint
+            ),
+
+        "request_fingerprint_stable":
+            (
+                rebuilt_request_fingerprint
+                ==
+                commit.request_fingerprint
+            ),
+
+        "commit_token_stable":
+            (
+                rebuilt_commit_token
+                ==
+                commit.commit_token
+            ),
+
+        "payload_mutation_detected":
+            (
+                altered_fingerprint
+                !=
+                commit.request_fingerprint
+            ),
+
+        "signature_nonempty":
+            bool(
+                commit.signature
+            ),
+
+        "real_post_still_blocked":
+            (
+                commit.real_post_blocked
+            ),
+    }
+
+    checks[
+        "overall"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+# ============================================================
+# DEMO POSITION HELPERS
+# ============================================================
+
+async def get_demo_positions(
+    client: WeexClient,
+) -> List[
+    Dict[str, Any]
+]:
+
+    response = (
+        await client.private_get(
+            DEMO_POSITION_PATH,
+            {
+                "symbol":
+                    DEMO_SYMBOL
+            },
+        )
+    )
+
+    return find_list(
+        response
+    )
+
+
+def position_size(
+    rows: List[
+        Dict[str, Any]
+    ],
+    symbol: str,
+    position_side: str,
+) -> Decimal:
+
+    target_symbol = (
+        symbol.upper()
+    )
+
+    target_side = (
+        position_side.upper()
+    )
+
+    for row in rows:
+
+        row_symbol = str(
+            first_value(
+                row,
+                (
+                    "symbol",
+                    "symbolName",
+                ),
+                "",
+            )
+        ).upper()
+
+        if (
+            row_symbol
+            != target_symbol
+        ):
+            continue
+
+        row_side = str(
+            first_value(
+                row,
+                (
+                    "positionSide",
+                    "holdSide",
+                    "side",
+                ),
+                "",
+            )
+        ).upper()
+
+        if (
+            row_side
+            != target_side
+        ):
+            continue
+
+        value = first_value(
+            row,
+            (
+                "size",
+                "quantity",
+                "positionAmt",
+                "positionAmount",
+                "total",
+                "available",
+            ),
+            "0",
+        )
+
+        return abs(
+            D(
+                value
+            )
+        )
+
+    return D0
+
+
+# ============================================================
+# DEMO SIDE SELECTION
+# ============================================================
+
+def choose_demo_side_and_position(
+    before_rows: List[
+        Dict[str, Any]
+    ],
+    quantity: Decimal,
+) -> Tuple[
+    str,
+    str,
+]:
+
+    long_size = (
+        position_size(
+            before_rows,
+            DEMO_SYMBOL,
+            "LONG",
+        )
+    )
+
+    short_size = (
+        position_size(
+            before_rows,
+            DEMO_SYMBOL,
+            "SHORT",
+        )
+    )
+
+    if (
+        DEMO_FILL_MODE
+        == "OPEN_LONG"
+    ):
+
+        return (
+            "BUY",
+            "LONG",
+        )
+
+    if (
+        DEMO_FILL_MODE
+        == "OPEN_SHORT"
+    ):
+
+        return (
+            "SELL",
+            "SHORT",
+        )
+
+    if (
+        DEMO_FILL_MODE
+        == "CLOSE_LONG"
+    ):
+
+        return (
+            "SELL",
+            "LONG",
+        )
+
+    if (
+        DEMO_FILL_MODE
+        == "CLOSE_SHORT"
+    ):
+
+        return (
+            "BUY",
+            "SHORT",
+        )
+
+    # AUTO MODE:
+    # Prefer reducing an existing demo
+    # position so repeated diagnostics
+    # do not continuously accumulate
+    # exposure.
+
+    if (
+        long_size
+        >= quantity
+    ):
+
+        return (
+            "SELL",
+            "LONG",
+        )
+
+    if (
+        short_size
+        >= quantity
+    ):
+
+        return (
+            "BUY",
+            "SHORT",
+        )
+
+    return (
+        "BUY",
+        "LONG",
+    )
+
+
+# ============================================================
+# R28 DEMO CLIENT ORDER ID
+# ============================================================
+
+def make_r28_demo_client_order_id(
+    side: str,
+    position_side: str,
+    quantity: Decimal,
+) -> str:
+
+    timestamp = str(
+        int(
+            time.time()
+            * 1000
+        )
+    )
+
+    unique_seed = (
+        f"{DEMO_SYMBOL}|"
+        f"{side}|"
+        f"{position_side}|"
+        f"{fmt_decimal(quantity)}|"
+        f"{timestamp}|"
+        f"{time.time_ns()}"
+    )
+
+    digest = (
+        hashlib.sha256(
+            unique_seed.encode(
+                "utf-8"
+            )
+        )
+        .hexdigest()
+        [:12]
+    )
+
+    client_order_id = (
+        f"r28d-{timestamp}-{digest}"
+    )
+
+    client_order_id = (
+        client_order_id[
+            :36
+        ]
+    )
+
+    client_order_id = str(
+        client_order_id
+        or ""
+    ).strip()
+
+    if not client_order_id:
+
+        raise RuntimeError(
+            "R28 demo client order ID "
+            "generation returned blank"
+        )
+
+    if len(
+        client_order_id
+    ) > 36:
+
+        raise RuntimeError(
+            "R28 demo client order ID "
+            "exceeds 36 characters"
+        )
+
+    if not re.fullmatch(
+        r"[A-Za-z0-9._:/-]{1,36}",
+        client_order_id,
+    ):
+
+        raise RuntimeError(
+            "R28 demo client order ID "
+            "contains invalid characters: "
+            f"{client_order_id!r}"
+        )
+
+    return client_order_id
+
+
+# ============================================================
+# DEMO PAYLOAD
+# ============================================================
+
+def build_demo_payload(
+    side: str,
+    position_side: str,
+    quantity: Decimal,
+) -> Dict[str, Any]:
+
+    clean_side = str(
+        side
+        or ""
+    ).strip().upper()
+
+    clean_position_side = str(
+        position_side
+        or ""
+    ).strip().upper()
+
+    if clean_side not in (
+        "BUY",
+        "SELL",
+    ):
+
+        raise RuntimeError(
+            "R28 invalid demo order side: "
+            f"{clean_side!r}"
+        )
+
+    if clean_position_side not in (
+        "LONG",
+        "SHORT",
+    ):
+
+        raise RuntimeError(
+            "R28 invalid demo position side: "
+            f"{clean_position_side!r}"
+        )
+
+    if quantity <= 0:
+
+        raise RuntimeError(
+            "R28 demo quantity must "
+            "be greater than zero"
+        )
+
+    client_order_id = (
+        make_r28_demo_client_order_id(
+            clean_side,
+            clean_position_side,
+            quantity,
+        )
+    )
+
+    payload = {
+
+        "symbol":
+            DEMO_SYMBOL,
+
+        "side":
+            clean_side,
+
+        "positionSide":
+            clean_position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            fmt_decimal(
+                quantity
+            ),
+
+        "newClientOrderId":
+            client_order_id,
+    }
+
+    transmitted_client_id = str(
+        payload.get(
+            "newClientOrderId",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not transmitted_client_id:
+
+        raise RuntimeError(
+            "R28 demo payload creation "
+            "produced blank newClientOrderId"
+        )
+
+    if (
+        transmitted_client_id
+        != client_order_id
+    ):
+
+        raise RuntimeError(
+            "R28 demo payload client ID "
+            "changed during construction"
+        )
+
+    return payload
+
+
+# ============================================================
+# DEMO PAYLOAD FINAL VALIDATION
+# ============================================================
+
+def validate_demo_payload_r28(
+    payload: Dict[str, Any],
+) -> str:
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "R28 demo payload must "
+            "be a dictionary"
+        )
+
+    client_order_id = str(
+        payload.get(
+            "newClientOrderId",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not client_order_id:
+
+        raise RuntimeError(
+            "R28 DEMO POST blocked: "
+            "newClientOrderId is blank"
+        )
+
+    if len(
+        client_order_id
+    ) > 36:
+
+        raise RuntimeError(
+            "R28 DEMO POST blocked: "
+            "newClientOrderId exceeds "
+            "36 characters"
+        )
+
+    if not re.fullmatch(
+        r"[A-Za-z0-9._:/-]{1,36}",
+        client_order_id,
+    ):
+
+        raise RuntimeError(
+            "R28 DEMO POST blocked: "
+            "newClientOrderId has "
+            "invalid characters: "
+            f"{client_order_id!r}"
+        )
+
+    symbol = str(
+        payload.get(
+            "symbol",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not symbol:
+
+        raise RuntimeError(
+            "R28 DEMO POST blocked: "
+            "symbol is blank"
+        )
+
+    side = str(
+        payload.get(
+            "side",
+            "",
+        )
+        or ""
+    ).strip().upper()
+
+    if side not in (
+        "BUY",
+        "SELL",
+    ):
+
+        raise RuntimeError(
+            "R28 DEMO POST blocked: "
+            "invalid side"
+        )
+
+    position_side = str(
+        payload.get(
+            "positionSide",
+            "",
+        )
+        or ""
+    ).strip().upper()
+
+    if position_side not in (
+        "LONG",
+        "SHORT",
+    ):
+
+        raise RuntimeError(
+            "R28 DEMO POST blocked: "
+            "invalid positionSide"
+        )
+
+    order_type = str(
+        payload.get(
+            "type",
+            "",
+        )
+        or ""
+    ).strip().upper()
+
+    if order_type != "MARKET":
+
+        raise RuntimeError(
+            "R28 DEMO POST blocked: "
+            "unexpected order type"
+        )
+
+    quantity_text = str(
+        payload.get(
+            "quantity",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not quantity_text:
+
+        raise RuntimeError(
+            "R28 DEMO POST blocked: "
+            "quantity is blank"
+        )
+
+    quantity_value = D(
+        quantity_text
+    )
+
+    if quantity_value <= 0:
+
+        raise RuntimeError(
+            "R28 DEMO POST blocked: "
+            "quantity must be positive"
+        )
+
+    return client_order_id
+
+
+# ============================================================
+# DEMO HISTORY LOOKUP
+# ============================================================
+
+def extract_history_order_id(
+    row: Dict[str, Any],
+) -> str:
+
+    return str(
+        first_value(
+            row,
+            (
+                "orderId",
+                "order_id",
+                "id",
+            ),
+            "",
+        )
+        or ""
+    )
+
+
+def extract_history_client_id(
+    row: Dict[str, Any],
+) -> str:
+
+    return str(
+        first_value(
+            row,
+            (
+                "clientOrderId",
+                "newClientOrderId",
+                "clientOid",
+                "client_order_id",
+            ),
+            "",
+        )
+        or ""
+    )
+
+
+async def find_demo_history_row(
+    client: WeexClient,
+    order_id: str,
+    client_id: str,
+) -> Tuple[
+    Optional[
+        Dict[str, Any]
+    ],
+    int,
+]:
+
+    attempts = 0
+
+    for _ in range(
+        6
+    ):
+
+        attempts += 1
+
+        response = (
+            await client.private_get(
+                DEMO_HISTORY_PATH,
+                {
+                    "symbol":
+                        DEMO_SYMBOL,
+
+                    "limit":
+                        100,
+
+                    "page":
+                        0,
+                },
+            )
+        )
+
+        rows = find_list(
+            response
+        )
+
+        for row in rows:
+
+            history_order_id = (
+                extract_history_order_id(
+                    row
+                )
+            )
+
+            history_client_id = (
+                extract_history_client_id(
+                    row
+                )
+            )
+
+            if (
+                order_id
+                and
+                history_order_id
+                == order_id
+            ):
+
+                return (
+                    row,
+                    attempts,
+                )
+
+            if (
+                client_id
+                and
+                history_client_id
+                == client_id
+            ):
+
+                return (
+                    row,
+                    attempts,
+                )
+
+        await asyncio.sleep(
+            1
+        )
+
+    return (
+        None,
+        attempts,
+    )
+
+
+# ============================================================
+# DEMO HISTORY EXTRACTION
+# ============================================================
+
+def history_status(
+    row: Dict[str, Any],
+) -> str:
+
+    value = first_value(
+        row,
+        (
+            "status",
+            "state",
+            "orderStatus",
+        ),
+        "UNKNOWN",
+    )
+
+    return str(
+        value
+    ).upper()
+
+
+def history_original_quantity(
+    row: Dict[str, Any],
+) -> Decimal:
+
+    return D(
+        first_value(
+            row,
+            (
+                "origQty",
+                "originalQty",
+                "quantity",
+                "size",
+                "orderQty",
+            ),
+            "0",
+        )
+    )
+
+
+def history_executed_quantity(
+    row: Dict[str, Any],
+) -> Decimal:
+
+    return D(
+        first_value(
+            row,
+            (
+                "executedQty",
+                "filledQty",
+                "fillQty",
+                "filledSize",
+                "dealQty",
+            ),
+            "0",
+        )
+    )
+
+
+def history_average_price(
+    row: Dict[str, Any],
+) -> Decimal:
+
+    return D(
+        first_value(
+            row,
+            (
+                "avgPrice",
+                "averagePrice",
+                "fillPrice",
+                "priceAvg",
+                "price",
+            ),
+            "0",
+        )
+    )
+
+
+# ============================================================
+# R28 DEMO ACTUAL-FILL LIFECYCLE
+# ============================================================
+
+async def run_demo_lifecycle(
+    client: WeexClient,
+    quantity: Decimal,
+) -> Dict[str, Any]:
+
+    before_rows = (
+        await get_demo_positions(
+            client
+        )
+    )
+
+    (
+        side,
+        position_side,
+    ) = (
+        choose_demo_side_and_position(
+            before_rows,
+            quantity,
+        )
+    )
+
+    before_size = (
+        position_size(
+            before_rows,
+            DEMO_SYMBOL,
+            position_side,
+        )
+    )
+
+    payload = (
+        build_demo_payload(
+            side,
+            position_side,
+            quantity,
+        )
+    )
+
+    # ========================================================
+    # FINAL CLIENT ORDER ID ASSERTION
+    # ========================================================
+
+    client_order_id = (
+        validate_demo_payload_r28(
+            payload
+        )
+    )
+
+    if not client_order_id:
+
+        raise RuntimeError(
+            "R28 DEMO POST blocked: "
+            "client order ID unexpectedly blank "
+            "after final validation"
+        )
+
+    payload[
+        "newClientOrderId"
+    ] = client_order_id
+
+    final_payload_client_id = str(
+        payload.get(
+            "newClientOrderId",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if (
+        final_payload_client_id
+        != client_order_id
+    ):
+
+        raise RuntimeError(
+            "R28 DEMO POST blocked: "
+            "newClientOrderId changed "
+            "before transmission"
+        )
+
+    # --------------------------------------------------------
+    # DEMO POST ONLY
+    # --------------------------------------------------------
+
+    response = (
+        await client.demo_post(
+            DEMO_ORDER_PATH,
+            payload,
+        )
+    )
+
+    classification = (
+        classify_order_response(
+            response
+        )
+    )
+
+    post_accepted = (
+        classification
+        == "ACCEPTED"
+    )
+
+    order_id = (
+        extract_order_id(
+            response
+        )
+    )
+
+    response_client_id = (
+        extract_client_order_id(
+            response
+        )
+    )
+
+    (
+        history_row,
+        history_attempts,
+    ) = (
+        await find_demo_history_row(
+            client,
+            order_id,
+            client_order_id,
+        )
+    )
+
+    if history_row is None:
+
+        raise RuntimeError(
+            "R28 demo order was not found "
+            "in demo history"
+        )
+
+    final_status = (
+        history_status(
+            history_row
+        )
+    )
+
+    original_quantity = (
+        history_original_quantity(
+            history_row
+        )
+    )
+
+    executed_quantity = (
+        history_executed_quantity(
+            history_row
+        )
+    )
+
+    average_fill_price = (
+        history_average_price(
+            history_row
+        )
+    )
+
+    # ========================================================
+    # REPLAY ACTUAL FILL THROUGH ORDER STATE MACHINE
+    # ========================================================
+
+    order_state = (
+        OrderStateMachine()
+    )
+
+    (
+        new_state_accepted,
+        _,
+    ) = order_state.apply(
+        "r28-event-new",
+        "NEW",
+        D0,
+    )
+
+    partial_1_quantity = (
+        floor_to_step(
+            executed_quantity
+            / Decimal(
+                "3"
+            ),
+            Decimal(
+                "0.00000001"
+            ),
+        )
+    )
+
+    (
+        partial_1_accepted,
+        partial_1_delta,
+    ) = order_state.apply(
+        "r28-event-partial-1",
+        "PARTIALLY_FILLED",
+        partial_1_quantity,
+    )
+
+    partial_2_quantity = (
+        floor_to_step(
+            executed_quantity
+            * Decimal(
+                "2"
+            )
+            / Decimal(
+                "3"
+            ),
+            Decimal(
+                "0.00000001"
+            ),
+        )
+    )
+
+    (
+        partial_2_accepted,
+        partial_2_delta,
+    ) = order_state.apply(
+        "r28-event-partial-2",
+        "PARTIALLY_FILLED",
+        partial_2_quantity,
+    )
+
+    (
+        fill_accepted,
+        final_fill_delta,
+    ) = order_state.apply(
+        "r28-event-filled",
+        "FILLED",
+        executed_quantity,
+    )
+
+    (
+        duplicate_event_accepted,
+        _,
+    ) = order_state.apply(
+        "r28-event-filled",
+        "FILLED",
+        executed_quantity,
+    )
+
+    (
+        regression_accepted,
+        _,
+    ) = order_state.apply(
+        "r28-event-regression",
+        "NEW",
+        executed_quantity,
+    )
+
+    actual_fill_delta = (
+        partial_1_delta
+        + partial_2_delta
+        + final_fill_delta
+    )
+
+    # ========================================================
+    # POSITION RECONCILIATION
+    # ========================================================
+
+    after_rows = (
+        await get_demo_positions(
+            client
+        )
+    )
+
+    after_size = (
+        position_size(
+            after_rows,
+            DEMO_SYMBOL,
+            position_side,
+        )
+    )
+
+    opens_position = (
+
+        (
+            side == "BUY"
+            and
+            position_side
+            == "LONG"
+        )
+
+        or
+
+        (
+            side == "SELL"
+            and
+            position_side
+            == "SHORT"
+        )
+    )
+
+    if opens_position:
+
+        expected_position_delta = (
+            executed_quantity
+        )
+
+    else:
+
+        expected_position_delta = (
+            -executed_quantity
+        )
+
+    observed_position_delta = (
+        after_size
+        - before_size
+    )
+
+    position_reconciled = (
+        observed_position_delta
+        ==
+        expected_position_delta
+    )
+
+    response_client_id_match = (
+
+        not response_client_id
+
+        or
+
+        response_client_id
+        == client_order_id
+    )
+
+    fill_lifecycle_valid = all(
+        (
+            post_accepted,
+
+            final_status
+            == "FILLED",
+
+            executed_quantity
+            > 0,
+
+            original_quantity
+            == quantity,
+
+            actual_fill_delta
+            == executed_quantity,
+
+            new_state_accepted,
+
+            partial_1_accepted,
+
+            partial_2_accepted,
+
+            fill_accepted,
+
+            not duplicate_event_accepted,
+
+            not regression_accepted,
+
+            position_reconciled,
+        )
+    )
+
+    return {
+
+        "symbol":
+            DEMO_SYMBOL,
+
+        "fill_mode":
+            DEMO_FILL_MODE,
+
+        "side":
+            side,
+
+        "position_side":
+            position_side,
+
+        "type":
+            "MARKET",
+
+        "client_order_id":
+            client_order_id,
+
+        "client_order_id_valid":
+            client_id_valid(
+                client_order_id
+            ),
+
+        "post_attempted":
+            True,
+
+        "post_accepted":
+            post_accepted,
+
+        "order_id":
+            order_id,
+
+        "response_client_id_match":
+            response_client_id_match,
+
+        "history_lookup_attempted":
+            True,
+
+        "history_poll_attempts":
+            history_attempts,
+
+        "history_found":
+            history_row
+            is not None,
+
+        "final_status":
+            final_status,
+
+        "requested_quantity":
+            quantity,
+
+        "original_quantity":
+            original_quantity,
+
+        "executed_quantity":
+            executed_quantity,
+
+        "average_fill_price":
+            average_fill_price,
+
+        "non_zero_fill":
+            executed_quantity
+            > 0,
+
+        "actual_fill_delta":
+            actual_fill_delta,
+
+        "new_state_accepted":
+            new_state_accepted,
+
+        "partial_fill_1_delta":
+            partial_1_accepted
+            and
+            partial_1_delta
+            >= 0,
+
+        "partial_fill_2_delta":
+            partial_2_accepted
+            and
+            partial_2_delta
+            >= 0,
+
+        "filled_terminal_state":
+            fill_accepted
+            and
+            order_state.state
+            == "FILLED",
+
+        "duplicate_fill_event_blocked":
+            not duplicate_event_accepted,
+
+        "terminal_regression_blocked":
+            not regression_accepted,
+
+        "position_size_before":
+            before_size,
+
+        "position_size_after":
+            after_size,
+
+        "expected_position_delta":
+            expected_position_delta,
+
+        "observed_position_delta":
+            observed_position_delta,
+
+        "position_reconciled":
+            position_reconciled,
+
+        "fill_lifecycle_valid":
+            fill_lifecycle_valid,
+    }
+# ============================================================
 # FINAL SIGNAL-GATE SELF TESTS
 # ============================================================
 
