@@ -6637,7 +6637,7 @@ async def main_async(
         total=30
     )
 
-    async with aiohttp.ClientSession(
+async with aiohttp.ClientSession(
         timeout=timeout
     ) as session:
 
