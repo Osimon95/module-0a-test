@@ -2744,6 +2744,135 @@ async def obtain_contract_info(
 # MARKET / ACCOUNT DATA
 # ============================================================
 
+async def get_mark_price(
+    client: WeexClient,
+    symbol: str,
+) -> Decimal:
+
+    errors: List[str] = []
+
+    # ========================================================
+    # R28 PRIMARY MARK PRICE SOURCE
+    # Official WEEX V3 endpoint:
+    # GET /capi/v3/market/symbolPrice
+    # priceType=MARK
+    # ========================================================
+
+    try:
+
+        data = await client.get(
+            "/capi/v3/market/symbolPrice",
+            params={
+                "symbol": symbol,
+                "priceType": "MARK",
+            },
+            private=False,
+        )
+
+        if isinstance(data, dict):
+
+            price = safe_decimal(
+                data.get("price")
+            )
+
+            if (
+                price is not None
+                and price > 0
+            ):
+
+                return price
+
+        errors.append(
+            "/capi/v3/market/symbolPrice: "
+            "valid positive mark price not found"
+        )
+
+    except Exception as exc:
+
+        errors.append(
+            "/capi/v3/market/symbolPrice: "
+            f"{exc}"
+        )
+
+    # ========================================================
+    # R28 FALLBACK
+    # Official WEEX V3 premium index endpoint.
+    # Response contains markPrice.
+    # ========================================================
+
+    try:
+
+        data = await client.get(
+            "/capi/v3/market/premiumIndex",
+            params={
+                "symbol": symbol,
+            },
+            private=False,
+        )
+
+        rows: List[Any]
+
+        if isinstance(data, list):
+
+            rows = data
+
+        elif isinstance(data, dict):
+
+            rows = [data]
+
+        else:
+
+            rows = []
+
+        for row in rows:
+
+            if not isinstance(row, dict):
+                continue
+
+            row_symbol = str(
+                row.get(
+                    "symbol",
+                    "",
+                )
+            ).strip().upper()
+
+            if (
+                row_symbol
+                and row_symbol != symbol.upper()
+            ):
+                continue
+
+            price = safe_decimal(
+                row.get("markPrice")
+            )
+
+            if (
+                price is not None
+                and price > 0
+            ):
+
+                return price
+
+        errors.append(
+            "/capi/v3/market/premiumIndex: "
+            "valid positive markPrice not found"
+        )
+
+    except Exception as exc:
+
+        errors.append(
+            "/capi/v3/market/premiumIndex: "
+            f"{exc}"
+        )
+
+    # ========================================================
+    # FAIL CLOSED
+    # ========================================================
+
+    raise RuntimeError(
+        f"Unable to obtain mark price for {symbol}. "
+        + " | ".join(errors)
+    )
 async def obtain_mark_price(
     client: WeexClient,
     symbol: str,
@@ -2796,52 +2925,6 @@ async def obtain_mark_price(
         )
     )
 
-
-async def obtain_available_balance(
-    client: WeexClient,
-) -> Decimal:
-
-    errors: List[str] = []
-
-    attempts = [
-        (
-            "/capi/v3/account/assets",
-            {},
-        ),
-        (
-            "/capi/v3/account",
-            {},
-        ),
-    ]
-
-    for path, params in attempts:
-
-        try:
-
-            payload = await client.private_get(
-                path,
-                params,
-            )
-
-            balance = extract_available_balance(
-                payload
-            )
-
-            if balance >= 0:
-                return balance
-
-        except Exception as exc:
-
-            errors.append(
-                f"{path}: {exc}"
-            )
-
-    raise RuntimeError(
-        "Unable to obtain available USDT. "
-        + " | ".join(
-            errors
-        )
-    )
 
 
 # ============================================================
