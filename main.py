@@ -255,169 +255,8 @@ async def obtain_mark_price(
     errors: List[str] = []
 
     # ========================================================
-    # PRIMARY — WEEX V3 SYMBOL PRICE / MARK PRICE
-    # ========================================================
-
-    try:
-
-        url = (
-            f"{API_BASE_URL}"
-            f"/capi/v3/market/symbolPrice"
-        )
-
-        params = {
-            "symbol": symbol,
-            "priceType": "MARK",
-        }
-
-        async with session.get(
-            url,
-            params=params,
-            timeout=aiohttp.ClientTimeout(
-                total=15
-            ),
-        ) as response:
-
-            text = await response.text()
-
-            if response.status != 200:
-
-                raise RuntimeError(
-                    f"WEEX GET "
-                    f"/capi/v3/market/symbolPrice "
-                    f"HTTP {response.status}: "
-                    f"{text}"
-                )
-
-            data = json.loads(text)
-
-            candidates = []
-
-            if isinstance(data, dict):
-
-                candidates.extend(
-                    [
-                        data.get("price"),
-                        data.get("markPrice"),
-                    ]
-                )
-
-                inner = data.get("data")
-
-                if isinstance(inner, dict):
-
-                    candidates.extend(
-                        [
-                            inner.get("price"),
-                            inner.get("markPrice"),
-                        ]
-                    )
-
-                elif isinstance(inner, list):
-
-                    for item in inner:
-
-                        if isinstance(
-                            item,
-                            dict,
-                        ):
-
-                            if (
-                                str(
-                                    item.get(
-                                        "symbol",
-                                        ""
-                                    )
-                                ).upper()
-                                == symbol
-                            ):
-
-                                candidates.extend(
-                                    [
-                                        item.get(
-                                            "price"
-                                        ),
-                                        item.get(
-                                            "markPrice"
-                                        ),
-                                    ]
-                                )
-
-            elif isinstance(
-                data,
-                list,
-            ):
-
-                for item in data:
-
-                    if not isinstance(
-                        item,
-                        dict,
-                    ):
-                        continue
-
-                    item_symbol = str(
-                        item.get(
-                            "symbol",
-                            ""
-                        )
-                    ).upper()
-
-                    if (
-                        not item_symbol
-                        or item_symbol == symbol
-                    ):
-
-                        candidates.extend(
-                            [
-                                item.get(
-                                    "price"
-                                ),
-                                item.get(
-                                    "markPrice"
-                                ),
-                            ]
-                        )
-
-            for value in candidates:
-
-                if value is None:
-                    continue
-
-                try:
-
-                    price = Decimal(
-                        str(
-                            value
-                        )
-                    )
-
-                except (
-                    InvalidOperation,
-                    ValueError,
-                    TypeError,
-                ):
-                    continue
-
-                if price > 0:
-
-                    return price
-
-            raise RuntimeError(
-                "No valid mark price "
-                "found in response: "
-                f"{text}"
-            )
-
-    except Exception as exc:
-
-        errors.append(
-            "/capi/v3/market/symbolPrice: "
-            f"{exc}"
-        )
-
-    # ========================================================
-    # FALLBACK — MARK PRICE KLINES
+    # R28 PRIMARY MARK PRICE
+    # Official WEEX V3 mark-price klines endpoint
     # ========================================================
 
     try:
@@ -452,65 +291,43 @@ async def obtain_mark_price(
                     f"{text}"
                 )
 
-            data = json.loads(text)
-
-            klines = data
-
-            if isinstance(
-                data,
-                dict,
-            ):
-
-                klines = data.get(
-                    "data",
-                    data.get(
-                        "result"
-                    )
-                )
+            data = json.loads(
+                text
+            )
 
             if (
-                isinstance(
-                    klines,
-                    list,
-                )
-                and klines
+                isinstance(data, list)
+                and len(data) > 0
+                and isinstance(data[-1], list)
+                and len(data[-1]) >= 5
             ):
 
-                candle = klines[-1]
-
-                if (
-                    isinstance(
-                        candle,
-                        list,
+                price = Decimal(
+                    str(
+                        data[-1][4]
                     )
-                    and len(candle) >= 5
-                ):
+                )
 
-                    price = Decimal(
-                        str(
-                            candle[4]
-                        )
-                    )
+                if price > 0:
 
-                    if price > 0:
-
-                        return price
+                    return price
 
             raise RuntimeError(
-                "No valid mark-price "
-                "kline returned: "
-                f"{text}"
+                "Mark-price kline response "
+                "did not contain a valid "
+                "close price"
             )
 
     except Exception as exc:
 
         errors.append(
             "/capi/v3/market/markPriceKlines: "
-            f"{exc}"
+            + str(exc)
         )
 
     # ========================================================
-    # FALLBACK — HISTORY KLINES USING MARK PRICE
+    # R28 FALLBACK
+    # Historical klines using MARK price type
     # ========================================================
 
     try:
@@ -546,61 +363,38 @@ async def obtain_mark_price(
                     f"{text}"
                 )
 
-            data = json.loads(text)
-
-            klines = data
-
-            if isinstance(
-                data,
-                dict,
-            ):
-
-                klines = data.get(
-                    "data",
-                    data.get(
-                        "result"
-                    )
-                )
+            data = json.loads(
+                text
+            )
 
             if (
-                isinstance(
-                    klines,
-                    list,
-                )
-                and klines
+                isinstance(data, list)
+                and len(data) > 0
+                and isinstance(data[-1], list)
+                and len(data[-1]) >= 5
             ):
 
-                candle = klines[-1]
-
-                if (
-                    isinstance(
-                        candle,
-                        list,
+                price = Decimal(
+                    str(
+                        data[-1][4]
                     )
-                    and len(candle) >= 5
-                ):
+                )
 
-                    price = Decimal(
-                        str(
-                            candle[4]
-                        )
-                    )
+                if price > 0:
 
-                    if price > 0:
-
-                        return price
+                    return price
 
             raise RuntimeError(
-                "No valid MARK history "
-                "kline returned: "
-                f"{text}"
+                "MARK history response "
+                "did not contain a valid "
+                "close price"
             )
 
     except Exception as exc:
 
         errors.append(
             "/capi/v3/market/historyKlines: "
-            f"{exc}"
+            + str(exc)
         )
 
     # ========================================================
@@ -614,7 +408,7 @@ async def obtain_mark_price(
             errors
         )
     )
-     
+         
 def dec(
     value: Any,
     default: str = "0",
