@@ -2377,3 +2377,1472 @@ def classify_order_response(
         return "REJECTED"
 
     return "AMBIGUOUS"
+# ============================================================
+# EXECUTION INTENT
+# ============================================================
+
+def build_intent(
+    signal: Signal,
+    quantity: Decimal,
+) -> ExecutionIntent:
+
+    direction = (
+        signal.direction
+        .strip()
+        .upper()
+    )
+
+    if direction == "LONG":
+
+        side = "BUY"
+        position_side = "LONG"
+
+    elif direction == "SHORT":
+
+        side = "SELL"
+        position_side = "SHORT"
+
+    else:
+
+        raise RuntimeError(
+            f"Unsupported signal direction: "
+            f"{signal.direction}"
+        )
+
+    material = (
+        f"{signal.signal_id}|"
+        f"{signal.symbol}|"
+        f"{direction}|"
+        f"{fmt_decimal(quantity)}|"
+        f"{signal.created_ms}"
+    )
+
+    intent_id = deterministic_client_id(
+        "r28i",
+        material,
+    )
+
+    client_order_id = deterministic_client_id(
+        "r28",
+        material,
+    )
+
+    created_ms = int(
+        time.time()
+        * 1000
+    )
+
+    return ExecutionIntent(
+        intent_id=intent_id,
+        signal_id=signal.signal_id,
+        symbol=signal.symbol,
+        direction=direction,
+        side=side,
+        position_side=position_side,
+        quantity=fmt_decimal(
+            quantity
+        ),
+        created_ms=created_ms,
+        expires_ms=(
+            created_ms
+            + SIGNAL_EXPIRY_SECONDS
+            * 1000
+        ),
+        client_order_id=client_order_id,
+        state="NEW",
+    )
+
+
+def run_intent_gate_tests(
+    quantity: Decimal,
+) -> Dict[
+    str,
+    bool,
+]:
+
+    now_ms = int(
+        time.time()
+        * 1000
+    )
+
+    signal = Signal(
+        symbol=SYMBOL,
+        direction="LONG",
+        created_ms=now_ms,
+        signal_id="r28-intent-test",
+    )
+
+    intent = build_intent(
+        signal,
+        quantity,
+    )
+
+    registry: Set[
+        str
+    ] = set()
+
+    created = (
+        intent.intent_id
+        not in registry
+    )
+
+    registry.add(
+        intent.intent_id
+    )
+
+    duplicate_blocked = (
+        intent.intent_id
+        in registry
+    )
+
+    t1 = transition_intent(
+        intent,
+        "PREFLIGHT",
+    )
+
+    t2 = transition_intent(
+        intent,
+        "READY",
+    )
+
+    expired_signal = Signal(
+        symbol=SYMBOL,
+        direction="LONG",
+        created_ms=(
+            now_ms
+            - (
+                SIGNAL_EXPIRY_SECONDS
+                + 1
+            )
+            * 1000
+        ),
+        signal_id="r28-expired-intent",
+    )
+
+    expired_rejected = (
+        not signal_is_fresh(
+            expired_signal,
+            now_ms,
+        )
+    )
+
+    terminal = ExecutionIntent(
+        intent_id="terminal",
+        signal_id="terminal-signal",
+        symbol=SYMBOL,
+        direction="LONG",
+        side="BUY",
+        position_side="LONG",
+        quantity=fmt_decimal(
+            quantity
+        ),
+        created_ms=now_ms,
+        expires_ms=(
+            now_ms
+            + SIGNAL_EXPIRY_SECONDS
+            * 1000
+        ),
+        client_order_id="r28-terminal",
+        state="RECONCILED",
+    )
+
+    regression_blocked = (
+        not transition_intent(
+            terminal,
+            "READY",
+        )
+    )
+
+    return {
+        "intent_created": created,
+        "duplicate_intent_blocked": (
+            duplicate_blocked
+        ),
+        "new_to_preflight": t1,
+        "preflight_to_ready": t2,
+        "expired_intent_rejected": (
+            expired_rejected
+        ),
+        "terminal_intent_regression_blocked": (
+            regression_blocked
+        ),
+    }
+
+
+# ============================================================
+# PREFLIGHT
+# ============================================================
+
+def preflight_checks(
+    signal: Signal,
+    intent: ExecutionIntent,
+    balance: Decimal,
+    mark_price: Decimal,
+    contract: ContractInfo,
+) -> Dict[
+    str,
+    bool,
+]:
+
+    quantity = dec(
+        intent.quantity
+    )
+
+    initial, pyramids, backups, total = (
+        exposure_percent()
+    )
+
+    return {
+        "credentials_ready": True,
+        "signal_fresh": (
+            signal_is_fresh(
+                signal
+            )
+        ),
+        "symbol_match": (
+            intent.symbol
+            == SYMBOL
+        ),
+        "quantity_positive": (
+            quantity > 0
+        ),
+        "minimum_quantity_passed": (
+            quantity_gate(
+                quantity,
+                contract,
+            )
+        ),
+        "balance_positive": (
+            balance > 0
+        ),
+        "mark_price_positive": (
+            mark_price > 0
+        ),
+        "leverage_gate": (
+            leverage_gate(
+                contract
+            )
+        ),
+        "margin_type_isolated": (
+            MARGIN_TYPE
+            == "ISOLATED"
+        ),
+        "exposure_within_limit": (
+            total
+            <= MAX_FUND_EXPOSURE_PERCENT
+        ),
+        "client_order_id_valid": (
+            client_id_valid(
+                intent.client_order_id
+            )
+        ),
+        "intent_state_new": (
+            intent.state
+            == "NEW"
+        ),
+    }
+
+
+# ============================================================
+# LIVE SHADOW PAYLOAD
+# ============================================================
+
+def build_live_payload(
+    intent: ExecutionIntent,
+    mark_price: Decimal,
+    contract: ContractInfo,
+) -> Dict[
+    str,
+    Any,
+]:
+
+    quantity = quantize_down(
+        dec(
+            intent.quantity
+        ),
+        contract.qty_step,
+    )
+
+    if quantity <= 0:
+
+        raise RuntimeError(
+            "Live shadow payload quantity "
+            "must be positive"
+        )
+
+    if not client_id_valid(
+        intent.client_order_id
+    ):
+
+        raise RuntimeError(
+            "Invalid client order ID"
+        )
+
+    payload = {
+        "symbol": intent.symbol,
+        "side": intent.side,
+        "positionSide": (
+            intent.position_side
+        ),
+        "orderType": "MARKET",
+        "quantity": fmt_decimal(
+            quantity
+        ),
+        "clientOrderId": (
+            intent.client_order_id
+        ),
+    }
+
+    return payload
+
+
+def payload_required_fields_present(
+    payload: Dict[
+        str,
+        Any,
+    ],
+) -> bool:
+
+    required = (
+        "symbol",
+        "side",
+        "positionSide",
+        "orderType",
+        "quantity",
+        "clientOrderId",
+    )
+
+    for key in required:
+
+        if key not in payload:
+
+            return False
+
+        if payload.get(
+            key
+        ) in (
+            None,
+            "",
+        ):
+
+            return False
+
+    try:
+
+        quantity = Decimal(
+            str(
+                payload.get(
+                    "quantity"
+                )
+            )
+        )
+
+    except (
+        InvalidOperation,
+        TypeError,
+        ValueError,
+    ):
+
+        return False
+
+    return (
+        quantity > 0
+        and client_id_valid(
+            str(
+                payload.get(
+                    "clientOrderId"
+                )
+            )
+        )
+    )
+
+
+# ============================================================
+# SHADOW COMMIT
+# ============================================================
+
+@dataclass
+class ShadowCommit:
+    intent_id: str
+    client_order_id: str
+    symbol: str
+    side: str
+    position_side: str
+    quantity: str
+    payload_hash: str
+    created_ms: int
+
+
+def build_shadow_commit(
+    client: WeexClient,
+    intent: ExecutionIntent,
+    payload: Dict[
+        str,
+        Any,
+    ],
+) -> ShadowCommit:
+
+    raw_payload = json.dumps(
+        payload,
+        separators=(
+            ",",
+            ":",
+        ),
+        sort_keys=True,
+    )
+
+    payload_hash = hashlib.sha256(
+        raw_payload.encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+    return ShadowCommit(
+        intent_id=intent.intent_id,
+        client_order_id=(
+            intent.client_order_id
+        ),
+        symbol=intent.symbol,
+        side=intent.side,
+        position_side=(
+            intent.position_side
+        ),
+        quantity=intent.quantity,
+        payload_hash=payload_hash,
+        created_ms=int(
+            time.time()
+            * 1000
+        ),
+    )
+
+
+def shadow_commit_valid(
+    commit: ShadowCommit,
+    intent: ExecutionIntent,
+) -> Dict[
+    str,
+    bool,
+]:
+
+    checks = {
+        "intent_id_match": (
+            commit.intent_id
+            == intent.intent_id
+        ),
+        "client_id_match": (
+            commit.client_order_id
+            == intent.client_order_id
+        ),
+        "symbol_match": (
+            commit.symbol
+            == intent.symbol
+        ),
+        "side_match": (
+            commit.side
+            == intent.side
+        ),
+        "position_side_match": (
+            commit.position_side
+            == intent.position_side
+        ),
+        "quantity_match": (
+            commit.quantity
+            == intent.quantity
+        ),
+        "payload_hash_present": (
+            len(
+                commit.payload_hash
+            )
+            == 64
+        ),
+    }
+
+    checks["overall"] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+# ============================================================
+# DEMO HELPERS
+# ============================================================
+
+def extract_order_id(
+    data: Any,
+) -> str:
+
+    for row in walk_dicts(
+        data
+    ):
+
+        for key in (
+            "orderId",
+            "order_id",
+            "id",
+        ):
+
+            value = row.get(
+                key
+            )
+
+            if value not in (
+                None,
+                "",
+            ):
+
+                return str(
+                    value
+                )
+
+    return ""
+
+
+def extract_order_status(
+    data: Any,
+) -> str:
+
+    for row in walk_dicts(
+        data
+    ):
+
+        for key in (
+            "status",
+            "orderStatus",
+            "state",
+        ):
+
+            value = row.get(
+                key
+            )
+
+            if value not in (
+                None,
+                "",
+            ):
+
+                return str(
+                    value
+                ).strip().upper()
+
+    return "UNKNOWN"
+
+
+def extract_original_qty(
+    data: Any,
+) -> Decimal:
+
+    value = (
+        extract_positive_decimal_by_keys(
+            data,
+            (
+                "origQty",
+                "originalQty",
+                "quantity",
+                "qty",
+                "size",
+            ),
+        )
+    )
+
+    return (
+        value
+        if value is not None
+        else Decimal("0")
+    )
+
+
+def extract_executed_qty(
+    data: Any,
+) -> Decimal:
+
+    value = (
+        extract_decimal_by_keys(
+            data,
+            (
+                "executedQty",
+                "filledQty",
+                "filledQuantity",
+                "dealSize",
+                "filledSize",
+                "cumQty",
+            ),
+        )
+    )
+
+    if value is None:
+
+        return Decimal(
+            "0"
+        )
+
+    return max(
+        Decimal("0"),
+        value,
+    )
+
+
+def extract_average_fill_price(
+    data: Any,
+) -> Decimal:
+
+    value = (
+        extract_positive_decimal_by_keys(
+            data,
+            (
+                "avgPrice",
+                "averagePrice",
+                "fillPrice",
+                "dealPrice",
+            ),
+        )
+    )
+
+    return (
+        value
+        if value is not None
+        else Decimal("0")
+    )
+
+
+def extract_position_size(
+    data: Any,
+    symbol: str,
+    position_side: str,
+) -> Decimal:
+
+    symbol = (
+        symbol
+        .strip()
+        .upper()
+    )
+
+    position_side = (
+        position_side
+        .strip()
+        .upper()
+    )
+
+    total = Decimal(
+        "0"
+    )
+
+    for row in walk_dicts(
+        data
+    ):
+
+        row_symbol = str(
+            row.get(
+                "symbol",
+                row.get(
+                    "s",
+                    "",
+                ),
+            )
+        ).strip().upper()
+
+        if (
+            row_symbol
+            and row_symbol
+            != symbol
+        ):
+
+            continue
+
+        row_position_side = str(
+            row.get(
+                "positionSide",
+                row.get(
+                    "holdSide",
+                    row.get(
+                        "side",
+                        "",
+                    ),
+                ),
+            )
+        ).strip().upper()
+
+        if (
+            row_position_side
+            and position_side
+            not in row_position_side
+        ):
+
+            continue
+
+        size = (
+            extract_decimal_by_keys(
+                row,
+                (
+                    "positionAmt",
+                    "positionSize",
+                    "size",
+                    "quantity",
+                    "qty",
+                    "available",
+                    "total",
+                ),
+            )
+        )
+
+        if size is not None:
+
+            total += abs(
+                size
+            )
+
+    return total
+
+
+async def get_demo_positions(
+    client: WeexClient,
+) -> Any:
+
+    errors: List[
+        str
+    ] = []
+
+    endpoints = [
+        "/capi/v3/sim/position",
+        "/capi/v3/sim/positions",
+    ]
+
+    for path in endpoints:
+
+        try:
+
+            return await client.private_get(
+                path,
+                {
+                    "symbol": DEMO_SYMBOL,
+                },
+            )
+
+        except Exception as exc:
+
+            errors.append(
+                f"{path}: {exc}"
+            )
+
+    raise RuntimeError(
+        "Unable to read demo positions. "
+        + " | ".join(
+            errors
+        )
+    )
+
+
+async def get_demo_history(
+    client: WeexClient,
+) -> Any:
+
+    errors: List[
+        str
+    ] = []
+
+    endpoints = [
+        "/capi/v3/sim/order/history",
+        "/capi/v3/sim/orders",
+        "/capi/v3/sim/order/current",
+    ]
+
+    for path in endpoints:
+
+        try:
+
+            return await client.private_get(
+                path,
+                {
+                    "symbol": DEMO_SYMBOL,
+                },
+            )
+
+        except Exception as exc:
+
+            errors.append(
+                f"{path}: {exc}"
+            )
+
+    raise RuntimeError(
+        "Unable to read demo order history. "
+        + " | ".join(
+            errors
+        )
+    )
+
+
+def find_matching_order(
+    data: Any,
+    order_id: str,
+    client_order_id: str,
+) -> Optional[
+    Dict[
+        str,
+        Any,
+    ]
+]:
+
+    for row in walk_dicts(
+        data
+    ):
+
+        row_order_id = str(
+            row.get(
+                "orderId",
+                row.get(
+                    "order_id",
+                    row.get(
+                        "id",
+                        "",
+                    ),
+                ),
+            )
+        )
+
+        row_client_id = str(
+            row.get(
+                "clientOrderId",
+                row.get(
+                    "clientOid",
+                    row.get(
+                        "client_id",
+                        "",
+                    ),
+                ),
+            )
+        )
+
+        if (
+            order_id
+            and row_order_id
+            == order_id
+        ):
+
+            return row
+
+        if (
+            client_order_id
+            and row_client_id
+            == client_order_id
+        ):
+
+            return row
+
+    return None
+
+
+# ============================================================
+# DEMO ORDER LIFECYCLE
+# ============================================================
+
+async def run_demo_lifecycle(
+    client: WeexClient,
+    quantity: Decimal,
+) -> DemoLifecycleResult:
+
+    global R28_DEMO_POST_ATTEMPTED
+    global R28_DEMO_POST_ACCEPTED
+
+    requested_qty = quantity
+
+    client_order_id = (
+        deterministic_client_id(
+            "r28demo",
+            (
+                f"{DEMO_SYMBOL}|"
+                f"{fmt_decimal(quantity)}|"
+                f"{int(time.time() * 1000)}"
+            ),
+        )
+    )
+
+    position_before_data = (
+        await get_demo_positions(
+            client
+        )
+    )
+
+    position_before = (
+        extract_position_size(
+            position_before_data,
+            DEMO_SYMBOL,
+            "LONG",
+        )
+    )
+
+    payload = {
+        "symbol": DEMO_SYMBOL,
+        "side": "BUY",
+        "positionSide": "LONG",
+        "orderType": "MARKET",
+        "quantity": (
+            fmt_decimal(
+                quantity
+            )
+        ),
+        "clientOrderId": (
+            client_order_id
+        ),
+    }
+
+    response = await client.demo_post(
+        "/capi/v3/sim/order",
+        payload,
+    )
+
+    classification = (
+        classify_order_response(
+            response
+        )
+    )
+
+    if classification != "ACCEPTED":
+
+        raise RuntimeError(
+            "R28 demo order was not "
+            f"accepted: {response}"
+        )
+
+    order_id = extract_order_id(
+        response
+    )
+
+    if not order_id:
+
+        raise RuntimeError(
+            "R28 demo response did not "
+            "contain an order ID"
+        )
+
+    history_lookup_attempted = False
+    history_poll_attempts = 0
+    history_found = False
+    final_status = "UNKNOWN"
+    original_qty = Decimal(
+        "0"
+    )
+    executed_qty = Decimal(
+        "0"
+    )
+    average_fill_price = Decimal(
+        "0"
+    )
+
+    matched_row: Optional[
+        Dict[
+            str,
+            Any,
+        ]
+    ] = None
+
+    for attempt in range(
+        1,
+        DEMO_HISTORY_POLLS
+        + 1,
+    ):
+
+        history_lookup_attempted = True
+        history_poll_attempts = attempt
+
+        history = await get_demo_history(
+            client
+        )
+
+        matched_row = find_matching_order(
+            history,
+            order_id,
+            client_order_id,
+        )
+
+        if matched_row is None:
+
+            await asyncio.sleep(
+                DEMO_HISTORY_POLL_SECONDS
+            )
+
+            continue
+
+        history_found = True
+
+        final_status = (
+            extract_order_status(
+                matched_row
+            )
+        )
+
+        original_qty = (
+            extract_original_qty(
+                matched_row
+            )
+        )
+
+        executed_qty = (
+            extract_executed_qty(
+                matched_row
+            )
+        )
+
+        average_fill_price = (
+            extract_average_fill_price(
+                matched_row
+            )
+        )
+
+        if (
+            final_status
+            in ORDER_TERMINAL
+            or executed_qty > 0
+        ):
+
+            break
+
+        await asyncio.sleep(
+            DEMO_HISTORY_POLL_SECONDS
+        )
+
+    if matched_row is None:
+
+        raise RuntimeError(
+            "R28 demo order was not found "
+            "in history"
+        )
+
+    if original_qty <= 0:
+
+        original_qty = requested_qty
+
+    non_zero_fill = (
+        executed_qty > 0
+    )
+
+    state_machine = (
+        OrderStateMachine()
+    )
+
+    first_event_id = (
+        f"{order_id}:"
+        f"{final_status}:"
+        f"{fmt_decimal(executed_qty)}"
+    )
+
+    accepted_event, fill_delta = (
+        state_machine.apply(
+            final_status,
+            executed_qty,
+            first_event_id,
+        )
+    )
+
+    duplicate_event, duplicate_delta = (
+        state_machine.apply(
+            final_status,
+            executed_qty,
+            first_event_id,
+        )
+    )
+
+    duplicate_fill_event_blocked = (
+        accepted_event
+        and not duplicate_event
+        and duplicate_delta
+        == Decimal("0")
+    )
+
+    position_after_data = (
+        await get_demo_positions(
+            client
+        )
+    )
+
+    position_after = (
+        extract_position_size(
+            position_after_data,
+            DEMO_SYMBOL,
+            "LONG",
+        )
+    )
+
+    expected_position_delta = (
+        executed_qty
+    )
+
+    observed_position_delta = max(
+        Decimal("0"),
+        position_after
+        - position_before,
+    )
+
+    tolerance = max(
+        Decimal("0.00000001"),
+        requested_qty
+        / Decimal("100"),
+    )
+
+    position_reconciled = (
+        abs(
+            observed_position_delta
+            - expected_position_delta
+        )
+        <= tolerance
+    )
+
+    lifecycle_valid = all(
+        [
+            R28_DEMO_POST_ATTEMPTED,
+            R28_DEMO_POST_ACCEPTED,
+            bool(order_id),
+            history_lookup_attempted,
+            history_found,
+            non_zero_fill,
+            executed_qty <= (
+                original_qty
+                + tolerance
+            ),
+            duplicate_fill_event_blocked,
+            position_reconciled,
+        ]
+    )
+
+    return DemoLifecycleResult(
+        demo_symbol=DEMO_SYMBOL,
+        side="BUY",
+        position_side="LONG",
+        order_type="MARKET",
+        client_order_id=client_order_id,
+        post_attempted=(
+            R28_DEMO_POST_ATTEMPTED
+        ),
+        post_accepted=(
+            R28_DEMO_POST_ACCEPTED
+        ),
+        order_id=order_id,
+        history_lookup_attempted=(
+            history_lookup_attempted
+        ),
+        history_poll_attempts=(
+            history_poll_attempts
+        ),
+        history_found=history_found,
+        final_status=final_status,
+        requested_qty=(
+            requested_qty
+        ),
+        original_qty=original_qty,
+        executed_qty=executed_qty,
+        average_fill_price=(
+            average_fill_price
+        ),
+        non_zero_fill=non_zero_fill,
+        fill_delta=fill_delta,
+        duplicate_fill_event_blocked=(
+            duplicate_fill_event_blocked
+        ),
+        position_before=position_before,
+        position_after=position_after,
+        expected_position_delta=(
+            expected_position_delta
+        ),
+        observed_position_delta=(
+            observed_position_delta
+        ),
+        position_reconciled=(
+            position_reconciled
+        ),
+        lifecycle_valid=(
+            lifecycle_valid
+        ),
+    )
+
+
+# ============================================================
+# RESTART / IDEMPOTENCY VALIDATION
+# ============================================================
+
+def run_restart_recovery_test(
+    quantity: Decimal,
+) -> Dict[
+    str,
+    bool,
+]:
+
+    journal = IntentJournal(
+        STATE_PATH
+    )
+
+    journal.clear()
+
+    now_ms = int(
+        time.time()
+        * 1000
+    )
+
+    signal = Signal(
+        symbol=SYMBOL,
+        direction="LONG",
+        created_ms=now_ms,
+        signal_id="r28-recovery-test",
+    )
+
+    intent = build_intent(
+        signal,
+        quantity,
+    )
+
+    written = False
+    reloaded = False
+    terminal_state_preserved = False
+    client_id_preserved = False
+    integrity = False
+    retransmission_blocked = False
+    cleanup = False
+
+    try:
+
+        written = (
+            intent.state
+            == "NEW"
+        )
+
+        journal.save(
+            intent
+        )
+
+        loaded = journal.load()
+
+        if loaded is None:
+
+            raise RuntimeError(
+                "R28 recovery journal "
+                "did not reload"
+            )
+
+        reloaded = True
+
+        client_id_preserved = (
+            loaded.client_order_id
+            == intent.client_order_id
+        )
+
+        integrity = (
+            loaded.intent_id
+            == intent.intent_id
+            and loaded.signal_id
+            == intent.signal_id
+            and loaded.symbol
+            == intent.symbol
+            and loaded.quantity
+            == intent.quantity
+        )
+
+        loaded.state = (
+            "RECONCILED"
+        )
+
+        journal.save(
+            loaded
+        )
+
+        terminal = journal.load()
+
+        if terminal is None:
+
+            raise RuntimeError(
+                "R28 terminal recovery "
+                "journal reload failed"
+            )
+
+        terminal_state_preserved = (
+            terminal.state
+            == "RECONCILED"
+        )
+
+        decision = recovery_decision(
+            terminal,
+            int(
+                time.time()
+                * 1000
+            ),
+        )
+
+        retransmission_blocked = (
+            decision
+            == "DO_NOT_TRANSMIT"
+        )
+
+    finally:
+
+        journal.clear()
+
+        cleanup = (
+            not STATE_PATH.exists()
+        )
+
+    overall = all(
+        [
+            written,
+            reloaded,
+            terminal_state_preserved,
+            client_id_preserved,
+            integrity,
+            retransmission_blocked,
+            cleanup,
+        ]
+    )
+
+    return {
+        "journal_written": written,
+        "journal_reloaded": reloaded,
+        "terminal_state_preserved": (
+            terminal_state_preserved
+        ),
+        "client_id_preserved": (
+            client_id_preserved
+        ),
+        "integrity": integrity,
+        "retransmission_blocked": (
+            retransmission_blocked
+        ),
+        "cleanup": cleanup,
+        "overall": overall,
+    }
+
+
+# ============================================================
+# FINAL SAFETY ASSERTIONS
+# ============================================================
+
+def final_safety_assertions_r28(
+) -> None:
+
+    if LIVE_ORDER_EXECUTION:
+
+        raise RuntimeError(
+            "R28 must run with "
+            "LIVE_ORDER_EXECUTION=False"
+        )
+
+    if not HARD_REAL_POST_LOCK:
+
+        raise RuntimeError(
+            "R28 requires "
+            "HARD_REAL_POST_LOCK=True"
+        )
+
+    if R28_REAL_POST_CALLED:
+
+        raise RuntimeError(
+            "R28 detected an attempted "
+            "real POST transmission"
+        )
+
+    if ENTRY_PERCENT <= 0:
+
+        raise RuntimeError(
+            "ENTRY_PERCENT must be positive"
+        )
+
+    if (
+        ENTRY_PERCENT
+        > MAX_FUND_EXPOSURE_PERCENT
+    ):
+
+        raise RuntimeError(
+            "ENTRY_PERCENT exceeds "
+            "MAX_FUND_EXPOSURE_PERCENT"
+        )
+
+    if LEVERAGE <= 0:
+
+        raise RuntimeError(
+            "LEVERAGE must be positive"
+        )
+
+    if (
+        LEVERAGE
+        > MAX_CONFIG_LEVERAGE
+    ):
+
+        raise RuntimeError(
+            "Configured leverage exceeds "
+            "local maximum"
+        )
+
+    if (
+        TP1_PERCENT
+        + TP2_PERCENT
+        + TP3_PERCENT
+        != D100
+    ):
+
+        raise RuntimeError(
+            "TP allocation must equal 100%"
+        )
+
+    if MARGIN_TYPE != "ISOLATED":
+
+        raise RuntimeError(
+            "R28 requires ISOLATED "
+            "margin configuration"
+        )
+
+
+# ============================================================
+# TELEGRAM
+# ============================================================
+
+async def send_telegram(
+    text: str,
+) -> None:
+
+    if (
+        not TELEGRAM_BOT_TOKEN
+        or not TELEGRAM_CHAT_ID
+    ):
+
+        print(
+            "TELEGRAM SKIPPED: "
+            "TELEGRAM_BOT_TOKEN or "
+            "TELEGRAM_CHAT_ID missing",
+            flush=True,
+        )
+
+        return
+
+    url = (
+        "https://api.telegram.org/bot"
+        f"{TELEGRAM_BOT_TOKEN}"
+        "/sendMessage"
+    )
+
+    payload = {
+        "chat_id": (
+            TELEGRAM_CHAT_ID
+        ),
+        "text": text,
+        "disable_web_page_preview": True,
+    }
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+
+        async with session.post(
+            url,
+            json=payload,
+        ) as response:
+
+            body = (
+                await response.text()
+            )
+
+            if response.status >= 400:
+
+                raise RuntimeError(
+                    f"Telegram HTTP "
+                    f"{response.status}: "
+                    f"{body}"
+                )
