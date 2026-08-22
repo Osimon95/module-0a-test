@@ -242,7 +242,7 @@ TELEGRAM_CHAT_ID = os.getenv(
 # ============================================================
 
 # ============================================================
-# R28 MARK PRICE
+# R28 MARK PRICE RETRIEVAL
 # ============================================================
 
 async def obtain_mark_price(
@@ -256,14 +256,121 @@ async def obtain_mark_price(
 
     # ========================================================
     # PRIMARY
-    # WEEX V3 MARK PRICE KLINES
+    # Official WEEX V3 Symbol Price endpoint
+    # priceType=MARK returns mark price
     # ========================================================
 
     try:
 
-        path = (
-            "/capi/v3/market/markPriceKlines"
+        path = "/capi/v3/market/symbolPrice"
+
+        url = (
+            f"{API_BASE_URL}"
+            f"{path}"
         )
+
+        params = {
+            "symbol": symbol,
+            "priceType": "MARK",
+        }
+
+        async with session.get(
+            url,
+            params=params,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as response:
+
+            text = await response.text()
+
+            if response.status != 200:
+
+                raise RuntimeError(
+                    f"WEEX GET {path} "
+                    f"HTTP {response.status}: "
+                    f"{text}"
+                )
+
+            try:
+                data = json.loads(text)
+
+            except json.JSONDecodeError as exc:
+
+                raise RuntimeError(
+                    f"Invalid JSON from {path}: "
+                    f"{text}"
+                ) from exc
+
+            if not isinstance(
+                data,
+                dict,
+            ):
+
+                raise RuntimeError(
+                    f"Unexpected response from "
+                    f"{path}: {data}"
+                )
+
+            raw_price = data.get(
+                "price"
+            )
+
+            if raw_price is None:
+
+                raise RuntimeError(
+                    f"No price field returned "
+                    f"from {path}: {data}"
+                )
+
+            try:
+
+                price = Decimal(
+                    str(
+                        raw_price
+                    )
+                )
+
+            except (
+                InvalidOperation,
+                TypeError,
+                ValueError,
+            ) as exc:
+
+                raise RuntimeError(
+                    f"Invalid mark price "
+                    f"from {path}: "
+                    f"{raw_price}"
+                ) from exc
+
+            if price <= 0:
+
+                raise RuntimeError(
+                    f"Non-positive mark price "
+                    f"from {path}: "
+                    f"{price}"
+                )
+
+            return price
+
+    except Exception as exc:
+
+        errors.append(
+            "/capi/v3/market/symbolPrice: "
+            + str(exc)
+        )
+
+    # ========================================================
+    # FALLBACK 1
+    # Official WEEX V3 Mark Price Klines
+    #
+    # IMPORTANT:
+    # This also uses session.get(), NOT client.get()
+    # ========================================================
+
+    try:
+
+        path = "/capi/v3/market/markPriceKlines"
 
         url = (
             f"{API_BASE_URL}"
@@ -295,31 +402,52 @@ async def obtain_mark_price(
                 )
 
             try:
-
-                data = json.loads(
-                    text
-                )
+                data = json.loads(text)
 
             except json.JSONDecodeError as exc:
 
                 raise RuntimeError(
-                    f"Invalid JSON from "
-                    f"{path}: {text}"
+                    f"Invalid JSON from {path}: "
+                    f"{text}"
                 ) from exc
 
             if (
-                isinstance(data, list)
-                and len(data) > 0
-                and isinstance(
-                    data[-1],
-                    (list, tuple),
+                not isinstance(
+                    data,
+                    list,
                 )
-                and len(data[-1]) > 4
+                or not data
             ):
 
-                raw_price = (
-                    data[-1][4]
+                raise RuntimeError(
+                    f"No mark-price klines "
+                    f"returned: {data}"
                 )
+
+            latest = data[-1]
+
+            if (
+                not isinstance(
+                    latest,
+                    list,
+                )
+                or len(latest) < 5
+            ):
+
+                raise RuntimeError(
+                    f"Unexpected kline "
+                    f"format: {latest}"
+                )
+
+            # WEEX Kline structure:
+            # [0] open time
+            # [1] open
+            # [2] high
+            # [3] low
+            # [4] close
+            raw_price = latest[4]
+
+            try:
 
                 price = Decimal(
                     str(
@@ -327,33 +455,43 @@ async def obtain_mark_price(
                     )
                 )
 
-                if price > 0:
+            except (
+                InvalidOperation,
+                TypeError,
+                ValueError,
+            ) as exc:
 
-                    return price
+                raise RuntimeError(
+                    f"Invalid mark-price "
+                    f"kline close: "
+                    f"{raw_price}"
+                ) from exc
 
-            raise RuntimeError(
-                f"No usable mark price "
-                f"in response: {data}"
-            )
+            if price <= 0:
+
+                raise RuntimeError(
+                    f"Non-positive mark-price "
+                    f"kline close: "
+                    f"{price}"
+                )
+
+            return price
 
     except Exception as exc:
 
         errors.append(
-            "/capi/v3/market/"
-            "markPriceKlines: "
-            f"{exc}"
+            "/capi/v3/market/markPriceKlines: "
+            + str(exc)
         )
 
     # ========================================================
-    # FALLBACK 1
-    # WEEX V3 HISTORY KLINES USING MARK PRICE
+    # FALLBACK 2
+    # Historical Klines explicitly requesting MARK price
     # ========================================================
 
     try:
 
-        path = (
-            "/capi/v3/market/historyKlines"
-        )
+        path = "/capi/v3/market/historyKlines"
 
         url = (
             f"{API_BASE_URL}"
@@ -386,31 +524,48 @@ async def obtain_mark_price(
                 )
 
             try:
-
-                data = json.loads(
-                    text
-                )
+                data = json.loads(text)
 
             except json.JSONDecodeError as exc:
 
                 raise RuntimeError(
-                    f"Invalid JSON from "
-                    f"{path}: {text}"
+                    f"Invalid JSON from {path}: "
+                    f"{text}"
                 ) from exc
 
             if (
-                isinstance(data, list)
-                and len(data) > 0
-                and isinstance(
-                    data[-1],
-                    (list, tuple),
+                not isinstance(
+                    data,
+                    list,
                 )
-                and len(data[-1]) > 4
+                or not data
             ):
 
-                raw_price = (
-                    data[-1][4]
+                raise RuntimeError(
+                    f"No historical MARK "
+                    f"klines returned: "
+                    f"{data}"
                 )
+
+            latest = data[-1]
+
+            if (
+                not isinstance(
+                    latest,
+                    list,
+                )
+                or len(latest) < 5
+            ):
+
+                raise RuntimeError(
+                    f"Unexpected history "
+                    f"kline format: "
+                    f"{latest}"
+                )
+
+            raw_price = latest[4]
+
+            try:
 
                 price = Decimal(
                     str(
@@ -418,34 +573,44 @@ async def obtain_mark_price(
                     )
                 )
 
-                if price > 0:
+            except (
+                InvalidOperation,
+                TypeError,
+                ValueError,
+            ) as exc:
 
-                    return price
+                raise RuntimeError(
+                    f"Invalid historical "
+                    f"mark price: "
+                    f"{raw_price}"
+                ) from exc
 
-            raise RuntimeError(
-                f"No usable MARK close "
-                f"in response: {data}"
-            )
+            if price <= 0:
+
+                raise RuntimeError(
+                    f"Non-positive historical "
+                    f"mark price: "
+                    f"{price}"
+                )
+
+            return price
 
     except Exception as exc:
 
         errors.append(
-            "/capi/v3/market/"
-            "historyKlines: "
-            f"{exc}"
+            "/capi/v3/market/historyKlines: "
+            + str(exc)
         )
 
     # ========================================================
-    # FALLBACK 2
-    # WEEX V2 ALL TICKERS
-    # markPrice FIELD
+    # FALLBACK 3
+    # WEEX V2 ticker
+    # Provides markPrice field
     # ========================================================
 
     try:
 
-        path = (
-            "/capi/v2/market/tickers"
-        )
+        path = "/capi/v2/market/tickers"
 
         url = (
             f"{API_BASE_URL}"
@@ -470,105 +635,110 @@ async def obtain_mark_price(
                 )
 
             try:
-
-                data = json.loads(
-                    text
-                )
+                data = json.loads(text)
 
             except json.JSONDecodeError as exc:
 
                 raise RuntimeError(
-                    f"Invalid JSON from "
-                    f"{path}: {text}"
+                    f"Invalid JSON from {path}: "
+                    f"{text}"
                 ) from exc
 
-            expected_symbols = {
-                symbol.upper(),
-                (
-                    "CMT_"
-                    + symbol.lower()
-                ).upper(),
-            }
-
-            if isinstance(
-                data,
-                dict,
-            ):
-
-                possible_data = (
-                    data.get("data")
-                )
-
-                if isinstance(
-                    possible_data,
-                    list,
-                ):
-
-                    data = (
-                        possible_data
-                    )
-
-            if isinstance(
+            if not isinstance(
                 data,
                 list,
             ):
 
-                for item in data:
+                raise RuntimeError(
+                    f"Unexpected ticker "
+                    f"response: "
+                    f"{data}"
+                )
 
-                    if not isinstance(
-                        item,
-                        dict,
-                    ):
+            wanted_symbols = {
+                symbol.lower(),
+                f"cmt_{symbol.lower()}",
+            }
 
-                        continue
+            ticker = None
 
-                    item_symbol = str(
-                        item.get(
-                            "symbol",
-                            "",
-                        )
-                    ).strip().upper()
+            for item in data:
 
-                    if (
-                        item_symbol
-                        not in expected_symbols
-                    ):
+                if not isinstance(
+                    item,
+                    dict,
+                ):
+                    continue
 
-                        continue
-
-                    raw_price = (
-                        item.get(
-                            "markPrice"
-                        )
-                    )
-
-                    if raw_price in (
-                        None,
+                returned_symbol = str(
+                    item.get(
+                        "symbol",
                         "",
-                    ):
-
-                        continue
-
-                    price = Decimal(
-                        str(
-                            raw_price
-                        )
                     )
+                ).lower()
 
-                    if price > 0:
+                if (
+                    returned_symbol
+                    in wanted_symbols
+                ):
 
-                        return price
+                    ticker = item
+                    break
 
-            raise RuntimeError(
-                f"No markPrice found "
-                f"for {symbol}"
+            if ticker is None:
+
+                raise RuntimeError(
+                    f"{symbol} not found "
+                    f"in ticker response"
+                )
+
+            raw_price = ticker.get(
+                "markPrice"
             )
+
+            if raw_price is None:
+
+                raise RuntimeError(
+                    f"No markPrice field "
+                    f"for {symbol}: "
+                    f"{ticker}"
+                )
+
+            try:
+
+                price = Decimal(
+                    str(
+                        raw_price
+                    )
+                )
+
+            except (
+                InvalidOperation,
+                TypeError,
+                ValueError,
+            ) as exc:
+
+                raise RuntimeError(
+                    f"Invalid ticker "
+                    f"markPrice: "
+                    f"{raw_price}"
+                ) from exc
+
+            if price <= 0:
+
+                raise RuntimeError(
+                    f"Non-positive ticker "
+                    f"markPrice: "
+                    f"{price}"
+                )
+
+            return price
 
     except Exception as exc:
 
         errors.append(
             "/capi/v2/market/tickers: "
-            f"{exc}"
+            + str(exc)
         )
 
     # ========================================================
@@ -581,9 +751,7 @@ async def obtain_mark_price(
         + " | ".join(
             errors
         )
-    )
-    
-    
+    )    
 def dec(
     value: Any,
     default: str = "0",
