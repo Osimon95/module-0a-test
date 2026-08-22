@@ -2873,57 +2873,224 @@ async def get_mark_price(
         f"Unable to obtain mark price for {symbol}. "
         + " | ".join(errors)
     )
-async def obtain_mark_price(
-    client: WeexClient,
+    async def obtain_mark_price(
+    session: aiohttp.ClientSession,
     symbol: str,
 ) -> Decimal:
 
+    symbol = symbol.strip().upper()
+
     errors: List[str] = []
 
-    attempts = [
-        (
-            "/capi/v3/market/ticker",
-            {
-                "symbol": symbol,
-            },
-        ),
-        (
-            "/capi/v3/market/tickers",
-            {
-                "symbol": symbol,
-            },
-        ),
-    ]
+    # ========================================================
+    # PRIMARY — WEEX V3 OFFICIAL MARK-PRICE ENDPOINT
+    # ========================================================
 
-    for path, params in attempts:
+    try:
 
-        try:
+        url = (
+            f"{API_BASE_URL}"
+            f"/capi/v3/market/symbolPrice"
+        )
 
-            payload = await client.public_get(
-                path,
-                params,
+        params = {
+            "symbol": symbol,
+            "priceType": "MARK",
+        }
+
+        async with session.get(
+            url,
+            params=params,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as response:
+
+            text = await response.text()
+
+            if response.status != 200:
+
+                raise RuntimeError(
+                    f"WEEX GET "
+                    f"/capi/v3/market/symbolPrice "
+                    f"HTTP {response.status}: "
+                    f"{text}"
+                )
+
+            try:
+
+                data = json.loads(text)
+
+            except json.JSONDecodeError:
+
+                raise RuntimeError(
+                    "Invalid JSON from "
+                    "/capi/v3/market/symbolPrice: "
+                    f"{text}"
+                )
+
+            if isinstance(data, dict):
+
+                raw_price = data.get(
+                    "price"
+                )
+
+                if raw_price is not None:
+
+                    try:
+
+                        price = Decimal(
+                            str(raw_price)
+                        )
+
+                    except (
+                        InvalidOperation,
+                        ValueError,
+                        TypeError,
+                    ):
+
+                        price = Decimal("0")
+
+                    if price > 0:
+
+                        return price
+
+            raise RuntimeError(
+                "No valid positive mark price "
+                "in /capi/v3/market/symbolPrice "
+                f"response: {data}"
             )
 
-            price = extract_mark_price(
-                payload
+    except Exception as exc:
+
+        errors.append(
+            "/capi/v3/market/symbolPrice: "
+            + str(exc)
+        )
+
+    # ========================================================
+    # FALLBACK — WEEX V3 PREMIUM INDEX
+    # ========================================================
+
+    try:
+
+        url = (
+            f"{API_BASE_URL}"
+            f"/capi/v3/market/premiumIndex"
+        )
+
+        params = {
+            "symbol": symbol,
+        }
+
+        async with session.get(
+            url,
+            params=params,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as response:
+
+            text = await response.text()
+
+            if response.status != 200:
+
+                raise RuntimeError(
+                    f"WEEX GET "
+                    f"/capi/v3/market/premiumIndex "
+                    f"HTTP {response.status}: "
+                    f"{text}"
+                )
+
+            try:
+
+                data = json.loads(text)
+
+            except json.JSONDecodeError:
+
+                raise RuntimeError(
+                    "Invalid JSON from "
+                    "/capi/v3/market/premiumIndex: "
+                    f"{text}"
+                )
+
+            rows: List[Dict[str, Any]] = []
+
+            if isinstance(data, list):
+
+                rows = [
+                    row
+                    for row in data
+                    if isinstance(row, dict)
+                ]
+
+            elif isinstance(data, dict):
+
+                rows = [data]
+
+            for row in rows:
+
+                row_symbol = str(
+                    row.get(
+                        "symbol",
+                        ""
+                    )
+                ).strip().upper()
+
+                if (
+                    row_symbol
+                    and row_symbol != symbol
+                ):
+
+                    continue
+
+                raw_price = row.get(
+                    "markPrice"
+                )
+
+                if raw_price is None:
+
+                    continue
+
+                try:
+
+                    price = Decimal(
+                        str(raw_price)
+                    )
+
+                except (
+                    InvalidOperation,
+                    ValueError,
+                    TypeError,
+                ):
+
+                    continue
+
+                if price > 0:
+
+                    return price
+
+            raise RuntimeError(
+                "No valid markPrice found "
+                "in /capi/v3/market/premiumIndex "
+                f"response for {symbol}"
             )
 
-            if price > 0:
-                return price
+    except Exception as exc:
 
-        except Exception as exc:
+        errors.append(
+            "/capi/v3/market/premiumIndex: "
+            + str(exc)
+        )
 
-            errors.append(
-                f"{path}: {exc}"
-            )
+    # ========================================================
+    # FAIL CLOSED
+    # ========================================================
 
     raise RuntimeError(
-        "Unable to obtain mark price "
-        f"for {symbol}. "
-        + " | ".join(
-            errors
-        )
-    )
+        f"Unable to obtain mark price for "
+        f"{symbol}. "
+        + " | ".join(err
 
 
 
