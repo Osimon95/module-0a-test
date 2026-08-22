@@ -6738,22 +6738,34 @@ def test_order_state_machine() -> bool:
             )
 
     return True
-        # Run the R28 diagnostic exactly once.
-        asyncio.create_task(
-            diagnostic_wrapper(
-                session
-            )
+    
+     # ============================================================
+# R28 APPLICATION STARTUP
+# ============================================================
+
+async def main() -> None:
+    print("=" * 60)
+    print("0F-4H-R28 STARTING")
+    print("RESTART-SAFE / IDEMPOTENT PRE-LIVE VALIDATION")
+    print("REAL ORDER TRANSMISSION DISABLED")
+    print("=" * 60)
+
+    await r28_run_diagnostic()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("R28 shutdown requested.")
+    except Exception as exc:
+        print(
+            "0F-4H-R28 FATAL STARTUP ERROR:"
         )
-
-        # Keep Render service alive.
-        #
-        # No repeated demo-order loop.
-        while True:
-
-            await asyncio.sleep(
-                3600
-            )
-
+        print(
+            f"{type(exc).__name__}: {exc}"
+        )
+        
 
 # ============================================================
 # MAIN
