@@ -241,6 +241,331 @@ TELEGRAM_CHAT_ID = os.getenv(
 # HELPERS
 # ============================================================
 
+# ============================================================
+# MARK PRICE
+# ============================================================
+
+async def obtain_mark_price(
+    session: aiohttp.ClientSession,
+    symbol: str,
+) -> Decimal:
+
+    symbol = symbol.strip().upper()
+
+    errors: List[str] = []
+
+    # ========================================================
+    # PRIMARY — WEEX V3 SYMBOL PRICE
+    # ========================================================
+
+    try:
+
+        url = (
+            f"{API_BASE_URL}"
+            f"/capi/v3/market/symbolPrice"
+        )
+
+        params = {
+            "symbol": symbol,
+            "priceType": "MARK",
+        }
+
+        async with session.get(
+            url,
+            params=params,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as response:
+
+            text = await response.text()
+
+            if response.status != 200:
+
+                raise RuntimeError(
+                    f"WEEX GET "
+                    f"/capi/v3/market/symbolPrice "
+                    f"HTTP {response.status}: "
+                    f"{text}"
+                )
+
+            try:
+
+                data = json.loads(text)
+
+            except json.JSONDecodeError as exc:
+
+                raise RuntimeError(
+                    "Invalid JSON returned from "
+                    "/capi/v3/market/symbolPrice"
+                ) from exc
+
+            candidates: List[Any] = []
+
+            if isinstance(data, dict):
+
+                candidates.extend(
+                    [
+                        data.get("markPrice"),
+                        data.get("price"),
+                        data.get("symbolPrice"),
+                        data.get("last"),
+                        data.get("lastPrice"),
+                    ]
+                )
+
+                inner = data.get("data")
+
+                if isinstance(inner, dict):
+
+                    candidates.extend(
+                        [
+                            inner.get("markPrice"),
+                            inner.get("price"),
+                            inner.get("symbolPrice"),
+                            inner.get("last"),
+                            inner.get("lastPrice"),
+                        ]
+                    )
+
+                elif isinstance(inner, list):
+
+                    for row in inner:
+
+                        if not isinstance(
+                            row,
+                            dict,
+                        ):
+                            continue
+
+                        row_symbol = str(
+                            row.get(
+                                "symbol",
+                                ""
+                            )
+                        ).strip().upper()
+
+                        if (
+                            row_symbol
+                            and row_symbol != symbol
+                        ):
+                            continue
+
+                        candidates.extend(
+                            [
+                                row.get(
+                                    "markPrice"
+                                ),
+                                row.get(
+                                    "price"
+                                ),
+                                row.get(
+                                    "symbolPrice"
+                                ),
+                                row.get(
+                                    "last"
+                                ),
+                                row.get(
+                                    "lastPrice"
+                                ),
+                            ]
+                        )
+
+            for candidate in candidates:
+
+                if candidate in (
+                    None,
+                    "",
+                ):
+                    continue
+
+                try:
+
+                    price = Decimal(
+                        str(candidate)
+                    )
+
+                except (
+                    InvalidOperation,
+                    ValueError,
+                    TypeError,
+                ):
+                    continue
+
+                if price > 0:
+
+                    return price
+
+            raise RuntimeError(
+                "No positive mark price "
+                "found in response"
+            )
+
+    except Exception as exc:
+
+        errors.append(
+            "/capi/v3/market/symbolPrice: "
+            + str(exc)
+        )
+
+    # ========================================================
+    # FALLBACK — WEEX V3 PREMIUM INDEX
+    # ========================================================
+
+    try:
+
+        url = (
+            f"{API_BASE_URL}"
+            f"/capi/v3/market/premiumIndex"
+        )
+
+        params = {
+            "symbol": symbol,
+        }
+
+        async with session.get(
+            url,
+            params=params,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as response:
+
+            text = await response.text()
+
+            if response.status != 200:
+
+                raise RuntimeError(
+                    f"WEEX GET "
+                    f"/capi/v3/market/premiumIndex "
+                    f"HTTP {response.status}: "
+                    f"{text}"
+                )
+
+            try:
+
+                data = json.loads(text)
+
+            except json.JSONDecodeError as exc:
+
+                raise RuntimeError(
+                    "Invalid JSON returned from "
+                    "/capi/v3/market/premiumIndex"
+                ) from exc
+
+            candidates: List[Any] = []
+
+            if isinstance(data, dict):
+
+                candidates.extend(
+                    [
+                        data.get("markPrice"),
+                        data.get("price"),
+                        data.get("indexPrice"),
+                    ]
+                )
+
+                inner = data.get("data")
+
+                if isinstance(inner, dict):
+
+                    candidates.extend(
+                        [
+                            inner.get(
+                                "markPrice"
+                            ),
+                            inner.get(
+                                "price"
+                            ),
+                            inner.get(
+                                "indexPrice"
+                            ),
+                        ]
+                    )
+
+                elif isinstance(inner, list):
+
+                    for row in inner:
+
+                        if not isinstance(
+                            row,
+                            dict,
+                        ):
+                            continue
+
+                        row_symbol = str(
+                            row.get(
+                                "symbol",
+                                ""
+                            )
+                        ).strip().upper()
+
+                        if (
+                            row_symbol
+                            and row_symbol != symbol
+                        ):
+                            continue
+
+                        candidates.extend(
+                            [
+                                row.get(
+                                    "markPrice"
+                                ),
+                                row.get(
+                                    "price"
+                                ),
+                                row.get(
+                                    "indexPrice"
+                                ),
+                            ]
+                        )
+
+            for candidate in candidates:
+
+                if candidate in (
+                    None,
+                    "",
+                ):
+                    continue
+
+                try:
+
+                    price = Decimal(
+                        str(candidate)
+                    )
+
+                except (
+                    InvalidOperation,
+                    ValueError,
+                    TypeError,
+                ):
+                    continue
+
+                if price > 0:
+
+                    return price
+
+            raise RuntimeError(
+                "No positive mark price "
+                "found in response"
+            )
+
+    except Exception as exc:
+
+        errors.append(
+            "/capi/v3/market/premiumIndex: "
+            + str(exc)
+        )
+
+    # ========================================================
+    # FAIL CLOSED
+    # ========================================================
+
+    raise RuntimeError(
+        f"Unable to obtain mark price "
+        f"for {symbol}. "
+        + " | ".join(errors)
+    )
 def dec(
     value: Any,
     default: str = "0",
