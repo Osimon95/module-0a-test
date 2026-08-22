@@ -6664,7 +6664,7 @@ def test_order_state_machine() -> bool:
     transitions behave correctly.
     """
 
-    valid_transitions = {
+    valid_transitions = {}
         "CREATED": {
             "VALIDATED",
             "REJECTED",
