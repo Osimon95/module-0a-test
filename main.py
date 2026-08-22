@@ -2740,3 +2740,1172 @@ async def obtain_contract_info(
             errors
         )
     )
+    # ============================================================
+# MARKET / ACCOUNT DATA
+# ============================================================
+
+async def obtain_mark_price(
+    client: WeexClient,
+    symbol: str,
+) -> Decimal:
+
+    errors: List[str] = []
+
+    attempts = [
+        (
+            "/capi/v3/market/ticker",
+            {
+                "symbol": symbol,
+            },
+        ),
+        (
+            "/capi/v3/market/tickers",
+            {
+                "symbol": symbol,
+            },
+        ),
+    ]
+
+    for path, params in attempts:
+
+        try:
+
+            payload = await client.public_get(
+                path,
+                params,
+            )
+
+            price = extract_mark_price(
+                payload
+            )
+
+            if price > 0:
+                return price
+
+        except Exception as exc:
+
+            errors.append(
+                f"{path}: {exc}"
+            )
+
+    raise RuntimeError(
+        "Unable to obtain mark price "
+        f"for {symbol}. "
+        + " | ".join(
+            errors
+        )
+    )
+
+
+async def obtain_available_balance(
+    client: WeexClient,
+) -> Decimal:
+
+    errors: List[str] = []
+
+    attempts = [
+        (
+            "/capi/v3/account/assets",
+            {},
+        ),
+        (
+            "/capi/v3/account",
+            {},
+        ),
+    ]
+
+    for path, params in attempts:
+
+        try:
+
+            payload = await client.private_get(
+                path,
+                params,
+            )
+
+            balance = extract_available_balance(
+                payload
+            )
+
+            if balance >= 0:
+                return balance
+
+        except Exception as exc:
+
+            errors.append(
+                f"{path}: {exc}"
+            )
+
+    raise RuntimeError(
+        "Unable to obtain available USDT. "
+        + " | ".join(
+            errors
+        )
+    )
+
+
+# ============================================================
+# LIVE PAYLOAD REHEARSAL
+# ============================================================
+
+def choose_rehearsal_price(
+    mark_price: Decimal,
+    contract: ContractInfo,
+    side: str,
+) -> Decimal:
+
+    if mark_price <= 0:
+
+        raise RuntimeError(
+            "Invalid mark price"
+        )
+
+    normalized_side = (
+        side
+        .strip()
+        .upper()
+    )
+
+    if normalized_side == "BUY":
+
+        raw = (
+            mark_price
+            * Decimal("0.99")
+        )
+
+    else:
+
+        raw = (
+            mark_price
+            * Decimal("1.01")
+        )
+
+    price = quantize_down(
+        raw,
+        contract.price_step,
+    )
+
+    if price <= 0:
+
+        raise RuntimeError(
+            "Rehearsal price is not positive"
+        )
+
+    return price
+
+
+def build_live_payload(
+    intent: ExecutionIntent,
+    mark_price: Decimal,
+    contract: ContractInfo,
+) -> Dict[str, Any]:
+
+    quantity = dec(
+        intent.quantity
+    )
+
+    price = choose_rehearsal_price(
+        mark_price,
+        contract,
+        intent.side,
+    )
+
+    return {
+        "symbol": intent.symbol,
+        "side": intent.side,
+        "positionSide": intent.position_side,
+        "type": "LIMIT",
+        "timeInForce": "GTC",
+        "quantity": fmt_decimal(
+            quantity
+        ),
+        "price": fmt_decimal(
+            price
+        ),
+        "newClientOrderId": (
+            intent.client_order_id
+        ),
+    }
+
+
+def live_payload_required_fields_present(
+    payload: Dict[str, Any],
+) -> bool:
+
+    required = (
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "timeInForce",
+        "quantity",
+        "price",
+        "newClientOrderId",
+    )
+
+    return all(
+        key in payload
+        and payload[key] not in (
+            None,
+            "",
+        )
+        for key in required
+    )
+
+
+def classify_order_response(
+    response: Any,
+) -> str:
+
+    if not isinstance(
+        response,
+        dict,
+    ):
+
+        return "AMBIGUOUS"
+
+    code = response.get(
+        "code"
+    )
+
+    success = response.get(
+        "success"
+    )
+
+    order_id = first_present(
+        response,
+        (
+            "orderId",
+            "order_id",
+        ),
+        "",
+    )
+
+    data = response.get(
+        "data"
+    )
+
+    if isinstance(
+        data,
+        dict,
+    ):
+
+        if not order_id:
+
+            order_id = first_present(
+                data,
+                (
+                    "orderId",
+                    "order_id",
+                ),
+                "",
+            )
+
+    accepted_codes = {
+        None,
+        0,
+        "0",
+        "00000",
+        "200",
+    }
+
+    if (
+        order_id
+        and code in accepted_codes
+        and success is not False
+    ):
+
+        return "ACCEPTED"
+
+    rejected_keys = (
+        "error",
+        "errorCode",
+        "errorMessage",
+        "msg",
+        "message",
+    )
+
+    rejected = any(
+        response.get(
+            key
+        )
+        not in (
+            None,
+            "",
+            False,
+        )
+        for key in rejected_keys
+    )
+
+    if success is False:
+        return "REJECTED"
+
+    if (
+        code not in accepted_codes
+        and code is not None
+    ):
+
+        return "REJECTED"
+
+    if rejected and not order_id:
+        return "REJECTED"
+
+    return "AMBIGUOUS"
+
+
+def locally_sign_live_payload(
+    client: WeexClient,
+    payload: Dict[str, Any],
+) -> str:
+
+    client.require_credentials()
+
+    body = json.dumps(
+        payload,
+        separators=(
+            ",",
+            ":",
+        ),
+    )
+
+    timestamp = str(
+        int(
+            time.time()
+            * 1000
+        )
+    )
+
+    return client.signature(
+        timestamp=timestamp,
+        method="POST",
+        request_path="/capi/v3/order",
+        query_string="",
+        body=body,
+    )
+
+
+async def prove_real_post_blocked(
+    client: WeexClient,
+    payload: Dict[str, Any],
+) -> bool:
+
+    try:
+
+        await client.real_post_blocked(
+            "/capi/v3/order",
+            payload,
+        )
+
+    except RuntimeError as exc:
+
+        return (
+            "BLOCKED"
+            in str(
+                exc
+            ).upper()
+            and not R28_REAL_POST_CALLED
+        )
+
+    return False
+
+
+# ============================================================
+# ORDER STATE MACHINE SELF TEST
+# ============================================================
+
+@dataclass
+class OrderTracker:
+
+    state: str = "NEW"
+
+    executed_qty: Decimal = Decimal("0")
+
+    processed_events: Set[str] = field(
+        default_factory=set
+    )
+
+
+def apply_order_event(
+    tracker: OrderTracker,
+    new_state: str,
+    cumulative_executed_qty: Decimal,
+    event_id: str,
+) -> Tuple[
+    bool,
+    Decimal,
+]:
+
+    if event_id in tracker.processed_events:
+
+        return (
+            False,
+            Decimal("0"),
+        )
+
+    normalized_state = (
+        new_state
+        .strip()
+        .upper()
+    )
+
+    if not can_order_transition(
+        tracker.state,
+        normalized_state,
+    ):
+
+        return (
+            False,
+            Decimal("0"),
+        )
+
+    if cumulative_executed_qty < tracker.executed_qty:
+
+        return (
+            False,
+            Decimal("0"),
+        )
+
+    fill_delta = (
+        cumulative_executed_qty
+        - tracker.executed_qty
+    )
+
+    tracker.processed_events.add(
+        event_id
+    )
+
+    tracker.executed_qty = (
+        cumulative_executed_qty
+    )
+
+    tracker.state = normalized_state
+
+    return (
+        True,
+        fill_delta,
+    )
+
+
+def test_order_state_machine(
+    quantity: Decimal,
+) -> Dict[str, bool]:
+
+    tracker = OrderTracker()
+
+    new_state_accepted = (
+        tracker.state
+        == "NEW"
+    )
+
+    q1 = quantize_down(
+        quantity
+        * Decimal("0.25"),
+        Decimal("0.00000001"),
+    )
+
+    if q1 <= 0:
+
+        q1 = (
+            quantity
+            / Decimal("4")
+        )
+
+    q2 = quantize_down(
+        quantity
+        * Decimal("0.50"),
+        Decimal("0.00000001"),
+    )
+
+    if q2 <= q1:
+
+        q2 = (
+            quantity
+            / Decimal("2")
+        )
+
+    applied_1, delta_1 = apply_order_event(
+        tracker,
+        "PARTIALLY_FILLED",
+        q1,
+        "evt-partial-1",
+    )
+
+    partial_1_ok = (
+        applied_1
+        and delta_1 == q1
+    )
+
+    applied_2, delta_2 = apply_order_event(
+        tracker,
+        "PARTIALLY_FILLED",
+        q2,
+        "evt-partial-2",
+    )
+
+    partial_2_ok = (
+        applied_2
+        and delta_2
+        == (
+            q2
+            - q1
+        )
+    )
+
+    applied_fill, fill_delta = (
+        apply_order_event(
+            tracker,
+            "FILLED",
+            quantity,
+            "evt-filled",
+        )
+    )
+
+    filled_ok = (
+        applied_fill
+        and tracker.state
+        == "FILLED"
+        and tracker.executed_qty
+        == quantity
+        and fill_delta
+        == (
+            quantity
+            - q2
+        )
+    )
+
+    duplicate_applied, duplicate_delta = (
+        apply_order_event(
+            tracker,
+            "FILLED",
+            quantity,
+            "evt-filled",
+        )
+    )
+
+    duplicate_blocked = (
+        not duplicate_applied
+        and duplicate_delta
+        == Decimal("0")
+    )
+
+    regression_applied, _ = apply_order_event(
+        tracker,
+        "PARTIALLY_FILLED",
+        quantity,
+        "evt-regression",
+    )
+
+    regression_blocked = (
+        not regression_applied
+        and tracker.state
+        == "FILLED"
+    )
+
+    return {
+        "new": new_state_accepted,
+        "partial1": partial_1_ok,
+        "partial2": partial_2_ok,
+        "filled": filled_ok,
+        "duplicate": duplicate_blocked,
+        "regression": regression_blocked,
+    }
+
+
+# ============================================================
+# INTENT STATE SELF TEST
+# ============================================================
+
+def test_intent_gate(
+    signal: Signal,
+    quantity: Decimal,
+) -> Tuple[
+    ExecutionIntent,
+    Dict[str, bool],
+]:
+
+    intent = build_execution_intent(
+        signal,
+        quantity,
+    )
+
+    created = bool(
+        intent.intent_id
+        and intent.client_order_id
+        and intent.state == "NEW"
+    )
+
+    seen: Set[str] = set()
+
+    first_duplicate = duplicate_intent(
+        intent,
+        seen,
+    )
+
+    seen.add(
+        intent.intent_id
+    )
+
+    second_duplicate = duplicate_intent(
+        intent,
+        seen,
+    )
+
+    duplicate_blocked = (
+        not first_duplicate
+        and second_duplicate
+    )
+
+    new_preflight = transition_intent(
+        intent,
+        "PREFLIGHT",
+    )
+
+    preflight_ready = transition_intent(
+        intent,
+        "READY",
+    )
+
+    expired_copy = ExecutionIntent(
+        **asdict(
+            intent
+        )
+    )
+
+    expired_copy.state = "NEW"
+
+    expired_copy.created_ms = (
+        int(
+            time.time()
+            * 1000
+        )
+        - (
+            SIGNAL_EXPIRY_SECONDS
+            + 10
+        )
+        * 1000
+    )
+
+    expired_copy.expires_ms = (
+        expired_copy.created_ms
+        + SIGNAL_EXPIRY_SECONDS
+        * 1000
+    )
+
+    expired_rejected = (
+        not intent_is_fresh(
+            expired_copy
+        )
+    )
+
+    terminal_copy = ExecutionIntent(
+        **asdict(
+            intent
+        )
+    )
+
+    terminal_copy.state = "RECONCILED"
+
+    terminal_regression = (
+        not transition_intent(
+            terminal_copy,
+            "READY",
+        )
+    )
+
+    # Return a fresh READY intent for the
+    # actual R28 preflight / rehearsal chain.
+
+    ready_intent = build_execution_intent(
+        signal,
+        quantity,
+    )
+
+    if not transition_intent(
+        ready_intent,
+        "PREFLIGHT",
+    ):
+
+        raise RuntimeError(
+            "Unable to transition intent "
+            "NEW → PREFLIGHT"
+        )
+
+    if not transition_intent(
+        ready_intent,
+        "READY",
+    ):
+
+        raise RuntimeError(
+            "Unable to transition intent "
+            "PREFLIGHT → READY"
+        )
+
+    return (
+        ready_intent,
+        {
+            "created": created,
+            "duplicate": duplicate_blocked,
+            "new_preflight": new_preflight,
+            "preflight_ready": preflight_ready,
+            "expired": expired_rejected,
+            "terminal_regression": (
+                terminal_regression
+            ),
+        },
+    )
+
+
+# ============================================================
+# DEMO POSITION / HISTORY
+# ============================================================
+
+async def get_demo_positions(
+    client: WeexClient,
+) -> Any:
+
+    errors: List[str] = []
+
+    attempts = [
+        (
+            "/capi/v3/sim/position",
+            {
+                "symbol": DEMO_SYMBOL,
+            },
+        ),
+        (
+            "/capi/v3/sim/position/all",
+            {
+                "symbol": DEMO_SYMBOL,
+            },
+        ),
+    ]
+
+    for path, params in attempts:
+
+        try:
+
+            return await client.private_get(
+                path,
+                params,
+            )
+
+        except Exception as exc:
+
+            errors.append(
+                f"{path}: {exc}"
+            )
+
+    raise RuntimeError(
+        "Unable to obtain demo positions. "
+        + " | ".join(
+            errors
+        )
+    )
+
+
+async def get_demo_history(
+    client: WeexClient,
+) -> Any:
+
+    return await client.private_get(
+        "/capi/v3/sim/order/history",
+        {
+            "symbol": DEMO_SYMBOL,
+            "limit": 100,
+        },
+    )
+
+
+async def locate_demo_order(
+    client: WeexClient,
+    order_id: str,
+    client_order_id: str,
+) -> Tuple[
+    Optional[Dict[str, Any]],
+    int,
+]:
+
+    attempts = 0
+
+    for attempt in range(
+        1,
+        DEMO_HISTORY_POLLS
+        + 1,
+    ):
+
+        attempts = attempt
+
+        history = await get_demo_history(
+            client
+        )
+
+        rows = find_dict_rows(
+            history
+        )
+
+        for row in rows:
+
+            (
+                row_order_id,
+                row_client_id,
+                _row_symbol,
+                _status,
+                _orig,
+                _executed,
+                _avg,
+            ) = order_history_fields(
+                row
+            )
+
+            if (
+                order_id
+                and row_order_id
+                == order_id
+            ):
+
+                return (
+                    row,
+                    attempts,
+                )
+
+            if (
+                client_order_id
+                and row_client_id
+                == client_order_id
+            ):
+
+                return (
+                    row,
+                    attempts,
+                )
+
+        if attempt < DEMO_HISTORY_POLLS:
+
+            await asyncio.sleep(
+                DEMO_HISTORY_POLL_SECONDS
+            )
+
+    return (
+        None,
+        attempts,
+    )
+
+
+def choose_demo_action(
+    position_payload: Any,
+    quantity: Decimal,
+) -> Tuple[
+    str,
+    str,
+    Decimal,
+    Decimal,
+]:
+
+    long_size = extract_position_size(
+        position_payload,
+        DEMO_SYMBOL,
+        "LONG",
+    )
+
+    short_size = extract_position_size(
+        position_payload,
+        DEMO_SYMBOL,
+        "SHORT",
+    )
+
+    # Prefer reducing an existing position.
+    # This keeps repeated R28 diagnostics from
+    # continuously increasing demo exposure.
+
+    if long_size >= quantity:
+
+        return (
+            "SELL",
+            "LONG",
+            long_size,
+            -quantity,
+        )
+
+    if short_size >= quantity:
+
+        return (
+            "BUY",
+            "SHORT",
+            short_size,
+            -quantity,
+        )
+
+    return (
+        "BUY",
+        "LONG",
+        long_size,
+        quantity,
+    )
+
+
+# ============================================================
+# DEMO ACTUAL-FILL LIFECYCLE
+# ============================================================
+
+async def run_demo_lifecycle(
+    client: WeexClient,
+    quantity: Decimal,
+) -> DemoLifecycleResult:
+
+    position_payload_before = (
+        await get_demo_positions(
+            client
+        )
+    )
+
+    (
+        side,
+        position_side,
+        position_before,
+        expected_position_delta,
+    ) = choose_demo_action(
+        position_payload_before,
+        quantity,
+    )
+
+    material = "|".join(
+        [
+            MODULE_NAME,
+            "DEMO",
+            DEMO_SYMBOL,
+            side,
+            position_side,
+            fmt_decimal(
+                quantity
+            ),
+        ]
+    )
+
+    client_order_id = (
+        deterministic_client_id(
+            "r28d",
+            material,
+        )
+    )
+
+    demo_payload = {
+        "symbol": DEMO_SYMBOL,
+        "side": side,
+        "positionSide": position_side,
+        "type": "MARKET",
+        "quantity": fmt_decimal(
+            quantity
+        ),
+        "newClientOrderId": (
+            client_order_id
+        ),
+    }
+
+    response = await client.demo_post(
+        "/capi/v3/sim/order",
+        demo_payload,
+    )
+
+    order_id = extract_order_id(
+        response
+    )
+
+    accepted_classification = (
+        classify_order_response(
+            response
+        )
+    )
+
+    post_accepted = (
+        R28_DEMO_POST_ACCEPTED
+        and (
+            bool(
+                order_id
+            )
+            or accepted_classification
+            == "ACCEPTED"
+        )
+    )
+
+    history_row, poll_attempts = (
+        await locate_demo_order(
+            client,
+            order_id,
+            client_order_id,
+        )
+    )
+
+    history_found = (
+        history_row is not None
+    )
+
+    row = (
+        history_row
+        if history_row is not None
+        else {}
+    )
+
+    (
+        history_order_id,
+        history_client_id,
+        history_symbol,
+        final_status,
+        original_qty,
+        executed_qty,
+        average_fill_price,
+    ) = order_history_fields(
+        row
+    )
+
+    if not order_id:
+        order_id = history_order_id
+
+    if (
+        not final_status
+        and executed_qty >= quantity
+        and quantity > 0
+    ):
+
+        final_status = "FILLED"
+
+    tracker = OrderTracker()
+
+    event_id = "|".join(
+        [
+            order_id,
+            final_status,
+            fmt_decimal(
+                executed_qty
+            ),
+        ]
+    )
+
+    applied, fill_delta = apply_order_event(
+        tracker,
+        final_status,
+        executed_qty,
+        event_id,
+    )
+
+    duplicate_applied, duplicate_delta = (
+        apply_order_event(
+            tracker,
+            final_status,
+            executed_qty,
+            event_id,
+        )
+    )
+
+    duplicate_fill_event_blocked = (
+        applied
+        and not duplicate_applied
+        and duplicate_delta
+        == Decimal("0")
+    )
+
+    await asyncio.sleep(
+        Decimal("0.35")
+        if False
+        else 0.35
+    )
+
+    position_payload_after = (
+        await get_demo_positions(
+            client
+        )
+    )
+
+    position_after = extract_position_size(
+        position_payload_after,
+        DEMO_SYMBOL,
+        position_side,
+    )
+
+    observed_position_delta = (
+        position_after
+        - position_before
+    )
+
+    position_reconciled = (
+        observed_position_delta
+        == expected_position_delta
+    )
+
+    client_id_match = (
+        not history_client_id
+        or history_client_id
+        == client_order_id
+    )
+
+    symbol_match = (
+        not history_symbol
+        or history_symbol
+        == DEMO_SYMBOL
+    )
+
+    lifecycle_valid = all(
+        [
+            R28_DEMO_POST_ATTEMPTED,
+            post_accepted,
+            history_found,
+            final_status
+            == "FILLED",
+            original_qty
+            == quantity,
+            executed_qty
+            == quantity,
+            executed_qty > 0,
+            fill_delta
+            == quantity,
+            duplicate_fill_event_blocked,
+            client_id_match,
+            symbol_match,
+            position_reconciled,
+        ]
+    )
+
+    return DemoLifecycleResult(
+        demo_symbol=DEMO_SYMBOL,
+        side=side,
+        position_side=position_side,
+        order_type="MARKET",
+        client_order_id=client_order_id,
+        post_attempted=(
+            R28_DEMO_POST_ATTEMPTED
+        ),
+        post_accepted=post_accepted,
+        order_id=order_id,
+        history_lookup_attempted=True,
+        history_poll_attempts=(
+            poll_attempts
+        ),
+        history_found=history_found,
+        final_status=final_status,
+        requested_qty=quantity,
+        original_qty=original_qty,
+        executed_qty=executed_qty,
+        average_fill_price=(
+            average_fill_price
+        ),
+        non_zero_fill=(
+            executed_qty > 0
+        ),
+        fill_delta=fill_delta,
+        duplicate_fill_event_blocked=(
+            duplicate_fill_event_blocked
+        ),
+        position_before=position_before,
+        position_after=position_after,
+        expected_position_delta=(
+            expected_position_delta
+        ),
+        observed_position_delta=(
+            observed_position_delta
+        ),
+        position_reconciled=(
+            position_reconciled
+        ),
+        lifecycle_valid=(
+            lifecycle_valid
+        ),
+    )
