@@ -6678,33 +6678,6 @@ def test_order_state_machine() -> bool:
             "REJECTED",
         },
         
-
-        # ============================================================
-# R28 ORDER STATE MACHINE SELF-TEST
-# ============================================================
-
-def test_order_state_machine() -> bool:
-    """
-    R28 diagnostic-only order state-machine validation.
-
-    This does NOT transmit any order.
-    It only verifies that the expected execution-state
-    transitions behave correctly.
-    """
-
-    valid_transitions = {
-        "CREATED": {
-            "VALIDATED",
-            "REJECTED",
-        },
-        "VALIDATED": {
-            "SHADOW_COMMITTED",
-            "REJECTED",
-        },
-        "SHADOW_COMMITTED": {
-            "DEMO_PENDING",
-            "REJECTED",
-        },
         "DEMO_PENDING": {
             "DEMO_ACCEPTED",
             "DEMO_REJECTED",
