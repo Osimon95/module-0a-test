@@ -6678,18 +6678,6 @@ def test_order_state_machine() -> bool:
             "REJECTED",
         },
         
-async def main_async(
-) -> None:
-
-    await start_health_server()
-
-    timeout = aiohttp.ClientTimeout(
-        total=30
-    )
-
-async with aiohttp.ClientSession(
-        timeout=timeout
-    ) as session:
 
         # ============================================================
 # R28 ORDER STATE MACHINE SELF-TEST
