@@ -6623,7 +6623,6 @@ async def diagnostic_wrapper(
             error_text,
         )
 
-
 # ============================================================
 # PERSISTENT RENDER RUNTIME
 # ============================================================
@@ -6650,7 +6649,6 @@ async def main_async(
         # inside this block if it uses `session`.
         pass
 
-
 # ============================================================
 # R28 ORDER STATE MACHINE SELF-TEST
 # ============================================================
@@ -6664,7 +6662,7 @@ def test_order_state_machine() -> bool:
     transitions behave correctly.
     """
 
-    valid_transitions = {}
+    valid_transitions = {
         "CREATED": {
             "VALIDATED",
             "REJECTED",
@@ -6677,151 +6675,66 @@ def test_order_state_machine() -> bool:
             "DEMO_PENDING",
             "REJECTED",
         },
-        
         "DEMO_PENDING": {
             "DEMO_ACCEPTED",
             "DEMO_REJECTED",
+            "REJECTED",
         },
         "DEMO_ACCEPTED": {
-            "RECONCILED",
+            "COMPLETED",
+            "REJECTED",
         },
         "DEMO_REJECTED": {
-            "RECONCILED",
+            "COMPLETED",
+            "REJECTED",
         },
-        "RECONCILED": set(),
         "REJECTED": set(),
+        "COMPLETED": set(),
     }
 
-    def can_transition(
-        current_state: str,
-        next_state: str,
-    ) -> bool:
-
-        return (
-            next_state
-            in valid_transitions.get(
-                current_state,
-                set(),
-            )
-        )
-
-    # --------------------------------------------------------
-    # EXPECTED SUCCESS PATH
-    # --------------------------------------------------------
-
-    success_path = [
-        "CREATED",
-        "VALIDATED",
-        "SHADOW_COMMITTED",
-        "DEMO_PENDING",
-        "DEMO_ACCEPTED",
-        "RECONCILED",
+    required_valid_transitions = [
+        ("CREATED", "VALIDATED"),
+        ("VALIDATED", "SHADOW_COMMITTED"),
+        ("SHADOW_COMMITTED", "DEMO_PENDING"),
+        ("DEMO_PENDING", "DEMO_ACCEPTED"),
+        ("DEMO_PENDING", "DEMO_REJECTED"),
+        ("DEMO_ACCEPTED", "COMPLETED"),
+        ("DEMO_REJECTED", "COMPLETED"),
     ]
 
-    for index in range(
-        len(success_path) - 1
-    ):
-
-        current_state = (
-            success_path[index]
-        )
-
-        next_state = (
-            success_path[index + 1]
-        )
-
-        if not can_transition(
+    for current_state, next_state in required_valid_transitions:
+        allowed_states = valid_transitions.get(
             current_state,
-            next_state,
-        ):
-            raise RuntimeError(
-                "R28 order state-machine "
-                "success-path failure: "
-                f"{current_state} -> "
-                f"{next_state}"
-            )
-
-    # --------------------------------------------------------
-    # EXPECTED DEMO-REJECTION PATH
-    # --------------------------------------------------------
-
-    rejection_path = [
-        "CREATED",
-        "VALIDATED",
-        "SHADOW_COMMITTED",
-        "DEMO_PENDING",
-        "DEMO_REJECTED",
-        "RECONCILED",
-    ]
-
-    for index in range(
-        len(rejection_path) - 1
-    ):
-
-        current_state = (
-            rejection_path[index]
+            set(),
         )
 
-        next_state = (
-            rejection_path[index + 1]
-        )
-
-        if not can_transition(
-            current_state,
-            next_state,
-        ):
+        if next_state not in allowed_states:
             raise RuntimeError(
-                "R28 order state-machine "
-                "rejection-path failure: "
-                f"{current_state} -> "
-                f"{next_state}"
+                "R28 order state-machine self-test failed: "
+                f"{current_state} -> {next_state} "
+                "was expected to be valid."
             )
-
-    # --------------------------------------------------------
-    # ILLEGAL TRANSITIONS MUST REMAIN BLOCKED
-    # --------------------------------------------------------
 
     forbidden_transitions = [
-        (
-            "CREATED",
-            "DEMO_ACCEPTED",
-        ),
-        (
-            "VALIDATED",
-            "RECONCILED",
-        ),
-        (
-            "SHADOW_COMMITTED",
-            "RECONCILED",
-        ),
-        (
-            "DEMO_PENDING",
-            "CREATED",
-        ),
-        (
-            "RECONCILED",
-            "DEMO_PENDING",
-        ),
-        (
-            "REJECTED",
-            "VALIDATED",
-        ),
+        ("CREATED", "DEMO_ACCEPTED"),
+        ("CREATED", "COMPLETED"),
+        ("VALIDATED", "DEMO_ACCEPTED"),
+        ("SHADOW_COMMITTED", "COMPLETED"),
+        ("COMPLETED", "CREATED"),
+        ("REJECTED", "VALIDATED"),
     ]
 
-    for (
-        current_state,
-        next_state,
-    ) in forbidden_transitions:
-
-        if can_transition(
+    for current_state, next_state in forbidden_transitions:
+        allowed_states = valid_transitions.get(
             current_state,
-            next_state,
-        ):
+            set(),
+        )
+
+        if next_state in allowed_states:
             raise RuntimeError(
-                "R28 order state-machine "
-                "illegal transition accepted: "
-                f"{current_state} -> "
-                f"{next_state}"
+                "R28 order state-machine self-test failed: "
+                f"{current_state} -> {next_state} "
+                "was expected to be forbidden."
             )
 
     return True
