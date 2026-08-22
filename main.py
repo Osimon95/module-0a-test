@@ -1058,3 +1058,1685 @@ def validate_restart_safe_recovery(
         cleanup_passed=cleanup_passed,
         overall=overall,
     )
+    # ============================================================
+# QUANTITY / EXPOSURE
+# ============================================================
+
+def calculate_entry_margin(
+    balance: Decimal,
+) -> Decimal:
+
+    return (
+        balance
+        * ENTRY_PERCENT
+        / D100
+    )
+
+
+def calculate_notional(
+    margin: Decimal,
+) -> Decimal:
+
+    return (
+        margin
+        * Decimal(
+            LEVERAGE
+        )
+    )
+
+
+def calculate_quantity(
+    notional: Decimal,
+    mark_price: Decimal,
+    contract: ContractInfo,
+) -> Decimal:
+
+    if mark_price <= 0:
+
+        raise RuntimeError(
+            "Mark price must be positive"
+        )
+
+    raw_quantity = (
+        notional
+        / mark_price
+    )
+
+    quantity = quantize_down(
+        raw_quantity,
+        contract.qty_step,
+    )
+
+    return quantity
+
+
+def calculate_worst_case_exposure(
+) -> Tuple[
+    Decimal,
+    Decimal,
+    Decimal,
+    Decimal,
+]:
+
+    initial = ENTRY_PERCENT
+
+    pyramids = (
+        Decimal(
+            MAX_PYRAMID_ADDS
+        )
+        * PYRAMID_SIZE_PERCENT
+    )
+
+    backups = (
+        Decimal(
+            MAX_BACKUPS
+        )
+        * BACKUP_SIZE_PERCENT
+    )
+
+    total = (
+        initial
+        + pyramids
+        + backups
+    )
+
+    return (
+        initial,
+        pyramids,
+        backups,
+        total,
+    )
+
+
+# ============================================================
+# RESPONSE / DATA EXTRACTION
+# ============================================================
+
+def unwrap_data(
+    payload: Any,
+) -> Any:
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+
+        return payload
+
+    data = payload.get(
+        "data"
+    )
+
+    if data is not None:
+        return data
+
+    result = payload.get(
+        "result"
+    )
+
+    if result is not None:
+        return result
+
+    return payload
+
+
+def find_dict_rows(
+    payload: Any,
+) -> List[
+    Dict[str, Any]
+]:
+
+    data = unwrap_data(
+        payload
+    )
+
+    if isinstance(
+        data,
+        list,
+    ):
+
+        return [
+            row
+            for row in data
+            if isinstance(
+                row,
+                dict,
+            )
+        ]
+
+    if isinstance(
+        data,
+        dict,
+    ):
+
+        for key in (
+            "list",
+            "rows",
+            "items",
+            "records",
+            "orders",
+            "positions",
+        ):
+
+            value = data.get(
+                key
+            )
+
+            if isinstance(
+                value,
+                list,
+            ):
+
+                return [
+                    row
+                    for row in value
+                    if isinstance(
+                        row,
+                        dict,
+                    )
+                ]
+
+        return [
+            data
+        ]
+
+    return []
+
+
+def first_present(
+    row: Dict[str, Any],
+    keys: Tuple[str, ...],
+    default: Any = None,
+) -> Any:
+
+    for key in keys:
+
+        if (
+            key in row
+            and row[key] is not None
+            and row[key] != ""
+        ):
+
+            return row[key]
+
+    return default
+
+
+def extract_mark_price(
+    payload: Any,
+) -> Decimal:
+
+    rows = find_dict_rows(
+        payload
+    )
+
+    keys = (
+        "markPrice",
+        "mark_price",
+        "mark",
+        "price",
+        "lastPrice",
+        "last",
+        "close",
+    )
+
+    for row in rows:
+
+        value = first_present(
+            row,
+            keys,
+        )
+
+        price = dec(
+            value
+        )
+
+        if price > 0:
+            return price
+
+    if isinstance(
+        payload,
+        dict,
+    ):
+
+        for key in keys:
+
+            price = dec(
+                payload.get(
+                    key
+                )
+            )
+
+            if price > 0:
+                return price
+
+    raise RuntimeError(
+        "Unable to extract positive mark price"
+    )
+
+
+def extract_available_balance(
+    payload: Any,
+) -> Decimal:
+
+    rows = find_dict_rows(
+        payload
+    )
+
+    keys = (
+        "available",
+        "availableBalance",
+        "available_balance",
+        "availableMargin",
+        "available_margin",
+        "free",
+        "balance",
+        "equity",
+    )
+
+    preferred_assets = {
+        "USDT",
+        "USDC",
+    }
+
+    for row in rows:
+
+        asset = str(
+            first_present(
+                row,
+                (
+                    "asset",
+                    "coin",
+                    "currency",
+                    "marginCoin",
+                ),
+                "",
+            )
+        ).upper()
+
+        if (
+            asset
+            and asset
+            not in preferred_assets
+        ):
+
+            continue
+
+        value = first_present(
+            row,
+            keys,
+        )
+
+        balance = dec(
+            value
+        )
+
+        if balance >= 0:
+            return balance
+
+    for row in rows:
+
+        value = first_present(
+            row,
+            keys,
+        )
+
+        balance = dec(
+            value
+        )
+
+        if balance >= 0:
+            return balance
+
+    raise RuntimeError(
+        "Unable to extract available balance"
+    )
+
+
+def infer_step_from_precision(
+    precision: int,
+) -> Decimal:
+
+    if precision <= 0:
+        return Decimal("1")
+
+    return Decimal(
+        "1"
+    ).scaleb(
+        -precision
+    )
+
+
+def parse_contract_row(
+    row: Dict[str, Any],
+    fallback_symbol: str,
+) -> ContractInfo:
+
+    symbol = str(
+        first_present(
+            row,
+            (
+                "symbol",
+                "contractCode",
+                "contract_code",
+            ),
+            fallback_symbol,
+        )
+    ).upper()
+
+    qty_precision = int(
+        dec(
+            first_present(
+                row,
+                (
+                    "quantityPrecision",
+                    "qtyPrecision",
+                    "volumePlace",
+                    "sizePrecision",
+                ),
+                "4",
+            )
+        )
+    )
+
+    price_precision = int(
+        dec(
+            first_present(
+                row,
+                (
+                    "pricePrecision",
+                    "pricePlace",
+                ),
+                "1",
+            )
+        )
+    )
+
+    qty_step = dec(
+        first_present(
+            row,
+            (
+                "quantityStep",
+                "qtyStep",
+                "stepSize",
+                "sizeStep",
+            ),
+            "",
+        )
+    )
+
+    if qty_step <= 0:
+
+        qty_step = infer_step_from_precision(
+            qty_precision
+        )
+
+    price_step = dec(
+        first_present(
+            row,
+            (
+                "priceStep",
+                "tickSize",
+                "priceEndStep",
+            ),
+            "",
+        )
+    )
+
+    if price_step <= 0:
+
+        price_step = infer_step_from_precision(
+            price_precision
+        )
+
+    min_qty = dec(
+        first_present(
+            row,
+            (
+                "minOrderSize",
+                "minQty",
+                "minTradeNum",
+                "minVolume",
+            ),
+            "",
+        )
+    )
+
+    if min_qty <= 0:
+
+        min_qty = qty_step
+
+    contract_value = dec(
+        first_present(
+            row,
+            (
+                "contractVal",
+                "contractValue",
+                "contractSize",
+            ),
+            "1",
+        )
+    )
+
+    min_leverage = int(
+        dec(
+            first_present(
+                row,
+                (
+                    "minLeverage",
+                    "minLever",
+                ),
+                "1",
+            )
+        )
+    )
+
+    max_leverage = int(
+        dec(
+            first_present(
+                row,
+                (
+                    "maxLeverage",
+                    "maxLever",
+                ),
+                str(
+                    MAX_CONFIG_LEVERAGE
+                ),
+            )
+        )
+    )
+
+    if min_leverage <= 0:
+        min_leverage = 1
+
+    if max_leverage <= 0:
+        max_leverage = MAX_CONFIG_LEVERAGE
+
+    return ContractInfo(
+        symbol=symbol,
+        min_qty=min_qty,
+        qty_precision=qty_precision,
+        qty_step=qty_step,
+        price_precision=price_precision,
+        price_step=price_step,
+        contract_value=contract_value,
+        min_leverage=min_leverage,
+        max_leverage=max_leverage,
+    )
+
+
+def extract_contract_info(
+    payload: Any,
+    symbol: str,
+) -> ContractInfo:
+
+    rows = find_dict_rows(
+        payload
+    )
+
+    normalized = (
+        symbol
+        .strip()
+        .upper()
+    )
+
+    for row in rows:
+
+        row_symbol = str(
+            first_present(
+                row,
+                (
+                    "symbol",
+                    "contractCode",
+                    "contract_code",
+                ),
+                "",
+            )
+        ).upper()
+
+        if row_symbol == normalized:
+
+            return parse_contract_row(
+                row,
+                normalized,
+            )
+
+    if len(rows) == 1:
+
+        return parse_contract_row(
+            rows[0],
+            normalized,
+        )
+
+    raise RuntimeError(
+        f"Unable to obtain contract metadata for {symbol}"
+    )
+
+
+def extract_order_id(
+    payload: Any,
+) -> str:
+
+    rows = find_dict_rows(
+        payload
+    )
+
+    for row in rows:
+
+        value = first_present(
+            row,
+            (
+                "orderId",
+                "order_id",
+                "id",
+            ),
+            "",
+        )
+
+        if value:
+            return str(
+                value
+            )
+
+    if isinstance(
+        payload,
+        dict,
+    ):
+
+        value = first_present(
+            payload,
+            (
+                "orderId",
+                "order_id",
+                "id",
+            ),
+            "",
+        )
+
+        if value:
+            return str(
+                value
+            )
+
+    return ""
+
+
+def normalize_order_status(
+    value: Any,
+) -> str:
+
+    raw = str(
+        value
+        if value is not None
+        else ""
+    ).strip().upper()
+
+    raw = raw.replace(
+        "-",
+        "_",
+    ).replace(
+        " ",
+        "_",
+    )
+
+    mappings = {
+
+        "NEW": "NEW",
+
+        "OPEN": "NEW",
+
+        "INIT": "NEW",
+
+        "PARTIAL_FILL": "PARTIALLY_FILLED",
+
+        "PARTIALLY_FILLED": "PARTIALLY_FILLED",
+
+        "PART_FILLED": "PARTIALLY_FILLED",
+
+        "PARTIAL": "PARTIALLY_FILLED",
+
+        "FILLED": "FILLED",
+
+        "FULL_FILL": "FILLED",
+
+        "FULLY_FILLED": "FILLED",
+
+        "DONE": "FILLED",
+
+        "CANCELLED": "CANCELLED",
+
+        "CANCELED": "CANCELED",
+
+        "REJECTED": "REJECTED",
+
+        "EXPIRED": "EXPIRED",
+    }
+
+    return mappings.get(
+        raw,
+        raw,
+    )
+
+
+def order_history_fields(
+    row: Dict[str, Any],
+) -> Tuple[
+    str,
+    str,
+    str,
+    str,
+    Decimal,
+    Decimal,
+    Decimal,
+]:
+
+    order_id = str(
+        first_present(
+            row,
+            (
+                "orderId",
+                "order_id",
+                "id",
+            ),
+            "",
+        )
+    )
+
+    client_id = str(
+        first_present(
+            row,
+            (
+                "clientOid",
+                "clientOrderId",
+                "client_order_id",
+                "clientOidStr",
+            ),
+            "",
+        )
+    )
+
+    symbol = str(
+        first_present(
+            row,
+            (
+                "symbol",
+                "contractCode",
+            ),
+            "",
+        )
+    ).upper()
+
+    status = normalize_order_status(
+        first_present(
+            row,
+            (
+                "status",
+                "state",
+                "orderStatus",
+            ),
+            "",
+        )
+    )
+
+    original_qty = dec(
+        first_present(
+            row,
+            (
+                "size",
+                "quantity",
+                "qty",
+                "origQty",
+                "originalQty",
+                "orderSize",
+            ),
+            "0",
+        )
+    )
+
+    executed_qty = dec(
+        first_present(
+            row,
+            (
+                "filledQty",
+                "filledSize",
+                "executedQty",
+                "dealSize",
+                "dealQty",
+                "filledVolume",
+                "baseVolume",
+            ),
+            "0",
+        )
+    )
+
+    average_fill_price = dec(
+        first_present(
+            row,
+            (
+                "avgPrice",
+                "averagePrice",
+                "fillPrice",
+                "dealAvgPrice",
+                "priceAvg",
+            ),
+            "0",
+        )
+    )
+
+    return (
+        order_id,
+        client_id,
+        symbol,
+        status,
+        original_qty,
+        executed_qty,
+        average_fill_price,
+    )
+
+
+def extract_position_size(
+    payload: Any,
+    symbol: str,
+    position_side: str,
+) -> Decimal:
+
+    rows = find_dict_rows(
+        payload
+    )
+
+    normalized_symbol = (
+        symbol
+        .strip()
+        .upper()
+    )
+
+    normalized_side = (
+        position_side
+        .strip()
+        .upper()
+    )
+
+    total = Decimal("0")
+
+    found = False
+
+    for row in rows:
+
+        row_symbol = str(
+            first_present(
+                row,
+                (
+                    "symbol",
+                    "contractCode",
+                ),
+                "",
+            )
+        ).upper()
+
+        if (
+            row_symbol
+            and row_symbol
+            != normalized_symbol
+        ):
+
+            continue
+
+        row_side = str(
+            first_present(
+                row,
+                (
+                    "positionSide",
+                    "holdSide",
+                    "posSide",
+                    "side",
+                ),
+                "",
+            )
+        ).upper()
+
+        if (
+            row_side
+            and normalized_side
+            and row_side
+            not in {
+                normalized_side,
+                "BUY"
+                if normalized_side == "LONG"
+                else "SELL",
+            }
+        ):
+
+            continue
+
+        size = dec(
+            first_present(
+                row,
+                (
+                    "size",
+                    "positionAmt",
+                    "positionSize",
+                    "total",
+                    "available",
+                    "holdVol",
+                ),
+                "0",
+            )
+        )
+
+        if size < 0:
+            size = abs(
+                size
+            )
+
+        total += size
+        found = True
+
+    if not found:
+        return Decimal("0")
+
+    return total
+
+
+# ============================================================
+# SIGNAL GATES
+# ============================================================
+
+def signal_is_fresh(
+    signal: Signal,
+    now_ms: Optional[int] = None,
+) -> bool:
+
+    if now_ms is None:
+
+        now_ms = int(
+            time.time()
+            * 1000
+        )
+
+    age_ms = (
+        now_ms
+        - signal.created_ms
+    )
+
+    return (
+        0
+        <= age_ms
+        <= SIGNAL_EXPIRY_SECONDS
+        * 1000
+    )
+
+
+def loss_cooldown_active(
+    last_loss_ms: int,
+    now_ms: Optional[int] = None,
+) -> bool:
+
+    if now_ms is None:
+
+        now_ms = int(
+            time.time()
+            * 1000
+        )
+
+    if last_loss_ms <= 0:
+        return False
+
+    return (
+        now_ms
+        - last_loss_ms
+        < LOSS_COOLDOWN_SECONDS
+        * 1000
+    )
+
+
+def duplicate_signal(
+    signal_id: str,
+    seen_signal_ids: Set[str],
+) -> bool:
+
+    return (
+        signal_id
+        in seen_signal_ids
+    )
+
+
+def direction_allowed(
+    requested_direction: str,
+    existing_direction: str,
+) -> bool:
+
+    requested = (
+        requested_direction
+        .strip()
+        .upper()
+    )
+
+    existing = (
+        existing_direction
+        .strip()
+        .upper()
+    )
+
+    if not existing:
+        return True
+
+    return (
+        requested
+        == existing
+    )
+
+
+# ============================================================
+# INTENT CREATION
+# ============================================================
+
+def build_execution_intent(
+    signal: Signal,
+    quantity: Decimal,
+) -> ExecutionIntent:
+
+    direction = (
+        signal.direction
+        .strip()
+        .upper()
+    )
+
+    if direction not in {
+        "LONG",
+        "SHORT",
+    }:
+
+        raise RuntimeError(
+            "Unsupported signal direction"
+        )
+
+    side = (
+        "BUY"
+        if direction == "LONG"
+        else "SELL"
+    )
+
+    position_side = direction
+
+    material = "|".join(
+        [
+            MODULE_NAME,
+            signal.signal_id,
+            signal.symbol,
+            direction,
+            fmt_decimal(
+                quantity
+            ),
+        ]
+    )
+
+    client_order_id = (
+        deterministic_client_id(
+            "r28",
+            material,
+        )
+    )
+
+    now_ms = int(
+        time.time()
+        * 1000
+    )
+
+    intent_id = hashlib.sha256(
+        (
+            "intent|"
+            + material
+        ).encode(
+            "utf-8"
+        )
+    ).hexdigest()[:24]
+
+    return ExecutionIntent(
+        intent_id=intent_id,
+        signal_id=signal.signal_id,
+        symbol=signal.symbol,
+        direction=direction,
+        side=side,
+        position_side=position_side,
+        quantity=fmt_decimal(
+            quantity
+        ),
+        created_ms=now_ms,
+        expires_ms=(
+            now_ms
+            + SIGNAL_EXPIRY_SECONDS
+            * 1000
+        ),
+        client_order_id=client_order_id,
+        state="NEW",
+    )
+
+
+def intent_is_fresh(
+    intent: ExecutionIntent,
+    now_ms: Optional[int] = None,
+) -> bool:
+
+    if now_ms is None:
+
+        now_ms = int(
+            time.time()
+            * 1000
+        )
+
+    return (
+        intent.created_ms
+        <= now_ms
+        <= intent.expires_ms
+    )
+
+
+def duplicate_intent(
+    intent: ExecutionIntent,
+    seen_intent_ids: Set[str],
+) -> bool:
+
+    return (
+        intent.intent_id
+        in seen_intent_ids
+    )
+
+
+# ============================================================
+# PREFLIGHT
+# ============================================================
+
+@dataclass
+class PreflightResult:
+
+    live_execution_off: bool
+
+    hard_real_post_lock: bool
+
+    intent_fresh: bool
+
+    quantity_positive: bool
+
+    minimum_passed: bool
+
+    quantity_step_passed: bool
+
+    leverage_passed: bool
+
+    exposure_passed: bool
+
+    client_id_valid: bool
+
+    real_order_path_blocked: bool
+
+    overall: bool
+
+
+def run_preflight(
+    intent: ExecutionIntent,
+    contract: ContractInfo,
+) -> PreflightResult:
+
+    quantity = dec(
+        intent.quantity
+    )
+
+    (
+        _initial,
+        _pyramids,
+        _backups,
+        total_exposure,
+    ) = calculate_worst_case_exposure()
+
+    live_execution_off = (
+        not LIVE_ORDER_EXECUTION
+    )
+
+    hard_real_post_lock = (
+        HARD_REAL_POST_LOCK
+    )
+
+    fresh = intent_is_fresh(
+        intent
+    )
+
+    quantity_positive = (
+        quantity > 0
+    )
+
+    minimum_passed = (
+        quantity
+        >= contract.min_qty
+    )
+
+    quantity_step_passed = (
+        step_match(
+            quantity,
+            contract.qty_step,
+        )
+    )
+
+    leverage_passed = (
+        LEVERAGE
+        <= MAX_CONFIG_LEVERAGE
+        and LEVERAGE
+        >= contract.min_leverage
+        and LEVERAGE
+        <= contract.max_leverage
+    )
+
+    exposure_passed = (
+        total_exposure
+        <= MAX_FUND_EXPOSURE_PERCENT
+    )
+
+    cid_valid = client_id_valid(
+        intent.client_order_id
+    )
+
+    real_order_path_blocked = (
+        not LIVE_ORDER_EXECUTION
+        and HARD_REAL_POST_LOCK
+    )
+
+    overall = all(
+        [
+            live_execution_off,
+            hard_real_post_lock,
+            fresh,
+            quantity_positive,
+            minimum_passed,
+            quantity_step_passed,
+            leverage_passed,
+            exposure_passed,
+            cid_valid,
+            real_order_path_blocked,
+        ]
+    )
+
+    return PreflightResult(
+        live_execution_off=live_execution_off,
+        hard_real_post_lock=hard_real_post_lock,
+        intent_fresh=fresh,
+        quantity_positive=quantity_positive,
+        minimum_passed=minimum_passed,
+        quantity_step_passed=quantity_step_passed,
+        leverage_passed=leverage_passed,
+        exposure_passed=exposure_passed,
+        client_id_valid=cid_valid,
+        real_order_path_blocked=real_order_path_blocked,
+        overall=overall,
+    )
+
+
+# ============================================================
+# WEEX CLIENT
+# ============================================================
+
+class WeexClient:
+
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+    ) -> None:
+
+        self.session = session
+
+        self.api_key = os.getenv(
+            "WEEX_API_KEY",
+            "",
+        ).strip()
+
+        self.secret_key = os.getenv(
+            "WEEX_SECRET_KEY",
+            "",
+        ).strip()
+
+        self.passphrase = os.getenv(
+            "WEEX_PASSPHRASE",
+            "",
+        ).strip()
+
+    def credentials_present(
+        self,
+    ) -> bool:
+
+        return all(
+            [
+                self.api_key,
+                self.secret_key,
+                self.passphrase,
+            ]
+        )
+
+    def require_credentials(
+        self,
+    ) -> None:
+
+        missing = []
+
+        if not self.api_key:
+
+            missing.append(
+                "WEEX_API_KEY"
+            )
+
+        if not self.secret_key:
+
+            missing.append(
+                "WEEX_SECRET_KEY"
+            )
+
+        if not self.passphrase:
+
+            missing.append(
+                "WEEX_PASSPHRASE"
+            )
+
+        if missing:
+
+            raise RuntimeError(
+                "Missing WEEX credentials: "
+                + ", ".join(
+                    missing
+                )
+            )
+
+    def signature(
+        self,
+        timestamp: str,
+        method: str,
+        request_path: str,
+        query_string: str = "",
+        body: str = "",
+    ) -> str:
+
+        method = (
+            method
+            .strip()
+            .upper()
+        )
+
+        path_with_query = (
+            request_path
+            + (
+                "?"
+                + query_string
+                if query_string
+                else ""
+            )
+        )
+
+        prehash = (
+            timestamp
+            + method
+            + path_with_query
+            + body
+        )
+
+        digest = hmac.new(
+            self.secret_key.encode(
+                "utf-8"
+            ),
+            prehash.encode(
+                "utf-8"
+            ),
+            hashlib.sha256,
+        ).digest()
+
+        return base64.b64encode(
+            digest
+        ).decode(
+            "utf-8"
+        )
+
+    def auth_headers(
+        self,
+        timestamp: str,
+        signature: str,
+    ) -> Dict[str, str]:
+
+        return {
+            "ACCESS-KEY": self.api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": self.passphrase,
+            "Content-Type": "application/json",
+            "locale": "en-US",
+        }
+
+    async def public_get(
+        self,
+        path: str,
+        params: Optional[
+            Dict[str, Any]
+        ] = None,
+    ) -> Any:
+
+        url = (
+            API_BASE_URL
+            + path
+        )
+
+        async with self.session.get(
+            url,
+            params=params,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as response:
+
+            text = await response.text()
+
+            try:
+
+                payload = json.loads(
+                    text
+                )
+
+            except json.JSONDecodeError:
+
+                payload = {
+                    "raw": text
+                }
+
+            if response.status >= 400:
+
+                raise RuntimeError(
+                    f"WEEX GET {path} "
+                    f"HTTP {response.status}: "
+                    f"{text[:500]}"
+                )
+
+            return payload
+
+    async def private_get(
+        self,
+        path: str,
+        params: Optional[
+            Dict[str, Any]
+        ] = None,
+    ) -> Any:
+
+        self.require_credentials()
+
+        params = (
+            params
+            or {}
+        )
+
+        query_string = urlencode(
+            params
+        )
+
+        timestamp = str(
+            int(
+                time.time()
+                * 1000
+            )
+        )
+
+        signature = self.signature(
+            timestamp=timestamp,
+            method="GET",
+            request_path=path,
+            query_string=query_string,
+            body="",
+        )
+
+        headers = self.auth_headers(
+            timestamp,
+            signature,
+        )
+
+        url = (
+            API_BASE_URL
+            + path
+        )
+
+        async with self.session.get(
+            url,
+            params=params,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as response:
+
+            text = await response.text()
+
+            try:
+
+                payload = json.loads(
+                    text
+                )
+
+            except json.JSONDecodeError:
+
+                payload = {
+                    "raw": text
+                }
+
+            if response.status >= 400:
+
+                raise RuntimeError(
+                    f"WEEX PRIVATE GET {path} "
+                    f"HTTP {response.status}: "
+                    f"{text[:500]}"
+                )
+
+            return payload
+
+    async def demo_post(
+        self,
+        path: str,
+        payload: Dict[str, Any],
+    ) -> Any:
+
+        global R28_DEMO_POST_ATTEMPTED
+        global R28_DEMO_POST_ACCEPTED
+
+        self.require_credentials()
+
+        if not path.startswith(
+            "/capi/v3/sim/"
+        ):
+
+            raise RuntimeError(
+                "R28 demo POST attempted "
+                "outside /capi/v3/sim/"
+            )
+
+        R28_DEMO_POST_ATTEMPTED = True
+
+        body = json.dumps(
+            payload,
+            separators=(
+                ",",
+                ":",
+            ),
+        )
+
+        timestamp = str(
+            int(
+                time.time()
+                * 1000
+            )
+        )
+
+        signature = self.signature(
+            timestamp=timestamp,
+            method="POST",
+            request_path=path,
+            query_string="",
+            body=body,
+        )
+
+        headers = self.auth_headers(
+            timestamp,
+            signature,
+        )
+
+        url = (
+            API_BASE_URL
+            + path
+        )
+
+        async with self.session.post(
+            url,
+            data=body,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as response:
+
+            text = await response.text()
+
+            try:
+
+                result = json.loads(
+                    text
+                )
+
+            except json.JSONDecodeError:
+
+                result = {
+                    "raw": text
+                }
+
+            if response.status >= 400:
+
+                raise RuntimeError(
+                    f"WEEX DEMO POST HTTP "
+                    f"{response.status}: "
+                    f"{text[:500]}"
+                )
+
+            code = None
+
+            if isinstance(
+                result,
+                dict,
+            ):
+
+                code = result.get(
+                    "code"
+                )
+
+            if code not in (
+                None,
+                0,
+                "0",
+                "00000",
+            ):
+
+                raise RuntimeError(
+                    "WEEX DEMO POST rejected: "
+                    + json.dumps(
+                        result
+                    )[:500]
+                )
+
+            R28_DEMO_POST_ACCEPTED = True
+
+            return result
+
+    async def real_post_blocked(
+        self,
+        path: str,
+        payload: Dict[str, Any],
+    ) -> None:
+
+        global R28_REAL_POST_CALLED
+
+        # This function deliberately NEVER
+        # transmits a network request.
+        #
+        # R28 only validates that a live
+        # payload could be constructed and
+        # signed locally.
+
+        if path == "/capi/v3/order":
+
+            if (
+                HARD_REAL_POST_LOCK
+                or not LIVE_ORDER_EXECUTION
+            ):
+
+                raise RuntimeError(
+                    "R28 REAL ORDER POST BLOCKED"
+                )
+
+        R28_REAL_POST_CALLED = True
+
+        raise RuntimeError(
+            "R28 real POST transmission "
+            "is not implemented"
+        )
+
+
+# ============================================================
+# CONTRACT METADATA
+# ============================================================
+
+async def obtain_contract_info(
+    client: WeexClient,
+    symbol: str,
+) -> ContractInfo:
+
+    errors: List[str] = []
+
+    attempts = [
+        (
+            "/capi/v3/market/exchangeInfo",
+            {
+                "symbol": symbol
+            },
+        ),
+        (
+            "/capi/v3/market/contracts",
+            {
+                "symbol": symbol
+            },
+        ),
+    ]
+
+    for path, params in attempts:
+
+        try:
+
+            payload = await client.public_get(
+                path,
+                params,
+            )
+
+            contract = extract_contract_info(
+                payload,
+                symbol,
+            )
+
+            if (
+                contract.min_qty > 0
+                and contract.qty_step > 0
+                and contract.price_step > 0
+            ):
+
+                return contract
+
+        except Exception as exc:
+
+            errors.append(
+                f"{path}: {exc}"
+            )
+
+    # R28 fails closed instead of guessing
+    # live execution parameters.
+
+    raise RuntimeError(
+        "Unable to obtain contract "
+        f"metadata for {symbol}. "
+        + " | ".join(
+            errors
+        )
+    )
