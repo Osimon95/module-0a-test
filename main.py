@@ -501,7 +501,7 @@ async def obtain_mark_price(
         f"{symbol}. "
         + " | ".join(
             errors
-        )
+        ))
 def dec(
     value: Any,
     default: str = "0",
