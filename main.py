@@ -246,7 +246,7 @@ TELEGRAM_CHAT_ID = os.getenv(
 # ============================================================
 
 async def obtain_mark_price(
-    session: aiohttp.ClientSession,
+    client_or_session,
     symbol: str,
 ) -> Decimal:
 
@@ -255,22 +255,181 @@ async def obtain_mark_price(
     errors: List[str] = []
 
     # ========================================================
-    # R28 PRIMARY MARK PRICE
-    # Official WEEX V3 mark-price klines endpoint
+    # RESOLVE AIOHTTP SESSION SAFELY
     # ========================================================
 
-    try:
+    if isinstance(
+        client_or_session,
+        aiohttp.ClientSession,
+    ):
+
+        session = client_or_session
+
+    else:
+
+        session = getattr(
+            client_or_session,
+            "session",
+            None,
+        )
+
+        if session is None:
+
+            session = getattr(
+                client_or_session,
+                "_session",
+                None,
+            )
+
+    if session is None:
+
+        raise RuntimeError(
+            "Unable to obtain aiohttp session "
+            "from WeexClient"
+        )
+
+    if not hasattr(
+        session,
+        "get",
+    ):
+
+        raise RuntimeError(
+            "Resolved session object does not "
+            "support HTTP GET"
+        )
+
+    # ========================================================
+    # INTERNAL PRICE EXTRACTOR
+    # ========================================================
+
+    def extract_price(
+        payload,
+    ) -> Optional[Decimal]:
+
+        rows = []
+
+        if isinstance(
+            payload,
+            dict,
+        ):
+
+            rows.append(
+                payload
+            )
+
+            data = payload.get(
+                "data"
+            )
+
+            if isinstance(
+                data,
+                dict,
+            ):
+
+                rows.append(
+                    data
+                )
+
+            elif isinstance(
+                data,
+                list,
+            ):
+
+                rows.extend(
+                    item
+                    for item in data
+                    if isinstance(
+                        item,
+                        dict,
+                    )
+                )
+
+        elif isinstance(
+            payload,
+            list,
+        ):
+
+            rows.extend(
+                item
+                for item in payload
+                if isinstance(
+                    item,
+                    dict,
+                )
+            )
+
+        price_keys = (
+            "markPrice",
+            "price",
+            "indexPrice",
+            "lastPrice",
+            "close",
+        )
+
+        for row in rows:
+
+            row_symbol = str(
+                row.get(
+                    "symbol",
+                    symbol,
+                )
+            ).upper()
+
+            if (
+                row_symbol
+                and row_symbol != symbol
+            ):
+
+                continue
+
+            for key in price_keys:
+
+                candidate = row.get(
+                    key
+                )
+
+                if candidate in (
+                    None,
+                    "",
+                ):
+
+                    continue
+
+                try:
+
+                    value = Decimal(
+                        str(
+                            candidate
+                        )
+                    )
+
+                except (
+                    InvalidOperation,
+                    ValueError,
+                    TypeError,
+                ):
+
+                    continue
+
+                if value > 0:
+
+                    return value
+
+        return None
+
+    # ========================================================
+    # PUBLIC GET HELPER
+    # ========================================================
+
+    async def public_get_price(
+        path: str,
+        params: Dict[str, Any],
+    ) -> Optional[Decimal]:
 
         url = (
             f"{API_BASE_URL}"
-            f"/capi/v3/market/markPriceKlines"
+            f"{path}"
         )
-
-        params = {
-            "symbol": symbol,
-            "interval": "1m",
-            "limit": 1,
-        }
 
         async with session.get(
             url,
@@ -285,116 +444,83 @@ async def obtain_mark_price(
             if response.status != 200:
 
                 raise RuntimeError(
-                    f"WEEX GET "
-                    f"/capi/v3/market/markPriceKlines "
                     f"HTTP {response.status}: "
                     f"{text}"
                 )
 
-            data = json.loads(
-                text
-            )
+            try:
 
-            if (
-                isinstance(data, list)
-                and len(data) > 0
-                and isinstance(data[-1], list)
-                and len(data[-1]) >= 5
-            ):
-
-                price = Decimal(
-                    str(
-                        data[-1][4]
-                    )
+                payload = json.loads(
+                    text
                 )
 
-                if price > 0:
+            except Exception as exc:
 
-                    return price
+                raise RuntimeError(
+                    "Invalid JSON response: "
+                    f"{exc}; body={text}"
+                )
 
-            raise RuntimeError(
-                "Mark-price kline response "
-                "did not contain a valid "
-                "close price"
+            price = extract_price(
+                payload
             )
 
-    except Exception as exc:
+            if price is None:
 
-        errors.append(
-            "/capi/v3/market/markPriceKlines: "
-            + str(exc)
-        )
+                raise RuntimeError(
+                    "No usable positive price "
+                    f"found in response: {text}"
+                )
+
+            return price
 
     # ========================================================
-    # R28 FALLBACK
-    # Historical klines using MARK price type
+    # ATTEMPT 1 — SYMBOL PRICE
     # ========================================================
 
     try:
 
-        url = (
-            f"{API_BASE_URL}"
-            f"/capi/v3/market/historyKlines"
+        price = await public_get_price(
+            "/capi/v3/market/symbolPrice",
+            {
+                "symbol": symbol,
+                "priceType": "MARK",
+            },
         )
 
-        params = {
-            "symbol": symbol,
-            "interval": "1m",
-            "limit": 1,
-            "priceType": "MARK",
-        }
+        if price is not None:
 
-        async with session.get(
-            url,
-            params=params,
-            timeout=aiohttp.ClientTimeout(
-                total=15
-            ),
-        ) as response:
-
-            text = await response.text()
-
-            if response.status != 200:
-
-                raise RuntimeError(
-                    f"WEEX GET "
-                    f"/capi/v3/market/historyKlines "
-                    f"HTTP {response.status}: "
-                    f"{text}"
-                )
-
-            data = json.loads(
-                text
-            )
-
-            if (
-                isinstance(data, list)
-                and len(data) > 0
-                and isinstance(data[-1], list)
-                and len(data[-1]) >= 5
-            ):
-
-                price = Decimal(
-                    str(
-                        data[-1][4]
-                    )
-                )
-
-                if price > 0:
-
-                    return price
-
-            raise RuntimeError(
-                "MARK history response "
-                "did not contain a valid "
-                "close price"
-            )
+            return price
 
     except Exception as exc:
 
         errors.append(
-            "/capi/v3/market/historyKlines: "
-            + str(exc)
+            "/capi/v3/market/symbolPrice: "
+            f"{exc}"
+        )
+
+    # ========================================================
+    # ATTEMPT 2 — PREMIUM INDEX
+    # ========================================================
+
+    try:
+
+        price = await public_get_price(
+            "/capi/v3/market/premiumIndex",
+            {
+                "symbol": symbol,
+            },
+        )
+
+        if price is not None:
+
+            return price
+
+    except Exception as exc:
+
+        errors.append(
+            "/capi/v3/market/premiumIndex: "
+            f"{exc}"
         )
 
     # ========================================================
@@ -402,8 +528,7 @@ async def obtain_mark_price(
     # ========================================================
 
     raise RuntimeError(
-        f"Unable to obtain mark price "
-        f"for {symbol}. "
+        f"Unable to obtain mark price for {symbol}. "
         + " | ".join(
             errors
         )
