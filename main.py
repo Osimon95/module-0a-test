@@ -1781,7 +1781,6 @@ async def get_contract(
         + " | ".join(errors)
     )
 
-
 # ============================================================
 # QUANTITY / EXPOSURE
 # ============================================================
@@ -1792,8 +1791,7 @@ def calculate_entry_margin(
 
     return (
         balance
-        
-         ENTRY_PERCENT
+        * ENTRY_PERCENT
         / D100
     )
 
