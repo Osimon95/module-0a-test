@@ -3103,7 +3103,7 @@ async def get_demo_positions(
     ] = []
 
     endpoints = [
-         "/capi/v3/sim/position/
+         "/capi/v3/sim/position/"
      allPosition",
     ]
 
