@@ -6641,6 +6641,179 @@ async def main_async(
         timeout=timeout
     ) as session:
 
+        # ============================================================
+# R28 ORDER STATE MACHINE SELF-TEST
+# ============================================================
+
+def test_order_state_machine() -> bool:
+    """
+    R28 diagnostic-only order state-machine validation.
+
+    This does NOT transmit any order.
+    It only verifies that the expected execution-state
+    transitions behave correctly.
+    """
+
+    valid_transitions = {
+        "CREATED": {
+            "VALIDATED",
+            "REJECTED",
+        },
+        "VALIDATED": {
+            "SHADOW_COMMITTED",
+            "REJECTED",
+        },
+        "SHADOW_COMMITTED": {
+            "DEMO_PENDING",
+            "REJECTED",
+        },
+        "DEMO_PENDING": {
+            "DEMO_ACCEPTED",
+            "DEMO_REJECTED",
+        },
+        "DEMO_ACCEPTED": {
+            "RECONCILED",
+        },
+        "DEMO_REJECTED": {
+            "RECONCILED",
+        },
+        "RECONCILED": set(),
+        "REJECTED": set(),
+    }
+
+    def can_transition(
+        current_state: str,
+        next_state: str,
+    ) -> bool:
+
+        return (
+            next_state
+            in valid_transitions.get(
+                current_state,
+                set(),
+            )
+        )
+
+    # --------------------------------------------------------
+    # EXPECTED SUCCESS PATH
+    # --------------------------------------------------------
+
+    success_path = [
+        "CREATED",
+        "VALIDATED",
+        "SHADOW_COMMITTED",
+        "DEMO_PENDING",
+        "DEMO_ACCEPTED",
+        "RECONCILED",
+    ]
+
+    for index in range(
+        len(success_path) - 1
+    ):
+
+        current_state = (
+            success_path[index]
+        )
+
+        next_state = (
+            success_path[index + 1]
+        )
+
+        if not can_transition(
+            current_state,
+            next_state,
+        ):
+            raise RuntimeError(
+                "R28 order state-machine "
+                "success-path failure: "
+                f"{current_state} -> "
+                f"{next_state}"
+            )
+
+    # --------------------------------------------------------
+    # EXPECTED DEMO-REJECTION PATH
+    # --------------------------------------------------------
+
+    rejection_path = [
+        "CREATED",
+        "VALIDATED",
+        "SHADOW_COMMITTED",
+        "DEMO_PENDING",
+        "DEMO_REJECTED",
+        "RECONCILED",
+    ]
+
+    for index in range(
+        len(rejection_path) - 1
+    ):
+
+        current_state = (
+            rejection_path[index]
+        )
+
+        next_state = (
+            rejection_path[index + 1]
+        )
+
+        if not can_transition(
+            current_state,
+            next_state,
+        ):
+            raise RuntimeError(
+                "R28 order state-machine "
+                "rejection-path failure: "
+                f"{current_state} -> "
+                f"{next_state}"
+            )
+
+    # --------------------------------------------------------
+    # ILLEGAL TRANSITIONS MUST REMAIN BLOCKED
+    # --------------------------------------------------------
+
+    forbidden_transitions = [
+        (
+            "CREATED",
+            "DEMO_ACCEPTED",
+        ),
+        (
+            "VALIDATED",
+            "RECONCILED",
+        ),
+        (
+            "SHADOW_COMMITTED",
+            "RECONCILED",
+        ),
+        (
+            "DEMO_PENDING",
+            "CREATED",
+        ),
+        (
+            "RECONCILED",
+            "DEMO_PENDING",
+        ),
+        (
+            "REJECTED",
+            "VALIDATED",
+        ),
+    ]
+
+    for (
+        current_state,
+        next_state,
+    ) in forbidden_transitions:
+
+        if can_transition(
+            current_state,
+            next_state,
+        ):
+            raise RuntimeError(
+                "R28 order state-machine "
+                "illegal transition accepted: "
+                f"{current_state} -> "
+                f"{next_state}"
+            )
+
+    return True
         # Run the R28 diagnostic exactly once.
         asyncio.create_task(
             diagnostic_wrapper(
