@@ -245,6 +245,10 @@ TELEGRAM_CHAT_ID = os.getenv(
 # MARK PRICE
 # ============================================================
 
+# ============================================================
+# R28 MARK PRICE
+# ============================================================
+
 async def obtain_mark_price(
     session: aiohttp.ClientSession,
     symbol: str,
@@ -254,29 +258,139 @@ async def obtain_mark_price(
 
     errors: List[str] = []
 
+    timeout = aiohttp.ClientTimeout(
+        total=15
+    )
+
     # ========================================================
-    # PRIMARY — WEEX V3 OFFICIAL MARK PRICE
-    # NO INDENTATION BEFORE "try"
+    # PRIMARY
+    # WEEX V3 DEDICATED MARK PRICE KLINES
     # ========================================================
 
     try:
 
+        path = (
+            "/capi/v3/market/markPriceKlines"
+        )
+
         url = (
             f"{API_BASE_URL}"
-            f"/capi/v3/market/symbolPrice"
+            f"{path}"
         )
 
         params = {
             "symbol": symbol,
+            "interval": "1m",
+            "limit": 1,
+        }
+
+        async with session.get(
+            url,
+            params=params,
+            timeout=timeout,
+        ) as response:
+
+            text = await response.text()
+
+            if response.status != 200:
+
+                raise RuntimeError(
+                    f"WEEX GET {path} "
+                    f"HTTP {response.status}: "
+                    f"{text}"
+                )
+
+            try:
+
+                data = json.loads(
+                    text
+                )
+
+            except json.JSONDecodeError as exc:
+
+                raise RuntimeError(
+                    f"Invalid JSON from "
+                    f"{path}: {text}"
+                ) from exc
+
+            if (
+                not isinstance(
+                    data,
+                    list,
+                )
+                or not data
+            ):
+
+                raise RuntimeError(
+                    "Unexpected response: "
+                    f"{data}"
+                )
+
+            candle = data[-1]
+
+            if (
+                not isinstance(
+                    candle,
+                    list,
+                )
+                or len(candle) < 5
+            ):
+
+                raise RuntimeError(
+                    "Invalid mark-price "
+                    f"kline: {candle}"
+                )
+
+            mark_price = Decimal(
+                str(
+                    candle[4]
+                )
+            )
+
+            if mark_price <= 0:
+
+                raise RuntimeError(
+                    "Mark price must "
+                    "be positive"
+                )
+
+            return mark_price
+
+    except Exception as exc:
+
+        errors.append(
+            "/capi/v3/market/"
+            "markPriceKlines: "
+            + str(exc)
+        )
+
+    # ========================================================
+    # FALLBACK 1
+    # WEEX V3 HISTORY KLINES WITH MARK PRICE TYPE
+    # ========================================================
+
+    try:
+
+        path = (
+            "/capi/v3/market/historyKlines"
+        )
+
+        url = (
+            f"{API_BASE_URL}"
+            f"{path}"
+        )
+
+        params = {
+            "symbol": symbol,
+            "interval": "1m",
+            "limit": 1,
             "priceType": "MARK",
         }
 
         async with session.get(
             url,
             params=params,
-            timeout=aiohttp.ClientTimeout(
-                total=15
-            ),
+            timeout=timeout,
         ) as response:
 
             text = await response.text()
@@ -284,8 +398,7 @@ async def obtain_mark_price(
             if response.status != 200:
 
                 raise RuntimeError(
-                    f"WEEX GET "
-                    f"/capi/v3/market/symbolPrice "
+                    f"WEEX GET {path} "
                     f"HTTP {response.status}: "
                     f"{text}"
                 )
@@ -299,87 +412,80 @@ async def obtain_mark_price(
             except json.JSONDecodeError as exc:
 
                 raise RuntimeError(
-                    "Invalid JSON returned by "
-                    "/capi/v3/market/symbolPrice"
+                    f"Invalid JSON from "
+                    f"{path}: {text}"
                 ) from exc
 
-            price_value = None
-
-            if isinstance(
-                data,
-                dict,
+            if (
+                not isinstance(
+                    data,
+                    list,
+                )
+                or not data
             ):
 
-                price_value = (
-                    data.get(
-                        "price"
-                    )
+                raise RuntimeError(
+                    "Unexpected response: "
+                    f"{data}"
                 )
 
-                if (
-                    price_value is None
-                    and isinstance(
-                        data.get("data"),
-                        dict,
-                    )
-                ):
+            candle = data[-1]
 
-                    price_value = (
-                        data["data"].get(
-                            "price"
-                        )
-                    )
-
-            if price_value is None:
+            if (
+                not isinstance(
+                    candle,
+                    list,
+                )
+                or len(candle) < 5
+            ):
 
                 raise RuntimeError(
-                    "WEEX symbolPrice response "
-                    "did not contain price"
+                    "Invalid MARK kline: "
+                    f"{candle}"
                 )
 
-            price = Decimal(
+            mark_price = Decimal(
                 str(
-                    price_value
+                    candle[4]
                 )
             )
 
-            if price <= 0:
+            if mark_price <= 0:
 
                 raise RuntimeError(
-                    "WEEX symbolPrice returned "
-                    "non-positive mark price"
+                    "Mark price must "
+                    "be positive"
                 )
 
-            return price
+            return mark_price
 
     except Exception as exc:
 
         errors.append(
-            "/capi/v3/market/symbolPrice: "
+            "/capi/v3/market/"
+            "historyKlines: "
             + str(exc)
         )
 
     # ========================================================
-    # FALLBACK — WEEX V3 PREMIUM INDEX
+    # FALLBACK 2
+    # WEEX V2 ALL TICKERS
     # ========================================================
 
     try:
 
-        url = (
-            f"{API_BASE_URL}"
-            f"/capi/v3/market/premiumIndex"
+        path = (
+            "/capi/v2/market/tickers"
         )
 
-        params = {
-            "symbol": symbol,
-        }
+        url = (
+            f"{API_BASE_URL}"
+            f"{path}"
+        )
 
         async with session.get(
             url,
-            params=params,
-            timeout=aiohttp.ClientTimeout(
-                total=15
-            ),
+            timeout=timeout,
         ) as response:
 
             text = await response.text()
@@ -387,8 +493,7 @@ async def obtain_mark_price(
             if response.status != 200:
 
                 raise RuntimeError(
-                    f"WEEX GET "
-                    f"/capi/v3/market/premiumIndex "
+                    f"WEEX GET {path} "
                     f"HTTP {response.status}: "
                     f"{text}"
                 )
@@ -402,50 +507,30 @@ async def obtain_mark_price(
             except json.JSONDecodeError as exc:
 
                 raise RuntimeError(
-                    "Invalid JSON returned by "
-                    "/capi/v3/market/premiumIndex"
+                    f"Invalid JSON from "
+                    f"{path}: {text}"
                 ) from exc
 
-            rows = data
-
-            if isinstance(
-                data,
-                dict,
-            ):
-
-                if isinstance(
-                    data.get("data"),
-                    list,
-                ):
-
-                    rows = data["data"]
-
-                elif isinstance(
-                    data.get("data"),
-                    dict,
-                ):
-
-                    rows = [
-                        data["data"]
-                    ]
-
-                else:
-
-                    rows = [
-                        data
-                    ]
-
             if not isinstance(
-                rows,
+                data,
                 list,
             ):
 
                 raise RuntimeError(
-                    "Unexpected premiumIndex "
-                    "response format"
+                    "Unexpected ticker "
+                    f"response: {data}"
                 )
 
-            for row in rows:
+            plain_symbol = (
+                symbol.lower()
+            )
+
+            cmt_symbol = (
+                "cmt_"
+                + symbol.lower()
+            )
+
+            for row in data:
 
                 if not isinstance(
                     row,
@@ -457,46 +542,50 @@ async def obtain_mark_price(
                 row_symbol = str(
                     row.get(
                         "symbol",
-                        ""
+                        "",
                     )
-                ).strip().upper()
+                ).strip().lower()
 
-                if (
-                    row_symbol
-                    and row_symbol != symbol
+                if row_symbol not in {
+                    plain_symbol,
+                    cmt_symbol,
+                }:
+
+                    continue
+
+                value = row.get(
+                    "markPrice"
+                )
+
+                if value in (
+                    None,
+                    "",
                 ):
 
                     continue
 
-                price_value = (
-                    row.get(
-                        "markPrice"
+                mark_price = Decimal(
+                    str(
+                        value
                     )
                 )
 
-                if price_value is None:
+                if mark_price <= 0:
 
                     continue
 
-                price = Decimal(
-                    str(
-                        price_value
-                    )
-                )
-
-                if price > 0:
-
-                    return price
+                return mark_price
 
             raise RuntimeError(
-                f"No valid markPrice found "
-                f"for {symbol}"
+                "No valid markPrice "
+                f"found for {symbol}"
             )
 
     except Exception as exc:
 
         errors.append(
-            "/capi/v3/market/premiumIndex: "
+            "/capi/v2/market/"
+            "tickers: "
             + str(exc)
         )
 
@@ -509,7 +598,8 @@ async def obtain_mark_price(
         f"for {symbol}. "
         + " | ".join(
             errors
-        ))
+        )
+    )
     
 def dec(
     value: Any,
