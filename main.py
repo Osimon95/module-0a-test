@@ -3104,7 +3104,7 @@ async def get_demo_positions(
 
     endpoints = [
         "/capi/v3/sim/position/"
-    allPosition",]
+    allPosition/",]
 
     for path in endpoints:
 
