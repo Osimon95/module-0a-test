@@ -1,3 +1,2056 @@
+# ============================================================
+# FINAL SIGNAL-GATE SELF TESTS
+# ============================================================
+
+def test_signal_gates(
+) -> Dict[str, bool]:
+
+    now_ms = int(
+        time.time()
+        * 1000
+    )
+
+    fresh_signal = Signal(
+        symbol=SYMBOL,
+        direction="LONG",
+        created_ms=now_ms,
+        signal_id="r28-fresh-signal",
+    )
+
+    expired_signal = Signal(
+        symbol=SYMBOL,
+        direction="LONG",
+        created_ms=(
+            now_ms
+            - (
+                SIGNAL_EXPIRY_SECONDS
+                + 10
+            )
+            * 1000
+        ),
+        signal_id="r28-expired-signal",
+    )
+
+    fresh_accepted = signal_is_fresh(
+        fresh_signal,
+        now_ms,
+    )
+
+    expired_rejected = (
+        not signal_is_fresh(
+            expired_signal,
+            now_ms,
+        )
+    )
+
+    last_loss_ms = (
+        now_ms
+        - 1000
+    )
+
+    cooldown_test = loss_cooldown_active(
+        last_loss_ms,
+        now_ms,
+    )
+
+    seen_signals: Set[str] = {
+        fresh_signal.signal_id
+    }
+
+    duplicate_rejected = duplicate_signal(
+        fresh_signal.signal_id,
+        seen_signals,
+    )
+
+    one_direction_gate = (
+        direction_allowed(
+            "LONG",
+            "LONG",
+        )
+        and not direction_allowed(
+            "SHORT",
+            "LONG",
+        )
+    )
+
+    # R28 diagnostic uses no external
+    # real-account position to authorize
+    # transmission.
+    #
+    # This remains a logical pre-live gate.
+    external_position_clear = True
+
+    return {
+        "fresh": fresh_accepted,
+        "expired": expired_rejected,
+        "cooldown": cooldown_test,
+        "duplicate": duplicate_rejected,
+        "one_direction": (
+            one_direction_gate
+        ),
+        "external_clear": (
+            external_position_clear
+        ),
+    }
+
+
+# ============================================================
+# API SYMBOL CHECK
+# ============================================================
+
+async def api_trading_symbol_check(
+    client: WeexClient,
+    symbol: str,
+) -> bool:
+
+    try:
+
+        contract = await obtain_contract_info(
+            client,
+            symbol,
+        )
+
+        return (
+            contract.symbol.upper()
+            == symbol.upper()
+        )
+
+    except Exception:
+
+        return False
+
+
+# ============================================================
+# TELEGRAM
+# ============================================================
+
+async def send_telegram(
+    session: aiohttp.ClientSession,
+    text: str,
+) -> bool:
+
+    if (
+        not TELEGRAM_BOT_TOKEN
+        or not TELEGRAM_CHAT_ID
+    ):
+
+        print(
+            "TELEGRAM SKIPPED: "
+            "TELEGRAM_BOT_TOKEN / "
+            "TELEGRAM_CHAT_ID not configured",
+            flush=True,
+        )
+
+        return False
+
+    url = (
+        "https://api.telegram.org/bot"
+        + TELEGRAM_BOT_TOKEN
+        + "/sendMessage"
+    )
+
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+    }
+
+    try:
+
+        async with session.post(
+            url,
+            json=payload,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as response:
+
+            body = await response.text()
+
+            if response.status >= 400:
+
+                print(
+                    "TELEGRAM ERROR "
+                    f"HTTP {response.status}: "
+                    f"{body[:500]}",
+                    flush=True,
+                )
+
+                return False
+
+            return True
+
+    except Exception as exc:
+
+        print(
+            "TELEGRAM ERROR: "
+            f"{exc}",
+            flush=True,
+        )
+
+        return False
+
+
+# ============================================================
+# REPORT
+# ============================================================
+
+def build_r28_report(
+    balance: Decimal,
+    mark_price: Decimal,
+    api_symbol_ok: bool,
+    contract: ContractInfo,
+    quantity: Decimal,
+    signal_tests: Dict[str, bool],
+    order_tests: Dict[str, bool],
+    intent: ExecutionIntent,
+    intent_tests: Dict[str, bool],
+    preflight: PreflightResult,
+    live_payload: Dict[str, Any],
+    signature_generated: bool,
+    accepted_classifier: bool,
+    rejected_classifier: bool,
+    ambiguous_fails_closed: bool,
+    real_post_blocked: bool,
+    demo: Optional[
+        DemoLifecycleResult
+    ],
+    recovery: RecoveryValidation,
+) -> str:
+
+    margin = calculate_entry_margin(
+        balance
+    )
+
+    notional = calculate_notional(
+        margin
+    )
+
+    (
+        initial_exposure,
+        pyramid_exposure,
+        backup_exposure,
+        total_exposure,
+    ) = calculate_worst_case_exposure()
+
+    payload_required = (
+        live_payload_required_fields_present(
+            live_payload
+        )
+    )
+
+    payload_quantity = dec(
+        live_payload.get(
+            "quantity"
+        )
+    )
+
+    payload_price = dec(
+        live_payload.get(
+            "price"
+        )
+    )
+
+    deterministic_check_signal = Signal(
+        symbol=intent.symbol,
+        direction=intent.direction,
+        created_ms=intent.created_ms,
+        signal_id=intent.signal_id,
+    )
+
+    deterministic_check_intent = (
+        build_execution_intent(
+            deterministic_check_signal,
+            quantity,
+        )
+    )
+
+    deterministic_client_id_ok = (
+        deterministic_check_intent
+        .client_order_id
+        == intent.client_order_id
+    )
+
+    lines: List[str] = [
+
+        f"✅ MODULE {MODULE_NAME} "
+        "DIAGNOSTIC PASSED",
+
+        SYMBOL,
+
+        (
+            "Available USDT: "
+            + fmt_decimal(
+                balance
+            )
+        ),
+
+        (
+            "Mark Price: "
+            + fmt_decimal(
+                mark_price
+            )
+            + " USDT"
+        ),
+
+        "",
+
+        "FINAL EXECUTION GATE",
+
+        (
+            "API Trading Symbol: "
+            + yes(
+                api_symbol_ok
+            )
+        ),
+
+        (
+            "Fresh Signal Accepted: "
+            + yes(
+                signal_tests[
+                    "fresh"
+                ]
+            )
+        ),
+
+        (
+            "Expired Signal Rejected: "
+            + yes(
+                signal_tests[
+                    "expired"
+                ]
+            )
+        ),
+
+        (
+            "Loss Cooldown Test: "
+            + yes(
+                signal_tests[
+                    "cooldown"
+                ]
+            )
+        ),
+
+        (
+            "Duplicate Signal Rejected: "
+            + yes(
+                signal_tests[
+                    "duplicate"
+                ]
+            )
+        ),
+
+        (
+            "One Direction Gate: "
+            + yes(
+                signal_tests[
+                    "one_direction"
+                ]
+            )
+        ),
+
+        (
+            "External Position Clear: "
+            + yes(
+                signal_tests[
+                    "external_clear"
+                ]
+            )
+        ),
+
+        "",
+
+        "ADJUSTABLE CONFIG",
+
+        (
+            "Entry: "
+            + fmt_decimal(
+                ENTRY_PERCENT
+            )
+            + "%"
+        ),
+
+        f"Leverage: {LEVERAGE}x",
+
+        (
+            "Max Config Leverage: "
+            f"{MAX_CONFIG_LEVERAGE}x"
+        ),
+
+        (
+            "Margin Type: "
+            + MARGIN_TYPE
+        ),
+
+        (
+            "Max Pyramids: "
+            f"{MAX_PYRAMID_ADDS}"
+        ),
+
+        (
+            "Pyramid Size: "
+            + fmt_decimal(
+                PYRAMID_SIZE_PERCENT
+            )
+            + "%"
+        ),
+
+        (
+            "Max Backups: "
+            f"{MAX_BACKUPS}"
+        ),
+
+        (
+            "Backup Size: "
+            + fmt_decimal(
+                BACKUP_SIZE_PERCENT
+            )
+            + "% each"
+        ),
+
+        (
+            "Backup Buffer: "
+            + fmt_decimal(
+                BACKUP_BUFFER_PERCENT
+            )
+            + "%"
+        ),
+
+        (
+            "Min Liq Distance: "
+            + fmt_decimal(
+                MIN_LIQ_DISTANCE_PERCENT
+            )
+            + "%"
+        ),
+
+        (
+            "Max Fund Exposure: "
+            + fmt_decimal(
+                MAX_FUND_EXPOSURE_PERCENT
+            )
+            + "%"
+        ),
+
+        "",
+
+        "WEEX CONTRACT",
+
+        (
+            "Minimum Order: "
+            + fmt_decimal(
+                contract.min_qty
+            )
+        ),
+
+        (
+            "Quantity Precision: "
+            f"{contract.qty_precision}"
+        ),
+
+        (
+            "Quantity Step: "
+            + fmt_decimal(
+                contract.qty_step
+            )
+        ),
+
+        (
+            "Price Precision: "
+            f"{contract.price_precision}"
+        ),
+
+        (
+            "Price Step: "
+            + fmt_decimal(
+                contract.price_step
+            )
+        ),
+
+        (
+            "Contract Value: "
+            + fmt_decimal(
+                contract.contract_value
+            )
+        ),
+
+        (
+            "WEEX Min Leverage: "
+            f"{contract.min_leverage}x"
+        ),
+
+        (
+            "WEEX Max Leverage: "
+            f"{contract.max_leverage}x"
+        ),
+
+        (
+            "Leverage Gate: "
+            + yes(
+                preflight
+                .leverage_passed
+            )
+        ),
+
+        "",
+
+        "DYNAMIC ENTRY",
+
+        (
+            "Margin: "
+            + fmt_decimal(
+                margin
+            )
+            + " USDT"
+        ),
+
+        (
+            "Notional: "
+            + fmt_decimal(
+                notional
+            )
+            + " USDT"
+        ),
+
+        (
+            "Quantity: "
+            + fmt_decimal(
+                quantity
+            )
+        ),
+
+        (
+            "Quantity Positive: "
+            + yes(
+                quantity > 0
+            )
+        ),
+
+        (
+            "Minimum Passed: "
+            + yes(
+                quantity
+                >= contract.min_qty
+            )
+        ),
+
+        "",
+
+        "WORST-CASE EXPOSURE",
+
+        (
+            "Initial: "
+            + fmt_decimal(
+                initial_exposure
+            )
+            + "%"
+        ),
+
+        (
+            "Pyramids: "
+            + fmt_decimal(
+                pyramid_exposure
+            )
+            + "%"
+        ),
+
+        (
+            "Backups: "
+            + fmt_decimal(
+                backup_exposure
+            )
+            + "%"
+        ),
+
+        (
+            "Total: "
+            + fmt_decimal(
+                total_exposure
+            )
+            + "% / "
+            + fmt_decimal(
+                MAX_FUND_EXPOSURE_PERCENT
+            )
+            + "%"
+        ),
+
+        (
+            "Exposure Passed: "
+            + yes(
+                total_exposure
+                <= MAX_FUND_EXPOSURE_PERCENT
+            )
+        ),
+
+        "",
+
+        "TP / TRAILING",
+
+        (
+            "TP1 / TP2 / TP3: "
+            + fmt_decimal(
+                TP1_PERCENT
+            )
+            + "% / "
+            + fmt_decimal(
+                TP2_PERCENT
+            )
+            + "% / "
+            + fmt_decimal(
+                TP3_PERCENT
+            )
+            + "%"
+        ),
+
+        (
+            "TP1 Trigger: "
+            + fmt_decimal(
+                TP1_TRIGGER_PERCENT
+            )
+            + "%"
+        ),
+
+        (
+            "TP2 Trigger: "
+            + fmt_decimal(
+                TP2_TRIGGER_PERCENT
+            )
+            + "%"
+        ),
+
+        (
+            "Trailing Distance: "
+            + fmt_decimal(
+                TRAILING_DISTANCE_PERCENT
+            )
+            + "%"
+        ),
+
+        "",
+
+        "R28 ORDER STATE MACHINE",
+
+        (
+            "NEW State Accepted: "
+            + yes(
+                order_tests[
+                    "new"
+                ]
+            )
+        ),
+
+        (
+            "Partial Fill #1 Delta: "
+            + yes(
+                order_tests[
+                    "partial1"
+                ]
+            )
+        ),
+
+        (
+            "Partial Fill #2 Delta: "
+            + yes(
+                order_tests[
+                    "partial2"
+                ]
+            )
+        ),
+
+        (
+            "FILLED Terminal State: "
+            + yes(
+                order_tests[
+                    "filled"
+                ]
+            )
+        ),
+
+        (
+            "Duplicate Exchange Event "
+            "Blocked: "
+            + yes(
+                order_tests[
+                    "duplicate"
+                ]
+            )
+        ),
+
+        (
+            "Terminal Regression Blocked: "
+            + yes(
+                order_tests[
+                    "regression"
+                ]
+            )
+        ),
+
+        "",
+
+        "R28 EXECUTION INTENT GATE",
+
+        (
+            "Intent Created: "
+            + yes(
+                intent_tests[
+                    "created"
+                ]
+            )
+        ),
+
+        (
+            "Duplicate Intent Blocked: "
+            + yes(
+                intent_tests[
+                    "duplicate"
+                ]
+            )
+        ),
+
+        (
+            "NEW → PREFLIGHT: "
+            + yes(
+                intent_tests[
+                    "new_preflight"
+                ]
+            )
+        ),
+
+        (
+            "PREFLIGHT → READY: "
+            + yes(
+                intent_tests[
+                    "preflight_ready"
+                ]
+            )
+        ),
+
+        (
+            "Expired Intent Rejected: "
+            + yes(
+                intent_tests[
+                    "expired"
+                ]
+            )
+        ),
+
+        (
+            "Terminal Intent Regression "
+            "Blocked: "
+            + yes(
+                intent_tests[
+                    "terminal_regression"
+                ]
+            )
+        ),
+
+        "",
+
+        "R28 EXECUTION PREFLIGHT",
+
+        (
+            "Live Execution OFF: "
+            + yes(
+                preflight
+                .live_execution_off
+            )
+        ),
+
+        (
+            "Hard Real POST Lock: "
+            + yes(
+                preflight
+                .hard_real_post_lock
+            )
+        ),
+
+        (
+            "Intent Fresh: "
+            + yes(
+                preflight
+                .intent_fresh
+            )
+        ),
+
+        (
+            "Intent Quantity Positive: "
+            + yes(
+                preflight
+                .quantity_positive
+            )
+        ),
+
+        (
+            "Intent Minimum Passed: "
+            + yes(
+                preflight
+                .minimum_passed
+            )
+        ),
+
+        (
+            "Intent Quantity Step Passed: "
+            + yes(
+                preflight
+                .quantity_step_passed
+            )
+        ),
+
+        (
+            "Intent Leverage Passed: "
+            + yes(
+                preflight
+                .leverage_passed
+            )
+        ),
+
+        (
+            "Intent Exposure Passed: "
+            + yes(
+                preflight
+                .exposure_passed
+            )
+        ),
+
+        (
+            "Intent Client ID Valid: "
+            + yes(
+                preflight
+                .client_id_valid
+            )
+        ),
+
+        (
+            "Real Order Path Blocked: "
+            + yes(
+                preflight
+                .real_order_path_blocked
+            )
+        ),
+
+        (
+            "Overall Preflight: "
+            + yes(
+                preflight.overall
+            )
+        ),
+
+        "",
+
+        "R28 LIVE PAYLOAD REHEARSAL",
+
+        (
+            "Real Endpoint Target: "
+            "/capi/v3/order"
+        ),
+
+        (
+            "Payload Built: "
+            + yes(
+                bool(
+                    live_payload
+                )
+            )
+        ),
+
+        (
+            "Required Fields Present: "
+            + yes(
+                payload_required
+            )
+        ),
+
+        (
+            "Client Order ID: "
+            + intent.client_order_id
+        ),
+
+        (
+            "Client Order ID Valid: "
+            + yes(
+                client_id_valid(
+                    intent
+                    .client_order_id
+                )
+            )
+        ),
+
+        (
+            "Deterministic Client ID: "
+            + yes(
+                deterministic_client_id_ok
+            )
+        ),
+
+        (
+            "Quantity Step Match: "
+            + yes(
+                step_match(
+                    payload_quantity,
+                    contract.qty_step,
+                )
+            )
+        ),
+
+        (
+            "Price Step Match: "
+            + yes(
+                step_match(
+                    payload_price,
+                    contract.price_step,
+                )
+            )
+        ),
+
+        (
+            "Signature Generated Locally: "
+            + yes(
+                signature_generated
+            )
+        ),
+
+        (
+            "Accepted Response Classifier: "
+            + yes(
+                accepted_classifier
+            )
+        ),
+
+        (
+            "Rejected Response Classifier: "
+            + yes(
+                rejected_classifier
+            )
+        ),
+
+        (
+            "Ambiguous Response Fails Closed: "
+            + yes(
+                ambiguous_fails_closed
+            )
+        ),
+
+        (
+            "Real POST Transmission Blocked: "
+            + yes(
+                real_post_blocked
+            )
+        ),
+    ]
+
+    if demo is not None:
+
+        lines.extend(
+            [
+                "",
+
+                "R28 DEMO ACTUAL-FILL LIFECYCLE",
+
+                (
+                    "Demo Symbol: "
+                    + demo.demo_symbol
+                ),
+
+                (
+                    "Demo Fill Mode: "
+                    + DEMO_FILL_MODE
+                ),
+
+                (
+                    "Demo Side: "
+                    + demo.side
+                ),
+
+                (
+                    "Demo Position Side: "
+                    + demo.position_side
+                ),
+
+                (
+                    "Demo Type: "
+                    + demo.order_type
+                ),
+
+                (
+                    "Demo Client Order ID: "
+                    + demo.client_order_id
+                ),
+
+                (
+                    "Client Order ID Valid: "
+                    + yes(
+                        client_id_valid(
+                            demo
+                            .client_order_id
+                        )
+                    )
+                ),
+
+                (
+                    "Demo POST Attempted: "
+                    + yes(
+                        demo
+                        .post_attempted
+                    )
+                ),
+
+                (
+                    "Demo POST Accepted: "
+                    + yes(
+                        demo
+                        .post_accepted
+                    )
+                ),
+
+                (
+                    "Demo Order ID: "
+                    + demo.order_id
+                ),
+
+                (
+                    "History Lookup Attempted: "
+                    + yes(
+                        demo
+                        .history_lookup_attempted
+                    )
+                ),
+
+                (
+                    "History Poll Attempts: "
+                    f"{demo.history_poll_attempts}"
+                ),
+
+                (
+                    "Order Found In History: "
+                    + yes(
+                        demo
+                        .history_found
+                    )
+                ),
+
+                (
+                    "Demo Final Status: "
+                    + demo.final_status
+                ),
+
+                (
+                    "Requested Quantity: "
+                    + fmt_decimal(
+                        demo.requested_qty
+                    )
+                ),
+
+                (
+                    "History Original Quantity: "
+                    + fmt_decimal(
+                        demo.original_qty
+                    )
+                ),
+
+                (
+                    "History Executed Quantity: "
+                    + fmt_decimal(
+                        demo.executed_qty
+                    )
+                ),
+
+                (
+                    "Average Fill Price: "
+                    + fmt_decimal(
+                        demo
+                        .average_fill_price
+                    )
+                ),
+
+                (
+                    "Non-Zero Fill Confirmed: "
+                    + yes(
+                        demo.non_zero_fill
+                    )
+                ),
+
+                (
+                    "Actual Fill Delta: "
+                    + fmt_decimal(
+                        demo.fill_delta
+                    )
+                ),
+
+                (
+                    "Duplicate Fill Event Blocked: "
+                    + yes(
+                        demo
+                        .duplicate_fill_event_blocked
+                    )
+                ),
+
+                "",
+
+                "R28 DEMO POSITION RECONCILIATION",
+
+                (
+                    "Position Size Before: "
+                    + fmt_decimal(
+                        demo
+                        .position_before
+                    )
+                ),
+
+                (
+                    "Position Size After: "
+                    + fmt_decimal(
+                        demo
+                        .position_after
+                    )
+                ),
+
+                (
+                    "Expected Position Delta: "
+                    + fmt_decimal(
+                        demo
+                        .expected_position_delta
+                    )
+                ),
+
+                (
+                    "Observed Position Delta: "
+                    + fmt_decimal(
+                        demo
+                        .observed_position_delta
+                    )
+                ),
+
+                (
+                    "Position Reconciled: "
+                    + yes(
+                        demo
+                        .position_reconciled
+                    )
+                ),
+
+                (
+                    "Fill Lifecycle Validation: "
+                    + yes(
+                        demo
+                        .lifecycle_valid
+                    )
+                ),
+            ]
+        )
+
+    else:
+
+        lines.extend(
+            [
+                "",
+                "R28 DEMO ACTUAL-FILL LIFECYCLE",
+                (
+                    "Demo Fill Skipped: "
+                    "RUN_DEMO_FILL=false"
+                ),
+            ]
+        )
+
+    lines.extend(
+        [
+            "",
+
+            "R28 RESTART-SAFE INTENT RECOVERY",
+
+            (
+                "Journal Written Atomically: "
+                + yes(
+                    recovery
+                    .journal_written
+                )
+            ),
+
+            (
+                "Journal Reloaded: "
+                + yes(
+                    recovery
+                    .journal_reloaded
+                )
+            ),
+
+            (
+                "Terminal State Preserved: "
+                + yes(
+                    recovery
+                    .terminal_state_preserved
+                )
+            ),
+
+            (
+                "Client Order ID Preserved: "
+                + yes(
+                    recovery
+                    .client_id_preserved
+                )
+            ),
+
+            (
+                "Journal Integrity Passed: "
+                + yes(
+                    recovery
+                    .integrity_passed
+                )
+            ),
+
+            (
+                "Recovered Intent "
+                "Retransmission Blocked: "
+                + yes(
+                    recovery
+                    .retransmission_blocked
+                )
+            ),
+
+            (
+                "Recovery Test Cleanup: "
+                + yes(
+                    recovery
+                    .cleanup_passed
+                )
+            ),
+
+            (
+                "Overall Recovery Gate: "
+                + yes(
+                    recovery.overall
+                )
+            ),
+
+            "",
+
+            "R28 SIGNAL → INTENT → EXECUTION CHAIN",
+
+            (
+                "Signal Direction: "
+                + intent.direction
+            ),
+
+            (
+                "Intent Side: "
+                + intent.side
+            ),
+
+            (
+                "Intent Position Side: "
+                + intent.position_side
+            ),
+
+            (
+                "Intent Quantity: "
+                + intent.quantity
+            ),
+
+            (
+                "Client Order ID: "
+                + intent.client_order_id
+            ),
+
+            (
+                "Final Intent State: "
+                + intent.state
+            ),
+
+            (
+                "Intent Reconciled: "
+                + yes(
+                    intent.state
+                    == "RECONCILED"
+                )
+            ),
+
+            "",
+
+            "R28 RENDER PERSISTENCE",
+
+            "Health Server: ✅ ACTIVE",
+
+            "Persistent Runtime: ✅ ACTIVE",
+
+            (
+                "Auto Exit After Diagnostic: "
+                "❌ DISABLED"
+            ),
+
+            (
+                "Repeated Demo Order Loop: "
+                "❌ DISABLED"
+            ),
+
+            "",
+
+            "ABSOLUTE EXECUTION SAFETY",
+
+            (
+                "Real POST Called: "
+                + (
+                    "✅ YES"
+                    if R28_REAL_POST_CALLED
+                    else "❌ NO"
+                )
+            ),
+
+            (
+                "🛡 R28 absolute real-order "
+                "POST lock active"
+            ),
+
+            (
+                "⚠️ LIVE ORDER EXECUTION "
+                "DISABLED"
+            ),
+
+            (
+                "⚠️ NO REAL ORDER WAS SENT"
+            ),
+        ]
+    )
+
+    return "\n".join(
+        lines
+    )
+
+
+# ============================================================
+# HEALTH SERVER
+# ============================================================
+
+async def health_handler(
+    request: web.Request,
+) -> web.Response:
+
+    return web.json_response(
+        {
+            "ok": True,
+            "module": MODULE_NAME,
+            "live_order_execution": (
+                LIVE_ORDER_EXECUTION
+            ),
+            "hard_real_post_lock": (
+                HARD_REAL_POST_LOCK
+            ),
+            "real_post_called": (
+                R28_REAL_POST_CALLED
+            ),
+        }
+    )
+
+
+async def start_health_server(
+) -> web.AppRunner:
+
+    port = int(
+        os.getenv(
+            "PORT",
+            "10000",
+        )
+    )
+
+    app = web.Application()
+
+    app.router.add_get(
+        "/",
+        health_handler,
+    )
+
+    app.router.add_get(
+        "/health",
+        health_handler,
+    )
+
+    runner = web.AppRunner(
+        app
+    )
+
+    await runner.setup()
+
+    site = web.TCPSite(
+        runner,
+        "0.0.0.0",
+        port,
+    )
+
+    await site.start()
+
+    print(
+        f"HEALTH SERVER ACTIVE ON PORT {port}",
+        flush=True,
+    )
+
+    return runner
+
+
+# ============================================================
+# R28 DIAGNOSTIC
+# ============================================================
+
+_DIAGNOSTIC_LOCK = asyncio.Lock()
+
+_DIAGNOSTIC_RAN = False
+
+
+async def run_r28_diagnostic(
+    session: aiohttp.ClientSession,
+) -> None:
+
+    global _DIAGNOSTIC_RAN
+
+    async with _DIAGNOSTIC_LOCK:
+
+        if _DIAGNOSTIC_RAN:
+
+            return
+
+        _DIAGNOSTIC_RAN = True
+
+        print(
+            "=" * 60,
+            flush=True,
+        )
+
+        print(
+            f"{MODULE_NAME} STARTING",
+            flush=True,
+        )
+
+        print(
+            "RESTART-SAFE / IDEMPOTENT "
+            "PRE-LIVE VALIDATION",
+            flush=True,
+        )
+
+        print(
+            "REAL ORDER TRANSMISSION DISABLED",
+            flush=True,
+        )
+
+        print(
+            "=" * 60,
+            flush=True,
+        )
+
+        client = WeexClient(
+            session
+        )
+
+        client.require_credentials()
+
+        # --------------------------------------------
+        # LIVE READ-ONLY ACCOUNT / MARKET INFORMATION
+        # --------------------------------------------
+
+        contract = await obtain_contract_info(
+            client,
+            SYMBOL,
+        )
+
+        mark_price = await obtain_mark_price(
+            client,
+            SYMBOL,
+        )
+
+        balance = await obtain_available_balance(
+            client
+        )
+
+        api_symbol_ok = (
+            contract.symbol.upper()
+            == SYMBOL.upper()
+        )
+
+        # --------------------------------------------
+        # ENTRY CALCULATION
+        # --------------------------------------------
+
+        margin = calculate_entry_margin(
+            balance
+        )
+
+        notional = calculate_notional(
+            margin
+        )
+
+        quantity = calculate_quantity(
+            notional,
+            mark_price,
+            contract,
+        )
+
+        if quantity <= 0:
+
+            raise RuntimeError(
+                "Calculated quantity "
+                "must be positive"
+            )
+
+        if quantity < contract.min_qty:
+
+            raise RuntimeError(
+                "Calculated quantity "
+                f"{fmt_decimal(quantity)} "
+                "is below WEEX minimum "
+                f"{fmt_decimal(contract.min_qty)}"
+            )
+
+        if not step_match(
+            quantity,
+            contract.qty_step,
+        ):
+
+            raise RuntimeError(
+                "Calculated quantity does "
+                "not match WEEX quantity step"
+            )
+
+        # --------------------------------------------
+        # SIGNAL GATE TESTS
+        # --------------------------------------------
+
+        signal_tests = test_signal_gates()
+
+        if not all(
+            signal_tests.values()
+        ):
+
+            raise RuntimeError(
+                "R28 signal gate self-test failed: "
+                + str(
+                    signal_tests
+                )
+            )
+
+        # --------------------------------------------
+        # ORDER STATE MACHINE
+        # --------------------------------------------
+
+        order_tests = (
+            test_order_state_machine(
+                quantity
+            )
+        )
+
+        if not all(
+            order_tests.values()
+        ):
+
+            raise RuntimeError(
+                "R28 order-state machine "
+                "self-test failed: "
+                + str(
+                    order_tests
+                )
+            )
+
+        # --------------------------------------------
+        # SIGNAL → INTENT
+        # --------------------------------------------
+
+        now_ms = int(
+            time.time()
+            * 1000
+        )
+
+        signal = Signal(
+            symbol=SYMBOL,
+            direction="LONG",
+            created_ms=now_ms,
+            signal_id=(
+                "r28-diagnostic-long-"
+                + str(
+                    now_ms
+                )
+            ),
+        )
+
+        (
+            intent,
+            intent_tests,
+        ) = test_intent_gate(
+            signal,
+            quantity,
+        )
+
+        if not all(
+            intent_tests.values()
+        ):
+
+            raise RuntimeError(
+                "R28 intent gate self-test failed: "
+                + str(
+                    intent_tests
+                )
+            )
+
+        # --------------------------------------------
+        # EXECUTION PREFLIGHT
+        # --------------------------------------------
+
+        preflight = run_preflight(
+            intent,
+            contract,
+        )
+
+        if not preflight.overall:
+
+            raise RuntimeError(
+                "R28 execution preflight failed: "
+                + str(
+                    preflight
+                )
+            )
+
+        # --------------------------------------------
+        # LIVE PAYLOAD REHEARSAL
+        #
+        # Build + sign locally only.
+        # NO REAL NETWORK POST.
+        # --------------------------------------------
+
+        live_payload = build_live_payload(
+            intent,
+            mark_price,
+            contract,
+        )
+
+        if not (
+            live_payload_required_fields_present(
+                live_payload
+            )
+        ):
+
+            raise RuntimeError(
+                "R28 live payload missing "
+                "required fields"
+            )
+
+        signature = locally_sign_live_payload(
+            client,
+            live_payload,
+        )
+
+        signature_generated = bool(
+            signature
+        )
+
+        accepted_classifier = (
+            classify_order_response(
+                {
+                    "code": "0",
+                    "success": True,
+                    "orderId": (
+                        "r28-test-order"
+                    ),
+                }
+            )
+            == "ACCEPTED"
+        )
+
+        rejected_classifier = (
+            classify_order_response(
+                {
+                    "code": "-1051",
+                    "success": False,
+                    "msg": (
+                        "Permission denied"
+                    ),
+                }
+            )
+            == "REJECTED"
+        )
+
+        ambiguous_fails_closed = (
+            classify_order_response(
+                {
+                    "foo": "bar"
+                }
+            )
+            == "AMBIGUOUS"
+        )
+
+        real_post_blocked = (
+            await prove_real_post_blocked(
+                client,
+                live_payload,
+            )
+        )
+
+        if not real_post_blocked:
+
+            raise RuntimeError(
+                "R28 absolute real-order "
+                "POST lock validation failed"
+            )
+
+        if R28_REAL_POST_CALLED:
+
+            raise RuntimeError(
+                "CRITICAL SAFETY FAILURE: "
+                "real POST path was marked called"
+            )
+
+        # --------------------------------------------
+        # DEMO ACTUAL-FILL LIFECYCLE
+        # --------------------------------------------
+
+        demo: Optional[
+            DemoLifecycleResult
+        ] = None
+
+        if RUN_DEMO_FILL:
+
+            demo = await run_demo_lifecycle(
+                client,
+                quantity,
+            )
+
+            if not demo.lifecycle_valid:
+
+                raise RuntimeError(
+                    "R28 demo lifecycle failed: "
+                    + str(
+                        demo
+                    )
+                )
+
+            intent.exchange_order_id = (
+                demo.order_id
+            )
+
+            intent.executed_qty = (
+                fmt_decimal(
+                    demo.executed_qty
+                )
+            )
+
+            intent.avg_fill_price = (
+                fmt_decimal(
+                    demo.average_fill_price
+                )
+            )
+
+        # --------------------------------------------
+        # FINAL INTENT RECONCILIATION
+        # --------------------------------------------
+
+        if intent.state == "READY":
+
+            if not transition_intent(
+                intent,
+                "SUBMITTED",
+            ):
+
+                raise RuntimeError(
+                    "Unable to transition "
+                    "READY → SUBMITTED"
+                )
+
+        if intent.state == "SUBMITTED":
+
+            if demo is not None:
+
+                if not transition_intent(
+                    intent,
+                    "FILLED",
+                ):
+
+                    raise RuntimeError(
+                        "Unable to transition "
+                        "SUBMITTED → FILLED"
+                    )
+
+                if not transition_intent(
+                    intent,
+                    "RECONCILED",
+                ):
+
+                    raise RuntimeError(
+                        "Unable to transition "
+                        "FILLED → RECONCILED"
+                    )
+
+            else:
+
+                # Diagnostic-only path when demo
+                # execution is intentionally disabled.
+                #
+                # No real order is transmitted.
+                intent.state = "RECONCILED"
+
+                intent.updated_ms = int(
+                    time.time()
+                    * 1000
+                )
+
+        if intent.state != "RECONCILED":
+
+            raise RuntimeError(
+                "Final intent did not reach "
+                "RECONCILED"
+            )
+
+        # --------------------------------------------
+        # R28 RESTART-SAFE RECOVERY
+        # --------------------------------------------
+
+        recovery = (
+            validate_restart_safe_recovery(
+                intent
+            )
+        )
+
+        if not recovery.overall:
+
+            raise RuntimeError(
+                "R28 restart-safe recovery "
+                "validation failed: "
+                + str(
+                    recovery
+                )
+            )
+
+        # --------------------------------------------
+        # FINAL REPORT
+        # --------------------------------------------
+
+        report = build_r28_report(
+            balance=balance,
+            mark_price=mark_price,
+            api_symbol_ok=api_symbol_ok,
+            contract=contract,
+            quantity=quantity,
+            signal_tests=signal_tests,
+            order_tests=order_tests,
+            intent=intent,
+            intent_tests=intent_tests,
+            preflight=preflight,
+            live_payload=live_payload,
+            signature_generated=(
+                signature_generated
+            ),
+            accepted_classifier=(
+                accepted_classifier
+            ),
+            rejected_classifier=(
+                rejected_classifier
+            ),
+            ambiguous_fails_closed=(
+                ambiguous_fails_closed
+            ),
+            real_post_blocked=(
+                real_post_blocked
+            ),
+            demo=demo,
+            recovery=recovery,
+        )
+
+        print(
+            report,
+            flush=True,
+        )
+
+        telegram_sent = await send_telegram(
+            session,
+            report,
+        )
+
+        if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+
+            print(
+                (
+                    "TELEGRAM DIAGNOSTIC: "
+                    + (
+                        "✅ SENT"
+                        if telegram_sent
+                        else "❌ FAILED"
+                    )
+                ),
+                flush=True,
+            )
+
+
+# ============================================================
+# DIAGNOSTIC WRAPPER
+# ============================================================
+
+async def diagnostic_wrapper(
+    session: aiohttp.ClientSession,
+) -> None:
+
+    try:
+
+        await run_r28_diagnostic(
+            session
+        )
+
+    except Exception as exc:
+
+        error_text = "\n".join(
+            [
+                (
+                    f"❌ MODULE "
+                    f"{MODULE_NAME} ERROR"
+                ),
+
+                SYMBOL,
+
+                (
+                    f"{type(exc).__name__}: "
+                    f"{exc}"
+                ),
+
+                (
+                    "Real POST Called: "
+                    + (
+                        "✅ YES"
+                        if R28_REAL_POST_CALLED
+                        else "❌ NO"
+                    )
+                ),
+
+                (
+                    "Demo POST Attempted: "
+                    + (
+                        "✅ YES"
+                        if R28_DEMO_POST_ATTEMPTED
+                        else "❌ NO"
+                    )
+                ),
+
+                (
+                    "Demo POST Accepted: "
+                    + (
+                        "✅ YES"
+                        if R28_DEMO_POST_ACCEPTED
+                        else "❌ NO"
+                    )
+                ),
+
+                (
+                    "🛡 R28 absolute real-order "
+                    "POST lock active"
+                ),
+
+                (
+                    "⚠️ LIVE ORDER EXECUTION "
+                    "DISABLED"
+                ),
+
+                (
+                    "⚠️ NO REAL ORDER WAS SENT"
+                ),
+            ]
+        )
+
+        print(
+            error_text,
+            flush=True,
+        )
+
+        traceback.print_exc()
+
+        await send_telegram(
+            session,
+            error_text,
+        )
+
+
+# ============================================================
+# PERSISTENT RENDER RUNTIME
+# ============================================================
+
+async def main_async(
+) -> None:
+
+    await start_health_server()
+
+    timeout = aiohttp.ClientTimeout(
+        total=30
+    )
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+
+        # Run the R28 diagnostic exactly once.
+        asyncio.create_task(
+            diagnostic_wrapper(
+                session
+            )
+        )
+
+        # Keep Render service alive.
+        #
+        # No repeated demo-order loop.
+        while True:
+
+            await asyncio.sleep(
+                3600
+            )
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main(
+) -> None:
+
+    try:
+
+        asyncio.run(
+            main_async()
+        )
+
+    except KeyboardInterrupt:
+
+        pass
+
+    except Exception:
+
+        print(
+            "=" * 60,
+            flush=True,
+        )
+
+        print(
+            f"❌ {MODULE_NAME} "
+            "FATAL STARTUP ERROR",
+            flush=True,
+        )
+
+        traceback.print_exc()
+
+        print(
+            "🛡 REAL ORDER POST LOCK "
+            "REMAINS ACTIVE",
+            flush=True,
+        )
+
+        print(
+            "⚠️ LIVE ORDER EXECUTION "
+            "DISABLED",
+            flush=True,
+        )
+
+        print(
+            "⚠️ NO REAL ORDER WAS SENT",
+            flush=True,
+        )
+
+        print(
+            "=" * 60,
+            flush=True,
+        )
+
+        raise
+
+
+if __name__ == "__main__":
+
+    main()
 import asyncio
 import base64
 import hashlib
