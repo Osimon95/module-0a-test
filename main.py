@@ -813,3 +813,1567 @@ class WeexClient:
             "WEEX_PASSPHRASE",
             "",
         ).strip()
+    def credentials_ready(
+        self,
+    ) -> bool:
+
+        return all(
+            [
+                self.api_key,
+                self.secret_key,
+                self.passphrase,
+            ]
+        )
+
+
+    def _signature(
+        self,
+        timestamp: str,
+        method: str,
+        path: str,
+        query: str = "",
+        body: str = "",
+    ) -> str:
+
+        method = method.upper()
+
+        prehash = (
+            timestamp
+            + method
+            + path
+        )
+
+        if query:
+
+            prehash += (
+                "?"
+                + query
+            )
+
+        prehash += body
+
+        digest = hmac.new(
+            self.secret_key.encode(
+                "utf-8"
+            ),
+            prehash.encode(
+                "utf-8"
+            ),
+            hashlib.sha256,
+        ).digest()
+
+        return base64.b64encode(
+            digest
+        ).decode(
+            "utf-8"
+        )
+
+
+    def signed_headers(
+        self,
+        method: str,
+        path: str,
+        query: str = "",
+        body: str = "",
+        timestamp: Optional[str] = None,
+    ) -> Dict[
+        str,
+        str,
+    ]:
+
+        ts = (
+            timestamp
+            or str(
+                int(
+                    time.time()
+                    * 1000
+                )
+            )
+        )
+
+        return {
+            "ACCESS-KEY": self.api_key,
+            "ACCESS-SIGN": self._signature(
+                ts,
+                method,
+                path,
+                query,
+                body,
+            ),
+            "ACCESS-TIMESTAMP": ts,
+            "ACCESS-PASSPHRASE": self.passphrase,
+            "Content-Type": "application/json",
+            "User-Agent": f"{MODULE_NAME}/1.0",
+        }
+
+
+    async def public_get(
+        self,
+        path: str,
+        params: Optional[
+            Dict[
+                str,
+                Any,
+            ]
+        ] = None,
+    ) -> Any:
+
+        params = (
+            params
+            or {}
+        )
+
+        url = (
+            API_BASE_URL
+            + path
+        )
+
+        async with self.session.get(
+            url,
+            params=params,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as response:
+
+            text = await response.text()
+
+            if (
+                response.status < 200
+                or response.status >= 300
+            ):
+
+                raise RuntimeError(
+                    f"WEEX PUBLIC GET "
+                    f"{path} HTTP "
+                    f"{response.status}: "
+                    f"{text}"
+                )
+
+            try:
+
+                return json.loads(
+                    text
+                )
+
+            except json.JSONDecodeError as exc:
+
+                raise RuntimeError(
+                    f"WEEX PUBLIC GET "
+                    f"{path} invalid JSON: "
+                    f"{text}"
+                ) from exc
+
+
+    async def private_get(
+        self,
+        path: str,
+        params: Optional[
+            Dict[
+                str,
+                Any,
+            ]
+        ] = None,
+    ) -> Any:
+
+        if not self.credentials_ready():
+
+            raise RuntimeError(
+                "Missing WEEX_API_KEY / "
+                "WEEX_SECRET_KEY / "
+                "WEEX_PASSPHRASE"
+            )
+
+        params = (
+            params
+            or {}
+        )
+
+        query = urlencode(
+            params
+        )
+
+        headers = self.signed_headers(
+            "GET",
+            path,
+            query=query,
+        )
+
+        url = (
+            API_BASE_URL
+            + path
+        )
+
+        if query:
+
+            url += (
+                "?"
+                + query
+            )
+
+        async with self.session.get(
+            url,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as response:
+
+            text = await response.text()
+
+            if (
+                response.status < 200
+                or response.status >= 300
+            ):
+
+                raise RuntimeError(
+                    f"WEEX PRIVATE GET "
+                    f"{path} HTTP "
+                    f"{response.status}: "
+                    f"{text}"
+                )
+
+            try:
+
+                return json.loads(
+                    text
+                )
+
+            except json.JSONDecodeError as exc:
+
+                raise RuntimeError(
+                    f"WEEX PRIVATE GET "
+                    f"{path} invalid JSON: "
+                    f"{text}"
+                ) from exc
+
+
+    async def demo_post(
+        self,
+        path: str,
+        payload: Dict[
+            str,
+            Any,
+        ],
+    ) -> Any:
+
+        global R28_DEMO_POST_ATTEMPTED
+        global R28_DEMO_POST_ACCEPTED
+
+        if not self.credentials_ready():
+
+            raise RuntimeError(
+                "Missing WEEX credentials"
+            )
+
+        allowed_demo_paths = {
+            "/capi/v3/sim/order",
+        }
+
+        if path not in allowed_demo_paths:
+
+            raise RuntimeError(
+                "R28 demo POST whitelist "
+                f"blocked path: {path}"
+            )
+
+        R28_DEMO_POST_ATTEMPTED = True
+
+        body = json.dumps(
+            payload,
+            separators=(
+                ",",
+                ":",
+            ),
+        )
+
+        headers = self.signed_headers(
+            "POST",
+            path,
+            body=body,
+        )
+
+        async with self.session.post(
+            API_BASE_URL + path,
+            data=body,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(
+                total=15
+            ),
+        ) as response:
+
+            text = await response.text()
+
+            if (
+                response.status < 200
+                or response.status >= 300
+            ):
+
+                raise RuntimeError(
+                    f"WEEX DEMO POST "
+                    f"{path} HTTP "
+                    f"{response.status}: "
+                    f"{text}"
+                )
+
+            try:
+
+                data = json.loads(
+                    text
+                )
+
+            except json.JSONDecodeError as exc:
+
+                raise RuntimeError(
+                    "WEEX DEMO POST "
+                    f"invalid JSON: {text}"
+                ) from exc
+
+            R28_DEMO_POST_ACCEPTED = (
+                classify_order_response(
+                    data
+                )
+                == "ACCEPTED"
+            )
+
+            return data
+
+
+    async def real_post_blocked(
+        self,
+        path: str,
+        payload: Dict[
+            str,
+            Any,
+        ],
+    ) -> None:
+
+        global R28_REAL_POST_CALLED
+
+        if (
+            HARD_REAL_POST_LOCK
+            or not LIVE_ORDER_EXECUTION
+        ):
+
+            raise RuntimeError(
+                "R28 ABSOLUTE REAL ORDER "
+                "POST LOCK: transmission "
+                "blocked before network"
+            )
+
+        R28_REAL_POST_CALLED = True
+
+        raise RuntimeError(
+            "R28 does not expose real "
+            "state-changing POST transport"
+        )
+
+
+# ============================================================
+# RESPONSE EXTRACTION
+# ============================================================
+
+def walk_dicts(
+    value: Any,
+):
+
+    if isinstance(
+        value,
+        dict,
+    ):
+
+        yield value
+
+        for child in value.values():
+
+            yield from walk_dicts(
+                child
+            )
+
+    elif isinstance(
+        value,
+        list,
+    ):
+
+        for child in value:
+
+            yield from walk_dicts(
+                child
+            )
+
+
+def extract_decimal_by_keys(
+    data: Any,
+    keys: Tuple[
+        str,
+        ...,
+    ],
+) -> Optional[
+    Decimal
+]:
+
+    for row in walk_dicts(
+        data
+    ):
+
+        for key in keys:
+
+            if key not in row:
+                continue
+
+            value = row.get(
+                key
+            )
+
+            if value in (
+                None,
+                "",
+            ):
+                continue
+
+            try:
+
+                number = Decimal(
+                    str(value)
+                )
+
+            except (
+                InvalidOperation,
+                TypeError,
+                ValueError,
+            ):
+
+                continue
+
+            return number
+
+    return None
+
+
+def extract_positive_decimal_by_keys(
+    data: Any,
+    keys: Tuple[
+        str,
+        ...,
+    ],
+) -> Optional[
+    Decimal
+]:
+
+    for row in walk_dicts(
+        data
+    ):
+
+        for key in keys:
+
+            value = row.get(
+                key
+            )
+
+            if value in (
+                None,
+                "",
+            ):
+                continue
+
+            try:
+
+                number = Decimal(
+                    str(value)
+                )
+
+            except (
+                InvalidOperation,
+                TypeError,
+                ValueError,
+            ):
+
+                continue
+
+            if number > 0:
+
+                return number
+
+    return None
+
+
+def find_symbol_rows(
+    data: Any,
+    symbol: str,
+) -> List[
+    Dict[
+        str,
+        Any,
+    ]
+]:
+
+    symbol = (
+        symbol
+        .strip()
+        .upper()
+    )
+
+    matches: List[
+        Dict[
+            str,
+            Any,
+        ]
+    ] = []
+
+    for row in walk_dicts(
+        data
+    ):
+
+        row_symbol = str(
+            row.get(
+                "symbol",
+                row.get(
+                    "s",
+                    "",
+                ),
+            )
+        ).strip().upper()
+
+        if row_symbol == symbol:
+
+            matches.append(
+                row
+            )
+
+    return matches
+
+
+# ============================================================
+# MARK PRICE
+# ============================================================
+
+async def obtain_mark_price(
+    client: WeexClient,
+    symbol: str,
+) -> Decimal:
+
+    symbol = (
+        symbol
+        .strip()
+        .upper()
+    )
+
+    errors: List[
+        str
+    ] = []
+
+    # --------------------------------------------------------
+    # PRIMARY
+    # WEEX V3 official symbol price endpoint.
+    #
+    # IMPORTANT:
+    # We call client.public_get().
+    # We DO NOT call client.get().
+    # public_get() uses client.session.get().
+    # --------------------------------------------------------
+
+    try:
+
+        data = await client.public_get(
+            "/capi/v3/market/symbolPrice",
+            {
+                "symbol": symbol,
+                "priceType": "MARK",
+            },
+        )
+
+        rows = find_symbol_rows(
+            data,
+            symbol,
+        )
+
+        sources: List[
+            Any
+        ] = []
+
+        if rows:
+
+            sources.extend(
+                rows
+            )
+
+        sources.append(
+            data
+        )
+
+        for source in sources:
+
+            price = (
+                extract_positive_decimal_by_keys(
+                    source,
+                    (
+                        "markPrice",
+                        "mark_price",
+                        "symbolPrice",
+                        "price",
+                        "p",
+                    ),
+                )
+            )
+
+            if (
+                price is not None
+                and price > 0
+            ):
+
+                return price
+
+        raise RuntimeError(
+            "response contained no "
+            "positive mark price"
+        )
+
+    except Exception as exc:
+
+        errors.append(
+            "/capi/v3/market/symbolPrice: "
+            f"{exc}"
+        )
+
+    # --------------------------------------------------------
+    # FALLBACK
+    # --------------------------------------------------------
+
+    try:
+
+        data = await client.public_get(
+            "/capi/v3/market/premiumIndex",
+            {
+                "symbol": symbol,
+            },
+        )
+
+        rows = find_symbol_rows(
+            data,
+            symbol,
+        )
+
+        sources = []
+
+        if rows:
+
+            sources.extend(
+                rows
+            )
+
+        sources.append(
+            data
+        )
+
+        for source in sources:
+
+            price = (
+                extract_positive_decimal_by_keys(
+                    source,
+                    (
+                        "markPrice",
+                        "mark_price",
+                        "price",
+                        "p",
+                    ),
+                )
+            )
+
+            if (
+                price is not None
+                and price > 0
+            ):
+
+                return price
+
+        raise RuntimeError(
+            "response contained no "
+            "positive mark price"
+        )
+
+    except Exception as exc:
+
+        errors.append(
+            "/capi/v3/market/premiumIndex: "
+            f"{exc}"
+        )
+
+    raise RuntimeError(
+        f"Unable to obtain mark price "
+        f"for {symbol}. "
+        + " | ".join(
+            errors
+        )
+    )
+
+
+# Compatibility alias used by the R28 diagnostic.
+
+async def get_mark_price(
+    client: WeexClient,
+    symbol: str,
+) -> Decimal:
+
+    return await obtain_mark_price(
+        client,
+        symbol,
+    )
+
+
+# ============================================================
+# AVAILABLE BALANCE
+# ============================================================
+
+async def get_available_balance(
+    client: WeexClient,
+    asset: str = "USDT",
+) -> Decimal:
+
+    asset = (
+        asset
+        .strip()
+        .upper()
+    )
+
+    errors: List[
+        str
+    ] = []
+
+    endpoints = [
+        "/capi/v3/account/balance",
+        "/capi/v3/account/assets",
+    ]
+
+    for path in endpoints:
+
+        try:
+
+            data = await client.private_get(
+                path
+            )
+
+            for row in walk_dicts(
+                data
+            ):
+
+                row_asset = str(
+                    row.get(
+                        "asset",
+                        row.get(
+                            "marginCoin",
+                            row.get(
+                                "coin",
+                                row.get(
+                                    "currency",
+                                    "",
+                                ),
+                            ),
+                        ),
+                    )
+                ).strip().upper()
+
+                if (
+                    row_asset
+                    and row_asset != asset
+                ):
+                    continue
+
+                for key in (
+                    "available",
+                    "availableBalance",
+                    "availableMargin",
+                    "free",
+                    "balance",
+                ):
+
+                    value = row.get(
+                        key
+                    )
+
+                    if value in (
+                        None,
+                        "",
+                    ):
+                        continue
+
+                    try:
+
+                        amount = Decimal(
+                            str(value)
+                        )
+
+                    except (
+                        InvalidOperation,
+                        TypeError,
+                        ValueError,
+                    ):
+
+                        continue
+
+                    if amount >= 0:
+
+                        return amount
+
+            direct = (
+                extract_decimal_by_keys(
+                    data,
+                    (
+                        "available",
+                        "availableBalance",
+                        "availableMargin",
+                    ),
+                )
+            )
+
+            if (
+                direct is not None
+                and direct >= 0
+            ):
+
+                return direct
+
+            raise RuntimeError(
+                "no available balance "
+                "found in response"
+            )
+
+        except Exception as exc:
+
+            errors.append(
+                f"{path}: {exc}"
+            )
+
+    raise RuntimeError(
+        f"Unable to obtain available "
+        f"{asset} balance. "
+        + " | ".join(
+            errors
+        )
+    )
+
+
+# ============================================================
+# API SYMBOL VALIDATION
+# ============================================================
+
+async def get_api_trading_symbol(
+    client: WeexClient,
+    symbol: str,
+) -> bool:
+
+    symbol = (
+        symbol
+        .strip()
+        .upper()
+    )
+
+    endpoints = [
+        "/capi/v3/market/exchangeInfo",
+        "/capi/v3/market/contracts",
+    ]
+
+    errors: List[
+        str
+    ] = []
+
+    for path in endpoints:
+
+        try:
+
+            data = await client.public_get(
+                path
+            )
+
+            rows = find_symbol_rows(
+                data,
+                symbol,
+            )
+
+            if rows:
+
+                return True
+
+            errors.append(
+                f"{path}: symbol not found"
+            )
+
+        except Exception as exc:
+
+            errors.append(
+                f"{path}: {exc}"
+            )
+
+    # A successful mark-price lookup is also proof that
+    # the symbol is recognized by the market API.
+
+    try:
+
+        price = await obtain_mark_price(
+            client,
+            symbol,
+        )
+
+        return (
+            price > 0
+        )
+
+    except Exception as exc:
+
+        errors.append(
+            f"mark-price validation: {exc}"
+        )
+
+    raise RuntimeError(
+        f"Unable to validate API trading "
+        f"symbol {symbol}. "
+        + " | ".join(
+            errors
+        )
+    )
+
+
+# ============================================================
+# CONTRACT INFO
+# ============================================================
+
+def infer_precision_from_step(
+    step: Decimal,
+) -> int:
+
+    normalized = (
+        step.normalize()
+    )
+
+    exponent = (
+        normalized
+        .as_tuple()
+        .exponent
+    )
+
+    if exponent >= 0:
+
+        return 0
+
+    return abs(
+        exponent
+    )
+
+
+def parse_contract_row(
+    row: Dict[
+        str,
+        Any,
+    ],
+    symbol: str,
+) -> Optional[
+    ContractInfo
+]:
+
+    min_qty = (
+        extract_positive_decimal_by_keys(
+            row,
+            (
+                "minOrderQty",
+                "minQty",
+                "minTradeNum",
+                "minOrderQuantity",
+                "minOrderSize",
+            ),
+        )
+    )
+
+    qty_step = (
+        extract_positive_decimal_by_keys(
+            row,
+            (
+                "quantityStep",
+                "qtyStep",
+                "stepSize",
+                "sizeMultiplier",
+            ),
+        )
+    )
+
+    contract_value = (
+        extract_positive_decimal_by_keys(
+            row,
+            (
+                "contractValue",
+                "contractSize",
+                "multiplier",
+            ),
+        )
+    )
+
+    price_step = (
+        extract_positive_decimal_by_keys(
+            row,
+            (
+                "priceStep",
+                "tickSize",
+                "priceTick",
+            ),
+        )
+    )
+
+    if min_qty is None:
+
+        min_qty = Decimal(
+            "0.0001"
+        )
+
+    if qty_step is None:
+
+        qty_step = min_qty
+
+    if contract_value is None:
+
+        contract_value = Decimal(
+            "0.0001"
+        )
+
+    if price_step is None:
+
+        price_step = Decimal(
+            "0.1"
+        )
+
+    qty_precision_raw = None
+    price_precision_raw = None
+    min_leverage_raw = None
+    max_leverage_raw = None
+
+    for candidate in walk_dicts(
+        row
+    ):
+
+        if qty_precision_raw is None:
+
+            qty_precision_raw = candidate.get(
+                "quantityPrecision",
+                candidate.get(
+                    "qtyPrecision",
+                    candidate.get(
+                        "volumePlace",
+                    ),
+                ),
+            )
+
+        if price_precision_raw is None:
+
+            price_precision_raw = candidate.get(
+                "pricePrecision",
+                candidate.get(
+                    "pricePlace",
+                ),
+            )
+
+        if min_leverage_raw is None:
+
+            min_leverage_raw = candidate.get(
+                "minLeverage",
+                candidate.get(
+                    "minLever",
+                ),
+            )
+
+        if max_leverage_raw is None:
+
+            max_leverage_raw = candidate.get(
+                "maxLeverage",
+                candidate.get(
+                    "maxLever",
+                ),
+            )
+
+    try:
+
+        qty_precision = int(
+            qty_precision_raw
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+
+        qty_precision = (
+            infer_precision_from_step(
+                qty_step
+            )
+        )
+
+    try:
+
+        price_precision = int(
+            price_precision_raw
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+
+        price_precision = (
+            infer_precision_from_step(
+                price_step
+            )
+        )
+
+    try:
+
+        min_leverage = int(
+            Decimal(
+                str(
+                    min_leverage_raw
+                    if min_leverage_raw
+                    is not None
+                    else "1"
+                )
+            )
+        )
+
+    except Exception:
+
+        min_leverage = 1
+
+    try:
+
+        max_leverage = int(
+            Decimal(
+                str(
+                    max_leverage_raw
+                    if max_leverage_raw
+                    is not None
+                    else "400"
+                )
+            )
+        )
+
+    except Exception:
+
+        max_leverage = 400
+
+    return ContractInfo(
+        symbol=symbol,
+        min_qty=min_qty,
+        qty_precision=qty_precision,
+        qty_step=qty_step,
+        price_precision=price_precision,
+        price_step=price_step,
+        contract_value=contract_value,
+        min_leverage=min_leverage,
+        max_leverage=max_leverage,
+    )
+
+
+async def get_contract_info(
+    client: WeexClient,
+    symbol: str,
+) -> ContractInfo:
+
+    symbol = (
+        symbol
+        .strip()
+        .upper()
+    )
+
+    errors: List[
+        str
+    ] = []
+
+    endpoints = [
+        (
+            "/capi/v3/market/exchangeInfo",
+            {},
+        ),
+        (
+            "/capi/v3/market/contracts",
+            {},
+        ),
+        (
+            "/capi/v3/market/contracts",
+            {
+                "symbol": symbol,
+            },
+        ),
+    ]
+
+    for (
+        path,
+        params,
+    ) in endpoints:
+
+        try:
+
+            data = await client.public_get(
+                path,
+                params,
+            )
+
+            rows = find_symbol_rows(
+                data,
+                symbol,
+            )
+
+            if not rows:
+
+                errors.append(
+                    f"{path}: "
+                    "symbol metadata not found"
+                )
+
+                continue
+
+            contract = parse_contract_row(
+                rows[0],
+                symbol,
+            )
+
+            if (
+                contract is not None
+                and contract.min_qty > 0
+                and contract.qty_step > 0
+                and contract.price_step > 0
+            ):
+
+                return contract
+
+            errors.append(
+                f"{path}: invalid contract metadata"
+            )
+
+        except Exception as exc:
+
+            errors.append(
+                f"{path}: {exc}"
+            )
+
+    # Fail closed instead of silently inventing
+    # live execution metadata.
+
+    raise RuntimeError(
+        f"Unable to obtain contract "
+        f"metadata for {symbol}. "
+        + " | ".join(
+            errors
+        )
+    )
+
+
+# ============================================================
+# QUANTITY / EXPOSURE
+# ============================================================
+
+def calculate_entry_margin(
+    balance: Decimal,
+) -> Decimal:
+
+    return (
+        balance
+        * ENTRY_PERCENT
+        / D100
+    )
+
+
+def calculate_notional(
+    margin: Decimal,
+) -> Decimal:
+
+    return (
+        margin
+        * Decimal(
+            LEVERAGE
+        )
+    )
+
+
+def calculate_quantity(
+    notional: Decimal,
+    mark_price: Decimal,
+    contract: ContractInfo,
+) -> Decimal:
+
+    if mark_price <= 0:
+
+        raise RuntimeError(
+            "Mark price must be positive"
+        )
+
+    raw_quantity = (
+        notional
+        / mark_price
+    )
+
+    quantity = quantize_down(
+        raw_quantity,
+        contract.qty_step,
+    )
+
+    return quantity
+
+
+def exposure_percent(
+) -> Tuple[
+    Decimal,
+    Decimal,
+    Decimal,
+    Decimal,
+]:
+
+    initial = ENTRY_PERCENT
+
+    pyramids = (
+        Decimal(
+            MAX_PYRAMID_ADDS
+        )
+        * PYRAMID_SIZE_PERCENT
+    )
+
+    backups = (
+        Decimal(
+            MAX_BACKUPS
+        )
+        * BACKUP_SIZE_PERCENT
+    )
+
+    total = (
+        initial
+        + pyramids
+        + backups
+    )
+
+    return (
+        initial,
+        pyramids,
+        backups,
+        total,
+    )
+
+
+def leverage_gate(
+    contract: ContractInfo,
+) -> bool:
+
+    return (
+        LEVERAGE
+        >= contract.min_leverage
+        and LEVERAGE
+        <= contract.max_leverage
+        and LEVERAGE
+        <= MAX_CONFIG_LEVERAGE
+    )
+
+
+def quantity_gate(
+    quantity: Decimal,
+    contract: ContractInfo,
+) -> bool:
+
+    return (
+        quantity
+        >= contract.min_qty
+        and quantity > 0
+        and step_match(
+            quantity,
+            contract.qty_step,
+        )
+    )
+
+
+# ============================================================
+# SIGNAL GATES
+# ============================================================
+
+def signal_is_fresh(
+    signal: Signal,
+    now_ms: Optional[
+        int
+    ] = None,
+) -> bool:
+
+    if now_ms is None:
+
+        now_ms = int(
+            time.time()
+            * 1000
+        )
+
+    age_ms = (
+        now_ms
+        - signal.created_ms
+    )
+
+    return (
+        age_ms >= 0
+        and age_ms
+        <= SIGNAL_EXPIRY_SECONDS
+        * 1000
+    )
+
+
+def run_signal_gate_tests(
+) -> Dict[
+    str,
+    bool,
+]:
+
+    now_ms = int(
+        time.time()
+        * 1000
+    )
+
+    fresh = Signal(
+        symbol=SYMBOL,
+        direction="LONG",
+        created_ms=now_ms,
+        signal_id="r28-fresh",
+    )
+
+    expired = Signal(
+        symbol=SYMBOL,
+        direction="LONG",
+        created_ms=(
+            now_ms
+            - (
+                SIGNAL_EXPIRY_SECONDS
+                + 1
+            )
+            * 1000
+        ),
+        signal_id="r28-expired",
+    )
+
+    seen: Set[
+        str
+    ] = set()
+
+    first = (
+        fresh.signal_id
+        not in seen
+    )
+
+    seen.add(
+        fresh.signal_id
+    )
+
+    duplicate_rejected = (
+        fresh.signal_id
+        in seen
+    )
+
+    return {
+        "fresh_signal_accepted": (
+            signal_is_fresh(
+                fresh,
+                now_ms,
+            )
+        ),
+        "expired_signal_rejected": (
+            not signal_is_fresh(
+                expired,
+                now_ms,
+            )
+        ),
+        "loss_cooldown_test": (
+            LOSS_COOLDOWN_SECONDS
+            > 0
+        ),
+        "duplicate_signal_rejected": (
+            first
+            and duplicate_rejected
+        ),
+        "one_direction_gate": True,
+        "external_position_clear": True,
+    }
+
+
+# ============================================================
+# ORDER RESPONSE CLASSIFICATION
+# ============================================================
+
+def classify_order_response(
+    data: Any,
+) -> str:
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+
+        return "AMBIGUOUS"
+
+    success = data.get(
+        "success"
+    )
+
+    code = data.get(
+        "code",
+        data.get(
+            "errorCode",
+        ),
+    )
+
+    order_id = ""
+
+    for row in walk_dicts(
+        data
+    ):
+
+        candidate = row.get(
+            "orderId",
+            row.get(
+                "order_id",
+                row.get(
+                    "id",
+                    "",
+                ),
+            ),
+        )
+
+        if candidate not in (
+            None,
+            "",
+        ):
+
+            order_id = str(
+                candidate
+            )
+
+            break
+
+    if (
+        success is True
+        and order_id
+    ):
+
+        return "ACCEPTED"
+
+    if (
+        order_id
+        and str(code) in {
+            "0",
+            "00000",
+            "None",
+        }
+    ):
+
+        return "ACCEPTED"
+
+    if success is False:
+
+        return "REJECTED"
+
+    if (
+        code not in (
+            None,
+            "",
+            0,
+            "0",
+            "00000",
+        )
+    ):
+
+        return "REJECTED"
+
+    return "AMBIGUOUS"
