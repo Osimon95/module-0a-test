@@ -799,3 +799,996 @@ class WeexClient:
             except json.JSONDecodeError:
 
                 return text
+                
+    async def private_get(
+        self,
+        path: str,
+        params: Optional[
+            Dict[str, Any]
+        ] = None,
+    ) -> Any:
+
+        await self.start()
+
+        assert (
+            self.session
+            is not None
+        )
+
+        params = params or {}
+
+        query = urlencode(
+            params
+        )
+
+        headers = self.signed_headers(
+            "GET",
+            path,
+            query=query,
+        )
+
+        url = (
+            API_BASE_URL
+            + path
+        )
+
+        if query:
+            url += (
+                "?"
+                + query
+            )
+
+        async with (
+            self.session.get(
+                url,
+                headers=headers,
+            )
+        ) as resp:
+
+            text = await resp.text()
+
+            if resp.status >= 400:
+
+                raise RuntimeError(
+                    "WEEX PRIVATE GET "
+                    f"HTTP {resp.status}: "
+                    f"{text}"
+                )
+
+            try:
+                return json.loads(
+                    text
+                )
+
+            except json.JSONDecodeError:
+                return text
+
+
+    async def demo_post(
+        self,
+        path: str,
+        payload: Dict[str, Any],
+    ) -> Any:
+
+        await self.start()
+
+        assert (
+            self.session
+            is not None
+        )
+
+        body = raw_json(
+            payload
+        )
+
+        headers = self.signed_headers(
+            "POST",
+            path,
+            body=body,
+        )
+
+        async with (
+            self.session.post(
+                API_BASE_URL + path,
+                data=body,
+                headers=headers,
+            )
+        ) as resp:
+
+            text = await resp.text()
+
+            if resp.status >= 400:
+
+                raise RuntimeError(
+                    "WEEX DEMO POST "
+                    f"HTTP {resp.status}: "
+                    f"{text}"
+                )
+
+            try:
+                return json.loads(
+                    text
+                )
+
+            except json.JSONDecodeError:
+                return text
+
+
+    async def real_post(
+        self,
+        path: str,
+        payload: Dict[str, Any],
+    ) -> Any:
+
+        global R28_REAL_POST_CALLED
+
+        # ====================================================
+        # ABSOLUTE R28 REAL-ORDER TRANSMISSION LOCK
+        # ====================================================
+        #
+        # No code below this guard is allowed to transmit
+        # /capi/v3/order while R28 remains a pre-live module.
+        # ====================================================
+
+        if (
+            HARD_REAL_POST_LOCK
+            or not LIVE_ORDER_EXECUTION
+            or path == REAL_ORDER_PATH
+        ):
+
+            raise RuntimeError(
+                "R28 REAL ORDER POST BLOCKED "
+                "BY ABSOLUTE EXECUTION SAFETY"
+            )
+
+        # This line must remain unreachable in R28.
+        R28_REAL_POST_CALLED = True
+
+        raise RuntimeError(
+            "R28 safety invariant violated: "
+            "real POST path became reachable"
+        )
+
+
+# ============================================================
+# GENERIC RESPONSE EXTRACTION
+# ============================================================
+
+def unwrap_data(
+    response: Any,
+) -> Any:
+
+    if not isinstance(
+        response,
+        dict,
+    ):
+        return response
+
+    for key in (
+        "data",
+        "result",
+    ):
+
+        if key in response:
+            return response[key]
+
+    return response
+
+
+def find_first_dict(
+    value: Any,
+) -> Optional[
+    Dict[str, Any]
+]:
+
+    value = unwrap_data(
+        value
+    )
+
+    if isinstance(
+        value,
+        dict,
+    ):
+        return value
+
+    if isinstance(
+        value,
+        list,
+    ):
+
+        for item in value:
+
+            if isinstance(
+                item,
+                dict,
+            ):
+                return item
+
+    return None
+
+
+def find_list(
+    response: Any,
+) -> List[
+    Dict[str, Any]
+]:
+
+    value = unwrap_data(
+        response
+    )
+
+    if isinstance(
+        value,
+        list,
+    ):
+
+        return [
+            item
+            for item in value
+            if isinstance(
+                item,
+                dict,
+            )
+        ]
+
+    if isinstance(
+        value,
+        dict,
+    ):
+
+        for key in (
+            "list",
+            "rows",
+            "orders",
+            "positions",
+            "records",
+            "items",
+        ):
+
+            candidate = value.get(
+                key
+            )
+
+            if isinstance(
+                candidate,
+                list,
+            ):
+
+                return [
+                    item
+                    for item
+                    in candidate
+                    if isinstance(
+                        item,
+                        dict,
+                    )
+                ]
+
+    return []
+
+
+def first_value(
+    data: Dict[str, Any],
+    keys: Tuple[str, ...],
+    default: Any = None,
+) -> Any:
+
+    for key in keys:
+
+        if (
+            key in data
+            and data[key]
+            is not None
+        ):
+            return data[key]
+
+    return default
+
+
+def response_code(
+    response: Any,
+) -> Optional[int]:
+
+    if not isinstance(
+        response,
+        dict,
+    ):
+        return None
+
+    value = first_value(
+        response,
+        (
+            "code",
+            "statusCode",
+            "status_code",
+        ),
+    )
+
+    if value is None:
+        return None
+
+    try:
+        return int(
+            value
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return None
+
+
+def response_message(
+    response: Any,
+) -> str:
+
+    if not isinstance(
+        response,
+        dict,
+    ):
+        return str(
+            response
+        )
+
+    value = first_value(
+        response,
+        (
+            "msg",
+            "message",
+            "error",
+        ),
+        "",
+    )
+
+    return str(
+        value or ""
+    )
+
+
+def extract_order_id(
+    response: Any,
+) -> str:
+
+    data = find_first_dict(
+        response
+    )
+
+    if not data:
+        return ""
+
+    value = first_value(
+        data,
+        (
+            "orderId",
+            "order_id",
+            "id",
+        ),
+        "",
+    )
+
+    return str(
+        value or ""
+    )
+
+
+def extract_client_order_id(
+    response: Any,
+) -> str:
+
+    data = find_first_dict(
+        response
+    )
+
+    if not data:
+        return ""
+
+    value = first_value(
+        data,
+        (
+            "clientOrderId",
+            "clientOid",
+            "client_order_id",
+        ),
+        "",
+    )
+
+    return str(
+        value or ""
+    )
+
+
+# ============================================================
+# CONTRACT / ACCOUNT EXTRACTION
+# ============================================================
+
+def extract_balance(
+    response: Any,
+) -> Decimal:
+
+    data = unwrap_data(
+        response
+    )
+
+    candidates: List[
+        Dict[str, Any]
+    ] = []
+
+    if isinstance(
+        data,
+        dict,
+    ):
+        candidates.append(
+            data
+        )
+
+    elif isinstance(
+        data,
+        list,
+    ):
+
+        candidates.extend(
+            item
+            for item in data
+            if isinstance(
+                item,
+                dict,
+            )
+        )
+
+    for row in candidates:
+
+        coin = str(
+            first_value(
+                row,
+                (
+                    "coinName",
+                    "coin",
+                    "currency",
+                    "asset",
+                ),
+                "",
+            )
+        ).upper()
+
+        if (
+            coin
+            and coin != "USDT"
+        ):
+            continue
+
+        value = first_value(
+            row,
+            (
+                "available",
+                "availableBalance",
+                "availableAmount",
+                "availableEquity",
+                "balance",
+                "equity",
+            ),
+        )
+
+        if value is not None:
+            return D(
+                value
+            )
+
+    return D0
+
+
+def extract_mark_price(
+    response: Any,
+) -> Decimal:
+
+    data = unwrap_data(
+        response
+    )
+
+    rows: List[
+        Dict[str, Any]
+    ] = []
+
+    if isinstance(
+        data,
+        dict,
+    ):
+        rows.append(
+            data
+        )
+
+    elif isinstance(
+        data,
+        list,
+    ):
+
+        rows.extend(
+            item
+            for item in data
+            if isinstance(
+                item,
+                dict,
+            )
+        )
+
+    for row in rows:
+
+        value = first_value(
+            row,
+            (
+                "markPrice",
+                "price",
+                "lastPrice",
+                "close",
+            ),
+        )
+
+        if value is not None:
+
+            price = D(
+                value
+            )
+
+            if price > 0:
+                return price
+
+    return D0
+
+
+def extract_contract_info(
+    response: Any,
+    symbol: str,
+) -> ContractInfo:
+
+    data = unwrap_data(
+        response
+    )
+
+    rows: List[
+        Dict[str, Any]
+    ] = []
+
+    if isinstance(
+        data,
+        dict,
+    ):
+
+        nested = None
+
+        for key in (
+            "list",
+            "symbols",
+            "contracts",
+            "rows",
+        ):
+
+            if isinstance(
+                data.get(key),
+                list,
+            ):
+                nested = data[key]
+                break
+
+        if nested is not None:
+
+            rows.extend(
+                item
+                for item in nested
+                if isinstance(
+                    item,
+                    dict,
+                )
+            )
+
+        else:
+            rows.append(
+                data
+            )
+
+    elif isinstance(
+        data,
+        list,
+    ):
+
+        rows.extend(
+            item
+            for item in data
+            if isinstance(
+                item,
+                dict,
+            )
+        )
+
+    target: Optional[
+        Dict[str, Any]
+    ] = None
+
+    for row in rows:
+
+        row_symbol = str(
+            first_value(
+                row,
+                (
+                    "symbol",
+                    "symbolName",
+                    "contractCode",
+                ),
+                "",
+            )
+        ).upper()
+
+        if row_symbol == symbol.upper():
+
+            target = row
+            break
+
+    if target is None:
+
+        if len(rows) == 1:
+            target = rows[0]
+
+        else:
+            raise RuntimeError(
+                f"Contract metadata not found "
+                f"for {symbol}"
+            )
+
+
+    quantity_precision = int(
+        D(
+            first_value(
+                target,
+                (
+                    "quantityPrecision",
+                    "volumePlace",
+                    "sizePrecision",
+                ),
+                4,
+            )
+        )
+    )
+
+    price_precision = int(
+        D(
+            first_value(
+                target,
+                (
+                    "pricePrecision",
+                    "pricePlace",
+                ),
+                1,
+            )
+        )
+    )
+
+
+    quantity_step = D(
+        first_value(
+            target,
+            (
+                "quantityStep",
+                "sizeStep",
+                "stepSize",
+            ),
+            decimal_step_from_precision(
+                quantity_precision
+            ),
+        )
+    )
+
+    if quantity_step <= 0:
+
+        quantity_step = (
+            decimal_step_from_precision(
+                quantity_precision
+            )
+        )
+
+
+    price_step = D(
+        first_value(
+            target,
+            (
+                "priceStep",
+                "tickSize",
+            ),
+            decimal_step_from_precision(
+                price_precision
+            ),
+        )
+    )
+
+    if price_step <= 0:
+
+        price_step = (
+            decimal_step_from_precision(
+                price_precision
+            )
+        )
+
+
+    min_order = D(
+        first_value(
+            target,
+            (
+                "minOrderQty",
+                "minOrderAmount",
+                "minTradeNum",
+                "minQty",
+                "minSize",
+            ),
+            quantity_step,
+        )
+    )
+
+    if min_order <= 0:
+        min_order = quantity_step
+
+
+    contract_value = D(
+        first_value(
+            target,
+            (
+                "contractValue",
+                "contractSize",
+                "faceValue",
+            ),
+            "0.0001",
+        )
+    )
+
+    if contract_value <= 0:
+        contract_value = Decimal(
+            "0.0001"
+        )
+
+
+    min_leverage = int(
+        D(
+            first_value(
+                target,
+                (
+                    "minLeverage",
+                    "minLever",
+                ),
+                1,
+            )
+        )
+    )
+
+
+    max_leverage = int(
+        D(
+            first_value(
+                target,
+                (
+                    "maxLeverage",
+                    "maxLever",
+                ),
+                400,
+            )
+        )
+    )
+
+
+    return ContractInfo(
+
+        symbol=symbol.upper(),
+
+        min_order=min_order,
+
+        quantity_precision=(
+            quantity_precision
+        ),
+
+        quantity_step=(
+            quantity_step
+        ),
+
+        price_precision=(
+            price_precision
+        ),
+
+        price_step=(
+            price_step
+        ),
+
+        contract_value=(
+            contract_value
+        ),
+
+        min_leverage=(
+            min_leverage
+        ),
+
+        max_leverage=(
+            max_leverage
+        ),
+    )
+
+
+# ============================================================
+# API DISCOVERY
+# ============================================================
+
+async def get_balance(
+    client: WeexClient,
+) -> Decimal:
+
+    candidates = [
+
+        (
+            "/capi/v3/account/balance",
+            {
+                "coinName": "USDT"
+            },
+        ),
+
+        (
+            "/capi/v3/account/balance",
+            {},
+        ),
+    ]
+
+    errors = []
+
+    for (
+        path,
+        params,
+    ) in candidates:
+
+        try:
+
+            response = (
+                await client.private_get(
+                    path,
+                    params,
+                )
+            )
+
+            balance = extract_balance(
+                response
+            )
+
+            if balance > 0:
+                return balance
+
+        except Exception as exc:
+
+            errors.append(
+                f"{path}: {exc}"
+            )
+
+    raise RuntimeError(
+        "Unable to obtain "
+        "available USDT balance. "
+        + " | ".join(errors)
+    )
+
+
+async def get_mark_price(
+    client: WeexClient,
+    symbol: str,
+) -> Decimal:
+
+    candidates = [
+
+        (
+            "/capi/v3/market/symbolPrice",
+            {
+                "symbol": symbol
+            },
+        ),
+
+        (
+            "/capi/v3/market/ticker",
+            {
+                "symbol": symbol
+            },
+        ),
+    ]
+
+    errors = []
+
+    for (
+        path,
+        params,
+    ) in candidates:
+
+        try:
+
+            response = (
+                await client.public_get(
+                    path,
+                    params,
+                )
+            )
+
+            price = extract_mark_price(
+                response
+            )
+
+            if price > 0:
+                return price
+
+        except Exception as exc:
+
+            errors.append(
+                f"{path}: {exc}"
+            )
+
+    raise RuntimeError(
+        "Unable to obtain mark price "
+        f"for {symbol}. "
+        + " | ".join(errors)
+    )
+
+
+async def get_contract(
+    client: WeexClient,
+    symbol: str,
+) -> ContractInfo:
+
+    candidates = [
+
+        (
+            "/capi/v3/market/exchangeInfo",
+            {
+                "symbol": symbol
+            },
+        ),
+
+        (
+            "/capi/v3/market/contracts",
+            {
+                "symbol": symbol
+            },
+        ),
+    ]
+
+    errors = []
+
+    for (
+        path,
+        params,
+    ) in candidates:
+
+        try:
+
+            response = (
+                await client.public_get(
+                    path,
+                    params,
+                )
+            )
+
+            return extract_contract_info(
+                response,
+                symbol,
+            )
+
+        except Exception as exc:
+
+            errors.append(
+                f"{path}: {exc}"
+            )
+
+    # R28 fails closed instead of guessing
+    # live execution parameters.
+    raise RuntimeError(
+        "Unable to obtain contract "
+        f"metadata for {symbol}. "
+        + " | ".join(errors)
+    )
+
+
+# ============================================================
+# QUANTITY / EXPOSURE
+# ============================================================
+
+def calculate_entry_margin(
+    balance: Decimal,
+) -> Decimal:
+
+    return (
+        balance
