@@ -424,3 +424,199 @@ def validate_execution_intent(
             False,
             "invalid quantity",
         )
+            if intent.leverage <= 0:
+
+        return (
+            False,
+            "invalid leverage",
+        )
+
+    if not intent.client_order_id:
+
+        return (
+            False,
+            "missing client_order_id",
+        )
+
+    if intent.created_ms <= 0:
+
+        return (
+            False,
+            "invalid created_ms",
+        )
+
+    return (
+        True,
+        "execution intent valid",
+    )
+
+
+# ============================================================
+# EXECUTION INTENT SELF-TEST
+# ============================================================
+
+def test_execution_intent_creation() -> bool:
+
+    test_signal_id = (
+        "r28-unit-b-test-signal"
+    )
+
+    test_symbol = (
+        "BTCUSDT"
+    )
+
+    test_side = (
+        "BUY"
+    )
+
+    test_position_side = (
+        "LONG"
+    )
+
+    test_quantity = Decimal(
+        "0.0001"
+    )
+
+    test_leverage = 100
+
+    try:
+
+        intent = build_execution_intent(
+            signal_id=test_signal_id,
+            symbol=test_symbol,
+            side=test_side,
+            position_side=test_position_side,
+            quantity=test_quantity,
+            leverage=test_leverage,
+        )
+
+        valid, reason = (
+            validate_execution_intent(
+                intent
+            )
+        )
+
+        if not valid:
+
+            print(
+                "Execution Intent Validation: "
+                f"❌ FAIL ({reason})"
+            )
+
+            return False
+
+        if (
+            intent.signal_id
+            != test_signal_id
+        ):
+
+            print(
+                "Execution Intent Signal ID: "
+                "❌ FAIL"
+            )
+
+            return False
+
+        if (
+            intent.symbol
+            != test_symbol
+        ):
+
+            print(
+                "Execution Intent Symbol: "
+                "❌ FAIL"
+            )
+
+            return False
+
+        if (
+            intent.side
+            != test_side
+        ):
+
+            print(
+                "Execution Intent Side: "
+                "❌ FAIL"
+            )
+
+            return False
+
+        if (
+            intent.position_side
+            != test_position_side
+        ):
+
+            print(
+                "Execution Intent Position Side: "
+                "❌ FAIL"
+            )
+
+            return False
+
+        if (
+            intent.quantity
+            != test_quantity
+        ):
+
+            print(
+                "Execution Intent Quantity: "
+                "❌ FAIL"
+            )
+
+            return False
+
+        if (
+            intent.leverage
+            != test_leverage
+        ):
+
+            print(
+                "Execution Intent Leverage: "
+                "❌ FAIL"
+            )
+
+            return False
+
+        if not intent.intent_id:
+
+            print(
+                "Execution Intent ID: "
+                "❌ FAIL"
+            )
+
+            return False
+
+        if not intent.client_order_id:
+
+            print(
+                "Client Order ID: "
+                "❌ FAIL"
+            )
+
+            return False
+
+        print(
+            "Execution Intent Creation: "
+            "✅ PASS"
+        )
+
+        print(
+            "Execution Intent Validation: "
+            "✅ PASS"
+        )
+
+        return True
+
+    except Exception as exc:
+
+        print(
+            "Execution Intent Test: "
+            "❌ FAIL"
+        )
+
+        print(
+            f"{type(exc).__name__}: "
+            f"{exc}"
+        )
+
+        return False
