@@ -172,3 +172,405 @@ STATE_PATH = Path(
         "/tmp/r28_intent_state.json",
     )
 )
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+
+
+# ============================================================
+# HELPERS
+# ============================================================
+
+def dec(value: Any, default: str = "0") -> Decimal:
+    try:
+        if value is None or value == "":
+            return Decimal(default)
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return Decimal(default)
+
+
+def fmt_decimal(value: Decimal) -> str:
+    s = format(value, "f")
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
+    return s or "0"
+
+
+def yes(value: bool) -> str:
+    return "✅ YES" if value else "❌ NO"
+
+
+def quantize_down(value: Decimal, step: Decimal) -> Decimal:
+    if step <= 0:
+        return value
+    units = (value / step).to_integral_value(rounding=ROUND_DOWN)
+    return units * step
+
+
+def step_match(value: Decimal, step: Decimal) -> bool:
+    if step <= 0:
+        return True
+    return value == quantize_down(value, step)
+
+
+def client_id_valid(client_id: str) -> bool:
+    return bool(
+        re.fullmatch(
+            r"[\.A-Z\:/a-z0-9_-]{1,36}",
+            client_id,
+        )
+    )
+
+
+def deterministic_client_id(
+    prefix: str,
+    material: str,
+) -> str:
+    digest = hashlib.sha256(
+        material.encode("utf-8")
+    ).hexdigest()[:20]
+
+    return f"{prefix}-{digest}"[:36]
+
+
+def bool_env(
+    name: str,
+    default: bool = False,
+) -> bool:
+    raw = os.getenv(name)
+
+    if raw is None:
+        return default
+
+    return raw.strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+# ============================================================
+# DATA MODELS
+# ============================================================
+
+@dataclass
+class ContractInfo:
+    symbol: str
+    min_qty: Decimal
+    qty_precision: int
+    qty_step: Decimal
+    price_precision: int
+    price_step: Decimal
+    contract_value: Decimal
+    min_leverage: int
+    max_leverage: int
+
+
+@dataclass
+class Signal:
+    symbol: str
+    direction: str
+    created_ms: int
+    signal_id: str
+
+
+@dataclass
+class ExecutionIntent:
+    intent_id: str
+    signal_id: str
+    symbol: str
+    direction: str
+    side: str
+    position_side: str
+    quantity: str
+    created_ms: int
+    expires_ms: int
+    client_order_id: str
+    state: str = "NEW"
+    exchange_order_id: str = ""
+    executed_qty: str = "0"
+    avg_fill_price: str = "0"
+    updated_ms: int = field(
+        default_factory=lambda: int(
+            time.time() * 1000
+        )
+    )
+
+
+@dataclass
+class DemoLifecycleResult:
+    demo_symbol: str
+    side: str
+    position_side: str
+    order_type: str
+    client_order_id: str
+    post_attempted: bool
+    post_accepted: bool
+    order_id: str
+    history_lookup_attempted: bool
+    history_poll_attempts: int
+    history_found: bool
+    final_status: str
+    requested_qty: Decimal
+    original_qty: Decimal
+    executed_qty: Decimal
+    average_fill_price: Decimal
+    non_zero_fill: bool
+    fill_delta: Decimal
+    duplicate_fill_event_blocked: bool
+    position_before: Decimal
+    position_after: Decimal
+    expected_position_delta: Decimal
+    observed_position_delta: Decimal
+    position_reconciled: bool
+    lifecycle_valid: bool
+
+
+# ============================================================
+# ORDER / INTENT STATE MACHINES
+# ============================================================
+
+ORDER_TERMINAL = {
+    "FILLED",
+    "CANCELED",
+    "REJECTED",
+    "EXPIRED",
+}
+
+ORDER_ALLOWED = {
+    "NEW": {
+        "PARTIALLY_FILLED",
+        "FILLED",
+        "CANCELED",
+        "REJECTED",
+        "EXPIRED",
+    },
+    "PARTIALLY_FILLED": {
+        "PARTIALLY_FILLED",
+        "FILLED",
+        "CANCELED",
+        "EXPIRED",
+    },
+}
+
+
+class OrderStateMachine:
+    def __init__(self) -> None:
+        self.state = "NEW"
+        self.executed_qty = Decimal("0")
+        self.seen_events: Set[str] = set()
+
+    def apply(
+        self,
+        status: str,
+        executed_qty: Decimal,
+        event_id: str,
+    ) -> Tuple[bool, Decimal]:
+
+        status = status.upper()
+
+        if event_id in self.seen_events:
+            return False, Decimal("0")
+
+        self.seen_events.add(event_id)
+
+        if self.state in ORDER_TERMINAL:
+            if status != self.state:
+                return False, Decimal("0")
+
+            return False, Decimal("0")
+
+        if (
+            status != self.state
+            and status
+            not in ORDER_ALLOWED.get(
+                self.state,
+                set(),
+            )
+        ):
+            return False, Decimal("0")
+
+        delta = max(
+            Decimal("0"),
+            executed_qty - self.executed_qty,
+        )
+
+        self.executed_qty = max(
+            self.executed_qty,
+            executed_qty,
+        )
+
+        self.state = status
+
+        return True, delta
+
+
+INTENT_TERMINAL = {
+    "RECONCILED",
+    "REJECTED",
+    "EXPIRED",
+    "FAILED",
+}
+
+INTENT_ALLOWED = {
+    "NEW": {
+        "PREFLIGHT",
+        "REJECTED",
+        "EXPIRED",
+    },
+    "PREFLIGHT": {
+        "READY",
+        "REJECTED",
+        "EXPIRED",
+    },
+    "READY": {
+        "TRANSMITTED",
+        "REJECTED",
+        "EXPIRED",
+    },
+    "TRANSMITTED": {
+        "ACKNOWLEDGED",
+        "REJECTED",
+        "FAILED",
+    },
+    "ACKNOWLEDGED": {
+        "PARTIALLY_FILLED",
+        "FILLED",
+        "FAILED",
+    },
+    "PARTIALLY_FILLED": {
+        "PARTIALLY_FILLED",
+        "FILLED",
+        "FAILED",
+    },
+    "FILLED": {
+        "RECONCILED",
+        "FAILED",
+    },
+}
+
+
+def transition_intent(
+    intent: ExecutionIntent,
+    new_state: str,
+) -> bool:
+
+    new_state = new_state.upper()
+    old = intent.state.upper()
+
+    if old in INTENT_TERMINAL:
+        return False
+
+    if new_state not in INTENT_ALLOWED.get(
+        old,
+        set(),
+    ):
+        return False
+
+    intent.state = new_state
+    intent.updated_ms = int(
+        time.time() * 1000
+    )
+
+    return True
+
+
+# ============================================================
+# R28 JOURNAL / RESTART RECOVERY
+# ============================================================
+
+class IntentJournal:
+    def __init__(
+        self,
+        path: Path,
+    ) -> None:
+        self.path = path
+
+    def save(
+        self,
+        intent: ExecutionIntent,
+    ) -> None:
+
+        self.path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        tmp = self.path.with_suffix(
+            self.path.suffix + ".tmp"
+        )
+
+        data = asdict(intent)
+
+        raw = json.dumps(
+            data,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+
+        tmp.write_text(
+            raw,
+            encoding="utf-8",
+        )
+
+        os.replace(
+            tmp,
+            self.path,
+        )
+
+    def load(
+        self,
+    ) -> Optional[ExecutionIntent]:
+
+        if not self.path.exists():
+            return None
+
+        raw = self.path.read_text(
+            encoding="utf-8"
+        )
+
+        data = json.loads(raw)
+
+        return ExecutionIntent(**data)
+
+    def clear(self) -> None:
+        try:
+            self.path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def recovery_decision(
+    intent: ExecutionIntent,
+    now_ms: int,
+) -> str:
+
+    if intent.state in INTENT_TERMINAL:
+        return "DO_NOT_TRANSMIT"
+
+    if (
+        now_ms > intent.expires_ms
+        and intent.state
+        in {
+            "NEW",
+            "PREFLIGHT",
+            "READY",
+        }
+    ):
+        return "EXPIRE"
+
+    if intent.state in {
+        "TRANSMITTED",
+        "ACKNOWLEDGED",
+        "PARTIALLY_FILLED",
+        "FILLED",
+    }:
+        return "RECONCILE_ONLY"
+
+    return "PREFLIGHT_ONLY"
+
+
+# ============================================================
+# HTTP CLIENT
+# ============================================================
