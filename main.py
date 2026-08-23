@@ -424,7 +424,7 @@ def validate_execution_intent(
             False,
             "invalid quantity",
         )
-            if intent.leverage <= 0:
+    if intent.leverage <= 0:
 
         return (
             False,
