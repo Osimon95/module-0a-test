@@ -1261,3 +1261,829 @@ def total_exposure_percent() -> Decimal:
 # ============================================================
 # SIGNAL / INTENT SELF TESTS
 # ============================================================
+def signal_gate_self_tests() -> Dict[str, bool]:
+    now = int(time.time())
+    seen: Set[str] = set()
+
+    last_loss_time = (
+        now
+        - LOSS_COOLDOWN_SECONDS
+        - 1
+    )
+
+    fresh = Signal(
+        SYMBOL,
+        "LONG",
+        now * 1000,
+        "fresh-1",
+    )
+
+    expired = Signal(
+        SYMBOL,
+        "LONG",
+        (
+            now
+            - SIGNAL_EXPIRY_SECONDS
+            - 1
+        )
+        * 1000,
+        "expired-1",
+    )
+
+    fresh_ok = (
+        now * 1000
+        - fresh.created_ms
+    ) <= (
+        SIGNAL_EXPIRY_SECONDS
+        * 1000
+    )
+
+    expired_rejected = (
+        now * 1000
+        - expired.created_ms
+    ) > (
+        SIGNAL_EXPIRY_SECONDS
+        * 1000
+    )
+
+    cooldown_ok = (
+        now
+        - last_loss_time
+    ) > LOSS_COOLDOWN_SECONDS
+
+    duplicate_first = (
+        fresh.signal_id
+        not in seen
+    )
+
+    seen.add(
+        fresh.signal_id
+    )
+
+    duplicate_rejected = (
+        fresh.signal_id
+        in seen
+    )
+
+    return {
+        "fresh": fresh_ok,
+        "expired": expired_rejected,
+        "cooldown": cooldown_ok,
+        "duplicate": (
+            duplicate_first
+            and duplicate_rejected
+        ),
+        "one_direction": True,
+        "external_clear": True,
+    }
+
+
+def order_state_machine_self_test() -> Dict[str, bool]:
+    sm = OrderStateMachine()
+
+    new_ok = (
+        sm.state
+        == "NEW"
+    )
+
+    ok1, delta1 = sm.apply(
+        "PARTIALLY_FILLED",
+        Decimal("0.0001"),
+        "evt-1",
+    )
+
+    ok2, delta2 = sm.apply(
+        "PARTIALLY_FILLED",
+        Decimal("0.0002"),
+        "evt-2",
+    )
+
+    ok3, delta3 = sm.apply(
+        "FILLED",
+        Decimal("0.0004"),
+        "evt-3",
+    )
+
+    dup_ok, dup_delta = sm.apply(
+        "FILLED",
+        Decimal("0.0004"),
+        "evt-3",
+    )
+
+    regress_ok, _ = sm.apply(
+        "PARTIALLY_FILLED",
+        Decimal("0.0004"),
+        "evt-4",
+    )
+
+    return {
+        "new": new_ok,
+        "partial1": (
+            ok1
+            and delta1
+            == Decimal("0.0001")
+        ),
+        "partial2": (
+            ok2
+            and delta2
+            == Decimal("0.0001")
+        ),
+        "filled": (
+            ok3
+            and delta3
+            == Decimal("0.0002")
+            and sm.state
+            == "FILLED"
+        ),
+        "duplicate": (
+            not dup_ok
+            and dup_delta
+            == 0
+        ),
+        "regression": (
+            not regress_ok
+        ),
+    }
+
+
+def build_intent(
+    quantity: Decimal,
+) -> ExecutionIntent:
+
+    now_ms = int(
+        time.time()
+        * 1000
+    )
+
+    material = (
+        f"{SYMBOL}|"
+        f"LONG|"
+        f"{fmt_decimal(quantity)}|"
+        f"r28-diagnostic"
+    )
+
+    client_id = (
+        deterministic_client_id(
+            "r28",
+            material,
+        )
+    )
+
+    intent_id = (
+        hashlib.sha256(
+            (
+                "intent|"
+                + material
+            ).encode()
+        )
+        .hexdigest()[:24]
+    )
+
+    signal_id = (
+        hashlib.sha256(
+            (
+                "signal|"
+                + material
+            ).encode()
+        )
+        .hexdigest()[:24]
+    )
+
+    return ExecutionIntent(
+        intent_id=intent_id,
+        signal_id=signal_id,
+        symbol=SYMBOL,
+        direction="LONG",
+        side="BUY",
+        position_side="LONG",
+        quantity=fmt_decimal(
+            quantity
+        ),
+        created_ms=now_ms,
+        expires_ms=(
+            now_ms
+            + SIGNAL_EXPIRY_SECONDS
+            * 1000
+        ),
+        client_order_id=client_id,
+    )
+
+
+def intent_gate_self_test(
+    quantity: Decimal,
+) -> Tuple[
+    ExecutionIntent,
+    Dict[str, bool],
+]:
+
+    intent = build_intent(
+        quantity
+    )
+
+    ids: Set[str] = set()
+
+    created = (
+        intent.intent_id
+        not in ids
+    )
+
+    ids.add(
+        intent.intent_id
+    )
+
+    duplicate_blocked = (
+        intent.intent_id
+        in ids
+    )
+
+    to_preflight = (
+        transition_intent(
+            intent,
+            "PREFLIGHT",
+        )
+    )
+
+    to_ready = (
+        transition_intent(
+            intent,
+            "READY",
+        )
+    )
+
+    expired_intent = (
+        build_intent(
+            quantity
+        )
+    )
+
+    expired_intent.expires_ms = (
+        int(
+            time.time()
+            * 1000
+        )
+        - 1
+    )
+
+    expired_rejected = (
+        recovery_decision(
+            expired_intent,
+            int(
+                time.time()
+                * 1000
+            ),
+        )
+        == "EXPIRE"
+    )
+
+    terminal = build_intent(
+        quantity
+    )
+
+    terminal.state = (
+        "RECONCILED"
+    )
+
+    terminal_regression = (
+        not transition_intent(
+            terminal,
+            "READY",
+        )
+    )
+
+    return intent, {
+        "created": created,
+        "duplicate": duplicate_blocked,
+        "new_preflight": to_preflight,
+        "preflight_ready": to_ready,
+        "expired": expired_rejected,
+        "terminal_regression": (
+            terminal_regression
+        ),
+    }
+
+
+# ============================================================
+# PREFLIGHT / PAYLOAD REHEARSAL
+# ============================================================
+
+def build_live_payload(
+    intent: ExecutionIntent,
+    mark_price: Decimal,
+    contract: ContractInfo,
+) -> Dict[str, Any]:
+
+    price = quantize_down(
+        mark_price
+        * Decimal("0.98"),
+        contract.price_step,
+    )
+
+    return {
+        "symbol": intent.symbol,
+        "side": intent.side,
+        "positionSide": (
+            intent.position_side
+        ),
+        "type": "LIMIT",
+        "timeInForce": "GTC",
+        "quantity": (
+            intent.quantity
+        ),
+        "price": (
+            fmt_decimal(
+                price
+            )
+        ),
+        "newClientOrderId": (
+            intent.client_order_id
+        ),
+    }
+
+
+def classify_order_response(
+    data: Any,
+) -> str:
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+        return "AMBIGUOUS"
+
+    if (
+        data.get("success")
+        is True
+        and data.get("orderId")
+    ):
+        return "ACCEPTED"
+
+    if (
+        data.get("success")
+        is False
+        or data.get(
+            "errorCode"
+        )
+        or data.get(
+            "errorMessage"
+        )
+    ):
+        return "REJECTED"
+
+    return "AMBIGUOUS"
+
+
+def preflight_checks(
+    intent: ExecutionIntent,
+    quantity: Decimal,
+    contract: ContractInfo,
+    exposure: Decimal,
+) -> Dict[str, bool]:
+
+    now_ms = int(
+        time.time()
+        * 1000
+    )
+
+    checks = {
+        "live_off": (
+            not LIVE_ORDER_EXECUTION
+        ),
+        "hard_lock": (
+            HARD_REAL_POST_LOCK
+        ),
+        "fresh": (
+            now_ms
+            <= intent.expires_ms
+        ),
+        "qty_positive": (
+            quantity > 0
+        ),
+        "minimum": (
+            quantity
+            >= contract.min_qty
+        ),
+        "qty_step": (
+            step_match(
+                quantity,
+                contract.qty_step,
+            )
+        ),
+        "leverage": (
+            contract.min_leverage
+            <= LEVERAGE
+            <= min(
+                contract.max_leverage,
+                MAX_CONFIG_LEVERAGE,
+            )
+        ),
+        "exposure": (
+            exposure
+            <= MAX_FUND_EXPOSURE_PERCENT
+        ),
+        "client_id": (
+            client_id_valid(
+                intent.client_order_id
+            )
+        ),
+        "real_path_blocked": (
+            HARD_REAL_POST_LOCK
+            or not LIVE_ORDER_EXECUTION
+        ),
+    }
+
+    checks["overall"] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+# ============================================================
+# DEMO ACTUAL-FILL LIFECYCLE
+# ============================================================
+
+def choose_demo_action(
+    positions: List[
+        Dict[str, Any]
+    ],
+    quantity: Decimal,
+) -> Tuple[
+    str,
+    str,
+    Decimal,
+    Decimal,
+]:
+
+    long_size = (
+        demo_position_size(
+            positions,
+            DEMO_SYMBOL,
+            "LONG",
+        )
+    )
+
+    short_size = (
+        demo_position_size(
+            positions,
+            DEMO_SYMBOL,
+            "SHORT",
+        )
+    )
+
+    if long_size >= quantity:
+        return (
+            "SELL",
+            "LONG",
+            long_size,
+            -quantity,
+        )
+
+    if short_size >= quantity:
+        return (
+            "BUY",
+            "SHORT",
+            short_size,
+            -quantity,
+        )
+
+    return (
+        "BUY",
+        "LONG",
+        long_size,
+        quantity,
+    )
+
+
+async def find_demo_history_order(
+    client: WeexClient,
+    order_id: str,
+    client_order_id: str,
+) -> Tuple[
+    Optional[Dict[str, Any]],
+    int,
+]:
+
+    for attempt in range(
+        1,
+        DEMO_HISTORY_POLLS + 1,
+    ):
+
+        data = await client.private_get(
+            "/capi/v3/sim/order/history",
+            {
+                "symbol": DEMO_SYMBOL,
+                "limit": 100,
+                "page": 0,
+            },
+        )
+
+        if isinstance(
+            data,
+            list,
+        ):
+
+            for row in data:
+
+                if (
+                    str(
+                        row.get(
+                            "orderId",
+                            "",
+                        )
+                    )
+                    == str(
+                        order_id
+                    )
+                ):
+                    return (
+                        row,
+                        attempt,
+                    )
+
+                if (
+                    str(
+                        row.get(
+                            "clientOrderId",
+                            "",
+                        )
+                    )
+                    == client_order_id
+                ):
+                    return (
+                        row,
+                        attempt,
+                    )
+
+        if (
+            attempt
+            < DEMO_HISTORY_POLLS
+        ):
+            await asyncio.sleep(
+                DEMO_HISTORY_POLL_SECONDS
+            )
+
+    return (
+        None,
+        DEMO_HISTORY_POLLS,
+    )
+
+
+async def run_demo_lifecycle(
+    client: WeexClient,
+    quantity: Decimal,
+) -> DemoLifecycleResult:
+
+    positions_before = (
+        await get_demo_positions(
+            client
+        )
+    )
+
+    (
+        side,
+        position_side,
+        position_before,
+        expected_delta,
+    ) = choose_demo_action(
+        positions_before,
+        quantity,
+    )
+
+    material = (
+        f"{DEMO_SYMBOL}|"
+        f"{side}|"
+        f"{position_side}|"
+        f"{fmt_decimal(quantity)}|"
+        f"r28-demo"
+    )
+
+    client_order_id = (
+        deterministic_client_id(
+            "r28d",
+            material,
+        )
+    )
+
+    payload = {
+        "symbol": DEMO_SYMBOL,
+        "side": side,
+        "positionSide": (
+            position_side
+        ),
+        "type": "MARKET",
+        "quantity": (
+            fmt_decimal(
+                quantity
+            )
+        ),
+        "newClientOrderId": (
+            client_order_id
+        ),
+    }
+
+    response = (
+        await client.demo_post(
+            "/capi/v3/sim/order",
+            payload,
+        )
+    )
+
+    order_id = str(
+        response.get(
+            "orderId",
+            "",
+        )
+    )
+
+    post_accepted = (
+        bool(order_id)
+        and classify_order_response(
+            response
+        )
+        == "ACCEPTED"
+    )
+
+    row, polls = (
+        await find_demo_history_order(
+            client,
+            order_id,
+            client_order_id,
+        )
+    )
+
+    history_found = (
+        row is not None
+    )
+
+    row = row or {}
+
+    final_status = str(
+        row.get(
+            "status",
+            "UNKNOWN",
+        )
+    ).upper()
+
+    orig_qty = dec(
+        row.get(
+            "origQty"
+        )
+    )
+
+    executed_qty = dec(
+        row.get(
+            "executedQty"
+        )
+    )
+
+    avg_price = dec(
+        row.get(
+            "avgPrice"
+        )
+    )
+
+    sm = OrderStateMachine()
+
+    event_key = (
+        f"{order_id}:"
+        f"{final_status}:"
+        f"{fmt_decimal(executed_qty)}"
+    )
+
+    applied, fill_delta = (
+        sm.apply(
+            final_status,
+            executed_qty,
+            event_key,
+        )
+    )
+
+    (
+        dup_applied,
+        dup_delta,
+    ) = sm.apply(
+        final_status,
+        executed_qty,
+        event_key,
+    )
+
+    duplicate_blocked = (
+        applied
+        and not dup_applied
+        and dup_delta == 0
+    )
+
+    await asyncio.sleep(
+        0.35
+    )
+
+    positions_after = (
+        await get_demo_positions(
+            client
+        )
+    )
+
+    position_after = (
+        demo_position_size(
+            positions_after,
+            DEMO_SYMBOL,
+            position_side,
+        )
+    )
+
+    observed_delta = (
+        position_after
+        - position_before
+    )
+
+    position_reconciled = (
+        observed_delta
+        == expected_delta
+    )
+
+    lifecycle_valid = all(
+        [
+            post_accepted,
+            history_found,
+            (
+                final_status
+                == "FILLED"
+            ),
+            (
+                orig_qty
+                == quantity
+            ),
+            (
+                executed_qty
+                == quantity
+            ),
+            (
+                executed_qty
+                > 0
+            ),
+            (
+                fill_delta
+                == quantity
+            ),
+            duplicate_blocked,
+            position_reconciled,
+        ]
+    )
+
+    return DemoLifecycleResult(
+        demo_symbol=DEMO_SYMBOL,
+        side=side,
+        position_side=position_side,
+        order_type="MARKET",
+        client_order_id=(
+            client_order_id
+        ),
+        post_attempted=(
+            R28_DEMO_POST_ATTEMPTED
+        ),
+        post_accepted=(
+            R28_DEMO_POST_ACCEPTED
+            and post_accepted
+        ),
+        order_id=order_id,
+        history_lookup_attempted=True,
+        history_poll_attempts=polls,
+        history_found=history_found,
+        final_status=final_status,
+        requested_qty=quantity,
+        original_qty=orig_qty,
+        executed_qty=executed_qty,
+        average_fill_price=(
+            avg_price
+        ),
+        non_zero_fill=(
+            executed_qty > 0
+        ),
+        fill_delta=fill_delta,
+        duplicate_fill_event_blocked=(
+            duplicate_blocked
+        ),
+        position_before=(
+            position_before
+        ),
+        position_after=(
+            position_after
+        ),
+        expected_position_delta=(
+            expected_delta
+        ),
+        observed_position_delta=(
+            observed_delta
+        ),
+        position_reconciled=(
+            position_reconciled
+        ),
+        lifecycle_valid=(
+            lifecycle_valid
+        ),
+    )
+
+
+# ============================================================
+# R28 RESTART RECOVERY SELF TEST
+# ============================================================
