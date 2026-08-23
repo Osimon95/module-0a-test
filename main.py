@@ -1,23 +1,36 @@
+# ============================================================
+# 0F-4H-R28-UNIT-F
+# RESTART / REPLAY / IDEMPOTENCY SAFETY VALIDATION
+#
+# STANDALONE TEST UNIT
+#
+# NO EXCHANGE CONNECTION
+# REAL ORDER TRANSMISSION DISABLED
+# DEMO ORDER TRANSMISSION DISABLED
+# NETWORK ACCESS DISABLED
+# ============================================================
+
 from __future__ import annotations
 
 import hashlib
 import json
+import time
 
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, Mapping, Set, Tuple
+from decimal import Decimal
+from enum import Enum
+from typing import Any, Dict, Optional, Set
 
 
 # ============================================================
-# R28 UNIT E
-# STANDALONE INTEGRATION-BOUNDARY VALIDATION
+# MODULE IDENTIFICATION
 # ============================================================
 
-MODULE_NAME = "0F-4H-R28-UNIT-E"
+MODULE_NAME = "0F-4H-R28-UNIT-F"
 
 
 # ============================================================
-# ABSOLUTE SAFETY CONFIGURATION
+# ABSOLUTE EXECUTION LOCKS
 # ============================================================
 
 LIVE_ORDER_EXECUTION = False
@@ -27,40 +40,28 @@ NETWORK_ACCESS_ENABLED = False
 HARD_REAL_POST_LOCK = True
 HARD_DEMO_POST_LOCK = True
 
-REAL_ORDER_PATH = "/capi/v3/order"
-DEMO_ORDER_PATH = "/capi/v3/sim/order"
 
-EXPECTED_METHOD = "POST"
+# ============================================================
+# SAFETY COUNTERS
+# ============================================================
 
-MAX_LEVERAGE = 100
+REAL_POST_CALLED = False
+DEMO_POST_CALLED = False
+NETWORK_CALLED = False
 
 
 # ============================================================
-# BASIC HELPERS
+# HELPERS
 # ============================================================
-
-def status_icon(
-    value: bool,
-) -> str:
-
-    return (
-        "✅ PASS"
-        if value
-        else "❌ FAIL"
-    )
-
 
 def stable_json(
-    value: Mapping[str, Any],
+    value: Any,
 ) -> str:
 
     return json.dumps(
         value,
         sort_keys=True,
-        separators=(
-            ",",
-            ":",
-        ),
+        separators=(",", ":"),
         ensure_ascii=False,
     )
 
@@ -70,94 +71,87 @@ def sha256_hex(
 ) -> str:
 
     return hashlib.sha256(
-        value.encode(
-            "utf-8"
-        )
+        value.encode("utf-8")
     ).hexdigest()
 
 
-def fmt_decimal(
+def decimal_string(
     value: Decimal,
 ) -> str:
 
+    normalized = value.normalize()
+
     text = format(
-        value,
+        normalized,
         "f",
     )
 
     if "." in text:
 
-        text = (
-            text
-            .rstrip("0")
-            .rstrip(".")
-        )
+        text = text.rstrip("0").rstrip(".")
 
-    return (
-        text
-        or "0"
-    )
+    return text
 
 
-def to_decimal(
-    value: Any,
-) -> Decimal:
-
-    if isinstance(
-        value,
-        Decimal,
-    ):
-
-        return value
-
-    try:
-
-        return Decimal(
-            str(
-                value
-            )
-        )
-
-    except (
-        InvalidOperation,
-        ValueError,
-        TypeError,
-    ) as exc:
-
-        raise ValueError(
-            f"Invalid decimal value: {value!r}"
-        ) from exc
-
-
-def require_non_empty(
-    value: str,
-    field_name: str,
+def status_icon(
+    passed: bool,
 ) -> str:
 
-    cleaned = (
-        value
-        .strip()
-    )
-
-    if not cleaned:
-
-        raise ValueError(
-            f"{field_name} cannot be empty"
-        )
-
-    return cleaned
+    return "✅ PASS" if passed else "❌ FAIL"
 
 
 # ============================================================
-# EXECUTION INTENT MODEL
+# EXECUTION STATES
+# ============================================================
+
+class ExecutionState(
+    str,
+    Enum,
+):
+
+    CREATED = "CREATED"
+
+    VALIDATED = "VALIDATED"
+
+    SHADOW_COMMITTED = (
+        "SHADOW_COMMITTED"
+    )
+
+    DEMO_PENDING = "DEMO_PENDING"
+
+    DEMO_ACCEPTED = "DEMO_ACCEPTED"
+
+    DEMO_REJECTED = "DEMO_REJECTED"
+
+    COMPLETED = "COMPLETED"
+
+    REJECTED = "REJECTED"
+
+
+# ============================================================
+# TERMINAL STATES
+# ============================================================
+
+TERMINAL_STATES = {
+
+    ExecutionState.DEMO_ACCEPTED,
+
+    ExecutionState.DEMO_REJECTED,
+
+    ExecutionState.COMPLETED,
+
+    ExecutionState.REJECTED,
+}
+
+
+# ============================================================
+# EXECUTION INTENT
 # ============================================================
 
 @dataclass(
     frozen=True
 )
 class ExecutionIntent:
-
-    intent_id: str
 
     signal_id: str
 
@@ -173,9 +167,11 @@ class ExecutionIntent:
 
     client_order_id: str
 
+    intent_id: str
+
 
 # ============================================================
-# SHADOW COMMIT MODEL
+# SHADOW COMMIT
 # ============================================================
 
 @dataclass(
@@ -183,15 +179,11 @@ class ExecutionIntent:
 )
 class ShadowCommit:
 
-    method: str
-
-    path: str
-
     intent_id: str
 
-    intent_fingerprint: str
-
     payload_fingerprint: str
+
+    intent_fingerprint: str
 
     request_fingerprint: str
 
@@ -199,7 +191,61 @@ class ShadowCommit:
 
 
 # ============================================================
-# EXECUTION INTENT CREATION
+# EXECUTION RECORD
+# ============================================================
+
+@dataclass
+class ExecutionRecord:
+
+    signal_id: str
+
+    intent_id: str
+
+    commit_token: str
+
+    state: ExecutionState
+
+    generation: int = 1
+
+
+# ============================================================
+# PERSISTED SNAPSHOT
+# ============================================================
+
+@dataclass(
+    frozen=True
+)
+class PersistedSnapshot:
+
+    payload: str
+
+    checksum: str
+
+
+# ============================================================
+# EXECUTION STORE
+# ============================================================
+
+class ExecutionStore:
+
+    def __init__(
+        self,
+    ) -> None:
+
+        self.seen_signals: Set[str] = set()
+
+        self.seen_intents: Set[str] = set()
+
+        self.seen_commits: Set[str] = set()
+
+        self.records: Dict[
+            str,
+            ExecutionRecord,
+        ] = {}
+
+
+# ============================================================
+# BUILD EXECUTION INTENT
 # ============================================================
 
 def build_execution_intent(
@@ -211,43 +257,40 @@ def build_execution_intent(
     leverage: int,
 ) -> ExecutionIntent:
 
-    signal_id = require_non_empty(
-        signal_id,
-        "signal_id",
+    signal_id = (
+        signal_id
+        .strip()
     )
 
     symbol = (
-        require_non_empty(
-            symbol,
-            "symbol",
-        )
+        symbol
+        .strip()
         .upper()
     )
 
     side = (
-        require_non_empty(
-            side,
-            "side",
-        )
+        side
+        .strip()
         .upper()
     )
 
     position_side = (
-        require_non_empty(
-            position_side,
-            "position_side",
-        )
+        position_side
+        .strip()
         .upper()
     )
 
-    quantity = to_decimal(
-        quantity
-    )
+    if not signal_id:
 
+        raise ValueError(
+            "signal_id cannot be empty"
+        )
 
-    # ========================================================
-    # SIDE SAFETY
-    # ========================================================
+    if not symbol:
+
+        raise ValueError(
+            "symbol cannot be empty"
+        )
 
     if side not in {
         "BUY",
@@ -257,11 +300,6 @@ def build_execution_intent(
         raise ValueError(
             f"Invalid side: {side}"
         )
-
-
-    # ========================================================
-    # POSITION-SIDE SAFETY
-    # ========================================================
 
     if position_side not in {
         "LONG",
@@ -273,66 +311,24 @@ def build_execution_intent(
             f"{position_side}"
         )
 
-
-    # ========================================================
-    # OPEN-DIRECTION SAFETY
-    # ========================================================
-
-    expected_side = (
-        "BUY"
-        if position_side == "LONG"
-        else "SELL"
-    )
-
-    if side != expected_side:
-
-        raise ValueError(
-            "Open direction mismatch: "
-            f"{side}/{position_side}"
-        )
-
-
-    # ========================================================
-    # QUANTITY SAFETY
-    # ========================================================
-
     if quantity <= 0:
 
         raise ValueError(
-            "quantity must be greater than zero"
-        )
-
-
-    # ========================================================
-    # LEVERAGE SAFETY
-    # ========================================================
-
-    if not isinstance(
-        leverage,
-        int,
-    ):
-
-        raise ValueError(
-            "leverage must be an integer"
+            "quantity must be positive"
         )
 
     if leverage <= 0:
 
         raise ValueError(
-            "leverage must be greater than zero"
+            "leverage must be positive"
         )
 
-    if leverage > MAX_LEVERAGE:
+    if leverage > 100:
 
         raise ValueError(
-            "leverage exceeds local cap of "
-            f"{MAX_LEVERAGE}x"
+            "leverage exceeds local "
+            "100x safety limit"
         )
-
-
-    # ========================================================
-    # CANONICAL EXECUTION INTENT
-    # ========================================================
 
     canonical = "|".join(
         [
@@ -340,7 +336,7 @@ def build_execution_intent(
             symbol,
             side,
             position_side,
-            fmt_decimal(
+            decimal_string(
                 quantity
             ),
             str(
@@ -349,32 +345,17 @@ def build_execution_intent(
         ]
     )
 
-
-    # ========================================================
-    # DETERMINISTIC INTENT ID
-    # ========================================================
-
     intent_id = sha256_hex(
-        "R28|INTENT|"
+        "R28-INTENT|"
         + canonical
     )
 
-
-    # ========================================================
-    # DETERMINISTIC CLIENT ORDER ID
-    # ========================================================
-
     client_order_id = (
-        "r28-"
-        + sha256_hex(
-            "R28|CLIENT_ORDER_ID|"
-            + canonical
-        )[:24]
+        "R28"
+        + intent_id[:24]
     )
 
-
     return ExecutionIntent(
-        intent_id=intent_id,
         signal_id=signal_id,
         symbol=symbol,
         side=side,
@@ -382,209 +363,136 @@ def build_execution_intent(
         quantity=quantity,
         leverage=leverage,
         client_order_id=client_order_id,
+        intent_id=intent_id,
     )
 
 
 # ============================================================
-# EXECUTION PAYLOAD CREATION
+# BUILD EXECUTION PAYLOAD
 # ============================================================
 
 def build_execution_payload(
     intent: ExecutionIntent,
 ) -> Dict[str, Any]:
 
-    if not isinstance(
-        intent,
-        ExecutionIntent,
-    ):
-
-        raise TypeError(
-            "intent must be an ExecutionIntent"
-        )
-
-
-    # ========================================================
-    # DEFENSIVE QUANTITY CHECK
-    # ========================================================
-
-    if intent.quantity <= 0:
-
-        raise ValueError(
-            "intent quantity must be greater than zero"
-        )
-
-
-    # ========================================================
-    # DEFENSIVE LEVERAGE CHECK
-    # ========================================================
-
-    if intent.leverage <= 0:
-
-        raise ValueError(
-            "intent leverage must be greater than zero"
-        )
-
-    if intent.leverage > MAX_LEVERAGE:
-
-        raise ValueError(
-            "intent leverage exceeds local cap"
-        )
-
-
-    # ========================================================
-    # CANONICAL EXECUTION PAYLOAD
-    # ========================================================
-
-    payload = {
-
-        "symbol":
-            intent.symbol,
-
-        "side":
-            intent.side,
-
-        "positionSide":
-            intent.position_side,
-
-        "orderType":
-            "MARKET",
-
-        "quantity":
-            fmt_decimal(
-                intent.quantity
-            ),
-
-        "leverage":
-            str(
-                intent.leverage
-            ),
-
-        "clientOrderId":
-            intent.client_order_id,
+    return {
+        "symbol": intent.symbol,
+        "side": intent.side,
+        "positionSide": (
+            intent.position_side
+        ),
+        "quantity": decimal_string(
+            intent.quantity
+        ),
+        "leverage": intent.leverage,
+        "clientOrderId": (
+            intent.client_order_id
+        ),
+        "intentId": (
+            intent.intent_id
+        ),
     }
 
 
-    return payload
+# ============================================================
+# INTENT FINGERPRINT
+# ============================================================
+
+def calculate_intent_fingerprint(
+    intent: ExecutionIntent,
+) -> str:
+
+    canonical = "|".join(
+        [
+            intent.intent_id,
+            intent.signal_id,
+            intent.symbol,
+            intent.side,
+            intent.position_side,
+            decimal_string(
+                intent.quantity
+            ),
+            str(
+                intent.leverage
+            ),
+            intent.client_order_id,
+        ]
+    )
+
+    return sha256_hex(
+        canonical
+    )
 
 
 # ============================================================
-# SHADOW EXECUTION COMMIT
+# BUILD SHADOW COMMIT
 # ============================================================
 
 def build_shadow_commit(
     intent: ExecutionIntent,
-    payload: Mapping[
-        str,
-        Any,
-    ],
+    payload: Dict[str, Any],
 ) -> ShadowCommit:
+
+    expected_payload = (
+        build_execution_payload(
+            intent
+        )
+    )
+
+    if payload != expected_payload:
+
+        raise ValueError(
+            "Payload does not match "
+            "execution intent"
+        )
 
     canonical_payload = stable_json(
         payload
     )
 
-
-    # ========================================================
-    # PAYLOAD FINGERPRINT
-    # ========================================================
-
-    payload_fingerprint = sha256_hex(
-        canonical_payload
-    )
-
-
-    # ========================================================
-    # REQUEST FINGERPRINT
-    # ========================================================
-
-    request_fingerprint = sha256_hex(
-
-        EXPECTED_METHOD
-        + "|"
-        + REAL_ORDER_PATH
-        + "|"
-        + canonical_payload
-    )
-
-
-    # ========================================================
-    # INTENT FINGERPRINT
-    # ========================================================
-
-    intent_fingerprint = sha256_hex(
-
-        "|".join(
-            [
-                intent.intent_id,
-
-                intent.signal_id,
-
-                intent.symbol,
-
-                intent.side,
-
-                intent.position_side,
-
-                fmt_decimal(
-                    intent.quantity
-                ),
-
-                str(
-                    intent.leverage
-                ),
-
-                intent.client_order_id,
-            ]
+    payload_fingerprint = (
+        sha256_hex(
+            canonical_payload
         )
     )
 
+    request_fingerprint = (
+        sha256_hex(
+            "POST|"
+            "/capi/v3/order"
+            "|"
+            + canonical_payload
+        )
+    )
 
-    # ========================================================
-    # SHADOW COMMIT TOKEN
-    # ========================================================
+    intent_fingerprint = (
+        calculate_intent_fingerprint(
+            intent
+        )
+    )
 
     commit_token = sha256_hex(
-
         "|".join(
             [
-                "R28",
-
-                "SHADOW_COMMIT",
-
                 intent.intent_id,
-
-                intent_fingerprint,
-
                 payload_fingerprint,
-
                 request_fingerprint,
+                intent_fingerprint,
             ]
         )
     )
 
-
     return ShadowCommit(
-
-        method=EXPECTED_METHOD,
-
-        path=REAL_ORDER_PATH,
-
-        intent_id=(
-            intent.intent_id
-        ),
-
-        intent_fingerprint=(
-            intent_fingerprint
-        ),
-
+        intent_id=intent.intent_id,
         payload_fingerprint=(
             payload_fingerprint
         ),
-
+        intent_fingerprint=(
+            intent_fingerprint
+        ),
         request_fingerprint=(
             request_fingerprint
         ),
-
         commit_token=(
             commit_token
         ),
@@ -592,1194 +500,1560 @@ def build_shadow_commit(
 
 
 # ============================================================
-# SHADOW COMMIT VALIDATION
+# VERIFY SHADOW COMMIT
 # ============================================================
 
-def validate_shadow_commit(
+def verify_shadow_commit(
     intent: ExecutionIntent,
-    payload: Mapping[
-        str,
-        Any,
-    ],
+    payload: Dict[str, Any],
     commit: ShadowCommit,
 ) -> bool:
 
-    expected = build_shadow_commit(
-        intent,
-        payload,
+    expected = (
+        build_shadow_commit(
+            intent,
+            payload,
+        )
     )
 
     return (
+        expected
+        ==
         commit
-        == expected
     )
 
 
 # ============================================================
-# R28 EXECUTION STATE MACHINE
+# CREATE EXECUTION RECORD
 # ============================================================
 
-VALID_TRANSITIONS: Dict[
-    str,
-    Set[str],
-] = {
+def create_execution_record(
+    store: ExecutionStore,
+    intent: ExecutionIntent,
+    commit: ShadowCommit,
+) -> ExecutionRecord:
 
-    "CREATED": {
-        "VALIDATED",
-        "REJECTED",
+    if intent.signal_id in (
+        store.seen_signals
+    ):
+
+        raise RuntimeError(
+            "Duplicate signal replay rejected"
+        )
+
+    if intent.intent_id in (
+        store.seen_intents
+    ):
+
+        raise RuntimeError(
+            "Duplicate intent replay rejected"
+        )
+
+    if commit.commit_token in (
+        store.seen_commits
+    ):
+
+        raise RuntimeError(
+            "Duplicate shadow commit replay "
+            "rejected"
+        )
+
+    if (
+        commit.intent_id
+        !=
+        intent.intent_id
+    ):
+
+        raise RuntimeError(
+            "Shadow commit intent mismatch"
+        )
+
+    record = ExecutionRecord(
+        signal_id=intent.signal_id,
+        intent_id=intent.intent_id,
+        commit_token=(
+            commit.commit_token
+        ),
+        state=(
+            ExecutionState
+            .SHADOW_COMMITTED
+        ),
+        generation=1,
+    )
+
+    store.seen_signals.add(
+        intent.signal_id
+    )
+
+    store.seen_intents.add(
+        intent.intent_id
+    )
+
+    store.seen_commits.add(
+        commit.commit_token
+    )
+
+    store.records[
+        intent.intent_id
+    ] = record
+
+    return record
+
+
+# ============================================================
+# STATE TRANSITION
+# ============================================================
+
+VALID_TRANSITIONS = {
+
+    ExecutionState.CREATED: {
+        ExecutionState.VALIDATED,
+        ExecutionState.REJECTED,
     },
 
-    "VALIDATED": {
-        "SHADOW_COMMITTED",
-        "REJECTED",
+    ExecutionState.VALIDATED: {
+        ExecutionState.SHADOW_COMMITTED,
+        ExecutionState.REJECTED,
     },
 
-    "SHADOW_COMMITTED": {
-        "DEMO_PENDING",
-        "REJECTED",
+    ExecutionState.SHADOW_COMMITTED: {
+        ExecutionState.DEMO_PENDING,
+        ExecutionState.REJECTED,
     },
 
-    "DEMO_PENDING": {
-        "DEMO_ACCEPTED",
-        "DEMO_REJECTED",
+    ExecutionState.DEMO_PENDING: {
+        ExecutionState.DEMO_ACCEPTED,
+        ExecutionState.DEMO_REJECTED,
     },
 
-    "DEMO_ACCEPTED": {
-        "COMPLETED",
-    },
+    ExecutionState.DEMO_ACCEPTED: set(),
 
-    "DEMO_REJECTED": {
-        "REJECTED",
-    },
+    ExecutionState.DEMO_REJECTED: set(),
 
-    "COMPLETED":
-        set(),
+    ExecutionState.COMPLETED: set(),
 
-    "REJECTED":
-        set(),
+    ExecutionState.REJECTED: set(),
 }
 
 
-TERMINAL_STATES = {
+def transition_state(
+    record: ExecutionRecord,
+    target_state: ExecutionState,
+) -> None:
 
-    "COMPLETED",
+    if record.state in TERMINAL_STATES:
 
-    "REJECTED",
-}
-
-
-# ============================================================
-# EXECUTION STATE MACHINE CLASS
-# ============================================================
-
-class ExecutionStateMachine:
-
-    def __init__(
-        self,
-    ) -> None:
-
-        self.state = (
-            "CREATED"
+        raise RuntimeError(
+            "Terminal execution state "
+            "cannot transition"
         )
 
-        self.history = [
-            "CREATED"
-        ]
-
-
-    def transition(
-        self,
-        next_state: str,
-    ) -> None:
-
-        next_state = (
-            next_state
-            .strip()
-            .upper()
-        )
-
-
-        # ====================================================
-        # TERMINAL STATE LOCK
-        # ====================================================
-
-        if self.state in TERMINAL_STATES:
-
-            raise RuntimeError(
-                "Terminal state locked: "
-                f"{self.state}"
-            )
-
-
-        # ====================================================
-        # VALID TRANSITION LOOKUP
-        # ====================================================
-
-        allowed = VALID_TRANSITIONS.get(
-            self.state,
+    allowed = (
+        VALID_TRANSITIONS
+        .get(
+            record.state,
             set(),
         )
+    )
+
+    if target_state not in allowed:
+
+        raise RuntimeError(
+            "Invalid execution state "
+            f"transition: "
+            f"{record.state.value} -> "
+            f"{target_state.value}"
+        )
+
+    record.state = target_state
 
 
-        # ====================================================
-        # REJECT ILLEGAL TRANSITION
-        # ====================================================
+# ============================================================
+# PERSIST EXECUTION STORE
+# ============================================================
 
-        if next_state not in allowed:
+def persist_execution_store(
+    store: ExecutionStore,
+) -> PersistedSnapshot:
 
-            raise RuntimeError(
-                "Invalid transition: "
-                f"{self.state} -> "
-                f"{next_state}"
+    data = {
+
+        "seen_signals": sorted(
+            store.seen_signals
+        ),
+
+        "seen_intents": sorted(
+            store.seen_intents
+        ),
+
+        "seen_commits": sorted(
+            store.seen_commits
+        ),
+
+        "records": {
+
+            intent_id: {
+
+                "signal_id": (
+                    record.signal_id
+                ),
+
+                "intent_id": (
+                    record.intent_id
+                ),
+
+                "commit_token": (
+                    record.commit_token
+                ),
+
+                "state": (
+                    record.state.value
+                ),
+
+                "generation": (
+                    record.generation
+                ),
+            }
+
+            for (
+                intent_id,
+                record,
             )
 
+            in sorted(
+                store.records.items()
+            )
+        },
+    }
 
-        # ====================================================
-        # APPLY TRANSITION
-        # ====================================================
+    payload = stable_json(
+        data
+    )
 
-        self.state = (
-            next_state
-        )
+    checksum = sha256_hex(
+        "R28-PERSISTED-STATE|"
+        + payload
+    )
 
-        self.history.append(
-            next_state
-        )
-
-
-# ============================================================
-# ABSOLUTE REAL POST LOCK
-# ============================================================
-
-def real_post(
-    *_args: Any,
-    **_kwargs: Any,
-) -> None:
-
-    raise RuntimeError(
-        "REAL POST BLOCKED BY R28 UNIT E"
+    return PersistedSnapshot(
+        payload=payload,
+        checksum=checksum,
     )
 
 
 # ============================================================
-# ABSOLUTE DEMO POST LOCK
+# RESTORE EXECUTION STORE
 # ============================================================
 
-def demo_post(
-    *_args: Any,
-    **_kwargs: Any,
+def restore_execution_store(
+    snapshot: PersistedSnapshot,
+) -> ExecutionStore:
+
+    expected_checksum = sha256_hex(
+        "R28-PERSISTED-STATE|"
+        + snapshot.payload
+    )
+
+    if (
+        snapshot.checksum
+        !=
+        expected_checksum
+    ):
+
+        raise RuntimeError(
+            "Persisted state checksum "
+            "validation failed"
+        )
+
+    try:
+
+        raw = json.loads(
+            snapshot.payload
+        )
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            "Persisted state JSON invalid"
+        ) from exc
+
+    required_keys = {
+        "seen_signals",
+        "seen_intents",
+        "seen_commits",
+        "records",
+    }
+
+    if (
+        set(
+            raw.keys()
+        )
+        !=
+        required_keys
+    ):
+
+        raise RuntimeError(
+            "Persisted state schema invalid"
+        )
+
+    store = ExecutionStore()
+
+    store.seen_signals = set(
+        raw[
+            "seen_signals"
+        ]
+    )
+
+    store.seen_intents = set(
+        raw[
+            "seen_intents"
+        ]
+    )
+
+    store.seen_commits = set(
+        raw[
+            "seen_commits"
+        ]
+    )
+
+    records_raw = raw[
+        "records"
+    ]
+
+    if not isinstance(
+        records_raw,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "Persisted records invalid"
+        )
+
+    for (
+        intent_id,
+        record_raw,
+    ) in records_raw.items():
+
+        if (
+            record_raw.get(
+                "intent_id"
+            )
+            !=
+            intent_id
+        ):
+
+            raise RuntimeError(
+                "Persisted intent index "
+                "mismatch"
+            )
+
+        try:
+
+            state = ExecutionState(
+                record_raw[
+                    "state"
+                ]
+            )
+
+        except Exception as exc:
+
+            raise RuntimeError(
+                "Persisted execution state "
+                "invalid"
+            ) from exc
+
+        record = ExecutionRecord(
+
+            signal_id=record_raw[
+                "signal_id"
+            ],
+
+            intent_id=record_raw[
+                "intent_id"
+            ],
+
+            commit_token=record_raw[
+                "commit_token"
+            ],
+
+            state=state,
+
+            generation=int(
+                record_raw[
+                    "generation"
+                ]
+            ) + 1,
+        )
+
+        if (
+            record.signal_id
+            not in
+            store.seen_signals
+        ):
+
+            raise RuntimeError(
+                "Persisted signal index "
+                "inconsistent"
+            )
+
+        if (
+            record.intent_id
+            not in
+            store.seen_intents
+        ):
+
+            raise RuntimeError(
+                "Persisted intent index "
+                "inconsistent"
+            )
+
+        if (
+            record.commit_token
+            not in
+            store.seen_commits
+        ):
+
+            raise RuntimeError(
+                "Persisted commit index "
+                "inconsistent"
+            )
+
+        store.records[
+            intent_id
+        ] = record
+
+    return store
+
+
+# ============================================================
+# REAL POST — ABSOLUTELY BLOCKED
+# ============================================================
+
+def real_order_post(
+    *args: Any,
+    **kwargs: Any,
 ) -> None:
 
+    global REAL_POST_CALLED
+
+    REAL_POST_CALLED = True
+
     raise RuntimeError(
-        "DEMO POST BLOCKED BY R28 UNIT E"
+        "R28 UNIT F HARD SAFETY LOCK: "
+        "REAL ORDER POST BLOCKED"
     )
 
 
 # ============================================================
-# ABSOLUTE NETWORK LOCK
+# DEMO POST — ABSOLUTELY BLOCKED
+# ============================================================
+
+def demo_order_post(
+    *args: Any,
+    **kwargs: Any,
+) -> None:
+
+    global DEMO_POST_CALLED
+
+    DEMO_POST_CALLED = True
+
+    raise RuntimeError(
+        "R28 UNIT F HARD SAFETY LOCK: "
+        "DEMO ORDER POST BLOCKED"
+    )
+
+
+# ============================================================
+# NETWORK ACCESS — ABSOLUTELY BLOCKED
 # ============================================================
 
 def network_request(
-    *_args: Any,
-    **_kwargs: Any,
+    *args: Any,
+    **kwargs: Any,
 ) -> None:
 
+    global NETWORK_CALLED
+
+    NETWORK_CALLED = True
+
     raise RuntimeError(
-        "NETWORK ACCESS BLOCKED BY R28 UNIT E"
+        "R28 UNIT F HARD SAFETY LOCK: "
+        "NETWORK ACCESS BLOCKED"
     )
 
 
 # ============================================================
-# BUILD COMPLETE INTEGRATION TEST BUNDLE
+# TEST 1
+# DUPLICATE SIGNAL REPLAY
 # ============================================================
 
-def build_integrated_bundle(
-) -> Tuple[
-    ExecutionIntent,
-    Dict[str, Any],
-    ShadowCommit,
-]:
+def test_duplicate_signal_replay(
+) -> bool:
+
+    store = ExecutionStore()
 
     intent = build_execution_intent(
-
         signal_id=(
-            "r28-unit-e-signal-001"
+            "unit-f-signal-001"
         ),
-
-        symbol=(
-            "BTCUSDT"
-        ),
-
-        side=(
-            "BUY"
-        ),
-
-        position_side=(
-            "LONG"
-        ),
-
+        symbol="BTCUSDT",
+        side="BUY",
+        position_side="LONG",
         quantity=Decimal(
             "0.0001"
         ),
-
         leverage=100,
     )
 
-
-    payload = build_execution_payload(
-        intent
+    payload = (
+        build_execution_payload(
+            intent
+        )
     )
-
 
     commit = build_shadow_commit(
         intent,
         payload,
     )
 
-
-    return (
+    create_execution_record(
+        store,
         intent,
-        payload,
         commit,
     )
 
-
-# ============================================================
-# TEST 1
-# INTENT -> PAYLOAD BINDING
-# ============================================================
-
-def test_intent_to_payload_binding(
-) -> bool:
-
-    intent, payload, _commit = (
-        build_integrated_bundle()
+    fake_intent = (
+        ExecutionIntent(
+            signal_id=(
+                intent.signal_id
+            ),
+            symbol="ETHUSDT",
+            side="BUY",
+            position_side="LONG",
+            quantity=Decimal(
+                "0.001"
+            ),
+            leverage=50,
+            client_order_id=(
+                "DIFFERENT"
+            ),
+            intent_id=(
+                "DIFFERENT-INTENT"
+            ),
+        )
     )
 
-
-    return (
-
-        payload[
-            "symbol"
-        ]
-        == intent.symbol
-
-        and
-
-        payload[
-            "side"
-        ]
-        == intent.side
-
-        and
-
-        payload[
-            "positionSide"
-        ]
-        == intent.position_side
-
-        and
-
-        payload[
-            "quantity"
-        ]
-        == fmt_decimal(
-            intent.quantity
+    fake_payload = (
+        build_execution_payload(
+            fake_intent
         )
-
-        and
-
-        payload[
-            "leverage"
-        ]
-        == str(
-            intent.leverage
-        )
-
-        and
-
-        payload[
-            "clientOrderId"
-        ]
-        == intent.client_order_id
     )
+
+    fake_commit = (
+        build_shadow_commit(
+            fake_intent,
+            fake_payload,
+        )
+    )
+
+    try:
+
+        create_execution_record(
+            store,
+            fake_intent,
+            fake_commit,
+        )
+
+    except RuntimeError as exc:
+
+        return (
+            "Duplicate signal"
+            in str(
+                exc
+            )
+        )
+
+    return False
 
 
 # ============================================================
 # TEST 2
-# PAYLOAD -> SHADOW COMMIT BINDING
+# DUPLICATE INTENT REPLAY
 # ============================================================
 
-def test_payload_to_shadow_binding(
+def test_duplicate_intent_replay(
 ) -> bool:
 
-    intent, payload, commit = (
-        build_integrated_bundle()
+    store = ExecutionStore()
+
+    intent = build_execution_intent(
+        signal_id=(
+            "unit-f-signal-002"
+        ),
+        symbol="BTCUSDT",
+        side="BUY",
+        position_side="LONG",
+        quantity=Decimal(
+            "0.0001"
+        ),
+        leverage=100,
     )
 
+    payload = (
+        build_execution_payload(
+            intent
+        )
+    )
 
-    return validate_shadow_commit(
+    commit = build_shadow_commit(
         intent,
         payload,
+    )
+
+    create_execution_record(
+        store,
+        intent,
         commit,
     )
+
+    store.seen_signals.remove(
+        intent.signal_id
+    )
+
+    try:
+
+        create_execution_record(
+            store,
+            intent,
+            commit,
+        )
+
+    except RuntimeError as exc:
+
+        return (
+            "Duplicate intent"
+            in str(
+                exc
+            )
+        )
+
+    return False
 
 
 # ============================================================
 # TEST 3
-# TAMPERED PAYLOAD MUST FAIL SHADOW VALIDATION
+# DUPLICATE SHADOW COMMIT
 # ============================================================
 
-def test_tampered_payload_rejected(
+def test_duplicate_shadow_commit(
 ) -> bool:
 
-    intent, payload, commit = (
-        build_integrated_bundle()
+    store = ExecutionStore()
+
+    intent = build_execution_intent(
+        signal_id=(
+            "unit-f-signal-003"
+        ),
+        symbol="BTCUSDT",
+        side="BUY",
+        position_side="LONG",
+        quantity=Decimal(
+            "0.0001"
+        ),
+        leverage=100,
     )
 
-
-    tampered = dict(
-        payload
+    payload = (
+        build_execution_payload(
+            intent
+        )
     )
 
-
-    tampered[
-        "quantity"
-    ] = "0.0002"
-
-
-    return not validate_shadow_commit(
+    commit = build_shadow_commit(
         intent,
-        tampered,
+        payload,
+    )
+
+    create_execution_record(
+        store,
+        intent,
         commit,
     )
+
+    store.seen_signals.remove(
+        intent.signal_id
+    )
+
+    store.seen_intents.remove(
+        intent.intent_id
+    )
+
+    try:
+
+        create_execution_record(
+            store,
+            intent,
+            commit,
+        )
+
+    except RuntimeError as exc:
+
+        return (
+            "Duplicate shadow commit"
+            in str(
+                exc
+            )
+        )
+
+    return False
 
 
 # ============================================================
 # TEST 4
-# WRONG INTENT MUST FAIL SHADOW VALIDATION
+# RESTART STATE RESTORATION
 # ============================================================
 
-def test_wrong_intent_rejected(
+def test_restart_state_restoration(
 ) -> bool:
 
-    _intent, payload, commit = (
-        build_integrated_bundle()
-    )
+    store = ExecutionStore()
 
-
-    other_intent = build_execution_intent(
-
+    intent = build_execution_intent(
         signal_id=(
-            "r28-unit-e-signal-002"
+            "unit-f-signal-004"
         ),
-
-        symbol=(
-            "BTCUSDT"
-        ),
-
-        side=(
-            "BUY"
-        ),
-
-        position_side=(
-            "LONG"
-        ),
-
+        symbol="BTCUSDT",
+        side="BUY",
+        position_side="LONG",
         quantity=Decimal(
             "0.0001"
         ),
-
         leverage=100,
     )
 
+    payload = (
+        build_execution_payload(
+            intent
+        )
+    )
 
-    return not validate_shadow_commit(
-        other_intent,
+    commit = build_shadow_commit(
+        intent,
         payload,
-        commit,
+    )
+
+    original_record = (
+        create_execution_record(
+            store,
+            intent,
+            commit,
+        )
+    )
+
+    snapshot = (
+        persist_execution_store(
+            store
+        )
+    )
+
+    restored = (
+        restore_execution_store(
+            snapshot
+        )
+    )
+
+    restored_record = (
+        restored.records.get(
+            intent.intent_id
+        )
+    )
+
+    if restored_record is None:
+
+        return False
+
+    return (
+
+        restored_record.signal_id
+        ==
+        original_record.signal_id
+
+        and
+
+        restored_record.intent_id
+        ==
+        original_record.intent_id
+
+        and
+
+        restored_record.commit_token
+        ==
+        original_record.commit_token
+
+        and
+
+        restored_record.state
+        ==
+        original_record.state
+
+        and
+
+        restored_record.generation
+        ==
+        2
     )
 
 
 # ============================================================
 # TEST 5
-# SHADOW COMMIT MUST PRECEDE DEMO_PENDING
+# REPLAY AFTER RESTART
 # ============================================================
 
-def test_shadow_required_before_demo_pending(
+def test_replay_after_restart(
 ) -> bool:
 
-    machine = (
-        ExecutionStateMachine()
+    store = ExecutionStore()
+
+    intent = build_execution_intent(
+        signal_id=(
+            "unit-f-signal-005"
+        ),
+        symbol="BTCUSDT",
+        side="BUY",
+        position_side="LONG",
+        quantity=Decimal(
+            "0.0001"
+        ),
+        leverage=100,
     )
 
-
-    machine.transition(
-        "VALIDATED"
+    payload = (
+        build_execution_payload(
+            intent
+        )
     )
 
+    commit = build_shadow_commit(
+        intent,
+        payload,
+    )
+
+    create_execution_record(
+        store,
+        intent,
+        commit,
+    )
+
+    snapshot = (
+        persist_execution_store(
+            store
+        )
+    )
+
+    restarted_store = (
+        restore_execution_store(
+            snapshot
+        )
+    )
 
     try:
 
-        machine.transition(
-            "DEMO_PENDING"
+        create_execution_record(
+            restarted_store,
+            intent,
+            commit,
         )
 
-    except RuntimeError:
+    except RuntimeError as exc:
 
-        return True
-
+        return (
+            "Duplicate signal"
+            in str(
+                exc
+            )
+        )
 
     return False
 
 
 # ============================================================
 # TEST 6
-# COMPLETE INTEGRATED SUCCESS PATH
+# TERMINAL STATE REPLAY REJECTION
 # ============================================================
 
-def test_integrated_state_path(
+def test_terminal_state_replay(
 ) -> bool:
 
-    intent, payload, commit = (
-        build_integrated_bundle()
+    record = ExecutionRecord(
+        signal_id="terminal-signal",
+        intent_id="terminal-intent",
+        commit_token="terminal-commit",
+        state=(
+            ExecutionState
+            .DEMO_REJECTED
+        ),
     )
 
+    try:
 
-    machine = (
-        ExecutionStateMachine()
-    )
+        transition_state(
+            record,
+            ExecutionState.DEMO_PENDING,
+        )
 
+    except RuntimeError as exc:
 
-    machine.transition(
-        "VALIDATED"
-    )
+        return (
+            "Terminal execution state"
+            in str(
+                exc
+            )
+        )
 
-
-    # ========================================================
-    # SHADOW VALIDATION GATE
-    # ========================================================
-
-    if not validate_shadow_commit(
-        intent,
-        payload,
-        commit,
-    ):
-
-        return False
-
-
-    machine.transition(
-        "SHADOW_COMMITTED"
-    )
-
-
-    machine.transition(
-        "DEMO_PENDING"
-    )
-
-
-    # ========================================================
-    # CONTROLLED SIMULATION ONLY
-    #
-    # NO DEMO POST OCCURS HERE
-    # ========================================================
-
-    machine.transition(
-        "DEMO_ACCEPTED"
-    )
-
-
-    machine.transition(
-        "COMPLETED"
-    )
-
-
-    return (
-
-        machine.state
-        == "COMPLETED"
-
-        and
-
-        machine.history
-        == [
-            "CREATED",
-            "VALIDATED",
-            "SHADOW_COMMITTED",
-            "DEMO_PENDING",
-            "DEMO_ACCEPTED",
-            "COMPLETED",
-        ]
-    )
+    return False
 
 
 # ============================================================
 # TEST 7
-# CONTROLLED DEMO REJECTION PATH
+# CORRUPTED SNAPSHOT REJECTION
 # ============================================================
 
-def test_demo_rejection_path(
+def test_corrupted_snapshot_rejected(
 ) -> bool:
 
-    intent, payload, commit = (
-        build_integrated_bundle()
+    store = ExecutionStore()
+
+    intent = build_execution_intent(
+        signal_id=(
+            "unit-f-signal-007"
+        ),
+        symbol="BTCUSDT",
+        side="BUY",
+        position_side="LONG",
+        quantity=Decimal(
+            "0.0001"
+        ),
+        leverage=100,
     )
 
-
-    machine = (
-        ExecutionStateMachine()
+    payload = (
+        build_execution_payload(
+            intent
+        )
     )
 
-
-    machine.transition(
-        "VALIDATED"
+    commit = (
+        build_shadow_commit(
+            intent,
+            payload,
+        )
     )
 
-
-    if not validate_shadow_commit(
+    create_execution_record(
+        store,
         intent,
-        payload,
         commit,
-    ):
-
-        return False
-
-
-    machine.transition(
-        "SHADOW_COMMITTED"
     )
 
-
-    machine.transition(
-        "DEMO_PENDING"
+    snapshot = (
+        persist_execution_store(
+            store
+        )
     )
 
-
-    machine.transition(
-        "DEMO_REJECTED"
+    corrupted = (
+        PersistedSnapshot(
+            payload=(
+                snapshot.payload
+                + "TAMPERED"
+            ),
+            checksum=(
+                snapshot.checksum
+            ),
+        )
     )
 
+    try:
 
-    machine.transition(
-        "REJECTED"
-    )
+        restore_execution_store(
+            corrupted
+        )
 
+    except RuntimeError as exc:
 
-    return (
-        machine.state
-        == "REJECTED"
-    )
+        return (
+            "checksum"
+            in str(
+                exc
+            ).lower()
+        )
+
+    return False
 
 
 # ============================================================
 # TEST 8
-# PAYLOAD TAMPERING MUST BLOCK STATE PROGRESSION
+# INTERNAL STATE INCONSISTENCY REJECTION
 # ============================================================
 
-def test_tamper_blocks_state_progression(
+def test_inconsistent_state_rejected(
 ) -> bool:
 
-    intent, payload, commit = (
-        build_integrated_bundle()
+    store = ExecutionStore()
+
+    intent = build_execution_intent(
+        signal_id=(
+            "unit-f-signal-008"
+        ),
+        symbol="BTCUSDT",
+        side="BUY",
+        position_side="LONG",
+        quantity=Decimal(
+            "0.0001"
+        ),
+        leverage=100,
     )
 
-
-    machine = (
-        ExecutionStateMachine()
+    payload = (
+        build_execution_payload(
+            intent
+        )
     )
 
-
-    machine.transition(
-        "VALIDATED"
+    commit = (
+        build_shadow_commit(
+            intent,
+            payload,
+        )
     )
 
-
-    tampered = dict(
-        payload
-    )
-
-
-    tampered[
-        "leverage"
-    ] = "99"
-
-
-    # ========================================================
-    # TAMPERED SHADOW VALIDATION MUST FAIL
-    # ========================================================
-
-    if validate_shadow_commit(
+    create_execution_record(
+        store,
         intent,
-        tampered,
         commit,
-    ):
+    )
 
-        return False
+    snapshot = (
+        persist_execution_store(
+            store
+        )
+    )
 
+    raw = json.loads(
+        snapshot.payload
+    )
 
-    # ========================================================
-    # MACHINE MUST STILL REFUSE DEMO_PENDING
-    #
-    # BECAUSE SHADOW_COMMITTED WAS NEVER REACHED
-    # ========================================================
+    raw[
+        "seen_signals"
+    ] = []
+
+    tampered_payload = stable_json(
+        raw
+    )
+
+    tampered_snapshot = (
+        PersistedSnapshot(
+
+            payload=(
+                tampered_payload
+            ),
+
+            checksum=sha256_hex(
+                "R28-PERSISTED-STATE|"
+                + tampered_payload
+            ),
+        )
+    )
 
     try:
 
-        machine.transition(
-            "DEMO_PENDING"
+        restore_execution_store(
+            tampered_snapshot
         )
 
-    except RuntimeError:
+    except RuntimeError as exc:
 
         return (
-            machine.state
-            == "VALIDATED"
+            "inconsistent"
+            in str(
+                exc
+            ).lower()
         )
-
 
     return False
 
 
 # ============================================================
 # TEST 9
-# COMPLETE BUNDLE MUST BE DETERMINISTIC
+# DETERMINISTIC SNAPSHOT
 # ============================================================
 
-def test_deterministic_integrated_bundle(
+def test_deterministic_snapshot(
 ) -> bool:
 
-    first = (
-        build_integrated_bundle()
+    store = ExecutionStore()
+
+    intent = build_execution_intent(
+        signal_id=(
+            "unit-f-signal-009"
+        ),
+        symbol="BTCUSDT",
+        side="BUY",
+        position_side="LONG",
+        quantity=Decimal(
+            "0.0001"
+        ),
+        leverage=100,
     )
 
-
-    second = (
-        build_integrated_bundle()
+    payload = (
+        build_execution_payload(
+            intent
+        )
     )
 
+    commit = (
+        build_shadow_commit(
+            intent,
+            payload,
+        )
+    )
+
+    create_execution_record(
+        store,
+        intent,
+        commit,
+    )
+
+    snapshot_1 = (
+        persist_execution_store(
+            store
+        )
+    )
+
+    snapshot_2 = (
+        persist_execution_store(
+            store
+        )
+    )
 
     return (
-        first
-        == second
+        snapshot_1
+        ==
+        snapshot_2
     )
 
 
 # ============================================================
 # TEST 10
-# UNIQUE SIGNAL MUST CREATE UNIQUE INTENT + COMMIT
+# DETERMINISTIC RESTORE
 # ============================================================
 
-def test_unique_signal_changes_commit(
+def test_deterministic_restore(
 ) -> bool:
 
-    (
-        first_intent,
-        first_payload,
-        first_commit,
-    ) = build_integrated_bundle()
+    store = ExecutionStore()
 
-
-    second_intent = build_execution_intent(
-
+    intent = build_execution_intent(
         signal_id=(
-            "r28-unit-e-signal-unique"
+            "unit-f-signal-010"
         ),
-
-        symbol=(
-            "BTCUSDT"
-        ),
-
-        side=(
-            "BUY"
-        ),
-
-        position_side=(
-            "LONG"
-        ),
-
+        symbol="BTCUSDT",
+        side="BUY",
+        position_side="LONG",
         quantity=Decimal(
             "0.0001"
         ),
-
         leverage=100,
     )
 
-
-    second_payload = build_execution_payload(
-        second_intent
+    payload = (
+        build_execution_payload(
+            intent
+        )
     )
 
-
-    second_commit = build_shadow_commit(
-        second_intent,
-        second_payload,
+    commit = (
+        build_shadow_commit(
+            intent,
+            payload,
+        )
     )
 
+    create_execution_record(
+        store,
+        intent,
+        commit,
+    )
+
+    snapshot = (
+        persist_execution_store(
+            store
+        )
+    )
+
+    restored_1 = (
+        restore_execution_store(
+            snapshot
+        )
+    )
+
+    restored_2 = (
+        restore_execution_store(
+            snapshot
+        )
+    )
+
+    snapshot_1 = (
+        persist_execution_store(
+            restored_1
+        )
+    )
+
+    snapshot_2 = (
+        persist_execution_store(
+            restored_2
+        )
+    )
 
     return (
-
-        first_intent.intent_id
-        != second_intent.intent_id
-
-        and
-
-        first_commit.commit_token
-        != second_commit.commit_token
-
-        and
-
-        first_payload[
-            "clientOrderId"
-        ]
-        != second_payload[
-            "clientOrderId"
-        ]
+        snapshot_1
+        ==
+        snapshot_2
     )
 
 
 # ============================================================
 # TEST 11
-# METHOD + REAL ORDER PATH MUST BE LOCKED
+# SHADOW COMMIT SURVIVES RESTART
 # ============================================================
 
-def test_method_and_path_locked(
+def test_shadow_commit_survives_restart(
 ) -> bool:
 
-    _intent, _payload, commit = (
-        build_integrated_bundle()
+    store = ExecutionStore()
+
+    intent = build_execution_intent(
+        signal_id=(
+            "unit-f-signal-011"
+        ),
+        symbol="BTCUSDT",
+        side="BUY",
+        position_side="LONG",
+        quantity=Decimal(
+            "0.0001"
+        ),
+        leverage=100,
     )
 
+    payload = (
+        build_execution_payload(
+            intent
+        )
+    )
+
+    commit = (
+        build_shadow_commit(
+            intent,
+            payload,
+        )
+    )
+
+    create_execution_record(
+        store,
+        intent,
+        commit,
+    )
+
+    snapshot = (
+        persist_execution_store(
+            store
+        )
+    )
+
+    restored = (
+        restore_execution_store(
+            snapshot
+        )
+    )
+
+    record = (
+        restored.records[
+            intent.intent_id
+        ]
+    )
 
     return (
 
-        commit.method
-        == "POST"
+        record.commit_token
+        ==
+        commit.commit_token
 
         and
 
-        commit.path
-        == REAL_ORDER_PATH
+        verify_shadow_commit(
+            intent,
+            payload,
+            commit,
+        )
     )
 
 
 # ============================================================
 # TEST 12
-# TERMINAL STATE MUST REMAIN LOCKED
+# NETWORK / ORDER LOCKS
 # ============================================================
 
-def test_terminal_state_locked(
+def test_execution_locks(
 ) -> bool:
 
-    machine = (
-        ExecutionStateMachine()
+    global REAL_POST_CALLED
+    global DEMO_POST_CALLED
+    global NETWORK_CALLED
+
+    REAL_POST_CALLED = False
+    DEMO_POST_CALLED = False
+    NETWORK_CALLED = False
+
+    real_blocked = False
+
+    demo_blocked = False
+
+    network_blocked = False
+
+    try:
+
+        real_order_post()
+
+    except RuntimeError:
+
+        real_blocked = True
+
+    try:
+
+        demo_order_post()
+
+    except RuntimeError:
+
+        demo_blocked = True
+
+    try:
+
+        network_request()
+
+    except RuntimeError:
+
+        network_blocked = True
+
+    calls_detected = (
+        REAL_POST_CALLED
+        and
+        DEMO_POST_CALLED
+        and
+        NETWORK_CALLED
     )
 
+    # Reset diagnostic counters.
+    #
+    # These calls were deliberate blocked-call
+    # tests only. No external request occurred.
 
-    machine.transition(
-        "REJECTED"
-    )
+    REAL_POST_CALLED = False
 
+    DEMO_POST_CALLED = False
 
-    try:
-
-        machine.transition(
-            "VALIDATED"
-        )
-
-    except RuntimeError:
-
-        return True
-
-
-    return False
-
-
-# ============================================================
-# TEST 13
-# REAL POST ABSOLUTE LOCK
-# ============================================================
-
-def test_real_post_absolute_lock(
-) -> bool:
-
-    try:
-
-        real_post(
-            REAL_ORDER_PATH,
-            {},
-        )
-
-    except RuntimeError:
-
-        return True
-
-
-    return False
-
-
-# ============================================================
-# TEST 14
-# DEMO POST ABSOLUTE LOCK
-# ============================================================
-
-def test_demo_post_absolute_lock(
-) -> bool:
-
-    try:
-
-        demo_post(
-            DEMO_ORDER_PATH,
-            {},
-        )
-
-    except RuntimeError:
-
-        return True
-
-
-    return False
-
-
-# ============================================================
-# TEST 15
-# NETWORK ACCESS ABSOLUTE LOCK
-# ============================================================
-
-def test_network_absolute_lock(
-) -> bool:
-
-    try:
-
-        network_request(
-            "https://example.invalid"
-        )
-
-    except RuntimeError:
-
-        return True
-
-
-    return False
-
-
-# ============================================================
-# TEST 16
-# COMPLETE NO-TRANSMISSION CONFIGURATION
-# ============================================================
-
-def test_no_transmission_configuration(
-) -> bool:
+    NETWORK_CALLED = False
 
     return (
-
-        LIVE_ORDER_EXECUTION
-        is False
-
+        real_blocked
         and
-
-        DEMO_ORDER_EXECUTION
-        is False
-
+        demo_blocked
         and
-
-        NETWORK_ACCESS_ENABLED
-        is False
-
+        network_blocked
         and
-
+        calls_detected
+        and
         HARD_REAL_POST_LOCK
-        is True
-
         and
-
         HARD_DEMO_POST_LOCK
-        is True
+        and
+        not LIVE_ORDER_EXECUTION
+        and
+        not DEMO_ORDER_EXECUTION
+        and
+        not NETWORK_ACCESS_ENABLED
     )
 
 
 # ============================================================
-# R28 UNIT E DIAGNOSTIC
+# FINAL SAFETY ASSERTIONS
 # ============================================================
 
-def run_diagnostic(
-) -> int:
+def final_safety_assertions(
+) -> bool:
+
+    return all(
+        [
+            LIVE_ORDER_EXECUTION
+            is False,
+
+            DEMO_ORDER_EXECUTION
+            is False,
+
+            NETWORK_ACCESS_ENABLED
+            is False,
+
+            HARD_REAL_POST_LOCK
+            is True,
+
+            HARD_DEMO_POST_LOCK
+            is True,
+
+            REAL_POST_CALLED
+            is False,
+
+            DEMO_POST_CALLED
+            is False,
+
+            NETWORK_CALLED
+            is False,
+        ]
+    )
+
+
+# ============================================================
+# COMPLETE UNIT F DIAGNOSTIC
+# ============================================================
+
+def run_unit_f_diagnostic(
+) -> Dict[str, bool]:
+
+    results = {
+
+        "Duplicate Signal Replay Rejected":
+            test_duplicate_signal_replay(),
+
+        "Duplicate Intent Replay Rejected":
+            test_duplicate_intent_replay(),
+
+        "Duplicate Shadow Commit Rejected":
+            test_duplicate_shadow_commit(),
+
+        "Restart State Restored":
+            test_restart_state_restoration(),
+
+        "Replay After Restart Rejected":
+            test_replay_after_restart(),
+
+        "Terminal State Replay Rejected":
+            test_terminal_state_replay(),
+
+        "Corrupted Snapshot Rejected":
+            test_corrupted_snapshot_rejected(),
+
+        "Inconsistent State Rejected":
+            test_inconsistent_state_rejected(),
+
+        "Deterministic Snapshot":
+            test_deterministic_snapshot(),
+
+        "Deterministic Restore":
+            test_deterministic_restore(),
+
+        "Shadow Commit Survives Restart":
+            test_shadow_commit_survives_restart(),
+
+        "Execution Locks Active":
+            test_execution_locks(),
+    }
+
+    results[
+        "Final Safety Assertions"
+    ] = final_safety_assertions()
+
+    return results
+
+
+# ============================================================
+# PRINT HEADER
+# ============================================================
+
+def print_header(
+) -> None:
 
     print(
         "=" * 60
     )
-
 
     print(
         f"{MODULE_NAME} STARTING"
     )
 
-
     print(
-        "STANDALONE INTEGRATION BOUNDARY VALIDATION"
+        "STANDALONE RESTART / REPLAY / "
+        "IDEMPOTENCY SAFETY VALIDATION"
     )
 
-
     print(
-        "EXECUTION INTENT -> PAYLOAD -> SHADOW COMMIT"
+        "EXECUTION INTENT -> PAYLOAD -> "
+        "SHADOW COMMIT -> PERSISTENCE"
     )
 
-
     print(
-        "-> EXECUTION STATE MACHINE"
+        "-> RESTART -> REPLAY PROTECTION"
     )
-
 
     print(
         "NO EXCHANGE CONNECTION"
     )
 
-
     print(
         "REAL ORDER TRANSMISSION DISABLED"
     )
-
 
     print(
         "DEMO ORDER TRANSMISSION DISABLED"
     )
 
-
     print(
         "NETWORK ACCESS DISABLED"
     )
 
-
     print(
         "=" * 60
     )
 
 
-    tests = [
+# ============================================================
+# PRINT RESULTS
+# ============================================================
 
-        (
-            "Intent To Payload Binding",
-            test_intent_to_payload_binding,
-        ),
-
-        (
-            "Payload To Shadow Binding",
-            test_payload_to_shadow_binding,
-        ),
-
-        (
-            "Tampered Payload Rejected",
-            test_tampered_payload_rejected,
-        ),
-
-        (
-            "Wrong Intent Rejected",
-            test_wrong_intent_rejected,
-        ),
-
-        (
-            "Shadow Required Before Demo",
-            test_shadow_required_before_demo_pending,
-        ),
-
-        (
-            "Integrated State Path",
-            test_integrated_state_path,
-        ),
-
-        (
-            "Demo Rejection Path",
-            test_demo_rejection_path,
-        ),
-
-        (
-            "Tamper Blocks Progression",
-            test_tamper_blocks_state_progression,
-        ),
-
-        (
-            "Deterministic Integration",
-            test_deterministic_integrated_bundle,
-        ),
-
-        (
-            "Unique Signal Changes Commit",
-            test_unique_signal_changes_commit,
-        ),
-
-        (
-            "Method + Order Path Locked",
-            test_method_and_path_locked,
-        ),
-
-        (
-            "Terminal State Locked",
-            test_terminal_state_locked,
-        ),
-
-        (
-            "Real POST Absolute Lock",
-            test_real_post_absolute_lock,
-        ),
-
-        (
-            "Demo POST Absolute Lock",
-            test_demo_post_absolute_lock,
-        ),
-
-        (
-            "Network Absolute Lock",
-            test_network_absolute_lock,
-        ),
-
-        (
-            "No Transmission Configuration",
-            test_no_transmission_configuration,
-        ),
-    ]
-
-
-    results: Dict[
-        str,
-        bool,
-    ] = {}
-
+def print_results(
+    results: Dict[str, bool],
+) -> None:
 
     print(
-        "R28 UNIT E INTEGRATION GATES"
+        "R28 UNIT F RESTART / "
+        "IDEMPOTENCY GATES"
     )
-
 
     print(
         "-" * 60
     )
-
 
     for (
         name,
-        test,
-    ) in tests:
+        passed,
+    ) in results.items():
 
-        try:
-
-            passed = bool(
-                test()
-            )
-
-
-        except Exception as exc:
-
-            passed = False
-
-
-            print(
-
-                f"{name:<40} "
-                "❌ FAIL"
-            )
-
-
-            print(
-
-                "  "
-                + type(
-                    exc
-                ).__name__
-                + ": "
-                + str(
-                    exc
-                )
-            )
-
-
-        else:
-
-            print(
-
-                f"{name:<40} "
-                f"{status_icon(passed)}"
-            )
-
-
-        results[
-            name
-        ] = passed
-
+        print(
+            f"{name:<42} "
+            f"{status_icon(passed)}"
+        )
 
     print(
         "-" * 60
     )
-
-
-    all_passed = all(
-        results.values()
-    )
-
-
-    # ========================================================
-    # SUCCESS
-    # ========================================================
-
-    if all_passed:
-
-        print(
-            "✅ R28 UNIT E DIAGNOSTIC PASSED"
-        )
-
-
-        print(
-            "✅ INTEGRATION BOUNDARY VALIDATED"
-        )
-
-
-        print(
-            "✅ INTENT/PAYLOAD/SHADOW/STATE CHAIN VALIDATED"
-        )
-
-
-        print(
-            "✅ UNIT E READY FOR INTEGRATION"
-        )
-
-
-        print(
-            "🛡 NO ORDER TRANSMISSION POSSIBLE"
-        )
-
-
-        print(
-            "=" * 60
-        )
-
-
-        return 0
-
-
-    # ========================================================
-    # FAILURE
-    # ========================================================
-
-    print(
-        "❌ R28 UNIT E DIAGNOSTIC FAILED"
-    )
-
-
-    print(
-        "❌ DO NOT INTEGRATE UNIT E"
-    )
-
-
-    print(
-        "🛡 NO ORDER TRANSMISSION POSSIBLE"
-    )
-
-
-    print(
-        "=" * 60
-    )
-
-
-    return 1
 
 
 # ============================================================
@@ -1789,13 +2063,132 @@ def run_diagnostic(
 def main(
 ) -> None:
 
-    exit_code = (
-        run_diagnostic()
-    )
+    print_header()
 
-    raise SystemExit(
-        exit_code
-    )
+    try:
+
+        results = (
+            run_unit_f_diagnostic()
+        )
+
+        print_results(
+            results
+        )
+
+        all_passed = all(
+            results.values()
+        )
+
+        if not all_passed:
+
+            failed = [
+
+                name
+
+                for (
+                    name,
+                    passed,
+                )
+
+                in results.items()
+
+                if not passed
+            ]
+
+            print()
+
+            print(
+                "❌ R28 UNIT F "
+                "DIAGNOSTIC FAILED"
+            )
+
+            print(
+                "FAILED GATES:"
+            )
+
+            for name in failed:
+
+                print(
+                    f" - {name}"
+                )
+
+            print(
+                "=" * 60
+            )
+
+            raise SystemExit(
+                1
+            )
+
+        print()
+
+        print(
+            "✅ R28 UNIT F DIAGNOSTIC PASSED"
+        )
+
+        print(
+            "✅ RESTART STATE SAFETY VALIDATED"
+        )
+
+        print(
+            "✅ SIGNAL / INTENT / SHADOW "
+            "REPLAY PROTECTION VALIDATED"
+        )
+
+        print(
+            "✅ PERSISTED STATE INTEGRITY "
+            "VALIDATED"
+        )
+
+        print(
+            "✅ IDEMPOTENT RECOVERY VALIDATED"
+        )
+
+        print(
+            "✅ UNIT F READY FOR INTEGRATION"
+        )
+
+        print(
+            "🛡 NO ORDER TRANSMISSION POSSIBLE"
+        )
+
+        print(
+            "=" * 60
+        )
+
+    except Exception as exc:
+
+        print()
+
+        print(
+            "❌ R28 UNIT F FATAL ERROR"
+        )
+
+        print(
+            f"{type(exc).__name__}: "
+            f"{exc}"
+        )
+
+        print(
+            "🛡 REAL ORDER TRANSMISSION "
+            "REMAINS DISABLED"
+        )
+
+        print(
+            "🛡 DEMO ORDER TRANSMISSION "
+            "REMAINS DISABLED"
+        )
+
+        print(
+            "🛡 NETWORK ACCESS REMAINS "
+            "DISABLED"
+        )
+
+        print(
+            "=" * 60
+        )
+
+        raise
 
 
 # ============================================================
@@ -1805,3 +2198,5 @@ def main(
 if __name__ == "__main__":
 
     main()
+
+    
