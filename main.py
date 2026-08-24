@@ -1,24 +1,24 @@
 # ============================================================
-# 0F-4H-R28-UNIT-L
-# READ-ONLY STRATEGY / ACCOUNT COMPATIBILITY VALIDATION
+# 0F-4H-R28-UNIT-M
+# CONTROLLED LEVERAGE CONFIGURATION BOUNDARY VALIDATION
 #
-# PUBLIC WEEX MARKET GET REQUESTS ENABLED
-# AUTHENTICATED ACCOUNT GET REQUESTS ENABLED
+# PURPOSE:
+# - Read current BTCUSDT leverage configuration
+# - Validate planned ISOLATED 100x configuration
+# - Construct hypothetical leverage-change payload
+# - Construct hypothetical authenticated POST signature locally
+# - PROVE leverage POST cannot reach network
 #
 # REAL ORDER TRANSMISSION DISABLED
 # DEMO ORDER TRANSMISSION DISABLED
-# POST / PUT / PATCH / DELETE BLOCKED LOCALLY
+# ACCOUNT CONFIGURATION WRITES DISABLED
+# NETWORK WRITE METHODS BLOCKED
 #
-# THIS UNIT DOES NOT:
-# - PLACE ORDERS
-# - CHANGE LEVERAGE
-# - CHANGE MARGIN MODE
-# - CHANGE POSITION MODE
-# - MODIFY ACCOUNT STATE
+# NO LEVERAGE CHANGE WILL BE SENT
 # ============================================================
 
 print(
-    "R28 UNIT L: MAIN.PY ENTERED",
+    "R28 UNIT M: MAIN.PY ENTERED",
     flush=True,
 )
 
@@ -33,66 +33,42 @@ import hmac
 import json
 import os
 import signal
+import threading
 import time
-
-from decimal import (
-    Decimal,
-    InvalidOperation,
-    ROUND_DOWN,
-)
-
-from urllib.parse import (
-    urlencode,
-    urlparse,
-)
+from decimal import Decimal
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import urlencode
 
 import aiohttp
 
-
 print(
-    "R28 UNIT L: IMPORTS COMPLETE",
+    "R28 UNIT M: IMPORTS COMPLETE",
     flush=True,
 )
 
 
 # ============================================================
-# UNIT IDENTIFICATION
+# IDENTIFICATION
 # ============================================================
 
-MODULE_NAME = "0F-4H-R28-UNIT-L"
-MODULE_VERSION = "R28-L"
+MODULE_NAME = "0F-4H-R28-UNIT-M"
+MODULE_VERSION = "R28-M"
 
+SYMBOL = "BTCUSDT"
 
-# ============================================================
-# STRATEGY CONSTANTS
-# ============================================================
+WEEX_HOST = "https://api-contract.weex.com"
 
-SYMBOL = os.getenv(
-    "SYMBOL",
-    "BTCUSDT",
-).strip().upper()
-
-MARGIN_ASSET = "USDT"
+SYMBOL_CONFIG_PATH = "/capi/v3/account/symbolConfig"
+LEVERAGE_CHANGE_PATH = "/capi/v3/account/leverage"
 
 PLANNED_MARGIN_TYPE = "ISOLATED"
+PLANNED_LEVERAGE = 100
 
-PLANNED_LEVERAGE = Decimal("100")
-
-INITIAL_ENTRY_PERCENT = Decimal("5")
-
-PYRAMID_SIZE_PERCENT = Decimal("5")
-
-MAX_PYRAMID_ADDS = 1
-
-BACKUP_SIZE_PERCENT = Decimal("5")
-
-MAX_BACKUPS = 3
-
-MAX_FUND_EXPOSURE_PERCENT = Decimal("35")
+HEARTBEAT_SECONDS = 15
 
 
 # ============================================================
-# ABSOLUTE EXECUTION SAFETY LOCKS
+# ABSOLUTE SAFETY LOCKS
 # ============================================================
 
 LIVE_ORDER_EXECUTION = False
@@ -101,500 +77,241 @@ DEMO_ORDER_EXECUTION = False
 REAL_ORDER_TRANSMISSION = False
 DEMO_ORDER_TRANSMISSION = False
 
-PRIVATE_WRITE_ACCESS = False
+ACCOUNT_CONFIGURATION_WRITES = False
+LEVERAGE_CHANGE_ENABLED = False
+
+NETWORK_POST_ENABLED = False
+NETWORK_PUT_ENABLED = False
+NETWORK_PATCH_ENABLED = False
+NETWORK_DELETE_ENABLED = False
 
 AUTHENTICATED_READ_ACCESS = True
-PUBLIC_MARKET_READ_ACCESS = True
 
 
 # ============================================================
-# NETWORK CONFIGURATION
+# CREDENTIAL DISCOVERY
 # ============================================================
 
-WEEX_HOST = "api-contract.weex.com"
+def first_env(*names):
+    for name in names:
+        value = os.getenv(name)
 
-BASE_URL = "https://api-contract.weex.com"
+        if value:
+            return value.strip()
 
-
-# ============================================================
-# ALLOWED PUBLIC GET PATHS
-# ============================================================
-
-PUBLIC_GET_ALLOWLIST = {
-    "/capi/v3/market/symbolPrice",
-    "/capi/v3/market/exchangeInfo",
-}
+    return ""
 
 
-# ============================================================
-# ALLOWED AUTHENTICATED GET PATHS
-# ============================================================
+API_KEY = first_env(
+    "WEEX_API_KEY",
+    "API_KEY",
+)
 
-PRIVATE_GET_ALLOWLIST = {
-    "/capi/v3/account/balance",
-    "/capi/v3/account/position/allPosition",
-    "/capi/v3/account/symbolConfig",
-}
+API_SECRET = first_env(
+    "WEEX_API_SECRET",
+    "API_SECRET",
+    "SECRET_KEY",
+)
 
-
-# ============================================================
-# ABSOLUTELY BLOCKED ORDER PATHS
-# ============================================================
-
-REAL_ORDER_PATHS = {
-    "/capi/v3/order",
-    "/capi/v3/order/placeOrder",
-}
-
-DEMO_ORDER_PATHS = {
-    "/capi/v3/sim/order",
-}
+API_PASSPHRASE = first_env(
+    "WEEX_API_PASSPHRASE",
+    "API_PASSPHRASE",
+    "PASSPHRASE",
+)
 
 
 # ============================================================
-# API CREDENTIALS
+# AUDIT STATE
 # ============================================================
 
-API_KEY = (
-    os.getenv("WEEX_API_KEY")
-    or os.getenv("API_KEY")
-    or ""
-).strip()
-
-API_SECRET = (
-    os.getenv("WEEX_API_SECRET")
-    or os.getenv("API_SECRET")
-    or ""
-).strip()
-
-API_PASSPHRASE = (
-    os.getenv("WEEX_API_PASSPHRASE")
-    or os.getenv("API_PASSPHRASE")
-    or ""
-).strip()
-
-
-# ============================================================
-# TRANSPORT AUDIT COUNTERS
-# ============================================================
-
-AUDIT = {
-    "local_post_attempts": 0,
-    "local_post_blocks": 0,
-
-    "local_put_attempts": 0,
-    "local_put_blocks": 0,
-
-    "local_patch_attempts": 0,
-    "local_patch_blocks": 0,
-
-    "local_delete_attempts": 0,
-    "local_delete_blocks": 0,
-
+audit = {
     "network_gets": 0,
-    "network_writes": 0,
-
     "network_posts": 0,
     "network_puts": 0,
     "network_patches": 0,
     "network_deletes": 0,
 
-    "real_order_network_transmissions": 0,
-    "demo_order_network_transmissions": 0,
+    "local_post_attempts": 0,
+    "local_post_blocks": 0,
+
+    "leverage_post_attempts": 0,
+    "leverage_post_blocks": 0,
+
+    "real_order_transmissions": 0,
+    "demo_order_transmissions": 0,
+
+    "account_write_transmissions": 0,
+    "leverage_change_transmissions": 0,
 }
 
 
 # ============================================================
-# RESULT STORAGE
+# DIAGNOSTIC RESULT STORAGE
 # ============================================================
 
-RESULTS = []
+test_results = []
 
-READINESS_BLOCKERS = []
+structural_failures = []
 
-READINESS_WARNINGS = []
+readiness_blockers = []
 
-
-# ============================================================
-# BASIC UTILITIES
-# ============================================================
-
-def d(value, default="0"):
-    try:
-        if value is None:
-            return Decimal(default)
-
-        return Decimal(str(value))
-
-    except (
-        InvalidOperation,
-        ValueError,
-        TypeError,
-    ):
-        return Decimal(default)
+readiness_warnings = []
 
 
-def decimal_text(value):
-    if not isinstance(value, Decimal):
-        value = d(value)
-
-    text = format(
-        value,
-        "f",
-    )
-
-    if "." in text:
-        text = text.rstrip("0").rstrip(".")
-
-    if text in {
-        "",
-        "-0",
-    }:
-        return "0"
-
-    return text
-
-
-def percent_of(
-    value,
-    percent,
-):
-    return (
-        value
-        * percent
-        / Decimal("100")
-    )
-
-
-def floor_to_precision(
-    value,
-    precision,
-):
-    precision = int(precision)
-
-    quantum = Decimal(
-        "1"
-    ).scaleb(
-        -precision
-    )
-
-    return value.quantize(
-        quantum,
-        rounding=ROUND_DOWN,
-    )
-
-
-def pass_fail(
-    label,
+def record_test(
+    name,
     passed,
 ):
-    icon = (
-        "✅ PASS"
-        if passed
-        else "❌ FAIL"
-    )
+    status = "✅ PASS" if passed else "❌ FAIL"
 
     print(
-        f"{label:<62} {icon}",
+        f"{name:<68} {status}",
         flush=True,
     )
 
-    RESULTS.append(
+    test_results.append(
         (
-            label,
+            name,
             bool(passed),
         )
     )
 
+    if not passed:
+        structural_failures.append(name)
+
     return bool(passed)
 
 
-def warning(
-    message,
-):
+# ============================================================
+# HEALTH SERVER
+# ============================================================
+
+class HealthHandler(BaseHTTPRequestHandler):
+
+    def do_GET(self):
+        self.send_response(200)
+
+        self.send_header(
+            "Content-Type",
+            "text/plain; charset=utf-8",
+        )
+
+        self.end_headers()
+
+        self.wfile.write(
+            b"R28 UNIT M ACTIVE\n"
+        )
+
+    def log_message(
+        self,
+        format,
+        *args,
+    ):
+        return
+
+
+def start_health_server():
+    port = int(
+        os.getenv(
+            "PORT",
+            "10000",
+        )
+    )
+
+    server = HTTPServer(
+        (
+            "0.0.0.0",
+            port,
+        ),
+        HealthHandler,
+    )
+
+    thread = threading.Thread(
+        target=server.serve_forever,
+        daemon=True,
+    )
+
+    thread.start()
+
     print(
-        f"⚠️ {message}",
+        f"R28 UNIT M: HEALTH SERVER ACTIVE ON PORT {port}",
         flush=True,
     )
 
-    READINESS_WARNINGS.append(
-        message
-    )
-
-
-def blocker(
-    message,
-):
-    print(
-        f"🚫 READINESS BLOCKER: {message}",
-        flush=True,
-    )
-
-    READINESS_BLOCKERS.append(
-        message
-    )
+    return server
 
 
 # ============================================================
-# RESPONSE NORMALIZATION
+# JSON SERIALIZATION
 # ============================================================
 
-def unwrap_payload(payload):
-    if not isinstance(
-        payload,
-        dict,
-    ):
-        return payload
-
-    if "data" in payload:
-        code = payload.get(
-            "code"
-        )
-
-        success_codes = {
-            None,
-            0,
-            "0",
-            "00000",
-            200,
-            "200",
-        }
-
-        if (
-            code not in success_codes
-            and payload.get("data") is None
-        ):
-            raise RuntimeError(
-                "WEEX API ERROR: "
-                + json.dumps(
-                    payload,
-                    default=str,
-                )
-            )
-
-        return payload.get(
-            "data"
-        )
-
-    return payload
-
-
-def find_symbol_record(
+def canonical_json(
     payload,
-    symbol,
 ):
-    payload = unwrap_payload(
-        payload
+    return json.dumps(
+        payload,
+        separators=(
+            ",",
+            ":",
+        ),
+        ensure_ascii=False,
     )
-
-    if isinstance(
-        payload,
-        dict,
-    ):
-        if (
-            str(
-                payload.get(
-                    "symbol",
-                    ""
-                )
-            ).upper()
-            == symbol.upper()
-        ):
-            return payload
-
-        for key in (
-            "symbols",
-            "list",
-            "rows",
-        ):
-            value = payload.get(
-                key
-            )
-
-            if isinstance(
-                value,
-                list,
-            ):
-                for item in value:
-                    if (
-                        isinstance(
-                            item,
-                            dict,
-                        )
-                        and str(
-                            item.get(
-                                "symbol",
-                                ""
-                            )
-                        ).upper()
-                        == symbol.upper()
-                    ):
-                        return item
-
-    if isinstance(
-        payload,
-        list,
-    ):
-        for item in payload:
-            if (
-                isinstance(
-                    item,
-                    dict,
-                )
-                and str(
-                    item.get(
-                        "symbol",
-                        ""
-                    )
-                ).upper()
-                == symbol.upper()
-            ):
-                return item
-
-    return None
-
-
-def find_asset_record(
-    payload,
-    asset,
-):
-    payload = unwrap_payload(
-        payload
-    )
-
-    if isinstance(
-        payload,
-        dict,
-    ):
-        if (
-            str(
-                payload.get(
-                    "asset",
-                    ""
-                )
-            ).upper()
-            == asset.upper()
-        ):
-            return payload
-
-        for key in (
-            "balances",
-            "assets",
-            "list",
-        ):
-            value = payload.get(
-                key
-            )
-
-            if isinstance(
-                value,
-                list,
-            ):
-                for item in value:
-                    if (
-                        isinstance(
-                            item,
-                            dict,
-                        )
-                        and str(
-                            item.get(
-                                "asset",
-                                ""
-                            )
-                        ).upper()
-                        == asset.upper()
-                    ):
-                        return item
-
-    if isinstance(
-        payload,
-        list,
-    ):
-        for item in payload:
-            if (
-                isinstance(
-                    item,
-                    dict,
-                )
-                and str(
-                    item.get(
-                        "asset",
-                        ""
-                    )
-                ).upper()
-                == asset.upper()
-            ):
-                return item
-
-    return None
 
 
 # ============================================================
-# PRIVATE REQUEST SIGNING
+# AUTHENTICATION SIGNATURE
 # ============================================================
 
-def generate_signature(
+def build_signature(
     timestamp,
     method,
-    path,
+    request_path,
     query_string="",
     body="",
 ):
     method = method.upper()
 
-    if query_string:
-        message = (
-            str(timestamp)
-            + method
-            + path
-            + "?"
-            + query_string
-            + body
-        )
+    message = (
+        str(timestamp)
+        + method
+        + request_path
+    )
 
-    else:
-        message = (
-            str(timestamp)
-            + method
-            + path
-            + body
-        )
+    if query_string:
+        message += "?" + query_string
+
+    if body:
+        message += body
 
     digest = hmac.new(
-        API_SECRET.encode(
-            "utf-8"
-        ),
-        message.encode(
-            "utf-8"
-        ),
+        API_SECRET.encode("utf-8"),
+        message.encode("utf-8"),
         hashlib.sha256,
     ).digest()
 
     return base64.b64encode(
         digest
-    ).decode(
-        "utf-8"
-    )
+    ).decode("utf-8")
 
 
-def private_headers(
+def build_auth_headers(
     method,
-    path,
+    request_path,
     query_string="",
+    body="",
 ):
     timestamp = str(
         int(
-            time.time()
-            * 1000
+            time.time() * 1000
         )
     )
 
-    signature = generate_signature(
+    signature = build_signature(
         timestamp=timestamp,
         method=method,
-        path=path,
+        request_path=request_path,
         query_string=query_string,
-        body="",
+        body=body,
     )
 
     return {
@@ -607,1936 +324,477 @@ def private_headers(
 
 
 # ============================================================
-# LOCKED TRANSPORT
+# NETWORK DESTINATION LOCK
 # ============================================================
 
-class LockedTransport:
-
-    def __init__(
-        self,
-        session,
-    ):
-        self.session = session
-
-    @staticmethod
-    def validate_host(
-        url,
-    ):
-        parsed = urlparse(
-            url
-        )
-
-        if (
-            parsed.scheme != "https"
-            or parsed.hostname != WEEX_HOST
-        ):
-            raise PermissionError(
-                "ARBITRARY EXTERNAL HOST REJECTED"
-            )
-
-    async def request(
-        self,
-        method,
-        path,
-        params=None,
-        authenticated=False,
-    ):
-        method = method.upper()
-
-        # --------------------------------------------
-        # WRITE METHODS ARE BLOCKED BEFORE TRANSPORT
-        # --------------------------------------------
-
-        if method == "POST":
-            AUDIT[
-                "local_post_attempts"
-            ] += 1
-
-            AUDIT[
-                "local_post_blocks"
-            ] += 1
-
-            raise PermissionError(
-                "POST REJECTED BEFORE TRANSPORT"
-            )
-
-        if method == "PUT":
-            AUDIT[
-                "local_put_attempts"
-            ] += 1
-
-            AUDIT[
-                "local_put_blocks"
-            ] += 1
-
-            raise PermissionError(
-                "PUT REJECTED BEFORE TRANSPORT"
-            )
-
-        if method == "PATCH":
-            AUDIT[
-                "local_patch_attempts"
-            ] += 1
-
-            AUDIT[
-                "local_patch_blocks"
-            ] += 1
-
-            raise PermissionError(
-                "PATCH REJECTED BEFORE TRANSPORT"
-            )
-
-        if method == "DELETE":
-            AUDIT[
-                "local_delete_attempts"
-            ] += 1
-
-            AUDIT[
-                "local_delete_blocks"
-            ] += 1
-
-            raise PermissionError(
-                "DELETE REJECTED BEFORE TRANSPORT"
-            )
-
-        if method != "GET":
-            raise PermissionError(
-                "ONLY GET IS PERMITTED"
-            )
-
-        # --------------------------------------------
-        # GET PATH ALLOWLIST
-        # --------------------------------------------
-
-        if authenticated:
-            if path not in PRIVATE_GET_ALLOWLIST:
-                raise PermissionError(
-                    "UNALLOWLISTED PRIVATE GET REJECTED LOCALLY"
-                )
-
-        else:
-            if path not in PUBLIC_GET_ALLOWLIST:
-                raise PermissionError(
-                    "UNALLOWLISTED PUBLIC GET REJECTED LOCALLY"
-                )
-
-        params = (
-            params
-            if params is not None
-            else {}
-        )
-
-        query_string = urlencode(
-            params
-        )
-
-        url = (
-            BASE_URL
-            + path
-        )
-
-        if query_string:
-            url += (
-                "?"
-                + query_string
-            )
-
-        self.validate_host(
-            url
-        )
-
-        headers = {
-            "Content-Type": "application/json",
-        }
-
-        if authenticated:
-            if not (
-                API_KEY
-                and API_SECRET
-                and API_PASSPHRASE
-            ):
-                raise RuntimeError(
-                    "API CREDENTIALS MISSING"
-                )
-
-            headers = private_headers(
-                method="GET",
-                path=path,
-                query_string=query_string,
-            )
-
-        print(
-            (
-                "R28 UNIT L: "
-                + (
-                    "AUTHENTICATED GET"
-                    if authenticated
-                    else "PUBLIC GET"
-                )
-                + " -> "
-                + path
-            ),
-            flush=True,
-        )
-
-        async with self.session.get(
-            url,
-            headers=headers,
-            timeout=aiohttp.ClientTimeout(
-                total=20
-            ),
-        ) as response:
-
-            text = await response.text()
-
-            AUDIT[
-                "network_gets"
-            ] += 1
-
-            if (
-                response.status
-                < 200
-                or response.status
-                >= 300
-            ):
-                raise RuntimeError(
-                    f"HTTP {response.status}: {text[:500]}"
-                )
-
-            try:
-                return json.loads(
-                    text
-                )
-
-            except json.JSONDecodeError:
-                raise RuntimeError(
-                    "NON-JSON RESPONSE: "
-                    + text[:500]
-                )
-
-
-# ============================================================
-# HEALTH SERVER
-# ============================================================
-
-async def health_handler(
-    reader,
-    writer,
+def validate_weex_url(
+    url,
 ):
-    try:
-        await reader.read(
-            1024
+    expected_prefix = WEEX_HOST + "/"
+
+    if not url.startswith(expected_prefix):
+        raise RuntimeError(
+            "R28 UNIT M SAFETY LOCK: "
+            "ARBITRARY EXTERNAL HOST REJECTED"
         )
 
-        body = (
-            "R28 UNIT L ACTIVE\n"
-            "READ ONLY\n"
-            "NETWORK WRITES LOCKED\n"
+    return True
+
+
+# ============================================================
+# AUTHENTICATED GET
+# ============================================================
+
+async def authenticated_get(
+    session,
+    request_path,
+    params=None,
+):
+    if not AUTHENTICATED_READ_ACCESS:
+        raise RuntimeError(
+            "Authenticated read access disabled"
         )
 
-        response = (
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/plain\r\n"
-            f"Content-Length: {len(body)}\r\n"
-            "Connection: close\r\n"
-            "\r\n"
-            + body
-        )
+    params = params or {}
 
-        writer.write(
-            response.encode(
-                "utf-8"
-            )
-        )
-
-        await writer.drain()
-
-    except Exception:
-        pass
-
-    finally:
-        try:
-            writer.close()
-            await writer.wait_closed()
-        except Exception:
-            pass
-
-
-async def start_health_server():
-    port = int(
-        os.getenv(
-            "PORT",
-            "10000",
-        )
+    query_string = urlencode(
+        params
     )
 
-    server = await asyncio.start_server(
-        health_handler,
-        host="0.0.0.0",
-        port=port,
+    headers = build_auth_headers(
+        method="GET",
+        request_path=request_path,
+        query_string=query_string,
+        body="",
+    )
+
+    url = (
+        WEEX_HOST
+        + request_path
+    )
+
+    if query_string:
+        url += "?" + query_string
+
+    validate_weex_url(
+        url
     )
 
     print(
-        f"R28 UNIT L: HEALTH SERVER ACTIVE ON PORT {port}",
+        f"R28 UNIT M: AUTHENTICATED GET -> {request_path}",
         flush=True,
     )
 
-    return server
+    audit["network_gets"] += 1
+
+    async with session.get(
+        url,
+        headers=headers,
+        timeout=aiohttp.ClientTimeout(
+            total=15
+        ),
+    ) as response:
+
+        text = await response.text()
+
+        if response.status < 200 or response.status >= 300:
+            raise RuntimeError(
+                "Authenticated GET failed "
+                f"HTTP {response.status}: {text[:500]}"
+            )
+
+        try:
+            return json.loads(
+                text
+            )
+
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                "Authenticated GET returned invalid JSON"
+            ) from exc
 
 
 # ============================================================
-# SAFETY TEST HELPERS
+# UNIVERSAL WRITE LOCK
 # ============================================================
 
-async def expect_blocked(
-    coro_factory,
+async def blocked_post(
+    request_path,
+    payload,
+):
+    audit["local_post_attempts"] += 1
+
+    if request_path == LEVERAGE_CHANGE_PATH:
+        audit["leverage_post_attempts"] += 1
+
+    # --------------------------------------------------------
+    # HARD LOCAL TRANSPORT TERMINATION
+    #
+    # IMPORTANT:
+    # No aiohttp POST function exists beyond this point.
+    # This function ALWAYS raises before network transport.
+    # --------------------------------------------------------
+
+    audit["local_post_blocks"] += 1
+
+    if request_path == LEVERAGE_CHANGE_PATH:
+        audit["leverage_post_blocks"] += 1
+
+    raise PermissionError(
+        "R28 UNIT M WRITE LOCK: "
+        f"POST {request_path} REJECTED BEFORE TRANSPORT"
+    )
+
+
+async def blocked_put(
+    request_path,
+    payload,
+):
+    raise PermissionError(
+        "R28 UNIT M WRITE LOCK: "
+        f"PUT {request_path} REJECTED BEFORE TRANSPORT"
+    )
+
+
+async def blocked_patch(
+    request_path,
+    payload,
+):
+    raise PermissionError(
+        "R28 UNIT M WRITE LOCK: "
+        f"PATCH {request_path} REJECTED BEFORE TRANSPORT"
+    )
+
+
+async def blocked_delete(
+    request_path,
+):
+    raise PermissionError(
+        "R28 UNIT M WRITE LOCK: "
+        f"DELETE {request_path} REJECTED BEFORE TRANSPORT"
+    )
+
+
+# ============================================================
+# SYMBOL CONFIG NORMALIZATION
+# ============================================================
+
+def extract_symbol_config(
+    response_data,
+):
+    data = response_data
+
+    if isinstance(
+        data,
+        dict,
+    ):
+        if isinstance(
+            data.get("data"),
+            list,
+        ):
+            data = data["data"]
+
+        elif isinstance(
+            data.get("data"),
+            dict,
+        ):
+            data = [
+                data["data"]
+            ]
+
+        elif "symbol" in data:
+            data = [
+                data
+            ]
+
+    if not isinstance(
+        data,
+        list,
+    ):
+        raise RuntimeError(
+            "Unexpected symbolConfig response structure"
+        )
+
+    for item in data:
+        if not isinstance(
+            item,
+            dict,
+        ):
+            continue
+
+        symbol = str(
+            item.get(
+                "symbol",
+                "",
+            )
+        ).upper()
+
+        if symbol == SYMBOL:
+            return item
+
+    raise RuntimeError(
+        f"{SYMBOL} configuration not found"
+    )
+
+
+# ============================================================
+# INTEGER LEVERAGE PARSER
+# ============================================================
+
+def parse_leverage(
+    value,
 ):
     try:
-        await coro_factory()
+        return int(
+            Decimal(
+                str(value)
+            )
+        )
+
+    except Exception:
+        return None
+
+
+# ============================================================
+# PLANNED LEVERAGE PAYLOAD
+# ============================================================
+
+def build_planned_leverage_payload():
+    return {
+        "symbol": SYMBOL,
+        "marginType": PLANNED_MARGIN_TYPE,
+        "isolatedLongLeverage": str(
+            PLANNED_LEVERAGE
+        ),
+        "isolatedShortLeverage": str(
+            PLANNED_LEVERAGE
+        ),
+    }
+
+
+# ============================================================
+# PAYLOAD VALIDATION
+# ============================================================
+
+def validate_leverage_payload(
+    payload,
+):
+    if not isinstance(
+        payload,
+        dict,
+    ):
+        return False
+
+    if payload.get(
+        "symbol"
+    ) != SYMBOL:
+        return False
+
+    if payload.get(
+        "marginType"
+    ) != "ISOLATED":
+        return False
+
+    long_lev = parse_leverage(
+        payload.get(
+            "isolatedLongLeverage"
+        )
+    )
+
+    short_lev = parse_leverage(
+        payload.get(
+            "isolatedShortLeverage"
+        )
+    )
+
+    if long_lev != PLANNED_LEVERAGE:
+        return False
+
+    if short_lev != PLANNED_LEVERAGE:
+        return False
+
+    return True
+
+
+# ============================================================
+# LOCAL SIGNING VALIDATION
+# ============================================================
+
+def validate_hypothetical_post_signature(
+    payload,
+):
+    body = canonical_json(
+        payload
+    )
+
+    timestamp = "1760000000000"
+
+    signature_a = build_signature(
+        timestamp=timestamp,
+        method="POST",
+        request_path=LEVERAGE_CHANGE_PATH,
+        body=body,
+    )
+
+    signature_b = build_signature(
+        timestamp=timestamp,
+        method="POST",
+        request_path=LEVERAGE_CHANGE_PATH,
+        body=body,
+    )
+
+    if not signature_a:
+        return False
+
+    if signature_a != signature_b:
+        return False
+
+    tampered_payload = dict(
+        payload
+    )
+
+    tampered_payload[
+        "isolatedLongLeverage"
+    ] = "99"
+
+    tampered_body = canonical_json(
+        tampered_payload
+    )
+
+    tampered_signature = build_signature(
+        timestamp=timestamp,
+        method="POST",
+        request_path=LEVERAGE_CHANGE_PATH,
+        body=tampered_body,
+    )
+
+    if tampered_signature == signature_a:
+        return False
+
+    return True
+
+
+# ============================================================
+# LOCAL BLOCK TEST
+# ============================================================
+
+async def verify_leverage_post_block(
+    payload,
+):
+    try:
+        await blocked_post(
+            LEVERAGE_CHANGE_PATH,
+            payload,
+        )
 
     except PermissionError:
         return True
-
-    except Exception:
-        return False
 
     return False
 
 
 # ============================================================
-# SAFETY GATES
+# NEGATIVE PAYLOAD TESTS
 # ============================================================
 
-async def run_safety_gates(
-    transport,
-):
-    print(
-        "R28 UNIT L SAFETY GATES",
-        flush=True,
+def test_invalid_payloads():
+    bad_symbol = build_planned_leverage_payload()
+
+    bad_symbol["symbol"] = "ETHUSDT"
+
+    bad_margin = build_planned_leverage_payload()
+
+    bad_margin["marginType"] = "CROSSED"
+
+    bad_long = build_planned_leverage_payload()
+
+    bad_long[
+        "isolatedLongLeverage"
+    ] = "99"
+
+    bad_short = build_planned_leverage_payload()
+
+    bad_short[
+        "isolatedShortLeverage"
+    ] = "99"
+
+    missing_long = build_planned_leverage_payload()
+
+    missing_long.pop(
+        "isolatedLongLeverage"
     )
 
-    print(
-        "-" * 76,
-        flush=True,
+    missing_short = build_planned_leverage_payload()
+
+    missing_short.pop(
+        "isolatedShortLeverage"
     )
 
-    pass_fail(
-        "Live Execution Disabled",
-        LIVE_ORDER_EXECUTION is False,
-    )
-
-    pass_fail(
-        "Demo Execution Disabled",
-        DEMO_ORDER_EXECUTION is False,
-    )
-
-    pass_fail(
-        "Real Order Transmission Disabled",
-        REAL_ORDER_TRANSMISSION is False,
-    )
-
-    pass_fail(
-        "Demo Order Transmission Disabled",
-        DEMO_ORDER_TRANSMISSION is False,
-    )
-
-    pass_fail(
-        "Private Write Access Disabled",
-        PRIVATE_WRITE_ACCESS is False,
-    )
-
-    pass_fail(
-        "Authenticated Read Access Enabled",
-        AUTHENTICATED_READ_ACCESS is True,
-    )
-
-    pass_fail(
-        "Public Market Read Access Enabled",
-        PUBLIC_MARKET_READ_ACCESS is True,
-    )
-
-    pass_fail(
-        "Private GET Allowlist Locked",
-        len(
-            PRIVATE_GET_ALLOWLIST
-        ) == 3,
-    )
-
-    pass_fail(
-        "Public GET Allowlist Locked",
-        len(
-            PUBLIC_GET_ALLOWLIST
-        ) == 2,
-    )
-
-    pass_fail(
-        "WEEX Host Locked",
-        WEEX_HOST
-        == "api-contract.weex.com",
-    )
-
-    credentials_present = bool(
-        API_KEY
-        and API_SECRET
-        and API_PASSPHRASE
-    )
-
-    pass_fail(
-        "API Credentials Present",
-        credentials_present,
-    )
-
-    # --------------------------------------------
-    # GENERIC POST BLOCK
-    # --------------------------------------------
-
-    generic_post_blocked = await expect_blocked(
-        lambda: transport.request(
-            "POST",
-            "/capi/v3/example",
-        )
-    )
-
-    pass_fail(
-        "Generic POST Rejected Before Transport",
-        generic_post_blocked,
-    )
-
-    # --------------------------------------------
-    # PUT BLOCK
-    # --------------------------------------------
-
-    put_blocked = await expect_blocked(
-        lambda: transport.request(
-            "PUT",
-            "/capi/v3/example",
-        )
-    )
-
-    pass_fail(
-        "PUT Rejected Before Transport",
-        put_blocked,
-    )
-
-    # --------------------------------------------
-    # PATCH BLOCK
-    # --------------------------------------------
-
-    patch_blocked = await expect_blocked(
-        lambda: transport.request(
-            "PATCH",
-            "/capi/v3/example",
-        )
-    )
-
-    pass_fail(
-        "PATCH Rejected Before Transport",
-        patch_blocked,
-    )
-
-    # --------------------------------------------
-    # DELETE BLOCK
-    # --------------------------------------------
-
-    delete_blocked = await expect_blocked(
-        lambda: transport.request(
-            "DELETE",
-            "/capi/v3/example",
-        )
-    )
-
-    pass_fail(
-        "DELETE Rejected Before Transport",
-        delete_blocked,
-    )
-
-    # --------------------------------------------
-    # REAL ORDER POST BLOCK
-    # --------------------------------------------
-
-    real_order_blocked = await expect_blocked(
-        lambda: transport.request(
-            "POST",
-            "/capi/v3/order",
-        )
-    )
-
-    pass_fail(
-        "Real Order POST Rejected Before Transport",
-        real_order_blocked,
-    )
-
-    # --------------------------------------------
-    # DEMO ORDER POST BLOCK
-    # --------------------------------------------
-
-    demo_order_blocked = await expect_blocked(
-        lambda: transport.request(
-            "POST",
-            "/capi/v3/sim/order",
-        )
-    )
-
-    pass_fail(
-        "Demo Order POST Rejected Before Transport",
-        demo_order_blocked,
-    )
-
-    # --------------------------------------------
-    # PRIVATE GET ALLOWLIST TEST
-    # --------------------------------------------
-
-    private_get_blocked = await expect_blocked(
-        lambda: transport.request(
-            "GET",
-            "/capi/v3/account/notAllowed",
-            authenticated=True,
-        )
-    )
-
-    pass_fail(
-        "Unallowlisted Private GET Rejected Locally",
-        private_get_blocked,
-    )
-
-    # --------------------------------------------
-    # EXTERNAL HOST CHECK
-    # --------------------------------------------
-
-    external_blocked = False
-
-    try:
-        transport.validate_host(
-            "https://example.com/"
-        )
-
-    except PermissionError:
-        external_blocked = True
-
-    pass_fail(
-        "Arbitrary External Host Rejected",
-        external_blocked,
-    )
-
-
-# ============================================================
-# LIVE READ-ONLY DATA ACQUISITION
-# ============================================================
-
-async def get_market_price(
-    transport,
-):
-    payload = await transport.request(
-        "GET",
-        "/capi/v3/market/symbolPrice",
-        params={
-            "symbol": SYMBOL,
-        },
-        authenticated=False,
-    )
-
-    payload = unwrap_payload(
-        payload
-    )
-
-    item = find_symbol_record(
-        payload,
-        SYMBOL,
-    )
-
-    if item is None:
-        if isinstance(
-            payload,
-            dict,
-        ):
-            item = payload
-
-        elif (
-            isinstance(
-                payload,
-                list,
-            )
-            and payload
-            and isinstance(
-                payload[0],
-                dict,
-            )
-        ):
-            item = payload[0]
-
-    if not isinstance(
-        item,
-        dict,
-    ):
-        raise RuntimeError(
-            "SYMBOL PRICE RECORD NOT FOUND"
-        )
-
-    for key in (
-        "price",
-        "markPrice",
-        "symbolPrice",
-        "indexPrice",
-    ):
-        value = item.get(
-            key
-        )
-
-        if value is not None:
-            price = d(
-                value
-            )
-
-            if price > 0:
-                return price
-
-    raise RuntimeError(
-        "VALID SYMBOL PRICE NOT FOUND"
-    )
-
-
-async def get_exchange_info(
-    transport,
-):
-    payload = await transport.request(
-        "GET",
-        "/capi/v3/market/exchangeInfo",
-        params={
-            "symbol": SYMBOL,
-        },
-        authenticated=False,
-    )
-
-    item = find_symbol_record(
-        payload,
-        SYMBOL,
-    )
-
-    if item is None:
-        raise RuntimeError(
-            "EXCHANGE SYMBOL INFORMATION NOT FOUND"
-        )
-
-    return item
-
-
-async def get_usdt_balance(
-    transport,
-):
-    payload = await transport.request(
-        "GET",
-        "/capi/v3/account/balance",
-        authenticated=True,
-    )
-
-    item = find_asset_record(
-        payload,
-        MARGIN_ASSET,
-    )
-
-    if item is None:
-        raise RuntimeError(
-            "USDT BALANCE RECORD NOT FOUND"
-        )
-
-    return item
-
-
-async def get_positions(
-    transport,
-):
-    payload = await transport.request(
-        "GET",
-        "/capi/v3/account/position/allPosition",
-        authenticated=True,
-    )
-
-    payload = unwrap_payload(
-        payload
-    )
-
-    if payload is None:
-        return []
-
-    if isinstance(
-        payload,
-        list,
-    ):
-        return payload
-
-    if isinstance(
-        payload,
-        dict,
-    ):
-        for key in (
-            "positions",
-            "list",
-            "rows",
-        ):
-            value = payload.get(
-                key
-            )
-
-            if isinstance(
-                value,
-                list,
-            ):
-                return value
-
-    raise RuntimeError(
-        "POSITION RESPONSE STRUCTURE NOT RECOGNIZED"
-    )
-
-
-async def get_symbol_config(
-    transport,
-):
-    payload = await transport.request(
-        "GET",
-        "/capi/v3/account/symbolConfig",
-        params={
-            "symbol": SYMBOL,
-        },
-        authenticated=True,
-    )
-
-    item = find_symbol_record(
-        payload,
-        SYMBOL,
-    )
-
-    if item is None:
-        raise RuntimeError(
-            "SYMBOL CONFIGURATION NOT FOUND"
-        )
-
-    return item
-
-
-# ============================================================
-# STRATEGY COMPATIBILITY AUDIT
-# ============================================================
-
-def audit_strategy_compatibility(
-    mark_price,
-    exchange_info,
-    balance_record,
-    positions,
-    symbol_config,
-):
-    print()
-    print(
-        "R28 UNIT L READ-ONLY STRATEGY COMPATIBILITY",
-        flush=True,
-    )
-
-    print(
-        "-" * 76,
-        flush=True,
-    )
-
-    # ========================================================
-    # ACCOUNT BALANCE
-    # ========================================================
-
-    total_balance = d(
-        balance_record.get(
-            "balance"
-        )
-    )
-
-    available_balance = d(
-        balance_record.get(
-            "availableBalance",
-            balance_record.get(
-                "available",
-                "0",
+    return {
+        "Wrong Symbol Rejected":
+            not validate_leverage_payload(
+                bad_symbol
             ),
-        )
-    )
 
-    frozen_balance = d(
-        balance_record.get(
-            "frozen"
-        )
-    )
-
-    unrealized_pnl = d(
-        balance_record.get(
-            "unrealizePnl",
-            balance_record.get(
-                "unrealizedPnl",
-                "0",
+        "Wrong Margin Type Rejected":
+            not validate_leverage_payload(
+                bad_margin
             ),
-        )
-    )
 
-    print(
-        f"R28 UNIT L: {MARGIN_ASSET} BALANCE = "
-        f"{decimal_text(total_balance)}",
-        flush=True,
-    )
-
-    print(
-        f"R28 UNIT L: {MARGIN_ASSET} AVAILABLE = "
-        f"{decimal_text(available_balance)}",
-        flush=True,
-    )
-
-    print(
-        f"R28 UNIT L: {MARGIN_ASSET} FROZEN = "
-        f"{decimal_text(frozen_balance)}",
-        flush=True,
-    )
-
-    print(
-        "R28 UNIT L: ACCOUNT UNREALIZED PNL = "
-        f"{decimal_text(unrealized_pnl)}",
-        flush=True,
-    )
-
-    pass_fail(
-        "Available Balance Is Positive",
-        available_balance > 0,
-    )
-
-    # ========================================================
-    # MARKET PRICE
-    # ========================================================
-
-    print(
-        f"R28 UNIT L: {SYMBOL} MARK PRICE = "
-        f"{decimal_text(mark_price)}",
-        flush=True,
-    )
-
-    pass_fail(
-        "Market Price Is Positive",
-        mark_price > 0,
-    )
-
-    # ========================================================
-    # EXCHANGE SYMBOL RULES
-    # ========================================================
-
-    exchange_symbol = str(
-        exchange_info.get(
-            "symbol",
-            ""
-        )
-    ).upper()
-
-    price_precision = int(
-        exchange_info.get(
-            "pricePrecision",
-            0,
-        )
-    )
-
-    quantity_precision = int(
-        exchange_info.get(
-            "quantityPrecision",
-            0,
-        )
-    )
-
-    contract_value = d(
-        exchange_info.get(
-            "contractVal",
-            "0",
-        )
-    )
-
-    min_leverage = d(
-        exchange_info.get(
-            "minLeverage",
-            "0",
-        )
-    )
-
-    max_leverage = d(
-        exchange_info.get(
-            "maxLeverage",
-            "0",
-        )
-    )
-
-    min_order_size = d(
-        exchange_info.get(
-            "minOrderSize",
-            "0",
-        )
-    )
-
-    max_order_size = d(
-        exchange_info.get(
-            "maxOrderSize",
-            "0",
-        )
-    )
-
-    max_position_size = d(
-        exchange_info.get(
-            "maxPositionSize",
-            "0",
-        )
-    )
-
-    market_open_limit = d(
-        exchange_info.get(
-            "marketOpenLimitSize",
-            "0",
-        )
-    )
-
-    print()
-    print(
-        "R28 UNIT L LIVE EXCHANGE CONSTRAINTS:",
-        flush=True,
-    )
-
-    print(
-        f"  Symbol = {exchange_symbol}",
-        flush=True,
-    )
-
-    print(
-        f"  Price Precision = {price_precision}",
-        flush=True,
-    )
-
-    print(
-        f"  Quantity Precision = {quantity_precision}",
-        flush=True,
-    )
-
-    print(
-        f"  Contract Value = {decimal_text(contract_value)}",
-        flush=True,
-    )
-
-    print(
-        f"  Minimum Order Size = {decimal_text(min_order_size)}",
-        flush=True,
-    )
-
-    print(
-        f"  Maximum Order Size = {decimal_text(max_order_size)}",
-        flush=True,
-    )
-
-    print(
-        f"  Minimum Leverage = {decimal_text(min_leverage)}x",
-        flush=True,
-    )
-
-    print(
-        f"  Maximum Leverage = {decimal_text(max_leverage)}x",
-        flush=True,
-    )
-
-    pass_fail(
-        "Exchange Symbol Matches Target",
-        exchange_symbol == SYMBOL,
-    )
-
-    pass_fail(
-        "Quantity Precision Valid",
-        quantity_precision >= 0,
-    )
-
-    pass_fail(
-        "Minimum Order Size Valid",
-        min_order_size > 0,
-    )
-
-    pass_fail(
-        "Exchange Leverage Range Valid",
-        (
-            min_leverage > 0
-            and max_leverage >= min_leverage
-        ),
-    )
-
-    planned_leverage_supported = (
-        min_leverage
-        <= PLANNED_LEVERAGE
-        <= max_leverage
-    )
-
-    pass_fail(
-        "Planned 100x Within Exchange Leverage Range",
-        planned_leverage_supported,
-    )
-
-    if not planned_leverage_supported:
-        blocker(
-            "Planned 100x leverage is outside the exchange "
-            "leverage range."
-        )
-
-    # ========================================================
-    # ACCOUNT SYMBOL CONFIGURATION
-    # ========================================================
-
-    observed_margin_type = str(
-        symbol_config.get(
-            "marginType",
-            ""
-        )
-    ).upper()
-
-    position_mode = str(
-        symbol_config.get(
-            "separatedType",
-            symbol_config.get(
-                "positionMode",
-                "",
+        "Wrong Long Leverage Rejected":
+            not validate_leverage_payload(
+                bad_long
             ),
-        )
-    ).upper()
 
-    cross_leverage = d(
-        symbol_config.get(
-            "crossLeverage",
-            "0",
-        )
-    )
-
-    isolated_long_leverage = d(
-        symbol_config.get(
-            "isolatedLongLeverage",
-            "0",
-        )
-    )
-
-    isolated_short_leverage = d(
-        symbol_config.get(
-            "isolatedShortLeverage",
-            "0",
-        )
-    )
-
-    print()
-    print(
-        "R28 UNIT L ACCOUNT SYMBOL CONFIG:",
-        flush=True,
-    )
-
-    print(
-        f"  Margin Type = {observed_margin_type}",
-        flush=True,
-    )
-
-    print(
-        f"  Position Mode = {position_mode}",
-        flush=True,
-    )
-
-    print(
-        f"  Cross Leverage = {decimal_text(cross_leverage)}x",
-        flush=True,
-    )
-
-    print(
-        "  Isolated Long Leverage = "
-        f"{decimal_text(isolated_long_leverage)}x",
-        flush=True,
-    )
-
-    print(
-        "  Isolated Short Leverage = "
-        f"{decimal_text(isolated_short_leverage)}x",
-        flush=True,
-    )
-
-    margin_match = (
-        observed_margin_type
-        == PLANNED_MARGIN_TYPE
-    )
-
-    pass_fail(
-        "Observed Margin Type Matches Strategy",
-        margin_match,
-    )
-
-    if not margin_match:
-        blocker(
-            "Account margin mode does not match planned ISOLATED mode."
-        )
-
-    position_mode_recognized = (
-        position_mode
-        in {
-            "COMBINED",
-            "SEPARATED",
-        }
-    )
-
-    pass_fail(
-        "Position Mode Recognized",
-        position_mode_recognized,
-    )
-
-    if not position_mode_recognized:
-        blocker(
-            "WEEX position mode is not recognized."
-        )
-
-    # ========================================================
-    # CURRENT 100X CONFIGURATION CHECK
-    # ========================================================
-
-    long_100_ready = (
-        isolated_long_leverage
-        == PLANNED_LEVERAGE
-    )
-
-    short_100_ready = (
-        isolated_short_leverage
-        == PLANNED_LEVERAGE
-    )
-
-    print()
-    print(
-        "R28 UNIT L LEVERAGE READINESS:",
-        flush=True,
-    )
-
-    print(
-        f"  Planned Leverage = {decimal_text(PLANNED_LEVERAGE)}x",
-        flush=True,
-    )
-
-    print(
-        "  Current Isolated Long = "
-        f"{decimal_text(isolated_long_leverage)}x",
-        flush=True,
-    )
-
-    print(
-        "  Current Isolated Short = "
-        f"{decimal_text(isolated_short_leverage)}x",
-        flush=True,
-    )
-
-    if long_100_ready:
-        print(
-            "  Long 100x readiness = ✅ READY",
-            flush=True,
-        )
-
-    else:
-        print(
-            "  Long 100x readiness = ⚠️ NOT CONFIGURED",
-            flush=True,
-        )
-
-    if short_100_ready:
-        print(
-            "  Short 100x readiness = ✅ READY",
-            flush=True,
-        )
-
-    else:
-        print(
-            "  Short 100x readiness = ⚠️ NOT CONFIGURED",
-            flush=True,
-        )
-
-    if not long_100_ready:
-        blocker(
-            "Isolated LONG leverage is not currently configured "
-            "to the planned 100x."
-        )
-
-    if not short_100_ready:
-        blocker(
-            "Isolated SHORT leverage is not currently configured "
-            "to the planned 100x."
-        )
-
-    # ========================================================
-    # POSITION RECONCILIATION
-    # ========================================================
-
-    active_symbol_positions = []
-
-    for position in positions:
-
-        if not isinstance(
-            position,
-            dict,
-        ):
-            continue
-
-        position_symbol = str(
-            position.get(
-                "symbol",
-                ""
-            )
-        ).upper()
-
-        size = d(
-            position.get(
-                "size",
-                position.get(
-                    "positionAmt",
-                    "0",
-                ),
-            )
-        )
-
-        if (
-            position_symbol == SYMBOL
-            and size != 0
-        ):
-            active_symbol_positions.append(
-                position
-            )
-
-    print()
-    print(
-        f"R28 UNIT L: POSITION RECORDS = {len(positions)}",
-        flush=True,
-    )
-
-    print(
-        f"R28 UNIT L: ACTIVE {SYMBOL} POSITIONS = "
-        f"{len(active_symbol_positions)}",
-        flush=True,
-    )
-
-    no_active_position = (
-        len(
-            active_symbol_positions
-        )
-        == 0
-    )
-
-    pass_fail(
-        "No Existing Target-Symbol Position Conflict",
-        no_active_position,
-    )
-
-    if not no_active_position:
-        blocker(
-            f"An active {SYMBOL} position already exists."
-        )
-
-    # ========================================================
-    # STRATEGY FUND ALLOCATION
-    # ========================================================
-
-    initial_margin = percent_of(
-        available_balance,
-        INITIAL_ENTRY_PERCENT,
-    )
-
-    pyramid_margin_each = percent_of(
-        available_balance,
-        PYRAMID_SIZE_PERCENT,
-    )
-
-    total_pyramid_margin = (
-        pyramid_margin_each
-        * Decimal(
-            MAX_PYRAMID_ADDS
-        )
-    )
-
-    backup_margin_each = percent_of(
-        available_balance,
-        BACKUP_SIZE_PERCENT,
-    )
-
-    total_backup_margin = (
-        backup_margin_each
-        * Decimal(
-            MAX_BACKUPS
-        )
-    )
-
-    planned_total_margin = (
-        initial_margin
-        + total_pyramid_margin
-        + total_backup_margin
-    )
-
-    maximum_allowed_margin = percent_of(
-        available_balance,
-        MAX_FUND_EXPOSURE_PERCENT,
-    )
-
-    planned_total_percent = (
-        INITIAL_ENTRY_PERCENT
-        + (
-            PYRAMID_SIZE_PERCENT
-            * Decimal(
-                MAX_PYRAMID_ADDS
-            )
-        )
-        + (
-            BACKUP_SIZE_PERCENT
-            * Decimal(
-                MAX_BACKUPS
-            )
-        )
-    )
-
-    print()
-    print(
-        "R28 UNIT L STRATEGY FUND ALLOCATION:",
-        flush=True,
-    )
-
-    print(
-        f"  Available Balance = "
-        f"{decimal_text(available_balance)} USDT",
-        flush=True,
-    )
-
-    print(
-        f"  Initial Entry = {decimal_text(INITIAL_ENTRY_PERCENT)}%",
-        flush=True,
-    )
-
-    print(
-        f"  Initial Margin Budget = "
-        f"{decimal_text(initial_margin)} USDT",
-        flush=True,
-    )
-
-    print(
-        f"  Pyramid Adds = {MAX_PYRAMID_ADDS}",
-        flush=True,
-    )
-
-    print(
-        f"  Pyramid Size Each = "
-        f"{decimal_text(PYRAMID_SIZE_PERCENT)}%",
-        flush=True,
-    )
-
-    print(
-        f"  Backup Entries = {MAX_BACKUPS}",
-        flush=True,
-    )
-
-    print(
-        f"  Backup Size Each = "
-        f"{decimal_text(BACKUP_SIZE_PERCENT)}%",
-        flush=True,
-    )
-
-    print(
-        f"  Maximum Strategy Allocation = "
-        f"{decimal_text(planned_total_percent)}%",
-        flush=True,
-    )
-
-    print(
-        f"  Strategy Exposure Limit = "
-        f"{decimal_text(MAX_FUND_EXPOSURE_PERCENT)}%",
-        flush=True,
-    )
-
-    print(
-        f"  Planned Maximum Margin = "
-        f"{decimal_text(planned_total_margin)} USDT",
-        flush=True,
-    )
-
-    print(
-        f"  Allowed Maximum Margin = "
-        f"{decimal_text(maximum_allowed_margin)} USDT",
-        flush=True,
-    )
-
-    fund_exposure_ok = (
-        planned_total_margin
-        <= maximum_allowed_margin
-    )
-
-    pass_fail(
-        "Strategy Allocation Within 35% Fund Exposure Limit",
-        fund_exposure_ok,
-    )
-
-    if not fund_exposure_ok:
-        blocker(
-            "Strategy allocation exceeds the configured "
-            "35% fund exposure ceiling."
-        )
-
-    # ========================================================
-    # HYPOTHETICAL INITIAL ENTRY CALCULATION
-    #
-    # CALCULATION ONLY.
-    # NO ORDER OBJECT IS CREATED.
-    # NO ORDER ENDPOINT IS CALLED.
-    # ========================================================
-
-    planned_initial_notional = (
-        initial_margin
-        * PLANNED_LEVERAGE
-    )
-
-    if mark_price > 0:
-        raw_quantity = (
-            planned_initial_notional
-            / mark_price
-        )
-
-    else:
-        raw_quantity = Decimal("0")
-
-    rounded_quantity = floor_to_precision(
-        raw_quantity,
-        quantity_precision,
-    )
-
-    rounded_notional = (
-        rounded_quantity
-        * mark_price
-    )
-
-    hypothetical_margin_used = (
-        rounded_notional
-        / PLANNED_LEVERAGE
-        if PLANNED_LEVERAGE > 0
-        else Decimal("0")
-    )
-
-    print()
-    print(
-        "R28 UNIT L HYPOTHETICAL INITIAL ENTRY:",
-        flush=True,
-    )
-
-    print(
-        "  CALCULATION ONLY — NO ORDER WILL BE SENT",
-        flush=True,
-    )
-
-    print(
-        f"  Entry Margin Budget = "
-        f"{decimal_text(initial_margin)} USDT",
-        flush=True,
-    )
-
-    print(
-        f"  Planned Leverage = "
-        f"{decimal_text(PLANNED_LEVERAGE)}x",
-        flush=True,
-    )
-
-    print(
-        f"  Planned Notional = "
-        f"{decimal_text(planned_initial_notional)} USDT",
-        flush=True,
-    )
-
-    print(
-        f"  Market Price = "
-        f"{decimal_text(mark_price)}",
-        flush=True,
-    )
-
-    print(
-        f"  Raw Quantity = "
-        f"{decimal_text(raw_quantity)} BTC",
-        flush=True,
-    )
-
-    print(
-        f"  Rounded Quantity = "
-        f"{decimal_text(rounded_quantity)} BTC",
-        flush=True,
-    )
-
-    print(
-        f"  Rounded Notional = "
-        f"{decimal_text(rounded_notional)} USDT",
-        flush=True,
-    )
-
-    print(
-        f"  Hypothetical Margin Used = "
-        f"{decimal_text(hypothetical_margin_used)} USDT",
-        flush=True,
-    )
-
-    quantity_meets_minimum = (
-        rounded_quantity
-        >= min_order_size
-    )
-
-    pass_fail(
-        "Calculated Initial Quantity Meets Minimum Order Size",
-        quantity_meets_minimum,
-    )
-
-    if not quantity_meets_minimum:
-        blocker(
-            "Calculated 5% initial entry is below WEEX "
-            "minimum order size."
-        )
-
-    if max_order_size > 0:
-        within_max_order = (
-            rounded_quantity
-            <= max_order_size
-        )
-
-    else:
-        within_max_order = True
-
-    pass_fail(
-        "Calculated Initial Quantity Within Maximum Order Size",
-        within_max_order,
-    )
-
-    if not within_max_order:
-        blocker(
-            "Calculated initial quantity exceeds WEEX "
-            "maximum order size."
-        )
-
-    if market_open_limit > 0:
-        within_market_open_limit = (
-            rounded_quantity
-            <= market_open_limit
-        )
-
-    else:
-        within_market_open_limit = True
-
-    pass_fail(
-        "Calculated Quantity Within Market Open Limit",
-        within_market_open_limit,
-    )
-
-    if not within_market_open_limit:
-        blocker(
-            "Calculated initial quantity exceeds WEEX "
-            "market open limit."
-        )
-
-    if max_position_size > 0:
-        within_position_limit = (
-            rounded_quantity
-            <= max_position_size
-        )
-
-    else:
-        within_position_limit = True
-
-    pass_fail(
-        "Calculated Quantity Within Maximum Position Size",
-        within_position_limit,
-    )
-
-    if not within_position_limit:
-        blocker(
-            "Calculated initial quantity exceeds WEEX "
-            "maximum position size."
-        )
-
-    margin_rounding_safe = (
-        hypothetical_margin_used
-        <= initial_margin
-    )
-
-    pass_fail(
-        "Rounded Quantity Does Not Exceed 5% Margin Budget",
-        margin_rounding_safe,
-    )
-
-    if not margin_rounding_safe:
-        blocker(
-            "Rounded quantity would exceed the initial "
-            "5% margin budget."
-        )
-
-    # ========================================================
-    # MAXIMUM STRATEGY NOTIONAL
-    # ========================================================
-
-    maximum_strategy_notional = (
-        planned_total_margin
-        * PLANNED_LEVERAGE
-    )
-
-    maximum_strategy_quantity = (
-        maximum_strategy_notional
-        / mark_price
-        if mark_price > 0
-        else Decimal("0")
-    )
-
-    maximum_strategy_quantity = floor_to_precision(
-        maximum_strategy_quantity,
-        quantity_precision,
-    )
-
-    print()
-    print(
-        "R28 UNIT L MAXIMUM THEORETICAL STRATEGY EXPOSURE:",
-        flush=True,
-    )
-
-    print(
-        f"  Maximum Planned Margin = "
-        f"{decimal_text(planned_total_margin)} USDT",
-        flush=True,
-    )
-
-    print(
-        f"  Maximum Planned Notional @ 100x = "
-        f"{decimal_text(maximum_strategy_notional)} USDT",
-        flush=True,
-    )
-
-    print(
-        f"  Approx Maximum {SYMBOL} Quantity = "
-        f"{decimal_text(maximum_strategy_quantity)} BTC",
-        flush=True,
-    )
-
-    if max_position_size > 0:
-        total_position_limit_ok = (
-            maximum_strategy_quantity
-            <= max_position_size
-        )
-
-    else:
-        total_position_limit_ok = True
-
-    pass_fail(
-        "Maximum Strategy Quantity Within Exchange Position Limit",
-        total_position_limit_ok,
-    )
-
-    if not total_position_limit_ok:
-        blocker(
-            "Maximum theoretical strategy position would "
-            "exceed exchange position limits."
-        )
-
-    # ========================================================
-    # POSITION MODE / LOCAL STRATEGY RELATION
-    # ========================================================
-
-    print()
-    print(
-        "R28 UNIT L POSITION-MODE COMPATIBILITY:",
-        flush=True,
-    )
-
-    print(
-        "  Local Strategy = ONE DIRECTION ONLY",
-        flush=True,
-    )
-
-    print(
-        f"  WEEX Mode = {position_mode}",
-        flush=True,
-    )
-
-    if position_mode == "COMBINED":
-        print(
-            "  ✅ COMBINED mode is acceptable for the "
-            "local one-direction-only strategy audit.",
-            flush=True,
-        )
-
-    elif position_mode == "SEPARATED":
-        warning(
-            "WEEX reports SEPARATED position mode. "
-            "Local one-direction controls must remain authoritative."
-        )
-
-    else:
-        blocker(
-            "Position-mode compatibility cannot be established."
-        )
-
-    # ========================================================
-    # READINESS SUMMARY
-    # ========================================================
-
-    print()
-    print(
-        "R28 UNIT L EXECUTION-READINESS ASSESSMENT",
-        flush=True,
-    )
-
-    print(
-        "-" * 76,
-        flush=True,
-    )
-
-    print(
-        f"Structural Safety Failures = "
-        f"{sum(1 for _, ok in RESULTS if not ok)}",
-        flush=True,
-    )
-
-    print(
-        f"Readiness Blockers = {len(READINESS_BLOCKERS)}",
-        flush=True,
-    )
-
-    print(
-        f"Readiness Warnings = {len(READINESS_WARNINGS)}",
-        flush=True,
-    )
-
-    if READINESS_BLOCKERS:
-
-        print()
-        print(
-            "CURRENT EXECUTION READINESS: 🚫 NOT READY",
-            flush=True,
-        )
-
-        for index, item in enumerate(
-            READINESS_BLOCKERS,
-            start=1,
-        ):
-            print(
-                f"  {index}. {item}",
-                flush=True,
-            )
-
-    else:
-
-        print()
-        print(
-            "CURRENT EXECUTION READINESS: ✅ COMPATIBLE",
-            flush=True,
-        )
-
-        print(
-            "  NOTE: EXECUTION REMAINS DISABLED.",
-            flush=True,
-        )
+        "Wrong Short Leverage Rejected":
+            not validate_leverage_payload(
+                bad_short
+            ),
+
+        "Missing Long Leverage Rejected":
+            not validate_leverage_payload(
+                missing_long
+            ),
+
+        "Missing Short Leverage Rejected":
+            not validate_leverage_payload(
+                missing_short
+            ),
+    }
 
 
 # ============================================================
-# TRANSPORT-BOUNDARY AUDIT
+# STARTUP BANNER
 # ============================================================
 
-def run_transport_audit():
-    print()
-    print(
-        "R28 UNIT L TRANSPORT-BOUNDARY AUDIT",
-        flush=True,
-    )
-
-    print(
-        "-" * 76,
-        flush=True,
-    )
-
-    pass_fail(
-        "Controlled Network GETs Occurred",
-        AUDIT[
-            "network_gets"
-        ] >= 5,
-    )
-
-    pass_fail(
-        "Generic POST Was Blocked Locally",
-        AUDIT[
-            "local_post_blocks"
-        ] >= 1,
-    )
-
-    pass_fail(
-        "PUT Was Blocked Locally",
-        AUDIT[
-            "local_put_blocks"
-        ] >= 1,
-    )
-
-    pass_fail(
-        "PATCH Was Blocked Locally",
-        AUDIT[
-            "local_patch_blocks"
-        ] >= 1,
-    )
-
-    pass_fail(
-        "DELETE Was Blocked Locally",
-        AUDIT[
-            "local_delete_blocks"
-        ] >= 1,
-    )
-
-    pass_fail(
-        "Network Write Count Is Zero",
-        AUDIT[
-            "network_writes"
-        ] == 0,
-    )
-
-    pass_fail(
-        "Network POST Count Is Zero",
-        AUDIT[
-            "network_posts"
-        ] == 0,
-    )
-
-    pass_fail(
-        "Network PUT Count Is Zero",
-        AUDIT[
-            "network_puts"
-        ] == 0,
-    )
-
-    pass_fail(
-        "Network PATCH Count Is Zero",
-        AUDIT[
-            "network_patches"
-        ] == 0,
-    )
-
-    pass_fail(
-        "Network DELETE Count Is Zero",
-        AUDIT[
-            "network_deletes"
-        ] == 0,
-    )
-
-    pass_fail(
-        "Real Order Transmission Never Occurred",
-        AUDIT[
-            "real_order_network_transmissions"
-        ] == 0,
-    )
-
-    pass_fail(
-        "Demo Order Transmission Never Occurred",
-        AUDIT[
-            "demo_order_network_transmissions"
-        ] == 0,
-    )
-
-    print()
-    print(
-        "R28 UNIT L WRITE-LOCK AUDIT:",
-        flush=True,
-    )
-
-    print(
-        f"  Local POST attempts = "
-        f"{AUDIT['local_post_attempts']}",
-        flush=True,
-    )
-
-    print(
-        f"  Local POST blocks = "
-        f"{AUDIT['local_post_blocks']}",
-        flush=True,
-    )
-
-    print(
-        f"  Local PUT attempts = "
-        f"{AUDIT['local_put_attempts']}",
-        flush=True,
-    )
-
-    print(
-        f"  Local PUT blocks = "
-        f"{AUDIT['local_put_blocks']}",
-        flush=True,
-    )
-
-    print(
-        f"  Local PATCH attempts = "
-        f"{AUDIT['local_patch_attempts']}",
-        flush=True,
-    )
-
-    print(
-        f"  Local PATCH blocks = "
-        f"{AUDIT['local_patch_blocks']}",
-        flush=True,
-    )
-
-    print(
-        f"  Local DELETE attempts = "
-        f"{AUDIT['local_delete_attempts']}",
-        flush=True,
-    )
-
-    print(
-        f"  Local DELETE blocks = "
-        f"{AUDIT['local_delete_blocks']}",
-        flush=True,
-    )
-
-    print(
-        f"  Network GETs = "
-        f"{AUDIT['network_gets']}",
-        flush=True,
-    )
-
-    print(
-        f"  Network writes = "
-        f"{AUDIT['network_writes']}",
-        flush=True,
-    )
-
-    print(
-        "  Real order network transmissions = "
-        f"{AUDIT['real_order_network_transmissions']}",
-        flush=True,
-    )
-
-    print(
-        "  Demo order network transmissions = "
-        f"{AUDIT['demo_order_network_transmissions']}",
-        flush=True,
-    )
-
-
-# ============================================================
-# DIAGNOSTIC
-# ============================================================
-
-async def run_diagnostic(
-    transport,
-):
+def print_banner():
     print(
         "=" * 76,
         flush=True,
     )
 
     print(
-        "0F-4H-R28-UNIT-L STARTING",
+        f"{MODULE_NAME} STARTING",
         flush=True,
     )
 
     print(
-        "READ-ONLY STRATEGY / ACCOUNT COMPATIBILITY VALIDATION",
+        "CONTROLLED LEVERAGE CONFIGURATION BOUNDARY VALIDATION",
         flush=True,
     )
 
     print(
-        "LIVE EXCHANGE CONSTRAINT DISCOVERY",
+        "AUTHENTICATED ACCOUNT CONFIGURATION READ ENABLED",
         flush=True,
     )
 
     print(
-        "HYPOTHETICAL ENTRY SIZING ONLY",
+        "HYPOTHETICAL ISOLATED 100x LEVERAGE REQUEST CONSTRUCTION",
         flush=True,
     )
 
     print(
-        "NO ACCOUNT CONFIGURATION CHANGES",
+        "NO LEVERAGE CHANGE WILL BE TRANSMITTED",
         flush=True,
     )
 
@@ -2561,61 +819,52 @@ async def run_diagnostic(
     )
 
     print(
-        f"R28 UNIT L SYMBOL: {SYMBOL}",
+        f"R28 UNIT M SYMBOL: {SYMBOL}",
         flush=True,
     )
 
     print(
-        "R28 UNIT L STRATEGY:",
+        "R28 UNIT M TARGET CONFIGURATION:",
         flush=True,
     )
 
     print(
-        f"  Planned Margin Type = {PLANNED_MARGIN_TYPE}",
+        f"  Margin Type = {PLANNED_MARGIN_TYPE}",
         flush=True,
     )
 
     print(
-        f"  Planned Leverage = "
-        f"{decimal_text(PLANNED_LEVERAGE)}x",
+        f"  Isolated Long Leverage = {PLANNED_LEVERAGE}x",
         flush=True,
     )
 
     print(
-        f"  Initial Entry = "
-        f"{decimal_text(INITIAL_ENTRY_PERCENT)}%",
+        f"  Isolated Short Leverage = {PLANNED_LEVERAGE}x",
         flush=True,
     )
 
     print(
-        f"  Max Pyramid Adds = {MAX_PYRAMID_ADDS}",
+        f"  Configuration Endpoint = {LEVERAGE_CHANGE_PATH}",
         flush=True,
     )
 
     print(
-        f"  Max Backups = {MAX_BACKUPS}",
+        "",
         flush=True,
     )
 
     print(
-        f"  Max Fund Exposure = "
-        f"{decimal_text(MAX_FUND_EXPOSURE_PERCENT)}%",
-        flush=True,
-    )
-
-    print()
-    print(
-        "R28 UNIT L NETWORK POLICY:",
+        "R28 UNIT M NETWORK POLICY:",
         flush=True,
     )
 
     print(
-        "  ✅ Public market GET enabled",
+        "  ✅ Authenticated account GET enabled",
         flush=True,
     )
 
     print(
-        "  ✅ Authenticated read-only GET enabled",
+        "  ❌ Leverage POST disabled",
         flush=True,
     )
 
@@ -2634,9 +883,13 @@ async def run_diagnostic(
         flush=True,
     )
 
-    print()
     print(
-        "R28 UNIT L CREDENTIAL STATUS:",
+        "",
+        flush=True,
+    )
+
+    print(
+        "R28 UNIT M CREDENTIAL STATUS:",
         flush=True,
     )
 
@@ -2670,15 +923,27 @@ async def run_diagnostic(
         flush=True,
     )
 
-    print()
 
-    await run_safety_gates(
-        transport
+# ============================================================
+# MAIN DIAGNOSTIC
+# ============================================================
+
+async def run_diagnostic():
+    print_banner()
+
+    credentials_present = bool(
+        API_KEY
+        and API_SECRET
+        and API_PASSPHRASE
     )
 
-    print()
     print(
-        "R28 UNIT L READ-ONLY DATA ACQUISITION",
+        "",
+        flush=True,
+    )
+
+    print(
+        "R28 UNIT M SAFETY GATES",
         flush=True,
     )
 
@@ -2687,168 +952,825 @@ async def run_diagnostic(
         flush=True,
     )
 
-    mark_price = await get_market_price(
-        transport
+    record_test(
+        "Live Execution Disabled",
+        LIVE_ORDER_EXECUTION is False,
     )
 
-    pass_fail(
-        "Public Symbol Price GET",
-        mark_price > 0,
+    record_test(
+        "Demo Execution Disabled",
+        DEMO_ORDER_EXECUTION is False,
     )
 
-    exchange_info = await get_exchange_info(
-        transport
+    record_test(
+        "Real Order Transmission Disabled",
+        REAL_ORDER_TRANSMISSION is False,
     )
 
-    pass_fail(
-        "Public Exchange Information GET",
-        isinstance(
-            exchange_info,
-            dict,
-        ),
+    record_test(
+        "Demo Order Transmission Disabled",
+        DEMO_ORDER_TRANSMISSION is False,
     )
 
-    balance_record = await get_usdt_balance(
-        transport
+    record_test(
+        "Account Configuration Writes Disabled",
+        ACCOUNT_CONFIGURATION_WRITES is False,
     )
 
-    pass_fail(
-        "Authenticated Balance GET",
-        isinstance(
-            balance_record,
-            dict,
-        ),
+    record_test(
+        "Leverage Change Disabled",
+        LEVERAGE_CHANGE_ENABLED is False,
     )
 
-    positions = await get_positions(
-        transport
+    record_test(
+        "Network POST Disabled",
+        NETWORK_POST_ENABLED is False,
     )
 
-    pass_fail(
-        "Authenticated Positions GET",
-        isinstance(
-            positions,
-            list,
-        ),
+    record_test(
+        "Network PUT Disabled",
+        NETWORK_PUT_ENABLED is False,
     )
 
-    symbol_config = await get_symbol_config(
-        transport
+    record_test(
+        "Network PATCH Disabled",
+        NETWORK_PATCH_ENABLED is False,
     )
 
-    pass_fail(
-        "Authenticated Symbol Config GET",
-        isinstance(
-            symbol_config,
-            dict,
-        ),
+    record_test(
+        "Network DELETE Disabled",
+        NETWORK_DELETE_ENABLED is False,
     )
 
-    audit_strategy_compatibility(
-        mark_price=mark_price,
-        exchange_info=exchange_info,
-        balance_record=balance_record,
-        positions=positions,
-        symbol_config=symbol_config,
+    record_test(
+        "Authenticated Read Access Enabled",
+        AUTHENTICATED_READ_ACCESS is True,
     )
 
-    run_transport_audit()
+    record_test(
+        "WEEX Contract Host Locked",
+        WEEX_HOST == "https://api-contract.weex.com",
+    )
+
+    record_test(
+        "Leverage Endpoint Locked",
+        LEVERAGE_CHANGE_PATH
+        == "/capi/v3/account/leverage",
+    )
+
+    record_test(
+        "API Credentials Present",
+        credentials_present,
+    )
+
+    if not credentials_present:
+        raise RuntimeError(
+            "R28 UNIT M: API credentials missing"
+        )
 
     # ========================================================
-    # FINAL STRUCTURAL DIAGNOSTIC RESULT
+    # BUILD HYPOTHETICAL PAYLOAD
     # ========================================================
 
-    structural_failures = [
-        label
-        for label, passed
-        in RESULTS
-        if not passed
-    ]
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "R28 UNIT M HYPOTHETICAL LEVERAGE REQUEST",
+        flush=True,
+    )
 
     print(
         "-" * 76,
+        flush=True,
+    )
+
+    planned_payload = (
+        build_planned_leverage_payload()
+    )
+
+    planned_body = canonical_json(
+        planned_payload
+    )
+
+    print(
+        "R28 UNIT M: LOCAL REQUEST ONLY",
+        flush=True,
+    )
+
+    print(
+        f"  Method = POST",
+        flush=True,
+    )
+
+    print(
+        f"  Path = {LEVERAGE_CHANGE_PATH}",
+        flush=True,
+    )
+
+    print(
+        f"  Symbol = {planned_payload['symbol']}",
+        flush=True,
+    )
+
+    print(
+        f"  Margin Type = {planned_payload['marginType']}",
+        flush=True,
+    )
+
+    print(
+        "  Isolated Long Leverage = "
+        + planned_payload[
+            "isolatedLongLeverage"
+        ]
+        + "x",
+        flush=True,
+    )
+
+    print(
+        "  Isolated Short Leverage = "
+        + planned_payload[
+            "isolatedShortLeverage"
+        ]
+        + "x",
+        flush=True,
+    )
+
+    print(
+        "  Network Transmission = DISABLED",
+        flush=True,
+    )
+
+    record_test(
+        "Planned Leverage Payload Valid",
+        validate_leverage_payload(
+            planned_payload
+        ),
+    )
+
+    record_test(
+        "Payload Serialization Deterministic",
+        planned_body
+        == canonical_json(
+            planned_payload
+        ),
+    )
+
+    record_test(
+        "Hypothetical POST Signature Valid",
+        validate_hypothetical_post_signature(
+            planned_payload
+        ),
+    )
+
+    # ========================================================
+    # NEGATIVE VALIDATION
+    # ========================================================
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "R28 UNIT M PAYLOAD SAFETY VALIDATION",
+        flush=True,
+    )
+
+    print(
+        "-" * 76,
+        flush=True,
+    )
+
+    negative_results = (
+        test_invalid_payloads()
+    )
+
+    for (
+        test_name,
+        passed,
+    ) in negative_results.items():
+
+        record_test(
+            test_name,
+            passed,
+        )
+
+    # ========================================================
+    # TEST HARD POST LOCK
+    # ========================================================
+
+    leverage_blocked = (
+        await verify_leverage_post_block(
+            planned_payload
+        )
+    )
+
+    record_test(
+        "Leverage Configuration POST Rejected Before Transport",
+        leverage_blocked,
+    )
+
+    # ========================================================
+    # READ CURRENT CONFIG
+    # ========================================================
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "R28 UNIT M AUTHENTICATED READ-ONLY CONFIGURATION",
+        flush=True,
+    )
+
+    print(
+        "-" * 76,
+        flush=True,
+    )
+
+    async with aiohttp.ClientSession() as session:
+
+        config_response = (
+            await authenticated_get(
+                session=session,
+                request_path=SYMBOL_CONFIG_PATH,
+                params={
+                    "symbol": SYMBOL,
+                },
+            )
+        )
+
+    record_test(
+        "Authenticated Symbol Configuration GET",
+        config_response is not None,
+    )
+
+    symbol_config = (
+        extract_symbol_config(
+            config_response
+        )
+    )
+
+    observed_symbol = str(
+        symbol_config.get(
+            "symbol",
+            "",
+        )
+    ).upper()
+
+    observed_margin = str(
+        symbol_config.get(
+            "marginType",
+            "",
+        )
+    ).upper()
+
+    observed_mode = str(
+        symbol_config.get(
+            "separatedType",
+            symbol_config.get(
+                "separatedMode",
+                "",
+            ),
+        )
+    ).upper()
+
+    current_cross = parse_leverage(
+        symbol_config.get(
+            "crossLeverage"
+        )
+    )
+
+    current_long = parse_leverage(
+        symbol_config.get(
+            "isolatedLongLeverage"
+        )
+    )
+
+    current_short = parse_leverage(
+        symbol_config.get(
+            "isolatedShortLeverage"
+        )
+    )
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "R28 UNIT M CURRENT ACCOUNT CONFIGURATION:",
+        flush=True,
+    )
+
+    print(
+        f"  Symbol = {observed_symbol}",
+        flush=True,
+    )
+
+    print(
+        f"  Margin Type = {observed_margin}",
+        flush=True,
+    )
+
+    print(
+        f"  Position Mode = {observed_mode}",
+        flush=True,
+    )
+
+    print(
+        f"  Cross Leverage = {current_cross}x",
+        flush=True,
+    )
+
+    print(
+        f"  Isolated Long Leverage = {current_long}x",
+        flush=True,
+    )
+
+    print(
+        f"  Isolated Short Leverage = {current_short}x",
+        flush=True,
+    )
+
+    record_test(
+        "Observed Symbol Matches BTCUSDT",
+        observed_symbol == SYMBOL,
+    )
+
+    record_test(
+        "Observed Margin Mode Is ISOLATED",
+        observed_margin == "ISOLATED",
+    )
+
+    record_test(
+        "Position Mode Recognized",
+        observed_mode
+        in {
+            "COMBINED",
+            "SEPARATED",
+        },
+    )
+
+    record_test(
+        "Current Long Leverage Parseable",
+        current_long is not None,
+    )
+
+    record_test(
+        "Current Short Leverage Parseable",
+        current_short is not None,
+    )
+
+    # ========================================================
+    # LEVERAGE GAP ANALYSIS
+    # ========================================================
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "R28 UNIT M LEVERAGE GAP ANALYSIS",
+        flush=True,
+    )
+
+    print(
+        "-" * 76,
+        flush=True,
+    )
+
+    long_ready = (
+        current_long
+        == PLANNED_LEVERAGE
+    )
+
+    short_ready = (
+        current_short
+        == PLANNED_LEVERAGE
+    )
+
+    print(
+        f"  Required Long = {PLANNED_LEVERAGE}x",
+        flush=True,
+    )
+
+    print(
+        f"  Current Long = {current_long}x",
+        flush=True,
+    )
+
+    print(
+        "  Long Readiness = "
+        + (
+            "✅ READY"
+            if long_ready
+            else "⚠️ CHANGE REQUIRED"
+        ),
+        flush=True,
+    )
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        f"  Required Short = {PLANNED_LEVERAGE}x",
+        flush=True,
+    )
+
+    print(
+        f"  Current Short = {current_short}x",
+        flush=True,
+    )
+
+    print(
+        "  Short Readiness = "
+        + (
+            "✅ READY"
+            if short_ready
+            else "⚠️ CHANGE REQUIRED"
+        ),
+        flush=True,
+    )
+
+    if not long_ready:
+        readiness_blockers.append(
+            "Isolated LONG leverage requires "
+            f"{PLANNED_LEVERAGE}x; "
+            f"current value is {current_long}x."
+        )
+
+    if not short_ready:
+        readiness_blockers.append(
+            "Isolated SHORT leverage requires "
+            f"{PLANNED_LEVERAGE}x; "
+            f"current value is {current_short}x."
+        )
+
+    # ========================================================
+    # REQUIRED TRANSITION ANALYSIS
+    # ========================================================
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "R28 UNIT M REQUIRED CONFIGURATION TRANSITION",
+        flush=True,
+    )
+
+    print(
+        "-" * 76,
+        flush=True,
+    )
+
+    if long_ready and short_ready:
+
+        print(
+            "  ✅ No leverage configuration change required.",
+            flush=True,
+        )
+
+    else:
+
+        print(
+            "  A leverage configuration change would be required:",
+            flush=True,
+        )
+
+        print(
+            f"  POST {LEVERAGE_CHANGE_PATH}",
+            flush=True,
+        )
+
+        print(
+            "  Payload:",
+            flush=True,
+        )
+
+        print(
+            "  "
+            + canonical_json(
+                planned_payload
+            ),
+            flush=True,
+        )
+
+        print(
+            "",
+            flush=True,
+        )
+
+        print(
+            "  🚫 UNIT M WILL NOT TRANSMIT THIS REQUEST",
+            flush=True,
+        )
+
+    # ========================================================
+    # TRANSPORT AUDIT
+    # ========================================================
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "R28 UNIT M TRANSPORT-BOUNDARY AUDIT",
+        flush=True,
+    )
+
+    print(
+        "-" * 76,
+        flush=True,
+    )
+
+    record_test(
+        "Controlled Authenticated GET Occurred",
+        audit["network_gets"] >= 1,
+    )
+
+    record_test(
+        "Leverage POST Attempt Was Blocked Locally",
+        audit[
+            "leverage_post_attempts"
+        ] == 1
+        and audit[
+            "leverage_post_blocks"
+        ] == 1,
+    )
+
+    record_test(
+        "Network POST Count Is Zero",
+        audit["network_posts"] == 0,
+    )
+
+    record_test(
+        "Network PUT Count Is Zero",
+        audit["network_puts"] == 0,
+    )
+
+    record_test(
+        "Network PATCH Count Is Zero",
+        audit["network_patches"] == 0,
+    )
+
+    record_test(
+        "Network DELETE Count Is Zero",
+        audit["network_deletes"] == 0,
+    )
+
+    record_test(
+        "Account Write Transmission Count Is Zero",
+        audit[
+            "account_write_transmissions"
+        ] == 0,
+    )
+
+    record_test(
+        "Leverage Change Transmission Count Is Zero",
+        audit[
+            "leverage_change_transmissions"
+        ] == 0,
+    )
+
+    record_test(
+        "Real Order Transmission Never Occurred",
+        audit[
+            "real_order_transmissions"
+        ] == 0,
+    )
+
+    record_test(
+        "Demo Order Transmission Never Occurred",
+        audit[
+            "demo_order_transmissions"
+        ] == 0,
+    )
+
+    # ========================================================
+    # AUDIT COUNTERS
+    # ========================================================
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "R28 UNIT M WRITE-LOCK AUDIT:",
+        flush=True,
+    )
+
+    print(
+        f"  Local POST attempts = "
+        f"{audit['local_post_attempts']}",
+        flush=True,
+    )
+
+    print(
+        f"  Local POST blocks = "
+        f"{audit['local_post_blocks']}",
+        flush=True,
+    )
+
+    print(
+        f"  Leverage POST attempts = "
+        f"{audit['leverage_post_attempts']}",
+        flush=True,
+    )
+
+    print(
+        f"  Leverage POST blocks = "
+        f"{audit['leverage_post_blocks']}",
+        flush=True,
+    )
+
+    print(
+        f"  Network GETs = "
+        f"{audit['network_gets']}",
+        flush=True,
+    )
+
+    print(
+        f"  Network POSTs = "
+        f"{audit['network_posts']}",
+        flush=True,
+    )
+
+    print(
+        f"  Account write transmissions = "
+        f"{audit['account_write_transmissions']}",
+        flush=True,
+    )
+
+    print(
+        f"  Leverage change transmissions = "
+        f"{audit['leverage_change_transmissions']}",
+        flush=True,
+    )
+
+    # ========================================================
+    # FINAL ASSESSMENT
+    # ========================================================
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "R28 UNIT M EXECUTION-READINESS ASSESSMENT",
+        flush=True,
+    )
+
+    print(
+        "-" * 76,
+        flush=True,
+    )
+
+    print(
+        f"Structural Safety Failures = "
+        f"{len(structural_failures)}",
+        flush=True,
+    )
+
+    print(
+        f"Readiness Blockers = "
+        f"{len(readiness_blockers)}",
+        flush=True,
+    )
+
+    print(
+        f"Readiness Warnings = "
+        f"{len(readiness_warnings)}",
+        flush=True,
+    )
+
+    print(
+        "",
         flush=True,
     )
 
     if structural_failures:
 
         print(
-            "❌ R28 UNIT L DIAGNOSTIC FAILED",
+            "CURRENT UNIT STATUS: ❌ FAILED",
             flush=True,
         )
+
+        for index, failure in enumerate(
+            structural_failures,
+            start=1,
+        ):
+            print(
+                f"  {index}. {failure}",
+                flush=True,
+            )
+
+    elif readiness_blockers:
 
         print(
-            "FAILED STRUCTURAL GATES:",
+            "CURRENT EXECUTION READINESS: 🚫 NOT READY",
             flush=True,
         )
 
-        for label in structural_failures:
+        for index, blocker in enumerate(
+            readiness_blockers,
+            start=1,
+        ):
             print(
-                f"  ❌ {label}",
+                f"  {index}. {blocker}",
                 flush=True,
             )
 
     else:
 
         print(
-            "✅ R28 UNIT L DIAGNOSTIC PASSED",
+            "CURRENT EXECUTION READINESS: ✅ LEVERAGE READY",
+            flush=True,
+        )
+
+    # ========================================================
+    # FINAL BANNER
+    # ========================================================
+
+    print(
+        "-" * 76,
+        flush=True,
+    )
+
+    if not structural_failures:
+
+        print(
+            "✅ R28 UNIT M DIAGNOSTIC PASSED",
             flush=True,
         )
 
         print(
-            "✅ READ-ONLY STRATEGY CALCULATION VALIDATED",
+            "✅ LEVERAGE CONFIGURATION BOUNDARY VALIDATED",
             flush=True,
         )
 
         print(
-            "✅ LIVE EXCHANGE CONSTRAINTS VALIDATED",
+            "✅ CURRENT LEVERAGE CONFIGURATION READ SUCCESSFULLY",
             flush=True,
         )
 
         print(
-            "✅ ACCOUNT / STRATEGY COMPARISON VALIDATED",
+            "✅ HYPOTHETICAL 100x PAYLOAD VALIDATED",
             flush=True,
         )
 
         print(
-            "✅ HYPOTHETICAL ENTRY SIZING VALIDATED",
+            "✅ HYPOTHETICAL POST SIGNING VALIDATED",
             flush=True,
         )
 
         print(
-            "✅ FUND EXPOSURE LIMIT VALIDATED",
+            "✅ LEVERAGE POST TRANSPORT BLOCK VALIDATED",
             flush=True,
         )
 
         print(
-            "✅ TRANSPORT-BOUNDARY AUDIT PASSED",
-            flush=True,
-        )
-
-    if READINESS_BLOCKERS:
-
-        print(
-            "⚠️ R28 UNIT L DETECTED EXECUTION-READINESS BLOCKERS",
-            flush=True,
-        )
-
-        print(
-            "⚠️ NO CORRECTION OR ACCOUNT CHANGE WAS ATTEMPTED",
+            "✅ ACCOUNT WRITE TRANSMISSION COUNT = ZERO",
             flush=True,
         )
 
     else:
 
         print(
-            "✅ CURRENT READ-ONLY CONFIGURATION IS "
-            "STRATEGY-COMPATIBLE",
+            "❌ R28 UNIT M DIAGNOSTIC FAILED",
             flush=True,
         )
 
+    if readiness_blockers:
+
         print(
-            "⚠️ EXECUTION STILL REMAINS DISABLED",
+            "⚠️ R28 UNIT M DETECTED LEVERAGE READINESS BLOCKERS",
             flush=True,
         )
+
+    else:
+
+        print(
+            "✅ R28 UNIT M LEVERAGE READINESS CONFIRMED",
+            flush=True,
+        )
+
+    print(
+        "🛡 NO LEVERAGE CHANGE WAS ATTEMPTED ON WEEX",
+        flush=True,
+    )
 
     print(
         "🛡 NETWORK WRITE TRANSPORT LOCKED",
@@ -2866,21 +1788,6 @@ async def run_diagnostic(
     )
 
     print(
-        "🛡 LEVERAGE CHANGE NOT ATTEMPTED",
-        flush=True,
-    )
-
-    print(
-        "🛡 MARGIN MODE CHANGE NOT ATTEMPTED",
-        flush=True,
-    )
-
-    print(
-        "🛡 POSITION MODE CHANGE NOT ATTEMPTED",
-        flush=True,
-    )
-
-    print(
         "=" * 76,
         flush=True,
     )
@@ -2890,180 +1797,102 @@ async def run_diagnostic(
 # PERSISTENT RUNTIME
 # ============================================================
 
-async def persistent_runtime(
-    stop_event,
-):
+shutdown_event = asyncio.Event()
+
+
+def request_shutdown():
     print(
-        "R28 UNIT L: PERSISTENT RUNTIME ACTIVE",
+        "R28 UNIT M: SHUTDOWN REQUESTED",
         flush=True,
     )
 
-    print(
-        "R28 UNIT L: AUTHENTICATED READ-ONLY LOCKS ACTIVE",
-        flush=True,
-    )
+    shutdown_event.set()
 
-    print(
-        "R28 UNIT L: NETWORK WRITE TRANSPORT LOCKED",
-        flush=True,
-    )
 
-    if READINESS_BLOCKERS:
+async def heartbeat_loop():
+    heartbeat = 1
+
+    while not shutdown_event.is_set():
+
         print(
-            "R28 UNIT L: EXECUTION READINESS = NOT READY",
+            "R28 UNIT M: "
+            f"HEARTBEAT {heartbeat} ✅ ACTIVE",
             flush=True,
         )
-
-    else:
-        print(
-            "R28 UNIT L: EXECUTION READINESS = COMPATIBLE "
-            "(EXECUTION STILL DISABLED)",
-            flush=True,
-        )
-
-    heartbeat = 0
-
-    while not stop_event.is_set():
 
         heartbeat += 1
 
-        print(
-            f"R28 UNIT L: HEARTBEAT {heartbeat} ✅ ACTIVE",
-            flush=True,
-        )
-
         try:
             await asyncio.wait_for(
-                stop_event.wait(),
-                timeout=15,
+                shutdown_event.wait(),
+                timeout=HEARTBEAT_SECONDS,
             )
 
         except asyncio.TimeoutError:
             pass
 
 
-# ============================================================
-# MAIN RUNTIME
-# ============================================================
-
-async def main():
+async def runtime():
     print(
-        "R28 UNIT L: RUNTIME STARTING",
+        "R28 UNIT M: RUNTIME STARTING",
         flush=True,
     )
 
-    stop_event = asyncio.Event()
+    health_server = (
+        start_health_server()
+    )
 
     loop = asyncio.get_running_loop()
 
-    def request_shutdown():
-        print(
-            "R28 UNIT L: SHUTDOWN REQUESTED",
-            flush=True,
+    try:
+        loop.add_signal_handler(
+            signal.SIGTERM,
+            request_shutdown,
         )
 
-        stop_event.set()
+        loop.add_signal_handler(
+            signal.SIGINT,
+            request_shutdown,
+        )
 
-    for sig in (
-        signal.SIGINT,
-        signal.SIGTERM,
+    except (
+        NotImplementedError,
+        RuntimeError,
     ):
-        try:
-            loop.add_signal_handler(
-                sig,
-                request_shutdown,
-            )
-
-        except (
-            NotImplementedError,
-            RuntimeError,
-        ):
-            pass
-
-    health_server = None
+        pass
 
     try:
-        health_server = await start_health_server()
+        await run_diagnostic()
 
-    except Exception as exc:
         print(
-            "R28 UNIT L: HEALTH SERVER ERROR: "
-            f"{type(exc).__name__}: {exc}",
+            "R28 UNIT M: PERSISTENT RUNTIME ACTIVE",
             flush=True,
         )
 
-    async with aiohttp.ClientSession() as session:
-
-        transport = LockedTransport(
-            session
+        print(
+            "R28 UNIT M: AUTHENTICATED READ-ONLY LOCKS ACTIVE",
+            flush=True,
         )
 
-        try:
-            await run_diagnostic(
-                transport
-            )
-
-        except Exception as exc:
-
-            print(
-                "-" * 76,
-                flush=True,
-            )
-
-            print(
-                "❌ R28 UNIT L DIAGNOSTIC EXCEPTION",
-                flush=True,
-            )
-
-            print(
-                f"TYPE: {type(exc).__name__}",
-                flush=True,
-            )
-
-            print(
-                f"DETAIL: {exc}",
-                flush=True,
-            )
-
-            print(
-                "🛡 EXECUTION REMAINS DISABLED",
-                flush=True,
-            )
-
-            print(
-                "🛡 NETWORK WRITE TRANSPORT REMAINS LOCKED",
-                flush=True,
-            )
-
-            print(
-                "🛡 NO REAL ORDER TRANSMISSION OCCURRED",
-                flush=True,
-            )
-
-            print(
-                "🛡 NO DEMO ORDER TRANSMISSION OCCURRED",
-                flush=True,
-            )
-
-            print(
-                "=" * 76,
-                flush=True,
-            )
-
-        await persistent_runtime(
-            stop_event
+        print(
+            "R28 UNIT M: NETWORK WRITE TRANSPORT LOCKED",
+            flush=True,
         )
 
-    if health_server is not None:
+        print(
+            "R28 UNIT M: LEVERAGE CHANGE TRANSPORT LOCKED",
+            flush=True,
+        )
 
-        health_server.close()
+        await heartbeat_loop()
 
-        await health_server.wait_closed()
+    finally:
+        health_server.shutdown()
 
-    print(
-        "R28 UNIT L: RUNTIME STOPPED CLEANLY",
-        flush=True,
-    )
+        print(
+            "R28 UNIT M: RUNTIME STOPPED CLEANLY",
+            flush=True,
+        )
 
 
 # ============================================================
@@ -3074,18 +1903,54 @@ if __name__ == "__main__":
 
     try:
         asyncio.run(
-            main()
+            runtime()
         )
 
     except KeyboardInterrupt:
         print(
-            "R28 UNIT L: KEYBOARD INTERRUPT",
+            "R28 UNIT M: KEYBOARD INTERRUPT",
             flush=True,
         )
 
     except Exception as exc:
         print(
-            "R28 UNIT L: FATAL RUNTIME ERROR: "
+            "=" * 76,
+            flush=True,
+        )
+
+        print(
+            "❌ R28 UNIT M FATAL ERROR",
+            flush=True,
+        )
+
+        print(
             f"{type(exc).__name__}: {exc}",
             flush=True,
         )
+
+        print(
+            "🛡 NETWORK WRITE TRANSPORT REMAINED LOCKED",
+            flush=True,
+        )
+
+        print(
+            "🛡 NO LEVERAGE CHANGE TRANSMITTED",
+            flush=True,
+        )
+
+        print(
+            "🛡 NO REAL ORDER TRANSMITTED",
+            flush=True,
+        )
+
+        print(
+            "🛡 NO DEMO ORDER TRANSMITTED",
+            flush=True,
+        )
+
+        print(
+            "=" * 76,
+            flush=True,
+        )
+
+        raise
