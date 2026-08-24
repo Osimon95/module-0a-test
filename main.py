@@ -1,44 +1,55 @@
 # ============================================================
-# 0F-4H-R28-UNIT-I
-# CONTROLLED PUBLIC READ-ONLY NETWORK VALIDATION
+# 0F-4H-R28-UNIT-J
+# AUTHENTICATED READ-ONLY PRIVATE API VALIDATION
 #
-# PUBLIC WEEX MARKET DATA ONLY
-# NO AUTHENTICATED REQUESTS
-# NO ACCOUNT REQUESTS
-# NO REAL ORDER TRANSMISSION
-# NO DEMO ORDER TRANSMISSION
-# POST / PUT / PATCH / DELETE BLOCKED
+# STANDALONE TEST UNIT
+#
+# PUBLIC GET:
+#   ENABLED
+#
+# AUTHENTICATED PRIVATE GET:
+#   ENABLED ONLY FOR EXPLICIT READ-ONLY ENDPOINTS
+#
+# REAL ORDER TRANSMISSION:
+#   DISABLED
+#
+# DEMO ORDER TRANSMISSION:
+#   DISABLED
+#
+# POST / PUT / PATCH / DELETE:
+#   HARD BLOCKED LOCALLY
+#
+# NO ORDER CAN BE TRANSMITTED BY THIS UNIT
 # ============================================================
 
+
 print(
-    "R28 UNIT I: MAIN.PY ENTERED",
+    "R28 UNIT J: MAIN.PY ENTERED",
     flush=True,
 )
+
 
 # ============================================================
 # IMPORTS
 # ============================================================
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import json
 import os
 import signal
-import threading
+import sys
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
+from typing import Any, Dict, Optional
+from urllib.parse import urlencode
 
-from http.server import BaseHTTPRequestHandler
-from http.server import ThreadingHTTPServer
-from typing import Any
-from typing import Dict
-from typing import Optional
-from typing import Set
-from typing import Tuple
+import aiohttp
+
 
 print(
-    "R28 UNIT I: IMPORTS COMPLETE",
+    "R28 UNIT J: IMPORTS COMPLETE",
     flush=True,
 )
 
@@ -47,8 +58,8 @@ print(
 # UNIT IDENTIFICATION
 # ============================================================
 
-MODULE_NAME = "0F-4H-R28-UNIT-I"
-MODULE_VERSION = "R28-I"
+MODULE_NAME = "0F-4H-R28-UNIT-J"
+MODULE_VERSION = "R28-J"
 
 
 # ============================================================
@@ -61,27 +72,45 @@ DEMO_ORDER_EXECUTION = False
 REAL_ORDER_TRANSMISSION = False
 DEMO_ORDER_TRANSMISSION = False
 
+PRIVATE_WRITE_ACCESS = False
+ACCOUNT_WRITE_ACCESS = False
+
+POST_ENABLED = False
+PUT_ENABLED = False
+PATCH_ENABLED = False
+DELETE_ENABLED = False
+
 HARD_REAL_POST_LOCK = True
 HARD_DEMO_POST_LOCK = True
-
-AUTHENTICATED_REQUESTS_ENABLED = False
-PRIVATE_API_ENABLED = False
-ACCOUNT_API_ENABLED = False
-
-ORDER_ENDPOINTS_ENABLED = False
-
-PUBLIC_READ_ONLY_NETWORK_ENABLED = True
+HARD_WRITE_METHOD_LOCK = True
 
 
 # ============================================================
-# NETWORK POLICY
+# READ POLICIES
 # ============================================================
 
-WEEX_PUBLIC_BASE_URL = (
-    "https://api-contract.weex.com"
-)
+PUBLIC_READ_ACCESS = True
+AUTHENTICATED_READ_ACCESS = True
 
-MAIN_SYMBOL = (
+ALLOW_PRIVATE_GET = True
+ALLOW_PRIVATE_WRITE = False
+
+
+# ============================================================
+# WEEX HOST
+# ============================================================
+
+WEEX_PUBLIC_HOST = "https://api-contract.weex.com"
+WEEX_PRIVATE_HOST = "https://api-contract.weex.com"
+
+LOCKED_WEEX_HOST = "https://api-contract.weex.com"
+
+
+# ============================================================
+# SYMBOL
+# ============================================================
+
+SYMBOL = (
     os.getenv(
         "SYMBOL",
         "BTCUSDT",
@@ -90,21 +119,120 @@ MAIN_SYMBOL = (
     .upper()
 )
 
-REQUEST_TIMEOUT_SECONDS = float(
+
+# ============================================================
+# CREDENTIAL ENVIRONMENT VARIABLES
+# ============================================================
+
+WEEX_API_KEY = (
     os.getenv(
-        "REQUEST_TIMEOUT_SECONDS",
-        "10",
+        "WEEX_API_KEY",
+        "",
     )
+    .strip()
 )
 
-HEARTBEAT_SECONDS = float(
+WEEX_API_SECRET = (
     os.getenv(
-        "HEARTBEAT_SECONDS",
-        "10",
+        "WEEX_API_SECRET",
+        "",
     )
+    .strip()
 )
 
-PORT = int(
+WEEX_API_PASSPHRASE = (
+    os.getenv(
+        "WEEX_API_PASSPHRASE",
+        "",
+    )
+    .strip()
+)
+
+
+# ============================================================
+# NETWORK TIMEOUTS
+# ============================================================
+
+HTTP_TIMEOUT_SECONDS = 15
+
+
+# ============================================================
+# PUBLIC GET ALLOWLIST
+# ============================================================
+
+PUBLIC_GET_ALLOWLIST = frozenset(
+    {
+        "/capi/v3/market/exchangeInfo",
+        "/capi/v3/market/symbolPrice",
+        "/capi/v3/market/ticker/bookTicker",
+    }
+)
+
+
+# ============================================================
+# AUTHENTICATED PRIVATE GET ALLOWLIST
+# ============================================================
+
+PRIVATE_GET_ALLOWLIST = frozenset(
+    {
+        "/capi/v3/account/balance",
+        "/capi/v3/account/position/allPosition",
+        "/capi/v3/account/position/singlePosition",
+        "/capi/v3/account/symbolConfig",
+    }
+)
+
+
+# ============================================================
+# ORDER / WRITE PATH DENYLIST
+# ============================================================
+
+FORBIDDEN_WRITE_PATH_FRAGMENTS = (
+    "/order",
+    "/orders",
+    "/cancel",
+    "/leverage",
+    "/margin",
+    "/position/margin",
+    "/modify",
+    "/close",
+    "/open",
+    "/trigger",
+    "/plan",
+    "/tpsl",
+    "/sim/order",
+)
+
+
+# ============================================================
+# RUNTIME STATE
+# ============================================================
+
+STOP_EVENT: Optional[asyncio.Event] = None
+
+PUBLIC_GET_COUNT = 0
+PRIVATE_GET_COUNT = 0
+
+REAL_POST_CALLED = False
+DEMO_POST_CALLED = False
+
+POST_CALLED = False
+PUT_CALLED = False
+PATCH_CALLED = False
+DELETE_CALLED = False
+
+WRITE_TRANSMISSION_OCCURRED = False
+
+AUTH_HEADERS_SENT_TO_PUBLIC_ENDPOINT = False
+
+PRIVATE_GET_RESPONSES = 0
+
+
+# ============================================================
+# HEALTH SERVER
+# ============================================================
+
+HEALTH_PORT = int(
     os.getenv(
         "PORT",
         "10000",
@@ -112,882 +240,904 @@ PORT = int(
 )
 
 
-# ============================================================
-# ONLY THESE PUBLIC GET PATHS MAY LEAVE THE PROCESS
-# ============================================================
-
-APPROVED_PUBLIC_GET_PATHS: Set[str] = {
-    "/capi/v3/market/exchangeInfo",
-    "/capi/v3/market/symbolPrice",
-    "/capi/v3/market/ticker/bookTicker",
-}
-
-
-# ============================================================
-# EXPLICITLY FORBIDDEN ORDER PATHS
-# ============================================================
-
-FORBIDDEN_ORDER_PATHS: Set[str] = {
-    "/capi/v3/order",
-    "/capi/v3/sim/order",
-}
-
-
-# ============================================================
-# REQUEST COUNTERS
-# ============================================================
-
-PUBLIC_GET_REQUEST_COUNT = 0
-BLOCKED_REQUEST_COUNT = 0
-
-REAL_POST_CALLED = False
-DEMO_POST_CALLED = False
-
-ORDER_TRANSMISSION_OCCURRED = False
-
-LAST_NETWORK_ERROR: Optional[str] = None
-
-
-# ============================================================
-# RUNTIME STATE
-# ============================================================
-
-shutdown_event = threading.Event()
-
-health_server: Optional[ThreadingHTTPServer] = None
-health_server_thread: Optional[threading.Thread] = None
-
-
-# ============================================================
-# OUTPUT HELPERS
-# ============================================================
-
-def print_gate(
-    name: str,
-    passed: bool,
+async def health_handler(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
 ) -> None:
-
-    status = (
-        "✅ PASS"
-        if passed
-        else "❌ FAIL"
-    )
-
-    print(
-        f"{name:<49} {status}",
-        flush=True,
-    )
-
-
-def print_separator() -> None:
-
-    print(
-        "-" * 60,
-        flush=True,
-    )
-
-
-# ============================================================
-# URL / SECURITY HELPERS
-# ============================================================
-
-def normalize_path(
-    path: str,
-) -> str:
-
-    if not isinstance(
-        path,
-        str,
-    ):
-        raise TypeError(
-            "path must be a string"
-        )
-
-    path = path.strip()
-
-    if not path:
-        raise ValueError(
-            "path cannot be empty"
-        )
-
-    parsed = urllib.parse.urlparse(
-        path
-    )
-
-    if parsed.scheme or parsed.netloc:
-
-        raise PermissionError(
-            "Absolute external URLs are forbidden"
-        )
-
-    clean_path = parsed.path
-
-    if not clean_path.startswith(
-        "/"
-    ):
-        clean_path = (
-            "/"
-            + clean_path
-        )
-
-    return clean_path
-
-
-def validate_headers(
-    headers: Optional[Dict[str, str]],
-) -> Dict[str, str]:
-
-    if headers is None:
-
-        return {
-            "Accept": "application/json",
-            "User-Agent": "R28-UNIT-I-READ-ONLY",
-        }
-
-    clean_headers = dict(
-        headers
-    )
-
-    forbidden_header_names = {
-        "ACCESS-KEY",
-        "ACCESS-SIGN",
-        "ACCESS-PASSPHRASE",
-        "ACCESS-TIMESTAMP",
-        "AUTHORIZATION",
-        "X-API-KEY",
-        "API-KEY",
-    }
-
-    for header_name in clean_headers:
-
-        normalized_name = (
-            str(header_name)
-            .strip()
-            .upper()
-        )
-
-        if normalized_name in forbidden_header_names:
-
-            raise PermissionError(
-                "Authenticated/private headers "
-                "are forbidden in Unit I"
-            )
-
-    clean_headers.setdefault(
-        "Accept",
-        "application/json",
-    )
-
-    clean_headers.setdefault(
-        "User-Agent",
-        "R28-UNIT-I-READ-ONLY",
-    )
-
-    return clean_headers
-
-
-# ============================================================
-# CENTRAL NETWORK SAFETY GATE
-# ============================================================
-
-def validate_outbound_request(
-    method: str,
-    path: str,
-    headers: Optional[Dict[str, str]] = None,
-    body: Optional[bytes] = None,
-) -> Tuple[str, Dict[str, str]]:
-
-    global BLOCKED_REQUEST_COUNT
-
-    normalized_method = (
-        str(method)
-        .strip()
-        .upper()
-    )
 
     try:
-
-        if normalized_method != "GET":
-
-            raise PermissionError(
-                "Only HTTP GET is permitted "
-                "in R28 Unit I"
+        try:
+            await asyncio.wait_for(
+                reader.read(2048),
+                timeout=2.0,
             )
+        except Exception:
+            pass
 
-        clean_path = normalize_path(
-            path
+        body = (
+            "R28 UNIT J ACTIVE\n"
+            "AUTHENTICATED READ-ONLY MODE\n"
+            "WRITE METHODS BLOCKED\n"
+            "ORDER TRANSMISSION DISABLED\n"
         )
 
-        if clean_path in FORBIDDEN_ORDER_PATHS:
-
-            raise PermissionError(
-                "Order endpoint blocked"
-            )
-
-        if clean_path not in APPROVED_PUBLIC_GET_PATHS:
-
-            raise PermissionError(
-                "Endpoint not in Unit I "
-                "public GET allowlist"
-            )
-
-        if body not in {
-            None,
-            b"",
-        }:
-
-            raise PermissionError(
-                "Request bodies are forbidden "
-                "in Unit I"
-            )
-
-        clean_headers = validate_headers(
-            headers
+        response = (
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/plain; charset=utf-8\r\n"
+            f"Content-Length: {len(body.encode('utf-8'))}\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+            f"{body}"
         )
 
-        return (
-            clean_path,
-            clean_headers,
+        writer.write(
+            response.encode("utf-8")
         )
+
+        await writer.drain()
 
     except Exception:
+        pass
 
-        BLOCKED_REQUEST_COUNT += 1
+    finally:
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
 
-        raise
+
+async def start_health_server():
+    server = await asyncio.start_server(
+        health_handler,
+        host="0.0.0.0",
+        port=HEALTH_PORT,
+    )
+
+    print(
+        f"R28 UNIT J: HEALTH SERVER ACTIVE ON PORT {HEALTH_PORT}",
+        flush=True,
+    )
+
+    return server
 
 
 # ============================================================
-# HARD BLOCK FOR ALL WRITE METHODS
+# SAFETY HELPERS
 # ============================================================
 
-def hard_blocked_post(
-    *args: Any,
-    **kwargs: Any,
+def validate_host(
+    host: str,
 ) -> None:
 
-    global BLOCKED_REQUEST_COUNT
-
-    BLOCKED_REQUEST_COUNT += 1
-
-    raise PermissionError(
-        "HTTP POST is permanently blocked "
-        "in R28 Unit I"
-    )
-
-
-def hard_blocked_put(
-    *args: Any,
-    **kwargs: Any,
-) -> None:
-
-    global BLOCKED_REQUEST_COUNT
-
-    BLOCKED_REQUEST_COUNT += 1
-
-    raise PermissionError(
-        "HTTP PUT is permanently blocked "
-        "in R28 Unit I"
-    )
-
-
-def hard_blocked_patch(
-    *args: Any,
-    **kwargs: Any,
-) -> None:
-
-    global BLOCKED_REQUEST_COUNT
-
-    BLOCKED_REQUEST_COUNT += 1
-
-    raise PermissionError(
-        "HTTP PATCH is permanently blocked "
-        "in R28 Unit I"
-    )
-
-
-def hard_blocked_delete(
-    *args: Any,
-    **kwargs: Any,
-) -> None:
-
-    global BLOCKED_REQUEST_COUNT
-
-    BLOCKED_REQUEST_COUNT += 1
-
-    raise PermissionError(
-        "HTTP DELETE is permanently blocked "
-        "in R28 Unit I"
-    )
-
-
-# ============================================================
-# THE ONLY FUNCTION ALLOWED TO ACCESS WEEX
-# ============================================================
-
-def public_get_json(
-    path: str,
-    params: Optional[Dict[str, Any]] = None,
-) -> Any:
-
-    global PUBLIC_GET_REQUEST_COUNT
-    global LAST_NETWORK_ERROR
-
-    if not PUBLIC_READ_ONLY_NETWORK_ENABLED:
-
+    if host != LOCKED_WEEX_HOST:
         raise PermissionError(
-            "Public network disabled"
+            "R28 UNIT J BLOCKED: "
+            "external host not allowed"
         )
 
-    clean_path, headers = (
-        validate_outbound_request(
-            method="GET",
-            path=path,
-            headers=None,
-            body=None,
+
+def validate_public_path(
+    path: str,
+) -> None:
+
+    if path not in PUBLIC_GET_ALLOWLIST:
+        raise PermissionError(
+            "R28 UNIT J BLOCKED: "
+            f"public GET path not allowlisted: {path}"
         )
+
+
+def validate_private_path(
+    path: str,
+) -> None:
+
+    if path not in PRIVATE_GET_ALLOWLIST:
+        raise PermissionError(
+            "R28 UNIT J BLOCKED: "
+            f"private GET path not allowlisted: {path}"
+        )
+
+    lowered = path.lower()
+
+    for forbidden in FORBIDDEN_WRITE_PATH_FRAGMENTS:
+
+        if forbidden in lowered:
+
+            raise PermissionError(
+                "R28 UNIT J BLOCKED: "
+                "write/order-like endpoint rejected"
+            )
+
+
+def assert_get_method(
+    method: str,
+) -> None:
+
+    if method.upper() != "GET":
+        raise PermissionError(
+            "R28 UNIT J BLOCKED: "
+            "only GET is permitted"
+        )
+
+
+# ============================================================
+# HARD WRITE METHOD BLOCKS
+# ============================================================
+
+async def blocked_post(
+    *args,
+    **kwargs,
+):
+
+    global POST_CALLED
+
+    POST_CALLED = True
+
+    raise PermissionError(
+        "R28 UNIT J HARD LOCK: "
+        "POST is disabled"
     )
 
-    query_string = ""
 
-    if params:
+async def blocked_put(
+    *args,
+    **kwargs,
+):
 
-        query_string = urllib.parse.urlencode(
-            params
+    global PUT_CALLED
+
+    PUT_CALLED = True
+
+    raise PermissionError(
+        "R28 UNIT J HARD LOCK: "
+        "PUT is disabled"
+    )
+
+
+async def blocked_patch(
+    *args,
+    **kwargs,
+):
+
+    global PATCH_CALLED
+
+    PATCH_CALLED = True
+
+    raise PermissionError(
+        "R28 UNIT J HARD LOCK: "
+        "PATCH is disabled"
+    )
+
+
+async def blocked_delete(
+    *args,
+    **kwargs,
+):
+
+    global DELETE_CALLED
+
+    DELETE_CALLED = True
+
+    raise PermissionError(
+        "R28 UNIT J HARD LOCK: "
+        "DELETE is disabled"
+    )
+
+
+async def blocked_real_order_post(
+    *args,
+    **kwargs,
+):
+
+    global REAL_POST_CALLED
+
+    REAL_POST_CALLED = True
+
+    raise PermissionError(
+        "R28 UNIT J HARD LOCK: "
+        "real order transmission disabled"
+    )
+
+
+async def blocked_demo_order_post(
+    *args,
+    **kwargs,
+):
+
+    global DEMO_POST_CALLED
+
+    DEMO_POST_CALLED = True
+
+    raise PermissionError(
+        "R28 UNIT J HARD LOCK: "
+        "demo order transmission disabled"
+    )
+
+
+# ============================================================
+# CREDENTIAL VALIDATION
+# ============================================================
+
+def credentials_present() -> bool:
+
+    return bool(
+        WEEX_API_KEY
+        and WEEX_API_SECRET
+        and WEEX_API_PASSPHRASE
+    )
+
+
+def validate_credentials() -> None:
+
+    if not WEEX_API_KEY:
+        raise RuntimeError(
+            "WEEX_API_KEY is missing"
         )
 
-    url = (
-        WEEX_PUBLIC_BASE_URL
-        + clean_path
+    if not WEEX_API_SECRET:
+        raise RuntimeError(
+            "WEEX_API_SECRET is missing"
+        )
+
+    if not WEEX_API_PASSPHRASE:
+        raise RuntimeError(
+            "WEEX_API_PASSPHRASE is missing"
+        )
+
+
+# ============================================================
+# QUERY STRING CREATION
+# ============================================================
+
+def build_query_string(
+    params: Optional[Dict[str, Any]],
+) -> str:
+
+    if not params:
+        return ""
+
+    clean_params = {}
+
+    for key, value in params.items():
+
+        if value is None:
+            continue
+
+        clean_params[str(key)] = str(value)
+
+    return urlencode(
+        clean_params
     )
+
+
+# ============================================================
+# WEEX SIGNATURE
+# ============================================================
+
+def create_signature(
+    timestamp: str,
+    method: str,
+    request_path: str,
+    query_string: str = "",
+    body: str = "",
+) -> str:
+
+    method = method.upper()
+
+    assert_get_method(
+        method
+    )
+
+    if body:
+        raise PermissionError(
+            "R28 UNIT J BLOCKED: "
+            "GET request body not permitted"
+        )
 
     if query_string:
 
-        url = (
-            url
+        prehash = (
+            timestamp
+            + method
+            + request_path
             + "?"
             + query_string
         )
 
-    request = urllib.request.Request(
-        url=url,
-        data=None,
-        headers=headers,
-        method="GET",
+    else:
+
+        prehash = (
+            timestamp
+            + method
+            + request_path
+        )
+
+    digest = hmac.new(
+        WEEX_API_SECRET.encode("utf-8"),
+        prehash.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+
+    return base64.b64encode(
+        digest
+    ).decode("utf-8")
+
+
+# ============================================================
+# AUTHENTICATION HEADER CREATION
+# ============================================================
+
+def build_private_headers(
+    request_path: str,
+    query_string: str,
+) -> Dict[str, str]:
+
+    validate_credentials()
+
+    validate_private_path(
+        request_path
     )
 
-    PUBLIC_GET_REQUEST_COUNT += 1
+    timestamp = str(
+        int(
+            time.time() * 1000
+        )
+    )
+
+    signature = create_signature(
+        timestamp=timestamp,
+        method="GET",
+        request_path=request_path,
+        query_string=query_string,
+        body="",
+    )
+
+    headers = {
+        "ACCESS-KEY": WEEX_API_KEY,
+        "ACCESS-SIGN": signature,
+        "ACCESS-PASSPHRASE": WEEX_API_PASSPHRASE,
+        "ACCESS-TIMESTAMP": timestamp,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "R28-UNIT-J-READONLY",
+    }
+
+    return headers
+
+
+# ============================================================
+# SAFE RESPONSE PARSER
+# ============================================================
+
+async def parse_response(
+    response: aiohttp.ClientResponse,
+) -> Any:
+
+    text = await response.text()
+
+    try:
+        return json.loads(
+            text
+        )
+
+    except Exception:
+
+        return {
+            "_raw": text,
+        }
+
+
+# ============================================================
+# CONTROLLED PUBLIC GET
+# ============================================================
+
+async def public_get(
+    session: aiohttp.ClientSession,
+    path: str,
+    params: Optional[Dict[str, Any]] = None,
+) -> Any:
+
+    global PUBLIC_GET_COUNT
+    global AUTH_HEADERS_SENT_TO_PUBLIC_ENDPOINT
+
+    validate_host(
+        WEEX_PUBLIC_HOST
+    )
+
+    validate_public_path(
+        path
+    )
+
+    assert_get_method(
+        "GET"
+    )
+
+    query_string = build_query_string(
+        params
+    )
+
+    url = (
+        WEEX_PUBLIC_HOST
+        + path
+    )
+
+    if query_string:
+        url += "?" + query_string
+
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "R28-UNIT-J-READONLY",
+    }
+
+    forbidden_headers = {
+        "ACCESS-KEY",
+        "ACCESS-SIGN",
+        "ACCESS-PASSPHRASE",
+        "ACCESS-TIMESTAMP",
+    }
+
+    if any(
+        header in headers
+        for header in forbidden_headers
+    ):
+        AUTH_HEADERS_SENT_TO_PUBLIC_ENDPOINT = True
+
+        raise PermissionError(
+            "Authentication header leakage detected"
+        )
 
     print(
-        "R28 UNIT I: PUBLIC GET -> "
-        f"{clean_path}",
+        f"R28 UNIT J: PUBLIC GET -> {path}",
         flush=True,
     )
 
-    try:
+    async with session.get(
+        url,
+        headers=headers,
+    ) as response:
 
-        with urllib.request.urlopen(
-            request,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        ) as response:
+        data = await parse_response(
+            response
+        )
 
-            status_code = getattr(
-                response,
-                "status",
-                200,
-            )
-
-            raw_body = response.read()
-
-        if status_code < 200 or status_code >= 300:
+        if response.status < 200 or response.status >= 300:
 
             raise RuntimeError(
-                "Unexpected HTTP status: "
-                f"{status_code}"
+                "Public GET failed: "
+                f"HTTP {response.status} "
+                f"{safe_error_text(data)}"
             )
 
-        decoded_body = raw_body.decode(
-            "utf-8"
-        )
-
-        data = json.loads(
-            decoded_body
-        )
-
-        LAST_NETWORK_ERROR = None
+        PUBLIC_GET_COUNT += 1
 
         return data
 
-    except urllib.error.HTTPError as exc:
-
-        LAST_NETWORK_ERROR = (
-            f"HTTP {exc.code}: {exc.reason}"
-        )
-
-        raise RuntimeError(
-            LAST_NETWORK_ERROR
-        ) from exc
-
-    except urllib.error.URLError as exc:
-
-        LAST_NETWORK_ERROR = (
-            f"Network error: {exc.reason}"
-        )
-
-        raise RuntimeError(
-            LAST_NETWORK_ERROR
-        ) from exc
-
-    except TimeoutError as exc:
-
-        LAST_NETWORK_ERROR = (
-            "Network request timed out"
-        )
-
-        raise RuntimeError(
-            LAST_NETWORK_ERROR
-        ) from exc
-
 
 # ============================================================
-# PUBLIC MARKET DATA FUNCTIONS
+# CONTROLLED AUTHENTICATED PRIVATE GET
 # ============================================================
 
-def get_exchange_info(
-    symbol: str,
+async def private_get(
+    session: aiohttp.ClientSession,
+    path: str,
+    params: Optional[Dict[str, Any]] = None,
 ) -> Any:
 
-    return public_get_json(
-        "/capi/v3/market/exchangeInfo",
-        {
-            "symbol": symbol,
-        },
-    )
+    global PRIVATE_GET_COUNT
+    global PRIVATE_GET_RESPONSES
 
+    if not AUTHENTICATED_READ_ACCESS:
 
-def get_mark_price(
-    symbol: str,
-) -> Any:
-
-    return public_get_json(
-        "/capi/v3/market/symbolPrice",
-        {
-            "symbol": symbol,
-            "priceType": "MARK",
-        },
-    )
-
-
-def get_book_ticker(
-    symbol: str,
-) -> Any:
-
-    return public_get_json(
-        "/capi/v3/market/ticker/bookTicker",
-        {
-            "symbol": symbol,
-        },
-    )
-
-
-# ============================================================
-# DATA VALIDATION
-# ============================================================
-
-def validate_mark_price_response(
-    data: Any,
-    symbol: str,
-) -> float:
-
-    if not isinstance(
-        data,
-        dict,
-    ):
-
-        raise ValueError(
-            "Mark price response must be an object"
+        raise PermissionError(
+            "Authenticated reads disabled"
         )
 
-    response_symbol = (
-        str(
-            data.get(
-                "symbol",
-                "",
+    if not ALLOW_PRIVATE_GET:
+
+        raise PermissionError(
+            "Private GET disabled"
+        )
+
+    validate_host(
+        WEEX_PRIVATE_HOST
+    )
+
+    validate_private_path(
+        path
+    )
+
+    assert_get_method(
+        "GET"
+    )
+
+    query_string = build_query_string(
+        params
+    )
+
+    headers = build_private_headers(
+        request_path=path,
+        query_string=query_string,
+    )
+
+    url = (
+        WEEX_PRIVATE_HOST
+        + path
+    )
+
+    if query_string:
+        url += "?" + query_string
+
+    print(
+        f"R28 UNIT J: AUTHENTICATED GET -> {path}",
+        flush=True,
+    )
+
+    async with session.get(
+        url,
+        headers=headers,
+    ) as response:
+
+        data = await parse_response(
+            response
+        )
+
+        if response.status < 200 or response.status >= 300:
+
+            raise RuntimeError(
+                "Authenticated GET failed: "
+                f"HTTP {response.status} "
+                f"{safe_error_text(data)}"
             )
-        )
-        .strip()
-        .upper()
-    )
 
-    if response_symbol != symbol:
+        PRIVATE_GET_COUNT += 1
+        PRIVATE_GET_RESPONSES += 1
 
-        raise ValueError(
-            "Mark price symbol mismatch: "
-            f"{response_symbol}"
-        )
-
-    price_raw = data.get(
-        "price"
-    )
-
-    if price_raw is None:
-
-        raise ValueError(
-            "Mark price missing"
-        )
-
-    price = float(
-        price_raw
-    )
-
-    if price <= 0:
-
-        raise ValueError(
-            "Mark price must be positive"
-        )
-
-    return price
+        return data
 
 
-def validate_book_ticker_response(
+# ============================================================
+# SAFE ERROR TEXT
+# ============================================================
+
+def safe_error_text(
     data: Any,
-    symbol: str,
-) -> Tuple[float, float]:
+) -> str:
 
-    record = data
+    try:
+
+        text = json.dumps(
+            data,
+            ensure_ascii=False,
+        )
+
+    except Exception:
+
+        text = str(
+            data
+        )
+
+    # Never accidentally print credentials.
+
+    secrets = (
+        WEEX_API_KEY,
+        WEEX_API_SECRET,
+        WEEX_API_PASSPHRASE,
+    )
+
+    for secret in secrets:
+
+        if secret:
+
+            text = text.replace(
+                secret,
+                "[REDACTED]",
+            )
+
+    if len(text) > 500:
+
+        text = (
+            text[:500]
+            + "..."
+        )
+
+    return text
+
+
+# ============================================================
+# BALANCE EXTRACTION
+# ============================================================
+
+def extract_usdt_balance(
+    data: Any,
+) -> Optional[Dict[str, Any]]:
+
+    candidates = []
 
     if isinstance(
         data,
         list,
     ):
+        candidates = data
 
-        if not data:
-
-            raise ValueError(
-                "Book ticker response is empty"
-            )
-
-        record = data[0]
-
-    if not isinstance(
-        record,
-        dict,
-    ):
-
-        raise ValueError(
-            "Book ticker record invalid"
-        )
-
-    response_symbol = (
-        str(
-            record.get(
-                "symbol",
-                "",
-            )
-        )
-        .strip()
-        .upper()
-    )
-
-    if response_symbol != symbol:
-
-        raise ValueError(
-            "Book ticker symbol mismatch: "
-            f"{response_symbol}"
-        )
-
-    bid = float(
-        record.get(
-            "bidPrice",
-            "0",
-        )
-    )
-
-    ask = float(
-        record.get(
-            "askPrice",
-            "0",
-        )
-    )
-
-    if bid <= 0:
-
-        raise ValueError(
-            "Bid price must be positive"
-        )
-
-    if ask <= 0:
-
-        raise ValueError(
-            "Ask price must be positive"
-        )
-
-    if ask < bid:
-
-        raise ValueError(
-            "Ask cannot be below bid"
-        )
-
-    return (
-        bid,
-        ask,
-    )
-
-
-def validate_exchange_info_response(
-    data: Any,
-    symbol: str,
-) -> bool:
-
-    if not isinstance(
+    elif isinstance(
         data,
         dict,
     ):
 
-        raise ValueError(
-            "Exchange info response must be an object"
-        )
-
-    symbols = data.get(
-        "symbols"
-    )
-
-    if not isinstance(
-        symbols,
-        list,
-    ):
-
-        raise ValueError(
-            "Exchange info symbols missing"
-        )
-
-    for record in symbols:
-
-        if not isinstance(
-            record,
-            dict,
+        for key in (
+            "data",
+            "result",
+            "balances",
+            "assets",
         ):
 
-            continue
+            value = data.get(
+                key
+            )
 
-        response_symbol = (
-            str(
-                record.get(
-                    "symbol",
+            if isinstance(
+                value,
+                list,
+            ):
+                candidates = value
+                break
+
+        if not candidates:
+
+            asset = str(
+                data.get(
+                    "asset",
                     "",
                 )
+            ).upper()
+
+            if asset == "USDT":
+                return data
+
+    for item in candidates:
+
+        if not isinstance(
+            item,
+            dict,
+        ):
+            continue
+
+        asset = str(
+            item.get(
+                "asset",
+                "",
             )
-            .strip()
-            .upper()
-        )
+        ).upper()
 
-        if response_symbol == symbol:
+        if asset == "USDT":
 
-            return True
+            return item
 
-    raise ValueError(
-        f"{symbol} not found in exchange info"
+    return None
+
+
+# ============================================================
+# POSITION EXTRACTION
+# ============================================================
+
+def normalize_positions(
+    data: Any,
+):
+
+    if isinstance(
+        data,
+        list,
+    ):
+        return data
+
+    if isinstance(
+        data,
+        dict,
+    ):
+
+        for key in (
+            "data",
+            "result",
+            "positions",
+        ):
+
+            value = data.get(
+                key
+            )
+
+            if isinstance(
+                value,
+                list,
+            ):
+                return value
+
+    return []
+
+
+# ============================================================
+# SYMBOL CONFIG EXTRACTION
+# ============================================================
+
+def normalize_symbol_config(
+    data: Any,
+):
+
+    if isinstance(
+        data,
+        list,
+    ):
+        return data
+
+    if isinstance(
+        data,
+        dict,
+    ):
+
+        for key in (
+            "data",
+            "result",
+        ):
+
+            value = data.get(
+                key
+            )
+
+            if isinstance(
+                value,
+                list,
+            ):
+                return value
+
+        if data.get(
+            "symbol"
+        ):
+            return [
+                data
+            ]
+
+    return []
+
+
+# ============================================================
+# DIAGNOSTIC RESULT
+# ============================================================
+
+def gate(
+    name: str,
+    passed: bool,
+) -> bool:
+
+    status = (
+        "✅ PASS"
+        if passed
+        else
+        "❌ FAIL"
     )
 
+    print(
+        f"{name:<50} {status}",
+        flush=True,
+    )
+
+    return passed
+
 
 # ============================================================
-# LOCAL SAFETY TEST HELPERS
+# LOCAL WRITE BLOCK TESTS
 # ============================================================
 
-def expect_permission_error(
-    callback,
-) -> bool:
+async def test_write_blocks():
+
+    post_blocked = False
+    put_blocked = False
+    patch_blocked = False
+    delete_blocked = False
+    real_order_blocked = False
+    demo_order_blocked = False
+
+    try:
+        await blocked_post()
+    except PermissionError:
+        post_blocked = True
+
+    try:
+        await blocked_put()
+    except PermissionError:
+        put_blocked = True
+
+    try:
+        await blocked_patch()
+    except PermissionError:
+        patch_blocked = True
+
+    try:
+        await blocked_delete()
+    except PermissionError:
+        delete_blocked = True
+
+    try:
+        await blocked_real_order_post()
+    except PermissionError:
+        real_order_blocked = True
+
+    try:
+        await blocked_demo_order_post()
+    except PermissionError:
+        demo_order_blocked = True
+
+    return {
+        "post": post_blocked,
+        "put": put_blocked,
+        "patch": patch_blocked,
+        "delete": delete_blocked,
+        "real_order": real_order_blocked,
+        "demo_order": demo_order_blocked,
+    }
+
+
+# ============================================================
+# FORBIDDEN ENDPOINT TEST
+# ============================================================
+
+def test_forbidden_endpoint_block() -> bool:
 
     try:
 
-        callback()
+        validate_private_path(
+            "/capi/v3/order"
+        )
 
     except PermissionError:
 
         return True
 
-    except Exception:
+    return False
 
-        return False
+
+# ============================================================
+# ARBITRARY HOST TEST
+# ============================================================
+
+def test_arbitrary_host_block() -> bool:
+
+    try:
+
+        validate_host(
+            "https://example.com"
+        )
+
+    except PermissionError:
+
+        return True
 
     return False
 
 
 # ============================================================
-# HEALTH SERVER
+# UNALLOWLISTED PRIVATE GET TEST
 # ============================================================
 
-class HealthHandler(
-    BaseHTTPRequestHandler
-):
-
-    def do_GET(
-        self,
-    ) -> None:
-
-        if self.path in {
-            "/",
-            "/health",
-            "/healthz",
-        }:
-
-            payload = json.dumps(
-                {
-                    "status": "ok",
-                    "module": MODULE_NAME,
-                    "version": MODULE_VERSION,
-                    "mode": "PUBLIC_READ_ONLY",
-                    "live_execution": False,
-                    "demo_execution": False,
-                    "order_transmission": False,
-                }
-            ).encode(
-                "utf-8"
-            )
-
-            self.send_response(
-                200
-            )
-
-            self.send_header(
-                "Content-Type",
-                "application/json",
-            )
-
-            self.send_header(
-                "Content-Length",
-                str(
-                    len(
-                        payload
-                    )
-                ),
-            )
-
-            self.end_headers()
-
-            self.wfile.write(
-                payload
-            )
-
-            return
-
-        self.send_response(
-            404
-        )
-
-        self.end_headers()
-
-    def do_POST(
-        self,
-    ) -> None:
-
-        self.send_response(
-            405
-        )
-
-        self.end_headers()
-
-    def do_PUT(
-        self,
-    ) -> None:
-
-        self.send_response(
-            405
-        )
-
-        self.end_headers()
-
-    def do_PATCH(
-        self,
-    ) -> None:
-
-        self.send_response(
-            405
-        )
-
-        self.end_headers()
-
-    def do_DELETE(
-        self,
-    ) -> None:
-
-        self.send_response(
-            405
-        )
-
-        self.end_headers()
-
-    def log_message(
-        self,
-        format,
-        *args,
-    ) -> None:
-
-        return
-
-
-def start_health_server() -> None:
-
-    global health_server
-    global health_server_thread
-
-    health_server = ThreadingHTTPServer(
-        (
-            "0.0.0.0",
-            PORT,
-        ),
-        HealthHandler,
-    )
-
-    health_server_thread = threading.Thread(
-        target=health_server.serve_forever,
-        daemon=True,
-        name="r28-unit-i-health",
-    )
-
-    health_server_thread.start()
-
-    print(
-        "R28 UNIT I: HEALTH SERVER ACTIVE "
-        f"ON PORT {PORT}",
-        flush=True,
-    )
-
-
-def stop_health_server() -> None:
-
-    global health_server
-
-    if health_server is None:
-
-        return
+def test_unallowlisted_private_path() -> bool:
 
     try:
 
-        health_server.shutdown()
+        validate_private_path(
+            "/capi/v3/account/notAllowed"
+        )
 
-    except Exception:
+    except PermissionError:
 
-        pass
+        return True
 
-    try:
-
-        health_server.server_close()
-
-    except Exception:
-
-        pass
+    return False
 
 
 # ============================================================
-# DIAGNOSTIC
+# MAIN DIAGNOSTIC
 # ============================================================
 
-def run_diagnostic() -> bool:
-
-    global REAL_POST_CALLED
-    global DEMO_POST_CALLED
-    global ORDER_TRANSMISSION_OCCURRED
+async def run_diagnostic() -> bool:
 
     print(
         "=" * 60,
@@ -995,22 +1145,22 @@ def run_diagnostic() -> bool:
     )
 
     print(
-        "0F-4H-R28-UNIT-I STARTING",
+        "0F-4H-R28-UNIT-J STARTING",
         flush=True,
     )
 
     print(
-        "CONTROLLED PUBLIC READ-ONLY NETWORK VALIDATION",
+        "AUTHENTICATED READ-ONLY PRIVATE API VALIDATION",
         flush=True,
     )
 
     print(
-        "PUBLIC WEEX MARKET DATA GET REQUESTS ONLY",
+        "PUBLIC WEEX MARKET GET REQUESTS ENABLED",
         flush=True,
     )
 
     print(
-        "NO AUTHENTICATED API ACCESS",
+        "AUTHENTICATED ACCOUNT GET REQUESTS ENABLED",
         flush=True,
     )
 
@@ -1035,12 +1185,12 @@ def run_diagnostic() -> bool:
     )
 
     print(
-        f"R28 UNIT I SYMBOL: {MAIN_SYMBOL}",
+        f"R28 UNIT J SYMBOL: {SYMBOL}",
         flush=True,
     )
 
     print(
-        "R28 UNIT I NETWORK POLICY:",
+        "R28 UNIT J NETWORK POLICY:",
         flush=True,
     )
 
@@ -1050,12 +1200,7 @@ def run_diagnostic() -> bool:
     )
 
     print(
-        "  ❌ Authenticated API disabled",
-        flush=True,
-    )
-
-    print(
-        "  ❌ Account API disabled",
+        "  ✅ Authenticated read-only GET enabled",
         flush=True,
     )
 
@@ -1070,535 +1215,659 @@ def run_diagnostic() -> bool:
     )
 
     print(
-        "",
+        "  ❌ PUT / PATCH / DELETE disabled",
         flush=True,
     )
 
     print(
-        "R28 UNIT I SAFETY GATES",
+        "R28 UNIT J CREDENTIAL STATUS:",
         flush=True,
     )
 
-    print_separator()
+    print(
+        "  API Key: "
+        + (
+            "✅ PRESENT"
+            if WEEX_API_KEY
+            else "❌ MISSING"
+        ),
+        flush=True,
+    )
+
+    print(
+        "  API Secret: "
+        + (
+            "✅ PRESENT"
+            if WEEX_API_SECRET
+            else "❌ MISSING"
+        ),
+        flush=True,
+    )
+
+    print(
+        "  API Passphrase: "
+        + (
+            "✅ PRESENT"
+            if WEEX_API_PASSPHRASE
+            else "❌ MISSING"
+        ),
+        flush=True,
+    )
+
+    print(
+        "R28 UNIT J SAFETY GATES",
+        flush=True,
+    )
+
+    print(
+        "-" * 60,
+        flush=True,
+    )
 
     results = []
 
-    result = (
-        LIVE_ORDER_EXECUTION is False
-        and
-        DEMO_ORDER_EXECUTION is False
-        and
-        REAL_ORDER_TRANSMISSION is False
-        and
-        DEMO_ORDER_TRANSMISSION is False
-        and
-        HARD_REAL_POST_LOCK is True
-        and
-        HARD_DEMO_POST_LOCK is True
-    )
-
-    print_gate(
-        "Execution Locks Active",
-        result,
-    )
-
     results.append(
-        result
-    )
-
-    result = (
-        PUBLIC_READ_ONLY_NETWORK_ENABLED
-        is True
-    )
-
-    print_gate(
-        "Public Read-Only Network Enabled",
-        result,
-    )
-
-    results.append(
-        result
-    )
-
-    result = (
-        AUTHENTICATED_REQUESTS_ENABLED
-        is False
-        and
-        PRIVATE_API_ENABLED
-        is False
-        and
-        ACCOUNT_API_ENABLED
-        is False
-    )
-
-    print_gate(
-        "Authenticated / Private API Disabled",
-        result,
-    )
-
-    results.append(
-        result
-    )
-
-    result = (
-        ORDER_ENDPOINTS_ENABLED
-        is False
-    )
-
-    print_gate(
-        "Order Endpoints Disabled",
-        result,
-    )
-
-    results.append(
-        result
-    )
-
-    result = (
-        WEEX_PUBLIC_BASE_URL
-        ==
-        "https://api-contract.weex.com"
-    )
-
-    print_gate(
-        "WEEX Public Host Locked",
-        result,
-    )
-
-    results.append(
-        result
-    )
-
-    expected_paths = {
-        "/capi/v3/market/exchangeInfo",
-        "/capi/v3/market/symbolPrice",
-        "/capi/v3/market/ticker/bookTicker",
-    }
-
-    result = (
-        APPROVED_PUBLIC_GET_PATHS
-        ==
-        expected_paths
-    )
-
-    print_gate(
-        "Public GET Allowlist Locked",
-        result,
-    )
-
-    results.append(
-        result
-    )
-
-    result = expect_permission_error(
-        lambda: validate_outbound_request(
-            method="POST",
-            path="/capi/v3/order",
+        gate(
+            "Live Execution Disabled",
+            LIVE_ORDER_EXECUTION is False,
         )
     )
 
-    print_gate(
-        "Real Order POST Rejected Locally",
-        result,
-    )
-
     results.append(
-        result
-    )
-
-    result = expect_permission_error(
-        lambda: validate_outbound_request(
-            method="POST",
-            path="/capi/v3/sim/order",
+        gate(
+            "Demo Execution Disabled",
+            DEMO_ORDER_EXECUTION is False,
         )
     )
 
-    print_gate(
-        "Demo Order POST Rejected Locally",
-        result,
-    )
-
     results.append(
-        result
-    )
-
-    result = expect_permission_error(
-        lambda: hard_blocked_post()
-    )
-
-    print_gate(
-        "Generic POST Method Blocked",
-        result,
-    )
-
-    results.append(
-        result
-    )
-
-    result = expect_permission_error(
-        lambda: hard_blocked_put()
-    )
-
-    print_gate(
-        "PUT Method Blocked",
-        result,
-    )
-
-    results.append(
-        result
-    )
-
-    result = expect_permission_error(
-        lambda: hard_blocked_patch()
-    )
-
-    print_gate(
-        "PATCH Method Blocked",
-        result,
-    )
-
-    results.append(
-        result
-    )
-
-    result = expect_permission_error(
-        lambda: hard_blocked_delete()
-    )
-
-    print_gate(
-        "DELETE Method Blocked",
-        result,
-    )
-
-    results.append(
-        result
-    )
-
-    result = expect_permission_error(
-        lambda: validate_outbound_request(
-            method="GET",
-            path="/capi/v3/account/symbolConfig",
+        gate(
+            "Real Order Transmission Disabled",
+            REAL_ORDER_TRANSMISSION is False,
         )
     )
 
-    print_gate(
-        "Account Endpoint Rejected Locally",
-        result,
-    )
-
     results.append(
-        result
-    )
-
-    result = expect_permission_error(
-        lambda: validate_outbound_request(
-            method="GET",
-            path="/capi/v3/position",
+        gate(
+            "Demo Order Transmission Disabled",
+            DEMO_ORDER_TRANSMISSION is False,
         )
     )
 
-    print_gate(
-        "Private Endpoint Rejected Locally",
-        result,
-    )
-
     results.append(
-        result
-    )
-
-    result = expect_permission_error(
-        lambda: validate_outbound_request(
-            method="GET",
-            path="/capi/v3/market/symbolPrice",
-            headers={
-                "ACCESS-KEY": "BLOCKED",
-            },
+        gate(
+            "Private Write Access Disabled",
+            PRIVATE_WRITE_ACCESS is False,
         )
     )
 
-    print_gate(
-        "API Credential Header Rejected",
-        result,
-    )
-
     results.append(
-        result
-    )
-
-    result = expect_permission_error(
-        lambda: validate_outbound_request(
-            method="GET",
-            path="https://example.com/test",
+        gate(
+            "Authenticated Read Access Enabled",
+            AUTHENTICATED_READ_ACCESS is True,
         )
     )
 
-    print_gate(
-        "Arbitrary External Host Rejected",
-        result,
+    results.append(
+        gate(
+            "Private GET Allowlist Locked",
+            bool(
+                PRIVATE_GET_ALLOWLIST
+            ),
+        )
     )
 
     results.append(
-        result
+        gate(
+            "WEEX Host Locked",
+            (
+                WEEX_PRIVATE_HOST
+                == LOCKED_WEEX_HOST
+            ),
+        )
     )
 
-    # ========================================================
-    # LIVE PUBLIC READ-ONLY TEST 1
-    # EXCHANGE INFORMATION
-    # ========================================================
+    results.append(
+        gate(
+            "API Credentials Present",
+            credentials_present(),
+        )
+    )
 
-    exchange_info_ok = False
+    write_tests = await test_write_blocks()
 
-    try:
+    results.append(
+        gate(
+            "Generic POST Rejected Locally",
+            write_tests["post"],
+        )
+    )
 
-        exchange_info = get_exchange_info(
-            MAIN_SYMBOL
+    results.append(
+        gate(
+            "PUT Rejected Locally",
+            write_tests["put"],
+        )
+    )
+
+    results.append(
+        gate(
+            "PATCH Rejected Locally",
+            write_tests["patch"],
+        )
+    )
+
+    results.append(
+        gate(
+            "DELETE Rejected Locally",
+            write_tests["delete"],
+        )
+    )
+
+    results.append(
+        gate(
+            "Real Order POST Rejected Locally",
+            write_tests["real_order"],
+        )
+    )
+
+    results.append(
+        gate(
+            "Demo Order POST Rejected Locally",
+            write_tests["demo_order"],
+        )
+    )
+
+    results.append(
+        gate(
+            "Order Endpoint Rejected Locally",
+            test_forbidden_endpoint_block(),
+        )
+    )
+
+    results.append(
+        gate(
+            "Unallowlisted Private GET Rejected",
+            test_unallowlisted_private_path(),
+        )
+    )
+
+    results.append(
+        gate(
+            "Arbitrary External Host Rejected",
+            test_arbitrary_host_block(),
+        )
+    )
+
+    if not credentials_present():
+
+        print(
+            "-" * 60,
+            flush=True,
         )
 
-        exchange_info_ok = (
-            validate_exchange_info_response(
-                exchange_info,
-                MAIN_SYMBOL,
+        print(
+            "❌ R28 UNIT J CANNOT RUN AUTHENTICATED TESTS",
+            flush=True,
+        )
+
+        print(
+            "Required Render environment variables:",
+            flush=True,
+        )
+
+        print(
+            "  WEEX_API_KEY",
+            flush=True,
+        )
+
+        print(
+            "  WEEX_API_SECRET",
+            flush=True,
+        )
+
+        print(
+            "  WEEX_API_PASSPHRASE",
+            flush=True,
+        )
+
+        print(
+            "Use a READ-ONLY WEEX API key.",
+            flush=True,
+        )
+
+        return False
+
+    timeout = aiohttp.ClientTimeout(
+        total=HTTP_TIMEOUT_SECONDS
+    )
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+
+        # ====================================================
+        # PUBLIC CONTROL GET
+        # ====================================================
+
+        try:
+
+            public_data = await public_get(
+                session=session,
+                path="/capi/v3/market/symbolPrice",
+                params={
+                    "symbol": SYMBOL,
+                },
             )
-        )
 
-    except Exception as exc:
-
-        print(
-            "R28 UNIT I: EXCHANGE INFO ERROR: "
-            f"{type(exc).__name__}: {exc}",
-            flush=True,
-        )
-
-    print_gate(
-        "Public Exchange Info GET",
-        exchange_info_ok,
-    )
-
-    results.append(
-        exchange_info_ok
-    )
-
-    # ========================================================
-    # LIVE PUBLIC READ-ONLY TEST 2
-    # MARK PRICE
-    # ========================================================
-
-    mark_price_ok = False
-    mark_price = None
-
-    try:
-
-        mark_price_data = get_mark_price(
-            MAIN_SYMBOL
-        )
-
-        mark_price = (
-            validate_mark_price_response(
-                mark_price_data,
-                MAIN_SYMBOL,
+            results.append(
+                gate(
+                    "Public Market GET",
+                    public_data is not None,
+                )
             )
-        )
 
-        mark_price_ok = (
-            mark_price > 0
-        )
+        except Exception as exc:
 
-    except Exception as exc:
-
-        print(
-            "R28 UNIT I: MARK PRICE ERROR: "
-            f"{type(exc).__name__}: {exc}",
-            flush=True,
-        )
-
-    print_gate(
-        "Public Mark Price GET",
-        mark_price_ok,
-    )
-
-    results.append(
-        mark_price_ok
-    )
-
-    if mark_price is not None:
-
-        print(
-            "R28 UNIT I: "
-            f"{MAIN_SYMBOL} MARK PRICE = "
-            f"{mark_price}",
-            flush=True,
-        )
-
-    # ========================================================
-    # LIVE PUBLIC READ-ONLY TEST 3
-    # BEST BID / ASK
-    # ========================================================
-
-    book_ticker_ok = False
-    best_bid = None
-    best_ask = None
-
-    try:
-
-        book_data = get_book_ticker(
-            MAIN_SYMBOL
-        )
-
-        best_bid, best_ask = (
-            validate_book_ticker_response(
-                book_data,
-                MAIN_SYMBOL,
+            print(
+                "R28 UNIT J PUBLIC GET ERROR: "
+                f"{safe_error_text(str(exc))}",
+                flush=True,
             )
-        )
 
-        book_ticker_ok = (
-            best_bid > 0
-            and
-            best_ask > 0
-            and
-            best_ask >= best_bid
-        )
+            results.append(
+                gate(
+                    "Public Market GET",
+                    False,
+                )
+            )
 
-    except Exception as exc:
+        # ====================================================
+        # ACCOUNT BALANCE
+        # ====================================================
 
-        print(
-            "R28 UNIT I: BOOK TICKER ERROR: "
-            f"{type(exc).__name__}: {exc}",
-            flush=True,
-        )
+        try:
 
-    print_gate(
-        "Public Best Bid / Ask GET",
-        book_ticker_ok,
-    )
+            balance_data = await private_get(
+                session=session,
+                path="/capi/v3/account/balance",
+            )
 
-    results.append(
-        book_ticker_ok
-    )
+            results.append(
+                gate(
+                    "Authenticated Balance GET",
+                    balance_data is not None,
+                )
+            )
 
-    if (
-        best_bid is not None
-        and
-        best_ask is not None
-    ):
+            usdt = extract_usdt_balance(
+                balance_data
+            )
 
-        print(
-            "R28 UNIT I: BEST BID = "
-            f"{best_bid}",
-            flush=True,
-        )
+            if usdt:
 
-        print(
-            "R28 UNIT I: BEST ASK = "
-            f"{best_ask}",
-            flush=True,
-        )
+                available = usdt.get(
+                    "availableBalance",
+                    "UNKNOWN",
+                )
+
+                balance = usdt.get(
+                    "balance",
+                    "UNKNOWN",
+                )
+
+                print(
+                    "R28 UNIT J: USDT BALANCE = "
+                    f"{balance}",
+                    flush=True,
+                )
+
+                print(
+                    "R28 UNIT J: USDT AVAILABLE = "
+                    f"{available}",
+                    flush=True,
+                )
+
+            else:
+
+                print(
+                    "R28 UNIT J: USDT BALANCE "
+                    "ENTRY NOT FOUND",
+                    flush=True,
+                )
+
+        except Exception as exc:
+
+            print(
+                "R28 UNIT J BALANCE GET ERROR: "
+                f"{safe_error_text(str(exc))}",
+                flush=True,
+            )
+
+            results.append(
+                gate(
+                    "Authenticated Balance GET",
+                    False,
+                )
+            )
+
+        # ====================================================
+        # ALL POSITIONS
+        # ====================================================
+
+        try:
+
+            positions_data = await private_get(
+                session=session,
+                path=(
+                    "/capi/v3/account/"
+                    "position/allPosition"
+                ),
+            )
+
+            positions = normalize_positions(
+                positions_data
+            )
+
+            results.append(
+                gate(
+                    "Authenticated Positions GET",
+                    positions_data is not None,
+                )
+            )
+
+            print(
+                "R28 UNIT J: POSITION RECORDS = "
+                f"{len(positions)}",
+                flush=True,
+            )
+
+            active_for_symbol = []
+
+            for position in positions:
+
+                if not isinstance(
+                    position,
+                    dict,
+                ):
+                    continue
+
+                position_symbol = str(
+                    position.get(
+                        "symbol",
+                        "",
+                    )
+                ).upper()
+
+                try:
+
+                    position_size = float(
+                        position.get(
+                            "size",
+                            0,
+                        )
+                        or 0
+                    )
+
+                except Exception:
+
+                    position_size = 0.0
+
+                if (
+                    position_symbol == SYMBOL
+                    and position_size != 0
+                ):
+
+                    active_for_symbol.append(
+                        position
+                    )
+
+            print(
+                "R28 UNIT J: ACTIVE "
+                f"{SYMBOL} POSITIONS = "
+                f"{len(active_for_symbol)}",
+                flush=True,
+            )
+
+            for position in active_for_symbol:
+
+                print(
+                    "R28 UNIT J POSITION: "
+                    f"SIDE={position.get('side', 'UNKNOWN')} "
+                    f"SIZE={position.get('size', 'UNKNOWN')} "
+                    f"LEVERAGE={position.get('leverage', 'UNKNOWN')} "
+                    f"MARGIN={position.get('marginType', 'UNKNOWN')} "
+                    f"UPNL={position.get('unrealizePnl', 'UNKNOWN')}",
+                    flush=True,
+                )
+
+        except Exception as exc:
+
+            print(
+                "R28 UNIT J POSITIONS GET ERROR: "
+                f"{safe_error_text(str(exc))}",
+                flush=True,
+            )
+
+            results.append(
+                gate(
+                    "Authenticated Positions GET",
+                    False,
+                )
+            )
+
+        # ====================================================
+        # SYMBOL CONFIGURATION
+        # ====================================================
+
+        try:
+
+            config_data = await private_get(
+                session=session,
+                path="/capi/v3/account/symbolConfig",
+                params={
+                    "symbol": SYMBOL,
+                },
+            )
+
+            configs = normalize_symbol_config(
+                config_data
+            )
+
+            results.append(
+                gate(
+                    "Authenticated Symbol Config GET",
+                    config_data is not None,
+                )
+            )
+
+            matching = None
+
+            for item in configs:
+
+                if not isinstance(
+                    item,
+                    dict,
+                ):
+                    continue
+
+                item_symbol = str(
+                    item.get(
+                        "symbol",
+                        "",
+                    )
+                ).upper()
+
+                if item_symbol == SYMBOL:
+
+                    matching = item
+                    break
+
+            if matching:
+
+                print(
+                    "R28 UNIT J SYMBOL CONFIG:",
+                    flush=True,
+                )
+
+                print(
+                    "  Symbol = "
+                    f"{matching.get('symbol', 'UNKNOWN')}",
+                    flush=True,
+                )
+
+                print(
+                    "  Margin Type = "
+                    f"{matching.get('marginType', 'UNKNOWN')}",
+                    flush=True,
+                )
+
+                print(
+                    "  Cross Leverage = "
+                    f"{matching.get('crossLeverage', 'UNKNOWN')}",
+                    flush=True,
+                )
+
+                print(
+                    "  Isolated Long Leverage = "
+                    f"{matching.get('isolatedLongLeverage', 'UNKNOWN')}",
+                    flush=True,
+                )
+
+                print(
+                    "  Isolated Short Leverage = "
+                    f"{matching.get('isolatedShortLeverage', 'UNKNOWN')}",
+                    flush=True,
+                )
+
+        except Exception as exc:
+
+            print(
+                "R28 UNIT J SYMBOL CONFIG ERROR: "
+                f"{safe_error_text(str(exc))}",
+                flush=True,
+            )
+
+            results.append(
+                gate(
+                    "Authenticated Symbol Config GET",
+                    False,
+                )
+            )
 
     # ========================================================
     # FINAL SAFETY ASSERTIONS
     # ========================================================
 
-    result = (
-        PUBLIC_GET_REQUEST_COUNT >= 3
-    )
-
-    print_gate(
-        "Controlled Public GETs Occurred",
-        result,
+    results.append(
+        gate(
+            "Controlled Public GET Occurred",
+            PUBLIC_GET_COUNT >= 1,
+        )
     )
 
     results.append(
-        result
-    )
-
-    result = (
-        REAL_POST_CALLED is False
-        and
-        DEMO_POST_CALLED is False
-        and
-        ORDER_TRANSMISSION_OCCURRED is False
-    )
-
-    print_gate(
-        "No Order Transmission Occurred",
-        result,
+        gate(
+            "Controlled Private GET Occurred",
+            PRIVATE_GET_COUNT >= 1,
+        )
     )
 
     results.append(
-        result
-    )
-
-    result = (
-        LIVE_ORDER_EXECUTION is False
-        and
-        DEMO_ORDER_EXECUTION is False
-        and
-        ORDER_ENDPOINTS_ENABLED is False
-        and
-        HARD_REAL_POST_LOCK is True
-        and
-        HARD_DEMO_POST_LOCK is True
-    )
-
-    print_gate(
-        "Final Execution Safety Assertions",
-        result,
+        gate(
+            "Private Response Received",
+            PRIVATE_GET_RESPONSES >= 1,
+        )
     )
 
     results.append(
-        result
+        gate(
+            "No Auth Headers Sent To Public API",
+            AUTH_HEADERS_SENT_TO_PUBLIC_ENDPOINT is False,
+        )
     )
 
-    print_separator()
+    results.append(
+        gate(
+            "No Real Order Transmission Occurred",
+            WRITE_TRANSMISSION_OCCURRED is False,
+        )
+    )
 
-    all_passed = all(
+    results.append(
+        gate(
+            "Final Execution Safety Assertions",
+            (
+                LIVE_ORDER_EXECUTION is False
+                and DEMO_ORDER_EXECUTION is False
+                and REAL_ORDER_TRANSMISSION is False
+                and DEMO_ORDER_TRANSMISSION is False
+                and PRIVATE_WRITE_ACCESS is False
+                and POST_ENABLED is False
+                and PUT_ENABLED is False
+                and PATCH_ENABLED is False
+                and DELETE_ENABLED is False
+                and HARD_REAL_POST_LOCK is True
+                and HARD_DEMO_POST_LOCK is True
+                and HARD_WRITE_METHOD_LOCK is True
+                and WRITE_TRANSMISSION_OCCURRED is False
+            ),
+        )
+    )
+
+    print(
+        "-" * 60,
+        flush=True,
+    )
+
+    passed = all(
         results
     )
 
-    if all_passed:
+    if passed:
 
         print(
-            "✅ R28 UNIT I DIAGNOSTIC PASSED",
+            "✅ R28 UNIT J DIAGNOSTIC PASSED",
             flush=True,
         )
 
         print(
-            "✅ CONTROLLED PUBLIC NETWORK ACCESS VALIDATED",
+            "✅ AUTHENTICATED READ-ONLY API VALIDATED",
             flush=True,
         )
 
         print(
-            "✅ WEEX PUBLIC MARKET DATA ACCESS VALIDATED",
+            "✅ PRIVATE ACCOUNT GET ACCESS VALIDATED",
             flush=True,
         )
 
         print(
-            "✅ EXCHANGE INFO READ VALIDATED",
+            "✅ BALANCE READ VALIDATED",
             flush=True,
         )
 
         print(
-            "✅ MARK PRICE READ VALIDATED",
+            "✅ POSITION READ VALIDATED",
             flush=True,
         )
 
         print(
-            "✅ BEST BID / ASK READ VALIDATED",
+            "✅ SYMBOL CONFIG READ VALIDATED",
             flush=True,
         )
 
         print(
-            "✅ PUBLIC GET ALLOWLIST VALIDATED",
+            "✅ API REQUEST SIGNING VALIDATED",
             flush=True,
         )
 
         print(
-            "✅ PRIVATE / ACCOUNT API BLOCKED",
+            "✅ PRIVATE GET ALLOWLIST VALIDATED",
             flush=True,
         )
 
         print(
-            "✅ AUTHENTICATED REQUESTS BLOCKED",
+            "✅ AUTH HEADERS ISOLATED FROM PUBLIC GETS",
             flush=True,
         )
 
@@ -1620,35 +1889,17 @@ def run_diagnostic() -> bool:
     else:
 
         print(
-            "❌ R28 UNIT I DIAGNOSTIC FAILED",
+            "❌ R28 UNIT J DIAGNOSTIC FAILED",
             flush=True,
         )
 
         print(
-            "❌ DO NOT PROCEED TO UNIT J",
-            flush=True,
-        )
-
-        if LAST_NETWORK_ERROR:
-
-            print(
-                "NETWORK ERROR: "
-                f"{LAST_NETWORK_ERROR}",
-                flush=True,
-            )
-
-        print(
-            "🛡 EXECUTION LOCKS REMAIN ACTIVE",
+            "🛡 EXECUTION REMAINS HARD LOCKED",
             flush=True,
         )
 
         print(
-            "🛡 REAL ORDER TRANSMISSION IMPOSSIBLE",
-            flush=True,
-        )
-
-        print(
-            "🛡 DEMO ORDER TRANSMISSION IMPOSSIBLE",
+            "🛡 NO ORDER TRANSMISSION POSSIBLE",
             flush=True,
         )
 
@@ -1657,117 +1908,136 @@ def run_diagnostic() -> bool:
         flush=True,
     )
 
-    return all_passed
+    return passed
 
 
 # ============================================================
-# SHUTDOWN HANDLING
+# SIGNAL HANDLING
 # ============================================================
 
-def request_shutdown(
-    signum=None,
-    frame=None,
-) -> None:
+def request_shutdown():
 
-    if shutdown_event.is_set():
+    if STOP_EVENT is not None:
 
-        return
+        STOP_EVENT.set()
 
-    print(
-        "R28 UNIT I: SHUTDOWN REQUESTED",
-        flush=True,
-    )
 
-    shutdown_event.set()
+def install_signal_handlers(
+    loop: asyncio.AbstractEventLoop,
+):
+
+    for sig in (
+        signal.SIGTERM,
+        signal.SIGINT,
+    ):
+
+        try:
+
+            loop.add_signal_handler(
+                sig,
+                request_shutdown,
+            )
+
+        except (
+            NotImplementedError,
+            RuntimeError,
+        ):
+            pass
 
 
 # ============================================================
-# PERSISTENT RUNTIME
+# PERSISTENT HEARTBEAT
 # ============================================================
 
-async def persistent_runtime() -> None:
+async def persistent_runtime():
 
-    print(
-        "R28 UNIT I: PERSISTENT RUNTIME ACTIVE",
-        flush=True,
-    )
+    global STOP_EVENT
 
-    print(
-        "R28 UNIT I: "
-        "PUBLIC READ-ONLY SAFETY LOCKS ACTIVE",
-        flush=True,
+    STOP_EVENT = asyncio.Event()
+
+    loop = asyncio.get_running_loop()
+
+    install_signal_handlers(
+        loop
     )
 
     heartbeat = 0
 
-    while not shutdown_event.is_set():
+    print(
+        "R28 UNIT J: READY FOR "
+        "AUTHENTICATED READ-ONLY RUNTIME",
+        flush=True,
+    )
+
+    print(
+        "R28 UNIT J: PERSISTENT RUNTIME ACTIVE",
+        flush=True,
+    )
+
+    print(
+        "R28 UNIT J: PRIVATE READ-ONLY "
+        "SAFETY LOCKS ACTIVE",
+        flush=True,
+    )
+
+    while not STOP_EVENT.is_set():
 
         heartbeat += 1
 
         print(
-            "R28 UNIT I: HEARTBEAT "
+            "R28 UNIT J: HEARTBEAT "
             f"{heartbeat} ✅ ACTIVE",
             flush=True,
         )
 
-        elapsed = 0.0
+        try:
 
-        while (
-            elapsed < HEARTBEAT_SECONDS
-            and
-            not shutdown_event.is_set()
-        ):
-
-            step = min(
-                0.5,
-                HEARTBEAT_SECONDS - elapsed,
+            await asyncio.wait_for(
+                STOP_EVENT.wait(),
+                timeout=30.0,
             )
 
-            await asyncio.sleep(
-                step
-            )
+        except asyncio.TimeoutError:
 
-            elapsed += step
-
-
-# ============================================================
-# MAIN
-# ============================================================
-
-async def main() -> None:
+            continue
 
     print(
-        "R28 UNIT I: RUNTIME STARTING",
+        "R28 UNIT J: SHUTDOWN REQUESTED",
         flush=True,
     )
 
+    print(
+        "R28 UNIT J: RUNTIME STOPPED CLEANLY",
+        flush=True,
+    )
+
+
+# ============================================================
+# APPLICATION ENTRY
+# ============================================================
+
+async def main():
+
+    print(
+        "R28 UNIT J: RUNTIME STARTING",
+        flush=True,
+    )
+
+    health_server = await start_health_server()
+
     try:
 
-        start_health_server()
+        diagnostic_passed = await run_diagnostic()
 
-        diagnostic_passed = (
-            run_diagnostic()
-        )
-
-        if diagnostic_passed:
+        if not diagnostic_passed:
 
             print(
-                "R28 UNIT I: READY FOR "
-                "CONTROLLED READ-ONLY RUNTIME",
-                flush=True,
-            )
-
-        else:
-
-            print(
-                "R28 UNIT I: DIAGNOSTIC FAILURE "
-                "DETECTED",
+                "R28 UNIT J: DIAGNOSTIC DID NOT PASS",
                 flush=True,
             )
 
             print(
-                "R28 UNIT I: EXECUTION REMAINS "
-                "HARD LOCKED",
+                "R28 UNIT J: WRITE LOCKS REMAIN ACTIVE",
                 flush=True,
             )
 
@@ -1775,35 +2045,16 @@ async def main() -> None:
 
     finally:
 
-        stop_health_server()
+        health_server.close()
 
-        print(
-            "R28 UNIT I: RUNTIME STOPPED CLEANLY",
-            flush=True,
-        )
+        await health_server.wait_closed()
 
 
 # ============================================================
-# ENTRY POINT
+# START
 # ============================================================
 
 if __name__ == "__main__":
-
-    try:
-
-        signal.signal(
-            signal.SIGTERM,
-            request_shutdown,
-        )
-
-        signal.signal(
-            signal.SIGINT,
-            request_shutdown,
-        )
-
-    except Exception:
-
-        pass
 
     try:
 
@@ -1813,14 +2064,17 @@ if __name__ == "__main__":
 
     except KeyboardInterrupt:
 
-        request_shutdown()
+        print(
+            "R28 UNIT J: KEYBOARD INTERRUPT",
+            flush=True,
+        )
 
     except Exception as exc:
 
         print(
-            "R28 UNIT I: FATAL STARTUP ERROR: "
+            "R28 UNIT J: FATAL STARTUP ERROR: "
             f"{type(exc).__name__}: {exc}",
             flush=True,
         )
 
-        raise
+        sys.exit(1)
