@@ -537,7 +537,7 @@ class N23Engine:
             state.snapshot_seal = seal_dict(state.body())
 
             return state
-                @classmethod
+            @classmethod
     def restore_state(cls, state: DurableState) -> "N23Engine":
         if not verify_seal(state.body(), state.snapshot_seal):
             raise IntegrityError("snapshot integrity seal mismatch")
