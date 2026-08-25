@@ -217,3 +217,323 @@ class N23Engine:
         manifest_hash = sha256_text(canonical_json(core))
         body = {**core, "manifest_hash": manifest_hash}
         return GenerationManifest(**body, seal=seal_dict(body))
+            @staticmethod
+    def _verify_certificate(cert: FinalityCertificate) -> None:
+        core = {
+            "lineage_id": cert.lineage_id,
+            "generation": cert.generation,
+            "recovery_epoch": cert.recovery_epoch,
+            "recovery_nonce": cert.recovery_nonce,
+            "owner_id": cert.owner_id,
+            "payload_hash": cert.payload_hash,
+            "dispatch_id": cert.dispatch_id,
+            "predecessor_certificate_hash": cert.predecessor_certificate_hash,
+        }
+
+        expected_hash = sha256_text(canonical_json(core))
+
+        if cert.certificate_hash != expected_hash:
+            raise IntegrityError("certificate hash mismatch")
+
+        if not verify_seal(cert.body(), cert.seal):
+            raise IntegrityError("certificate integrity seal mismatch")
+
+    @staticmethod
+    def _verify_manifest(manifest: GenerationManifest) -> None:
+        core = {
+            "lineage_id": manifest.lineage_id,
+            "generation": manifest.generation,
+            "certificate_hash": manifest.certificate_hash,
+            "predecessor_manifest_hash": manifest.predecessor_manifest_hash,
+        }
+
+        expected_hash = sha256_text(canonical_json(core))
+
+        if manifest.manifest_hash != expected_hash:
+            raise IntegrityError("manifest hash mismatch")
+
+        if not verify_seal(manifest.body(), manifest.seal):
+            raise IntegrityError("manifest integrity seal mismatch")
+
+    def _expected_predecessor_certificate_hash(self, generation: int) -> str:
+        if generation == 0:
+            return "GENESIS"
+
+        predecessor = self._certificates.get(generation - 1)
+
+        if predecessor is None:
+            raise ChainError("missing predecessor certificate")
+
+        return predecessor.certificate_hash
+
+    def _expected_predecessor_manifest_hash(self, generation: int) -> str:
+        if generation == 0:
+            return "GENESIS"
+
+        predecessor = self._manifests.get(generation - 1)
+
+        if predecessor is None:
+            raise ChainError("missing predecessor manifest")
+
+        return predecessor.manifest_hash
+
+    def _assert_generation_sequence(self, generation: int) -> None:
+        if generation < 0:
+            raise ChainError("generation cannot be negative")
+
+        if generation in self._finalized:
+            raise ChainError("generation already finalized")
+
+        if not self._finalized:
+            if generation != 0:
+                raise ChainError("first certified generation must be generation zero")
+            return
+
+        expected_generation = max(self._finalized) + 1
+
+        if generation != expected_generation:
+            raise ChainError(
+                f"generation sequence mismatch: expected {expected_generation}, got {generation}"
+            )
+
+    def _assert_certificate_binding(
+        self,
+        cert: FinalityCertificate,
+        expected_generation: Optional[int] = None,
+    ) -> None:
+        self._verify_certificate(cert)
+
+        if cert.lineage_id != self.lineage_id:
+            raise ChainError("certificate lineage mismatch")
+
+        if expected_generation is not None and cert.generation != expected_generation:
+            raise ChainError("certificate generation mismatch")
+
+        if cert.payload_hash != payload_hash():
+            raise ChainError("certificate payload binding mismatch")
+
+        expected_dispatch = deterministic_dispatch_id(
+            cert.lineage_id,
+            cert.generation,
+            cert.recovery_epoch,
+            cert.recovery_nonce,
+        )
+
+        if cert.dispatch_id != expected_dispatch:
+            raise ChainError("certificate dispatch identity mismatch")
+
+        expected_predecessor = self._expected_predecessor_certificate_hash(
+            cert.generation
+        )
+
+        if cert.predecessor_certificate_hash != expected_predecessor:
+            raise ChainError("certificate predecessor mismatch")
+
+    def _assert_manifest_binding(
+        self,
+        manifest: GenerationManifest,
+        cert: FinalityCertificate,
+    ) -> None:
+        self._verify_manifest(manifest)
+
+        if manifest.lineage_id != self.lineage_id:
+            raise ChainError("manifest lineage mismatch")
+
+        if manifest.generation != cert.generation:
+            raise ChainError("manifest generation mismatch")
+
+        if manifest.certificate_hash != cert.certificate_hash:
+            raise ChainError("manifest certificate binding mismatch")
+
+        expected_predecessor = self._expected_predecessor_manifest_hash(
+            manifest.generation
+        )
+
+        if manifest.predecessor_manifest_hash != expected_predecessor:
+            raise ChainError("manifest predecessor mismatch")
+
+    def finalize_generation(
+        self,
+        generation: int,
+        recovery_epoch: int,
+        recovery_nonce: int,
+        owner_id: Optional[str] = None,
+    ) -> Tuple[FinalityCertificate, GenerationManifest]:
+        global SYNTHETIC_DISPATCH_COUNT
+
+        with self._lock:
+            self._assert_generation_sequence(generation)
+
+            if recovery_epoch < 0:
+                raise ChainError("recovery epoch cannot be negative")
+
+            if recovery_nonce < 0:
+                raise ChainError("recovery nonce cannot be negative")
+
+            if generation > 0:
+                previous = self._certificates[generation - 1]
+
+                if recovery_epoch <= previous.recovery_epoch:
+                    raise ChainError(
+                        "recovery epoch must advance monotonically"
+                    )
+
+                if recovery_nonce <= previous.recovery_nonce:
+                    raise ChainError(
+                        "recovery nonce must advance monotonically"
+                    )
+
+            owner = owner_id or deterministic_owner_id(
+                self.lineage_id,
+                generation,
+            )
+
+            predecessor_certificate_hash = (
+                self._expected_predecessor_certificate_hash(generation)
+            )
+
+            dispatch_id = deterministic_dispatch_id(
+                self.lineage_id,
+                generation,
+                recovery_epoch,
+                recovery_nonce,
+            )
+
+            cert = self._build_certificate(
+                lineage_id=self.lineage_id,
+                generation=generation,
+                recovery_epoch=recovery_epoch,
+                recovery_nonce=recovery_nonce,
+                owner_id=owner,
+                payload_digest=payload_hash(),
+                dispatch_id=dispatch_id,
+                predecessor_certificate_hash=predecessor_certificate_hash,
+            )
+
+            self._assert_certificate_binding(
+                cert,
+                expected_generation=generation,
+            )
+
+            predecessor_manifest_hash = (
+                self._expected_predecessor_manifest_hash(generation)
+            )
+
+            manifest = self._build_manifest(
+                lineage_id=self.lineage_id,
+                generation=generation,
+                certificate_hash=cert.certificate_hash,
+                predecessor_manifest_hash=predecessor_manifest_hash,
+            )
+
+            self._assert_manifest_binding(manifest, cert)
+
+            self._certificates[generation] = cert
+            self._manifests[generation] = manifest
+            self._finalized.add(generation)
+
+            with _COUNTER_LOCK:
+                SYNTHETIC_DISPATCH_COUNT += 1
+
+            return cert, manifest
+
+    def validate_complete_chain(self) -> bool:
+        with self._lock:
+            if not self._finalized:
+                return True
+
+            generations = sorted(self._finalized)
+
+            if generations != list(range(generations[-1] + 1)):
+                raise ChainError("certified generation chain contains a gap")
+
+            previous_certificate_hash = "GENESIS"
+            previous_manifest_hash = "GENESIS"
+            previous_epoch = -1
+            previous_nonce = -1
+
+            for generation in generations:
+                cert = self._certificates.get(generation)
+                manifest = self._manifests.get(generation)
+
+                if cert is None:
+                    raise ChainError("certificate missing from certified chain")
+
+                if manifest is None:
+                    raise ChainError("manifest missing from certified chain")
+
+                self._verify_certificate(cert)
+                self._verify_manifest(manifest)
+
+                if cert.lineage_id != self.lineage_id:
+                    raise ChainError("foreign certificate lineage detected")
+
+                if manifest.lineage_id != self.lineage_id:
+                    raise ChainError("foreign manifest lineage detected")
+
+                if cert.generation != generation:
+                    raise ChainError("certificate generation discontinuity")
+
+                if manifest.generation != generation:
+                    raise ChainError("manifest generation discontinuity")
+
+                if cert.predecessor_certificate_hash != previous_certificate_hash:
+                    raise ChainError("certificate chain predecessor mismatch")
+
+                if manifest.predecessor_manifest_hash != previous_manifest_hash:
+                    raise ChainError("manifest chain predecessor mismatch")
+
+                if manifest.certificate_hash != cert.certificate_hash:
+                    raise ChainError("manifest-to-certificate binding mismatch")
+
+                if cert.payload_hash != payload_hash():
+                    raise ChainError("chain payload binding mismatch")
+
+                expected_dispatch = deterministic_dispatch_id(
+                    cert.lineage_id,
+                    cert.generation,
+                    cert.recovery_epoch,
+                    cert.recovery_nonce,
+                )
+
+                if cert.dispatch_id != expected_dispatch:
+                    raise ChainError("chain dispatch identity mismatch")
+
+                if generation > 0:
+                    if cert.recovery_epoch <= previous_epoch:
+                        raise ChainError("chain recovery epoch is not monotonic")
+
+                    if cert.recovery_nonce <= previous_nonce:
+                        raise ChainError("chain recovery nonce is not monotonic")
+
+                previous_certificate_hash = cert.certificate_hash
+                previous_manifest_hash = manifest.manifest_hash
+                previous_epoch = cert.recovery_epoch
+                previous_nonce = cert.recovery_nonce
+
+            return True
+
+    def export_state(self) -> DurableState:
+        with self._lock:
+            self.validate_complete_chain()
+
+            certificates = [
+                asdict(self._certificates[generation])
+                for generation in sorted(self._certificates)
+            ]
+
+            manifests = [
+                asdict(self._manifests[generation])
+                for generation in sorted(self._manifests)
+            ]
+
+            state = DurableState(
+                lineage_id=self.lineage_id,
+                certificates=certificates,
+                manifests=manifests,
+                finalized_generations=sorted(self._finalized),
+            )
+
+            state.snapshot_seal = seal_dict(state.body())
+
+            return state
