@@ -7154,3 +7154,1992 @@ print(
     "R28 UNIT N.24: PART 3 DEFINITIONS LOADED",
     flush=True,
 )
+# ============================================================================
+# R28 UNIT N.24
+# CORRECTED COPY/PASTE VERSION
+# PART 4 OF 4
+#
+# DIAGNOSTIC TEST SUITE + RUNTIME
+# ============================================================================
+
+
+# ============================================================================
+# TEST 1
+# BASIC ENGINE INITIALIZATION
+# ============================================================================
+
+def run_test_1() -> None:
+    test_header(
+        1,
+        "BASIC ENGINE INITIALIZATION",
+    )
+
+    engine = N24Engine()
+
+    report_test(
+        "Engine Starts In PREPARED State",
+        engine.state.state == "PREPARED",
+    )
+
+    report_test(
+        "Initial Generation Is One",
+        engine.state.generation == 1,
+    )
+
+    report_test(
+        "Initial Recovery Epoch Is One",
+        engine.state.recovery_epoch == 1,
+    )
+
+    report_test(
+        "Initial Dispatch Commit Is Empty",
+        engine.state.dispatch_commit is None,
+    )
+
+    report_test(
+        "Initial Receipt Is Empty",
+        engine.state.receipt is None,
+    )
+
+    report_test(
+        "Initial Integrity Seal Present",
+        bool(engine.state.integrity_seal),
+    )
+
+    try:
+        engine.verify_integrity()
+        valid = True
+    except Exception:
+        valid = False
+
+    report_test(
+        "Initial Durable State Integrity Valid",
+        valid,
+    )
+
+
+# ============================================================================
+# TEST 2
+# BASIC LEASE + AUTHORIZATION
+# ============================================================================
+
+def run_test_2() -> None:
+    test_header(
+        2,
+        "LEASE AND AUTHORIZATION BINDING",
+    )
+
+    engine = N24Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    authorization = (
+        engine.issue_recovery_authorization(
+            lease
+        )
+    )
+
+    report_test(
+        "Recovery Lease Acquired",
+        lease is not None,
+    )
+
+    report_test(
+        "Authorization Issued",
+        authorization is not None,
+    )
+
+    report_test(
+        "Authorization Bound To Lease",
+        authorization.lease_id == lease.lease_id,
+    )
+
+    report_test(
+        "Authorization Bound To Generation",
+        authorization.generation == engine.state.generation,
+    )
+
+    report_test(
+        "Authorization Bound To Lineage",
+        authorization.lineage_id == engine.state.lineage_id,
+    )
+
+    report_test(
+        "Authorization Initially Unconsumed",
+        authorization.consumed is False,
+    )
+
+
+# ============================================================================
+# TEST 3
+# EXACT DISPATCH BINDING
+# ============================================================================
+
+def run_test_3() -> None:
+    test_header(
+        3,
+        "EXACT DISPATCH BINDING",
+    )
+
+    engine = N24Engine()
+
+    (
+        lease,
+        authorization,
+        binding,
+    ) = prepare_to_binding_boundary(
+        engine,
+        "worker-A",
+    )
+
+    report_test(
+        "Dispatch Binding Prepared",
+        binding is not None,
+    )
+
+    report_test(
+        "Transport Method Exactly POST",
+        binding.transport_method == TRANSPORT_METHOD,
+    )
+
+    report_test(
+        "Transport Path Exactly Leverage Endpoint",
+        binding.transport_path == LEVERAGE_ENDPOINT,
+    )
+
+    report_test(
+        "Exact Leverage Payload Preserved",
+        canonical_json(binding.payload) == EXACT_LEVERAGE_PAYLOAD_JSON,
+    )
+
+    report_test(
+        "Exact Payload Hash Preserved",
+        binding.payload_hash == EXACT_LEVERAGE_PAYLOAD_HASH,
+    )
+
+    report_test(
+        "No Commit Exists Before Commit Boundary",
+        engine.state.dispatch_commit is None,
+    )
+
+    report_test(
+        "Authorization Still Unconsumed Before Commit",
+        (
+            engine.state.authorization is not None
+            and not engine.state.authorization.consumed
+        ),
+    )
+
+
+# ============================================================================
+# TEST 4
+# DURABLE DISPATCH COMMIT
+# ============================================================================
+
+def run_test_4() -> None:
+    test_header(
+        4,
+        "DURABLE DISPATCH COMMIT",
+    )
+
+    engine = N24Engine()
+
+    (
+        lease,
+        authorization,
+        binding,
+        commit,
+    ) = prepare_to_commit_boundary(
+        engine,
+        "worker-A",
+    )
+
+    report_test(
+        "Durable Dispatch Commit Created",
+        commit is not None,
+    )
+
+    report_test(
+        "Commit Status Is COMMITTED",
+        commit.status == COMMIT_STATUS_COMMITTED,
+    )
+
+    report_test(
+        "Authorization Consumed At Commit Boundary",
+        (
+            engine.state.authorization is not None
+            and engine.state.authorization.consumed
+        ),
+    )
+
+    report_test(
+        "Dispatch Recorded As Committed",
+        engine.state.dispatch_id in engine.state.committed_dispatch_ids,
+    )
+
+    report_test(
+        "Commit Bound To Exact Dispatch",
+        commit.dispatch_id == binding.dispatch_id,
+    )
+
+    report_test(
+        "Commit Bound To Exact Intent",
+        commit.intent_id == binding.intent_id,
+    )
+
+    report_test(
+        "Commit Bound To Generation",
+        commit.generation == engine.state.generation,
+    )
+
+    report_test(
+        "Commit Bound To Lineage",
+        commit.lineage_id == engine.state.lineage_id,
+    )
+
+    report_test(
+        "Commit Bound To Recovery Epoch",
+        commit.recovery_epoch == engine.state.recovery_epoch,
+    )
+
+    report_test(
+        "Commit Bound To Exact Payload Hash",
+        commit.payload_hash == EXACT_LEVERAGE_PAYLOAD_HASH,
+    )
+
+    report_test(
+        "No Synthetic Dispatch Before Transport",
+        engine.transport.dispatch_count == 0,
+    )
+
+
+# ============================================================================
+# TEST 5
+# PRE-COMMIT CRASH / RESTART
+# ============================================================================
+
+def run_test_5() -> None:
+    test_header(
+        5,
+        "PRE-COMMIT CRASH RECOVERY",
+    )
+
+    engine = N24Engine()
+
+    (
+        lease,
+        authorization,
+        binding,
+    ) = prepare_to_binding_boundary(
+        engine,
+        "worker-A",
+    )
+
+    restarted = simulate_pre_commit_restart(
+        engine
+    )
+
+    report_test(
+        "Pre-Commit Restart Preserved DISPATCH_PREPARED State",
+        restarted.state.state == "DISPATCH_PREPARED",
+    )
+
+    report_test(
+        "Pre-Commit Restart Preserved Active Lease",
+        (
+            restarted.state.active_lease is not None
+            and restarted.state.active_lease.lease_id == lease.lease_id
+        ),
+    )
+
+    report_test(
+        "Pre-Commit Restart Preserved Authorization",
+        restarted.state.authorization is not None,
+    )
+
+    report_test(
+        "Pre-Commit Authorization Remains Unconsumed",
+        (
+            restarted.state.authorization is not None
+            and not restarted.state.authorization.consumed
+        ),
+    )
+
+    report_test(
+        "Pre-Commit Binding Survived Restart",
+        (
+            restarted.state.dispatch_binding is not None
+            and restarted.state.dispatch_binding == binding
+        ),
+    )
+
+    report_test(
+        "Pre-Commit Restart Has No Durable Commit",
+        restarted.state.dispatch_commit is None,
+    )
+
+    report_test(
+        "Pre-Commit Restart Produced No Dispatch",
+        restarted.transport.dispatch_count == 0,
+    )
+
+    receipt = restarted.recover(
+        "worker-A"
+    )
+
+    report_test(
+        "Pre-Commit Recovery Eventually Completed",
+        restarted.state.state == "COMPLETED",
+    )
+
+    report_test(
+        "Pre-Commit Recovery Produced One Synthetic Dispatch",
+        restarted.transport.dispatch_count == 1,
+    )
+
+    report_test(
+        "Pre-Commit Recovery Receipt Has No Transmission",
+        receipt.transmitted is False,
+    )
+
+
+# ============================================================================
+# TEST 6
+# POST-COMMIT / PRE-DISPATCH CRASH
+# ============================================================================
+
+def run_test_6() -> None:
+    test_header(
+        6,
+        "POST-COMMIT PRE-DISPATCH CRASH RECOVERY",
+    )
+
+    engine = N24Engine()
+
+    (
+        lease,
+        authorization,
+        binding,
+        commit,
+    ) = prepare_to_commit_boundary(
+        engine,
+        "worker-A",
+    )
+
+    restarted = simulate_post_commit_restart(
+        engine
+    )
+
+    report_test(
+        "Durable Commit Survived Restart",
+        restarted.state.dispatch_commit is not None,
+    )
+
+    report_test(
+        "Restored Commit Remains COMMITTED",
+        (
+            restarted.state.dispatch_commit is not None
+            and restarted.state.dispatch_commit.status
+            == COMMIT_STATUS_COMMITTED
+        ),
+    )
+
+    report_test(
+        "Consumed Authorization Survived Restart",
+        (
+            restarted.state.authorization is not None
+            and restarted.state.authorization.consumed
+        ),
+    )
+
+    report_test(
+        "Post-Commit Restart Has No Receipt Yet",
+        restarted.state.receipt is None,
+    )
+
+    report_test(
+        "Post-Commit Restart Transport Counter Starts Zero",
+        restarted.transport.dispatch_count == 0,
+    )
+
+    receipt = restarted.recover(
+        "worker-A"
+    )
+
+    report_test(
+        "Post-Commit Recovery Completed",
+        restarted.state.state == "COMPLETED",
+    )
+
+    report_test(
+        "Post-Commit Recovery Dispatched Exactly Once",
+        restarted.transport.dispatch_count == 1,
+    )
+
+    report_test(
+        "Recovered Receipt Bound To Durable Commit",
+        (
+            restarted.state.dispatch_commit is not None
+            and receipt.commit_id
+            == restarted.state.dispatch_commit.commit_id
+        ),
+    )
+
+
+# ============================================================================
+# TEST 7
+# POST-DISPATCH / PRE-FINALIZATION CRASH
+# ============================================================================
+
+def run_test_7() -> None:
+    test_header(
+        7,
+        "POST-DISPATCH PRE-FINALIZATION CRASH RECOVERY",
+    )
+
+    engine = N24Engine()
+
+    (
+        lease,
+        binding,
+        dispatched_commit,
+        receipt_before,
+    ) = prepare_to_inflight_boundary(
+        engine,
+        "worker-A",
+    )
+
+    report_test(
+        "Crash Boundary State Is DISPATCH_INFLIGHT",
+        engine.state.state == "DISPATCH_INFLIGHT",
+    )
+
+    report_test(
+        "Commit Persisted As DISPATCHED",
+        (
+            engine.state.dispatch_commit is not None
+            and engine.state.dispatch_commit.status
+            == COMMIT_STATUS_DISPATCHED
+        ),
+    )
+
+    report_test(
+        "Synthetic Receipt Persisted Before Finalization",
+        engine.state.receipt is not None,
+    )
+
+    report_test(
+        "Original Synthetic Transport Occurred Once",
+        engine.transport.dispatch_count == 1,
+    )
+
+    restarted = simulate_post_dispatch_restart(
+        engine
+    )
+
+    report_test(
+        "Inflight Commit Survived Restart",
+        (
+            restarted.state.dispatch_commit is not None
+            and restarted.state.dispatch_commit.status
+            == COMMIT_STATUS_DISPATCHED
+        ),
+    )
+
+    report_test(
+        "Inflight Receipt Survived Restart",
+        restarted.state.receipt is not None,
+    )
+
+    report_test(
+        "Restarted Transport Counter Is Zero",
+        restarted.transport.dispatch_count == 0,
+    )
+
+    receipt_after = restarted.recover(
+        "worker-A"
+    )
+
+    report_test(
+        "Inflight Recovery Finalized",
+        restarted.state.state == "COMPLETED",
+    )
+
+    report_test(
+        "Inflight Recovery Did Not Redispatch",
+        restarted.transport.dispatch_count == 0,
+    )
+
+    report_test(
+        "Inflight Recovery Preserved Same Receipt",
+        receipt_after.receipt_id == receipt_before.receipt_id,
+    )
+
+
+# ============================================================================
+# TEST 8
+# STANDARD COMPLETE EXECUTION
+# ============================================================================
+
+def run_test_8() -> None:
+    test_header(
+        8,
+        "STANDARD DURABLE SYNTHETIC EXECUTION",
+    )
+
+    engine = N24Engine()
+
+    receipt = engine.recover(
+        "worker-A"
+    )
+
+    report_test(
+        "Execution Reached COMPLETED",
+        engine.state.state == "COMPLETED",
+    )
+
+    report_test(
+        "Exactly One Synthetic Dispatch Performed",
+        engine.transport.dispatch_count == 1,
+    )
+
+    report_test(
+        "Authorization Persisted Consumed",
+        (
+            engine.state.authorization is not None
+            and engine.state.authorization.consumed
+        ),
+    )
+
+    report_test(
+        "Dispatch Commit Persisted Finalized",
+        (
+            engine.state.dispatch_commit is not None
+            and engine.state.dispatch_commit.status
+            == COMMIT_STATUS_FINALIZED
+        ),
+    )
+
+    report_test(
+        "Receipt Reports No Transmission",
+        receipt.transmitted is False,
+    )
+
+    report_test(
+        "Receipt Reports No Network Write",
+        receipt.network_write is False,
+    )
+
+    try:
+        assert_completed_durable_state(
+            engine
+        )
+        valid = True
+    except Exception:
+        valid = False
+
+    report_test(
+        "Completed Durable State Invariants Valid",
+        valid,
+    )
+
+
+# ============================================================================
+# TEST 9
+# COMPLETED RESTART
+# ============================================================================
+
+def run_test_9() -> None:
+    test_header(
+        9,
+        "RESTART AFTER FINALIZED DISPATCH",
+    )
+
+    engine = N24Engine()
+
+    receipt_before = engine.recover(
+        "worker-A"
+    )
+
+    restarted = simulate_restart(
+        engine
+    )
+
+    report_test(
+        "Completed State Survived Restart",
+        restarted.state.state == "COMPLETED",
+    )
+
+    report_test(
+        "Finalized Commit Survived Restart",
+        (
+            restarted.state.dispatch_commit is not None
+            and restarted.state.dispatch_commit.status
+            == COMMIT_STATUS_FINALIZED
+        ),
+    )
+
+    report_test(
+        "Completed Dispatch Identity Survived Restart",
+        restarted.state.dispatch_id in restarted.state.completed_dispatch_ids,
+    )
+
+    receipt_after = restarted.recover(
+        "worker-B"
+    )
+
+    report_test(
+        "Repeated Recovery Returns Existing Receipt",
+        receipt_after.receipt_id == receipt_before.receipt_id,
+    )
+
+    report_test(
+        "Completed Restart Produced No Redispatch",
+        restarted.transport.dispatch_count == 0,
+    )
+
+
+# ============================================================================
+# TEST 10
+# SNAPSHOT DICTIONARY RESTORE
+# ============================================================================
+
+def run_test_10() -> None:
+    test_header(
+        10,
+        "SNAPSHOT SERIALIZATION AND RESTORE",
+    )
+
+    engine = N24Engine()
+
+    (
+        lease,
+        authorization,
+        binding,
+        commit,
+    ) = prepare_to_commit_boundary(
+        engine,
+        "worker-A",
+    )
+
+    snapshot = engine.snapshot_dict()
+
+    restored = N24Engine.restore_dict(
+        snapshot
+    )
+
+    report_test(
+        "Snapshot Restored Successfully",
+        restored is not None,
+    )
+
+    report_test(
+        "Generation Preserved",
+        restored.state.generation == engine.state.generation,
+    )
+
+    report_test(
+        "Lineage Preserved",
+        restored.state.lineage_id == engine.state.lineage_id,
+    )
+
+    report_test(
+        "Recovery Epoch Preserved",
+        restored.state.recovery_epoch == engine.state.recovery_epoch,
+    )
+
+    report_test(
+        "Durable Commit Preserved",
+        (
+            restored.state.dispatch_commit is not None
+            and restored.state.dispatch_commit.commit_id == commit.commit_id
+        ),
+    )
+
+    report_test(
+        "Consumed Authorization Preserved",
+        (
+            restored.state.authorization is not None
+            and restored.state.authorization.consumed
+        ),
+    )
+
+
+# ============================================================================
+# TEST 11
+# CORRUPTED SNAPSHOT
+# ============================================================================
+
+def run_test_11() -> None:
+    test_header(
+        11,
+        "CORRUPTED SNAPSHOT REJECTION",
+    )
+
+    engine = N24Engine()
+
+    snapshot = clone_snapshot_dict(
+        engine
+    )
+
+    snapshot["generation"] += 1
+
+    rejected = expect_exception(
+        lambda: N24Engine.restore_dict(
+            snapshot
+        ),
+        "integrity seal",
+    )
+
+    report_test(
+        "Corrupted Snapshot Integrity Seal Rejected",
+        rejected,
+    )
+
+
+# ============================================================================
+# TEST 12
+# TAMPERED COMMIT PAYLOAD HASH
+# ============================================================================
+
+def run_test_12() -> None:
+    test_header(
+        12,
+        "TAMPERED DURABLE COMMIT REJECTION",
+    )
+
+    engine = N24Engine()
+
+    (
+        lease,
+        authorization,
+        binding,
+        commit,
+    ) = prepare_to_commit_boundary(
+        engine,
+        "worker-A",
+    )
+
+    tampered = DispatchCommit(
+        commit_id=commit.commit_id,
+        authorization_id=commit.authorization_id,
+        lease_id=commit.lease_id,
+        owner_id=commit.owner_id,
+
+        intent_id=commit.intent_id,
+        dispatch_id=commit.dispatch_id,
+
+        generation=commit.generation,
+        lineage_id=commit.lineage_id,
+        recovery_epoch=commit.recovery_epoch,
+
+        lease_nonce=commit.lease_nonce,
+
+        transport_method=commit.transport_method,
+        transport_path=commit.transport_path,
+
+        payload_hash="0" * 64,
+
+        fence_hash=commit.fence_hash,
+
+        status=commit.status,
+
+        committed_at_ms=commit.committed_at_ms,
+        dispatched_at_ms=commit.dispatched_at_ms,
+        finalized_at_ms=commit.finalized_at_ms,
+    )
+
+    rejected = expect_exception(
+        lambda: engine.dispatch_committed(
+            lease,
+            binding,
+            tampered,
+        )
+    )
+
+    report_test(
+        "Tampered Commit Rejected",
+        rejected,
+    )
+
+    report_test(
+        "Tampered Commit Produced No Synthetic Dispatch",
+        engine.transport.dispatch_count == 0,
+    )
+
+
+# ============================================================================
+# TEST 13
+# TRANSPORT WITHOUT COMMIT
+# ============================================================================
+
+def run_test_13() -> None:
+    test_header(
+        13,
+        "TRANSPORT REQUIRES DURABLE COMMIT",
+    )
+
+    engine = N24Engine()
+
+    (
+        lease,
+        authorization,
+        binding,
+    ) = prepare_to_binding_boundary(
+        engine,
+        "worker-A",
+    )
+
+    fake_commit = DispatchCommit(
+        commit_id=deterministic_id(
+            "fake-commit",
+            binding.dispatch_id,
+        ),
+
+        authorization_id=authorization.authorization_id,
+        lease_id=lease.lease_id,
+        owner_id=lease.owner_id,
+
+        intent_id=binding.intent_id,
+        dispatch_id=binding.dispatch_id,
+
+        generation=binding.generation,
+        lineage_id=binding.lineage_id,
+        recovery_epoch=binding.recovery_epoch,
+
+        lease_nonce=lease.nonce,
+
+        transport_method=binding.transport_method,
+        transport_path=binding.transport_path,
+        payload_hash=binding.payload_hash,
+
+        fence_hash=engine.state.fence().fingerprint(),
+
+        status=COMMIT_STATUS_COMMITTED,
+
+        committed_at_ms=now_ms(),
+
+        dispatched_at_ms=None,
+        finalized_at_ms=None,
+    )
+
+    rejected = expect_exception(
+        lambda: engine.dispatch_committed(
+            lease,
+            binding,
+            fake_commit,
+        )
+    )
+
+    report_test(
+        "Unpersisted Commit Cannot Reach Transport",
+        rejected,
+    )
+
+    report_test(
+        "Unpersisted Commit Produced No Dispatch",
+        engine.transport.dispatch_count == 0,
+    )
+
+
+# ============================================================================
+# TEST 14
+# COMMIT IDEMPOTENCY
+# ============================================================================
+
+def run_test_14() -> None:
+    test_header(
+        14,
+        "DURABLE COMMIT IDEMPOTENCY",
+    )
+
+    engine = N24Engine()
+
+    (
+        lease,
+        authorization,
+        binding,
+        first_commit,
+    ) = prepare_to_commit_boundary(
+        engine,
+        "worker-A",
+    )
+
+    persisted_authorization = clone(
+        engine.state.authorization
+    )
+
+    require(
+        persisted_authorization is not None,
+        "persisted authorization missing",
+    )
+
+    second_commit = engine.commit_dispatch(
+        lease,
+        persisted_authorization,
+        binding,
+    )
+
+    report_test(
+        "Repeated Commit Returns Same Commit Identity",
+        second_commit.commit_id == first_commit.commit_id,
+    )
+
+    report_test(
+        "Only One Durable Dispatch ID Recorded",
+        len(engine.state.committed_dispatch_ids) == 1,
+    )
+
+    report_test(
+        "Commit Attempt Produced No Transport",
+        engine.transport.dispatch_count == 0,
+    )
+
+    report_test(
+        "Exactly One Commit Journal Record",
+        (
+            count_journal_events(
+                engine,
+                "DISPATCH_DURABLY_COMMITTED",
+            )
+            == 1
+        ),
+    )
+
+
+# ============================================================================
+# TEST 15
+# SYNTHETIC TRANSPORT REPLAY FENCE
+# ============================================================================
+
+def run_test_15() -> None:
+    test_header(
+        15,
+        "SYNTHETIC TRANSPORT COMMIT REPLAY FENCE",
+    )
+
+    engine = N24Engine()
+
+    (
+        lease,
+        authorization,
+        binding,
+        commit,
+    ) = prepare_to_commit_boundary(
+        engine,
+        "worker-A",
+    )
+
+    first_receipt = engine.transport.dispatch(
+        binding,
+        commit,
+    )
+
+    replay_rejected = expect_exception(
+        lambda: engine.transport.dispatch(
+            binding,
+            commit,
+        ),
+        "replay",
+    )
+
+    report_test(
+        "First Synthetic Transport Accepted",
+        first_receipt is not None,
+    )
+
+    report_test(
+        "Second Transport With Same Commit Rejected",
+        replay_rejected,
+    )
+
+    report_test(
+        "Transport Counter Remains One",
+        engine.transport.dispatch_count == 1,
+    )
+
+
+# ============================================================================
+# TEST 16
+# POST-DISPATCH FINALIZATION DOES NOT REDISPATCH
+# ============================================================================
+
+def run_test_16() -> None:
+    test_header(
+        16,
+        "POST-DISPATCH FINALIZATION IS TRANSPORT-FREE",
+    )
+
+    engine = N24Engine()
+
+    (
+        lease,
+        binding,
+        dispatched_commit,
+        receipt_before,
+    ) = prepare_to_inflight_boundary(
+        engine,
+        "worker-A",
+    )
+
+    snapshot = engine.snapshot_state()
+
+    restarted = N24Engine.restore_state(
+        snapshot
+    )
+
+    before_count = restarted.transport.dispatch_count
+
+    receipt_after = restarted.finalize_inflight_dispatch(
+        clone(restarted.state.active_lease)
+    )
+
+    after_count = restarted.transport.dispatch_count
+
+    report_test(
+        "Restart Finalization Reused Durable Receipt",
+        receipt_after.receipt_id == receipt_before.receipt_id,
+    )
+
+    report_test(
+        "Restart Finalization Performed Zero New Dispatches",
+        before_count == 0 and after_count == 0,
+    )
+
+    report_test(
+        "Restart Finalization Reached COMPLETED",
+        restarted.state.state == "COMPLETED",
+    )
+
+
+# ============================================================================
+# TEST 17
+# EXACTLY-ONCE JOURNAL HISTORY
+# ============================================================================
+
+def run_test_17() -> None:
+    test_header(
+        17,
+        "EXACTLY-ONCE DURABLE HISTORY",
+    )
+
+    engine = N24Engine()
+
+    engine.recover(
+        "worker-A"
+    )
+
+    try:
+        assert_single_commit_history(
+            engine
+        )
+        commit_valid = True
+    except Exception:
+        commit_valid = False
+
+    try:
+        assert_single_dispatch_record_history(
+            engine
+        )
+        dispatch_valid = True
+    except Exception:
+        dispatch_valid = False
+
+    try:
+        assert_single_finalization_history(
+            engine
+        )
+        final_valid = True
+    except Exception:
+        final_valid = False
+
+    report_test(
+        "Exactly One Durable Commit Journal Record",
+        commit_valid,
+    )
+
+    report_test(
+        "Exactly One Synthetic Dispatch Journal Record",
+        dispatch_valid,
+    )
+
+    report_test(
+        "Exactly One Finalization Journal Record",
+        final_valid,
+    )
+
+
+# ============================================================================
+# TEST 18
+# GENERATION ADVANCEMENT
+# ============================================================================
+
+def run_test_18() -> None:
+    test_header(
+        18,
+        "GENERATION AND RECOVERY EPOCH ADVANCEMENT",
+    )
+
+    engine = N24Engine()
+
+    engine.recover(
+        "worker-A"
+    )
+
+    old_generation = engine.state.generation
+    old_epoch = engine.state.recovery_epoch
+    old_lineage = engine.state.lineage_id
+    old_dispatch = engine.state.dispatch_id
+
+    advance_generation(
+        engine
+    )
+
+    report_test(
+        "Generation Advanced Monotonically",
+        engine.state.generation > old_generation,
+    )
+
+    report_test(
+        "Recovery Epoch Advanced Monotonically",
+        engine.state.recovery_epoch > old_epoch,
+    )
+
+    report_test(
+        "New Generation Uses Different Lineage",
+        engine.state.lineage_id != old_lineage,
+    )
+
+    report_test(
+        "New Generation Uses Different Dispatch",
+        engine.state.dispatch_id != old_dispatch,
+    )
+
+    report_test(
+        "New Generation Returns To PREPARED",
+        engine.state.state == "PREPARED",
+    )
+
+    report_test(
+        "Prior Completed Dispatch Preserved",
+        old_dispatch in engine.state.completed_dispatch_ids,
+    )
+
+    report_test(
+        "Prior Commit History Preserved",
+        len(engine.state.finalized_commit_ids) == 1,
+    )
+
+
+# ============================================================================
+# TEST 19
+# ANTI-ABA STALE LEASE
+# ============================================================================
+
+def run_test_19() -> None:
+    test_header(
+        19,
+        "ANTI-ABA STALE LEASE REJECTION",
+    )
+
+    engine = N24Engine()
+
+    old_lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    authorization = engine.issue_recovery_authorization(
+        old_lease
+    )
+
+    binding = engine.prepare_dispatch_binding(
+        old_lease,
+        authorization,
+    )
+
+    engine.execute_synthetic_dispatch(
+        old_lease,
+        authorization,
+        binding,
+    )
+
+    advance_generation(
+        engine
+    )
+
+    stale_rejected = expect_exception(
+        lambda: validate_lease_against_current_generation(
+            engine,
+            old_lease,
+        )
+    )
+
+    report_test(
+        "Old Generation Lease Rejected",
+        stale_rejected,
+    )
+
+    report_test(
+        "Old Lease Remains Retired",
+        old_lease.lease_id in engine.state.retired_lease_ids,
+    )
+
+
+# ============================================================================
+# TEST 20
+# ANTI-ABA STALE COMMIT
+# ============================================================================
+
+def run_test_20() -> None:
+    test_header(
+        20,
+        "ANTI-ABA STALE COMMIT REJECTION",
+    )
+
+    engine = N24Engine()
+
+    (
+        lease,
+        authorization,
+        binding,
+        old_commit,
+    ) = prepare_to_commit_boundary(
+        engine,
+        "worker-A",
+    )
+
+    engine.dispatch_committed(
+        lease,
+        binding,
+        old_commit,
+    )
+
+    advance_generation(
+        engine
+    )
+
+    stale_rejected = expect_exception(
+        lambda: validate_commit_against_current_generation(
+            engine,
+            old_commit,
+        )
+    )
+
+    report_test(
+        "Prior Generation Commit Rejected",
+        stale_rejected,
+    )
+
+    report_test(
+        "Prior Commit Remains Preserved In Durable History",
+        old_commit.commit_id in engine.state.finalized_commit_ids,
+    )
+
+
+# ============================================================================
+# TEST 21
+# OWNER REUSE ACROSS GENERATIONS
+# ============================================================================
+
+def run_test_21() -> None:
+    test_header(
+        21,
+        "ANTI-ABA OWNER REUSE ACROSS GENERATIONS",
+    )
+
+    engine = N24Engine()
+
+    first_lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    first_authorization = (
+        engine.issue_recovery_authorization(
+            first_lease
+        )
+    )
+
+    first_binding = (
+        engine.prepare_dispatch_binding(
+            first_lease,
+            first_authorization,
+        )
+    )
+
+    engine.execute_synthetic_dispatch(
+        first_lease,
+        first_authorization,
+        first_binding,
+    )
+
+    first_generation = first_lease.generation
+    first_lineage = first_lease.lineage_id
+    first_epoch = first_lease.recovery_epoch
+    first_nonce = first_lease.nonce
+
+    advance_generation(
+        engine
+    )
+
+    second_lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    report_test(
+        "Reacquired Owner Uses Higher Generation",
+        second_lease.generation > first_generation,
+    )
+
+    report_test(
+        "Reacquired Owner Uses Different Lineage",
+        second_lease.lineage_id != first_lineage,
+    )
+
+    report_test(
+        "Reacquired Owner Uses Higher Recovery Epoch",
+        second_lease.recovery_epoch > first_epoch,
+    )
+
+    report_test(
+        "Reacquired Owner Uses Higher Lease Nonce",
+        second_lease.nonce > first_nonce,
+    )
+
+    stale_rejected = expect_exception(
+        lambda: validate_lease_against_current_generation(
+            engine,
+            first_lease,
+        )
+    )
+
+    report_test(
+        "Reused Worker Cannot Resurrect Prior Lease",
+        stale_rejected,
+    )
+
+
+# ============================================================================
+# TEST 22
+# FORGED HIGHER EPOCH COMMIT
+# ============================================================================
+
+def run_test_22() -> None:
+    test_header(
+        22,
+        "FORGED HIGHER EPOCH COMMIT REJECTION",
+    )
+
+    engine = N24Engine()
+
+    (
+        lease,
+        authorization,
+        binding,
+        commit,
+    ) = prepare_to_commit_boundary(
+        engine,
+        "worker-A",
+    )
+
+    forged = DispatchCommit(
+        commit_id=commit.commit_id,
+        authorization_id=commit.authorization_id,
+        lease_id=commit.lease_id,
+        owner_id=commit.owner_id,
+
+        intent_id=commit.intent_id,
+        dispatch_id=commit.dispatch_id,
+
+        generation=commit.generation,
+        lineage_id=commit.lineage_id,
+
+        recovery_epoch=commit.recovery_epoch + 1,
+
+        lease_nonce=commit.lease_nonce,
+
+        transport_method=commit.transport_method,
+        transport_path=commit.transport_path,
+        payload_hash=commit.payload_hash,
+
+        fence_hash=commit.fence_hash,
+
+        status=commit.status,
+
+        committed_at_ms=commit.committed_at_ms,
+        dispatched_at_ms=commit.dispatched_at_ms,
+        finalized_at_ms=commit.finalized_at_ms,
+    )
+
+    rejected = expect_exception(
+        lambda: engine.dispatch_committed(
+            lease,
+            binding,
+            forged,
+        )
+    )
+
+    report_test(
+        "Forged Higher Epoch Commit Rejected",
+        rejected,
+    )
+
+    report_test(
+        "Forged Commit Produced No Synthetic Dispatch",
+        engine.transport.dispatch_count == 0,
+    )
+
+
+# ============================================================================
+# TEST 23
+# CONCURRENT RECOVERY
+# ============================================================================
+
+def run_test_23() -> None:
+    test_header(
+        23,
+        "CONCURRENT RECOVERY SINGLE-DISPATCH",
+    )
+
+    engine = N24Engine()
+
+    receipts: List[SyntheticReceipt] = []
+    errors: List[str] = []
+
+    result_lock = threading.Lock()
+
+    def worker(
+        owner_id: str,
+    ) -> None:
+        try:
+            receipt = engine.recover(
+                owner_id
+            )
+
+            with result_lock:
+                receipts.append(
+                    receipt
+                )
+
+        except Exception as exc:
+            with result_lock:
+                errors.append(
+                    str(exc)
+                )
+
+    threads = [
+        threading.Thread(
+            target=worker,
+            args=("worker-A",),
+        ),
+        threading.Thread(
+            target=worker,
+            args=("worker-B",),
+        ),
+        threading.Thread(
+            target=worker,
+            args=("worker-C",),
+        ),
+        threading.Thread(
+            target=worker,
+            args=("worker-D",),
+        ),
+    ]
+
+    for thread in threads:
+        thread.start()
+
+    for thread in threads:
+        thread.join()
+
+    report_test(
+        "Concurrent Recovery Produced Exactly One Synthetic Dispatch",
+        engine.transport.dispatch_count == 1,
+    )
+
+    report_test(
+        "Concurrent Recovery Reached COMPLETED",
+        engine.state.state == "COMPLETED",
+    )
+
+    report_test(
+        "Concurrent Recovery Preserved Finalized Commit",
+        (
+            engine.state.dispatch_commit is not None
+            and engine.state.dispatch_commit.status
+            == COMMIT_STATUS_FINALIZED
+        ),
+    )
+
+    structural_errors = []
+
+    for error in errors:
+        allowed = (
+            "already owned"
+            in error.lower()
+        )
+
+        if not allowed:
+            structural_errors.append(
+                error
+            )
+
+    report_test(
+        "Concurrent Recovery Produced No Structural Errors",
+        len(structural_errors) == 0,
+    )
+
+
+# ============================================================================
+# TEST 24
+# EXACT COMMIT / BINDING MATCH
+# ============================================================================
+
+def run_test_24() -> None:
+    test_header(
+        24,
+        "EXACT COMMIT TO TRANSPORT BINDING",
+    )
+
+    engine = N24Engine()
+
+    (
+        lease,
+        authorization,
+        binding,
+        commit,
+    ) = prepare_to_commit_boundary(
+        engine,
+        "worker-A",
+    )
+
+    try:
+        validate_exact_commit_binding(
+            commit,
+            binding,
+        )
+        valid = True
+    except Exception:
+        valid = False
+
+    report_test(
+        "Commit Intent Exactly Matches Binding",
+        commit.intent_id == binding.intent_id,
+    )
+
+    report_test(
+        "Commit Dispatch Exactly Matches Binding",
+        commit.dispatch_id == binding.dispatch_id,
+    )
+
+    report_test(
+        "Commit Method Exactly POST",
+        commit.transport_method == "POST",
+    )
+
+    report_test(
+        "Commit Path Exactly Leverage Endpoint",
+        commit.transport_path == LEVERAGE_ENDPOINT,
+    )
+
+    report_test(
+        "Commit Payload Hash Exactly Preserved",
+        commit.payload_hash == EXACT_LEVERAGE_PAYLOAD_HASH,
+    )
+
+    report_test(
+        "Exact Commit Binding Validation Passed",
+        valid,
+    )
+
+
+# ============================================================================
+# TEST 25
+# FINAL NETWORK FIREBREAK
+# ============================================================================
+
+def run_test_25() -> None:
+    test_header(
+        25,
+        "FINAL NETWORK WRITE FIREBREAK",
+    )
+
+    engine = N24Engine()
+
+    engine.recover(
+        "worker-A"
+    )
+
+    try:
+        assert_transport_firebreak(
+            engine.transport
+        )
+        firebreak_valid = True
+
+    except Exception:
+        firebreak_valid = False
+
+    report_test(
+        "Real POST Disabled",
+        REAL_POST_ENABLED is False,
+    )
+
+    report_test(
+        "Demo POST Disabled",
+        DEMO_POST_ENABLED is False,
+    )
+
+    report_test(
+        "Network Writes Disabled",
+        NETWORK_WRITES_ENABLED is False,
+    )
+
+    report_test(
+        "Leverage Transmission Disabled",
+        LEVERAGE_TRANSMISSION_ENABLED is False,
+    )
+
+    report_test(
+        "Synthetic Transport Performed Exactly One Local Dispatch",
+        engine.transport.dispatch_count == 1,
+    )
+
+    report_test(
+        "Real POST Count Remains Zero",
+        engine.transport.real_post_count == 0,
+    )
+
+    report_test(
+        "Demo POST Count Remains Zero",
+        engine.transport.demo_post_count == 0,
+    )
+
+    report_test(
+        "Network Write Count Remains Zero",
+        engine.transport.network_write_count == 0,
+    )
+
+    report_test(
+        "Leverage Transmission Count Remains Zero",
+        engine.transport.leverage_transmission_count == 0,
+    )
+
+    report_test(
+        "Final Transport Firebreak Valid",
+        firebreak_valid,
+    )
+
+
+# ============================================================================
+# COMPLETE DIAGNOSTIC
+# ============================================================================
+
+def run_diagnostic() -> None:
+    TEST_FAILURES.clear()
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+    print(
+        "0F-4H-R28-UNIT-N.24 STARTING",
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+    print(
+        f"Symbol = {SYMBOL}",
+        flush=True,
+    )
+
+    print(
+        f"Leverage = {LEVERAGE}x",
+        flush=True,
+    )
+
+    print(
+        f"Margin Mode = {MARGIN_MODE}",
+        flush=True,
+    )
+
+    print(
+        f"Transport Method = {TRANSPORT_METHOD}",
+        flush=True,
+    )
+
+    print(
+        f"Transport Path = {LEVERAGE_ENDPOINT}",
+        flush=True,
+    )
+
+    print(
+        (
+            "Exact Payload = "
+            f"{EXACT_LEVERAGE_PAYLOAD_JSON}"
+        ),
+        flush=True,
+    )
+
+    print(
+        (
+            "Payload SHA256 = "
+            f"{EXACT_LEVERAGE_PAYLOAD_HASH}"
+        ),
+        flush=True,
+    )
+
+    print(
+        "",
+        flush=True,
+    )
+
+    tests = [
+        run_test_1,
+        run_test_2,
+        run_test_3,
+        run_test_4,
+        run_test_5,
+        run_test_6,
+        run_test_7,
+        run_test_8,
+        run_test_9,
+        run_test_10,
+        run_test_11,
+        run_test_12,
+        run_test_13,
+        run_test_14,
+        run_test_15,
+        run_test_16,
+        run_test_17,
+        run_test_18,
+        run_test_19,
+        run_test_20,
+        run_test_21,
+        run_test_22,
+        run_test_23,
+        run_test_24,
+        run_test_25,
+    ]
+
+    for test_function in tests:
+        try:
+            test_function()
+
+        except Exception as exc:
+            name = test_function.__name__
+
+            TEST_FAILURES.append(
+                name
+            )
+
+            print(
+                "",
+                flush=True,
+            )
+
+            print(
+                f"{UNIT_NAME} UNHANDLED TEST ERROR:",
+                flush=True,
+            )
+
+            print(
+                f"  {name}: {exc}",
+                flush=True,
+            )
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+    print(
+        f"{UNIT_NAME} EXECUTION-READINESS ASSESSMENT",
+        flush=True,
+    )
+
+    separator()
+
+    print(
+        (
+            "Structural Safety Failures = "
+            f"{len(TEST_FAILURES)}"
+        ),
+        flush=True,
+    )
+
+    print(
+        "Real Network POSTs = 0",
+        flush=True,
+    )
+
+    print(
+        "Demo Network POSTs = 0",
+        flush=True,
+    )
+
+    print(
+        "Network Writes = 0",
+        flush=True,
+    )
+
+    print(
+        "Leverage Transmissions = 0",
+        flush=True,
+    )
+
+    print(
+        "Synthetic Transport Only = ✅ ACTIVE",
+        flush=True,
+    )
+
+    print(
+        "Durable Dispatch Commit = ✅ TESTED LOCALLY",
+        flush=True,
+    )
+
+    print(
+        "Pre-Commit Crash Recovery = ✅ TESTED LOCALLY",
+        flush=True,
+    )
+
+    print(
+        "Post-Commit Crash Recovery = ✅ TESTED LOCALLY",
+        flush=True,
+    )
+
+    print(
+        "Post-Dispatch Finalization Recovery = ✅ TESTED LOCALLY",
+        flush=True,
+    )
+
+    print(
+        "Authorization Consumption Fencing = ✅ TESTED LOCALLY",
+        flush=True,
+    )
+
+    print(
+        "Generation Fencing = ✅ TESTED LOCALLY",
+        flush=True,
+    )
+
+    print(
+        "Commit Anti-ABA Protection = ✅ TESTED LOCALLY",
+        flush=True,
+    )
+
+    print(
+        "Exactly-Once Synthetic Dispatch = ✅ TESTED LOCALLY",
+        flush=True,
+    )
+
+    print(
+        "Exact Commit/Transport Binding = ✅ TESTED LOCALLY",
+        flush=True,
+    )
+
+    print(
+        "Hard Network Firebreak = ✅ ACTIVE",
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+    if TEST_FAILURES:
+        print(
+            f"❌ {UNIT_NAME} FAILED",
+            flush=True,
+        )
+
+        print(
+            "Failures:",
+            flush=True,
+        )
+
+        for failure in TEST_FAILURES:
+            print(
+                f"  - {failure}",
+                flush=True,
+            )
+
+        raise RuntimeError(
+            f"{UNIT_NAME} diagnostic failure"
+        )
+
+    print(
+        f"✅ {UNIT_NAME} PASSED",
+        flush=True,
+    )
+
+    print(
+        "✅ READY FOR NEXT UNIT",
+        flush=True,
+    )
+
+    print(
+        "⚠️ NO REAL ORDER WAS SENT",
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+
+# ============================================================================
+# RUNTIME
+# ============================================================================
+
+def main() -> None:
+    print(
+        f"{UNIT_NAME}: RUNTIME STARTING",
+        flush=True,
+    )
+
+    start_health_server()
+
+    run_diagnostic()
+
+    heartbeat = 0
+
+    while True:
+        heartbeat += 1
+
+        print(
+            (
+                f"{UNIT_NAME}: HEARTBEAT "
+                f"{heartbeat} ✅ ACTIVE"
+            ),
+            flush=True,
+        )
+
+        time.sleep(
+            15
+        )
+
+
+# ============================================================================
+# ENTRY POINT
+# ============================================================================
+
+if __name__ == "__main__":
+    main()
