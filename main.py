@@ -960,3 +960,762 @@ def run_diagnostic() -> None:
         receipt["dispatch_id"]
         == c2.dispatch_id,
     )
+    banner(
+        f"{UNIT} TEST 8: "
+        "DURABLE SNAPSHOT RESTART PRESERVATION"
+    )
+
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(
+            td,
+            "n23_state.json",
+        )
+
+        engine.save_snapshot(path)
+
+        restored = N23Engine.load_snapshot(path)
+
+        check(
+            "Restored Certificate Chain Validates",
+            restored.validate_complete_chain() is True,
+        )
+
+        check(
+            "Certified Generation Chain Survived Restart",
+            restored.finalized_generations
+            == [0, 1, 2],
+        )
+
+        check(
+            "Root Manifest Hash Preserved Across Restart",
+            restored.manifest(0).manifest_hash
+            == m0.manifest_hash,
+        )
+
+        check(
+            "Latest Certificate Hash Preserved Across Restart",
+            restored.certificate(2).certificate_hash
+            == c2.certificate_hash,
+        )
+
+    banner(
+        f"{UNIT} TEST 9: "
+        "SNAPSHOT TAMPER REJECTION"
+    )
+
+    state = engine.export_state()
+
+    tampered_state = copy.deepcopy(state)
+    tampered_state.finalized_generations = [
+        0,
+        1,
+    ]
+
+    expect_raises(
+        "Tampered Snapshot Integrity Seal Rejected",
+        IntegrityError,
+        lambda: N23Engine.restore_state(
+            tampered_state
+        ),
+    )
+
+    banner(
+        f"{UNIT} TEST 10: "
+        "FOREIGN LINEAGE CHAIN REJECTION"
+    )
+
+    foreign_state = copy.deepcopy(
+        engine.export_state()
+    )
+
+    foreign_state.lineage_id = (
+        "foreign-lineage"
+    )
+
+    foreign_state.snapshot_seal = seal_dict(
+        foreign_state.body()
+    )
+
+    expect_raises(
+        "Foreign Lineage Snapshot Rejected",
+        ChainError,
+        lambda: N23Engine.restore_state(
+            foreign_state
+        ),
+    )
+
+    banner(
+        f"{UNIT} TEST 11: "
+        "STALE PREDECESSOR / FORK REJECTION"
+    )
+
+    fork = N23Engine(
+        engine.lineage_id
+    )
+
+    fork._certificates = copy.deepcopy(
+        engine._certificates
+    )
+
+    fork._manifests = copy.deepcopy(
+        engine._manifests
+    )
+
+    fork._finalized = set(
+        engine._finalized
+    )
+
+    forged_c2 = N23Engine._build_certificate(
+        lineage_id=engine.lineage_id,
+        generation=2,
+        recovery_epoch=2,
+        recovery_nonce=3,
+        owner_id=c2.owner_id,
+        payload_digest=c2.payload_hash,
+        dispatch_id=c2.dispatch_id,
+        predecessor_certificate_hash=(
+            c0.certificate_hash
+        ),
+    )
+
+    fork._certificates[2] = forged_c2
+
+    fork._manifests[2] = (
+        N23Engine._build_manifest(
+            lineage_id=engine.lineage_id,
+            generation=2,
+            certificate_hash=(
+                forged_c2.certificate_hash
+            ),
+            predecessor_manifest_hash=(
+                m1.manifest_hash
+            ),
+        )
+    )
+
+    expect_raises(
+        "Forked Certificate Predecessor Rejected",
+        ChainError,
+        fork.validate_complete_chain,
+    )
+
+    banner(
+        f"{UNIT} TEST 12: "
+        "ANTI-ABA OWNER REUSE ACROSS CHAIN"
+    )
+
+    reused_owner = c0.owner_id
+
+    c3, m3 = engine.finalize_generation(
+        generation=3,
+        recovery_epoch=3,
+        recovery_nonce=4,
+        owner_id=reused_owner,
+    )
+
+    check(
+        "Reused Owner Is Bound To Higher Generation",
+        c3.generation > c0.generation,
+    )
+
+    check(
+        "Reused Owner Certificate Uses New Dispatch Identity",
+        c3.dispatch_id
+        != c0.dispatch_id,
+    )
+
+    check(
+        "Reused Owner Certificate Uses New Predecessor",
+        c3.predecessor_certificate_hash
+        == c2.certificate_hash,
+    )
+
+    check(
+        "Reused Owner Manifest Extends Existing Chain",
+        m3.predecessor_manifest_hash
+        == m2.manifest_hash,
+    )
+
+    check(
+        "Reused Owner Uses Higher Recovery Epoch",
+        c3.recovery_epoch
+        > c0.recovery_epoch,
+    )
+
+    check(
+        "Reused Owner Uses Higher Recovery Nonce",
+        c3.recovery_nonce
+        > c0.recovery_nonce,
+    )
+
+    banner(
+        f"{UNIT} TEST 13: "
+        "CONCURRENT NEXT-GENERATION SINGLE WINNER"
+    )
+
+    race_engine = N23Engine(
+        "race-lineage"
+    )
+
+    race_engine.finalize_generation(
+        generation=0,
+        recovery_epoch=0,
+        recovery_nonce=1,
+    )
+
+    winners: List[
+        Tuple[
+            FinalityCertificate,
+            GenerationManifest,
+        ]
+    ] = []
+
+    errors: List[Exception] = []
+
+    gate = threading.Barrier(8)
+
+    def contender(i: int) -> None:
+        try:
+            gate.wait()
+
+            result = (
+                race_engine.finalize_generation(
+                    generation=1,
+                    recovery_epoch=1,
+                    recovery_nonce=i + 10,
+                    owner_id=f"worker-{i}",
+                )
+            )
+
+            winners.append(result)
+
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(
+            target=contender,
+            args=(i,),
+        )
+        for i in range(8)
+    ]
+
+    for thread in threads:
+        thread.start()
+
+    for thread in threads:
+        thread.join()
+
+    check(
+        "Concurrent Chain Validates",
+        race_engine.validate_complete_chain()
+        is True,
+    )
+
+    check(
+        "Concurrent Generation Finalization Produced One Winner",
+        len(winners) == 1,
+    )
+
+    check(
+        "Concurrent Losers Were Rejected",
+        len(errors) == 7,
+    )
+
+    check(
+        "Concurrent Final State Contains One Successor",
+        race_engine.finalized_generations
+        == [0, 1],
+    )
+
+    banner(
+        f"{UNIT} TEST 14: "
+        "RESTART THEN CONTINUE CERTIFICATE CHAIN"
+    )
+
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(
+            td,
+            "n23_continue.json",
+        )
+
+        engine.save_snapshot(path)
+
+        resumed = N23Engine.load_snapshot(
+            path
+        )
+
+        c4, m4 = resumed.finalize_generation(
+            generation=4,
+            recovery_epoch=4,
+            recovery_nonce=5,
+        )
+
+        check(
+            "Post-Restart Chain Validates",
+            resumed.validate_complete_chain()
+            is True,
+        )
+
+        check(
+            "Post-Restart Generation Advanced Exactly Once",
+            resumed.finalized_generations
+            == [0, 1, 2, 3, 4],
+        )
+
+        check(
+            "Post-Restart Certificate References Prior Certificate",
+            c4.predecessor_certificate_hash
+            == c3.certificate_hash,
+        )
+
+        check(
+            "Post-Restart Manifest References Prior Manifest",
+            m4.predecessor_manifest_hash
+            == m3.manifest_hash,
+        )
+
+        expect_raises(
+            "Post-Restart Duplicate Generation Rejected",
+            ChainError,
+            lambda: resumed.finalize_generation(
+                generation=4,
+                recovery_epoch=5,
+                recovery_nonce=6,
+            ),
+        )
+
+    banner(
+        f"{UNIT} TEST 15: "
+        "EXACT SYNTHETIC TRANSPORT BINDING"
+    )
+
+    receipt = synthetic_dispatch(c3)
+
+    check(
+        "Transport Method Exactly POST",
+        receipt["method"]
+        == TRANSPORT_METHOD,
+    )
+
+    check(
+        "Transport Path Exactly Leverage Endpoint",
+        receipt["path"]
+        == TRANSPORT_PATH,
+    )
+
+    check(
+        "Transport Payload Preserved",
+        receipt["payload"]
+        == payload(),
+    )
+
+    check(
+        "Transport Payload Hash Preserved",
+        receipt["payload_hash"]
+        == payload_hash(),
+    )
+
+    check(
+        "Transport Dispatch Identity Preserved",
+        receipt["dispatch_id"]
+        == c3.dispatch_id,
+    )
+
+    check(
+        "Synthetic Receipt Reports No Transmission",
+        receipt["transmitted"]
+        is False,
+    )
+
+    banner(
+        f"{UNIT} TEST 16: "
+        "FINAL NETWORK WRITE FIREBREAK"
+    )
+
+    expect_raises(
+        "Real POST Rejected Locally",
+        LocalSafetyBlock,
+        lambda: real_network_post(),
+    )
+
+    expect_raises(
+        "Generic Network Write Rejected Locally",
+        LocalSafetyBlock,
+        lambda: generic_network_write(
+            "PUT"
+        ),
+    )
+
+    expect_raises(
+        "Leverage Mutation Transport Rejected Locally",
+        LocalSafetyBlock,
+        lambda: leverage_mutation_transport(),
+    )
+
+    check(
+        "Network POST Count Is Zero",
+        NETWORK_POST_COUNT == 0,
+    )
+
+    check(
+        "Network Write Count Is Zero",
+        NETWORK_WRITE_COUNT == 0,
+    )
+
+    check(
+        "Leverage Transmission Count Is Zero",
+        LEVERAGE_TRANSMISSION_COUNT
+        == 0,
+    )
+
+    banner(
+        f"{UNIT} WRITE-LOCK AUDIT"
+    )
+
+    print(
+        f"  Network POSTs = "
+        f"{NETWORK_POST_COUNT}"
+    )
+
+    print(
+        f"  Network writes = "
+        f"{NETWORK_WRITE_COUNT}"
+    )
+
+    print(
+        f"  Leverage transmissions = "
+        f"{LEVERAGE_TRANSMISSION_COUNT}"
+    )
+
+    print(
+        f"  Synthetic dispatches = "
+        f"{SYNTHETIC_DISPATCH_COUNT}"
+    )
+
+    check(
+        "Network POST Count Is Zero",
+        NETWORK_POST_COUNT == 0,
+    )
+
+    check(
+        "Network Write Count Is Zero",
+        NETWORK_WRITE_COUNT == 0,
+    )
+
+    check(
+        "Leverage Transmission Count Is Zero",
+        LEVERAGE_TRANSMISSION_COUNT
+        == 0,
+    )
+
+    structural_failures = FAIL_COUNT
+
+    readiness_blockers = (
+        0
+        if (
+            structural_failures == 0
+            and not REAL_NETWORK_POST_ENABLED
+            and not NETWORK_WRITE_ENABLED
+            and not LEVERAGE_MUTATION_TRANSPORT_ENABLED
+        )
+        else 1
+    )
+
+    banner(
+        f"{UNIT} EXECUTION-READINESS ASSESSMENT"
+    )
+
+    print(
+        f"  Structural Safety Failures = "
+        f"{structural_failures}"
+    )
+
+    print(
+        f"  Readiness Blockers = "
+        f"{readiness_blockers}"
+    )
+
+    print(
+        "  Durable Finality Certificate Chain "
+        "= ✅ VERIFIED"
+    )
+
+    print(
+        "  Generation Manifest Chain "
+        "= ✅ VERIFIED"
+    )
+
+    print(
+        "  Certificate Predecessor Binding "
+        "= ✅ VERIFIED"
+    )
+
+    print(
+        "  Manifest Predecessor Binding "
+        "= ✅ VERIFIED"
+    )
+
+    print(
+        "  Certificate/Manifest Cross-Binding "
+        "= ✅ VERIFIED"
+    )
+
+    print(
+        "  Contiguous Generation Advance "
+        "= ✅ VERIFIED"
+    )
+
+    print(
+        "  Fork / Skipped Generation Rejection "
+        "= ✅ VERIFIED"
+    )
+
+    print(
+        "  Restart Chain Preservation "
+        "= ✅ VERIFIED"
+    )
+
+    print(
+        "  Snapshot Integrity "
+        "= ✅ VERIFIED"
+    )
+
+    print(
+        "  Cross-Lineage Chain Rejection "
+        "= ✅ VERIFIED"
+    )
+
+    print(
+        "  Concurrent Next-Generation Single Winner "
+        "= ✅ VERIFIED"
+    )
+
+    print(
+        "  Anti-ABA Owner Reuse Across Chain "
+        "= ✅ VERIFIED"
+    )
+
+    print(
+        "  Exact Synthetic Transport Binding "
+        "= ✅ VERIFIED"
+    )
+
+    print(
+        "  Final Network Dispatch "
+        "= 🛡 BLOCKED LOCALLY"
+    )
+
+    print(
+        "  Leverage Mutation Transmission "
+        "= 🛡 BLOCKED LOCALLY"
+    )
+
+    check(
+        "Structural Safety Failures Are Zero",
+        structural_failures == 0,
+    )
+
+    check(
+        "Readiness Blockers Are Zero",
+        readiness_blockers == 0,
+    )
+
+    print()
+    print(SEPARATOR)
+
+    if FAIL_COUNT == 0:
+        print(
+            f"✅ {UNIT} DIAGNOSTIC PASSED"
+        )
+
+        print(SEPARATOR)
+
+        print(
+            "✅ DURABLE CERTIFICATE-CHAIN "
+            "CONTINUITY VERIFIED"
+        )
+
+        print(
+            "✅ GENERATION MANIFEST CHAIN "
+            "VERIFIED"
+        )
+
+        print(
+            "✅ EXACT PREDECESSOR CERTIFICATE "
+            "BINDING VERIFIED"
+        )
+
+        print(
+            "✅ EXACT PREDECESSOR MANIFEST "
+            "BINDING VERIFIED"
+        )
+
+        print(
+            "✅ CERTIFICATE/MANIFEST "
+            "CROSS-BINDING VERIFIED"
+        )
+
+        print(
+            "✅ SKIPPED GENERATION REJECTED"
+        )
+
+        print(
+            "✅ FORKED PREDECESSOR REJECTED"
+        )
+
+        print(
+            "✅ CERTIFICATE CHAIN SURVIVES "
+            "RESTART"
+        )
+
+        print(
+            "✅ SNAPSHOT TAMPER REJECTED"
+        )
+
+        print(
+            "✅ FOREIGN LINEAGE CHAIN REJECTED"
+        )
+
+        print(
+            "✅ CONCURRENT SUCCESSOR FINALIZATION "
+            "PRODUCES ONE WINNER"
+        )
+
+        print(
+            "✅ ANTI-ABA OWNER REUSE ACROSS "
+            "CHAIN VERIFIED"
+        )
+
+        print(
+            "✅ EXACT SYNTHETIC TRANSPORT "
+            "BINDING VERIFIED"
+        )
+
+        print(
+            "🛡 REAL NETWORK DISPATCH "
+            "REMAINS DISABLED"
+        )
+
+        print(
+            "🛡 LEVERAGE MUTATION TRANSPORT "
+            "REMAINS LOCKED"
+        )
+
+        print(
+            "🛡 NO NETWORK WRITE WAS "
+            "TRANSMITTED"
+        )
+
+    else:
+        print(
+            f"❌ {UNIT} DIAGNOSTIC FAILED"
+        )
+
+    print(SEPARATOR)
+
+
+def heartbeat_loop() -> None:
+    heartbeat = 1
+
+    while True:
+        print(
+            f"{UNIT}: HEARTBEAT "
+            f"{heartbeat} ✅ ACTIVE",
+            flush=True,
+        )
+
+        heartbeat += 1
+        time.sleep(15)
+
+
+def main() -> None:
+    run_diagnostic()
+
+    if FAIL_COUNT != 0:
+        raise SystemExit(1)
+
+    print(
+        f"{UNIT}: PERSISTENT RUNTIME ACTIVE"
+    )
+
+    print(
+        f"{UNIT}: DURABLE CERTIFICATE-CHAIN "
+        "LOCK ACTIVE"
+    )
+
+    print(
+        f"{UNIT}: GENERATION MANIFEST "
+        "CHAIN LOCK ACTIVE"
+    )
+
+    print(
+        f"{UNIT}: CERTIFICATE PREDECESSOR "
+        "BINDING LOCK ACTIVE"
+    )
+
+    print(
+        f"{UNIT}: MANIFEST PREDECESSOR "
+        "BINDING LOCK ACTIVE"
+    )
+
+    print(
+        f"{UNIT}: CERTIFICATE/MANIFEST "
+        "CROSS-BINDING LOCK ACTIVE"
+    )
+
+    print(
+        f"{UNIT}: CONTIGUOUS GENERATION "
+        "ADVANCE LOCK ACTIVE"
+    )
+
+    print(
+        f"{UNIT}: FORKED GENERATION "
+        "REJECTION LOCK ACTIVE"
+    )
+
+    print(
+        f"{UNIT}: RESTART CHAIN "
+        "PRESERVATION LOCK ACTIVE"
+    )
+
+    print(
+        f"{UNIT}: SNAPSHOT INTEGRITY "
+        "LOCK ACTIVE"
+    )
+
+    print(
+        f"{UNIT}: CROSS-LINEAGE "
+        "CHAIN LOCK ACTIVE"
+    )
+
+    print(
+        f"{UNIT}: CONCURRENT SUCCESSOR "
+        "FINALIZATION LOCK ACTIVE"
+    )
+
+    print(
+        f"{UNIT}: ANTI-ABA CHAIN "
+        "LOCK ACTIVE"
+    )
+
+    print(
+        f"{UNIT}: SYNTHETIC TRANSPORT "
+        "INTERCEPTOR ACTIVE"
+    )
+
+    print(
+        f"{UNIT}: NETWORK WRITE "
+        "TRANSPORT LOCKED"
+    )
+
+    print(
+        f"{UNIT}: LEVERAGE MUTATION "
+        "TRANSPORT LOCKED"
+    )
+
+    heartbeat_loop()
+
+
+if __name__ == "__main__":
+    main()
