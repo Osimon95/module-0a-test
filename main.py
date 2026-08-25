@@ -217,7 +217,7 @@ class N23Engine:
         manifest_hash = sha256_text(canonical_json(core))
         body = {**core, "manifest_hash": manifest_hash}
         return GenerationManifest(**body, seal=seal_dict(body))
-            @staticmethod
+    @staticmethod
     def _verify_certificate(cert: FinalityCertificate) -> None:
         core = {
             "lineage_id": cert.lineage_id,
@@ -238,7 +238,7 @@ class N23Engine:
         if not verify_seal(cert.body(), cert.seal):
             raise IntegrityError("certificate integrity seal mismatch")
 
-        @staticmethod
+    @staticmethod
     def _verify_manifest(manifest: GenerationManifest) -> None:
         core = {
             "lineage_id": manifest.lineage_id,
