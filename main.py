@@ -4042,3 +4042,2167 @@ print(
     "R28 UNIT N.27: PART 2 DEFINITIONS LOADED",
     flush=True,
 )
+# ============================================================================
+# R28 UNIT N.27
+# DURABLE WAL RECOVERY + CHECKPOINT BINDING + RESTART-SAFE FINALITY
+#
+# CORRECTED COPY/PASTE VERSION
+# PART 3 OF 4
+#
+# IMPORTANT:
+#   - PASTE DIRECTLY BELOW PART 2
+#   - FIRST LINE MUST START AT COLUMN ZERO
+#   - THIS PART DEFINES RESTART / RECOVERY / CORRUPTION TEST SUPPORT
+# ============================================================================
+
+
+# ============================================================================
+# SNAPSHOT CLONE / RESTORE
+# ============================================================================
+
+def snapshot_state(
+    state: DurableState,
+) -> DurableState:
+
+    validate_durable_state(
+        state
+    )
+
+    snapshot = clone(
+        state
+    )
+
+    validate_durable_state(
+        snapshot
+    )
+
+    return snapshot
+
+
+def restore_state(
+    snapshot: DurableState,
+) -> DurableState:
+
+    restored = clone(
+        snapshot
+    )
+
+    validate_durable_state(
+        restored
+    )
+
+    return restored
+
+
+# ============================================================================
+# REBUILD CHECKPOINT AFTER VALID WAL
+# ============================================================================
+
+def rebuild_checkpoint_from_wal(
+    state: DurableState,
+) -> None:
+
+    validate_wal(
+        state.wal
+    )
+
+    state.snapshot_sequence += 1
+
+    state.checkpoint = create_checkpoint(
+        sequence=(
+            state.snapshot_sequence
+        ),
+
+        phase=(
+            state.phase
+        ),
+
+        generation=(
+            state.generation
+        ),
+
+        lineage_id=(
+            state.lineage_id
+        ),
+
+        recovery_epoch=(
+            state.recovery_epoch
+        ),
+
+        intent_id=(
+            state.intent_id
+        ),
+
+        dispatch_id=(
+            state.dispatch_id
+        ),
+
+        wal=(
+            state.wal
+        ),
+    )
+
+    seal_state(
+        state
+    )
+
+
+# ============================================================================
+# RECOVERY ENGINE
+# ============================================================================
+
+def recover_execution(
+    snapshot: DurableState,
+    transport: SyntheticTransport,
+    owner_id: str,
+) -> DurableState:
+
+    state = restore_state(
+        snapshot
+    )
+
+    validate_durable_state(
+        state
+    )
+
+    # ========================================================================
+    # TERMINAL FINALITY
+    # ========================================================================
+
+    if state.phase in TERMINAL_PHASES:
+
+        require(
+            state.dispatch_id
+            in state.completed_dispatch_ids,
+            (
+                "terminal recovery missing "
+                "completed dispatch"
+            ),
+        )
+
+        assert_transport_firebreak(
+            transport
+        )
+
+        return state
+
+    # ========================================================================
+    # PREPARED
+    # ========================================================================
+
+    if state.phase == PHASE_PREPARED:
+
+        complete_synthetic_execution(
+            state,
+            transport,
+            owner_id,
+        )
+
+        return state
+
+    # ========================================================================
+    # AUTHORIZED
+    # ========================================================================
+
+    if state.phase == PHASE_AUTHORIZED:
+
+        require(
+            state.authorization
+            is not None,
+            (
+                "authorized recovery missing "
+                "authorization"
+            ),
+        )
+
+        lease = (
+            state.active_lease
+        )
+
+        require(
+            lease is not None,
+            (
+                "authorized recovery missing "
+                "active lease"
+            ),
+        )
+
+        validate_recovery_lease(
+            state,
+            lease,
+        )
+
+        if not state.authorization.consumed:
+
+            consume_authorization(
+                state,
+                state.authorization,
+                lease,
+            )
+
+        binding = build_dispatch_binding(
+            state
+        )
+
+        commit_dispatch(
+            state,
+            binding,
+        )
+
+        execute_synthetic_dispatch(
+            state,
+            transport,
+        )
+
+        finalize_dispatch(
+            state
+        )
+
+        return state
+
+    # ========================================================================
+    # COMMITTED
+    # ========================================================================
+
+    if state.phase == PHASE_COMMITTED:
+
+        require(
+            state.dispatch_binding
+            is not None,
+            (
+                "committed recovery missing "
+                "dispatch binding"
+            ),
+        )
+
+        execute_synthetic_dispatch(
+            state,
+            transport,
+        )
+
+        finalize_dispatch(
+            state
+        )
+
+        return state
+
+    # ========================================================================
+    # DISPATCHED
+    # ========================================================================
+
+    if state.phase == PHASE_DISPATCHED:
+
+        require(
+            state.receipt
+            is not None,
+            (
+                "dispatched recovery missing "
+                "receipt"
+            ),
+        )
+
+        finalize_dispatch(
+            state
+        )
+
+        return state
+
+    raise ValueError(
+        "unsupported recovery phase"
+    )
+
+
+# ============================================================================
+# GENERATION ADVANCE
+# ============================================================================
+
+def advance_generation(
+    state: DurableState,
+) -> DurableState:
+
+    validate_durable_state(
+        state
+    )
+
+    require(
+        state.phase
+        in TERMINAL_PHASES,
+        (
+            "new generation requires "
+            "terminal prior generation"
+        ),
+    )
+
+    next_generation = (
+        state.generation + 1
+    )
+
+    next_recovery_epoch = (
+        state.recovery_epoch + 1
+    )
+
+    next_lineage = secure_id(
+        "lineage"
+    )
+
+    next_intent = deterministic_id(
+        "intent",
+        SYMBOL,
+        next_generation,
+        next_lineage,
+        next_recovery_epoch,
+        EXACT_LEVERAGE_PAYLOAD_HASH,
+    )
+
+    next_dispatch = deterministic_id(
+        "dispatch",
+        next_intent,
+        next_generation,
+        next_lineage,
+        next_recovery_epoch,
+    )
+
+    record = create_wal_record(
+        sequence=1,
+
+        event=(
+            WAL_EVENT_PREPARED
+        ),
+
+        generation=(
+            next_generation
+        ),
+
+        lineage_id=(
+            next_lineage
+        ),
+
+        recovery_epoch=(
+            next_recovery_epoch
+        ),
+
+        intent_id=(
+            next_intent
+        ),
+
+        dispatch_id=(
+            next_dispatch
+        ),
+
+        authorization_id=None,
+        lease_id=None,
+
+        previous_hash=(
+            GENESIS_WAL_HASH
+        ),
+
+        metadata={
+            "phase":
+                PHASE_PREPARED,
+
+            "prior_generation":
+                state.generation,
+
+            "prior_dispatch_id":
+                state.dispatch_id,
+        },
+    )
+
+    next_state = DurableState(
+        schema_version=(
+            STATE_SCHEMA_VERSION
+        ),
+
+        phase=(
+            PHASE_PREPARED
+        ),
+
+        account_epoch=(
+            state.account_epoch
+        ),
+
+        symbol_epoch=(
+            state.symbol_epoch
+        ),
+
+        position_epoch=(
+            state.position_epoch
+        ),
+
+        recovery_epoch=(
+            next_recovery_epoch
+        ),
+
+        generation=(
+            next_generation
+        ),
+
+        lineage_id=(
+            next_lineage
+        ),
+
+        intent_id=(
+            next_intent
+        ),
+
+        dispatch_id=(
+            next_dispatch
+        ),
+
+        lease_nonce=0,
+
+        active_lease=None,
+
+        authorization=None,
+
+        dispatch_binding=None,
+
+        receipt=None,
+
+        wal=[
+            record
+        ],
+
+        checkpoint=None,
+
+        completed_dispatch_ids=set(
+            state.completed_dispatch_ids
+        ),
+
+        consumed_authorization_ids=set(
+            state.consumed_authorization_ids
+        ),
+
+        retired_lease_ids=set(
+            state.retired_lease_ids
+        ),
+
+        snapshot_sequence=(
+            state.snapshot_sequence + 1
+        ),
+
+        integrity_seal="",
+    )
+
+    next_state.checkpoint = create_checkpoint(
+        sequence=(
+            next_state.snapshot_sequence
+        ),
+
+        phase=(
+            next_state.phase
+        ),
+
+        generation=(
+            next_state.generation
+        ),
+
+        lineage_id=(
+            next_state.lineage_id
+        ),
+
+        recovery_epoch=(
+            next_state.recovery_epoch
+        ),
+
+        intent_id=(
+            next_state.intent_id
+        ),
+
+        dispatch_id=(
+            next_state.dispatch_id
+        ),
+
+        wal=(
+            next_state.wal
+        ),
+    )
+
+    seal_state(
+        next_state
+    )
+
+    validate_durable_state(
+        next_state
+    )
+
+    return next_state
+
+
+# ============================================================================
+# TEST OUTPUT HELPERS
+# ============================================================================
+
+TEST_SEPARATOR = (
+    "-" * 92
+)
+
+
+def print_test_header(
+    number: int,
+    title: str,
+) -> None:
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        (
+            f"{UNIT_NAME} TEST "
+            f"{number}: {title}"
+        ),
+        flush=True,
+    )
+
+    print(
+        TEST_SEPARATOR,
+        flush=True,
+    )
+
+
+def pass_check(
+    label: str,
+    condition: bool,
+) -> None:
+
+    require(
+        condition,
+        label,
+    )
+
+    print(
+        f"{label:<80} ✅ PASS",
+        flush=True,
+    )
+
+
+def expect_rejection(
+    label: str,
+    operation: Any,
+) -> None:
+
+    rejected = False
+
+    try:
+        operation()
+
+    except (
+        ValueError,
+        TypeError,
+        AssertionError,
+    ) as exc:
+
+        rejected = True
+
+        local_block(
+            str(
+                exc
+            )
+        )
+
+    pass_check(
+        label,
+        rejected,
+    )
+
+
+# ============================================================================
+# TEST 1
+# INITIAL STATE + CHECKPOINT / WAL BINDING
+# ============================================================================
+
+def test_initial_state(
+) -> None:
+
+    print_test_header(
+        1,
+        (
+            "INITIAL DURABLE STATE "
+            "AND WAL BINDING"
+        ),
+    )
+
+    state = create_initial_state()
+
+    pass_check(
+        "Initial Phase Is PREPARED",
+        (
+            state.phase
+            == PHASE_PREPARED
+        ),
+    )
+
+    pass_check(
+        "Initial WAL Has One Record",
+        (
+            len(
+                state.wal
+            )
+            == 1
+        ),
+    )
+
+    pass_check(
+        "Initial WAL Begins At Sequence One",
+        (
+            state.wal[0].sequence
+            == 1
+        ),
+    )
+
+    pass_check(
+        "Initial WAL Previous Hash Is Genesis",
+        (
+            state.wal[0].previous_hash
+            == GENESIS_WAL_HASH
+        ),
+    )
+
+    pass_check(
+        "Initial Checkpoint Present",
+        (
+            state.checkpoint
+            is not None
+        ),
+    )
+
+    pass_check(
+        "Checkpoint WAL Length Preserved",
+        (
+            state.checkpoint is not None
+            and
+            state.checkpoint.wal_length
+            == len(
+                state.wal
+            )
+        ),
+    )
+
+    pass_check(
+        "Checkpoint WAL Final Hash Preserved",
+        (
+            state.checkpoint is not None
+            and
+            state.checkpoint.wal_final_hash
+            == wal_final_hash(
+                state.wal
+            )
+        ),
+    )
+
+
+# ============================================================================
+# TEST 2
+# COMPLETE SYNTHETIC EXECUTION
+# ============================================================================
+
+def test_complete_execution(
+) -> None:
+
+    print_test_header(
+        2,
+        (
+            "COMPLETE EXACTLY-ONCE "
+            "SYNTHETIC EXECUTION"
+        ),
+    )
+
+    transport = (
+        SyntheticTransport()
+    )
+
+    state = create_initial_state()
+
+    receipt = complete_synthetic_execution(
+        state,
+        transport,
+        "worker-test-2",
+    )
+
+    pass_check(
+        "Execution Reached COMPLETED",
+        (
+            state.phase
+            == PHASE_COMPLETED
+        ),
+    )
+
+    pass_check(
+        "Exactly One Synthetic Dispatch",
+        (
+            transport.dispatch_count
+            == 1
+        ),
+    )
+
+    pass_check(
+        "Synthetic Receipt Was Not Transmitted",
+        (
+            receipt.transmitted
+            is False
+        ),
+    )
+
+    pass_check(
+        "Synthetic Receipt Has No Network Write",
+        (
+            receipt.network_write
+            is False
+        ),
+    )
+
+    pass_check(
+        "Dispatch Finality Fence Recorded",
+        (
+            state.dispatch_id
+            in state.completed_dispatch_ids
+        ),
+    )
+
+    pass_check(
+        "Final WAL Event Is COMPLETED",
+        (
+            state.wal[-1].event
+            == WAL_EVENT_COMPLETED
+        ),
+    )
+
+    assert_transport_firebreak(
+        transport
+    )
+
+
+# ============================================================================
+# TEST 3
+# WAL HASH CHAIN
+# ============================================================================
+
+def test_wal_hash_chain(
+) -> None:
+
+    print_test_header(
+        3,
+        "WAL HASH-CHAIN VALIDATION",
+    )
+
+    transport = (
+        SyntheticTransport()
+    )
+
+    state = create_initial_state()
+
+    complete_synthetic_execution(
+        state,
+        transport,
+        "worker-test-3",
+    )
+
+    validate_wal(
+        state.wal
+    )
+
+    pass_check(
+        "WAL Records Validate",
+        True,
+    )
+
+    chain_valid = True
+
+    previous = (
+        GENESIS_WAL_HASH
+    )
+
+    for record in state.wal:
+
+        if (
+            record.previous_hash
+            != previous
+        ):
+            chain_valid = False
+            break
+
+        previous = (
+            record.record_hash
+        )
+
+    pass_check(
+        "WAL Previous Hash Chain Preserved",
+        chain_valid,
+    )
+
+    pass_check(
+        "WAL Final Hash Matches Checkpoint",
+        (
+            state.checkpoint is not None
+            and
+            state.checkpoint.wal_final_hash
+            == wal_final_hash(
+                state.wal
+            )
+        ),
+    )
+
+
+# ============================================================================
+# TEST 4
+# RESTART AFTER PREPARED
+# ============================================================================
+
+def test_restart_prepared(
+) -> None:
+
+    print_test_header(
+        4,
+        (
+            "RESTART FROM PREPARED "
+            "TO SINGLE FINAL DISPATCH"
+        ),
+    )
+
+    transport = (
+        SyntheticTransport()
+    )
+
+    state = create_initial_state()
+
+    snapshot = snapshot_state(
+        state
+    )
+
+    recovered = recover_execution(
+        snapshot,
+        transport,
+        "worker-restart-prepared",
+    )
+
+    pass_check(
+        "Prepared Recovery Completed",
+        (
+            recovered.phase
+            == PHASE_COMPLETED
+        ),
+    )
+
+    pass_check(
+        "Prepared Recovery Produced Exactly One Dispatch",
+        (
+            transport.dispatch_count
+            == 1
+        ),
+    )
+
+    pass_check(
+        "Prepared Recovery Finality Preserved",
+        (
+            recovered.dispatch_id
+            in recovered.completed_dispatch_ids
+        ),
+    )
+
+
+# ============================================================================
+# TEST 5
+# RESTART AFTER AUTHORIZATION
+# ============================================================================
+
+def test_restart_authorized(
+) -> None:
+
+    print_test_header(
+        5,
+        (
+            "RESTART AFTER AUTHORIZATION "
+            "WITH SINGLE CONSUMPTION"
+        ),
+    )
+
+    transport = (
+        SyntheticTransport()
+    )
+
+    state = create_initial_state()
+
+    lease = acquire_recovery_lease(
+        state,
+        "worker-auth-crash",
+    )
+
+    authorization = issue_recovery_authorization(
+        state,
+        lease,
+    )
+
+    snapshot = snapshot_state(
+        state
+    )
+
+    recovered = recover_execution(
+        snapshot,
+        transport,
+        "worker-auth-crash",
+    )
+
+    pass_check(
+        "Authorized Recovery Completed",
+        (
+            recovered.phase
+            == PHASE_COMPLETED
+        ),
+    )
+
+    pass_check(
+        "Authorized Recovery Produced Exactly One Dispatch",
+        (
+            transport.dispatch_count
+            == 1
+        ),
+    )
+
+    pass_check(
+        "Authorization Consumed Exactly Once",
+        (
+            authorization.authorization_id
+            in recovered.consumed_authorization_ids
+        ),
+    )
+
+
+# ============================================================================
+# TEST 6
+# RESTART AFTER COMMIT
+# ============================================================================
+
+def test_restart_committed(
+) -> None:
+
+    print_test_header(
+        6,
+        (
+            "RESTART AFTER COMMIT "
+            "BEFORE SYNTHETIC DISPATCH"
+        ),
+    )
+
+    transport = (
+        SyntheticTransport()
+    )
+
+    state = create_initial_state()
+
+    lease = acquire_recovery_lease(
+        state,
+        "worker-commit-crash",
+    )
+
+    authorization = issue_recovery_authorization(
+        state,
+        lease,
+    )
+
+    consume_authorization(
+        state,
+        authorization,
+        lease,
+    )
+
+    binding = build_dispatch_binding(
+        state
+    )
+
+    commit_dispatch(
+        state,
+        binding,
+    )
+
+    snapshot = snapshot_state(
+        state
+    )
+
+    recovered = recover_execution(
+        snapshot,
+        transport,
+        "worker-commit-crash",
+    )
+
+    pass_check(
+        "Committed Recovery Completed",
+        (
+            recovered.phase
+            == PHASE_COMPLETED
+        ),
+    )
+
+    pass_check(
+        "Committed Recovery Produced Exactly One Dispatch",
+        (
+            transport.dispatch_count
+            == 1
+        ),
+    )
+
+
+# ============================================================================
+# TEST 7
+# RESTART AFTER DISPATCH BEFORE FINALIZATION
+# ============================================================================
+
+def test_restart_dispatched(
+) -> None:
+
+    print_test_header(
+        7,
+        (
+            "RESTART AFTER DISPATCH "
+            "BEFORE FINALIZATION"
+        ),
+    )
+
+    transport = (
+        SyntheticTransport()
+    )
+
+    state = create_initial_state()
+
+    lease = acquire_recovery_lease(
+        state,
+        "worker-dispatch-crash",
+    )
+
+    authorization = issue_recovery_authorization(
+        state,
+        lease,
+    )
+
+    consume_authorization(
+        state,
+        authorization,
+        lease,
+    )
+
+    binding = build_dispatch_binding(
+        state
+    )
+
+    commit_dispatch(
+        state,
+        binding,
+    )
+
+    execute_synthetic_dispatch(
+        state,
+        transport,
+    )
+
+    pass_check(
+        "Pre-Crash Synthetic Dispatch Count Is One",
+        (
+            transport.dispatch_count
+            == 1
+        ),
+    )
+
+    snapshot = snapshot_state(
+        state
+    )
+
+    recovered = recover_execution(
+        snapshot,
+        transport,
+        "worker-dispatch-crash",
+    )
+
+    pass_check(
+        "Dispatched Recovery Completed",
+        (
+            recovered.phase
+            == PHASE_COMPLETED
+        ),
+    )
+
+    pass_check(
+        "Dispatched Recovery Produced No Second Dispatch",
+        (
+            transport.dispatch_count
+            == 1
+        ),
+    )
+
+
+# ============================================================================
+# TEST 8
+# TERMINAL RESTART IDEMPOTENCY
+# ============================================================================
+
+def test_terminal_restart(
+) -> None:
+
+    print_test_header(
+        8,
+        (
+            "TERMINAL RESTART "
+            "IDEMPOTENCY"
+        ),
+    )
+
+    transport = (
+        SyntheticTransport()
+    )
+
+    state = create_initial_state()
+
+    complete_synthetic_execution(
+        state,
+        transport,
+        "worker-terminal",
+    )
+
+    snapshot = snapshot_state(
+        state
+    )
+
+    restored = recover_execution(
+        snapshot,
+        transport,
+        "worker-terminal-restart",
+    )
+
+    pass_check(
+        "Terminal Recovery Remains COMPLETED",
+        (
+            restored.phase
+            == PHASE_COMPLETED
+        ),
+    )
+
+    pass_check(
+        "Terminal Recovery Produced No Second Dispatch",
+        (
+            transport.dispatch_count
+            == 1
+        ),
+    )
+
+    pass_check(
+        "Terminal Dispatch Finality Preserved",
+        (
+            restored.dispatch_id
+            in restored.completed_dispatch_ids
+        ),
+    )
+
+
+# ============================================================================
+# TEST 9
+# TORN WAL TAIL REJECTION
+# ============================================================================
+
+def test_torn_wal_tail(
+) -> None:
+
+    print_test_header(
+        9,
+        "TORN WAL TAIL REJECTION",
+    )
+
+    transport = (
+        SyntheticTransport()
+    )
+
+    state = create_initial_state()
+
+    complete_synthetic_execution(
+        state,
+        transport,
+        "worker-torn-tail",
+    )
+
+    damaged = clone(
+        state
+    )
+
+    tail = damaged.wal[-1]
+
+    damaged.wal[-1] = WALRecord(
+        sequence=(
+            tail.sequence
+        ),
+
+        event=(
+            tail.event
+        ),
+
+        timestamp_ms=(
+            tail.timestamp_ms
+        ),
+
+        generation=(
+            tail.generation
+        ),
+
+        lineage_id=(
+            tail.lineage_id
+        ),
+
+        recovery_epoch=(
+            tail.recovery_epoch
+        ),
+
+        intent_id=(
+            tail.intent_id
+        ),
+
+        dispatch_id=(
+            tail.dispatch_id
+        ),
+
+        authorization_id=(
+            tail.authorization_id
+        ),
+
+        lease_id=(
+            tail.lease_id
+        ),
+
+        payload_hash=(
+            tail.payload_hash
+        ),
+
+        previous_hash=(
+            tail.previous_hash
+        ),
+
+        record_hash=(
+            tail.record_hash[:-1]
+            + (
+                "0"
+                if tail.record_hash[-1]
+                != "0"
+                else "1"
+            )
+        ),
+
+        metadata=clone(
+            tail.metadata
+        ),
+    )
+
+    damaged.integrity_seal = (
+        calculate_state_integrity_seal(
+            damaged
+        )
+    )
+
+    expect_rejection(
+        "Torn WAL Tail Rejected",
+        lambda: restore_state(
+            damaged
+        ),
+    )
+
+
+# ============================================================================
+# TEST 10
+# HISTORICAL WAL RECORD TAMPER REJECTION
+# ============================================================================
+
+def test_historical_wal_tamper(
+) -> None:
+
+    print_test_header(
+        10,
+        (
+            "HISTORICAL WAL RECORD "
+            "TAMPER REJECTION"
+        ),
+    )
+
+    transport = (
+        SyntheticTransport()
+    )
+
+    state = create_initial_state()
+
+    complete_synthetic_execution(
+        state,
+        transport,
+        "worker-wal-history",
+    )
+
+    damaged = clone(
+        state
+    )
+
+    original = damaged.wal[0]
+
+    damaged.wal[0] = WALRecord(
+        sequence=(
+            original.sequence
+        ),
+
+        event=(
+            original.event
+        ),
+
+        timestamp_ms=(
+            original.timestamp_ms
+        ),
+
+        generation=(
+            original.generation
+        ),
+
+        lineage_id=(
+            original.lineage_id
+        ),
+
+        recovery_epoch=(
+            original.recovery_epoch
+        ),
+
+        intent_id=(
+            original.intent_id
+        ),
+
+        dispatch_id=(
+            original.dispatch_id
+        ),
+
+        authorization_id=(
+            original.authorization_id
+        ),
+
+        lease_id=(
+            original.lease_id
+        ),
+
+        payload_hash=(
+            original.payload_hash
+        ),
+
+        previous_hash=(
+            original.previous_hash
+        ),
+
+        record_hash=(
+            original.record_hash
+        ),
+
+        metadata={
+            **clone(
+                original.metadata
+            ),
+            "tampered": True,
+        },
+    )
+
+    damaged.integrity_seal = (
+        calculate_state_integrity_seal(
+            damaged
+        )
+    )
+
+    expect_rejection(
+        "Historical WAL Tamper Rejected",
+        lambda: restore_state(
+            damaged
+        ),
+    )
+
+
+# ============================================================================
+# TEST 11
+# CHECKPOINT TAMPER REJECTION
+# ============================================================================
+
+def test_checkpoint_tamper(
+) -> None:
+
+    print_test_header(
+        11,
+        "CHECKPOINT TAMPER REJECTION",
+    )
+
+    state = create_initial_state()
+
+    require(
+        state.checkpoint
+        is not None,
+        "checkpoint missing",
+    )
+
+    damaged = clone(
+        state
+    )
+
+    checkpoint = (
+        damaged.checkpoint
+    )
+
+    require(
+        checkpoint
+        is not None,
+        "checkpoint missing",
+    )
+
+    damaged.checkpoint = Checkpoint(
+        schema_version=(
+            checkpoint.schema_version
+        ),
+
+        checkpoint_id=(
+            checkpoint.checkpoint_id
+        ),
+
+        sequence=(
+            checkpoint.sequence
+        ),
+
+        phase=(
+            checkpoint.phase
+        ),
+
+        generation=(
+            checkpoint.generation
+        ),
+
+        lineage_id=(
+            checkpoint.lineage_id
+        ),
+
+        recovery_epoch=(
+            checkpoint.recovery_epoch
+        ),
+
+        intent_id=(
+            checkpoint.intent_id
+        ),
+
+        dispatch_id=(
+            checkpoint.dispatch_id
+        ),
+
+        wal_length=(
+            checkpoint.wal_length
+        ),
+
+        wal_final_hash=(
+            checkpoint.wal_final_hash
+        ),
+
+        created_at_ms=(
+            checkpoint.created_at_ms
+        ),
+
+        integrity_seal=(
+            checkpoint.integrity_seal[:-1]
+            + (
+                "0"
+                if checkpoint.integrity_seal[-1]
+                != "0"
+                else "1"
+            )
+        ),
+    )
+
+    damaged.integrity_seal = (
+        calculate_state_integrity_seal(
+            damaged
+        )
+    )
+
+    expect_rejection(
+        "Tampered Checkpoint Rejected",
+        lambda: restore_state(
+            damaged
+        ),
+    )
+
+
+# ============================================================================
+# TEST 12
+# STALE CHECKPOINT REJECTION
+# ============================================================================
+
+def test_stale_checkpoint(
+) -> None:
+
+    print_test_header(
+        12,
+        "STALE CHECKPOINT REJECTION",
+    )
+
+    transport = (
+        SyntheticTransport()
+    )
+
+    state = create_initial_state()
+
+    old_checkpoint = clone(
+        state.checkpoint
+    )
+
+    lease = acquire_recovery_lease(
+        state,
+        "worker-stale-checkpoint",
+    )
+
+    issue_recovery_authorization(
+        state,
+        lease,
+    )
+
+    damaged = clone(
+        state
+    )
+
+    damaged.checkpoint = (
+        old_checkpoint
+    )
+
+    damaged.integrity_seal = (
+        calculate_state_integrity_seal(
+            damaged
+        )
+    )
+
+    expect_rejection(
+        "Stale Checkpoint Rejected",
+        lambda: restore_state(
+            damaged
+        ),
+    )
+
+
+# ============================================================================
+# TEST 13
+# CHECKPOINT WAL HASH MISMATCH
+# ============================================================================
+
+def test_checkpoint_wal_hash_mismatch(
+) -> None:
+
+    print_test_header(
+        13,
+        (
+            "CHECKPOINT TO WAL "
+            "FINAL HASH MISMATCH"
+        ),
+    )
+
+    state = create_initial_state()
+
+    damaged = clone(
+        state
+    )
+
+    checkpoint = (
+        damaged.checkpoint
+    )
+
+    require(
+        checkpoint
+        is not None,
+        "checkpoint missing",
+    )
+
+    provisional = Checkpoint(
+        schema_version=(
+            checkpoint.schema_version
+        ),
+
+        checkpoint_id=(
+            checkpoint.checkpoint_id
+        ),
+
+        sequence=(
+            checkpoint.sequence
+        ),
+
+        phase=(
+            checkpoint.phase
+        ),
+
+        generation=(
+            checkpoint.generation
+        ),
+
+        lineage_id=(
+            checkpoint.lineage_id
+        ),
+
+        recovery_epoch=(
+            checkpoint.recovery_epoch
+        ),
+
+        intent_id=(
+            checkpoint.intent_id
+        ),
+
+        dispatch_id=(
+            checkpoint.dispatch_id
+        ),
+
+        wal_length=(
+            checkpoint.wal_length
+        ),
+
+        wal_final_hash=(
+            "f" * 64
+        ),
+
+        created_at_ms=(
+            checkpoint.created_at_ms
+        ),
+
+        integrity_seal="",
+    )
+
+    damaged.checkpoint = Checkpoint(
+        schema_version=(
+            provisional.schema_version
+        ),
+
+        checkpoint_id=(
+            provisional.checkpoint_id
+        ),
+
+        sequence=(
+            provisional.sequence
+        ),
+
+        phase=(
+            provisional.phase
+        ),
+
+        generation=(
+            provisional.generation
+        ),
+
+        lineage_id=(
+            provisional.lineage_id
+        ),
+
+        recovery_epoch=(
+            provisional.recovery_epoch
+        ),
+
+        intent_id=(
+            provisional.intent_id
+        ),
+
+        dispatch_id=(
+            provisional.dispatch_id
+        ),
+
+        wal_length=(
+            provisional.wal_length
+        ),
+
+        wal_final_hash=(
+            provisional.wal_final_hash
+        ),
+
+        created_at_ms=(
+            provisional.created_at_ms
+        ),
+
+        integrity_seal=(
+            provisional.calculate_integrity_seal()
+        ),
+    )
+
+    damaged.integrity_seal = (
+        calculate_state_integrity_seal(
+            damaged
+        )
+    )
+
+    expect_rejection(
+        "Checkpoint WAL Hash Mismatch Rejected",
+        lambda: restore_state(
+            damaged
+        ),
+    )
+
+
+# ============================================================================
+# TEST 14
+# GENERATION ADVANCE + ANTI-ABA
+# ============================================================================
+
+def test_generation_advance(
+) -> None:
+
+    print_test_header(
+        14,
+        (
+            "GENERATION ADVANCE "
+            "AND ANTI-ABA FENCING"
+        ),
+    )
+
+    transport = (
+        SyntheticTransport()
+    )
+
+    state = create_initial_state()
+
+    lease = acquire_recovery_lease(
+        state,
+        "worker-generation-a",
+    )
+
+    old_lease = clone(
+        lease
+    )
+
+    complete_authorization = (
+        issue_recovery_authorization(
+            state,
+            lease,
+        )
+    )
+
+    consume_authorization(
+        state,
+        complete_authorization,
+        lease,
+    )
+
+    binding = build_dispatch_binding(
+        state
+    )
+
+    commit_dispatch(
+        state,
+        binding,
+    )
+
+    execute_synthetic_dispatch(
+        state,
+        transport,
+    )
+
+    finalize_dispatch(
+        state
+    )
+
+    next_state = advance_generation(
+        state
+    )
+
+    pass_check(
+        "Generation Advanced Monotonically",
+        (
+            next_state.generation
+            > state.generation
+        ),
+    )
+
+    pass_check(
+        "Recovery Epoch Advanced Monotonically",
+        (
+            next_state.recovery_epoch
+            > state.recovery_epoch
+        ),
+    )
+
+    pass_check(
+        "New Generation Uses Different Lineage",
+        (
+            next_state.lineage_id
+            != state.lineage_id
+        ),
+    )
+
+    pass_check(
+        "New Generation Returns To PREPARED",
+        (
+            next_state.phase
+            == PHASE_PREPARED
+        ),
+    )
+
+    pass_check(
+        "Prior Completed Dispatch Preserved",
+        (
+            state.dispatch_id
+            in next_state.completed_dispatch_ids
+        ),
+    )
+
+    expect_rejection(
+        "Prior Generation Lease Rejected",
+        lambda: validate_recovery_lease(
+            next_state,
+            old_lease,
+        ),
+    )
+
+
+# ============================================================================
+# TEST 15
+# REUSED OWNER ANTI-ABA
+# ============================================================================
+
+def test_owner_reuse_anti_aba(
+) -> None:
+
+    print_test_header(
+        15,
+        (
+            "OWNER REUSE ACROSS "
+            "GENERATION LINEAGE"
+        ),
+    )
+
+    transport = (
+        SyntheticTransport()
+    )
+
+    state = create_initial_state()
+
+    owner = (
+        "worker-reused-owner"
+    )
+
+    first_lease = acquire_recovery_lease(
+        state,
+        owner,
+    )
+
+    authorization = issue_recovery_authorization(
+        state,
+        first_lease,
+    )
+
+    consume_authorization(
+        state,
+        authorization,
+        first_lease,
+    )
+
+    binding = build_dispatch_binding(
+        state
+    )
+
+    commit_dispatch(
+        state,
+        binding,
+    )
+
+    execute_synthetic_dispatch(
+        state,
+        transport,
+    )
+
+    finalize_dispatch(
+        state
+    )
+
+    next_state = advance_generation(
+        state
+    )
+
+    second_lease = acquire_recovery_lease(
+        next_state,
+        owner,
+    )
+
+    pass_check(
+        "Reacquired Owner Uses Higher Generation",
+        (
+            second_lease.generation
+            > first_lease.generation
+        ),
+    )
+
+    pass_check(
+        "Reacquired Owner Uses Different Lineage",
+        (
+            second_lease.lineage_id
+            != first_lease.lineage_id
+        ),
+    )
+
+    pass_check(
+        "Reacquired Owner Uses Higher Epoch",
+        (
+            second_lease.recovery_epoch
+            > first_lease.recovery_epoch
+        ),
+    )
+
+    pass_check(
+        "Reused Owner Cannot Resurrect Prior Lease",
+        (
+            second_lease.lease_id
+            != first_lease.lease_id
+        ),
+    )
+
+
+# ============================================================================
+# TEST 16
+# EXACT TRANSPORT BINDING
+# ============================================================================
+
+def test_exact_transport_binding(
+) -> None:
+
+    print_test_header(
+        16,
+        "EXACT SYNTHETIC TRANSPORT BINDING",
+    )
+
+    state = create_initial_state()
+
+    lease = acquire_recovery_lease(
+        state,
+        "worker-binding",
+    )
+
+    authorization = issue_recovery_authorization(
+        state,
+        lease,
+    )
+
+    consume_authorization(
+        state,
+        authorization,
+        lease,
+    )
+
+    binding = build_dispatch_binding(
+        state
+    )
+
+    pass_check(
+        "Transport Method Exactly POST",
+        (
+            binding.transport_method
+            == "POST"
+        ),
+    )
+
+    pass_check(
+        "Transport Path Exactly Leverage Endpoint",
+        (
+            binding.transport_path
+            == LEVERAGE_ENDPOINT
+        ),
+    )
+
+    pass_check(
+        "Transport Payload Hash Preserved",
+        (
+            binding.payload_hash
+            == EXACT_LEVERAGE_PAYLOAD_HASH
+        ),
+    )
+
+    pass_check(
+        "Transport Payload Exactly Preserved",
+        (
+            canonical_json(
+                binding.payload
+            )
+            == EXACT_LEVERAGE_PAYLOAD_JSON
+        ),
+    )
+
+
+# ============================================================================
+# TEST 17
+# FINAL NETWORK-WRITE FIREBREAK
+# ============================================================================
+
+def test_final_firebreak(
+) -> None:
+
+    print_test_header(
+        17,
+        "FINAL NETWORK WRITE FIREBREAK",
+    )
+
+    transport = (
+        SyntheticTransport()
+    )
+
+    state = create_initial_state()
+
+    complete_synthetic_execution(
+        state,
+        transport,
+        "worker-firebreak",
+    )
+
+    assert_transport_firebreak(
+        transport
+    )
+
+    pass_check(
+        "Live Execution Disabled",
+        (
+            LIVE_ORDER_EXECUTION
+            is False
+        ),
+    )
+
+    pass_check(
+        "Demo Execution Disabled",
+        (
+            DEMO_ORDER_EXECUTION
+            is False
+        ),
+    )
+
+    pass_check(
+        "Network Writes Disabled",
+        (
+            NETWORK_WRITES_ENABLED
+            is False
+        ),
+    )
+
+    pass_check(
+        "Real POST Disabled",
+        (
+            REAL_POST_ENABLED
+            is False
+        ),
+    )
+
+    pass_check(
+        "Demo POST Disabled",
+        (
+            DEMO_POST_ENABLED
+            is False
+        ),
+    )
+
+    pass_check(
+        "Synthetic Transport Only",
+        (
+            SYNTHETIC_TRANSPORT_ONLY
+            is True
+        ),
+    )
+
+    pass_check(
+        "Network Write Count Remains Zero",
+        (
+            transport.network_write_count
+            == 0
+        ),
+    )
+
+    pass_check(
+        "Real POST Count Remains Zero",
+        (
+            transport.real_post_count
+            == 0
+        ),
+    )
+
+    pass_check(
+        "Demo POST Count Remains Zero",
+        (
+            transport.demo_post_count
+            == 0
+        ),
+    )
+
+
+# ============================================================================
+# DIAGNOSTIC TEST RUNNER
+# ============================================================================
+
+def run_diagnostic(
+) -> None:
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+    print(
+        (
+            "R28 UNIT N.27 "
+            "DIAGNOSTIC START"
+        ),
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+    test_initial_state()
+    test_complete_execution()
+    test_wal_hash_chain()
+    test_restart_prepared()
+    test_restart_authorized()
+    test_restart_committed()
+    test_restart_dispatched()
+    test_terminal_restart()
+    test_torn_wal_tail()
+    test_historical_wal_tamper()
+    test_checkpoint_tamper()
+    test_stale_checkpoint()
+    test_checkpoint_wal_hash_mismatch()
+    test_generation_advance()
+    test_owner_reuse_anti_aba()
+    test_exact_transport_binding()
+    test_final_firebreak()
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+    print(
+        (
+            "✅ R28 UNIT N.27 PASSED — "
+            "DURABLE WAL + CHECKPOINT "
+            "RECOVERY VALIDATED"
+        ),
+        flush=True,
+    )
+
+    print(
+        (
+            "✅ NO REAL ORDER WAS SENT — "
+            "NO DEMO ORDER WAS SENT — "
+            "NO NETWORK WRITE OCCURRED"
+        ),
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+
+# ============================================================================
+# END OF PART 3
+# ============================================================================
+
+print(
+    "R28 UNIT N.27: PART 3 DEFINITIONS LOADED",
+    flush=True,
+)
