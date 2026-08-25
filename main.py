@@ -238,7 +238,7 @@ class N23Engine:
         if not verify_seal(cert.body(), cert.seal):
             raise IntegrityError("certificate integrity seal mismatch")
 
-    @staticmethod
+        @staticmethod
     def _verify_manifest(manifest: GenerationManifest) -> None:
         core = {
             "lineage_id": manifest.lineage_id,
