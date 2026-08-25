@@ -974,3 +974,103 @@ def run_diagnostic() -> None:
 
 
 print("R28 UNIT N.25: PART 2 DEFINITIONS LOADED", flush=True)
+# ============================================================================
+# OPTIONAL HEALTH SERVER
+# ============================================================================
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path in ("/", "/health", "/healthz"):
+            body = json.dumps(
+                {
+                    "unit": UNIT_NAME,
+                    "version": UNIT_VERSION,
+                    "status": "ok",
+                    "real_post": REAL_POST_ENABLED,
+                    "demo_post": DEMO_POST_ENABLED,
+                    "network_writes": NETWORK_WRITES_ENABLED,
+                    "synthetic_only": SYNTHETIC_TRANSPORT_ONLY,
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        return
+
+
+def start_health_server() -> None:
+    port = int(os.environ.get("PORT", "10000"))
+
+    def runner() -> None:
+        try:
+            server = HTTPServer(("0.0.0.0", port), HealthHandler)
+            print(
+                f"{UNIT_NAME}: HEALTH SERVER ACTIVE ON PORT {port}",
+                flush=True,
+            )
+            server.serve_forever()
+        except Exception as exc:
+            print(
+                f"{UNIT_NAME}: HEALTH SERVER WARNING: "
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+
+    thread = threading.Thread(
+        target=runner,
+        daemon=True,
+    )
+    thread.start()
+
+
+print("R28 UNIT N.25: PART 3 DEFINITIONS LOADED", flush=True)
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+
+def main() -> None:
+    start_health_server()
+
+    try:
+        run_diagnostic()
+
+    except Exception as exc:
+        print("", flush=True)
+        print("=" * 92, flush=True)
+        print(f"❌ {UNIT_NAME} FAILED", flush=True)
+        print(
+            f"Failure = {type(exc).__name__}: {exc}",
+            flush=True,
+        )
+        print("⚠️ NO REAL ORDER WAS SENT", flush=True)
+        print("=" * 92, flush=True)
+        raise
+
+    heartbeat = 0
+
+    while True:
+        heartbeat += 1
+        print(
+            f"{UNIT_NAME}: HEARTBEAT {heartbeat} ✅ ACTIVE",
+            flush=True,
+        )
+        time.sleep(60)
+
+
+print("R28 UNIT N.25: PART 4 DEFINITIONS LOADED", flush=True)
+
+
+if __name__ == "__main__":
+    main()
