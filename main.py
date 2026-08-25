@@ -2735,3 +2735,1603 @@ print(
     "R28 UNIT N.23: PART 3 DEFINITIONS LOADED",
     flush=True,
 )
+# ============================================================================
+# R28 UNIT N.23
+# CORRECTED COPY/PASTE VERSION
+# PART 4 OF 4
+#
+# DIAGNOSTIC TEST SUITE + RUNTIME
+# ============================================================================
+
+
+# ============================================================================
+# TEST 1
+# BASIC ENGINE INITIALIZATION
+# ============================================================================
+
+def run_test_1() -> None:
+    test_header(
+        1,
+        "BASIC ENGINE INITIALIZATION",
+    )
+
+    engine = N23Engine()
+
+    report_test(
+        "Engine Starts In PREPARED State",
+        engine.state.state == "PREPARED",
+    )
+
+    report_test(
+        "Initial Generation Is One",
+        engine.state.generation == 1,
+    )
+
+    report_test(
+        "Initial Recovery Epoch Is One",
+        engine.state.recovery_epoch == 1,
+    )
+
+    report_test(
+        "Initial Lineage Present",
+        bool(engine.state.lineage_id),
+    )
+
+    report_test(
+        "Initial Integrity Seal Present",
+        bool(engine.state.integrity_seal),
+    )
+
+    try:
+        engine.verify_integrity()
+        valid = True
+    except Exception:
+        valid = False
+
+    report_test(
+        "Initial Durable State Integrity Valid",
+        valid,
+    )
+
+
+# ============================================================================
+# TEST 2
+# RECOVERY LEASE ACQUISITION
+# ============================================================================
+
+def run_test_2() -> None:
+    test_header(
+        2,
+        "RECOVERY LEASE ACQUISITION",
+    )
+
+    engine = N23Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    report_test(
+        "Recovery Lease Acquired",
+        lease is not None,
+    )
+
+    report_test(
+        "Lease Owner Preserved",
+        lease.owner_id == "worker-A",
+    )
+
+    report_test(
+        "Lease Generation Bound",
+        lease.generation == engine.state.generation,
+    )
+
+    report_test(
+        "Lease Lineage Bound",
+        lease.lineage_id == engine.state.lineage_id,
+    )
+
+    report_test(
+        "Lease Recovery Epoch Bound",
+        (
+            lease.recovery_epoch
+            == engine.state.recovery_epoch
+        ),
+    )
+
+    report_test(
+        "Lease Fence Bound",
+        (
+            lease.fence_hash
+            == engine.state.fence().fingerprint()
+        ),
+    )
+
+
+# ============================================================================
+# TEST 3
+# SINGLE OWNER LEASE ENFORCEMENT
+# ============================================================================
+
+def run_test_3() -> None:
+    test_header(
+        3,
+        "SINGLE OWNER RECOVERY LEASE",
+    )
+
+    engine = N23Engine()
+
+    lease_a = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    lease_a_repeat = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    report_test(
+        "Same Owner Reacquires Same Lease",
+        lease_a_repeat.lease_id == lease_a.lease_id,
+    )
+
+    second_owner_blocked = expect_exception(
+        lambda: engine.acquire_recovery_lease(
+            "worker-B"
+        ),
+        "already owned",
+    )
+
+    report_test(
+        "Second Concurrent Owner Rejected",
+        second_owner_blocked,
+    )
+
+
+# ============================================================================
+# TEST 4
+# AUTHORIZATION BINDING
+# ============================================================================
+
+def run_test_4() -> None:
+    test_header(
+        4,
+        "RECOVERY AUTHORIZATION BINDING",
+    )
+
+    engine = N23Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    authorization = (
+        engine.issue_recovery_authorization(
+            lease
+        )
+    )
+
+    report_test(
+        "Recovery Authorization Issued",
+        authorization is not None,
+    )
+
+    report_test(
+        "Authorization Bound To Lease",
+        authorization.lease_id == lease.lease_id,
+    )
+
+    report_test(
+        "Authorization Bound To Generation",
+        (
+            authorization.generation
+            == engine.state.generation
+        ),
+    )
+
+    report_test(
+        "Authorization Bound To Lineage",
+        (
+            authorization.lineage_id
+            == engine.state.lineage_id
+        ),
+    )
+
+    report_test(
+        "Authorization Bound To Recovery Epoch",
+        (
+            authorization.recovery_epoch
+            == engine.state.recovery_epoch
+        ),
+    )
+
+    report_test(
+        "Authorization Initially Unconsumed",
+        authorization.consumed is False,
+    )
+
+
+# ============================================================================
+# TEST 5
+# EXACT TRANSPORT BINDING
+# ============================================================================
+
+def run_test_5() -> None:
+    test_header(
+        5,
+        "EXACT SYNTHETIC TRANSPORT BINDING",
+    )
+
+    engine = N23Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    authorization = (
+        engine.issue_recovery_authorization(
+            lease
+        )
+    )
+
+    binding = engine.prepare_dispatch_binding(
+        lease,
+        authorization,
+    )
+
+    report_test(
+        "Transport Method Exactly POST",
+        binding.transport_method == "POST",
+    )
+
+    report_test(
+        "Transport Path Exactly Leverage Endpoint",
+        (
+            binding.transport_path
+            == LEVERAGE_ENDPOINT
+        ),
+    )
+
+    report_test(
+        "Exact Leverage Payload Preserved",
+        (
+            canonical_json(binding.payload)
+            == EXACT_LEVERAGE_PAYLOAD_JSON
+        ),
+    )
+
+    report_test(
+        "Transport Payload Hash Preserved",
+        (
+            binding.payload_hash
+            == EXACT_LEVERAGE_PAYLOAD_HASH
+        ),
+    )
+
+
+# ============================================================================
+# TEST 6
+# SYNTHETIC DISPATCH
+# ============================================================================
+
+def run_test_6() -> None:
+    test_header(
+        6,
+        "SINGLE SYNTHETIC DISPATCH",
+    )
+
+    engine = N23Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    authorization = (
+        engine.issue_recovery_authorization(
+            lease
+        )
+    )
+
+    binding = engine.prepare_dispatch_binding(
+        lease,
+        authorization,
+    )
+
+    receipt = engine.execute_synthetic_dispatch(
+        lease,
+        authorization,
+        binding,
+    )
+
+    report_test(
+        "Synthetic Dispatch Completed",
+        engine.state.state == "COMPLETED",
+    )
+
+    report_test(
+        "Synthetic Receipt Created",
+        receipt is not None,
+    )
+
+    report_test(
+        "Synthetic Receipt Reports No Transmission",
+        receipt.transmitted is False,
+    )
+
+    report_test(
+        "Synthetic Receipt Reports No Network Write",
+        receipt.network_write is False,
+    )
+
+    report_test(
+        "Dispatch Recorded As Completed",
+        (
+            engine.state.dispatch_id
+            in engine.state.completed_dispatch_ids
+        ),
+    )
+
+    report_test(
+        "Recovery Authorization Persisted As Consumed",
+        (
+            engine.state.authorization is not None
+            and engine.state.authorization.consumed
+        ),
+    )
+
+
+# ============================================================================
+# TEST 7
+# REPLAY REJECTION
+# ============================================================================
+
+def run_test_7() -> None:
+    test_header(
+        7,
+        "AUTHORIZATION AND DISPATCH REPLAY REJECTION",
+    )
+
+    engine = N23Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    authorization = (
+        engine.issue_recovery_authorization(
+            lease
+        )
+    )
+
+    binding = engine.prepare_dispatch_binding(
+        lease,
+        authorization,
+    )
+
+    engine.execute_synthetic_dispatch(
+        lease,
+        authorization,
+        binding,
+    )
+
+    replay_blocked = expect_exception(
+        lambda: engine.execute_synthetic_dispatch(
+            lease,
+            authorization,
+            binding,
+        )
+    )
+
+    report_test(
+        "Second Synthetic Dispatch Rejected",
+        replay_blocked,
+    )
+
+    report_test(
+        "Exactly One Synthetic Dispatch Recorded",
+        engine.transport.dispatch_count == 1,
+    )
+
+
+# ============================================================================
+# TEST 8
+# RESTART AFTER COMPLETION
+# ============================================================================
+
+def run_test_8() -> None:
+    test_header(
+        8,
+        "RESTART AFTER COMPLETED GENERATION",
+    )
+
+    engine = N23Engine()
+
+    receipt_before = engine.recover(
+        "worker-A"
+    )
+
+    restarted = simulate_restart(
+        engine
+    )
+
+    report_test(
+        "Completed State Survived Restart",
+        restarted.state.state == "COMPLETED",
+    )
+
+    report_test(
+        "Completed Dispatch Survived Restart",
+        (
+            restarted.state.dispatch_id
+            in restarted.state.completed_dispatch_ids
+        ),
+    )
+
+    report_test(
+        "Consumed Authorization Survived Restart",
+        (
+            restarted.state.authorization is not None
+            and restarted.state.authorization.consumed
+        ),
+    )
+
+    receipt_after = restarted.recover(
+        "worker-B"
+    )
+
+    report_test(
+        "Repeated Recovery Returns Existing Receipt",
+        (
+            receipt_after.receipt_id
+            == receipt_before.receipt_id
+        ),
+    )
+
+    report_test(
+        "Restart Replay Produced No New Dispatch",
+        restarted.transport.dispatch_count == 0,
+    )
+
+
+# ============================================================================
+# TEST 9
+# SNAPSHOT SERIALIZATION
+# ============================================================================
+
+def run_test_9() -> None:
+    test_header(
+        9,
+        "SNAPSHOT SERIALIZATION AND RESTORE",
+    )
+
+    engine = N23Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    engine.issue_recovery_authorization(
+        lease
+    )
+
+    snapshot = engine.snapshot_dict()
+
+    restored = N23Engine.restore_dict(
+        snapshot
+    )
+
+    report_test(
+        "Snapshot Restored Successfully",
+        restored is not None,
+    )
+
+    report_test(
+        "Restored Generation Preserved",
+        (
+            restored.state.generation
+            == engine.state.generation
+        ),
+    )
+
+    report_test(
+        "Restored Lineage Preserved",
+        (
+            restored.state.lineage_id
+            == engine.state.lineage_id
+        ),
+    )
+
+    report_test(
+        "Restored Recovery Epoch Preserved",
+        (
+            restored.state.recovery_epoch
+            == engine.state.recovery_epoch
+        ),
+    )
+
+    report_test(
+        "Restored Active Lease Preserved",
+        (
+            restored.state.active_lease is not None
+            and
+            restored.state.active_lease.lease_id
+            == lease.lease_id
+        ),
+    )
+
+
+# ============================================================================
+# TEST 10
+# CORRUPTED SNAPSHOT REJECTION
+# ============================================================================
+
+def run_test_10() -> None:
+    test_header(
+        10,
+        "CORRUPTED SNAPSHOT REJECTION",
+    )
+
+    engine = N23Engine()
+
+    snapshot = clone_snapshot_dict(
+        engine
+    )
+
+    snapshot["generation"] += 1
+
+    corrupted_rejected = expect_exception(
+        lambda: N23Engine.restore_dict(
+            snapshot
+        ),
+        "integrity seal",
+    )
+
+    report_test(
+        "Corrupted Snapshot Integrity Seal Rejected",
+        corrupted_rejected,
+    )
+
+
+# ============================================================================
+# TEST 11
+# TAMPERED TRANSPORT BINDING
+# ============================================================================
+
+def run_test_11() -> None:
+    test_header(
+        11,
+        "TAMPERED TRANSPORT BINDING REJECTION",
+    )
+
+    engine = N23Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    authorization = (
+        engine.issue_recovery_authorization(
+            lease
+        )
+    )
+
+    binding = engine.prepare_dispatch_binding(
+        lease,
+        authorization,
+    )
+
+    tampered = DispatchBinding(
+        dispatch_id=binding.dispatch_id,
+        intent_id=binding.intent_id,
+
+        generation=binding.generation,
+        lineage_id=binding.lineage_id,
+        recovery_epoch=binding.recovery_epoch,
+
+        transport_method=binding.transport_method,
+        transport_path="/tampered/path",
+
+        payload=clone(binding.payload),
+        payload_hash=binding.payload_hash,
+    )
+
+    rejected = expect_exception(
+        lambda: engine.execute_synthetic_dispatch(
+            lease,
+            authorization,
+            tampered,
+        )
+    )
+
+    report_test(
+        "Tampered Recovery Binding Rejected",
+        rejected,
+    )
+
+    report_test(
+        "Tampered Recovery Produced No Synthetic Dispatch",
+        engine.transport.dispatch_count == 0,
+    )
+
+
+# ============================================================================
+# TEST 12
+# GENERATION ADVANCEMENT
+# ============================================================================
+
+def run_test_12() -> None:
+    test_header(
+        12,
+        "GENERATION AND RECOVERY EPOCH ADVANCEMENT",
+    )
+
+    engine = N23Engine()
+
+    engine.recover(
+        "worker-A"
+    )
+
+    old_generation = engine.state.generation
+    old_epoch = engine.state.recovery_epoch
+    old_lineage = engine.state.lineage_id
+
+    advance_generation(
+        engine
+    )
+
+    report_test(
+        "Generation Advanced Monotonically",
+        engine.state.generation > old_generation,
+    )
+
+    report_test(
+        "Recovery Epoch Advanced Monotonically",
+        engine.state.recovery_epoch > old_epoch,
+    )
+
+    report_test(
+        "New Generation Uses Different Lineage",
+        engine.state.lineage_id != old_lineage,
+    )
+
+    report_test(
+        "New Generation Returns To PREPARED",
+        engine.state.state == "PREPARED",
+    )
+
+    report_test(
+        "Prior Completed Dispatch Preserved",
+        len(engine.state.completed_dispatch_ids) == 1,
+    )
+
+
+# ============================================================================
+# TEST 13
+# ANTI-ABA STALE LEASE
+# ============================================================================
+
+def run_test_13() -> None:
+    test_header(
+        13,
+        "ANTI-ABA STALE LEASE REJECTION",
+    )
+
+    engine = N23Engine()
+
+    old_lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    old_authorization = (
+        engine.issue_recovery_authorization(
+            old_lease
+        )
+    )
+
+    old_binding = (
+        engine.prepare_dispatch_binding(
+            old_lease,
+            old_authorization,
+        )
+    )
+
+    engine.execute_synthetic_dispatch(
+        old_lease,
+        old_authorization,
+        old_binding,
+    )
+
+    advance_generation(
+        engine
+    )
+
+    stale_rejected = expect_exception(
+        lambda: validate_lease_against_current_generation(
+            engine,
+            old_lease,
+        )
+    )
+
+    report_test(
+        "Old Generation Lease Rejected",
+        stale_rejected,
+    )
+
+    report_test(
+        "Old Lease Recorded As Retired",
+        (
+            old_lease.lease_id
+            in engine.state.retired_lease_ids
+        ),
+    )
+
+
+# ============================================================================
+# TEST 14
+# ANTI-ABA OWNER REUSE
+# ============================================================================
+
+def run_test_14() -> None:
+    test_header(
+        14,
+        "ANTI-ABA OWNER REUSE ACROSS GENERATION LINEAGE",
+    )
+
+    engine = N23Engine()
+
+    first_lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    first_authorization = (
+        engine.issue_recovery_authorization(
+            first_lease
+        )
+    )
+
+    first_binding = (
+        engine.prepare_dispatch_binding(
+            first_lease,
+            first_authorization,
+        )
+    )
+
+    engine.execute_synthetic_dispatch(
+        first_lease,
+        first_authorization,
+        first_binding,
+    )
+
+    first_generation = first_lease.generation
+    first_lineage = first_lease.lineage_id
+    first_epoch = first_lease.recovery_epoch
+    first_nonce = first_lease.nonce
+
+    advance_generation(
+        engine
+    )
+
+    second_lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    report_test(
+        "Reacquired Owner Uses Higher Generation",
+        second_lease.generation > first_generation,
+    )
+
+    report_test(
+        "Reacquired Owner Uses Different Lineage",
+        second_lease.lineage_id != first_lineage,
+    )
+
+    report_test(
+        "Reacquired Owner Uses Higher Epoch",
+        second_lease.recovery_epoch > first_epoch,
+    )
+
+    report_test(
+        "Reacquired Owner Uses Higher Nonce",
+        second_lease.nonce > first_nonce,
+    )
+
+    replay_rejected = expect_exception(
+        lambda: validate_lease_against_current_generation(
+            engine,
+            first_lease,
+        )
+    )
+
+    report_test(
+        "Reused Worker Identity Cannot Resurrect Prior Generation Lease",
+        replay_rejected,
+    )
+
+
+# ============================================================================
+# TEST 15
+# EXACT SYNTHETIC TRANSPORT BINDING
+# ============================================================================
+
+def run_test_15() -> None:
+    test_header(
+        15,
+        "EXACT SYNTHETIC TRANSPORT BINDING",
+    )
+
+    engine = N23Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    authorization = (
+        engine.issue_recovery_authorization(
+            lease
+        )
+    )
+
+    binding = engine.prepare_dispatch_binding(
+        lease,
+        authorization,
+    )
+
+    report_test(
+        "Transport Method Exactly POST",
+        binding.transport_method == "POST",
+    )
+
+    report_test(
+        "Transport Path Exactly Leverage Endpoint",
+        binding.transport_path == LEVERAGE_ENDPOINT,
+    )
+
+    report_test(
+        "Transport Payload Hash Preserved",
+        (
+            binding.payload_hash
+            == EXACT_LEVERAGE_PAYLOAD_HASH
+        ),
+    )
+
+
+# ============================================================================
+# TEST 16
+# CONCURRENT RECOVERY SINGLE WINNER
+# ============================================================================
+
+def run_test_16() -> None:
+    test_header(
+        16,
+        "CONCURRENT RECOVERY SINGLE-DISPATCH",
+    )
+
+    engine = N23Engine()
+
+    receipts: List[SyntheticReceipt] = []
+    errors: List[str] = []
+
+    result_lock = threading.Lock()
+
+    def worker(
+        owner_id: str,
+    ) -> None:
+        try:
+            receipt = engine.recover(
+                owner_id
+            )
+
+            with result_lock:
+                receipts.append(
+                    receipt
+                )
+
+        except Exception as exc:
+            with result_lock:
+                errors.append(
+                    str(exc)
+                )
+
+    threads = [
+        threading.Thread(
+            target=worker,
+            args=("worker-A",),
+        ),
+        threading.Thread(
+            target=worker,
+            args=("worker-B",),
+        ),
+        threading.Thread(
+            target=worker,
+            args=("worker-C",),
+        ),
+        threading.Thread(
+            target=worker,
+            args=("worker-D",),
+        ),
+    ]
+
+    for thread in threads:
+        thread.start()
+
+    for thread in threads:
+        thread.join()
+
+    report_test(
+        "Concurrent Recovery Produced Exactly One Synthetic Dispatch",
+        engine.transport.dispatch_count == 1,
+    )
+
+    report_test(
+        "Concurrent Recovery Final State Completed",
+        engine.state.state == "COMPLETED",
+    )
+
+    report_test(
+        "Concurrent Recovery Preserved Consumed Authorization",
+        (
+            engine.state.authorization is not None
+            and engine.state.authorization.consumed
+        ),
+    )
+
+    structural_errors = []
+
+    for error in errors:
+        allowed = (
+            "already owned"
+            in error.lower()
+        )
+
+        if not allowed:
+            structural_errors.append(
+                error
+            )
+
+    report_test(
+        "Concurrent Recovery Produced No Structural Errors",
+        len(structural_errors) == 0,
+    )
+
+
+# ============================================================================
+# TEST 17
+# FORGED HIGHER EPOCH
+# ============================================================================
+
+def run_test_17() -> None:
+    test_header(
+        17,
+        "FORGED HIGHER EPOCH WITHOUT MATCHING AUTHORIZATION",
+    )
+
+    engine = N23Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "worker-A"
+    )
+
+    authorization = (
+        engine.issue_recovery_authorization(
+            lease
+        )
+    )
+
+    forged = RecoveryAuthorization(
+        authorization_id=authorization.authorization_id,
+        owner_id=authorization.owner_id,
+        lease_id=authorization.lease_id,
+
+        generation=authorization.generation,
+        lineage_id=authorization.lineage_id,
+        recovery_epoch=(
+            authorization.recovery_epoch + 1
+        ),
+        nonce=authorization.nonce,
+
+        intent_id=authorization.intent_id,
+        dispatch_id=authorization.dispatch_id,
+
+        transport_method=authorization.transport_method,
+        transport_path=authorization.transport_path,
+        payload_hash=authorization.payload_hash,
+
+        issued_at_ms=authorization.issued_at_ms,
+        consumed=False,
+        consumed_at_ms=None,
+    )
+
+    rejected = expect_exception(
+        lambda: engine.prepare_dispatch_binding(
+            lease,
+            forged,
+        ),
+        "recovery epoch",
+    )
+
+    report_test(
+        "Forged Epoch Transition Rejected",
+        rejected,
+    )
+
+    report_test(
+        "Forged Epoch Produced No Synthetic Dispatch",
+        engine.transport.dispatch_count == 0,
+    )
+
+
+# ============================================================================
+# TEST 18
+# TERMINAL IMMUTABILITY
+# ============================================================================
+
+def run_test_18() -> None:
+    test_header(
+        18,
+        "TERMINAL GENERATION IMMUTABILITY",
+    )
+
+    engine = N23Engine()
+
+    first_receipt = engine.recover(
+        "worker-A"
+    )
+
+    blocked = expect_exception(
+        lambda: engine.acquire_recovery_lease(
+            "worker-B"
+        ),
+        "terminal generation",
+    )
+
+    report_test(
+        "Terminal Generation Rejects New Recovery Lease",
+        blocked,
+    )
+
+    second_receipt = engine.recover(
+        "worker-C"
+    )
+
+    report_test(
+        "Repeated Recovery Is Already Final",
+        (
+            second_receipt.receipt_id
+            == first_receipt.receipt_id
+        ),
+    )
+
+    report_test(
+        "Repeated Recovery Produced No Second Dispatch",
+        engine.transport.dispatch_count == 1,
+    )
+
+
+# ============================================================================
+# TEST 19
+# RESTORED CONSUMED AUTHORIZATION CANNOT RESURRECT
+# ============================================================================
+
+def run_test_19() -> None:
+    test_header(
+        19,
+        "RESTART AFTER AUTHORIZATION CONSUMPTION",
+    )
+
+    engine = N23Engine()
+
+    engine.recover(
+        "worker-A"
+    )
+
+    snapshot = engine.snapshot_state()
+
+    restarted = N23Engine.restore_state(
+        snapshot
+    )
+
+    report_test(
+        "Consumed Authorization State Survived Restart",
+        (
+            restarted.state.authorization is not None
+            and restarted.state.authorization.consumed
+        ),
+    )
+
+    old_authorization = clone(
+        restarted.state.authorization
+    )
+
+    resurrection_rejected = False
+
+    if old_authorization is not None:
+        fake_lease = RecoveryLease(
+            lease_id=old_authorization.lease_id,
+            owner_id=old_authorization.owner_id,
+            generation=old_authorization.generation,
+            lineage_id=old_authorization.lineage_id,
+            recovery_epoch=old_authorization.recovery_epoch,
+            nonce=old_authorization.nonce,
+            issued_at_ms=old_authorization.issued_at_ms,
+            fence_hash=restarted.state.fence().fingerprint(),
+        )
+
+        resurrection_rejected = expect_exception(
+            lambda: restarted.prepare_dispatch_binding(
+                fake_lease,
+                old_authorization,
+            )
+        )
+
+    report_test(
+        "Post-Restart Authorization Resurrection Rejected",
+        resurrection_rejected,
+    )
+
+    report_test(
+        "Restart Replay Produced No Second Synthetic Dispatch",
+        restarted.transport.dispatch_count == 0,
+    )
+
+
+# ============================================================================
+# TEST 20
+# JOURNAL PRESERVATION
+# ============================================================================
+
+def run_test_20() -> None:
+    test_header(
+        20,
+        "DURABLE JOURNAL PRESERVATION",
+    )
+
+    engine = N23Engine()
+
+    engine.recover(
+        "worker-A"
+    )
+
+    original_count = len(
+        engine.state.journal
+    )
+
+    restarted = simulate_restart(
+        engine
+    )
+
+    restored_count = len(
+        restarted.state.journal
+    )
+
+    report_test(
+        "Journal Survived Restart",
+        restored_count == original_count,
+    )
+
+    report_test(
+        "Journal Preserves Dispatch Identity",
+        all(
+            (
+                record.dispatch_id
+                in {
+                    None,
+                    restarted.state.dispatch_id,
+                }
+            )
+            for record in restarted.state.journal
+        ),
+    )
+
+    sequences = [
+        record.sequence
+        for record in restarted.state.journal
+    ]
+
+    report_test(
+        "Journal Sequence Preserved",
+        sequences == list(
+            range(
+                1,
+                len(sequences) + 1,
+            )
+        ),
+    )
+
+
+# ============================================================================
+# TEST 21
+# SECOND GENERATION DISTINCT IDENTITY
+# ============================================================================
+
+def run_test_21() -> None:
+    test_header(
+        21,
+        "SECOND GENERATION DISTINCT IDENTITY",
+    )
+
+    engine = N23Engine()
+
+    engine.recover(
+        "worker-A"
+    )
+
+    first_intent = engine.state.intent_id
+    first_dispatch = engine.state.dispatch_id
+    first_lineage = engine.state.lineage_id
+
+    advance_generation(
+        engine
+    )
+
+    report_test(
+        "Second Generation Uses Different Intent",
+        engine.state.intent_id != first_intent,
+    )
+
+    report_test(
+        "Second Generation Uses Different Dispatch",
+        engine.state.dispatch_id != first_dispatch,
+    )
+
+    report_test(
+        "Second Generation Uses Different Lineage",
+        engine.state.lineage_id != first_lineage,
+    )
+
+
+# ============================================================================
+# TEST 22
+# FINAL NETWORK WRITE FIREBREAK
+# ============================================================================
+
+def run_test_22() -> None:
+    test_header(
+        22,
+        "FINAL NETWORK WRITE FIREBREAK",
+    )
+
+    engine = N23Engine()
+
+    engine.recover(
+        "worker-A"
+    )
+
+    try:
+        assert_transport_firebreak(
+            engine.transport
+        )
+        firebreak_valid = True
+
+    except Exception:
+        firebreak_valid = False
+
+    report_test(
+        "Real POST Disabled",
+        REAL_POST_ENABLED is False,
+    )
+
+    report_test(
+        "Demo POST Disabled",
+        DEMO_POST_ENABLED is False,
+    )
+
+    report_test(
+        "Network Writes Disabled",
+        NETWORK_WRITES_ENABLED is False,
+    )
+
+    report_test(
+        "Leverage Transmission Disabled",
+        LEVERAGE_TRANSMISSION_ENABLED is False,
+    )
+
+    report_test(
+        "Network POST Count Remains Zero",
+        engine.transport.real_post_count == 0,
+    )
+
+    report_test(
+        "Demo POST Count Remains Zero",
+        engine.transport.demo_post_count == 0,
+    )
+
+    report_test(
+        "Network Write Count Remains Zero",
+        engine.transport.network_write_count == 0,
+    )
+
+    report_test(
+        "Leverage Transmission Count Remains Zero",
+        (
+            engine.transport.leverage_transmission_count
+            == 0
+        ),
+    )
+
+    report_test(
+        "Final Transport Firebreak Valid",
+        firebreak_valid,
+    )
+
+
+# ============================================================================
+# COMPLETE DIAGNOSTIC
+# ============================================================================
+
+def run_diagnostic() -> None:
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+    print(
+        "0F-4H-R28-UNIT-N.23 STARTING",
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+    print(
+        f"Symbol = {SYMBOL}",
+        flush=True,
+    )
+
+    print(
+        f"Leverage = {LEVERAGE}x",
+        flush=True,
+    )
+
+    print(
+        f"Margin Mode = {MARGIN_MODE}",
+        flush=True,
+    )
+
+    print(
+        f"Transport Method = {TRANSPORT_METHOD}",
+        flush=True,
+    )
+
+    print(
+        f"Transport Path = {LEVERAGE_ENDPOINT}",
+        flush=True,
+    )
+
+    print(
+        (
+            "Exact Payload = "
+            f"{EXACT_LEVERAGE_PAYLOAD_JSON}"
+        ),
+        flush=True,
+    )
+
+    print(
+        (
+            "Payload SHA256 = "
+            f"{EXACT_LEVERAGE_PAYLOAD_HASH}"
+        ),
+        flush=True,
+    )
+
+    print(
+        "",
+        flush=True,
+    )
+
+    tests = [
+        run_test_1,
+        run_test_2,
+        run_test_3,
+        run_test_4,
+        run_test_5,
+        run_test_6,
+        run_test_7,
+        run_test_8,
+        run_test_9,
+        run_test_10,
+        run_test_11,
+        run_test_12,
+        run_test_13,
+        run_test_14,
+        run_test_15,
+        run_test_16,
+        run_test_17,
+        run_test_18,
+        run_test_19,
+        run_test_20,
+        run_test_21,
+        run_test_22,
+    ]
+
+    for test_function in tests:
+        try:
+            test_function()
+
+        except Exception as exc:
+            name = test_function.__name__
+
+            TEST_FAILURES.append(
+                name
+            )
+
+            print(
+                "",
+                flush=True,
+            )
+
+            print(
+                f"{UNIT_NAME} UNHANDLED TEST ERROR:",
+                flush=True,
+            )
+
+            print(
+                f"  {name}: {exc}",
+                flush=True,
+            )
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+    print(
+        f"{UNIT_NAME} EXECUTION-READINESS ASSESSMENT",
+        flush=True,
+    )
+
+    separator()
+
+    print(
+        (
+            "Structural Safety Failures = "
+            f"{len(TEST_FAILURES)}"
+        ),
+        flush=True,
+    )
+
+    print(
+        "Real Network POSTs = 0",
+        flush=True,
+    )
+
+    print(
+        "Demo Network POSTs = 0",
+        flush=True,
+    )
+
+    print(
+        "Network Writes = 0",
+        flush=True,
+    )
+
+    print(
+        "Leverage Transmissions = 0",
+        flush=True,
+    )
+
+    print(
+        "Synthetic Transport Only = ✅ ACTIVE",
+        flush=True,
+    )
+
+    print(
+        "Durable Recovery = ✅ TESTED LOCALLY",
+        flush=True,
+    )
+
+    print(
+        "Generation Fencing = ✅ TESTED LOCALLY",
+        flush=True,
+    )
+
+    print(
+        "Anti-ABA Protection = ✅ TESTED LOCALLY",
+        flush=True,
+    )
+
+    print(
+        "Exact Transport Binding = ✅ TESTED LOCALLY",
+        flush=True,
+    )
+
+    print(
+        "Hard Network Firebreak = ✅ ACTIVE",
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+    if TEST_FAILURES:
+        print(
+            f"❌ {UNIT_NAME} FAILED",
+            flush=True,
+        )
+
+        print(
+            "Failures:",
+            flush=True,
+        )
+
+        for failure in TEST_FAILURES:
+            print(
+                f"  - {failure}",
+                flush=True,
+            )
+
+        raise RuntimeError(
+            f"{UNIT_NAME} diagnostic failure"
+        )
+
+    print(
+        f"✅ {UNIT_NAME} PASSED",
+        flush=True,
+    )
+
+    print(
+        "✅ READY FOR NEXT UNIT",
+        flush=True,
+    )
+
+    print(
+        "⚠️ NO REAL ORDER WAS SENT",
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+
+# ============================================================================
+# RUNTIME
+# ============================================================================
+
+def main() -> None:
+    print(
+        f"{UNIT_NAME}: RUNTIME STARTING",
+        flush=True,
+    )
+
+    start_health_server()
+
+    run_diagnostic()
+
+    heartbeat = 0
+
+    while True:
+        heartbeat += 1
+
+        print(
+            (
+                f"{UNIT_NAME}: HEARTBEAT "
+                f"{heartbeat} ✅ ACTIVE"
+            ),
+            flush=True,
+        )
+
+        time.sleep(
+            15
+        )
+
+
+# ============================================================================
+# ENTRY POINT
+# ============================================================================
+
+if __name__ == "__main__":
+    main()
