@@ -537,3 +537,426 @@ class N23Engine:
             state.snapshot_seal = seal_dict(state.body())
 
             return state
+                @classmethod
+    def restore_state(cls, state: DurableState) -> "N23Engine":
+        if not verify_seal(state.body(), state.snapshot_seal):
+            raise IntegrityError("snapshot integrity seal mismatch")
+
+        engine = cls(state.lineage_id)
+
+        for raw in state.certificates:
+            cert = FinalityCertificate(**raw)
+            engine._verify_certificate(cert)
+
+            if cert.generation in engine._certificates:
+                raise ChainError("duplicate certificate generation in snapshot")
+
+            engine._certificates[cert.generation] = cert
+
+        for raw in state.manifests:
+            manifest = GenerationManifest(**raw)
+            engine._verify_manifest(manifest)
+
+            if manifest.generation in engine._manifests:
+                raise ChainError("duplicate manifest generation in snapshot")
+
+            engine._manifests[manifest.generation] = manifest
+
+        engine._finalized = set(state.finalized_generations)
+
+        if set(engine._certificates) != engine._finalized:
+            raise ChainError("certificate/finality set mismatch")
+
+        if set(engine._manifests) != engine._finalized:
+            raise ChainError("manifest/finality set mismatch")
+
+        engine.validate_complete_chain()
+
+        return engine
+
+    def save_snapshot(self, path: str) -> None:
+        state = self.export_state()
+        data = asdict(state)
+
+        temporary_path = f"{path}.{uuid.uuid4().hex}.tmp"
+
+        with open(temporary_path, "w", encoding="utf-8") as file:
+            json.dump(
+                data,
+                file,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            file.flush()
+            os.fsync(file.fileno())
+
+        os.replace(temporary_path, path)
+
+    @classmethod
+    def load_snapshot(cls, path: str) -> "N23Engine":
+        with open(path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        state = DurableState(**data)
+
+        return cls.restore_state(state)
+
+    def certificate(self, generation: int) -> FinalityCertificate:
+        with self._lock:
+            if generation not in self._certificates:
+                raise ChainError("certificate generation does not exist")
+
+            return self._certificates[generation]
+
+    def manifest(self, generation: int) -> GenerationManifest:
+        with self._lock:
+            if generation not in self._manifests:
+                raise ChainError("manifest generation does not exist")
+
+            return self._manifests[generation]
+
+    @property
+    def finalized_generations(self) -> List[int]:
+        with self._lock:
+            return sorted(self._finalized)
+
+
+def synthetic_dispatch(cert: FinalityCertificate) -> Dict[str, Any]:
+    global SYNTHETIC_DISPATCH_COUNT
+
+    N23Engine._verify_certificate(cert)
+
+    if cert.payload_hash != payload_hash():
+        raise ChainError("synthetic dispatch payload binding mismatch")
+
+    expected_dispatch = deterministic_dispatch_id(
+        cert.lineage_id,
+        cert.generation,
+        cert.recovery_epoch,
+        cert.recovery_nonce,
+    )
+
+    if cert.dispatch_id != expected_dispatch:
+        raise ChainError("synthetic dispatch identity mismatch")
+
+    with _COUNTER_LOCK:
+        SYNTHETIC_DISPATCH_COUNT += 1
+
+    return {
+        "synthetic": True,
+        "transmitted": False,
+        "method": TRANSPORT_METHOD,
+        "path": TRANSPORT_PATH,
+        "payload": payload(),
+        "payload_hash": cert.payload_hash,
+        "dispatch_id": cert.dispatch_id,
+        "generation": cert.generation,
+        "lineage_id": cert.lineage_id,
+    }
+
+
+def real_network_post(*args: Any, **kwargs: Any) -> None:
+    print(f"{UNIT} LOCAL BLOCK:")
+    print(f"  {UNIT} LOCAL BLOCK: real network POST is disabled.")
+    print(f"{UNIT} LOCAL BLOCK:")
+    print("  real network POST is disabled")
+
+    raise LocalSafetyBlock("real network POST is disabled")
+
+
+def generic_network_write(
+    method: str,
+    *args: Any,
+    **kwargs: Any,
+) -> None:
+    print(f"{UNIT} LOCAL BLOCK:")
+    print(
+        f"  {UNIT} LOCAL BLOCK: "
+        f"network write method {method} is disabled."
+    )
+    print(f"{UNIT} LOCAL BLOCK:")
+    print("  network write disabled")
+
+    raise LocalSafetyBlock("network write disabled")
+
+
+def leverage_mutation_transport(
+    *args: Any,
+    **kwargs: Any,
+) -> None:
+    print(f"{UNIT} LOCAL BLOCK:")
+    print(
+        f"  {UNIT} LOCAL BLOCK: "
+        "leverage mutation transport is disabled."
+    )
+    print(f"{UNIT} LOCAL BLOCK:")
+    print("  leverage mutation transport disabled")
+
+    raise LocalSafetyBlock(
+        "leverage mutation transport disabled"
+    )
+
+
+PASS_COUNT = 0
+FAIL_COUNT = 0
+
+
+def banner(title: str) -> None:
+    print()
+    print(title)
+    print(SUBSEP)
+
+
+def check(name: str, condition: bool) -> None:
+    global PASS_COUNT
+    global FAIL_COUNT
+
+    if condition:
+        PASS_COUNT += 1
+        print(f"{name:<86} ✅ PASS")
+    else:
+        FAIL_COUNT += 1
+        print(f"{name:<86} ❌ FAIL")
+
+
+def expect_raises(
+    name: str,
+    exc_type: type,
+    fn,
+) -> None:
+    try:
+        fn()
+
+    except exc_type:
+        check(name, True)
+
+    except Exception as exc:
+        print(
+            f"Unexpected exception for {name}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        check(name, False)
+
+    else:
+        check(name, False)
+
+
+def tamper_dataclass(
+    obj: Any,
+    field: str,
+    value: Any,
+) -> Any:
+    raw = asdict(obj)
+    raw[field] = value
+
+    return type(obj)(**raw)
+
+
+def run_diagnostic() -> None:
+    global NETWORK_POST_COUNT
+    global NETWORK_WRITE_COUNT
+    global LEVERAGE_TRANSMISSION_COUNT
+
+    print(SEPARATOR)
+    print(f"{UNIT}: MAIN.PY ENTERED")
+    print(f"{UNIT}: IMPORTS COMPLETE")
+    print(f"{UNIT}: CONSTANTS INITIALIZED")
+    print(SEPARATOR)
+    print(f"{UNIT}: RUNTIME STARTING")
+    print(
+        f"{UNIT}: DURABLE CERTIFICATE-CHAIN "
+        "CONTINUITY DIAGNOSTIC"
+    )
+    print(SEPARATOR)
+
+    lineage = sha256_text(
+        f"{UNIT}|primary-lineage"
+    )[:24]
+
+    banner(
+        f"{UNIT} TEST 1: "
+        "ROOT CERTIFICATE + MANIFEST FINALIZATION"
+    )
+
+    engine = N23Engine(lineage)
+
+    c0, m0 = engine.finalize_generation(
+        generation=0,
+        recovery_epoch=0,
+        recovery_nonce=1,
+    )
+
+    check(
+        "Root Certificate Finalized",
+        c0.generation == 0,
+    )
+
+    check(
+        "Root Manifest Finalized",
+        m0.generation == 0,
+    )
+
+    check(
+        "Root Certificate Uses Genesis Predecessor",
+        c0.predecessor_certificate_hash == "GENESIS",
+    )
+
+    check(
+        "Root Manifest Uses Genesis Predecessor",
+        m0.predecessor_manifest_hash == "GENESIS",
+    )
+
+    banner(
+        f"{UNIT} TEST 2: "
+        "EXACT SUCCESSOR CHAIN BINDING"
+    )
+
+    c1, m1 = engine.finalize_generation(
+        generation=1,
+        recovery_epoch=1,
+        recovery_nonce=2,
+    )
+
+    check(
+        "Second Certificate References Root Certificate",
+        c1.predecessor_certificate_hash
+        == c0.certificate_hash,
+    )
+
+    check(
+        "Second Manifest References Root Manifest",
+        m1.predecessor_manifest_hash
+        == m0.manifest_hash,
+    )
+
+    check(
+        "Second Manifest Binds Exact Certificate",
+        m1.certificate_hash
+        == c1.certificate_hash,
+    )
+
+    banner(
+        f"{UNIT} TEST 3: "
+        "CONTIGUOUS GENERATION ADVANCE"
+    )
+
+    c2, m2 = engine.finalize_generation(
+        generation=2,
+        recovery_epoch=2,
+        recovery_nonce=3,
+    )
+
+    check(
+        "Complete Certificate Chain Validates",
+        engine.validate_complete_chain() is True,
+    )
+
+    check(
+        "Generation Chain Is Contiguous",
+        engine.finalized_generations
+        == [0, 1, 2],
+    )
+
+    expect_raises(
+        "Skipped Generation Rejected",
+        ChainError,
+        lambda: engine.finalize_generation(
+            generation=4,
+            recovery_epoch=4,
+            recovery_nonce=5,
+        ),
+    )
+
+    banner(
+        f"{UNIT} TEST 4: "
+        "DUPLICATE FINALIZATION REJECTION"
+    )
+
+    expect_raises(
+        "Duplicate Certified Generation Rejected",
+        ChainError,
+        lambda: engine.finalize_generation(
+            generation=2,
+            recovery_epoch=9,
+            recovery_nonce=9,
+        ),
+    )
+
+    banner(
+        f"{UNIT} TEST 5: "
+        "CERTIFICATE PREDECESSOR TAMPER REJECTION"
+    )
+
+    bad_c2 = tamper_dataclass(
+        c2,
+        "predecessor_certificate_hash",
+        "FORGED-PREDECESSOR",
+    )
+
+    expect_raises(
+        "Tampered Certificate Integrity Rejected",
+        IntegrityError,
+        lambda: N23Engine._verify_certificate(
+            bad_c2
+        ),
+    )
+
+    banner(
+        f"{UNIT} TEST 6: "
+        "MANIFEST PREDECESSOR TAMPER REJECTION"
+    )
+
+    bad_m2 = tamper_dataclass(
+        m2,
+        "predecessor_manifest_hash",
+        "FORGED-MANIFEST-PREDECESSOR",
+    )
+
+    expect_raises(
+        "Tampered Manifest Integrity Rejected",
+        IntegrityError,
+        lambda: N23Engine._verify_manifest(
+            bad_m2
+        ),
+    )
+
+    banner(
+        f"{UNIT} TEST 7: "
+        "PAYLOAD + DISPATCH BINDING"
+    )
+
+    check(
+        "Certificate Payload Hash Preserved",
+        c2.payload_hash == payload_hash(),
+    )
+
+    expected_dispatch = deterministic_dispatch_id(
+        c2.lineage_id,
+        c2.generation,
+        c2.recovery_epoch,
+        c2.recovery_nonce,
+    )
+
+    check(
+        "Certificate Dispatch Identity Preserved",
+        c2.dispatch_id == expected_dispatch,
+    )
+
+    receipt = synthetic_dispatch(c2)
+
+    check(
+        "Synthetic Dispatch Reports No Transmission",
+        receipt["transmitted"] is False,
+    )
+
+    check(
+        "Synthetic Dispatch Preserves Payload Hash",
+        receipt["payload_hash"]
+        == c2.payload_hash,
+    )
+
+    check(
+        "Synthetic Dispatch Preserves Dispatch Identity",
+        receipt["dispatch_id"]
+        == c2.dispatch_id,
+    )
