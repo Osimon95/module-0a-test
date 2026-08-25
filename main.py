@@ -1860,3 +1860,2185 @@ print(
     "R28 UNIT N.27: PART 1 DEFINITIONS LOADED",
     flush=True,
 )
+# ============================================================================
+# R28 UNIT N.27
+# DURABLE WAL RECOVERY + CHECKPOINT BINDING + RESTART-SAFE FINALITY
+#
+# CORRECTED COPY/PASTE VERSION
+# PART 2 OF 4
+#
+# IMPORTANT:
+#   - PASTE DIRECTLY BELOW PART 1
+#   - FIRST LINE MUST START AT COLUMN ZERO
+#   - DO NOT ADD ANOTHER PART 1 / PART 2 MARKER
+# ============================================================================
+
+
+# ============================================================================
+# DURABLE EXECUTION STATE
+# ============================================================================
+
+@dataclass
+class DurableState:
+    schema_version: int
+
+    phase: str
+
+    account_epoch: int
+    symbol_epoch: int
+    position_epoch: int
+    recovery_epoch: int
+
+    generation: int
+    lineage_id: str
+
+    intent_id: str
+    dispatch_id: str
+
+    lease_nonce: int
+
+    active_lease: Optional[
+        RecoveryLease
+    ]
+
+    authorization: Optional[
+        RecoveryAuthorization
+    ]
+
+    dispatch_binding: Optional[
+        DispatchBinding
+    ]
+
+    receipt: Optional[
+        SyntheticReceipt
+    ]
+
+    wal: List[
+        WALRecord
+    ]
+
+    checkpoint: Optional[
+        Checkpoint
+    ]
+
+    completed_dispatch_ids: Set[str]
+
+    consumed_authorization_ids: Set[str]
+
+    retired_lease_ids: Set[str]
+
+    snapshot_sequence: int
+
+    integrity_seal: str = ""
+
+    # ========================================================================
+    # CURRENT GENERATION FENCE
+    # ========================================================================
+
+    def fence(
+        self,
+    ) -> GenerationFence:
+
+        return GenerationFence(
+            account_epoch=(
+                self.account_epoch
+            ),
+
+            symbol_epoch=(
+                self.symbol_epoch
+            ),
+
+            position_epoch=(
+                self.position_epoch
+            ),
+
+            recovery_epoch=(
+                self.recovery_epoch
+            ),
+
+            generation=(
+                self.generation
+            ),
+
+            lineage_id=(
+                self.lineage_id
+            ),
+        )
+
+    # ========================================================================
+    # BASIC VALIDATION
+    # ========================================================================
+
+    def validate_basic(
+        self,
+    ) -> None:
+
+        require(
+            self.schema_version
+            == STATE_SCHEMA_VERSION,
+            (
+                "unsupported durable "
+                "state schema"
+            ),
+        )
+
+        require(
+            self.phase
+            in ALL_PHASES,
+            (
+                "invalid durable "
+                "execution phase"
+            ),
+        )
+
+        require(
+            self.account_epoch > 0,
+            "account epoch invalid",
+        )
+
+        require(
+            self.symbol_epoch > 0,
+            "symbol epoch invalid",
+        )
+
+        require(
+            self.position_epoch > 0,
+            "position epoch invalid",
+        )
+
+        require(
+            self.recovery_epoch > 0,
+            "recovery epoch invalid",
+        )
+
+        require(
+            self.generation > 0,
+            "generation invalid",
+        )
+
+        require(
+            bool(
+                self.lineage_id
+            ),
+            "lineage id required",
+        )
+
+        require(
+            bool(
+                self.intent_id
+            ),
+            "intent id required",
+        )
+
+        require(
+            bool(
+                self.dispatch_id
+            ),
+            "dispatch id required",
+        )
+
+        require(
+            self.lease_nonce >= 0,
+            "lease nonce invalid",
+        )
+
+        require(
+            self.snapshot_sequence >= 0,
+            "snapshot sequence invalid",
+        )
+
+        self.fence().validate()
+
+        if self.active_lease is not None:
+            self.active_lease.validate()
+
+        if self.authorization is not None:
+            self.authorization.validate()
+
+        if self.dispatch_binding is not None:
+            self.dispatch_binding.validate()
+
+        if self.receipt is not None:
+            self.receipt.validate()
+
+        validate_wal(
+            self.wal
+        )
+
+        if self.checkpoint is not None:
+            validate_checkpoint_wal_binding(
+                self.checkpoint,
+                self.wal,
+            )
+
+        # ====================================================================
+        # ACTIVE LEASE BINDING
+        # ====================================================================
+
+        if self.active_lease is not None:
+
+            require(
+                self.active_lease.generation
+                == self.generation,
+                (
+                    "active lease generation "
+                    "mismatch"
+                ),
+            )
+
+            require(
+                self.active_lease.lineage_id
+                == self.lineage_id,
+                (
+                    "active lease lineage "
+                    "mismatch"
+                ),
+            )
+
+            require(
+                self.active_lease.recovery_epoch
+                == self.recovery_epoch,
+                (
+                    "active lease recovery "
+                    "epoch mismatch"
+                ),
+            )
+
+            require(
+                self.active_lease.nonce
+                == self.lease_nonce,
+                (
+                    "active lease nonce "
+                    "mismatch"
+                ),
+            )
+
+            require(
+                hmac.compare_digest(
+                    self.active_lease.fence_hash,
+                    self.fence().fingerprint(),
+                ),
+                (
+                    "active lease fence "
+                    "mismatch"
+                ),
+            )
+
+            require(
+                self.active_lease.lease_id
+                not in self.retired_lease_ids,
+                (
+                    "active lease cannot "
+                    "already be retired"
+                ),
+            )
+
+        # ====================================================================
+        # AUTHORIZATION BINDING
+        # ====================================================================
+
+        if self.authorization is not None:
+
+            require(
+                self.authorization.generation
+                == self.generation,
+                (
+                    "authorization generation "
+                    "mismatch"
+                ),
+            )
+
+            require(
+                self.authorization.lineage_id
+                == self.lineage_id,
+                (
+                    "authorization lineage "
+                    "mismatch"
+                ),
+            )
+
+            require(
+                self.authorization.recovery_epoch
+                == self.recovery_epoch,
+                (
+                    "authorization recovery "
+                    "epoch mismatch"
+                ),
+            )
+
+            require(
+                self.authorization.intent_id
+                == self.intent_id,
+                (
+                    "authorization intent "
+                    "mismatch"
+                ),
+            )
+
+            require(
+                self.authorization.dispatch_id
+                == self.dispatch_id,
+                (
+                    "authorization dispatch "
+                    "mismatch"
+                ),
+            )
+
+            if self.authorization.consumed:
+
+                require(
+                    self.authorization.authorization_id
+                    in self.consumed_authorization_ids,
+                    (
+                        "consumed authorization "
+                        "missing durable fence"
+                    ),
+                )
+
+            else:
+
+                require(
+                    self.authorization.authorization_id
+                    not in self.consumed_authorization_ids,
+                    (
+                        "unconsumed authorization "
+                        "cannot be in consumed set"
+                    ),
+                )
+
+        # ====================================================================
+        # DISPATCH BINDING
+        # ====================================================================
+
+        if self.dispatch_binding is not None:
+
+            require(
+                self.dispatch_binding.dispatch_id
+                == self.dispatch_id,
+                (
+                    "dispatch binding id "
+                    "mismatch"
+                ),
+            )
+
+            require(
+                self.dispatch_binding.intent_id
+                == self.intent_id,
+                (
+                    "dispatch binding intent "
+                    "mismatch"
+                ),
+            )
+
+            require(
+                self.dispatch_binding.generation
+                == self.generation,
+                (
+                    "dispatch binding generation "
+                    "mismatch"
+                ),
+            )
+
+            require(
+                self.dispatch_binding.lineage_id
+                == self.lineage_id,
+                (
+                    "dispatch binding lineage "
+                    "mismatch"
+                ),
+            )
+
+            require(
+                self.dispatch_binding.recovery_epoch
+                == self.recovery_epoch,
+                (
+                    "dispatch binding recovery "
+                    "epoch mismatch"
+                ),
+            )
+
+        # ====================================================================
+        # RECEIPT BINDING
+        # ====================================================================
+
+        if self.receipt is not None:
+
+            require(
+                self.receipt.dispatch_id
+                == self.dispatch_id,
+                (
+                    "receipt dispatch "
+                    "mismatch"
+                ),
+            )
+
+            require(
+                self.receipt.generation
+                == self.generation,
+                (
+                    "receipt generation "
+                    "mismatch"
+                ),
+            )
+
+            require(
+                self.receipt.lineage_id
+                == self.lineage_id,
+                (
+                    "receipt lineage "
+                    "mismatch"
+                ),
+            )
+
+            require(
+                self.receipt.recovery_epoch
+                == self.recovery_epoch,
+                (
+                    "receipt recovery epoch "
+                    "mismatch"
+                ),
+            )
+
+        # ====================================================================
+        # TERMINAL FINALITY
+        # ====================================================================
+
+        if self.phase in TERMINAL_PHASES:
+
+            require(
+                self.dispatch_id
+                in self.completed_dispatch_ids,
+                (
+                    "terminal state missing "
+                    "completed dispatch fence"
+                ),
+            )
+
+            require(
+                self.receipt
+                is not None,
+                (
+                    "terminal completed state "
+                    "missing receipt"
+                ),
+            )
+
+
+# ============================================================================
+# SERIALIZATION HELPERS
+# ============================================================================
+
+def recovery_lease_to_dict(
+    lease: Optional[
+        RecoveryLease
+    ],
+) -> Optional[
+    Dict[str, Any]
+]:
+
+    if lease is None:
+        return None
+
+    return asdict(
+        lease
+    )
+
+
+def authorization_to_dict(
+    authorization: Optional[
+        RecoveryAuthorization
+    ],
+) -> Optional[
+    Dict[str, Any]
+]:
+
+    if authorization is None:
+        return None
+
+    return asdict(
+        authorization
+    )
+
+
+def dispatch_binding_to_dict(
+    binding: Optional[
+        DispatchBinding
+    ],
+) -> Optional[
+    Dict[str, Any]
+]:
+
+    if binding is None:
+        return None
+
+    return asdict(
+        binding
+    )
+
+
+def receipt_to_dict(
+    receipt: Optional[
+        SyntheticReceipt
+    ],
+) -> Optional[
+    Dict[str, Any]
+]:
+
+    if receipt is None:
+        return None
+
+    return asdict(
+        receipt
+    )
+
+
+def wal_record_to_dict(
+    record: WALRecord,
+) -> Dict[str, Any]:
+
+    return asdict(
+        record
+    )
+
+
+def checkpoint_to_dict(
+    checkpoint: Optional[
+        Checkpoint
+    ],
+) -> Optional[
+    Dict[str, Any]
+]:
+
+    if checkpoint is None:
+        return None
+
+    return asdict(
+        checkpoint
+    )
+
+
+# ============================================================================
+# STATE PAYLOAD WITHOUT INTEGRITY SEAL
+# ============================================================================
+
+def state_payload_without_seal(
+    state: DurableState,
+) -> Dict[str, Any]:
+
+    return {
+        "schema_version":
+            state.schema_version,
+
+        "phase":
+            state.phase,
+
+        "account_epoch":
+            state.account_epoch,
+
+        "symbol_epoch":
+            state.symbol_epoch,
+
+        "position_epoch":
+            state.position_epoch,
+
+        "recovery_epoch":
+            state.recovery_epoch,
+
+        "generation":
+            state.generation,
+
+        "lineage_id":
+            state.lineage_id,
+
+        "intent_id":
+            state.intent_id,
+
+        "dispatch_id":
+            state.dispatch_id,
+
+        "lease_nonce":
+            state.lease_nonce,
+
+        "active_lease":
+            recovery_lease_to_dict(
+                state.active_lease
+            ),
+
+        "authorization":
+            authorization_to_dict(
+                state.authorization
+            ),
+
+        "dispatch_binding":
+            dispatch_binding_to_dict(
+                state.dispatch_binding
+            ),
+
+        "receipt":
+            receipt_to_dict(
+                state.receipt
+            ),
+
+        "wal": [
+            wal_record_to_dict(
+                record
+            )
+            for record
+            in state.wal
+        ],
+
+        "checkpoint":
+            checkpoint_to_dict(
+                state.checkpoint
+            ),
+
+        "completed_dispatch_ids":
+            sorted(
+                state.completed_dispatch_ids
+            ),
+
+        "consumed_authorization_ids":
+            sorted(
+                state.consumed_authorization_ids
+            ),
+
+        "retired_lease_ids":
+            sorted(
+                state.retired_lease_ids
+            ),
+
+        "snapshot_sequence":
+            state.snapshot_sequence,
+    }
+
+
+# ============================================================================
+# DURABLE SNAPSHOT INTEGRITY
+# ============================================================================
+
+def calculate_state_integrity_seal(
+    state: DurableState,
+) -> str:
+
+    return hmac_sha256(
+        INTEGRITY_KEY,
+        canonical_json(
+            state_payload_without_seal(
+                state
+            )
+        ),
+    )
+
+
+def seal_state(
+    state: DurableState,
+) -> DurableState:
+
+    state.integrity_seal = (
+        calculate_state_integrity_seal(
+            state
+        )
+    )
+
+    return state
+
+
+def verify_state_integrity(
+    state: DurableState,
+) -> None:
+
+    expected = (
+        calculate_state_integrity_seal(
+            state
+        )
+    )
+
+    require(
+        bool(
+            state.integrity_seal
+        ),
+        (
+            "snapshot integrity "
+            "seal missing"
+        ),
+    )
+
+    require(
+        hmac.compare_digest(
+            expected,
+            state.integrity_seal,
+        ),
+        (
+            "snapshot integrity "
+            "seal mismatch"
+        ),
+    )
+
+
+# ============================================================================
+# DEEP DURABLE STATE VALIDATION
+# ============================================================================
+
+def validate_durable_state(
+    state: DurableState,
+) -> None:
+
+    verify_state_integrity(
+        state
+    )
+
+    state.validate_basic()
+
+    # ========================================================================
+    # WAL RECORDS MUST MATCH CURRENT GENERATION
+    # ========================================================================
+
+    for record in state.wal:
+
+        require(
+            record.generation
+            == state.generation,
+            (
+                "WAL generation "
+                "does not match state"
+            ),
+        )
+
+        require(
+            record.lineage_id
+            == state.lineage_id,
+            (
+                "WAL lineage "
+                "does not match state"
+            ),
+        )
+
+        require(
+            record.recovery_epoch
+            == state.recovery_epoch,
+            (
+                "WAL recovery epoch "
+                "does not match state"
+            ),
+        )
+
+        require(
+            record.intent_id
+            == state.intent_id,
+            (
+                "WAL intent "
+                "does not match state"
+            ),
+        )
+
+        require(
+            record.dispatch_id
+            == state.dispatch_id,
+            (
+                "WAL dispatch "
+                "does not match state"
+            ),
+        )
+
+    # ========================================================================
+    # PHASE ↔ WAL TAIL CONSISTENCY
+    # ========================================================================
+
+    if state.wal:
+
+        tail_event = (
+            state.wal[-1].event
+        )
+
+        expected_tail_by_phase = {
+            PHASE_PREPARED:
+                WAL_EVENT_PREPARED,
+
+            PHASE_AUTHORIZED:
+                WAL_EVENT_AUTHORIZED,
+
+            PHASE_COMMITTED:
+                WAL_EVENT_COMMITTED,
+
+            PHASE_DISPATCHED:
+                WAL_EVENT_DISPATCHED,
+
+            PHASE_COMPLETED:
+                WAL_EVENT_COMPLETED,
+        }
+
+        if state.phase in expected_tail_by_phase:
+
+            require(
+                tail_event
+                == expected_tail_by_phase[
+                    state.phase
+                ]
+                or tail_event
+                == WAL_EVENT_CHECKPOINT,
+                (
+                    "state phase does not "
+                    "match WAL tail"
+                ),
+            )
+
+    # ========================================================================
+    # CHECKPOINT MUST REPRESENT CURRENT DURABLE HISTORY
+    # ========================================================================
+
+    if state.checkpoint is not None:
+
+        validate_checkpoint_wal_binding(
+            state.checkpoint,
+            state.wal,
+        )
+
+        require(
+            state.checkpoint.generation
+            == state.generation,
+            (
+                "checkpoint generation "
+                "mismatch"
+            ),
+        )
+
+        require(
+            state.checkpoint.lineage_id
+            == state.lineage_id,
+            (
+                "checkpoint lineage "
+                "mismatch"
+            ),
+        )
+
+        require(
+            state.checkpoint.recovery_epoch
+            == state.recovery_epoch,
+            (
+                "checkpoint recovery "
+                "epoch mismatch"
+            ),
+        )
+
+        require(
+            state.checkpoint.intent_id
+            == state.intent_id,
+            (
+                "checkpoint intent "
+                "mismatch"
+            ),
+        )
+
+        require(
+            state.checkpoint.dispatch_id
+            == state.dispatch_id,
+            (
+                "checkpoint dispatch "
+                "mismatch"
+            ),
+        )
+
+
+# ============================================================================
+# INITIAL DURABLE STATE FACTORY
+# ============================================================================
+
+def create_initial_state(
+) -> DurableState:
+
+    generation = (
+        DEFAULT_GENERATION
+    )
+
+    recovery_epoch = (
+        DEFAULT_RECOVERY_EPOCH
+    )
+
+    lineage_id = secure_id(
+        "lineage"
+    )
+
+    intent_id = deterministic_id(
+        "intent",
+        SYMBOL,
+        generation,
+        lineage_id,
+        recovery_epoch,
+        EXACT_LEVERAGE_PAYLOAD_HASH,
+    )
+
+    dispatch_id = deterministic_id(
+        "dispatch",
+        intent_id,
+        generation,
+        lineage_id,
+        recovery_epoch,
+    )
+
+    initial_record = create_wal_record(
+        sequence=1,
+
+        event=(
+            WAL_EVENT_PREPARED
+        ),
+
+        generation=(
+            generation
+        ),
+
+        lineage_id=(
+            lineage_id
+        ),
+
+        recovery_epoch=(
+            recovery_epoch
+        ),
+
+        intent_id=(
+            intent_id
+        ),
+
+        dispatch_id=(
+            dispatch_id
+        ),
+
+        authorization_id=None,
+        lease_id=None,
+
+        previous_hash=(
+            GENESIS_WAL_HASH
+        ),
+
+        metadata={
+            "phase":
+                PHASE_PREPARED,
+
+            "symbol":
+                SYMBOL,
+
+            "leverage":
+                LEVERAGE,
+
+            "margin_mode":
+                MARGIN_MODE,
+        },
+    )
+
+    wal = [
+        initial_record
+    ]
+
+    checkpoint = create_checkpoint(
+        sequence=1,
+
+        phase=(
+            PHASE_PREPARED
+        ),
+
+        generation=(
+            generation
+        ),
+
+        lineage_id=(
+            lineage_id
+        ),
+
+        recovery_epoch=(
+            recovery_epoch
+        ),
+
+        intent_id=(
+            intent_id
+        ),
+
+        dispatch_id=(
+            dispatch_id
+        ),
+
+        wal=(
+            wal
+        ),
+    )
+
+    state = DurableState(
+        schema_version=(
+            STATE_SCHEMA_VERSION
+        ),
+
+        phase=(
+            PHASE_PREPARED
+        ),
+
+        account_epoch=(
+            DEFAULT_ACCOUNT_EPOCH
+        ),
+
+        symbol_epoch=(
+            DEFAULT_SYMBOL_EPOCH
+        ),
+
+        position_epoch=(
+            DEFAULT_POSITION_EPOCH
+        ),
+
+        recovery_epoch=(
+            recovery_epoch
+        ),
+
+        generation=(
+            generation
+        ),
+
+        lineage_id=(
+            lineage_id
+        ),
+
+        intent_id=(
+            intent_id
+        ),
+
+        dispatch_id=(
+            dispatch_id
+        ),
+
+        lease_nonce=0,
+
+        active_lease=None,
+
+        authorization=None,
+
+        dispatch_binding=None,
+
+        receipt=None,
+
+        wal=(
+            wal
+        ),
+
+        checkpoint=(
+            checkpoint
+        ),
+
+        completed_dispatch_ids=set(),
+
+        consumed_authorization_ids=set(),
+
+        retired_lease_ids=set(),
+
+        snapshot_sequence=1,
+
+        integrity_seal="",
+    )
+
+    seal_state(
+        state
+    )
+
+    validate_durable_state(
+        state
+    )
+
+    return state
+
+
+# ============================================================================
+# WAL APPEND HELPER
+# ============================================================================
+
+def append_wal_event(
+    state: DurableState,
+    event: str,
+    *,
+    metadata: Optional[
+        Dict[str, Any]
+    ] = None,
+) -> WALRecord:
+
+    require(
+        event
+        in VALID_WAL_EVENTS,
+        "invalid WAL append event",
+    )
+
+    validate_wal(
+        state.wal
+    )
+
+    sequence = (
+        len(state.wal) + 1
+    )
+
+    previous_hash = wal_final_hash(
+        state.wal
+    )
+
+    authorization_id = None
+    lease_id = None
+
+    if state.authorization is not None:
+        authorization_id = (
+            state.authorization
+            .authorization_id
+        )
+
+    if state.active_lease is not None:
+        lease_id = (
+            state.active_lease
+            .lease_id
+        )
+
+    record = create_wal_record(
+        sequence=(
+            sequence
+        ),
+
+        event=(
+            event
+        ),
+
+        generation=(
+            state.generation
+        ),
+
+        lineage_id=(
+            state.lineage_id
+        ),
+
+        recovery_epoch=(
+            state.recovery_epoch
+        ),
+
+        intent_id=(
+            state.intent_id
+        ),
+
+        dispatch_id=(
+            state.dispatch_id
+        ),
+
+        authorization_id=(
+            authorization_id
+        ),
+
+        lease_id=(
+            lease_id
+        ),
+
+        previous_hash=(
+            previous_hash
+        ),
+
+        metadata=(
+            metadata or {}
+        ),
+    )
+
+    state.wal.append(
+        record
+    )
+
+    return record
+
+
+# ============================================================================
+# CHECKPOINT REFRESH
+# ============================================================================
+
+def refresh_checkpoint(
+    state: DurableState,
+) -> Checkpoint:
+
+    validate_wal(
+        state.wal
+    )
+
+    state.snapshot_sequence += 1
+
+    checkpoint = create_checkpoint(
+        sequence=(
+            state.snapshot_sequence
+        ),
+
+        phase=(
+            state.phase
+        ),
+
+        generation=(
+            state.generation
+        ),
+
+        lineage_id=(
+            state.lineage_id
+        ),
+
+        recovery_epoch=(
+            state.recovery_epoch
+        ),
+
+        intent_id=(
+            state.intent_id
+        ),
+
+        dispatch_id=(
+            state.dispatch_id
+        ),
+
+        wal=(
+            state.wal
+        ),
+    )
+
+    state.checkpoint = (
+        checkpoint
+    )
+
+    seal_state(
+        state
+    )
+
+    return checkpoint
+
+
+# ============================================================================
+# RECOVERY LEASE ACQUISITION
+# ============================================================================
+
+def acquire_recovery_lease(
+    state: DurableState,
+    owner_id: str,
+) -> RecoveryLease:
+
+    require(
+        bool(
+            owner_id
+        ),
+        "recovery owner required",
+    )
+
+    require(
+        state.phase
+        not in TERMINAL_PHASES,
+        (
+            "terminal generation cannot "
+            "acquire recovery lease"
+        ),
+    )
+
+    if state.active_lease is not None:
+
+        require(
+            state.active_lease.owner_id
+            == owner_id,
+            (
+                "recovery lease already "
+                "owned by another owner"
+            ),
+        )
+
+        require(
+            state.active_lease.lease_id
+            not in state.retired_lease_ids,
+            (
+                "active recovery lease "
+                "already retired"
+            ),
+        )
+
+        return (
+            state.active_lease
+        )
+
+    state.lease_nonce += 1
+
+    lease_id = deterministic_id(
+        "lease",
+        owner_id,
+        state.generation,
+        state.lineage_id,
+        state.recovery_epoch,
+        state.lease_nonce,
+        state.fence().fingerprint(),
+    )
+
+    lease = RecoveryLease(
+        lease_id=(
+            lease_id
+        ),
+
+        owner_id=(
+            owner_id
+        ),
+
+        generation=(
+            state.generation
+        ),
+
+        lineage_id=(
+            state.lineage_id
+        ),
+
+        recovery_epoch=(
+            state.recovery_epoch
+        ),
+
+        nonce=(
+            state.lease_nonce
+        ),
+
+        issued_at_ms=(
+            now_ms()
+        ),
+
+        fence_hash=(
+            state.fence()
+            .fingerprint()
+        ),
+    )
+
+    lease.validate()
+
+    state.active_lease = (
+        lease
+    )
+
+    seal_state(
+        state
+    )
+
+    return lease
+
+
+# ============================================================================
+# RECOVERY LEASE FENCE VALIDATION
+# ============================================================================
+
+def validate_recovery_lease(
+    state: DurableState,
+    lease: RecoveryLease,
+) -> None:
+
+    lease.validate()
+
+    require(
+        state.active_lease
+        is not None,
+        (
+            "no active recovery "
+            "lease"
+        ),
+    )
+
+    require(
+        state.active_lease.lease_id
+        == lease.lease_id,
+        (
+            "recovery lease "
+            "identity mismatch"
+        ),
+    )
+
+    require(
+        state.active_lease.owner_id
+        == lease.owner_id,
+        (
+            "recovery lease "
+            "owner mismatch"
+        ),
+    )
+
+    require(
+        lease.generation
+        == state.generation,
+        (
+            "recovery lease generation "
+            "mismatch"
+        ),
+    )
+
+    require(
+        lease.lineage_id
+        == state.lineage_id,
+        (
+            "recovery lease lineage "
+            "mismatch"
+        ),
+    )
+
+    require(
+        lease.recovery_epoch
+        == state.recovery_epoch,
+        (
+            "recovery lease fence mismatch"
+        ),
+    )
+
+    require(
+        lease.nonce
+        == state.lease_nonce,
+        (
+            "recovery lease nonce "
+            "mismatch"
+        ),
+    )
+
+    require(
+        lease.lease_id
+        not in state.retired_lease_ids,
+        (
+            "retired recovery lease "
+            "cannot be reused"
+        ),
+    )
+
+    require(
+        hmac.compare_digest(
+            lease.fence_hash,
+            state.fence().fingerprint(),
+        ),
+        (
+            "recovery lease fence mismatch"
+        ),
+    )
+
+
+# ============================================================================
+# AUTHORIZATION ISSUANCE
+# ============================================================================
+
+def issue_recovery_authorization(
+    state: DurableState,
+    lease: RecoveryLease,
+) -> RecoveryAuthorization:
+
+    validate_recovery_lease(
+        state,
+        lease,
+    )
+
+    require(
+        state.phase
+        == PHASE_PREPARED,
+        (
+            "generation is not "
+            "prepared"
+        ),
+    )
+
+    require(
+        state.authorization
+        is None,
+        (
+            "authorization already "
+            "exists"
+        ),
+    )
+
+    authorization_id = deterministic_id(
+        "authorization",
+        lease.lease_id,
+        lease.owner_id,
+        state.intent_id,
+        state.dispatch_id,
+        state.generation,
+        state.lineage_id,
+        state.recovery_epoch,
+        lease.nonce,
+        EXACT_LEVERAGE_PAYLOAD_HASH,
+    )
+
+    authorization = (
+        RecoveryAuthorization(
+            authorization_id=(
+                authorization_id
+            ),
+
+            owner_id=(
+                lease.owner_id
+            ),
+
+            lease_id=(
+                lease.lease_id
+            ),
+
+            generation=(
+                state.generation
+            ),
+
+            lineage_id=(
+                state.lineage_id
+            ),
+
+            recovery_epoch=(
+                state.recovery_epoch
+            ),
+
+            nonce=(
+                lease.nonce
+            ),
+
+            intent_id=(
+                state.intent_id
+            ),
+
+            dispatch_id=(
+                state.dispatch_id
+            ),
+
+            transport_method=(
+                TRANSPORT_METHOD
+            ),
+
+            transport_path=(
+                LEVERAGE_ENDPOINT
+            ),
+
+            payload_hash=(
+                EXACT_LEVERAGE_PAYLOAD_HASH
+            ),
+
+            issued_at_ms=(
+                now_ms()
+            ),
+
+            consumed=False,
+
+            consumed_at_ms=None,
+        )
+    )
+
+    authorization.validate()
+
+    state.authorization = (
+        authorization
+    )
+
+    state.phase = (
+        PHASE_AUTHORIZED
+    )
+
+    append_wal_event(
+        state,
+        WAL_EVENT_AUTHORIZED,
+        metadata={
+            "authorization_id":
+                authorization.authorization_id,
+
+            "lease_id":
+                lease.lease_id,
+        },
+    )
+
+    refresh_checkpoint(
+        state
+    )
+
+    validate_durable_state(
+        state
+    )
+
+    return authorization
+
+
+# ============================================================================
+# AUTHORIZATION CONSUMPTION
+# ============================================================================
+
+def consume_authorization(
+    state: DurableState,
+    authorization: RecoveryAuthorization,
+    lease: RecoveryLease,
+) -> RecoveryAuthorization:
+
+    validate_recovery_lease(
+        state,
+        lease,
+    )
+
+    require(
+        state.authorization
+        is not None,
+        "generation is not authorized",
+    )
+
+    require(
+        state.phase
+        == PHASE_AUTHORIZED,
+        (
+            "generation is not "
+            "authorized"
+        ),
+    )
+
+    require(
+        authorization.authorization_id
+        == state.authorization.authorization_id,
+        (
+            "authorization identity "
+            "mismatch"
+        ),
+    )
+
+    require(
+        authorization.lease_id
+        == lease.lease_id,
+        (
+            "authorization lease "
+            "mismatch"
+        ),
+    )
+
+    require(
+        authorization.owner_id
+        == lease.owner_id,
+        (
+            "authorization owner "
+            "mismatch"
+        ),
+    )
+
+    require(
+        authorization.generation
+        == state.generation,
+        (
+            "authorization generation "
+            "mismatch"
+        ),
+    )
+
+    require(
+        authorization.lineage_id
+        == state.lineage_id,
+        (
+            "authorization lineage "
+            "mismatch"
+        ),
+    )
+
+    require(
+        authorization.recovery_epoch
+        == state.recovery_epoch,
+        (
+            "authorization recovery "
+            "epoch mismatch"
+        ),
+    )
+
+    require(
+        authorization.nonce
+        == lease.nonce,
+        (
+            "authorization lease "
+            "nonce mismatch"
+        ),
+    )
+
+    require(
+        authorization.intent_id
+        == state.intent_id,
+        (
+            "authorization intent "
+            "mismatch"
+        ),
+    )
+
+    require(
+        authorization.dispatch_id
+        == state.dispatch_id,
+        (
+            "authorization dispatch "
+            "mismatch"
+        ),
+    )
+
+    require(
+        authorization.consumed
+        is False,
+        (
+            "authorization already "
+            "consumed"
+        ),
+    )
+
+    require(
+        authorization.authorization_id
+        not in state.consumed_authorization_ids,
+        (
+            "authorization replay "
+            "rejected"
+        ),
+    )
+
+    consumed = (
+        RecoveryAuthorization(
+            authorization_id=(
+                authorization.authorization_id
+            ),
+
+            owner_id=(
+                authorization.owner_id
+            ),
+
+            lease_id=(
+                authorization.lease_id
+            ),
+
+            generation=(
+                authorization.generation
+            ),
+
+            lineage_id=(
+                authorization.lineage_id
+            ),
+
+            recovery_epoch=(
+                authorization.recovery_epoch
+            ),
+
+            nonce=(
+                authorization.nonce
+            ),
+
+            intent_id=(
+                authorization.intent_id
+            ),
+
+            dispatch_id=(
+                authorization.dispatch_id
+            ),
+
+            transport_method=(
+                authorization.transport_method
+            ),
+
+            transport_path=(
+                authorization.transport_path
+            ),
+
+            payload_hash=(
+                authorization.payload_hash
+            ),
+
+            issued_at_ms=(
+                authorization.issued_at_ms
+            ),
+
+            consumed=True,
+
+            consumed_at_ms=(
+                now_ms()
+            ),
+        )
+    )
+
+    consumed.validate()
+
+    state.authorization = (
+        consumed
+    )
+
+    state.consumed_authorization_ids.add(
+        consumed.authorization_id
+    )
+
+    return consumed
+
+
+# ============================================================================
+# DISPATCH BINDING PREPARATION
+# ============================================================================
+
+def build_dispatch_binding(
+    state: DurableState,
+) -> DispatchBinding:
+
+    require(
+        state.authorization
+        is not None,
+        (
+            "dispatch requires "
+            "authorization"
+        ),
+    )
+
+    require(
+        state.authorization.consumed
+        is True,
+        (
+            "dispatch requires consumed "
+            "authorization"
+        ),
+    )
+
+    binding = DispatchBinding(
+        dispatch_id=(
+            state.dispatch_id
+        ),
+
+        intent_id=(
+            state.intent_id
+        ),
+
+        generation=(
+            state.generation
+        ),
+
+        lineage_id=(
+            state.lineage_id
+        ),
+
+        recovery_epoch=(
+            state.recovery_epoch
+        ),
+
+        transport_method=(
+            TRANSPORT_METHOD
+        ),
+
+        transport_path=(
+            LEVERAGE_ENDPOINT
+        ),
+
+        payload=clone(
+            EXACT_LEVERAGE_PAYLOAD
+        ),
+
+        payload_hash=(
+            EXACT_LEVERAGE_PAYLOAD_HASH
+        ),
+    )
+
+    binding.validate()
+
+    return binding
+
+
+# ============================================================================
+# DURABLE COMMIT TRANSITION
+# ============================================================================
+
+def commit_dispatch(
+    state: DurableState,
+    binding: DispatchBinding,
+) -> None:
+
+    binding.validate()
+
+    require(
+        state.phase
+        == PHASE_AUTHORIZED,
+        (
+            "dispatch commit requires "
+            "AUTHORIZED phase"
+        ),
+    )
+
+    require(
+        state.authorization
+        is not None,
+        (
+            "dispatch commit requires "
+            "authorization"
+        ),
+    )
+
+    require(
+        state.authorization.consumed
+        is True,
+        (
+            "dispatch commit requires "
+            "consumed authorization"
+        ),
+    )
+
+    require(
+        binding.dispatch_id
+        == state.dispatch_id,
+        (
+            "dispatch binding id "
+            "mismatch"
+        ),
+    )
+
+    require(
+        binding.intent_id
+        == state.intent_id,
+        (
+            "dispatch binding intent "
+            "mismatch"
+        ),
+    )
+
+    require(
+        binding.generation
+        == state.generation,
+        (
+            "dispatch binding generation "
+            "mismatch"
+        ),
+    )
+
+    require(
+        binding.lineage_id
+        == state.lineage_id,
+        (
+            "dispatch binding lineage "
+            "mismatch"
+        ),
+    )
+
+    require(
+        binding.recovery_epoch
+        == state.recovery_epoch,
+        (
+            "dispatch binding recovery "
+            "epoch mismatch"
+        ),
+    )
+
+    state.dispatch_binding = (
+        clone(
+            binding
+        )
+    )
+
+    state.phase = (
+        PHASE_COMMITTED
+    )
+
+    append_wal_event(
+        state,
+        WAL_EVENT_COMMITTED,
+        metadata={
+            "payload_hash":
+                binding.payload_hash,
+
+            "transport_method":
+                binding.transport_method,
+
+            "transport_path":
+                binding.transport_path,
+        },
+    )
+
+    refresh_checkpoint(
+        state
+    )
+
+    validate_durable_state(
+        state
+    )
+
+
+# ============================================================================
+# SYNTHETIC DISPATCH TRANSITION
+# ============================================================================
+
+def execute_synthetic_dispatch(
+    state: DurableState,
+    transport: SyntheticTransport,
+) -> SyntheticReceipt:
+
+    require(
+        state.phase
+        == PHASE_COMMITTED,
+        (
+            "synthetic dispatch requires "
+            "COMMITTED phase"
+        ),
+    )
+
+    require(
+        state.dispatch_binding
+        is not None,
+        (
+            "synthetic dispatch missing "
+            "dispatch binding"
+        ),
+    )
+
+    require(
+        state.dispatch_id
+        not in state.completed_dispatch_ids,
+        (
+            "completed dispatch replay "
+            "rejected"
+        ),
+    )
+
+    receipt = transport.dispatch(
+        state.dispatch_binding
+    )
+
+    receipt.validate()
+
+    state.receipt = (
+        receipt
+    )
+
+    state.phase = (
+        PHASE_DISPATCHED
+    )
+
+    append_wal_event(
+        state,
+        WAL_EVENT_DISPATCHED,
+        metadata={
+            "receipt_id":
+                receipt.receipt_id,
+
+            "synthetic":
+                True,
+
+            "network_write":
+                False,
+        },
+    )
+
+    refresh_checkpoint(
+        state
+    )
+
+    validate_durable_state(
+        state
+    )
+
+    return receipt
+
+
+# ============================================================================
+# FINALIZATION TRANSITION
+# ============================================================================
+
+def finalize_dispatch(
+    state: DurableState,
+) -> None:
+
+    require(
+        state.phase
+        == PHASE_DISPATCHED,
+        (
+            "finalization requires "
+            "DISPATCHED phase"
+        ),
+    )
+
+    require(
+        state.receipt
+        is not None,
+        (
+            "finalization requires "
+            "synthetic receipt"
+        ),
+    )
+
+    require(
+        state.dispatch_id
+        not in state.completed_dispatch_ids,
+        (
+            "dispatch already "
+            "finalized"
+        ),
+    )
+
+    state.completed_dispatch_ids.add(
+        state.dispatch_id
+    )
+
+    state.phase = (
+        PHASE_COMPLETED
+    )
+
+    if state.active_lease is not None:
+
+        state.retired_lease_ids.add(
+            state.active_lease.lease_id
+        )
+
+        state.active_lease = None
+
+    append_wal_event(
+        state,
+        WAL_EVENT_COMPLETED,
+        metadata={
+            "completed":
+                True,
+
+            "dispatch_id":
+                state.dispatch_id,
+        },
+    )
+
+    refresh_checkpoint(
+        state
+    )
+
+    validate_durable_state(
+        state
+    )
+
+
+# ============================================================================
+# COMPLETE SYNTHETIC EXECUTION
+# ============================================================================
+
+def complete_synthetic_execution(
+    state: DurableState,
+    transport: SyntheticTransport,
+    owner_id: str,
+) -> SyntheticReceipt:
+
+    validate_durable_state(
+        state
+    )
+
+    lease = acquire_recovery_lease(
+        state,
+        owner_id,
+    )
+
+    authorization = (
+        issue_recovery_authorization(
+            state,
+            lease,
+        )
+    )
+
+    consume_authorization(
+        state,
+        authorization,
+        lease,
+    )
+
+    binding = build_dispatch_binding(
+        state
+    )
+
+    commit_dispatch(
+        state,
+        binding,
+    )
+
+    receipt = execute_synthetic_dispatch(
+        state,
+        transport,
+    )
+
+    finalize_dispatch(
+        state
+    )
+
+    assert_transport_firebreak(
+        transport
+    )
+
+    return receipt
+
+
+# ============================================================================
+# END OF PART 2
+# ============================================================================
+
+print(
+    "R28 UNIT N.27: PART 2 DEFINITIONS LOADED",
+    flush=True,
+)
