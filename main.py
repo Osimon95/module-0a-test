@@ -1638,3 +1638,1100 @@ class N23Engine:
 # ============================================================================
 # END OF PART 2
 # ============================================================================
+# ============================================================================
+# R28 UNIT N.23
+# CORRECTED COPY/PASTE VERSION
+# PART 3 OF 4
+#
+# DURABLE RESTORE + GENERATION LINEAGE + ANTI-ABA RECOVERY
+# ============================================================================
+
+
+# ============================================================================
+# DESERIALIZATION HELPERS
+# ============================================================================
+
+def recovery_lease_from_dict(
+    value: Optional[Dict[str, Any]],
+) -> Optional[RecoveryLease]:
+    if value is None:
+        return None
+
+    lease = RecoveryLease(
+        lease_id=str(value["lease_id"]),
+        owner_id=str(value["owner_id"]),
+        generation=int(value["generation"]),
+        lineage_id=str(value["lineage_id"]),
+        recovery_epoch=int(value["recovery_epoch"]),
+        nonce=int(value["nonce"]),
+        issued_at_ms=int(value["issued_at_ms"]),
+        fence_hash=str(value["fence_hash"]),
+    )
+
+    lease.validate()
+    return lease
+
+
+def authorization_from_dict(
+    value: Optional[Dict[str, Any]],
+) -> Optional[RecoveryAuthorization]:
+    if value is None:
+        return None
+
+    consumed_at_raw = value.get(
+        "consumed_at_ms"
+    )
+
+    authorization = RecoveryAuthorization(
+        authorization_id=str(
+            value["authorization_id"]
+        ),
+        owner_id=str(
+            value["owner_id"]
+        ),
+        lease_id=str(
+            value["lease_id"]
+        ),
+
+        generation=int(
+            value["generation"]
+        ),
+        lineage_id=str(
+            value["lineage_id"]
+        ),
+        recovery_epoch=int(
+            value["recovery_epoch"]
+        ),
+        nonce=int(
+            value["nonce"]
+        ),
+
+        intent_id=str(
+            value["intent_id"]
+        ),
+        dispatch_id=str(
+            value["dispatch_id"]
+        ),
+
+        transport_method=str(
+            value["transport_method"]
+        ),
+        transport_path=str(
+            value["transport_path"]
+        ),
+        payload_hash=str(
+            value["payload_hash"]
+        ),
+
+        issued_at_ms=int(
+            value["issued_at_ms"]
+        ),
+        consumed=bool(
+            value.get("consumed", False)
+        ),
+        consumed_at_ms=(
+            int(consumed_at_raw)
+            if consumed_at_raw is not None
+            else None
+        ),
+    )
+
+    authorization.validate()
+    return authorization
+
+
+def dispatch_binding_from_dict(
+    value: Optional[Dict[str, Any]],
+) -> Optional[DispatchBinding]:
+    if value is None:
+        return None
+
+    payload_raw = value.get("payload")
+
+    require(
+        isinstance(payload_raw, dict),
+        "dispatch payload must be object",
+    )
+
+    payload = {
+        str(key): str(item)
+        for key, item in payload_raw.items()
+    }
+
+    binding = DispatchBinding(
+        dispatch_id=str(
+            value["dispatch_id"]
+        ),
+        intent_id=str(
+            value["intent_id"]
+        ),
+
+        generation=int(
+            value["generation"]
+        ),
+        lineage_id=str(
+            value["lineage_id"]
+        ),
+        recovery_epoch=int(
+            value["recovery_epoch"]
+        ),
+
+        transport_method=str(
+            value["transport_method"]
+        ),
+        transport_path=str(
+            value["transport_path"]
+        ),
+
+        payload=payload,
+        payload_hash=str(
+            value["payload_hash"]
+        ),
+    )
+
+    binding.validate()
+    return binding
+
+
+def receipt_from_dict(
+    value: Optional[Dict[str, Any]],
+) -> Optional[SyntheticReceipt]:
+    if value is None:
+        return None
+
+    receipt = SyntheticReceipt(
+        receipt_id=str(
+            value["receipt_id"]
+        ),
+        dispatch_id=str(
+            value["dispatch_id"]
+        ),
+        status=str(
+            value["status"]
+        ),
+
+        transport_method=str(
+            value["transport_method"]
+        ),
+        transport_path=str(
+            value["transport_path"]
+        ),
+        payload_hash=str(
+            value["payload_hash"]
+        ),
+
+        transmitted=bool(
+            value["transmitted"]
+        ),
+        network_write=bool(
+            value["network_write"]
+        ),
+
+        generation=int(
+            value["generation"]
+        ),
+        lineage_id=str(
+            value["lineage_id"]
+        ),
+        recovery_epoch=int(
+            value["recovery_epoch"]
+        ),
+
+        created_at_ms=int(
+            value["created_at_ms"]
+        ),
+    )
+
+    receipt.validate()
+    return receipt
+
+
+def journal_record_from_dict(
+    value: Dict[str, Any],
+) -> JournalRecord:
+    metadata_raw = value.get(
+        "metadata",
+        {},
+    )
+
+    require(
+        isinstance(metadata_raw, dict),
+        "journal metadata must be object",
+    )
+
+    record = JournalRecord(
+        sequence=int(
+            value["sequence"]
+        ),
+        event=str(
+            value["event"]
+        ),
+        timestamp_ms=int(
+            value["timestamp_ms"]
+        ),
+
+        generation=int(
+            value["generation"]
+        ),
+        lineage_id=str(
+            value["lineage_id"]
+        ),
+        recovery_epoch=int(
+            value["recovery_epoch"]
+        ),
+
+        owner_id=(
+            str(value["owner_id"])
+            if value.get("owner_id")
+            is not None
+            else None
+        ),
+        lease_id=(
+            str(value["lease_id"])
+            if value.get("lease_id")
+            is not None
+            else None
+        ),
+        authorization_id=(
+            str(value["authorization_id"])
+            if value.get("authorization_id")
+            is not None
+            else None
+        ),
+        intent_id=(
+            str(value["intent_id"])
+            if value.get("intent_id")
+            is not None
+            else None
+        ),
+        dispatch_id=(
+            str(value["dispatch_id"])
+            if value.get("dispatch_id")
+            is not None
+            else None
+        ),
+
+        payload_hash=(
+            str(value["payload_hash"])
+            if value.get("payload_hash")
+            is not None
+            else None
+        ),
+
+        metadata=clone(
+            metadata_raw
+        ),
+    )
+
+    record.validate()
+    return record
+
+
+def durable_state_from_dict(
+    value: Dict[str, Any],
+) -> DurableState:
+    require(
+        isinstance(value, dict),
+        "snapshot must be object",
+    )
+
+    journal_raw = value.get(
+        "journal",
+        [],
+    )
+
+    require(
+        isinstance(journal_raw, list),
+        "snapshot journal must be list",
+    )
+
+    completed_raw = value.get(
+        "completed_dispatch_ids",
+        [],
+    )
+
+    consumed_raw = value.get(
+        "consumed_authorization_ids",
+        [],
+    )
+
+    retired_raw = value.get(
+        "retired_lease_ids",
+        [],
+    )
+
+    require(
+        isinstance(completed_raw, list),
+        "completed dispatch set invalid",
+    )
+
+    require(
+        isinstance(consumed_raw, list),
+        "consumed authorization set invalid",
+    )
+
+    require(
+        isinstance(retired_raw, list),
+        "retired lease set invalid",
+    )
+
+    state = DurableState(
+        schema_version=int(
+            value["schema_version"]
+        ),
+
+        state=str(
+            value["state"]
+        ),
+
+        account_epoch=int(
+            value["account_epoch"]
+        ),
+        symbol_epoch=int(
+            value["symbol_epoch"]
+        ),
+        position_epoch=int(
+            value["position_epoch"]
+        ),
+        recovery_epoch=int(
+            value["recovery_epoch"]
+        ),
+
+        generation=int(
+            value["generation"]
+        ),
+        lineage_id=str(
+            value["lineage_id"]
+        ),
+
+        intent_id=str(
+            value["intent_id"]
+        ),
+        dispatch_id=str(
+            value["dispatch_id"]
+        ),
+
+        lease_nonce=int(
+            value["lease_nonce"]
+        ),
+
+        active_lease=recovery_lease_from_dict(
+            value.get("active_lease")
+        ),
+        authorization=authorization_from_dict(
+            value.get("authorization")
+        ),
+        dispatch_binding=dispatch_binding_from_dict(
+            value.get("dispatch_binding")
+        ),
+        receipt=receipt_from_dict(
+            value.get("receipt")
+        ),
+
+        journal=[
+            journal_record_from_dict(
+                record
+            )
+            for record in journal_raw
+        ],
+
+        completed_dispatch_ids={
+            str(item)
+            for item in completed_raw
+        },
+
+        consumed_authorization_ids={
+            str(item)
+            for item in consumed_raw
+        },
+
+        retired_lease_ids={
+            str(item)
+            for item in retired_raw
+        },
+
+        snapshot_sequence=int(
+            value["snapshot_sequence"]
+        ),
+
+        integrity_seal=str(
+            value.get(
+                "integrity_seal",
+                "",
+            )
+        ),
+    )
+
+    state.validate_basic()
+    verify_state_integrity(state)
+
+    return state
+
+
+# ============================================================================
+# RESTORE VALIDATION
+# ============================================================================
+
+def validate_restored_journal(
+    state: DurableState,
+) -> None:
+    expected_sequence = 1
+
+    for record in state.journal:
+        require(
+            record.sequence
+            == expected_sequence,
+            "journal sequence discontinuity",
+        )
+
+        expected_sequence += 1
+
+
+def validate_restored_state(
+    state: DurableState,
+) -> None:
+    state.validate_basic()
+    verify_state_integrity(state)
+    validate_restored_journal(state)
+
+    expected_intent_id = deterministic_id(
+        "intent",
+        SYMBOL,
+        state.account_epoch,
+        state.symbol_epoch,
+        state.position_epoch,
+        state.recovery_epoch,
+        state.generation,
+        state.lineage_id,
+    )
+
+    require(
+        state.intent_id
+        == expected_intent_id,
+        "restored intent identity mismatch",
+    )
+
+    expected_dispatch_id = deterministic_id(
+        "dispatch",
+        state.intent_id,
+        EXACT_LEVERAGE_PAYLOAD_HASH,
+    )
+
+    require(
+        state.dispatch_id
+        == expected_dispatch_id,
+        "restored dispatch identity mismatch",
+    )
+
+    if state.active_lease is not None:
+        lease = state.active_lease
+
+        require(
+            lease.generation
+            == state.generation,
+            "restored lease generation mismatch",
+        )
+
+        require(
+            lease.lineage_id
+            == state.lineage_id,
+            "restored lease lineage mismatch",
+        )
+
+        require(
+            lease.recovery_epoch
+            == state.recovery_epoch,
+            "restored lease recovery epoch mismatch",
+        )
+
+        require(
+            lease.fence_hash
+            == state.fence().fingerprint(),
+            "restored lease fence mismatch",
+        )
+
+        require(
+            lease.lease_id
+            not in state.retired_lease_ids,
+            "restored active lease already retired",
+        )
+
+    if state.authorization is not None:
+        authorization = state.authorization
+
+        require(
+            authorization.generation
+            == state.generation,
+            "restored authorization generation mismatch",
+        )
+
+        require(
+            authorization.lineage_id
+            == state.lineage_id,
+            "restored authorization lineage mismatch",
+        )
+
+        require(
+            authorization.recovery_epoch
+            == state.recovery_epoch,
+            "restored authorization epoch mismatch",
+        )
+
+        require(
+            authorization.intent_id
+            == state.intent_id,
+            "restored authorization intent mismatch",
+        )
+
+        require(
+            authorization.dispatch_id
+            == state.dispatch_id,
+            "restored authorization dispatch mismatch",
+        )
+
+        if authorization.consumed:
+            require(
+                authorization.authorization_id
+                in state.consumed_authorization_ids,
+                "consumed authorization lost on restore",
+            )
+
+    if state.dispatch_binding is not None:
+        binding = state.dispatch_binding
+
+        binding.validate()
+
+        require(
+            binding.dispatch_id
+            == state.dispatch_id,
+            "restored binding dispatch mismatch",
+        )
+
+        require(
+            binding.intent_id
+            == state.intent_id,
+            "restored binding intent mismatch",
+        )
+
+        require(
+            binding.generation
+            == state.generation,
+            "restored binding generation mismatch",
+        )
+
+        require(
+            binding.lineage_id
+            == state.lineage_id,
+            "restored binding lineage mismatch",
+        )
+
+        require(
+            binding.recovery_epoch
+            == state.recovery_epoch,
+            "restored binding epoch mismatch",
+        )
+
+    if state.receipt is not None:
+        receipt = state.receipt
+
+        receipt.validate()
+
+        require(
+            receipt.dispatch_id
+            == state.dispatch_id,
+            "restored receipt dispatch mismatch",
+        )
+
+    if state.state == "COMPLETED":
+        require(
+            state.receipt is not None,
+            "restored completed state missing receipt",
+        )
+
+        require(
+            state.dispatch_id
+            in state.completed_dispatch_ids,
+            "restored completed dispatch missing",
+        )
+
+
+# ============================================================================
+# ENGINE RESTORATION
+#
+# IMPORTANT:
+# This is intentionally TOP-LEVEL code.
+# It is NOT indented inside class N23Engine.
+# ============================================================================
+
+def _n23_restore_state(
+    cls: Any,
+    state: DurableState,
+) -> "N23Engine":
+    require(
+        isinstance(state, DurableState),
+        "restore requires DurableState",
+    )
+
+    restored_state = clone(
+        state
+    )
+
+    validate_restored_state(
+        restored_state
+    )
+
+    engine = cls.__new__(
+        cls
+    )
+
+    engine._lock = threading.RLock()
+    engine.transport = SyntheticTransport()
+    engine.state = restored_state
+
+    engine.verify_integrity()
+
+    return engine
+
+
+N23Engine.restore_state = classmethod(
+    _n23_restore_state
+)
+
+
+# ============================================================================
+# RESTORE FROM DICTIONARY
+# ============================================================================
+
+def _n23_restore_dict(
+    cls: Any,
+    value: Dict[str, Any],
+) -> "N23Engine":
+    state = durable_state_from_dict(
+        value
+    )
+
+    return cls.restore_state(
+        state
+    )
+
+
+N23Engine.restore_dict = classmethod(
+    _n23_restore_dict
+)
+
+
+# ============================================================================
+# GENERATION ROLLOVER
+# ============================================================================
+
+def advance_generation(
+    engine: N23Engine,
+) -> DurableState:
+    with engine._lock:
+        engine.verify_integrity()
+
+        require(
+            engine.state.state
+            in TERMINAL_STATES,
+            "generation can advance only after terminal state",
+        )
+
+        previous = clone(
+            engine.state
+        )
+
+        next_generation = (
+            previous.generation + 1
+        )
+
+        next_recovery_epoch = (
+            previous.recovery_epoch + 1
+        )
+
+        next_lineage_id = secure_id(
+            "lineage"
+        )
+
+        next_intent_id = deterministic_id(
+            "intent",
+            SYMBOL,
+            previous.account_epoch,
+            previous.symbol_epoch,
+            previous.position_epoch,
+            next_recovery_epoch,
+            next_generation,
+            next_lineage_id,
+        )
+
+        next_dispatch_id = deterministic_id(
+            "dispatch",
+            next_intent_id,
+            EXACT_LEVERAGE_PAYLOAD_HASH,
+        )
+
+        next_state = DurableState(
+            schema_version=STATE_SCHEMA_VERSION,
+
+            state="PREPARED",
+
+            account_epoch=previous.account_epoch,
+            symbol_epoch=previous.symbol_epoch,
+            position_epoch=previous.position_epoch,
+
+            recovery_epoch=next_recovery_epoch,
+
+            generation=next_generation,
+            lineage_id=next_lineage_id,
+
+            intent_id=next_intent_id,
+            dispatch_id=next_dispatch_id,
+
+            lease_nonce=previous.lease_nonce,
+
+            active_lease=None,
+            authorization=None,
+            dispatch_binding=None,
+            receipt=None,
+
+            journal=clone(
+                previous.journal
+            ),
+
+            completed_dispatch_ids=set(
+                previous.completed_dispatch_ids
+            ),
+
+            consumed_authorization_ids=set(
+                previous.consumed_authorization_ids
+            ),
+
+            retired_lease_ids=set(
+                previous.retired_lease_ids
+            ),
+
+            snapshot_sequence=(
+                previous.snapshot_sequence
+            ),
+
+            integrity_seal="",
+        )
+
+        engine.state = next_state
+
+        engine._append_journal(
+            event="GENERATION_ADVANCED",
+            metadata={
+                "previous_generation":
+                    previous.generation,
+
+                "new_generation":
+                    next_generation,
+
+                "previous_lineage":
+                    previous.lineage_id,
+
+                "new_lineage":
+                    next_lineage_id,
+
+                "previous_recovery_epoch":
+                    previous.recovery_epoch,
+
+                "new_recovery_epoch":
+                    next_recovery_epoch,
+            },
+        )
+
+        engine._seal()
+        engine.verify_integrity()
+
+        return clone(
+            engine.state
+        )
+
+
+# ============================================================================
+# ANTI-ABA LEASE CHECK
+# ============================================================================
+
+def validate_lease_against_current_generation(
+    engine: N23Engine,
+    lease: RecoveryLease,
+) -> None:
+    engine.verify_integrity()
+
+    require(
+        lease.generation
+        == engine.state.generation,
+        "stale generation lease rejected",
+    )
+
+    require(
+        lease.lineage_id
+        == engine.state.lineage_id,
+        "stale lineage lease rejected",
+    )
+
+    require(
+        lease.recovery_epoch
+        == engine.state.recovery_epoch,
+        "stale recovery epoch lease rejected",
+    )
+
+    require(
+        lease.fence_hash
+        == engine.state.fence().fingerprint(),
+        "recovery lease fence mismatch",
+    )
+
+    require(
+        lease.lease_id
+        not in engine.state.retired_lease_ids,
+        "retired recovery lease rejected",
+    )
+
+
+# ============================================================================
+# CRASH/RESTART HELPER
+# ============================================================================
+
+def simulate_restart(
+    engine: N23Engine,
+) -> N23Engine:
+    snapshot = engine.snapshot_state()
+
+    restarted = N23Engine.restore_state(
+        snapshot
+    )
+
+    restarted.verify_integrity()
+
+    return restarted
+
+
+# ============================================================================
+# SNAPSHOT TAMPER HELPER
+# ============================================================================
+
+def clone_snapshot_dict(
+    engine: N23Engine,
+) -> Dict[str, Any]:
+    return clone(
+        engine.snapshot_dict()
+    )
+
+
+# ============================================================================
+# FINAL NETWORK FIREBREAK ASSERTION
+# ============================================================================
+
+def assert_transport_firebreak(
+    transport: SyntheticTransport,
+) -> None:
+    require(
+        LIVE_ORDER_EXECUTION is False,
+        "live execution unexpectedly enabled",
+    )
+
+    require(
+        DEMO_ORDER_EXECUTION is False,
+        "demo execution unexpectedly enabled",
+    )
+
+    require(
+        NETWORK_WRITES_ENABLED is False,
+        "network writes unexpectedly enabled",
+    )
+
+    require(
+        REAL_POST_ENABLED is False,
+        "real POST unexpectedly enabled",
+    )
+
+    require(
+        DEMO_POST_ENABLED is False,
+        "demo POST unexpectedly enabled",
+    )
+
+    require(
+        LEVERAGE_TRANSMISSION_ENABLED is False,
+        "leverage transmission unexpectedly enabled",
+    )
+
+    require(
+        transport.network_write_count == 0,
+        "network write detected",
+    )
+
+    require(
+        transport.real_post_count == 0,
+        "real POST detected",
+    )
+
+    require(
+        transport.demo_post_count == 0,
+        "demo POST detected",
+    )
+
+    require(
+        transport.leverage_transmission_count == 0,
+        "leverage transmission detected",
+    )
+
+
+# ============================================================================
+# BASIC TEST DISPLAY HELPERS
+# ============================================================================
+
+PASS_MARK = "✅ PASS"
+FAIL_MARK = "❌ FAIL"
+
+TEST_FAILURES: List[str] = []
+
+
+def separator() -> None:
+    print(
+        "-" * 92,
+        flush=True,
+    )
+
+
+def test_header(
+    number: int,
+    title: str,
+) -> None:
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        f"{UNIT_NAME} TEST {number}: {title}",
+        flush=True,
+    )
+
+    separator()
+
+
+def report_test(
+    name: str,
+    passed: bool,
+) -> None:
+    status = (
+        PASS_MARK
+        if passed
+        else FAIL_MARK
+    )
+
+    print(
+        f"{name:<84} {status}",
+        flush=True,
+    )
+
+    if not passed:
+        TEST_FAILURES.append(
+            name
+        )
+
+
+def expect_exception(
+    function: Any,
+    expected_fragment: Optional[str] = None,
+) -> bool:
+    try:
+        function()
+
+    except Exception as exc:
+        if expected_fragment is None:
+            return True
+
+        return (
+            expected_fragment.lower()
+            in str(exc).lower()
+        )
+
+    return False
+
+
+# ============================================================================
+# HEALTH SERVER
+# ============================================================================
+
+class HealthHandler(
+    BaseHTTPRequestHandler
+):
+    def do_GET(self) -> None:
+        body = (
+            f"{UNIT_NAME} ACTIVE\n"
+        ).encode(
+            "utf-8"
+        )
+
+        self.send_response(
+            200
+        )
+
+        self.send_header(
+            "Content-Type",
+            "text/plain; charset=utf-8",
+        )
+
+        self.send_header(
+            "Content-Length",
+            str(len(body)),
+        )
+
+        self.end_headers()
+
+        self.wfile.write(
+            body
+        )
+
+    def log_message(
+        self,
+        format: str,
+        *args: Any,
+    ) -> None:
+        return
+
+
+def start_health_server() -> Optional[threading.Thread]:
+    try:
+        server = HTTPServer(
+            (
+                "0.0.0.0",
+                HEALTH_PORT,
+            ),
+            HealthHandler,
+        )
+
+    except OSError as exc:
+        print(
+            f"{UNIT_NAME}: HEALTH SERVER SKIPPED: {exc}",
+            flush=True,
+        )
+
+        return None
+
+    thread = threading.Thread(
+        target=server.serve_forever,
+        daemon=True,
+    )
+
+    thread.start()
+
+    print(
+        f"{UNIT_NAME}: HEALTH SERVER ACTIVE ON PORT {HEALTH_PORT}",
+        flush=True,
+    )
+
+    return thread
+
+
+# ============================================================================
+# END OF PART 3
+# ============================================================================
+
+print(
+    "R28 UNIT N.23: PART 3 DEFINITIONS LOADED",
+    flush=True,
+)
