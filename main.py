@@ -1492,3 +1492,1189 @@ print(
     "R28 UNIT N.26: PART 2 DEFINITIONS LOADED",
     flush=True,
 )
+# ============================================================================
+# R28 UNIT N.26
+# CORRECTED COPY/PASTE VERSION
+# PART 3 OF 4
+#
+# START THIS PART AT COLUMN 1
+# ============================================================================
+
+
+# ============================================================================
+# TEST HELPERS
+# ============================================================================
+
+def expect_block(
+    label: str,
+    fn,
+    expected_text: str,
+) -> None:
+    try:
+        fn()
+
+    except Exception as exc:
+        local_block(
+            str(exc)
+        )
+
+        assert_pass(
+            label,
+            expected_text
+            in str(exc),
+        )
+
+        return
+
+    raise AssertionError(
+        f"{label}: expected rejection"
+    )
+
+
+def make_completed_engine(
+    owner: str = "worker-A",
+) -> Tuple[
+    N26Engine,
+    RecoveryLease,
+    RecoveryCertificate,
+]:
+    engine = N26Engine()
+
+    lease = (
+        engine.acquire_recovery_lease(
+            owner
+        )
+    )
+
+    engine.authorize(
+        lease
+    )
+
+    status, dispatch = (
+        engine.recover_and_dispatch(
+            lease
+        )
+    )
+
+    if (
+        status != "dispatched"
+        or dispatch is None
+    ):
+        raise AssertionError(
+            "failed to synthesize dispatch"
+        )
+
+    cert = (
+        engine.complete_generation(
+            lease
+        )
+    )
+
+    return (
+        engine,
+        lease,
+        cert,
+    )
+
+
+# ============================================================================
+# TEST 1
+# ============================================================================
+
+def test_1_bootstrap() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 1: BOOTSTRAP SAFETY"
+    )
+
+    print_rule()
+
+    engine = N26Engine()
+
+    assert_pass(
+        "Initial Generation Is One",
+        engine.state.generation
+        == 1,
+    )
+
+    assert_pass(
+        "Initial Recovery Epoch Is One",
+        engine.state.recovery_epoch
+        == 1,
+    )
+
+    assert_pass(
+        "Initial Phase Is PREPARED",
+        engine.state.phase
+        == PHASE_PREPARED,
+    )
+
+    assert_pass(
+        "Real POST Disabled",
+        REAL_POST_ENABLED
+        is False,
+    )
+
+    assert_pass(
+        "Demo POST Disabled",
+        DEMO_POST_ENABLED
+        is False,
+    )
+
+    assert_pass(
+        "Network Writes Disabled",
+        NETWORK_WRITES_ENABLED
+        is False,
+    )
+
+    assert_pass(
+        "Synthetic Transport Mandatory",
+        SYNTHETIC_TRANSPORT_ONLY
+        is True,
+    )
+
+
+# ============================================================================
+# TEST 2
+# ============================================================================
+
+def test_2_lease_and_authorization() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 2: LEASE + AUTHORIZATION BINDING"
+    )
+
+    print_rule()
+
+    engine = N26Engine()
+
+    lease = (
+        engine.acquire_recovery_lease(
+            "worker-A"
+        )
+    )
+
+    auth = (
+        engine.authorize(
+            lease
+        )
+    )
+
+    assert_pass(
+        "Lease Bound To Generation",
+        lease.generation
+        == engine.state.generation,
+    )
+
+    assert_pass(
+        "Lease Bound To Lineage",
+        lease.lineage
+        == engine.state.lineage,
+    )
+
+    assert_pass(
+        "Lease Bound To Recovery Epoch",
+        lease.recovery_epoch
+        == engine.state.recovery_epoch,
+    )
+
+    assert_pass(
+        "Authorization Bound To Lease Owner",
+        auth.owner
+        == lease.owner,
+    )
+
+    assert_pass(
+        "Authorization Starts Unconsumed",
+        auth.consumed
+        is False,
+    )
+
+
+# ============================================================================
+# TEST 3
+# ============================================================================
+
+def test_3_exact_synthetic_transport() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 3: EXACT SYNTHETIC TRANSPORT BINDING"
+    )
+
+    print_rule()
+
+    engine = N26Engine()
+
+    lease = (
+        engine.acquire_recovery_lease(
+            "worker-A"
+        )
+    )
+
+    engine.authorize(
+        lease
+    )
+
+    status, dispatch = (
+        engine.recover_and_dispatch(
+            lease
+        )
+    )
+
+    assert_pass(
+        "Synthetic Dispatch Created",
+        status == "dispatched"
+        and dispatch is not None,
+    )
+
+    if dispatch is None:
+        raise AssertionError(
+            "synthetic dispatch missing"
+        )
+
+    assert_pass(
+        "Transport Method Exactly POST",
+        dispatch.method
+        == HTTP_METHOD,
+    )
+
+    assert_pass(
+        "Transport Path Exactly Leverage Endpoint",
+        dispatch.path
+        == LEVERAGE_ENDPOINT,
+    )
+
+    expected_hash = (
+        sha256_text(
+            canonical_json(
+                engine._payload()
+            )
+        )
+    )
+
+    assert_pass(
+        "Transport Payload Hash Preserved",
+        dispatch.payload_hash
+        == expected_hash,
+    )
+
+    assert_pass(
+        "Dispatch Is Synthetic",
+        dispatch.synthetic
+        is True,
+    )
+
+    assert_pass(
+        "Authorization Consumed Exactly Once",
+        engine.state.authorization
+        is not None
+        and (
+            engine.state.authorization.consumed
+            is True
+        ),
+    )
+
+
+# ============================================================================
+# TEST 4
+# ============================================================================
+
+def test_4_authorization_replay() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 4: AUTHORIZATION REPLAY REJECTION"
+    )
+
+    print_rule()
+
+    engine = N26Engine()
+
+    lease = (
+        engine.acquire_recovery_lease(
+            "worker-A"
+        )
+    )
+
+    engine.authorize(
+        lease
+    )
+
+    engine.recover_and_dispatch(
+        lease
+    )
+
+    expect_block(
+        "Consumed Authorization Replay Rejected",
+        lambda: (
+            engine.recover_and_dispatch(
+                lease
+            )
+        ),
+        "generation is not authorized",
+    )
+
+
+# ============================================================================
+# TEST 5
+# ============================================================================
+
+def test_5_completion_terminality() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 5: COMPLETION + TERMINAL IMMUTABILITY"
+    )
+
+    print_rule()
+
+    engine, lease, cert = (
+        make_completed_engine()
+    )
+
+    before = len(
+        engine.state.dispatches
+    )
+
+    status, dispatch = (
+        engine.recover_and_dispatch(
+            lease
+        )
+    )
+
+    assert_pass(
+        "Generation Completed",
+        engine.state.phase
+        == PHASE_COMPLETED,
+    )
+
+    assert_pass(
+        "Exactly One Synthetic Dispatch Recorded",
+        before == 1,
+    )
+
+    assert_pass(
+        "Repeated Recovery Is Already Final",
+        status
+        == "already_final",
+    )
+
+    assert_pass(
+        "Repeated Recovery Produced No Second Dispatch",
+        dispatch is None
+        and len(
+            engine.state.dispatches
+        ) == before,
+    )
+
+    assert_pass(
+        "Completion Certificate Exists",
+        cert.generation
+        == engine.state.generation,
+    )
+
+
+# ============================================================================
+# TEST 6
+# ============================================================================
+
+def test_6_checkpoint_round_trip() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 6: CHECKPOINT ROUND TRIP"
+    )
+
+    print_rule()
+
+    engine, _, cert = (
+        make_completed_engine()
+    )
+
+    checkpoint = (
+        engine.checkpoint()
+    )
+
+    restored = (
+        N26Engine.restore_checkpoint(
+            checkpoint
+        )
+    )
+
+    assert_pass(
+        "Checkpoint Restores Completed State",
+        restored.state.phase
+        == PHASE_COMPLETED,
+    )
+
+    assert_pass(
+        "Checkpoint Preserves Generation",
+        restored.state.generation
+        == engine.state.generation,
+    )
+
+    assert_pass(
+        "Checkpoint Preserves Dispatch Identity",
+        restored.state.dispatches[
+            0
+        ].dispatch_id
+        == engine.state.dispatches[
+            0
+        ].dispatch_id,
+    )
+
+    assert_pass(
+        "Checkpoint Preserves Consumed Authorization",
+        restored.state.authorization
+        is not None
+        and (
+            restored.state.authorization.consumed
+            is True
+        ),
+    )
+
+    assert_pass(
+        "Checkpoint Preserves Recovery Certificate",
+        len(
+            restored.state.certificates
+        ) == 1
+        and (
+            restored.state.certificates[
+                0
+            ].certificate_id
+            == cert.certificate_id
+        ),
+    )
+
+
+# ============================================================================
+# TEST 7
+# ============================================================================
+
+def test_7_snapshot_tamper() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 7: SNAPSHOT TAMPER REJECTION"
+    )
+
+    print_rule()
+
+    engine, _, _ = (
+        make_completed_engine()
+    )
+
+    snapshot = (
+        engine.checkpoint()
+    )
+
+    snapshot[
+        "payload"
+    ][
+        "generation"
+    ] += 99
+
+    try:
+        N26Engine.restore_checkpoint(
+            snapshot
+        )
+
+    except Exception as exc:
+        message = str(exc).replace(
+            "checkpoint",
+            "snapshot",
+        )
+
+        local_block(
+            message
+        )
+
+        assert_pass(
+            "Tampered Snapshot Rejected",
+            "integrity seal mismatch"
+            in str(exc),
+        )
+
+        return
+
+    raise AssertionError(
+        "Tampered Snapshot Rejected"
+    )
+
+
+# ============================================================================
+# TEST 8
+# ============================================================================
+
+def test_8_wal_integrity() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 8: WAL INTEGRITY"
+    )
+
+    print_rule()
+
+    engine, _, _ = (
+        make_completed_engine()
+    )
+
+    assert_pass(
+        "WAL Records Validate",
+        engine.validate_wal(),
+    )
+
+    final_hash = (
+        engine.state.journal[
+            -1
+        ].record_hash
+    )
+
+    assert_pass(
+        "WAL Final Hash Matches Journal",
+        engine.wal_tip
+        == final_hash,
+    )
+
+
+# ============================================================================
+# TEST 9
+# ============================================================================
+
+def test_9_torn_tail() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 9: TORN WAL TAIL REJECTION"
+    )
+
+    print_rule()
+
+    engine, _, _ = (
+        make_completed_engine()
+    )
+
+    serialized = [
+        asdict(item)
+        for item
+        in engine.state.journal
+    ]
+
+    torn = copy.deepcopy(
+        serialized
+    )
+
+    torn[
+        -1
+    ].pop(
+        "record_hash",
+        None,
+    )
+
+    try:
+        engine.detect_torn_wal_tail(
+            torn
+        )
+
+    except Exception as exc:
+        local_block(
+            str(exc)
+        )
+
+        assert_pass(
+            "Torn WAL Tail Rejected",
+            "torn WAL tail detected"
+            in str(exc),
+        )
+
+        return
+
+    raise AssertionError(
+        "Torn WAL Tail Rejected"
+    )
+
+
+# ============================================================================
+# TEST 10
+# ============================================================================
+
+def test_10_generation_advance() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 10: GENERATION ADVANCE"
+    )
+
+    print_rule()
+
+    engine, _, prior_cert = (
+        make_completed_engine()
+    )
+
+    old_generation = (
+        engine.state.generation
+    )
+
+    old_epoch = (
+        engine.state.recovery_epoch
+    )
+
+    old_lineage = (
+        engine.state.lineage
+    )
+
+    old_dispatch = (
+        engine.state.dispatches[
+            0
+        ].dispatch_id
+    )
+
+    (
+        new_generation,
+        new_lineage,
+        new_epoch,
+    ) = engine.advance_generation()
+
+    assert_pass(
+        "Generation Advanced Monotonically",
+        new_generation
+        > old_generation,
+    )
+
+    assert_pass(
+        "Recovery Epoch Advanced Monotonically",
+        new_epoch
+        > old_epoch,
+    )
+
+    assert_pass(
+        "New Generation Uses Different Lineage",
+        new_lineage
+        != old_lineage,
+    )
+
+    assert_pass(
+        "New Generation Returns To PREPARED",
+        engine.state.phase
+        == PHASE_PREPARED,
+    )
+
+    assert_pass(
+        "Prior Completed Dispatch Preserved",
+        any(
+            item.dispatch_id
+            == old_dispatch
+            for item
+            in engine.state.dispatches
+        ),
+    )
+
+    assert_pass(
+        "Prior Recovery Certificate Preserved",
+        any(
+            item.certificate_id
+            == prior_cert.certificate_id
+            for item
+            in engine.state.certificates
+        ),
+    )
+
+
+# ============================================================================
+# TEST 11
+# ============================================================================
+
+def test_11_anti_aba() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 11: ANTI-ABA STALE LEASE REJECTION"
+    )
+
+    print_rule()
+
+    engine, old_lease, _ = (
+        make_completed_engine(
+            "worker-reused"
+        )
+    )
+
+    old_generation = (
+        old_lease.generation
+    )
+
+    old_lineage = (
+        old_lease.lineage
+    )
+
+    old_epoch = (
+        old_lease.recovery_epoch
+    )
+
+    old_nonce = (
+        old_lease.nonce
+    )
+
+    engine.advance_generation()
+
+    new_lease = (
+        engine.acquire_recovery_lease(
+            "worker-reused"
+        )
+    )
+
+    assert_pass(
+        "Reacquired Owner Uses Higher Generation",
+        new_lease.generation
+        > old_generation,
+    )
+
+    assert_pass(
+        "Reacquired Owner Uses Different Lineage",
+        new_lease.lineage
+        != old_lineage,
+    )
+
+    assert_pass(
+        "Reacquired Owner Uses Higher Epoch",
+        new_lease.recovery_epoch
+        > old_epoch,
+    )
+
+    assert_pass(
+        "Reacquired Owner Uses Higher Nonce",
+        new_lease.nonce
+        > old_nonce,
+    )
+
+    expect_block(
+        "Reused Worker Identity Cannot Resurrect Prior Generation Lease",
+        lambda: (
+            engine.authorize(
+                old_lease
+            )
+        ),
+        "recovery lease fence mismatch",
+    )
+
+
+# ============================================================================
+# TEST 12
+# ============================================================================
+
+def test_12_checkpoint_tamper() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 12: CHECKPOINT TAMPER REJECTION"
+    )
+
+    print_rule()
+
+    engine, _, _ = (
+        make_completed_engine()
+    )
+
+    checkpoint = (
+        engine.checkpoint()
+    )
+
+    checkpoint[
+        "payload"
+    ][
+        "phase"
+    ] = PHASE_PREPARED
+
+    expect_block(
+        "Tampered Checkpoint Rejected",
+        lambda: (
+            N26Engine.restore_checkpoint(
+                checkpoint
+            )
+        ),
+        "checkpoint integrity seal mismatch",
+    )
+
+
+# ============================================================================
+# TEST 13
+# ============================================================================
+
+def test_13_concurrent_single_dispatch() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 13: CONCURRENT RECOVERY SINGLE DISPATCH"
+    )
+
+    print_rule()
+
+    engine = N26Engine()
+
+    lease = (
+        engine.acquire_recovery_lease(
+            "worker-A"
+        )
+    )
+
+    engine.authorize(
+        lease
+    )
+
+    results: List[str] = []
+    errors: List[str] = []
+
+    gate = threading.Barrier(
+        8
+    )
+
+    result_lock = (
+        threading.Lock()
+    )
+
+    def worker() -> None:
+        try:
+            gate.wait()
+
+            try:
+                status, _ = (
+                    engine.recover_and_dispatch(
+                        lease
+                    )
+                )
+
+                with result_lock:
+                    results.append(
+                        status
+                    )
+
+            except ValueError as exc:
+                if (
+                    "generation is not authorized"
+                    in str(exc)
+                ):
+                    with result_lock:
+                        results.append(
+                            "rejected"
+                        )
+
+                else:
+                    with result_lock:
+                        errors.append(
+                            str(exc)
+                        )
+
+        except Exception as exc:
+            with result_lock:
+                errors.append(
+                    str(exc)
+                )
+
+    threads = [
+        threading.Thread(
+            target=worker
+        )
+        for _ in range(8)
+    ]
+
+    for thread in threads:
+        thread.start()
+
+    for thread in threads:
+        thread.join()
+
+    engine.complete_generation(
+        lease
+    )
+
+    generation_dispatches = [
+        item
+        for item
+        in engine.state.dispatches
+        if (
+            item.generation
+            == engine.state.generation
+            and item.lineage
+            == engine.state.lineage
+        )
+    ]
+
+    assert_pass(
+        "Concurrent Recovery Produced Exactly One Synthetic Dispatch",
+        len(
+            generation_dispatches
+        ) == 1,
+    )
+
+    assert_pass(
+        "Concurrent Recovery Had Exactly One Winner",
+        results.count(
+            "dispatched"
+        ) == 1,
+    )
+
+    assert_pass(
+        "Concurrent Recovery Final State Completed",
+        engine.state.phase
+        == PHASE_COMPLETED,
+    )
+
+    assert_pass(
+        "Concurrent Recovery Preserved Consumed Authorization",
+        engine.state.authorization
+        is not None
+        and (
+            engine.state.authorization.consumed
+            is True
+        ),
+    )
+
+    assert_pass(
+        "Concurrent Recovery Produced No Structural Errors",
+        len(errors)
+        == 0,
+    )
+
+
+# ============================================================================
+# TEST 14
+# ============================================================================
+
+def test_14_certificate_binding() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 14: DURABLE RECOVERY CERTIFICATE BINDING"
+    )
+
+    print_rule()
+
+    engine, _, cert = (
+        make_completed_engine()
+    )
+
+    assert_pass(
+        "Recovery Certificate Seal Valid",
+        engine.validate_certificate(
+            cert
+        ),
+    )
+
+    assert_pass(
+        "Certificate Bound To Generation",
+        cert.generation
+        == engine.state.generation,
+    )
+
+    assert_pass(
+        "Certificate Bound To Lineage",
+        cert.lineage
+        == engine.state.lineage,
+    )
+
+    assert_pass(
+        "Certificate Bound To Recovery Epoch",
+        cert.recovery_epoch
+        == engine.state.recovery_epoch,
+    )
+
+    assert_pass(
+        "Certificate Bound To WAL Tip",
+        cert.wal_tip
+        == engine.wal_tip,
+    )
+
+    assert_pass(
+        "Certificate Bound To State Digest",
+        cert.state_digest
+        == engine.state_digest(),
+    )
+
+    assert_pass(
+        "Certificate Bound To Dispatch Identity",
+        cert.dispatch_id
+        == engine.state.dispatches[
+            -1
+        ].dispatch_id,
+    )
+
+    assert_pass(
+        "Certificate Bound To Consumed Authorization",
+        engine.state.authorization
+        is not None
+        and (
+            cert.authorization_id
+            == engine.state.authorization.authorization_id
+        )
+        and (
+            engine.state.authorization.consumed
+            is True
+        ),
+    )
+
+
+# ============================================================================
+# TEST 15
+# ============================================================================
+
+def test_15_certificate_tamper() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 15: RECOVERY CERTIFICATE TAMPER REJECTION"
+    )
+
+    print_rule()
+
+    engine, _, cert = (
+        make_completed_engine()
+    )
+
+    forged = copy.deepcopy(
+        cert
+    )
+
+    forged.dispatch_id = (
+        "dispatch_forged"
+    )
+
+    expect_block(
+        "Tampered Recovery Certificate Rejected",
+        lambda: (
+            engine.validate_certificate(
+                forged
+            )
+        ),
+        "recovery certificate seal mismatch",
+    )
+
+
+# ============================================================================
+# TEST 16
+# ============================================================================
+
+def test_16_certificate_restart_and_anti_replay() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 16: CERTIFICATE RESTART + CROSS-GENERATION ANTI-REPLAY"
+    )
+
+    print_rule()
+
+    engine, _, cert = (
+        make_completed_engine()
+    )
+
+    restored = (
+        N26Engine.restore_checkpoint(
+            engine.checkpoint()
+        )
+    )
+
+    restored_cert = (
+        restored.state.certificates[
+            0
+        ]
+    )
+
+    assert_pass(
+        "Certificate Survives Restart",
+        restored_cert.certificate_id
+        == cert.certificate_id,
+    )
+
+    assert_pass(
+        "Restored Certificate Validates",
+        restored.validate_certificate(
+            restored_cert
+        ),
+    )
+
+    restored.advance_generation()
+
+    expect_block(
+        "Prior Certificate Cannot Authorize New Generation",
+        lambda: (
+            restored.validate_certificate(
+                restored_cert,
+                require_current_state=True,
+            )
+        ),
+        "not for current generation",
+    )
+
+    assert_pass(
+        "Prior Certificate Remains Historically Verifiable",
+        restored.validate_certificate(
+            restored_cert,
+            require_current_state=False,
+        ),
+    )
+
+
+# ============================================================================
+# TEST 17
+# ============================================================================
+
+def test_17_final_firebreak() -> None:
+    print(
+        f"\n{UNIT_NAME} TEST 17: FINAL NETWORK WRITE FIREBREAK"
+    )
+
+    print_rule()
+
+    try:
+        real_network_post(
+            LEVERAGE_ENDPOINT,
+            {
+                "symbol":
+                    SYMBOL,
+            },
+        )
+
+    except Exception as exc:
+        local_block(
+            str(exc)
+        )
+
+        assert_pass(
+            "Real Network POST Blocked",
+            "real network POST is disabled"
+            in str(exc),
+        )
+
+    else:
+        raise AssertionError(
+            "Real Network POST Blocked"
+        )
+
+    assert_pass(
+        "Real POST Remains Disabled",
+        REAL_POST_ENABLED
+        is False,
+    )
+
+    assert_pass(
+        "Demo POST Remains Disabled",
+        DEMO_POST_ENABLED
+        is False,
+    )
+
+    assert_pass(
+        "Network Writes Remain Disabled",
+        NETWORK_WRITES_ENABLED
+        is False,
+    )
+
+    assert_pass(
+        "Synthetic Transport Remains Mandatory",
+        SYNTHETIC_TRANSPORT_ONLY
+        is True,
+    )
+
+
+# ============================================================================
+# TEST RUNNER
+# ============================================================================
+
+def run_tests() -> None:
+    tests = [
+        test_1_bootstrap,
+        test_2_lease_and_authorization,
+        test_3_exact_synthetic_transport,
+        test_4_authorization_replay,
+        test_5_completion_terminality,
+        test_6_checkpoint_round_trip,
+        test_7_snapshot_tamper,
+        test_8_wal_integrity,
+        test_9_torn_tail,
+        test_10_generation_advance,
+        test_11_anti_aba,
+        test_12_checkpoint_tamper,
+        test_13_concurrent_single_dispatch,
+        test_14_certificate_binding,
+        test_15_certificate_tamper,
+        test_16_certificate_restart_and_anti_replay,
+        test_17_final_firebreak,
+    ]
+
+    for test in tests:
+        test()
+
+
+print(
+    "R28 UNIT N.26: PART 3 DEFINITIONS LOADED",
+    flush=True,
+)
