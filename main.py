@@ -2871,3 +2871,2338 @@ print(
 #
 # DO NOT ADD OR REMOVE INDENTATION AT THE PART-2 / PART-3 JOINT.
 # ============================================================================
+# ============================================================================
+# R28 UNIT N.33
+# DURABLE MANIFEST PROMOTION INTENT + CRASH-WINDOW RECOVERY
+# + STALE PROMOTION FENCING + SAFE SLOT RECLAMATION
+#
+# CORRECTED COPY/PASTE VERSION
+# PART 3 OF 4
+# ============================================================================
+
+
+# ============================================================================
+# TEST HARNESS HELPERS
+# ============================================================================
+
+def clone_engine(
+    engine: N33Engine,
+) -> N33Engine:
+    return N33Engine.restore_state(
+        snapshot_state(engine)
+    )
+
+
+def assert_true(
+    condition: bool,
+    label: str,
+) -> None:
+    if condition:
+        pass_line(label)
+        return
+
+    fail_line(label)
+
+
+def assert_equal(
+    left: Any,
+    right: Any,
+    label: str,
+) -> None:
+    if left == right:
+        pass_line(label)
+        return
+
+    fail_line(
+        f"{label} "
+        f"(left={left!r}, right={right!r})"
+    )
+
+
+def assert_not_equal(
+    left: Any,
+    right: Any,
+    label: str,
+) -> None:
+    if left != right:
+        pass_line(label)
+        return
+
+    fail_line(
+        f"{label} "
+        f"(both={left!r})"
+    )
+
+
+def assert_secure_equal(
+    left: str,
+    right: str,
+    label: str,
+) -> None:
+    if secure_equal(left, right):
+        pass_line(label)
+        return
+
+    fail_line(label)
+
+
+# ============================================================================
+# BUILD COMPLETED GENERATION WITH INITIAL SLOT-A AUTHORITY
+# ============================================================================
+
+def build_initial_authority_engine() -> Tuple[
+    N33Engine,
+    RecoveryLease,
+    Authorization,
+    SyntheticDispatch,
+    Checkpoint,
+    CommittedManifest,
+]:
+    engine = N33Engine()
+
+    (
+        lease,
+        authorization,
+        dispatch,
+        checkpoint,
+        manifest,
+    ) = bootstrap_initial_authority(
+        engine
+    )
+
+    engine.validate_wal()
+    engine.validate_durable_state()
+
+    return (
+        engine,
+        lease,
+        authorization,
+        dispatch,
+        checkpoint,
+        manifest,
+    )
+
+
+# ============================================================================
+# CREATE ROTATED SLOT-B CHECKPOINT
+# ============================================================================
+
+def build_rotated_checkpoint(
+    engine: N33Engine,
+) -> Checkpoint:
+    committed = engine.state.committed_manifest
+
+    require(
+        committed is not None,
+        "committed manifest missing",
+    )
+
+    target_slot = opposite_slot(
+        committed.checkpoint_slot
+    )
+
+    checkpoint = engine.create_checkpoint(
+        target_slot
+    )
+
+    engine.validate_checkpoint(
+        checkpoint
+    )
+
+    return checkpoint
+
+
+# ============================================================================
+# CREATE AND COMMIT NORMAL PROMOTION
+# ============================================================================
+
+def perform_normal_promotion(
+    engine: N33Engine,
+) -> Tuple[
+    Checkpoint,
+    ManifestPromotionIntent,
+    CommittedManifest,
+]:
+    checkpoint = build_rotated_checkpoint(
+        engine
+    )
+
+    intent = engine.prepare_manifest_promotion(
+        checkpoint
+    )
+
+    engine.validate_promotion_intent(
+        intent
+    )
+
+    manifest = engine.commit_manifest_promotion(
+        intent
+    )
+
+    committed_intent = copy.deepcopy(
+        engine.state.pending_promotion
+    )
+
+    require(
+        committed_intent is not None,
+        "committed promotion intent missing",
+    )
+
+    engine.finalize_manifest_promotion(
+        committed_intent
+    )
+
+    return (
+        checkpoint,
+        intent,
+        manifest,
+    )
+
+
+# ============================================================================
+# TEST 1: INITIAL ENGINE STATE
+# ============================================================================
+
+def test_01_initial_engine_state() -> None:
+    announce_test(
+        1,
+        "INITIAL ENGINE STATE",
+    )
+
+    engine = N33Engine()
+
+    assert_equal(
+        engine.state.generation,
+        1,
+        "Initial Generation Is One",
+    )
+
+    assert_equal(
+        engine.state.recovery_epoch,
+        1,
+        "Initial Recovery Epoch Is One",
+    )
+
+    assert_equal(
+        engine.state.phase,
+        PHASE_PREPARED,
+        "Initial Phase Is PREPARED",
+    )
+
+    assert_true(
+        bool(engine.state.lineage),
+        "Initial Lineage Established",
+    )
+
+    assert_equal(
+        len(engine.state.wal),
+        1,
+        "Initial WAL Contains Bootstrap Record",
+    )
+
+    assert_secure_equal(
+        engine.validate_wal(),
+        engine.current_wal_final_hash(),
+        "Initial WAL Chain Validates",
+    )
+
+    assert_secure_equal(
+        LEVERAGE_PAYLOAD_HASH,
+        sha256_json(LEVERAGE_PAYLOAD),
+        "Payload Hash Established",
+    )
+
+
+# ============================================================================
+# TEST 2: RECOVERY LEASE BINDING
+# ============================================================================
+
+def test_02_recovery_lease_binding() -> None:
+    announce_test(
+        2,
+        "RECOVERY LEASE BINDING",
+    )
+
+    engine = N33Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "n33-test-worker"
+    )
+
+    engine.validate_recovery_lease(
+        lease
+    )
+
+    assert_equal(
+        lease.generation,
+        engine.state.generation,
+        "Lease Bound To Current Generation",
+    )
+
+    assert_equal(
+        lease.lineage,
+        engine.state.lineage,
+        "Lease Bound To Current Lineage",
+    )
+
+    assert_equal(
+        lease.recovery_epoch,
+        engine.state.recovery_epoch,
+        "Lease Bound To Current Recovery Epoch",
+    )
+
+    assert_true(
+        lease.active,
+        "Recovery Lease Is Active",
+    )
+
+    assert_equal(
+        lease.nonce,
+        1,
+        "Initial Recovery Lease Nonce Is One",
+    )
+
+
+# ============================================================================
+# TEST 3: AUTHORIZATION BINDING
+# ============================================================================
+
+def test_03_authorization_binding() -> None:
+    announce_test(
+        3,
+        "AUTHORIZATION BINDING",
+    )
+
+    engine = N33Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "n33-auth-worker"
+    )
+
+    authorization = engine.authorize(
+        lease
+    )
+
+    engine.validate_authorization(
+        authorization,
+        lease,
+    )
+
+    assert_equal(
+        authorization.generation,
+        engine.state.generation,
+        "Authorization Bound To Generation",
+    )
+
+    assert_equal(
+        authorization.lineage,
+        engine.state.lineage,
+        "Authorization Bound To Lineage",
+    )
+
+    assert_equal(
+        authorization.recovery_epoch,
+        engine.state.recovery_epoch,
+        "Authorization Bound To Recovery Epoch",
+    )
+
+    assert_secure_equal(
+        authorization.payload_hash,
+        LEVERAGE_PAYLOAD_HASH,
+        "Authorization Bound To Exact Payload Hash",
+    )
+
+    assert_true(
+        authorization.consumed is False,
+        "Authorization Initially Unconsumed",
+    )
+
+
+# ============================================================================
+# TEST 4: AUTHORIZATION CONSUMPTION
+# ============================================================================
+
+def test_04_authorization_consumption() -> None:
+    announce_test(
+        4,
+        "AUTHORIZATION CONSUMPTION",
+    )
+
+    engine = N33Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "n33-consume-worker"
+    )
+
+    authorization = engine.authorize(
+        lease
+    )
+
+    engine.consume_authorization(
+        authorization,
+        lease,
+    )
+
+    current = engine.state.authorization
+
+    assert_true(
+        current is not None,
+        "Authorization Remains Durable",
+    )
+
+    assert_true(
+        current is not None
+        and current.consumed,
+        "Authorization Consumed Exactly Once",
+    )
+
+    if current is not None:
+        current.validate_seal()
+
+        assert_secure_equal(
+            current.seal,
+            current.calculate_seal(),
+            "Consumed Authorization Resealed",
+        )
+
+
+# ============================================================================
+# TEST 5: EXACT SYNTHETIC DISPATCH
+# ============================================================================
+
+def test_05_exact_synthetic_dispatch() -> None:
+    announce_test(
+        5,
+        "EXACT SYNTHETIC DISPATCH",
+    )
+
+    engine = N33Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "n33-dispatch-worker"
+    )
+
+    authorization = engine.authorize(
+        lease
+    )
+
+    engine.consume_authorization(
+        authorization,
+        lease,
+    )
+
+    dispatch = engine.synthetic_dispatch(
+        authorization,
+        lease,
+    )
+
+    dispatch.validate_binding()
+
+    assert_equal(
+        dispatch.method,
+        HTTP_METHOD,
+        "Transport Method Exactly POST",
+    )
+
+    assert_equal(
+        dispatch.path,
+        LEVERAGE_ENDPOINT,
+        "Transport Path Exactly Leverage Endpoint",
+    )
+
+    assert_equal(
+        dispatch.payload,
+        LEVERAGE_PAYLOAD,
+        "Transport Payload Preserved Exactly",
+    )
+
+    assert_secure_equal(
+        dispatch.payload_hash,
+        LEVERAGE_PAYLOAD_HASH,
+        "Transport Payload Hash Preserved",
+    )
+
+    assert_true(
+        dispatch.transmitted is False,
+        "Dispatch Was Never Transmitted",
+    )
+
+    assert_equal(
+        len(engine.state.synthetic_dispatches),
+        1,
+        "Exactly One Synthetic Dispatch Exists",
+    )
+
+
+# ============================================================================
+# TEST 6: INITIAL CHECKPOINT AUTHORITY
+# ============================================================================
+
+def test_06_initial_checkpoint_authority() -> None:
+    announce_test(
+        6,
+        "INITIAL CHECKPOINT AUTHORITY",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        checkpoint,
+        manifest,
+    ) = build_initial_authority_engine()
+
+    engine.validate_checkpoint(
+        checkpoint
+    )
+
+    engine.validate_manifest(
+        manifest
+    )
+
+    assert_equal(
+        checkpoint.slot,
+        SLOT_A,
+        "Initial Checkpoint Uses Slot A",
+    )
+
+    assert_equal(
+        manifest.checkpoint_slot,
+        SLOT_A,
+        "Initial Manifest Points To Slot A",
+    )
+
+    assert_equal(
+        checkpoint.checkpoint_id,
+        manifest.checkpoint_id,
+        "Manifest Checkpoint Identity Preserved",
+    )
+
+    assert_equal(
+        checkpoint.checkpoint_sequence,
+        manifest.checkpoint_sequence,
+        "Manifest Checkpoint Sequence Preserved",
+    )
+
+    assert_equal(
+        manifest.manifest_sequence,
+        1,
+        "Initial Manifest Sequence Is One",
+    )
+
+    assert_equal(
+        engine.state.highest_committed_manifest_sequence,
+        1,
+        "Manifest High-Watermark Established",
+    )
+
+    assert_equal(
+        engine.state.highest_committed_checkpoint_sequence,
+        checkpoint.checkpoint_sequence,
+        "Checkpoint High-Watermark Established",
+    )
+
+
+# ============================================================================
+# TEST 7: ROTATED CHECKPOINT CREATION
+# ============================================================================
+
+def test_07_rotated_checkpoint_creation() -> None:
+    announce_test(
+        7,
+        "ROTATED CHECKPOINT CREATION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        checkpoint_a,
+        manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    assert_equal(
+        checkpoint_a.slot,
+        SLOT_A,
+        "Committed Authority Initially Uses Slot A",
+    )
+
+    assert_equal(
+        manifest_a.checkpoint_slot,
+        SLOT_A,
+        "Initial Manifest Uses Slot A",
+    )
+
+    assert_equal(
+        checkpoint_b.slot,
+        SLOT_B,
+        "Rotated Checkpoint Uses Slot B",
+    )
+
+    assert_true(
+        checkpoint_b.checkpoint_sequence
+        > checkpoint_a.checkpoint_sequence,
+        "Checkpoint Sequence Advanced",
+    )
+
+    assert_true(
+        checkpoint_b.wal_length
+        >= checkpoint_a.wal_length,
+        "Rotated Checkpoint WAL Boundary Did Not Regress",
+    )
+
+    assert_secure_equal(
+        engine.validate_wal(
+            checkpoint_b.wal_length
+        ),
+        checkpoint_b.wal_final_hash,
+        "Rotated Checkpoint Historical WAL Prefix Validates",
+    )
+
+
+# ============================================================================
+# TEST 8: DURABLE PROMOTION INTENT CREATION
+# ============================================================================
+
+def test_08_durable_promotion_intent_creation() -> None:
+    announce_test(
+        8,
+        "DURABLE PROMOTION INTENT CREATION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        checkpoint_a,
+        manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    intent = engine.prepare_manifest_promotion(
+        checkpoint_b
+    )
+
+    engine.validate_promotion_intent(
+        intent
+    )
+
+    assert_equal(
+        intent.state,
+        PROMOTION_PENDING,
+        "Promotion Intent Is PENDING",
+    )
+
+    assert_equal(
+        intent.source_manifest_id,
+        manifest_a.manifest_id,
+        "Promotion Bound To Source Manifest Identity",
+    )
+
+    assert_equal(
+        intent.source_manifest_sequence,
+        manifest_a.manifest_sequence,
+        "Promotion Bound To Source Manifest Sequence",
+    )
+
+    assert_equal(
+        intent.source_slot,
+        checkpoint_a.slot,
+        "Promotion Bound To Source Slot",
+    )
+
+    assert_equal(
+        intent.target_slot,
+        checkpoint_b.slot,
+        "Promotion Bound To Target Slot",
+    )
+
+    assert_equal(
+        intent.target_checkpoint_id,
+        checkpoint_b.checkpoint_id,
+        "Promotion Bound To Target Checkpoint Identity",
+    )
+
+    assert_equal(
+        intent.target_checkpoint_sequence,
+        checkpoint_b.checkpoint_sequence,
+        "Promotion Bound To Target Checkpoint Sequence",
+    )
+
+    assert_secure_equal(
+        intent.target_wal_final_hash,
+        checkpoint_b.wal_final_hash,
+        "Promotion Bound To Target WAL Hash",
+    )
+
+    assert_true(
+        engine.state.pending_promotion is not None,
+        "Promotion Intent Persisted Durably",
+    )
+
+
+# ============================================================================
+# TEST 9: PROMOTION INTENT SURVIVES RESTART
+# ============================================================================
+
+def test_09_promotion_intent_survives_restart() -> None:
+    announce_test(
+        9,
+        "PROMOTION INTENT SURVIVES RESTART",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    intent = engine.prepare_manifest_promotion(
+        checkpoint_b
+    )
+
+    snapshot = snapshot_state(
+        engine
+    )
+
+    restarted = N33Engine.restore_state(
+        snapshot
+    )
+
+    restarted.validate_durable_state()
+
+    restored_intent = (
+        restarted.state.pending_promotion
+    )
+
+    assert_true(
+        restored_intent is not None,
+        "Pending Promotion Intent Survives Restart",
+    )
+
+    assert_equal(
+        restored_intent.promotion_id
+        if restored_intent is not None
+        else None,
+        intent.promotion_id,
+        "Promotion Identity Survives Restart",
+    )
+
+    assert_equal(
+        restored_intent.target_checkpoint_id
+        if restored_intent is not None
+        else None,
+        checkpoint_b.checkpoint_id,
+        "Promotion Checkpoint Binding Survives Restart",
+    )
+
+    if restored_intent is not None:
+        restored_intent.validate_seal()
+
+        assert_secure_equal(
+            restored_intent.seal,
+            restored_intent.calculate_seal(),
+            "Restarted Promotion Seal Validates",
+        )
+
+
+# ============================================================================
+# TEST 10: PRE-COMMIT CRASH PROMOTION RECOVERY
+# ============================================================================
+
+def test_10_pre_commit_crash_recovery() -> None:
+    announce_test(
+        10,
+        "PRE-COMMIT PROMOTION CRASH RECOVERY",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        checkpoint_a,
+        manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    intent = engine.prepare_manifest_promotion(
+        checkpoint_b
+    )
+
+    crash_snapshot = snapshot_state(
+        engine
+    )
+
+    restarted = N33Engine.restore_state(
+        crash_snapshot
+    )
+
+    recovered_manifest = (
+        restarted.recover_pending_promotion()
+    )
+
+    assert_true(
+        recovered_manifest is not None,
+        "Pending Promotion Commits After Restart",
+    )
+
+    assert_equal(
+        recovered_manifest.checkpoint_slot
+        if recovered_manifest is not None
+        else None,
+        SLOT_B,
+        "Recovered Promotion Commits Slot B",
+    )
+
+    assert_equal(
+        restarted.state.pending_promotion,
+        None,
+        "Recovered Promotion Finalized",
+    )
+
+    assert_equal(
+        restarted.state.committed_manifest.checkpoint_id
+        if restarted.state.committed_manifest
+        else None,
+        checkpoint_b.checkpoint_id,
+        "Recovered Authority Uses Target Checkpoint",
+    )
+
+    assert_equal(
+        restarted.state.fallback_manifest.manifest_id
+        if restarted.state.fallback_manifest
+        else None,
+        manifest_a.manifest_id,
+        "Prior Manifest Preserved As Fallback",
+    )
+
+    assert_equal(
+        restarted.state.fallback_manifest.checkpoint_id
+        if restarted.state.fallback_manifest
+        else None,
+        checkpoint_a.checkpoint_id,
+        "Fallback Preserves Prior Checkpoint",
+    )
+
+    assert_true(
+        intent.promotion_id
+        in restarted.state.finalized_promotion_ids,
+        "Recovered Promotion Recorded As Finalized",
+    )
+
+    restarted.validate_durable_state()
+
+
+# ============================================================================
+# TEST 11: POST-COMMIT / PRE-FINALIZATION CRASH RECOVERY
+# ============================================================================
+
+def test_11_post_commit_pre_finalize_recovery() -> None:
+    announce_test(
+        11,
+        "POST-COMMIT / PRE-FINALIZATION CRASH RECOVERY",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    intent = engine.prepare_manifest_promotion(
+        checkpoint_b
+    )
+
+    committed_manifest = (
+        engine.commit_manifest_promotion(
+            intent
+        )
+    )
+
+    pending = engine.state.pending_promotion
+
+    assert_true(
+        pending is not None,
+        "Committed Promotion Intent Remains Pending Finalization",
+    )
+
+    assert_equal(
+        pending.state if pending is not None else None,
+        PROMOTION_COMMITTED,
+        "Promotion State Is COMMITTED Before Finalization",
+    )
+
+    crash_snapshot = snapshot_state(
+        engine
+    )
+
+    restarted = N33Engine.restore_state(
+        crash_snapshot
+    )
+
+    recovered = (
+        restarted.recover_pending_promotion()
+    )
+
+    assert_true(
+        recovered is not None,
+        "Committed Promotion Recovered After Restart",
+    )
+
+    assert_equal(
+        recovered.manifest_id
+        if recovered is not None
+        else None,
+        committed_manifest.manifest_id,
+        "Recovery Preserved Already-Committed Manifest Identity",
+    )
+
+    assert_equal(
+        restarted.state.committed_manifest.manifest_id
+        if restarted.state.committed_manifest
+        else None,
+        committed_manifest.manifest_id,
+        "Committed Authority Was Not Duplicated",
+    )
+
+    assert_equal(
+        restarted.state.fallback_manifest.manifest_id
+        if restarted.state.fallback_manifest
+        else None,
+        manifest_a.manifest_id,
+        "Fallback Manifest Remains Original Authority",
+    )
+
+    assert_equal(
+        restarted.state.pending_promotion,
+        None,
+        "Committed Promotion Finalization Completed",
+    )
+
+    assert_true(
+        intent.promotion_id
+        in restarted.state.finalized_promotion_ids,
+        "Committed Promotion Finalized Exactly Once",
+    )
+
+
+# ============================================================================
+# TEST 12: NORMAL PROMOTION COMMIT
+# ============================================================================
+
+def test_12_normal_promotion_commit() -> None:
+    announce_test(
+        12,
+        "NORMAL MANIFEST PROMOTION COMMIT",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        checkpoint_a,
+        manifest_a,
+    ) = build_initial_authority_engine()
+
+    (
+        checkpoint_b,
+        intent,
+        manifest_b,
+    ) = perform_normal_promotion(
+        engine
+    )
+
+    assert_equal(
+        manifest_b.checkpoint_slot,
+        SLOT_B,
+        "New Committed Manifest Uses Slot B",
+    )
+
+    assert_equal(
+        manifest_b.checkpoint_id,
+        checkpoint_b.checkpoint_id,
+        "New Manifest Uses Rotated Checkpoint",
+    )
+
+    assert_true(
+        manifest_b.manifest_sequence
+        > manifest_a.manifest_sequence,
+        "Manifest Sequence Advanced Monotonically",
+    )
+
+    assert_true(
+        manifest_b.checkpoint_sequence
+        > checkpoint_a.checkpoint_sequence,
+        "Committed Checkpoint Sequence Advanced Monotonically",
+    )
+
+    assert_equal(
+        manifest_b.previous_manifest_id,
+        manifest_a.manifest_id,
+        "Manifest Preserves Prior Manifest Identity",
+    )
+
+    assert_equal(
+        manifest_b.previous_manifest_sequence,
+        manifest_a.manifest_sequence,
+        "Manifest Preserves Prior Manifest Sequence",
+    )
+
+    assert_true(
+        intent.promotion_id
+        in engine.state.finalized_promotion_ids,
+        "Promotion Finalization Recorded",
+    )
+
+    assert_equal(
+        engine.state.pending_promotion,
+        None,
+        "No Pending Promotion Remains",
+    )
+
+    engine.validate_durable_state()
+
+
+# ============================================================================
+# TEST 13: FALLBACK AUTHORITY PRESERVED
+# ============================================================================
+
+def test_13_fallback_authority_preserved() -> None:
+    announce_test(
+        13,
+        "FALLBACK AUTHORITY PRESERVATION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        checkpoint_a,
+        manifest_a,
+    ) = build_initial_authority_engine()
+
+    (
+        _checkpoint_b,
+        _intent,
+        manifest_b,
+    ) = perform_normal_promotion(
+        engine
+    )
+
+    fallback = engine.state.fallback_manifest
+
+    assert_true(
+        fallback is not None,
+        "Fallback Manifest Exists",
+    )
+
+    assert_equal(
+        fallback.manifest_id
+        if fallback is not None
+        else None,
+        manifest_a.manifest_id,
+        "Fallback Manifest Identity Preserved",
+    )
+
+    assert_equal(
+        fallback.checkpoint_id
+        if fallback is not None
+        else None,
+        checkpoint_a.checkpoint_id,
+        "Fallback Checkpoint Identity Preserved",
+    )
+
+    assert_equal(
+        fallback.checkpoint_slot
+        if fallback is not None
+        else None,
+        SLOT_A,
+        "Fallback Authority Uses Slot A",
+    )
+
+    assert_equal(
+        engine.state.committed_manifest.manifest_id
+        if engine.state.committed_manifest
+        else None,
+        manifest_b.manifest_id,
+        "Active Authority Uses New Manifest",
+    )
+
+    assert_equal(
+        engine.state.committed_manifest.checkpoint_slot
+        if engine.state.committed_manifest
+        else None,
+        SLOT_B,
+        "Active Authority Uses Slot B",
+    )
+
+
+# ============================================================================
+# TEST 14: PROMOTION INTENT INTEGRITY TAMPER REJECTION
+# ============================================================================
+
+def test_14_promotion_intent_tamper_rejection() -> None:
+    announce_test(
+        14,
+        "PROMOTION INTENT INTEGRITY TAMPER REJECTION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    intent = engine.prepare_manifest_promotion(
+        checkpoint_b
+    )
+
+    forged = copy.deepcopy(
+        intent
+    )
+
+    forged.target_checkpoint_sequence += 1
+
+    expect_local_block(
+        "Tampered Promotion Intent Rejected",
+        "promotion intent integrity seal mismatch",
+        lambda: engine.validate_promotion_intent(
+            forged
+        ),
+    )
+
+
+# ============================================================================
+# TEST 15: PROMOTION TARGET SLOT TAMPER REJECTION
+# ============================================================================
+
+def test_15_promotion_target_slot_tamper_rejection() -> None:
+    announce_test(
+        15,
+        "PROMOTION TARGET SLOT TAMPER REJECTION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    intent = engine.prepare_manifest_promotion(
+        checkpoint_b
+    )
+
+    forged = copy.deepcopy(
+        intent
+    )
+
+    forged.target_slot = SLOT_A
+
+    forged.reseal()
+
+    expect_local_block(
+        "Promotion Target Slot Mismatch Rejected",
+        "promotion target slot mismatch",
+        lambda: engine.validate_promotion_intent(
+            forged
+        ),
+    )
+
+
+# ============================================================================
+# TEST 16: PROMOTION CHECKPOINT IDENTITY TAMPER REJECTION
+# ============================================================================
+
+def test_16_promotion_checkpoint_identity_rejection() -> None:
+    announce_test(
+        16,
+        "PROMOTION CHECKPOINT IDENTITY TAMPER REJECTION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    intent = engine.prepare_manifest_promotion(
+        checkpoint_b
+    )
+
+    forged = copy.deepcopy(
+        intent
+    )
+
+    forged.target_checkpoint_id = new_id(
+        "forged-checkpoint"
+    )
+
+    forged.reseal()
+
+    expect_local_block(
+        "Promotion Checkpoint Identity Mismatch Rejected",
+        "promotion checkpoint identity mismatch",
+        lambda: engine.validate_promotion_intent(
+            forged
+        ),
+    )
+
+
+# ============================================================================
+# TEST 17: PROMOTION WAL HASH TAMPER REJECTION
+# ============================================================================
+
+def test_17_promotion_wal_hash_tamper_rejection() -> None:
+    announce_test(
+        17,
+        "PROMOTION WAL HASH TAMPER REJECTION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    intent = engine.prepare_manifest_promotion(
+        checkpoint_b
+    )
+
+    forged = copy.deepcopy(
+        intent
+    )
+
+    forged.target_wal_final_hash = "f" * 64
+
+    forged.reseal()
+
+    expect_local_block(
+        "Promotion WAL Hash Mismatch Rejected",
+        "promotion WAL final hash mismatch",
+        lambda: engine.validate_promotion_intent(
+            forged
+        ),
+    )
+
+
+# ============================================================================
+# TEST 18: STALE PROMOTION GENERATION REJECTION
+# ============================================================================
+
+def test_18_stale_promotion_generation_rejection() -> None:
+    announce_test(
+        18,
+        "STALE PROMOTION GENERATION REJECTION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    intent = engine.prepare_manifest_promotion(
+        checkpoint_b
+    )
+
+    forged = copy.deepcopy(
+        intent
+    )
+
+    forged.generation += 1
+
+    forged.reseal()
+
+    expect_local_block(
+        "Wrong Generation Promotion Rejected",
+        "promotion intent generation mismatch",
+        lambda: engine.validate_promotion_intent(
+            forged
+        ),
+    )
+
+
+# ============================================================================
+# TEST 19: STALE PROMOTION LINEAGE REJECTION
+# ============================================================================
+
+def test_19_stale_promotion_lineage_rejection() -> None:
+    announce_test(
+        19,
+        "STALE PROMOTION LINEAGE REJECTION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    intent = engine.prepare_manifest_promotion(
+        checkpoint_b
+    )
+
+    forged = copy.deepcopy(
+        intent
+    )
+
+    forged.lineage = new_id(
+        "forged-lineage"
+    )
+
+    forged.reseal()
+
+    expect_local_block(
+        "Wrong Lineage Promotion Rejected",
+        "promotion intent lineage mismatch",
+        lambda: engine.validate_promotion_intent(
+            forged
+        ),
+    )
+
+
+# ============================================================================
+# TEST 20: STALE PROMOTION RECOVERY EPOCH REJECTION
+# ============================================================================
+
+def test_20_stale_promotion_epoch_rejection() -> None:
+    announce_test(
+        20,
+        "STALE PROMOTION RECOVERY EPOCH REJECTION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    intent = engine.prepare_manifest_promotion(
+        checkpoint_b
+    )
+
+    forged = copy.deepcopy(
+        intent
+    )
+
+    forged.recovery_epoch += 1
+
+    forged.reseal()
+
+    expect_local_block(
+        "Wrong Recovery Epoch Promotion Rejected",
+        "promotion intent recovery epoch mismatch",
+        lambda: engine.validate_promotion_intent(
+            forged
+        ),
+    )
+
+
+# ============================================================================
+# TEST 21: PROMOTION SOURCE MANIFEST FENCING
+# ============================================================================
+
+def test_21_promotion_source_manifest_fencing() -> None:
+    announce_test(
+        21,
+        "PROMOTION SOURCE MANIFEST FENCING",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    intent = engine.prepare_manifest_promotion(
+        checkpoint_b
+    )
+
+    current_manifest = (
+        engine.state.committed_manifest
+    )
+
+    require(
+        current_manifest is not None,
+        "committed manifest missing",
+    )
+
+    forged_manifest = copy.deepcopy(
+        current_manifest
+    )
+
+    forged_manifest.manifest_id = new_id(
+        "replacement-manifest"
+    )
+
+    forged_manifest.reseal()
+
+    engine.state.committed_manifest = (
+        forged_manifest
+    )
+
+    expect_local_block(
+        "Stale Promotion Source Manifest Rejected",
+        "stale promotion source manifest",
+        lambda: engine.validate_promotion_source(
+            intent
+        ),
+    )
+
+
+# ============================================================================
+# TEST 22: PROMOTION REPLAY REJECTION
+# ============================================================================
+
+def test_22_promotion_replay_rejection() -> None:
+    announce_test(
+        22,
+        "PROMOTION REPLAY REJECTION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    intent = engine.prepare_manifest_promotion(
+        checkpoint_b
+    )
+
+    engine.commit_manifest_promotion(
+        intent
+    )
+
+    committed_intent = copy.deepcopy(
+        engine.state.pending_promotion
+    )
+
+    require(
+        committed_intent is not None,
+        "committed promotion intent missing",
+    )
+
+    engine.finalize_manifest_promotion(
+        committed_intent
+    )
+
+    expect_local_block(
+        "Finalized Promotion Replay Rejected",
+        "pending promotion missing",
+        lambda: engine.commit_manifest_promotion(
+            intent
+        ),
+    )
+
+
+# ============================================================================
+# TEST 23: SECOND CONCURRENT PROMOTION REJECTION
+# ============================================================================
+
+def test_23_second_pending_promotion_rejection() -> None:
+    announce_test(
+        23,
+        "SECOND PENDING PROMOTION REJECTION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    engine.prepare_manifest_promotion(
+        checkpoint_b
+    )
+
+    expect_local_block(
+        "Second Pending Promotion Rejected",
+        "manifest promotion already pending",
+        lambda: engine.prepare_manifest_promotion(
+            checkpoint_b
+        ),
+    )
+
+
+# ============================================================================
+# TEST 24: ACTIVE SLOT RECLAMATION REJECTION
+# ============================================================================
+
+def test_24_active_slot_reclamation_rejection() -> None:
+    announce_test(
+        24,
+        "ACTIVE SLOT RECLAMATION REJECTION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    expect_local_block(
+        "Active Checkpoint Slot Reclamation Rejected",
+        "cannot reclaim active checkpoint slot",
+        lambda: engine.reclaim_checkpoint_slot(
+            SLOT_A
+        ),
+    )
+
+
+# ============================================================================
+# TEST 25: FALLBACK SLOT RECLAMATION REJECTION
+# ============================================================================
+
+def test_25_fallback_slot_reclamation_rejection() -> None:
+    announce_test(
+        25,
+        "FALLBACK SLOT RECLAMATION REJECTION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    perform_normal_promotion(
+        engine
+    )
+
+    assert_equal(
+        engine.state.committed_manifest.checkpoint_slot
+        if engine.state.committed_manifest
+        else None,
+        SLOT_B,
+        "Active Authority Rotated To Slot B",
+    )
+
+    assert_equal(
+        engine.state.fallback_manifest.checkpoint_slot
+        if engine.state.fallback_manifest
+        else None,
+        SLOT_A,
+        "Fallback Authority Retains Slot A",
+    )
+
+    expect_local_block(
+        "Fallback Checkpoint Slot Reclamation Rejected",
+        "cannot reclaim fallback checkpoint slot",
+        lambda: engine.reclaim_checkpoint_slot(
+            SLOT_A
+        ),
+    )
+
+
+# ============================================================================
+# TEST 26: SAFE FALLBACK RELEASE AND SLOT RECLAMATION
+# ============================================================================
+
+def test_26_safe_fallback_release_and_reclamation() -> None:
+    announce_test(
+        26,
+        "SAFE FALLBACK RELEASE AND SLOT RECLAMATION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    perform_normal_promotion(
+        engine
+    )
+
+    released = (
+        engine.release_fallback_manifest()
+    )
+
+    assert_true(
+        released is not None,
+        "Fallback Manifest Released",
+    )
+
+    assert_equal(
+        engine.state.fallback_manifest,
+        None,
+        "Fallback Authority Cleared After Release",
+    )
+
+    reclaimed_id = (
+        engine.reclaim_checkpoint_slot(
+            SLOT_A
+        )
+    )
+
+    assert_equal(
+        reclaimed_id,
+        checkpoint_a.checkpoint_id,
+        "Released Historical Checkpoint Reclaimed",
+    )
+
+    assert_equal(
+        engine.state.checkpoints[SLOT_A],
+        None,
+        "Reclaimed Slot A Is Empty",
+    )
+
+    assert_true(
+        checkpoint_a.checkpoint_id
+        in engine.state.reclaimed_checkpoint_ids,
+        "Reclaimed Checkpoint Identity Fenced",
+    )
+
+    assert_true(
+        engine.state.committed_manifest is not None
+        and engine.state.committed_manifest.checkpoint_slot
+        == SLOT_B,
+        "Active Slot B Authority Preserved",
+    )
+
+
+# ============================================================================
+# TEST 27: RECLAIMED CHECKPOINT IDENTITY REJECTION
+# ============================================================================
+
+def test_27_reclaimed_checkpoint_identity_rejection() -> None:
+    announce_test(
+        27,
+        "RECLAIMED CHECKPOINT IDENTITY REJECTION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    perform_normal_promotion(
+        engine
+    )
+
+    engine.release_fallback_manifest()
+
+    engine.reclaim_checkpoint_slot(
+        SLOT_A
+    )
+
+    expect_local_block(
+        "Reclaimed Checkpoint Identity Rejected",
+        "checkpoint has been reclaimed",
+        lambda: engine.validate_checkpoint(
+            checkpoint_a
+        ),
+    )
+
+
+# ============================================================================
+# TEST 28: COMMITTED AUTHORITY SURVIVES RESTART
+# ============================================================================
+
+def test_28_committed_authority_survives_restart() -> None:
+    announce_test(
+        28,
+        "COMMITTED AUTHORITY SURVIVES RESTART",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    (
+        checkpoint_b,
+        _intent,
+        manifest_b,
+    ) = perform_normal_promotion(
+        engine
+    )
+
+    snapshot = snapshot_state(
+        engine
+    )
+
+    restarted = N33Engine.restore_state(
+        snapshot
+    )
+
+    recovered_checkpoint = (
+        restarted.recover_committed_authority()
+    )
+
+    assert_equal(
+        restarted.state.committed_manifest.manifest_id
+        if restarted.state.committed_manifest
+        else None,
+        manifest_b.manifest_id,
+        "Committed Manifest Survives Restart",
+    )
+
+    assert_equal(
+        recovered_checkpoint.checkpoint_id,
+        checkpoint_b.checkpoint_id,
+        "Committed Checkpoint Survives Restart",
+    )
+
+    assert_equal(
+        recovered_checkpoint.slot,
+        SLOT_B,
+        "Restarted Authority Uses Slot B",
+    )
+
+    assert_secure_equal(
+        restarted.validate_wal(
+            recovered_checkpoint.wal_length
+        ),
+        recovered_checkpoint.wal_final_hash,
+        "Restarted Historical WAL Prefix Validates",
+    )
+
+
+# ============================================================================
+# TEST 29: COMMITTED MANIFEST SEQUENCE ROLLBACK REJECTION
+# ============================================================================
+
+def test_29_manifest_sequence_rollback_rejection() -> None:
+    announce_test(
+        29,
+        "COMMITTED MANIFEST SEQUENCE ROLLBACK REJECTION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        manifest_a,
+    ) = build_initial_authority_engine()
+
+    perform_normal_promotion(
+        engine
+    )
+
+    expect_local_block(
+        "Rolled-Back Manifest Sequence Rejected",
+        "committed manifest sequence rollback detected",
+        lambda: engine.validate_manifest(
+            manifest_a
+        ),
+    )
+
+
+# ============================================================================
+# TEST 30: HISTORICAL WAL PREFIX PRESERVATION
+# ============================================================================
+
+def test_30_historical_wal_prefix_preservation() -> None:
+    announce_test(
+        30,
+        "HISTORICAL WAL PREFIX PRESERVATION",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    (
+        checkpoint_b,
+        _intent,
+        _manifest_b,
+    ) = perform_normal_promotion(
+        engine
+    )
+
+    hash_a = engine.validate_wal(
+        checkpoint_a.wal_length
+    )
+
+    hash_b = engine.validate_wal(
+        checkpoint_b.wal_length
+    )
+
+    assert_secure_equal(
+        hash_a,
+        checkpoint_a.wal_final_hash,
+        "Historical Slot A WAL Prefix Still Validates",
+    )
+
+    assert_secure_equal(
+        hash_b,
+        checkpoint_b.wal_final_hash,
+        "Historical Slot B WAL Prefix Validates",
+    )
+
+    assert_true(
+        checkpoint_b.wal_length
+        >= checkpoint_a.wal_length,
+        "Checkpoint WAL Boundary Is Monotonic",
+    )
+
+
+# ============================================================================
+# TEST 31: GENERATION ADVANCE AFTER AUTHORITY RELEASE
+# ============================================================================
+
+def test_31_generation_advance() -> None:
+    announce_test(
+        31,
+        "GENERATION ADVANCE",
+    )
+
+    (
+        engine,
+        lease,
+        _authorization,
+        _dispatch,
+        _checkpoint_a,
+        _manifest_a,
+    ) = build_initial_authority_engine()
+
+    perform_normal_promotion(
+        engine
+    )
+
+    old_generation = (
+        engine.state.generation
+    )
+
+    old_lineage = (
+        engine.state.lineage
+    )
+
+    old_epoch = (
+        engine.state.recovery_epoch
+    )
+
+    new_generation, new_lineage, new_epoch = (
+        engine.advance_generation()
+    )
+
+    assert_true(
+        new_generation > old_generation,
+        "Generation Advanced Monotonically",
+    )
+
+    assert_true(
+        new_epoch > old_epoch,
+        "Recovery Epoch Advanced Monotonically",
+    )
+
+    assert_not_equal(
+        new_lineage,
+        old_lineage,
+        "New Generation Uses Different Lineage",
+    )
+
+    assert_equal(
+        engine.state.phase,
+        PHASE_PREPARED,
+        "New Generation Returns To PREPARED",
+    )
+
+    expect_local_block(
+        "Prior Generation Lease Rejected",
+        "recovery lease missing",
+        lambda: engine.validate_recovery_lease(
+            lease
+        ),
+    )
+
+
+# ============================================================================
+# TEST 32: STALE LEASE GENERATION REJECTION
+# ============================================================================
+
+def test_32_stale_lease_generation_rejection() -> None:
+    announce_test(
+        32,
+        "ANTI-ABA STALE LEASE REJECTION",
+    )
+
+    engine = N33Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "n33-old-worker"
+    )
+
+    engine.state.recovery_lease.active = False
+
+    engine.state.generation += 1
+    engine.state.lineage = new_id(
+        "lineage"
+    )
+    engine.state.recovery_epoch += 1
+
+    replacement = RecoveryLease(
+        lease_id=new_id("lease"),
+        generation=engine.state.generation,
+        lineage=engine.state.lineage,
+        recovery_epoch=engine.state.recovery_epoch,
+        owner="n33-new-worker",
+        nonce=lease.nonce + 1,
+        active=True,
+    )
+
+    engine.state.recovery_lease = replacement
+
+    expect_local_block(
+        "Prior Generation Lease Rejected",
+        "recovery lease generation mismatch",
+        lambda: engine.validate_recovery_lease(
+            lease
+        ),
+    )
+
+
+# ============================================================================
+# TEST 33: AUTHORIZATION REPLAY REJECTION
+# ============================================================================
+
+def test_33_authorization_replay_rejection() -> None:
+    announce_test(
+        33,
+        "AUTHORIZATION REPLAY REJECTION",
+    )
+
+    engine = N33Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "n33-replay-worker"
+    )
+
+    authorization = engine.authorize(
+        lease
+    )
+
+    engine.consume_authorization(
+        authorization,
+        lease,
+    )
+
+    expect_local_block(
+        "Consumed Authorization Replay Rejected",
+        "authorization already consumed",
+        lambda: engine.consume_authorization(
+            authorization,
+            lease,
+        ),
+    )
+
+
+# ============================================================================
+# TEST 34: FINAL EXACT SYNTHETIC TRANSPORT BINDING
+# ============================================================================
+
+def test_34_exact_synthetic_transport_binding() -> None:
+    announce_test(
+        34,
+        "EXACT SYNTHETIC TRANSPORT BINDING",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        dispatch,
+        _checkpoint,
+        _manifest,
+    ) = build_initial_authority_engine()
+
+    dispatch.validate_binding()
+
+    assert_equal(
+        dispatch.method,
+        "POST",
+        "Transport Method Exactly POST",
+    )
+
+    assert_equal(
+        dispatch.path,
+        LEVERAGE_ENDPOINT,
+        "Transport Path Exactly Leverage Endpoint",
+    )
+
+    assert_secure_equal(
+        dispatch.payload_hash,
+        LEVERAGE_PAYLOAD_HASH,
+        "Transport Payload Hash Preserved",
+    )
+
+    assert_true(
+        dispatch.transmitted is False,
+        "Dispatch Was Never Transmitted",
+    )
+
+    assert_equal(
+        len(engine.state.synthetic_dispatches),
+        1,
+        "Exactly One Synthetic Dispatch Preserved",
+    )
+
+
+# ============================================================================
+# TEST 35: FINAL NETWORK WRITE FIREBREAK
+# ============================================================================
+
+def test_35_final_network_write_firebreak() -> None:
+    announce_test(
+        35,
+        "FINAL NETWORK WRITE FIREBREAK",
+    )
+
+    engine = N33Engine()
+
+    assert_true(
+        REAL_POST_ENABLED is False,
+        "Real POST Disabled",
+    )
+
+    assert_true(
+        DEMO_POST_ENABLED is False,
+        "Demo POST Disabled",
+    )
+
+    assert_true(
+        NETWORK_WRITES_ENABLED is False,
+        "All Network Writes Disabled",
+    )
+
+    assert_true(
+        SYNTHETIC_TRANSPORT_ONLY is True,
+        "Synthetic Transport Only",
+    )
+
+    expect_local_block(
+        "Real POST Firebreak Enforced",
+        "real network POST is disabled",
+        lambda: engine.real_network_post(
+            LEVERAGE_ENDPOINT,
+            LEVERAGE_PAYLOAD,
+        ),
+    )
+
+    expect_local_block(
+        "Demo POST Firebreak Enforced",
+        "demo network POST is disabled",
+        lambda: engine.demo_network_post(
+            LEVERAGE_ENDPOINT,
+            LEVERAGE_PAYLOAD,
+        ),
+    )
+
+
+# ============================================================================
+# TEST 36: FINAL N.33 COMMITTED AUTHORITY
+# ============================================================================
+
+def test_36_final_committed_authority() -> N33Engine:
+    announce_test(
+        36,
+        "FINAL N.33 COMMITTED AUTHORITY",
+    )
+
+    (
+        engine,
+        _lease,
+        _authorization,
+        _dispatch,
+        checkpoint_a,
+        manifest_a,
+    ) = build_initial_authority_engine()
+
+    checkpoint_b = build_rotated_checkpoint(
+        engine
+    )
+
+    intent = engine.prepare_manifest_promotion(
+        checkpoint_b
+    )
+
+    committed_manifest = (
+        engine.commit_manifest_promotion(
+            intent
+        )
+    )
+
+    committed_intent = copy.deepcopy(
+        engine.state.pending_promotion
+    )
+
+    require(
+        committed_intent is not None,
+        "committed promotion intent missing",
+    )
+
+    engine.finalize_manifest_promotion(
+        committed_intent
+    )
+
+    engine.validate_durable_state()
+
+    recovered = (
+        engine.recover_committed_authority()
+    )
+
+    assert_true(
+        engine.state.committed_manifest is not None,
+        "Committed Manifest Exists",
+    )
+
+    assert_equal(
+        committed_manifest.manifest_sequence,
+        2,
+        "Committed Manifest Sequence Is Two",
+    )
+
+    assert_equal(
+        committed_manifest.checkpoint_slot,
+        SLOT_B,
+        "Committed Authority Uses Rotated Slot B",
+    )
+
+    assert_equal(
+        committed_manifest.checkpoint_id,
+        checkpoint_b.checkpoint_id,
+        "Committed Authority Uses Rotated Checkpoint",
+    )
+
+    assert_equal(
+        committed_manifest.checkpoint_sequence,
+        checkpoint_b.checkpoint_sequence,
+        "Committed Checkpoint Sequence Preserved",
+    )
+
+    assert_equal(
+        committed_manifest.generation,
+        engine.state.generation,
+        "Committed Authority Generation Preserved",
+    )
+
+    assert_equal(
+        committed_manifest.lineage,
+        engine.state.lineage,
+        "Committed Authority Lineage Preserved",
+    )
+
+    assert_equal(
+        committed_manifest.recovery_epoch,
+        engine.state.recovery_epoch,
+        "Committed Authority Recovery Epoch Preserved",
+    )
+
+    assert_equal(
+        committed_manifest.wal_length,
+        checkpoint_b.wal_length,
+        "Committed Authority WAL Boundary Preserved",
+    )
+
+    assert_secure_equal(
+        committed_manifest.wal_final_hash,
+        checkpoint_b.wal_final_hash,
+        "Committed Authority WAL Hash Preserved",
+    )
+
+    assert_secure_equal(
+        engine.validate_wal(
+            committed_manifest.wal_length
+        ),
+        committed_manifest.wal_final_hash,
+        "Committed Authority Historical WAL Prefix Validates",
+    )
+
+    assert_equal(
+        recovered.checkpoint_id,
+        checkpoint_b.checkpoint_id,
+        "Recovered Checkpoint Matches Manifest Identity",
+    )
+
+    assert_true(
+        engine.state.fallback_manifest is not None,
+        "Fallback Manifest Preserved",
+    )
+
+    assert_equal(
+        engine.state.fallback_manifest.manifest_id
+        if engine.state.fallback_manifest
+        else None,
+        manifest_a.manifest_id,
+        "Fallback Manifest Is Original Manifest",
+    )
+
+    assert_equal(
+        engine.state.fallback_manifest.checkpoint_id
+        if engine.state.fallback_manifest
+        else None,
+        checkpoint_a.checkpoint_id,
+        "Fallback Checkpoint Is Original Slot A Checkpoint",
+    )
+
+    assert_true(
+        intent.promotion_id
+        in engine.state.finalized_promotion_ids,
+        "Promotion Identity Permanently Finalized",
+    )
+
+    assert_equal(
+        engine.state.pending_promotion,
+        None,
+        "No Pending Promotion Remains",
+    )
+
+    assert_equal(
+        len(engine.state.synthetic_dispatches),
+        1,
+        "Exactly One Synthetic Dispatch Preserved",
+    )
+
+    assert_true(
+        engine.state.synthetic_dispatches[0].transmitted
+        is False,
+        "Final Dispatch Was Never Transmitted",
+    )
+
+    return engine
+
+
+print(
+    "R28 UNIT N.33: PART 3 DEFINITIONS LOADED",
+    flush=True,
+)
+
+# ============================================================================
+# END OF PART 3 OF 4
+#
+# NEXT:
+#   PART 4 CONTINUES AT ZERO INDENTATION WITH:
+#     - TEST EXECUTION ORDER
+#     - FINAL DIAGNOSTIC SUMMARY
+#     - HEALTH SERVER
+#     - PERSISTENT SAFE RUNTIME
+#     - __main__ ENTRY POINT
+#
+# DO NOT ADD OR REMOVE INDENTATION AT THE PART-3 / PART-4 JOINT.
+# ============================================================================
