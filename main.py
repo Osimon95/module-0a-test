@@ -1220,3 +1220,1649 @@ print(
     "R28 UNIT N.32: PART 1 DEFINITIONS LOADED",
     flush=True,
 )
+# ============================================================================
+# R28 UNIT N.32
+# ATOMIC DUAL-SLOT CHECKPOINT ROTATION
+# + COMMITTED-MANIFEST FALLBACK
+#
+# CORRECTED COPY/PASTE VERSION
+# PART 2 OF 4
+# ============================================================================
+
+
+# ============================================================================
+# N32 ENGINE
+# ============================================================================
+
+class N32Engine:
+    def __init__(
+        self,
+        state: Optional[DurableState] = None,
+    ) -> None:
+        if state is None:
+            payload = build_leverage_payload()
+
+            self.state = DurableState(
+                generation=1,
+                recovery_epoch=1,
+                lineage_id=new_id(
+                    "lineage"
+                ),
+                phase=PHASE_PREPARED,
+                payload=payload,
+                payload_hash=payload_hash(
+                    payload
+                ),
+            )
+
+            self.append_wal(
+                "GENERATION_CREATED",
+                {
+                    "generation": (
+                        self.state.generation
+                    ),
+                    "recovery_epoch": (
+                        self.state.recovery_epoch
+                    ),
+                    "lineage_id": (
+                        self.state.lineage_id
+                    ),
+                },
+            )
+
+        else:
+            self.state = state.clone()
+
+        self._lock = threading.RLock()
+
+
+# ============================================================================
+# WAL APPEND
+# ============================================================================
+
+    def append_wal(
+        self,
+        event: str,
+        metadata: Optional[
+            Dict[str, Any]
+        ] = None,
+    ) -> WALRecord:
+        if metadata is None:
+            metadata = {}
+
+        previous_hash = wal_final_hash(
+            self.state.wal
+        )
+
+        record = WALRecord(
+            index=len(
+                self.state.wal
+            ) + 1,
+            event=event,
+            generation=(
+                self.state.generation
+            ),
+            recovery_epoch=(
+                self.state.recovery_epoch
+            ),
+            lineage_id=(
+                self.state.lineage_id
+            ),
+            payload_hash=(
+                self.state.payload_hash
+            ),
+            previous_hash=(
+                previous_hash
+            ),
+            timestamp_ms=now_ms(),
+            metadata=deep_copy(
+                metadata
+            ),
+        )
+
+        record.seal()
+
+        self.state.wal.append(
+            record
+        )
+
+        return record
+
+
+# ============================================================================
+# CORE STATE VALIDATION
+# ============================================================================
+
+    def validate_core_state(
+        self,
+    ) -> None:
+        calculated_payload_hash = (
+            payload_hash(
+                self.state.payload
+            )
+        )
+
+        if not secure_equal(
+            calculated_payload_hash,
+            self.state.payload_hash,
+        ):
+            raise IntegrityError(
+                "payload hash mismatch"
+            )
+
+        if self.state.generation < 1:
+            raise RecoveryError(
+                "invalid generation"
+            )
+
+        if (
+            self.state.recovery_epoch
+            < 1
+        ):
+            raise RecoveryError(
+                "invalid recovery epoch"
+            )
+
+        if not self.state.lineage_id:
+            raise RecoveryError(
+                "missing lineage"
+            )
+
+        validate_wal(
+            self.state.wal
+        )
+
+
+# ============================================================================
+# RECOVERY LEASE
+# ============================================================================
+
+    def acquire_recovery_lease(
+        self,
+        owner_id: str,
+    ) -> RecoveryLease:
+        with self._lock:
+            if (
+                self.state.phase
+                == PHASE_COMPLETED
+            ):
+                raise RecoveryError(
+                    "terminal generation cannot acquire recovery lease"
+                )
+
+            self.state.lease_nonce += 1
+
+            lease = RecoveryLease(
+                lease_id=new_id(
+                    "lease"
+                ),
+                owner_id=owner_id,
+                generation=(
+                    self.state.generation
+                ),
+                recovery_epoch=(
+                    self.state.recovery_epoch
+                ),
+                lineage_id=(
+                    self.state.lineage_id
+                ),
+                nonce=(
+                    self.state.lease_nonce
+                ),
+            )
+
+            lease.seal()
+
+            self.state.recovery_lease = (
+                lease
+            )
+
+            self.append_wal(
+                "RECOVERY_LEASE_ACQUIRED",
+                {
+                    "lease_id": (
+                        lease.lease_id
+                    ),
+                    "owner_id": (
+                        lease.owner_id
+                    ),
+                    "nonce": (
+                        lease.nonce
+                    ),
+                },
+            )
+
+            return deep_copy(
+                lease
+            )
+
+
+    def validate_recovery_lease(
+        self,
+        lease: RecoveryLease,
+    ) -> None:
+        lease.validate_integrity()
+
+        if (
+            lease.generation
+            != self.state.generation
+        ):
+            raise RecoveryError(
+                "recovery lease generation mismatch"
+            )
+
+        if (
+            lease.recovery_epoch
+            != self.state.recovery_epoch
+        ):
+            raise RecoveryError(
+                "recovery lease recovery epoch mismatch"
+            )
+
+        if (
+            lease.lineage_id
+            != self.state.lineage_id
+        ):
+            raise RecoveryError(
+                "recovery lease lineage mismatch"
+            )
+
+        current = (
+            self.state.recovery_lease
+        )
+
+        if current is None:
+            raise RecoveryError(
+                "recovery lease missing"
+            )
+
+        current.validate_integrity()
+
+        if (
+            lease.lease_id
+            != current.lease_id
+        ):
+            raise RecoveryError(
+                "recovery lease identity mismatch"
+            )
+
+        if (
+            lease.owner_id
+            != current.owner_id
+        ):
+            raise RecoveryError(
+                "recovery lease owner mismatch"
+            )
+
+        if (
+            lease.nonce
+            != current.nonce
+        ):
+            raise RecoveryError(
+                "recovery lease nonce mismatch"
+            )
+
+
+# ============================================================================
+# AUTHORIZATION
+# ============================================================================
+
+    def issue_authorization(
+        self,
+        lease: RecoveryLease,
+    ) -> Authorization:
+        with self._lock:
+            self.validate_recovery_lease(
+                lease
+            )
+
+            if (
+                self.state.phase
+                not in (
+                    PHASE_PREPARED,
+                    PHASE_AUTHORIZED,
+                )
+            ):
+                raise AuthorizationError(
+                    "generation is not authorizable"
+                )
+
+            if (
+                self.state.authorization
+                is not None
+                and not self.state.authorization.consumed
+            ):
+                raise AuthorizationError(
+                    "active authorization already exists"
+                )
+
+            self.state.authorization_nonce += 1
+
+            authorization = Authorization(
+                authorization_id=new_id(
+                    "authorization"
+                ),
+                generation=(
+                    self.state.generation
+                ),
+                recovery_epoch=(
+                    self.state.recovery_epoch
+                ),
+                lineage_id=(
+                    self.state.lineage_id
+                ),
+                lease_id=(
+                    lease.lease_id
+                ),
+                owner_id=(
+                    lease.owner_id
+                ),
+                payload_hash=(
+                    self.state.payload_hash
+                ),
+                nonce=(
+                    self.state.authorization_nonce
+                ),
+                consumed=False,
+            )
+
+            authorization.seal()
+
+            self.state.authorization = (
+                authorization
+            )
+
+            self.state.phase = (
+                PHASE_AUTHORIZED
+            )
+
+            self.append_wal(
+                "AUTHORIZATION_ISSUED",
+                {
+                    "authorization_id": (
+                        authorization.authorization_id
+                    ),
+                    "lease_id": (
+                        authorization.lease_id
+                    ),
+                    "nonce": (
+                        authorization.nonce
+                    ),
+                },
+            )
+
+            return deep_copy(
+                authorization
+            )
+
+
+    def validate_authorization(
+        self,
+        authorization: Authorization,
+    ) -> None:
+        authorization.validate_integrity()
+
+        if (
+            authorization.generation
+            != self.state.generation
+        ):
+            raise AuthorizationError(
+                "authorization generation mismatch"
+            )
+
+        if (
+            authorization.recovery_epoch
+            != self.state.recovery_epoch
+        ):
+            raise AuthorizationError(
+                "authorization recovery epoch mismatch"
+            )
+
+        if (
+            authorization.lineage_id
+            != self.state.lineage_id
+        ):
+            raise AuthorizationError(
+                "authorization lineage mismatch"
+            )
+
+        if (
+            authorization.payload_hash
+            != self.state.payload_hash
+        ):
+            raise AuthorizationError(
+                "authorization payload hash mismatch"
+            )
+
+        current = (
+            self.state.authorization
+        )
+
+        if current is None:
+            raise AuthorizationError(
+                "authorization missing"
+            )
+
+        current.validate_integrity()
+
+        if (
+            authorization.authorization_id
+            != current.authorization_id
+        ):
+            raise AuthorizationError(
+                "authorization identity mismatch"
+            )
+
+        if (
+            authorization.lease_id
+            != current.lease_id
+        ):
+            raise AuthorizationError(
+                "authorization lease mismatch"
+            )
+
+        if (
+            authorization.owner_id
+            != current.owner_id
+        ):
+            raise AuthorizationError(
+                "authorization owner mismatch"
+            )
+
+        if (
+            authorization.nonce
+            != current.nonce
+        ):
+            raise AuthorizationError(
+                "authorization nonce mismatch"
+            )
+
+        if current.consumed:
+            raise ReplayError(
+                "authorization already consumed"
+            )
+
+
+    def consume_authorization(
+        self,
+        authorization: Authorization,
+    ) -> None:
+        with self._lock:
+            self.validate_authorization(
+                authorization
+            )
+
+            current = (
+                self.state.authorization
+            )
+
+            if current is None:
+                raise AuthorizationError(
+                    "authorization missing"
+                )
+
+            current.consumed = True
+            current.seal()
+
+            self.append_wal(
+                "AUTHORIZATION_CONSUMED",
+                {
+                    "authorization_id": (
+                        current.authorization_id
+                    ),
+                    "nonce": (
+                        current.nonce
+                    ),
+                },
+            )
+
+
+# ============================================================================
+# SYNTHETIC TRANSPORT
+# ============================================================================
+
+    def synthetic_dispatch(
+        self,
+        authorization: Authorization,
+    ) -> SyntheticDispatchReceipt:
+        with self._lock:
+            self.validate_authorization(
+                authorization
+            )
+
+            self.consume_authorization(
+                authorization
+            )
+
+            receipt = (
+                SyntheticDispatchReceipt(
+                    dispatch_id=new_id(
+                        "dispatch"
+                    ),
+                    method=HTTP_METHOD,
+                    path=(
+                        LEVERAGE_ENDPOINT
+                    ),
+                    payload_hash=(
+                        self.state.payload_hash
+                    ),
+                    generation=(
+                        self.state.generation
+                    ),
+                    recovery_epoch=(
+                        self.state.recovery_epoch
+                    ),
+                    lineage_id=(
+                        self.state.lineage_id
+                    ),
+                    transmitted=False,
+                    timestamp_ms=now_ms(),
+                )
+            )
+
+            receipt.validate_synthetic()
+
+            self.state.dispatch_receipts.append(
+                receipt
+            )
+
+            self.state.phase = (
+                PHASE_DISPATCHED
+            )
+
+            self.append_wal(
+                "SYNTHETIC_DISPATCH",
+                {
+                    "dispatch_id": (
+                        receipt.dispatch_id
+                    ),
+                    "method": (
+                        receipt.method
+                    ),
+                    "path": (
+                        receipt.path
+                    ),
+                    "transmitted": (
+                        receipt.transmitted
+                    ),
+                },
+            )
+
+            return deep_copy(
+                receipt
+            )
+
+
+# ============================================================================
+# FINALIZATION
+# ============================================================================
+
+    def finalize_generation(
+        self,
+    ) -> None:
+        with self._lock:
+            if (
+                self.state.phase
+                == PHASE_COMPLETED
+            ):
+                return
+
+            if (
+                self.state.phase
+                != PHASE_DISPATCHED
+            ):
+                raise RecoveryError(
+                    "generation is not dispatched"
+                )
+
+            if (
+                len(
+                    self.state.dispatch_receipts
+                )
+                != 1
+            ):
+                raise RecoveryError(
+                    "generation does not contain exactly one synthetic dispatch"
+                )
+
+            self.state.phase = (
+                PHASE_COMPLETED
+            )
+
+            self.append_wal(
+                "GENERATION_COMPLETED",
+                {
+                    "dispatch_count": len(
+                        self.state.dispatch_receipts
+                    ),
+                },
+            )
+
+
+# ============================================================================
+# CHECKPOINT VALIDATION
+# ============================================================================
+
+    def validate_checkpoint(
+        self,
+        checkpoint: Checkpoint,
+    ) -> None:
+        checkpoint.validate_integrity()
+
+        if (
+            checkpoint.generation
+            != self.state.generation
+        ):
+            raise CheckpointError(
+                "checkpoint generation mismatch"
+            )
+
+        if (
+            checkpoint.recovery_epoch
+            != self.state.recovery_epoch
+        ):
+            raise CheckpointError(
+                "checkpoint recovery epoch mismatch"
+            )
+
+        if (
+            checkpoint.lineage_id
+            != self.state.lineage_id
+        ):
+            raise CheckpointError(
+                "checkpoint lineage mismatch"
+            )
+
+        if (
+            checkpoint.payload_hash
+            != self.state.payload_hash
+        ):
+            raise CheckpointError(
+                "checkpoint payload hash mismatch"
+            )
+
+        validate_wal_prefix(
+            self.state.wal,
+            checkpoint.wal_length,
+            checkpoint.wal_final_hash,
+        )
+
+
+# ============================================================================
+# CHECKPOINT CREATION
+# ============================================================================
+
+    def create_checkpoint(
+        self,
+        slot: str,
+        checkpoint_sequence: int,
+    ) -> Checkpoint:
+        with self._lock:
+            if (
+                slot
+                not in VALID_CHECKPOINT_SLOTS
+            ):
+                raise CheckpointError(
+                    "invalid checkpoint slot"
+                )
+
+            if (
+                checkpoint_sequence
+                < 1
+            ):
+                raise CheckpointError(
+                    "invalid checkpoint sequence"
+                )
+
+            authorization_consumed = False
+
+            if (
+                self.state.authorization
+                is not None
+            ):
+                authorization_consumed = (
+                    self.state.authorization.consumed
+                )
+
+            checkpoint = Checkpoint(
+                slot=slot,
+                checkpoint_sequence=(
+                    checkpoint_sequence
+                ),
+                checkpoint_id=new_id(
+                    "checkpoint"
+                ),
+                generation=(
+                    self.state.generation
+                ),
+                recovery_epoch=(
+                    self.state.recovery_epoch
+                ),
+                lineage_id=(
+                    self.state.lineage_id
+                ),
+                phase=(
+                    self.state.phase
+                ),
+                payload_hash=(
+                    self.state.payload_hash
+                ),
+                wal_length=len(
+                    self.state.wal
+                ),
+                wal_final_hash=(
+                    wal_final_hash(
+                        self.state.wal
+                    )
+                ),
+                authorization_consumed=(
+                    authorization_consumed
+                ),
+                dispatch_count=len(
+                    self.state.dispatch_receipts
+                ),
+                created_ms=now_ms(),
+            )
+
+            checkpoint.seal()
+
+            self.state.checkpoint_slots[
+                slot
+            ] = checkpoint
+
+            return deep_copy(
+                checkpoint
+            )
+
+
+# ============================================================================
+# CHECKPOINT SLOT LOOKUP
+# ============================================================================
+
+    def get_checkpoint(
+        self,
+        slot: str,
+    ) -> Checkpoint:
+        if (
+            slot
+            not in VALID_CHECKPOINT_SLOTS
+        ):
+            raise CheckpointError(
+                "invalid checkpoint slot"
+            )
+
+        checkpoint = (
+            self.state.checkpoint_slots.get(
+                slot
+            )
+        )
+
+        if checkpoint is None:
+            raise CheckpointError(
+                "checkpoint missing"
+            )
+
+        return checkpoint
+
+
+# ============================================================================
+# MANIFEST VALIDATION
+# ============================================================================
+
+    def validate_manifest(
+        self,
+        manifest: CommittedManifest,
+        enforce_highest_sequence: bool = True,
+    ) -> Checkpoint:
+        manifest.validate_integrity()
+
+        if (
+            enforce_highest_sequence
+            and
+            self.state.highest_manifest_sequence_seen
+            > 0
+            and
+            manifest.manifest_sequence
+            < self.state.highest_manifest_sequence_seen
+        ):
+            raise ManifestError(
+                "committed manifest sequence rollback detected"
+            )
+
+        checkpoint = (
+            self.state.checkpoint_slots.get(
+                manifest.checkpoint_slot
+            )
+        )
+
+        if checkpoint is None:
+            raise ManifestError(
+                "manifest checkpoint missing"
+            )
+
+        checkpoint.validate_integrity()
+
+        if (
+            checkpoint.checkpoint_sequence
+            != manifest.checkpoint_sequence
+        ):
+            raise ManifestError(
+                "manifest checkpoint sequence mismatch"
+            )
+
+        if (
+            checkpoint.checkpoint_id
+            != manifest.checkpoint_id
+        ):
+            raise ManifestError(
+                "manifest checkpoint identity mismatch"
+            )
+
+        if (
+            checkpoint.generation
+            != manifest.generation
+        ):
+            raise ManifestError(
+                "manifest generation mismatch"
+            )
+
+        if (
+            checkpoint.recovery_epoch
+            != manifest.recovery_epoch
+        ):
+            raise ManifestError(
+                "manifest recovery epoch mismatch"
+            )
+
+        if (
+            checkpoint.lineage_id
+            != manifest.lineage_id
+        ):
+            raise ManifestError(
+                "manifest lineage mismatch"
+            )
+
+        if (
+            checkpoint.wal_length
+            != manifest.checkpoint_wal_length
+        ):
+            raise ManifestError(
+                "manifest checkpoint WAL length mismatch"
+            )
+
+        if (
+            checkpoint.wal_final_hash
+            != manifest.checkpoint_wal_final_hash
+        ):
+            raise ManifestError(
+                "manifest checkpoint WAL final hash mismatch"
+            )
+
+        self.validate_checkpoint(
+            checkpoint
+        )
+
+        return checkpoint
+
+
+# ============================================================================
+# INITIAL MANIFEST COMMIT
+# ============================================================================
+
+    def commit_initial_manifest(
+        self,
+        checkpoint: Checkpoint,
+    ) -> CommittedManifest:
+        with self._lock:
+            if (
+                self.state.committed_manifest
+                is not None
+            ):
+                raise ManifestError(
+                    "committed manifest already exists"
+                )
+
+            self.validate_checkpoint(
+                checkpoint
+            )
+
+            stored_checkpoint = (
+                self.state.checkpoint_slots.get(
+                    checkpoint.slot
+                )
+            )
+
+            if stored_checkpoint is None:
+                raise ManifestError(
+                    "checkpoint missing"
+                )
+
+            if (
+                stored_checkpoint.checkpoint_id
+                != checkpoint.checkpoint_id
+            ):
+                raise ManifestError(
+                    "checkpoint identity mismatch"
+                )
+
+            manifest = CommittedManifest(
+                manifest_sequence=1,
+                manifest_id=new_id(
+                    "manifest"
+                ),
+
+                checkpoint_slot=(
+                    checkpoint.slot
+                ),
+                checkpoint_sequence=(
+                    checkpoint.checkpoint_sequence
+                ),
+                checkpoint_id=(
+                    checkpoint.checkpoint_id
+                ),
+
+                generation=(
+                    checkpoint.generation
+                ),
+                recovery_epoch=(
+                    checkpoint.recovery_epoch
+                ),
+                lineage_id=(
+                    checkpoint.lineage_id
+                ),
+
+                checkpoint_wal_length=(
+                    checkpoint.wal_length
+                ),
+                checkpoint_wal_final_hash=(
+                    checkpoint.wal_final_hash
+                ),
+
+                previous_manifest_sequence=None,
+                previous_manifest_id=None,
+
+                committed_ms=now_ms(),
+            )
+
+            manifest.seal()
+
+            self.state.committed_manifest = (
+                manifest
+            )
+
+            self.state.fallback_manifest = (
+                None
+            )
+
+            self.state.highest_manifest_sequence_seen = (
+                manifest.manifest_sequence
+            )
+
+            self.append_wal(
+                "INITIAL_MANIFEST_COMMITTED",
+                {
+                    "manifest_sequence": (
+                        manifest.manifest_sequence
+                    ),
+                    "manifest_id": (
+                        manifest.manifest_id
+                    ),
+                    "checkpoint_slot": (
+                        manifest.checkpoint_slot
+                    ),
+                    "checkpoint_sequence": (
+                        manifest.checkpoint_sequence
+                    ),
+                },
+            )
+
+            return deep_copy(
+                manifest
+            )
+
+
+# ============================================================================
+# PREPARE SLOT ROTATION
+# ============================================================================
+
+    def prepare_checkpoint_rotation(
+        self,
+    ) -> PendingPromotion:
+        with self._lock:
+            current_manifest = (
+                self.state.committed_manifest
+            )
+
+            if current_manifest is None:
+                raise ManifestError(
+                    "committed manifest missing"
+                )
+
+            current_checkpoint = (
+                self.validate_manifest(
+                    current_manifest
+                )
+            )
+
+            target_slot = opposite_slot(
+                current_manifest.checkpoint_slot
+            )
+
+            target_sequence = (
+                current_checkpoint.checkpoint_sequence
+                + 1
+            )
+
+            new_checkpoint = (
+                self.create_checkpoint(
+                    target_slot,
+                    target_sequence,
+                )
+            )
+
+            pending = PendingPromotion(
+                promotion_id=new_id(
+                    "promotion"
+                ),
+
+                target_slot=(
+                    target_slot
+                ),
+                target_checkpoint_sequence=(
+                    target_sequence
+                ),
+                target_checkpoint_id=(
+                    new_checkpoint.checkpoint_id
+                ),
+
+                expected_generation=(
+                    self.state.generation
+                ),
+                expected_recovery_epoch=(
+                    self.state.recovery_epoch
+                ),
+                expected_lineage_id=(
+                    self.state.lineage_id
+                ),
+
+                base_manifest_sequence=(
+                    current_manifest.manifest_sequence
+                ),
+                base_manifest_id=(
+                    current_manifest.manifest_id
+                ),
+
+                checkpoint_wal_length=(
+                    new_checkpoint.wal_length
+                ),
+                checkpoint_wal_final_hash=(
+                    new_checkpoint.wal_final_hash
+                ),
+
+                created_ms=now_ms(),
+            )
+
+            pending.seal()
+
+            self.state.pending_promotion = (
+                pending
+            )
+
+            self.append_wal(
+                "CHECKPOINT_ROTATION_PREPARED",
+                {
+                    "promotion_id": (
+                        pending.promotion_id
+                    ),
+                    "target_slot": (
+                        pending.target_slot
+                    ),
+                    "target_checkpoint_sequence": (
+                        pending.target_checkpoint_sequence
+                    ),
+                    "base_manifest_sequence": (
+                        pending.base_manifest_sequence
+                    ),
+                },
+            )
+
+            return deep_copy(
+                pending
+            )
+
+
+# ============================================================================
+# PENDING PROMOTION VALIDATION
+# ============================================================================
+
+    def validate_pending_promotion(
+        self,
+        pending: PendingPromotion,
+    ) -> Checkpoint:
+        pending.validate_integrity()
+
+        if (
+            pending.expected_generation
+            != self.state.generation
+        ):
+            raise ManifestError(
+                "pending promotion generation mismatch"
+            )
+
+        if (
+            pending.expected_recovery_epoch
+            != self.state.recovery_epoch
+        ):
+            raise ManifestError(
+                "pending promotion recovery epoch mismatch"
+            )
+
+        if (
+            pending.expected_lineage_id
+            != self.state.lineage_id
+        ):
+            raise ManifestError(
+                "pending promotion lineage mismatch"
+            )
+
+        current_pending = (
+            self.state.pending_promotion
+        )
+
+        if current_pending is None:
+            raise ManifestError(
+                "pending promotion missing"
+            )
+
+        current_pending.validate_integrity()
+
+        if (
+            pending.promotion_id
+            != current_pending.promotion_id
+        ):
+            raise ManifestError(
+                "pending promotion identity mismatch"
+            )
+
+        manifest = (
+            self.state.committed_manifest
+        )
+
+        if manifest is None:
+            raise ManifestError(
+                "committed manifest missing"
+            )
+
+        manifest.validate_integrity()
+
+        if (
+            manifest.manifest_sequence
+            != pending.base_manifest_sequence
+        ):
+            raise ManifestError(
+                "pending promotion base manifest sequence mismatch"
+            )
+
+        if (
+            manifest.manifest_id
+            != pending.base_manifest_id
+        ):
+            raise ManifestError(
+                "pending promotion base manifest identity mismatch"
+            )
+
+        checkpoint = (
+            self.state.checkpoint_slots.get(
+                pending.target_slot
+            )
+        )
+
+        if checkpoint is None:
+            raise ManifestError(
+                "pending promotion checkpoint missing"
+            )
+
+        checkpoint.validate_integrity()
+
+        if (
+            checkpoint.checkpoint_sequence
+            != pending.target_checkpoint_sequence
+        ):
+            raise ManifestError(
+                "pending promotion checkpoint sequence mismatch"
+            )
+
+        if (
+            checkpoint.checkpoint_id
+            != pending.target_checkpoint_id
+        ):
+            raise ManifestError(
+                "pending promotion checkpoint identity mismatch"
+            )
+
+        if (
+            checkpoint.wal_length
+            != pending.checkpoint_wal_length
+        ):
+            raise ManifestError(
+                "pending promotion WAL length mismatch"
+            )
+
+        if (
+            checkpoint.wal_final_hash
+            != pending.checkpoint_wal_final_hash
+        ):
+            raise ManifestError(
+                "pending promotion WAL final hash mismatch"
+            )
+
+        self.validate_checkpoint(
+            checkpoint
+        )
+
+        return checkpoint
+
+
+# ============================================================================
+# COMMIT SLOT ROTATION
+# ============================================================================
+
+    def commit_checkpoint_rotation(
+        self,
+        pending: PendingPromotion,
+    ) -> CommittedManifest:
+        with self._lock:
+            checkpoint = (
+                self.validate_pending_promotion(
+                    pending
+                )
+            )
+
+            previous_manifest = (
+                self.state.committed_manifest
+            )
+
+            if previous_manifest is None:
+                raise ManifestError(
+                    "committed manifest missing"
+                )
+
+            next_manifest_sequence = (
+                previous_manifest.manifest_sequence
+                + 1
+            )
+
+            if (
+                next_manifest_sequence
+                <= self.state.highest_manifest_sequence_seen
+            ):
+                raise ManifestError(
+                    "manifest sequence is not monotonic"
+                )
+
+            new_manifest = (
+                CommittedManifest(
+                    manifest_sequence=(
+                        next_manifest_sequence
+                    ),
+                    manifest_id=new_id(
+                        "manifest"
+                    ),
+
+                    checkpoint_slot=(
+                        checkpoint.slot
+                    ),
+                    checkpoint_sequence=(
+                        checkpoint.checkpoint_sequence
+                    ),
+                    checkpoint_id=(
+                        checkpoint.checkpoint_id
+                    ),
+
+                    generation=(
+                        checkpoint.generation
+                    ),
+                    recovery_epoch=(
+                        checkpoint.recovery_epoch
+                    ),
+                    lineage_id=(
+                        checkpoint.lineage_id
+                    ),
+
+                    checkpoint_wal_length=(
+                        checkpoint.wal_length
+                    ),
+                    checkpoint_wal_final_hash=(
+                        checkpoint.wal_final_hash
+                    ),
+
+                    previous_manifest_sequence=(
+                        previous_manifest.manifest_sequence
+                    ),
+                    previous_manifest_id=(
+                        previous_manifest.manifest_id
+                    ),
+
+                    committed_ms=now_ms(),
+                )
+            )
+
+            new_manifest.seal()
+
+            self.state.fallback_manifest = (
+                deep_copy(
+                    previous_manifest
+                )
+            )
+
+            self.state.committed_manifest = (
+                new_manifest
+            )
+
+            self.state.pending_promotion = (
+                None
+            )
+
+            self.state.highest_manifest_sequence_seen = (
+                new_manifest.manifest_sequence
+            )
+
+            self.append_wal(
+                "CHECKPOINT_ROTATION_COMMITTED",
+                {
+                    "manifest_sequence": (
+                        new_manifest.manifest_sequence
+                    ),
+                    "manifest_id": (
+                        new_manifest.manifest_id
+                    ),
+                    "checkpoint_slot": (
+                        new_manifest.checkpoint_slot
+                    ),
+                    "checkpoint_sequence": (
+                        new_manifest.checkpoint_sequence
+                    ),
+                    "previous_manifest_sequence": (
+                        new_manifest.previous_manifest_sequence
+                    ),
+                },
+            )
+
+            return deep_copy(
+                new_manifest
+            )
+
+
+# ============================================================================
+# COMMITTED AUTHORITY RECOVERY
+# ============================================================================
+
+    def recover_committed_authority(
+        self,
+    ) -> Tuple[
+        CommittedManifest,
+        Checkpoint,
+    ]:
+        with self._lock:
+            current_manifest = (
+                self.state.committed_manifest
+            )
+
+            if current_manifest is None:
+                raise ManifestError(
+                    "committed manifest missing"
+                )
+
+            try:
+                checkpoint = (
+                    self.validate_manifest(
+                        current_manifest,
+                        enforce_highest_sequence=True,
+                    )
+                )
+
+                return (
+                    deep_copy(
+                        current_manifest
+                    ),
+                    deep_copy(
+                        checkpoint
+                    ),
+                )
+
+            except (
+                IntegrityError,
+                CheckpointError,
+            ):
+                fallback = (
+                    self.state.fallback_manifest
+                )
+
+                if fallback is None:
+                    raise
+
+                checkpoint = (
+                    self.validate_manifest(
+                        fallback,
+                        enforce_highest_sequence=False,
+                    )
+                )
+
+                return (
+                    deep_copy(
+                        fallback
+                    ),
+                    deep_copy(
+                        checkpoint
+                    ),
+                )
+
+
+# ============================================================================
+# RESTART
+# ============================================================================
+
+    def restart(
+        self,
+    ) -> "N32Engine":
+        serialized = serialize_state(
+            self.state
+        )
+
+        restored = (
+            restore_state_from_dict(
+                deep_copy(
+                    serialized
+                )
+            )
+        )
+
+        engine = N32Engine(
+            restored
+        )
+
+        engine.validate_core_state()
+
+        return engine
+
+
+# ============================================================================
+# COMPLETE PENDING PROMOTION AFTER RESTART
+# ============================================================================
+
+    def recover_pending_promotion(
+        self,
+    ) -> Optional[CommittedManifest]:
+        with self._lock:
+            pending = (
+                self.state.pending_promotion
+            )
+
+            if pending is None:
+                return None
+
+            pending.validate_integrity()
+
+            return (
+                self.commit_checkpoint_rotation(
+                    deep_copy(
+                        pending
+                    )
+                )
+            )
+
+
+# ============================================================================
+# GENERATION ADVANCE
+# ============================================================================
+
+    def advance_generation(
+        self,
+    ) -> None:
+        with self._lock:
+            prior_generation = (
+                self.state.generation
+            )
+
+            prior_epoch = (
+                self.state.recovery_epoch
+            )
+
+            prior_lineage = (
+                self.state.lineage_id
+            )
+
+            self.state.generation += 1
+            self.state.recovery_epoch += 1
+
+            self.state.lineage_id = (
+                new_id(
+                    "lineage"
+                )
+            )
+
+            self.state.phase = (
+                PHASE_PREPARED
+            )
+
+            self.state.recovery_lease = (
+                None
+            )
+
+            self.state.authorization = (
+                None
+            )
+
+            self.state.pending_promotion = (
+                None
+            )
+
+            self.state.dispatch_receipts = (
+                []
+            )
+
+            self.append_wal(
+                "GENERATION_ADVANCED",
+                {
+                    "prior_generation": (
+                        prior_generation
+                    ),
+                    "new_generation": (
+                        self.state.generation
+                    ),
+                    "prior_recovery_epoch": (
+                        prior_epoch
+                    ),
+                    "new_recovery_epoch": (
+                        self.state.recovery_epoch
+                    ),
+                    "prior_lineage_id": (
+                        prior_lineage
+                    ),
+                    "new_lineage_id": (
+                        self.state.lineage_id
+                    ),
+                },
+            )
+
+
+# ============================================================================
+# NETWORK WRITE FIREBREAK
+# ============================================================================
+
+    def real_post(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> None:
+        raise NetworkWriteBlocked(
+            "real network POST is disabled"
+        )
+
+
+    def demo_post(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> None:
+        raise NetworkWriteBlocked(
+            "demo network POST is disabled"
+        )
+
+
+# ============================================================================
+# AUTHORITY CONSISTENCY
+# ============================================================================
+
+    def validate_committed_authority(
+        self,
+    ) -> Checkpoint:
+        manifest = (
+            self.state.committed_manifest
+        )
+
+        if manifest is None:
+            raise ManifestError(
+                "committed manifest missing"
+            )
+
+        checkpoint = (
+            self.validate_manifest(
+                manifest
+            )
+        )
+
+        if (
+            checkpoint.phase
+            != PHASE_COMPLETED
+        ):
+            raise CheckpointError(
+                "committed checkpoint is not completed"
+            )
+
+        if (
+            checkpoint.dispatch_count
+            != 1
+        ):
+            raise CheckpointError(
+                "committed checkpoint dispatch count mismatch"
+            )
+
+        if (
+            not checkpoint.authorization_consumed
+        ):
+            raise CheckpointError(
+                "committed checkpoint authorization is not consumed"
+            )
+
+        return checkpoint
+
+
+# ============================================================================
+# END PART 2 OF 4
+# ============================================================================
+
+print(
+    "R28 UNIT N.32: PART 2 DEFINITIONS LOADED",
+    flush=True,
+)
