@@ -3557,3 +3557,276 @@ print(
     "R28 UNIT N.28: PART 3 DEFINITIONS LOADED",
     flush=True,
 )
+# ============================================================================
+# R28 UNIT N.28
+# PART 4 OF 4
+#
+# POST-DIAGNOSTIC SAFETY ASSERTIONS
+# + HEALTH SERVER
+# + PERSISTENT RUNTIME
+# + MAIN ENTRY POINT
+# ============================================================================
+
+
+# ============================================================================
+# POST-DIAGNOSTIC SAFETY ASSERTIONS
+# ============================================================================
+
+def post_diagnostic_safety_assertions() -> None:
+    require(
+        LIVE_ORDER_EXECUTION is False,
+        "live execution unexpectedly enabled",
+    )
+
+    require(
+        DEMO_ORDER_EXECUTION is False,
+        "demo execution unexpectedly enabled",
+    )
+
+    require(
+        NETWORK_WRITES_ENABLED is False,
+        "network writes unexpectedly enabled",
+    )
+
+    require(
+        REAL_POST_ENABLED is False,
+        "real POST unexpectedly enabled",
+    )
+
+    require(
+        DEMO_POST_ENABLED is False,
+        "demo POST unexpectedly enabled",
+    )
+
+    require(
+        SYNTHETIC_TRANSPORT_ONLY is True,
+        "synthetic transport only flag disabled",
+    )
+
+    require(
+        NETWORK_WRITE_COUNT == 0,
+        "network write count is not zero",
+    )
+
+    require(
+        REAL_POST_COUNT == 0,
+        "real POST count is not zero",
+    )
+
+    require(
+        DEMO_POST_COUNT == 0,
+        "demo POST count is not zero",
+    )
+
+    print(
+        "R28 UNIT N.28: POST-DIAGNOSTIC SAFETY ASSERTIONS PASSED",
+        flush=True,
+    )
+
+
+# ============================================================================
+# OPTIONAL HEALTH SERVER
+# ============================================================================
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path in (
+            "/",
+            "/health",
+            "/healthz",
+        ):
+            body = json.dumps(
+                {
+                    "unit": UNIT_NAME,
+                    "version": UNIT_VERSION,
+                    "status": "ok",
+                    "live_execution": LIVE_ORDER_EXECUTION,
+                    "demo_execution": DEMO_ORDER_EXECUTION,
+                    "real_post": REAL_POST_ENABLED,
+                    "demo_post": DEMO_POST_ENABLED,
+                    "network_writes": NETWORK_WRITES_ENABLED,
+                    "synthetic_only": SYNTHETIC_TRANSPORT_ONLY,
+                    "network_write_count": NETWORK_WRITE_COUNT,
+                    "real_post_count": REAL_POST_COUNT,
+                    "demo_post_count": DEMO_POST_COUNT,
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+
+            self.send_response(200)
+            self.send_header(
+                "Content-Type",
+                "application/json",
+            )
+            self.send_header(
+                "Content-Length",
+                str(len(body)),
+            )
+            self.end_headers()
+
+            self.wfile.write(body)
+            return
+
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(
+        self,
+        fmt: str,
+        *args: Any,
+    ) -> None:
+        return
+
+
+# ============================================================================
+# HEALTH SERVER STARTUP
+# ============================================================================
+
+def start_health_server() -> None:
+    port = int(
+        os.environ.get(
+            "PORT",
+            "10000",
+        )
+    )
+
+    def runner() -> None:
+        try:
+            server = HTTPServer(
+                (
+                    "0.0.0.0",
+                    port,
+                ),
+                HealthHandler,
+            )
+
+            print(
+                f"R28 UNIT N.28: HEALTH SERVER LISTENING ON PORT {port}",
+                flush=True,
+            )
+
+            server.serve_forever()
+
+        except Exception as exc:
+            print(
+                "R28 UNIT N.28: HEALTH SERVER ERROR:",
+                flush=True,
+            )
+
+            print(
+                f"  {type(exc).__name__}: {exc}",
+                flush=True,
+            )
+
+            raise
+
+    thread = threading.Thread(
+        target=runner,
+        name="r28-n28-health-server",
+        daemon=True,
+    )
+
+    thread.start()
+
+    print(
+        "R28 UNIT N.28: HEALTH SERVER STARTED",
+        flush=True,
+    )
+
+
+# ============================================================================
+# PERSISTENT RUNTIME
+# ============================================================================
+
+def persistent_runtime() -> None:
+    print(
+        "R28 UNIT N.28: PERSISTENT RUNTIME ACTIVE",
+        flush=True,
+    )
+
+    print(
+        "R28 UNIT N.28: ✅ NO REAL POST — NO DEMO POST — NO NETWORK WRITE",
+        flush=True,
+    )
+
+    banner()
+
+    while True:
+        time.sleep(60)
+
+        require(
+            LIVE_ORDER_EXECUTION is False,
+            "persistent runtime detected live execution enabled",
+        )
+
+        require(
+            DEMO_ORDER_EXECUTION is False,
+            "persistent runtime detected demo execution enabled",
+        )
+
+        require(
+            NETWORK_WRITES_ENABLED is False,
+            "persistent runtime detected network writes enabled",
+        )
+
+        require(
+            REAL_POST_ENABLED is False,
+            "persistent runtime detected real POST enabled",
+        )
+
+        require(
+            DEMO_POST_ENABLED is False,
+            "persistent runtime detected demo POST enabled",
+        )
+
+        require(
+            SYNTHETIC_TRANSPORT_ONLY is True,
+            "persistent runtime detected synthetic-only disabled",
+        )
+
+        require(
+            NETWORK_WRITE_COUNT == 0,
+            "persistent runtime detected network write",
+        )
+
+        require(
+            REAL_POST_COUNT == 0,
+            "persistent runtime detected real POST",
+        )
+
+        require(
+            DEMO_POST_COUNT == 0,
+            "persistent runtime detected demo POST",
+        )
+
+
+# ============================================================================
+# COMPLETE RUNTIME
+# ============================================================================
+
+def main() -> None:
+    run_diagnostic()
+
+    post_diagnostic_safety_assertions()
+
+    start_health_server()
+
+    persistent_runtime()
+
+
+# ============================================================================
+# PART 4 LOAD MARKER
+# ============================================================================
+
+print(
+    "R28 UNIT N.28: PART 4 DEFINITIONS LOADED",
+    flush=True,
+)
+
+
+# ============================================================================
+# ENTRY POINT
+# ============================================================================
+
+if __name__ == "__main__":
+    main()
