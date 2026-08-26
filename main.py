@@ -4145,3 +4145,258 @@ def test_29_final_network_write_firebreak(
     )
 
     pass_line
+# ============================================================================
+# R28 UNIT N.29
+# TWO-PHASE CHECKPOINT PROMOTION + CRASH-SAFE SLOT ROTATION
+# + PROMOTION FENCING + ROLLBACK-RESISTANT RECOVERY
+#
+# CORRECTED COPY/PASTE VERSION
+# PART 4 OF 4
+# ============================================================================
+
+
+# ============================================================================
+# OPTIONAL HEALTH SERVER
+# ============================================================================
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path in (
+            "/",
+            "/health",
+            "/healthz",
+        ):
+            body = json.dumps(
+                {
+                    "unit": UNIT_NAME,
+                    "version": UNIT_VERSION,
+                    "status": "ok",
+                    "live_execution": LIVE_ORDER_EXECUTION,
+                    "demo_execution": DEMO_ORDER_EXECUTION,
+                    "real_post": REAL_POST_ENABLED,
+                    "demo_post": DEMO_POST_ENABLED,
+                    "network_writes": NETWORK_WRITES_ENABLED,
+                    "synthetic_only": SYNTHETIC_TRANSPORT_ONLY,
+                },
+                sort_keys=True,
+            ).encode(
+                "utf-8"
+            )
+
+            self.send_response(200)
+
+            self.send_header(
+                "Content-Type",
+                "application/json",
+            )
+
+            self.send_header(
+                "Content-Length",
+                str(len(body)),
+            )
+
+            self.end_headers()
+
+            self.wfile.write(
+                body
+            )
+
+            return
+
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(
+        self,
+        fmt: str,
+        *args: Any,
+    ) -> None:
+        return
+
+
+# ============================================================================
+# HEALTH SERVER STARTUP
+# ============================================================================
+
+def start_health_server(
+) -> None:
+    port = int(
+        os.environ.get(
+            "PORT",
+            "10000",
+        )
+    )
+
+    def runner(
+    ) -> None:
+        try:
+            server = HTTPServer(
+                (
+                    "0.0.0.0",
+                    port,
+                ),
+                HealthHandler,
+            )
+
+            print(
+                f"{UNIT_NAME}: HEALTH SERVER LISTENING ON PORT {port}",
+                flush=True,
+            )
+
+            server.serve_forever()
+
+        except Exception as exc:
+            print(
+                f"{UNIT_NAME}: HEALTH SERVER ERROR: {exc}",
+                flush=True,
+            )
+
+    thread = threading.Thread(
+        target=runner,
+        name="n29-health-server",
+        daemon=True,
+    )
+
+    thread.start()
+
+
+# ============================================================================
+# POST-DIAGNOSTIC SAFETY ASSERTIONS
+# ============================================================================
+
+def post_diagnostic_safety_assertions(
+) -> None:
+    require(
+        LIVE_ORDER_EXECUTION is False,
+        "live execution unexpectedly enabled",
+    )
+
+    require(
+        DEMO_ORDER_EXECUTION is False,
+        "demo execution unexpectedly enabled",
+    )
+
+    require(
+        REAL_POST_ENABLED is False,
+        "real POST unexpectedly enabled",
+    )
+
+    require(
+        DEMO_POST_ENABLED is False,
+        "demo POST unexpectedly enabled",
+    )
+
+    require(
+        NETWORK_WRITES_ENABLED is False,
+        "network writes unexpectedly enabled",
+    )
+
+    require(
+        SYNTHETIC_TRANSPORT_ONLY is True,
+        "synthetic transport-only gate disabled",
+    )
+
+    require(
+        NETWORK_WRITE_COUNT == 0,
+        "network write count is non-zero",
+    )
+
+    require(
+        REAL_POST_COUNT == 0,
+        "real POST count is non-zero",
+    )
+
+    require(
+        DEMO_POST_COUNT == 0,
+        "demo POST count is non-zero",
+    )
+
+    print(
+        f"{UNIT_NAME}: POST-DIAGNOSTIC SAFETY ASSERTIONS PASSED",
+        flush=True,
+    )
+
+
+# ============================================================================
+# PERSISTENT RUNTIME
+# ============================================================================
+
+def persistent_runtime(
+) -> None:
+    print(
+        f"{UNIT_NAME}: PERSISTENT RUNTIME ACTIVE",
+        flush=True,
+    )
+
+    print(
+        f"{UNIT_NAME}: ✅ NO REAL POST — NO DEMO POST — NO NETWORK WRITE",
+        flush=True,
+    )
+
+    major_separator()
+
+    while True:
+        time.sleep(
+            60
+        )
+
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+def main(
+) -> None:
+    run_N29_diagnostic()
+
+    post_diagnostic_safety_assertions()
+
+    start_health_server()
+
+    print(
+        f"{UNIT_NAME}: HEALTH SERVER STARTED",
+        flush=True,
+    )
+
+    persistent_runtime()
+
+
+print(
+    "R28 UNIT N.29: PART 4 DEFINITIONS LOADED",
+    flush=True,
+)
+
+
+# ============================================================================
+# ENTRYPOINT
+# ============================================================================
+
+if __name__ == "__main__":
+    main()
+
+
+# ============================================================================
+# END OF R28 UNIT N.29
+#
+# EXPECTED FINAL RESULT:
+#
+# ✅ R28 UNIT N.29 PASSED — TWO-PHASE CHECKPOINT PROMOTION
+#    + CRASH-SAFE SLOT ROTATION VALIDATED
+#
+# ✅ STAGED CHECKPOINTS CANNOT BECOME AUTHORITATIVE WITHOUT
+#    A COMMITTED PROMOTION
+#
+# ✅ PROMOTION / CHECKPOINT / MANIFEST ROLLBACK FENCING ACTIVE
+#
+# ✅ NO REAL ORDER WAS SENT
+# ✅ NO DEMO ORDER WAS SENT
+# ✅ NO NETWORK WRITE OCCURRED
+#
+# HEALTH SERVER:
+#   /
+#   /health
+#   /healthz
+#
+# DEFAULT PORT:
+#   10000
+# ============================================================================
