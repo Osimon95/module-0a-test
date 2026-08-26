@@ -4654,3 +4654,399 @@ print(
     "R28 UNIT N.32: PART 3 DEFINITIONS LOADED",
     flush=True,
 )
+# ============================================================================
+# R28 UNIT N.32
+# ATOMIC DUAL-SLOT CHECKPOINT ROTATION
+# + COMMITTED-MANIFEST FALLBACK
+#
+# CORRECTED COPY/PASTE VERSION
+# PART 4 OF 4
+# ============================================================================
+
+
+# ============================================================================
+# HEALTH SERVER
+# ============================================================================
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(
+        self,
+    ) -> None:
+        if self.path in (
+            "/",
+            "/health",
+            "/healthz",
+        ):
+            body = json.dumps(
+                {
+                    "unit": UNIT_NAME,
+                    "version": UNIT_VERSION,
+                    "status": "ok",
+
+                    "real_post_enabled": (
+                        REAL_POST_ENABLED
+                    ),
+
+                    "demo_post_enabled": (
+                        DEMO_POST_ENABLED
+                    ),
+
+                    "network_writes_enabled": (
+                        NETWORK_WRITES_ENABLED
+                    ),
+
+                    "synthetic_transport_only": (
+                        SYNTHETIC_TRANSPORT_ONLY
+                    ),
+                },
+                sort_keys=True,
+            ).encode(
+                "utf-8"
+            )
+
+            self.send_response(
+                200
+            )
+
+            self.send_header(
+                "Content-Type",
+                "application/json",
+            )
+
+            self.send_header(
+                "Content-Length",
+                str(
+                    len(
+                        body
+                    )
+                ),
+            )
+
+            self.end_headers()
+
+            self.wfile.write(
+                body
+            )
+
+            return
+
+        self.send_response(
+            404
+        )
+
+        self.end_headers()
+
+
+    def log_message(
+        self,
+        _format: str,
+        *_args: Any,
+    ) -> None:
+        return
+
+
+# ============================================================================
+# HEALTH SERVER START
+# ============================================================================
+
+def start_health_server() -> None:
+    port = int(
+        os.environ.get(
+            "PORT",
+            "10000",
+        )
+    )
+
+    def runner() -> None:
+        try:
+            server = HTTPServer(
+                (
+                    "0.0.0.0",
+                    port,
+                ),
+                HealthHandler,
+            )
+
+            print(
+                "{}: HEALTH SERVER LISTENING ON PORT {}".format(
+                    UNIT_NAME,
+                    port,
+                ),
+                flush=True,
+            )
+
+            server.serve_forever()
+
+        except Exception as exc:
+            print(
+                "{}: HEALTH SERVER ERROR: {}".format(
+                    UNIT_NAME,
+                    exc,
+                ),
+                flush=True,
+            )
+
+    thread = threading.Thread(
+        target=runner,
+        name="n32-health-server",
+        daemon=True,
+    )
+
+    thread.start()
+
+
+# ============================================================================
+# FINAL STARTUP SAFETY VALIDATION
+# ============================================================================
+
+def validate_startup_firebreak() -> None:
+    if REAL_POST_ENABLED:
+        raise NetworkWriteBlocked(
+            "REAL_POST_ENABLED must remain False"
+        )
+
+    if DEMO_POST_ENABLED:
+        raise NetworkWriteBlocked(
+            "DEMO_POST_ENABLED must remain False"
+        )
+
+    if NETWORK_WRITES_ENABLED:
+        raise NetworkWriteBlocked(
+            "NETWORK_WRITES_ENABLED must remain False"
+        )
+
+    if not SYNTHETIC_TRANSPORT_ONLY:
+        raise NetworkWriteBlocked(
+            "SYNTHETIC_TRANSPORT_ONLY must remain True"
+        )
+
+
+# ============================================================================
+# FINAL ENGINE VALIDATION
+# ============================================================================
+
+def validate_final_engine(
+    engine: N32Engine,
+) -> None:
+    engine.validate_core_state()
+
+    checkpoint = (
+        engine.validate_committed_authority()
+    )
+
+    manifest = (
+        engine.state.committed_manifest
+    )
+
+    if manifest is None:
+        raise ManifestError(
+            "final committed manifest missing"
+        )
+
+    if (
+        manifest.manifest_sequence
+        != 2
+    ):
+        raise ManifestError(
+            "final committed manifest sequence mismatch"
+        )
+
+    if (
+        manifest.checkpoint_slot
+        != CHECKPOINT_SLOT_B
+    ):
+        raise ManifestError(
+            "final committed manifest slot mismatch"
+        )
+
+    if (
+        checkpoint.checkpoint_sequence
+        != 2
+    ):
+        raise CheckpointError(
+            "final checkpoint sequence mismatch"
+        )
+
+    if (
+        checkpoint.phase
+        != PHASE_COMPLETED
+    ):
+        raise CheckpointError(
+            "final checkpoint phase mismatch"
+        )
+
+    if (
+        checkpoint.dispatch_count
+        != 1
+    ):
+        raise CheckpointError(
+            "final checkpoint dispatch count mismatch"
+        )
+
+    if (
+        not checkpoint.authorization_consumed
+    ):
+        raise CheckpointError(
+            "final checkpoint authorization state mismatch"
+        )
+
+    if (
+        len(
+            engine.state.dispatch_receipts
+        )
+        != 1
+    ):
+        raise RecoveryError(
+            "final synthetic dispatch count mismatch"
+        )
+
+    receipt = (
+        engine.state.dispatch_receipts[
+            0
+        ]
+    )
+
+    receipt.validate_synthetic()
+
+    if (
+        receipt.payload_hash
+        != engine.state.payload_hash
+    ):
+        raise RecoveryError(
+            "final transport payload hash mismatch"
+        )
+
+    validate_wal_prefix(
+        engine.state.wal,
+        checkpoint.wal_length,
+        checkpoint.wal_final_hash,
+    )
+
+
+# ============================================================================
+# PERSISTENT SAFE RUNTIME
+# ============================================================================
+
+def persistent_safe_runtime(
+    engine: N32Engine,
+) -> None:
+    heartbeat = 1
+
+    print(
+        "{}: ENTERING PERSISTENT SAFE RUNTIME".format(
+            UNIT_NAME
+        ),
+        flush=True,
+    )
+
+    while True:
+        validate_startup_firebreak()
+
+        engine.validate_core_state()
+
+        print(
+            "{}: HEARTBEAT {}".format(
+                UNIT_NAME,
+                heartbeat,
+            ),
+            flush=True,
+        )
+
+        heartbeat += 1
+
+        time.sleep(
+            HEARTBEAT_INTERVAL_SECONDS
+        )
+
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+def main() -> None:
+    validate_startup_firebreak()
+
+    start_health_server()
+
+    engine = (
+        run_diagnostics()
+    )
+
+    validate_final_engine(
+        engine
+    )
+
+    persistent_safe_runtime(
+        engine
+    )
+
+
+# ============================================================================
+# PROGRAM ENTRY
+# ============================================================================
+
+if __name__ == "__main__":
+    try:
+        main()
+
+    except KeyboardInterrupt:
+        print(
+            "{}: STOPPED BY OPERATOR".format(
+                UNIT_NAME
+            ),
+            flush=True,
+        )
+
+    except Exception as exc:
+        separator()
+
+        print(
+            "{}: FATAL DIAGNOSTIC FAILURE".format(
+                UNIT_NAME
+            ),
+            flush=True,
+        )
+
+        print(
+            "{}: {}".format(
+                type(exc).__name__,
+                exc,
+            ),
+            flush=True,
+        )
+
+        separator()
+
+        raise
+
+
+# ============================================================================
+# END R28 UNIT N.32
+# END PART 4 OF 4
+#
+# EXPECTED SUCCESS ENDING:
+#
+# R28 UNIT N.32: ALL DIAGNOSTICS PASSED
+# R28 UNIT N.32: NO REAL ORDER OR ACCOUNT MUTATION WAS SENT
+# --------------------------------------------------------------------------------------------
+# R28 UNIT N.32: ENTERING PERSISTENT SAFE RUNTIME
+# R28 UNIT N.32: HEARTBEAT 1
+# R28 UNIT N.32: HEARTBEAT 2
+# ...
+#
+# EXPECTED FINAL AUTHORITY:
+#   Generation:              1
+#   Recovery Epoch:          1
+#   Phase:                   COMPLETED
+#   Checkpoint Slot:         B
+#   Checkpoint Sequence:     2
+#   Manifest Sequence:       2
+#   Fallback Manifest:       1
+#   Synthetic Dispatches:    1
+#
+# SAFETY:
+#   REAL POST DISABLED
+#   DEMO POST DISABLED
+#   ALL NETWORK WRITES DISABLED
+#   SYNTHETIC TRANSPORT ONLY
+# ============================================================================
