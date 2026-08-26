@@ -5206,3 +5206,629 @@ print(
 #
 # DO NOT ADD OR REMOVE INDENTATION AT THE PART-3 / PART-4 JOINT.
 # ============================================================================
+# ============================================================================
+# R28 UNIT N.33
+# DURABLE MANIFEST PROMOTION INTENT + CRASH-WINDOW RECOVERY
+# + STALE PROMOTION FENCING + SAFE SLOT RECLAMATION
+#
+# CORRECTED COPY/PASTE VERSION
+# PART 4 OF 4
+# ============================================================================
+
+
+# ============================================================================
+# TEST EXECUTION
+# ============================================================================
+
+def run_all_diagnostics() -> N33Engine:
+    print("-" * 92, flush=True)
+    print(
+        "R28 UNIT N.33: STARTING DIAGNOSTICS",
+        flush=True,
+    )
+    print("-" * 92, flush=True)
+
+    test_01_initial_engine_state()
+    test_02_recovery_lease_binding()
+    test_03_authorization_binding()
+    test_04_authorization_consumption()
+    test_05_exact_synthetic_dispatch()
+    test_06_initial_checkpoint_authority()
+    test_07_rotated_checkpoint_creation()
+    test_08_durable_promotion_intent_creation()
+    test_09_promotion_intent_survives_restart()
+    test_10_pre_commit_crash_recovery()
+    test_11_post_commit_pre_finalize_recovery()
+    test_12_normal_promotion_commit()
+    test_13_fallback_authority_preserved()
+    test_14_promotion_intent_tamper_rejection()
+    test_15_promotion_target_slot_tamper_rejection()
+    test_16_promotion_checkpoint_identity_rejection()
+    test_17_promotion_wal_hash_tamper_rejection()
+    test_18_stale_promotion_generation_rejection()
+    test_19_stale_promotion_lineage_rejection()
+    test_20_stale_promotion_epoch_rejection()
+    test_21_promotion_source_manifest_fencing()
+    test_22_promotion_replay_rejection()
+    test_23_second_pending_promotion_rejection()
+    test_24_active_slot_reclamation_rejection()
+    test_25_fallback_slot_reclamation_rejection()
+    test_26_safe_fallback_release_and_reclamation()
+    test_27_reclaimed_checkpoint_identity_rejection()
+    test_28_committed_authority_survives_restart()
+    test_29_manifest_sequence_rollback_rejection()
+    test_30_historical_wal_prefix_preservation()
+    test_31_generation_advance()
+    test_32_stale_lease_generation_rejection()
+    test_33_authorization_replay_rejection()
+    test_34_exact_synthetic_transport_binding()
+    test_35_final_network_write_firebreak()
+
+    final_engine = (
+        test_36_final_committed_authority()
+    )
+
+    return final_engine
+
+
+# ============================================================================
+# FINAL DIAGNOSTIC SUMMARY
+# ============================================================================
+
+def print_diagnostic_summary(
+    engine: N33Engine,
+) -> None:
+    print("-" * 92, flush=True)
+    print(
+        "R28 UNIT N.33 DIAGNOSTIC SUMMARY",
+        flush=True,
+    )
+    print("-" * 92, flush=True)
+
+    committed = (
+        engine.state.committed_manifest
+    )
+
+    fallback = (
+        engine.state.fallback_manifest
+    )
+
+    pending = (
+        engine.state.pending_promotion
+    )
+
+    committed_slot = (
+        committed.checkpoint_slot
+        if committed is not None
+        else "NONE"
+    )
+
+    committed_checkpoint_sequence = (
+        committed.checkpoint_sequence
+        if committed is not None
+        else 0
+    )
+
+    committed_checkpoint_wal_length = (
+        committed.wal_length
+        if committed is not None
+        else 0
+    )
+
+    committed_manifest_sequence = (
+        committed.manifest_sequence
+        if committed is not None
+        else 0
+    )
+
+    fallback_manifest_sequence = (
+        fallback.manifest_sequence
+        if fallback is not None
+        else 0
+    )
+
+    pending_state = (
+        pending.state
+        if pending is not None
+        else "NONE"
+    )
+
+    print(
+        f"Generation:              "
+        f"{engine.state.generation}",
+        flush=True,
+    )
+
+    print(
+        f"Recovery Epoch:          "
+        f"{engine.state.recovery_epoch}",
+        flush=True,
+    )
+
+    print(
+        f"Phase:                   "
+        f"{engine.state.phase}",
+        flush=True,
+    )
+
+    print(
+        f"WAL Records:             "
+        f"{len(engine.state.wal)}",
+        flush=True,
+    )
+
+    print(
+        f"Checkpoint Slot:         "
+        f"{committed_slot}",
+        flush=True,
+    )
+
+    print(
+        f"Checkpoint Sequence:     "
+        f"{committed_checkpoint_sequence}",
+        flush=True,
+    )
+
+    print(
+        f"Checkpoint WAL Length:   "
+        f"{committed_checkpoint_wal_length}",
+        flush=True,
+    )
+
+    print(
+        f"Current WAL Length:      "
+        f"{len(engine.state.wal)}",
+        flush=True,
+    )
+
+    print(
+        f"Manifest Sequence:       "
+        f"{committed_manifest_sequence}",
+        flush=True,
+    )
+
+    print(
+        f"Fallback Manifest:       "
+        f"{fallback_manifest_sequence}",
+        flush=True,
+    )
+
+    print(
+        f"Pending Promotion:       "
+        f"{pending_state}",
+        flush=True,
+    )
+
+    print(
+        f"Finalized Promotions:    "
+        f"{len(engine.state.finalized_promotion_ids)}",
+        flush=True,
+    )
+
+    print(
+        f"Reclaimed Checkpoints:   "
+        f"{len(engine.state.reclaimed_checkpoint_ids)}",
+        flush=True,
+    )
+
+    print(
+        f"Synthetic Dispatches:    "
+        f"{len(engine.state.synthetic_dispatches)}",
+        flush=True,
+    )
+
+    print(
+        f"Real POST Enabled:       "
+        f"{REAL_POST_ENABLED}",
+        flush=True,
+    )
+
+    print(
+        f"Demo POST Enabled:       "
+        f"{DEMO_POST_ENABLED}",
+        flush=True,
+    )
+
+    print(
+        f"Network Writes Enabled:  "
+        f"{NETWORK_WRITES_ENABLED}",
+        flush=True,
+    )
+
+    print(
+        f"Synthetic Only:          "
+        f"{SYNTHETIC_TRANSPORT_ONLY}",
+        flush=True,
+    )
+
+    print("-" * 92, flush=True)
+
+
+# ============================================================================
+# FINAL SAFETY VALIDATION
+# ============================================================================
+
+def final_safety_validation(
+    engine: N33Engine,
+) -> None:
+    engine.validate_durable_state()
+
+    require(
+        REAL_POST_ENABLED is False,
+        "real POST safety flag unexpectedly enabled",
+    )
+
+    require(
+        DEMO_POST_ENABLED is False,
+        "demo POST safety flag unexpectedly enabled",
+    )
+
+    require(
+        NETWORK_WRITES_ENABLED is False,
+        "network writes unexpectedly enabled",
+    )
+
+    require(
+        SYNTHETIC_TRANSPORT_ONLY is True,
+        "synthetic-only safety flag unexpectedly disabled",
+    )
+
+    require(
+        len(engine.state.synthetic_dispatches) == 1,
+        "final synthetic dispatch count mismatch",
+    )
+
+    dispatch = (
+        engine.state.synthetic_dispatches[0]
+    )
+
+    dispatch.validate_binding()
+
+    require(
+        dispatch.transmitted is False,
+        "final synthetic dispatch was transmitted",
+    )
+
+    require(
+        engine.state.committed_manifest is not None,
+        "final committed manifest missing",
+    )
+
+    require(
+        engine.state.pending_promotion is None,
+        "final promotion remains pending",
+    )
+
+    committed = (
+        engine.state.committed_manifest
+    )
+
+    require(
+        committed.checkpoint_slot == SLOT_B,
+        "final committed authority is not slot B",
+    )
+
+    require(
+        committed.manifest_sequence == 2,
+        "final committed manifest sequence mismatch",
+    )
+
+    require(
+        committed.checkpoint_sequence == 2,
+        "final committed checkpoint sequence mismatch",
+    )
+
+    engine.validate_manifest(
+        committed
+    )
+
+    checkpoint = engine.get_checkpoint(
+        committed.checkpoint_slot
+    )
+
+    engine.validate_checkpoint(
+        checkpoint
+    )
+
+    require(
+        checkpoint.checkpoint_id
+        == committed.checkpoint_id,
+        "final manifest/checkpoint identity mismatch",
+    )
+
+    require(
+        checkpoint.checkpoint_sequence
+        == committed.checkpoint_sequence,
+        "final manifest/checkpoint sequence mismatch",
+    )
+
+    require(
+        secure_equal(
+            engine.validate_wal(
+                committed.wal_length
+            ),
+            committed.wal_final_hash,
+        ),
+        "final committed historical WAL prefix mismatch",
+    )
+
+
+# ============================================================================
+# OPTIONAL HEALTH SERVER
+# ============================================================================
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path in (
+            "/",
+            "/health",
+            "/healthz",
+        ):
+            body = json.dumps(
+                {
+                    "unit": UNIT_NAME,
+                    "version": UNIT_VERSION,
+                    "status": "ok",
+                    "real_post": (
+                        REAL_POST_ENABLED
+                    ),
+                    "demo_post": (
+                        DEMO_POST_ENABLED
+                    ),
+                    "network_writes": (
+                        NETWORK_WRITES_ENABLED
+                    ),
+                    "synthetic_only": (
+                        SYNTHETIC_TRANSPORT_ONLY
+                    ),
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+
+            self.send_response(200)
+
+            self.send_header(
+                "Content-Type",
+                "application/json",
+            )
+
+            self.send_header(
+                "Content-Length",
+                str(len(body)),
+            )
+
+            self.end_headers()
+
+            self.wfile.write(body)
+
+            return
+
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(
+        self,
+        fmt: str,
+        *args: Any,
+    ) -> None:
+        return
+
+
+# ============================================================================
+# HEALTH SERVER STARTUP
+# ============================================================================
+
+def start_health_server() -> None:
+    port = int(
+        os.environ.get(
+            "PORT",
+            "10000",
+        )
+    )
+
+    def runner() -> None:
+        try:
+            server = HTTPServer(
+                (
+                    "0.0.0.0",
+                    port,
+                ),
+                HealthHandler,
+            )
+
+            print(
+                f"R28 UNIT N.33: "
+                f"HEALTH SERVER LISTENING "
+                f"ON PORT {port}",
+                flush=True,
+            )
+
+            server.serve_forever()
+
+        except Exception as exc:
+            print(
+                f"R28 UNIT N.33: "
+                f"HEALTH SERVER ERROR: "
+                f"{exc}",
+                flush=True,
+            )
+
+    thread = threading.Thread(
+        target=runner,
+        name="n33-health-server",
+        daemon=True,
+    )
+
+    thread.start()
+
+
+# ============================================================================
+# PERSISTENT SAFE RUNTIME
+# ============================================================================
+
+def enter_persistent_safe_runtime() -> None:
+    print(
+        "R28 UNIT N.33: "
+        "ENTERING PERSISTENT SAFE RUNTIME",
+        flush=True,
+    )
+
+    heartbeat = 0
+
+    while True:
+        heartbeat += 1
+
+        print(
+            f"R28 UNIT N.33: "
+            f"HEARTBEAT {heartbeat}",
+            flush=True,
+        )
+
+        time.sleep(
+            HEARTBEAT_SECONDS
+        )
+
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+def main() -> None:
+    try:
+        final_engine = (
+            run_all_diagnostics()
+        )
+
+        final_safety_validation(
+            final_engine
+        )
+
+        print_diagnostic_summary(
+            final_engine
+        )
+
+        print(
+            "R28 UNIT N.33: "
+            "ALL DIAGNOSTICS PASSED",
+            flush=True,
+        )
+
+        print(
+            "R28 UNIT N.33: "
+            "NO REAL ORDER OR ACCOUNT MUTATION WAS SENT",
+            flush=True,
+        )
+
+        print("-" * 92, flush=True)
+
+        start_health_server()
+
+        enter_persistent_safe_runtime()
+
+    except ValidationFailure as exc:
+        print("-" * 92, flush=True)
+
+        print(
+            "R28 UNIT N.33: "
+            f"DIAGNOSTIC FAILURE: {exc}",
+            flush=True,
+        )
+
+        print(
+            "R28 UNIT N.33: "
+            "NO REAL ORDER OR ACCOUNT MUTATION WAS SENT",
+            flush=True,
+        )
+
+        print("-" * 92, flush=True)
+
+        raise
+
+    except LocalBlock as exc:
+        print("-" * 92, flush=True)
+
+        print(
+            "R28 UNIT N.33 LOCAL BLOCK:",
+            flush=True,
+        )
+
+        print(
+            f"  {exc}",
+            flush=True,
+        )
+
+        print(
+            "R28 UNIT N.33: "
+            "DIAGNOSTIC ABORTED SAFELY",
+            flush=True,
+        )
+
+        print(
+            "R28 UNIT N.33: "
+            "NO REAL ORDER OR ACCOUNT MUTATION WAS SENT",
+            flush=True,
+        )
+
+        print("-" * 92, flush=True)
+
+        raise
+
+    except KeyboardInterrupt:
+        print(
+            "R28 UNIT N.33: "
+            "SAFE RUNTIME STOPPED",
+            flush=True,
+        )
+
+
+# ============================================================================
+# ENTRY POINT
+# ============================================================================
+
+if __name__ == "__main__":
+    main()
+
+
+# ============================================================================
+# END OF R28 UNIT N.33
+#
+# EXPECTED SUCCESS TERMINAL:
+#
+#   R28 UNIT N.33: ALL DIAGNOSTICS PASSED
+#   R28 UNIT N.33: NO REAL ORDER OR ACCOUNT MUTATION WAS SENT
+#   R28 UNIT N.33: ENTERING PERSISTENT SAFE RUNTIME
+#   R28 UNIT N.33: HEARTBEAT 1
+#   R28 UNIT N.33: HEARTBEAT 2
+#   ...
+#
+# N.33 SAFETY GUARANTEES:
+#
+#   - REAL POST DISABLED
+#   - DEMO POST DISABLED
+#   - ALL NETWORK WRITES DISABLED
+#   - SYNTHETIC TRANSPORT ONLY
+#   - EXACT POST METHOD BINDING
+#   - EXACT LEVERAGE ENDPOINT BINDING
+#   - EXACT PAYLOAD HASH BINDING
+#   - AUTHORIZATION CONSUMED EXACTLY ONCE
+#   - DURABLE DUAL-SLOT CHECKPOINT AUTHORITY
+#   - COMMITTED MANIFEST HIGH-WATERMARK
+#   - DURABLE MANIFEST PROMOTION INTENT
+#   - PROMOTION INTENT INTEGRITY SEAL
+#   - SOURCE MANIFEST FENCING
+#   - TARGET CHECKPOINT FENCING
+#   - GENERATION / LINEAGE / EPOCH FENCING
+#   - PRE-COMMIT CRASH RECOVERY
+#   - POST-COMMIT / PRE-FINALIZATION RECOVERY
+#   - PROMOTION REPLAY REJECTION
+#   - FALLBACK AUTHORITY PRESERVATION
+#   - ACTIVE SLOT RECLAMATION REJECTION
+#   - FALLBACK SLOT RECLAMATION REJECTION
+#   - SAFE HISTORICAL SLOT RECLAMATION
+#   - RECLAIMED CHECKPOINT IDENTITY FENCING
+#   - HISTORICAL WAL PREFIX VALIDATION
+#   - ANTI-ABA STALE LEASE REJECTION
+#   - PERSISTENT HEALTH SERVER
+#   - PERSISTENT SAFE HEARTBEAT RUNTIME
+#
+# ============================================================================
