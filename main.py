@@ -1218,3 +1218,1656 @@ print("R28 UNIT N.33: PART 1 DEFINITIONS LOADED", flush=True)
 #
 # DO NOT ADD OR REMOVE INDENTATION AT THE PART-1 / PART-2 JOINT.
 # ============================================================================
+# ============================================================================
+# R28 UNIT N.33
+# DURABLE MANIFEST PROMOTION INTENT + CRASH-WINDOW RECOVERY
+# + STALE PROMOTION FENCING + SAFE SLOT RECLAMATION
+#
+# CORRECTED COPY/PASTE VERSION
+# PART 2 OF 4
+# ============================================================================
+
+
+# ============================================================================
+# CHECKPOINT CREATION
+# ============================================================================
+
+def _n33_create_checkpoint(
+    self: N33Engine,
+    slot: Optional[str] = None,
+) -> Checkpoint:
+    with self._lock:
+        self.validate_wal()
+
+        if slot is None:
+            if self.state.committed_manifest is None:
+                slot = SLOT_A
+            else:
+                slot = opposite_slot(
+                    self.state.committed_manifest.checkpoint_slot
+                )
+
+        require(
+            slot in VALID_SLOTS,
+            "invalid checkpoint slot",
+        )
+
+        checkpoint_sequence = (
+            self.state.next_checkpoint_sequence
+        )
+
+        wal_length = len(self.state.wal)
+
+        wal_final_hash = self.validate_wal(
+            wal_length
+        )
+
+        checkpoint = Checkpoint(
+            checkpoint_id=new_id("checkpoint"),
+            slot=slot,
+            checkpoint_sequence=checkpoint_sequence,
+            generation=self.state.generation,
+            lineage=self.state.lineage,
+            recovery_epoch=self.state.recovery_epoch,
+            phase=self.state.phase,
+            wal_length=wal_length,
+            wal_final_hash=wal_final_hash,
+            payload_hash=LEVERAGE_PAYLOAD_HASH,
+            synthetic_dispatch_count=len(
+                self.state.synthetic_dispatches
+            ),
+            authorization_consumed=(
+                self.state.authorization is not None
+                and self.state.authorization.consumed
+            ),
+        )
+
+        checkpoint.reseal()
+
+        self.state.checkpoints[slot] = checkpoint
+
+        self.state.next_checkpoint_sequence += 1
+
+        self._append_wal(
+            "CHECKPOINT_WRITTEN",
+            {
+                "checkpoint_id": checkpoint.checkpoint_id,
+                "slot": checkpoint.slot,
+                "checkpoint_sequence": (
+                    checkpoint.checkpoint_sequence
+                ),
+                "checkpoint_wal_length": (
+                    checkpoint.wal_length
+                ),
+                "checkpoint_wal_final_hash": (
+                    checkpoint.wal_final_hash
+                ),
+            },
+        )
+
+        return copy.deepcopy(checkpoint)
+
+
+N33Engine.create_checkpoint = _n33_create_checkpoint
+
+
+# ============================================================================
+# CHECKPOINT VALIDATION
+# ============================================================================
+
+def _n33_validate_checkpoint(
+    self: N33Engine,
+    checkpoint: Checkpoint,
+) -> None:
+    with self._lock:
+        checkpoint.validate_shape()
+        checkpoint.validate_seal()
+
+        require(
+            checkpoint.generation
+            == self.state.generation,
+            "checkpoint generation mismatch",
+        )
+
+        require(
+            checkpoint.lineage
+            == self.state.lineage,
+            "checkpoint lineage mismatch",
+        )
+
+        require(
+            checkpoint.recovery_epoch
+            == self.state.recovery_epoch,
+            "checkpoint recovery epoch mismatch",
+        )
+
+        require(
+            checkpoint.wal_length
+            <= len(self.state.wal),
+            "checkpoint WAL length mismatch",
+        )
+
+        historical_hash = self.validate_wal(
+            checkpoint.wal_length
+        )
+
+        require(
+            secure_equal(
+                historical_hash,
+                checkpoint.wal_final_hash,
+            ),
+            "checkpoint WAL final hash mismatch",
+        )
+
+        require(
+            checkpoint.checkpoint_id
+            not in self.state.reclaimed_checkpoint_ids,
+            "checkpoint has been reclaimed",
+        )
+
+
+N33Engine.validate_checkpoint = _n33_validate_checkpoint
+
+
+# ============================================================================
+# CHECKPOINT SLOT LOOKUP
+# ============================================================================
+
+def _n33_get_checkpoint(
+    self: N33Engine,
+    slot: str,
+) -> Checkpoint:
+    with self._lock:
+        require(
+            slot in VALID_SLOTS,
+            "invalid checkpoint slot",
+        )
+
+        checkpoint = self.state.checkpoints.get(
+            slot
+        )
+
+        require(
+            checkpoint is not None,
+            "manifest checkpoint missing",
+        )
+
+        return checkpoint
+
+
+N33Engine.get_checkpoint = _n33_get_checkpoint
+
+
+# ============================================================================
+# MANIFEST VALIDATION
+# ============================================================================
+
+def _n33_validate_manifest(
+    self: N33Engine,
+    manifest: CommittedManifest,
+    *,
+    enforce_high_watermark: bool = True,
+) -> None:
+    with self._lock:
+        manifest.validate_shape()
+        manifest.validate_seal()
+
+        require(
+            manifest.generation
+            == self.state.generation,
+            "committed manifest generation mismatch",
+        )
+
+        require(
+            manifest.lineage
+            == self.state.lineage,
+            "committed manifest lineage mismatch",
+        )
+
+        require(
+            manifest.recovery_epoch
+            == self.state.recovery_epoch,
+            "committed manifest recovery epoch mismatch",
+        )
+
+        checkpoint = self.get_checkpoint(
+            manifest.checkpoint_slot
+        )
+
+        self.validate_checkpoint(
+            checkpoint
+        )
+
+        require(
+            checkpoint.checkpoint_id
+            == manifest.checkpoint_id,
+            "manifest checkpoint identity mismatch",
+        )
+
+        require(
+            checkpoint.checkpoint_sequence
+            == manifest.checkpoint_sequence,
+            "manifest checkpoint sequence mismatch",
+        )
+
+        require(
+            checkpoint.generation
+            == manifest.generation,
+            "manifest/checkpoint generation mismatch",
+        )
+
+        require(
+            checkpoint.lineage
+            == manifest.lineage,
+            "manifest/checkpoint lineage mismatch",
+        )
+
+        require(
+            checkpoint.recovery_epoch
+            == manifest.recovery_epoch,
+            "manifest/checkpoint recovery epoch mismatch",
+        )
+
+        require(
+            checkpoint.wal_length
+            == manifest.wal_length,
+            "manifest/checkpoint WAL length mismatch",
+        )
+
+        require(
+            secure_equal(
+                checkpoint.wal_final_hash,
+                manifest.wal_final_hash,
+            ),
+            "manifest/checkpoint WAL hash mismatch",
+        )
+
+        historical_hash = self.validate_wal(
+            manifest.wal_length
+        )
+
+        require(
+            secure_equal(
+                historical_hash,
+                manifest.wal_final_hash,
+            ),
+            "committed manifest historical WAL mismatch",
+        )
+
+        if enforce_high_watermark:
+            require(
+                manifest.manifest_sequence
+                >= self.state.highest_committed_manifest_sequence,
+                "committed manifest sequence rollback detected",
+            )
+
+            require(
+                manifest.checkpoint_sequence
+                >= self.state.highest_committed_checkpoint_sequence,
+                "committed checkpoint sequence rollback detected",
+            )
+
+
+N33Engine.validate_manifest = _n33_validate_manifest
+
+
+# ============================================================================
+# INITIAL COMMITTED MANIFEST
+# ============================================================================
+
+def _n33_commit_initial_manifest(
+    self: N33Engine,
+    checkpoint: Checkpoint,
+) -> CommittedManifest:
+    with self._lock:
+        require(
+            self.state.committed_manifest is None,
+            "committed manifest already exists",
+        )
+
+        self.validate_checkpoint(
+            checkpoint
+        )
+
+        stored = self.get_checkpoint(
+            checkpoint.slot
+        )
+
+        require(
+            stored.checkpoint_id
+            == checkpoint.checkpoint_id,
+            "checkpoint identity mismatch",
+        )
+
+        manifest_sequence = (
+            self.state.next_manifest_sequence
+        )
+
+        manifest = CommittedManifest(
+            manifest_id=new_id("manifest"),
+            manifest_sequence=manifest_sequence,
+            checkpoint_slot=checkpoint.slot,
+            checkpoint_id=checkpoint.checkpoint_id,
+            checkpoint_sequence=(
+                checkpoint.checkpoint_sequence
+            ),
+            generation=self.state.generation,
+            lineage=self.state.lineage,
+            recovery_epoch=self.state.recovery_epoch,
+            wal_length=checkpoint.wal_length,
+            wal_final_hash=checkpoint.wal_final_hash,
+            previous_manifest_id=None,
+            previous_manifest_sequence=0,
+        )
+
+        manifest.reseal()
+
+        self.state.committed_manifest = manifest
+        self.state.fallback_manifest = None
+
+        self.state.next_manifest_sequence += 1
+
+        self.state.highest_committed_manifest_sequence = (
+            manifest.manifest_sequence
+        )
+
+        self.state.highest_committed_checkpoint_sequence = (
+            checkpoint.checkpoint_sequence
+        )
+
+        self._append_wal(
+            "INITIAL_MANIFEST_COMMITTED",
+            {
+                "manifest_id": manifest.manifest_id,
+                "manifest_sequence": (
+                    manifest.manifest_sequence
+                ),
+                "checkpoint_slot": (
+                    manifest.checkpoint_slot
+                ),
+                "checkpoint_id": (
+                    manifest.checkpoint_id
+                ),
+                "checkpoint_sequence": (
+                    manifest.checkpoint_sequence
+                ),
+            },
+        )
+
+        return copy.deepcopy(manifest)
+
+
+N33Engine.commit_initial_manifest = (
+    _n33_commit_initial_manifest
+)
+
+
+# ============================================================================
+# N.33 PROMOTION INTENT CREATION
+# ============================================================================
+
+def _n33_prepare_manifest_promotion(
+    self: N33Engine,
+    checkpoint: Checkpoint,
+) -> ManifestPromotionIntent:
+    with self._lock:
+        require(
+            self.state.committed_manifest is not None,
+            "committed manifest missing",
+        )
+
+        require(
+            self.state.pending_promotion is None,
+            "manifest promotion already pending",
+        )
+
+        current_manifest = (
+            self.state.committed_manifest
+        )
+
+        self.validate_manifest(
+            current_manifest
+        )
+
+        self.validate_checkpoint(
+            checkpoint
+        )
+
+        stored_checkpoint = self.get_checkpoint(
+            checkpoint.slot
+        )
+
+        require(
+            stored_checkpoint.checkpoint_id
+            == checkpoint.checkpoint_id,
+            "promotion checkpoint identity mismatch",
+        )
+
+        require(
+            checkpoint.slot
+            != current_manifest.checkpoint_slot,
+            "promotion target slot equals committed slot",
+        )
+
+        require(
+            checkpoint.checkpoint_sequence
+            > current_manifest.checkpoint_sequence,
+            "promotion checkpoint sequence not newer",
+        )
+
+        require(
+            checkpoint.wal_length
+            >= current_manifest.wal_length,
+            "promotion WAL boundary rollback detected",
+        )
+
+        require(
+            checkpoint.generation
+            == current_manifest.generation,
+            "promotion generation mismatch",
+        )
+
+        require(
+            checkpoint.lineage
+            == current_manifest.lineage,
+            "promotion lineage mismatch",
+        )
+
+        require(
+            checkpoint.recovery_epoch
+            == current_manifest.recovery_epoch,
+            "promotion recovery epoch mismatch",
+        )
+
+        intent = ManifestPromotionIntent(
+            promotion_id=new_id("promotion"),
+            promotion_sequence=(
+                self.state.next_promotion_sequence
+            ),
+            generation=self.state.generation,
+            lineage=self.state.lineage,
+            recovery_epoch=self.state.recovery_epoch,
+            source_manifest_id=(
+                current_manifest.manifest_id
+            ),
+            source_manifest_sequence=(
+                current_manifest.manifest_sequence
+            ),
+            source_slot=(
+                current_manifest.checkpoint_slot
+            ),
+            target_slot=checkpoint.slot,
+            target_checkpoint_id=(
+                checkpoint.checkpoint_id
+            ),
+            target_checkpoint_sequence=(
+                checkpoint.checkpoint_sequence
+            ),
+            target_wal_length=(
+                checkpoint.wal_length
+            ),
+            target_wal_final_hash=(
+                checkpoint.wal_final_hash
+            ),
+            state=PROMOTION_PENDING,
+        )
+
+        intent.reseal()
+
+        self.state.pending_promotion = intent
+
+        self.state.next_promotion_sequence += 1
+
+        self._append_wal(
+            "MANIFEST_PROMOTION_PREPARED",
+            {
+                "promotion_id": intent.promotion_id,
+                "promotion_sequence": (
+                    intent.promotion_sequence
+                ),
+                "source_manifest_id": (
+                    intent.source_manifest_id
+                ),
+                "source_manifest_sequence": (
+                    intent.source_manifest_sequence
+                ),
+                "source_slot": intent.source_slot,
+                "target_slot": intent.target_slot,
+                "target_checkpoint_id": (
+                    intent.target_checkpoint_id
+                ),
+                "target_checkpoint_sequence": (
+                    intent.target_checkpoint_sequence
+                ),
+                "target_wal_length": (
+                    intent.target_wal_length
+                ),
+                "target_wal_final_hash": (
+                    intent.target_wal_final_hash
+                ),
+            },
+        )
+
+        return copy.deepcopy(intent)
+
+
+N33Engine.prepare_manifest_promotion = (
+    _n33_prepare_manifest_promotion
+)
+
+
+# ============================================================================
+# PROMOTION INTENT VALIDATION
+# ============================================================================
+
+def _n33_validate_promotion_intent(
+    self: N33Engine,
+    intent: ManifestPromotionIntent,
+) -> None:
+    with self._lock:
+        intent.validate_shape()
+        intent.validate_seal()
+
+        require(
+            intent.generation
+            == self.state.generation,
+            "promotion intent generation mismatch",
+        )
+
+        require(
+            intent.lineage
+            == self.state.lineage,
+            "promotion intent lineage mismatch",
+        )
+
+        require(
+            intent.recovery_epoch
+            == self.state.recovery_epoch,
+            "promotion intent recovery epoch mismatch",
+        )
+
+        require(
+            intent.promotion_id
+            not in self.state.finalized_promotion_ids,
+            "promotion intent already finalized",
+        )
+
+        current = self.state.pending_promotion
+
+        require(
+            current is not None,
+            "pending promotion missing",
+        )
+
+        current.validate_seal()
+
+        require(
+            intent.promotion_id
+            == current.promotion_id,
+            "promotion intent id mismatch",
+        )
+
+        require(
+            intent.promotion_sequence
+            == current.promotion_sequence,
+            "promotion intent sequence mismatch",
+        )
+
+        require(
+            intent.source_manifest_id
+            == current.source_manifest_id,
+            "promotion source manifest mismatch",
+        )
+
+        require(
+            intent.source_manifest_sequence
+            == current.source_manifest_sequence,
+            "promotion source manifest sequence mismatch",
+        )
+
+        require(
+            intent.source_slot
+            == current.source_slot,
+            "promotion source slot mismatch",
+        )
+
+        require(
+            intent.target_slot
+            == current.target_slot,
+            "promotion target slot mismatch",
+        )
+
+        require(
+            intent.target_checkpoint_id
+            == current.target_checkpoint_id,
+            "promotion checkpoint identity mismatch",
+        )
+
+        require(
+            intent.target_checkpoint_sequence
+            == current.target_checkpoint_sequence,
+            "promotion checkpoint sequence mismatch",
+        )
+
+        require(
+            intent.target_wal_length
+            == current.target_wal_length,
+            "promotion WAL length mismatch",
+        )
+
+        require(
+            secure_equal(
+                intent.target_wal_final_hash,
+                current.target_wal_final_hash,
+            ),
+            "promotion WAL final hash mismatch",
+        )
+
+        require(
+            intent.state == current.state,
+            "promotion intent state mismatch",
+        )
+
+        require(
+            intent.state in {
+                PROMOTION_PENDING,
+                PROMOTION_COMMITTED,
+            },
+            "promotion intent is not recoverable",
+        )
+
+        checkpoint = self.get_checkpoint(
+            intent.target_slot
+        )
+
+        self.validate_checkpoint(
+            checkpoint
+        )
+
+        require(
+            checkpoint.checkpoint_id
+            == intent.target_checkpoint_id,
+            "promotion checkpoint identity mismatch",
+        )
+
+        require(
+            checkpoint.checkpoint_sequence
+            == intent.target_checkpoint_sequence,
+            "promotion checkpoint sequence mismatch",
+        )
+
+        require(
+            checkpoint.wal_length
+            == intent.target_wal_length,
+            "promotion checkpoint WAL length mismatch",
+        )
+
+        require(
+            secure_equal(
+                checkpoint.wal_final_hash,
+                intent.target_wal_final_hash,
+            ),
+            "promotion checkpoint WAL hash mismatch",
+        )
+
+
+N33Engine.validate_promotion_intent = (
+    _n33_validate_promotion_intent
+)
+
+
+# ============================================================================
+# STALE PROMOTION SOURCE FENCING
+# ============================================================================
+
+def _n33_validate_promotion_source(
+    self: N33Engine,
+    intent: ManifestPromotionIntent,
+) -> None:
+    with self._lock:
+        current_manifest = (
+            self.state.committed_manifest
+        )
+
+        require(
+            current_manifest is not None,
+            "committed manifest missing",
+        )
+
+        current_manifest.validate_seal()
+
+        if intent.state == PROMOTION_PENDING:
+            require(
+                intent.source_manifest_id
+                == current_manifest.manifest_id,
+                "stale promotion source manifest",
+            )
+
+            require(
+                intent.source_manifest_sequence
+                == current_manifest.manifest_sequence,
+                "stale promotion source sequence",
+            )
+
+            require(
+                intent.source_slot
+                == current_manifest.checkpoint_slot,
+                "stale promotion source slot",
+            )
+
+        elif intent.state == PROMOTION_COMMITTED:
+            require(
+                intent.committed_manifest_id
+                == current_manifest.manifest_id,
+                "promotion committed manifest mismatch",
+            )
+
+            require(
+                intent.committed_manifest_sequence
+                == current_manifest.manifest_sequence,
+                "promotion committed manifest sequence mismatch",
+            )
+
+
+N33Engine.validate_promotion_source = (
+    _n33_validate_promotion_source
+)
+
+
+# ============================================================================
+# COMMIT MANIFEST PROMOTION
+# ============================================================================
+
+def _n33_commit_manifest_promotion(
+    self: N33Engine,
+    intent: ManifestPromotionIntent,
+) -> CommittedManifest:
+    with self._lock:
+        self.validate_promotion_intent(
+            intent
+        )
+
+        self.validate_promotion_source(
+            intent
+        )
+
+        require(
+            intent.state == PROMOTION_PENDING,
+            "promotion intent is not pending",
+        )
+
+        current_manifest = (
+            self.state.committed_manifest
+        )
+
+        require(
+            current_manifest is not None,
+            "committed manifest missing",
+        )
+
+        checkpoint = self.get_checkpoint(
+            intent.target_slot
+        )
+
+        self.validate_checkpoint(
+            checkpoint
+        )
+
+        require(
+            checkpoint.checkpoint_id
+            == intent.target_checkpoint_id,
+            "promotion checkpoint identity mismatch",
+        )
+
+        require(
+            checkpoint.checkpoint_sequence
+            == intent.target_checkpoint_sequence,
+            "promotion checkpoint sequence mismatch",
+        )
+
+        require(
+            checkpoint.checkpoint_sequence
+            > current_manifest.checkpoint_sequence,
+            "promotion checkpoint sequence rollback detected",
+        )
+
+        manifest_sequence = (
+            self.state.next_manifest_sequence
+        )
+
+        require(
+            manifest_sequence
+            > current_manifest.manifest_sequence,
+            "manifest sequence did not advance",
+        )
+
+        new_manifest = CommittedManifest(
+            manifest_id=new_id("manifest"),
+            manifest_sequence=manifest_sequence,
+            checkpoint_slot=checkpoint.slot,
+            checkpoint_id=checkpoint.checkpoint_id,
+            checkpoint_sequence=(
+                checkpoint.checkpoint_sequence
+            ),
+            generation=self.state.generation,
+            lineage=self.state.lineage,
+            recovery_epoch=self.state.recovery_epoch,
+            wal_length=checkpoint.wal_length,
+            wal_final_hash=checkpoint.wal_final_hash,
+            previous_manifest_id=(
+                current_manifest.manifest_id
+            ),
+            previous_manifest_sequence=(
+                current_manifest.manifest_sequence
+            ),
+        )
+
+        new_manifest.reseal()
+
+        self.state.fallback_manifest = copy.deepcopy(
+            current_manifest
+        )
+
+        self.state.committed_manifest = new_manifest
+
+        self.state.next_manifest_sequence += 1
+
+        self.state.highest_committed_manifest_sequence = (
+            new_manifest.manifest_sequence
+        )
+
+        self.state.highest_committed_checkpoint_sequence = (
+            new_manifest.checkpoint_sequence
+        )
+
+        current_intent = (
+            self.state.pending_promotion
+        )
+
+        require(
+            current_intent is not None,
+            "pending promotion missing",
+        )
+
+        current_intent.state = PROMOTION_COMMITTED
+        current_intent.committed_manifest_id = (
+            new_manifest.manifest_id
+        )
+        current_intent.committed_manifest_sequence = (
+            new_manifest.manifest_sequence
+        )
+        current_intent.reseal()
+
+        self._append_wal(
+            "MANIFEST_PROMOTION_COMMITTED",
+            {
+                "promotion_id": (
+                    current_intent.promotion_id
+                ),
+                "manifest_id": (
+                    new_manifest.manifest_id
+                ),
+                "manifest_sequence": (
+                    new_manifest.manifest_sequence
+                ),
+                "checkpoint_slot": (
+                    new_manifest.checkpoint_slot
+                ),
+                "checkpoint_id": (
+                    new_manifest.checkpoint_id
+                ),
+                "checkpoint_sequence": (
+                    new_manifest.checkpoint_sequence
+                ),
+                "fallback_manifest_id": (
+                    self.state.fallback_manifest.manifest_id
+                ),
+                "fallback_manifest_sequence": (
+                    self.state.fallback_manifest.manifest_sequence
+                ),
+            },
+        )
+
+        return copy.deepcopy(new_manifest)
+
+
+N33Engine.commit_manifest_promotion = (
+    _n33_commit_manifest_promotion
+)
+
+
+# ============================================================================
+# FINALIZE MANIFEST PROMOTION
+# ============================================================================
+
+def _n33_finalize_manifest_promotion(
+    self: N33Engine,
+    intent: ManifestPromotionIntent,
+) -> None:
+    with self._lock:
+        self.validate_promotion_intent(
+            intent
+        )
+
+        self.validate_promotion_source(
+            intent
+        )
+
+        current_intent = (
+            self.state.pending_promotion
+        )
+
+        require(
+            current_intent is not None,
+            "pending promotion missing",
+        )
+
+        require(
+            current_intent.state
+            == PROMOTION_COMMITTED,
+            "promotion has not committed",
+        )
+
+        require(
+            current_intent.committed_manifest_id
+            is not None,
+            "promotion committed manifest missing",
+        )
+
+        require(
+            current_intent.committed_manifest_sequence
+            is not None,
+            "promotion committed manifest sequence missing",
+        )
+
+        current_intent.state = (
+            PROMOTION_FINALIZED
+        )
+
+        current_intent.finalized_ns = now_ns()
+
+        current_intent.reseal()
+
+        finalized_id = (
+            current_intent.promotion_id
+        )
+
+        self.state.finalized_promotion_ids.add(
+            finalized_id
+        )
+
+        self._append_wal(
+            "MANIFEST_PROMOTION_FINALIZED",
+            {
+                "promotion_id": finalized_id,
+                "manifest_id": (
+                    current_intent.committed_manifest_id
+                ),
+                "manifest_sequence": (
+                    current_intent.committed_manifest_sequence
+                ),
+            },
+        )
+
+        self.state.pending_promotion = None
+
+
+N33Engine.finalize_manifest_promotion = (
+    _n33_finalize_manifest_promotion
+)
+
+
+# ============================================================================
+# SAFE CHECKPOINT SLOT RECLAMATION
+# ============================================================================
+
+def _n33_reclaim_checkpoint_slot(
+    self: N33Engine,
+    slot: str,
+) -> Optional[str]:
+    with self._lock:
+        require(
+            slot in VALID_SLOTS,
+            "invalid checkpoint slot",
+        )
+
+        current_manifest = (
+            self.state.committed_manifest
+        )
+
+        require(
+            current_manifest is not None,
+            "committed manifest missing",
+        )
+
+        require(
+            slot
+            != current_manifest.checkpoint_slot,
+            "cannot reclaim active checkpoint slot",
+        )
+
+        if self.state.fallback_manifest is not None:
+            require(
+                slot
+                != self.state.fallback_manifest.checkpoint_slot,
+                "cannot reclaim fallback checkpoint slot",
+            )
+
+        if self.state.pending_promotion is not None:
+            pending = self.state.pending_promotion
+
+            require(
+                slot != pending.target_slot,
+                "cannot reclaim pending promotion target slot",
+            )
+
+            if pending.source_slot is not None:
+                require(
+                    slot != pending.source_slot,
+                    "cannot reclaim pending promotion source slot",
+                )
+
+        checkpoint = self.state.checkpoints.get(
+            slot
+        )
+
+        if checkpoint is None:
+            return None
+
+        checkpoint.validate_seal()
+
+        checkpoint_id = checkpoint.checkpoint_id
+
+        self.state.reclaimed_checkpoint_ids.add(
+            checkpoint_id
+        )
+
+        self.state.checkpoints[slot] = None
+
+        self._append_wal(
+            "CHECKPOINT_SLOT_RECLAIMED",
+            {
+                "slot": slot,
+                "checkpoint_id": checkpoint_id,
+            },
+        )
+
+        return checkpoint_id
+
+
+N33Engine.reclaim_checkpoint_slot = (
+    _n33_reclaim_checkpoint_slot
+)
+
+
+# ============================================================================
+# FALLBACK MANIFEST RELEASE
+# ============================================================================
+
+def _n33_release_fallback_manifest(
+    self: N33Engine,
+) -> Optional[CommittedManifest]:
+    with self._lock:
+        fallback = self.state.fallback_manifest
+
+        if fallback is None:
+            return None
+
+        require(
+            self.state.pending_promotion is None,
+            "cannot release fallback during promotion",
+        )
+
+        current = self.state.committed_manifest
+
+        require(
+            current is not None,
+            "committed manifest missing",
+        )
+
+        require(
+            fallback.manifest_sequence
+            < current.manifest_sequence,
+            "fallback manifest sequence is not older",
+        )
+
+        released = copy.deepcopy(
+            fallback
+        )
+
+        self.state.fallback_manifest = None
+
+        self._append_wal(
+            "FALLBACK_MANIFEST_RELEASED",
+            {
+                "manifest_id": (
+                    released.manifest_id
+                ),
+                "manifest_sequence": (
+                    released.manifest_sequence
+                ),
+                "checkpoint_slot": (
+                    released.checkpoint_slot
+                ),
+            },
+        )
+
+        return released
+
+
+N33Engine.release_fallback_manifest = (
+    _n33_release_fallback_manifest
+)
+
+
+# ============================================================================
+# RESTORE ENGINE FROM DURABLE STATE
+# ============================================================================
+
+def _n33_restore_state(
+    cls: Any,
+    state: DurableState,
+) -> N33Engine:
+    engine = cls.__new__(cls)
+
+    engine._lock = threading.RLock()
+
+    engine.state = copy.deepcopy(
+        state
+    )
+
+    engine.validate_wal()
+
+    return engine
+
+
+N33Engine.restore_state = classmethod(
+    _n33_restore_state
+)
+
+
+# ============================================================================
+# RESTART-SAFE PENDING PROMOTION RECOVERY
+# ============================================================================
+
+def _n33_recover_pending_promotion(
+    self: N33Engine,
+) -> Optional[CommittedManifest]:
+    with self._lock:
+        intent = self.state.pending_promotion
+
+        if intent is None:
+            return None
+
+        intent.validate_shape()
+        intent.validate_seal()
+
+        require(
+            intent.generation
+            == self.state.generation,
+            "promotion intent generation mismatch",
+        )
+
+        require(
+            intent.lineage
+            == self.state.lineage,
+            "promotion intent lineage mismatch",
+        )
+
+        require(
+            intent.recovery_epoch
+            == self.state.recovery_epoch,
+            "promotion intent recovery epoch mismatch",
+        )
+
+        require(
+            intent.promotion_id
+            not in self.state.finalized_promotion_ids,
+            "promotion intent already finalized",
+        )
+
+        if intent.state == PROMOTION_PENDING:
+            self.validate_promotion_intent(
+                copy.deepcopy(intent)
+            )
+
+            self.validate_promotion_source(
+                copy.deepcopy(intent)
+            )
+
+            committed = self.commit_manifest_promotion(
+                copy.deepcopy(intent)
+            )
+
+            committed_intent = copy.deepcopy(
+                self.state.pending_promotion
+            )
+
+            require(
+                committed_intent is not None,
+                "committed promotion intent missing",
+            )
+
+            self.finalize_manifest_promotion(
+                committed_intent
+            )
+
+            return committed
+
+        if intent.state == PROMOTION_COMMITTED:
+            self.validate_promotion_intent(
+                copy.deepcopy(intent)
+            )
+
+            self.validate_promotion_source(
+                copy.deepcopy(intent)
+            )
+
+            manifest = copy.deepcopy(
+                self.state.committed_manifest
+            )
+
+            require(
+                manifest is not None,
+                "committed manifest missing",
+            )
+
+            self.finalize_manifest_promotion(
+                copy.deepcopy(intent)
+            )
+
+            return manifest
+
+        raise LocalBlock(
+            "promotion intent is not recoverable"
+        )
+
+
+N33Engine.recover_pending_promotion = (
+    _n33_recover_pending_promotion
+)
+
+
+# ============================================================================
+# COMMITTED AUTHORITY RECOVERY
+# ============================================================================
+
+def _n33_recover_committed_authority(
+    self: N33Engine,
+) -> Checkpoint:
+    with self._lock:
+        manifest = self.state.committed_manifest
+
+        require(
+            manifest is not None,
+            "committed manifest missing",
+        )
+
+        self.validate_manifest(
+            manifest
+        )
+
+        checkpoint = self.get_checkpoint(
+            manifest.checkpoint_slot
+        )
+
+        self.validate_checkpoint(
+            checkpoint
+        )
+
+        require(
+            checkpoint.checkpoint_id
+            == manifest.checkpoint_id,
+            "manifest checkpoint identity mismatch",
+        )
+
+        require(
+            checkpoint.checkpoint_sequence
+            == manifest.checkpoint_sequence,
+            "manifest checkpoint sequence mismatch",
+        )
+
+        return copy.deepcopy(
+            checkpoint
+        )
+
+
+N33Engine.recover_committed_authority = (
+    _n33_recover_committed_authority
+)
+
+
+# ============================================================================
+# GENERATION ADVANCE
+# ============================================================================
+
+def _n33_advance_generation(
+    self: N33Engine,
+) -> Tuple[int, str, int]:
+    with self._lock:
+        require(
+            self.state.pending_promotion is None,
+            "cannot advance generation with pending promotion",
+        )
+
+        old_generation = self.state.generation
+        old_lineage = self.state.lineage
+        old_epoch = self.state.recovery_epoch
+
+        self.state.generation += 1
+        self.state.lineage = new_id("lineage")
+        self.state.recovery_epoch += 1
+
+        self.state.phase = PHASE_PREPARED
+
+        self.state.recovery_lease = None
+        self.state.authorization = None
+
+        self.state.synthetic_dispatches = []
+
+        self.state.checkpoints = {
+            SLOT_A: None,
+            SLOT_B: None,
+        }
+
+        self.state.committed_manifest = None
+        self.state.fallback_manifest = None
+
+        self.state.pending_promotion = None
+
+        self.state.next_checkpoint_sequence = 1
+        self.state.next_manifest_sequence = 1
+        self.state.next_promotion_sequence = 1
+
+        self.state.highest_committed_manifest_sequence = 0
+        self.state.highest_committed_checkpoint_sequence = 0
+
+        self._append_wal(
+            "GENERATION_ADVANCED",
+            {
+                "prior_generation": old_generation,
+                "prior_lineage": old_lineage,
+                "prior_recovery_epoch": old_epoch,
+                "new_generation": self.state.generation,
+                "new_lineage": self.state.lineage,
+                "new_recovery_epoch": (
+                    self.state.recovery_epoch
+                ),
+            },
+        )
+
+        return (
+            self.state.generation,
+            self.state.lineage,
+            self.state.recovery_epoch,
+        )
+
+
+N33Engine.advance_generation = (
+    _n33_advance_generation
+)
+
+
+# ============================================================================
+# COMPLETE CURRENT GENERATION
+# ============================================================================
+
+def _n33_complete_generation(
+    self: N33Engine,
+) -> None:
+    with self._lock:
+        require(
+            len(self.state.synthetic_dispatches) == 1,
+            "exactly one synthetic dispatch required",
+        )
+
+        dispatch = (
+            self.state.synthetic_dispatches[0]
+        )
+
+        dispatch.validate_binding()
+
+        self.state.phase = PHASE_COMPLETED
+
+        if self.state.recovery_lease is not None:
+            self.state.recovery_lease.active = False
+
+        self._append_wal(
+            "GENERATION_COMPLETED",
+            {
+                "dispatch_id": dispatch.dispatch_id,
+                "synthetic_dispatch_count": 1,
+            },
+        )
+
+
+N33Engine.complete_generation = (
+    _n33_complete_generation
+)
+
+
+# ============================================================================
+# FULL STATE VALIDATION
+# ============================================================================
+
+def _n33_validate_durable_state(
+    self: N33Engine,
+) -> None:
+    with self._lock:
+        self.validate_wal()
+
+        require(
+            self.state.generation >= 1,
+            "invalid generation",
+        )
+
+        require(
+            self.state.recovery_epoch >= 1,
+            "invalid recovery epoch",
+        )
+
+        require(
+            bool(self.state.lineage),
+            "invalid lineage",
+        )
+
+        require(
+            self.state.phase in {
+                PHASE_PREPARED,
+                PHASE_AUTHORIZED,
+                PHASE_COMMITTED,
+                PHASE_DISPATCHED,
+                PHASE_COMPLETED,
+            },
+            "invalid durable phase",
+        )
+
+        for slot in VALID_SLOTS:
+            checkpoint = (
+                self.state.checkpoints.get(slot)
+            )
+
+            if checkpoint is not None:
+                self.validate_checkpoint(
+                    checkpoint
+                )
+
+                require(
+                    checkpoint.slot == slot,
+                    "checkpoint stored in wrong slot",
+                )
+
+        if self.state.committed_manifest is not None:
+            self.validate_manifest(
+                self.state.committed_manifest
+            )
+
+        if self.state.fallback_manifest is not None:
+            fallback = (
+                self.state.fallback_manifest
+            )
+
+            fallback.validate_shape()
+            fallback.validate_seal()
+
+            require(
+                fallback.generation
+                == self.state.generation,
+                "fallback manifest generation mismatch",
+            )
+
+            require(
+                fallback.lineage
+                == self.state.lineage,
+                "fallback manifest lineage mismatch",
+            )
+
+            require(
+                fallback.recovery_epoch
+                == self.state.recovery_epoch,
+                "fallback manifest recovery epoch mismatch",
+            )
+
+            require(
+                self.state.committed_manifest
+                is not None,
+                "fallback exists without committed manifest",
+            )
+
+            require(
+                fallback.manifest_sequence
+                < self.state.committed_manifest.manifest_sequence,
+                "fallback manifest is not historical",
+            )
+
+            fallback_checkpoint = self.get_checkpoint(
+                fallback.checkpoint_slot
+            )
+
+            self.validate_checkpoint(
+                fallback_checkpoint
+            )
+
+            require(
+                fallback_checkpoint.checkpoint_id
+                == fallback.checkpoint_id,
+                "fallback checkpoint identity mismatch",
+            )
+
+            require(
+                fallback_checkpoint.checkpoint_sequence
+                == fallback.checkpoint_sequence,
+                "fallback checkpoint sequence mismatch",
+            )
+
+        if self.state.pending_promotion is not None:
+            promotion = (
+                self.state.pending_promotion
+            )
+
+            promotion.validate_shape()
+            promotion.validate_seal()
+
+            require(
+                promotion.state in {
+                    PROMOTION_PENDING,
+                    PROMOTION_COMMITTED,
+                },
+                "invalid pending promotion state",
+            )
+
+        if self.state.authorization is not None:
+            self.state.authorization.validate_seal()
+
+        for dispatch in self.state.synthetic_dispatches:
+            dispatch.validate_binding()
+
+
+N33Engine.validate_durable_state = (
+    _n33_validate_durable_state
+)
+
+
+# ============================================================================
+# STATE SNAPSHOT
+# ============================================================================
+
+def snapshot_state(
+    engine: N33Engine,
+) -> DurableState:
+    with engine._lock:
+        engine.validate_durable_state()
+
+        return engine.state.clone()
+
+
+# ============================================================================
+# INITIAL AUTHORITY BOOTSTRAP
+# ============================================================================
+
+def bootstrap_initial_authority(
+    engine: N33Engine,
+) -> Tuple[
+    RecoveryLease,
+    Authorization,
+    SyntheticDispatch,
+    Checkpoint,
+    CommittedManifest,
+]:
+    lease = engine.acquire_recovery_lease(
+        "n33-bootstrap-worker"
+    )
+
+    authorization = engine.authorize(
+        lease
+    )
+
+    engine.consume_authorization(
+        authorization,
+        lease,
+    )
+
+    dispatch = engine.synthetic_dispatch(
+        authorization,
+        lease,
+    )
+
+    engine.complete_generation()
+
+    checkpoint = engine.create_checkpoint(
+        SLOT_A
+    )
+
+    manifest = engine.commit_initial_manifest(
+        checkpoint
+    )
+
+    return (
+        lease,
+        authorization,
+        dispatch,
+        checkpoint,
+        manifest,
+    )
+
+
+print(
+    "R28 UNIT N.33: PART 2 DEFINITIONS LOADED",
+    flush=True,
+)
+
+# ============================================================================
+# END OF PART 2 OF 4
+#
+# NEXT:
+#   PART 3 CONTINUES AT ZERO INDENTATION WITH:
+#     - N.33 TEST HARNESS
+#     - INITIAL AUTHORITY VALIDATION
+#     - ROTATED CHECKPOINT CREATION
+#     - DURABLE PROMOTION INTENT TESTS
+#     - PRE-COMMIT CRASH RECOVERY
+#     - POST-COMMIT / PRE-FINALIZATION RECOVERY
+#     - PROMOTION TAMPER / STALE / REPLAY REJECTIONS
+#
+# DO NOT ADD OR REMOVE INDENTATION AT THE PART-2 / PART-3 JOINT.
+# ============================================================================
