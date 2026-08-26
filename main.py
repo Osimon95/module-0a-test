@@ -3438,3 +3438,1424 @@ print(
 # ============================================================================
 # END OF PART 2 OF 4
 # ============================================================================
+# ============================================================================
+# R28 UNIT N.29
+# TWO-PHASE CHECKPOINT PROMOTION + CRASH-SAFE SLOT ROTATION
+# + PROMOTION FENCING + ROLLBACK-RESISTANT RECOVERY
+#
+# CORRECTED COPY/PASTE VERSION
+# PART 3 OF 4
+# ============================================================================
+
+
+# ============================================================================
+# TEST HELPERS
+# ============================================================================
+
+def expect_rejection(
+    label: str,
+    operation: Any,
+) -> None:
+    rejected = False
+
+    try:
+        operation()
+
+    except (
+        ValueError,
+        RuntimeError,
+        AssertionError,
+    ):
+        rejected = True
+
+    pass_line(
+        label,
+        rejected,
+    )
+
+
+def base_engine(
+) -> N29Engine:
+    engine = N29Engine()
+
+    engine.create_initial_checkpoint()
+
+    return engine
+
+
+def completed_checkpointed(
+) -> N29Engine:
+    engine = N29Engine()
+
+    engine.complete_generation(
+        "worker-primary"
+    )
+
+    engine.create_initial_checkpoint()
+
+    return engine
+
+
+# ============================================================================
+# TEST 1
+# BASELINE ENGINE + WAL INTEGRITY
+# ============================================================================
+
+def test_01(
+) -> None:
+    test_header(
+        1,
+        "BASELINE ENGINE + WAL INTEGRITY",
+    )
+
+    engine = N29Engine()
+
+    engine.validate_state()
+
+    pass_line(
+        "Initial Phase Is PREPARED",
+        engine.state.phase
+        == PHASE_PREPARED,
+    )
+
+    pass_line(
+        "WAL Hash Chain Valid",
+        True,
+    )
+
+
+# ============================================================================
+# TEST 2
+# EXACTLY-ONCE SYNTHETIC GENERATION
+# ============================================================================
+
+def test_02(
+) -> None:
+    test_header(
+        2,
+        "EXACTLY-ONCE SYNTHETIC GENERATION",
+    )
+
+    engine = N29Engine()
+
+    dispatch = (
+        engine.complete_generation(
+            "worker-alpha"
+        )
+    )
+
+    pass_line(
+        "Generation Reaches COMPLETED",
+        engine.state.phase
+        == PHASE_COMPLETED,
+    )
+
+    pass_line(
+        "Exactly One Synthetic Dispatch Produced",
+        len(
+            engine.state.synthetic_dispatches
+        ) == 1,
+    )
+
+    pass_line(
+        "Authorization Consumed Exactly Once",
+        len(
+            engine.state.consumed_authorization_ids
+        ) == 1,
+    )
+
+    dispatch.validate()
+
+    pass_line(
+        "Synthetic Dispatch Validates",
+        True,
+    )
+
+
+# ============================================================================
+# TEST 3
+# INITIAL CHECKPOINT + MANIFEST AUTHORITY
+# ============================================================================
+
+def test_03(
+) -> None:
+    test_header(
+        3,
+        "INITIAL CHECKPOINT + MANIFEST AUTHORITY",
+    )
+
+    engine = base_engine()
+
+    checkpoint = (
+        engine.get_active_checkpoint()
+    )
+
+    manifest = (
+        engine.state.checkpoint_manifest
+    )
+
+    pass_line(
+        "Initial Checkpoint Uses Slot A",
+        checkpoint.slot
+        == CHECKPOINT_SLOT_A,
+    )
+
+    pass_line(
+        "Initial Checkpoint Sequence Is 1",
+        checkpoint.checkpoint_sequence
+        == 1,
+    )
+
+    pass_line(
+        "Manifest Binds Active Checkpoint",
+        manifest is not None
+        and manifest.active_checkpoint_id
+        == checkpoint.checkpoint_id,
+    )
+
+
+# ============================================================================
+# TEST 4
+# STAGED CHECKPOINT IS NON-AUTHORITATIVE
+# ============================================================================
+
+def test_04(
+) -> None:
+    test_header(
+        4,
+        "STAGED CHECKPOINT IS NON-AUTHORITATIVE",
+    )
+
+    engine = base_engine()
+
+    before = (
+        engine.get_active_checkpoint()
+    )
+
+    promotion = (
+        engine.stage_checkpoint()
+    )
+
+    after = (
+        engine.get_active_checkpoint()
+    )
+
+    pass_line(
+        "Promotion State Is STAGED",
+        promotion.state
+        == PROMOTION_STAGED,
+    )
+
+    pass_line(
+        "Old Checkpoint Remains Authoritative",
+        after.checkpoint_id
+        == before.checkpoint_id,
+    )
+
+    pass_line(
+        "Staged Slot Is Non-Authoritative",
+        after.slot
+        == promotion.source_slot,
+    )
+
+
+# ============================================================================
+# TEST 5
+# CHECKPOINT PROMOTION COMMIT
+# ============================================================================
+
+def test_05(
+) -> None:
+    test_header(
+        5,
+        "CHECKPOINT PROMOTION COMMIT",
+    )
+
+    engine = base_engine()
+
+    old_manifest = deep_copy(
+        engine.state.checkpoint_manifest
+    )
+
+    promotion = (
+        engine.stage_checkpoint()
+    )
+
+    new_manifest = (
+        engine.commit_checkpoint_promotion(
+            promotion
+        )
+    )
+
+    pass_line(
+        "Pending Promotion Cleared",
+        engine.state.pending_promotion
+        is None,
+    )
+
+    pass_line(
+        "Manifest Sequence Advanced",
+        old_manifest is not None
+        and new_manifest.manifest_sequence
+        > old_manifest.manifest_sequence,
+    )
+
+    pass_line(
+        "Checkpoint Slot Rotated",
+        old_manifest is not None
+        and new_manifest.active_slot
+        != old_manifest.active_slot,
+    )
+
+
+# ============================================================================
+# TEST 6
+# PRE-PROMOTION CRASH RECOVERY
+# ============================================================================
+
+def test_06(
+) -> None:
+    test_header(
+        6,
+        "PRE-PROMOTION CRASH RECOVERY",
+    )
+
+    engine = base_engine()
+
+    before = (
+        engine.get_active_checkpoint()
+    )
+
+    promotion = (
+        engine.stage_checkpoint()
+    )
+
+    restored = (
+        N29Engine.restore_state(
+            engine.snapshot_state()
+        )
+    )
+
+    result = (
+        restored.recover_checkpoint_promotion()
+    )
+
+    pass_line(
+        "Interrupted Promotion Discarded",
+        result
+        == "STAGED_PROMOTION_DISCARDED",
+    )
+
+    pass_line(
+        "Old Authority Preserved",
+        restored.get_active_checkpoint().checkpoint_id
+        == before.checkpoint_id,
+    )
+
+    pass_line(
+        "Target Slot Discarded",
+        restored.state.checkpoint_slots[
+            promotion.target_slot
+        ] is None,
+    )
+
+
+# ============================================================================
+# TEST 7
+# BURNED SEQUENCE NON-REUSE AFTER ABORTED STAGING
+# ============================================================================
+
+def test_07(
+) -> None:
+    test_header(
+        7,
+        "BURNED SEQUENCE NON-REUSE AFTER ABORTED STAGING",
+    )
+
+    engine = base_engine()
+
+    first = (
+        engine.stage_checkpoint()
+    )
+
+    burned_checkpoint_sequence = (
+        first.target_checkpoint_sequence
+    )
+
+    burned_promotion_sequence = (
+        first.promotion_sequence
+    )
+
+    engine.discard_uncommitted_promotion()
+
+    second = (
+        engine.stage_checkpoint()
+    )
+
+    pass_line(
+        "Checkpoint Sequence Not Reused",
+        second.target_checkpoint_sequence
+        > burned_checkpoint_sequence,
+    )
+
+    pass_line(
+        "Promotion Sequence Not Reused",
+        second.promotion_sequence
+        > burned_promotion_sequence,
+    )
+
+
+# ============================================================================
+# TEST 8
+# POST-PROMOTION CRASH RECOVERY
+# ============================================================================
+
+def test_08(
+) -> None:
+    test_header(
+        8,
+        "POST-PROMOTION CRASH RECOVERY",
+    )
+
+    engine = base_engine()
+
+    promotion = (
+        engine.stage_checkpoint()
+    )
+
+    manifest = (
+        engine.commit_checkpoint_promotion(
+            promotion
+        )
+    )
+
+    restored = (
+        N29Engine.restore_state(
+            engine.snapshot_state()
+        )
+    )
+
+    pass_line(
+        "No Pending Promotion After Restart",
+        restored.recover_checkpoint_promotion()
+        == "NO_PENDING_PROMOTION",
+    )
+
+    pass_line(
+        "Committed Authority Preserved",
+        restored.get_active_checkpoint().checkpoint_id
+        == manifest.active_checkpoint_id,
+    )
+
+
+# ============================================================================
+# TEST 9
+# MULTIPLE SLOT ROTATIONS MONOTONIC
+# ============================================================================
+
+def test_09(
+) -> None:
+    test_header(
+        9,
+        "MULTIPLE SLOT ROTATIONS MONOTONIC",
+    )
+
+    engine = base_engine()
+
+    first = (
+        engine.rotate_checkpoint()
+    )
+
+    second = (
+        engine.rotate_checkpoint()
+    )
+
+    third = (
+        engine.rotate_checkpoint()
+    )
+
+    pass_line(
+        "Manifest Sequence Monotonic",
+        first.manifest_sequence
+        < second.manifest_sequence
+        < third.manifest_sequence,
+    )
+
+    pass_line(
+        "Checkpoint Sequence Monotonic",
+        first.active_checkpoint_sequence
+        < second.active_checkpoint_sequence
+        < third.active_checkpoint_sequence,
+    )
+
+    pass_line(
+        "Promotion Sequence Monotonic",
+        first.last_promotion_sequence
+        < second.last_promotion_sequence
+        < third.last_promotion_sequence,
+    )
+
+
+# ============================================================================
+# TEST 10
+# PROMOTION REPLAY REJECTION
+# ============================================================================
+
+def test_10(
+) -> None:
+    test_header(
+        10,
+        "PROMOTION REPLAY REJECTION",
+    )
+
+    engine = base_engine()
+
+    promotion = (
+        engine.stage_checkpoint()
+    )
+
+    expect_rejection(
+        "Concurrent Staging Rejected",
+        lambda: engine.stage_checkpoint(),
+    )
+
+    engine.commit_checkpoint_promotion(
+        promotion
+    )
+
+    expect_rejection(
+        "Committed Promotion Replay Rejected",
+        lambda: engine.commit_checkpoint_promotion(
+            promotion
+        ),
+    )
+
+
+# ============================================================================
+# TEST 11
+# PROMOTION INTEGRITY TAMPER REJECTION
+# ============================================================================
+
+def test_11(
+) -> None:
+    test_header(
+        11,
+        "PROMOTION INTEGRITY TAMPER REJECTION",
+    )
+
+    engine = base_engine()
+
+    promotion = (
+        engine.stage_checkpoint()
+    )
+
+    tampered = deep_copy(
+        promotion
+    )
+
+    tampered.target_checkpoint_sequence += 1
+
+    expect_rejection(
+        "Tampered Promotion Rejected",
+        lambda: engine.commit_checkpoint_promotion(
+            tampered
+        ),
+    )
+
+
+# ============================================================================
+# TEST 12
+# STAGED CHECKPOINT TAMPER REJECTION
+# ============================================================================
+
+def test_12(
+) -> None:
+    test_header(
+        12,
+        "STAGED CHECKPOINT TAMPER REJECTION",
+    )
+
+    engine = base_engine()
+
+    promotion = (
+        engine.stage_checkpoint()
+    )
+
+    checkpoint = (
+        engine.state.checkpoint_slots[
+            promotion.target_slot
+        ]
+    )
+
+    require(
+        checkpoint is not None,
+        "staged checkpoint missing",
+    )
+
+    checkpoint.generation += 1
+
+    expect_rejection(
+        "Tampered Staged Checkpoint Rejected",
+        lambda: engine.commit_checkpoint_promotion(
+            promotion
+        ),
+    )
+
+
+# ============================================================================
+# TEST 13
+# STAGED STATE IMAGE TAMPER REJECTION
+# ============================================================================
+
+def test_13(
+) -> None:
+    test_header(
+        13,
+        "STAGED STATE IMAGE TAMPER REJECTION",
+    )
+
+    engine = base_engine()
+
+    promotion = (
+        engine.stage_checkpoint()
+    )
+
+    image = (
+        engine.state.checkpoint_state_images[
+            promotion.target_slot
+        ]
+    )
+
+    require(
+        image is not None,
+        "staged image missing",
+    )
+
+    image[
+        "generation"
+    ] = 999
+
+    expect_rejection(
+        "Tampered Staged State Image Rejected",
+        lambda: engine.commit_checkpoint_promotion(
+            promotion
+        ),
+    )
+
+
+# ============================================================================
+# TEST 14
+# CHECKPOINT MANIFEST TAMPER REJECTION
+# ============================================================================
+
+def test_14(
+) -> None:
+    test_header(
+        14,
+        "CHECKPOINT MANIFEST TAMPER REJECTION",
+    )
+
+    engine = base_engine()
+
+    manifest = (
+        engine.state.checkpoint_manifest
+    )
+
+    require(
+        manifest is not None,
+        "manifest missing",
+    )
+
+    manifest.active_checkpoint_sequence += 1
+
+    expect_rejection(
+        "Tampered Checkpoint Manifest Rejected",
+        lambda: engine.get_active_checkpoint(),
+    )
+
+
+# ============================================================================
+# TEST 15
+# CHECKPOINT MANIFEST ROLLBACK REJECTION
+# ============================================================================
+
+def test_15(
+) -> None:
+    test_header(
+        15,
+        "CHECKPOINT MANIFEST ROLLBACK REJECTION",
+    )
+
+    engine = base_engine()
+
+    old_manifest = deep_copy(
+        engine.state.checkpoint_manifest
+    )
+
+    engine.rotate_checkpoint()
+
+    require(
+        old_manifest is not None,
+        "manifest missing",
+    )
+
+    expect_rejection(
+        "Checkpoint Manifest Rollback Rejected",
+        lambda: engine.validate_manifest_not_rolled_back(
+            old_manifest
+        ),
+    )
+
+
+# ============================================================================
+# TEST 16
+# PROMOTION SEQUENCE ROLLBACK REJECTION
+# ============================================================================
+
+def test_16(
+) -> None:
+    test_header(
+        16,
+        "PROMOTION SEQUENCE ROLLBACK REJECTION",
+    )
+
+    engine = base_engine()
+
+    engine.rotate_checkpoint()
+
+    manifest = deep_copy(
+        engine.state.checkpoint_manifest
+    )
+
+    require(
+        manifest is not None,
+        "manifest missing",
+    )
+
+    manifest.last_promotion_sequence = 0
+    manifest.last_promotion_id = None
+
+    manifest.seal()
+
+    expect_rejection(
+        "Promotion Sequence Rollback Rejected",
+        lambda: engine.validate_manifest_not_rolled_back(
+            manifest
+        ),
+    )
+
+
+# ============================================================================
+# TEST 17
+# AUTHORITATIVE CHECKPOINT RECOVERY
+# ============================================================================
+
+def test_17(
+) -> None:
+    test_header(
+        17,
+        "AUTHORITATIVE CHECKPOINT RECOVERY",
+    )
+
+    engine = completed_checkpointed()
+
+    engine.rotate_checkpoint()
+
+    checkpoint = (
+        engine.get_active_checkpoint()
+    )
+
+    image = (
+        engine.recover_from_authoritative_checkpoint()
+    )
+
+    pass_line(
+        "Recovered Image Preserves COMPLETED",
+        image[
+            "phase"
+        ] == PHASE_COMPLETED,
+    )
+
+    pass_line(
+        "Recovered Image Hash Matches",
+        secure_equal(
+            checkpoint.state_hash,
+            sha256_hex(
+                image
+            ),
+        ),
+    )
+
+
+# ============================================================================
+# TEST 18
+# STALE CHECKPOINT REJECTION
+# ============================================================================
+
+def test_18(
+) -> None:
+    test_header(
+        18,
+        "STALE CHECKPOINT REJECTION",
+    )
+
+    engine = base_engine()
+
+    manifest = (
+        engine.state.checkpoint_manifest
+    )
+
+    require(
+        manifest is not None,
+        "manifest missing",
+    )
+
+    checkpoint = (
+        engine.state.checkpoint_slots[
+            manifest.active_slot
+        ]
+    )
+
+    require(
+        checkpoint is not None,
+        "checkpoint missing",
+    )
+
+    checkpoint.WAL_length += 1
+
+    checkpoint.seal()
+
+    expect_rejection(
+        "Stale Checkpoint Rejected",
+        lambda: engine.recover_from_authoritative_checkpoint(),
+    )
+
+
+# ============================================================================
+# TEST 19
+# CHECKPOINT TO WAL FINAL HASH MISMATCH
+# ============================================================================
+
+def test_19(
+) -> None:
+    test_header(
+        19,
+        "CHECKPOINT TO WAL FINAL HASH MISMATCH",
+    )
+
+    engine = base_engine()
+
+    manifest = (
+        engine.state.checkpoint_manifest
+    )
+
+    require(
+        manifest is not None,
+        "manifest missing",
+    )
+
+    checkpoint = (
+        engine.state.checkpoint_slots[
+            manifest.active_slot
+        ]
+    )
+
+    require(
+        checkpoint is not None,
+        "checkpoint missing",
+    )
+
+    checkpoint.WAL_final_hash = (
+        "f" * 64
+    )
+
+    checkpoint.seal()
+
+    expect_rejection(
+        "Checkpoint WAL Hash Mismatch Rejected",
+        lambda: engine.recover_from_authoritative_checkpoint(),
+    )
+
+
+# ============================================================================
+# TEST 20
+# GENERATION ADVANCE + CHECKPOINT GENERATION FENCING
+# ============================================================================
+
+def test_20(
+) -> None:
+    test_header(
+        20,
+        "GENERATION ADVANCE + CHECKPOINT GENERATION FENCING",
+    )
+
+    engine = completed_checkpointed()
+
+    old_checkpoint = (
+        engine.get_active_checkpoint()
+    )
+
+    old_generation = (
+        engine.state.generation
+    )
+
+    old_lineage = (
+        engine.state.lineage_id
+    )
+
+    old_epoch = (
+        engine.state.recovery_epoch
+    )
+
+    engine.advance_generation()
+
+    manifest = (
+        engine.rotate_checkpoint()
+    )
+
+    checkpoint = (
+        engine.get_active_checkpoint()
+    )
+
+    pass_line(
+        "Generation Advanced Monotonically",
+        engine.state.generation
+        > old_generation,
+    )
+
+    pass_line(
+        "Recovery Epoch Advanced Monotonically",
+        engine.state.recovery_epoch
+        > old_epoch,
+    )
+
+    pass_line(
+        "New Generation Uses Different Lineage",
+        engine.state.lineage_id
+        != old_lineage,
+    )
+
+    pass_line(
+        "New Checkpoint Uses Higher Generation",
+        checkpoint.generation
+        > old_checkpoint.generation,
+    )
+
+    pass_line(
+        "New Checkpoint Uses New Lineage",
+        checkpoint.lineage_id
+        != old_checkpoint.lineage_id,
+    )
+
+    pass_line(
+        "New Promotion Uses Higher Sequence",
+        manifest.last_promotion_sequence
+        > 0,
+    )
+
+
+# ============================================================================
+# TEST 21
+# OWNER REUSE ACROSS GENERATION LINEAGE
+# ============================================================================
+
+def test_21(
+) -> None:
+    test_header(
+        21,
+        "OWNER REUSE ACROSS GENERATION LINEAGE",
+    )
+
+    engine = N29Engine()
+
+    old_lease = (
+        engine.acquire_recovery_lease(
+            "worker-reused"
+        )
+    )
+
+    authorization = (
+        engine.authorize(
+            old_lease
+        )
+    )
+
+    commit = (
+        engine.commit_dispatch(
+            old_lease,
+            authorization,
+        )
+    )
+
+    engine.synthetic_dispatch(
+        commit
+    )
+
+    engine.finalize()
+
+    engine.advance_generation()
+
+    new_lease = (
+        engine.acquire_recovery_lease(
+            "worker-reused"
+        )
+    )
+
+    pass_line(
+        "Reacquired Owner Uses Higher Generation",
+        new_lease.generation
+        > old_lease.generation,
+    )
+
+    pass_line(
+        "Reacquired Owner Uses Different Lineage",
+        new_lease.lineage_id
+        != old_lease.lineage_id,
+    )
+
+    pass_line(
+        "Reacquired Owner Uses Higher Epoch",
+        new_lease.recovery_epoch
+        > old_lease.recovery_epoch,
+    )
+
+    expect_rejection(
+        "Reused Owner Cannot Resurrect Prior Lease",
+        lambda: engine.validate_recovery_lease(
+            old_lease
+        ),
+    )
+
+
+# ============================================================================
+# TEST 22
+# EXACT SYNTHETIC TRANSPORT BINDING
+# ============================================================================
+
+def test_22(
+) -> None:
+    test_header(
+        22,
+        "EXACT SYNTHETIC TRANSPORT BINDING",
+    )
+
+    engine = N29Engine()
+
+    dispatch = (
+        engine.complete_generation(
+            "worker-transport"
+        )
+    )
+
+    pass_line(
+        "Transport Method Exactly POST",
+        dispatch.method
+        == HTTP_METHOD,
+    )
+
+    pass_line(
+        "Transport Path Exactly Leverage Endpoint",
+        dispatch.path
+        == LEVERAGE_ENDPOINT,
+    )
+
+    pass_line(
+        "Transport Payload Hash Preserved",
+        secure_equal(
+            dispatch.payload_hash,
+            engine.state.payload_hash,
+        ),
+    )
+
+    pass_line(
+        "Transport Payload Exactly Preserved",
+        dispatch.payload
+        == engine.state.payload,
+    )
+
+
+# ============================================================================
+# TEST 23
+# TORN WAL TAIL REJECTION
+# ============================================================================
+
+def test_23(
+) -> None:
+    test_header(
+        23,
+        "TORN WAL TAIL REJECTION",
+    )
+
+    engine = completed_checkpointed()
+
+    snapshot = (
+        engine.snapshot_state()
+    )
+
+    snapshot.WAL[
+        -1
+    ].record_hash = (
+        "0" * 64
+    )
+
+    expect_rejection(
+        "Torn WAL Tail Rejected",
+        lambda: N29Engine.restore_state(
+            snapshot
+        ),
+    )
+
+
+# ============================================================================
+# TEST 24
+# HISTORICAL WAL RECORD TAMPER REJECTION
+# ============================================================================
+
+def test_24(
+) -> None:
+    test_header(
+        24,
+        "HISTORICAL WAL RECORD TAMPER REJECTION",
+    )
+
+    engine = completed_checkpointed()
+
+    snapshot = (
+        engine.snapshot_state()
+    )
+
+    snapshot.WAL[
+        0
+    ].record_type = (
+        "FORGED"
+    )
+
+    expect_rejection(
+        "Historical WAL Tamper Rejected",
+        lambda: N29Engine.restore_state(
+            snapshot
+        ),
+    )
+
+
+# ============================================================================
+# TEST 25
+# CRASH AFTER STAGING CANNOT CHANGE AUTHORITY
+# ============================================================================
+
+def test_25(
+) -> None:
+    test_header(
+        25,
+        "CRASH AFTER STAGING CANNOT CHANGE AUTHORITY",
+    )
+
+    engine = base_engine()
+
+    before = (
+        engine.get_active_checkpoint()
+    )
+
+    promotion = (
+        engine.stage_checkpoint()
+    )
+
+    restored = (
+        N29Engine.restore_state(
+            engine.snapshot_state()
+        )
+    )
+
+    pass_line(
+        "Manifest Still Points To Pre-Crash Checkpoint",
+        restored.get_active_checkpoint().checkpoint_id
+        == before.checkpoint_id,
+    )
+
+    pass_line(
+        "Staged Slot Cannot Self-Promote",
+        restored.get_active_checkpoint().slot
+        == promotion.source_slot,
+    )
+
+    restored.recover_checkpoint_promotion()
+
+    pass_line(
+        "Authority Preserved After Recovery",
+        restored.get_active_checkpoint().checkpoint_id
+        == before.checkpoint_id,
+    )
+
+
+# ============================================================================
+# TEST 26
+# COMMITTED PROMOTION CANNOT BE DISCARDED
+# ============================================================================
+
+def test_26(
+) -> None:
+    test_header(
+        26,
+        "COMMITTED PROMOTION CANNOT BE DISCARDED",
+    )
+
+    engine = base_engine()
+
+    manifest = (
+        engine.commit_checkpoint_promotion(
+            engine.stage_checkpoint()
+        )
+    )
+
+    pass_line(
+        "Committed Promotion Was Not Discarded",
+        engine.discard_uncommitted_promotion()
+        is False,
+    )
+
+    pass_line(
+        "Committed Checkpoint Remains Authoritative",
+        engine.get_active_checkpoint().checkpoint_id
+        == manifest.active_checkpoint_id,
+    )
+
+
+# ============================================================================
+# TEST 27
+# PENDING PROMOTION BLOCKS GENERATION ADVANCE
+# ============================================================================
+
+def test_27(
+) -> None:
+    test_header(
+        27,
+        "PENDING PROMOTION BLOCKS GENERATION ADVANCE",
+    )
+
+    engine = completed_checkpointed()
+
+    engine.stage_checkpoint()
+
+    expect_rejection(
+        "Generation Advance With Pending Promotion Rejected",
+        lambda: engine.advance_generation(),
+    )
+
+
+# ============================================================================
+# TEST 28
+# CHECKPOINT SLOT STRUCTURAL FENCING
+# ============================================================================
+
+def test_28(
+) -> None:
+    test_header(
+        28,
+        "CHECKPOINT SLOT STRUCTURAL FENCING",
+    )
+
+    engine = base_engine()
+
+    promotion = (
+        engine.stage_checkpoint()
+    )
+
+    checkpoint = (
+        engine.state.checkpoint_slots[
+            promotion.target_slot
+        ]
+    )
+
+    require(
+        checkpoint is not None,
+        "checkpoint missing",
+    )
+
+    checkpoint.slot = (
+        promotion.source_slot
+    )
+
+    checkpoint.seal()
+
+    expect_rejection(
+        "Checkpoint Stored In Wrong Slot Rejected",
+        lambda: engine.validate_state(),
+    )
+
+
+# ============================================================================
+# TEST 29
+# FINAL NETWORK WRITE FIREBREAK
+# ============================================================================
+
+def test_29(
+) -> None:
+    test_header(
+        29,
+        "FINAL NETWORK WRITE FIREBREAK",
+    )
+
+    pass_line(
+        "Live Execution Disabled",
+        LIVE_ORDER_EXECUTION
+        is False,
+    )
+
+    pass_line(
+        "Demo Execution Disabled",
+        DEMO_ORDER_EXECUTION
+        is False,
+    )
+
+    pass_line(
+        "Network Writes Disabled",
+        NETWORK_WRITES_ENABLED
+        is False,
+    )
+
+    pass_line(
+        "Real POST Disabled",
+        REAL_POST_ENABLED
+        is False,
+    )
+
+    pass_line(
+        "Demo POST Disabled",
+        DEMO_POST_ENABLED
+        is False,
+    )
+
+    pass_line(
+        "Synthetic Transport Only",
+        SYNTHETIC_TRANSPORT_ONLY
+        is True,
+    )
+
+    expect_rejection(
+        "Real Network POST Hard Blocked",
+        lambda: real_network_post(
+            LEVERAGE_ENDPOINT,
+            {
+                "symbol":
+                    SYMBOL,
+
+                "leverage":
+                    100,
+            },
+        ),
+    )
+
+    expect_rejection(
+        "Demo Network POST Hard Blocked",
+        lambda: demo_network_post(
+            LEVERAGE_ENDPOINT,
+            {
+                "symbol":
+                    SYMBOL,
+
+                "leverage":
+                    100,
+            },
+        ),
+    )
+
+    pass_line(
+        "Network Write Count Remains Zero",
+        NETWORK_WRITE_COUNT
+        == 0,
+    )
+
+    pass_line(
+        "Real POST Count Remains Zero",
+        REAL_POST_COUNT
+        == 0,
+    )
+
+    pass_line(
+        "Demo POST Count Remains Zero",
+        DEMO_POST_COUNT
+        == 0,
+    )
+
+
+# ============================================================================
+# COMPLETE N.29 DIAGNOSTIC
+# ============================================================================
+
+def run_N29_diagnostic(
+) -> None:
+    major_separator()
+
+    print(
+        "R28 UNIT N.29 DIAGNOSTIC",
+        flush=True,
+    )
+
+    print(
+        "TWO-PHASE CHECKPOINT PROMOTION + CRASH-SAFE SLOT ROTATION",
+        flush=True,
+    )
+
+    major_separator()
+
+    test_01()
+    test_02()
+    test_03()
+    test_04()
+    test_05()
+    test_06()
+    test_07()
+    test_08()
+    test_09()
+    test_10()
+    test_11()
+    test_12()
+    test_13()
+    test_14()
+    test_15()
+    test_16()
+    test_17()
+    test_18()
+    test_19()
+    test_20()
+    test_21()
+    test_22()
+    test_23()
+    test_24()
+    test_25()
+    test_26()
+    test_27()
+    test_28()
+    test_29()
+
+    major_separator()
+
+    print(
+        "✅ R28 UNIT N.29 PASSED — TWO-PHASE CHECKPOINT PROMOTION "
+        "+ CRASH-SAFE SLOT ROTATION VALIDATED",
+        flush=True,
+    )
+
+    print(
+        "✅ BURNED CHECKPOINT / PROMOTION SEQUENCES CANNOT BE "
+        "REUSED AFTER ABORTED STAGING",
+        flush=True,
+    )
+
+    print(
+        "✅ NO REAL ORDER WAS SENT — NO DEMO ORDER WAS SENT — "
+        "NO NETWORK WRITE OCCURRED",
+        flush=True,
+    )
+
+    major_separator()
+
+
+print(
+    "R28 UNIT N.29: PART 3 DEFINITIONS LOADED",
+    flush=True,
+)
+
+# ============================================================================
+# END OF PART 3 OF 4
+# ============================================================================
