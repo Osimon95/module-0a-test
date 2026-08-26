@@ -6206,3 +6206,430 @@ print(
     "R28 UNIT N.27: PART 3 DEFINITIONS LOADED",
     flush=True,
 )
+# ============================================================================
+# R28 UNIT N.27
+# DURABLE WAL RECOVERY + CHECKPOINT BINDING + RESTART-SAFE FINALITY
+#
+# CORRECTED COPY/PASTE VERSION
+# PART 4 OF 4
+#
+# IMPORTANT:
+#   - PASTE DIRECTLY BELOW PART 3
+#   - FIRST LINE MUST START AT COLUMN ZERO
+#   - THIS PART CONTAINS THE ONLY __main__ ENTRYPOINT
+#   - THIS PART KEEPS THE RENDER PROCESS ALIVE
+# ============================================================================
+
+
+# ============================================================================
+# OPTIONAL HEALTH SERVER
+# ============================================================================
+
+class HealthHandler(
+    BaseHTTPRequestHandler
+):
+    def do_GET(
+        self,
+    ) -> None:
+
+        if self.path in (
+            "/",
+            "/health",
+            "/healthz",
+        ):
+
+            body = json.dumps(
+                {
+                    "unit":
+                        UNIT_NAME,
+
+                    "version":
+                        UNIT_VERSION,
+
+                    "status":
+                        "ok",
+
+                    "synthetic_only":
+                        SYNTHETIC_TRANSPORT_ONLY,
+
+                    "live_execution":
+                        LIVE_ORDER_EXECUTION,
+
+                    "demo_execution":
+                        DEMO_ORDER_EXECUTION,
+
+                    "real_post":
+                        REAL_POST_ENABLED,
+
+                    "demo_post":
+                        DEMO_POST_ENABLED,
+
+                    "network_writes":
+                        NETWORK_WRITES_ENABLED,
+
+                    "leverage_transmission":
+                        LEVERAGE_TRANSMISSION_ENABLED,
+                },
+                sort_keys=True,
+            ).encode(
+                "utf-8"
+            )
+
+            self.send_response(
+                200
+            )
+
+            self.send_header(
+                "Content-Type",
+                "application/json",
+            )
+
+            self.send_header(
+                "Content-Length",
+                str(
+                    len(
+                        body
+                    )
+                ),
+            )
+
+            self.end_headers()
+
+            self.wfile.write(
+                body
+            )
+
+            return
+
+        self.send_response(
+            404
+        )
+
+        self.end_headers()
+
+    def log_message(
+        self,
+        fmt: str,
+        *args: Any,
+    ) -> None:
+
+        return
+
+
+# ============================================================================
+# HEALTH SERVER STARTUP
+# ============================================================================
+
+def start_health_server(
+) -> HTTPServer:
+
+    server = HTTPServer(
+        (
+            "0.0.0.0",
+            HEALTH_PORT,
+        ),
+        HealthHandler,
+    )
+
+    def runner(
+    ) -> None:
+
+        try:
+
+            print(
+                (
+                    f"{UNIT_NAME}: "
+                    f"HEALTH SERVER LISTENING "
+                    f"ON PORT {HEALTH_PORT}"
+                ),
+                flush=True,
+            )
+
+            server.serve_forever(
+                poll_interval=0.5
+            )
+
+        except Exception as exc:
+
+            print(
+                (
+                    f"{UNIT_NAME}: "
+                    f"HEALTH SERVER ERROR: "
+                    f"{exc}"
+                ),
+                flush=True,
+            )
+
+            raise
+
+    thread = threading.Thread(
+        target=runner,
+        name="r28-n27-health-server",
+        daemon=True,
+    )
+
+    thread.start()
+
+    return server
+
+
+# ============================================================================
+# STARTUP SAFETY ASSERTIONS
+# ============================================================================
+
+def assert_startup_safety(
+) -> None:
+
+    require(
+        LIVE_ORDER_EXECUTION
+        is False,
+        (
+            "live execution must "
+            "remain disabled"
+        ),
+    )
+
+    require(
+        DEMO_ORDER_EXECUTION
+        is False,
+        (
+            "demo execution must "
+            "remain disabled"
+        ),
+    )
+
+    require(
+        NETWORK_WRITES_ENABLED
+        is False,
+        (
+            "network writes must "
+            "remain disabled"
+        ),
+    )
+
+    require(
+        REAL_POST_ENABLED
+        is False,
+        (
+            "real POST must "
+            "remain disabled"
+        ),
+    )
+
+    require(
+        DEMO_POST_ENABLED
+        is False,
+        (
+            "demo POST must "
+            "remain disabled"
+        ),
+    )
+
+    require(
+        LEVERAGE_TRANSMISSION_ENABLED
+        is False,
+        (
+            "leverage transmission "
+            "must remain disabled"
+        ),
+    )
+
+    require(
+        SYNTHETIC_TRANSPORT_ONLY
+        is True,
+        (
+            "synthetic-only mode "
+            "must remain enabled"
+        ),
+    )
+
+
+# ============================================================================
+# PERSISTENT RUNTIME
+#
+# N.27 MUST NOT RETURN FROM main().
+#
+# Returning from main() would cause:
+#
+#   python3 main.py
+#       ↓
+#   normal exit
+#       ↓
+#   Render restart
+#       ↓
+#   python3 main.py
+#
+# This persistent runtime prevents that normal-exit restart loop.
+# ============================================================================
+
+def persistent_runtime(
+    server: HTTPServer,
+) -> None:
+
+    heartbeat_count = 0
+
+    while True:
+
+        time.sleep(
+            60
+        )
+
+        heartbeat_count += 1
+
+        require(
+            server is not None,
+            (
+                "health server "
+                "reference lost"
+            ),
+        )
+
+        assert_startup_safety()
+
+        print(
+            (
+                f"{UNIT_NAME}: "
+                f"HEARTBEAT "
+                f"{heartbeat_count} "
+                f"✅ ACTIVE"
+            ),
+            flush=True,
+        )
+
+
+# ============================================================================
+# MAIN ENTRYPOINT
+# ============================================================================
+
+def main(
+) -> None:
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+    print(
+        (
+            "R28 UNIT N.27 "
+            "STARTUP"
+        ),
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+    # ========================================================================
+    # HARD SAFETY CHECK BEFORE ANY DIAGNOSTIC EXECUTION
+    # ========================================================================
+
+    assert_startup_safety()
+
+    print(
+        (
+            "R28 UNIT N.27: "
+            "STARTUP SAFETY ASSERTIONS PASSED"
+        ),
+        flush=True,
+    )
+
+    # ========================================================================
+    # RUN COMPLETE N.27 DIAGNOSTIC SUITE
+    # ========================================================================
+
+    run_diagnostic()
+
+    # ========================================================================
+    # VERIFY SAFETY AGAIN AFTER TEST EXECUTION
+    # ========================================================================
+
+    assert_startup_safety()
+
+    print(
+        "",
+        flush=True,
+    )
+
+    print(
+        (
+            "R28 UNIT N.27: "
+            "POST-DIAGNOSTIC SAFETY "
+            "ASSERTIONS PASSED"
+        ),
+        flush=True,
+    )
+
+    # ========================================================================
+    # START RENDER HEALTH SERVER
+    # ========================================================================
+
+    server = start_health_server()
+
+    print(
+        (
+            "R28 UNIT N.27: "
+            "HEALTH SERVER STARTED"
+        ),
+        flush=True,
+    )
+
+    print(
+        (
+            "R28 UNIT N.27: "
+            "PERSISTENT RUNTIME ACTIVE"
+        ),
+        flush=True,
+    )
+
+    print(
+        (
+            "R28 UNIT N.27: "
+            "✅ NO REAL POST — "
+            "NO DEMO POST — "
+            "NO NETWORK WRITE"
+        ),
+        flush=True,
+    )
+
+    print(
+        "=" * 92,
+        flush=True,
+    )
+
+    # ========================================================================
+    # CRITICAL:
+    #
+    # DO NOT REMOVE THIS CALL.
+    #
+    # This keeps python3 main.py alive after the diagnostic completes.
+    # ========================================================================
+
+    persistent_runtime(
+        server
+    )
+
+
+# ============================================================================
+# END OF PART 4 DEFINITIONS
+# ============================================================================
+
+print(
+    "R28 UNIT N.27: PART 4 DEFINITIONS LOADED",
+    flush=True,
+)
+
+
+# ============================================================================
+# ONLY EXECUTABLE ENTRYPOINT IN THE ENTIRE FILE
+# ============================================================================
+
+if __name__ == "__main__":
+    main()
