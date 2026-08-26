@@ -2515,3 +2515,1045 @@ print(
     "R28 UNIT N.28: PART 2 DEFINITIONS LOADED",
     flush=True,
 )
+# ============================================================================
+# R28 UNIT N.28
+# PART 3 OF 4
+#
+# DIAGNOSTIC TEST SUITE
+# ============================================================================
+
+
+# ============================================================================
+# TEST 1 — BASELINE PREPARED STATE + INITIAL CHECKPOINT
+# ============================================================================
+
+def test_01_baseline_prepared_state() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 1: BASELINE PREPARED STATE + INITIAL CHECKPOINT",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    check(
+        engine.state.phase == PHASE_PREPARED,
+        "Initial Phase Is PREPARED",
+    )
+
+    check(
+        engine.state.generation == 1,
+        "Initial Generation Is One",
+    )
+
+    check(
+        engine.state.recovery_epoch == 0,
+        "Initial Recovery Epoch Is Zero",
+    )
+
+    check(
+        engine.wal.length() == 1,
+        "Initial WAL Contains Prepared Record",
+    )
+
+    checkpoint = engine.create_checkpoint()
+
+    check(
+        checkpoint.sequence == 1,
+        "Initial Checkpoint Sequence Is One",
+    )
+
+    check(
+        checkpoint.slot == CHECKPOINT_SLOT_A,
+        "Initial Checkpoint Uses Slot A",
+    )
+
+    check(
+        engine.checkpoints.manifest is not None,
+        "Initial Checkpoint Manifest Created",
+    )
+
+    check(
+        engine.checkpoints.manifest.active_slot
+        == CHECKPOINT_SLOT_A,
+        "Initial Manifest Points To Slot A",
+    )
+
+
+# ============================================================================
+# TEST 2 — DUAL CHECKPOINT SLOT ALTERNATION
+# ============================================================================
+
+def test_02_dual_checkpoint_slot_alternation() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 2: DUAL CHECKPOINT SLOT ALTERNATION",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    first = engine.create_checkpoint()
+    second = engine.create_checkpoint()
+    third = engine.create_checkpoint()
+
+    check(
+        first.slot == CHECKPOINT_SLOT_A,
+        "Checkpoint One Uses Slot A",
+    )
+
+    check(
+        second.slot == CHECKPOINT_SLOT_B,
+        "Checkpoint Two Uses Slot B",
+    )
+
+    check(
+        third.slot == CHECKPOINT_SLOT_A,
+        "Checkpoint Three Returns To Slot A",
+    )
+
+    check(
+        first.sequence < second.sequence < third.sequence,
+        "Checkpoint Sequences Advance Monotonically",
+    )
+
+    check(
+        engine.checkpoints.manifest.highest_sequence
+        == third.sequence,
+        "Manifest Tracks Highest Checkpoint Sequence",
+    )
+
+
+# ============================================================================
+# TEST 3 — MANIFEST INTEGRITY + ACTIVE SLOT BINDING
+# ============================================================================
+
+def test_03_manifest_integrity_and_binding() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 3: MANIFEST INTEGRITY + ACTIVE SLOT BINDING",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    engine.create_checkpoint()
+    latest = engine.create_checkpoint()
+
+    validate_manifest_slot_sequences(
+        engine.checkpoints
+    )
+
+    check(
+        engine.checkpoints.manifest.active_slot
+        == latest.slot,
+        "Manifest Active Slot Matches Latest Checkpoint",
+    )
+
+    check(
+        engine.checkpoints.manifest.highest_sequence
+        == latest.sequence,
+        "Manifest Highest Sequence Matches Latest Checkpoint",
+    )
+
+    check(
+        engine.checkpoints.manifest.generation
+        == latest.generation,
+        "Manifest Generation Matches Latest Checkpoint",
+    )
+
+    check(
+        engine.checkpoints.manifest.lineage_id
+        == latest.lineage_id,
+        "Manifest Lineage Matches Latest Checkpoint",
+    )
+
+    check(
+        engine.checkpoints.manifest.recovery_epoch
+        == latest.recovery_epoch,
+        "Manifest Recovery Epoch Matches Latest Checkpoint",
+    )
+
+
+# ============================================================================
+# TEST 4 — NORMAL CHECKPOINT RESTORE
+# ============================================================================
+
+def test_04_normal_checkpoint_restore() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 4: NORMAL CHECKPOINT RESTORE",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    engine.create_checkpoint()
+
+    restored = N28Engine.restore_from_checkpoint(
+        engine.wal.clone(),
+        engine.checkpoints.clone(),
+    )
+
+    check(
+        restored.state.phase
+        == engine.state.phase,
+        "Restored Phase Preserved",
+    )
+
+    check(
+        restored.state.generation
+        == engine.state.generation,
+        "Restored Generation Preserved",
+    )
+
+    check(
+        restored.state.lineage_id
+        == engine.state.lineage_id,
+        "Restored Lineage Preserved",
+    )
+
+    check(
+        restored.state.recovery_epoch
+        == engine.state.recovery_epoch,
+        "Restored Recovery Epoch Preserved",
+    )
+
+    check(
+        restored.state.payload_hash
+        == engine.state.payload_hash,
+        "Restored Payload Hash Preserved",
+    )
+
+
+# ============================================================================
+# TEST 5 — AUTHORIZED RECOVERY + CHECKPOINT RESTART
+# ============================================================================
+
+def test_05_authorized_recovery_checkpoint_restart() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 5: AUTHORIZED RECOVERY + CHECKPOINT RESTART",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "worker-authorized"
+    )
+
+    engine.authorize_recovery(
+        lease
+    )
+
+    engine.create_checkpoint()
+
+    restored = N28Engine.restore_from_checkpoint(
+        engine.wal.clone(),
+        engine.checkpoints.clone(),
+    )
+
+    before_dispatches = len(
+        restored.state.synthetic_dispatches
+    )
+
+    result = restored.recover()
+
+    after_dispatches = len(
+        restored.state.synthetic_dispatches
+    )
+
+    check(
+        result == PHASE_COMPLETED,
+        "Authorized Recovery Completed",
+    )
+
+    check(
+        after_dispatches - before_dispatches == 1,
+        "Authorized Recovery Produced Exactly One Dispatch",
+    )
+
+    check(
+        restored.state.authorization is not None
+        and restored.state.authorization.consumed,
+        "Authorization Consumed Exactly Once",
+    )
+
+
+# ============================================================================
+# TEST 6 — RESTART AFTER COMMIT BEFORE SYNTHETIC DISPATCH
+# ============================================================================
+
+def test_06_restart_after_commit() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 6: RESTART AFTER COMMIT BEFORE SYNTHETIC DISPATCH",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "worker-commit"
+    )
+
+    authorization = engine.authorize_recovery(
+        lease
+    )
+
+    engine.commit_dispatch(
+        authorization
+    )
+
+    engine.create_checkpoint()
+
+    restored = N28Engine.restore_from_checkpoint(
+        engine.wal.clone(),
+        engine.checkpoints.clone(),
+    )
+
+    before = len(
+        restored.state.synthetic_dispatches
+    )
+
+    result = restored.recover()
+
+    after = len(
+        restored.state.synthetic_dispatches
+    )
+
+    check(
+        result == PHASE_COMPLETED,
+        "Committed Recovery Completed",
+    )
+
+    check(
+        after - before == 1,
+        "Committed Recovery Produced Exactly One Dispatch",
+    )
+
+
+# ============================================================================
+# TEST 7 — RESTART AFTER DISPATCH BEFORE FINALIZATION
+# ============================================================================
+
+def test_07_restart_after_dispatch() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 7: RESTART AFTER DISPATCH BEFORE FINALIZATION",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    lease = engine.acquire_recovery_lease(
+        "worker-dispatch"
+    )
+
+    authorization = engine.authorize_recovery(
+        lease
+    )
+
+    engine.commit_dispatch(
+        authorization
+    )
+
+    engine.synthetic_dispatch()
+
+    check(
+        len(engine.state.synthetic_dispatches) == 1,
+        "Pre-Crash Synthetic Dispatch Count Is One",
+    )
+
+    engine.create_checkpoint()
+
+    restored = N28Engine.restore_from_checkpoint(
+        engine.wal.clone(),
+        engine.checkpoints.clone(),
+    )
+
+    before = len(
+        restored.state.synthetic_dispatches
+    )
+
+    result = restored.recover()
+
+    after = len(
+        restored.state.synthetic_dispatches
+    )
+
+    check(
+        result == PHASE_COMPLETED,
+        "Dispatched Recovery Completed",
+    )
+
+    check(
+        after == before,
+        "Dispatched Recovery Produced No Second Dispatch",
+    )
+
+
+# ============================================================================
+# TEST 8 — TERMINAL RESTART IDEMPOTENCY
+# ============================================================================
+
+def test_08_terminal_restart_idempotency() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 8: TERMINAL RESTART IDEMPOTENCY",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    engine.recover()
+    engine.create_checkpoint()
+
+    restored = N28Engine.restore_from_checkpoint(
+        engine.wal.clone(),
+        engine.checkpoints.clone(),
+    )
+
+    before = len(
+        restored.state.synthetic_dispatches
+    )
+
+    result = restored.recover()
+
+    after = len(
+        restored.state.synthetic_dispatches
+    )
+
+    check(
+        result == PHASE_COMPLETED,
+        "Terminal Recovery Remains COMPLETED",
+    )
+
+    check(
+        after == before,
+        "Terminal Recovery Produced No Second Dispatch",
+    )
+
+    check(
+        len(restored.state.completed_dispatch_ids) == 1,
+        "Terminal Dispatch Finality Preserved",
+    )
+
+
+# ============================================================================
+# TEST 9 — SINGLE ACTIVE SLOT CORRUPTION + FALLBACK
+# ============================================================================
+
+def test_09_single_slot_corruption_fallback() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 9: SINGLE ACTIVE SLOT CORRUPTION FALLBACK",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    first = engine.create_checkpoint()
+    second = engine.create_checkpoint()
+
+    check(
+        second.sequence > first.sequence,
+        "Second Checkpoint Is Newer",
+    )
+
+    corrupted_store = engine.checkpoints.clone()
+
+    if second.slot == CHECKPOINT_SLOT_A:
+        corrupted_store.slot_a = tamper_checkpoint_state(
+            corrupted_store.slot_a
+        )
+    else:
+        corrupted_store.slot_b = tamper_checkpoint_state(
+            corrupted_store.slot_b
+        )
+
+    restored = N28Engine.restore_from_newest_valid_slot(
+        engine.wal.clone(),
+        corrupted_store,
+    )
+
+    check(
+        restored.state.generation
+        == engine.state.generation,
+        "Fallback Restore Preserved Generation",
+    )
+
+    check(
+        restored.state.lineage_id
+        == engine.state.lineage_id,
+        "Fallback Restore Preserved Lineage",
+    )
+
+    check(
+        restored.state.phase
+        == engine.state.phase,
+        "Fallback Restore Preserved State",
+    )
+
+
+# ============================================================================
+# TEST 10 — DUAL SLOT CORRUPTION REJECTION
+# ============================================================================
+
+def test_10_dual_slot_corruption_rejection() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 10: DUAL SLOT CORRUPTION REJECTION",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    engine.create_checkpoint()
+    engine.create_checkpoint()
+
+    corrupted_store = engine.checkpoints.clone()
+
+    corrupted_store.slot_a = tamper_checkpoint_state(
+        corrupted_store.slot_a
+    )
+
+    corrupted_store.slot_b = tamper_checkpoint_state(
+        corrupted_store.slot_b
+    )
+
+    blocked = expect_local_block(
+        lambda: N28Engine.restore_from_newest_valid_slot(
+            engine.wal.clone(),
+            corrupted_store,
+        )
+    )
+
+    check(
+        blocked,
+        "Dual Corrupted Checkpoints Rejected",
+    )
+
+
+# ============================================================================
+# TEST 11 — CHECKPOINT INTEGRITY SEAL TAMPER REJECTION
+# ============================================================================
+
+def test_11_checkpoint_integrity_tamper() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 11: CHECKPOINT INTEGRITY SEAL TAMPER REJECTION",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    checkpoint = engine.create_checkpoint()
+
+    damaged = tamper_checkpoint_state(
+        checkpoint
+    )
+
+    blocked = expect_local_block(
+        lambda: validate_checkpoint_integrity(
+            damaged
+        )
+    )
+
+    check(
+        blocked,
+        "Tampered Checkpoint Rejected",
+    )
+
+
+# ============================================================================
+# TEST 12 — STALE CHECKPOINT WAL LENGTH REJECTION
+# ============================================================================
+
+def test_12_stale_checkpoint_rejection() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 12: STALE CHECKPOINT REJECTION",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    checkpoint = engine.create_checkpoint()
+
+    engine.acquire_recovery_lease(
+        "worker-stale"
+    )
+
+    blocked = expect_local_block(
+        lambda: validate_checkpoint_against_wal(
+            checkpoint,
+            engine.wal,
+        )
+    )
+
+    check(
+        blocked,
+        "Stale Checkpoint Rejected",
+    )
+
+
+# ============================================================================
+# TEST 13 — CHECKPOINT WAL FINAL HASH MISMATCH
+# ============================================================================
+
+def test_13_checkpoint_wal_hash_mismatch() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 13: CHECKPOINT TO WAL FINAL HASH MISMATCH",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    checkpoint = engine.create_checkpoint()
+
+    damaged = tamper_checkpoint_wal_hash(
+        checkpoint
+    )
+
+    damaged.integrity_seal = seal_checkpoint(
+        damaged
+    )
+
+    blocked = expect_local_block(
+        lambda: validate_checkpoint_against_wal(
+            damaged,
+            engine.wal,
+        )
+    )
+
+    check(
+        blocked,
+        "Checkpoint WAL Hash Mismatch Rejected",
+    )
+
+
+# ============================================================================
+# TEST 14 — MANIFEST TAMPER REJECTION
+# ============================================================================
+
+def test_14_manifest_tamper_rejection() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 14: CHECKPOINT MANIFEST TAMPER REJECTION",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    engine.create_checkpoint()
+
+    damaged_store = engine.checkpoints.clone()
+
+    damaged_store.manifest.highest_sequence += 1
+
+    blocked = expect_local_block(
+        lambda: validate_manifest_integrity(
+            damaged_store.manifest
+        )
+    )
+
+    check(
+        blocked,
+        "Tampered Checkpoint Manifest Rejected",
+    )
+
+
+# ============================================================================
+# TEST 15 — CHECKPOINT ROLLBACK REJECTION
+# ============================================================================
+
+def test_15_checkpoint_rollback_rejection() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 15: CHECKPOINT ROLLBACK REJECTION",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    first = engine.create_checkpoint()
+    second = engine.create_checkpoint()
+
+    rollback_store = engine.checkpoints.clone()
+
+    rollback_store.manifest.active_slot = first.slot
+    rollback_store.manifest.highest_sequence = first.sequence
+    rollback_store.manifest.generation = first.generation
+    rollback_store.manifest.lineage_id = first.lineage_id
+    rollback_store.manifest.recovery_epoch = (
+        first.recovery_epoch
+    )
+
+    rollback_store.manifest.seal = seal_manifest(
+        rollback_store.manifest
+    )
+
+    blocked = expect_local_block(
+        lambda: N28Engine.restore_from_checkpoint(
+            engine.wal.clone(),
+            rollback_store,
+        )
+    )
+
+    check(
+        blocked,
+        "Checkpoint Rollback Rejected",
+    )
+
+    check(
+        second.sequence > first.sequence,
+        "Newer Checkpoint Existed During Rollback Test",
+    )
+
+
+# ============================================================================
+# TEST 16 — GENERATION ADVANCE + CHECKPOINT GENERATION FENCING
+# ============================================================================
+
+def test_16_generation_checkpoint_fencing() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 16: GENERATION ADVANCE + CHECKPOINT GENERATION FENCING",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    engine.recover()
+
+    old_generation = engine.state.generation
+    old_lineage = engine.state.lineage_id
+    old_epoch = engine.state.recovery_epoch
+    old_completed = set(
+        engine.state.completed_dispatch_ids
+    )
+
+    old_checkpoint = engine.create_checkpoint()
+
+    engine.advance_generation()
+
+    new_checkpoint = engine.create_checkpoint()
+
+    check(
+        engine.state.generation
+        > old_generation,
+        "Generation Advanced Monotonically",
+    )
+
+    check(
+        engine.state.recovery_epoch
+        > old_epoch,
+        "Recovery Epoch Advanced Monotonically",
+    )
+
+    check(
+        engine.state.lineage_id
+        != old_lineage,
+        "New Generation Uses Different Lineage",
+    )
+
+    check(
+        engine.state.phase
+        == PHASE_PREPARED,
+        "New Generation Returns To PREPARED",
+    )
+
+    check(
+        old_completed.issubset(
+            engine.state.completed_dispatch_ids
+        ),
+        "Prior Completed Dispatch Preserved",
+    )
+
+    check(
+        new_checkpoint.generation
+        > old_checkpoint.generation,
+        "New Checkpoint Uses Higher Generation",
+    )
+
+    check(
+        new_checkpoint.lineage_id
+        != old_checkpoint.lineage_id,
+        "New Checkpoint Uses New Lineage",
+    )
+
+
+# ============================================================================
+# TEST 17 — OWNER REUSE ACROSS GENERATION LINEAGE
+# ============================================================================
+
+def test_17_owner_reuse_across_generation() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 17: OWNER REUSE ACROSS GENERATION LINEAGE",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    first_lease = engine.acquire_recovery_lease(
+        "same-owner"
+    )
+
+    engine.authorize_recovery(
+        first_lease
+    )
+
+    engine.commit_dispatch(
+        engine.state.authorization
+    )
+
+    engine.synthetic_dispatch()
+    engine.finalize_dispatch()
+
+    engine.advance_generation()
+
+    second_lease = engine.acquire_recovery_lease(
+        "same-owner"
+    )
+
+    check(
+        second_lease.generation
+        > first_lease.generation,
+        "Reacquired Owner Uses Higher Generation",
+    )
+
+    check(
+        second_lease.lineage_id
+        != first_lease.lineage_id,
+        "Reacquired Owner Uses Different Lineage",
+    )
+
+    check(
+        second_lease.recovery_epoch
+        > first_lease.recovery_epoch,
+        "Reacquired Owner Uses Higher Epoch",
+    )
+
+    blocked = expect_local_block(
+        lambda: engine.validate_recovery_lease(
+            first_lease
+        )
+    )
+
+    check(
+        blocked,
+        "Reused Owner Cannot Resurrect Prior Lease",
+    )
+
+
+# ============================================================================
+# TEST 18 — EXACT SYNTHETIC TRANSPORT BINDING
+# ============================================================================
+
+def test_18_exact_synthetic_transport_binding() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 18: EXACT SYNTHETIC TRANSPORT BINDING",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    engine.recover()
+
+    require(
+        len(engine.state.synthetic_dispatches) == 1,
+        "expected exactly one synthetic dispatch",
+    )
+
+    dispatch = engine.state.synthetic_dispatches[0]
+
+    check(
+        dispatch.method == HTTP_METHOD,
+        "Transport Method Exactly POST",
+    )
+
+    check(
+        dispatch.path == LEVERAGE_ENDPOINT,
+        "Transport Path Exactly Leverage Endpoint",
+    )
+
+    check(
+        dispatch.payload_hash
+        == engine.state.payload_hash,
+        "Transport Payload Hash Preserved",
+    )
+
+    check(
+        dispatch.payload
+        == engine.state.payload,
+        "Transport Payload Exactly Preserved",
+    )
+
+
+# ============================================================================
+# TEST 19 — WAL TORN TAIL REJECTION
+# ============================================================================
+
+def test_19_torn_wal_tail_rejection() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 19: TORN WAL TAIL REJECTION",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    engine.recover()
+
+    damaged_wal = engine.wal.clone()
+
+    require(
+        bool(damaged_wal.records),
+        "WAL unexpectedly empty",
+    )
+
+    damaged_wal.records[-1].record_hash = (
+        "f" * 64
+    )
+
+    blocked = expect_local_block(
+        damaged_wal.validate
+    )
+
+    check(
+        blocked,
+        "Torn WAL Tail Rejected",
+    )
+
+
+# ============================================================================
+# TEST 20 — HISTORICAL WAL TAMPER REJECTION
+# ============================================================================
+
+def test_20_historical_wal_tamper_rejection() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 20: HISTORICAL WAL RECORD TAMPER REJECTION",
+        flush=True,
+    )
+    separator()
+
+    engine = N28Engine()
+
+    engine.recover()
+
+    damaged_wal = engine.wal.clone()
+
+    require(
+        len(damaged_wal.records) >= 2,
+        "insufficient WAL records for historical tamper test",
+    )
+
+    damaged_wal.records[0].data["payload_hash"] = (
+        "0" * 64
+    )
+
+    blocked = expect_local_block(
+        damaged_wal.validate
+    )
+
+    check(
+        blocked,
+        "Historical WAL Tamper Rejected",
+    )
+
+
+# ============================================================================
+# TEST 21 — FINAL NETWORK WRITE FIREBREAK
+# ============================================================================
+
+def test_21_final_network_write_firebreak() -> None:
+    separator()
+    print(
+        "R28 UNIT N.28 TEST 21: FINAL NETWORK WRITE FIREBREAK",
+        flush=True,
+    )
+    separator()
+
+    assert_final_network_firebreak()
+
+
+# ============================================================================
+# DIAGNOSTIC RUNNER
+# ============================================================================
+
+def run_diagnostic() -> None:
+    banner()
+    print(
+        "R28 UNIT N.28 DIAGNOSTIC START",
+        flush=True,
+    )
+    banner()
+
+    test_01_baseline_prepared_state()
+    test_02_dual_checkpoint_slot_alternation()
+    test_03_manifest_integrity_and_binding()
+    test_04_normal_checkpoint_restore()
+    test_05_authorized_recovery_checkpoint_restart()
+    test_06_restart_after_commit()
+    test_07_restart_after_dispatch()
+    test_08_terminal_restart_idempotency()
+    test_09_single_slot_corruption_fallback()
+    test_10_dual_slot_corruption_rejection()
+    test_11_checkpoint_integrity_tamper()
+    test_12_stale_checkpoint_rejection()
+    test_13_checkpoint_wal_hash_mismatch()
+    test_14_manifest_tamper_rejection()
+    test_15_checkpoint_rollback_rejection()
+    test_16_generation_checkpoint_fencing()
+    test_17_owner_reuse_across_generation()
+    test_18_exact_synthetic_transport_binding()
+    test_19_torn_wal_tail_rejection()
+    test_20_historical_wal_tamper_rejection()
+    test_21_final_network_write_firebreak()
+
+    print("", flush=True)
+    banner()
+    print(
+        "✅ R28 UNIT N.28 PASSED — DUAL CHECKPOINT + ROLLBACK-RESISTANT RECOVERY VALIDATED",
+        flush=True,
+    )
+    print(
+        "✅ NO REAL ORDER WAS SENT — NO DEMO ORDER WAS SENT — NO NETWORK WRITE OCCURRED",
+        flush=True,
+    )
+    banner()
+
+
+# ============================================================================
+# PART 3 LOAD MARKER
+# ============================================================================
+
+print(
+    "R28 UNIT N.28: PART 3 DEFINITIONS LOADED",
+    flush=True,
+)
