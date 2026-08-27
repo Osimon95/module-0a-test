@@ -796,3 +796,124 @@ def finalize(
 
 
 print("R29 UNIT F: PART 2 DEFINITIONS LOADED", flush=True)
+# =============================================================================
+# PART 3 — CRASH / RESTART RECOVERY RULES
+# =============================================================================
+
+def clone_state(state: DurableState) -> DurableState:
+    return state_from_dict(json.loads(canonical_json(state_to_dict(state))))
+
+
+def validate_full_state(state: DurableState) -> None:
+    validate_mutation(state.mutation)
+    validate_authorization(state.authorization, state.mutation)
+    require(
+        state.dispatch_fence_key
+        == dispatch_fence_key(state.mutation, state.authorization),
+        "Dispatch Fence Key Valid",
+    )
+    require(state.network_write_count == 0, "Durable Network Write Count Zero")
+    require(state.real_order_count == 0, "Durable Real Order Count Zero")
+    require(state.demo_order_count == 0, "Durable Demo Order Count Zero")
+    if state.receipt is not None:
+        validate_receipt(state.receipt, state.mutation, state.authorization)
+    require(
+        state.state_integrity_hash == compute_state_integrity(state),
+        "Durable State Integrity Hash Valid",
+    )
+
+
+def recover_state(state: DurableState) -> DurableState:
+    validate_full_state(state)
+
+    if state.phase == "PREPARED":
+        local_block("prepared state has no durable authorization")
+
+    if state.phase == "AUTHORIZED":
+        # Authorization survived but has not yet been consumed.
+        # Recovery preserves it without dispatching automatically.
+        return state
+
+    if state.phase == "DISPATCHING":
+        # Consumption is durable. A recovery may not issue another dispatch.
+        if not state.authorization.consumed:
+            local_block("dispatching state missing consumed authorization")
+        state.phase = "FENCED_AFTER_CRASH"
+        save_state(state)
+        append_wal("RECOVERED_CONSUMED_FENCE", state)
+        return state
+
+    if state.phase == "DISPATCHED":
+        if state.receipt is None:
+            local_block("dispatched state missing receipt")
+        finalize(state)
+        return state
+
+    if state.phase == "COMPLETED":
+        if state.finalized_fence_key != state.dispatch_fence_key:
+            local_block("finalized fence mismatch")
+        return state
+
+    if state.phase == "FENCED_AFTER_CRASH":
+        return state
+
+    local_block("unknown durable phase")
+    raise AssertionError("unreachable")
+
+
+def reject_generation_substitution(state: DurableState) -> None:
+    forged = clone_state(state)
+    forged.generation += 1
+    forged.state_integrity_hash = compute_state_integrity(forged)
+    verify_dispatch_preconditions(forged)
+
+
+def reject_recovery_epoch_substitution(state: DurableState) -> None:
+    forged = clone_state(state)
+    forged.recovery_epoch += 1
+    forged.state_integrity_hash = compute_state_integrity(forged)
+    verify_dispatch_preconditions(forged)
+
+
+def reject_snapshot_substitution(state: DurableState) -> None:
+    forged = clone_state(state)
+    forged.mutation.snapshot_hash = sha256_text("forged-snapshot")
+    forged.mutation.integrity_hash = integrity_hash(
+        asdict(forged.mutation), excluded=["integrity_hash"]
+    )
+    forged.state_integrity_hash = compute_state_integrity(forged)
+    if forged.authorization.snapshot_hash != forged.mutation.snapshot_hash:
+        local_block("authorization snapshot binding mismatch")
+    raise AssertionError("forged snapshot substitution was not rejected")
+
+
+def reject_body_substitution(state: DurableState) -> None:
+    forged = clone_state(state)
+    forged.mutation.body["isolatedLongLeverage"] = "99"
+    forged.mutation.body_hash = sha256_text(canonical_json(forged.mutation.body))
+    forged.mutation.integrity_hash = integrity_hash(
+        asdict(forged.mutation), excluded=["integrity_hash"]
+    )
+    forged.state_integrity_hash = compute_state_integrity(forged)
+    if forged.authorization.body_hash != forged.mutation.body_hash:
+        local_block("authorization body hash mismatch")
+    raise AssertionError("forged body substitution was not rejected")
+
+
+def reject_fence_substitution(state: DurableState) -> None:
+    forged = clone_state(state)
+    forged.dispatch_fence_key = sha256_text("forged-fence")
+    forged.state_integrity_hash = compute_state_integrity(forged)
+    verify_dispatch_preconditions(forged)
+
+
+def recover_from_disk() -> Optional[DurableState]:
+    state = load_state()
+    if state is None:
+        return None
+    state.boot_count += 1
+    save_state(state)
+    return recover_state(state)
+
+
+print("R29 UNIT F: PART 3 DEFINITIONS LOADED", flush=True)
