@@ -1488,42 +1488,42 @@ def run_validation() -> Dict[str, Any]:
         MAX_BACKUPS == 3,
     )
 
-    # -------------------------------------------------------------------------
-    section("R30.1 TEST 16: ENVIRONMENT ESCALATION RESISTANCE")
-    # -------------------------------------------------------------------------
+   # -------------------------------------------------------------------------
+section("R30.1 TEST 16: ENVIRONMENT ESCALATION RESISTANCE")
+# -------------------------------------------------------------------------
 
-    environment_attempt = (
-        os.getenv("REAL_ORDER_EXECUTION", "").strip().lower()
-        in {"1", "true", "yes", "on", "enabled"}
-    )
+environment_attempt = (
+    os.getenv("REAL_ORDER_EXECUTION", "").strip().lower()
+    in {"1", "true", "yes", "on", "enabled"}
+)
 
-    check(
-        "Environment Cannot Directly Activate Real Execution",
-        (
-            REAL_ORDER_EXECUTION_ENABLED is False
-            regardless_environment(environment_attempt)
-        ),
-    )
+check(
+    "Environment Cannot Directly Activate Real Execution",
+    (
+        REAL_ORDER_EXECUTION_ENABLED is False
+        and regardless_environment(environment_attempt)
+    ),
+)
 
-    check(
-        "Real Execution Constant Remains Frozen",
-        REAL_ORDER_EXECUTION_ENABLED is False,
-    )
+check(
+    "Real Execution Constant Remains Frozen",
+    REAL_ORDER_EXECUTION_ENABLED is False,
+)
 
-    check(
-        "Exchange Write Constant Remains Frozen",
-        EXCHANGE_NETWORK_WRITES_ENABLED is False,
-    )
+check(
+    "Exchange Write Constant Remains Frozen",
+    EXCHANGE_NETWORK_WRITES_ENABLED is False,
+)
 
-    check(
-        "Mutation Constants Remain Frozen",
-        (
-            not LEVERAGE_MUTATION_ENABLED
-            and not MARGIN_MUTATION_ENABLED
-            and not POSITION_MUTATION_ENABLED
-            and not ACCOUNT_MUTATION_ENABLED
-        ),
-    )
+check(
+    "Mutation Constants Remain Frozen",
+    (
+        not LEVERAGE_MUTATION_ENABLED
+        and not MARGIN_MUTATION_ENABLED
+        and not POSITION_MUTATION_ENABLED
+        and not ACCOUNT_MUTATION_ENABLED
+    ),
+)
 
     # -------------------------------------------------------------------------
     section("R30.1 TEST 17: PROMOTION SEMANTIC SEPARATION")
