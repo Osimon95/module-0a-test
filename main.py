@@ -497,3 +497,452 @@ def start_health_server() -> None:
     )
 
     thread.start()
+# =============================================================================
+# OBSERVATION / SIGNAL PIPELINE
+# =============================================================================
+
+def build_observation() -> MarketObservation:
+    return MarketObservation(
+        symbol=SYMBOL,
+        mark_price=decimal_string(SYNTHETIC_MARK_PRICE),
+        timestamp=now_ts(),
+        source="R31B_SYNTHETIC_OBSERVATION",
+    )
+
+
+def build_signal(
+    observation: MarketObservation,
+    direction: Direction = Direction.LONG,
+) -> StrategySignal:
+
+    created = now_ts()
+
+    return StrategySignal(
+        signal_id=str(uuid.uuid4()),
+        symbol=observation.symbol,
+        direction=direction.value,
+        strength=SignalStrength.NORMAL.value,
+        observed_price=observation.mark_price,
+        created_at=created,
+        expires_at=created + SIGNAL_EXPIRY_SECONDS,
+    )
+
+
+def signal_is_valid(signal: StrategySignal) -> bool:
+    return (
+        signal.symbol == SYMBOL
+        and signal.direction in {
+            Direction.LONG.value,
+            Direction.SHORT.value,
+        }
+        and signal.expires_at > signal.created_at
+        and signal.expires_at - signal.created_at == SIGNAL_EXPIRY_SECONDS
+    )
+
+
+# =============================================================================
+# RISK PROJECTION
+# =============================================================================
+
+def calculate_risk_projection(
+    balance: Decimal,
+    price: Decimal,
+) -> RiskProjection:
+
+    entry_margin_budget = (
+        balance * INITIAL_ENTRY_PERCENT / Decimal("100")
+    )
+
+    projected_notional = entry_margin_budget * TARGET_LEVERAGE
+
+    raw_quantity = projected_notional / price
+
+    rounded_quantity = quantize_down(
+        raw_quantity,
+        QTY_STEP,
+    )
+
+    if rounded_quantity < MIN_QTY:
+        rounded_quantity = MIN_QTY
+
+    rounded_notional = rounded_quantity * price
+
+    rounded_margin = rounded_notional / TARGET_LEVERAGE
+
+    exposure_percent = (
+        rounded_margin / balance * Decimal("100")
+        if balance > 0
+        else Decimal("999999")
+    )
+
+    accepted = (
+        balance > 0
+        and price > 0
+        and rounded_quantity >= MIN_QTY
+        and exposure_percent <= MAX_FUND_EXPOSURE_PERCENT
+    )
+
+    reason = (
+        "RISK_ACCEPTED"
+        if accepted
+        else "RISK_REJECTED"
+    )
+
+    return RiskProjection(
+        available_balance=decimal_string(balance),
+        entry_margin_budget=decimal_string(entry_margin_budget),
+        target_leverage=decimal_string(TARGET_LEVERAGE),
+        projected_notional=decimal_string(projected_notional),
+        raw_quantity=decimal_string(raw_quantity),
+        rounded_quantity=decimal_string(rounded_quantity),
+        rounded_notional=decimal_string(rounded_notional),
+        rounded_margin=decimal_string(rounded_margin),
+        exposure_percent=decimal_string(exposure_percent),
+        accepted=accepted,
+        reason=reason,
+    )
+
+
+# =============================================================================
+# TP PROJECTION
+# =============================================================================
+
+def calculate_tp_projection(
+    entry_quantity: Decimal,
+) -> TakeProfitProjection:
+
+    tp1 = quantize_down(
+        entry_quantity * TP1_PERCENT / Decimal("100"),
+        QTY_STEP,
+    )
+
+    tp2 = quantize_down(
+        entry_quantity * TP2_PERCENT / Decimal("100"),
+        QTY_STEP,
+    )
+
+    tp3 = entry_quantity - tp1 - tp2
+
+    if tp3 < Decimal("0"):
+        tp3 = Decimal("0")
+
+    reconciled = tp1 + tp2 + tp3
+
+    return TakeProfitProjection(
+        tp1_quantity=decimal_string(tp1),
+        tp2_quantity=decimal_string(tp2),
+        tp3_quantity=decimal_string(tp3),
+        reconciled_quantity=decimal_string(reconciled),
+        trigger_1_percent=decimal_string(TP1_TRIGGER_PERCENT),
+        trigger_2_percent=decimal_string(TP2_TRIGGER_PERCENT),
+        trailing_distance_percent=decimal_string(
+            TRAILING_DISTANCE_PERCENT
+        ),
+    )
+
+
+# =============================================================================
+# BACKUP PROJECTION
+# =============================================================================
+
+def calculate_backup_projection(
+    balance: Decimal,
+) -> BackupProjection:
+
+    each_margin = (
+        balance * BACKUP_PERCENT / Decimal("100")
+    )
+
+    total_margin = each_margin * Decimal(MAX_BACKUPS)
+
+    return BackupProjection(
+        max_backups=MAX_BACKUPS,
+        backup_percent=decimal_string(BACKUP_PERCENT),
+        backup_buffer_percent=decimal_string(
+            BACKUP_BUFFER_PERCENT
+        ),
+        projected_backup_margin_each=decimal_string(each_margin),
+        projected_backup_total_margin=decimal_string(total_margin),
+    )
+
+
+# =============================================================================
+# CANDIDATE CONSTRUCTION
+# =============================================================================
+
+def build_candidate(
+    signal: StrategySignal,
+    risk: RiskProjection,
+) -> Candidate:
+
+    if not risk.accepted:
+        raise SafetyViolation(
+            "candidate construction rejected by risk gate"
+        )
+
+    return Candidate(
+        candidate_id=str(uuid.uuid4()),
+        signal_id=signal.signal_id,
+        symbol=signal.symbol,
+        direction=signal.direction,
+        quantity=risk.rounded_quantity,
+        mark_price=signal.observed_price,
+        target_leverage=decimal_string(TARGET_LEVERAGE),
+        phase=CandidatePhase.RISK_ACCEPTED.value,
+        created_at=now_ts(),
+    )
+
+
+# =============================================================================
+# AUTHORIZATION ENVELOPE
+# =============================================================================
+
+def build_authorization(
+    candidate: Candidate,
+) -> AuthorizationEnvelope:
+
+    payload_core = {
+        "candidate_id": candidate.candidate_id,
+        "symbol": candidate.symbol,
+        "direction": candidate.direction,
+        "quantity": candidate.quantity,
+        "leverage": candidate.target_leverage,
+        "transport": "SYNTHETIC_ONLY",
+        "executable": False,
+        "network_writes_allowed": False,
+    }
+
+    payload_hash = sha256_text(
+        canonical_json(payload_core)
+    )
+
+    return AuthorizationEnvelope(
+        authorization_id=str(uuid.uuid4()),
+        candidate_id=candidate.candidate_id,
+        symbol=candidate.symbol,
+        direction=candidate.direction,
+        quantity=candidate.quantity,
+        leverage=candidate.target_leverage,
+        transport="SYNTHETIC_ONLY",
+        executable=False,
+        network_writes_allowed=False,
+        created_at=now_ts(),
+        payload_hash=payload_hash,
+    )
+
+
+def validate_authorization(
+    auth: AuthorizationEnvelope,
+    candidate: Candidate,
+) -> bool:
+
+    payload_core = {
+        "candidate_id": candidate.candidate_id,
+        "symbol": candidate.symbol,
+        "direction": candidate.direction,
+        "quantity": candidate.quantity,
+        "leverage": candidate.target_leverage,
+        "transport": "SYNTHETIC_ONLY",
+        "executable": False,
+        "network_writes_allowed": False,
+    }
+
+    expected_hash = sha256_text(
+        canonical_json(payload_core)
+    )
+
+    return (
+        auth.candidate_id == candidate.candidate_id
+        and auth.symbol == candidate.symbol
+        and auth.direction == candidate.direction
+        and auth.quantity == candidate.quantity
+        and auth.leverage == candidate.target_leverage
+        and auth.transport == "SYNTHETIC_ONLY"
+        and auth.executable is False
+        and auth.network_writes_allowed is False
+        and auth.payload_hash == expected_hash
+    )
+
+
+# =============================================================================
+# SYNTHETIC TRANSPORT
+# =============================================================================
+
+def synthetic_dispatch(
+    auth: AuthorizationEnvelope,
+) -> SyntheticReceipt:
+
+    global SYNTHETIC_DISPATCH_COUNT
+
+    if not SYNTHETIC_TRANSPORT_ONLY:
+        raise SafetyViolation(
+            "synthetic transport constant unexpectedly disabled"
+        )
+
+    if auth.executable:
+        raise SafetyViolation(
+            "executable authorization rejected"
+        )
+
+    if auth.network_writes_allowed:
+        raise SafetyViolation(
+            "network writable authorization rejected"
+        )
+
+    if EXCHANGE_NETWORK_WRITES_ENABLED:
+        raise SafetyViolation(
+            "exchange write constant unexpectedly enabled"
+        )
+
+    SYNTHETIC_DISPATCH_COUNT += 1
+
+    return SyntheticReceipt(
+        receipt_id=str(uuid.uuid4()),
+        authorization_id=auth.authorization_id,
+        candidate_id=auth.candidate_id,
+        transmitted=False,
+        synthetic_only=True,
+        transport="LOCAL_SYNTHETIC_DISPATCH",
+        created_at=now_ts(),
+    )
+
+
+# =============================================================================
+# TRANSITION HELPERS
+# =============================================================================
+
+_ALLOWED_TRANSITIONS = {
+    CandidatePhase.RISK_ACCEPTED.value:
+        CandidatePhase.AUTHORIZED.value,
+
+    CandidatePhase.AUTHORIZED.value:
+        CandidatePhase.SYNTHETICALLY_DISPATCHED.value,
+
+    CandidatePhase.SYNTHETICALLY_DISPATCHED.value:
+        CandidatePhase.SEALED.value,
+}
+
+
+def transition_phase(
+    current: str,
+    target: str,
+) -> str:
+
+    global TRANSITION_COUNT
+    global CONSUMED_TRANSITION_COUNT
+
+    allowed = _ALLOWED_TRANSITIONS.get(current)
+
+    if allowed != target:
+        raise SafetyViolation(
+            f"invalid phase transition {current} -> {target}"
+        )
+
+    TRANSITION_COUNT += 1
+    CONSUMED_TRANSITION_COUNT += 1
+
+    return target
+
+
+# =============================================================================
+# DURABLE STATE
+# =============================================================================
+
+def state_payload_without_hash(
+    state: RuntimeState,
+) -> Dict[str, Any]:
+
+    payload = asdict(state)
+    payload.pop("state_hash", None)
+
+    return payload
+
+
+def calculate_state_hash(
+    state: RuntimeState,
+) -> str:
+
+    payload = state_payload_without_hash(state)
+
+    return sha256_text(
+        canonical_json(payload)
+    )
+
+
+def seal_state_hash(
+    state: RuntimeState,
+) -> RuntimeState:
+
+    state.state_hash = calculate_state_hash(state)
+    return state
+
+
+def verify_state_hash(
+    state: RuntimeState,
+) -> bool:
+
+    return state.state_hash == calculate_state_hash(state)
+
+
+def persist_state(
+    state: RuntimeState,
+) -> None:
+
+    state = seal_state_hash(state)
+
+    STATE_FILE.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    temporary = STATE_FILE.with_suffix(
+        STATE_FILE.suffix + ".tmp"
+    )
+
+    with temporary.open(
+        "w",
+        encoding="utf-8",
+    ) as handle:
+
+        json.dump(
+            asdict(state),
+            handle,
+            sort_keys=True,
+            indent=2,
+        )
+
+        handle.flush()
+
+        try:
+            os.fsync(handle.fileno())
+        except OSError:
+            pass
+
+    os.replace(
+        temporary,
+        STATE_FILE,
+    )
+
+
+def load_state() -> Optional[RuntimeState]:
+
+    if not STATE_FILE.exists():
+        return None
+
+    try:
+        with STATE_FILE.open(
+            "r",
+            encoding="utf-8",
+        ) as handle:
+
+            data = json.load(handle)
+
+        return RuntimeState(**data)
+
+    except Exception as exc:
+        print(
+            f"{VERSION}: STATE RESTORE ERROR: {exc}",
+            flush=True,
+        )
+
+        return None
