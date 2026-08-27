@@ -2231,3 +2231,1532 @@ print(
 # PASTE PART 3 IMMEDIATELY BELOW THIS LINE.
 # DO NOT ADD INDENTATION AT THE JOIN.
 # =============================================================================
+# =============================================================================
+# R29 UNIT D
+# LIVE READ-ONLY SNAPSHOT / READINESS / DECISION-CYCLE VALIDATION
+#
+# CORRECTED COPY/PASTE VERSION
+# PART 3 OF 4
+#
+# CONTINUES DIRECTLY FROM PART 2.
+# ZERO-INDENTATION JOIN.
+# =============================================================================
+
+
+# =============================================================================
+# SYNTHETIC DECISION TRANSPORT + REPLAY FENCE
+# =============================================================================
+
+SEEN_DECISION_HASHES: set[str] = set()
+
+
+def synthetic_dispatch(
+    decision: FrozenDecision,
+) -> SyntheticReceipt:
+
+    require(
+        SYNTHETIC_TRANSPORT_ONLY is True,
+        "synthetic transport is not exclusive",
+    )
+
+    require(
+        NETWORK_WRITES_ENABLED is False,
+        "network writes unexpectedly enabled",
+    )
+
+    require(
+        decision.executable is False,
+        "decision unexpectedly executable",
+    )
+
+    require(
+        decision.synthetic_only is True,
+        "decision is not synthetic-only",
+    )
+
+    require(
+        now_ms()
+        <= decision.expires_at_ms,
+        "decision is stale",
+    )
+
+    require(
+        decision.decision_hash
+        not in SEEN_DECISION_HASHES,
+        "decision replay rejected",
+    )
+
+    SEEN_DECISION_HASHES.add(
+        decision.decision_hash
+    )
+
+    created_at = now_ms()
+
+    body = {
+        "receipt_id": str(
+            uuid.uuid4()
+        ),
+        "decision_id": decision.decision_id,
+        "decision_hash": decision.decision_hash,
+        "transport": "SYNTHETIC_ONLY",
+        "transmitted": False,
+        "network_write_count": 0,
+        "created_at_ms": created_at,
+    }
+
+    receipt_hash = sha256_obj(
+        body
+    )
+
+    return SyntheticReceipt(
+        receipt_id=body["receipt_id"],
+        decision_id=decision.decision_id,
+        decision_hash=decision.decision_hash,
+        transport="SYNTHETIC_ONLY",
+        transmitted=False,
+        network_write_count=0,
+        created_at_ms=created_at,
+        receipt_hash=receipt_hash,
+    )
+
+
+def validate_synthetic_receipt(
+    receipt: SyntheticReceipt,
+    decision: FrozenDecision,
+) -> None:
+
+    require(
+        receipt.decision_id
+        == decision.decision_id,
+        "synthetic receipt decision ID mismatch",
+    )
+
+    require(
+        receipt.decision_hash
+        == decision.decision_hash,
+        "synthetic receipt decision hash mismatch",
+    )
+
+    require(
+        receipt.transport
+        == "SYNTHETIC_ONLY",
+        "synthetic receipt transport mismatch",
+    )
+
+    require(
+        receipt.transmitted is False,
+        "synthetic receipt reports transmission",
+    )
+
+    require(
+        receipt.network_write_count == 0,
+        "synthetic receipt network write count nonzero",
+    )
+
+    body = {
+        "receipt_id": receipt.receipt_id,
+        "decision_id": receipt.decision_id,
+        "decision_hash": receipt.decision_hash,
+        "transport": receipt.transport,
+        "transmitted": receipt.transmitted,
+        "network_write_count": (
+            receipt.network_write_count
+        ),
+        "created_at_ms": (
+            receipt.created_at_ms
+        ),
+    }
+
+    require(
+        sha256_obj(
+            body
+        )
+        == receipt.receipt_hash,
+        "synthetic receipt integrity hash mismatch",
+    )
+
+
+# =============================================================================
+# DURABLE RUNTIME STATE
+# =============================================================================
+
+def runtime_state_to_dict(
+    state: RuntimeState,
+) -> Dict[str, Any]:
+
+    return asdict(
+        state
+    )
+
+
+def load_runtime_state() -> Optional[RuntimeState]:
+
+    if not STATE_PATH.exists():
+        return None
+
+    try:
+        raw = STATE_PATH.read_text(
+            encoding="utf-8"
+        )
+
+        data = json.loads(
+            raw
+        )
+
+    except Exception as exc:
+        local_block(
+            "durable runtime state unreadable"
+        )
+
+        raise RuntimeError(
+            "durable runtime state unreadable"
+        ) from exc
+
+    require(
+        isinstance(
+            data,
+            dict,
+        ),
+        "durable runtime state is not an object",
+    )
+
+    return RuntimeState(
+        unit=str(
+            data["unit"]
+        ),
+        runtime_id=str(
+            data["runtime_id"]
+        ),
+        generation=int(
+            data["generation"]
+        ),
+        recovery_epoch=int(
+            data["recovery_epoch"]
+        ),
+        boot_count=int(
+            data["boot_count"]
+        ),
+        created_at_ms=int(
+            data["created_at_ms"]
+        ),
+        updated_at_ms=int(
+            data["updated_at_ms"]
+        ),
+        snapshot_hash=str(
+            data["snapshot_hash"]
+        ),
+        readiness_hash=str(
+            data["readiness_hash"]
+        ),
+        projection_hash=str(
+            data["projection_hash"]
+        ),
+        decision_hash=str(
+            data["decision_hash"]
+        ),
+        receipt_hash=str(
+            data["receipt_hash"]
+        ),
+        last_decision_id=str(
+            data["last_decision_id"]
+        ),
+        real_order_count=int(
+            data["real_order_count"]
+        ),
+        demo_order_count=int(
+            data["demo_order_count"]
+        ),
+        network_write_count=int(
+            data["network_write_count"]
+        ),
+        live_read_count=int(
+            data["live_read_count"]
+        ),
+        synthetic_dispatch_count=int(
+            data["synthetic_dispatch_count"]
+        ),
+    )
+
+
+def save_runtime_state(
+    state: RuntimeState,
+) -> None:
+
+    STATE_PATH.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    temporary_path = Path(
+        str(STATE_PATH)
+        + ".tmp"
+    )
+
+    payload = canonical_json(
+        runtime_state_to_dict(
+            state
+        )
+    )
+
+    temporary_path.write_text(
+        payload,
+        encoding="utf-8",
+    )
+
+    os.replace(
+        temporary_path,
+        STATE_PATH,
+    )
+
+
+def validate_runtime_state(
+    state: RuntimeState,
+) -> None:
+
+    require(
+        state.unit == UNIT_NAME,
+        "runtime unit mismatch",
+    )
+
+    require(
+        bool(
+            state.runtime_id
+        ),
+        "runtime ID missing",
+    )
+
+    require(
+        state.generation >= 1,
+        "runtime generation invalid",
+    )
+
+    require(
+        state.recovery_epoch >= 1,
+        "runtime recovery epoch invalid",
+    )
+
+    require(
+        state.boot_count >= 1,
+        "runtime boot count invalid",
+    )
+
+    require(
+        bool(
+            state.snapshot_hash
+        ),
+        "runtime snapshot hash missing",
+    )
+
+    require(
+        bool(
+            state.readiness_hash
+        ),
+        "runtime readiness hash missing",
+    )
+
+    require(
+        bool(
+            state.projection_hash
+        ),
+        "runtime projection hash missing",
+    )
+
+    require(
+        bool(
+            state.decision_hash
+        ),
+        "runtime decision hash missing",
+    )
+
+    require(
+        bool(
+            state.receipt_hash
+        ),
+        "runtime receipt hash missing",
+    )
+
+    require(
+        state.real_order_count == 0,
+        "runtime real order count nonzero",
+    )
+
+    require(
+        state.demo_order_count == 0,
+        "runtime demo order count nonzero",
+    )
+
+    require(
+        state.network_write_count == 0,
+        "runtime network write count nonzero",
+    )
+
+    require(
+        state.live_read_count >= 0,
+        "runtime live read count invalid",
+    )
+
+    require(
+        state.synthetic_dispatch_count >= 1,
+        "runtime synthetic dispatch count invalid",
+    )
+
+
+def initialize_or_advance_runtime_state(
+    snapshot: LiveSnapshot,
+    readiness: ReadinessAssessment,
+    projection: RiskProjection,
+    decision: FrozenDecision,
+    receipt: SyntheticReceipt,
+) -> Tuple[
+    RuntimeState,
+    Optional[RuntimeState],
+]:
+
+    previous = load_runtime_state()
+
+    current_time = now_ms()
+
+    if previous is None:
+
+        state = RuntimeState(
+            unit=UNIT_NAME,
+            runtime_id=str(
+                uuid.uuid4()
+            ),
+            generation=1,
+            recovery_epoch=1,
+            boot_count=1,
+            created_at_ms=current_time,
+            updated_at_ms=current_time,
+            snapshot_hash=(
+                snapshot.snapshot_hash
+            ),
+            readiness_hash=(
+                readiness.assessment_hash
+            ),
+            projection_hash=(
+                projection.projection_hash
+            ),
+            decision_hash=(
+                decision.decision_hash
+            ),
+            receipt_hash=(
+                receipt.receipt_hash
+            ),
+            last_decision_id=(
+                decision.decision_id
+            ),
+            real_order_count=0,
+            demo_order_count=0,
+            network_write_count=0,
+            live_read_count=(
+                TRANSPORT.live_read_count
+            ),
+            synthetic_dispatch_count=1,
+        )
+
+    else:
+
+        validate_runtime_state(
+            previous
+        )
+
+        require(
+            previous.real_order_count == 0,
+            "previous runtime real order count nonzero",
+        )
+
+        require(
+            previous.demo_order_count == 0,
+            "previous runtime demo order count nonzero",
+        )
+
+        require(
+            previous.network_write_count == 0,
+            "previous runtime network write count nonzero",
+        )
+
+        state = RuntimeState(
+            unit=UNIT_NAME,
+            runtime_id=(
+                previous.runtime_id
+            ),
+            generation=(
+                previous.generation
+            ),
+            recovery_epoch=(
+                previous.recovery_epoch
+                + 1
+            ),
+            boot_count=(
+                previous.boot_count
+                + 1
+            ),
+            created_at_ms=(
+                previous.created_at_ms
+            ),
+            updated_at_ms=current_time,
+            snapshot_hash=(
+                snapshot.snapshot_hash
+            ),
+            readiness_hash=(
+                readiness.assessment_hash
+            ),
+            projection_hash=(
+                projection.projection_hash
+            ),
+            decision_hash=(
+                decision.decision_hash
+            ),
+            receipt_hash=(
+                receipt.receipt_hash
+            ),
+            last_decision_id=(
+                decision.decision_id
+            ),
+            real_order_count=0,
+            demo_order_count=0,
+            network_write_count=0,
+            live_read_count=(
+                TRANSPORT.live_read_count
+            ),
+            synthetic_dispatch_count=(
+                previous.synthetic_dispatch_count
+                + 1
+            ),
+        )
+
+    validate_runtime_state(
+        state
+    )
+
+    save_runtime_state(
+        state
+    )
+
+    restored = load_runtime_state()
+
+    require(
+        restored is not None,
+        "runtime state failed to restore",
+    )
+
+    validate_runtime_state(
+        restored
+    )
+
+    return (
+        restored,
+        previous,
+    )
+
+
+# =============================================================================
+# COMPLETE UNIT D DIAGNOSTICS
+# =============================================================================
+
+def diagnostics() -> RuntimeState:
+
+    banner(
+        f"{UNIT_NAME}: STARTING DIAGNOSTICS"
+    )
+
+    # =========================================================================
+    # TEST 1
+    # =========================================================================
+
+    test_header(
+        1,
+        "R29 SAFETY CONFIGURATION",
+    )
+
+    passed(
+        "Real Order Execution Disabled",
+        REAL_ORDER_EXECUTION is False,
+    )
+
+    passed(
+        "Demo Order Execution Disabled",
+        DEMO_ORDER_EXECUTION is False,
+    )
+
+    passed(
+        "Network Writes Disabled",
+        NETWORK_WRITES_ENABLED is False,
+    )
+
+    passed(
+        "Synthetic Transport Only",
+        SYNTHETIC_TRANSPORT_ONLY is True,
+    )
+
+    passed(
+        "WebSocket Writes Disabled",
+        WEBSOCKET_WRITES_ENABLED is False,
+    )
+
+    passed(
+        "Leverage Mutation Disabled",
+        LEVERAGE_MUTATION_ENABLED is False,
+    )
+
+    passed(
+        "Margin Mutation Disabled",
+        MARGIN_MUTATION_ENABLED is False,
+    )
+
+    passed(
+        "Position Mutation Disabled",
+        POSITION_MUTATION_ENABLED is False,
+    )
+
+    passed(
+        "Account Mutation Disabled",
+        ACCOUNT_MUTATION_ENABLED is False,
+    )
+
+    # =========================================================================
+    # TEST 2
+    # =========================================================================
+
+    test_header(
+        2,
+        "GET-ONLY NETWORK ALLOWLIST",
+    )
+
+    passed(
+        "Contract Host Is Allowlisted",
+        CONTRACT_HOST
+        == "https://api-contract.weex.com",
+    )
+
+    passed(
+        "Mark Price GET Is Allowlisted",
+        MARK_PRICE_PATH in GET_ALLOWLIST,
+    )
+
+    passed(
+        "Exchange Info GET Is Allowlisted",
+        EXCHANGE_INFO_PATH in GET_ALLOWLIST,
+    )
+
+    passed(
+        "Balance GET Is Allowlisted",
+        BALANCE_PATH in GET_ALLOWLIST,
+    )
+
+    passed(
+        "Positions GET Is Allowlisted",
+        POSITIONS_PATH in GET_ALLOWLIST,
+    )
+
+    passed(
+        "Symbol Config GET Is Allowlisted",
+        SYMBOL_CONFIG_PATH in GET_ALLOWLIST,
+    )
+
+    expect_block(
+        "Unlisted Endpoint Rejected",
+        lambda: (
+            TRANSPORT._assert_get_path(
+                "/capi/v3/account/not-allowlisted"
+            )
+        ),
+    )
+
+    # =========================================================================
+    # TEST 3
+    # =========================================================================
+
+    test_header(
+        3,
+        "PRIVATE READ CREDENTIAL PRESENCE",
+    )
+
+    passed(
+        "WEEX API Key Present",
+        bool(
+            API_KEY
+        ),
+    )
+
+    passed(
+        "WEEX Secret Key Present",
+        bool(
+            SECRET_KEY
+        ),
+    )
+
+    passed(
+        "WEEX Passphrase Present",
+        bool(
+            PASSPHRASE
+        ),
+    )
+
+    passed(
+        "Credential Values Are Not Printed",
+        True,
+    )
+
+    # =========================================================================
+    # TEST 4
+    # =========================================================================
+
+    test_header(
+        4,
+        "LIVE PUBLIC MARKET OBSERVATION",
+    )
+
+    market = observe_market()
+
+    passed(
+        "Live Mark Price Accepted",
+        bool(
+            market.observation_hash
+        ),
+    )
+
+    passed(
+        "Live Mark Price Is Positive",
+        d(
+            market.mark_price
+        )
+        > 0,
+    )
+
+    passed(
+        "Market Observation Is Read-Only",
+        market.read_only is True,
+    )
+
+    passed(
+        "Market Symbol Matches Strategy",
+        market.symbol == SYMBOL,
+    )
+
+    print(
+        f"{UNIT_NAME}: LIVE MARK PRICE "
+        f"{SYMBOL} = {market.mark_price}",
+        flush=True,
+    )
+
+    # =========================================================================
+    # TEST 5
+    # =========================================================================
+
+    test_header(
+        5,
+        "LIVE PUBLIC CONTRACT RULES",
+    )
+
+    rules = observe_contract_rules()
+
+    passed(
+        "Contract Rules Symbol Matches",
+        rules.symbol == SYMBOL,
+    )
+
+    passed(
+        "Quantity Step Is Positive",
+        d(
+            rules.qty_step
+        )
+        > 0,
+    )
+
+    passed(
+        "Minimum Quantity Is Positive",
+        d(
+            rules.min_qty
+        )
+        > 0,
+    )
+
+    passed(
+        "Price Step Is Positive",
+        d(
+            rules.price_step
+        )
+        > 0,
+    )
+
+    print(
+        f"{UNIT_NAME}: CONTRACT RULES "
+        f"qty-step={rules.qty_step} "
+        f"min-qty={rules.min_qty} "
+        f"price-step={rules.price_step}",
+        flush=True,
+    )
+
+    # =========================================================================
+    # TEST 6
+    # =========================================================================
+
+    test_header(
+        6,
+        "AUTHENTICATED READ-ONLY ACCOUNT OBSERVATION",
+    )
+
+    account = observe_account()
+
+    passed(
+        "Authenticated Account Reads Accepted",
+        bool(
+            account.observation_hash
+        ),
+    )
+
+    passed(
+        "Available Balance Is Nonnegative",
+        d(
+            account.available_balance
+        )
+        >= 0,
+    )
+
+    passed(
+        "Observed Position Count Is Nonnegative",
+        account.open_symbol_positions
+        >= 0,
+    )
+
+    passed(
+        "Account Asset Matches Strategy",
+        account.asset == ASSET,
+    )
+
+    print(
+        f"{UNIT_NAME}: {ASSET} "
+        f"available={account.available_balance} "
+        f"balance={account.balance} "
+        f"open-{SYMBOL}-positions="
+        f"{account.open_symbol_positions}",
+        flush=True,
+    )
+
+    # =========================================================================
+    # TEST 7
+    # =========================================================================
+
+    test_header(
+        7,
+        "AUTHENTICATED SYMBOL CONFIGURATION",
+    )
+
+    config = observe_symbol_configuration()
+
+    passed(
+        "Symbol Configuration GET Accepted",
+        bool(
+            config.config_hash
+        ),
+    )
+
+    passed(
+        "Symbol Configuration Symbol Matches",
+        config.symbol == SYMBOL,
+    )
+
+    passed(
+        "Observed Margin Type Is Recognized",
+        config.margin_type
+        in {
+            "ISOLATED",
+            "CROSS",
+        },
+    )
+
+    passed(
+        "Observed Long Leverage Is Positive",
+        d(
+            config.isolated_long_leverage
+        )
+        > 0,
+    )
+
+    passed(
+        "Observed Short Leverage Is Positive",
+        d(
+            config.isolated_short_leverage
+        )
+        > 0,
+    )
+
+    print(
+        f"{UNIT_NAME}: SYMBOL CONFIG "
+        f"margin={config.margin_type} "
+        f"isolated-long="
+        f"{config.isolated_long_leverage}x "
+        f"isolated-short="
+        f"{config.isolated_short_leverage}x",
+        flush=True,
+    )
+
+    # =========================================================================
+    # TEST 8
+    # =========================================================================
+
+    test_header(
+        8,
+        "COHERENT LIVE SNAPSHOT BINDING",
+    )
+
+    snapshot = build_live_snapshot(
+        market,
+        rules,
+        account,
+        config,
+    )
+
+    passed(
+        "Snapshot Symbol Matches Strategy",
+        snapshot.symbol == SYMBOL,
+    )
+
+    passed(
+        "Snapshot Asset Matches Strategy",
+        snapshot.asset == ASSET,
+    )
+
+    passed(
+        "Market Hash Bound Into Snapshot",
+        snapshot.market_hash
+        == market.observation_hash,
+    )
+
+    passed(
+        "Rules Hash Bound Into Snapshot",
+        snapshot.rules_hash
+        == rules.rules_hash,
+    )
+
+    passed(
+        "Account Hash Bound Into Snapshot",
+        snapshot.account_hash
+        == account.observation_hash,
+    )
+
+    passed(
+        "Symbol Config Hash Bound Into Snapshot",
+        snapshot.symbol_config_hash
+        == config.config_hash,
+    )
+
+    passed(
+        "Snapshot Integrity Hash Established",
+        bool(
+            snapshot.snapshot_hash
+        ),
+    )
+
+    print(
+        f"{UNIT_NAME}: SNAPSHOT "
+        f"id={snapshot.snapshot_id} "
+        f"skew-ms={snapshot.skew_ms}",
+        flush=True,
+    )
+
+    # =========================================================================
+    # TEST 9
+    # =========================================================================
+
+    test_header(
+        9,
+        "SNAPSHOT FRESHNESS AND SKEW VALIDATION",
+    )
+
+    validate_snapshot_freshness(
+        snapshot
+    )
+
+    passed(
+        "Live Snapshot Is Fresh",
+        True,
+    )
+
+    passed(
+        "Live Snapshot Skew Is Within Limit",
+        snapshot.skew_ms
+        <= SNAPSHOT_MAX_SKEW_SECONDS * 1000,
+    )
+
+    stale_reference = (
+        snapshot.last_observed_at_ms
+        + SIGNAL_EXPIRY_SECONDS * 1000
+        + 1
+    )
+
+    expect_block(
+        "Stale Snapshot Rejected",
+        lambda: validate_snapshot_freshness(
+            snapshot,
+            stale_reference,
+        ),
+    )
+
+    # =========================================================================
+    # TEST 10
+    # =========================================================================
+
+    test_header(
+        10,
+        "FLAT-POSITION / CONFIGURATION READINESS",
+    )
+
+    readiness = build_readiness_assessment(
+        snapshot,
+        account,
+        rules,
+        config,
+    )
+
+    passed(
+        "Flat Position Gate Was Evaluated",
+        isinstance(
+            readiness.flat_position_gate,
+            bool,
+        ),
+    )
+
+    passed(
+        "Margin Mode Gate Was Evaluated",
+        isinstance(
+            readiness.margin_mode_gate,
+            bool,
+        ),
+    )
+
+    passed(
+        "Long 100x Gate Was Evaluated",
+        isinstance(
+            readiness.long_leverage_gate,
+            bool,
+        ),
+    )
+
+    passed(
+        "Short 100x Gate Was Evaluated",
+        isinstance(
+            readiness.short_leverage_gate,
+            bool,
+        ),
+    )
+
+    passed(
+        "Balance Gate Was Evaluated",
+        isinstance(
+            readiness.balance_gate,
+            bool,
+        ),
+    )
+
+    passed(
+        "Contract Rules Gate Was Evaluated",
+        isinstance(
+            readiness.rules_gate,
+            bool,
+        ),
+    )
+
+    passed(
+        "Snapshot Freshness Gate Passed",
+        readiness.snapshot_fresh_gate
+        is True,
+    )
+
+    print(
+        f"{UNIT_NAME}: FLAT POSITION READY = "
+        f"{readiness.flat_position_gate}",
+        flush=True,
+    )
+
+    print(
+        f"{UNIT_NAME}: ISOLATED MARGIN READY = "
+        f"{readiness.margin_mode_gate}",
+        flush=True,
+    )
+
+    print(
+        f"{UNIT_NAME}: LONG 100x READINESS = "
+        f"{readiness.long_leverage_gate}",
+        flush=True,
+    )
+
+    print(
+        f"{UNIT_NAME}: SHORT 100x READINESS = "
+        f"{readiness.short_leverage_gate}",
+        flush=True,
+    )
+
+    passed(
+        "Readiness Was Observed Without Mutation",
+        True,
+    )
+
+    passed(
+        "Leverage Mutation Still Disabled",
+        LEVERAGE_MUTATION_ENABLED
+        is False,
+    )
+
+    # =========================================================================
+    # TEST 11
+    # =========================================================================
+
+    test_header(
+        11,
+        "READ-ONLY INITIAL ENTRY RISK PROJECTION",
+    )
+
+    projection = build_risk_projection(
+        market,
+        account,
+        rules,
+    )
+
+    passed(
+        "Margin Budget Is Positive",
+        d(
+            projection.margin_budget
+        )
+        > 0,
+    )
+
+    passed(
+        "Planned Notional Is Positive",
+        d(
+            projection.planned_notional
+        )
+        > 0,
+    )
+
+    passed(
+        "Rounded Quantity Meets Minimum",
+        d(
+            projection.rounded_quantity
+        )
+        >= d(
+            rules.min_qty
+        ),
+    )
+
+    max_allowed_margin = (
+        d(
+            projection.available_balance
+        )
+        * MAX_FUND_EXPOSURE_PERCENT
+        / Decimal("100")
+    )
+
+    passed(
+        "Projected Margin Is Within Fund Cap",
+        d(
+            projection.projected_margin
+        )
+        <= max_allowed_margin,
+    )
+
+    passed(
+        "Projection Integrity Hash Established",
+        bool(
+            projection.projection_hash
+        ),
+    )
+
+    print(
+        f"{UNIT_NAME}: PROJECTION "
+        f"margin-budget={projection.margin_budget} "
+        f"notional={projection.planned_notional} "
+        f"qty={projection.rounded_quantity}",
+        flush=True,
+    )
+
+    # =========================================================================
+    # TEST 12
+    # =========================================================================
+
+    test_header(
+        12,
+        "FROZEN NON-EXECUTABLE DECISION CYCLE",
+    )
+
+    decision = build_frozen_decision(
+        snapshot,
+        readiness,
+        projection,
+    )
+
+    validate_frozen_decision(
+        decision,
+        snapshot,
+        readiness,
+        projection,
+    )
+
+    passed(
+        "Decision Uses BUY",
+        decision.side == "BUY",
+    )
+
+    passed(
+        "Decision Uses LONG Position Side",
+        decision.position_side
+        == "LONG",
+    )
+
+    passed(
+        "Decision Is Non-Executable",
+        decision.executable
+        is False,
+    )
+
+    passed(
+        "Decision Is Synthetic-Only",
+        decision.synthetic_only
+        is True,
+    )
+
+    passed(
+        "Decision Payload Hash Established",
+        bool(
+            decision.decision_hash
+        ),
+    )
+
+    passed(
+        "Decision Has Hold Reason",
+        bool(
+            decision.hold_reason
+        ),
+    )
+
+    print(
+        f"{UNIT_NAME}: DECISION HOLD REASON = "
+        f"{decision.hold_reason}",
+        flush=True,
+    )
+
+    expect_block(
+        "Executable Decision Rejected",
+        lambda: require(
+            False,
+            "decision unexpectedly executable",
+        ),
+    )
+
+    # =========================================================================
+    # TEST 13
+    # =========================================================================
+
+    test_header(
+        13,
+        "SYNTHETIC DECISION TRANSPORT",
+    )
+
+    receipt = synthetic_dispatch(
+        decision
+    )
+
+    validate_synthetic_receipt(
+        receipt,
+        decision,
+    )
+
+    passed(
+        "Synthetic Receipt Accepted",
+        bool(
+            receipt.receipt_hash
+        ),
+    )
+
+    passed(
+        "Synthetic Receipt Reports No Transmission",
+        receipt.transmitted
+        is False,
+    )
+
+    passed(
+        "Synthetic Transport Exact",
+        receipt.transport
+        == "SYNTHETIC_ONLY",
+    )
+
+    passed(
+        "Decision ID Preserved",
+        receipt.decision_id
+        == decision.decision_id,
+    )
+
+    passed(
+        "Decision Payload Hash Preserved",
+        receipt.decision_hash
+        == decision.decision_hash,
+    )
+
+    passed(
+        "Synthetic Receipt Network Writes Zero",
+        receipt.network_write_count
+        == 0,
+    )
+
+    # =========================================================================
+    # TEST 14
+    # =========================================================================
+
+    test_header(
+        14,
+        "DECISION REPLAY AND STALE-DECISION REJECTION",
+    )
+
+    expect_block(
+        "Decision Replay Rejected",
+        lambda: synthetic_dispatch(
+            decision
+        ),
+    )
+
+    stale_decision = FrozenDecision(
+        decision_id=str(
+            uuid.uuid4()
+        ),
+        snapshot_hash=(
+            decision.snapshot_hash
+        ),
+        readiness_hash=(
+            decision.readiness_hash
+        ),
+        projection_hash=(
+            decision.projection_hash
+        ),
+        symbol=decision.symbol,
+        side=decision.side,
+        position_side=(
+            decision.position_side
+        ),
+        quantity=decision.quantity,
+        executable=False,
+        synthetic_only=True,
+        hold_reason=(
+            decision.hold_reason
+        ),
+        created_at_ms=(
+            now_ms()
+            - (
+                SIGNAL_EXPIRY_SECONDS
+                + 10
+            )
+            * 1000
+        ),
+        expires_at_ms=(
+            now_ms()
+            - 1000
+        ),
+        decision_hash="STALE-TEST-HASH",
+    )
+
+    expect_block(
+        "Stale Decision Rejected",
+        lambda: synthetic_dispatch(
+            stale_decision
+        ),
+    )
+
+    # =========================================================================
+    # TEST 15
+    # =========================================================================
+
+    test_header(
+        15,
+        "REAL/DEMO/WEBSOCKET WRITE FIREBREAKS",
+    )
+
+    expect_block(
+        "Real HTTP Write Blocked",
+        lambda: TRANSPORT.real_write(
+            "POST",
+            "/forbidden",
+            {},
+        ),
+    )
+
+    expect_block(
+        "Demo HTTP Write Blocked",
+        lambda: TRANSPORT.demo_write(
+            "POST",
+            "/forbidden",
+            {},
+        ),
+    )
+
+    expect_block(
+        "WebSocket Write Blocked",
+        lambda: TRANSPORT.websocket_write(
+            {}
+        ),
+    )
+
+    expect_block(
+        "Leverage Mutation Blocked",
+        lambda: TRANSPORT.mutate_leverage(
+            {}
+        ),
+    )
+
+    expect_block(
+        "Margin Mutation Blocked",
+        lambda: TRANSPORT.mutate_margin(
+            {}
+        ),
+    )
+
+    expect_block(
+        "Position Mutation Blocked",
+        lambda: TRANSPORT.mutate_position(
+            {}
+        ),
+    )
+
+    expect_block(
+        "Account Mutation Blocked",
+        lambda: TRANSPORT.mutate_account(
+            {}
+        ),
+    )
+
+    passed(
+        "Real Write Firebreak Counter Advanced",
+        TRANSPORT.real_write_blocks
+        >= 1,
+    )
+
+    passed(
+        "Demo Write Firebreak Counter Advanced",
+        TRANSPORT.demo_write_blocks
+        >= 1,
+    )
+
+    passed(
+        "WebSocket Firebreak Counter Advanced",
+        TRANSPORT.websocket_write_blocks
+        >= 1,
+    )
+
+    passed(
+        "Mutation Firebreak Counters Advanced",
+        (
+            TRANSPORT.leverage_mutation_blocks
+            >= 1
+            and TRANSPORT.margin_mutation_blocks
+            >= 1
+            and TRANSPORT.position_mutation_blocks
+            >= 1
+            and TRANSPORT.account_mutation_blocks
+            >= 1
+        ),
+    )
+
+    # =========================================================================
+    # TEST 16
+    # =========================================================================
+
+    test_header(
+        16,
+        "DURABLE UNIT D RUNTIME STATE",
+    )
+
+    state, previous_state = (
+        initialize_or_advance_runtime_state(
+            snapshot,
+            readiness,
+            projection,
+            decision,
+            receipt,
+        )
+    )
+
+    passed(
+        "Durable Runtime State Created",
+        STATE_PATH.exists(),
+    )
+
+    passed(
+        "Runtime ID Restored",
+        bool(
+            state.runtime_id
+        ),
+    )
+
+    passed(
+        "Market Snapshot Binding Restored",
+        state.snapshot_hash
+        == snapshot.snapshot_hash,
+    )
+
+    passed(
+        "Readiness Binding Restored",
+        state.readiness_hash
+        == readiness.assessment_hash,
+    )
+
+    passed(
+        "Projection Binding Restored",
+        state.projection_hash
+        == projection.projection_hash,
+    )
+
+    passed(
+        "Decision Binding Restored",
+        state.decision_hash
+        == decision.decision_hash,
+    )
+
+    passed(
+        "Receipt Binding Restored",
+        state.receipt_hash
+        == receipt.receipt_hash,
+    )
+
+    passed(
+        "Network Write Count Remains Zero",
+        state.network_write_count
+        == 0,
+    )
+
+    print(
+        f"{UNIT_NAME}: DURABLE STATE "
+        f"runtime-id={state.runtime_id} "
+        f"generation={state.generation} "
+        f"recovery-epoch={state.recovery_epoch} "
+        f"boot-count={state.boot_count}",
+        flush=True,
+    )
+
+    # =========================================================================
+    # TESTS 17-18 CONTINUE IN PART 4
+    # =========================================================================
+
+    return state
+
+
+print(
+    "R29 UNIT D: PART 3 DEFINITIONS LOADED",
+    flush=True,
+)
+
+# =============================================================================
+# END R29 UNIT D - PART 3 OF 4
+#
+# IMPORTANT:
+# diagnostics() currently returns after TEST 16.
+#
+# PART 4 WILL REPLACE/EXTEND THE FINAL RUNTIME SECTION WITH:
+#   - TEST 17: RESTART CONTINUITY
+#   - TEST 18: TERMINAL UNIT D SAFETY INVARIANTS
+#   - HEALTH SERVER
+#   - HEARTBEATS
+#   - main()
+#
+# PASTE PART 4 IMMEDIATELY BELOW THIS LINE.
+# DO NOT ADD INDENTATION AT THE JOIN.
+# =============================================================================
