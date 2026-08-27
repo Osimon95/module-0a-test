@@ -2008,3 +2008,175 @@ def run_validation() -> RuntimeState:
     )
 
     return restored
+# =============================================================================
+# HEARTBEAT
+# =============================================================================
+
+def heartbeat_loop(
+    state: RuntimeState,
+) -> None:
+
+    heartbeat = 0
+
+    while True:
+        time.sleep(
+            HEARTBEAT_SECONDS
+        )
+
+        heartbeat += 1
+
+        print(
+            f"{VERSION}: HEARTBEAT {heartbeat} | "
+            f"phase={state.phase} | "
+            f"synthetic-only={SYNTHETIC_TRANSPORT_ONLY} | "
+            f"real-execution={REAL_ORDER_EXECUTION_ENABLED} | "
+            f"network-writes={EXCHANGE_NETWORK_WRITES_ENABLED} | "
+            f"leverage-mutation={LEVERAGE_MUTATION_ENABLED} | "
+            f"generation={state.generation} | "
+            f"recovery-epoch={state.recovery_epoch}",
+            flush=True,
+        )
+
+
+# =============================================================================
+# STARTUP IDENTITY
+# =============================================================================
+
+def print_identity() -> None:
+
+    line()
+
+    print(
+        f"{VERSION}: MAIN.PY ENTERED",
+        flush=True,
+    )
+
+    line()
+
+    print(
+        f"{VERSION}: SYMBOL={SYMBOL}",
+        flush=True,
+    )
+
+    print(
+        f"{VERSION}: VERSION={VERSION}",
+        flush=True,
+    )
+
+    print(
+        f"{VERSION}: STATE FILE={STATE_FILE}",
+        flush=True,
+    )
+
+    print(
+        f"{VERSION}: HEALTH PORT={HEALTH_PORT}",
+        flush=True,
+    )
+
+    print(
+        f"{VERSION}: REAL EXECUTION "
+        f"{'ENABLED' if REAL_ORDER_EXECUTION_ENABLED else 'DISABLED'}",
+        flush=True,
+    )
+
+    print(
+        f"{VERSION}: DEMO EXECUTION "
+        f"{'ENABLED' if DEMO_ORDER_EXECUTION_ENABLED else 'DISABLED'}",
+        flush=True,
+    )
+
+    print(
+        f"{VERSION}: NETWORK WRITES "
+        f"{'ENABLED' if EXCHANGE_NETWORK_WRITES_ENABLED else 'DISABLED'}",
+        flush=True,
+    )
+
+    print(
+        f"{VERSION}: LEVERAGE MUTATION "
+        f"{'ENABLED' if LEVERAGE_MUTATION_ENABLED else 'DISABLED'}",
+        flush=True,
+    )
+
+    print(
+        f"{VERSION}: SYNTHETIC TRANSPORT ONLY="
+        f"{SYNTHETIC_TRANSPORT_ONLY}",
+        flush=True,
+    )
+
+    line()
+
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
+def main() -> None:
+
+    print_identity()
+
+    start_health_server()
+
+    print(
+        f"{VERSION}: STARTING FINAL PRE-EXECUTION "
+        f"INTEGRATION VALIDATION",
+        flush=True,
+    )
+
+    state = run_validation()
+
+    line()
+
+    if FAILED == 0:
+
+        print(
+            f"{VERSION}: VALIDATION PASSED",
+            flush=True,
+        )
+
+    else:
+
+        print(
+            f"{VERSION}: VALIDATION FAILED",
+            flush=True,
+        )
+
+    line()
+
+    print(
+        f"{VERSION}: SUMMARY "
+        f"passed={PASSED} "
+        f"failed={FAILED}",
+        flush=True,
+    )
+
+    print(
+        f"{VERSION}: SAFETY SEAL "
+        f"real-orders={REAL_ORDER_COUNT} "
+        f"demo-orders={DEMO_ORDER_COUNT} "
+        f"network-writes={NETWORK_WRITE_COUNT} "
+        f"mutations={MUTATION_COUNT}",
+        flush=True,
+    )
+
+    print(
+        f"{VERSION}: PRE-EXECUTION SEAL "
+        f"phase={state.phase} "
+        f"synthetic-dispatches={SYNTHETIC_DISPATCH_COUNT} "
+        f"transitions={TRANSITION_COUNT}",
+        flush=True,
+    )
+
+    if FAILED != 0:
+        raise SystemExit(1)
+
+    heartbeat_loop(
+        state
+    )
+
+
+# =============================================================================
+# ENTRYPOINT
+# =============================================================================
+
+if __name__ == "__main__":
+    main()
