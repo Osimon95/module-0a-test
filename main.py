@@ -946,3 +946,1065 @@ def load_state() -> Optional[RuntimeState]:
         )
 
         return None
+# =============================================================================
+# VALIDATION
+# =============================================================================
+
+def run_validation() -> RuntimeState:
+
+    global SYNTHETIC_DISPATCH_COUNT
+    global TRANSITION_COUNT
+    global CONSUMED_TRANSITION_COUNT
+
+    SYNTHETIC_DISPATCH_COUNT = 0
+    TRANSITION_COUNT = 0
+    CONSUMED_TRANSITION_COUNT = 0
+
+    runtime_id = str(uuid.uuid4())
+    generation = 1
+    recovery_epoch = 1
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 1: ABSOLUTE SAFETY CONFIGURATION")
+    # -------------------------------------------------------------------------
+
+    check(
+        "Real Order Execution Disabled",
+        REAL_ORDER_EXECUTION_ENABLED is False,
+    )
+
+    check(
+        "Demo Order Execution Disabled",
+        DEMO_ORDER_EXECUTION_ENABLED is False,
+    )
+
+    check(
+        "Exchange Network Writes Disabled",
+        EXCHANGE_NETWORK_WRITES_ENABLED is False,
+    )
+
+    check(
+        "Leverage Mutation Disabled",
+        LEVERAGE_MUTATION_ENABLED is False,
+    )
+
+    check(
+        "Margin Mutation Disabled",
+        MARGIN_MUTATION_ENABLED is False,
+    )
+
+    check(
+        "Position Mutation Disabled",
+        POSITION_MUTATION_ENABLED is False,
+    )
+
+    check(
+        "Account Mutation Disabled",
+        ACCOUNT_MUTATION_ENABLED is False,
+    )
+
+    check(
+        "WebSocket Writes Disabled",
+        WEBSOCKET_WRITES_ENABLED is False,
+    )
+
+    check(
+        "Synthetic Transport Only",
+        SYNTHETIC_TRANSPORT_ONLY is True,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 2: STRATEGY CONFIGURATION")
+    # -------------------------------------------------------------------------
+
+    check(
+        "Target Leverage Is 100x",
+        TARGET_LEVERAGE == Decimal("100"),
+    )
+
+    check(
+        "Initial Entry Is Five Percent",
+        INITIAL_ENTRY_PERCENT == Decimal("5"),
+    )
+
+    check(
+        "Maximum Pyramid Adds Is One",
+        MAX_PYRAMID_ADDS == 1,
+    )
+
+    check(
+        "Maximum Backups Is Three",
+        MAX_BACKUPS == 3,
+    )
+
+    check(
+        "Backup Size Is Five Percent",
+        BACKUP_PERCENT == Decimal("5"),
+    )
+
+    check(
+        "Maximum Fund Exposure Is Thirty Five Percent",
+        MAX_FUND_EXPOSURE_PERCENT == Decimal("35"),
+    )
+
+    check(
+        "Backup Buffer Is Point Three Percent",
+        BACKUP_BUFFER_PERCENT == Decimal("0.3"),
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 3: STRATEGY SAFETY TOGGLES")
+    # -------------------------------------------------------------------------
+
+    check(
+        "One Direction Only Enabled",
+        ONE_DIRECTION_ONLY is True,
+    )
+
+    check(
+        "Anti Duplicate Orders Enabled",
+        ANTI_DUPLICATE_ORDERS is True,
+    )
+
+    check(
+        "Trend Reversal Exit Enabled",
+        TREND_REVERSAL_EXIT is True,
+    )
+
+    check(
+        "Idle Pyramid Cleanup Enabled",
+        IDLE_PYRAMID_CLEANUP is True,
+    )
+
+    check(
+        "Signal Expiry Is 120 Seconds",
+        SIGNAL_EXPIRY_SECONDS == 120,
+    )
+
+    check(
+        "Loss Cooldown Is 300 Seconds",
+        LOSS_COOLDOWN_SECONDS == 300,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 4: SYNTHETIC OBSERVATION")
+    # -------------------------------------------------------------------------
+
+    observation = build_observation()
+
+    check(
+        "Observation Symbol Matches",
+        observation.symbol == SYMBOL,
+    )
+
+    check(
+        "Observation Price Is Positive",
+        Decimal(observation.mark_price) > 0,
+    )
+
+    check(
+        "Observation Source Is Synthetic",
+        observation.source == "R31B_SYNTHETIC_OBSERVATION",
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 5: SIGNAL CONSTRUCTION")
+    # -------------------------------------------------------------------------
+
+    signal = build_signal(
+        observation,
+        Direction.LONG,
+    )
+
+    check(
+        "Signal ID Present",
+        bool(signal.signal_id),
+    )
+
+    check(
+        "Signal Symbol Matches Observation",
+        signal.symbol == observation.symbol,
+    )
+
+    check(
+        "Signal Direction Is Valid",
+        signal.direction == Direction.LONG.value,
+    )
+
+    check(
+        "Signal Is Valid",
+        signal_is_valid(signal),
+    )
+
+    check(
+        "Signal Expiry Window Exact",
+        signal.expires_at - signal.created_at
+        == SIGNAL_EXPIRY_SECONDS,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 6: QUANTITY / RISK PROJECTION")
+    # -------------------------------------------------------------------------
+
+    risk = calculate_risk_projection(
+        SYNTHETIC_AVAILABLE_BALANCE,
+        SYNTHETIC_MARK_PRICE,
+    )
+
+    quantity = Decimal(
+        risk.rounded_quantity
+    )
+
+    check(
+        "Risk Gate Accepted Synthetic Candidate",
+        risk.accepted,
+    )
+
+    check(
+        "Entry Margin Budget Positive",
+        Decimal(risk.entry_margin_budget) > 0,
+    )
+
+    check(
+        "Projected Notional Positive",
+        Decimal(risk.projected_notional) > 0,
+    )
+
+    check(
+        "Rounded Quantity Meets Minimum",
+        quantity >= MIN_QTY,
+    )
+
+    check(
+        "Rounded Quantity Respects Quantity Step",
+        quantize_down(quantity, QTY_STEP) == quantity,
+    )
+
+    check(
+        "Rounded Margin Positive",
+        Decimal(risk.rounded_margin) > 0,
+    )
+
+    check(
+        "Projected Exposure Below Maximum",
+        Decimal(risk.exposure_percent)
+        <= MAX_FUND_EXPOSURE_PERCENT,
+    )
+
+    print(
+        f"{VERSION}: RISK PROJECTION "
+        f"balance={risk.available_balance} "
+        f"margin-budget={risk.entry_margin_budget} "
+        f"notional={risk.projected_notional} "
+        f"qty={risk.rounded_quantity} "
+        f"rounded-margin={risk.rounded_margin}",
+        flush=True,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 7: TAKE PROFIT PROJECTION")
+    # -------------------------------------------------------------------------
+
+    tp = calculate_tp_projection(
+        quantity
+    )
+
+    check(
+        "TP1 Percentage Is Twenty",
+        TP1_PERCENT == Decimal("20"),
+    )
+
+    check(
+        "TP2 Percentage Is Twenty",
+        TP2_PERCENT == Decimal("20"),
+    )
+
+    check(
+        "TP3 Percentage Is Sixty",
+        TP3_PERCENT == Decimal("60"),
+    )
+
+    check(
+        "TP Percentages Sum To One Hundred",
+        TP1_PERCENT + TP2_PERCENT + TP3_PERCENT
+        == Decimal("100"),
+    )
+
+    check(
+        "TP Quantities Reconcile To Entry Quantity",
+        Decimal(tp.reconciled_quantity) == quantity,
+    )
+
+    check(
+        "TP1 Trigger Is Point Five Percent",
+        TP1_TRIGGER_PERCENT == Decimal("0.5"),
+    )
+
+    check(
+        "TP2 Trigger Is One Percent",
+        TP2_TRIGGER_PERCENT == Decimal("1.0"),
+    )
+
+    check(
+        "Trailing Distance Is Point Twenty Percent",
+        TRAILING_DISTANCE_PERCENT == Decimal("0.20"),
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 8: BACKUP PROJECTION")
+    # -------------------------------------------------------------------------
+
+    backup = calculate_backup_projection(
+        SYNTHETIC_AVAILABLE_BALANCE
+    )
+
+    check(
+        "Backup Projection Maximum Count Matches Strategy",
+        backup.max_backups == MAX_BACKUPS,
+    )
+
+    check(
+        "Backup Projection Size Matches Strategy",
+        Decimal(backup.backup_percent)
+        == BACKUP_PERCENT,
+    )
+
+    check(
+        "Backup Projection Buffer Matches Strategy",
+        Decimal(backup.backup_buffer_percent)
+        == BACKUP_BUFFER_PERCENT,
+    )
+
+    check(
+        "Projected Backup Margin Positive",
+        Decimal(backup.projected_backup_margin_each) > 0,
+    )
+
+    check(
+        "Projected Backup Total Equals Three Backups",
+        Decimal(backup.projected_backup_total_margin)
+        ==
+        Decimal(backup.projected_backup_margin_each)
+        * Decimal(MAX_BACKUPS),
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 9: TOTAL STRATEGY FUND BUDGET")
+    # -------------------------------------------------------------------------
+
+    total_strategy_margin_percent = (
+        INITIAL_ENTRY_PERCENT
+        + PYRAMID_PERCENT * Decimal(MAX_PYRAMID_ADDS)
+        + BACKUP_PERCENT * Decimal(MAX_BACKUPS)
+    )
+
+    check(
+        "Full Planned Strategy Margin Is Twenty Five Percent",
+        total_strategy_margin_percent == Decimal("25"),
+    )
+
+    check(
+        "Full Planned Strategy Margin Below Maximum Exposure",
+        total_strategy_margin_percent
+        <= MAX_FUND_EXPOSURE_PERCENT,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 10: CANDIDATE CONSTRUCTION")
+    # -------------------------------------------------------------------------
+
+    candidate = build_candidate(
+        signal,
+        risk,
+    )
+
+    check(
+        "Candidate ID Present",
+        bool(candidate.candidate_id),
+    )
+
+    check(
+        "Candidate Signal Binding Exact",
+        candidate.signal_id == signal.signal_id,
+    )
+
+    check(
+        "Candidate Symbol Binding Exact",
+        candidate.symbol == signal.symbol,
+    )
+
+    check(
+        "Candidate Quantity Binding Exact",
+        candidate.quantity == risk.rounded_quantity,
+    )
+
+    check(
+        "Candidate Leverage Binding Exact",
+        Decimal(candidate.target_leverage)
+        == TARGET_LEVERAGE,
+    )
+
+    check(
+        "Candidate Starts Risk Accepted",
+        candidate.phase
+        == CandidatePhase.RISK_ACCEPTED.value,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 11: AUTHORIZATION ENVELOPE")
+    # -------------------------------------------------------------------------
+
+    auth = build_authorization(
+        candidate
+    )
+
+    check(
+        "Authorization ID Present",
+        bool(auth.authorization_id),
+    )
+
+    check(
+        "Authorization Candidate Binding Exact",
+        auth.candidate_id == candidate.candidate_id,
+    )
+
+    check(
+        "Authorization Symbol Binding Exact",
+        auth.symbol == candidate.symbol,
+    )
+
+    check(
+        "Authorization Quantity Binding Exact",
+        auth.quantity == candidate.quantity,
+    )
+
+    check(
+        "Authorization Is Explicitly Non Executable",
+        auth.executable is False,
+    )
+
+    check(
+        "Authorization Explicitly Denies Network Writes",
+        auth.network_writes_allowed is False,
+    )
+
+    check(
+        "Authorization Transport Is Synthetic Only",
+        auth.transport == "SYNTHETIC_ONLY",
+    )
+
+    check(
+        "Authorization Hash Validates",
+        validate_authorization(
+            auth,
+            candidate,
+        ),
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 12: AUTHORIZATION TAMPER REJECTION")
+    # -------------------------------------------------------------------------
+
+    tampered_auth = AuthorizationEnvelope(
+        authorization_id=auth.authorization_id,
+        candidate_id=auth.candidate_id,
+        symbol=auth.symbol,
+        direction=auth.direction,
+        quantity="999",
+        leverage=auth.leverage,
+        transport=auth.transport,
+        executable=auth.executable,
+        network_writes_allowed=auth.network_writes_allowed,
+        created_at=auth.created_at,
+        payload_hash=auth.payload_hash,
+    )
+
+    check(
+        "Tampered Authorization Rejected",
+        not validate_authorization(
+            tampered_auth,
+            candidate,
+        ),
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 13: PHASE TRANSITION TO AUTHORIZED")
+    # -------------------------------------------------------------------------
+
+    phase = candidate.phase
+
+    phase = transition_phase(
+        phase,
+        CandidatePhase.AUTHORIZED.value,
+    )
+
+    check(
+        "Candidate Transitioned To Authorized",
+        phase == CandidatePhase.AUTHORIZED.value,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 14: SYNTHETIC DISPATCH")
+    # -------------------------------------------------------------------------
+
+    receipt = synthetic_dispatch(
+        auth
+    )
+
+    phase = transition_phase(
+        phase,
+        CandidatePhase.SYNTHETICALLY_DISPATCHED.value,
+    )
+
+    check(
+        "Synthetic Receipt ID Present",
+        bool(receipt.receipt_id),
+    )
+
+    check(
+        "Synthetic Receipt Candidate Binding Exact",
+        receipt.candidate_id == candidate.candidate_id,
+    )
+
+    check(
+        "Synthetic Receipt Authorization Binding Exact",
+        receipt.authorization_id == auth.authorization_id,
+    )
+
+    check(
+        "Synthetic Dispatch Reports No Transmission",
+        receipt.transmitted is False,
+    )
+
+    check(
+        "Synthetic Receipt Declares Synthetic Only",
+        receipt.synthetic_only is True,
+    )
+
+    check(
+        "Synthetic Dispatch Count Is One",
+        SYNTHETIC_DISPATCH_COUNT == 1,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 15: TERMINAL SEAL")
+    # -------------------------------------------------------------------------
+
+    phase = transition_phase(
+        phase,
+        CandidatePhase.SEALED.value,
+    )
+
+    check(
+        "Candidate Final Phase Is Sealed",
+        phase == CandidatePhase.SEALED.value,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 16: INVALID TERMINAL REOPEN REJECTION")
+    # -------------------------------------------------------------------------
+
+    terminal_reopen_rejected = False
+
+    try:
+        transition_phase(
+            phase,
+            CandidatePhase.AUTHORIZED.value,
+        )
+
+    except SafetyViolation:
+        terminal_reopen_rejected = True
+
+    check(
+        "Sealed Candidate Cannot Reopen",
+        terminal_reopen_rejected,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 17: REAL ORDER FIREBREAK")
+    # -------------------------------------------------------------------------
+
+    real_blocked = False
+
+    try:
+        block_real_order(
+            "R31B intentional validation"
+        )
+
+    except SafetyViolation:
+        real_blocked = True
+
+    check(
+        "Real Order Path Blocked",
+        real_blocked,
+    )
+
+    check(
+        "Real Order Counter Remains Zero",
+        REAL_ORDER_COUNT == 0,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 18: DEMO ORDER FIREBREAK")
+    # -------------------------------------------------------------------------
+
+    demo_blocked = False
+
+    try:
+        block_demo_order(
+            "R31B intentional validation"
+        )
+
+    except SafetyViolation:
+        demo_blocked = True
+
+    check(
+        "Demo Order Path Blocked",
+        demo_blocked,
+    )
+
+    check(
+        "Demo Order Counter Remains Zero",
+        DEMO_ORDER_COUNT == 0,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 19: EXCHANGE WRITE FIREBREAK")
+    # -------------------------------------------------------------------------
+
+    network_blocked = False
+
+    try:
+        block_network_write(
+            "POST",
+            "/capi/v2/order",
+        )
+
+    except SafetyViolation:
+        network_blocked = True
+
+    check(
+        "HTTP POST Blocked",
+        network_blocked,
+    )
+
+    check(
+        "Network Write Counter Remains Zero",
+        NETWORK_WRITE_COUNT == 0,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 20: MUTATION FIREBREAK")
+    # -------------------------------------------------------------------------
+
+    leverage_blocked = False
+    margin_blocked = False
+    position_blocked = False
+    account_blocked = False
+
+    try:
+        block_mutation("LEVERAGE")
+    except SafetyViolation:
+        leverage_blocked = True
+
+    try:
+        block_mutation("MARGIN")
+    except SafetyViolation:
+        margin_blocked = True
+
+    try:
+        block_mutation("POSITION")
+    except SafetyViolation:
+        position_blocked = True
+
+    try:
+        block_mutation("ACCOUNT")
+    except SafetyViolation:
+        account_blocked = True
+
+    check(
+        "Leverage Mutation Blocked",
+        leverage_blocked,
+    )
+
+    check(
+        "Margin Mutation Blocked",
+        margin_blocked,
+    )
+
+    check(
+        "Position Mutation Blocked",
+        position_blocked,
+    )
+
+    check(
+        "Account Mutation Blocked",
+        account_blocked,
+    )
+
+    check(
+        "Mutation Counter Remains Zero",
+        MUTATION_COUNT == 0,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 21: DURABLE STATE CREATION")
+    # -------------------------------------------------------------------------
+
+    state = RuntimeState(
+        version=VERSION,
+        runtime_id=runtime_id,
+        generation=generation,
+        recovery_epoch=recovery_epoch,
+        phase=phase,
+        candidate_id=candidate.candidate_id,
+        authorization_id=auth.authorization_id,
+        synthetic_receipt_id=receipt.receipt_id,
+
+        real_order_count=REAL_ORDER_COUNT,
+        demo_order_count=DEMO_ORDER_COUNT,
+        network_write_count=NETWORK_WRITE_COUNT,
+        mutation_count=MUTATION_COUNT,
+
+        synthetic_dispatch_count=SYNTHETIC_DISPATCH_COUNT,
+        transition_count=TRANSITION_COUNT,
+        consumed_transition_count=CONSUMED_TRANSITION_COUNT,
+
+        sealed=True,
+        state_hash="",
+    )
+
+    persist_state(
+        state
+    )
+
+    check(
+        "Durable State File Created",
+        STATE_FILE.exists(),
+    )
+
+    restored = load_state()
+
+    check(
+        "Durable State Restored",
+        restored is not None,
+    )
+
+    if restored is None:
+        raise RuntimeError(
+            "R31B durable state could not be restored"
+        )
+
+    check(
+        "Persisted State Integrity Hash Valid",
+        verify_state_hash(restored),
+    )
+
+    check(
+        "Persisted Version Matches",
+        restored.version == VERSION,
+    )
+
+    check(
+        "Persisted Runtime ID Matches",
+        restored.runtime_id == runtime_id,
+    )
+
+    check(
+        "Persisted Generation Matches",
+        restored.generation == generation,
+    )
+
+    check(
+        "Persisted Recovery Epoch Matches",
+        restored.recovery_epoch == recovery_epoch,
+    )
+
+    check(
+        "Persisted Phase Is Sealed",
+        restored.phase == CandidatePhase.SEALED.value,
+    )
+
+    check(
+        "Persisted Candidate ID Matches",
+        restored.candidate_id == candidate.candidate_id,
+    )
+
+    check(
+        "Persisted Authorization ID Matches",
+        restored.authorization_id == auth.authorization_id,
+    )
+
+    check(
+        "Persisted Synthetic Receipt Matches",
+        restored.synthetic_receipt_id == receipt.receipt_id,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 22: PERSISTED SAFETY COUNTERS")
+    # -------------------------------------------------------------------------
+
+    check(
+        "Persisted Real Order Count Is Zero",
+        restored.real_order_count == 0,
+    )
+
+    check(
+        "Persisted Demo Order Count Is Zero",
+        restored.demo_order_count == 0,
+    )
+
+    check(
+        "Persisted Network Write Count Is Zero",
+        restored.network_write_count == 0,
+    )
+
+    check(
+        "Persisted Mutation Count Is Zero",
+        restored.mutation_count == 0,
+    )
+
+    check(
+        "Persisted Synthetic Dispatch Count Is One",
+        restored.synthetic_dispatch_count == 1,
+    )
+
+    check(
+        "Persisted Transition Count Is Three",
+        restored.transition_count == 3,
+    )
+
+    check(
+        "Consumed Transition Count Is Three",
+        restored.consumed_transition_count == 3,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 23: RESTART / TERMINAL RECOVERY SEAL")
+    # -------------------------------------------------------------------------
+
+    restart_reopen_rejected = (
+        restored.sealed is True
+        and restored.phase
+        == CandidatePhase.SEALED.value
+    )
+
+    check(
+        "Restart Cannot Reopen Sealed Candidate",
+        restart_reopen_rejected,
+    )
+
+    check(
+        "Restart Restores Terminal Seal",
+        restored.sealed is True,
+    )
+
+    check(
+        "Restart Preserves Candidate Binding",
+        restored.candidate_id
+        == candidate.candidate_id,
+    )
+
+    check(
+        "Restart Preserves Authorization Binding",
+        restored.authorization_id
+        == auth.authorization_id,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 24: ENVIRONMENT ESCALATION RESISTANCE")
+    # -------------------------------------------------------------------------
+
+    environment_real_attempt = (
+        os.getenv(
+            "REAL_ORDER_EXECUTION",
+            "",
+        ).strip().lower()
+        in {
+            "1",
+            "true",
+            "yes",
+            "on",
+            "enabled",
+        }
+    )
+
+    environment_write_attempt = (
+        os.getenv(
+            "EXCHANGE_NETWORK_WRITES",
+            "",
+        ).strip().lower()
+        in {
+            "1",
+            "true",
+            "yes",
+            "on",
+            "enabled",
+        }
+    )
+
+    environment_mutation_attempt = (
+        os.getenv(
+            "LEVERAGE_MUTATION",
+            "",
+        ).strip().lower()
+        in {
+            "1",
+            "true",
+            "yes",
+            "on",
+            "enabled",
+        }
+    )
+
+    check(
+        "Environment Cannot Directly Activate Real Execution",
+        (
+            REAL_ORDER_EXECUTION_ENABLED is False
+            and regardless_environment(
+                environment_real_attempt
+            )
+        ),
+    )
+
+    check(
+        "Environment Cannot Directly Activate Exchange Writes",
+        (
+            EXCHANGE_NETWORK_WRITES_ENABLED is False
+            and regardless_environment(
+                environment_write_attempt
+            )
+        ),
+    )
+
+    check(
+        "Environment Cannot Directly Activate Mutation",
+        (
+            LEVERAGE_MUTATION_ENABLED is False
+            and regardless_environment(
+                environment_mutation_attempt
+            )
+        ),
+    )
+
+    check(
+        "Real Execution Constant Remains Frozen",
+        REAL_ORDER_EXECUTION_ENABLED is False,
+    )
+
+    check(
+        "Demo Execution Constant Remains Frozen",
+        DEMO_ORDER_EXECUTION_ENABLED is False,
+    )
+
+    check(
+        "Exchange Write Constant Remains Frozen",
+        EXCHANGE_NETWORK_WRITES_ENABLED is False,
+    )
+
+    check(
+        "Mutation Constants Remain Frozen",
+        (
+            not LEVERAGE_MUTATION_ENABLED
+            and not MARGIN_MUTATION_ENABLED
+            and not POSITION_MUTATION_ENABLED
+            and not ACCOUNT_MUTATION_ENABLED
+        ),
+    )
+
+    check(
+        "Synthetic Transport Constant Remains Frozen",
+        SYNTHETIC_TRANSPORT_ONLY is True,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 25: COUNTER INTEGRITY")
+    # -------------------------------------------------------------------------
+
+    check(
+        "Real Order Count Is Zero",
+        REAL_ORDER_COUNT == 0,
+    )
+
+    check(
+        "Demo Order Count Is Zero",
+        DEMO_ORDER_COUNT == 0,
+    )
+
+    check(
+        "Network Write Count Is Zero",
+        NETWORK_WRITE_COUNT == 0,
+    )
+
+    check(
+        "Mutation Count Is Zero",
+        MUTATION_COUNT == 0,
+    )
+
+    check(
+        "Synthetic Dispatch Count Matches Lifecycle",
+        SYNTHETIC_DISPATCH_COUNT == 1,
+    )
+
+    check(
+        "Transition Counter Matches Lifecycle",
+        TRANSITION_COUNT == 3,
+    )
+
+    check(
+        "Consumed Transition Counter Matches Lifecycle",
+        CONSUMED_TRANSITION_COUNT == 3,
+    )
+
+    # -------------------------------------------------------------------------
+    section("R31B TEST 26: FINAL PRE-EXECUTION READINESS SEAL")
+    # -------------------------------------------------------------------------
+
+    passed_before_final = PASSED
+    failed_before_final = FAILED
+
+    check(
+        "All Prior Validation Checks Passed",
+        failed_before_final == 0,
+    )
+
+    print(
+        f"  passed-before-final={passed_before_final}, "
+        f"failed={failed_before_final}",
+        flush=True,
+    )
+
+    check(
+        "R31B Remains Non Executable",
+        (
+            REAL_ORDER_EXECUTION_ENABLED is False
+            and DEMO_ORDER_EXECUTION_ENABLED is False
+        ),
+    )
+
+    check(
+        "R31B Remains Network Write Locked",
+        EXCHANGE_NETWORK_WRITES_ENABLED is False,
+    )
+
+    check(
+        "R31B Remains Mutation Locked",
+        (
+            not LEVERAGE_MUTATION_ENABLED
+            and not MARGIN_MUTATION_ENABLED
+            and not POSITION_MUTATION_ENABLED
+            and not ACCOUNT_MUTATION_ENABLED
+        ),
+    )
+
+    check(
+        "R31B Uses Synthetic Transport Only",
+        SYNTHETIC_TRANSPORT_ONLY is True,
+    )
+
+    check(
+        "R31B Final Phase Is Sealed",
+        restored.phase == CandidatePhase.SEALED.value,
+    )
+
+    return restored
