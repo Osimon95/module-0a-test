@@ -448,3 +448,351 @@ def read_wal() -> List[Dict[str, Any]]:
 
 
 print("R29 UNIT F: PART 1 DEFINITIONS LOADED", flush=True)
+# =============================================================================
+# PART 2 — CONSTRUCTION / FIREBREAKS / SYNTHETIC DISPATCH
+# =============================================================================
+
+def build_snapshot() -> Dict[str, Any]:
+    # Unit F deliberately uses a frozen local compatibility snapshot.
+    # It performs no external network calls.
+    snapshot = {
+        "snapshot_id": new_id("snapshot"),
+        "symbol": STRATEGY_SYMBOL,
+        "asset": STRATEGY_ASSET,
+        "margin_type": TARGET_MARGIN_TYPE,
+        "position_count": 0,
+        "target_long_leverage": TARGET_LONG_LEVERAGE,
+        "target_short_leverage": TARGET_SHORT_LEVERAGE,
+        "source": "R29_UNIT_F_LOCAL_FROZEN_COMPATIBILITY_SNAPSHOT",
+        "created_ms": now_ms(),
+    }
+
+    snapshot["snapshot_hash"] = integrity_hash(
+        snapshot,
+        excluded=["snapshot_hash"],
+    )
+
+    return snapshot
+
+
+def build_mutation(
+    snapshot: Dict[str, Any],
+    generation: int,
+    recovery_epoch: int,
+) -> MutationIntent:
+    body = {
+        "isolatedLongLeverage": str(TARGET_LONG_LEVERAGE),
+        "isolatedShortLeverage": str(TARGET_SHORT_LEVERAGE),
+        "marginType": TARGET_MARGIN_TYPE,
+        "symbol": STRATEGY_SYMBOL,
+    }
+
+    mutation = MutationIntent(
+        mutation_id=new_id("mutation"),
+        symbol=STRATEGY_SYMBOL,
+        method=LEVERAGE_METHOD,
+        path=LEVERAGE_PATH,
+        body=body,
+        body_hash=sha256_text(canonical_json(body)),
+        snapshot_id=snapshot["snapshot_id"],
+        snapshot_hash=snapshot["snapshot_hash"],
+        generation=generation,
+        recovery_epoch=recovery_epoch,
+        created_ms=now_ms(),
+        executable=False,
+        synthetic_only=True,
+        integrity_hash="",
+    )
+
+    mutation.integrity_hash = integrity_hash(
+        asdict(mutation),
+        excluded=["integrity_hash"],
+    )
+
+    return mutation
+
+
+def build_authorization(
+    mutation: MutationIntent,
+) -> Authorization:
+    issued = now_ms()
+
+    auth = Authorization(
+        authorization_id=new_id("auth"),
+        mutation_id=mutation.mutation_id,
+        body_hash=mutation.body_hash,
+        snapshot_hash=mutation.snapshot_hash,
+        generation=mutation.generation,
+        recovery_epoch=mutation.recovery_epoch,
+        issued_ms=issued,
+        expires_ms=issued + AUTHORIZATION_TTL_SECONDS * 1000,
+        consumed=False,
+        consumed_ms=None,
+        integrity_hash="",
+    )
+
+    auth.integrity_hash = integrity_hash(
+        asdict(auth),
+        excluded=["integrity_hash"],
+    )
+
+    return auth
+
+
+def dispatch_fence_key(
+    mutation: MutationIntent,
+    authorization: Authorization,
+) -> str:
+    material = {
+        "mutation_id": mutation.mutation_id,
+        "authorization_id": authorization.authorization_id,
+        "body_hash": mutation.body_hash,
+        "snapshot_hash": mutation.snapshot_hash,
+        "generation": mutation.generation,
+        "recovery_epoch": mutation.recovery_epoch,
+    }
+
+    return sha256_text(canonical_json(material))
+
+
+# =============================================================================
+# HARD WRITE FIREBREAKS
+# =============================================================================
+
+def real_http_write(
+    state: DurableState,
+    method: str,
+    path: str,
+) -> None:
+    state.real_write_firebreak_count += 1
+    save_state(state)
+
+    local_block(
+        f"REAL network {method} blocked for {path}"
+    )
+
+
+def demo_http_write(
+    state: DurableState,
+    method: str,
+    path: str,
+) -> None:
+    state.demo_write_firebreak_count += 1
+    save_state(state)
+
+    local_block(
+        f"DEMO network {method} blocked for {path}"
+    )
+
+
+def websocket_write(
+    state: DurableState,
+) -> None:
+    state.websocket_firebreak_count += 1
+    save_state(state)
+
+    local_block(
+        "WebSocket write blocked"
+    )
+
+
+def leverage_mutation(
+    state: DurableState,
+) -> None:
+    state.leverage_mutation_firebreak_count += 1
+    save_state(state)
+
+    local_block(
+        "leverage mutation disabled"
+    )
+
+
+def margin_mutation(
+    state: DurableState,
+) -> None:
+    state.margin_mutation_firebreak_count += 1
+    save_state(state)
+
+    local_block(
+        "margin mutation disabled"
+    )
+
+
+def position_mutation(
+    state: DurableState,
+) -> None:
+    state.position_mutation_firebreak_count += 1
+    save_state(state)
+
+    local_block(
+        "position mutation disabled"
+    )
+
+
+def account_mutation(
+    state: DurableState,
+) -> None:
+    state.account_mutation_firebreak_count += 1
+    save_state(state)
+
+    local_block(
+        "account mutation disabled"
+    )
+
+
+# =============================================================================
+# SYNTHETIC DISPATCH PRECONDITIONS
+# =============================================================================
+
+def verify_dispatch_preconditions(
+    state: DurableState,
+) -> None:
+    if state.phase not in {"AUTHORIZED", "DISPATCHING"}:
+        local_block(
+            "dispatch phase is not authorized"
+        )
+
+    if state.authorization.consumed:
+        local_block(
+            "authorization replay rejected"
+        )
+
+    if now_ms() > state.authorization.expires_ms:
+        local_block(
+            "authorization token is stale"
+        )
+
+    if state.mutation.executable:
+        local_block(
+            "mutation unexpectedly marked executable"
+        )
+
+    if not state.mutation.synthetic_only:
+        local_block(
+            "mutation is not synthetic-only"
+        )
+
+    if state.mutation.generation != state.generation:
+        local_block(
+            "mutation generation mismatch"
+        )
+
+    if state.authorization.generation != state.generation:
+        local_block(
+            "authorization generation mismatch"
+        )
+
+    if state.mutation.recovery_epoch != state.recovery_epoch:
+        local_block(
+            "mutation recovery epoch mismatch"
+        )
+
+    if state.authorization.recovery_epoch != state.recovery_epoch:
+        local_block(
+            "authorization recovery epoch mismatch"
+        )
+
+    if state.dispatch_fence_key != dispatch_fence_key(
+        state.mutation,
+        state.authorization,
+    ):
+        local_block(
+            "dispatch fence key mismatch"
+        )
+
+
+# =============================================================================
+# SYNTHETIC-ONLY DISPATCH
+# =============================================================================
+
+def synthetic_dispatch(
+    state: DurableState,
+) -> DispatchReceipt:
+    verify_dispatch_preconditions(state)
+
+    # Durable authorization consumption occurs BEFORE the synthetic receipt
+    # is returned. This closes the crash/restart window in which an
+    # authorization might otherwise be reused.
+
+    state.phase = "DISPATCHING"
+
+    state.authorization.consumed = True
+    state.authorization.consumed_ms = now_ms()
+
+    state.authorization.integrity_hash = integrity_hash(
+        asdict(state.authorization),
+        excluded=["integrity_hash"],
+    )
+
+    save_state(state)
+
+    append_wal(
+        "AUTHORIZATION_CONSUMED",
+        state,
+    )
+
+    receipt = DispatchReceipt(
+        receipt_id=new_id("receipt"),
+        mutation_id=state.mutation.mutation_id,
+        authorization_id=state.authorization.authorization_id,
+        generation=state.generation,
+        recovery_epoch=state.recovery_epoch,
+        body_hash=state.mutation.body_hash,
+        transport="SYNTHETIC",
+        transmitted=False,
+        network_write_count=0,
+        created_ms=now_ms(),
+        integrity_hash="",
+    )
+
+    receipt.integrity_hash = integrity_hash(
+        asdict(receipt),
+        excluded=["integrity_hash"],
+    )
+
+    state.receipt = receipt
+    state.synthetic_dispatch_count += 1
+    state.phase = "DISPATCHED"
+
+    save_state(state)
+
+    append_wal(
+        "SYNTHETIC_DISPATCHED",
+        state,
+        {
+            "receipt_id": receipt.receipt_id,
+        },
+    )
+
+    return receipt
+
+
+# =============================================================================
+# TERMINAL FINALIZATION
+# =============================================================================
+
+def finalize(
+    state: DurableState,
+) -> None:
+    if state.phase != "DISPATCHED":
+        local_block(
+            "finalization requires DISPATCHED phase"
+        )
+
+    if state.receipt is None:
+        local_block(
+            "finalization requires synthetic receipt"
+        )
+
+    state.finalized_fence_key = state.dispatch_fence_key
+    state.phase = "COMPLETED"
+
+    save_state(state)
+
+    append_wal(
+        "FINALIZED",
+        state,
+    )
+
+
+print("R29 UNIT F: PART 2 DEFINITIONS LOADED", flush=True)
