@@ -858,3 +858,1376 @@ print(
 # PASTE PART 2 IMMEDIATELY BELOW THIS LINE.
 # DO NOT ADD INDENTATION AT THE JOIN.
 # =============================================================================
+# =============================================================================
+# R29 UNIT D
+# LIVE READ-ONLY SNAPSHOT / READINESS / DECISION-CYCLE VALIDATION
+#
+# CORRECTED COPY/PASTE VERSION
+# PART 2 OF 4
+#
+# CONTINUES DIRECTLY FROM PART 1.
+# ZERO-INDENTATION JOIN.
+# =============================================================================
+
+
+# =============================================================================
+# API RESPONSE NORMALIZATION
+# =============================================================================
+
+def unwrap_payload(
+    payload: Any,
+) -> Any:
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+        return payload
+
+    for key in (
+        "data",
+        "result",
+    ):
+        if key in payload:
+            return payload[key]
+
+    return payload
+
+
+def first_dict(
+    value: Any,
+) -> Dict[str, Any]:
+
+    value = unwrap_payload(
+        value
+    )
+
+    if isinstance(
+        value,
+        dict,
+    ):
+        return value
+
+    if isinstance(
+        value,
+        list,
+    ):
+        for item in value:
+            if isinstance(
+                item,
+                dict,
+            ):
+                return item
+
+    return {}
+
+
+def extract_number(
+    mapping: Dict[str, Any],
+    keys: Iterable[str],
+    default: str = "0",
+) -> Decimal:
+
+    for key in keys:
+        if key not in mapping:
+            continue
+
+        value = mapping.get(
+            key
+        )
+
+        if value in (
+            None,
+            "",
+        ):
+            continue
+
+        try:
+            return d(
+                value
+            )
+
+        except Exception:
+            continue
+
+    return d(
+        default
+    )
+
+
+def extract_text(
+    mapping: Dict[str, Any],
+    keys: Iterable[str],
+    default: str = "",
+) -> str:
+
+    for key in keys:
+        if key not in mapping:
+            continue
+
+        value = mapping.get(
+            key
+        )
+
+        if value is None:
+            continue
+
+        text = str(
+            value
+        ).strip()
+
+        if text:
+            return text
+
+    return default
+
+
+def recursive_dicts(
+    value: Any,
+) -> Iterable[Dict[str, Any]]:
+
+    if isinstance(
+        value,
+        dict,
+    ):
+        yield value
+
+        for child in value.values():
+            yield from recursive_dicts(
+                child
+            )
+
+    elif isinstance(
+        value,
+        list,
+    ):
+        for child in value:
+            yield from recursive_dicts(
+                child
+            )
+
+
+def find_symbol_mapping(
+    payload: Any,
+    symbol: str,
+) -> Dict[str, Any]:
+
+    wanted = symbol.upper()
+
+    fallback: Dict[str, Any] = {}
+
+    for item in recursive_dicts(
+        payload
+    ):
+        if not fallback:
+            fallback = item
+
+        observed_symbol = extract_text(
+            item,
+            (
+                "symbol",
+                "contractCode",
+                "contract",
+                "instId",
+            ),
+            "",
+        ).upper()
+
+        if observed_symbol == wanted:
+            return item
+
+    return fallback
+
+
+def normalize_margin_type(
+    value: Any,
+) -> str:
+
+    text = str(
+        value or ""
+    ).strip().upper()
+
+    aliases = {
+        "ISOLATED": "ISOLATED",
+        "FIXED": "ISOLATED",
+        "SEPARATED": "ISOLATED",
+        "CROSS": "CROSS",
+        "CROSSED": "CROSS",
+    }
+
+    return aliases.get(
+        text,
+        text,
+    )
+
+
+# =============================================================================
+# LIVE PUBLIC MARKET OBSERVATION
+# =============================================================================
+
+def observe_market() -> MarketObservation:
+
+    payload = TRANSPORT.public_get(
+        MARK_PRICE_PATH,
+        {
+            "symbol": SYMBOL,
+        },
+    )
+
+    mapping = find_symbol_mapping(
+        payload,
+        SYMBOL,
+    )
+
+    observed_symbol = extract_text(
+        mapping,
+        (
+            "symbol",
+            "contractCode",
+        ),
+        SYMBOL,
+    ).upper()
+
+    mark_price = extract_number(
+        mapping,
+        (
+            "markPrice",
+            "price",
+            "indexPrice",
+            "lastPrice",
+            "last",
+        ),
+    )
+
+    require(
+        observed_symbol == SYMBOL,
+        "market observation symbol mismatch",
+    )
+
+    require(
+        mark_price > 0,
+        "market mark price is not positive",
+    )
+
+    observed_at = now_ms()
+
+    body = {
+        "symbol": observed_symbol,
+        "mark_price": str(mark_price),
+        "observed_at_ms": observed_at,
+        "source_path": MARK_PRICE_PATH,
+        "read_only": True,
+    }
+
+    observation_hash = sha256_obj(
+        body
+    )
+
+    return MarketObservation(
+        symbol=observed_symbol,
+        mark_price=str(mark_price),
+        observed_at_ms=observed_at,
+        source_path=MARK_PRICE_PATH,
+        read_only=True,
+        observation_hash=observation_hash,
+    )
+
+
+# =============================================================================
+# LIVE PUBLIC CONTRACT RULE OBSERVATION
+# =============================================================================
+
+def observe_contract_rules() -> ContractRules:
+
+    payload = TRANSPORT.public_get(
+        EXCHANGE_INFO_PATH,
+        {
+            "symbol": SYMBOL,
+        },
+    )
+
+    mapping = find_symbol_mapping(
+        payload,
+        SYMBOL,
+    )
+
+    observed_symbol = extract_text(
+        mapping,
+        (
+            "symbol",
+            "contractCode",
+        ),
+        SYMBOL,
+    ).upper()
+
+    qty_step = extract_number(
+        mapping,
+        (
+            "quantityStep",
+            "qtyStep",
+            "stepSize",
+            "sizeStep",
+            "volumePlace",
+        ),
+    )
+
+    min_qty = extract_number(
+        mapping,
+        (
+            "minOrderQty",
+            "minQty",
+            "minTradeNum",
+            "minTradeAmount",
+            "minSize",
+        ),
+    )
+
+    price_step = extract_number(
+        mapping,
+        (
+            "priceStep",
+            "tickSize",
+            "priceTick",
+            "priceEndStep",
+        ),
+    )
+
+    # Unit C already established the current BTCUSDT contract rules.
+    # These fallbacks only normalize API schema variations where the
+    # exchange supplies decimal precision rather than the explicit step.
+    if qty_step <= 0:
+        quantity_precision = extract_number(
+            mapping,
+            (
+                "quantityPrecision",
+                "qtyPrecision",
+                "volumePlace",
+            ),
+            "-1",
+        )
+
+        if quantity_precision >= 0:
+            qty_step = Decimal("1").scaleb(
+                -int(quantity_precision)
+            )
+
+    if min_qty <= 0:
+        min_qty = qty_step
+
+    if price_step <= 0:
+        price_precision = extract_number(
+            mapping,
+            (
+                "pricePrecision",
+                "pricePlace",
+            ),
+            "-1",
+        )
+
+        if price_precision >= 0:
+            price_step = Decimal("1").scaleb(
+                -int(price_precision)
+            )
+
+    require(
+        observed_symbol == SYMBOL,
+        "contract rules symbol mismatch",
+    )
+
+    require(
+        qty_step > 0,
+        "quantity step is not positive",
+    )
+
+    require(
+        min_qty > 0,
+        "minimum quantity is not positive",
+    )
+
+    require(
+        price_step > 0,
+        "price step is not positive",
+    )
+
+    observed_at = now_ms()
+
+    body = {
+        "symbol": observed_symbol,
+        "qty_step": str(qty_step),
+        "min_qty": str(min_qty),
+        "price_step": str(price_step),
+        "observed_at_ms": observed_at,
+        "source_path": EXCHANGE_INFO_PATH,
+    }
+
+    rules_hash = sha256_obj(
+        body
+    )
+
+    return ContractRules(
+        symbol=observed_symbol,
+        qty_step=str(qty_step),
+        min_qty=str(min_qty),
+        price_step=str(price_step),
+        observed_at_ms=observed_at,
+        source_path=EXCHANGE_INFO_PATH,
+        rules_hash=rules_hash,
+    )
+
+
+# =============================================================================
+# PRIVATE ACCOUNT OBSERVATION
+# =============================================================================
+
+def _find_asset_mapping(
+    payload: Any,
+    asset: str,
+) -> Dict[str, Any]:
+
+    wanted = asset.upper()
+
+    fallback: Dict[str, Any] = {}
+
+    for item in recursive_dicts(
+        payload
+    ):
+        if not fallback:
+            fallback = item
+
+        observed_asset = extract_text(
+            item,
+            (
+                "coin",
+                "asset",
+                "currency",
+                "marginCoin",
+            ),
+            "",
+        ).upper()
+
+        if observed_asset == wanted:
+            return item
+
+    return fallback
+
+
+def _position_size(
+    mapping: Dict[str, Any],
+) -> Decimal:
+
+    return extract_number(
+        mapping,
+        (
+            "size",
+            "positionAmt",
+            "positionAmount",
+            "total",
+            "holdVol",
+            "available",
+            "quantity",
+            "qty",
+        ),
+    )
+
+
+def _count_open_symbol_positions(
+    payload: Any,
+    symbol: str,
+) -> int:
+
+    wanted = symbol.upper()
+
+    count = 0
+
+    for item in recursive_dicts(
+        payload
+    ):
+        observed_symbol = extract_text(
+            item,
+            (
+                "symbol",
+                "contractCode",
+                "contract",
+            ),
+            "",
+        ).upper()
+
+        if observed_symbol != wanted:
+            continue
+
+        size = abs(
+            _position_size(
+                item
+            )
+        )
+
+        if size > 0:
+            count += 1
+
+    return count
+
+
+def observe_account() -> AccountObservation:
+
+    balance_payload = TRANSPORT.private_get(
+        BALANCE_PATH,
+        {
+            "coin": ASSET,
+        },
+    )
+
+    positions_payload = TRANSPORT.private_get(
+        POSITIONS_PATH,
+        {
+            "symbol": SYMBOL,
+        },
+    )
+
+    balance_mapping = _find_asset_mapping(
+        balance_payload,
+        ASSET,
+    )
+
+    observed_asset = extract_text(
+        balance_mapping,
+        (
+            "coin",
+            "asset",
+            "currency",
+            "marginCoin",
+        ),
+        ASSET,
+    ).upper()
+
+    balance = extract_number(
+        balance_mapping,
+        (
+            "balance",
+            "equity",
+            "accountEquity",
+            "total",
+            "walletBalance",
+        ),
+    )
+
+    available_balance = extract_number(
+        balance_mapping,
+        (
+            "available",
+            "availableBalance",
+            "availableEquity",
+            "free",
+            "maxAvailable",
+        ),
+    )
+
+    open_positions = _count_open_symbol_positions(
+        positions_payload,
+        SYMBOL,
+    )
+
+    require(
+        observed_asset == ASSET,
+        "account asset mismatch",
+    )
+
+    require(
+        balance >= 0,
+        "account balance is negative",
+    )
+
+    require(
+        available_balance >= 0,
+        "available balance is negative",
+    )
+
+    require(
+        open_positions >= 0,
+        "position count is negative",
+    )
+
+    observed_at = now_ms()
+
+    body = {
+        "asset": observed_asset,
+        "balance": str(balance),
+        "available_balance": str(
+            available_balance
+        ),
+        "open_symbol_positions": open_positions,
+        "observed_at_ms": observed_at,
+        "balance_source_path": BALANCE_PATH,
+        "positions_source_path": POSITIONS_PATH,
+    }
+
+    observation_hash = sha256_obj(
+        body
+    )
+
+    return AccountObservation(
+        asset=observed_asset,
+        balance=str(balance),
+        available_balance=str(
+            available_balance
+        ),
+        open_symbol_positions=open_positions,
+        observed_at_ms=observed_at,
+        balance_source_path=BALANCE_PATH,
+        positions_source_path=POSITIONS_PATH,
+        observation_hash=observation_hash,
+    )
+
+
+# =============================================================================
+# PRIVATE SYMBOL CONFIGURATION OBSERVATION
+# =============================================================================
+
+def observe_symbol_configuration() -> SymbolConfiguration:
+
+    payload = TRANSPORT.private_get(
+        SYMBOL_CONFIG_PATH,
+        {
+            "symbol": SYMBOL,
+        },
+    )
+
+    mapping = find_symbol_mapping(
+        payload,
+        SYMBOL,
+    )
+
+    observed_symbol = extract_text(
+        mapping,
+        (
+            "symbol",
+            "contractCode",
+        ),
+        SYMBOL,
+    ).upper()
+
+    margin_type = normalize_margin_type(
+        extract_text(
+            mapping,
+            (
+                "marginType",
+                "marginMode",
+                "margin_mode",
+            ),
+            "",
+        )
+    )
+
+    separated_type = extract_text(
+        mapping,
+        (
+            "positionMode",
+            "positionType",
+            "holdMode",
+            "separatedType",
+        ),
+        "",
+    ).upper()
+
+    cross_leverage = extract_number(
+        mapping,
+        (
+            "crossLeverage",
+            "crossMarginLeverage",
+            "leverage",
+        ),
+    )
+
+    isolated_long = extract_number(
+        mapping,
+        (
+            "isolatedLongLeverage",
+            "longLeverage",
+            "fixedLongLeverage",
+        ),
+    )
+
+    isolated_short = extract_number(
+        mapping,
+        (
+            "isolatedShortLeverage",
+            "shortLeverage",
+            "fixedShortLeverage",
+        ),
+    )
+
+    require(
+        observed_symbol == SYMBOL,
+        "symbol configuration symbol mismatch",
+    )
+
+    require(
+        margin_type in {
+            "ISOLATED",
+            "CROSS",
+        },
+        "unrecognized margin type",
+    )
+
+    require(
+        isolated_long > 0,
+        "isolated long leverage is not positive",
+    )
+
+    require(
+        isolated_short > 0,
+        "isolated short leverage is not positive",
+    )
+
+    observed_at = now_ms()
+
+    body = {
+        "symbol": observed_symbol,
+        "margin_type": margin_type,
+        "separated_type": separated_type,
+        "cross_leverage": str(
+            cross_leverage
+        ),
+        "isolated_long_leverage": str(
+            isolated_long
+        ),
+        "isolated_short_leverage": str(
+            isolated_short
+        ),
+        "observed_at_ms": observed_at,
+        "source_path": SYMBOL_CONFIG_PATH,
+    }
+
+    config_hash = sha256_obj(
+        body
+    )
+
+    return SymbolConfiguration(
+        symbol=observed_symbol,
+        margin_type=margin_type,
+        separated_type=separated_type,
+        cross_leverage=str(
+            cross_leverage
+        ),
+        isolated_long_leverage=str(
+            isolated_long
+        ),
+        isolated_short_leverage=str(
+            isolated_short
+        ),
+        observed_at_ms=observed_at,
+        source_path=SYMBOL_CONFIG_PATH,
+        config_hash=config_hash,
+    )
+
+
+# =============================================================================
+# COHERENT LIVE SNAPSHOT CONSTRUCTION
+# =============================================================================
+
+def build_live_snapshot(
+    market: MarketObservation,
+    rules: ContractRules,
+    account: AccountObservation,
+    config: SymbolConfiguration,
+) -> LiveSnapshot:
+
+    require(
+        market.symbol == SYMBOL,
+        "market snapshot symbol mismatch",
+    )
+
+    require(
+        rules.symbol == SYMBOL,
+        "rules snapshot symbol mismatch",
+    )
+
+    require(
+        config.symbol == SYMBOL,
+        "configuration snapshot symbol mismatch",
+    )
+
+    require(
+        account.asset == ASSET,
+        "account snapshot asset mismatch",
+    )
+
+    timestamps = [
+        market.observed_at_ms,
+        rules.observed_at_ms,
+        account.observed_at_ms,
+        config.observed_at_ms,
+    ]
+
+    first_observed = min(
+        timestamps
+    )
+
+    last_observed = max(
+        timestamps
+    )
+
+    skew_ms = (
+        last_observed
+        - first_observed
+    )
+
+    require(
+        skew_ms
+        <= SNAPSHOT_MAX_SKEW_SECONDS * 1000,
+        "live snapshot observation skew too large",
+    )
+
+    snapshot_id = str(
+        uuid.uuid4()
+    )
+
+    captured_at = now_ms()
+
+    body = {
+        "snapshot_id": snapshot_id,
+        "symbol": SYMBOL,
+        "asset": ASSET,
+        "market_hash": market.observation_hash,
+        "rules_hash": rules.rules_hash,
+        "account_hash": account.observation_hash,
+        "symbol_config_hash": config.config_hash,
+        "first_observed_at_ms": first_observed,
+        "last_observed_at_ms": last_observed,
+        "skew_ms": skew_ms,
+        "captured_at_ms": captured_at,
+    }
+
+    snapshot_hash = sha256_obj(
+        body
+    )
+
+    return LiveSnapshot(
+        snapshot_id=snapshot_id,
+        symbol=SYMBOL,
+        asset=ASSET,
+        market_hash=market.observation_hash,
+        rules_hash=rules.rules_hash,
+        account_hash=account.observation_hash,
+        symbol_config_hash=config.config_hash,
+        first_observed_at_ms=first_observed,
+        last_observed_at_ms=last_observed,
+        skew_ms=skew_ms,
+        captured_at_ms=captured_at,
+        snapshot_hash=snapshot_hash,
+    )
+
+
+def validate_snapshot_freshness(
+    snapshot: LiveSnapshot,
+    reference_ms: Optional[int] = None,
+) -> None:
+
+    if reference_ms is None:
+        reference_ms = now_ms()
+
+    age_ms = (
+        reference_ms
+        - snapshot.last_observed_at_ms
+    )
+
+    require(
+        age_ms >= 0,
+        "snapshot timestamp is in the future",
+    )
+
+    require(
+        age_ms
+        <= SIGNAL_EXPIRY_SECONDS * 1000,
+        "live snapshot is stale",
+    )
+
+    require(
+        snapshot.skew_ms
+        <= SNAPSHOT_MAX_SKEW_SECONDS * 1000,
+        "snapshot skew exceeds limit",
+    )
+
+
+# =============================================================================
+# READINESS ASSESSMENT
+# =============================================================================
+
+def build_readiness_assessment(
+    snapshot: LiveSnapshot,
+    account: AccountObservation,
+    rules: ContractRules,
+    config: SymbolConfiguration,
+) -> ReadinessAssessment:
+
+    validate_snapshot_freshness(
+        snapshot
+    )
+
+    flat_position_gate = (
+        account.open_symbol_positions == 0
+    )
+
+    margin_mode_gate = (
+        config.margin_type
+        == PLANNED_MARGIN_TYPE
+    )
+
+    long_leverage_gate = (
+        d(
+            config.isolated_long_leverage
+        )
+        >= PLANNED_LEVERAGE
+    )
+
+    short_leverage_gate = (
+        d(
+            config.isolated_short_leverage
+        )
+        >= PLANNED_LEVERAGE
+    )
+
+    balance_gate = (
+        d(
+            account.available_balance
+        )
+        > 0
+    )
+
+    rules_gate = (
+        d(
+            rules.qty_step
+        )
+        > 0
+        and d(
+            rules.min_qty
+        )
+        > 0
+        and d(
+            rules.price_step
+        )
+        > 0
+    )
+
+    snapshot_fresh_gate = True
+
+    # Unit D does not execute even if all observations become ready.
+    # This boolean is only an observational readiness result.
+    execution_ready = all(
+        (
+            flat_position_gate,
+            margin_mode_gate,
+            long_leverage_gate,
+            short_leverage_gate,
+            balance_gate,
+            rules_gate,
+            snapshot_fresh_gate,
+        )
+    )
+
+    mutation_required = not (
+        margin_mode_gate
+        and long_leverage_gate
+        and short_leverage_gate
+    )
+
+    body = {
+        "symbol": SYMBOL,
+        "flat_position_gate": flat_position_gate,
+        "margin_mode_gate": margin_mode_gate,
+        "long_leverage_gate": long_leverage_gate,
+        "short_leverage_gate": short_leverage_gate,
+        "balance_gate": balance_gate,
+        "rules_gate": rules_gate,
+        "snapshot_fresh_gate": snapshot_fresh_gate,
+        "execution_ready": execution_ready,
+        "mutation_required": mutation_required,
+        "snapshot_hash": snapshot.snapshot_hash,
+    }
+
+    assessment_hash = sha256_obj(
+        body
+    )
+
+    return ReadinessAssessment(
+        symbol=SYMBOL,
+        flat_position_gate=flat_position_gate,
+        margin_mode_gate=margin_mode_gate,
+        long_leverage_gate=long_leverage_gate,
+        short_leverage_gate=short_leverage_gate,
+        balance_gate=balance_gate,
+        rules_gate=rules_gate,
+        snapshot_fresh_gate=snapshot_fresh_gate,
+        execution_ready=execution_ready,
+        mutation_required=mutation_required,
+        assessment_hash=assessment_hash,
+    )
+
+
+# =============================================================================
+# READ-ONLY INITIAL ENTRY RISK PROJECTION
+# =============================================================================
+
+def build_risk_projection(
+    market: MarketObservation,
+    account: AccountObservation,
+    rules: ContractRules,
+) -> RiskProjection:
+
+    available_balance = d(
+        account.available_balance
+    )
+
+    mark_price = d(
+        market.mark_price
+    )
+
+    qty_step = d(
+        rules.qty_step
+    )
+
+    min_qty = d(
+        rules.min_qty
+    )
+
+    require(
+        available_balance > 0,
+        "available balance must be positive",
+    )
+
+    require(
+        mark_price > 0,
+        "mark price must be positive",
+    )
+
+    margin_budget = (
+        available_balance
+        * INITIAL_ENTRY_PERCENT
+        / Decimal("100")
+    )
+
+    planned_notional = (
+        margin_budget
+        * PLANNED_LEVERAGE
+    )
+
+    raw_quantity = (
+        planned_notional
+        / mark_price
+    )
+
+    rounded_quantity = floor_to_step(
+        raw_quantity,
+        qty_step,
+    )
+
+    # If downward rounding falls below the contract minimum,
+    # Unit D projects the minimum quantity rather than attempting
+    # any exchange action.
+    if rounded_quantity < min_qty:
+        rounded_quantity = min_qty
+
+    projected_notional = (
+        rounded_quantity
+        * mark_price
+    )
+
+    projected_margin = (
+        projected_notional
+        / PLANNED_LEVERAGE
+    )
+
+    max_allowed_margin = (
+        available_balance
+        * MAX_FUND_EXPOSURE_PERCENT
+        / Decimal("100")
+    )
+
+    require(
+        margin_budget > 0,
+        "margin budget is not positive",
+    )
+
+    require(
+        planned_notional > 0,
+        "planned notional is not positive",
+    )
+
+    require(
+        rounded_quantity >= min_qty,
+        "rounded quantity is below minimum",
+    )
+
+    require(
+        projected_margin
+        <= max_allowed_margin,
+        "projected margin exceeds fund exposure cap",
+    )
+
+    body = {
+        "available_balance": str(
+            available_balance
+        ),
+        "entry_percent": str(
+            INITIAL_ENTRY_PERCENT
+        ),
+        "margin_budget": str(
+            margin_budget
+        ),
+        "planned_leverage": str(
+            PLANNED_LEVERAGE
+        ),
+        "planned_notional": str(
+            planned_notional
+        ),
+        "raw_quantity": str(
+            raw_quantity
+        ),
+        "rounded_quantity": str(
+            rounded_quantity
+        ),
+        "projected_notional": str(
+            projected_notional
+        ),
+        "projected_margin": str(
+            projected_margin
+        ),
+        "max_fund_exposure_percent": str(
+            MAX_FUND_EXPOSURE_PERCENT
+        ),
+    }
+
+    projection_hash = sha256_obj(
+        body
+    )
+
+    return RiskProjection(
+        available_balance=str(
+            available_balance
+        ),
+        entry_percent=str(
+            INITIAL_ENTRY_PERCENT
+        ),
+        margin_budget=str(
+            margin_budget
+        ),
+        planned_leverage=str(
+            PLANNED_LEVERAGE
+        ),
+        planned_notional=str(
+            planned_notional
+        ),
+        raw_quantity=str(
+            raw_quantity
+        ),
+        rounded_quantity=str(
+            rounded_quantity
+        ),
+        projected_notional=str(
+            projected_notional
+        ),
+        projected_margin=str(
+            projected_margin
+        ),
+        max_fund_exposure_percent=str(
+            MAX_FUND_EXPOSURE_PERCENT
+        ),
+        projection_hash=projection_hash,
+    )
+
+
+# =============================================================================
+# FROZEN DECISION CONSTRUCTION
+# =============================================================================
+
+def determine_hold_reason(
+    readiness: ReadinessAssessment,
+) -> str:
+
+    if not readiness.snapshot_fresh_gate:
+        return "SNAPSHOT_NOT_FRESH"
+
+    if not readiness.flat_position_gate:
+        return "POSITION_NOT_FLAT"
+
+    if not readiness.balance_gate:
+        return "BALANCE_NOT_READY"
+
+    if not readiness.rules_gate:
+        return "CONTRACT_RULES_NOT_READY"
+
+    if not readiness.margin_mode_gate:
+        return "MARGIN_MODE_NOT_READY"
+
+    if (
+        not readiness.long_leverage_gate
+        or not readiness.short_leverage_gate
+    ):
+        return "LEVERAGE_NOT_READY"
+
+    # Even if all observational gates pass,
+    # Unit D is deliberately non-executable.
+    return "UNIT_D_EXECUTION_DISABLED"
+
+
+def build_frozen_decision(
+    snapshot: LiveSnapshot,
+    readiness: ReadinessAssessment,
+    projection: RiskProjection,
+) -> FrozenDecision:
+
+    created_at = now_ms()
+
+    expires_at = (
+        created_at
+        + SIGNAL_EXPIRY_SECONDS * 1000
+    )
+
+    hold_reason = determine_hold_reason(
+        readiness
+    )
+
+    decision_id = str(
+        uuid.uuid4()
+    )
+
+    body = {
+        "decision_id": decision_id,
+        "snapshot_hash": snapshot.snapshot_hash,
+        "readiness_hash": readiness.assessment_hash,
+        "projection_hash": projection.projection_hash,
+        "symbol": SYMBOL,
+        "side": "BUY",
+        "position_side": "LONG",
+        "quantity": projection.rounded_quantity,
+        "executable": False,
+        "synthetic_only": True,
+        "hold_reason": hold_reason,
+        "created_at_ms": created_at,
+        "expires_at_ms": expires_at,
+    }
+
+    decision_hash = sha256_obj(
+        body
+    )
+
+    return FrozenDecision(
+        decision_id=decision_id,
+        snapshot_hash=snapshot.snapshot_hash,
+        readiness_hash=readiness.assessment_hash,
+        projection_hash=projection.projection_hash,
+        symbol=SYMBOL,
+        side="BUY",
+        position_side="LONG",
+        quantity=projection.rounded_quantity,
+        executable=False,
+        synthetic_only=True,
+        hold_reason=hold_reason,
+        created_at_ms=created_at,
+        expires_at_ms=expires_at,
+        decision_hash=decision_hash,
+    )
+
+
+def validate_frozen_decision(
+    decision: FrozenDecision,
+    snapshot: LiveSnapshot,
+    readiness: ReadinessAssessment,
+    projection: RiskProjection,
+    reference_ms: Optional[int] = None,
+) -> None:
+
+    if reference_ms is None:
+        reference_ms = now_ms()
+
+    require(
+        decision.symbol == SYMBOL,
+        "decision symbol mismatch",
+    )
+
+    require(
+        decision.side == "BUY",
+        "decision side mismatch",
+    )
+
+    require(
+        decision.position_side == "LONG",
+        "decision position side mismatch",
+    )
+
+    require(
+        decision.snapshot_hash
+        == snapshot.snapshot_hash,
+        "decision snapshot binding mismatch",
+    )
+
+    require(
+        decision.readiness_hash
+        == readiness.assessment_hash,
+        "decision readiness binding mismatch",
+    )
+
+    require(
+        decision.projection_hash
+        == projection.projection_hash,
+        "decision projection binding mismatch",
+    )
+
+    require(
+        decision.executable is False,
+        "decision unexpectedly executable",
+    )
+
+    require(
+        decision.synthetic_only is True,
+        "decision is not synthetic-only",
+    )
+
+    require(
+        bool(
+            decision.hold_reason
+        ),
+        "decision hold reason missing",
+    )
+
+    require(
+        reference_ms
+        <= decision.expires_at_ms,
+        "decision is stale",
+    )
+
+    body = {
+        "decision_id": decision.decision_id,
+        "snapshot_hash": decision.snapshot_hash,
+        "readiness_hash": decision.readiness_hash,
+        "projection_hash": decision.projection_hash,
+        "symbol": decision.symbol,
+        "side": decision.side,
+        "position_side": decision.position_side,
+        "quantity": decision.quantity,
+        "executable": decision.executable,
+        "synthetic_only": decision.synthetic_only,
+        "hold_reason": decision.hold_reason,
+        "created_at_ms": decision.created_at_ms,
+        "expires_at_ms": decision.expires_at_ms,
+    }
+
+    require(
+        sha256_obj(
+            body
+        )
+        == decision.decision_hash,
+        "decision integrity hash mismatch",
+    )
+
+
+print(
+    "R29 UNIT D: PART 2 DEFINITIONS LOADED",
+    flush=True,
+)
+
+# =============================================================================
+# END R29 UNIT D - PART 2 OF 4
+#
+# PASTE PART 3 IMMEDIATELY BELOW THIS LINE.
+# DO NOT ADD INDENTATION AT THE JOIN.
+# =============================================================================
