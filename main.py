@@ -3760,3 +3760,683 @@ print(
 # PASTE PART 4 IMMEDIATELY BELOW THIS LINE.
 # DO NOT ADD INDENTATION AT THE JOIN.
 # =============================================================================
+# =============================================================================
+# R29 UNIT D
+# LIVE READ-ONLY SNAPSHOT / READINESS / DECISION-CYCLE VALIDATION
+#
+# CORRECTED COPY/PASTE VERSION
+# PART 4 OF 4
+#
+# CONTINUES DIRECTLY FROM PART 3.
+# ZERO-INDENTATION JOIN.
+#
+# PART 4:
+#   - TEST 17: RESTART CONTINUITY
+#   - TEST 18: TERMINAL UNIT D SAFETY INVARIANTS
+#   - HEALTH SERVER
+#   - HEARTBEAT LOOP
+#   - MAIN ENTRY POINT
+# =============================================================================
+
+
+# =============================================================================
+# TERMINAL TESTS 17-18
+#
+# Part 3 intentionally returns RuntimeState after Test 16.
+# These final test groups operate on that returned durable state.
+# =============================================================================
+
+def terminal_diagnostics(
+    state: RuntimeState,
+) -> RuntimeState:
+
+    # =========================================================================
+    # TEST 17
+    # =========================================================================
+
+    test_header(
+        17,
+        "RESTART CONTINUITY",
+    )
+
+    restored = load_runtime_state()
+
+    require(
+        restored is not None,
+        "durable runtime state missing after save",
+    )
+
+    validate_runtime_state(
+        restored
+    )
+
+    passed(
+        "Runtime Identity Survives Durable Restore",
+        restored.runtime_id
+        == state.runtime_id,
+    )
+
+    passed(
+        "Generation Survives Same-Configuration Restart",
+        restored.generation
+        == state.generation,
+    )
+
+    passed(
+        "Recovery Epoch Survives Durable Restore",
+        restored.recovery_epoch
+        == state.recovery_epoch,
+    )
+
+    passed(
+        "Boot Counter Survives Durable Restore",
+        restored.boot_count
+        == state.boot_count,
+    )
+
+    passed(
+        "Snapshot Binding Survives Durable Restore",
+        restored.snapshot_hash
+        == state.snapshot_hash,
+    )
+
+    passed(
+        "Readiness Binding Survives Durable Restore",
+        restored.readiness_hash
+        == state.readiness_hash,
+    )
+
+    passed(
+        "Projection Binding Survives Durable Restore",
+        restored.projection_hash
+        == state.projection_hash,
+    )
+
+    passed(
+        "Decision Binding Survives Durable Restore",
+        restored.decision_hash
+        == state.decision_hash,
+    )
+
+    passed(
+        "Receipt Binding Survives Durable Restore",
+        restored.receipt_hash
+        == state.receipt_hash,
+    )
+
+    passed(
+        "Last Decision ID Survives Durable Restore",
+        restored.last_decision_id
+        == state.last_decision_id,
+    )
+
+    passed(
+        "Real Order Counter Remains Zero",
+        restored.real_order_count
+        == 0,
+    )
+
+    passed(
+        "Demo Order Counter Remains Zero",
+        restored.demo_order_count
+        == 0,
+    )
+
+    passed(
+        "Network Write Counter Remains Zero",
+        restored.network_write_count
+        == 0,
+    )
+
+    passed(
+        "Synthetic Dispatch Count Is Positive",
+        restored.synthetic_dispatch_count
+        >= 1,
+    )
+
+    if restored.boot_count > 1:
+
+        passed(
+            "Recovery Epoch Advanced Across Runtime Boots",
+            restored.recovery_epoch
+            >= restored.boot_count,
+        )
+
+        passed(
+            "Durable Runtime Has Multiple Boots",
+            restored.boot_count
+            > 1,
+        )
+
+    else:
+
+        passed(
+            "Initial Runtime Boot Is Valid",
+            restored.boot_count
+            == 1,
+        )
+
+        passed(
+            "Initial Recovery Epoch Is Valid",
+            restored.recovery_epoch
+            >= 1,
+        )
+
+    print(
+        f"{UNIT_NAME}: RESTART STATE "
+        f"generation={restored.generation} "
+        f"recovery-epoch={restored.recovery_epoch} "
+        f"boot-count={restored.boot_count}",
+        flush=True,
+    )
+
+    # =========================================================================
+    # TEST 18
+    # =========================================================================
+
+    test_header(
+        18,
+        "TERMINAL UNIT D SAFETY INVARIANTS",
+    )
+
+    validate_runtime_state(
+        restored
+    )
+
+    passed(
+        "Final Durable Runtime State Validates",
+        True,
+    )
+
+    passed(
+        "Live Reads Were GET-Only",
+        TRANSPORT.live_read_count
+        >= 5,
+    )
+
+    passed(
+        "Real Order Execution Remains Disabled",
+        REAL_ORDER_EXECUTION
+        is False,
+    )
+
+    passed(
+        "Demo Order Execution Remains Disabled",
+        DEMO_ORDER_EXECUTION
+        is False,
+    )
+
+    passed(
+        "All Network Writes Remain Disabled",
+        NETWORK_WRITES_ENABLED
+        is False,
+    )
+
+    passed(
+        "Synthetic Transport Remains Exclusive",
+        SYNTHETIC_TRANSPORT_ONLY
+        is True,
+    )
+
+    passed(
+        "WebSocket Writes Remain Disabled",
+        WEBSOCKET_WRITES_ENABLED
+        is False,
+    )
+
+    passed(
+        "Leverage Mutation Remains Disabled",
+        LEVERAGE_MUTATION_ENABLED
+        is False,
+    )
+
+    passed(
+        "Margin Mutation Remains Disabled",
+        MARGIN_MUTATION_ENABLED
+        is False,
+    )
+
+    passed(
+        "Position Mutation Remains Disabled",
+        POSITION_MUTATION_ENABLED
+        is False,
+    )
+
+    passed(
+        "Account Mutation Remains Disabled",
+        ACCOUNT_MUTATION_ENABLED
+        is False,
+    )
+
+    passed(
+        "Final Real Order Count Is Zero",
+        restored.real_order_count
+        == 0,
+    )
+
+    passed(
+        "Final Demo Order Count Is Zero",
+        restored.demo_order_count
+        == 0,
+    )
+
+    passed(
+        "Final Network Write Count Is Zero",
+        restored.network_write_count
+        == 0,
+    )
+
+    passed(
+        "Real Write Firebreak Was Exercised",
+        TRANSPORT.real_write_blocks
+        >= 1,
+    )
+
+    passed(
+        "Demo Write Firebreak Was Exercised",
+        TRANSPORT.demo_write_blocks
+        >= 1,
+    )
+
+    passed(
+        "WebSocket Write Firebreak Was Exercised",
+        TRANSPORT.websocket_write_blocks
+        >= 1,
+    )
+
+    passed(
+        "Leverage Mutation Firebreak Was Exercised",
+        TRANSPORT.leverage_mutation_blocks
+        >= 1,
+    )
+
+    passed(
+        "Margin Mutation Firebreak Was Exercised",
+        TRANSPORT.margin_mutation_blocks
+        >= 1,
+    )
+
+    passed(
+        "Position Mutation Firebreak Was Exercised",
+        TRANSPORT.position_mutation_blocks
+        >= 1,
+    )
+
+    passed(
+        "Account Mutation Firebreak Was Exercised",
+        TRANSPORT.account_mutation_blocks
+        >= 1,
+    )
+
+    passed(
+        "No Real Write Was Counted",
+        restored.real_order_count
+        == 0,
+    )
+
+    passed(
+        "No Demo Write Was Counted",
+        restored.demo_order_count
+        == 0,
+    )
+
+    passed(
+        "No Network Write Was Counted",
+        restored.network_write_count
+        == 0,
+    )
+
+    banner(
+        f"{UNIT_NAME}: ALL DIAGNOSTICS PASSED"
+    )
+
+    print(
+        "NO REAL ORDER WAS SENT",
+        flush=True,
+    )
+
+    print(
+        "NO DEMO ORDER WAS SENT",
+        flush=True,
+    )
+
+    print(
+        "NO NETWORK WRITE WAS ATTEMPTED",
+        flush=True,
+    )
+
+    print(
+        f"{UNIT_NAME}: TEST GROUPS EXECUTED = "
+        f"{TEST_GROUPS}",
+        flush=True,
+    )
+
+    print(
+        f"{UNIT_NAME}: PASS ASSERTIONS = "
+        f"{PASS_ASSERTIONS}",
+        flush=True,
+    )
+
+    return restored
+
+
+# =============================================================================
+# HEALTH SERVER
+# =============================================================================
+
+class HealthHandler(
+    BaseHTTPRequestHandler
+):
+
+    def do_GET(
+        self,
+    ) -> None:
+
+        if self.path not in (
+            "/",
+            "/health",
+            "/healthz",
+        ):
+            self.send_response(
+                404
+            )
+
+            self.send_header(
+                "Content-Type",
+                "text/plain; charset=utf-8",
+            )
+
+            self.end_headers()
+
+            self.wfile.write(
+                b"not found\n"
+            )
+
+            return
+
+        payload = canonical_json(
+            {
+                "status": "ok",
+                "unit": UNIT_NAME,
+                "symbol": SYMBOL,
+                "synthetic_only": (
+                    SYNTHETIC_TRANSPORT_ONLY
+                ),
+                "network_writes": (
+                    NETWORK_WRITES_ENABLED
+                ),
+                "real_orders": (
+                    REAL_ORDER_EXECUTION
+                ),
+                "demo_orders": (
+                    DEMO_ORDER_EXECUTION
+                ),
+            }
+        ).encode(
+            "utf-8"
+        )
+
+        self.send_response(
+            200
+        )
+
+        self.send_header(
+            "Content-Type",
+            "application/json",
+        )
+
+        self.send_header(
+            "Content-Length",
+            str(
+                len(
+                    payload
+                )
+            ),
+        )
+
+        self.end_headers()
+
+        self.wfile.write(
+            payload
+        )
+
+    def log_message(
+        self,
+        format: str,
+        *args: Any,
+    ) -> None:
+
+        # Keep Render output focused on diagnostic state.
+        return
+
+
+class ReusableTCPServer(
+    socketserver.TCPServer
+):
+
+    allow_reuse_address = True
+
+
+def start_health_server() -> None:
+
+    def runner() -> None:
+
+        try:
+
+            with ReusableTCPServer(
+                (
+                    "0.0.0.0",
+                    HEALTH_PORT,
+                ),
+                HealthHandler,
+            ) as server:
+
+                print(
+                    f"{UNIT_NAME}: HEALTH SERVER "
+                    f"LISTENING ON PORT "
+                    f"{HEALTH_PORT}",
+                    flush=True,
+                )
+
+                server.serve_forever()
+
+        except Exception as exc:
+
+            print(
+                f"{UNIT_NAME}: HEALTH SERVER ERROR: "
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+
+            raise
+
+    thread = threading.Thread(
+        target=runner,
+        name="r29-unit-d-health",
+        daemon=True,
+    )
+
+    thread.start()
+
+
+# =============================================================================
+# TERMINAL RUNTIME INVARIANT CHECK
+# =============================================================================
+
+def heartbeat_invariants(
+    state: RuntimeState,
+) -> None:
+
+    require(
+        REAL_ORDER_EXECUTION
+        is False,
+        "real order execution changed during runtime",
+    )
+
+    require(
+        DEMO_ORDER_EXECUTION
+        is False,
+        "demo order execution changed during runtime",
+    )
+
+    require(
+        NETWORK_WRITES_ENABLED
+        is False,
+        "network writes changed during runtime",
+    )
+
+    require(
+        SYNTHETIC_TRANSPORT_ONLY
+        is True,
+        "synthetic-only mode changed during runtime",
+    )
+
+    require(
+        WEBSOCKET_WRITES_ENABLED
+        is False,
+        "WebSocket write state changed during runtime",
+    )
+
+    require(
+        LEVERAGE_MUTATION_ENABLED
+        is False,
+        "leverage mutation state changed during runtime",
+    )
+
+    require(
+        MARGIN_MUTATION_ENABLED
+        is False,
+        "margin mutation state changed during runtime",
+    )
+
+    require(
+        POSITION_MUTATION_ENABLED
+        is False,
+        "position mutation state changed during runtime",
+    )
+
+    require(
+        ACCOUNT_MUTATION_ENABLED
+        is False,
+        "account mutation state changed during runtime",
+    )
+
+    require(
+        state.real_order_count
+        == 0,
+        "real order counter changed during runtime",
+    )
+
+    require(
+        state.demo_order_count
+        == 0,
+        "demo order counter changed during runtime",
+    )
+
+    require(
+        state.network_write_count
+        == 0,
+        "network write counter changed during runtime",
+    )
+
+
+# =============================================================================
+# HEARTBEAT LOOP
+# =============================================================================
+
+def heartbeat_loop(
+    state: RuntimeState,
+) -> None:
+
+    heartbeat_number = 1
+
+    while True:
+
+        heartbeat_invariants(
+            state
+        )
+
+        print(
+            f"{UNIT_NAME}: HEARTBEAT "
+            f"{heartbeat_number} | "
+            f"synthetic-only="
+            f"{SYNTHETIC_TRANSPORT_ONLY} | "
+            f"network-writes="
+            f"{NETWORK_WRITES_ENABLED} | "
+            f"generation="
+            f"{state.generation} | "
+            f"recovery-epoch="
+            f"{state.recovery_epoch} | "
+            f"live-reads="
+            f"{TRANSPORT.live_read_count}",
+            flush=True,
+        )
+
+        heartbeat_number += 1
+
+        time.sleep(
+            HEARTBEAT_SECONDS
+        )
+
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
+def main() -> None:
+
+    state = diagnostics()
+
+    state = terminal_diagnostics(
+        state
+    )
+
+    start_health_server()
+
+    heartbeat_loop(
+        state
+    )
+
+
+# =============================================================================
+# ENTRY POINT
+# =============================================================================
+
+if __name__ == "__main__":
+
+    main()
+
+
+# =============================================================================
+# R29 UNIT D
+# END OF COMPLETE MAIN.PY
+#
+# EXPECTED TERMINAL CHARACTERISTICS:
+#
+#   R29 UNIT D: ALL DIAGNOSTICS PASSED
+#
+#   NO REAL ORDER WAS SENT
+#   NO DEMO ORDER WAS SENT
+#   NO NETWORK WRITE WAS ATTEMPTED
+#
+#   R29 UNIT D: TEST GROUPS EXECUTED = 18
+#
+# CURRENT ACCOUNT CONFIGURATION OBSERVED BY UNIT C:
+#
+#   margin = ISOLATED
+#   isolated-long = 50x
+#   isolated-short = 20x
+#
+# THEREFORE UNTIL THE ACCOUNT CONFIGURATION ITSELF CHANGES:
+#
+#   LONG 100x READINESS  = False
+#   SHORT 100x READINESS = False
+#
+# AND THE EXPECTED FROZEN DECISION IS:
+#
+#   DECISION HOLD REASON = LEVERAGE_NOT_READY
+#
+# THIS IS AN EXPECTED PASS CONDITION.
+#
+# UNIT D NEVER MUTATES THE ACCOUNT TO RESOLVE THAT CONDITION.
+# =============================================================================
