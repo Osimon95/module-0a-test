@@ -2935,3 +2935,399 @@ def main():
     )
 
     # ==============================================================================================
+    ==========================================================================================
+    # TEST 14
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 14: BACKUP 2 RESTART EXACTLY-ONCE"
+    )
+
+    backup2 = create_transition_intent(
+        "BACKUP_2",
+        "BACKUP_LONG_SYNTHETIC",
+        normalized_qty,
+        {
+            "backup_number":
+                2,
+            "size_percent":
+                decimal_string(
+                    BACKUP_SIZE_PERCENT
+                ),
+        },
+    )
+
+    backup2_id = backup2[
+        "transition_id"
+    ]
+
+    engine.prepare(
+        backup2
+    )
+
+    engine.commit(
+        backup2_id
+    )
+
+    engine.synthetic_dispatch(
+        backup2_id
+    )
+
+    count_after_backup2_dispatch = (
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+    )
+
+    assert_test(
+        "Backup 2 Durable Receipt Exists Before Restart",
+        transition_status(
+            engine,
+            backup2_id,
+        ) == "DISPATCHED",
+    )
+
+    engine = DurableTransitionEngine.restore()
+
+    recovery = engine.recover_transition(
+        backup2_id
+    )
+
+    assert_test(
+        "Backup 2 Recovery Used Apply-Only Path",
+        recovery[
+            "action"
+        ] == "APPLY_ONLY",
+    )
+
+    assert_test(
+        "Backup 2 Recovery Did Not Redispatch",
+        recovery[
+            "dispatched"
+        ] is False,
+    )
+
+    assert_test(
+        "Backup 2 Dispatch Count Remained Stable",
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+        == count_after_backup2_dispatch,
+    )
+
+    assert_test(
+        "Backup Count Is Two",
+        engine.state[
+            "backup_count"
+        ] == 2,
+    )
+
+    # ==============================================================================================
+    # TEST 15
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 15: BACKUP 3 EXACTLY-ONCE"
+    )
+
+    backup3 = create_transition_intent(
+        "BACKUP_3",
+        "BACKUP_LONG_SYNTHETIC",
+        normalized_qty,
+        {
+            "backup_number":
+                3,
+            "size_percent":
+                decimal_string(
+                    BACKUP_SIZE_PERCENT
+                ),
+        },
+    )
+
+    engine.execute_exactly_once(
+        backup3
+    )
+
+    backup3_dispatch_count = (
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+    )
+
+    engine.execute_exactly_once(
+        backup3
+    )
+
+    assert_test(
+        "Backup 3 Is Applied",
+        transition_status(
+            engine,
+            backup3[
+                "transition_id"
+            ],
+        ) == "APPLIED",
+    )
+
+    assert_test(
+        "Backup Count Is Three",
+        engine.state[
+            "backup_count"
+        ] == 3,
+    )
+
+    assert_test(
+        "Backup 3 Replay Produced No Additional Dispatch",
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+        == backup3_dispatch_count,
+    )
+
+    # ==============================================================================================
+    # TEST 16
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 16: TP1 EXACTLY-ONCE"
+    )
+
+    tp1_quantity = normalize_quantity_down(
+        normalized_qty
+        * TP1_SHARE_PERCENT
+        / Decimal("100"),
+        qty_step,
+    )
+
+    if tp1_quantity <= 0:
+        tp1_quantity = min_qty
+
+    tp1 = create_transition_intent(
+        "TP1",
+        "REDUCE_LONG_SYNTHETIC",
+        tp1_quantity,
+        {
+            "share_percent":
+                decimal_string(
+                    TP1_SHARE_PERCENT
+                ),
+            "trigger_percent":
+                decimal_string(
+                    TP1_TRIGGER_PERCENT
+                ),
+        },
+    )
+
+    engine.execute_exactly_once(
+        tp1
+    )
+
+    tp1_dispatch_count = engine.state[
+        "synthetic_dispatch_count"
+    ]
+
+    engine.execute_exactly_once(
+        tp1
+    )
+
+    assert_test(
+        "TP1 Is Applied",
+        transition_status(
+            engine,
+            tp1[
+                "transition_id"
+            ],
+        ) == "APPLIED",
+    )
+
+    assert_test(
+        "TP1 State Is Completed",
+        engine.state[
+            "tp1_completed"
+        ] is True,
+    )
+
+    assert_test(
+        "TP1 Replay Produced No Additional Dispatch",
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+        == tp1_dispatch_count,
+    )
+
+    # ==============================================================================================
+    # TEST 17
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 17: TP2 COMMIT CRASH RECOVERY"
+    )
+
+    tp2_quantity = normalize_quantity_down(
+        normalized_qty
+        * TP2_SHARE_PERCENT
+        / Decimal("100"),
+        qty_step,
+    )
+
+    if tp2_quantity <= 0:
+        tp2_quantity = min_qty
+
+    tp2 = create_transition_intent(
+        "TP2",
+        "REDUCE_LONG_SYNTHETIC",
+        tp2_quantity,
+        {
+            "share_percent":
+                decimal_string(
+                    TP2_SHARE_PERCENT
+                ),
+            "trigger_percent":
+                decimal_string(
+                    TP2_TRIGGER_PERCENT
+                ),
+        },
+    )
+
+    tp2_id = tp2[
+        "transition_id"
+    ]
+
+    engine.prepare(
+        tp2
+    )
+
+    engine.commit(
+        tp2_id
+    )
+
+    count_before_tp2_recovery = (
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+    )
+
+    engine = DurableTransitionEngine.restore()
+
+    tp2_recovery = engine.recover_transition(
+        tp2_id
+    )
+
+    assert_test(
+        "TP2 Recovery Dispatched From Durable Commit",
+        tp2_recovery[
+            "dispatched"
+        ] is True,
+    )
+
+    assert_test(
+        "TP2 Added Exactly One Dispatch",
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+        == count_before_tp2_recovery + 1,
+    )
+
+    assert_test(
+        "TP2 State Is Completed",
+        engine.state[
+            "tp2_completed"
+        ] is True,
+    )
+
+    # ==============================================================================================
+    # TEST 18
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 18: DURABLE TRAILING ARM"
+    )
+
+    trailing_reference = (
+        market_price
+        * (
+            Decimal("1")
+            + (
+                TP2_TRIGGER_PERCENT
+                / Decimal("100")
+            )
+        )
+    )
+
+    trailing_intent = create_transition_intent(
+        "TRAILING_ARM",
+        "ARM_TRAILING_SYNTHETIC",
+        Decimal("0"),
+        {
+            "trailing_distance_percent":
+                decimal_string(
+                    TRAILING_DISTANCE_PERCENT
+                ),
+            "reference_price":
+                decimal_string(
+                    trailing_reference
+                ),
+        },
+    )
+
+    engine.execute_exactly_once(
+        trailing_intent
+    )
+
+    trailing_dispatch_count = (
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+    )
+
+    engine.execute_exactly_once(
+        trailing_intent
+    )
+
+    assert_test(
+        "Trailing Arm Transition Is Applied",
+        transition_status(
+            engine,
+            trailing_intent[
+                "transition_id"
+            ],
+        ) == "APPLIED",
+    )
+
+    assert_test(
+        "Trailing Is Armed",
+        engine.state[
+            "trailing_armed"
+        ] is True,
+    )
+
+    assert_test(
+        "Trailing Replay Produced No Additional Dispatch",
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+        == trailing_dispatch_count,
+    )
+
+    log(
+        f"{VERSION}: TRAILING DISTANCE="
+        f"{decimal_string(TRAILING_DISTANCE_PERCENT)}%"
+    )
+
+    log(
+        f"{VERSION}: TRAILING REFERENCE="
+        f"{decimal_string(trailing_reference)}"
+    )
+
+
+# ==================================================================================================
+# END OF R35A PART 3/4
+#
+# DO NOT RUN YET.
+#
+# PART 4/4 CONTINUES INSIDE main()
+# STARTING WITH:
+#
+#     TEST 19: TP3 DISPATCH/APPLY CRASH WINDOW
+#
+# THEN TESTS 20-29, FINAL SUMMARY, HEARTBEAT, AND ENTRY POINT.
+# ==================================================================================================
