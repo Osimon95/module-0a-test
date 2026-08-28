@@ -595,34 +595,31 @@ class StrategyState:
 
     highest_nonce: int = 0
 
-    active_intent:
-        Optional[
-            Dict[str, Any]
-        ] = None
+    active_intent: Optional[
+        Dict[str, Any]
+    ] = None
 
-    active_authorization:
-        Optional[
-            Dict[str, Any]
-        ] = None
+    active_authorization: Optional[
+        Dict[str, Any]
+    ] = None
 
-    consumed_intents:
-        List[str] = field(
-            default_factory=list
-        )
+    consumed_intents: List[str] = field(
+        default_factory=list
+    )
 
-    durable_receipts:
-        List[
-            Dict[str, Any]
-        ] = field(
-            default_factory=list
-        )
+    durable_receipts: List[
+        Dict[str, Any]
+    ] = field(
+        default_factory=list
+    )
 
     synthetic_dispatch_count: int = 0
 
     terminal: bool = False
 
     last_journal_hash: str = "0" * 64
-journal_sequence: int = 0
+
+    journal_sequence: int = 0
 
     updated_ms:
         int = field(
