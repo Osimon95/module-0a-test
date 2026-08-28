@@ -1847,3 +1847,1091 @@ class DurableTransitionEngine:
 #
 # ==================================================================================================
 
+ ==================================================================================================
+# R35A - DURABLE EXACTLY-ONCE SYNTHETIC STRATEGY LIFECYCLE VALIDATION
+# PART 3/4
+# ==================================================================================================
+#
+# CONTINUES DIRECTLY INSIDE DurableTransitionEngine FROM PART 2/4
+#
+# ==================================================================================================
+
+    def apply_strategy_effect(
+        self,
+        transition_name,
+    ):
+        if transition_name == "INITIAL_ENTRY":
+            if self.state["initial_entry_completed"]:
+                return
+
+            self.state["initial_entry_completed"] = True
+            self.state["strategy_phase"] = "ENTRY_ACTIVE"
+            return
+
+        if transition_name == "PYRAMID_1":
+            if self.state["pyramid_count"] >= MAX_PYRAMID_ADDS:
+                return
+
+            self.state["pyramid_count"] += 1
+            self.state["strategy_phase"] = "PYRAMID_COMPLETE"
+            return
+
+        if transition_name.startswith("BACKUP_"):
+            if self.state["backup_count"] >= MAX_BACKUPS:
+                return
+
+            self.state["backup_count"] += 1
+            self.state["strategy_phase"] = "BACKUP_ACTIVE"
+
+            if self.state["backup_count"] == MAX_BACKUPS:
+                self.state["strategy_phase"] = "BACKUPS_COMPLETE"
+
+            return
+
+        if transition_name == "TP1":
+            self.state["tp1_completed"] = True
+            self.state["strategy_phase"] = "TP1_COMPLETE"
+            return
+
+        if transition_name == "TP2":
+            self.state["tp2_completed"] = True
+            self.state["strategy_phase"] = "TP2_COMPLETE"
+            return
+
+        if transition_name == "TRAILING_ARM":
+            if (
+                self.state["tp1_completed"]
+                and self.state["tp2_completed"]
+            ):
+                self.state["trailing_armed"] = True
+                self.state["strategy_phase"] = "TRAILING_ARMED"
+
+            return
+
+        if transition_name == "TP3":
+            self.state["tp3_completed"] = True
+            self.state["strategy_phase"] = "TP3_COMPLETE"
+            return
+
+        if transition_name == "TERMINAL_EXIT":
+            self.state["terminal_exit_completed"] = True
+            self.state["strategy_phase"] = "TERMINAL"
+            return
+
+        if transition_name == "RECOVERY_PROBE":
+            return
+
+        raise RuntimeError(
+            f"Unknown strategy transition: {transition_name}"
+        )
+
+
+    def execute_exactly_once(
+        self,
+        intent,
+    ):
+        transition_id = intent[
+            "transition_id"
+        ]
+
+        record = self.get_transition(
+            transition_id
+        )
+
+        if record is None:
+            record = self.prepare(
+                intent
+            )
+
+        if record["status"] == "PREPARED":
+            record = self.commit(
+                transition_id
+            )
+
+        if record["status"] == "COMMITTED":
+            self.synthetic_dispatch(
+                transition_id
+            )
+
+            record = self.get_transition(
+                transition_id
+            )
+
+        if record["status"] == "DISPATCHED":
+            record = self.apply(
+                transition_id
+            )
+
+        return record
+
+
+    def recover_transition(
+        self,
+        transition_id,
+    ):
+        record = self.get_transition(
+            transition_id
+        )
+
+        if record is None:
+            raise RuntimeError(
+                "Cannot recover unknown transition"
+            )
+
+        if record["status"] == "PREPARED":
+            return {
+                "recovered": True,
+                "action": "WAIT_FOR_COMMIT",
+                "dispatched": False,
+                "status": "PREPARED",
+            }
+
+        if record["status"] == "COMMITTED":
+            receipt = self.synthetic_dispatch(
+                transition_id
+            )
+
+            self.apply(
+                transition_id
+            )
+
+            return {
+                "recovered": True,
+                "action": "DISPATCH_AND_APPLY",
+                "dispatched": True,
+                "receipt": receipt,
+                "status": "APPLIED",
+            }
+
+        if record["status"] == "DISPATCHED":
+            self.apply(
+                transition_id
+            )
+
+            return {
+                "recovered": True,
+                "action": "APPLY_ONLY",
+                "dispatched": False,
+                "status": "APPLIED",
+            }
+
+        if record["status"] == "APPLIED":
+            return {
+                "recovered": True,
+                "action": "NOOP_ALREADY_APPLIED",
+                "dispatched": False,
+                "status": "APPLIED",
+            }
+
+        raise RuntimeError(
+            f"Unknown recovery status: "
+            f"{record['status']}"
+        )
+
+
+    def replay_allowed(
+        self,
+        transition_id,
+    ):
+        return (
+            transition_id
+            not in self.state[
+                "consumed_intents"
+            ]
+        )
+
+
+# ==================================================================================================
+# TEST HELPERS
+# ==================================================================================================
+
+def reset_test_state():
+    if os.path.exists(
+        STATE_DIR
+    ):
+        shutil.rmtree(
+            STATE_DIR
+        )
+
+    ensure_state_directory()
+
+
+def function_rejected(
+    function,
+):
+    try:
+        function()
+
+    except NetworkWriteRejected:
+        return True
+
+    except Exception:
+        return False
+
+    return False
+
+
+def transition_receipt_is_safe(
+    receipt,
+):
+    return (
+        isinstance(receipt, dict)
+        and receipt.get("synthetic_only") is True
+        and receipt.get("transmitted") is False
+        and receipt.get("network_write") is False
+    )
+
+
+def transition_status(
+    engine,
+    transition_id,
+):
+    record = engine.get_transition(
+        transition_id
+    )
+
+    if not record:
+        return None
+
+    return record.get(
+        "status"
+    )
+
+
+# ==================================================================================================
+# MAIN VALIDATION
+# ==================================================================================================
+
+def main():
+    health_server = start_health_server()
+
+    section(
+        f"{VERSION}: MAIN.PY ENTERED"
+    )
+
+    log(
+        f"{VERSION}: SYMBOL={SYMBOL}"
+    )
+
+    log(
+        f"{VERSION}: VERSION={VERSION}"
+    )
+
+    log(
+        f"{VERSION}: HEALTH PORT={PORT}"
+    )
+
+    log(
+        f"{VERSION}: STATE DIR={STATE_DIR}"
+    )
+
+    log(
+        f"{VERSION}: AUTHENTICATED READ-ONLY ENABLED"
+    )
+
+    log(
+        f"{VERSION}: PUBLIC READ-ONLY ENABLED"
+    )
+
+    log(
+        f"{VERSION}: SYNTHETIC TRANSPORT ONLY"
+    )
+
+    log(
+        f"{VERSION}: NETWORK WRITES DISABLED"
+    )
+
+    log(
+        f"{VERSION}: REAL ORDERS DISABLED"
+    )
+
+    log(
+        f"{VERSION}: DEMO ORDERS DISABLED"
+    )
+
+    # ==============================================================================================
+    # TEST 1
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 1: SAFETY CONSTANTS"
+    )
+
+    assert_test(
+        "Authenticated Transport Is Read Only",
+        AUTHENTICATED_TRANSPORT_READ_ONLY is True,
+    )
+
+    assert_test(
+        "Public Transport Is Read Only",
+        PUBLIC_TRANSPORT_READ_ONLY is True,
+    )
+
+    assert_test(
+        "Synthetic Transport Only Is Enabled",
+        SYNTHETIC_TRANSPORT_ONLY is True,
+    )
+
+    assert_test(
+        "Network Writes Are Disabled",
+        NETWORK_WRITES_ENABLED is False,
+    )
+
+    assert_test(
+        "Real Orders Are Disabled",
+        REAL_ORDER_EXECUTION_ENABLED is False,
+    )
+
+    assert_test(
+        "Demo Orders Are Disabled",
+        DEMO_ORDER_EXECUTION_ENABLED is False,
+    )
+
+    assert_test(
+        "Leverage Mutation Is Disabled",
+        LEVERAGE_MUTATION_ENABLED is False,
+    )
+
+    assert_test(
+        "Margin Mutation Is Disabled",
+        MARGIN_MUTATION_ENABLED is False,
+    )
+
+    assert_test(
+        "Position Mutation Is Disabled",
+        POSITION_MUTATION_ENABLED is False,
+    )
+
+    # ==============================================================================================
+    # TEST 2
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 2: API CREDENTIALS"
+    )
+
+    assert_test(
+        "WEEX API Key Is Present",
+        bool(WEEX_API_KEY),
+    )
+
+    assert_test(
+        "WEEX API Secret Is Present",
+        bool(WEEX_API_SECRET),
+    )
+
+    assert_test(
+        "WEEX API Passphrase Is Present",
+        bool(WEEX_API_PASSPHRASE),
+    )
+
+    # ==============================================================================================
+    # TEST 3
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 3: LIVE BALANCE"
+    )
+
+    balance_payload = authenticated_get(
+        BALANCE_PATH
+    )
+
+    available_usdt = parse_available_usdt(
+        balance_payload
+    )
+
+    assert_test(
+        "Available Balance Was Read",
+        available_usdt is not None,
+    )
+
+    assert_test(
+        "Available Balance Is Positive",
+        available_usdt > 0,
+    )
+
+    log(
+        f"{VERSION}: AVAILABLE USDT="
+        f"{decimal_string(available_usdt)}"
+    )
+
+    # ==============================================================================================
+    # TEST 4
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 4: LIVE ACCOUNT CONFIGURATION"
+    )
+
+    config_payload = authenticated_get(
+        SYMBOL_CONFIG_PATH,
+        {
+            "symbol": SYMBOL,
+        },
+    )
+
+    symbol_config = parse_symbol_config(
+        config_payload
+    )
+
+    assert_test(
+        "Symbol Configuration Was Read",
+        isinstance(
+            symbol_config,
+            dict,
+        ),
+    )
+
+    margin_type = str(
+        symbol_config.get("marginType")
+        or symbol_config.get("margin_type")
+        or ""
+    ).upper()
+
+    long_leverage = decimal_value(
+        symbol_config.get("isolatedLongLeverage")
+        or symbol_config.get("isolated_long_leverage")
+    )
+
+    short_leverage = decimal_value(
+        symbol_config.get("isolatedShortLeverage")
+        or symbol_config.get("isolated_short_leverage")
+    )
+
+    assert_test(
+        "Margin Type Is ISOLATED",
+        margin_type
+        == TARGET_MARGIN_TYPE,
+    )
+
+    assert_test(
+        "Isolated Long Leverage Is 100x",
+        long_leverage
+        == TARGET_LEVERAGE,
+    )
+
+    assert_test(
+        "Isolated Short Leverage Is 100x",
+        short_leverage
+        == TARGET_LEVERAGE,
+    )
+
+    log(
+        f"{VERSION}: SYMBOL CONFIG="
+        f"{canonical_json(symbol_config)}"
+    )
+
+    # ==============================================================================================
+    # TEST 5
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 5: LIVE POSITION STATE"
+    )
+
+    position_payload = authenticated_get(
+        POSITION_PATH
+    )
+
+    positions = parse_positions(
+        position_payload
+    )
+
+    btc_positions = [
+        item
+        for item
+        in positions
+        if position_symbol(item)
+        == SYMBOL
+    ]
+
+    open_btc_positions = [
+        item
+        for item
+        in btc_positions
+        if position_size(item)
+        > 0
+    ]
+
+    assert_test(
+        "Position Endpoint Was Read",
+        position_payload
+        is not None,
+    )
+
+    assert_test(
+        "Position Records Were Parsed",
+        isinstance(
+            positions,
+            list,
+        ),
+    )
+
+    log(
+        f"{VERSION}: POSITION ENDPOINT="
+        f"{POSITION_PATH}"
+    )
+
+    log(
+        f"{VERSION}: TOTAL POSITION RECORDS="
+        f"{len(positions)}"
+    )
+
+    log(
+        f"{VERSION}: {SYMBOL} POSITION RECORDS="
+        f"{len(btc_positions)}"
+    )
+
+    log(
+        f"{VERSION}: {SYMBOL} OPEN POSITIONS="
+        f"{len(open_btc_positions)}"
+    )
+
+    # ==============================================================================================
+    # TEST 6
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 6: LIVE MARKET PRICE"
+    )
+
+    market_payload = public_get(
+        MARKET_PRICE_PATH,
+        {
+            "symbol": SYMBOL,
+            "priceType": "MARK",
+        },
+    )
+
+    market_price = parse_market_price(
+        market_payload
+    )
+
+    assert_test(
+        "Market Price Was Read",
+        market_price
+        is not None,
+    )
+
+    assert_test(
+        "Market Price Is Positive",
+        market_price > 0,
+    )
+
+    log(
+        f"{VERSION}: MARKET PRICE PATH="
+        f"{MARKET_PRICE_PATH}"
+    )
+
+    log(
+        f"{VERSION}: MARK PRICE="
+        f"{decimal_string(market_price)}"
+    )
+
+    # ==============================================================================================
+    # TEST 7
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 7: LIVE CONTRACT INFORMATION"
+    )
+
+    exchange_payload = public_get(
+        EXCHANGE_INFO_PATH,
+        {
+            "symbol": SYMBOL,
+        },
+    )
+
+    contract_info = parse_contract_information(
+        exchange_payload
+    )
+
+    min_qty = contract_info[
+        "min_qty"
+    ]
+
+    qty_step = contract_info[
+        "qty_step"
+    ]
+
+    price_step = contract_info[
+        "price_step"
+    ]
+
+    assert_test(
+        "Exchange Information Was Read",
+        exchange_payload
+        is not None,
+    )
+
+    assert_test(
+        "Minimum Quantity Is Positive",
+        min_qty > 0,
+    )
+
+    assert_test(
+        "Quantity Step Is Positive",
+        qty_step > 0,
+    )
+
+    assert_test(
+        "Price Step Is Positive",
+        price_step > 0,
+    )
+
+    log(
+        f"{VERSION}: MIN QTY="
+        f"{decimal_string(min_qty)}"
+    )
+
+    log(
+        f"{VERSION}: QTY STEP="
+        f"{decimal_string(qty_step)}"
+    )
+
+    log(
+        f"{VERSION}: PRICE STEP="
+        f"{decimal_string(price_step)}"
+    )
+
+    # ==============================================================================================
+    # TEST 8
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 8: STRATEGY BUDGET"
+    )
+
+    initial_entry_margin_budget = (
+        available_usdt
+        * INITIAL_ENTRY_PERCENT
+        / Decimal("100")
+    )
+
+    planned_notional = (
+        initial_entry_margin_budget
+        * TARGET_LEVERAGE
+    )
+
+    raw_qty = (
+        planned_notional
+        / market_price
+    )
+
+    normalized_qty = normalize_quantity_down(
+        raw_qty,
+        qty_step,
+    )
+
+    normalized_notional = (
+        normalized_qty
+        * market_price
+    )
+
+    normalized_margin = (
+        normalized_notional
+        / TARGET_LEVERAGE
+    )
+
+    planned_max_strategy_margin = (
+        available_usdt
+        * (
+            INITIAL_ENTRY_PERCENT
+            + (
+                PYRAMID_SIZE_PERCENT
+                * Decimal(
+                    MAX_PYRAMID_ADDS
+                )
+            )
+            + (
+                BACKUP_SIZE_PERCENT
+                * Decimal(
+                    MAX_BACKUPS
+                )
+            )
+        )
+        / Decimal("100")
+    )
+
+    max_allowed_strategy_margin = (
+        available_usdt
+        * MAX_FUND_EXPOSURE_PERCENT
+        / Decimal("100")
+    )
+
+    assert_test(
+        "Initial Entry Margin Budget Is Positive",
+        initial_entry_margin_budget > 0,
+    )
+
+    assert_test(
+        "Normalized Quantity Is Positive",
+        normalized_qty > 0,
+    )
+
+    assert_test(
+        "Normalized Quantity Meets Minimum",
+        normalized_qty >= min_qty,
+    )
+
+    assert_test(
+        "Normalized Margin Does Not Exceed 5% Entry Budget",
+        normalized_margin
+        <= initial_entry_margin_budget,
+    )
+
+    assert_test(
+        "Planned Maximum Strategy Margin Is Within 35%",
+        planned_max_strategy_margin
+        <= max_allowed_strategy_margin,
+    )
+
+    log(
+        f"{VERSION}: ENTRY MARGIN BUDGET="
+        f"{decimal_string(initial_entry_margin_budget)} USDT"
+    )
+
+    log(
+        f"{VERSION}: RAW QTY="
+        f"{decimal_string(raw_qty)} BTC"
+    )
+
+    log(
+        f"{VERSION}: NORMALIZED QTY="
+        f"{decimal_string(normalized_qty)} BTC"
+    )
+
+    log(
+        f"{VERSION}: NORMALIZED MARGIN="
+        f"{decimal_string(normalized_margin)} USDT"
+    )
+
+    log(
+        f"{VERSION}: PLANNED MAX STRATEGY MARGIN="
+        f"{decimal_string(planned_max_strategy_margin)} USDT"
+    )
+
+    # ==============================================================================================
+    # RESET LOCAL R35A DIAGNOSTIC STATE
+    # ==============================================================================================
+
+    reset_test_state()
+
+    engine = DurableTransitionEngine()
+
+    engine.persist()
+
+    # ==============================================================================================
+    # TEST 9
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 9: DURABLE PREPARE CRASH WINDOW"
+    )
+
+    initial_intent = create_transition_intent(
+        transition_name="INITIAL_ENTRY",
+        action="OPEN_LONG_SYNTHETIC",
+        quantity=normalized_qty,
+        metadata={
+            "entry_margin_percent":
+                decimal_string(
+                    INITIAL_ENTRY_PERCENT
+                ),
+            "leverage":
+                decimal_string(
+                    TARGET_LEVERAGE
+                ),
+            "margin_type":
+                TARGET_MARGIN_TYPE,
+            "market_price":
+                decimal_string(
+                    market_price
+                ),
+        },
+    )
+
+    initial_id = initial_intent[
+        "transition_id"
+    ]
+
+    engine.prepare(
+        initial_intent
+    )
+
+    assert_test(
+        "Initial Transition Was Durably Prepared",
+        transition_status(
+            engine,
+            initial_id,
+        ) == "PREPARED",
+    )
+
+    dispatch_count_before_restart = (
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+    )
+
+    engine = DurableTransitionEngine.restore()
+
+    assert_test(
+        "Prepared Transition Survived Restart",
+        transition_status(
+            engine,
+            initial_id,
+        ) == "PREPARED",
+    )
+
+    recovery = engine.recover_transition(
+        initial_id
+    )
+
+    assert_test(
+        "Prepared-Only Recovery Did Not Dispatch",
+        recovery[
+            "dispatched"
+        ] is False,
+    )
+
+    assert_test(
+        "Prepared-Only Recovery Preserved Dispatch Count",
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+        == dispatch_count_before_restart,
+    )
+
+    # ==============================================================================================
+    # TEST 10
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 10: DURABLE COMMIT CRASH WINDOW"
+    )
+
+    engine.commit(
+        initial_id
+    )
+
+    assert_test(
+        "Initial Transition Was Durably Committed",
+        transition_status(
+            engine,
+            initial_id,
+        ) == "COMMITTED",
+    )
+
+    engine = DurableTransitionEngine.restore()
+
+    assert_test(
+        "Committed Transition Survived Restart",
+        transition_status(
+            engine,
+            initial_id,
+        ) == "COMMITTED",
+    )
+
+    recovery = engine.recover_transition(
+        initial_id
+    )
+
+    assert_test(
+        "Committed Recovery Performed Synthetic Dispatch",
+        recovery[
+            "dispatched"
+        ] is True,
+    )
+
+    assert_test(
+        "Recovered Initial Transition Was Applied",
+        transition_status(
+            engine,
+            initial_id,
+        ) == "APPLIED",
+    )
+
+    assert_test(
+        "Initial Entry State Is Completed",
+        engine.state[
+            "initial_entry_completed"
+        ] is True,
+    )
+
+    assert_test(
+        "Exactly One Synthetic Dispatch Exists",
+        engine.state[
+            "synthetic_dispatch_count"
+        ] == 1,
+    )
+
+    # ==============================================================================================
+    # TEST 11
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 11: INITIAL REPLAY FENCE"
+    )
+
+    count_before_replay = engine.state[
+        "synthetic_dispatch_count"
+    ]
+
+    engine.execute_exactly_once(
+        initial_intent
+    )
+
+    assert_test(
+        "Consumed Initial Intent Is Recorded",
+        initial_id
+        in engine.state[
+            "consumed_intents"
+        ],
+    )
+
+    assert_test(
+        "Initial Replay Produced No Additional Dispatch",
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+        == count_before_replay,
+    )
+
+    assert_test(
+        "Initial Transition Remains Applied",
+        transition_status(
+            engine,
+            initial_id,
+        ) == "APPLIED",
+    )
+
+    # ==============================================================================================
+    # TEST 12
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 12: PYRAMID EXACTLY-ONCE"
+    )
+
+    pyramid_intent = create_transition_intent(
+        transition_name="PYRAMID_1",
+        action="ADD_LONG_SYNTHETIC",
+        quantity=normalized_qty,
+        metadata={
+            "size_percent":
+                decimal_string(
+                    PYRAMID_SIZE_PERCENT
+                ),
+        },
+    )
+
+    pyramid_id = pyramid_intent[
+        "transition_id"
+    ]
+
+    engine.execute_exactly_once(
+        pyramid_intent
+    )
+
+    pyramid_dispatch_count = (
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+    )
+
+    assert_test(
+        "Pyramid Transition Is Applied",
+        transition_status(
+            engine,
+            pyramid_id,
+        ) == "APPLIED",
+    )
+
+    assert_test(
+        "Pyramid Count Is One",
+        engine.state[
+            "pyramid_count"
+        ] == 1,
+    )
+
+    engine.execute_exactly_once(
+        pyramid_intent
+    )
+
+    assert_test(
+        "Pyramid Replay Produced No Additional Dispatch",
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+        == pyramid_dispatch_count,
+    )
+
+    assert_test(
+        "Pyramid Count Remains One",
+        engine.state[
+            "pyramid_count"
+        ] == 1,
+    )
+
+    # ==============================================================================================
+    # TEST 13
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 13: BACKUP 1 EXACTLY-ONCE"
+    )
+
+    backup1 = create_transition_intent(
+        "BACKUP_1",
+        "BACKUP_LONG_SYNTHETIC",
+        normalized_qty,
+        {
+            "backup_number":
+                1,
+            "size_percent":
+                decimal_string(
+                    BACKUP_SIZE_PERCENT
+                ),
+        },
+    )
+
+    engine.execute_exactly_once(
+        backup1
+    )
+
+    backup1_count = engine.state[
+        "synthetic_dispatch_count"
+    ]
+
+    engine.execute_exactly_once(
+        backup1
+    )
+
+    assert_test(
+        "Backup 1 Is Applied",
+        transition_status(
+            engine,
+            backup1[
+                "transition_id"
+            ],
+        ) == "APPLIED",
+    )
+
+    assert_test(
+        "Backup Count Is One",
+        engine.state[
+            "backup_count"
+        ] == 1,
+    )
+
+    assert_test(
+        "Backup 1 Replay Produced No Additional Dispatch",
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+        == backup1_count,
+    )
+
+    # ==============================================================================================
