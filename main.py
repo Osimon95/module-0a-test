@@ -1598,4 +1598,252 @@ class DurableTransitionEngine:
         )
 
 
-    def s
+    def synthetic_dispatch(
+        self,
+        transition_id,
+    ):
+        record = self.get_transition(
+            transition_id
+        )
+
+        if record is None:
+            raise RuntimeError(
+                "Cannot dispatch missing transition"
+            )
+
+        if record[
+            "status"
+        ] in (
+            "DISPATCHED",
+            "APPLIED",
+        ):
+            return record[
+                "receipt"
+            ]
+
+        if record[
+            "status"
+        ] != "COMMITTED":
+            raise RuntimeError(
+                "Synthetic dispatch requires "
+                "COMMITTED state"
+            )
+
+        if NETWORK_WRITES_ENABLED:
+            raise RuntimeError(
+                "Unsafe configuration: "
+                "network writes enabled"
+            )
+
+        if not SYNTHETIC_TRANSPORT_ONLY:
+            raise RuntimeError(
+                "Unsafe configuration: "
+                "synthetic-only transport disabled"
+            )
+
+        intent = record[
+            "intent"
+        ]
+
+        receipt_payload = {
+            "synthetic_only":
+                True,
+
+            "transmitted":
+                False,
+
+            "network_write":
+                False,
+
+            "version":
+                VERSION,
+
+            "symbol":
+                SYMBOL,
+
+            "transition_id":
+                transition_id,
+
+            "intent_sha256":
+                intent[
+                    "intent_sha256"
+                ],
+
+            "action":
+                intent[
+                    "action"
+                ],
+
+            "quantity":
+                intent[
+                    "quantity"
+                ],
+
+            "time_ms":
+                utc_ms(),
+        }
+
+        receipt_payload[
+            "receipt_sha256"
+        ] = sha256_object(
+            receipt_payload
+        )
+
+        record[
+            "receipt"
+        ] = receipt_payload
+
+        record[
+            "status"
+        ] = "DISPATCHED"
+
+        record[
+            "dispatched_ms"
+        ] = utc_ms()
+
+        if (
+            transition_id
+            not in self.state[
+                "consumed_intents"
+            ]
+        ):
+            self.state[
+                "consumed_intents"
+            ].append(
+                transition_id
+            )
+
+        existing_receipt_ids = {
+            item.get(
+                "transition_id"
+            )
+            for item
+            in self.state[
+                "dispatch_receipts"
+            ]
+            if isinstance(
+                item,
+                dict,
+            )
+        }
+
+        if (
+            transition_id
+            not in existing_receipt_ids
+        ):
+            self.state[
+                "dispatch_receipts"
+            ].append(
+                deep_copy(
+                    receipt_payload
+                )
+            )
+
+            self.state[
+                "synthetic_dispatch_count"
+            ] += 1
+
+        append_journal(
+            "DISPATCHED",
+            transition_id,
+            {
+                "receipt_sha256":
+                    receipt_payload[
+                        "receipt_sha256"
+                    ],
+            },
+        )
+
+        # Critical durable fencing point:
+        #
+        # Receipt + consumed intent are persisted
+        # before this method returns.
+        #
+        # Any restart after this point must see
+        # DISPATCHED and must not redispatch.
+
+        self.persist()
+
+        return deep_copy(
+            receipt_payload
+        )
+
+
+    def apply(
+        self,
+        transition_id,
+    ):
+        record = self.get_transition(
+            transition_id
+        )
+
+        if record is None:
+            raise RuntimeError(
+                "Cannot apply missing transition"
+            )
+
+        if record[
+            "status"
+        ] == "APPLIED":
+            return record
+
+        if record[
+            "status"
+        ] != "DISPATCHED":
+            raise RuntimeError(
+                "Apply requires durable "
+                "DISPATCHED state"
+            )
+
+        intent = record[
+            "intent"
+        ]
+
+        transition_name = intent[
+            "transition_name"
+        ]
+
+        self.apply_strategy_effect(
+            transition_name
+        )
+
+        record[
+            "status"
+        ] = "APPLIED"
+
+        record[
+            "applied_ms"
+        ] = utc_ms()
+
+        append_journal(
+            "APPLIED",
+            transition_id,
+            {
+                "strategy_phase":
+                    self.state[
+                        "strategy_phase"
+                    ],
+            },
+        )
+
+        self.persist()
+
+        return self.get_transition(
+            transition_id
+        )
+
+
+# ==================================================================================================
+# END OF R35A PART 2/4
+#
+# IMPORTANT:
+# DO NOT RUN YET.
+#
+# NEXT:
+# PART 3/4 CONTINUES INSIDE DurableTransitionEngine
+# STARTING WITH:
+#
+#     def apply_strategy_effect(self, transition_name):
+#
+# ==================================================================================================
+
