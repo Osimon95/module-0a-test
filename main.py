@@ -3331,3 +3331,1057 @@ def main():
 #
 # THEN TESTS 20-29, FINAL SUMMARY, HEARTBEAT, AND ENTRY POINT.
 # ==================================================================================================
+==================================================================================================
+# R35A - DURABLE EXACTLY-ONCE SYNTHETIC STRATEGY LIFECYCLE VALIDATION
+# PART 4/4
+# ==================================================================================================
+#
+# CONTINUES DIRECTLY INSIDE main() FROM PART 3/4
+#
+# ==================================================================================================
+
+    # ==============================================================================================
+    # TEST 19
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 19: TP3 DISPATCH/APPLY CRASH WINDOW"
+    )
+
+    tp3_quantity = normalize_quantity_down(
+        normalized_qty
+        * TP3_SHARE_PERCENT
+        / Decimal("100"),
+        qty_step,
+    )
+
+    if tp3_quantity <= 0:
+        tp3_quantity = min_qty
+
+    tp3 = create_transition_intent(
+        "TP3",
+        "REDUCE_LONG_SYNTHETIC",
+        tp3_quantity,
+        {
+            "share_percent":
+                decimal_string(
+                    TP3_SHARE_PERCENT
+                ),
+            "trailing_distance_percent":
+                decimal_string(
+                    TRAILING_DISTANCE_PERCENT
+                ),
+        },
+    )
+
+    tp3_id = tp3[
+        "transition_id"
+    ]
+
+    engine.prepare(
+        tp3
+    )
+
+    engine.commit(
+        tp3_id
+    )
+
+    tp3_receipt = engine.synthetic_dispatch(
+        tp3_id
+    )
+
+    dispatch_count_before_tp3_restart = (
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+    )
+
+    assert_test(
+        "TP3 Synthetic Receipt Is Safe",
+        transition_receipt_is_safe(
+            tp3_receipt
+        ),
+    )
+
+    assert_test(
+        "TP3 Is Durable DISPATCHED Before Crash",
+        transition_status(
+            engine,
+            tp3_id,
+        ) == "DISPATCHED",
+    )
+
+    engine = DurableTransitionEngine.restore()
+
+    tp3_recovery = engine.recover_transition(
+        tp3_id
+    )
+
+    assert_test(
+        "TP3 Recovery Used Apply-Only Path",
+        tp3_recovery[
+            "action"
+        ] == "APPLY_ONLY",
+    )
+
+    assert_test(
+        "TP3 Was Not Redispatched After Restart",
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+        == dispatch_count_before_tp3_restart,
+    )
+
+    assert_test(
+        "TP3 State Is Completed",
+        engine.state[
+            "tp3_completed"
+        ] is True,
+    )
+
+    # ==============================================================================================
+    # TEST 20
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 20: TERMINAL EXIT EXACTLY-ONCE"
+    )
+
+    terminal_intent = create_transition_intent(
+        "TERMINAL_EXIT",
+        "CLOSE_REMAINDER_SYNTHETIC",
+        normalized_qty,
+        {
+            "reason":
+                "SYNTHETIC_STRATEGY_COMPLETION",
+        },
+    )
+
+    engine.execute_exactly_once(
+        terminal_intent
+    )
+
+    terminal_count = engine.state[
+        "synthetic_dispatch_count"
+    ]
+
+    engine.execute_exactly_once(
+        terminal_intent
+    )
+
+    assert_test(
+        "Terminal Exit Transition Is Applied",
+        transition_status(
+            engine,
+            terminal_intent[
+                "transition_id"
+            ],
+        ) == "APPLIED",
+    )
+
+    assert_test(
+        "Terminal Exit State Is Completed",
+        engine.state[
+            "terminal_exit_completed"
+        ] is True,
+    )
+
+    assert_test(
+        "Final Strategy Phase Is Terminal",
+        engine.state[
+            "strategy_phase"
+        ] == "TERMINAL",
+    )
+
+    assert_test(
+        "Terminal Replay Produced No Additional Dispatch",
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+        == terminal_count,
+    )
+
+    # ==============================================================================================
+    # TEST 21
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 21: COMPLETE LIFECYCLE"
+    )
+
+    assert_test(
+        "Initial Entry Completed",
+        engine.state[
+            "initial_entry_completed"
+        ] is True,
+    )
+
+    assert_test(
+        "Exactly One Pyramid Completed",
+        engine.state[
+            "pyramid_count"
+        ] == MAX_PYRAMID_ADDS,
+    )
+
+    assert_test(
+        "Exactly Three Backups Completed",
+        engine.state[
+            "backup_count"
+        ] == MAX_BACKUPS,
+    )
+
+    assert_test(
+        "TP1 Completed",
+        engine.state[
+            "tp1_completed"
+        ] is True,
+    )
+
+    assert_test(
+        "TP2 Completed",
+        engine.state[
+            "tp2_completed"
+        ] is True,
+    )
+
+    assert_test(
+        "Trailing Was Armed",
+        engine.state[
+            "trailing_armed"
+        ] is True,
+    )
+
+    assert_test(
+        "TP3 Completed",
+        engine.state[
+            "tp3_completed"
+        ] is True,
+    )
+
+    assert_test(
+        "Terminal Exit Completed",
+        engine.state[
+            "terminal_exit_completed"
+        ] is True,
+    )
+
+    assert_test(
+        "Network Write Count Is Zero",
+        engine.state[
+            "network_write_count"
+        ] == 0,
+    )
+
+    # ==============================================================================================
+    # TEST 22
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 22: DURABLE RECEIPT UNIQUENESS"
+    )
+
+    receipts = engine.state[
+        "dispatch_receipts"
+    ]
+
+    receipt_ids = [
+        receipt[
+            "transition_id"
+        ]
+        for receipt
+        in receipts
+    ]
+
+    assert_test(
+        "Dispatch Receipts Exist",
+        len(receipts) > 0,
+    )
+
+    assert_test(
+        "Every Receipt Transition ID Is Unique",
+        len(receipt_ids)
+        == len(
+            set(receipt_ids)
+        ),
+    )
+
+    assert_test(
+        "Dispatch Counter Matches Durable Receipts",
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+        == len(receipts),
+    )
+
+    assert_test(
+        "Every Receipt Is Synthetic Only",
+        all(
+            receipt.get(
+                "synthetic_only"
+            ) is True
+            for receipt
+            in receipts
+        ),
+    )
+
+    assert_test(
+        "No Receipt Was Transmitted",
+        all(
+            receipt.get(
+                "transmitted"
+            ) is False
+            for receipt
+            in receipts
+        ),
+    )
+
+    assert_test(
+        "No Receipt Made Network Write",
+        all(
+            receipt.get(
+                "network_write"
+            ) is False
+            for receipt
+            in receipts
+        ),
+    )
+
+    # ==============================================================================================
+    # TEST 23
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 23: TERMINAL RESTART RESTORE"
+    )
+
+    final_dispatch_count = engine.state[
+        "synthetic_dispatch_count"
+    ]
+
+    final_consumed_count = len(
+        engine.state[
+            "consumed_intents"
+        ]
+    )
+
+    final_receipt_count = len(
+        engine.state[
+            "dispatch_receipts"
+        ]
+    )
+
+    restored_engine = DurableTransitionEngine.restore()
+
+    assert_test(
+        "Restart State Was Restored",
+        isinstance(
+            restored_engine.state,
+            dict,
+        ),
+    )
+
+    assert_test(
+        "Restart Snapshot Integrity Is Valid",
+        snapshot_integrity_valid(
+            restored_engine.state
+        ),
+    )
+
+    assert_test(
+        "Terminal State Survived Restart",
+        restored_engine.state[
+            "strategy_phase"
+        ] == "TERMINAL",
+    )
+
+    assert_test(
+        "Dispatch Count Survived Restart",
+        restored_engine.state[
+            "synthetic_dispatch_count"
+        ]
+        == final_dispatch_count,
+    )
+
+    assert_test(
+        "Consumed Intents Survived Restart",
+        len(
+            restored_engine.state[
+                "consumed_intents"
+            ]
+        )
+        == final_consumed_count,
+    )
+
+    assert_test(
+        "Dispatch Receipts Survived Restart",
+        len(
+            restored_engine.state[
+                "dispatch_receipts"
+            ]
+        )
+        == final_receipt_count,
+    )
+
+    engine = restored_engine
+
+    # ==============================================================================================
+    # TEST 24
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 24: TERMINAL REPLAY SWEEP"
+    )
+
+    all_original_intents = [
+        initial_intent,
+        pyramid_intent,
+        backup1,
+        backup2,
+        backup3,
+        tp1,
+        tp2,
+        trailing_intent,
+        tp3,
+        terminal_intent,
+    ]
+
+    before_replay_sweep = engine.state[
+        "synthetic_dispatch_count"
+    ]
+
+    for intent in all_original_intents:
+        engine.execute_exactly_once(
+            intent
+        )
+
+    assert_test(
+        "All Consumed Intents Reject Duplicate Dispatch",
+        engine.state[
+            "synthetic_dispatch_count"
+        ]
+        == before_replay_sweep,
+    )
+
+    assert_test(
+        "Replay Sweep Preserved Terminal Phase",
+        engine.state[
+            "strategy_phase"
+        ] == "TERMINAL",
+    )
+
+    assert_test(
+        "Replay Sweep Preserved Pyramid Count",
+        engine.state[
+            "pyramid_count"
+        ] == 1,
+    )
+
+    assert_test(
+        "Replay Sweep Preserved Backup Count",
+        engine.state[
+            "backup_count"
+        ] == 3,
+    )
+
+    # ==============================================================================================
+    # TEST 25
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 25: JOURNAL HASH CHAIN"
+    )
+
+    records = journal_records()
+
+    assert_test(
+        "Transition Journal Exists",
+        os.path.exists(
+            JOURNAL_FILE
+        ),
+    )
+
+    assert_test(
+        "Transition Journal Contains Records",
+        len(records) > 0,
+    )
+
+    assert_test(
+        "Journal Hash Chain Is Valid",
+        validate_journal() is True,
+    )
+
+    assert_test(
+        "Journal Begins From Genesis",
+        records[
+            0
+        ].get(
+            "previous_sha256"
+        ) == "GENESIS",
+    )
+
+    assert_test(
+        "Journal Final Record Has SHA256",
+        bool(
+            records[
+                -1
+            ].get(
+                "record_sha256"
+            )
+        ),
+    )
+
+    log(
+        f"{VERSION}: JOURNAL RECORDS="
+        f"{len(records)}"
+    )
+
+    log(
+        f"{VERSION}: JOURNAL FILE="
+        f"{JOURNAL_FILE}"
+    )
+
+    # ==============================================================================================
+    # TEST 26
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 26: SNAPSHOT TAMPER REJECTION"
+    )
+
+    good_state = load_snapshot()
+
+    tampered_state = deep_copy(
+        good_state
+    )
+
+    tampered_state[
+        "backup_count"
+    ] = 999
+
+    assert_test(
+        "Tampered Snapshot Fails Integrity Validation",
+        snapshot_integrity_valid(
+            tampered_state
+        ) is False,
+    )
+
+    assert_test(
+        "Untampered Snapshot Retains Valid Integrity",
+        snapshot_integrity_valid(
+            good_state
+        ) is True,
+    )
+
+    # ==============================================================================================
+    # TEST 27
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 27: SINGLE-WINNER RECOVERY FENCE"
+    )
+
+    recovery_probe = create_transition_intent(
+        "RECOVERY_PROBE",
+        "LOCAL_SYNTHETIC_PROBE",
+        Decimal("0"),
+        {
+            "purpose":
+                "single-winner recovery validation",
+        },
+    )
+
+    probe_id = recovery_probe[
+        "transition_id"
+    ]
+
+    engine.prepare(
+        recovery_probe
+    )
+
+    engine.commit(
+        probe_id
+    )
+
+    before_probe_dispatch = engine.state[
+        "synthetic_dispatch_count"
+    ]
+
+    recovery_engine_one = DurableTransitionEngine.restore()
+
+    receipt_one = recovery_engine_one.synthetic_dispatch(
+        probe_id
+    )
+
+    after_first_probe_dispatch = (
+        recovery_engine_one.state[
+            "synthetic_dispatch_count"
+        ]
+    )
+
+    recovery_engine_two = DurableTransitionEngine.restore()
+
+    receipt_two = recovery_engine_two.synthetic_dispatch(
+        probe_id
+    )
+
+    after_second_probe_dispatch = (
+        recovery_engine_two.state[
+            "synthetic_dispatch_count"
+        ]
+    )
+
+    assert_test(
+        "First Recovery Produced One Synthetic Dispatch",
+        after_first_probe_dispatch
+        == before_probe_dispatch + 1,
+    )
+
+    assert_test(
+        "Second Recovery Produced No Additional Dispatch",
+        after_second_probe_dispatch
+        == after_first_probe_dispatch,
+    )
+
+    assert_test(
+        "Both Recovery Attempts Resolve Same Receipt",
+        receipt_one.get(
+            "receipt_sha256"
+        )
+        == receipt_two.get(
+            "receipt_sha256"
+        ),
+    )
+
+    assert_test(
+        "Recovery Probe Receipt Is Synthetic Only",
+        transition_receipt_is_safe(
+            receipt_two
+        ),
+    )
+
+    assert_test(
+        "Recovery Probe Was Not Transmitted",
+        receipt_two.get(
+            "transmitted"
+        ) is False,
+    )
+
+    assert_test(
+        "Recovery Probe Made No Network Write",
+        receipt_two.get(
+            "network_write"
+        ) is False,
+    )
+
+    engine = recovery_engine_two
+
+    # ==============================================================================================
+    # TEST 28
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 28: WRITE FIREBREAK"
+    )
+
+    assert_test(
+        "HTTP POST Is Rejected",
+        function_rejected(
+            http_post
+        ),
+    )
+
+    assert_test(
+        "HTTP PUT Is Rejected",
+        function_rejected(
+            http_put
+        ),
+    )
+
+    assert_test(
+        "HTTP PATCH Is Rejected",
+        function_rejected(
+            http_patch
+        ),
+    )
+
+    assert_test(
+        "HTTP DELETE Is Rejected",
+        function_rejected(
+            http_delete
+        ),
+    )
+
+    assert_test(
+        "Generic Network Write Is Rejected",
+        function_rejected(
+            generic_network_write
+        ),
+    )
+
+    assert_test(
+        "Real Order Function Is Rejected",
+        function_rejected(
+            place_real_order
+        ),
+    )
+
+    assert_test(
+        "Demo Order Function Is Rejected",
+        function_rejected(
+            place_demo_order
+        ),
+    )
+
+    assert_test(
+        "Leverage Mutation Function Is Rejected",
+        function_rejected(
+            mutate_leverage
+        ),
+    )
+
+    assert_test(
+        "Margin Mutation Function Is Rejected",
+        function_rejected(
+            mutate_margin_type
+        ),
+    )
+
+    assert_test(
+        "Position Mutation Function Is Rejected",
+        function_rejected(
+            mutate_position
+        ),
+    )
+
+    # ==============================================================================================
+    # TEST 29
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 29: FINAL SAFETY INVARIANTS"
+    )
+
+    assert_test(
+        "Network Writes Remain Disabled",
+        NETWORK_WRITES_ENABLED is False,
+    )
+
+    assert_test(
+        "Synthetic Transport Remains Mandatory",
+        SYNTHETIC_TRANSPORT_ONLY is True,
+    )
+
+    assert_test(
+        "Real Order Execution Remains Disabled",
+        REAL_ORDER_EXECUTION_ENABLED is False,
+    )
+
+    assert_test(
+        "Demo Order Execution Remains Disabled",
+        DEMO_ORDER_EXECUTION_ENABLED is False,
+    )
+
+    assert_test(
+        "Leverage Mutation Remains Disabled",
+        LEVERAGE_MUTATION_ENABLED is False,
+    )
+
+    assert_test(
+        "Margin Mutation Remains Disabled",
+        MARGIN_MUTATION_ENABLED is False,
+    )
+
+    assert_test(
+        "Position Mutation Remains Disabled",
+        POSITION_MUTATION_ENABLED is False,
+    )
+
+    assert_test(
+        "Durable Journal Remains Valid",
+        validate_journal() is True,
+    )
+
+    final_state = load_snapshot()
+
+    assert_test(
+        "Final Snapshot Integrity Is Valid",
+        snapshot_integrity_valid(
+            final_state
+        ),
+    )
+
+    assert_test(
+        "Strategy Remains Terminal",
+        final_state[
+            "strategy_phase"
+        ] == "TERMINAL",
+    )
+
+    assert_test(
+        "Strategy Network Write Count Is Zero",
+        final_state[
+            "network_write_count"
+        ] == 0,
+    )
+
+    # ==============================================================================================
+    # FINAL SUMMARY
+    # ==============================================================================================
+
+    section(
+        f"{VERSION}: VALIDATION SUMMARY"
+    )
+
+    log(
+        f"{VERSION}: LIVE BALANCE READ="
+        f"{decimal_string(available_usdt)} USDT"
+    )
+
+    log(
+        f"{VERSION}: LIVE MARK PRICE="
+        f"{decimal_string(market_price)}"
+    )
+
+    log(
+        f"{VERSION}: MARGIN TYPE="
+        f"{margin_type}"
+    )
+
+    log(
+        f"{VERSION}: ISOLATED LONG LEVERAGE="
+        f"{decimal_string(long_leverage)}x"
+    )
+
+    log(
+        f"{VERSION}: ISOLATED SHORT LEVERAGE="
+        f"{decimal_string(short_leverage)}x"
+    )
+
+    log(
+        f"{VERSION}: NORMALIZED ENTRY QUANTITY="
+        f"{decimal_string(normalized_qty)} BTC"
+    )
+
+    log(
+        f"{VERSION}: INITIAL ENTRY MARGIN="
+        f"{decimal_string(normalized_margin)} USDT"
+    )
+
+    log(
+        f"{VERSION}: FINAL STRATEGY PHASE="
+        f"{final_state['strategy_phase']}"
+    )
+
+    log(
+        f"{VERSION}: PYRAMID COUNT="
+        f"{final_state['pyramid_count']}"
+    )
+
+    log(
+        f"{VERSION}: BACKUP COUNT="
+        f"{final_state['backup_count']}"
+    )
+
+    log(
+        f"{VERSION}: SYNTHETIC DISPATCH COUNT="
+        f"{final_state['synthetic_dispatch_count']}"
+    )
+
+    log(
+        f"{VERSION}: DURABLE RECEIPTS="
+        f"{len(final_state['dispatch_receipts'])}"
+    )
+
+    log(
+        f"{VERSION}: CONSUMED INTENTS="
+        f"{len(final_state['consumed_intents'])}"
+    )
+
+    log(
+        f"{VERSION}: NETWORK WRITE COUNT="
+        f"{final_state['network_write_count']}"
+    )
+
+    log(
+        f"{VERSION}: STATE FILE="
+        f"{STATE_FILE}"
+    )
+
+    log(
+        f"{VERSION}: JOURNAL FILE="
+        f"{JOURNAL_FILE}"
+    )
+
+    # ==============================================================================================
+    # FINAL RESULT
+    # ==============================================================================================
+
+    section(
+        f"{VERSION}: FINAL RESULT"
+    )
+
+    log(
+        f"{VERSION}: DURABLE EXACTLY-ONCE "
+        f"SYNTHETIC LIFECYCLE VALIDATION PASSED"
+    )
+
+    log(
+        f"{VERSION}: PREPARE / COMMIT / DISPATCH / "
+        f"APPLY FENCING VERIFIED"
+    )
+
+    log(
+        f"{VERSION}: PREPARE CRASH-WINDOW RECOVERY VERIFIED"
+    )
+
+    log(
+        f"{VERSION}: COMMIT CRASH-WINDOW RECOVERY VERIFIED"
+    )
+
+    log(
+        f"{VERSION}: DISPATCH/APPLY CRASH-WINDOW RECOVERY VERIFIED"
+    )
+
+    log(
+        f"{VERSION}: RESTART REPLAY REJECTION VERIFIED"
+    )
+
+    log(
+        f"{VERSION}: DURABLE RECEIPT UNIQUENESS VERIFIED"
+    )
+
+    log(
+        f"{VERSION}: SINGLE-WINNER RECOVERY FENCE VERIFIED"
+    )
+
+    log(
+        f"{VERSION}: SNAPSHOT INTEGRITY VERIFIED"
+    )
+
+    log(
+        f"{VERSION}: JOURNAL HASH CHAIN VERIFIED"
+    )
+
+    log(
+        f"{VERSION}: NO REAL ORDER WAS SENT"
+    )
+
+    log(
+        f"{VERSION}: NO DEMO ORDER WAS SENT"
+    )
+
+    log(
+        f"{VERSION}: NO NETWORK WRITE WAS PERFORMED"
+    )
+
+    log(
+        f"{VERSION}: NO LEVERAGE MUTATION WAS PERFORMED"
+    )
+
+    log(
+        f"{VERSION}: NO MARGIN MUTATION WAS PERFORMED"
+    )
+
+    log(
+        f"{VERSION}: NO POSITION MUTATION WAS PERFORMED"
+    )
+
+    log(
+        LINE
+    )
+
+    # ==============================================================================================
+    # PERSISTENT RENDER HEARTBEAT
+    # ==============================================================================================
+
+    heartbeat = 0
+
+    while True:
+        heartbeat += 1
+
+        log(
+            f"{VERSION}: HEARTBEAT "
+            f"{heartbeat} | "
+            f"STATUS=PASSED | "
+            f"SYNTHETIC_ONLY=TRUE | "
+            f"NETWORK_WRITES=0"
+        )
+
+        time.sleep(
+            60
+        )
+
+
+# ==================================================================================================
+# ENTRY POINT
+# ==================================================================================================
+
+if __name__ == "__main__":
+    try:
+        main()
+
+    except KeyboardInterrupt:
+        log(
+            f"{VERSION}: STOPPED"
+        )
+
+    except Exception as exc:
+        section(
+            f"{VERSION}: FATAL ERROR"
+        )
+
+        log(
+            f"{VERSION}: ERROR="
+            f"{type(exc).__name__}: {exc}"
+        )
+
+        traceback.print_exc()
+
+        log(
+            f"{VERSION}: SAFETY STATUS="
+            f"NETWORK WRITES REMAIN DISABLED"
+        )
+
+        log(
+            f"{VERSION}: NO REAL ORDER WAS SENT"
+        )
+
+        log(
+            f"{VERSION}: NO DEMO ORDER WAS SENT"
+        )
+
+        log(
+            f"{VERSION}: NO LEVERAGE MUTATION WAS PERFORMED"
+        )
+
+        heartbeat = 0
+
+        while True:
+            heartbeat += 1
+
+            log(
+                f"{VERSION}: FAILURE HEARTBEAT "
+                f"{heartbeat} | "
+                f"NETWORK_WRITES=0"
+            )
+
+            time.sleep(
+                60
+            )
+
+
+# ==================================================================================================
+# END OF R35A PART 4/4
+#
+# R35A IS NOW COMPLETE.
+#
+# PARTS MUST APPEAR IN main.py IN THIS EXACT ORDER:
+#
+#       PART 1/4
+#       PART 2/4
+#       PART 3/4
+#       PART 4/4
+#
+# THERE MUST BE NO TEXT BETWEEN THE PARTS OTHER THAN THE CODE ITSELF.
+#
+# ==================================================================================================
