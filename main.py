@@ -603,3 +603,999 @@ def authenticated_get(path, params=None):
 # END OF R35A PART 1/4
 # NEXT: PART 2/4 STARTS WITH RESPONSE UNWRAPPING AND LIVE RESPONSE PARSERS
 # ==================================================================================================
+# ==================================================================================================
+# R35A - DURABLE EXACTLY-ONCE SYNTHETIC STRATEGY LIFECYCLE VALIDATION
+# PART 2/4
+# ==================================================================================================
+#
+# CONTINUES DIRECTLY FROM PART 1/4
+#
+# ==================================================================================================
+
+
+# ==================================================================================================
+# RESPONSE UNWRAPPING
+# ==================================================================================================
+
+def unwrap_data(value):
+    current = value
+
+    for _ in range(4):
+        if not isinstance(current, dict):
+            break
+
+        moved = False
+
+        for key in ("data", "result"):
+            if key in current and current[key] is not None:
+                current = current[key]
+                moved = True
+                break
+
+        if not moved:
+            break
+
+    return current
+
+
+def as_list(value):
+    value = unwrap_data(value)
+
+    if value is None:
+        return []
+
+    if isinstance(value, list):
+        return value
+
+    if isinstance(value, dict):
+        return [value]
+
+    return []
+
+
+# ==================================================================================================
+# LIVE BALANCE PARSER
+# ==================================================================================================
+
+def parse_available_usdt(payload):
+    value = unwrap_data(payload)
+
+    records = value if isinstance(value, list) else [value]
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+
+        asset = str(
+            record.get("asset")
+            or record.get("coin")
+            or record.get("marginCoin")
+            or ""
+        ).upper()
+
+        if asset and asset not in ("USDT", "SUSDT"):
+            continue
+
+        for key in (
+            "availableBalance",
+            "available",
+            "availableEquity",
+            "free",
+        ):
+            if key in record:
+                amount = decimal_value(
+                    record.get(key)
+                )
+
+                if amount >= 0:
+                    return amount
+
+    raise RuntimeError(
+        f"Unable to parse available USDT "
+        f"from balance response: {payload}"
+    )
+
+
+# ==================================================================================================
+# SYMBOL CONFIG PARSER
+# ==================================================================================================
+
+def parse_symbol_config(payload):
+    records = as_list(payload)
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+
+        record_symbol = str(
+            record.get("symbol")
+            or record.get("contractCode")
+            or ""
+        ).upper()
+
+        if record_symbol == SYMBOL:
+            return record
+
+    if (
+        len(records) == 1
+        and isinstance(records[0], dict)
+    ):
+        return records[0]
+
+    raise RuntimeError(
+        f"Unable to locate {SYMBOL} "
+        f"symbol configuration"
+    )
+
+
+# ==================================================================================================
+# POSITION PARSER
+# ==================================================================================================
+
+def parse_positions(payload):
+    records = as_list(payload)
+
+    parsed = []
+
+    for record in records:
+        if isinstance(record, dict):
+            parsed.append(record)
+
+    return parsed
+
+
+def position_symbol(record):
+    return str(
+        record.get("symbol")
+        or record.get("contractCode")
+        or ""
+    ).upper()
+
+
+def position_size(record):
+    for key in (
+        "size",
+        "positionAmt",
+        "positionSize",
+        "available",
+        "total",
+    ):
+        if key in record:
+            return abs(
+                decimal_value(
+                    record.get(key)
+                )
+            )
+
+    return Decimal("0")
+
+
+# ==================================================================================================
+# MARKET PRICE PARSER
+# ==================================================================================================
+
+def parse_market_price(payload):
+    value = unwrap_data(payload)
+
+    if isinstance(value, list):
+        records = value
+    else:
+        records = [value]
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+
+        record_symbol = str(
+            record.get("symbol")
+            or ""
+        ).upper()
+
+        if (
+            record_symbol
+            and record_symbol != SYMBOL
+        ):
+            continue
+
+        for key in (
+            "price",
+            "markPrice",
+            "indexPrice",
+            "last",
+            "lastPrice",
+        ):
+            if key in record:
+                price = decimal_value(
+                    record.get(key)
+                )
+
+                if price > 0:
+                    return price
+
+    raise RuntimeError(
+        f"Unable to parse market price "
+        f"from response: {payload}"
+    )
+
+
+# ==================================================================================================
+# EXCHANGE INFORMATION PARSER
+# ==================================================================================================
+
+def find_symbol_record(payload):
+    root = unwrap_data(payload)
+
+    candidates = []
+
+    if isinstance(root, list):
+        candidates.extend(root)
+
+    elif isinstance(root, dict):
+        if isinstance(
+            root.get("symbols"),
+            list,
+        ):
+            candidates.extend(
+                root["symbols"]
+            )
+
+        if isinstance(
+            root.get("contracts"),
+            list,
+        ):
+            candidates.extend(
+                root["contracts"]
+            )
+
+        candidates.append(root)
+
+    for record in candidates:
+        if not isinstance(record, dict):
+            continue
+
+        symbol = str(
+            record.get("symbol")
+            or record.get("contractCode")
+            or ""
+        ).upper()
+
+        if symbol == SYMBOL:
+            return record
+
+    raise RuntimeError(
+        f"Unable to locate {SYMBOL} "
+        f"in exchange information"
+    )
+
+
+def first_positive_decimal(
+    record,
+    keys,
+    default=None,
+):
+    for key in keys:
+        if key not in record:
+            continue
+
+        value = decimal_value(
+            record.get(key)
+        )
+
+        if value > 0:
+            return value
+
+    if default is not None:
+        return Decimal(
+            str(default)
+        )
+
+    raise RuntimeError(
+        f"Unable to locate positive decimal "
+        f"from keys: {keys}"
+    )
+
+
+def parse_contract_information(payload):
+    record = find_symbol_record(payload)
+
+    min_qty = first_positive_decimal(
+        record,
+        (
+            "minQty",
+            "minOrderQty",
+            "minOrderAmount",
+            "minTradeNum",
+            "minTradeAmount",
+            "minimumOrderQuantity",
+        ),
+        default="0.0001",
+    )
+
+    qty_step = first_positive_decimal(
+        record,
+        (
+            "quantityStep",
+            "qtyStep",
+            "stepSize",
+            "sizeIncrement",
+            "size_increment",
+            "quantityIncrement",
+        ),
+        default="0.0001",
+    )
+
+    price_step = first_positive_decimal(
+        record,
+        (
+            "priceStep",
+            "tickSize",
+            "tick_size",
+            "priceEndStep",
+            "priceIncrement",
+        ),
+        default="0.1",
+    )
+
+    return {
+        "record": record,
+        "min_qty": min_qty,
+        "qty_step": qty_step,
+        "price_step": price_step,
+    }
+
+
+# ==================================================================================================
+# QUANTITY NORMALIZATION
+# ==================================================================================================
+
+def normalize_quantity_down(
+    raw_qty,
+    qty_step,
+):
+    raw_qty = Decimal(
+        raw_qty
+    )
+
+    qty_step = Decimal(
+        qty_step
+    )
+
+    if raw_qty <= 0:
+        return Decimal("0")
+
+    if qty_step <= 0:
+        raise ValueError(
+            "Quantity step must be positive"
+        )
+
+    units = (
+        raw_qty
+        / qty_step
+    ).to_integral_value(
+        rounding=ROUND_DOWN
+    )
+
+    return (
+        units
+        * qty_step
+    )
+
+
+# ==================================================================================================
+# DURABLE FILE HELPERS
+# ==================================================================================================
+
+def ensure_state_directory():
+    os.makedirs(
+        STATE_DIR,
+        exist_ok=True,
+    )
+
+
+def atomic_write_text(
+    path,
+    text,
+):
+    ensure_state_directory()
+
+    temp_path = (
+        path
+        + ".tmp."
+        + str(os.getpid())
+        + "."
+        + str(time.time_ns())
+    )
+
+    with open(
+        temp_path,
+        "w",
+        encoding="utf-8",
+    ) as handle:
+
+        handle.write(text)
+        handle.flush()
+        os.fsync(
+            handle.fileno()
+        )
+
+    os.replace(
+        temp_path,
+        path,
+    )
+
+
+def fsync_directory(path):
+    try:
+        descriptor = os.open(
+            path,
+            os.O_RDONLY,
+        )
+
+    except Exception:
+        return
+
+    try:
+        os.fsync(
+            descriptor
+        )
+
+    except Exception:
+        pass
+
+    finally:
+        os.close(
+            descriptor
+        )
+
+
+def atomic_write_json(
+    path,
+    value,
+):
+    atomic_write_text(
+        path,
+        canonical_json(value),
+    )
+
+    fsync_directory(
+        os.path.dirname(path)
+        or "."
+    )
+
+
+# ==================================================================================================
+# SNAPSHOT INTEGRITY
+# ==================================================================================================
+
+def snapshot_payload(state):
+    payload = deep_copy(
+        state
+    )
+
+    payload.pop(
+        "integrity_sha256",
+        None,
+    )
+
+    return payload
+
+
+def calculate_snapshot_hash(state):
+    return sha256_object(
+        snapshot_payload(state)
+    )
+
+
+def seal_snapshot(state):
+    sealed = deep_copy(
+        state
+    )
+
+    sealed[
+        "integrity_sha256"
+    ] = calculate_snapshot_hash(
+        sealed
+    )
+
+    return sealed
+
+
+def snapshot_integrity_valid(state):
+    if not isinstance(
+        state,
+        dict,
+    ):
+        return False
+
+    expected = state.get(
+        "integrity_sha256"
+    )
+
+    if not expected:
+        return False
+
+    return hmac.compare_digest(
+        str(expected),
+        calculate_snapshot_hash(
+            state
+        ),
+    )
+
+
+def save_snapshot(state):
+    sealed = seal_snapshot(
+        state
+    )
+
+    atomic_write_json(
+        STATE_FILE,
+        sealed,
+    )
+
+    return sealed
+
+
+def load_snapshot():
+    with open(
+        STATE_FILE,
+        "r",
+        encoding="utf-8",
+    ) as handle:
+
+        state = json.load(
+            handle
+        )
+
+    if not snapshot_integrity_valid(
+        state
+    ):
+        raise RuntimeError(
+            "Snapshot integrity validation failed"
+        )
+
+    return state
+
+
+# ==================================================================================================
+# HASH-CHAIN JOURNAL
+# ==================================================================================================
+
+def journal_records():
+    if not os.path.exists(
+        JOURNAL_FILE
+    ):
+        return []
+
+    records = []
+
+    with open(
+        JOURNAL_FILE,
+        "r",
+        encoding="utf-8",
+    ) as handle:
+
+        for (
+            line_number,
+            raw_line,
+        ) in enumerate(
+            handle,
+            start=1,
+        ):
+            line = raw_line.strip()
+
+            if not line:
+                continue
+
+            try:
+                record = json.loads(
+                    line
+                )
+
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    f"Journal JSON corruption "
+                    f"at line {line_number}"
+                ) from exc
+
+            records.append(
+                record
+            )
+
+    return records
+
+
+def journal_record_hash(record):
+    payload = deep_copy(
+        record
+    )
+
+    payload.pop(
+        "record_sha256",
+        None,
+    )
+
+    return sha256_object(
+        payload
+    )
+
+
+def validate_journal():
+    records = journal_records()
+
+    previous_hash = "GENESIS"
+
+    for record in records:
+        if not isinstance(
+            record,
+            dict,
+        ):
+            return False
+
+        if (
+            record.get(
+                "previous_sha256"
+            )
+            != previous_hash
+        ):
+            return False
+
+        claimed_hash = record.get(
+            "record_sha256"
+        )
+
+        if not claimed_hash:
+            return False
+
+        calculated_hash = (
+            journal_record_hash(
+                record
+            )
+        )
+
+        if not hmac.compare_digest(
+            str(claimed_hash),
+            calculated_hash,
+        ):
+            return False
+
+        previous_hash = claimed_hash
+
+    return True
+
+
+def append_journal(
+    event_type,
+    transition_id,
+    details=None,
+):
+    ensure_state_directory()
+
+    existing = journal_records()
+
+    if existing:
+        previous_hash = existing[
+            -1
+        ]["record_sha256"]
+
+    else:
+        previous_hash = "GENESIS"
+
+    record = {
+        "version": VERSION,
+        "sequence": (
+            len(existing)
+            + 1
+        ),
+        "time_ms": utc_ms(),
+        "event": event_type,
+        "transition_id": transition_id,
+        "details": (
+            details
+            or {}
+        ),
+        "previous_sha256":
+            previous_hash,
+    }
+
+    record[
+        "record_sha256"
+    ] = journal_record_hash(
+        record
+    )
+
+    line = (
+        canonical_json(record)
+        + "\n"
+    )
+
+    with open(
+        JOURNAL_FILE,
+        "a",
+        encoding="utf-8",
+    ) as handle:
+
+        handle.write(
+            line
+        )
+
+        handle.flush()
+
+        os.fsync(
+            handle.fileno()
+        )
+
+    fsync_directory(
+        STATE_DIR
+    )
+
+    return record
+
+
+# ==================================================================================================
+# STRATEGY STATE
+# ==================================================================================================
+
+def create_initial_state():
+    return {
+        "version": VERSION,
+        "symbol": SYMBOL,
+        "generation": 1,
+        "strategy_phase": "NEW",
+
+        "initial_entry_completed": False,
+        "pyramid_count": 0,
+        "backup_count": 0,
+
+        "tp1_completed": False,
+        "tp2_completed": False,
+        "trailing_armed": False,
+        "tp3_completed": False,
+        "terminal_exit_completed": False,
+
+        "transitions": {},
+        "consumed_intents": [],
+        "dispatch_receipts": [],
+
+        "synthetic_dispatch_count": 0,
+        "network_write_count": 0,
+
+        "last_transition_id": None,
+        "created_ms": utc_ms(),
+        "updated_ms": utc_ms(),
+    }
+
+
+# ==================================================================================================
+# SYNTHETIC INTENT CREATION
+# ==================================================================================================
+
+def create_transition_intent(
+    transition_name,
+    action,
+    quantity,
+    metadata=None,
+):
+    quantity_text = decimal_string(
+        quantity
+    )
+
+    identity_payload = {
+        "version": VERSION,
+        "symbol": SYMBOL,
+        "transition_name":
+            transition_name,
+        "action": action,
+        "quantity": quantity_text,
+        "metadata":
+            metadata
+            or {},
+    }
+
+    intent_hash = sha256_object(
+        identity_payload
+    )
+
+    transition_id = (
+        f"{VERSION.lower()}-"
+        f"{transition_name.lower().replace('_', '-')}-"
+        f"{intent_hash[:20]}"
+    )
+
+    return {
+        "transition_id":
+            transition_id,
+        "intent_sha256":
+            intent_hash,
+        "version":
+            VERSION,
+        "symbol":
+            SYMBOL,
+        "transition_name":
+            transition_name,
+        "action":
+            action,
+        "quantity":
+            quantity_text,
+        "metadata":
+            metadata
+            or {},
+    }
+
+
+# ==================================================================================================
+# DURABLE EXACTLY-ONCE TRANSITION ENGINE
+# ==================================================================================================
+
+class DurableTransitionEngine:
+
+    def __init__(
+        self,
+        state=None,
+    ):
+        if state is None:
+            state = create_initial_state()
+
+        self.state = state
+
+
+    @classmethod
+    def restore(cls):
+        return cls(
+            load_snapshot()
+        )
+
+
+    def persist(self):
+        self.state[
+            "updated_ms"
+        ] = utc_ms()
+
+        self.state = save_snapshot(
+            self.state
+        )
+
+
+    def get_transition(
+        self,
+        transition_id,
+    ):
+        return self.state[
+            "transitions"
+        ].get(
+            transition_id
+        )
+
+
+    def prepare(
+        self,
+        intent,
+    ):
+        transition_id = intent[
+            "transition_id"
+        ]
+
+        existing = self.get_transition(
+            transition_id
+        )
+
+        if existing is not None:
+            return existing
+
+        record = {
+            "transition_id":
+                transition_id,
+
+            "intent":
+                deep_copy(
+                    intent
+                ),
+
+            "intent_sha256":
+                intent[
+                    "intent_sha256"
+                ],
+
+            "status":
+                "PREPARED",
+
+            "prepared_ms":
+                utc_ms(),
+
+            "committed_ms":
+                None,
+
+            "dispatched_ms":
+                None,
+
+            "applied_ms":
+                None,
+
+            "receipt":
+                None,
+        }
+
+        self.state[
+            "transitions"
+        ][
+            transition_id
+        ] = record
+
+        self.state[
+            "last_transition_id"
+        ] = transition_id
+
+        append_journal(
+            "PREPARED",
+            transition_id,
+            {
+                "intent_sha256":
+                    intent[
+                        "intent_sha256"
+                    ],
+            },
+        )
+
+        self.persist()
+
+        return self.get_transition(
+            transition_id
+        )
+
+
+    def commit(
+        self,
+        transition_id,
+    ):
+        record = self.get_transition(
+            transition_id
+        )
+
+        if record is None:
+            raise RuntimeError(
+                "Cannot commit missing transition"
+            )
+
+        status = record[
+            "status"
+        ]
+
+        if status in (
+            "COMMITTED",
+            "DISPATCHED",
+            "APPLIED",
+        ):
+            return record
+
+        if status != "PREPARED":
+            raise RuntimeError(
+                f"Invalid commit status: "
+                f"{status}"
+            )
+
+        record[
+            "status"
+        ] = "COMMITTED"
+
+        record[
+            "committed_ms"
+        ] = utc_ms()
+
+        append_journal(
+            "COMMITTED",
+            transition_id,
+            {
+                "intent_sha256":
+                    record[
+                        "intent_sha256"
+                    ],
+            },
+        )
+
+        self.persist()
+
+        return self.get_transition(
+            transition_id
+        )
+
+
+    def s
