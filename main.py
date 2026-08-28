@@ -547,30 +547,35 @@ class Intent:
 # --------------------------------------------------------------------------------------------------
 
 @dataclass
-class Receipt:
+class StrategyState:
+    version: str = VERSION
+    symbol: str = SYMBOL
+    phase: Optional[str] = None
 
-    receipt_id: str
+    generation: int = 1
+    epoch: int = 1
+    highest_nonce: int = 0
 
-    intent_id: str
+    active_intent: Optional[Dict[str, Any]] = None
+    active_authorization: Optional[Dict[str, Any]] = None
 
-    payload_hash: str
+    consumed_intents: List[str] = field(
+        default_factory=list
+    )
 
-    generation: int
-    epoch: int
-    nonce: int
+    durable_receipts: List[Dict[str, Any]] = field(
+        default_factory=list
+    )
 
-    transport: str
+    synthetic_dispatch_count: int = 0
+    terminal: bool = False
 
-    transmitted: bool
+    last_journal_hash: str = "0" * 64
+    journal_sequence: int = 0
 
-    created_ms: int
-
-
-    def as_dict(
-        self,
-    ) -> Dict[str, Any]:
-
+    def as_dict(self) -> Dict[str, Any]:
         return self.__dict__.copy()
+        
 
 
 # --------------------------------------------------------------------------------------------------
