@@ -1,7 +1,3 @@
-Worked for 23s
-
-Below is the single complete R34X main.py. R34X keeps every network mutation disabled and adds synthetic lifecycle validation for entry, TP1/TP2/TP3, trailing protection, pyramid/backup eligibility, reversal exit, cooldown, duplicate blocking, and terminal-state behavior. The live mark-price endpoint used here is WEEX’s documented GET /capi/v3/market/symbolPrice with priceType=MARK. 
-
 # ==================================================================================================
 # R34X - LIVE READ-ONLY STATE + COMPLETE SYNTHETIC STRATEGY LIFECYCLE VALIDATION
 # ==================================================================================================
@@ -3765,6 +3761,3 @@ def main():
 if __name__ == "__main__":
     main()
 
-The three authenticated calls are still the documented balance, all-positions, and symbol-configuration GETs; there is no authenticated POST path anywhere in R34X. 
-
-After deployment, the result we want to see is R34X: VALIDATION COMPLETE, AUTHENTICATED GETS=3, PUBLIC GETS=2, NETWORK WRITES=0, REAL ORDERS=0, DEMO ORDERS=0, and FINAL LIFECYCLE STATE=CLOSED.
