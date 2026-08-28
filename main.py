@@ -621,11 +621,8 @@ class StrategyState:
 
     terminal: bool = False
 
-    last_journal_hash:
-        str = "0" * 64
-
-    journal_sequence:
-        int = 0
+    last_journal_hash: str = "0" * 64
+journal_sequence: int = 0
 
     updated_ms:
         int = field(
