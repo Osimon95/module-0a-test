@@ -3005,5 +3005,5 @@ def run(
 # ENTRY
 # ==================================================================================================
 
-if __name__ == "__mFor R35O to clear the two R35N Telegram blockers, the important Render-side requirement is that /var/data is an actual Persistent Disk mount, not merely a normal directory created inside the deployment filesystem. The expected successful ending is:
+
 
