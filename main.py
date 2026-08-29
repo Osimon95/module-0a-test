@@ -926,3 +926,976 @@ def sign_weex(
 # ==================================================================================================
 # END R35I PART 1 OF 4
 # ==================================================================================================
+R35I — PART 2 OF 4
+
+Continue directly below Part 1:
+
+def auth_headers(
+    method: str,
+    path: str,
+    query: str = "",
+    body: str = "",
+) -> Dict[str, str]:
+
+    timestamp, signature = sign_weex(
+        method,
+        path,
+        query,
+        body,
+    )
+
+    return {
+
+        "ACCESS-KEY":
+            API_KEY,
+
+        "ACCESS-SIGN":
+            signature,
+
+        "ACCESS-PASSPHRASE":
+            API_PASSPHRASE,
+
+        "ACCESS-TIMESTAMP":
+            timestamp,
+
+        "Content-Type":
+            "application/json",
+
+        "locale":
+            "en-US",
+
+        "User-Agent":
+            f"{VERSION}-read-only-validator/1.0",
+    }
+
+
+# ==================================================================================================
+# READ-ONLY HTTP TRANSPORT
+# ==================================================================================================
+
+def http_get_json(
+    path: str,
+    params: Optional[
+        Dict[str, str]
+    ] = None,
+    authenticated: bool = False,
+) -> Any:
+
+    params = (
+        params
+        or {}
+    )
+
+    query = urllib.parse.urlencode(
+        params
+    )
+
+    url = (
+        BASE_URL
+        + path
+        + (
+            (
+                "?"
+                + query
+            )
+            if query
+            else ""
+        )
+    )
+
+    headers: Dict[
+        str,
+        str,
+    ] = {
+
+        "User-Agent":
+            f"{VERSION}-read-only-validator/1.0",
+    }
+
+    if authenticated:
+
+        if not all(
+            credential_status().values()
+        ):
+
+            raise RuntimeError(
+                "WEEX authenticated read credentials are incomplete"
+            )
+
+        headers.update(
+            auth_headers(
+                "GET",
+                path,
+                query,
+                "",
+            )
+        )
+
+    request = urllib.request.Request(
+        url=url,
+        headers=headers,
+        method="GET",
+    )
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        ) as response:
+
+            raw = response.read().decode(
+                "utf-8",
+                errors="replace",
+            )
+
+            if (
+                response.status < 200
+                or response.status >= 300
+            ):
+
+                raise RuntimeError(
+                    f"HTTP {response.status}: "
+                    f"{raw[:300]}"
+                )
+
+            return json.loads(
+                raw
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        body = exc.read().decode(
+            "utf-8",
+            errors="replace",
+        )
+
+        raise RuntimeError(
+            f"HTTP {exc.code}: "
+            f"{body[:500]}"
+        ) from exc
+
+    except urllib.error.URLError as exc:
+
+        raise RuntimeError(
+            f"NETWORK ERROR: "
+            f"{exc.reason}"
+        ) from exc
+
+
+# ==================================================================================================
+# PRIVATE RESPONSE NORMALIZATION
+# ==================================================================================================
+
+def extract_usdt_balance(
+    payload: Any,
+) -> Optional[float]:
+
+    items: List[Any]
+
+    if isinstance(
+        payload,
+        list,
+    ):
+
+        items = payload
+
+    elif isinstance(
+        payload,
+        dict,
+    ):
+
+        data = payload.get(
+            "data",
+            payload,
+        )
+
+        if isinstance(
+            data,
+            list,
+        ):
+
+            items = data
+
+        elif isinstance(
+            data,
+            dict,
+        ):
+
+            items = [
+                data
+            ]
+
+        else:
+
+            items = []
+
+    else:
+
+        items = []
+
+    for item in items:
+
+        if not isinstance(
+            item,
+            dict,
+        ):
+
+            continue
+
+        asset = str(
+            item.get(
+                "asset",
+                item.get(
+                    "coin",
+                    "",
+                ),
+            )
+        ).upper()
+
+        if asset == "USDT":
+
+            candidate = item.get(
+                "availableBalance",
+                item.get(
+                    "available",
+                    item.get(
+                        "balance"
+                    ),
+                ),
+            )
+
+            try:
+
+                return float(
+                    candidate
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+
+                return None
+
+    return None
+
+
+def normalize_list(
+    payload: Any,
+) -> List[
+    Dict[str, Any]
+]:
+
+    if isinstance(
+        payload,
+        list,
+    ):
+
+        return [
+            item
+            for item
+            in payload
+            if isinstance(
+                item,
+                dict,
+            )
+        ]
+
+    if isinstance(
+        payload,
+        dict,
+    ):
+
+        data = payload.get(
+            "data",
+            payload,
+        )
+
+        if isinstance(
+            data,
+            list,
+        ):
+
+            return [
+                item
+                for item
+                in data
+                if isinstance(
+                    item,
+                    dict,
+                )
+            ]
+
+        if isinstance(
+            data,
+            dict,
+        ):
+
+            return [
+                data
+            ]
+
+    return []
+
+
+# ==================================================================================================
+# AUTHENTICATED ACCOUNT READS
+# ==================================================================================================
+
+def read_authenticated_state(
+) -> Dict[str, Any]:
+
+    result: Dict[
+        str,
+        Any,
+    ] = {
+
+        "ok":
+            False,
+
+        "balance":
+            None,
+
+        "positions":
+            [],
+
+        "symbol_config":
+            None,
+
+        "errors":
+            [],
+    }
+
+    # ----------------------------------------------------------------------------------------------
+    # BALANCE
+    # ----------------------------------------------------------------------------------------------
+
+    try:
+
+        balance_payload = http_get_json(
+            BALANCE_PATH,
+            authenticated=True,
+        )
+
+        balance = extract_usdt_balance(
+            balance_payload
+        )
+
+        if balance is None:
+
+            raise RuntimeError(
+                "USDT available balance was not found in V3 balance response"
+            )
+
+        result[
+            "balance"
+        ] = balance
+
+    except Exception as exc:
+
+        result[
+            "errors"
+        ].append(
+            f"balance: {exc}"
+        )
+
+    # ----------------------------------------------------------------------------------------------
+    # POSITIONS
+    # ----------------------------------------------------------------------------------------------
+
+    try:
+
+        positions_payload = http_get_json(
+            POSITIONS_PATH,
+            authenticated=True,
+        )
+
+        positions = normalize_list(
+            positions_payload
+        )
+
+        result[
+            "positions"
+        ] = [
+
+            position
+
+            for position
+            in positions
+
+            if str(
+                position.get(
+                    "symbol",
+                    "",
+                )
+            ).upper()
+            == SYMBOL
+        ]
+
+    except Exception as exc:
+
+        result[
+            "errors"
+        ].append(
+            f"positions: {exc}"
+        )
+
+    # ----------------------------------------------------------------------------------------------
+    # SYMBOL CONFIG
+    # ----------------------------------------------------------------------------------------------
+
+    try:
+
+        config_payload = http_get_json(
+            SYMBOL_CONFIG_PATH,
+            {
+                "symbol":
+                    SYMBOL,
+            },
+            authenticated=True,
+        )
+
+        configs = normalize_list(
+            config_payload
+        )
+
+        config = next(
+            (
+                item
+                for item
+                in configs
+                if str(
+                    item.get(
+                        "symbol",
+                        "",
+                    )
+                ).upper()
+                == SYMBOL
+            ),
+            None,
+        )
+
+        if config is None:
+
+            raise RuntimeError(
+                f"{SYMBOL} symbol configuration not found"
+            )
+
+        result[
+            "symbol_config"
+        ] = config
+
+    except Exception as exc:
+
+        result[
+            "errors"
+        ].append(
+            f"symbolConfig: {exc}"
+        )
+
+    result[
+        "ok"
+    ] = (
+
+        result[
+            "balance"
+        ]
+        is not None
+
+        and isinstance(
+            result[
+                "positions"
+            ],
+            list,
+        )
+
+        and isinstance(
+            result[
+                "symbol_config"
+            ],
+            dict,
+        )
+
+        and not result[
+            "errors"
+        ]
+    )
+
+    return result
+
+
+# ==================================================================================================
+# PUBLIC MARK PRICE
+# ==================================================================================================
+
+def read_mark_price(
+) -> float:
+
+    payload = http_get_json(
+        MARK_PRICE_PATH,
+        {
+            "symbol":
+                SYMBOL,
+
+            "priceType":
+                "MARK",
+        },
+        authenticated=False,
+    )
+
+    if isinstance(
+        payload,
+        dict,
+    ):
+
+        data = payload.get(
+            "data",
+            payload,
+        )
+
+        if isinstance(
+            data,
+            dict,
+        ):
+
+            value = data.get(
+                "price",
+                data.get(
+                    "markPrice"
+                ),
+            )
+
+            if value is not None:
+
+                return float(
+                    value
+                )
+
+    raise RuntimeError(
+        "mark price missing from WEEX response"
+    )
+
+
+# ==================================================================================================
+# EXCHANGE RECONCILIATION
+# ==================================================================================================
+
+def make_reconciliation(
+    account: Dict[str, Any],
+    mark_price: float,
+) -> Dict[str, Any]:
+
+    body = {
+
+        "version":
+            VERSION,
+
+        "symbol":
+            SYMBOL,
+
+        "generation":
+            STATE.generation,
+
+        "epoch":
+            STATE.epoch,
+
+        "read_only":
+            True,
+
+        "exchange_network_writes":
+            STATE.exchange_network_writes,
+
+        "balance":
+            account[
+                "balance"
+            ],
+
+        "open_positions":
+            len(
+                account[
+                    "positions"
+                ]
+            ),
+
+        "symbol_config":
+            account[
+                "symbol_config"
+            ],
+
+        "mark_price":
+            mark_price,
+    }
+
+    rec_hash = sha256_text(
+        canonical_json(
+            body
+        )
+    )
+
+    result = dict(
+        body
+    )
+
+    result[
+        "reconciliation_hash"
+    ] = rec_hash
+
+    result[
+        "reconciliation_id"
+    ] = (
+        "rec-"
+        + rec_hash[:20]
+    )
+
+    return result
+
+
+# ==================================================================================================
+# CONTROLLED LIVE ACTIVATION GATE
+# ==================================================================================================
+
+def live_gate_can_arm(
+    account_ok: bool,
+    reconciliation: Optional[
+        Dict[str, Any]
+    ],
+) -> bool:
+
+    return bool(
+
+        account_ok
+
+        and reconciliation
+
+        and reconciliation.get(
+            "symbol"
+        )
+        == SYMBOL
+
+        and reconciliation.get(
+            "read_only"
+        )
+        is True
+
+        and reconciliation.get(
+            "exchange_network_writes"
+        )
+        == 0
+
+        and STATE.exchange_network_writes
+        == 0
+
+        and not STATE.kill_switch
+
+        and not STATE.ambiguous_outcome
+
+        and EXCHANGE_WRITER_ENABLED
+        is False
+
+        and EXCHANGE_NETWORK_WRITES_ENABLED
+        is False
+
+        and REAL_ORDER_EXECUTION
+        is False
+
+        and FIRST_REAL_ORDER_ALLOWED
+        is False
+    )
+
+
+def arm_live_gate(
+    account_ok: bool,
+    reconciliation: Optional[
+        Dict[str, Any]
+    ],
+) -> bool:
+
+    allowed = live_gate_can_arm(
+        account_ok,
+        reconciliation,
+    )
+
+    STATE.authenticated_reads_ok = bool(
+        account_ok
+    )
+
+    STATE.exchange_reconciled = bool(
+        reconciliation
+        and reconciliation.get(
+            "read_only"
+        )
+        is True
+    )
+
+    STATE.live_mode_armed = bool(
+        allowed
+    )
+
+    STORE.save(
+        STATE
+    )
+
+    return allowed
+
+
+# ==================================================================================================
+# BOUND ORDER INTENT
+# ==================================================================================================
+
+def create_intent(
+    mark_price: float,
+) -> Dict[str, Any]:
+
+    raw = {
+
+        "version":
+            VERSION,
+
+        "symbol":
+            SYMBOL,
+
+        "generation":
+            STATE.generation,
+
+        "epoch":
+            STATE.epoch,
+
+        "side":
+            "BUY",
+
+        "positionSide":
+            "LONG",
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            "0.0005",
+
+        "reference_mark_price":
+            str(
+                mark_price
+            ),
+
+        "validation_run_nonce":
+            RUN_NONCE,
+
+        "synthetic_only":
+            True,
+
+        "transmission_allowed":
+            False,
+
+        "exchange_network_write_allowed":
+            False,
+    }
+
+    intent_hash = sha256_text(
+        canonical_json(
+            raw
+        )
+    )
+
+    intent = dict(
+        raw
+    )
+
+    intent[
+        "intent_hash"
+    ] = intent_hash
+
+    intent[
+        "intent_id"
+    ] = (
+        "int-"
+        + intent_hash[:20]
+    )
+
+    return intent
+
+
+def verify_intent(
+    intent: Dict[str, Any],
+) -> bool:
+
+    body = {
+
+        key: value
+
+        for key, value
+        in intent.items()
+
+        if key
+        not in {
+            "intent_hash",
+            "intent_id",
+        }
+    }
+
+    expected = sha256_text(
+        canonical_json(
+            body
+        )
+    )
+
+    return (
+
+        intent.get(
+            "intent_hash"
+        )
+        == expected
+
+        and intent.get(
+            "intent_id"
+        )
+        == (
+            "int-"
+            + expected[:20]
+        )
+    )
+
+
+# ==================================================================================================
+# ONE-TIME AUTHORIZATION
+# ==================================================================================================
+
+def create_authorization(
+    intent: Dict[str, Any],
+) -> Dict[str, Any]:
+
+    raw = {
+
+        "version":
+            VERSION,
+
+        "symbol":
+            SYMBOL,
+
+        "intent_id":
+            intent[
+                "intent_id"
+            ],
+
+        "intent_hash":
+            intent[
+                "intent_hash"
+            ],
+
+        "generation":
+            STATE.generation,
+
+        "epoch":
+            STATE.epoch,
+
+        "one_time":
+            True,
+
+        "transmission_allowed":
+            False,
+
+        "writer_enabled":
+            False,
+    }
+
+    auth_hash = sha256_text(
+        canonical_json(
+            raw
+        )
+    )
+
+    authorization = dict(
+        raw
+    )
+
+    authorization[
+        "authorization_hash"
+    ] = auth_hash
+
+    authorization[
+        "authorization_id"
+    ] = (
+        "auth-"
+        + auth_hash[:20]
+    )
+
+    return authorization
+
+
+# ==================================================================================================
+# IDEMPOTENT CLIENT ORDER ID
+# ==================================================================================================
+
+def deterministic_client_order_id(
+    intent: Dict[str, Any],
+) -> str:
+
+    seed = (
+        f"{VERSION}|"
+        f"{SYMBOL}|"
+        f"{intent['intent_id']}|"
+        f"{intent['intent_hash']}"
+    )
+
+    return (
+        "r35i-"
+        + sha256_text(
+            seed
+        )[:20]
+    )
+
+
+# ==================================================================================================
+# NON-TRANSMITTABLE LOCAL WRITER SIGNATURE
+# ==================================================================================================
+
+def fake_writer_signature(
+    intent: Dict[str, Any],
+    authorization: Dict[str, Any],
+    client_order_id: str,
+) -> str:
+
+    # R35I deliberately does NOT sign an exchange-transmittable
+    # order request with the real WEEX API secret.
+    #
+    # This deterministic local value validates envelope binding only.
+    # It is always redacted in report previews.
+
+    seed = canonical_json(
+        {
+
+            "intent_hash":
+                intent[
+                    "intent_hash"
+                ],
+
+            "authorization_hash":
+                authorization[
+                    "authorization_hash"
+                ],
+
+            "client_order_id":
+                client_order_id,
+
+            "network_writes":
+                False,
+        }
+    )
+
+    digest = hashlib.sha256(
+        seed.encode(
+            "utf-8"
+        )
+    ).digest()
+
+    return base64.b64encode(
+        digest
+    ).decode(
+        "ascii"
+    )
+
+
+# ==================================================================================================
+# WRITER ENVELOPE
+# ==================================================================================================
+
