@@ -1900,3 +1900,1787 @@ def create_writer_envelope(
     authorization: Dict[str, Any],
     reconciliation: Dict[str, Any],
     client_order_id: str,
+) -> Dict[str, Any]:
+
+    payload = {
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            "BUY",
+
+        "positionSide":
+            "LONG",
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            intent[
+                "quantity"
+            ],
+
+        "newClientOrderId":
+            client_order_id,
+    }
+
+    headers = {
+
+        "ACCESS-KEY":
+            (
+                API_KEY
+                if API_KEY
+                else "not-present"
+            ),
+
+        "ACCESS-SIGN":
+            fake_writer_signature(
+                intent,
+                authorization,
+                client_order_id,
+            ),
+
+        "ACCESS-PASSPHRASE":
+            (
+                API_PASSPHRASE
+                if API_PASSPHRASE
+                else "not-present"
+            ),
+
+        "ACCESS-TIMESTAMP":
+            "1760000000000",
+
+        "Content-Type":
+            "application/json",
+
+        "locale":
+            "en-US",
+    }
+
+    raw = {
+
+        "method":
+            "POST",
+
+        "request_path":
+            ORDER_PATH,
+
+        "url":
+            BASE_URL
+            + ORDER_PATH,
+
+        "payload":
+            payload,
+
+        "headers":
+            headers,
+
+        "intent_id":
+            intent[
+                "intent_id"
+            ],
+
+        "intent_hash":
+            intent[
+                "intent_hash"
+            ],
+
+        "authorization_id":
+            authorization[
+                "authorization_id"
+            ],
+
+        "authorization_hash":
+            authorization[
+                "authorization_hash"
+            ],
+
+        "reconciliation_id":
+            reconciliation[
+                "reconciliation_id"
+            ],
+
+        "reconciliation_hash":
+            reconciliation[
+                "reconciliation_hash"
+            ],
+
+        "live_mode_armed":
+            STATE.live_mode_armed,
+
+        "exchange_writer_enabled":
+            EXCHANGE_WRITER_ENABLED,
+
+        "exchange_network_writes_enabled":
+            EXCHANGE_NETWORK_WRITES_ENABLED,
+
+        "real_order_execution":
+            REAL_ORDER_EXECUTION,
+
+        "first_real_order_allowed":
+            FIRST_REAL_ORDER_ALLOWED,
+
+        "transmitted":
+            False,
+    }
+
+    env_hash = sha256_text(
+        canonical_json(
+            raw
+        )
+    )
+
+    result = dict(
+        raw
+    )
+
+    result[
+        "envelope_hash"
+    ] = env_hash
+
+    return result
+
+
+def redacted_writer_preview(
+    envelope: Dict[str, Any],
+) -> Dict[str, Any]:
+
+    preview = json.loads(
+        json.dumps(
+            envelope
+        )
+    )
+
+    headers = preview.get(
+        "headers",
+        {},
+    )
+
+    for key in (
+        "ACCESS-KEY",
+        "ACCESS-SIGN",
+        "ACCESS-PASSPHRASE",
+    ):
+
+        if key in headers:
+
+            headers[
+                key
+            ] = "<redacted>"
+
+    return preview
+
+
+# ==================================================================================================
+# SYNTHETIC DISPATCH
+# ==================================================================================================
+
+def synthetic_dispatch(
+    intent: Dict[str, Any],
+    authorization: Dict[str, Any],
+    envelope: Dict[str, Any],
+    client_order_id: str,
+) -> Dict[str, Any]:
+
+    if not SYNTHETIC_DISPATCH_ONLY:
+
+        raise RuntimeError(
+            "R35I synthetic-only invariant violated"
+        )
+
+    if (
+        EXCHANGE_WRITER_ENABLED
+        or EXCHANGE_NETWORK_WRITES_ENABLED
+        or REAL_ORDER_EXECUTION
+    ):
+
+        raise RuntimeError(
+            "R35I firebreak invariant violated"
+        )
+
+    if (
+        intent[
+            "intent_id"
+        ]
+        in STATE.consumed_intents
+    ):
+
+        raise RuntimeError(
+            "intent replay rejected"
+        )
+
+    if (
+        authorization[
+            "authorization_id"
+        ]
+        in STATE.consumed_authorizations
+    ):
+
+        raise RuntimeError(
+            "authorization replay rejected"
+        )
+
+    if (
+        client_order_id
+        in STATE.used_client_order_ids
+    ):
+
+        raise RuntimeError(
+            "client order id replay rejected"
+        )
+
+    receipt_body = {
+
+        "version":
+            VERSION,
+
+        "symbol":
+            SYMBOL,
+
+        "intent_id":
+            intent[
+                "intent_id"
+            ],
+
+        "authorization_id":
+            authorization[
+                "authorization_id"
+            ],
+
+        "client_order_id":
+            client_order_id,
+
+        "envelope_hash":
+            envelope[
+                "envelope_hash"
+            ],
+
+        "synthetic":
+            True,
+
+        "transmitted":
+            False,
+
+        "exchange_network_write":
+            False,
+
+        "real_order":
+            False,
+    }
+
+    receipt_hash = sha256_text(
+        canonical_json(
+            receipt_body
+        )
+    )
+
+    receipt = dict(
+        receipt_body
+    )
+
+    receipt[
+        "receipt_hash"
+    ] = receipt_hash
+
+    receipt[
+        "receipt_id"
+    ] = (
+        "rcpt-"
+        + receipt_hash[:20]
+    )
+
+    STATE.consumed_intents.append(
+        intent[
+            "intent_id"
+        ]
+    )
+
+    STATE.consumed_authorizations.append(
+        authorization[
+            "authorization_id"
+        ]
+    )
+
+    STATE.used_client_order_ids.append(
+        client_order_id
+    )
+
+    STATE.durable_receipts.append(
+        receipt
+    )
+
+    STORE.append(
+        STATE,
+        "SYNTHETIC_DISPATCH",
+        receipt,
+    )
+
+    return receipt
+
+
+# ==================================================================================================
+# TELEGRAM REPORTING
+# ==================================================================================================
+
+def telegram_preview(
+    text: str,
+) -> Dict[str, Any]:
+
+    return {
+
+        "method":
+            "POST",
+
+        "operation":
+            "sendMessage",
+
+        "report_only":
+            True,
+
+        "exchange_mutation":
+            False,
+
+        "execution_control":
+            False,
+
+        "bot_token":
+            (
+                "<redacted>"
+                if TELEGRAM_BOT_TOKEN
+                else "<not-present>"
+            ),
+
+        "chat_id_present":
+            bool(
+                TELEGRAM_CHAT_ID
+            ),
+
+        "text_length":
+            len(
+                text
+            ),
+    }
+
+
+def send_telegram_once(
+    text: str,
+) -> bool:
+
+    if (
+        STATE.telegram_reports_this_run
+        >= 1
+    ):
+
+        return False
+
+    if (
+        not TELEGRAM_ENABLED
+        or not TELEGRAM_BOT_TOKEN
+        or not TELEGRAM_CHAT_ID
+    ):
+
+        return False
+
+    # Telegram is the ONLY non-GET network call in R35I.
+    #
+    # It targets api.telegram.org only.
+    #
+    # It is reporting-only and cannot mutate WEEX,
+    # enable the writer, arm execution, or place an order.
+
+    url = (
+        "https://api.telegram.org/bot"
+        + TELEGRAM_BOT_TOKEN
+        + "/sendMessage"
+    )
+
+    encoded = urllib.parse.urlencode(
+        {
+
+            "chat_id":
+                TELEGRAM_CHAT_ID,
+
+            "text":
+                text,
+        }
+    ).encode(
+        "utf-8"
+    )
+
+    request = urllib.request.Request(
+        url=url,
+        data=encoded,
+        method="POST",
+        headers={
+
+            "Content-Type":
+                "application/x-www-form-urlencoded",
+
+            "User-Agent":
+                f"{VERSION}/1.0",
+        },
+    )
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        ) as response:
+
+            response.read()
+
+            if (
+                200
+                <= response.status
+                < 300
+            ):
+
+                STATE.telegram_reports_this_run += 1
+
+                return True
+
+    except Exception as exc:
+
+        log(
+            f"{VERSION}: "
+            f"TELEGRAM DELIVERY NOTICE: "
+            f"{type(exc).__name__}: "
+            f"{exc}"
+        )
+
+    return False
+
+
+# ==================================================================================================
+# RUN RESET
+# ==================================================================================================
+
+def reset_run_transients(
+) -> None:
+
+    # Never erase durable replay protection here.
+    #
+    # Only reset the validation gate state for this process run.
+
+    STATE.live_mode_armed = False
+
+    STATE.authenticated_reads_ok = False
+
+    STATE.exchange_reconciled = False
+
+    STATE.telegram_reports_this_run = 0
+
+    STORE.save(
+        STATE
+    )
+
+
+# ==================================================================================================
+# MAIN VALIDATION
+# ==================================================================================================
+
+def main(
+) -> None:
+
+    global STATE
+
+    start_health_server()
+
+    reset_run_transients()
+
+    failures: List[
+        str
+    ] = []
+
+    section(
+        f"{VERSION}: MAIN.PY ENTERED"
+    )
+
+    log(
+        f"{VERSION}: SYMBOL={SYMBOL}"
+    )
+
+    log(
+        f"{VERSION}: VERSION={VERSION}"
+    )
+
+    log(
+        f"{VERSION}: HEALTH PORT={HEALTH_PORT}"
+    )
+
+    log(
+        f"{VERSION}: STATE DIR={STATE_DIR}"
+    )
+
+    log(
+        f"{VERSION}: AUTHENTICATED READ-ONLY ENABLED"
+    )
+
+    log(
+        f"{VERSION}: EXCHANGE NETWORK WRITES DISABLED"
+    )
+
+    log(
+        f"{VERSION}: REAL ORDER EXECUTION DISABLED"
+    )
+
+    log(
+        f"{VERSION}: DEMO ORDER EXECUTION DISABLED"
+    )
+
+
+    # ==============================================================================================
+    # TEST 1
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 1: HARD SAFETY CONSTANTS"
+    )
+
+    checks = [
+
+        verdict(
+            "Synthetic Dispatch Only Is Enabled",
+            SYNTHETIC_DISPATCH_ONLY,
+        ),
+
+        verdict(
+            "Exchange Writer Is Disabled",
+            EXCHANGE_WRITER_ENABLED
+            is False,
+        ),
+
+        verdict(
+            "Exchange Network Writes Are Disabled",
+            EXCHANGE_NETWORK_WRITES_ENABLED
+            is False,
+        ),
+
+        verdict(
+            "Real Order Execution Is Disabled",
+            REAL_ORDER_EXECUTION
+            is False,
+        ),
+
+        verdict(
+            "Demo Order Execution Is Disabled",
+            DEMO_ORDER_EXECUTION
+            is False,
+        ),
+
+        verdict(
+            "First Real Order Is Forbidden",
+            FIRST_REAL_ORDER_ALLOWED
+            is False,
+        ),
+    ]
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 1"
+        )
+
+
+    # ==============================================================================================
+    # TEST 2
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 2: CREDENTIAL READINESS"
+    )
+
+    creds = credential_status()
+
+    checks = [
+
+        verdict(
+            "WEEX API Key Is Present",
+            creds[
+                "api_key"
+            ],
+        ),
+
+        verdict(
+            "WEEX API Secret Is Present",
+            creds[
+                "api_secret"
+            ],
+        ),
+
+        verdict(
+            "WEEX API Passphrase Is Present",
+            creds[
+                "api_passphrase"
+            ],
+        ),
+    ]
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 2"
+        )
+
+
+    # ==============================================================================================
+    # TEST 3
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 3: AUTHENTICATED WEEX READS"
+    )
+
+    if all(
+        creds.values()
+    ):
+
+        account = read_authenticated_state()
+
+    else:
+
+        account = {
+
+            "ok":
+                False,
+
+            "balance":
+                None,
+
+            "positions":
+                [],
+
+            "symbol_config":
+                None,
+
+            "errors":
+                [
+                    "credentials incomplete"
+                ],
+        }
+
+    position_read_ok = not any(
+        str(
+            error
+        ).startswith(
+            "positions:"
+        )
+        for error
+        in account[
+            "errors"
+        ]
+    )
+
+    checks = [
+
+        verdict(
+            "V3 Account Balance Read Succeeded",
+            account[
+                "balance"
+            ]
+            is not None,
+        ),
+
+        verdict(
+            "V3 All Positions Read Succeeded",
+            position_read_ok,
+        ),
+
+        verdict(
+            "V3 Symbol Configuration Read Succeeded",
+            isinstance(
+                account[
+                    "symbol_config"
+                ],
+                dict,
+            ),
+        ),
+
+        verdict(
+            "Authenticated WEEX Read Set Is Complete",
+            bool(
+                account[
+                    "ok"
+                ]
+            ),
+        ),
+    ]
+
+    if account[
+        "errors"
+    ]:
+
+        for error in account[
+            "errors"
+        ]:
+
+            log(
+                f"{VERSION}: "
+                f"AUTH READ ERROR="
+                f"{error}"
+            )
+
+    if (
+        account[
+            "balance"
+        ]
+        is not None
+    ):
+
+        log(
+            f"{VERSION}: "
+            f"AVAILABLE USDT="
+            f"{account['balance']}"
+        )
+
+    log(
+        f"{VERSION}: "
+        f"OPEN {SYMBOL} POSITIONS="
+        f"{len(account['positions'])}"
+    )
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 3"
+        )
+
+
+    # ==============================================================================================
+    # TEST 4
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 4: PUBLIC MARK PRICE"
+    )
+
+    mark_price: Optional[
+        float
+    ] = None
+
+    try:
+
+        mark_price = read_mark_price()
+
+        mark_ok = (
+            mark_price
+            > 0
+        )
+
+    except Exception as exc:
+
+        log(
+            f"{VERSION}: "
+            f"MARK PRICE ERROR="
+            f"{type(exc).__name__}: "
+            f"{exc}"
+        )
+
+        mark_ok = False
+
+    if not verdict(
+        f"{SYMBOL} Mark Price Was Read",
+        mark_ok,
+    ):
+
+        failures.append(
+            "TEST 4"
+        )
+
+    if (
+        mark_price
+        is not None
+    ):
+
+        log(
+            f"{VERSION}: "
+            f"MARK PRICE="
+            f"{mark_price}"
+        )
+
+
+    # ==============================================================================================
+    # TEST 5
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 5: EXCHANGE STATE RECONCILIATION"
+    )
+
+    reconciliation: Optional[
+        Dict[str, Any]
+    ] = None
+
+    if (
+        account[
+            "ok"
+        ]
+        and mark_price
+        is not None
+    ):
+
+        reconciliation = make_reconciliation(
+            account,
+            mark_price,
+        )
+
+    checks = [
+
+        verdict(
+            "Exchange Reconciliation Was Created",
+            reconciliation
+            is not None,
+        ),
+
+        verdict(
+            f"Exchange Reconciliation Is Bound To {SYMBOL}",
+            bool(
+                reconciliation
+                and reconciliation.get(
+                    "symbol"
+                )
+                == SYMBOL
+            ),
+        ),
+
+        verdict(
+            "Reconciliation Is Read Only",
+            bool(
+                reconciliation
+                and reconciliation.get(
+                    "read_only"
+                )
+                is True
+            ),
+        ),
+
+        verdict(
+            "Reconciliation Exchange Write Count Is Zero",
+            bool(
+                reconciliation
+                and reconciliation.get(
+                    "exchange_network_writes"
+                )
+                == 0
+            ),
+        ),
+    ]
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 5"
+        )
+
+
+    # ==============================================================================================
+    # TEST 6
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 6: CONTROLLED LIVE ACTIVATION GATE"
+    )
+
+    gate_armed = arm_live_gate(
+        bool(
+            account[
+                "ok"
+            ]
+        ),
+        reconciliation,
+    )
+
+    checks = [
+
+        verdict(
+            "Live Gate Arming Validation Succeeded",
+            gate_armed,
+        ),
+
+        verdict(
+            "Live Gate Does Not Enable Exchange Writer",
+            EXCHANGE_WRITER_ENABLED
+            is False,
+        ),
+
+        verdict(
+            "Live Gate Does Not Enable Exchange Writes",
+            EXCHANGE_NETWORK_WRITES_ENABLED
+            is False,
+        ),
+
+        verdict(
+            "Live Gate Does Not Enable Real Orders",
+            REAL_ORDER_EXECUTION
+            is False,
+        ),
+
+        verdict(
+            "First Real Order Remains Forbidden",
+            FIRST_REAL_ORDER_ALLOWED
+            is False,
+        ),
+    ]
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 6"
+        )
+
+
+    # ==============================================================================================
+    # LOCAL FIREBREAK INPUT
+    # ==============================================================================================
+
+    # Tests 7-17 remain strictly synthetic.
+    #
+    # If authenticated reads fail, the local reconciliation below is used
+    # ONLY to exercise the non-transmittable firebreak path.
+    #
+    # It does NOT cause TEST 5 or TEST 6 to pass.
+
+    effective_mark = (
+        mark_price
+        if mark_price
+        is not None
+        else 0.0
+    )
+
+    local_rec = (
+        reconciliation
+        or {
+
+            "reconciliation_id":
+                "rec-unavailable",
+
+            "reconciliation_hash":
+                sha256_text(
+                    "unavailable"
+                ),
+
+            "symbol":
+                SYMBOL,
+
+            "read_only":
+                True,
+
+            "exchange_network_writes":
+                0,
+        }
+    )
+
+
+    # ==============================================================================================
+    # TEST 7
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 7: BOUND ORDER INTENT"
+    )
+
+    intent = create_intent(
+        effective_mark
+    )
+
+    checks = [
+
+        verdict(
+            "Intent Was Created",
+            bool(
+                intent
+            ),
+        ),
+
+        verdict(
+            f"Intent Is Bound To {SYMBOL}",
+            intent.get(
+                "symbol"
+            )
+            == SYMBOL,
+        ),
+
+        verdict(
+            "Intent Is Synthetic Only",
+            intent.get(
+                "synthetic_only"
+            )
+            is True,
+        ),
+
+        verdict(
+            "Intent Forbids Transmission",
+            intent.get(
+                "transmission_allowed"
+            )
+            is False,
+        ),
+
+        verdict(
+            "Intent Forbids Exchange Network Write",
+            intent.get(
+                "exchange_network_write_allowed"
+            )
+            is False,
+        ),
+    ]
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 7"
+        )
+
+
+    # ==============================================================================================
+    # TEST 8
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 8: INTENT INTEGRITY BINDING"
+    )
+
+    intent_valid = verify_intent(
+        intent
+    )
+
+    checks = [
+
+        verdict(
+            "Intent Hash Is Valid",
+            intent_valid,
+        ),
+
+        verdict(
+            "Intent ID Is Bound To Intent Hash",
+            intent[
+                "intent_id"
+            ]
+            == (
+                "int-"
+                + intent[
+                    "intent_hash"
+                ][:20]
+            ),
+        ),
+    ]
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 8"
+        )
+
+
+    # ==============================================================================================
+    # TEST 9
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 9: ONE-TIME AUTHORIZATION"
+    )
+
+    authorization = create_authorization(
+        intent
+    )
+
+    checks = [
+
+        verdict(
+            "Authorization Was Created",
+            bool(
+                authorization
+            ),
+        ),
+
+        verdict(
+            "Authorization Is Bound To Intent",
+            authorization[
+                "intent_hash"
+            ]
+            == intent[
+                "intent_hash"
+            ],
+        ),
+
+        verdict(
+            "Authorization Is One-Time",
+            authorization.get(
+                "one_time"
+            )
+            is True,
+        ),
+
+        verdict(
+            "Authorization Does Not Permit Transmission",
+            authorization.get(
+                "transmission_allowed"
+            )
+            is False,
+        ),
+
+        verdict(
+            "Authorization Does Not Enable Writer",
+            authorization.get(
+                "writer_enabled"
+            )
+            is False,
+        ),
+    ]
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 9"
+        )
+
+
+    # ==============================================================================================
+    # TEST 10
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 10: IDEMPOTENT CLIENT ORDER ID"
+    )
+
+    client_order_id = deterministic_client_order_id(
+        intent
+    )
+
+    client_order_id_again = deterministic_client_order_id(
+        intent
+    )
+
+    not_used_before = (
+        client_order_id
+        not in STATE.used_client_order_ids
+    )
+
+    checks = [
+
+        verdict(
+            "Client Order ID Is Deterministic",
+            client_order_id
+            == client_order_id_again,
+        ),
+
+        verdict(
+            "Client Order ID Uses R35I Prefix",
+            client_order_id.startswith(
+                "r35i-"
+            ),
+        ),
+
+        verdict(
+            "Client Order ID Has Not Yet Been Consumed",
+            not_used_before,
+        ),
+    ]
+
+    log(
+        f"{VERSION}: "
+        f"CLIENT ORDER ID="
+        f"{client_order_id}"
+    )
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 10"
+        )
+
+    # Preserve replay protection across repeated R35I validation runs.
+    #
+    # If this exact deterministic validation ID was already consumed,
+    # advance the local validation epoch and create a fresh intent.
+
+    if not not_used_before:
+
+        STATE.epoch += 1
+
+        STORE.append(
+            STATE,
+            "VALIDATION_EPOCH_ADVANCE",
+            {
+
+                "reason":
+                    "prior synthetic validation consumed deterministic id",
+
+                "epoch":
+                    STATE.epoch,
+            },
+        )
+
+        intent = create_intent(
+            effective_mark
+        )
+
+        authorization = create_authorization(
+            intent
+        )
+
+        client_order_id = deterministic_client_order_id(
+            intent
+        )
+
+
+    # ==============================================================================================
+    # TEST 11
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 11: SECRET-SAFE WRITER ENVELOPE"
+    )
+
+    envelope = create_writer_envelope(
+        intent,
+        authorization,
+        local_rec,
+        client_order_id,
+    )
+
+    preview = redacted_writer_preview(
+        envelope
+    )
+
+    checks = [
+
+        verdict(
+            "Writer Envelope Uses POST",
+            envelope.get(
+                "method"
+            )
+            == "POST",
+        ),
+
+        verdict(
+            "Writer Envelope Uses Exact V3 Order Path",
+            envelope.get(
+                "request_path"
+            )
+            == ORDER_PATH,
+        ),
+
+        verdict(
+            "Writer Envelope Is Bound To Intent",
+            envelope.get(
+                "intent_hash"
+            )
+            == intent[
+                "intent_hash"
+            ],
+        ),
+
+        verdict(
+            "Writer Envelope Is Bound To Authorization",
+            envelope.get(
+                "authorization_hash"
+            )
+            == authorization[
+                "authorization_hash"
+            ],
+        ),
+
+        verdict(
+            "Writer Envelope Is Bound To Reconciliation",
+            envelope.get(
+                "reconciliation_hash"
+            )
+            == local_rec[
+                "reconciliation_hash"
+            ],
+        ),
+
+        verdict(
+            "Writer Envelope Marks Transmitted False",
+            envelope.get(
+                "transmitted"
+            )
+            is False,
+        ),
+
+        verdict(
+            "Writer Preview Redacts Access Key",
+            preview[
+                "headers"
+            ].get(
+                "ACCESS-KEY"
+            )
+            == "<redacted>",
+        ),
+
+        verdict(
+            "Writer Preview Redacts Signature",
+            preview[
+                "headers"
+            ].get(
+                "ACCESS-SIGN"
+            )
+            == "<redacted>",
+        ),
+
+        verdict(
+            "Writer Preview Redacts Passphrase",
+            preview[
+                "headers"
+            ].get(
+                "ACCESS-PASSPHRASE"
+            )
+            == "<redacted>",
+        ),
+    ]
+
+    log(
+        f"{VERSION}: "
+        f"WRITER PREVIEW="
+        f"{canonical_json(preview)}"
+    )
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 11"
+        )
+
+
+    # ==============================================================================================
+    # TEST 12
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 12: EXCHANGE NETWORK FIREBREAK"
+    )
+
+    checks = [
+
+        verdict(
+            "Exchange Writer Is Still Disabled",
+            EXCHANGE_WRITER_ENABLED
+            is False,
+        ),
+
+        verdict(
+            "Exchange Network Writes Are Still Disabled",
+            EXCHANGE_NETWORK_WRITES_ENABLED
+            is False,
+        ),
+
+        verdict(
+            "Real Order Execution Is Still Disabled",
+            REAL_ORDER_EXECUTION
+            is False,
+        ),
+
+        verdict(
+            "First Real Order Is Still Forbidden",
+            FIRST_REAL_ORDER_ALLOWED
+            is False,
+        ),
+
+        verdict(
+            "Envelope Was Not Transmitted",
+            envelope.get(
+                "transmitted"
+            )
+            is False,
+        ),
+    ]
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 12"
+        )
+
+
+    # ==============================================================================================
+    # TEST 13
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 13: SYNTHETIC DISPATCH"
+    )
+
+    receipt: Optional[
+        Dict[str, Any]
+    ] = None
+
+    try:
+
+        receipt = synthetic_dispatch(
+            intent,
+            authorization,
+            envelope,
+            client_order_id,
+        )
+
+        dispatch_ok = True
+
+    except Exception as exc:
+
+        log(
+            f"{VERSION}: "
+            f"SYNTHETIC DISPATCH ERROR="
+            f"{exc}"
+        )
+
+        dispatch_ok = False
+
+    checks = [
+
+        verdict(
+            "Synthetic Dispatch Produced Receipt",
+            dispatch_ok
+            and receipt
+            is not None,
+        ),
+
+        verdict(
+            "Synthetic Receipt Marks Transmitted False",
+            bool(
+                receipt
+                and receipt.get(
+                    "transmitted"
+                )
+                is False
+            ),
+        ),
+
+        verdict(
+            "Synthetic Receipt Marks Exchange Write False",
+            bool(
+                receipt
+                and receipt.get(
+                    "exchange_network_write"
+                )
+                is False
+            ),
+        ),
+
+        verdict(
+            "Synthetic Receipt Marks Real Order False",
+            bool(
+                receipt
+                and receipt.get(
+                    "real_order"
+                )
+                is False
+            ),
+        ),
+
+        verdict(
+            "Synthetic Dispatch Makes No Exchange Network Write",
+            STATE.exchange_network_writes
+            == 0,
+        ),
+    ]
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 13"
+        )
+
+
+    # ==============================================================================================
+    # TEST 14
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 14: INTENT REPLAY PROTECTION"
+    )
+
+    replay_rejected = False
+
+    try:
+
+        synthetic_dispatch(
+            intent,
+            authorization,
+            envelope,
+            client_order_id,
+        )
+
+    except Exception:
+
+        replay_rejected = True
+
+    if not verdict(
+        "Consumed Intent Replay Is Rejected",
+        replay_rejected,
+    ):
+
+        failures.append(
+            "TEST 14"
+        )
+
+
+    # ==============================================================================================
+    # TEST 15
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 15: AUTHORIZATION REPLAY PROTECTION"
+    )
+
+    if not verdict(
+        "Authorization Is Persistently Consumed",
+        authorization[
+            "authorization_id"
+        ]
+        in STATE.consumed_authorizations,
+    ):
+
+        failures.append(
+            "TEST 15"
+        )
+
+
+    # ==============================================================================================
+    # TEST 16
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 16: CLIENT ORDER ID REPLAY PROTECTION"
+    )
+
+    if not verdict(
+        "Client Order ID Is Persistently Used",
+        client_order_id
+        in STATE.used_client_order_ids,
+    ):
+
+        failures.append(
+            "TEST 16"
+        )
+
+
+    # ==============================================================================================
+    # TEST 17
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 17: DURABLE RECEIPT"
+    )
+
+    durable_receipt_ok = bool(
+
+        receipt
+
+        and any(
+            existing.get(
+                "receipt_id"
+            )
+            == receipt.get(
+                "receipt_id"
+            )
+            for existing
+            in STATE.durable_receipts
+        )
+    )
+
+    if not verdict(
+        "Durable Receipt Exists",
+        durable_receipt_ok,
+    ):
+
+        failures.append(
+            "TEST 17"
+        )
+
+
+    # ==============================================================================================
+    # TEST 18
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 18: KILL SWITCH BOUNDARY"
+    )
+
+    old_kill = (
+        STATE.kill_switch
+    )
+
+    STATE.kill_switch = True
+
+    kill_rejects = not live_gate_can_arm(
+        bool(
+            account[
+                "ok"
+            ]
+        ),
+        reconciliation,
+    )
+
+    STATE.kill_switch = (
+        old_kill
+    )
+
+    checks = [
+
+        verdict(
+            "Kill Switch Rejects Live Gate Arming",
+            kill_rejects,
+        ),
+
+        verdict(
+            "Kill Switch Makes No Exchange Write",
+            STATE.exchange_network_writes
+            == 0,
+        ),
+    ]
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 18"
+        )
+
+
+    # ==============================================================================================
+    # TEST 19
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 19: AMBIGUOUS OUTCOME BLOCK"
+    )
+
+    old_ambiguous = (
+        STATE.ambiguous_outcome
+    )
+
+    STATE.ambiguous_outcome = True
+
+    ambiguous_rejects = not live_gate_can_arm(
+        bool(
+            account[
+                "ok"
+            ]
+        ),
+        reconciliation,
+    )
+
+    STATE.ambiguous_outcome = (
+        old_ambiguous
+    )
+
+    if not verdict(
+        "Ambiguous Outcome Blocks Live Gate",
+        ambiguous_rejects,
+    ):
+
+        failures.append(
+            "TEST 19"
+        )
+
+
+    # ==============================================================================================
+    # TEST 20
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 20: DURABLE RESTART PROTECTION"
+    )
+
+    STORE.save(
+        STATE
+    )
+
+    restarted = STORE.load()
+
+    checks = [
+
+        verdict(
+            "Live Activation Gate State Survives Restart",
+            restarted.live_mode_armed
+            == STATE.live_mode_armed,
+        ),
+
+        verdict(
+            "Consumed Intent Survives Restart",
+            intent[
+                "intent_id"
+            ]
+            in restarted.consumed_intents,
+        ),
+
+        verdict(
+            "Consumed Authorization Survives Restart",
+            authorization[
+                "authorization_id"
+            ]
+            in restarted.consumed_authorizations,
+        ),
+
+        verdict(
+            "Used Client Order ID Survives Restart",
+            client_order_id
+            in restarted.used_client_order_ids,
+        ),
+
+        verdict(
+            "Durable Receipt Survives Restart",
+            bool(
+                receipt
+                and any(
+                    existing.get(
+                        "receipt_id"
+                    )
+                    == receipt.get(
+                        "receipt_id"
+                    )
+                    for existing
+                    in restarted.durable_receipts
+                )
+            ),
+        ),
+
+        verdict(
+            "Restart Keeps Exchange Write Count At Zero",
+            restarted.exchange_network_writes
+            == 0,
+        ),
+    ]
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 20"
+        )
+
+    STATE = restarted
+
+
+# ==================================================================================================
+# END R35I PART 3 OF 4
+# ==================================================================================================
