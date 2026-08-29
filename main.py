@@ -3684,3 +3684,376 @@ def main(
 # END R35I PART 3 OF 4
 # ==================================================================================================
 
+
+# ==============================================================================================
+    # TEST 21
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 21: TELEGRAM REPORTING BOUNDARY"
+    )
+
+    tg_probe = telegram_preview(
+        "R35I validation report"
+    )
+
+    checks = [
+
+        verdict(
+            "Telegram Uses POST Only For Reporting",
+            tg_probe.get(
+                "method"
+            )
+            == "POST",
+        ),
+
+        verdict(
+            "Telegram Operation Is sendMessage",
+            tg_probe.get(
+                "operation"
+            )
+            == "sendMessage",
+        ),
+
+        verdict(
+            "Telegram Request Is Report Only",
+            tg_probe.get(
+                "report_only"
+            )
+            is True,
+        ),
+
+        verdict(
+            "Telegram Request Is Not Exchange Mutation",
+            tg_probe.get(
+                "exchange_mutation"
+            )
+            is False,
+        ),
+
+        verdict(
+            "Telegram Cannot Control Execution",
+            tg_probe.get(
+                "execution_control"
+            )
+            is False,
+        ),
+
+        verdict(
+            "Telegram Preview Does Not Expose Bot Token",
+            tg_probe.get(
+                "bot_token"
+            )
+            in {
+                "<redacted>",
+                "<not-present>",
+            },
+        ),
+    ]
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 21"
+        )
+
+
+    # ==============================================================================================
+    # TEST 22
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 22: FINAL TELEGRAM DELIVERY READINESS"
+    )
+
+    tg_ready = (
+
+        TELEGRAM_ENABLED
+
+        and bool(
+            TELEGRAM_BOT_TOKEN
+        )
+
+        and bool(
+            TELEGRAM_CHAT_ID
+        )
+    )
+
+    checks = [
+
+        verdict(
+            "Telegram Reporting Is Enabled",
+            TELEGRAM_ENABLED,
+        ),
+
+        verdict(
+            "Telegram Bot Token Is Present",
+            bool(
+                TELEGRAM_BOT_TOKEN
+            ),
+        ),
+
+        verdict(
+            "Telegram Chat ID Is Present",
+            bool(
+                TELEGRAM_CHAT_ID
+            ),
+        ),
+
+        verdict(
+            "Telegram Delivery Is Deferred Until Final Verification",
+            STATE.telegram_reports_this_run
+            == 0,
+        ),
+    ]
+
+    if not all(
+        checks
+    ):
+
+        # Telegram configuration is reporting readiness only.
+        #
+        # It never grants order permission and never enables
+        # the WEEX writer.
+
+        failures.append(
+            "TEST 22"
+        )
+
+
+    # ==============================================================================================
+    # TEST 23
+    # ==============================================================================================
+
+    section(
+        f"{VERSION} TEST 23: JOURNAL INTEGRITY"
+    )
+
+    STORE.append(
+        STATE,
+        "VALIDATION_CHECKPOINT",
+        {
+
+            "authenticated_reads_ok":
+                bool(
+                    account[
+                        "ok"
+                    ]
+                ),
+
+            "live_mode_armed":
+                STATE.live_mode_armed,
+
+            "exchange_network_writes":
+                STATE.exchange_network_writes,
+        },
+    )
+
+    journal_ok, journal_count = STORE.verify_journal()
+
+    checks = [
+
+        verdict(
+            "Durable Journal Contains Records",
+            journal_count
+            > 0,
+        ),
+
+        verdict(
+            "Durable Journal Hash Chain Is Valid",
+            journal_ok,
+        ),
+
+        verdict(
+            "Journal Sequence Is Monotonic",
+            STATE.journal_sequence
+            >= journal_count,
+        ),
+    ]
+
+    if not all(
+        checks
+    ):
+
+        failures.append(
+            "TEST 23"
+        )
+
+
+    # ==============================================================================================
+    # FINAL VALIDATION STATE
+    # ==============================================================================================
+
+    validation_passed = (
+        len(
+            failures
+        )
+        == 0
+    )
+
+    report_lines = [
+
+        (
+            f"✅ {VERSION} VALIDATION REPORT"
+            if validation_passed
+            else f"❌ {VERSION} VALIDATION REPORT"
+        ),
+
+        "",
+
+        f"Symbol: {SYMBOL}",
+
+        (
+            "Authenticated WEEX reads: PASS"
+            if account[
+                "ok"
+            ]
+            else "Authenticated WEEX reads: FAIL"
+        ),
+
+        (
+            f"Balance: {account['balance']}"
+            if account[
+                "balance"
+            ]
+            is not None
+            else "Balance: unavailable"
+        ),
+
+        (
+            f"Mark price: {mark_price}"
+            if mark_price
+            is not None
+            else "Mark price: unavailable"
+        ),
+
+        (
+            f"Open positions: {len(account['positions'])}"
+            if account[
+                "ok"
+            ]
+            else "Open positions: unverified"
+        ),
+
+        (
+            "Journal integrity: PASS"
+            if journal_ok
+            else "Journal integrity: FAIL"
+        ),
+
+        f"Journal sequence: {STATE.journal_sequence}",
+
+        f"Exchange network writes: {STATE.exchange_network_writes}",
+
+        "Real order execution: DISABLED",
+
+        "Demo order execution: DISABLED",
+
+        "First real order: FORBIDDEN",
+
+        "Telegram reports this run: 1 maximum",
+
+        (
+            "Status: VALIDATION PASSED"
+            if validation_passed
+            else "Status: VALIDATION FAILED"
+        ),
+    ]
+
+    if failures:
+
+        report_lines.append(
+            "Failed tests: "
+            + ", ".join(
+                failures
+            )
+        )
+
+    report = "\n".join(
+        report_lines
+    )
+
+
+    # ==============================================================================================
+    # FINAL CONSOLE REPORT
+    # ==============================================================================================
+
+    section(
+        f"{VERSION}: VALIDATION SUMMARY"
+    )
+
+    for line in report_lines:
+
+        log(
+            line
+        )
+
+
+    # ==============================================================================================
+    # SINGLE FINAL TELEGRAM REPORT
+    # ==============================================================================================
+    #
+    # Telegram is intentionally deferred until every validation test
+    # has finished.
+    #
+    # Maximum:
+    #
+    #     ONE Telegram sendMessage POST per process run.
+    #
+    # This POST is directed only to api.telegram.org.
+    #
+    # It cannot:
+    #
+    #     - enable WEEX writes
+    #     - arm order execution
+    #     - modify exchange state
+    #     - send an order
+    #     - change leverage
+    #     - change margin mode
+    #     - modify a position
+    #
+    # ==============================================================================================
+
+    if tg_ready:
+
+        delivered = send_telegram_once(
+            report
+        )
+
+        log(
+            f"{VERSION}: "
+            f"TELEGRAM FINAL REPORT="
+            f"{'DELIVERED' if delivered else 'NOT DELIVERED'}"
+        )
+
+    else:
+
+        log(
+            f"{VERSION}: "
+            f"TELEGRAM FINAL REPORT="
+            f"NOT CONFIGURED"
+        )
+
+
+    # ==============================================================================================
+    # FINAL DURABLE STATE SAVE
+    # ==============================================================================================
+
+    STORE.save(
+        STATE
+    )
+
+    log(
+        LINE
+    )
+
+
+# ==================================================================================================
+# PROGRAM ENTRY
+# ==================================================================================================
+
+if __name__ == "__main__":
+
+    main()
