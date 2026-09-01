@@ -1,6 +1,4 @@
 
-
-```python
 #!/usr/bin/env python3
 """
 R36E - AUTOMATED WEEX V3 WRITER LAYER
@@ -3308,5 +3306,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
 
