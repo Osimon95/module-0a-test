@@ -2150,3 +2150,973 @@ def run_tp_contract_tests():
     line()
 
     return True
+# ============================================================
+# R36F.5.2 SYNTHETIC LONG DATA
+#
+# CORRECTION:
+# Deliberately separated resistance groups.
+#
+# Group 1:
+#   approximately 100500
+#
+# Group 2:
+#   approximately 101000
+#
+# Both groups contain multiple local highs.
+# ============================================================
+
+def synthetic_long_rows():
+
+    base = [
+        100000,
+        100200,
+
+        100500,
+        100100,
+        100490,
+        100150,
+        100510,
+
+        100250,
+        100800,
+
+        101000,
+        100850,
+        100980,
+        100820,
+        101020,
+
+        100700,
+    ]
+
+    rows = []
+
+    for i, high in enumerate(base):
+
+        rows.append(
+            [
+                i,
+
+                str(
+                    D(high)
+                    - Decimal("500")
+                ),
+
+                str(
+                    D(high)
+                    - Decimal("100")
+                ),
+
+                str(
+                    D(high)
+                ),
+
+                str(
+                    D(high)
+                    - Decimal("300")
+                ),
+
+                "1",
+            ]
+        )
+
+    return rows
+
+
+# ============================================================
+# R36F.5.2 SYNTHETIC SHORT DATA
+#
+# CORRECTION:
+# Deliberately separated support groups.
+#
+# Group 1:
+#   approximately 99500
+#
+# Group 2:
+#   approximately 99000
+#
+# Both groups contain multiple local lows.
+# ============================================================
+
+def synthetic_short_rows():
+
+    base = [
+        100000,
+        99800,
+
+        99500,
+        99800,
+        99490,
+        99700,
+        99510,
+
+        99700,
+        99200,
+
+        99000,
+        99200,
+        98980,
+        99150,
+        99020,
+
+        99400,
+    ]
+
+    rows = []
+
+    for i, low in enumerate(base):
+
+        rows.append(
+            [
+                i,
+
+                str(
+                    D(low)
+                    + Decimal("300")
+                ),
+
+                str(
+                    D(low)
+                    + Decimal("500")
+                ),
+
+                str(
+                    D(low)
+                ),
+
+                str(
+                    D(low)
+                    + Decimal("100")
+                ),
+
+                "1",
+            ]
+        )
+
+    return rows
+
+
+# ============================================================
+# SYNTHETIC CLUSTER TESTS
+# ============================================================
+
+def synthetic_cluster_tests():
+
+    entry = Decimal("100000")
+
+    # --------------------------------------------------------
+    # LONG
+    # --------------------------------------------------------
+
+    long_rows = synthetic_long_rows()
+
+    long_diagnostics = build_cluster_diagnostics(
+        long_rows,
+        entry,
+        "LONG",
+    )
+
+    check(
+        "SYNTHETIC_LONG_MINIMUM_TWO_VALID_CLUSTERS",
+        long_diagnostics[
+            "valid_cluster_count"
+        ] >= REQUIRED_TP_CLUSTERS,
+        (
+            "expected_at_least="
+            + str(REQUIRED_TP_CLUSTERS)
+            + " actual="
+            + str(
+                long_diagnostics[
+                    "valid_cluster_count"
+                ]
+            )
+        ),
+    )
+
+    long_snapshot = build_cluster_tp_snapshot(
+        entry,
+        long_rows,
+        "LONG",
+        "SYNTHETIC_LONG_FILL",
+    )
+
+    check(
+        "SYNTHETIC_LONG_TP_APPROVED",
+        long_snapshot[
+            "tp_approval"
+        ][
+            "approved"
+        ] is True,
+    )
+
+    check(
+        "SYNTHETIC_LONG_TWO_CLUSTERS",
+        long_snapshot[
+            "available_valid_clusters"
+        ] >= REQUIRED_TP_CLUSTERS,
+    )
+
+    long_tp1 = D(
+        long_snapshot[
+            "tp1"
+        ][
+            "price"
+        ]
+    )
+
+    long_tp2 = D(
+        long_snapshot[
+            "tp2"
+        ][
+            "price"
+        ]
+    )
+
+    check(
+        "SYNTHETIC_LONG_TP_ORDERING",
+        entry
+        < long_tp1
+        < long_tp2,
+    )
+
+    # --------------------------------------------------------
+    # SHORT
+    # --------------------------------------------------------
+
+    short_rows = synthetic_short_rows()
+
+    short_diagnostics = build_cluster_diagnostics(
+        short_rows,
+        entry,
+        "SHORT",
+    )
+
+    check(
+        "SYNTHETIC_SHORT_MINIMUM_TWO_VALID_CLUSTERS",
+        short_diagnostics[
+            "valid_cluster_count"
+        ] >= REQUIRED_TP_CLUSTERS,
+        (
+            "expected_at_least="
+            + str(REQUIRED_TP_CLUSTERS)
+            + " actual="
+            + str(
+                short_diagnostics[
+                    "valid_cluster_count"
+                ]
+            )
+        ),
+    )
+
+    short_snapshot = build_cluster_tp_snapshot(
+        entry,
+        short_rows,
+        "SHORT",
+        "SYNTHETIC_SHORT_FILL",
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TP_APPROVED",
+        short_snapshot[
+            "tp_approval"
+        ][
+            "approved"
+        ] is True,
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TWO_CLUSTERS",
+        short_snapshot[
+            "available_valid_clusters"
+        ] >= REQUIRED_TP_CLUSTERS,
+    )
+
+    short_tp1 = D(
+        short_snapshot[
+            "tp1"
+        ][
+            "price"
+        ]
+    )
+
+    short_tp2 = D(
+        short_snapshot[
+            "tp2"
+        ][
+            "price"
+        ]
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TP_ORDERING",
+        entry
+        > short_tp1
+        > short_tp2,
+    )
+
+    check(
+        "SYNTHETIC_SHORT_EXACTLY_TWO_VALID_CLUSTERS",
+        short_diagnostics[
+            "valid_cluster_count"
+        ] == REQUIRED_TP_CLUSTERS,
+        "synthetic short fixture must deterministically produce exactly "
+        + str(REQUIRED_TP_CLUSTERS)
+        + " valid clusters",
+    )
+
+    # --------------------------------------------------------
+    # IMMUTABILITY CONTRACTS
+    # --------------------------------------------------------
+
+    check(
+        "PRIMARY_TP_IMMUTABLE_CONTRACT",
+        (
+            long_snapshot[
+                "primary_tp_immutable"
+            ] is True
+            and
+            short_snapshot[
+                "primary_tp_immutable"
+            ] is True
+        ),
+    )
+
+    check(
+        "BACKUP_TP_RECALC_CONTRACT",
+        (
+            long_snapshot[
+                "backup_tp_recalculated_only_on_backup_fill"
+            ] is True
+            and
+            short_snapshot[
+                "backup_tp_recalculated_only_on_backup_fill"
+            ] is True
+        ),
+    )
+
+    return (
+        long_snapshot,
+        short_snapshot,
+    )
+
+
+# ============================================================
+# SYNTHETIC TP REJECTION TEST
+# ============================================================
+
+def synthetic_tp_rejection_test():
+
+    entry = Decimal("100000")
+
+    # Only one valid historical-high cluster.
+    # This MUST NOT approve the TP1 + TP2 set.
+
+    rows = [
+
+        [
+            0,
+            "99500",
+            "99900",
+            "100100",
+            "99800",
+            "1",
+        ],
+
+        [
+            1,
+            "99900",
+            "99950",
+            "100550",
+            "99900",
+            "1",
+        ],
+
+        [
+            2,
+            "99900",
+            "100000",
+            "100000",
+            "99900",
+            "1",
+        ],
+
+        [
+            3,
+            "99900",
+            "99950",
+            "100540",
+            "99900",
+            "1",
+        ],
+
+        [
+            4,
+            "99500",
+            "99900",
+            "100100",
+            "99800",
+            "1",
+        ],
+    ]
+
+    diagnostics = build_cluster_diagnostics(
+        rows,
+        entry,
+        "LONG",
+    )
+
+    approval = evaluate_tp_approval(
+        diagnostics
+    )
+
+    check(
+        "ONE_CLUSTER_TP_REJECTED",
+        approval[
+            "approved"
+        ] is False,
+    )
+
+    check(
+        "ONE_CLUSTER_APPROVAL_STATUS_REJECTED",
+        approval[
+            "status"
+        ] == "REJECTED",
+    )
+
+    check(
+        "ONE_CLUSTER_DOES_NOT_APPROVE_TP_SET",
+        approval[
+            "available_valid_clusters"
+        ] < REQUIRED_TP_CLUSTERS,
+    )
+
+    return approval
+
+
+# ============================================================
+# WRITER REQUEST PREVIEW
+# ============================================================
+
+def build_writer_request_preview(
+    side,
+    entry_price,
+    quantity,
+    tp_snapshot,
+):
+
+    return {
+
+        "stage":
+            STAGE,
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            side,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "tp_approval":
+            tp_snapshot[
+                "tp_approval"
+            ],
+
+        "tp1":
+            tp_snapshot[
+                "tp1"
+            ],
+
+        "tp2":
+            tp_snapshot[
+                "tp2"
+            ],
+
+        "tp3":
+            tp_snapshot[
+                "tp3"
+            ],
+
+        "primary_tp_immutable":
+            True,
+
+        "submitted":
+            False,
+
+        "transport_enabled":
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+    }
+
+
+# ============================================================
+# MAIN R36F.5.2 TEST
+# ============================================================
+
+async def run_r36f52():
+
+    global TEST_STATUS
+    global R36A_EVIDENCE_OK
+    global R36C_EVIDENCE_OK
+    global R36D_EVIDENCE_OK
+    global DURABLE_EVIDENCE_OK
+    global WEEX_READ_ONLY_OK
+    global ZERO_WRITE_INVARIANT_OK
+    global FINAL_GATE_OK
+    global LONG_DIAGNOSTICS
+    global SHORT_DIAGNOSTICS
+
+    TEST_STATUS = "RUNNING"
+
+    line()
+
+    log(
+        f"{STAGE}: {PURPOSE}"
+    )
+
+    line()
+
+    # ========================================================
+    # EXECUTION FIREBREAK TESTS
+    # ========================================================
+
+    check(
+        "REAL_ORDER_EXECUTION_DISABLED",
+        REAL_ORDER_EXECUTION is False,
+    )
+
+    check(
+        "DEMO_ORDER_EXECUTION_DISABLED",
+        DEMO_ORDER_EXECUTION is False,
+    )
+
+    check(
+        "EXCHANGE_MUTATION_TRANSPORT_DISABLED",
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED is False,
+    )
+
+    check(
+        "ORDER_SUBMISSION_DISABLED",
+        ORDER_SUBMISSION_ENABLED is False,
+    )
+
+    check(
+        "LEVERAGE_MUTATION_DISABLED",
+        LEVERAGE_MUTATION_ENABLED is False,
+    )
+
+    check(
+        "MARGIN_MODE_MUTATION_DISABLED",
+        MARGIN_MODE_MUTATION_ENABLED is False,
+    )
+
+    check(
+        "POSITION_MUTATION_DISABLED",
+        POSITION_MUTATION_ENABLED is False,
+    )
+
+    check(
+        "FIRST_REAL_ORDER_DISABLED",
+        FIRST_REAL_ORDER_ALLOWED is False,
+    )
+
+    # ========================================================
+    # R36A DURABLE EVIDENCE
+    # ========================================================
+
+    r36a_ids = set()
+
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DEDUPE_FILE
+        )
+    )
+
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DECISION_FILE
+        )
+    )
+
+    R36A_EVIDENCE_OK = (
+        OLD_R36A_UPDATE_ID
+        in r36a_ids
+    )
+
+    check(
+        "R36A_DURABLE_ID_PRESENT",
+        R36A_EVIDENCE_OK,
+        f"expected={OLD_R36A_UPDATE_ID}",
+    )
+
+    # ========================================================
+    # R36C DURABLE EVIDENCE
+    # ========================================================
+
+    r36c_ids = set()
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DEDUPE_FILE
+        )
+    )
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DECISION_FILE
+        )
+    )
+
+    R36C_EVIDENCE_OK = (
+        R36C_UPDATE_ID
+        in r36c_ids
+    )
+
+    check(
+        "R36C_DURABLE_ID_PRESENT",
+        R36C_EVIDENCE_OK,
+        f"expected={R36C_UPDATE_ID}",
+    )
+
+    # ========================================================
+    # R36D SNAPSHOT
+    # ========================================================
+
+    r36d_snapshot = read_json_file(
+        R36D_SNAPSHOT_FILE,
+        {},
+    )
+
+    R36D_EVIDENCE_OK = bool(
+        r36d_snapshot
+    )
+
+    check(
+        "R36D_SNAPSHOT_PRESENT",
+        R36D_EVIDENCE_OK,
+    )
+
+    DURABLE_EVIDENCE_OK = (
+        R36A_EVIDENCE_OK
+        and R36C_EVIDENCE_OK
+        and R36D_EVIDENCE_OK
+    )
+
+    # ========================================================
+    # API CREDENTIAL PRESENCE
+    # ========================================================
+
+    check(
+        "WEEX_API_KEY_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_KEY"
+            )
+        ),
+    )
+
+    check(
+        "WEEX_API_SECRET_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_SECRET"
+            )
+        ),
+    )
+
+    check(
+        "WEEX_API_PASSPHRASE_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_PASSPHRASE"
+            )
+        ),
+    )
+
+    # ========================================================
+    # FROZEN DIAGNOSTIC:
+    # WEEX READ-ONLY RECONCILIATION
+    # ========================================================
+
+    try:
+
+        await reconcile_weex()
+
+        WEEX_READ_ONLY_OK = True
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            True,
+        )
+
+    except Exception as exc:
+
+        WEEX_READ_ONLY_OK = False
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # SYNTHETIC TP ENGINE
+    # ========================================================
+
+    synthetic_long = None
+    synthetic_short = None
+
+    try:
+
+        (
+            synthetic_long,
+            synthetic_short,
+        ) = synthetic_cluster_tests()
+
+        check(
+            "SYNTHETIC_TP_ENGINE",
+            True,
+        )
+
+    except Exception as exc:
+
+        check(
+            "SYNTHETIC_TP_ENGINE",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # TP REJECTION TEST
+    # ========================================================
+
+    try:
+
+        rejection = (
+            synthetic_tp_rejection_test()
+        )
+
+        check(
+            "TP_APPROVAL_REJECTION_FLOW",
+            rejection[
+                "approved"
+            ] is False,
+        )
+
+    except Exception as exc:
+
+        check(
+            "TP_APPROVAL_REJECTION_FLOW",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # HISTORICAL KLINES
+    # ========================================================
+
+    historical_rows = []
+
+    try:
+
+        historical_rows = (
+            await load_historical_klines()
+        )
+
+        check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            len(historical_rows) >= 3,
+            f"rows={len(historical_rows)}",
+        )
+
+    except Exception as exc:
+
+        check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # REAL LONG TP PREVIEW
+    # ========================================================
+
+    real_long_snapshot = None
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+
+        try:
+
+            real_long_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "LONG",
+                    "REAL_LONG_PREVIEW",
+                )
+            )
+
+            LONG_DIAGNOSTICS = (
+                real_long_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            check(
+                "REAL_LONG_TP_PREVIEW",
+                real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ] is True,
+
+                "TP_APPROVAL="
+                + real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ],
+            )
+
+            log(
+                "REAL_LONG_TP_APPROVAL="
+                + real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ]
+            )
+
+        except Exception as exc:
+
+            LONG_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "LONG",
+                )
+            )
+
+            approval = (
+                evaluate_tp_approval(
+                    LONG_DIAGNOSTICS
+                )
+            )
+
+            check(
+                "REAL_LONG_TP_PREVIEW",
+                False,
+
+                "TP_APPROVAL="
+                + approval[
+                    "status"
+                ]
+                + " reason="
+                + approval[
+                    "reason"
+                ]
+                + " error="
+                + str(exc),
+            )
+
+    # ========================================================
+    # REAL SHORT TP PREVIEW
+    # ========================================================
+
+    real_short_snapshot = None
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+
+        try:
+
+            real_short_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "SHORT",
+                    "REAL_SHORT_PREVIEW",
+                )
+            )
+
+            SHORT_DIAGNOSTICS = (
+                real_short_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            check(
+                "REAL_SHORT_TP_PREVIEW",
+                real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ] is True,
+
+                "TP_APPROVAL="
+                + real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ],
+            )
+
+            log(
+                "REAL_SHORT_TP_APPROVAL="
+                + real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ]
+            )
+
+        except Exception as exc:
+
+            SHORT_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "SHORT",
+                )
+            )
+
+            approval = (
+                evaluate_tp_approval(
+                    SHORT_DIAGNOSTICS
+                )
+            )
+
+            check(
+                "REAL_SHORT_TP_PREVIEW",
+                False,
+
+                "TP_APPROVAL="
+                + approval[
+                    "status"
+                ]
+                + " reason="
+                + approval[
+                    "reason"
+                ]
+                + " error="
+                + str(exc),
+            )
+
+    # ========================================================
+    # FROZEN DIAGNOSTIC:
+    # CANARY PREVIEW
+    # ========================================================
+
+    canary_preview = None
