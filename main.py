@@ -1123,4 +1123,2297 @@ def build_canary_preview():
 # END PART 1
 # ============================================================
 
+# ============================================================
+# HISTORICAL KLINE EXTRACTION
+# ============================================================
+
+def extract_kline_rows(payload):
+
+    if isinstance(payload, list):
+        return payload
+
+    if not isinstance(payload, dict):
+        return []
+
+    for key in (
+        "data",
+        "rows",
+        "result",
+        "list",
+    ):
+
+        value = payload.get(key)
+
+        if isinstance(value, list):
+            return value
+
+    return []
+
+
+def kline_timestamp(row):
+
+    if isinstance(row, dict):
+
+        for key in (
+            "timestamp",
+            "time",
+            "openTime",
+            "open_time",
+        ):
+
+            if key in row:
+                return int(
+                    D(row[key])
+                )
+
+    elif isinstance(row, list):
+
+        if len(row) >= 1:
+            return int(
+                D(row[0])
+            )
+
+    raise ValueError(
+        "Unable to determine kline timestamp"
+    )
+
+
+def kline_high_low(row):
+
+    if isinstance(row, dict):
+
+        high = None
+        low = None
+
+        for key in (
+            "high",
+            "highPrice",
+        ):
+
+            if key in row:
+                high = D(row[key])
+                break
+
+        for key in (
+            "low",
+            "lowPrice",
+        ):
+
+            if key in row:
+                low = D(row[key])
+                break
+
+        if high is None or low is None:
+            raise ValueError(
+                "Unable to extract kline high/low"
+            )
+
+        return high, low
+
+    if isinstance(row, list):
+
+        if len(row) < 4:
+            raise ValueError(
+                "Kline row too short"
+            )
+
+        return (
+            D(row[2]),
+            D(row[3]),
+        )
+
+    raise ValueError(
+        "Unsupported kline row"
+    )
+
+
+def normalize_kline_order(rows):
+
+    return sorted(
+        rows,
+        key=kline_timestamp,
+    )
+
+
+# ============================================================
+# HISTORICAL DATA
+# ============================================================
+
+async def historical_get(
+    session,
+    start_timestamp=None,
+):
+
+    url = (
+        API_BASE_URL
+        + "/capi/v3/market/klines"
+    )
+
+    params = {
+        "symbol": SYMBOL,
+        "interval": KLINE_INTERVAL,
+        "limit": HISTORICAL_LIMIT,
+    }
+
+    if start_timestamp is not None:
+        params["startTime"] = start_timestamp
+
+    return await http_get_json(
+        session,
+        url,
+        params=params,
+    )
+
+
+async def load_historical_klines():
+
+    all_rows = {}
+
+    async with aiohttp.ClientSession() as session:
+
+        start_timestamp = None
+
+        for page in range(
+            MAX_HISTORICAL_PAGES
+        ):
+
+            payload = await historical_get(
+                session,
+                start_timestamp,
+            )
+
+            rows = extract_kline_rows(
+                payload
+            )
+
+            if not rows:
+                break
+
+            for row in rows:
+
+                try:
+                    ts = kline_timestamp(row)
+                    all_rows[ts] = row
+
+                except Exception as exc:
+                    log(
+                        "HISTORICAL ROW SKIPPED: "
+                        + str(exc)
+                    )
+
+            normalized = normalize_kline_order(
+                list(all_rows.values())
+            )
+
+            if not normalized:
+                break
+
+            oldest_ts = kline_timestamp(
+                normalized[0]
+            )
+
+            if (
+                start_timestamp is not None
+                and oldest_ts >= start_timestamp
+            ):
+                break
+
+            start_timestamp = oldest_ts - 1
+
+            if len(rows) < HISTORICAL_LIMIT:
+                break
+
+    result = normalize_kline_order(
+        list(all_rows.values())
+    )
+
+    log(
+        f"HISTORICAL KLINES LOADED = "
+        f"{len(result)}"
+    )
+
+    return result
+
+
+# ============================================================
+# LOCAL EXTREMA
+# ============================================================
+
+def local_extrema_values(
+    rows,
+    side,
+):
+
+    values = []
+
+    if len(rows) < 3:
+        return values
+
+    highs = []
+    lows = []
+
+    for row in rows:
+
+        high, low = kline_high_low(row)
+
+        highs.append(high)
+        lows.append(low)
+
+    if side == "LONG":
+
+        for i in range(
+            1,
+            len(highs) - 1,
+        ):
+
+            if (
+                highs[i] >= highs[i - 1]
+                and highs[i] >= highs[i + 1]
+            ):
+                values.append(
+                    highs[i]
+                )
+
+    elif side == "SHORT":
+
+        for i in range(
+            1,
+            len(lows) - 1,
+        ):
+
+            if (
+                lows[i] <= lows[i - 1]
+                and lows[i] <= lows[i + 1]
+            ):
+                values.append(
+                    lows[i]
+                )
+
+    else:
+
+        raise ValueError(
+            f"Unsupported side={side}"
+        )
+
+    return values
+
+
+# ============================================================
+# CLUSTER ENGINE
+# ============================================================
+
+def cluster_extrema(values):
+
+    if not values:
+        return []
+
+    ordered = sorted(
+        D(value)
+        for value in values
+    )
+
+    clusters = []
+
+    current = [ordered[0]]
+
+    for value in ordered[1:]:
+
+        average = (
+            sum(current)
+            / Decimal(len(current))
+        )
+
+        difference_percent = (
+            abs(value - average)
+            / average
+            * Decimal("100")
+        )
+
+        if (
+            difference_percent
+            <= CLUSTER_TOLERANCE_PERCENT
+        ):
+
+            current.append(value)
+
+        else:
+
+            clusters.append(current)
+            current = [value]
+
+    clusters.append(current)
+
+    result = []
+
+    for cluster in clusters:
+
+        average = (
+            sum(cluster)
+            / Decimal(len(cluster))
+        )
+
+        result.append({
+            "average": average,
+            "minimum": min(cluster),
+            "maximum": max(cluster),
+            "touches": len(cluster),
+            "values": cluster,
+        })
+
+    return result
+
+
+# ============================================================
+# CLUSTER DIAGNOSTICS
+# ============================================================
+
+def build_cluster_diagnostics(
+    rows,
+    entry_price,
+    side,
+):
+
+    entry_price = D(entry_price)
+
+    extrema = local_extrema_values(
+        rows,
+        side,
+    )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    cluster_records = []
+    valid_clusters = []
+
+    for index, cluster in enumerate(
+        clusters,
+        start=1,
+    ):
+
+        average = cluster["average"]
+        touches = cluster["touches"]
+
+        if side == "LONG":
+            side_valid = average > entry_price
+        else:
+            side_valid = average < entry_price
+
+        touches_valid = (
+            touches >= MIN_CLUSTER_TOUCHES
+        )
+
+        valid = (
+            touches_valid
+            and side_valid
+        )
+
+        if valid:
+            reason = "VALID"
+        elif not touches_valid:
+            reason = "INSUFFICIENT_CLUSTER_TOUCHES"
+        elif not side_valid:
+            reason = "WRONG_ENTRY_SIDE"
+        else:
+            reason = "REJECTED"
+
+        record = {
+            "cluster_number": index,
+
+            "average":
+                decimal_to_string(average),
+
+            "minimum":
+                decimal_to_string(
+                    cluster["minimum"]
+                ),
+
+            "maximum":
+                decimal_to_string(
+                    cluster["maximum"]
+                ),
+
+            "touches":
+                touches,
+
+            "valid":
+                valid,
+
+            "reason":
+                reason,
+        }
+
+        cluster_records.append(record)
+
+        if valid:
+            valid_clusters.append(cluster)
+
+    if side == "LONG":
+
+        valid_clusters.sort(
+            key=lambda c: c["average"]
+        )
+
+    else:
+
+        valid_clusters.sort(
+            key=lambda c: c["average"],
+            reverse=True,
+        )
+
+    valid_count = len(valid_clusters)
+
+    if valid_count >= REQUIRED_TP_CLUSTERS:
+
+        status = "ENOUGH_VALID_CLUSTERS"
+        failure_reason = None
+
+    elif valid_count == 1:
+
+        status = "INSUFFICIENT_VALID_CLUSTERS"
+        failure_reason = "ONLY_ONE_VALID_CLUSTER"
+
+    elif not extrema:
+
+        status = "NO_EXTREMA"
+        failure_reason = "NO_EXTREMA"
+
+    elif not clusters:
+
+        status = "NO_EXTREMA_ON_REQUIRED_SIDE"
+        failure_reason = "NO_EXTREMA_ON_REQUIRED_SIDE"
+
+    else:
+
+        status = "CLUSTERS_REJECTED_BY_POLICY"
+        failure_reason = (
+            "EXTREMA_EXIST_BUT_CLUSTER_REQUIREMENTS_NOT_MET"
+        )
+
+    diagnostics = {
+        "side": side,
+
+        "entry_price":
+            decimal_to_string(entry_price),
+
+        "extrema_count":
+            len(extrema),
+
+        "cluster_count":
+            len(clusters),
+
+        "valid_cluster_count":
+            valid_count,
+
+        "clusters":
+            cluster_records,
+
+        "status":
+            status,
+
+        "failure_reason":
+            failure_reason,
+
+        "required_valid_clusters":
+            REQUIRED_TP_CLUSTERS,
+    }
+
+    log(
+        f"{side} HISTORICAL EXTREMA COUNT = "
+        f"{len(extrema)}"
+    )
+
+    log(
+        f"{side} HISTORICAL CLUSTER COUNT = "
+        f"{len(clusters)}"
+    )
+
+    log(
+        f"{side} VALID CLUSTER COUNT = "
+        f"{valid_count}"
+    )
+
+    for record in cluster_records:
+
+        log(
+            f"{side} CLUSTER "
+            f"{record['cluster_number']}: "
+            f"AVG={record['average']} "
+            f"MIN={record['minimum']} "
+            f"MAX={record['maximum']} "
+            f"TOUCHES={record['touches']} "
+            f"VALID={record['valid']} "
+            f"REASON={record['reason']}"
+        )
+
+    log(
+        f"{side} CLUSTER DIAGNOSTIC STATUS = "
+        f"{status}"
+    )
+
+    log(
+        f"{side} CLUSTER DIAGNOSTIC FAILURE_REASON = "
+        f"{failure_reason}"
+    )
+
+    return diagnostics
+
+
+# ============================================================
+# TP APPROVAL
+# ============================================================
+
+def evaluate_tp_approval(diagnostics):
+
+    valid_count = int(
+        diagnostics.get(
+            "valid_cluster_count",
+            0,
+        )
+    )
+
+    if valid_count >= REQUIRED_TP_CLUSTERS:
+
+        approval = {
+            "status": "APPROVED",
+            "approved": True,
+
+            "required_valid_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "available_valid_clusters":
+                valid_count,
+
+            "reason":
+                "TWO_OR_MORE_VALID_HISTORICAL_CLUSTERS",
+        }
+
+    else:
+
+        failure_reason = (
+            diagnostics.get(
+                "failure_reason"
+            )
+        )
+
+        if not failure_reason:
+            failure_reason = (
+                "FEWER_THAN_TWO_VALID_HISTORICAL_CLUSTERS"
+            )
+
+        approval = {
+            "status": "REJECTED",
+            "approved": False,
+
+            "required_valid_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "available_valid_clusters":
+                valid_count,
+
+            "reason":
+                failure_reason,
+        }
+
+    log(
+        f"{STAGE}_TP_APPROVAL = "
+        f"{approval['status']}"
+    )
+
+    log(
+        f"{STAGE}_TP_APPROVAL_REASON = "
+        f"{approval['reason']}"
+    )
+
+    log(
+        f"{STAGE}_TP_REQUIRED_CLUSTERS = "
+        f"{REQUIRED_TP_CLUSTERS}"
+    )
+
+    log(
+        f"{STAGE}_TP_AVAILABLE_CLUSTERS = "
+        f"{valid_count}"
+    )
+
+    return approval
+
+
+# ============================================================
+# VALID CLUSTERS
+# ============================================================
+
+def valid_clusters(
+    rows,
+    entry_price,
+    side,
+):
+
+    entry_price = D(entry_price)
+
+    extrema = local_extrema_values(
+        rows,
+        side,
+    )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    valid = []
+
+    for cluster in clusters:
+
+        if (
+            cluster["touches"]
+            < MIN_CLUSTER_TOUCHES
+        ):
+            continue
+
+        average = cluster["average"]
+
+        if side == "LONG":
+
+            if average <= entry_price:
+                continue
+
+        elif side == "SHORT":
+
+            if average >= entry_price:
+                continue
+
+        else:
+
+            raise ValueError(
+                f"Unsupported side={side}"
+            )
+
+        valid.append(cluster)
+
+    if side == "LONG":
+
+        valid.sort(
+            key=lambda c: c["average"]
+        )
+
+    else:
+
+        valid.sort(
+            key=lambda c: c["average"],
+            reverse=True,
+        )
+
+    return valid
+
+
+# ============================================================
+# TP SNAPSHOT
+# ============================================================
+
+def build_cluster_tp_snapshot(
+    entry_price,
+    rows,
+    side,
+    fill_label,
+):
+
+    global LAST_TP_APPROVAL
+
+    entry_price = D(entry_price)
+
+    diagnostics = build_cluster_diagnostics(
+        rows,
+        entry_price,
+        side,
+    )
+
+    approval = evaluate_tp_approval(
+        diagnostics
+    )
+
+    LAST_TP_APPROVAL = approval
+
+    if not approval["approved"]:
+
+        log(
+            f"{side} TP SET REJECTED: "
+            f"{approval['reason']}"
+        )
+
+        raise RuntimeError(
+            f"{side} historical TP set rejected: "
+            f"requires at least "
+            f"{REQUIRED_TP_CLUSTERS} valid clusters; "
+            f"found "
+            f"{approval['available_valid_clusters']}"
+        )
+
+    clusters = valid_clusters(
+        rows,
+        entry_price,
+        side,
+    )
+
+    if len(clusters) < REQUIRED_TP_CLUSTERS:
+
+        raise RuntimeError(
+            "TP approval inconsistency: "
+            "diagnostics approved but independent "
+            "cluster extraction found fewer than "
+            "two valid clusters"
+        )
+
+    cluster_1 = clusters[0]
+    cluster_2 = clusters[1]
+
+    cluster_1_avg = cluster_1["average"]
+    cluster_2_avg = cluster_2["average"]
+
+    if side == "LONG":
+
+        tp1 = (
+            entry_price
+            + (
+                cluster_1_avg
+                - entry_price
+            )
+            * TP1_PROFIT_MARGIN_PERCENT
+            / Decimal("100")
+        )
+
+        tp2 = (
+            entry_price
+            + (
+                cluster_2_avg
+                - entry_price
+            )
+            * TP2_PROFIT_MARGIN_PERCENT
+            / Decimal("100")
+        )
+
+        ordering_ok = (
+            entry_price
+            < tp1
+            < tp2
+            <= cluster_2_avg
+        )
+
+    elif side == "SHORT":
+
+        tp1 = (
+            entry_price
+            - (
+                entry_price
+                - cluster_1_avg
+            )
+            * TP1_PROFIT_MARGIN_PERCENT
+            / Decimal("100")
+        )
+
+        tp2 = (
+            entry_price
+            - (
+                entry_price
+                - cluster_2_avg
+            )
+            * TP2_PROFIT_MARGIN_PERCENT
+            / Decimal("100")
+        )
+
+        ordering_ok = (
+            entry_price
+            > tp1
+            > tp2
+            >= cluster_2_avg
+        )
+
+    else:
+
+        raise ValueError(
+            f"Unsupported side={side}"
+        )
+
+    if not ordering_ok:
+        raise RuntimeError(
+            f"{side} TP ordering invalid"
+        )
+
+    snapshot = {
+
+        "stage": STAGE,
+
+        "fill_label": fill_label,
+
+        "side": side,
+
+        "entry_price":
+            decimal_to_string(entry_price),
+
+        "tp_approval":
+            approval,
+
+        "required_valid_clusters":
+            REQUIRED_TP_CLUSTERS,
+
+        "available_valid_clusters":
+            len(clusters),
+
+        "cluster_1": {
+
+            "average":
+                decimal_to_string(
+                    cluster_1_avg
+                ),
+
+            "minimum":
+                decimal_to_string(
+                    cluster_1["minimum"]
+                ),
+
+            "maximum":
+                decimal_to_string(
+                    cluster_1["maximum"]
+                ),
+
+            "touches":
+                cluster_1["touches"],
+        },
+
+        "cluster_2": {
+
+            "average":
+                decimal_to_string(
+                    cluster_2_avg
+                ),
+
+            "minimum":
+                decimal_to_string(
+                    cluster_2["minimum"]
+                ),
+
+            "maximum":
+                decimal_to_string(
+                    cluster_2["maximum"]
+                ),
+
+            "touches":
+                cluster_2["touches"],
+        },
+
+        "tp1": {
+
+            "price":
+                decimal_to_string(tp1),
+
+            "progress_percent":
+                decimal_to_string(
+                    TP1_PROFIT_MARGIN_PERCENT
+                ),
+
+            "status":
+                "LOCKED",
+        },
+
+        "tp2": {
+
+            "price":
+                decimal_to_string(tp2),
+
+            "progress_percent":
+                decimal_to_string(
+                    TP2_PROFIT_MARGIN_PERCENT
+                ),
+
+            "status":
+                "LOCKED",
+        },
+
+        "tp3": {
+
+            "allocation_percent":
+                decimal_to_string(
+                    TP3_ALLOCATION_PERCENT
+                ),
+
+            "trailing_distance_percent":
+                decimal_to_string(
+                    TP3_TRAILING_DISTANCE_PERCENT
+                ),
+
+            "status":
+                "RUNNER",
+        },
+
+        "tp_allocations": {
+
+            "tp1":
+                decimal_to_string(
+                    TP1_ALLOCATION_PERCENT
+                ),
+
+            "tp2":
+                decimal_to_string(
+                    TP2_ALLOCATION_PERCENT
+                ),
+
+            "tp3":
+                decimal_to_string(
+                    TP3_ALLOCATION_PERCENT
+                ),
+        },
+
+        "primary_tp_immutable":
+            True,
+
+        "backup_tp_recalculated_only_on_backup_fill":
+            True,
+
+        "method":
+            "HISTORICAL_CLUSTER_TP_R36F5_1",
+
+        "historical_diagnostics":
+            diagnostics,
+    }
+
+    log(
+        f"{side} TP SET APPROVED WITH "
+        f"{len(clusters)} VALID CLUSTERS"
+    )
+
+    log(
+        f"{side} TP1 = "
+        f"{decimal_to_string(tp1)} "
+        f"(20% adjustable progress)"
+    )
+
+    log(
+        f"{side} TP2 = "
+        f"{decimal_to_string(tp2)} "
+        f"(50% adjustable progress)"
+    )
+
+    log(
+        f"{side} TP3 = 60% trailing runner"
+    )
+
+    return snapshot
+
+
+# ============================================================
+# R36F.5.2 SYNTHETIC LONG DATA
+#
+# CORRECTION:
+# Deliberately separated resistance groups.
+#
+# Group 1:
+#   approximately 100500
+#
+# Group 2:
+#   approximately 101000
+#
+# Both groups contain multiple local highs.
+# ============================================================
+
+def synthetic_long_rows():
+
+    base = [
+        100000,
+        100200,
+
+        100500,
+        100100,
+        100490,
+        100150,
+        100510,
+
+        100250,
+        100800,
+
+        101000,
+        100850,
+        100980,
+        100820,
+        101020,
+
+        100700,
+    ]
+
+    rows = []
+
+    for i, high in enumerate(base):
+
+        rows.append(
+            [
+                i,
+
+                str(
+                    D(high)
+                    - Decimal("500")
+                ),
+
+                str(
+                    D(high)
+                    - Decimal("100")
+                ),
+
+                str(
+                    D(high)
+                ),
+
+                str(
+                    D(high)
+                    - Decimal("300")
+                ),
+
+                "1",
+            ]
+        )
+
+    return rows
+
+
+# ============================================================
+# R36F.5.2 SYNTHETIC SHORT DATA
+#
+# CORRECTION:
+# Deliberately separated support groups.
+#
+# Group 1:
+#   approximately 99500
+#
+# Group 2:
+#   approximately 99000
+#
+# Both groups contain multiple local lows.
+# ============================================================
+
+def synthetic_short_rows():
+
+    base = [
+        100000,
+        99800,
+
+        99500,
+        99800,
+        99490,
+        99700,
+        99510,
+
+        99700,
+        99200,
+
+        99000,
+        99200,
+        98980,
+        99150,
+        99020,
+
+        99400,
+    ]
+
+    rows = []
+
+    for i, low in enumerate(base):
+
+        rows.append(
+            [
+                i,
+
+                str(
+                    D(low)
+                    + Decimal("300")
+                ),
+
+                str(
+                    D(low)
+                    + Decimal("500")
+                ),
+
+                str(
+                    D(low)
+                ),
+
+                str(
+                    D(low)
+                    + Decimal("100")
+                ),
+
+                "1",
+            ]
+        )
+
+    return rows
+
+
+# ============================================================
+# SYNTHETIC CLUSTER TESTS
+# ============================================================
+
+def synthetic_cluster_tests():
+
+    entry = Decimal("100000")
+
+    # --------------------------------------------------------
+    # LONG
+    # --------------------------------------------------------
+
+    long_rows = synthetic_long_rows()
+
+    long_diagnostics = build_cluster_diagnostics(
+        long_rows,
+        entry,
+        "LONG",
+    )
+
+    check(
+        "SYNTHETIC_LONG_MINIMUM_TWO_VALID_CLUSTERS",
+        long_diagnostics[
+            "valid_cluster_count"
+        ] >= REQUIRED_TP_CLUSTERS,
+        (
+            "expected_at_least="
+            + str(REQUIRED_TP_CLUSTERS)
+            + " actual="
+            + str(
+                long_diagnostics[
+                    "valid_cluster_count"
+                ]
+            )
+        ),
+    )
+
+    long_snapshot = build_cluster_tp_snapshot(
+        entry,
+        long_rows,
+        "LONG",
+        "SYNTHETIC_LONG_FILL",
+    )
+
+    check(
+        "SYNTHETIC_LONG_TP_APPROVED",
+        long_snapshot[
+            "tp_approval"
+        ][
+            "approved"
+        ] is True,
+    )
+
+    check(
+        "SYNTHETIC_LONG_TWO_CLUSTERS",
+        long_snapshot[
+            "available_valid_clusters"
+        ] >= REQUIRED_TP_CLUSTERS,
+    )
+
+    long_tp1 = D(
+        long_snapshot[
+            "tp1"
+        ][
+            "price"
+        ]
+    )
+
+    long_tp2 = D(
+        long_snapshot[
+            "tp2"
+        ][
+            "price"
+        ]
+    )
+
+    check(
+        "SYNTHETIC_LONG_TP_ORDERING",
+        entry
+        < long_tp1
+        < long_tp2,
+    )
+
+    # --------------------------------------------------------
+    # SHORT
+    # --------------------------------------------------------
+
+    short_rows = synthetic_short_rows()
+
+    short_diagnostics = build_cluster_diagnostics(
+        short_rows,
+        entry,
+        "SHORT",
+    )
+
+    check(
+        "SYNTHETIC_SHORT_MINIMUM_TWO_VALID_CLUSTERS",
+        short_diagnostics[
+            "valid_cluster_count"
+        ] >= REQUIRED_TP_CLUSTERS,
+        (
+            "expected_at_least="
+            + str(REQUIRED_TP_CLUSTERS)
+            + " actual="
+            + str(
+                short_diagnostics[
+                    "valid_cluster_count"
+                ]
+            )
+        ),
+    )
+
+    short_snapshot = build_cluster_tp_snapshot(
+        entry,
+        short_rows,
+        "SHORT",
+        "SYNTHETIC_SHORT_FILL",
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TP_APPROVED",
+        short_snapshot[
+            "tp_approval"
+        ][
+            "approved"
+        ] is True,
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TWO_CLUSTERS",
+        short_snapshot[
+            "available_valid_clusters"
+        ] >= REQUIRED_TP_CLUSTERS,
+    )
+
+    short_tp1 = D(
+        short_snapshot[
+            "tp1"
+        ][
+            "price"
+        ]
+    )
+
+    short_tp2 = D(
+        short_snapshot[
+            "tp2"
+        ][
+            "price"
+        ]
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TP_ORDERING",
+        entry
+        > short_tp1
+        > short_tp2,
+    )
+
+    check(
+        "SYNTHETIC_SHORT_EXACTLY_TWO_VALID_CLUSTERS",
+        short_diagnostics[
+            "valid_cluster_count"
+        ] == REQUIRED_TP_CLUSTERS,
+        "synthetic short fixture must deterministically produce exactly "
+        + str(REQUIRED_TP_CLUSTERS)
+        + " valid clusters",
+    )
+
+    # --------------------------------------------------------
+    # IMMUTABILITY CONTRACTS
+    # --------------------------------------------------------
+
+    check(
+        "PRIMARY_TP_IMMUTABLE_CONTRACT",
+        (
+            long_snapshot[
+                "primary_tp_immutable"
+            ] is True
+            and
+            short_snapshot[
+                "primary_tp_immutable"
+            ] is True
+        ),
+    )
+
+    check(
+        "BACKUP_TP_RECALC_CONTRACT",
+        (
+            long_snapshot[
+                "backup_tp_recalculated_only_on_backup_fill"
+            ] is True
+            and
+            short_snapshot[
+                "backup_tp_recalculated_only_on_backup_fill"
+            ] is True
+        ),
+    )
+
+    return (
+        long_snapshot,
+        short_snapshot,
+    )
+
+
+# ============================================================
+# SYNTHETIC TP REJECTION TEST
+# ============================================================
+
+def synthetic_tp_rejection_test():
+
+    entry = Decimal("100000")
+
+    # Only one valid historical-high cluster.
+    # This MUST NOT approve the TP1 + TP2 set.
+
+    rows = [
+
+        [
+            0,
+            "99500",
+            "99900",
+            "100100",
+            "99800",
+            "1",
+        ],
+
+        [
+            1,
+            "99900",
+            "99950",
+            "100550",
+            "99900",
+            "1",
+        ],
+
+        [
+            2,
+            "99900",
+            "100000",
+            "100000",
+            "99900",
+            "1",
+        ],
+
+        [
+            3,
+            "99900",
+            "99950",
+            "100540",
+            "99900",
+            "1",
+        ],
+
+        [
+            4,
+            "99500",
+            "99900",
+            "100100",
+            "99800",
+            "1",
+        ],
+    ]
+
+    diagnostics = build_cluster_diagnostics(
+        rows,
+        entry,
+        "LONG",
+    )
+
+    approval = evaluate_tp_approval(
+        diagnostics
+    )
+
+    check(
+        "ONE_CLUSTER_TP_REJECTED",
+        approval[
+            "approved"
+        ] is False,
+    )
+
+    check(
+        "ONE_CLUSTER_APPROVAL_STATUS_REJECTED",
+        approval[
+            "status"
+        ] == "REJECTED",
+    )
+
+    check(
+        "ONE_CLUSTER_DOES_NOT_APPROVE_TP_SET",
+        approval[
+            "available_valid_clusters"
+        ] < REQUIRED_TP_CLUSTERS,
+    )
+
+    return approval
+
+
+# ============================================================
+# WRITER REQUEST PREVIEW
+# ============================================================
+
+def build_writer_request_preview(
+    side,
+    entry_price,
+    quantity,
+    tp_snapshot,
+):
+
+    return {
+
+        "stage":
+            STAGE,
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            side,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "tp_approval":
+            tp_snapshot[
+                "tp_approval"
+            ],
+
+        "tp1":
+            tp_snapshot[
+                "tp1"
+            ],
+
+        "tp2":
+            tp_snapshot[
+                "tp2"
+            ],
+
+        "tp3":
+            tp_snapshot[
+                "tp3"
+            ],
+
+        "primary_tp_immutable":
+            True,
+
+        "submitted":
+            False,
+
+        "transport_enabled":
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+    }
+
+
+# ============================================================
+# MAIN R36F.5.2 TEST
+# ============================================================
+
+async def run_r36f53():
+
+    global TEST_STATUS
+    global R36A_EVIDENCE_OK
+    global R36C_EVIDENCE_OK
+    global R36D_EVIDENCE_OK
+    global DURABLE_EVIDENCE_OK
+    global WEEX_READ_ONLY_OK
+    global ZERO_WRITE_INVARIANT_OK
+    global FINAL_GATE_OK
+    global LONG_DIAGNOSTICS
+    global SHORT_DIAGNOSTICS
+
+    TEST_STATUS = "RUNNING"
+
+    line()
+
+    log(
+        f"{STAGE}: {PURPOSE}"
+    )
+
+    line()
+
+    # ========================================================
+    # EXECUTION FIREBREAK TESTS
+    # ========================================================
+
+    check(
+        "REAL_ORDER_EXECUTION_DISABLED",
+        REAL_ORDER_EXECUTION is False,
+    )
+
+    check(
+        "DEMO_ORDER_EXECUTION_DISABLED",
+        DEMO_ORDER_EXECUTION is False,
+    )
+
+    check(
+        "EXCHANGE_MUTATION_TRANSPORT_DISABLED",
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED is False,
+    )
+
+    check(
+        "ORDER_SUBMISSION_DISABLED",
+        ORDER_SUBMISSION_ENABLED is False,
+    )
+
+    check(
+        "LEVERAGE_MUTATION_DISABLED",
+        LEVERAGE_MUTATION_ENABLED is False,
+    )
+
+    check(
+        "MARGIN_MODE_MUTATION_DISABLED",
+        MARGIN_MODE_MUTATION_ENABLED is False,
+    )
+
+    check(
+        "POSITION_MUTATION_DISABLED",
+        POSITION_MUTATION_ENABLED is False,
+    )
+
+    check(
+        "FIRST_REAL_ORDER_DISABLED",
+        FIRST_REAL_ORDER_ALLOWED is False,
+    )
+
+    # ========================================================
+    # R36A DURABLE EVIDENCE
+    # ========================================================
+
+    r36a_ids = set()
+
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DEDUPE_FILE
+        )
+    )
+
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DECISION_FILE
+        )
+    )
+
+    R36A_EVIDENCE_OK = (
+        OLD_R36A_UPDATE_ID
+        in r36a_ids
+    )
+
+    check(
+        "R36A_DURABLE_ID_PRESENT",
+        R36A_EVIDENCE_OK,
+        f"expected={OLD_R36A_UPDATE_ID}",
+    )
+
+    # ========================================================
+    # R36C DURABLE EVIDENCE
+    # ========================================================
+
+    r36c_ids = set()
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DEDUPE_FILE
+        )
+    )
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DECISION_FILE
+        )
+    )
+
+    R36C_EVIDENCE_OK = (
+        R36C_UPDATE_ID
+        in r36c_ids
+    )
+
+    check(
+        "R36C_DURABLE_ID_PRESENT",
+        R36C_EVIDENCE_OK,
+        f"expected={R36C_UPDATE_ID}",
+    )
+
+    # ========================================================
+    # R36D SNAPSHOT
+    # ========================================================
+
+    r36d_snapshot = read_json_file(
+        R36D_SNAPSHOT_FILE,
+        {},
+    )
+
+    R36D_EVIDENCE_OK = bool(
+        r36d_snapshot
+    )
+
+    check(
+        "R36D_SNAPSHOT_PRESENT",
+        R36D_EVIDENCE_OK,
+    )
+
+    DURABLE_EVIDENCE_OK = (
+        R36A_EVIDENCE_OK
+        and R36C_EVIDENCE_OK
+        and R36D_EVIDENCE_OK
+    )
+
+    # ========================================================
+    # API CREDENTIAL PRESENCE
+    # ========================================================
+
+    check(
+        "WEEX_API_KEY_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_KEY"
+            )
+        ),
+    )
+
+    check(
+        "WEEX_API_SECRET_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_SECRET"
+            )
+        ),
+    )
+
+    check(
+        "WEEX_API_PASSPHRASE_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_PASSPHRASE"
+            )
+        ),
+    )
+
+    # ========================================================
+    # FROZEN DIAGNOSTIC:
+    # WEEX READ-ONLY RECONCILIATION
+    # ========================================================
+
+    try:
+
+        await reconcile_weex()
+
+        WEEX_READ_ONLY_OK = True
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            True,
+        )
+
+    except Exception as exc:
+
+        WEEX_READ_ONLY_OK = False
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # SYNTHETIC TP ENGINE
+    # ========================================================
+
+    synthetic_long = None
+    synthetic_short = None
+
+    try:
+
+        (
+            synthetic_long,
+            synthetic_short,
+        ) = synthetic_cluster_tests()
+
+        check(
+            "SYNTHETIC_TP_ENGINE",
+            True,
+        )
+
+    except Exception as exc:
+
+        check(
+            "SYNTHETIC_TP_ENGINE",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # TP REJECTION TEST
+    # ========================================================
+
+    try:
+
+        rejection = (
+            synthetic_tp_rejection_test()
+        )
+
+        check(
+            "TP_APPROVAL_REJECTION_FLOW",
+            rejection[
+                "approved"
+            ] is False,
+        )
+
+    except Exception as exc:
+
+        check(
+            "TP_APPROVAL_REJECTION_FLOW",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # HISTORICAL KLINES
+    # ========================================================
+
+    historical_rows = []
+
+    try:
+
+        historical_rows = (
+            await load_historical_klines()
+        )
+
+        check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            len(historical_rows) >= 3,
+            f"rows={len(historical_rows)}",
+        )
+
+    except Exception as exc:
+
+        check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # REAL LONG TP PREVIEW
+    # ========================================================
+
+    real_long_snapshot = None
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+
+        try:
+
+            real_long_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "LONG",
+                    "REAL_LONG_PREVIEW",
+                )
+            )
+
+            LONG_DIAGNOSTICS = (
+                real_long_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            check(
+                "REAL_LONG_TP_PREVIEW",
+                real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ] is True,
+
+                "TP_APPROVAL="
+                + real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ],
+            )
+
+            log(
+                "REAL_LONG_TP_APPROVAL="
+                + real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ]
+            )
+
+        except Exception as exc:
+
+            LONG_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "LONG",
+                )
+            )
+
+            approval = (
+                evaluate_tp_approval(
+                    LONG_DIAGNOSTICS
+                )
+            )
+
+            check(
+                "REAL_LONG_TP_PREVIEW",
+                False,
+
+                "TP_APPROVAL="
+                + approval[
+                    "status"
+                ]
+                + " reason="
+                + approval[
+                    "reason"
+                ]
+                + " error="
+                + str(exc),
+            )
+
+    # ========================================================
+    # REAL SHORT TP PREVIEW
+    # ========================================================
+
+    real_short_snapshot = None
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+
+        try:
+
+            real_short_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "SHORT",
+                    "REAL_SHORT_PREVIEW",
+                )
+            )
+
+            SHORT_DIAGNOSTICS = (
+                real_short_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            check(
+                "REAL_SHORT_TP_PREVIEW",
+                real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ] is True,
+
+                "TP_APPROVAL="
+                + real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ],
+            )
+
+            log(
+                "REAL_SHORT_TP_APPROVAL="
+                + real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ]
+            )
+
+        except Exception as exc:
+
+            SHORT_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "SHORT",
+                )
+            )
+
+            approval = (
+                evaluate_tp_approval(
+                    SHORT_DIAGNOSTICS
+                )
+            )
+
+            check(
+                "REAL_SHORT_TP_PREVIEW",
+                False,
+
+                "TP_APPROVAL="
+                + approval[
+                    "status"
+                ]
+                + " reason="
+                + approval[
+                    "reason"
+                ]
+                + " error="
+                + str(exc),
+            )
+
+    # ========================================================
+    # FROZEN DIAGNOSTIC:
+    # CANARY PREVIEW
+    # ========================================================
+
+    canary_preview = None
+
+    try:
+
+        canary_preview = (
+            build_canary_preview()
+        )
+
+        diagnostic_check(
+            "CANARY_PREVIEW",
+            True,
+            json.dumps(
+                canary_preview,
+                sort_keys=True,
+            ),
+        )
+
+    except Exception as exc:
+
+        diagnostic_check(
+            "CANARY_PREVIEW",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # WRITER REQUEST CONSTRUCTION
+    # ========================================================
+
+    writer_preview = None
+
+    try:
+
+        if real_long_snapshot is None:
+
+            raise RuntimeError(
+                "real long TP snapshot unavailable"
+            )
+
+        if MARK_PRICE is None:
+
+            raise RuntimeError(
+                "mark price unavailable"
+            )
+
+        if AVAILABLE_BALANCE is None:
+
+            raise RuntimeError(
+                "available balance unavailable"
+            )
+
+        margin = (
+            AVAILABLE_BALANCE
+            * ENTRY_MARGIN_PERCENT
+            / Decimal("100")
+        )
+
+        notional = (
+            margin
+            * LEVERAGE_LONG
+        )
+
+        quantity = quantize_down(
+            notional / MARK_PRICE,
+            QUANTITY_STEP,
+        )
+
+        if quantity < MIN_QUANTITY:
+
+            raise RuntimeError(
+                "writer preview quantity below minimum"
+            )
+
+        writer_preview = (
+            build_writer_request_preview(
+                "LONG",
+                MARK_PRICE,
+                quantity,
+                real_long_snapshot,
+            )
+        )
+
+        diagnostic_check(
+            "WRITER_REQUEST_CONSTRUCTION",
+            True,
+            json.dumps(
+                writer_preview,
+                sort_keys=True,
+            ),
+        )
+
+    except Exception as exc:
+
+        diagnostic_check(
+            "WRITER_REQUEST_CONSTRUCTION",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # ZERO-WRITE INVARIANTS
+    # ========================================================
+
+    ZERO_WRITE_INVARIANT_OK = (
+        REAL_ORDER_EXECUTION is False
+        and DEMO_ORDER_EXECUTION is False
+        and EXCHANGE_MUTATION_TRANSPORT_ENABLED is False
+        and ORDER_SUBMISSION_ENABLED is False
+        and LEVERAGE_MUTATION_ENABLED is False
+        and MARGIN_MODE_MUTATION_ENABLED is False
+        and POSITION_MUTATION_ENABLED is False
+        and FIRST_REAL_ORDER_ALLOWED is False
+    )
+
+    check(
+        "ZERO_WRITE_INVARIANTS",
+        ZERO_WRITE_INVARIANT_OK,
+    )
+
+    # ========================================================
+    # FINAL GATE
+    # ========================================================
+
+    FINAL_GATE_OK = (
+        R36A_EVIDENCE_OK
+        and R36C_EVIDENCE_OK
+        and R36D_EVIDENCE_OK
+        and ZERO_WRITE_INVARIANT_OK
+        and WEEX_READ_ONLY_OK
+    )
+
+    TEST_STATUS = (
+        "PASS"
+        if FINAL_GATE_OK
+        else "FAIL"
+    )
+
+    line()
+
+    log(
+        f"{STAGE} FINAL TEST STATUS = "
+        f"{TEST_STATUS}"
+    )
+
+    log(
+        f"{STAGE} FINAL_GATE_OK = "
+        f"{FINAL_GATE_OK}"
+    )
+
+    log(
+        "NO REAL ORDER WAS SENT"
+    )
+
+    log(
+        "NO DEMO ORDER WAS SENT"
+    )
+
+    line()
+
+    return FINAL_GATE_OK
+
+
+# ============================================================
+# HEALTH ENDPOINT
+# ============================================================
+
+async def health_handler(request):
+
+    return web.json_response({
+
+        "stage":
+            STAGE,
+
+        "status":
+            TEST_STATUS,
+
+        "final_gate_ok":
+            FINAL_GATE_OK,
+
+        "real_order_execution":
+            REAL_ORDER_EXECUTION,
+
+        "demo_order_execution":
+            DEMO_ORDER_EXECUTION,
+
+        "exchange_mutation_transport_enabled":
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+        "order_submission_enabled":
+            ORDER_SUBMISSION_ENABLED,
+
+        "leverage_mutation_enabled":
+            LEVERAGE_MUTATION_ENABLED,
+
+        "margin_mode_mutation_enabled":
+            MARGIN_MODE_MUTATION_ENABLED,
+
+        "position_mutation_enabled":
+            POSITION_MUTATION_ENABLED,
+
+        "first_real_order_allowed":
+            FIRST_REAL_ORDER_ALLOWED,
+
+        "mark_price":
+            (
+                decimal_to_string(MARK_PRICE)
+                if MARK_PRICE is not None
+                else None
+            ),
+
+        "available_balance":
+            (
+                decimal_to_string(
+                    AVAILABLE_BALANCE
+                )
+                if AVAILABLE_BALANCE is not None
+                else None
+            ),
+
+        "open_positions":
+            len(OPEN_POSITIONS),
+
+        "weex_read_only_ok":
+            WEEX_READ_ONLY_OK,
+
+        "zero_write_invariant_ok":
+            ZERO_WRITE_INVARIANT_OK,
+
+        "r36a_evidence_ok":
+            R36A_EVIDENCE_OK,
+
+        "r36c_evidence_ok":
+            R36C_EVIDENCE_OK,
+
+        "r36d_evidence_ok":
+            R36D_EVIDENCE_OK,
+
+        "long_valid_cluster_count":
+            (
+                LONG_DIAGNOSTICS.get(
+                    "valid_cluster_count"
+                )
+                if LONG_DIAGNOSTICS
+                else None
+            ),
+
+        "short_valid_cluster_count":
+            (
+                SHORT_DIAGNOSTICS.get(
+                    "valid_cluster_count"
+                )
+                if SHORT_DIAGNOSTICS
+                else None
+            ),
+
+    })
+
+
+# ============================================================
+# HEALTH SERVER
+# ============================================================
+
+async def start_health_server():
+
+    app = web.Application()
+
+    app.router.add_get(
+        "/",
+        health_handler,
+    )
+
+    app.router.add_get(
+        "/health",
+        health_handler,
+    )
+
+    runner = web.AppRunner(
+        app
+    )
+
+    await runner.setup()
+
+    port = int(
+        os.getenv(
+            "PORT",
+            "10000",
+        )
+    )
+
+    site = web.TCPSite(
+        runner,
+        "0.0.0.0",
+        port,
+    )
+
+    await site.start()
+
+    log(
+        f"{STAGE}: HEALTH SERVER STARTED "
+        f"ON PORT {port}"
+    )
+
+    return runner
+
+
+# ============================================================
+# ENTRYPOINT
+# ============================================================
+
+async def main():
+
+    await start_health_server()
+
+    try:
+
+        await run_r36f53()
+
+    except Exception as exc:
+
+        global TEST_STATUS
+        global FINAL_GATE_OK
+
+        TEST_STATUS = "FAIL"
+        FINAL_GATE_OK = False
+
+        line()
+
+        log(
+            f"{STAGE} UNHANDLED TEST FAILURE = "
+            f"{exc}"
+        )
+
+        log(
+            "NO REAL ORDER WAS SENT"
+        )
+
+        log(
+            "NO DEMO ORDER WAS SENT"
+        )
+
+        line()
+
+
+if __name__ == "__main__":
+
+    asyncio.run(
+        main()
+    )
 
