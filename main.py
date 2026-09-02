@@ -3125,7 +3125,7 @@ def run_r36f3():
 
     log(
         f"MARGIN_MODE_MUTATIONS="
-        f"{MARGIN_MODE_MUTATIONS"}
+        f"{MARGIN_MODE_MUTATIONS}"
     )
 
     log(
