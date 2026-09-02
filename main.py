@@ -1,24 +1,18 @@
 #!/usr/bin/env python3
 """
-R36F.5 - FROZEN CAPABILITY DIAGNOSTIC CHECKPOINT
+R36F.5.1 - SMALLEST SYNTHETIC-TEST CORRECTION
 
 Purpose:
-    Preserve the proven R36D/R36F.4 safety baseline while preventing
-    previously frozen diagnostic capabilities from becoming final
-    blockers.
+    Preserve the proven R36D/R36F.4/R36F.5 safety baseline while making
+    the synthetic historical-cluster tests deterministic and explicit.
 
-R36F.5 CHANGE:
+R36F.5.1 CHANGE:
 
-    The following three checks are diagnostic-only:
+    ONLY the synthetic diagnostic fixtures/tests are strengthened.
 
-        - WEEX_READ_ONLY_RECONCILIATION
-        - CANARY_PREVIEW
-        - WRITER_REQUEST_CONSTRUCTION
+    The production TP policy is unchanged.
 
-    They are recorded as PASS/FAIL for visibility but NEVER added
-    to FINAL_BLOCKERS.
-
-R36F.5 TP POLICY:
+R36F.5.1 TP POLICY:
 
     A complete historical TP1/TP2 set requires TWO OR MORE valid
     historical clusters.
@@ -78,12 +72,13 @@ from threading import Thread
 # STAGE
 # ============================================================
 
-STAGE = "R36F.5"
+STAGE = "R36F.5.1"
 
 PURPOSE = (
-    "FROZEN CAPABILITY DIAGNOSTIC CHECKPOINT: "
-    "THREE PREVIOUSLY PROVEN READ-ONLY/CONSTRUCTION CHECKS "
-    "ARE DIAGNOSTIC-ONLY AND CANNOT BECOME FINAL BLOCKERS"
+    "SMALLEST SYNTHETIC-TEST CORRECTION: "
+    "make the historical two-cluster synthetic approval/rejection "
+    "tests deterministic while preserving the R36F.5 production "
+    "TP policy and execution safety baseline"
 )
 
 
@@ -221,7 +216,6 @@ R36F_SNAPSHOT_FILE = os.path.join(
 # ============================================================
 
 OLD_R36A_UPDATE_ID = "R36A_SYNTHETIC_UPDATE_000001"
-
 R36C_UPDATE_ID = "R36C_SYNTHETIC_UPDATE_000001"
 
 
@@ -230,7 +224,6 @@ R36C_UPDATE_ID = "R36C_SYNTHETIC_UPDATE_000001"
 # ============================================================
 
 TEST_STATUS = "NOT_STARTED"
-
 HEARTBEAT_COUNT = 0
 
 DURABLE_EVIDENCE_OK = False
@@ -240,19 +233,14 @@ R36C_EVIDENCE_OK = False
 R36D_EVIDENCE_OK = False
 
 WEEX_READ_ONLY_OK = False
-
 ZERO_WRITE_INVARIANT_OK = False
-
 FINAL_GATE_OK = False
 
 FINAL_BLOCKERS = []
 
 MARK_PRICE = None
-
 AVAILABLE_BALANCE = None
-
 OPEN_POSITIONS = []
-
 WEEX_CONFIG = {}
 
 SHORT_DIAGNOSTICS = {}
@@ -288,14 +276,6 @@ def log(message):
 # ============================================================
 
 def check(name, condition, detail=None):
-    """
-    Normal final-gate check.
-
-    A failed check becomes a FINAL_BLOCKER.
-    """
-
-    global FINAL_BLOCKERS
-
     if condition:
         log(f"PASS: {name}")
 
@@ -319,19 +299,6 @@ def check(name, condition, detail=None):
 # ============================================================
 
 def diagnostic_check(name, condition, detail=None):
-    """
-    R36F.5 frozen-capability diagnostic.
-
-    This records PASS/FAIL but NEVER adds the result
-    to FINAL_BLOCKERS.
-
-    Frozen diagnostics:
-
-        - WEEX read-only reconciliation
-        - Canary preview
-        - Writer request construction
-    """
-
     if condition:
         log(f"DIAGNOSTIC PASS: {name}")
 
@@ -373,12 +340,10 @@ def quantize_down(value, step):
 
 
 def decimal_to_string(value):
-
     if value is None:
         return None
 
     value = D(value)
-
     text = format(value, "f")
 
     if "." in text:
@@ -392,7 +357,6 @@ def decimal_to_string(value):
 # ============================================================
 
 def canonical_json(data):
-
     return json.dumps(
         data,
         sort_keys=True,
@@ -402,19 +366,16 @@ def canonical_json(data):
 
 
 def sha256_text(text):
-
     return hashlib.sha256(
         text.encode("utf-8")
     ).hexdigest()
 
 
 def read_json_file(path, default=None):
-
     if default is None:
         default = {}
 
     try:
-
         if not os.path.exists(path):
             return default
 
@@ -423,20 +384,16 @@ def read_json_file(path, default=None):
             "r",
             encoding="utf-8",
         ) as f:
-
             return json.load(f)
 
     except Exception as exc:
-
         log(
             f"READ JSON FAILED path={path} error={exc}"
         )
-
         return default
 
 
 def write_json_file(path, data):
-
     tmp = path + ".tmp"
 
     with open(
@@ -444,7 +401,6 @@ def write_json_file(path, data):
         "w",
         encoding="utf-8",
     ) as f:
-
         json.dump(
             data,
             f,
@@ -464,7 +420,6 @@ def write_json_file(path, data):
 # ============================================================
 
 def collect_ids_from_json(value):
-
     found = set()
 
     if isinstance(value, dict):
@@ -482,7 +437,6 @@ def collect_ids_from_json(value):
                     item,
                     (str, int),
                 ):
-
                     found.add(
                         str(item)
                     )
@@ -494,7 +448,6 @@ def collect_ids_from_json(value):
     elif isinstance(value, list):
 
         for item in value:
-
             found.update(
                 collect_ids_from_json(item)
             )
@@ -503,7 +456,6 @@ def collect_ids_from_json(value):
 
 
 def collect_ids_from_file(path):
-
     data = read_json_file(
         path,
         {},
@@ -523,11 +475,8 @@ class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
 
         payload = {
-
             "stage": STAGE,
-
             "status": TEST_STATUS,
-
             "purpose": PURPOSE,
 
             "real_order_execution":
@@ -677,18 +626,15 @@ async def http_get_json(
         text = await response.text()
 
         if response.status >= 400:
-
             raise RuntimeError(
                 f"HTTP {response.status}: "
                 f"{text[:500]}"
             )
 
         try:
-
             return json.loads(text)
 
         except Exception as exc:
-
             raise RuntimeError(
                 f"Invalid JSON response: {exc}"
             )
@@ -735,7 +681,6 @@ async def weex_private_get(
         query_parts = []
 
         for key in sorted(params):
-
             query_parts.append(
                 f"{key}={params[key]}"
             )
@@ -753,7 +698,6 @@ async def weex_private_get(
     )
 
     headers = {
-
         "ACCESS-KEY":
             api_key,
 
@@ -787,23 +731,19 @@ async def weex_private_get(
 # WEEX PUBLIC TICKER
 # ============================================================
 
-async def weex_public_ticker(
-    session
-):
+async def weex_public_ticker(session):
 
     url = (
         API_BASE_URL
         + "/capi/v3/market/ticker/bookTicker"
     )
 
-    params = {
-        "symbol": SYMBOL
-    }
-
     return await http_get_json(
         session,
         url,
-        params=params,
+        params={
+            "symbol": SYMBOL
+        },
     )
 
 
@@ -812,7 +752,6 @@ async def weex_public_ticker(
 # ============================================================
 
 def write_firebreak(*args, **kwargs):
-
     raise RuntimeError(
         "ABSOLUTE WRITE FIREBREAK: "
         "exchange mutation is disabled in "
@@ -821,11 +760,8 @@ def write_firebreak(*args, **kwargs):
 
 
 place_order = write_firebreak
-
 change_leverage = write_firebreak
-
 change_margin_mode = write_firebreak
-
 close_position = write_firebreak
 
 
@@ -848,10 +784,7 @@ async def reconcile_weex():
 
         mark = None
 
-        if isinstance(
-            ticker,
-            dict,
-        ):
+        if isinstance(ticker, dict):
 
             for key in (
                 "markPrice",
@@ -861,21 +794,14 @@ async def reconcile_weex():
             ):
 
                 if key in ticker:
-
                     mark = ticker[key]
-
                     break
 
             if mark is None:
 
-                data = ticker.get(
-                    "data"
-                )
+                data = ticker.get("data")
 
-                if isinstance(
-                    data,
-                    dict,
-                ):
+                if isinstance(data, dict):
 
                     for key in (
                         "markPrice",
@@ -885,13 +811,10 @@ async def reconcile_weex():
                     ):
 
                         if key in data:
-
                             mark = data[key]
-
                             break
 
         if mark is None:
-
             raise RuntimeError(
                 "Unable to extract WEEX mark price"
             )
@@ -900,9 +823,7 @@ async def reconcile_weex():
 
         log(
             "WEEX MARK PRICE = "
-            + decimal_to_string(
-                MARK_PRICE
-            )
+            + decimal_to_string(MARK_PRICE)
         )
 
         balance_response = await weex_private_get(
@@ -919,10 +840,7 @@ async def reconcile_weex():
             if balance is not None:
                 return
 
-            if isinstance(
-                value,
-                dict,
-            ):
+            if isinstance(value, dict):
 
                 for key in (
                     "availableBalance",
@@ -934,30 +852,20 @@ async def reconcile_weex():
 
                     if key in value:
 
-                        candidate = value[key]
-
                         try:
-
                             balance = D(
-                                candidate
+                                value[key]
                             )
-
                             return
-
                         except Exception:
                             pass
 
                 for item in value.values():
-
                     find_balance(item)
 
-            elif isinstance(
-                value,
-                list,
-            ):
+            elif isinstance(value, list):
 
                 for item in value:
-
                     find_balance(item)
 
         find_balance(
@@ -965,7 +873,6 @@ async def reconcile_weex():
         )
 
         if balance is None:
-
             raise RuntimeError(
                 "Unable to extract WEEX available balance"
             )
@@ -998,18 +905,10 @@ async def reconcile_weex():
                 "data"
             )
 
-            if isinstance(
-                candidate,
-                list,
-            ):
-
+            if isinstance(candidate, list):
                 OPEN_POSITIONS = candidate
 
-            elif isinstance(
-                candidate,
-                dict,
-            ):
-
+            elif isinstance(candidate, dict):
                 OPEN_POSITIONS = [
                     candidate
                 ]
@@ -1019,33 +918,25 @@ async def reconcile_weex():
             list,
         ):
 
-            OPEN_POSITIONS = (
-                positions_response
-            )
+            OPEN_POSITIONS = positions_response
 
         log(
             f"OPEN POSITIONS = "
             f"{len(OPEN_POSITIONS)}"
         )
 
-        config_response = await weex_private_get(
+        WEEX_CONFIG = await weex_private_get(
             session,
             "/capi/v3/market/exchangeInfo",
         )
-
-        WEEX_CONFIG = config_response
 
         log(
             "WEEX EXCHANGE CONFIG READ = PASS"
         )
 
-    flat = (
-        len(OPEN_POSITIONS) == 0
-    )
-
     check(
         "WEEX_INITIAL_POSITION_FLAT",
-        flat,
+        len(OPEN_POSITIONS) == 0,
         f"open_positions={len(OPEN_POSITIONS)}",
     )
 
@@ -1077,13 +968,11 @@ async def reconcile_weex():
 def build_canary_preview():
 
     if MARK_PRICE is None:
-
         raise RuntimeError(
             "MARK_PRICE unavailable"
         )
 
     if AVAILABLE_BALANCE is None:
-
         raise RuntimeError(
             "AVAILABLE_BALANCE unavailable"
         )
@@ -1110,20 +999,15 @@ def build_canary_preview():
     )
 
     if quantity < MIN_QUANTITY:
-
         raise RuntimeError(
             "Canary quantity below minimum"
         )
 
-    preview = {
-
-        "symbol":
-            SYMBOL,
+    return {
+        "symbol": SYMBOL,
 
         "mark_price":
-            decimal_to_string(
-                MARK_PRICE
-            ),
+            decimal_to_string(MARK_PRICE),
 
         "available_balance":
             decimal_to_string(
@@ -1141,24 +1025,14 @@ def build_canary_preview():
             ),
 
         "notional":
-            decimal_to_string(
-                notional
-            ),
+            decimal_to_string(notional),
 
         "quantity":
-            decimal_to_string(
-                quantity
-            ),
+            decimal_to_string(quantity),
 
         "submitted":
             False,
     }
-
-    log(
-        "CANARY PREVIEW BUILT - NO ORDER SUBMITTED"
-    )
-
-    return preview
 
 
 # ============================================================
@@ -1167,18 +1041,10 @@ def build_canary_preview():
 
 def extract_kline_rows(payload):
 
-    if isinstance(
-        payload,
-        list,
-    ):
-
+    if isinstance(payload, list):
         return payload
 
-    if not isinstance(
-        payload,
-        dict,
-    ):
-
+    if not isinstance(payload, dict):
         return []
 
     for key in (
@@ -1188,15 +1054,9 @@ def extract_kline_rows(payload):
         "list",
     ):
 
-        value = payload.get(
-            key
-        )
+        value = payload.get(key)
 
-        if isinstance(
-            value,
-            list,
-        ):
-
+        if isinstance(value, list):
             return value
 
     return []
@@ -1204,10 +1064,7 @@ def extract_kline_rows(payload):
 
 def kline_timestamp(row):
 
-    if isinstance(
-        row,
-        dict,
-    ):
+    if isinstance(row, dict):
 
         for key in (
             "timestamp",
@@ -1217,18 +1074,13 @@ def kline_timestamp(row):
         ):
 
             if key in row:
-
                 return int(
                     D(row[key])
                 )
 
-    elif isinstance(
-        row,
-        list,
-    ):
+    elif isinstance(row, list):
 
         if len(row) >= 1:
-
             return int(
                 D(row[0])
             )
@@ -1240,10 +1092,7 @@ def kline_timestamp(row):
 
 def kline_high_low(row):
 
-    if isinstance(
-        row,
-        dict,
-    ):
+    if isinstance(row, dict):
 
         high = None
         low = None
@@ -1254,11 +1103,7 @@ def kline_high_low(row):
         ):
 
             if key in row:
-
-                high = D(
-                    row[key]
-                )
-
+                high = D(row[key])
                 break
 
         for key in (
@@ -1267,28 +1112,19 @@ def kline_high_low(row):
         ):
 
             if key in row:
-
-                low = D(
-                    row[key]
-                )
-
+                low = D(row[key])
                 break
 
         if high is None or low is None:
-
             raise ValueError(
                 "Unable to extract kline high/low"
             )
 
         return high, low
 
-    if isinstance(
-        row,
-        list,
-    ):
+    if isinstance(row, list):
 
         if len(row) < 4:
-
             raise ValueError(
                 "Kline row too short"
             )
@@ -1326,22 +1162,13 @@ async def historical_get(
     )
 
     params = {
-
-        "symbol":
-            SYMBOL,
-
-        "interval":
-            KLINE_INTERVAL,
-
-        "limit":
-            HISTORICAL_LIMIT,
+        "symbol": SYMBOL,
+        "interval": KLINE_INTERVAL,
+        "limit": HISTORICAL_LIMIT,
     }
 
     if start_timestamp is not None:
-
-        params[
-            "startTime"
-        ] = start_timestamp
+        params["startTime"] = start_timestamp
 
     return await http_get_json(
         session,
@@ -1364,7 +1191,7 @@ async def load_historical_klines():
 
             payload = await historical_get(
                 session,
-                start_timestamp=start_timestamp,
+                start_timestamp,
             )
 
             rows = extract_kline_rows(
@@ -1377,24 +1204,17 @@ async def load_historical_klines():
             for row in rows:
 
                 try:
-
-                    ts = kline_timestamp(
-                        row
-                    )
-
+                    ts = kline_timestamp(row)
                     all_rows[ts] = row
 
                 except Exception as exc:
-
                     log(
                         "HISTORICAL ROW SKIPPED: "
                         + str(exc)
                     )
 
             normalized = normalize_kline_order(
-                list(
-                    all_rows.values()
-                )
+                list(all_rows.values())
             )
 
             if not normalized:
@@ -1408,20 +1228,15 @@ async def load_historical_klines():
                 start_timestamp is not None
                 and oldest_ts >= start_timestamp
             ):
-
                 break
 
-            start_timestamp = (
-                oldest_ts - 1
-            )
+            start_timestamp = oldest_ts - 1
 
             if len(rows) < HISTORICAL_LIMIT:
                 break
 
     result = normalize_kline_order(
-        list(
-            all_rows.values()
-        )
+        list(all_rows.values())
     )
 
     log(
@@ -1451,9 +1266,7 @@ def local_extrema_values(
 
     for row in rows:
 
-        high, low = kline_high_low(
-            row
-        )
+        high, low = kline_high_low(row)
 
         highs.append(high)
         lows.append(low)
@@ -1466,12 +1279,9 @@ def local_extrema_values(
         ):
 
             if (
-                highs[i]
-                >= highs[i - 1]
-                and highs[i]
-                >= highs[i + 1]
+                highs[i] >= highs[i - 1]
+                and highs[i] >= highs[i + 1]
             ):
-
                 values.append(
                     highs[i]
                 )
@@ -1484,12 +1294,9 @@ def local_extrema_values(
         ):
 
             if (
-                lows[i]
-                <= lows[i - 1]
-                and lows[i]
-                <= lows[i + 1]
+                lows[i] <= lows[i - 1]
+                and lows[i] <= lows[i + 1]
             ):
-
                 values.append(
                     lows[i]
                 )
@@ -1519,9 +1326,7 @@ def cluster_extrema(values):
 
     clusters = []
 
-    current = [
-        ordered[0]
-    ]
+    current = [ordered[0]]
 
     for value in ordered[1:]:
 
@@ -1541,23 +1346,14 @@ def cluster_extrema(values):
             <= CLUSTER_TOLERANCE_PERCENT
         ):
 
-            current.append(
-                value
-            )
+            current.append(value)
 
         else:
 
-            clusters.append(
-                current
-            )
+            clusters.append(current)
+            current = [value]
 
-            current = [
-                value
-            ]
-
-    clusters.append(
-        current
-    )
+    clusters.append(current)
 
     result = []
 
@@ -1569,21 +1365,11 @@ def cluster_extrema(values):
         )
 
         result.append({
-
-            "average":
-                average,
-
-            "minimum":
-                min(cluster),
-
-            "maximum":
-                max(cluster),
-
-            "touches":
-                len(cluster),
-
-            "values":
-                cluster,
+            "average": average,
+            "minimum": min(cluster),
+            "maximum": max(cluster),
+            "touches": len(cluster),
+            "values": cluster,
         })
 
     return result
@@ -1599,9 +1385,7 @@ def build_cluster_diagnostics(
     side,
 ):
 
-    entry_price = D(
-        entry_price
-    )
+    entry_price = D(entry_price)
 
     extrema = local_extrema_values(
         rows,
@@ -1613,7 +1397,6 @@ def build_cluster_diagnostics(
     )
 
     cluster_records = []
-
     valid_clusters = []
 
     for index, cluster in enumerate(
@@ -1621,25 +1404,13 @@ def build_cluster_diagnostics(
         start=1,
     ):
 
-        average = cluster[
-            "average"
-        ]
-
-        touches = cluster[
-            "touches"
-        ]
+        average = cluster["average"]
+        touches = cluster["touches"]
 
         if side == "LONG":
-
-            side_valid = (
-                average > entry_price
-            )
-
+            side_valid = average > entry_price
         else:
-
-            side_valid = (
-                average < entry_price
-            )
+            side_valid = average < entry_price
 
         touches_valid = (
             touches >= MIN_CLUSTER_TOUCHES
@@ -1651,32 +1422,19 @@ def build_cluster_diagnostics(
         )
 
         if valid:
-
             reason = "VALID"
-
         elif not touches_valid:
-
-            reason = (
-                "INSUFFICIENT_CLUSTER_TOUCHES"
-            )
-
+            reason = "INSUFFICIENT_CLUSTER_TOUCHES"
         elif not side_valid:
-
             reason = "WRONG_ENTRY_SIDE"
-
         else:
-
             reason = "REJECTED"
 
         record = {
-
-            "cluster_number":
-                index,
+            "cluster_number": index,
 
             "average":
-                decimal_to_string(
-                    average
-                ),
+                decimal_to_string(average),
 
             "minimum":
                 decimal_to_string(
@@ -1698,15 +1456,10 @@ def build_cluster_diagnostics(
                 reason,
         }
 
-        cluster_records.append(
-            record
-        )
+        cluster_records.append(record)
 
         if valid:
-
-            valid_clusters.append(
-                cluster
-            )
+            valid_clusters.append(cluster)
 
     if side == "LONG":
 
@@ -1721,68 +1474,40 @@ def build_cluster_diagnostics(
             reverse=True,
         )
 
-    valid_count = len(
-        valid_clusters
-    )
+    valid_count = len(valid_clusters)
 
-    if (
-        valid_count
-        >= REQUIRED_TP_CLUSTERS
-    ):
+    if valid_count >= REQUIRED_TP_CLUSTERS:
 
-        status = (
-            "ENOUGH_VALID_CLUSTERS"
-        )
-
+        status = "ENOUGH_VALID_CLUSTERS"
         failure_reason = None
 
     elif valid_count == 1:
 
-        status = (
-            "INSUFFICIENT_VALID_CLUSTERS"
-        )
-
-        failure_reason = (
-            "ONLY_ONE_VALID_CLUSTER"
-        )
+        status = "INSUFFICIENT_VALID_CLUSTERS"
+        failure_reason = "ONLY_ONE_VALID_CLUSTER"
 
     elif not extrema:
 
         status = "NO_EXTREMA"
-
-        failure_reason = (
-            "NO_EXTREMA"
-        )
+        failure_reason = "NO_EXTREMA"
 
     elif not clusters:
 
-        status = (
-            "NO_EXTREMA_ON_REQUIRED_SIDE"
-        )
-
-        failure_reason = (
-            "NO_EXTREMA_ON_REQUIRED_SIDE"
-        )
+        status = "NO_EXTREMA_ON_REQUIRED_SIDE"
+        failure_reason = "NO_EXTREMA_ON_REQUIRED_SIDE"
 
     else:
 
-        status = (
-            "CLUSTERS_REJECTED_BY_POLICY"
-        )
-
+        status = "CLUSTERS_REJECTED_BY_POLICY"
         failure_reason = (
             "EXTREMA_EXIST_BUT_CLUSTER_REQUIREMENTS_NOT_MET"
         )
 
     diagnostics = {
-
-        "side":
-            side,
+        "side": side,
 
         "entry_price":
-            decimal_to_string(
-                entry_price
-            ),
+            decimal_to_string(entry_price),
 
         "extrema_count":
             len(extrema),
@@ -1851,9 +1576,7 @@ def build_cluster_diagnostics(
 # TP APPROVAL
 # ============================================================
 
-def evaluate_tp_approval(
-    diagnostics
-):
+def evaluate_tp_approval(diagnostics):
 
     valid_count = int(
         diagnostics.get(
@@ -1862,18 +1585,11 @@ def evaluate_tp_approval(
         )
     )
 
-    if (
-        valid_count
-        >= REQUIRED_TP_CLUSTERS
-    ):
+    if valid_count >= REQUIRED_TP_CLUSTERS:
 
         approval = {
-
-            "status":
-                "APPROVED",
-
-            "approved":
-                True,
+            "status": "APPROVED",
+            "approved": True,
 
             "required_valid_clusters":
                 REQUIRED_TP_CLUSTERS,
@@ -1894,18 +1610,13 @@ def evaluate_tp_approval(
         )
 
         if not failure_reason:
-
             failure_reason = (
                 "FEWER_THAN_TWO_VALID_HISTORICAL_CLUSTERS"
             )
 
         approval = {
-
-            "status":
-                "REJECTED",
-
-            "approved":
-                False,
+            "status": "REJECTED",
+            "approved": False,
 
             "required_valid_clusters":
                 REQUIRED_TP_CLUSTERS,
@@ -1918,22 +1629,22 @@ def evaluate_tp_approval(
         }
 
     log(
-        f"R36F.5_TP_APPROVAL = "
+        f"{STAGE}_TP_APPROVAL = "
         f"{approval['status']}"
     )
 
     log(
-        f"R36F.5_TP_APPROVAL_REASON = "
+        f"{STAGE}_TP_APPROVAL_REASON = "
         f"{approval['reason']}"
     )
 
     log(
-        f"R36F.5_TP_REQUIRED_CLUSTERS = "
+        f"{STAGE}_TP_REQUIRED_CLUSTERS = "
         f"{REQUIRED_TP_CLUSTERS}"
     )
 
     log(
-        f"R36F.5_TP_AVAILABLE_CLUSTERS = "
+        f"{STAGE}_TP_AVAILABLE_CLUSTERS = "
         f"{valid_count}"
     )
 
@@ -1950,9 +1661,7 @@ def valid_clusters(
     side,
 ):
 
-    entry_price = D(
-        entry_price
-    )
+    entry_price = D(entry_price)
 
     extrema = local_extrema_values(
         rows,
@@ -1971,23 +1680,18 @@ def valid_clusters(
             cluster["touches"]
             < MIN_CLUSTER_TOUCHES
         ):
-
             continue
 
-        average = cluster[
-            "average"
-        ]
+        average = cluster["average"]
 
         if side == "LONG":
 
             if average <= entry_price:
-
                 continue
 
         elif side == "SHORT":
 
             if average >= entry_price:
-
                 continue
 
         else:
@@ -1996,9 +1700,7 @@ def valid_clusters(
                 f"Unsupported side={side}"
             )
 
-        valid.append(
-            cluster
-        )
+        valid.append(cluster)
 
     if side == "LONG":
 
@@ -2029,9 +1731,7 @@ def build_cluster_tp_snapshot(
 
     global LAST_TP_APPROVAL
 
-    entry_price = D(
-        entry_price
-    )
+    entry_price = D(entry_price)
 
     diagnostics = build_cluster_diagnostics(
         rows,
@@ -2066,10 +1766,7 @@ def build_cluster_tp_snapshot(
         side,
     )
 
-    if (
-        len(clusters)
-        < REQUIRED_TP_CLUSTERS
-    ):
+    if len(clusters) < REQUIRED_TP_CLUSTERS:
 
         raise RuntimeError(
             "TP approval inconsistency: "
@@ -2081,13 +1778,8 @@ def build_cluster_tp_snapshot(
     cluster_1 = clusters[0]
     cluster_2 = clusters[1]
 
-    cluster_1_avg = cluster_1[
-        "average"
-    ]
-
-    cluster_2_avg = cluster_2[
-        "average"
-    ]
+    cluster_1_avg = cluster_1["average"]
+    cluster_2_avg = cluster_2["average"]
 
     if side == "LONG":
 
@@ -2154,26 +1846,20 @@ def build_cluster_tp_snapshot(
         )
 
     if not ordering_ok:
-
         raise RuntimeError(
             f"{side} TP ordering invalid"
         )
 
     snapshot = {
 
-        "stage":
-            STAGE,
+        "stage": STAGE,
 
-        "fill_label":
-            fill_label,
+        "fill_label": fill_label,
 
-        "side":
-            side,
+        "side": side,
 
         "entry_price":
-            decimal_to_string(
-                entry_price
-            ),
+            decimal_to_string(entry_price),
 
         "tp_approval":
             approval,
@@ -2229,9 +1915,7 @@ def build_cluster_tp_snapshot(
         "tp1": {
 
             "price":
-                decimal_to_string(
-                    tp1
-                ),
+                decimal_to_string(tp1),
 
             "progress_percent":
                 decimal_to_string(
@@ -2245,9 +1929,7 @@ def build_cluster_tp_snapshot(
         "tp2": {
 
             "price":
-                decimal_to_string(
-                    tp2
-                ),
+                decimal_to_string(tp2),
 
             "progress_percent":
                 decimal_to_string(
@@ -2299,7 +1981,7 @@ def build_cluster_tp_snapshot(
             True,
 
         "method":
-            "HISTORICAL_CLUSTER_TP_R36F5",
+            "HISTORICAL_CLUSTER_TP_R36F5_1",
 
         "historical_diagnostics":
             diagnostics,
@@ -2330,7 +2012,18 @@ def build_cluster_tp_snapshot(
 
 
 # ============================================================
-# SYNTHETIC LONG DATA
+# R36F.5.1 SYNTHETIC LONG DATA
+#
+# CORRECTION:
+# Deliberately separated resistance groups.
+#
+# Group 1:
+#   approximately 100500
+#
+# Group 2:
+#   approximately 101000
+#
+# Both groups contain multiple local highs.
 # ============================================================
 
 def synthetic_long_rows():
@@ -2338,18 +2031,22 @@ def synthetic_long_rows():
     base = [
         100000,
         100200,
-        100550,
+
+        100500,
         100100,
-        100540,
+        100490,
         100150,
-        100560,
+        100510,
+
         100250,
-        100900,
-        101075,
-        100950,
-        101060,
+        100800,
+
+        101000,
         100850,
-        101090,
+        100980,
+        100820,
+        101020,
+
         100700,
     ]
 
@@ -2360,21 +2057,26 @@ def synthetic_long_rows():
         rows.append(
             [
                 i,
+
                 str(
                     D(high)
                     - Decimal("500")
                 ),
+
                 str(
                     D(high)
                     - Decimal("100")
                 ),
+
                 str(
                     D(high)
                 ),
+
                 str(
                     D(high)
                     - Decimal("300")
                 ),
+
                 "1",
             ]
         )
@@ -2383,7 +2085,18 @@ def synthetic_long_rows():
 
 
 # ============================================================
-# SYNTHETIC SHORT DATA
+# R36F.5.1 SYNTHETIC SHORT DATA
+#
+# CORRECTION:
+# Deliberately separated support groups.
+#
+# Group 1:
+#   approximately 99500
+#
+# Group 2:
+#   approximately 99000
+#
+# Both groups contain multiple local lows.
 # ============================================================
 
 def synthetic_short_rows():
@@ -2391,19 +2104,23 @@ def synthetic_short_rows():
     base = [
         100000,
         99800,
-        99465,
-        99850,
-        99455,
-        99820,
-        99475,
-        99600,
-        99100,
-        98865,
-        99150,
-        98855,
-        99200,
-        98875,
+
         99500,
+        99800,
+        99490,
+        99700,
+        99510,
+
+        99700,
+        99200,
+
+        99000,
+        99200,
+        98980,
+        99150,
+        99020,
+
+        99400,
     ]
 
     rows = []
@@ -2413,21 +2130,26 @@ def synthetic_short_rows():
         rows.append(
             [
                 i,
+
                 str(
                     D(low)
                     + Decimal("300")
                 ),
+
                 str(
                     D(low)
                     + Decimal("100")
                 ),
+
                 str(
                     D(low)
                     + Decimal("500")
                 ),
+
                 str(
                     D(low)
                 ),
+
                 "1",
             ]
         )
@@ -2443,7 +2165,34 @@ def synthetic_cluster_tests():
 
     entry = Decimal("100000")
 
+    # --------------------------------------------------------
+    # LONG
+    # --------------------------------------------------------
+
     long_rows = synthetic_long_rows()
+
+    long_diagnostics = build_cluster_diagnostics(
+        long_rows,
+        entry,
+        "LONG",
+    )
+
+    check(
+        "SYNTHETIC_LONG_MINIMUM_TWO_VALID_CLUSTERS",
+        long_diagnostics[
+            "valid_cluster_count"
+        ] >= REQUIRED_TP_CLUSTERS,
+        (
+            "expected_at_least="
+            + str(REQUIRED_TP_CLUSTERS)
+            + " actual="
+            + str(
+                long_diagnostics[
+                    "valid_cluster_count"
+                ]
+            )
+        ),
+    )
 
     long_snapshot = build_cluster_tp_snapshot(
         entry,
@@ -2465,7 +2214,7 @@ def synthetic_cluster_tests():
         "SYNTHETIC_LONG_TWO_CLUSTERS",
         long_snapshot[
             "available_valid_clusters"
-        ] >= 2,
+        ] >= REQUIRED_TP_CLUSTERS,
     )
 
     long_tp1 = D(
@@ -2491,7 +2240,34 @@ def synthetic_cluster_tests():
         < long_tp2,
     )
 
+    # --------------------------------------------------------
+    # SHORT
+    # --------------------------------------------------------
+
     short_rows = synthetic_short_rows()
+
+    short_diagnostics = build_cluster_diagnostics(
+        short_rows,
+        entry,
+        "SHORT",
+    )
+
+    check(
+        "SYNTHETIC_SHORT_MINIMUM_TWO_VALID_CLUSTERS",
+        short_diagnostics[
+            "valid_cluster_count"
+        ] >= REQUIRED_TP_CLUSTERS,
+        (
+            "expected_at_least="
+            + str(REQUIRED_TP_CLUSTERS)
+            + " actual="
+            + str(
+                short_diagnostics[
+                    "valid_cluster_count"
+                ]
+            )
+        ),
+    )
 
     short_snapshot = build_cluster_tp_snapshot(
         entry,
@@ -2513,7 +2289,7 @@ def synthetic_cluster_tests():
         "SYNTHETIC_SHORT_TWO_CLUSTERS",
         short_snapshot[
             "available_valid_clusters"
-        ] >= 2,
+        ] >= REQUIRED_TP_CLUSTERS,
     )
 
     short_tp1 = D(
@@ -2539,24 +2315,34 @@ def synthetic_cluster_tests():
         > short_tp2,
     )
 
+    # --------------------------------------------------------
+    # IMMUTABILITY CONTRACTS
+    # --------------------------------------------------------
+
     check(
         "PRIMARY_TP_IMMUTABLE_CONTRACT",
-        long_snapshot[
-            "primary_tp_immutable"
-        ] is True
-        and short_snapshot[
-            "primary_tp_immutable"
-        ] is True,
+        (
+            long_snapshot[
+                "primary_tp_immutable"
+            ] is True
+            and
+            short_snapshot[
+                "primary_tp_immutable"
+            ] is True
+        ),
     )
 
     check(
         "BACKUP_TP_RECALC_CONTRACT",
-        long_snapshot[
-            "backup_tp_recalculated_only_on_backup_fill"
-        ] is True
-        and short_snapshot[
-            "backup_tp_recalculated_only_on_backup_fill"
-        ] is True,
+        (
+            long_snapshot[
+                "backup_tp_recalculated_only_on_backup_fill"
+            ] is True
+            and
+            short_snapshot[
+                "backup_tp_recalculated_only_on_backup_fill"
+            ] is True
+        ),
     )
 
     return (
@@ -2572,6 +2358,9 @@ def synthetic_cluster_tests():
 def synthetic_tp_rejection_test():
 
     entry = Decimal("100000")
+
+    # Only one valid historical-high cluster.
+    # This MUST NOT approve the TP1 + TP2 set.
 
     rows = [
 
@@ -2633,19 +2422,23 @@ def synthetic_tp_rejection_test():
 
     check(
         "ONE_CLUSTER_TP_REJECTED",
-        approval["approved"] is False,
+        approval[
+            "approved"
+        ] is False,
     )
 
     check(
         "ONE_CLUSTER_APPROVAL_STATUS_REJECTED",
-        approval["status"] == "REJECTED",
+        approval[
+            "status"
+        ] == "REJECTED",
     )
 
     check(
         "ONE_CLUSTER_DOES_NOT_APPROVE_TP_SET",
         approval[
             "available_valid_clusters"
-        ] < 2,
+        ] < REQUIRED_TP_CLUSTERS,
     )
 
     return approval
@@ -2662,7 +2455,7 @@ def build_writer_request_preview(
     tp_snapshot,
 ):
 
-    request = {
+    return {
 
         "stage":
             STAGE,
@@ -2713,14 +2506,12 @@ def build_writer_request_preview(
             EXCHANGE_MUTATION_TRANSPORT_ENABLED,
     }
 
-    return request
-
 
 # ============================================================
-# MAIN R36F.5 TEST
+# MAIN R36F.5.1 TEST
 # ============================================================
 
-async def run_r36f5():
+async def run_r36f51():
 
     global TEST_STATUS
     global R36A_EVIDENCE_OK
@@ -2742,7 +2533,6 @@ async def run_r36f5():
     )
 
     line()
-
 
     # ========================================================
     # EXECUTION FIREBREAK TESTS
@@ -2788,7 +2578,6 @@ async def run_r36f5():
         FIRST_REAL_ORDER_ALLOWED is False,
     )
 
-
     # ========================================================
     # R36A DURABLE EVIDENCE
     # ========================================================
@@ -2817,7 +2606,6 @@ async def run_r36f5():
         R36A_EVIDENCE_OK,
         f"expected={OLD_R36A_UPDATE_ID}",
     )
-
 
     # ========================================================
     # R36C DURABLE EVIDENCE
@@ -2848,7 +2636,6 @@ async def run_r36f5():
         f"expected={R36C_UPDATE_ID}",
     )
 
-
     # ========================================================
     # R36D SNAPSHOT
     # ========================================================
@@ -2873,38 +2660,36 @@ async def run_r36f5():
         and R36D_EVIDENCE_OK
     )
 
-
     # ========================================================
     # API CREDENTIAL PRESENCE
     # ========================================================
 
-    api_key = os.getenv(
-        "WEEX_API_KEY"
-    )
-
-    api_secret = os.getenv(
-        "WEEX_API_SECRET"
-    )
-
-    passphrase = os.getenv(
-        "WEEX_API_PASSPHRASE"
-    )
-
     check(
         "WEEX_API_KEY_PRESENT",
-        bool(api_key),
+        bool(
+            os.getenv(
+                "WEEX_API_KEY"
+            )
+        ),
     )
 
     check(
         "WEEX_API_SECRET_PRESENT",
-        bool(api_secret),
+        bool(
+            os.getenv(
+                "WEEX_API_SECRET"
+            )
+        ),
     )
 
     check(
         "WEEX_API_PASSPHRASE_PRESENT",
-        bool(passphrase),
+        bool(
+            os.getenv(
+                "WEEX_API_PASSPHRASE"
+            )
+        ),
     )
-
 
     # ========================================================
     # FROZEN DIAGNOSTIC:
@@ -2931,7 +2716,6 @@ async def run_r36f5():
             False,
             str(exc),
         )
-
 
     # ========================================================
     # SYNTHETIC TP ENGINE
@@ -2960,7 +2744,6 @@ async def run_r36f5():
             str(exc),
         )
 
-
     # ========================================================
     # TP REJECTION TEST
     # ========================================================
@@ -2985,7 +2768,6 @@ async def run_r36f5():
             False,
             str(exc),
         )
-
 
     # ========================================================
     # HISTORICAL KLINES
@@ -3013,15 +2795,8 @@ async def run_r36f5():
             str(exc),
         )
 
-
     # ========================================================
     # REAL LONG TP PREVIEW
-    #
-    # IMPORTANT:
-    # This remains a REAL FINAL GATE.
-    #
-    # Only the three frozen diagnostic checks are changed
-    # to diagnostic-only.
     # ========================================================
 
     real_long_snapshot = None
@@ -3055,6 +2830,7 @@ async def run_r36f5():
                 ][
                     "approved"
                 ] is True,
+
                 "TP_APPROVAL="
                 + real_long_snapshot[
                     "tp_approval"
@@ -3091,6 +2867,7 @@ async def run_r36f5():
             check(
                 "REAL_LONG_TP_PREVIEW",
                 False,
+
                 "TP_APPROVAL="
                 + approval[
                     "status"
@@ -3103,12 +2880,8 @@ async def run_r36f5():
                 + str(exc),
             )
 
-
     # ========================================================
     # REAL SHORT TP PREVIEW
-    #
-    # IMPORTANT:
-    # This remains a REAL FINAL GATE.
     # ========================================================
 
     real_short_snapshot = None
@@ -3142,6 +2915,7 @@ async def run_r36f5():
                 ][
                     "approved"
                 ] is True,
+
                 "TP_APPROVAL="
                 + real_short_snapshot[
                     "tp_approval"
@@ -3178,6 +2952,7 @@ async def run_r36f5():
             check(
                 "REAL_SHORT_TP_PREVIEW",
                 False,
+
                 "TP_APPROVAL="
                 + approval[
                     "status"
@@ -3189,7 +2964,6 @@ async def run_r36f5():
                 + " error="
                 + str(exc),
             )
-
 
     # ========================================================
     # FROZEN DIAGNOSTIC:
@@ -3216,7 +2990,6 @@ async def run_r36f5():
             False,
             str(exc),
         )
-
 
     # ========================================================
     # FROZEN DIAGNOSTIC:
@@ -3275,7 +3048,6 @@ async def run_r36f5():
             str(exc),
         )
 
-
     # ========================================================
     # ZERO-WRITE INVARIANTS
     # ========================================================
@@ -3326,7 +3098,6 @@ async def run_r36f5():
         ZERO_WRITE_INVARIANT_OK,
     )
 
-
     # ========================================================
     # FINAL GATE
     # ========================================================
@@ -3340,7 +3111,6 @@ async def run_r36f5():
         if FINAL_GATE_OK
         else "FAIL"
     )
-
 
     # ========================================================
     # FINAL LOGGING
@@ -3364,7 +3134,6 @@ async def run_r36f5():
             f"{STAGE} FINAL_BLOCKER = "
             f"{blocker}"
         )
-
 
     # ========================================================
     # SNAPSHOT
@@ -3409,9 +3178,7 @@ async def run_r36f5():
             ZERO_WRITE_INVARIANT_OK,
 
         "mark_price":
-            decimal_to_string(
-                MARK_PRICE
-            ),
+            decimal_to_string(MARK_PRICE),
 
         "available_balance":
             decimal_to_string(
@@ -3456,6 +3223,24 @@ async def run_r36f5():
                 MIN_CLUSTER_TOUCHES,
         },
 
+        "synthetic_test_policy": {
+
+            "long_requires_two_clusters":
+                True,
+
+            "short_requires_two_clusters":
+                True,
+
+            "one_cluster_must_reject":
+                True,
+
+            "synthetic_fixtures_changed":
+                True,
+
+            "production_tp_policy_changed":
+                False,
+        },
+
         "canary_preview":
             canary_preview,
 
@@ -3481,14 +3266,13 @@ async def run_r36f5():
         },
     }
 
-
     write_json_file(
         R36F_SNAPSHOT_FILE,
         snapshot,
     )
 
     log(
-        f"R36F.5 SNAPSHOT WRITTEN = "
+        f"{STAGE} SNAPSHOT WRITTEN = "
         f"{R36F_SNAPSHOT_FILE}"
     )
 
@@ -3560,7 +3344,7 @@ async def async_main():
 
     try:
 
-        await run_r36f5()
+        await run_r36f51()
 
     except Exception as exc:
 
