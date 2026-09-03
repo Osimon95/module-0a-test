@@ -398,3 +398,1148 @@ def write_json_file(path, data):
 
     with open(
         tmp,
+
+        "w",
+        encoding="utf-8",
+    ) as f:
+        json.dump(
+            data,
+            f,
+            indent=2,
+            sort_keys=True,
+            default=str,
+        )
+
+    os.replace(
+        tmp,
+        path,
+    )
+
+
+# ============================================================
+# DURABLE ID COLLECTION
+# ============================================================
+
+def collect_ids_from_json(value):
+    found = set()
+
+    if isinstance(value, dict):
+
+        for key, item in value.items():
+
+            if key in {
+                "update_id",
+                "telegram_update_id",
+                "id",
+                "decision_id",
+            }:
+
+                if isinstance(
+                    item,
+                    (str, int),
+                ):
+                    found.add(
+                        str(item)
+                    )
+
+            found.update(
+                collect_ids_from_json(item)
+            )
+
+    elif isinstance(value, list):
+
+        for item in value:
+            found.update(
+                collect_ids_from_json(item)
+            )
+
+    return found
+
+
+def collect_ids_from_file(path):
+    data = read_json_file(
+        path,
+        {},
+    )
+
+    return collect_ids_from_json(
+        data
+    )
+
+
+# ============================================================
+# HEALTH SERVER
+# ============================================================
+
+class HealthHandler(BaseHTTPRequestHandler):
+
+    def do_GET(self):
+
+        payload = {
+            "stage": STAGE,
+            "status": TEST_STATUS,
+            "purpose": PURPOSE,
+
+            "real_order_execution":
+                REAL_ORDER_EXECUTION,
+
+            "demo_order_execution":
+                DEMO_ORDER_EXECUTION,
+
+            "exchange_mutation_transport_enabled":
+                EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+            "order_submission_enabled":
+                ORDER_SUBMISSION_ENABLED,
+
+            "first_real_order_allowed":
+                FIRST_REAL_ORDER_ALLOWED,
+
+            "final_gate_ok":
+                FINAL_GATE_OK,
+
+            "short_valid_cluster_count":
+                SHORT_DIAGNOSTICS.get(
+                    "valid_cluster_count"
+                ),
+
+            "long_valid_cluster_count":
+                LONG_DIAGNOSTICS.get(
+                    "valid_cluster_count"
+                ),
+
+            "last_tp_approval":
+                LAST_TP_APPROVAL,
+        }
+
+        body = json.dumps(
+            payload,
+            default=str,
+        ).encode("utf-8")
+
+        self.send_response(200)
+
+        self.send_header(
+            "Content-Type",
+            "application/json",
+        )
+
+        self.send_header(
+            "Content-Length",
+            str(len(body)),
+        )
+
+        self.end_headers()
+
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        return
+
+
+def start_health_server():
+
+    port = int(
+        os.getenv(
+            "PORT",
+            "10000",
+        )
+    )
+
+    server = HTTPServer(
+        (
+            "0.0.0.0",
+            port,
+        ),
+        HealthHandler,
+    )
+
+    thread = Thread(
+        target=server.serve_forever,
+        daemon=True,
+    )
+
+    thread.start()
+
+    log(
+        f"{STAGE}: HEALTH SERVER STARTED ON PORT {port}"
+    )
+
+
+# ============================================================
+# WEEX AUTHENTICATION
+# ============================================================
+
+def make_signature(
+    timestamp,
+    method,
+    request_path,
+    query_string="",
+    body="",
+):
+
+    api_secret = os.getenv(
+        "WEEX_API_SECRET"
+    )
+
+    if not api_secret:
+        raise RuntimeError(
+            "WEEX_API_SECRET missing"
+        )
+
+    prehash = (
+        str(timestamp)
+        + str(method).upper()
+        + str(request_path)
+        + str(query_string)
+        + str(body)
+    )
+
+    digest = hmac.new(
+        api_secret.encode("utf-8"),
+        prehash.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+
+    return base64.b64encode(
+        digest
+    ).decode()
+
+
+# ============================================================
+# HTTP GET
+# ============================================================
+
+async def http_get_json(
+    session,
+    url,
+    headers=None,
+    params=None,
+):
+
+    async with session.get(
+        url,
+        headers=headers or {},
+        params=params,
+        timeout=20,
+    ) as response:
+
+        text = await response.text()
+
+        if response.status >= 400:
+            raise RuntimeError(
+                f"HTTP {response.status}: "
+                f"{text[:500]}"
+            )
+
+        try:
+            return json.loads(text)
+
+        except Exception as exc:
+            raise RuntimeError(
+                f"Invalid JSON response: {exc}"
+            )
+
+
+# ============================================================
+# WEEX PRIVATE GET
+# ============================================================
+
+async def weex_private_get(
+    session,
+    request_path,
+    params=None,
+):
+
+    api_key = os.getenv(
+        "WEEX_API_KEY"
+    )
+
+    passphrase = os.getenv(
+        "WEEX_API_PASSPHRASE"
+    )
+
+    if not api_key:
+        raise RuntimeError(
+            "WEEX_API_KEY missing"
+        )
+
+    if not passphrase:
+        raise RuntimeError(
+            "WEEX_API_PASSPHRASE missing"
+        )
+
+    timestamp = str(
+        int(
+            time.time() * 1000
+        )
+    )
+
+    query_string = ""
+
+    if params:
+
+        query_parts = []
+
+        for key in sorted(params):
+            query_parts.append(
+                f"{key}={params[key]}"
+            )
+
+        query_string = "&".join(
+            query_parts
+        )
+
+    signature = make_signature(
+        timestamp,
+        "GET",
+        request_path,
+        query_string,
+        "",
+    )
+
+    headers = {
+        "ACCESS-KEY":
+            api_key,
+
+        "ACCESS-SIGN":
+            signature,
+
+        "ACCESS-TIMESTAMP":
+            timestamp,
+
+        "ACCESS-PASSPHRASE":
+            passphrase,
+
+        "Content-Type":
+            "application/json",
+    }
+
+    url = (
+        API_BASE_URL
+        + request_path
+    )
+
+    return await http_get_json(
+        session,
+        url,
+        headers=headers,
+        params=params,
+    )
+
+
+# ============================================================
+# WEEX PUBLIC TICKER
+# ============================================================
+
+async def weex_public_ticker(session):
+
+    url = (
+        API_BASE_URL
+        + "/capi/v3/market/ticker/bookTicker"
+    )
+
+    return await http_get_json(
+        session,
+        url,
+        params={
+            "symbol": SYMBOL
+        },
+    )
+
+
+async def weex_mark_price(session):
+    """Read the actual WEEX contract mark price.
+
+    WEEX V3 exposes mark price through /market/symbolPrice with
+    priceType=MARK.  The bookTicker endpoint is a bid/ask endpoint and
+    therefore is not treated as a mark-price source.
+    """
+
+    url = (
+        API_BASE_URL
+        + "/capi/v3/market/symbolPrice"
+    )
+
+    payload = await http_get_json(
+        session,
+        url,
+        params={
+            "symbol": SYMBOL,
+            "priceType": "MARK",
+        },
+    )
+
+    candidates = []
+
+    if isinstance(payload, dict):
+        candidates.append(payload)
+        data = payload.get("data")
+        if isinstance(data, dict):
+            candidates.append(data)
+        elif isinstance(data, list):
+            candidates.extend(data)
+
+    elif isinstance(payload, list):
+        candidates.extend(payload)
+
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+
+        for key in ("price", "markPrice"):
+            value = item.get(key)
+            if value is not None:
+                try:
+                    price = D(value)
+                    if price > 0:
+                        return price
+                except Exception:
+                    continue
+
+    raise RuntimeError(
+        "Unable to extract WEEX mark price from symbolPrice MARK response"
+    )
+
+
+# ============================================================
+# WEEX BALANCE
+# ============================================================
+
+async def weex_balance(session):
+
+    payload = await weex_private_get(
+        session,
+        "/capi/v3/account/balance",
+    )
+
+    return payload
+
+
+# ============================================================
+# WEEX SINGLE POSITION
+# ============================================================
+
+async def weex_single_position(session):
+
+    payload = await weex_private_get(
+        session,
+        "/capi/v3/account/position/singlePosition",
+        params={
+            "symbol":
+                SYMBOL,
+        },
+    )
+
+    return payload
+
+
+# ============================================================
+# WEEX EXCHANGE INFO
+# ============================================================
+
+async def weex_exchange_info(session):
+
+    return await weex_public_get(
+        session,
+        "/capi/v3/market/exchangeInfo",
+    )
+
+
+# ============================================================
+# KLINE FETCH
+# ============================================================
+
+async def fetch_klines_page(
+    session,
+    end_time=None,
+):
+
+    params = {
+        "symbol":
+            SYMBOL,
+
+        "interval":
+            KLINE_INTERVAL,
+
+        "limit":
+            HISTORICAL_LIMIT,
+    }
+
+    if end_time is not None:
+        params["endTime"] = str(
+            end_time
+        )
+
+    return await weex_public_get(
+        session,
+        "/capi/v3/market/klines",
+        params=params,
+    )
+
+
+# ============================================================
+# KLINE NORMALIZATION
+# ============================================================
+
+def normalize_kline_row(row):
+
+    if isinstance(row, list):
+
+        if len(row) < 5:
+            return None
+
+        try:
+            return {
+                "timestamp":
+                    int(row[0]),
+
+                "open":
+                    D(row[1]),
+
+                "high":
+                    D(row[2]),
+
+                "low":
+                    D(row[3]),
+
+                "close":
+                    D(row[4]),
+            }
+
+        except Exception:
+            return None
+
+    if isinstance(row, dict):
+
+        timestamp = (
+            row.get("timestamp")
+            or
+            row.get("openTime")
+            or
+            row.get("time")
+        )
+
+        if timestamp is None:
+            return None
+
+        try:
+            return {
+                "timestamp":
+                    int(timestamp),
+
+                "open":
+                    D(
+                        row.get(
+                            "open"
+                        )
+                    ),
+
+                "high":
+                    D(
+                        row.get(
+                            "high"
+                        )
+                    ),
+
+                "low":
+                    D(
+                        row.get(
+                            "low"
+                        )
+                    ),
+
+                "close":
+                    D(
+                        row.get(
+                            "close"
+                        )
+                    ),
+            }
+
+        except Exception:
+            return None
+
+    return None
+
+
+# ============================================================
+# HISTORICAL KLINE LOADER
+# ============================================================
+
+async def load_historical_klines(
+    session,
+):
+
+    rows = []
+    end_time = None
+
+    for page in range(
+        MAX_HISTORICAL_PAGES
+    ):
+
+        payload = await fetch_klines_page(
+            session,
+            end_time=end_time,
+        )
+
+        if isinstance(
+            payload,
+            dict,
+        ):
+
+            data = payload.get(
+                "data",
+                payload.get(
+                    "result",
+                    [],
+                ),
+            )
+
+        else:
+            data = payload
+
+        if not isinstance(
+            data,
+            list,
+        ):
+            raise RuntimeError(
+                f"Unexpected kline payload: {payload}"
+            )
+
+        if not data:
+            break
+
+        normalized = []
+
+        for row in data:
+
+            candle = normalize_kline_row(
+                row
+            )
+
+            if candle is not None:
+                normalized.append(
+                    candle
+                )
+
+        if not normalized:
+            break
+
+        rows.extend(
+            normalized
+        )
+
+        oldest = min(
+            candle["timestamp"]
+            for candle in normalized
+        )
+
+        end_time = (
+            oldest - 1
+        )
+
+        if len(normalized) < HISTORICAL_LIMIT:
+            break
+
+    unique = {}
+
+    for candle in rows:
+        unique[
+            candle["timestamp"]
+        ] = candle
+
+    candles = [
+        unique[key]
+        for key in sorted(
+            unique
+        )
+    ]
+
+    return candles
+
+
+# ============================================================
+# EMA CALCULATION
+# ============================================================
+
+def calculate_ema(
+    values,
+    period,
+):
+
+    if len(values) < period:
+        return None
+
+    multiplier = (
+        D("2")
+        /
+        D(
+            period + 1
+        )
+    )
+
+    ema = (
+        sum(
+            values[
+                :period
+            ]
+        )
+        /
+        D(period)
+    )
+
+    for value in values[
+        period:
+    ]:
+
+        ema = (
+            (
+                value
+                -
+                ema
+            )
+            *
+            multiplier
+        ) + ema
+
+    return ema
+
+
+# ============================================================
+# EMA SNAPSHOT
+# ============================================================
+
+def build_ema_snapshot(
+    candles,
+):
+
+    closes = [
+        candle["close"]
+        for candle in candles
+    ]
+
+    ema19 = calculate_ema(
+        closes,
+        19,
+    )
+
+    ema50 = calculate_ema(
+        closes,
+        50,
+    )
+
+    ema200 = calculate_ema(
+        closes,
+        200,
+    )
+
+    return {
+        "EMA19":
+            decimal_to_string(
+                ema19
+            ),
+
+        "EMA50":
+            decimal_to_string(
+                ema50
+            ),
+
+        "EMA200":
+            decimal_to_string(
+                ema200
+            ),
+    }
+
+
+# ============================================================
+# TREND DIRECTION
+# ============================================================
+
+def determine_trend(
+    ema_snapshot,
+):
+
+    ema19 = ema_snapshot.get(
+        "EMA19"
+    )
+
+    ema50 = ema_snapshot.get(
+        "EMA50"
+    )
+
+    ema200 = ema_snapshot.get(
+        "EMA200"
+    )
+
+    if (
+        ema19 is None
+        or
+        ema50 is None
+        or
+        ema200 is None
+    ):
+        return "UNKNOWN"
+
+    ema19 = D(ema19)
+    ema50 = D(ema50)
+    ema200 = D(ema200)
+
+    if (
+        ema19 > ema50
+        and
+        ema50 > ema200
+    ):
+        return "LONG"
+
+    if (
+        ema19 < ema50
+        and
+        ema50 < ema200
+    ):
+        return "SHORT"
+
+    return "NEUTRAL"
+
+
+# ============================================================
+# SIGNAL SNAPSHOT
+# ============================================================
+
+def build_signal_snapshot(
+    candles,
+    mark_price,
+):
+
+    ema_snapshot = build_ema_snapshot(
+        candles
+    )
+
+    trend = determine_trend(
+        ema_snapshot
+    )
+
+    return {
+        "symbol":
+            SYMBOL,
+
+        "mark_price":
+            decimal_to_string(
+                mark_price
+            ),
+
+        "ema":
+            ema_snapshot,
+
+        "trend":
+            trend,
+
+        "timestamp":
+            now_iso(),
+    }
+
+
+# ============================================================
+# CLUSTER DISTANCE
+# ============================================================
+
+def cluster_distance_percent(
+    price_a,
+    price_b,
+):
+
+    price_a = D(price_a)
+    price_b = D(price_b)
+
+    if (
+        price_a <= 0
+        or
+        price_b <= 0
+    ):
+        return None
+
+    return (
+        abs(
+            price_a
+            -
+            price_b
+        )
+        /
+        (
+            (
+                price_a
+                +
+                price_b
+            )
+            /
+            D("2")
+        )
+        *
+        D("100")
+    )
+
+
+# ============================================================
+# CLUSTER MEMBERSHIP
+# ============================================================
+
+def is_cluster_match(
+    price_a,
+    price_b,
+):
+
+    distance = cluster_distance_percent(
+        price_a,
+        price_b,
+    )
+
+    if distance is None:
+        return False
+
+    return (
+        distance
+        <=
+        CLUSTER_TOLERANCE_PERCENT
+    )
+
+
+# ============================================================
+# HIGH CLUSTER BUILD
+# ============================================================
+
+def build_high_clusters(
+    candles,
+    entry_price,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    candidates = []
+
+    for candle in candles:
+
+        high = D(
+            candle["high"]
+        )
+
+        if high <= entry_price:
+            continue
+
+        candidates.append(
+            {
+                "timestamp":
+                    candle["timestamp"],
+
+                "price":
+                    high,
+            }
+        )
+
+    candidates.sort(
+        key=lambda item:
+            item["price"]
+    )
+
+    clusters = []
+
+    for candidate in candidates:
+
+        matched = False
+
+        for cluster in clusters:
+
+            if is_cluster_match(
+                candidate["price"],
+                cluster["average"],
+            ):
+
+                cluster[
+                    "prices"
+                ].append(
+                    candidate["price"]
+                )
+
+                cluster[
+                    "timestamps"
+                ].append(
+                    candidate["timestamp"]
+                )
+
+                cluster[
+                    "average"
+                ] = (
+                    sum(
+                        cluster[
+                            "prices"
+                        ]
+                    )
+                    /
+                    D(
+                        len(
+                            cluster[
+                                "prices"
+                            ]
+                        )
+                    )
+                )
+
+                matched = True
+                break
+
+        if not matched:
+
+            clusters.append(
+                {
+                    "prices": [
+                        candidate["price"]
+                    ],
+
+                    "timestamps": [
+                        candidate["timestamp"]
+                    ],
+
+                    "average":
+                        candidate["price"],
+                }
+            )
+
+    valid = [
+        cluster
+        for cluster in clusters
+        if len(
+            cluster["prices"]
+        )
+        >=
+        MIN_CLUSTER_TOUCHES
+    ]
+
+    valid.sort(
+        key=lambda cluster:
+            cluster["average"]
+    )
+
+    return valid
+
+
+# ============================================================
+# LOW CLUSTER BUILD
+# ============================================================
+
+def build_low_clusters(
+    candles,
+    entry_price,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    candidates = []
+
+    for candle in candles:
+
+        low = D(
+            candle["low"]
+        )
+
+        if low >= entry_price:
+            continue
+
+        candidates.append(
+            {
+                "timestamp":
+                    candle["timestamp"],
+
+                "price":
+                    low,
+            }
+        )
+
+    candidates.sort(
+        key=lambda item:
+            item["price"],
+        reverse=True,
+    )
+
+    clusters = []
+
+    for candidate in candidates:
+
+        matched = False
+
+        for cluster in clusters:
+
+            if is_cluster_match(
+                candidate["price"],
+                cluster["average"],
+            ):
+
+                cluster[
+                    "prices"
+                ].append(
+                    candidate["price"]
+                )
+
+                cluster[
+                    "timestamps"
+                ].append(
+                    candidate["timestamp"]
+                )
+
+                cluster[
+                    "average"
+                ] = (
+                    sum(
+                        cluster[
+                            "prices"
+                        ]
+                    )
+                    /
+                    D(
+                        len(
+                            cluster[
+                                "prices"
+                            ]
+                        )
+                    )
+                )
+
+                matched = True
+                break
+
+        if not matched:
+
+            clusters.append(
+                {
+                    "prices": [
+                        candidate["price"]
+                    ],
+
+                    "timestamps": [
+                        candidate["timestamp"]
+                    ],
+
+                    "average":
+                        candidate["price"],
+                }
+            )
+
+    valid = [
+        cluster
+        for cluster in clusters
+        if len(
+            cluster["prices"]
+        )
+        >=
+        MIN_CLUSTER_TOUCHES
+    ]
+
+    valid.sort(
+        key=lambda cluster:
+            cluster["average"],
+        reverse=True,
+    )
+
+    return valid
