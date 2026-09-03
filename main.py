@@ -2573,3 +2573,858 @@ async def run_r36f53():
     global WEEX_READ_ONLY_OK
     global ZERO_WRITE_INVARIANT_OK
     global FINAL_GATE_OK
+    global LONG_DIAGNOSTICS
+    global SHORT_DIAGNOSTICS
+
+    TEST_STATUS = "RUNNING"
+
+    line()
+
+    log(
+        f"{STAGE}: {PURPOSE}"
+    )
+
+    line()
+
+    # ========================================================
+    # EXECUTION FIREBREAK TESTS
+    # ========================================================
+
+    check(
+        "REAL_ORDER_EXECUTION_DISABLED",
+        REAL_ORDER_EXECUTION is False,
+    )
+
+    check(
+        "DEMO_ORDER_EXECUTION_DISABLED",
+        DEMO_ORDER_EXECUTION is False,
+    )
+
+    check(
+        "EXCHANGE_MUTATION_TRANSPORT_DISABLED",
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED is False,
+    )
+
+    check(
+        "ORDER_SUBMISSION_DISABLED",
+        ORDER_SUBMISSION_ENABLED is False,
+    )
+
+    check(
+        "LEVERAGE_MUTATION_DISABLED",
+        LEVERAGE_MUTATION_ENABLED is False,
+    )
+
+    check(
+        "MARGIN_MODE_MUTATION_DISABLED",
+        MARGIN_MODE_MUTATION_ENABLED is False,
+    )
+
+    check(
+        "POSITION_MUTATION_DISABLED",
+        POSITION_MUTATION_ENABLED is False,
+    )
+
+    check(
+        "FIRST_REAL_ORDER_DISABLED",
+        FIRST_REAL_ORDER_ALLOWED is False,
+    )
+
+    # ========================================================
+    # R36A DURABLE EVIDENCE
+    # ========================================================
+
+    r36a_ids = set()
+
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DEDUPE_FILE
+        )
+    )
+
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DECISION_FILE
+        )
+    )
+
+    R36A_EVIDENCE_OK = (
+        OLD_R36A_UPDATE_ID
+        in r36a_ids
+    )
+
+    check(
+        "R36A_DURABLE_ID_PRESENT",
+        R36A_EVIDENCE_OK,
+        f"expected={OLD_R36A_UPDATE_ID}",
+    )
+
+    # ========================================================
+    # R36C DURABLE EVIDENCE
+    # ========================================================
+
+    r36c_ids = set()
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DEDUPE_FILE
+        )
+    )
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DECISION_FILE
+        )
+    )
+
+    R36C_EVIDENCE_OK = (
+        R36C_UPDATE_ID
+        in r36c_ids
+    )
+
+    check(
+        "R36C_DURABLE_ID_PRESENT",
+        R36C_EVIDENCE_OK,
+        f"expected={R36C_UPDATE_ID}",
+    )
+
+    # ========================================================
+    # R36D SNAPSHOT
+    # ========================================================
+
+    r36d_snapshot = read_json_file(
+        R36D_SNAPSHOT_FILE,
+        {},
+    )
+
+    R36D_EVIDENCE_OK = bool(
+        r36d_snapshot
+    )
+
+    check(
+        "R36D_SNAPSHOT_PRESENT",
+        R36D_EVIDENCE_OK,
+    )
+
+    DURABLE_EVIDENCE_OK = (
+        R36A_EVIDENCE_OK
+        and R36C_EVIDENCE_OK
+        and R36D_EVIDENCE_OK
+    )
+
+    # ========================================================
+    # API CREDENTIAL PRESENCE
+    # ========================================================
+
+    check(
+        "WEEX_API_KEY_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_KEY"
+            )
+        ),
+    )
+
+    check(
+        "WEEX_API_SECRET_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_SECRET"
+            )
+        ),
+    )
+
+    check(
+        "WEEX_API_PASSPHRASE_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_PASSPHRASE"
+            )
+        ),
+    )
+
+    # ========================================================
+    # FROZEN DIAGNOSTIC:
+    # WEEX READ-ONLY RECONCILIATION
+    # ========================================================
+
+    try:
+
+        await reconcile_weex()
+
+        WEEX_READ_ONLY_OK = True
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            True,
+        )
+
+    except Exception as exc:
+
+        WEEX_READ_ONLY_OK = False
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # SYNTHETIC TP ENGINE
+    # ========================================================
+
+    synthetic_long = None
+    synthetic_short = None
+
+    try:
+
+        (
+            synthetic_long,
+            synthetic_short,
+        ) = synthetic_cluster_tests()
+
+        check(
+            "SYNTHETIC_TP_ENGINE",
+            True,
+        )
+
+    except Exception as exc:
+
+        check(
+            "SYNTHETIC_TP_ENGINE",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # TP REJECTION TEST
+    # ========================================================
+
+    try:
+
+        rejection = (
+            synthetic_tp_rejection_test()
+        )
+
+        check(
+            "TP_APPROVAL_REJECTION_FLOW",
+            rejection[
+                "approved"
+            ] is False,
+        )
+
+    except Exception as exc:
+
+        check(
+            "TP_APPROVAL_REJECTION_FLOW",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # HISTORICAL KLINES
+    # ========================================================
+
+    historical_rows = []
+
+    try:
+
+        historical_rows = (
+            await load_historical_klines()
+        )
+
+        check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            len(historical_rows) >= 3,
+            f"rows={len(historical_rows)}",
+        )
+
+    except Exception as exc:
+
+        check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # REAL LONG TP PREVIEW
+    # ========================================================
+
+    real_long_snapshot = None
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+
+        try:
+
+            real_long_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "LONG",
+                    "REAL_LONG_PREVIEW",
+                )
+            )
+
+            LONG_DIAGNOSTICS = (
+                real_long_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            check(
+                "REAL_LONG_TP_PREVIEW",
+                real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ] is True,
+
+                "TP_APPROVAL="
+                + real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ],
+            )
+
+            log(
+                "REAL_LONG_TP_APPROVAL="
+                + real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ]
+            )
+
+        except Exception as exc:
+
+            LONG_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "LONG",
+                )
+            )
+
+            approval = (
+                evaluate_tp_approval(
+                    LONG_DIAGNOSTICS
+                )
+            )
+
+            check(
+                "REAL_LONG_TP_PREVIEW",
+                False,
+
+                "TP_APPROVAL="
+                + approval[
+                    "status"
+                ]
+                + " reason="
+                + approval[
+                    "reason"
+                ]
+                + " error="
+                + str(exc),
+            )
+
+    # ========================================================
+    # REAL SHORT TP PREVIEW
+    # ========================================================
+
+    real_short_snapshot = None
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+
+        try:
+
+            real_short_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "SHORT",
+                    "REAL_SHORT_PREVIEW",
+                )
+            )
+
+            SHORT_DIAGNOSTICS = (
+                real_short_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            check(
+                "REAL_SHORT_TP_PREVIEW",
+                real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ] is True,
+
+                "TP_APPROVAL="
+                + real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ],
+            )
+
+            log(
+                "REAL_SHORT_TP_APPROVAL="
+                + real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ]
+            )
+
+        except Exception as exc:
+
+            SHORT_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "SHORT",
+                )
+            )
+
+            approval = (
+                evaluate_tp_approval(
+                    SHORT_DIAGNOSTICS
+                )
+            )
+
+            check(
+                "REAL_SHORT_TP_PREVIEW",
+                False,
+
+                "TP_APPROVAL="
+                + approval[
+                    "status"
+                ]
+                + " reason="
+                + approval[
+                    "reason"
+                ]
+                + " error="
+                + str(exc),
+            )
+
+    # ========================================================
+    # FROZEN DIAGNOSTIC:
+    # CANARY PREVIEW
+    # ========================================================
+
+    canary_preview = None
+
+    try:
+
+        canary_preview = (
+            build_canary_preview()
+        )
+
+        diagnostic_check(
+            "CANARY_PREVIEW",
+            True,
+        )
+
+    except Exception as exc:
+
+        diagnostic_check(
+            "CANARY_PREVIEW",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # FROZEN DIAGNOSTIC:
+    # WRITER REQUEST CONSTRUCTION
+    # ========================================================
+
+    writer_preview = None
+
+    try:
+
+        if (
+            real_long_snapshot is not None
+            and MARK_PRICE is not None
+        ):
+
+            quantity = quantize_down(
+
+                AVAILABLE_BALANCE
+                * ENTRY_MARGIN_PERCENT
+                / Decimal("100")
+                * LEVERAGE_LONG
+                / MARK_PRICE,
+
+                QUANTITY_STEP,
+            )
+
+            writer_preview = (
+                build_writer_request_preview(
+                    "LONG",
+                    MARK_PRICE,
+                    quantity,
+                    real_long_snapshot,
+                )
+            )
+
+            diagnostic_check(
+                "WRITER_REQUEST_CONSTRUCTION",
+                writer_preview[
+                    "submitted"
+                ] is False,
+            )
+
+        else:
+
+            diagnostic_check(
+                "WRITER_REQUEST_CONSTRUCTION",
+                False,
+                "real long TP snapshot unavailable",
+            )
+
+    except Exception as exc:
+
+        diagnostic_check(
+            "WRITER_REQUEST_CONSTRUCTION",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # ZERO-WRITE INVARIANTS
+    # ========================================================
+
+    zero_write_conditions = (
+
+        REAL_ORDER_EXECUTION is False
+
+        and DEMO_ORDER_EXECUTION is False
+
+        and (
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED
+            is False
+        )
+
+        and (
+            ORDER_SUBMISSION_ENABLED
+            is False
+        )
+
+        and (
+            LEVERAGE_MUTATION_ENABLED
+            is False
+        )
+
+        and (
+            MARGIN_MODE_MUTATION_ENABLED
+            is False
+        )
+
+        and (
+            POSITION_MUTATION_ENABLED
+            is False
+        )
+
+        and (
+            FIRST_REAL_ORDER_ALLOWED
+            is False
+        )
+    )
+
+    ZERO_WRITE_INVARIANT_OK = (
+        zero_write_conditions
+    )
+
+    check(
+        "ZERO_WRITE_INVARIANTS",
+        ZERO_WRITE_INVARIANT_OK,
+    )
+
+    # ========================================================
+    # FINAL GATE
+    # ========================================================
+
+    FINAL_GATE_OK = (
+        len(FINAL_BLOCKERS) == 0
+    )
+
+    TEST_STATUS = (
+        "PASS"
+        if FINAL_GATE_OK
+        else "FAIL"
+    )
+
+    # ========================================================
+    # FINAL LOGGING
+    # ========================================================
+
+    line()
+
+    log(
+        f"{STAGE} FINAL STATUS = "
+        f"{TEST_STATUS}"
+    )
+
+    log(
+        f"{STAGE} FINAL_BLOCKER_COUNT = "
+        f"{len(FINAL_BLOCKERS)}"
+    )
+
+    for blocker in FINAL_BLOCKERS:
+
+        log(
+            f"{STAGE} FINAL_BLOCKER = "
+            f"{blocker}"
+        )
+
+    # ========================================================
+    # SNAPSHOT
+    # ========================================================
+
+    snapshot = {
+
+        "stage":
+            STAGE,
+
+        "purpose":
+            PURPOSE,
+
+        "timestamp":
+            now_iso(),
+
+        "test_status":
+            TEST_STATUS,
+
+        "final_gate_ok":
+            FINAL_GATE_OK,
+
+        "final_blockers":
+            FINAL_BLOCKERS,
+
+        "weex_read_only_ok":
+            WEEX_READ_ONLY_OK,
+
+        "durable_evidence_ok":
+            DURABLE_EVIDENCE_OK,
+
+        "r36a_evidence_ok":
+            R36A_EVIDENCE_OK,
+
+        "r36c_evidence_ok":
+            R36C_EVIDENCE_OK,
+
+        "r36d_evidence_ok":
+            R36D_EVIDENCE_OK,
+
+        "zero_write_invariant_ok":
+            ZERO_WRITE_INVARIANT_OK,
+
+        "mark_price":
+            decimal_to_string(MARK_PRICE),
+
+        "available_balance":
+            decimal_to_string(
+                AVAILABLE_BALANCE
+            ),
+
+        "open_positions":
+            OPEN_POSITIONS,
+
+        "long_diagnostics":
+            LONG_DIAGNOSTICS,
+
+        "short_diagnostics":
+            SHORT_DIAGNOSTICS,
+
+        "tp_policy": {
+
+            "required_valid_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "tp1_progress_percent":
+                decimal_to_string(
+                    TP1_PROFIT_MARGIN_PERCENT
+                ),
+
+            "tp2_progress_percent":
+                decimal_to_string(
+                    TP2_PROFIT_MARGIN_PERCENT
+                ),
+
+            "tp3_allocation_percent":
+                decimal_to_string(
+                    TP3_ALLOCATION_PERCENT
+                ),
+
+            "cluster_tolerance_percent":
+                decimal_to_string(
+                    CLUSTER_TOLERANCE_PERCENT
+                ),
+
+            "minimum_cluster_touches":
+                MIN_CLUSTER_TOUCHES,
+        },
+
+        "synthetic_test_policy": {
+
+            "long_requires_two_clusters":
+                True,
+
+            "short_requires_two_clusters":
+                True,
+
+            "one_cluster_must_reject":
+                True,
+
+            "synthetic_fixtures_changed":
+                True,
+
+            "production_tp_policy_changed":
+                False,
+        },
+
+        "canary_preview":
+            canary_preview,
+
+        "writer_preview":
+            writer_preview,
+
+        "execution_firebreak": {
+
+            "real_order_execution":
+                REAL_ORDER_EXECUTION,
+
+            "demo_order_execution":
+                DEMO_ORDER_EXECUTION,
+
+            "exchange_mutation_transport_enabled":
+                EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+            "order_submission_enabled":
+                ORDER_SUBMISSION_ENABLED,
+
+            "first_real_order_allowed":
+                FIRST_REAL_ORDER_ALLOWED,
+        },
+    }
+
+    write_json_file(
+        R36F_SNAPSHOT_FILE,
+        snapshot,
+    )
+
+    log(
+        f"{STAGE} SNAPSHOT WRITTEN = "
+        f"{R36F_SNAPSHOT_FILE}"
+    )
+
+    line()
+
+    log(
+        "NO REAL ORDER WAS SENT"
+    )
+
+    log(
+        "NO DEMO ORDER WAS SENT"
+    )
+
+    log(
+        "NO EXCHANGE MUTATION WAS SENT"
+    )
+
+    line()
+
+    return snapshot
+
+
+# ============================================================
+# HEARTBEAT
+# ============================================================
+
+async def heartbeat_loop():
+
+    global HEARTBEAT_COUNT
+
+    while True:
+
+        HEARTBEAT_COUNT += 1
+
+        log(
+            f"HEARTBEAT "
+            f"stage={STAGE} "
+            f"status={TEST_STATUS} "
+            f"count={HEARTBEAT_COUNT} "
+            f"r36a_id={OLD_R36A_UPDATE_ID} "
+            f"tp1_margin="
+            f"{decimal_to_string(TP1_PROFIT_MARGIN_PERCENT)} "
+            f"tp2_margin="
+            f"{decimal_to_string(TP2_PROFIT_MARGIN_PERCENT)} "
+            f"required_clusters="
+            f"{REQUIRED_TP_CLUSTERS} "
+            f"long_valid_clusters="
+            f"{LONG_DIAGNOSTICS.get('valid_cluster_count')} "
+            f"short_valid_clusters="
+            f"{SHORT_DIAGNOSTICS.get('valid_cluster_count')} "
+            f"write_transport="
+            f"{EXCHANGE_MUTATION_TRANSPORT_ENABLED} "
+            f"real_execution="
+            f"{REAL_ORDER_EXECUTION}"
+        )
+
+        await asyncio.sleep(60)
+
+
+# ============================================================
+# ASYNC MAIN
+# ============================================================
+
+async def async_main():
+
+    global TEST_STATUS
+
+    start_health_server()
+
+    try:
+
+        await run_r36f53()
+
+    except Exception as exc:
+
+        TEST_STATUS = "FAIL"
+
+        line()
+
+        log(
+            f"{STAGE} UNHANDLED ERROR = "
+            f"{exc}"
+        )
+
+        line()
+
+    await heartbeat_loop()
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    asyncio.run(
+        async_main()
+    )
+
+
+if __name__ == "__main__":
+
+    main()
