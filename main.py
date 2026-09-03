@@ -1699,9 +1699,7 @@ async def reconcile_weex():
         )
 ## R36F.5.3 — Part 3 of 4
 
-**Exact source lines 1701–2550.** This starts directly from Part 2's continuation point.
 
-```python
         average = cluster["average"]
 
         if side == "LONG":
