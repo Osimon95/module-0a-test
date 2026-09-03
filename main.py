@@ -873,3 +873,854 @@ async def reconcile_weex():
             session,
             "/capi/v3/account/balance",
         )
+
+        balance = None
+
+        def find_balance(value):
+
+            nonlocal balance
+
+            if balance is not None:
+                return
+
+            if isinstance(value, dict):
+
+                for key in (
+                    "availableBalance",
+                    "available",
+                    "availableMargin",
+                    "balance",
+                    "equity",
+                ):
+
+                    if key in value:
+
+                        try:
+                            balance = D(
+                                value[key]
+                            )
+                            return
+                        except Exception:
+                            pass
+
+                for item in value.values():
+                    find_balance(item)
+
+            elif isinstance(value, list):
+
+                for item in value:
+                    find_balance(item)
+
+        find_balance(
+            balance_response
+        )
+
+        if balance is None:
+            raise RuntimeError(
+                "Unable to extract WEEX available balance"
+            )
+
+        AVAILABLE_BALANCE = balance
+
+        log(
+            "AVAILABLE USDT = "
+            + decimal_to_string(
+                AVAILABLE_BALANCE
+            )
+        )
+
+        positions_response = await weex_private_get(
+            session,
+            "/capi/v3/account/position/singlePosition",
+            params={
+                "symbol": SYMBOL
+            },
+        )
+
+        OPEN_POSITIONS = []
+
+        if isinstance(
+            positions_response,
+            dict,
+        ):
+
+            candidate = positions_response.get(
+                "data"
+            )
+
+            if isinstance(candidate, list):
+                OPEN_POSITIONS = candidate
+
+            elif isinstance(candidate, dict):
+                OPEN_POSITIONS = [
+                    candidate
+                ]
+
+        elif isinstance(
+            positions_response,
+            list,
+        ):
+
+            OPEN_POSITIONS = positions_response
+
+        log(
+            f"OPEN POSITIONS = "
+            f"{len(OPEN_POSITIONS)}"
+        )
+
+        WEEX_CONFIG = await weex_private_get(
+            session,
+            "/capi/v3/market/exchangeInfo",
+        )
+
+        log(
+            "WEEX EXCHANGE CONFIG READ = PASS"
+        )
+
+    check(
+        "WEEX_INITIAL_POSITION_FLAT",
+        len(OPEN_POSITIONS) == 0,
+        f"open_positions={len(OPEN_POSITIONS)}",
+    )
+
+    check(
+        "MARGIN_MODE_CONTRACT",
+        MARGIN_MODE == "ISOLATED",
+        f"expected={MARGIN_MODE}",
+    )
+
+    check(
+        "LONG_LEVERAGE_CONTRACT",
+        LEVERAGE_LONG == Decimal("100"),
+        f"expected={LEVERAGE_LONG}",
+    )
+
+    check(
+        "SHORT_LEVERAGE_CONTRACT",
+        LEVERAGE_SHORT == Decimal("100"),
+        f"expected={LEVERAGE_SHORT}",
+    )
+
+    return True
+
+
+# ============================================================
+# CANARY PREVIEW
+# ============================================================
+
+def build_canary_preview():
+
+    if MARK_PRICE is None:
+        raise RuntimeError(
+            "MARK_PRICE unavailable"
+        )
+
+    if AVAILABLE_BALANCE is None:
+        raise RuntimeError(
+            "AVAILABLE_BALANCE unavailable"
+        )
+
+    margin = (
+        AVAILABLE_BALANCE
+        * ENTRY_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    notional = (
+        margin
+        * LEVERAGE_LONG
+    )
+
+    raw_quantity = (
+        notional
+        / MARK_PRICE
+    )
+
+    quantity = quantize_down(
+        raw_quantity,
+        QUANTITY_STEP,
+    )
+
+    if quantity < MIN_QUANTITY:
+        raise RuntimeError(
+            "Canary quantity below minimum"
+        )
+
+    return {
+        "symbol": SYMBOL,
+
+        "mark_price":
+            decimal_to_string(MARK_PRICE),
+
+        "available_balance":
+            decimal_to_string(
+                AVAILABLE_BALANCE
+            ),
+
+        "entry_margin_percent":
+            decimal_to_string(
+                ENTRY_MARGIN_PERCENT
+            ),
+
+        "leverage":
+            decimal_to_string(
+                LEVERAGE_LONG
+            ),
+
+        "notional":
+            decimal_to_string(notional),
+
+        "quantity":
+            decimal_to_string(quantity),
+
+        "submitted":
+            False,
+    }
+
+
+# ============================================================
+# HISTORICAL KLINE EXTRACTION
+# ============================================================
+
+def extract_kline_rows(payload):
+
+    if isinstance(payload, list):
+        return payload
+
+    if not isinstance(payload, dict):
+        return []
+
+    for key in (
+        "data",
+        "rows",
+        "result",
+        "list",
+    ):
+
+        value = payload.get(key)
+
+        if isinstance(value, list):
+            return value
+
+    return []
+
+
+def kline_timestamp(row):
+
+    if isinstance(row, dict):
+
+        for key in (
+            "timestamp",
+            "time",
+            "openTime",
+            "open_time",
+        ):
+
+            if key in row:
+                return int(
+                    D(row[key])
+                )
+
+    elif isinstance(row, list):
+
+        if len(row) >= 1:
+            return int(
+                D(row[0])
+            )
+
+    raise ValueError(
+        "Unable to determine kline timestamp"
+    )
+
+
+def kline_high_low(row):
+
+    if isinstance(row, dict):
+
+        high = None
+        low = None
+
+        for key in (
+            "high",
+            "highPrice",
+        ):
+
+            if key in row:
+                high = D(row[key])
+                break
+
+        for key in (
+            "low",
+            "lowPrice",
+        ):
+
+            if key in row:
+                low = D(row[key])
+                break
+
+        if high is None or low is None:
+            raise ValueError(
+                "Unable to extract kline high/low"
+            )
+
+        return high, low
+
+    if isinstance(row, list):
+
+        if len(row) < 4:
+            raise ValueError(
+                "Kline row too short"
+            )
+
+        return (
+            D(row[2]),
+            D(row[3]),
+        )
+
+    raise ValueError(
+        "Unsupported kline row"
+    )
+
+
+def normalize_kline_order(rows):
+
+    return sorted(
+        rows,
+        key=kline_timestamp,
+    )
+
+
+# ============================================================
+# HISTORICAL DATA
+# ============================================================
+
+async def historical_get(
+    session,
+    start_timestamp=None,
+):
+
+    url = (
+        API_BASE_URL
+        + "/capi/v3/market/klines"
+    )
+
+    params = {
+        "symbol": SYMBOL,
+        "interval": KLINE_INTERVAL,
+        "limit": HISTORICAL_LIMIT,
+    }
+
+    if start_timestamp is not None:
+        params["startTime"] = start_timestamp
+
+    return await http_get_json(
+        session,
+        url,
+        params=params,
+    )
+
+
+async def load_historical_klines():
+
+    all_rows = {}
+
+    async with aiohttp.ClientSession() as session:
+
+        start_timestamp = None
+
+        for page in range(
+            MAX_HISTORICAL_PAGES
+        ):
+
+            payload = await historical_get(
+                session,
+                start_timestamp,
+            )
+
+            rows = extract_kline_rows(
+                payload
+            )
+
+            if not rows:
+                break
+
+            for row in rows:
+
+                try:
+                    ts = kline_timestamp(row)
+                    all_rows[ts] = row
+
+                except Exception as exc:
+                    log(
+                        "HISTORICAL ROW SKIPPED: "
+                        + str(exc)
+                    )
+
+            normalized = normalize_kline_order(
+                list(all_rows.values())
+            )
+
+            if not normalized:
+                break
+
+            oldest_ts = kline_timestamp(
+                normalized[0]
+            )
+
+            if (
+                start_timestamp is not None
+                and oldest_ts >= start_timestamp
+            ):
+                break
+
+            start_timestamp = oldest_ts - 1
+
+            if len(rows) < HISTORICAL_LIMIT:
+                break
+
+    result = normalize_kline_order(
+        list(all_rows.values())
+    )
+
+    log(
+        f"HISTORICAL KLINES LOADED = "
+        f"{len(result)}"
+    )
+
+    return result
+
+
+# ============================================================
+# LOCAL EXTREMA
+# ============================================================
+
+def local_extrema_values(
+    rows,
+    side,
+):
+
+    values = []
+
+    if len(rows) < 3:
+        return values
+
+    highs = []
+    lows = []
+
+    for row in rows:
+
+        high, low = kline_high_low(row)
+
+        highs.append(high)
+        lows.append(low)
+
+    if side == "LONG":
+
+        for i in range(
+            1,
+            len(highs) - 1,
+        ):
+
+            if (
+                highs[i] >= highs[i - 1]
+                and highs[i] >= highs[i + 1]
+            ):
+                values.append(
+                    highs[i]
+                )
+
+    elif side == "SHORT":
+
+        for i in range(
+            1,
+            len(lows) - 1,
+        ):
+
+            if (
+                lows[i] <= lows[i - 1]
+                and lows[i] <= lows[i + 1]
+            ):
+                values.append(
+                    lows[i]
+                )
+
+    else:
+
+        raise ValueError(
+            f"Unsupported side={side}"
+        )
+
+    return values
+
+
+# ============================================================
+# CLUSTER ENGINE
+# ============================================================
+
+def cluster_extrema(values):
+
+    if not values:
+        return []
+
+    ordered = sorted(
+        D(value)
+        for value in values
+    )
+
+    clusters = []
+
+    current = [ordered[0]]
+
+    for value in ordered[1:]:
+
+        average = (
+            sum(current)
+            / Decimal(len(current))
+        )
+
+        difference_percent = (
+            abs(value - average)
+            / average
+            * Decimal("100")
+        )
+
+        if (
+            difference_percent
+            <= CLUSTER_TOLERANCE_PERCENT
+        ):
+
+            current.append(value)
+
+        else:
+
+            clusters.append(current)
+            current = [value]
+
+    clusters.append(current)
+
+    result = []
+
+    for cluster in clusters:
+
+        average = (
+            sum(cluster)
+            / Decimal(len(cluster))
+        )
+
+        result.append({
+            "average": average,
+            "minimum": min(cluster),
+            "maximum": max(cluster),
+            "touches": len(cluster),
+            "values": cluster,
+        })
+
+    return result
+
+
+# ============================================================
+# CLUSTER DIAGNOSTICS
+# ============================================================
+
+def build_cluster_diagnostics(
+    rows,
+    entry_price,
+    side,
+):
+
+    entry_price = D(entry_price)
+
+    extrema = local_extrema_values(
+        rows,
+        side,
+    )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    cluster_records = []
+    valid_clusters = []
+
+    for index, cluster in enumerate(
+        clusters,
+        start=1,
+    ):
+
+        average = cluster["average"]
+        touches = cluster["touches"]
+
+        if side == "LONG":
+            side_valid = average > entry_price
+        else:
+            side_valid = average < entry_price
+
+        touches_valid = (
+            touches >= MIN_CLUSTER_TOUCHES
+        )
+
+        valid = (
+            touches_valid
+            and side_valid
+        )
+
+        if valid:
+            reason = "VALID"
+        elif not touches_valid:
+            reason = "INSUFFICIENT_CLUSTER_TOUCHES"
+        elif not side_valid:
+            reason = "WRONG_ENTRY_SIDE"
+        else:
+            reason = "REJECTED"
+
+        record = {
+            "cluster_number": index,
+
+            "average":
+                decimal_to_string(average),
+
+            "minimum":
+                decimal_to_string(
+                    cluster["minimum"]
+                ),
+
+            "maximum":
+                decimal_to_string(
+                    cluster["maximum"]
+                ),
+
+            "touches":
+                touches,
+
+            "valid":
+                valid,
+
+            "reason":
+                reason,
+        }
+
+        cluster_records.append(record)
+
+        if valid:
+            valid_clusters.append(cluster)
+
+    if side == "LONG":
+
+        valid_clusters.sort(
+            key=lambda c: c["average"]
+        )
+
+    else:
+
+        valid_clusters.sort(
+            key=lambda c: c["average"],
+            reverse=True,
+        )
+
+    valid_count = len(valid_clusters)
+
+    if valid_count >= REQUIRED_TP_CLUSTERS:
+
+        status = "ENOUGH_VALID_CLUSTERS"
+        failure_reason = None
+
+    elif valid_count == 1:
+
+        status = "INSUFFICIENT_VALID_CLUSTERS"
+        failure_reason = "ONLY_ONE_VALID_CLUSTER"
+
+    elif not extrema:
+
+        status = "NO_EXTREMA"
+        failure_reason = "NO_EXTREMA"
+
+    elif not clusters:
+
+        status = "NO_EXTREMA_ON_REQUIRED_SIDE"
+        failure_reason = "NO_EXTREMA_ON_REQUIRED_SIDE"
+
+    else:
+
+        status = "CLUSTERS_REJECTED_BY_POLICY"
+        failure_reason = (
+            "EXTREMA_EXIST_BUT_CLUSTER_REQUIREMENTS_NOT_MET"
+        )
+
+    diagnostics = {
+        "side": side,
+
+        "entry_price":
+            decimal_to_string(entry_price),
+
+        "extrema_count":
+            len(extrema),
+
+        "cluster_count":
+            len(clusters),
+
+        "valid_cluster_count":
+            valid_count,
+
+        "clusters":
+            cluster_records,
+
+        "status":
+            status,
+
+        "failure_reason":
+            failure_reason,
+
+        "required_valid_clusters":
+            REQUIRED_TP_CLUSTERS,
+    }
+
+    log(
+        f"{side} HISTORICAL EXTREMA COUNT = "
+        f"{len(extrema)}"
+    )
+
+    log(
+        f"{side} HISTORICAL CLUSTER COUNT = "
+        f"{len(clusters)}"
+    )
+
+    log(
+        f"{side} VALID CLUSTER COUNT = "
+        f"{valid_count}"
+    )
+
+    for record in cluster_records:
+
+        log(
+            f"{side} CLUSTER "
+            f"{record['cluster_number']}: "
+            f"AVG={record['average']} "
+            f"MIN={record['minimum']} "
+            f"MAX={record['maximum']} "
+            f"TOUCHES={record['touches']} "
+            f"VALID={record['valid']} "
+            f"REASON={record['reason']}"
+        )
+
+    log(
+        f"{side} CLUSTER DIAGNOSTIC STATUS = "
+        f"{status}"
+    )
+
+    log(
+        f"{side} CLUSTER DIAGNOSTIC FAILURE_REASON = "
+        f"{failure_reason}"
+    )
+
+    return diagnostics
+
+
+# ============================================================
+# TP APPROVAL
+# ============================================================
+
+def evaluate_tp_approval(diagnostics):
+
+    valid_count = int(
+        diagnostics.get(
+            "valid_cluster_count",
+            0,
+        )
+    )
+
+    if valid_count >= REQUIRED_TP_CLUSTERS:
+
+        approval = {
+            "status": "APPROVED",
+            "approved": True,
+
+            "required_valid_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "available_valid_clusters":
+                valid_count,
+
+            "reason":
+                "TWO_OR_MORE_VALID_HISTORICAL_CLUSTERS",
+        }
+
+    else:
+
+        failure_reason = (
+            diagnostics.get(
+                "failure_reason"
+            )
+        )
+
+        if not failure_reason:
+            failure_reason = (
+                "FEWER_THAN_TWO_VALID_HISTORICAL_CLUSTERS"
+            )
+
+        approval = {
+            "status": "REJECTED",
+            "approved": False,
+
+            "required_valid_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "available_valid_clusters":
+                valid_count,
+
+            "reason":
+                failure_reason,
+        }
+
+    log(
+        f"{STAGE}_TP_APPROVAL = "
+        f"{approval['status']}"
+    )
+
+    log(
+        f"{STAGE}_TP_APPROVAL_REASON = "
+        f"{approval['reason']}"
+    )
+
+    log(
+        f"{STAGE}_TP_REQUIRED_CLUSTERS = "
+        f"{REQUIRED_TP_CLUSTERS}"
+    )
+
+    log(
+        f"{STAGE}_TP_AVAILABLE_CLUSTERS = "
+        f"{valid_count}"
+    )
+
+    return approval
+
+
+# ============================================================
+# VALID CLUSTERS
+# ============================================================
+
+def valid_clusters(
+    rows,
+    entry_price,
+    side,
+):
+
+    entry_price = D(entry_price)
+
+    extrema = local_extrema_values(
+        rows,
+        side,
+    )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    valid = []
+
+    for cluster in clusters:
+
+        if (
+            cluster["touches"]
+            < MIN_CLUSTER_TOUCHES
+        ):
+            continue
