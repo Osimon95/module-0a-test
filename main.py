@@ -2549,10 +2549,9 @@ async def run_r36f53():
     global WEEX_READ_ONLY_OK
     global ZERO_WRITE_INVARIANT_OK
     global FINAL_GATE_OK
-```
+
   
 
-```python
     global R36A_EVIDENCE_OK
     global R36C_EVIDENCE_OK
     global R36D_EVIDENCE_OK
