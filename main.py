@@ -1697,3 +1697,858 @@ async def reconcile_weex():
             session,
             "/capi/v3/account/balance",
         )
+## R36F.5.3 — Part 3 of 4
+
+**Exact source lines 1701–2550.** This starts directly from Part 2's continuation point.
+
+```python
+        average = cluster["average"]
+
+        if side == "LONG":
+
+            if average <= entry_price:
+                continue
+
+        elif side == "SHORT":
+
+            if average >= entry_price:
+                continue
+
+        else:
+
+            raise ValueError(
+                f"Unsupported side={side}"
+            )
+
+        valid.append(cluster)
+
+    if side == "LONG":
+
+        valid.sort(
+            key=lambda c: c["average"]
+        )
+
+    else:
+
+        valid.sort(
+            key=lambda c: c["average"],
+            reverse=True,
+        )
+
+    return valid
+
+
+# ============================================================
+# TP SNAPSHOT
+# ============================================================
+
+def build_cluster_tp_snapshot(
+    entry_price,
+    rows,
+    side,
+    fill_label,
+):
+
+    global LAST_TP_APPROVAL
+
+    entry_price = D(entry_price)
+
+    diagnostics = build_cluster_diagnostics(
+        rows,
+        entry_price,
+        side,
+    )
+
+    approval = evaluate_tp_approval(
+        diagnostics
+    )
+
+    LAST_TP_APPROVAL = approval
+
+    if not approval["approved"]:
+
+        log(
+            f"{side} TP SET REJECTED: "
+            f"{approval['reason']}"
+        )
+
+        raise RuntimeError(
+            f"{side} historical TP set rejected: "
+            f"requires at least "
+            f"{REQUIRED_TP_CLUSTERS} valid clusters; "
+            f"found "
+            f"{approval['available_valid_clusters']}"
+        )
+
+    clusters = valid_clusters(
+        rows,
+        entry_price,
+        side,
+    )
+
+    if len(clusters) < REQUIRED_TP_CLUSTERS:
+
+        raise RuntimeError(
+            "TP approval inconsistency: "
+            "diagnostics approved but independent "
+            "cluster extraction found fewer than "
+            "two valid clusters"
+        )
+
+    cluster_1 = clusters[0]
+    cluster_2 = clusters[1]
+
+    cluster_1_avg = cluster_1["average"]
+    cluster_2_avg = cluster_2["average"]
+
+    if side == "LONG":
+
+        tp1 = (
+            entry_price
+            + (
+                cluster_1_avg
+                - entry_price
+            )
+            * TP1_PROFIT_MARGIN_PERCENT
+            / Decimal("100")
+        )
+
+        tp2 = (
+            entry_price
+            + (
+                cluster_2_avg
+                - entry_price
+            )
+            * TP2_PROFIT_MARGIN_PERCENT
+            / Decimal("100")
+        )
+
+        ordering_ok = (
+            entry_price
+            < tp1
+            < tp2
+            <= cluster_2_avg
+        )
+
+    elif side == "SHORT":
+
+        tp1 = (
+            entry_price
+            - (
+                entry_price
+                - cluster_1_avg
+            )
+            * TP1_PROFIT_MARGIN_PERCENT
+            / Decimal("100")
+        )
+
+        tp2 = (
+            entry_price
+            - (
+                entry_price
+                - cluster_2_avg
+            )
+            * TP2_PROFIT_MARGIN_PERCENT
+            / Decimal("100")
+        )
+
+        ordering_ok = (
+            entry_price
+            > tp1
+            > tp2
+            >= cluster_2_avg
+        )
+
+    else:
+
+        raise ValueError(
+            f"Unsupported side={side}"
+        )
+
+    if not ordering_ok:
+        raise RuntimeError(
+            f"{side} TP ordering invalid"
+        )
+
+    snapshot = {
+
+        "stage": STAGE,
+
+        "fill_label": fill_label,
+
+        "side": side,
+
+        "entry_price":
+            decimal_to_string(entry_price),
+
+        "tp_approval":
+            approval,
+
+        "required_valid_clusters":
+            REQUIRED_TP_CLUSTERS,
+
+        "available_valid_clusters":
+            len(clusters),
+
+        "cluster_1": {
+
+            "average":
+                decimal_to_string(
+                    cluster_1_avg
+                ),
+
+            "minimum":
+                decimal_to_string(
+                    cluster_1["minimum"]
+                ),
+
+            "maximum":
+                decimal_to_string(
+                    cluster_1["maximum"]
+                ),
+
+            "touches":
+                cluster_1["touches"],
+        },
+
+        "cluster_2": {
+
+            "average":
+                decimal_to_string(
+                    cluster_2_avg
+                ),
+
+            "minimum":
+                decimal_to_string(
+                    cluster_2["minimum"]
+                ),
+
+            "maximum":
+                decimal_to_string(
+                    cluster_2["maximum"]
+                ),
+
+            "touches":
+                cluster_2["touches"],
+        },
+
+        "tp1": {
+
+            "price":
+                decimal_to_string(tp1),
+
+            "progress_percent":
+                decimal_to_string(
+                    TP1_PROFIT_MARGIN_PERCENT
+                ),
+
+            "status":
+                "LOCKED",
+        },
+
+        "tp2": {
+
+            "price":
+                decimal_to_string(tp2),
+
+            "progress_percent":
+                decimal_to_string(
+                    TP2_PROFIT_MARGIN_PERCENT
+                ),
+
+            "status":
+                "LOCKED",
+        },
+
+        "tp3": {
+
+            "allocation_percent":
+                decimal_to_string(
+                    TP3_ALLOCATION_PERCENT
+                ),
+
+            "trailing_distance_percent":
+                decimal_to_string(
+                    TP3_TRAILING_DISTANCE_PERCENT
+                ),
+
+            "status":
+                "RUNNER",
+        },
+
+        "tp_allocations": {
+
+            "tp1":
+                decimal_to_string(
+                    TP1_ALLOCATION_PERCENT
+                ),
+
+            "tp2":
+                decimal_to_string(
+                    TP2_ALLOCATION_PERCENT
+                ),
+
+            "tp3":
+                decimal_to_string(
+                    TP3_ALLOCATION_PERCENT
+                ),
+        },
+
+        "primary_tp_immutable":
+            True,
+
+        "backup_tp_recalculated_only_on_backup_fill":
+            True,
+
+        "method":
+            "HISTORICAL_CLUSTER_TP_R36F5_1",
+
+        "historical_diagnostics":
+            diagnostics,
+    }
+
+    log(
+        f"{side} TP SET APPROVED WITH "
+        f"{len(clusters)} VALID CLUSTERS"
+    )
+
+    log(
+        f"{side} TP1 = "
+        f"{decimal_to_string(tp1)} "
+        f"(20% adjustable progress)"
+    )
+
+    log(
+        f"{side} TP2 = "
+        f"{decimal_to_string(tp2)} "
+        f"(50% adjustable progress)"
+    )
+
+    log(
+        f"{side} TP3 = 60% trailing runner"
+    )
+
+    return snapshot
+
+
+# ============================================================
+# R36F.5.2 SYNTHETIC LONG DATA
+#
+# CORRECTION:
+# Deliberately separated resistance groups.
+#
+# Group 1:
+#   approximately 100500
+#
+# Group 2:
+#   approximately 101000
+#
+# Both groups contain multiple local highs.
+# ============================================================
+
+def synthetic_long_rows():
+
+    base = [
+        100000,
+        100200,
+
+        100500,
+        100100,
+        100490,
+        100150,
+        100510,
+
+        100250,
+        100800,
+
+        101000,
+        100850,
+        100980,
+        100820,
+        101020,
+
+        100700,
+    ]
+
+    rows = []
+
+    for i, high in enumerate(base):
+
+        rows.append(
+            [
+                i,
+
+                str(
+                    D(high)
+                    - Decimal("500")
+                ),
+
+                str(
+                    D(high)
+                    - Decimal("100")
+                ),
+
+                str(
+                    D(high)
+                ),
+
+                str(
+                    D(high)
+                    - Decimal("300")
+                ),
+
+                "1",
+            ]
+        )
+
+    return rows
+
+
+# ============================================================
+# R36F.5.2 SYNTHETIC SHORT DATA
+#
+# CORRECTION:
+# Deliberately separated support groups.
+#
+# Group 1:
+#   approximately 99500
+#
+# Group 2:
+#   approximately 99000
+#
+# Both groups contain multiple local lows.
+# ============================================================
+
+def synthetic_short_rows():
+
+    base = [
+        100000,
+        99800,
+
+        99500,
+        99800,
+        99490,
+        99700,
+        99510,
+
+        99700,
+        99200,
+
+        99000,
+        99200,
+        98980,
+        99150,
+        99020,
+
+        99400,
+    ]
+
+    rows = []
+
+    for i, low in enumerate(base):
+
+        rows.append(
+            [
+                i,
+
+                str(
+                    D(low)
+                    + Decimal("300")
+                ),
+
+                str(
+                    D(low)
+                    + Decimal("500")
+                ),
+
+                str(
+                    D(low)
+                ),
+
+                str(
+                    D(low)
+                    + Decimal("100")
+                ),
+
+                "1",
+            ]
+        )
+
+    return rows
+
+
+# ============================================================
+# SYNTHETIC CLUSTER TESTS
+# ============================================================
+
+def synthetic_cluster_tests():
+
+    entry = Decimal("100000")
+
+    # --------------------------------------------------------
+    # LONG
+    # --------------------------------------------------------
+
+    long_rows = synthetic_long_rows()
+
+    long_diagnostics = build_cluster_diagnostics(
+        long_rows,
+        entry,
+        "LONG",
+    )
+
+    check(
+        "SYNTHETIC_LONG_MINIMUM_TWO_VALID_CLUSTERS",
+        long_diagnostics[
+            "valid_cluster_count"
+        ] >= REQUIRED_TP_CLUSTERS,
+        (
+            "expected_at_least="
+            + str(REQUIRED_TP_CLUSTERS)
+            + " actual="
+            + str(
+                long_diagnostics[
+                    "valid_cluster_count"
+                ]
+            )
+        ),
+    )
+
+    long_snapshot = build_cluster_tp_snapshot(
+        entry,
+        long_rows,
+        "LONG",
+        "SYNTHETIC_LONG_FILL",
+    )
+
+    check(
+        "SYNTHETIC_LONG_TP_APPROVED",
+        long_snapshot[
+            "tp_approval"
+        ][
+            "approved"
+        ] is True,
+    )
+
+    check(
+        "SYNTHETIC_LONG_TWO_CLUSTERS",
+        long_snapshot[
+            "available_valid_clusters"
+        ] >= REQUIRED_TP_CLUSTERS,
+    )
+
+    long_tp1 = D(
+        long_snapshot[
+            "tp1"
+        ][
+            "price"
+        ]
+    )
+
+    long_tp2 = D(
+        long_snapshot[
+            "tp2"
+        ][
+            "price"
+        ]
+    )
+
+    check(
+        "SYNTHETIC_LONG_TP_ORDERING",
+        entry
+        < long_tp1
+        < long_tp2,
+    )
+
+    # --------------------------------------------------------
+    # SHORT
+    # --------------------------------------------------------
+
+    short_rows = synthetic_short_rows()
+
+    short_diagnostics = build_cluster_diagnostics(
+        short_rows,
+        entry,
+        "SHORT",
+    )
+
+    check(
+        "SYNTHETIC_SHORT_MINIMUM_TWO_VALID_CLUSTERS",
+        short_diagnostics[
+            "valid_cluster_count"
+        ] >= REQUIRED_TP_CLUSTERS,
+        (
+            "expected_at_least="
+            + str(REQUIRED_TP_CLUSTERS)
+            + " actual="
+            + str(
+                short_diagnostics[
+                    "valid_cluster_count"
+                ]
+            )
+        ),
+    )
+
+    short_snapshot = build_cluster_tp_snapshot(
+        entry,
+        short_rows,
+        "SHORT",
+        "SYNTHETIC_SHORT_FILL",
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TP_APPROVED",
+        short_snapshot[
+            "tp_approval"
+        ][
+            "approved"
+        ] is True,
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TWO_CLUSTERS",
+        short_snapshot[
+            "available_valid_clusters"
+        ] >= REQUIRED_TP_CLUSTERS,
+    )
+
+    short_tp1 = D(
+        short_snapshot[
+            "tp1"
+        ][
+            "price"
+        ]
+    )
+
+    short_tp2 = D(
+        short_snapshot[
+            "tp2"
+        ][
+            "price"
+        ]
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TP_ORDERING",
+        entry
+        > short_tp1
+        > short_tp2,
+    )
+
+    check(
+        "SYNTHETIC_SHORT_EXACTLY_TWO_VALID_CLUSTERS",
+        short_diagnostics[
+            "valid_cluster_count"
+        ] == REQUIRED_TP_CLUSTERS,
+        "synthetic short fixture must deterministically produce exactly "
+        + str(REQUIRED_TP_CLUSTERS)
+        + " valid clusters",
+    )
+
+    # --------------------------------------------------------
+    # IMMUTABILITY CONTRACTS
+    # --------------------------------------------------------
+
+    check(
+        "PRIMARY_TP_IMMUTABLE_CONTRACT",
+        (
+            long_snapshot[
+                "primary_tp_immutable"
+            ] is True
+            and
+            short_snapshot[
+                "primary_tp_immutable"
+            ] is True
+        ),
+    )
+
+    check(
+        "BACKUP_TP_RECALC_CONTRACT",
+        (
+            long_snapshot[
+                "backup_tp_recalculated_only_on_backup_fill"
+            ] is True
+            and
+            short_snapshot[
+                "backup_tp_recalculated_only_on_backup_fill"
+            ] is True
+        ),
+    )
+
+    return (
+        long_snapshot,
+        short_snapshot,
+    )
+
+
+# ============================================================
+# SYNTHETIC TP REJECTION TEST
+# ============================================================
+
+def synthetic_tp_rejection_test():
+
+    entry = Decimal("100000")
+
+    # Only one valid historical-high cluster.
+    # This MUST NOT approve the TP1 + TP2 set.
+
+    rows = [
+
+        [
+            0,
+            "99500",
+            "99900",
+            "100100",
+            "99800",
+            "1",
+        ],
+
+        [
+            1,
+            "99900",
+            "99950",
+            "100550",
+            "99900",
+            "1",
+        ],
+
+        [
+            2,
+            "99900",
+            "100000",
+            "100000",
+            "99900",
+            "1",
+        ],
+
+        [
+            3,
+            "99900",
+            "99950",
+            "100540",
+            "99900",
+            "1",
+        ],
+
+        [
+            4,
+            "99500",
+            "99900",
+            "100100",
+            "99800",
+            "1",
+        ],
+    ]
+
+    diagnostics = build_cluster_diagnostics(
+        rows,
+        entry,
+        "LONG",
+    )
+
+    approval = evaluate_tp_approval(
+        diagnostics
+    )
+
+    check(
+        "ONE_CLUSTER_TP_REJECTED",
+        approval[
+            "approved"
+        ] is False,
+    )
+
+    check(
+        "ONE_CLUSTER_APPROVAL_STATUS_REJECTED",
+        approval[
+            "status"
+        ] == "REJECTED",
+    )
+
+    check(
+        "ONE_CLUSTER_DOES_NOT_APPROVE_TP_SET",
+        approval[
+            "available_valid_clusters"
+        ] < REQUIRED_TP_CLUSTERS,
+    )
+
+    return approval
+
+
+# ============================================================
+# WRITER REQUEST PREVIEW
+# ============================================================
+
+def build_writer_request_preview(
+    side,
+    entry_price,
+    quantity,
+    tp_snapshot,
+):
+
+    return {
+
+        "stage":
+            STAGE,
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            side,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "tp_approval":
+            tp_snapshot[
+                "tp_approval"
+            ],
+
+        "tp1":
+            tp_snapshot[
+                "tp1"
+            ],
+
+        "tp2":
+            tp_snapshot[
+                "tp2"
+            ],
+
+        "tp3":
+            tp_snapshot[
+                "tp3"
+            ],
+
+        "primary_tp_immutable":
+            True,
+
+        "submitted":
+            False,
+
+        "transport_enabled":
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+    }
+
+
+# ============================================================
+# MAIN R36F.5.2 TEST
+# ============================================================
+
+async def run_r36f53():
+
+    global TEST_STATUS
+    global R36A_EVIDENCE_OK
+    global R36C_EVIDENCE_OK
+    global R36D_EVIDENCE_OK
+    global DURABLE_EVIDENCE_OK
+    global WEEX_READ_ONLY_OK
+    global ZERO_WRITE_INVARIANT_OK
+    global FINAL_GATE_OK
+```
