@@ -2280,3 +2280,340 @@ def build_cluster_tp_snapshot(
     )
 
     return snapshot
+# ============================================================
+# SYNTHETIC TP TESTS
+# ============================================================
+
+def synthetic_cluster_tests():
+
+    long_rows = [
+
+        [
+            1,
+            "99000",
+            "100000",
+            "99500",
+            "99500",
+            "1",
+        ],
+
+        [
+            2,
+            "99500",
+            "100100",
+            "99600",
+            "99800",
+            "1",
+        ],
+
+        [
+            3,
+            "99600",
+            "100000",
+            "99500",
+            "99700",
+            "1",
+        ],
+
+        [
+            4,
+            "99500",
+            "101000",
+            "99900",
+            "100100",
+            "1",
+        ],
+
+        [
+            5,
+            "99900",
+            "100200",
+            "99500",
+            "100000",
+            "1",
+        ],
+
+        [
+            6,
+            "99500",
+            "101500",
+            "100000",
+            "100500",
+            "1",
+        ],
+
+        [
+            7,
+            "100000",
+            "101000",
+            "99500",
+            "100500",
+            "1",
+        ],
+
+        [
+            8,
+            "99500",
+            "101400",
+            "99900",
+            "100800",
+            "1",
+        ],
+    ]
+
+    short_rows = [
+
+        [
+            1,
+            "81000",
+            "81500",
+            "80000",
+            "81000",
+            "1",
+        ],
+
+        [
+            2,
+            "81000",
+            "81500",
+            "80100",
+            "80800",
+            "1",
+        ],
+
+        [
+            3,
+            "80800",
+            "81400",
+            "80050",
+            "80500",
+            "1",
+        ],
+
+        [
+            4,
+            "80500",
+            "81300",
+            "79900",
+            "80300",
+            "1",
+        ],
+
+        [
+            5,
+            "80300",
+            "81200",
+            "80000",
+            "80500",
+            "1",
+        ],
+
+        [
+            6,
+            "80500",
+            "81400",
+            "79800",
+            "80400",
+            "1",
+        ],
+
+        [
+            7,
+            "80400",
+            "81300",
+            "80100",
+            "80600",
+            "1",
+        ],
+
+        [
+            8,
+            "80600",
+            "81500",
+            "79950",
+            "80800",
+            "1",
+        ],
+    ]
+
+    long_diagnostics = build_cluster_diagnostics(
+        long_rows,
+        Decimal("99000"),
+        "LONG",
+    )
+
+    long_approval = evaluate_tp_approval(
+        long_diagnostics
+    )
+
+    check(
+        "SYNTHETIC_LONG_TWO_CLUSTER_APPROVAL",
+        long_approval[
+            "approved"
+        ] is True,
+    )
+
+    short_diagnostics = build_cluster_diagnostics(
+        short_rows,
+        Decimal("82000"),
+        "SHORT",
+    )
+
+    short_approval = evaluate_tp_approval(
+        short_diagnostics
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TWO_CLUSTER_APPROVAL",
+        short_approval[
+            "approved"
+        ] is True,
+    )
+
+    return (
+        long_approval,
+        short_approval,
+    )
+
+
+# ============================================================
+# ONE-CLUSTER TP REJECTION
+# ============================================================
+
+def synthetic_tp_rejection_test():
+
+    rows = [
+
+        [
+            1,
+            "99000",
+            "100000",
+            "99500",
+            "99500",
+            "1",
+        ],
+
+        [
+            2,
+            "99500",
+            "100100",
+            "99600",
+            "99800",
+            "1",
+        ],
+
+        [
+            3,
+            "99600",
+            "100000",
+            "99500",
+            "99700",
+            "1",
+        ],
+
+        [
+            4,
+            "99500",
+            "100100",
+            "99800",
+            "99900",
+            "1",
+        ],
+
+    ]
+
+    entry = Decimal(
+        "99500"
+    )
+
+    diagnostics = build_cluster_diagnostics(
+        rows,
+        entry,
+        "LONG",
+    )
+
+    approval = evaluate_tp_approval(
+        diagnostics
+    )
+
+    check(
+        "ONE_CLUSTER_TP_REJECTED",
+        approval[
+            "approved"
+        ] is False,
+    )
+
+    check(
+        "ONE_CLUSTER_APPROVAL_STATUS_REJECTED",
+        approval[
+            "status"
+        ] == "REJECTED",
+    )
+
+    check(
+        "ONE_CLUSTER_DOES_NOT_APPROVE_TP_SET",
+        approval[
+            "available_valid_clusters"
+        ] < REQUIRED_TP_CLUSTERS,
+    )
+
+    return approval
+
+
+# ============================================================
+# CANARY PREVIEW
+# ============================================================
+
+def build_canary_preview():
+
+    return {
+
+        "stage":
+            STAGE,
+
+        "symbol":
+            SYMBOL,
+
+        "real_order_execution":
+            REAL_ORDER_EXECUTION,
+
+        "demo_order_execution":
+            DEMO_ORDER_EXECUTION,
+
+        "exchange_mutation_transport_enabled":
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+        "order_submission_enabled":
+            ORDER_SUBMISSION_ENABLED,
+
+        "first_real_order_allowed":
+            FIRST_REAL_ORDER_ALLOWED,
+
+        "submitted":
+            False,
+
+        "exchange_request_sent":
+            False,
+    }
+
+
+# ============================================================
+# R36F.7 WRITER HELPERS
+# ============================================================
+
+WRITER_ENDPOINT_ENTRY = (
+    "/capi/v3/order"
+)
+
+WRITER_ENDPOINT_TPSL = (
+    "/capi/v3/placeTpSlOrder"
+)
+
+WRITER_ENDPOINT_TRAILING = (
+    "/capi/v3/algoOrder"
+)
+
+
+def writer_entry_side(
+    direction,
+):
