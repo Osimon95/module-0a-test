@@ -1868,3 +1868,415 @@ def valid_clusters(
         )
 
     return valid
+        raise ValueError(
+            f"Unsupported side={side}"
+        )
+
+        valid.append(
+            cluster
+        )
+
+    if side == "LONG":
+
+        valid.sort(
+            key=lambda c:
+                c["average"]
+        )
+
+    else:
+
+        valid.sort(
+            key=lambda c:
+                c["average"],
+            reverse=True,
+        )
+
+    return valid
+
+
+# ============================================================
+# TP PRICE CALCULATION
+# ============================================================
+
+def calculate_tp_prices(
+    entry_price,
+    valid_cluster_list,
+    direction,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    if len(
+        valid_cluster_list
+    ) < REQUIRED_TP_CLUSTERS:
+
+        raise RuntimeError(
+            "Cannot calculate complete TP set: "
+            "fewer than two valid historical clusters"
+        )
+
+    cluster1 = D(
+        valid_cluster_list[0][
+            "average"
+        ]
+    )
+
+    cluster2 = D(
+        valid_cluster_list[1][
+            "average"
+        ]
+    )
+
+    progress1 = (
+        TP1_PROFIT_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    progress2 = (
+        TP2_PROFIT_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    if direction == "LONG":
+
+        tp1 = (
+            entry_price
+            + (
+                cluster1
+                - entry_price
+            )
+            * progress1
+        )
+
+        tp2 = (
+            entry_price
+            + (
+                cluster2
+                - entry_price
+            )
+            * progress2
+        )
+
+    elif direction == "SHORT":
+
+        tp1 = (
+            entry_price
+            - (
+                entry_price
+                - cluster1
+            )
+            * progress1
+        )
+
+        tp2 = (
+            entry_price
+            - (
+                entry_price
+                - cluster2
+            )
+            * progress2
+        )
+
+    else:
+
+        raise RuntimeError(
+            "Invalid TP direction"
+        )
+
+    return {
+
+        "tp1":
+            quantize_down(
+                tp1,
+                PRICE_STEP,
+            ),
+
+        "tp2":
+            quantize_down(
+                tp2,
+                PRICE_STEP,
+            ),
+
+        "tp3": {
+
+            "type":
+                "TRAILING",
+
+            "allocation_percent":
+                TP3_ALLOCATION_PERCENT,
+
+            "trailing_distance_percent":
+                TP3_TRAILING_DISTANCE_PERCENT,
+        },
+
+        "cluster1_average":
+            cluster1,
+
+        "cluster2_average":
+            cluster2,
+    }
+
+
+# ============================================================
+# TP ENGINE
+# ============================================================
+
+def run_tp_engine(
+    rows,
+    entry_price,
+    direction,
+):
+
+    if direction == "LONG":
+
+        values = historical_highs(
+            rows
+        )
+
+        extrema = build_extrema(
+            values
+        )
+
+    elif direction == "SHORT":
+
+        values = historical_lows(
+            rows
+        )
+
+        extrema = build_extrema(
+            values
+        )
+
+    else:
+
+        raise RuntimeError(
+            "Invalid direction"
+        )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    valid, invalid = validate_clusters(
+        clusters,
+        entry_price,
+        direction,
+    )
+
+    approval = evaluate_tp_approval(
+        {
+            "valid_cluster_count":
+                len(valid),
+
+            "failure_reason":
+                (
+                    "ONLY_ONE_VALID_CLUSTER"
+                    if len(valid) == 1
+                    else
+                    "INSUFFICIENT_VALID_CLUSTERS"
+                ),
+        }
+    )
+
+    if not approval[
+        "approved"
+    ]:
+
+        return {
+
+            "approved":
+                False,
+
+            "approval":
+                approval,
+
+            "valid_clusters":
+                valid,
+
+            "invalid_clusters":
+                invalid,
+        }
+
+    prices = calculate_tp_prices(
+        entry_price,
+        valid,
+        direction,
+    )
+
+    return {
+
+        "approved":
+            True,
+
+        "approval":
+            approval,
+
+        "valid_clusters":
+            valid,
+
+        "invalid_clusters":
+            invalid,
+
+        "prices":
+            prices,
+    }
+
+
+# ============================================================
+# TP SNAPSHOT
+# ============================================================
+
+def build_cluster_tp_snapshot(
+    entry_price,
+    rows,
+    side,
+    fill_label,
+):
+
+    global LAST_TP_APPROVAL
+
+    entry_price = D(
+        entry_price
+    )
+
+    diagnostics = build_cluster_diagnostics(
+        rows,
+        entry_price,
+        side,
+    )
+
+    approval = evaluate_tp_approval(
+        diagnostics
+    )
+
+    LAST_TP_APPROVAL = approval
+
+    if not approval[
+        "approved"
+    ]:
+
+        log(
+            f"{side} TP SET REJECTED: "
+            f"{approval['reason']}"
+        )
+
+        raise RuntimeError(
+            f"{side} historical TP set rejected: "
+            f"requires at least "
+            f"{REQUIRED_TP_CLUSTERS} valid clusters; "
+            f"found "
+            f"{approval['available_valid_clusters']}"
+        )
+
+    clusters = valid_clusters(
+        rows,
+        entry_price,
+        side,
+    )
+
+    if len(
+        clusters
+    ) < REQUIRED_TP_CLUSTERS:
+
+        raise RuntimeError(
+            "TP approval inconsistency: "
+            "diagnostics approved but independent "
+            "cluster extraction found fewer than "
+            "two valid clusters"
+        )
+
+    prices = calculate_tp_prices(
+        entry_price,
+        clusters,
+        side,
+    )
+
+    snapshot = {
+
+        "fill_label":
+            fill_label,
+
+        "side":
+            side,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "historical_diagnostics":
+            diagnostics,
+
+        "tp_approval":
+            approval,
+
+        "tp1":
+            decimal_to_string(
+                prices["tp1"]
+            ),
+
+        "tp2":
+            decimal_to_string(
+                prices["tp2"]
+            ),
+
+        "tp3":
+            {
+
+                "type":
+                    "TRAILING",
+
+                "allocation_percent":
+                    decimal_to_string(
+                        TP3_ALLOCATION_PERCENT
+                    ),
+
+                "trailing_distance_percent":
+                    decimal_to_string(
+                        TP3_TRAILING_DISTANCE_PERCENT
+                    ),
+            },
+
+        "cluster1_average":
+            decimal_to_string(
+                prices[
+                    "cluster1_average"
+                ]
+            ),
+
+        "cluster2_average":
+            decimal_to_string(
+                prices[
+                    "cluster2_average"
+                ]
+            ),
+
+        "primary_tp_immutable":
+            True,
+    }
+
+    log(
+        f"{side} TP SET APPROVED WITH "
+        f"{len(clusters)} VALID CLUSTERS"
+    )
+
+    log(
+        f"{side} TP1 = "
+        f"{snapshot['tp1']} "
+        f"(20% adjustable progress)"
+    )
+
+    log(
+        f"{side} TP2 = "
+        f"{snapshot['tp2']} "
+        f"(50% adjustable progress)"
+    )
+
+    log(
+        f"{side} TP3 = "
+        f"{TP3_ALLOCATION_PERCENT}% trailing runner"
+    )
+
+    return snapshot
