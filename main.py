@@ -1496,3 +1496,375 @@ def validate_clusters(
         )
 
     return valid, invalid
+# ============================================================
+# CLUSTER DIAGNOSTICS
+# ============================================================
+
+def build_cluster_diagnostics(
+    rows,
+    entry_price,
+    side,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    extrema = local_extrema_values(
+        rows,
+        side,
+    )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    valid, invalid = validate_clusters(
+        clusters,
+        entry_price,
+        side,
+    )
+
+    valid_count = len(
+        valid
+    )
+
+    cluster_records = []
+
+    for cluster in valid:
+
+        cluster_records.append(
+            {
+                "cluster_number":
+                    len(
+                        cluster_records
+                    ) + 1,
+                "average":
+                    decimal_to_string(
+                        cluster["average"]
+                    ),
+                "minimum":
+                    decimal_to_string(
+                        cluster["minimum"]
+                    ),
+                "maximum":
+                    decimal_to_string(
+                        cluster["maximum"]
+                    ),
+                "touches":
+                    cluster["touches"],
+                "valid":
+                    True,
+                "reason":
+                    "VALID",
+            }
+        )
+
+    for cluster in invalid:
+
+        cluster_records.append(
+            {
+                "cluster_number":
+                    len(
+                        cluster_records
+                    ) + 1,
+                "average":
+                    decimal_to_string(
+                        cluster["average"]
+                    ),
+                "minimum":
+                    decimal_to_string(
+                        cluster["minimum"]
+                    ),
+                "maximum":
+                    decimal_to_string(
+                        cluster["maximum"]
+                    ),
+                "touches":
+                    cluster["touches"],
+                "valid":
+                    False,
+                "reason":
+                    cluster["reason"],
+            }
+        )
+
+    if valid_count >= REQUIRED_TP_CLUSTERS:
+
+        status = (
+            "ENOUGH_VALID_CLUSTERS"
+        )
+
+        failure_reason = None
+
+    elif valid_count == 1:
+
+        status = (
+            "ONLY_ONE_VALID_CLUSTER"
+        )
+
+        failure_reason = (
+            "ONLY_ONE_VALID_CLUSTER"
+        )
+
+    elif clusters:
+
+        status = (
+            "CLUSTERS_REJECTED_BY_POLICY"
+        )
+
+        failure_reason = (
+            "EXTREMA_EXIST_BUT_CLUSTER_REQUIREMENTS_NOT_MET"
+        )
+
+    else:
+
+        status = (
+            "NO_VALID_CLUSTERS"
+        )
+
+        failure_reason = (
+            "NO_VALID_HISTORICAL_CLUSTERS"
+        )
+
+    diagnostics = {
+
+        "side":
+            side,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "extrema_count":
+            len(
+                extrema
+            ),
+
+        "cluster_count":
+            len(
+                clusters
+            ),
+
+        "valid_cluster_count":
+            valid_count,
+
+        "clusters":
+            cluster_records,
+
+        "status":
+            status,
+
+        "failure_reason":
+            failure_reason,
+
+        "required_valid_clusters":
+            REQUIRED_TP_CLUSTERS,
+    }
+
+    log(
+        f"{side} HISTORICAL EXTREMA COUNT = "
+        f"{len(extrema)}"
+    )
+
+    log(
+        f"{side} HISTORICAL CLUSTER COUNT = "
+        f"{len(clusters)}"
+    )
+
+    log(
+        f"{side} VALID CLUSTER COUNT = "
+        f"{valid_count}"
+    )
+
+    for record in cluster_records:
+
+        log(
+            f"{side} CLUSTER "
+            f"{record['cluster_number']}: "
+            f"AVG={record['average']} "
+            f"MIN={record['minimum']} "
+            f"MAX={record['maximum']} "
+            f"TOUCHES={record['touches']} "
+            f"VALID={record['valid']} "
+            f"REASON={record['reason']}"
+        )
+
+    log(
+        f"{side} CLUSTER DIAGNOSTIC STATUS = "
+        f"{status}"
+    )
+
+    log(
+        f"{side} CLUSTER DIAGNOSTIC FAILURE_REASON = "
+        f"{failure_reason}"
+    )
+
+    return diagnostics
+
+
+# ============================================================
+# TP APPROVAL
+# ============================================================
+
+def evaluate_tp_approval(
+    diagnostics,
+):
+
+    valid_count = int(
+        diagnostics.get(
+            "valid_cluster_count",
+            0,
+        )
+    )
+
+    if valid_count >= REQUIRED_TP_CLUSTERS:
+
+        approval = {
+
+            "status":
+                "APPROVED",
+
+            "approved":
+                True,
+
+            "required_valid_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "available_valid_clusters":
+                valid_count,
+
+            "reason":
+                "TWO_OR_MORE_VALID_HISTORICAL_CLUSTERS",
+        }
+
+    else:
+
+        failure_reason = (
+            diagnostics.get(
+                "failure_reason"
+            )
+        )
+
+        if not failure_reason:
+
+            failure_reason = (
+                "FEWER_THAN_TWO_VALID_HISTORICAL_CLUSTERS"
+            )
+
+        approval = {
+
+            "status":
+                "REJECTED",
+
+            "approved":
+                False,
+
+            "required_valid_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "available_valid_clusters":
+                valid_count,
+
+            "reason":
+                failure_reason,
+        }
+
+    log(
+        f"{STAGE}_TP_APPROVAL = "
+        f"{approval['status']}"
+    )
+
+    log(
+        f"{STAGE}_TP_APPROVAL_REASON = "
+        f"{approval['reason']}"
+    )
+
+    log(
+        f"{STAGE}_TP_REQUIRED_CLUSTERS = "
+        f"{REQUIRED_TP_CLUSTERS}"
+    )
+
+    log(
+        f"{STAGE}_TP_AVAILABLE_CLUSTERS = "
+        f"{valid_count}"
+    )
+
+    return approval
+
+
+# ============================================================
+# VALID CLUSTERS
+# ============================================================
+
+def valid_clusters(
+    rows,
+    entry_price,
+    side,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    extrema = local_extrema_values(
+        rows,
+        side,
+    )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    valid = []
+
+    for cluster in clusters:
+
+        if (
+            cluster["touches"]
+            < MIN_CLUSTER_TOUCHES
+        ):
+
+            continue
+
+        average = cluster[
+            "average"
+        ]
+
+        if side == "LONG":
+
+            if average <= entry_price:
+                continue
+
+        elif side == "SHORT":
+
+            if average >= entry_price:
+                continue
+
+        else:
+
+            raise ValueError(
+                f"Unsupported side={side}"
+            )
+
+        valid.append(
+            cluster
+        )
+
+    if side == "LONG":
+
+        valid.sort(
+            key=lambda c:
+                c["average"]
+        )
+
+    else:
+
+        valid.sort(
+            key=lambda c:
+                c["average"],
+            reverse=True,
+        )
+
+    return valid
