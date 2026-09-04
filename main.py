@@ -1135,3 +1135,364 @@ async def load_historical_klines():
             break
 
     return all_rows
+# ============================================================
+# KLINE VALUE HELPERS
+# ============================================================
+
+def candle_high(
+    row,
+):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        for key in (
+            "high",
+            "highPrice",
+        ):
+
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(
+        row,
+        list,
+    ) and len(row) >= 3:
+
+        return D(
+            row[2]
+        )
+
+    raise ValueError(
+        "Unable to read candle high"
+    )
+
+
+def candle_low(
+    row,
+):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        for key in (
+            "low",
+            "lowPrice",
+        ):
+
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(
+        row,
+        list,
+    ) and len(row) >= 4:
+
+        return D(
+            row[3]
+        )
+
+    raise ValueError(
+        "Unable to read candle low"
+    )
+
+
+def historical_highs(
+    rows,
+):
+
+    return [
+        candle_high(row)
+        for row in rows
+    ]
+
+
+def historical_lows(
+    rows,
+):
+
+    return [
+        candle_low(row)
+        for row in rows
+    ]
+
+
+# ============================================================
+# LOCAL EXTREMA
+# ============================================================
+
+def build_extrema(
+    values,
+):
+
+    if len(values) < 3:
+        return []
+
+    extrema = []
+
+    for index in range(
+        1,
+        len(values) - 1,
+    ):
+
+        previous_value = D(
+            values[index - 1]
+        )
+
+        current_value = D(
+            values[index]
+        )
+
+        next_value = D(
+            values[index + 1]
+        )
+
+        if (
+            current_value >= previous_value
+            and current_value >= next_value
+        ):
+
+            extrema.append(
+                current_value
+            )
+
+        elif (
+            current_value <= previous_value
+            and current_value <= next_value
+        ):
+
+            extrema.append(
+                current_value
+            )
+
+    return extrema
+
+
+def local_extrema_values(
+    rows,
+    side,
+):
+
+    if side == "LONG":
+
+        return build_extrema(
+            historical_highs(
+                rows
+            )
+        )
+
+    if side == "SHORT":
+
+        return build_extrema(
+            historical_lows(
+                rows
+            )
+        )
+
+    raise ValueError(
+        f"Unsupported side={side}"
+    )
+
+
+# ============================================================
+# CLUSTERING
+# ============================================================
+
+def cluster_extrema(
+    extrema,
+):
+
+    if not extrema:
+        return []
+
+    values = sorted(
+        D(value)
+        for value in extrema
+    )
+
+    clusters = []
+
+    current = []
+
+    for value in values:
+
+        if not current:
+
+            current = [
+                value
+            ]
+
+            continue
+
+        average = (
+            sum(current)
+            / Decimal(
+                len(current)
+            )
+        )
+
+        tolerance = (
+            average
+            * CLUSTER_TOLERANCE_PERCENT
+            / Decimal("100")
+        )
+
+        if abs(
+            value - average
+        ) <= tolerance:
+
+            current.append(
+                value
+            )
+
+        else:
+
+            clusters.append(
+                current
+            )
+
+            current = [
+                value
+            ]
+
+    if current:
+
+        clusters.append(
+            current
+        )
+
+    records = []
+
+    for cluster in clusters:
+
+        average = (
+            sum(cluster)
+            / Decimal(
+                len(cluster)
+            )
+        )
+
+        records.append(
+            {
+                "average": average,
+                "minimum": min(cluster),
+                "maximum": max(cluster),
+                "touches": len(cluster),
+            }
+        )
+
+    return records
+
+
+# ============================================================
+# CLUSTER VALIDATION
+# ============================================================
+
+def validate_clusters(
+    clusters,
+    entry_price,
+    side,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    valid = []
+    invalid = []
+
+    for cluster in clusters:
+
+        average = D(
+            cluster["average"]
+        )
+
+        touches = int(
+            cluster["touches"]
+        )
+
+        if touches < MIN_CLUSTER_TOUCHES:
+
+            invalid.append(
+                {
+                    **cluster,
+                    "valid": False,
+                    "reason":
+                        "INSUFFICIENT_CLUSTER_TOUCHES",
+                }
+            )
+
+            continue
+
+        if side == "LONG":
+
+            if average <= entry_price:
+
+                invalid.append(
+                    {
+                        **cluster,
+                        "valid": False,
+                        "reason":
+                            "CLUSTER_NOT_ABOVE_ENTRY",
+                    }
+                )
+
+                continue
+
+        elif side == "SHORT":
+
+            if average >= entry_price:
+
+                invalid.append(
+                    {
+                        **cluster,
+                        "valid": False,
+                        "reason":
+                            "CLUSTER_NOT_BELOW_ENTRY",
+                    }
+                )
+
+                continue
+
+        else:
+
+            raise ValueError(
+                f"Unsupported side={side}"
+            )
+
+        valid.append(
+            {
+                **cluster,
+                "valid": True,
+                "reason": "VALID",
+            }
+        )
+
+    if side == "LONG":
+
+        valid.sort(
+            key=lambda item:
+                D(
+                    item["average"]
+                )
+        )
+
+    else:
+
+        valid.sort(
+            key=lambda item:
+                D(
+                    item["average"]
+                ),
+            reverse=True,
+        )
+
+    return valid, invalid
