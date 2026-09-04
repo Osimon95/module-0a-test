@@ -3345,3 +3345,205 @@ def synthetic_writer_quantity_tests():
 # ============================================================
 # MAIN R36F.7 TEST
 # ============================================================
+async def run_r36f7():
+
+    global TEST_STATUS
+
+    global R36A_EVIDENCE_OK
+    global R36C_EVIDENCE_OK
+    global R36D_EVIDENCE_OK
+
+    global DURABLE_EVIDENCE_OK
+    global WEEX_READ_ONLY_OK
+
+    global ZERO_WRITE_INVARIANT_OK
+    global FINAL_GATE_OK
+
+    global LONG_DIAGNOSTICS
+    global SHORT_DIAGNOSTICS
+
+    TEST_STATUS = "RUNNING"
+
+    FINAL_BLOCKERS.clear()
+
+    line()
+
+    log(
+        f"{STAGE}: {PURPOSE}"
+    )
+
+    line()
+
+    # ========================================================
+    # EXECUTION FIREBREAK TESTS
+    # ========================================================
+
+    check(
+        "REAL_ORDER_EXECUTION_DISABLED",
+        REAL_ORDER_EXECUTION is False,
+    )
+
+    check(
+        "DEMO_ORDER_EXECUTION_DISABLED",
+        DEMO_ORDER_EXECUTION is False,
+    )
+
+    check(
+        "EXCHANGE_MUTATION_TRANSPORT_DISABLED",
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        is False,
+    )
+
+    check(
+        "ORDER_SUBMISSION_DISABLED",
+        ORDER_SUBMISSION_ENABLED
+        is False,
+    )
+
+    check(
+        "LEVERAGE_MUTATION_DISABLED",
+        LEVERAGE_MUTATION_ENABLED
+        is False,
+    )
+
+    check(
+        "MARGIN_MODE_MUTATION_DISABLED",
+        MARGIN_MODE_MUTATION_ENABLED
+        is False,
+    )
+
+    check(
+        "POSITION_MUTATION_DISABLED",
+        POSITION_MUTATION_ENABLED
+        is False,
+    )
+
+    check(
+        "FIRST_REAL_ORDER_DISABLED",
+        FIRST_REAL_ORDER_ALLOWED
+        is False,
+    )
+
+    # ========================================================
+    # CREDENTIAL PRESENCE
+    # ========================================================
+
+    check(
+        "WEEX_API_KEY_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_KEY"
+            )
+        ),
+    )
+
+    check(
+        "WEEX_API_SECRET_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_SECRET"
+            )
+        ),
+    )
+
+    check(
+        "WEEX_API_PASSPHRASE_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_PASSPHRASE"
+            )
+        ),
+    )
+
+    # ========================================================
+    # R36A DURABLE EVIDENCE
+    # ========================================================
+
+    r36a_ids = set()
+
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DEDUPE_FILE
+        )
+    )
+
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DECISION_FILE
+        )
+    )
+
+    R36A_EVIDENCE_OK = (
+        OLD_R36A_UPDATE_ID
+        in r36a_ids
+    )
+
+    check(
+        "R36A_DURABLE_EVIDENCE",
+        R36A_EVIDENCE_OK,
+        (
+            f"EXPECTED_UPDATE_ID="
+            f"{OLD_R36A_UPDATE_ID}"
+        ),
+    )
+
+    # ========================================================
+    # R36C DURABLE EVIDENCE
+    # ========================================================
+
+    r36c_ids = set()
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DEDUPE_FILE
+        )
+    )
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DECISION_FILE
+        )
+    )
+
+    R36C_EVIDENCE_OK = (
+        R36C_UPDATE_ID
+        in r36c_ids
+    )
+
+    check(
+        "R36C_DURABLE_EVIDENCE",
+        R36C_EVIDENCE_OK,
+        (
+            f"EXPECTED_UPDATE_ID="
+            f"{R36C_UPDATE_ID}"
+        ),
+    )
+
+    # ========================================================
+    # R36D SNAPSHOT EVIDENCE
+    # ========================================================
+
+    r36d_snapshot = read_json_file(
+        R36D_SNAPSHOT_FILE,
+        default={},
+    )
+
+    R36D_EVIDENCE_OK = bool(
+        r36d_snapshot
+    )
+
+    check(
+        "R36D_SNAPSHOT_EVIDENCE",
+        R36D_EVIDENCE_OK,
+        f"path={R36D_SNAPSHOT_FILE}",
+    )
+
+    DURABLE_EVIDENCE_OK = (
+        R36A_EVIDENCE_OK
+        and R36C_EVIDENCE_OK
+        and R36D_EVIDENCE_OK
+    )
+
+    # ========================================================
+    # WEEX READ-ONLY RECONCILIATION
+    # ========================================================
