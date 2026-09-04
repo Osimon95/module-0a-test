@@ -2768,3 +2768,533 @@ def validate_writer_quantities(
 # ============================================================
 # WRITER REQUEST PREVIEW
 # ============================================================
+def build_writer_request_preview(
+    direction,
+    entry_price,
+    quantity,
+    tp_snapshot,
+):
+
+    if (
+        not tp_snapshot
+        or not tp_snapshot.get(
+            "tp_approval",
+            {},
+        ).get(
+            "approved"
+        )
+    ):
+
+        raise ValueError(
+            "writer requires an approved complete TP snapshot"
+        )
+
+    entry_price = quantize_down(
+        entry_price,
+        PRICE_STEP,
+    )
+
+    (
+        entry_quantity,
+        tp1_qty,
+        tp2_qty,
+        tp3_qty,
+    ) = writer_quantities(
+        quantity
+    )
+
+    quantity_checks = (
+        validate_writer_quantities(
+            entry_quantity,
+            tp1_qty,
+            tp2_qty,
+            tp3_qty,
+        )
+    )
+
+    (
+        entry_side,
+        position_side,
+    ) = writer_entry_side(
+        direction
+    )
+
+    (
+        close_side,
+        close_position_side,
+    ) = writer_close_side(
+        direction
+    )
+
+    tp1_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp1"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    tp2_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp2"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    if direction == "LONG":
+
+        if not (
+            tp1_price > entry_price
+            and
+            tp2_price > tp1_price
+        ):
+
+            raise ValueError(
+                "LONG TP ordering invalid"
+            )
+
+    elif direction == "SHORT":
+
+        if not (
+            tp1_price < entry_price
+            and
+            tp2_price < tp1_price
+        ):
+
+            raise ValueError(
+                "SHORT TP ordering invalid"
+            )
+
+    else:
+
+        raise ValueError(
+            "Invalid writer direction"
+        )
+
+    # --------------------------------------------------------
+    # ENTRY
+    #
+    # Deliberately NO TP trigger fields are attached to the
+    # entry order. TP1/TP2/TP3 are separate legs so that the
+    # intended 20/20/60 allocation is preserved.
+    # --------------------------------------------------------
+
+    entry_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_ENTRY,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            entry_side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            decimal_to_string(
+                entry_quantity
+            ),
+
+        "newClientOrderId":
+            writer_client_id(
+                direction,
+                "ENTRY",
+            ),
+
+        "reduceOnly":
+            False,
+    }
+
+    # --------------------------------------------------------
+    # TP1
+    # --------------------------------------------------------
+
+    tp1_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TPSL,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            close_side,
+
+        "positionSide":
+            close_position_side,
+
+        "type":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "executePrice":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                tp1_qty
+            ),
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP1",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+    # --------------------------------------------------------
+    # TP2
+    # --------------------------------------------------------
+
+    tp2_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TPSL,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            close_side,
+
+        "positionSide":
+            close_position_side,
+
+        "type":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            decimal_to_string(
+                tp2_price
+            ),
+
+        "executePrice":
+            decimal_to_string(
+                tp2_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                tp2_qty
+            ),
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP2",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+    # --------------------------------------------------------
+    # TP3 TRAILING RUNNER
+    # --------------------------------------------------------
+
+    tp3_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TRAILING,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            close_side,
+
+        "positionSide":
+            close_position_side,
+
+        "type":
+            "TRAILING_MARKET",
+
+        "quantity":
+            decimal_to_string(
+                tp3_qty
+            ),
+
+        "callbackRate":
+            decimal_to_string(
+                TP3_TRAILING_DISTANCE_PERCENT
+            ),
+
+        "workingType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP3",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+    legs = {
+
+        "entry":
+            entry_leg,
+
+        "tp1":
+            tp1_leg,
+
+        "tp2":
+            tp2_leg,
+
+        "tp3":
+            tp3_leg,
+    }
+
+    integrity_hash = (
+        sha256_text(
+            canonical_json(
+                legs
+            )
+        )
+    )
+
+    return {
+
+        "stage":
+            STAGE,
+
+        "symbol":
+            SYMBOL,
+
+        "direction":
+            direction,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "entry_quantity":
+            decimal_to_string(
+                entry_quantity
+            ),
+
+        "tp1_quantity":
+            decimal_to_string(
+                tp1_qty
+            ),
+
+        "tp2_quantity":
+            decimal_to_string(
+                tp2_qty
+            ),
+
+        "tp3_quantity":
+            decimal_to_string(
+                tp3_qty
+            ),
+
+        "allocation_percent":
+            {
+
+                "tp1":
+                    decimal_to_string(
+                        TP1_ALLOCATION_PERCENT
+                    ),
+
+                "tp2":
+                    decimal_to_string(
+                        TP2_ALLOCATION_PERCENT
+                    ),
+
+                "tp3":
+                    decimal_to_string(
+                        TP3_ALLOCATION_PERCENT
+                    ),
+            },
+
+        "quantity_validation":
+            quantity_checks,
+
+        "tp_approval":
+            tp_snapshot[
+                "tp_approval"
+            ],
+
+        "tp1":
+            tp_snapshot[
+                "tp1"
+            ],
+
+        "tp2":
+            tp_snapshot[
+                "tp2"
+            ],
+
+        "tp3":
+            tp_snapshot[
+                "tp3"
+            ],
+
+        "legs":
+            legs,
+
+        "primary_tp_immutable":
+            True,
+
+        "submitted":
+            False,
+
+        "transport_enabled":
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+        "integrity_sha256":
+            integrity_hash,
+    }
+
+
+# ============================================================
+# R36F.7 WRITER QUANTITY MINIMUM TESTS
+# ============================================================
+
+def synthetic_writer_quantity_tests():
+    # 0.0004 BTC: nominal TP1/TP2 round to zero. The corrected
+    # allocator must produce 0.0001 / 0.0001 / 0.0002.
+    (
+        quantity,
+        tp1,
+        tp2,
+        tp3,
+    ) = writer_quantities(
+        Decimal("0.0004")
+    )
+
+    check(
+        "WRITER_MINIMUM_TEST_ENTRY",
+        quantity == Decimal("0.0004"),
+    )
+
+    check(
+        "WRITER_MINIMUM_TEST_TP1",
+        tp1 == MIN_QUANTITY,
+    )
+
+    check(
+        "WRITER_MINIMUM_TEST_TP2",
+        tp2 == MIN_QUANTITY,
+    )
+
+    check(
+        "WRITER_MINIMUM_TEST_TP3",
+        tp3 == Decimal("0.0002"),
+    )
+
+    checks = validate_writer_quantities(
+        quantity,
+        tp1,
+        tp2,
+        tp3,
+    )
+
+    check(
+        "WRITER_MINIMUM_TEST_ALL_VALID",
+        checks["all_valid"],
+    )
+
+    # Exactly three minimum steps: every leg must be one step.
+    (
+        quantity3,
+        tp1_3,
+        tp2_3,
+        tp3_3,
+    ) = writer_quantities(
+        Decimal("0.0003")
+    )
+
+    checks3 = validate_writer_quantities(
+        quantity3,
+        tp1_3,
+        tp2_3,
+        tp3_3,
+    )
+
+    check(
+        "WRITER_THREE_STEP_CAPACITY",
+        (
+            quantity3 == Decimal("0.0003")
+            and
+            tp1_3 == MIN_QUANTITY
+            and
+            tp2_3 == MIN_QUANTITY
+            and
+            tp3_3 == MIN_QUANTITY
+        ),
+    )
+
+    check(
+        "WRITER_THREE_STEP_ALL_VALID",
+        checks3["all_valid"],
+    )
+
+    # Below three minimum steps, writer construction must remain
+    # invalid rather than fabricating a quantity.
+    (
+        quantity2,
+        tp1_2,
+        tp2_2,
+        tp3_2,
+    ) = writer_quantities(
+        Decimal("0.0002")
+    )
+
+    checks2 = validate_writer_quantities(
+        quantity2,
+        tp1_2,
+        tp2_2,
+        tp3_2,
+    )
+
+    check(
+        "WRITER_BELOW_THREE_STEP_REMAINS_INVALID",
+        checks2["all_valid"] is False,
+    )
+
+    return True
+
+
+# ============================================================
+# MAIN R36F.7 TEST
+# ============================================================
