@@ -2597,6 +2597,551 @@ def build_canary_preview():
     }
 
 
+):
+
+    if direction == "LONG":
+
+        return (
+            "BUY",
+            "LONG",
+        )
+
+    if direction == "SHORT":
+
+        return (
+            "SELL",
+            "SHORT",
+        )
+
+    raise ValueError(
+        f"Unsupported direction={direction}"
+    )
+
+
+def writer_close_side(
+    direction,
+):
+
+    if direction == "LONG":
+
+        return (
+            "SELL",
+            "LONG",
+        )
+
+    if direction == "SHORT":
+
+        return (
+            "BUY",
+            "SHORT",
+        )
+
+    raise ValueError(
+        f"Unsupported direction={direction}"
+    )
+
+
+def writer_client_id(
+    direction,
+    leg,
+):
+
+    value = (
+        f"R36F7-{direction}-{leg}-0001"
+    )
+
+    if len(value) > 36:
+
+        raise ValueError(
+            "writer client id exceeds WEEX limit"
+        )
+
+    return value
+
+
+# ============================================================
+# WRITER QUANTITY ALLOCATION
+# ============================================================
+
+def writer_quantities(
+    entry_quantity,
+):
+    """
+    R36F.7 quantity allocator.
+
+    The nominal strategy allocation remains 20% / 20% / 60%.
+    At small exchange-valid quantities, direct percentage rounding
+    can make TP1 or TP2 equal to zero. R36F.7 promotes those legs to
+    the exchange minimum and assigns the exact remainder to TP3.
+
+    No quantity is fabricated. If the entry cannot support three
+    minimum-sized legs, the allocation remains invalid and the writer
+    gate stays closed.
+    """
+
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    tp1 = quantize_down(
+        entry_quantity
+        * TP1_ALLOCATION_PERCENT
+        / Decimal("100"),
+        QUANTITY_STEP,
+    )
+
+    tp2 = quantize_down(
+        entry_quantity
+        * TP2_ALLOCATION_PERCENT
+        / Decimal("100"),
+        QUANTITY_STEP,
+    )
+
+    # Minimum-leg protection is applied only when the entry quantity
+    # can support all three legs. This does not change the historical
+    # TP price policy or the nominal 20/20/60 strategy allocation.
+    if entry_quantity >= (
+        MIN_QUANTITY * Decimal("3")
+    ):
+        if tp1 < MIN_QUANTITY:
+            tp1 = MIN_QUANTITY
+
+        if tp2 < MIN_QUANTITY:
+            tp2 = MIN_QUANTITY
+
+    tp3 = (
+        entry_quantity
+        - tp1
+        - tp2
+    )
+
+    return (
+        entry_quantity,
+        tp1,
+        tp2,
+        tp3,
+    )
+
+
+# ============================================================
+# WRITER QUANTITY VALIDATION
+# ============================================================
+
+def validate_writer_quantities(
+    entry_quantity,
+    tp1,
+    tp2,
+    tp3,
+):
+
+    checks = {
+
+        "entry_on_step":
+            quantize_down(
+                entry_quantity,
+                QUANTITY_STEP,
+            )
+            == entry_quantity,
+
+        "tp1_on_step":
+            quantize_down(
+                tp1,
+                QUANTITY_STEP,
+            )
+            == tp1,
+
+        "tp2_on_step":
+            quantize_down(
+                tp2,
+                QUANTITY_STEP,
+            )
+            == tp2,
+
+        "tp3_on_step":
+            quantize_down(
+                tp3,
+                QUANTITY_STEP,
+            )
+            == tp3,
+
+        "entry_minimum":
+            entry_quantity
+            >= MIN_QUANTITY,
+
+        "tp1_minimum":
+            tp1
+            >= MIN_QUANTITY,
+
+        "tp2_minimum":
+            tp2
+            >= MIN_QUANTITY,
+
+        "tp3_minimum":
+            tp3
+            >= MIN_QUANTITY,
+
+        "allocation_sum_exact":
+            (
+                tp1
+                + tp2
+                + tp3
+            )
+            == entry_quantity,
+
+        "minimum_three_leg_capacity":
+            entry_quantity
+            >= (
+                MIN_QUANTITY
+                * Decimal("3")
+            ),
+
+        "tp3_non_negative":
+            tp3
+            >= Decimal("0"),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+# ============================================================
+# WRITER REQUEST PREVIEW
+# ============================================================
+
+def build_writer_request_preview(
+    direction,
+    entry_price,
+    quantity,
+    tp_snapshot,
+):
+
+    if (
+        not tp_snapshot
+        or not tp_snapshot.get(
+            "tp_approval",
+            {},
+        ).get(
+            "approved"
+        )
+    ):
+
+        raise ValueError(
+            "writer requires an approved complete TP snapshot"
+        )
+
+    entry_price = quantize_down(
+        entry_price,
+        PRICE_STEP,
+    )
+
+    (
+        entry_quantity,
+        tp1_qty,
+        tp2_qty,
+        tp3_qty,
+    ) = writer_quantities(
+        quantity
+    )
+
+    quantity_checks = (
+        validate_writer_quantities(
+            entry_quantity,
+            tp1_qty,
+            tp2_qty,
+            tp3_qty,
+        )
+    )
+
+    (
+        entry_side,
+        position_side,
+    ) = writer_entry_side(
+        direction
+    )
+
+    (
+        close_side,
+        close_position_side,
+    ) = writer_close_side(
+        direction
+    )
+
+    tp1_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp1"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    tp2_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp2"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    if direction == "LONG":
+
+        if not (
+            tp1_price > entry_price
+            and
+            tp2_price > tp1_price
+        ):
+
+            raise ValueError(
+                "LONG TP ordering invalid"
+            )
+
+    elif direction == "SHORT":
+
+        if not (
+            tp1_price < entry_price
+            and
+            tp2_price < tp1_price
+        ):
+
+            raise ValueError(
+                "SHORT TP ordering invalid"
+            )
+
+    else:
+
+        raise ValueError(
+            "Invalid writer direction"
+        )
+
+
+    # --------------------------------------------------------
+    # ENTRY
+    #
+    # Deliberately NO TP trigger fields are attached to the
+    # entry order. TP1/TP2/TP3 are separate legs so that the
+    # intended 20/20/60 allocation is preserved.
+    # --------------------------------------------------------
+
+    entry_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_ENTRY,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            entry_side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            decimal_to_string(
+                entry_quantity
+            ),
+
+        "newClientOrderId":
+            writer_client_id(
+                direction,
+                "ENTRY",
+            ),
+
+        "reduceOnly":
+            False,
+    }
+
+
+    # --------------------------------------------------------
+    # TP1
+    # --------------------------------------------------------
+
+    tp1_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TPSL,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            close_side,
+
+        "positionSide":
+            close_position_side,
+
+        "type":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "executePrice":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                tp1_qty
+            ),
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP1",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+
+    # --------------------------------------------------------
+    # TP2
+    # --------------------------------------------------------
+
+    tp2_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TPSL,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            close_side,
+
+        "positionSide":
+            close_position_side,
+
+        "type":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            decimal_to_string(
+                tp2_price
+            ),
+
+        "executePrice":
+            decimal_to_string(
+                tp2_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                tp2_qty
+            ),
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP2",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+
+    # --------------------------------------------------------
+    # TP3 TRAILING RUNNER
+    # --------------------------------------------------------
+
+    tp3_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TRAILING,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            close_side,
+
+        "positionSide":
+            close_position_side,
+
+        "type":
+            "TRAILING_MARKET",
+
+        "quantity":
+            decimal_to_string(
+                tp3_qty
+            ),
+
+        "callbackRate":
+            decimal_to_string(
+                TP3_TRAILING_DISTANCE_PERCENT
+            ),
+
+        "workingType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP3",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+
+    legs = {
+
+        "entry":
+            entry_leg,
+
+        "tp1":
+            tp1_leg,
+
+        "tp2":
+            tp2_leg,
+
+        "tp3":
+            tp3_leg,
+    }
+
+
+    integrity_hash = (
+        sha256_text(
+            canonical_json(
+                legs
+            )
+        )
+)
 # ============================================================
 # R36F.7 WRITER HELPERS
 # ============================================================
