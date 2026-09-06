@@ -1864,7 +1864,7 @@ def cluster_extrema(values):
     for value in ordered[1:]:
 
         current_average = (
-            sum(
+            sum())
                 current_cluster
   
 id="p83k2m"
