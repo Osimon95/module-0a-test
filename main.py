@@ -821,4 +821,1049 @@ close_position = write_firebreak
 
 
 # END PART 1
+# ============================================================
+# WEEX READ-ONLY RECONCILIATION
+# ============================================================
 
+async def reconcile_weex():
+
+    global MARK_PRICE
+    global AVAILABLE_BALANCE
+    global OPEN_POSITIONS
+    global WEEX_CONFIG
+
+    async with aiohttp.ClientSession() as session:
+
+        # ----------------------------------------------------
+        # MARK PRICE
+        # ----------------------------------------------------
+
+        MARK_PRICE = await weex_mark_price(
+            session
+        )
+
+        log(
+            "WEEX MARK PRICE = "
+            f"{decimal_to_string(MARK_PRICE)}"
+        )
+
+        # ----------------------------------------------------
+        # AVAILABLE BALANCE
+        # ----------------------------------------------------
+
+        balance_payload = await weex_private_get(
+            session,
+            "/capi/v3/account/assets",
+        )
+
+        balance_candidates = []
+
+        if isinstance(
+            balance_payload,
+            dict,
+        ):
+
+            balance_candidates.append(
+                balance_payload
+            )
+
+            data = balance_payload.get(
+                "data"
+            )
+
+            if isinstance(
+                data,
+                dict,
+            ):
+
+                balance_candidates.append(
+                    data
+                )
+
+            elif isinstance(
+                data,
+                list,
+            ):
+
+                balance_candidates.extend(
+                    data
+                )
+
+        elif isinstance(
+            balance_payload,
+            list,
+        ):
+
+            balance_candidates.extend(
+                balance_payload
+            )
+
+        AVAILABLE_BALANCE = None
+
+        for item in balance_candidates:
+
+            if not isinstance(
+                item,
+                dict,
+            ):
+                continue
+
+            coin = str(
+                item.get(
+                    "coin",
+                    item.get(
+                        "currency",
+                        "",
+                    ),
+                )
+            ).upper()
+
+            if (
+                coin
+                and coin != "USDT"
+            ):
+                continue
+
+            for key in (
+                "available",
+                "availableBalance",
+                "available_balance",
+            ):
+
+                value = item.get(
+                    key
+                )
+
+                if value is None:
+                    continue
+
+                try:
+
+                    AVAILABLE_BALANCE = D(
+                        value
+                    )
+
+                    break
+
+                except Exception:
+                    continue
+
+            if (
+                AVAILABLE_BALANCE
+                is not None
+            ):
+                break
+
+        if AVAILABLE_BALANCE is None:
+
+            raise RuntimeError(
+                "Unable to extract "
+                "available USDT balance"
+            )
+
+        log(
+            "AVAILABLE USDT = "
+            f"{decimal_to_string(AVAILABLE_BALANCE)}"
+        )
+
+        # ----------------------------------------------------
+        # SINGLE BTCUSDT POSITION
+        #
+        # R36F.5.3 CORRECTION:
+        #
+        # R36F.5.2 incorrectly used:
+        #
+        #   /capi/v3/account/position
+        #
+        # Correct read-only endpoint:
+        #
+        #   /capi/v3/account/position/singlePosition
+        #
+        # No exchange mutation is performed.
+        # ----------------------------------------------------
+
+        position_payload = await weex_private_get(
+            session,
+            "/capi/v3/account/position/singlePosition",
+            params={
+                "symbol": SYMBOL,
+            },
+        )
+
+        position_candidates = []
+
+        if isinstance(
+            position_payload,
+            dict,
+        ):
+
+            position_candidates.append(
+                position_payload
+            )
+
+            data = position_payload.get(
+                "data"
+            )
+
+            if isinstance(
+                data,
+                dict,
+            ):
+
+                position_candidates.append(
+                    data
+                )
+
+            elif isinstance(
+                data,
+                list,
+            ):
+
+                position_candidates.extend(
+                    data
+                )
+
+        elif isinstance(
+            position_payload,
+            list,
+        ):
+
+            position_candidates.extend(
+                position_payload
+            )
+
+        OPEN_POSITIONS = []
+
+        for item in position_candidates:
+
+            if not isinstance(
+                item,
+                dict,
+            ):
+                continue
+
+            item_symbol = str(
+                item.get(
+                    "symbol",
+                    SYMBOL,
+                )
+            ).upper()
+
+            if (
+                item_symbol
+                and item_symbol != SYMBOL
+            ):
+                continue
+
+            quantity = None
+
+            for key in (
+                "total",
+                "size",
+                "positionSize",
+                "position_size",
+                "holdVol",
+                "positionAmt",
+            ):
+
+                if key not in item:
+                    continue
+
+                try:
+
+                    quantity = D(
+                        item.get(key)
+                    )
+
+                except Exception:
+
+                    quantity = None
+
+                break
+
+            if (
+                quantity is not None
+                and quantity != 0
+            ):
+
+                OPEN_POSITIONS.append(
+                    item
+                )
+
+        log(
+            "OPEN BTCUSDT POSITIONS = "
+            f"{len(OPEN_POSITIONS)}"
+        )
+
+        # ----------------------------------------------------
+        # SYMBOL CONFIG
+        # ----------------------------------------------------
+
+        config_payload = await weex_private_get(
+            session,
+            "/capi/v3/account/symbolConfig",
+            params={
+                "symbol": SYMBOL,
+            },
+        )
+
+        config_candidates = []
+
+        if isinstance(
+            config_payload,
+            dict,
+        ):
+
+            config_candidates.append(
+                config_payload
+            )
+
+            data = config_payload.get(
+                "data"
+            )
+
+            if isinstance(
+                data,
+                dict,
+            ):
+
+                config_candidates.append(
+                    data
+                )
+
+            elif isinstance(
+                data,
+                list,
+            ):
+
+                config_candidates.extend(
+                    data
+                )
+
+        elif isinstance(
+            config_payload,
+            list,
+        ):
+
+            config_candidates.extend(
+                config_payload
+            )
+
+        WEEX_CONFIG = {}
+
+        for item in config_candidates:
+
+            if not isinstance(
+                item,
+                dict,
+            ):
+                continue
+
+            item_symbol = str(
+                item.get(
+                    "symbol",
+                    SYMBOL,
+                )
+            ).upper()
+
+            if (
+                item_symbol
+                and item_symbol != SYMBOL
+            ):
+                continue
+
+            WEEX_CONFIG = item
+
+            break
+
+        margin_mode = None
+
+        for key in (
+            "marginMode",
+            "margin_mode",
+            "marginType",
+        ):
+
+            if key in WEEX_CONFIG:
+
+                margin_mode = str(
+                    WEEX_CONFIG.get(
+                        key
+                    )
+                ).upper()
+
+                break
+
+        long_leverage = None
+
+        for key in (
+            "isolatedLong",
+            "longLeverage",
+            "long_leverage",
+        ):
+
+            if key in WEEX_CONFIG:
+
+                try:
+
+                    long_leverage = D(
+                        WEEX_CONFIG.get(
+                            key
+                        )
+                    )
+
+                except Exception:
+                    pass
+
+                break
+
+        short_leverage = None
+
+        for key in (
+            "isolatedShort",
+            "shortLeverage",
+            "short_leverage",
+        ):
+
+            if key in WEEX_CONFIG:
+
+                try:
+
+                    short_leverage = D(
+                        WEEX_CONFIG.get(
+                            key
+                        )
+                    )
+
+                except Exception:
+                    pass
+
+                break
+
+        log(
+            "MARGIN MODE = "
+            f"{margin_mode}"
+        )
+
+        log(
+            "LONG LEVERAGE = "
+            f"{decimal_to_string(long_leverage)}"
+        )
+
+        log(
+            "SHORT LEVERAGE = "
+            f"{decimal_to_string(short_leverage)}"
+        )
+
+        # ----------------------------------------------------
+        # READ-ONLY CONSISTENCY
+        # ----------------------------------------------------
+
+        if OPEN_POSITIONS:
+
+            raise RuntimeError(
+                "BTCUSDT_NOT_FLAT"
+            )
+
+        if (
+            margin_mode is not None
+            and margin_mode
+            != MARGIN_MODE
+        ):
+
+            raise RuntimeError(
+                "MARGIN_MODE_MISMATCH: "
+                f"{margin_mode}"
+            )
+
+        if (
+            long_leverage
+            is not None
+            and long_leverage
+            != LEVERAGE_LONG
+        ):
+
+            raise RuntimeError(
+                "LONG_LEVERAGE_MISMATCH: "
+                f"{decimal_to_string(long_leverage)}"
+            )
+
+        if (
+            short_leverage
+            is not None
+            and short_leverage
+            != LEVERAGE_SHORT
+        ):
+
+            raise RuntimeError(
+                "SHORT_LEVERAGE_MISMATCH: "
+                f"{decimal_to_string(short_leverage)}"
+            )
+
+    return True
+
+
+# ============================================================
+# CANARY PREVIEW
+# ============================================================
+
+def build_canary_preview():
+
+    if MARK_PRICE is None:
+
+        raise RuntimeError(
+            "MARK_PRICE unavailable"
+        )
+
+    if AVAILABLE_BALANCE is None:
+
+        raise RuntimeError(
+            "AVAILABLE_BALANCE unavailable"
+        )
+
+    entry_margin = (
+        AVAILABLE_BALANCE
+        * ENTRY_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    entry_notional = (
+        entry_margin
+        * LEVERAGE_LONG
+    )
+
+    raw_quantity = (
+        entry_notional
+        / MARK_PRICE
+    )
+
+    normalized_quantity = (
+        quantize_down(
+            raw_quantity,
+            QUANTITY_STEP,
+        )
+    )
+
+    return {
+
+        "stage":
+            STAGE,
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            "LONG",
+
+        "mark_price":
+            decimal_to_string(
+                MARK_PRICE
+            ),
+
+        "available_balance":
+            decimal_to_string(
+                AVAILABLE_BALANCE
+            ),
+
+        "entry_margin_percent":
+            decimal_to_string(
+                ENTRY_MARGIN_PERCENT
+            ),
+
+        "entry_margin":
+            decimal_to_string(
+                entry_margin
+            ),
+
+        "leverage":
+            decimal_to_string(
+                LEVERAGE_LONG
+            ),
+
+        "entry_notional":
+            decimal_to_string(
+                entry_notional
+            ),
+
+        "raw_quantity":
+            decimal_to_string(
+                raw_quantity
+            ),
+
+        "normalized_quantity":
+            decimal_to_string(
+                normalized_quantity
+            ),
+
+        "exchange_write":
+            False,
+
+        "order_submission":
+            False,
+
+        "real_order_execution":
+            False,
+
+        "demo_order_execution":
+            False,
+    }
+
+
+# ============================================================
+# HISTORICAL KLINE EXTRACTION
+# ============================================================
+
+def extract_kline_rows(payload):
+
+    if isinstance(
+        payload,
+        list,
+    ):
+
+        return payload
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+
+        return []
+
+    for key in (
+        "data",
+        "rows",
+        "result",
+        "list",
+    ):
+
+        value = payload.get(
+            key
+        )
+
+        if isinstance(
+            value,
+            list,
+        ):
+
+            return value
+
+    return []
+
+
+def kline_timestamp(row):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        for key in (
+            "timestamp",
+            "time",
+            "openTime",
+            "open_time",
+        ):
+
+            if key in row:
+
+                return int(
+                    D(
+                        row[key]
+                    )
+                )
+
+    elif isinstance(
+        row,
+        list,
+    ):
+
+        if len(row) >= 1:
+
+            return int(
+                D(
+                    row[0]
+                )
+            )
+
+    raise ValueError(
+        "Unable to determine "
+        "kline timestamp"
+    )
+
+
+def kline_high_low(row):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        high = None
+        low = None
+
+        for key in (
+            "high",
+            "highPrice",
+        ):
+
+            if key in row:
+
+                high = D(
+                    row[key]
+                )
+
+                break
+
+        for key in (
+            "low",
+            "lowPrice",
+        ):
+
+            if key in row:
+
+                low = D(
+                    row[key]
+                )
+
+                break
+
+        if (
+            high is None
+            or low is None
+        ):
+
+            raise ValueError(
+                "Unable to extract "
+                "kline high/low"
+            )
+
+        return (
+            high,
+            low,
+        )
+
+    if isinstance(
+        row,
+        list,
+    ):
+
+        if len(row) < 4:
+
+            raise ValueError(
+                "Kline row too short"
+            )
+
+        return (
+            D(
+                row[2]
+            ),
+            D(
+                row[3]
+            ),
+        )
+
+    raise ValueError(
+        "Unsupported kline row"
+    )
+
+
+def normalize_kline_order(rows):
+
+    return sorted(
+        rows,
+        key=kline_timestamp,
+    )
+
+
+# ============================================================
+# HISTORICAL DATA
+# ============================================================
+
+async def historical_get(
+    session,
+    start_timestamp=None,
+):
+
+    url = (
+        API_BASE_URL
+        + "/capi/v3/market/klines"
+    )
+
+    params = {
+        "symbol":
+            SYMBOL,
+
+        "interval":
+            KLINE_INTERVAL,
+
+        "limit":
+            HISTORICAL_LIMIT,
+    }
+
+    if (
+        start_timestamp
+        is not None
+    ):
+
+        params[
+            "startTime"
+        ] = start_timestamp
+
+    return await http_get_json(
+        session,
+        url,
+        params=params,
+    )
+
+
+async def load_historical_klines():
+
+    all_rows = {}
+
+    async with aiohttp.ClientSession() as session:
+
+        start_timestamp = None
+
+        for page_index in range(
+            MAX_HISTORICAL_PAGES
+        ):
+
+            payload = await historical_get(
+                session,
+                start_timestamp,
+            )
+
+            rows = extract_kline_rows(
+                payload
+            )
+
+            if not rows:
+
+                log(
+                    "HISTORICAL PAGE "
+                    f"{page_index + 1}: "
+                    "NO ROWS"
+                )
+
+                break
+
+            normalized = (
+                normalize_kline_order(
+                    rows
+                )
+            )
+
+            for row in normalized:
+
+                try:
+
+                    timestamp = (
+                        kline_timestamp(
+                            row
+                        )
+                    )
+
+                    all_rows[
+                        timestamp
+                    ] = row
+
+                except Exception:
+                    continue
+
+            log(
+                "HISTORICAL PAGE "
+                f"{page_index + 1}: "
+                f"ROWS={len(rows)} "
+                f"TOTAL_UNIQUE={len(all_rows)}"
+            )
+
+            if (
+                len(rows)
+                < HISTORICAL_LIMIT
+            ):
+
+                break
+
+            try:
+
+                oldest_timestamp = (
+                    kline_timestamp(
+                        normalized[0]
+                    )
+                )
+
+            except Exception:
+
+                break
+
+            next_start_timestamp = (
+                oldest_timestamp - 1
+            )
+
+            if (
+                start_timestamp
+                is not None
+                and next_start_timestamp
+                >= start_timestamp
+            ):
+
+                break
+
+            start_timestamp = (
+                next_start_timestamp
+            )
+
+    result = normalize_kline_order(
+        list(
+            all_rows.values()
+        )
+    )
+
+    log(
+        "HISTORICAL TOTAL ROWS = "
+        f"{len(result)}"
+    )
+
+    return result
+
+
+# ============================================================
+# LOCAL EXTREMA
+# ============================================================
+
+def local_extrema_values(
+    rows,
+    side,
+):
+
+    if side not in (
+        "LONG",
+        "SHORT",
+    ):
+
+        raise ValueError(
+            f"Unsupported side={side}"
+        )
+
+    if len(rows) < 3:
+
+        return []
+
+    highs = []
+    lows = []
+
+    for row in rows:
+
+        high, low = (
+            kline_high_low(
+                row
+            )
+        )
+
+        highs.append(
+            high
+        )
+
+        lows.append(
+            low
+        )
+
+    extrema = []
+
+    for index in range(
+        1,
+        len(rows) - 1,
+    ):
+
+        if side == "LONG":
+
+            previous_value = (
+                highs[
+                    index - 1
+                ]
+            )
+
+            current_value = (
+                highs[
+                    index
+                ]
+            )
+
+            next_value = (
+                highs[
+                    index + 1
+                ]
+            )
+
+            if (
+                current_value
+                > previous_value
+                and current_value
+                >= next_value
+            ):
+
+                extrema.append(
+                    current_value
+                )
+
+        else:
+
+            previous_value = (
+                lows[
+                    index - 1
+                ]
+            )
+
+            current_value = (
+                lows[
+                    index
+                ]
+            )
+
+            next_value = (
+                lows[
+                    index + 1
+                ]
+            )
+
+            if (
+                current_value
+                < previous_value
+                and current_value
+                <= next_value
+            ):
+
+                extrema.append(
+                    current_value
+                )
+
+    return extrema
+
+
+# ============================================================
+# CLUSTER ENGINE
+# ============================================================
+
+def cluster_extrema(values):
+
+    if not values:
+
+        return []
+
+    ordered = sorted(
+        D(value)
+        for value in values
+    )
+
+    clusters = []
+
+    current_cluster = [
+        ordered[0]
+    ]
+
+    for value in ordered[1:]:
+
+        current_average = (
+            sum(
+                current_cluster
+  
