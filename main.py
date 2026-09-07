@@ -4827,3 +4827,748 @@ async def run_r36f11():
             R36A_DEDUPE_FILE
         )
     )
+### R36F.11 — Part 4A
+
+Paste this **immediately after Part 3**. It starts from the exact next line after:
+
+```python
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DEDUPE_FILE
+        )
+    )
+
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DECISION_FILE
+        )
+    )
+
+    R36A_EVIDENCE_OK = (
+        OLD_R36A_UPDATE_ID
+        in r36a_ids
+    )
+
+    check(
+        "R36A_DURABLE_EVIDENCE",
+        R36A_EVIDENCE_OK,
+        (
+            f"EXPECTED_UPDATE_ID="
+            f"{OLD_R36A_UPDATE_ID}"
+        ),
+    )
+
+    r36c_ids = set()
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DEDUPE_FILE
+        )
+    )
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DECISION_FILE
+        )
+    )
+
+    R36C_EVIDENCE_OK = (
+        R36C_UPDATE_ID
+        in r36c_ids
+    )
+
+    check(
+        "R36C_DURABLE_EVIDENCE",
+        R36C_EVIDENCE_OK,
+        (
+            f"EXPECTED_UPDATE_ID="
+            f"{R36C_UPDATE_ID}"
+        ),
+    )
+
+    r36d_snapshot = read_json_file(
+        R36D_SNAPSHOT_FILE,
+        default={},
+    )
+
+    R36D_EVIDENCE_OK = bool(
+        r36d_snapshot
+    )
+
+    check(
+        "R36D_SNAPSHOT_EVIDENCE",
+        R36D_EVIDENCE_OK,
+        f"path={R36D_SNAPSHOT_FILE}",
+    )
+
+    DURABLE_EVIDENCE_OK = (
+        R36A_EVIDENCE_OK
+        and R36C_EVIDENCE_OK
+        and R36D_EVIDENCE_OK
+    )
+
+    try:
+
+        await reconcile_weex()
+
+        WEEX_READ_ONLY_OK = True
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            True,
+        )
+
+    except Exception as exc:
+
+        WEEX_READ_ONLY_OK = False
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            False,
+            str(exc),
+        )
+
+    synthetic_long = None
+    synthetic_short = None
+
+    try:
+
+        (
+            synthetic_long,
+            synthetic_short,
+        ) = synthetic_cluster_tests()
+
+        check(
+            "SYNTHETIC_TP_ENGINE",
+            True,
+        )
+
+    except Exception as exc:
+
+        check(
+            "SYNTHETIC_TP_ENGINE",
+            False,
+            str(exc),
+        )
+
+    try:
+
+        rejection = (
+            synthetic_tp_rejection_test()
+        )
+
+        check(
+            "TP_APPROVAL_REJECTION_FLOW",
+            rejection[
+                "approved"
+            ] is False,
+        )
+
+    except Exception as exc:
+
+        check(
+            "TP_APPROVAL_REJECTION_FLOW",
+            False,
+            str(exc),
+        )
+
+    try:
+
+        synthetic_writer_quantity_tests()
+
+        check(
+            "STRICT_TP_QUANTITY_FEASIBILITY_TESTS",
+            True,
+        )
+
+        synthetic_balance_readiness_tests()
+
+        check(
+            "ADJUSTABLE_TP_BALANCE_READINESS_TESTS",
+            True,
+        )
+
+        synthetic_r36f11_writer_safety_tests()
+
+        check(
+            "R36F11_WRITER_SAFETY_TESTS",
+            True,
+        )
+
+    except Exception as exc:
+
+        check(
+            "STRICT_TP_QUANTITY_FEASIBILITY_TESTS",
+            False,
+            str(exc),
+        )
+
+        check(
+            "ADJUSTABLE_TP_BALANCE_READINESS_TESTS",
+            False,
+            str(exc),
+        )
+
+    historical_rows = []
+
+    try:
+
+        historical_rows = (
+            await load_historical_klines()
+        )
+
+        check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            len(
+                historical_rows
+            ) >= 3,
+            f"rows={len(historical_rows)}",
+        )
+
+    except Exception as exc:
+
+        check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            False,
+            str(exc),
+        )
+
+    real_long_snapshot = None
+
+    REAL_LONG_MARKET_ELIGIBLE = False
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+
+        try:
+
+            real_long_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "LONG",
+                    "REAL_LONG_PREVIEW",
+                )
+            )
+
+            LONG_DIAGNOSTICS = (
+                real_long_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_LONG_MARKET_ELIGIBLE = bool(
+                real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+            diagnostic_check(
+                "REAL_LONG_TP_MARKET_ELIGIBILITY",
+                REAL_LONG_MARKET_ELIGIBLE,
+                (
+                    "TP_APPROVAL="
+                    + real_long_snapshot[
+                        "tp_approval"
+                    ][
+                        "status"
+                    ]
+                ),
+            )
+
+            log(
+                "REAL_LONG_TP_APPROVAL="
+                + real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ]
+            )
+
+        except Exception as exc:
+
+            LONG_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "LONG",
+                )
+            )
+
+            approval = (
+                evaluate_tp_approval(
+                    LONG_DIAGNOSTICS
+                )
+            )
+
+            REAL_LONG_MARKET_ELIGIBLE = False
+
+            diagnostic_check(
+                "REAL_LONG_TP_MARKET_ELIGIBILITY",
+                False,
+                (
+                    "TP_APPROVAL="
+                    + approval[
+                        "status"
+                    ]
+                    + " reason="
+                    + approval[
+                        "reason"
+                    ]
+                    + " error="
+                    + str(exc)
+                ),
+            )
+
+    real_short_snapshot = None
+
+    REAL_SHORT_MARKET_ELIGIBLE = False
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+
+        try:
+
+            real_short_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "SHORT",
+                    "REAL_SHORT_PREVIEW",
+                )
+            )
+
+            SHORT_DIAGNOSTICS = (
+                real_short_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_SHORT_MARKET_ELIGIBLE = bool(
+                real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+            diagnostic_check(
+                "REAL_SHORT_TP_MARKET_ELIGIBILITY",
+                REAL_SHORT_MARKET_ELIGIBLE,
+                (
+                    "TP_APPROVAL="
+                    + real_short_snapshot[
+                        "tp_approval"
+                    ][
+                        "status"
+                    ]
+                ),
+            )
+
+            log(
+                "REAL_SHORT_TP_APPROVAL="
+                + real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ]
+            )
+
+        except Exception as exc:
+
+            SHORT_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "SHORT",
+                )
+            )
+
+            approval = (
+                evaluate_tp_approval(
+                    SHORT_DIAGNOSTICS
+                )
+            )
+
+            REAL_SHORT_MARKET_ELIGIBLE = False
+
+            diagnostic_check(
+                "REAL_SHORT_TP_MARKET_ELIGIBILITY",
+                False,
+                (
+                    "TP_APPROVAL="
+                    + approval[
+                        "status"
+                    ]
+                    + " reason="
+                    + approval[
+                        "reason"
+                    ]
+                    + " error="
+                    + str(exc)
+                ),
+            )
+
+    canary_preview = None
+
+    try:
+
+        canary_preview = (
+            build_canary_preview()
+        )
+
+        diagnostic_check(
+            "CANARY_PREVIEW",
+            True,
+        )
+
+    except Exception as exc:
+
+        diagnostic_check(
+            "CANARY_PREVIEW",
+            False,
+            str(exc),
+        )
+
+    writer_preview = None
+    protected_canary_preview = None
+    quantity_feasibility = None
+    balance_readiness = None
+
+    WRITER_CONSTRUCTION_ELIGIBLE = False
+
+    try:
+
+        selected_direction = None
+        selected_snapshot = None
+
+        if (
+            REAL_SHORT_MARKET_ELIGIBLE
+            and
+            real_short_snapshot is not None
+        ):
+
+            selected_direction = "SHORT"
+            selected_snapshot = real_short_snapshot
+
+        elif (
+            REAL_LONG_MARKET_ELIGIBLE
+            and
+            real_long_snapshot is not None
+        ):
+
+            selected_direction = "LONG"
+            selected_snapshot = real_long_snapshot
+
+        if selected_direction is None:
+
+            diagnostic_check(
+                "ADJUSTABLE_TP_BALANCE_READINESS",
+                False,
+                "TRADE_NOT_ELIGIBLE: no currently eligible real market TP set",
+            )
+
+            diagnostic_check(
+                "WRITER_REQUEST_CONSTRUCTION",
+                False,
+                "blocked: no currently eligible real market TP set",
+            )
+
+        elif (
+            AVAILABLE_BALANCE is None
+            or
+            MARK_PRICE is None
+        ):
+
+            diagnostic_check(
+                "ADJUSTABLE_TP_BALANCE_READINESS",
+                False,
+                "READINESS_UNAVAILABLE: balance or mark price unavailable",
+            )
+
+            diagnostic_check(
+                "WRITER_REQUEST_CONSTRUCTION",
+                False,
+                "blocked: balance or mark price unavailable",
+            )
+
+        else:
+
+            leverage = (
+                LEVERAGE_SHORT
+                if selected_direction == "SHORT"
+                else LEVERAGE_LONG
+            )
+
+            balance_readiness = (
+                evaluate_strict_tp_balance_readiness(
+                    AVAILABLE_BALANCE,
+                    MARK_PRICE,
+                    leverage,
+                )
+            )
+
+            quantity_feasibility = (
+                evaluate_writer_quantity_feasibility(
+                    D(
+                        balance_readiness[
+                            "planned_entry_quantity"
+                        ]
+                    )
+                )
+            )
+
+            log(
+                "R36F.11 ADJUSTABLE TP BALANCE READINESS "
+                + "direction=" + selected_direction
+                + " status=" + balance_readiness["status"]
+                + " reason=" + balance_readiness["reason"]
+                + " available_usdt="
+                + balance_readiness["available_balance"]
+                + " planned_entry_qty="
+                + balance_readiness["planned_entry_quantity"]
+                + " minimum_entry_qty="
+                + balance_readiness[
+                    "minimum_strict_tp_entry_quantity"
+                ]
+                + " required_margin_usdt="
+                + balance_readiness[
+                    "required_margin_for_minimum_qty"
+                ]
+                + " required_available_usdt="
+                + balance_readiness[
+                    "required_available_balance"
+                ]
+                + " shortfall_usdt="
+                + balance_readiness[
+                    "available_balance_shortfall"
+                ]
+            )
+
+            diagnostic_check(
+                "ADJUSTABLE_TP_BALANCE_READINESS",
+                balance_readiness["eligible"],
+                (
+                    "status="
+                    + balance_readiness["status"]
+                    + " reason="
+                    + balance_readiness["reason"]
+                ),
+            )
+
+            diagnostic_check(
+                "ADJUSTABLE_TP_QUANTITY_FEASIBILITY",
+                quantity_feasibility["feasible"],
+                (
+                    "reason="
+                    + quantity_feasibility["reason"]
+                ),
+            )
+
+            if not balance_readiness[
+                "eligible"
+            ]:
+
+                log(
+                    "R36F.11 TRADE_READINESS = REJECTED "
+                    + "reason="
+                    + balance_readiness[
+                        "reason"
+                    ]
+                )
+
+                diagnostic_check(
+                    "WRITER_REQUEST_CONSTRUCTION",
+                    False,
+                    (
+                        "blocked before construction: "
+                        + balance_readiness[
+                            "reason"
+                        ]
+                    ),
+                )
+
+            else:
+
+                quantity = D(
+                    balance_readiness[
+                        "planned_entry_quantity"
+                    ]
+                )
+
+                log(
+                    "R36F.11 TRADE_READINESS = ELIGIBLE "
+                    + "reason="
+                    + balance_readiness[
+                        "reason"
+                    ]
+                )
+
+                writer_preview = (
+                    build_writer_request_preview(
+                        selected_direction,
+                        MARK_PRICE,
+                        quantity,
+                        selected_snapshot,
+                    )
+                )
+
+                WRITER_CONSTRUCTION_ELIGIBLE = bool(
+                    writer_preview[
+                        "submitted"
+                    ] is False
+                    and writer_preview[
+                        "quantity_validation"
+                    ][
+                        "all_valid"
+                    ]
+                    and writer_preview[
+                        "transport_enabled"
+                    ] is False
+                )
+
+                diagnostic_check(
+                    "WRITER_REQUEST_CONSTRUCTION",
+                    WRITER_CONSTRUCTION_ELIGIBLE,
+                    (
+                        "direction="
+                        + selected_direction
+                        + " quantity="
+                        + writer_preview[
+                            "entry_quantity"
+                        ]
+                        + " tp1_qty="
+                        + writer_preview[
+                            "tp1_quantity"
+                        ]
+                        + " tp2_qty="
+                        + writer_preview[
+                            "tp2_quantity"
+                        ]
+                        + " tp3_qty="
+                        + writer_preview[
+                            "tp3_quantity"
+                        ]
+                    ),
+                )
+
+                for (
+                    validation_name,
+                    validation_result,
+                ) in writer_preview[
+                    "quantity_validation"
+                ].items():
+
+                    if validation_name == "all_valid":
+                        continue
+
+                    diagnostic_check(
+                        "WRITER_QUANTITY_"
+                        + validation_name.upper(),
+                        validation_result,
+                    )
+
+                # R36F.11 first-live candidate is always capped at 0.0004 BTC.
+                canary_quantity = min(
+                    quantity,
+                    CANARY_MAX_ENTRY_QUANTITY,
+                )
+
+                canary_writer_preview = (
+                    build_writer_request_preview(
+                        selected_direction,
+                        MARK_PRICE,
+                        canary_quantity,
+                        selected_snapshot,
+                    )
+                )
+
+                production_journal = read_json_file(
+                    R36F11_CANARY_JOURNAL_FILE,
+                    default={},
+                )
+
+                configured_stop = (
+                    parse_canary_stop_price(
+                        CANARY_STOP_PRICE_TEXT
+                    )
+                )
+
+                if configured_stop is None:
+
+                    diagnostic_check(
+                        "R36F11_PROTECTIVE_STOP_CONFIGURED",
+                        False,
+                        "R36F11_CANARY_STOP_PRICE is not set; live canary remains blocked",
+                    )
+
+                else:
+
+                    protected_canary_preview = (
+                        build_protected_canary_preview(
+                            canary_writer_preview,
+                            configured_stop,
+                            CANARY_ARM_REQUESTED,
+                            production_journal,
+                            len(OPEN_POSITIONS) == 0,
+                        )
+                    )
+
+                    diagnostic_check(
+                        "R36F11_PROTECTIVE_STOP_VALID",
+                        protected_canary_preview[
+                            "stop_valid"
+                        ],
+                    )
+
+                    diagnostic_check(
+                        "R36F11_CANARY_QUANTITY_CAPPED",
+                        protected_canary_preview[
+                            "quantity_capped"
+                        ],
+                        "max=0.0004 BTC",
+                    )
+
+                    diagnostic_check(
+                        "R36F11_DURABLE_JOURNAL_CLEAR",
+                        protected_canary_preview[
+                            "journal_clear"
+                        ],
+                    )
+
+                    diagnostic_check(
+                        "R36F11_EXPLICIT_ARM_PRESENT",
+                        protected_canary_preview[
+                            "explicit_arm_requested"
+                        ],
+                        "set R36F11_LIVE_CANARY_ARM=ARM_FIRST_LIVE_CANARY only for the later R36F.12 live canary",
+                    )
+
+                # R36F.11 itself must never submit regardless of configuration.
+                check(
+                    "R36F11_LIVE_TRANSPORT_REMAINS_DISABLED",
+                    EXCHANGE_MUTATION_TRANSPORT_ENABLED is False
+                    and ORDER_SUBMISSION_ENABLED is False
+                    and REAL_ORDER_EXECUTION is False
+                    and FIRST_REAL_ORDER_ALLOWED is False,
+                )
+
+    except Exception as exc:
+
+        diagnostic_check(
+            "ADJUSTABLE_TP_BALANCE_READINESS",
+            False,
+            str(exc),
+        )
+
+        diagnostic_check(
+            "WRITER_REQUEST_CONSTRUCTION",
+            False,
+            str(exc),
+        
