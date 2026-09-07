@@ -809,3 +809,664 @@ def start_health_server():
         f"{STAGE}: HEALTH SERVER STARTED ON PORT {port}"
     )
 
+
+# WEEX SIGNING
+# ============================================================
+
+def build_signature(
+    timestamp,
+    method,
+    request_path,
+    body="",
+):
+
+    api_secret = os.getenv(
+        "WEEX_API_SECRET"
+    )
+
+    if not api_secret:
+        raise RuntimeError(
+            "WEEX_API_SECRET missing"
+        )
+
+    prehash = (
+        str(timestamp)
+        + method.upper()
+        + request_path
+        + body
+    )
+
+    digest = hmac.new(
+        api_secret.encode(),
+        prehash.encode(),
+        hashlib.sha256,
+    ).digest()
+
+    return base64.b64encode(
+        digest
+    ).decode()
+
+
+# ============================================================
+# READ-ONLY WEEX REQUEST
+# ============================================================
+
+async def weex_get(
+    path,
+    params=None,
+    authenticated=False,
+):
+    """
+    Read-only WEEX GET.
+
+    R36F.9 signs the exact query string for authenticated GET requests.
+    No POST/PUT/PATCH/DELETE transport exists here.
+    """
+
+    params = params or {}
+
+    from urllib.parse import urlencode
+
+    query_string = urlencode(
+        params,
+        doseq=True,
+    )
+
+    request_target = path
+
+    if query_string:
+        request_target += (
+            "?" + query_string
+        )
+
+    url = (
+        API_BASE_URL
+        + request_target
+    )
+
+    headers = {}
+
+    if authenticated:
+
+        api_key = os.getenv(
+            "WEEX_API_KEY"
+        )
+
+        passphrase = os.getenv(
+            "WEEX_API_PASSPHRASE"
+        )
+
+        if not api_key:
+            raise RuntimeError(
+                "WEEX_API_KEY missing"
+            )
+
+        if not passphrase:
+            raise RuntimeError(
+                "WEEX_API_PASSPHRASE missing"
+            )
+
+        timestamp = str(
+            int(
+                time.time() * 1000
+            )
+        )
+
+        signature = build_signature(
+            timestamp,
+            "GET",
+            request_target,
+            "",
+        )
+
+        headers = {
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": passphrase,
+            "Content-Type": "application/json",
+        }
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+
+        async with session.get(
+            url,
+            headers=headers,
+        ) as response:
+
+            text = await response.text()
+
+            if response.status >= 400:
+
+                raise RuntimeError(
+                    f"WEEX GET HTTP {response.status}: {text}"
+                )
+
+            try:
+                return json.loads(text)
+
+            except Exception:
+
+                return {
+                    "raw": text
+                }
+
+
+# ============================================================
+# MARK PRICE
+# ============================================================
+
+async def load_mark_price():
+
+    global MARK_PRICE
+
+    data = await weex_get(
+        "/capi/v3/market/symbolPrice",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=False,
+    )
+
+    candidates = []
+
+    if isinstance(
+        data,
+        dict,
+    ):
+
+        for key in (
+            "price",
+            "markPrice",
+            "lastPrice",
+        ):
+
+            if key in data:
+                candidates.append(
+                    data[key]
+                )
+
+        nested = data.get(
+            "data"
+        )
+
+        if isinstance(
+            nested,
+            dict,
+        ):
+
+            for key in (
+                "price",
+                "markPrice",
+                "lastPrice",
+            ):
+
+                if key in nested:
+                    candidates.append(
+                        nested[key]
+                    )
+
+    elif isinstance(
+        data,
+        list,
+    ):
+
+        for item in data:
+
+            if isinstance(
+                item,
+                dict,
+            ):
+
+                for key in (
+                    "price",
+                    "markPrice",
+                    "lastPrice",
+                ):
+
+                    if key in item:
+                        candidates.append(
+                            item[key]
+                        )
+
+    for candidate in candidates:
+
+        try:
+
+            MARK_PRICE = D(
+                candidate
+            )
+
+            if MARK_PRICE > 0:
+
+                log(
+                    "MARK PRICE = "
+                    + decimal_to_string(
+                        MARK_PRICE
+                    )
+                )
+
+                return MARK_PRICE
+
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Unable to determine WEEX mark price"
+    )
+
+
+# ============================================================
+# BALANCE
+# ============================================================
+
+async def load_available_balance():
+
+    global AVAILABLE_BALANCE
+
+    data = await weex_get(
+        "/capi/v3/account/balance",
+        authenticated=True,
+    )
+
+    candidates = []
+
+    def collect(
+        value,
+    ):
+
+        if isinstance(
+            value,
+            dict,
+        ):
+
+            for key, item in value.items():
+
+                key_lower = key.lower()
+
+                if key_lower in (
+                    "availablebalance",
+                    "available_balance",
+                    "available",
+                    "free",
+                    "usdtavailable",
+                ):
+
+                    candidates.append(
+                        item
+                    )
+
+                collect(item)
+
+        elif isinstance(
+            value,
+            list,
+        ):
+
+            for item in value:
+                collect(item)
+
+    collect(data)
+
+    for candidate in candidates:
+
+        try:
+
+            value = D(
+                candidate
+            )
+
+            if value >= 0:
+
+                AVAILABLE_BALANCE = value
+
+                log(
+                    "AVAILABLE USDT = "
+                    + decimal_to_string(
+                        AVAILABLE_BALANCE
+                    )
+                )
+
+                return value
+
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Unable to determine available USDT balance"
+    )
+
+
+# ============================================================
+# OPEN POSITIONS
+# ============================================================
+
+async def load_open_positions():
+
+    global OPEN_POSITIONS
+
+    data = await weex_get(
+        "/capi/v3/account/position/singlePosition",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=True,
+    )
+
+    if isinstance(
+        data,
+        list,
+    ):
+
+        OPEN_POSITIONS = data
+
+    elif isinstance(
+        data,
+        dict,
+    ):
+
+        nested = data.get(
+            "data"
+        )
+
+        if isinstance(
+            nested,
+            list,
+        ):
+
+            OPEN_POSITIONS = nested
+
+        else:
+
+            OPEN_POSITIONS = []
+
+    else:
+
+        OPEN_POSITIONS = []
+
+    log(
+        "OPEN POSITIONS = "
+        + str(
+            len(
+                OPEN_POSITIONS
+            )
+        )
+    )
+
+    return OPEN_POSITIONS
+
+
+# ============================================================
+# EXCHANGE CONFIG
+# ============================================================
+
+async def load_exchange_config():
+
+    global WEEX_CONFIG
+
+    data = await weex_get(
+        "/capi/v3/market/exchangeInfo",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=False,
+    )
+
+    WEEX_CONFIG = (
+        data
+        if isinstance(
+            data,
+            dict,
+        )
+        else {}
+    )
+
+    log(
+        "WEEX EXCHANGE CONFIG READ COMPLETE"
+    )
+
+    return WEEX_CONFIG
+
+
+# ============================================================
+# WEEX READ-ONLY RECONCILIATION
+# ============================================================
+
+async def reconcile_weex():
+
+    await load_mark_price()
+
+    try:
+
+        await load_available_balance()
+
+    except Exception as exc:
+
+        log(
+            f"BALANCE READ FAILED = {exc}"
+        )
+
+        raise
+
+    try:
+
+        await load_open_positions()
+
+    except Exception as exc:
+
+        log(
+            f"POSITION READ FAILED = {exc}"
+        )
+
+        raise
+
+    try:
+
+        await load_exchange_config()
+
+    except Exception as exc:
+
+        log(
+            f"EXCHANGE CONFIG READ FAILED = {exc}"
+        )
+
+        raise
+
+    return True
+
+
+# ============================================================
+# HISTORICAL KLINES
+# ============================================================
+
+async def load_historical_klines():
+
+    all_rows = []
+
+    for page in range(
+        MAX_HISTORICAL_PAGES
+    ):
+
+        params = {
+            "symbol": SYMBOL,
+            "interval": KLINE_INTERVAL,
+            "limit": HISTORICAL_LIMIT,
+        }
+
+        if page > 0:
+
+            params[
+                "endTime"
+            ] = int(
+                time.time() * 1000
+            ) - (
+                page
+                * HISTORICAL_LIMIT
+                * 60
+                * 1000
+            )
+
+        data = await weex_get(
+            "/capi/v3/market/klines",
+            params=params,
+            authenticated=False,
+        )
+
+        rows = data
+
+        if isinstance(
+            data,
+            dict,
+        ):
+
+            rows = data.get(
+                "data",
+                data.get(
+                    "result",
+                    [],
+                ),
+            )
+
+        if not isinstance(
+            rows,
+            list,
+        ):
+
+            raise RuntimeError(
+                "Unexpected kline response"
+            )
+
+        all_rows.extend(
+            rows
+        )
+
+        if len(rows) < HISTORICAL_LIMIT:
+            break
+
+    return all_rows
+
+
+# ============================================================
+# KLINE VALUE HELPERS
+# ============================================================
+
+def candle_high(
+    row,
+):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        for key in (
+            "high",
+            "highPrice",
+        ):
+
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(
+        row,
+        list,
+    ) and len(row) >= 3:
+
+        return D(
+            row[2]
+        )
+
+    raise ValueError(
+        "Unable to read candle high"
+    )
+
+
+def candle_low(
+    row,
+):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        for key in (
+            "low",
+            "lowPrice",
+        ):
+
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(
+        row,
+        list,
+    ) and len(row) >= 4:
+
+        return D(
+            row[3]
+        )
+
+    raise ValueError(
+        "Unable to read candle low"
+    )
+
+
+def historical_highs(
+    rows,
+):
+
+    return [
+        candle_high(row)
+        for row in rows
+    ]
+
+
+def historical_lows(
+    rows,
+):
+
+    return [
+        candle_low(row)
+        for row in rows
+    ]
+
+
+# ============================================================
+# R36F.12 FROZEN EMA19 / EMA50 / EMA200 SIGNAL ENGINE
+# ============================================================
+
+def candle_close(row):
+    if isinstance(row, dict):
+        for key in ("close", "closePrice", "c", "lastPrice"):
+            if key in row:
+                return D(row[key])
+    if isinstance(row, list) and len(row) >= 5:
+        return D(row[4])
+    raise ValueError("Unable to read candle close")
+
+
+def candle_timestamp(row):
+    if isinstance(row, dict):
+        for key in ("timestamp", "ts", "time", "startTime", "openTime"):
+            if key in row:
+                try:
+                    return int(float(row[key]))
+                except Exception:
+                    return None
+    if isinstance(row, list) and row:
+        try:
+            return int(float(row[0]))
+        except Exception:
+            return None
+    return None
