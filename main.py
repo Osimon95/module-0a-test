@@ -2632,3 +2632,2748 @@ def build_canary_preview():
 
 ## R36F.10 — Part 4
 
+## R36F.10 — Part 4
+
+
+# ============================================================
+# R36F.10 WRITER HELPERS
+# ============================================================
+
+WRITER_ENDPOINT_ENTRY = (
+    "/capi/v3/order"
+)
+
+WRITER_ENDPOINT_TPSL = (
+    "/capi/v3/placeTpSlOrder"
+)
+
+WRITER_ENDPOINT_TRAILING = (
+    "/capi/v3/algoOrder"
+)
+
+
+def writer_entry_side(
+    direction,
+):
+
+    if direction == "LONG":
+
+        return (
+            "BUY",
+            "LONG",
+        )
+
+    if direction == "SHORT":
+
+        return (
+            "SELL",
+            "SHORT",
+        )
+
+    raise ValueError(
+        f"Unsupported direction={direction}"
+    )
+
+
+def writer_close_side(
+    direction,
+):
+
+    if direction == "LONG":
+
+        return (
+            "SELL",
+            "LONG",
+        )
+
+    if direction == "SHORT":
+
+        return (
+            "BUY",
+            "SHORT",
+        )
+
+    raise ValueError(
+        f"Unsupported direction={direction}"
+    )
+
+
+def writer_client_id(
+    direction,
+    leg,
+):
+
+    value = (
+        f"R36F8-{direction}-{leg}-0001"
+    )
+
+    if len(value) > 36:
+
+        raise ValueError(
+            "writer client id exceeds WEEX limit"
+        )
+
+    return value
+
+
+# ============================================================
+# WRITER QUANTITY ALLOCATION
+# ============================================================
+
+ADJUSTED_TP1_ALLOCATION_PERCENT = Decimal("25")
+ADJUSTED_TP2_ALLOCATION_PERCENT = Decimal("25")
+ADJUSTED_TP3_ALLOCATION_PERCENT = Decimal("50")
+
+
+def allocation_exactly_representable(
+    entry_quantity,
+    tp1_percent,
+    tp2_percent,
+    tp3_percent,
+):
+
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    percentages = (
+        D(tp1_percent),
+        D(tp2_percent),
+        D(tp3_percent),
+    )
+
+    if sum(
+        percentages
+    ) != Decimal("100"):
+
+        return False
+
+    quantities = [
+
+        entry_quantity
+        * percent
+        / Decimal("100")
+
+        for percent in percentages
+    ]
+
+    return bool(
+
+        entry_quantity >= MIN_QUANTITY
+
+        and all(
+            q >= MIN_QUANTITY
+            for q in quantities
+        )
+
+        and all(
+            quantize_down(
+                q,
+                QUANTITY_STEP,
+            ) == q
+            for q in quantities
+        )
+
+        and sum(
+            quantities
+        ) == entry_quantity
+    )
+
+
+def select_tp_allocation(
+    entry_quantity,
+):
+    """
+    Prefer 20/20/60.
+
+    Fall back only to the approved
+    25/25/50 allocation.
+    """
+
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    preferred = (
+        TP1_ALLOCATION_PERCENT,
+        TP2_ALLOCATION_PERCENT,
+        TP3_ALLOCATION_PERCENT,
+    )
+
+    adjusted = (
+        ADJUSTED_TP1_ALLOCATION_PERCENT,
+        ADJUSTED_TP2_ALLOCATION_PERCENT,
+        ADJUSTED_TP3_ALLOCATION_PERCENT,
+    )
+
+    if allocation_exactly_representable(
+        entry_quantity,
+        *preferred,
+    ):
+
+        return {
+
+            "tp1_percent":
+                preferred[0],
+
+            "tp2_percent":
+                preferred[1],
+
+            "tp3_percent":
+                preferred[2],
+
+            "adjusted":
+                False,
+
+            "label":
+                "20/20/60",
+        }
+
+    if allocation_exactly_representable(
+        entry_quantity,
+        *adjusted,
+    ):
+
+        return {
+
+            "tp1_percent":
+                adjusted[0],
+
+            "tp2_percent":
+                adjusted[1],
+
+            "tp3_percent":
+                adjusted[2],
+
+            "adjusted":
+                True,
+
+            "label":
+                "25/25/50",
+        }
+
+    return None
+
+
+def writer_quantities(
+    entry_quantity,
+):
+    """
+    Allocate TP quantities using preferred
+    20/20/60 or approved 25/25/50 fallback.
+    """
+
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    allocation = select_tp_allocation(
+        entry_quantity
+    )
+
+    if allocation is None:
+
+        return (
+            entry_quantity,
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0"),
+        )
+
+    tp1 = (
+        entry_quantity
+        * allocation[
+            "tp1_percent"
+        ]
+        / Decimal("100")
+    )
+
+    tp2 = (
+        entry_quantity
+        * allocation[
+            "tp2_percent"
+        ]
+        / Decimal("100")
+    )
+
+    tp3 = (
+        entry_quantity
+        * allocation[
+            "tp3_percent"
+        ]
+        / Decimal("100")
+    )
+
+    return (
+        entry_quantity,
+        tp1,
+        tp2,
+        tp3,
+    )
+
+
+# ============================================================
+# WRITER QUANTITY VALIDATION
+# ============================================================
+
+def validate_writer_quantities(
+    entry_quantity,
+    tp1,
+    tp2,
+    tp3,
+):
+
+    allocation = select_tp_allocation(
+        entry_quantity
+    )
+
+    if allocation is None:
+
+        return {
+
+            "allocation_selected":
+                False,
+
+            "all_valid":
+                False,
+        }
+
+    exact_tp1 = (
+        entry_quantity
+        * allocation[
+            "tp1_percent"
+        ]
+        / Decimal("100")
+    )
+
+    exact_tp2 = (
+        entry_quantity
+        * allocation[
+            "tp2_percent"
+        ]
+        / Decimal("100")
+    )
+
+    exact_tp3 = (
+        entry_quantity
+        * allocation[
+            "tp3_percent"
+        ]
+        / Decimal("100")
+    )
+
+    checks = {
+
+        "allocation_selected":
+            True,
+
+        "entry_on_step":
+            quantize_down(
+                entry_quantity,
+                QUANTITY_STEP,
+            )
+            == entry_quantity,
+
+        "tp1_on_step":
+            quantize_down(
+                tp1,
+                QUANTITY_STEP,
+            )
+            == tp1,
+
+        "tp2_on_step":
+            quantize_down(
+                tp2,
+                QUANTITY_STEP,
+            )
+            == tp2,
+
+        "tp3_on_step":
+            quantize_down(
+                tp3,
+                QUANTITY_STEP,
+            )
+            == tp3,
+
+        "entry_minimum":
+            entry_quantity
+            >= MIN_QUANTITY,
+
+        "tp1_minimum":
+            tp1
+            >= MIN_QUANTITY,
+
+        "tp2_minimum":
+            tp2
+            >= MIN_QUANTITY,
+
+        "tp3_minimum":
+            tp3
+            >= MIN_QUANTITY,
+
+        "allocation_sum_exact":
+            (
+                tp1
+                + tp2
+                + tp3
+            )
+            == entry_quantity,
+
+        "tp1_selected_percent_exact":
+            tp1
+            == exact_tp1,
+
+        "tp2_selected_percent_exact":
+            tp2
+            == exact_tp2,
+
+        "tp3_selected_percent_exact":
+            tp3
+            == exact_tp3,
+
+        "tp3_non_negative":
+            tp3
+            >= Decimal("0"),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+def minimum_adjustable_tp_entry_quantity():
+    """
+    Return first exchange-step quantity
+    supported by an approved allocation.
+    """
+
+    candidate = QUANTITY_STEP
+
+    for _ in range(
+        100000
+    ):
+
+        (
+            quantity,
+            tp1,
+            tp2,
+            tp3,
+        ) = writer_quantities(
+            candidate
+        )
+
+        checks = (
+            validate_writer_quantities(
+                quantity,
+                tp1,
+                tp2,
+                tp3,
+            )
+        )
+
+        if checks.get(
+            "all_valid"
+        ):
+
+            return quantity
+
+        candidate += QUANTITY_STEP
+
+    raise RuntimeError(
+        "Unable to find adjustable TP minimum entry quantity"
+    )
+
+
+def minimum_strict_tp_entry_quantity():
+    """
+    Compatibility alias.
+
+    R36F.10 minimum under the approved
+    adjustable allocation policy.
+    """
+
+    return (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+
+def evaluate_writer_quantity_feasibility(
+    entry_quantity,
+):
+
+    (
+        quantity,
+        tp1,
+        tp2,
+        tp3,
+    ) = writer_quantities(
+        entry_quantity
+    )
+
+    allocation = (
+        select_tp_allocation(
+            quantity
+        )
+    )
+
+    checks = (
+        validate_writer_quantities(
+            quantity,
+            tp1,
+            tp2,
+            tp3,
+        )
+    )
+
+    minimum_required = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    feasible = bool(
+        checks.get(
+            "all_valid"
+        )
+    )
+
+    return {
+
+        "feasible":
+            feasible,
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_ALLOCATION_REPRESENTABLE"
+                if feasible
+                else
+                "POSITION_TOO_SMALL_OR_NOT_REPRESENTABLE_BY_APPROVED_TP_ALLOCATIONS"
+            ),
+
+        "entry_quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "tp1_quantity":
+            decimal_to_string(
+                tp1
+            ),
+
+        "tp2_quantity":
+            decimal_to_string(
+                tp2
+            ),
+
+        "tp3_quantity":
+            decimal_to_string(
+                tp3
+            ),
+
+        "requested_allocation":
+            "20/20/60",
+
+        "selected_allocation":
+            (
+                allocation[
+                    "label"
+                ]
+                if allocation
+                else None
+            ),
+
+        "allocation_adjusted":
+            bool(
+                allocation
+                and allocation[
+                    "adjusted"
+                ]
+            ),
+
+        "selected_tp1_percent":
+            (
+                decimal_to_string(
+                    allocation[
+                        "tp1_percent"
+                    ]
+                )
+                if allocation
+                else None
+            ),
+
+        "selected_tp2_percent":
+            (
+                decimal_to_string(
+                    allocation[
+                        "tp2_percent"
+                    ]
+                )
+                if allocation
+                else None
+            ),
+
+        "selected_tp3_percent":
+            (
+                decimal_to_string(
+                    allocation[
+                        "tp3_percent"
+                    ]
+                )
+                if allocation
+                else None
+            ),
+
+        "minimum_required_entry_quantity":
+            decimal_to_string(
+                minimum_required
+            ),
+
+        "checks":
+            checks,
+    }
+
+
+def evaluate_strict_tp_balance_readiness(
+    available_balance,
+    mark_price,
+    leverage,
+):
+    """
+    Classify balance readiness under
+    R36F.10 approved adjustable TP allocation.
+    """
+
+    available_balance = D(
+        available_balance
+    )
+
+    mark_price = D(
+        mark_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    if available_balance < Decimal("0"):
+
+        raise ValueError(
+            "available_balance must be non-negative"
+        )
+
+    if mark_price <= Decimal("0"):
+
+        raise ValueError(
+            "mark_price must be positive"
+        )
+
+    if leverage <= Decimal("0"):
+
+        raise ValueError(
+            "leverage must be positive"
+        )
+
+    entry_fraction = (
+        ENTRY_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    if entry_fraction <= Decimal("0"):
+
+        raise ValueError(
+            "ENTRY_MARGIN_PERCENT must be positive"
+        )
+
+    raw_entry_quantity = (
+        available_balance
+        * entry_fraction
+        * leverage
+        / mark_price
+    )
+
+    planned_entry_quantity = (
+        quantize_down(
+            raw_entry_quantity,
+            QUANTITY_STEP,
+        )
+    )
+
+    quantity_feasibility = (
+        evaluate_writer_quantity_feasibility(
+            planned_entry_quantity
+        )
+    )
+
+    minimum_entry_quantity = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    required_entry_margin = (
+        minimum_entry_quantity
+        * mark_price
+        / leverage
+    )
+
+    required_available_balance = (
+        required_entry_margin
+        / entry_fraction
+    )
+
+    available_balance_shortfall = max(
+        Decimal("0"),
+        required_available_balance
+        - available_balance,
+    )
+
+    eligible = bool(
+
+        quantity_feasibility[
+            "feasible"
+        ]
+
+        and
+
+        available_balance
+        >= required_available_balance
+    )
+
+    return {
+
+        "eligible":
+            eligible,
+
+        "status":
+            (
+                "ELIGIBLE"
+                if eligible
+                else
+                "TRADE_NOT_ELIGIBLE"
+            ),
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_BALANCE_AND_QUANTITY_READY"
+                if eligible
+                else
+                "INSUFFICIENT_BALANCE_FOR_APPROVED_TP_ALLOCATION"
+            ),
+
+        "available_balance":
+            decimal_to_string(
+                available_balance
+            ),
+
+        "mark_price":
+            decimal_to_string(
+                mark_price
+            ),
+
+        "leverage":
+            decimal_to_string(
+                leverage
+            ),
+
+        "entry_margin_percent":
+            decimal_to_string(
+                ENTRY_MARGIN_PERCENT
+            ),
+
+        "raw_entry_quantity":
+            decimal_to_string(
+                raw_entry_quantity
+            ),
+
+        "planned_entry_quantity":
+            decimal_to_string(
+                planned_entry_quantity
+            ),
+
+        "minimum_strict_tp_entry_quantity":
+            decimal_to_string(
+                minimum_entry_quantity
+            ),
+
+        "required_margin_for_minimum_qty":
+            decimal_to_string(
+                required_entry_margin
+            ),
+
+        "required_available_balance":
+            decimal_to_string(
+                required_available_balance
+            ),
+
+        "available_balance_shortfall":
+            decimal_to_string(
+                available_balance_shortfall
+            ),
+
+        "quantity_feasible":
+            quantity_feasibility[
+                "feasible"
+            ],
+
+        "quantity_feasibility_reason":
+            quantity_feasibility[
+                "reason"
+            ],
+
+        "requested_allocation":
+            quantity_feasibility[
+                "requested_allocation"
+            ],
+
+        "selected_allocation":
+            quantity_feasibility[
+                "selected_allocation"
+            ],
+
+        "allocation_adjusted":
+            quantity_feasibility[
+                "allocation_adjusted"
+            ],
+
+        "tp1_quantity":
+            quantity_feasibility[
+                "tp1_quantity"
+            ],
+
+        "tp2_quantity":
+            quantity_feasibility[
+                "tp2_quantity"
+            ],
+
+        "tp3_quantity":
+            quantity_feasibility[
+                "tp3_quantity"
+            ],
+    }
+
+
+# ============================================================
+# WRITER REQUEST PREVIEW
+# ============================================================
+
+def build_writer_request_preview(
+    direction,
+    entry_price,
+    quantity,
+    tp_snapshot,
+):
+
+    if (
+        not tp_snapshot
+        or not tp_snapshot.get(
+            "tp_approval",
+            {},
+        ).get(
+            "approved"
+        )
+    ):
+
+        raise ValueError(
+            "writer requires an approved complete TP snapshot"
+        )
+
+    entry_price = quantize_down(
+        entry_price,
+        PRICE_STEP,
+    )
+
+    (
+        entry_quantity,
+        tp1_qty,
+        tp2_qty,
+        tp3_qty,
+    ) = writer_quantities(
+        quantity
+    )
+
+    quantity_checks = (
+        validate_writer_quantities(
+            entry_quantity,
+            tp1_qty,
+            tp2_qty,
+            tp3_qty,
+        )
+    )
+
+    (
+        entry_side,
+        position_side,
+    ) = writer_entry_side(
+        direction
+    )
+
+    (
+        close_side,
+        close_position_side,
+    ) = writer_close_side(
+        direction
+    )
+
+    tp1_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp1"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    tp2_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp2"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    if direction == "LONG":
+
+        if not (
+            tp1_price > entry_price
+            and
+            tp2_price > tp1_price
+        ):
+
+            raise ValueError(
+                "LONG TP ordering invalid"
+            )
+
+    elif direction == "SHORT":
+
+        if not (
+            tp1_price < entry_price
+            and
+            tp2_price < tp1_price
+        ):
+
+            raise ValueError(
+                "SHORT TP ordering invalid"
+            )
+
+    else:
+
+        raise ValueError(
+            "Invalid writer direction"
+        )
+
+    entry_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_ENTRY,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            entry_side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            decimal_to_string(
+                entry_quantity
+            ),
+
+        "newClientOrderId":
+            writer_client_id(
+                direction,
+                "ENTRY",
+            ),
+
+        "reduceOnly":
+            False,
+    }
+
+    tp1_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TPSL,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            close_side,
+
+        "positionSide":
+            close_position_side,
+
+        "type":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "executePrice":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                tp1_qty
+            ),
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP1",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+    tp2_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TPSL,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            close_side,
+
+        "positionSide":
+            close_position_side,
+
+        "type":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            decimal_to_string(
+                tp2_price
+            ),
+
+        "executePrice":
+            decimal_to_string(
+                tp2_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                tp2_qty
+            ),
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP2",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+    tp3_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TRAILING,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            close_side,
+
+        "positionSide":
+            close_position_side,
+
+        "type":
+            "TRAILING_MARKET",
+
+        "quantity":
+            decimal_to_string(
+                tp3_qty
+            ),
+
+        "callbackRate":
+            decimal_to_string(
+                TP3_TRAILING_DISTANCE_PERCENT
+            ),
+
+        "workingType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP3",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+    legs = {
+
+        "entry":
+            entry_leg,
+
+        "tp1":
+            tp1_leg,
+
+        "tp2":
+            tp2_leg,
+
+        "tp3":
+            tp3_leg,
+    }
+
+    integrity_hash = (
+        sha256_text(
+            canonical_json(
+                legs
+            )
+        )
+    )
+
+    allocation = select_tp_allocation(
+        entry_quantity
+    )
+
+    return {
+
+        "stage":
+            STAGE,
+
+        "symbol":
+            SYMBOL,
+
+        "direction":
+            direction,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "entry_quantity":
+            decimal_to_string(
+                entry_quantity
+            ),
+
+        "tp1_quantity":
+            decimal_to_string(
+                tp1_qty
+            ),
+
+        "tp2_quantity":
+            decimal_to_string(
+                tp2_qty
+            ),
+
+        "tp3_quantity":
+            decimal_to_string(
+                tp3_qty
+            ),
+
+        "allocation_percent":
+            {
+
+                "tp1":
+                    decimal_to_string(
+                        allocation[
+                            "tp1_percent"
+                        ]
+                    ),
+
+                "tp2":
+                    decimal_to_string(
+                        allocation[
+                            "tp2_percent"
+                        ]
+                    ),
+
+                "tp3":
+                    decimal_to_string(
+                        allocation[
+                            "tp3_percent"
+                        ]
+                    ),
+            },
+
+        "allocation_label":
+            allocation[
+                "label"
+            ],
+
+        "allocation_adjusted":
+            allocation[
+                "adjusted"
+            ],
+
+        "quantity_validation":
+            quantity_checks,
+
+        "tp_approval":
+            tp_snapshot[
+                "tp_approval"
+            ],
+
+        "tp1":
+            tp_snapshot[
+                "tp1"
+            ],
+
+        "tp2":
+            tp_snapshot[
+                "tp2"
+            ],
+
+        "tp3":
+            tp_snapshot[
+                "tp3"
+            ],
+
+        "legs":
+            legs,
+
+        "primary_tp_immutable":
+            True,
+
+        "submitted":
+            False,
+
+        "transport_enabled":
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+        "integrity_sha256":
+            integrity_hash,
+    }
+
+
+# ============================================================
+# R36F.10 ADJUSTABLE TP QUANTITY FEASIBILITY TESTS
+# ============================================================
+
+def synthetic_writer_quantity_tests():
+
+    adjusted = (
+        evaluate_writer_quantity_feasibility(
+            Decimal("0.0004")
+        )
+    )
+
+    check(
+        "ADJUSTABLE_00004_APPROVED",
+        adjusted[
+            "feasible"
+        ] is True,
+    )
+
+    check(
+        "ADJUSTABLE_00004_SELECTED_25_25_50",
+        adjusted[
+            "selected_allocation"
+        ] == "25/25/50",
+    )
+
+    check(
+        "ADJUSTABLE_00004_ADJUSTED_TRUE",
+        adjusted[
+            "allocation_adjusted"
+        ] is True,
+    )
+
+    check(
+        "ADJUSTABLE_00004_TP1",
+        adjusted[
+            "tp1_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "ADJUSTABLE_00004_TP2",
+        adjusted[
+            "tp2_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "ADJUSTABLE_00004_TP3",
+        adjusted[
+            "tp3_quantity"
+        ] == "0.0002",
+    )
+
+    preferred = (
+        evaluate_writer_quantity_feasibility(
+            Decimal("0.0005")
+        )
+    )
+
+    check(
+        "PREFERRED_00005_APPROVED",
+        preferred[
+            "feasible"
+        ] is True,
+    )
+
+    check(
+        "PREFERRED_00005_RETAINS_20_20_60",
+        preferred[
+            "selected_allocation"
+        ] == "20/20/60",
+    )
+
+    check(
+        "PREFERRED_00005_ADJUSTED_FALSE",
+        preferred[
+            "allocation_adjusted"
+        ] is False,
+    )
+
+    check(
+        "PREFERRED_00005_TP1",
+        preferred[
+            "tp1_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "PREFERRED_00005_TP2",
+        preferred[
+            "tp2_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "PREFERRED_00005_TP3",
+        preferred[
+            "tp3_quantity"
+        ] == "0.0003",
+    )
+
+    smaller = (
+        evaluate_writer_quantity_feasibility(
+            Decimal("0.0003")
+        )
+    )
+
+    check(
+        "ADJUSTABLE_00003_REJECTED",
+        smaller[
+            "feasible"
+        ] is False,
+    )
+
+    check(
+        "ADJUSTABLE_MINIMUM_ENTRY_00004",
+        adjusted[
+            "minimum_required_entry_quantity"
+        ] == "0.0004",
+    )
+
+    return True
+
+
+def synthetic_balance_readiness_tests():
+
+    approved = (
+        evaluate_strict_tp_balance_readiness(
+            Decimal("7.19"),
+            Decimal("80000"),
+            Decimal("100"),
+        )
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_7_19_APPROVED",
+        approved[
+            "eligible"
+        ] is True,
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_7_19_PLANNED_00004",
+        approved[
+            "planned_entry_quantity"
+        ] == "0.0004",
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_7_19_SELECTED_25_25_50",
+        approved[
+            "selected_allocation"
+        ] == "25/25/50",
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_REQUIRED_BALANCE_6_40",
+        approved[
+            "required_available_balance"
+        ] == "6.4",
+    )
+
+    preferred = (
+        evaluate_strict_tp_balance_readiness(
+            Decimal("8"),
+            Decimal("80000"),
+            Decimal("100"),
+        )
+    )
+
+    check(
+        "PREFERRED_BALANCE_READINESS_8_00_APPROVED",
+        preferred[
+            "eligible"
+        ] is True,
+    )
+
+    check(
+        "PREFERRED_BALANCE_READINESS_8_00_PLANNED_00005",
+        preferred[
+            "planned_entry_quantity"
+        ] == "0.0005",
+    )
+
+    check(
+        "PREFERRED_BALANCE_READINESS_8_00_RETAINS_20_20_60",
+        preferred[
+            "selected_allocation"
+        ] == "20/20/60",
+    )
+
+    return True
+
+
+# ============================================================
+# MAIN R36F.10 TEST
+# ============================================================
+
+async def run_r36f10():
+
+    global TEST_STATUS
+
+    global R36A_EVIDENCE_OK
+    global R36C_EVIDENCE_OK
+    global R36D_EVIDENCE_OK
+
+    global DURABLE_EVIDENCE_OK
+    global WEEX_READ_ONLY_OK
+
+    global ZERO_WRITE_INVARIANT_OK
+    global FINAL_GATE_OK
+
+    global LONG_DIAGNOSTICS
+    global SHORT_DIAGNOSTICS
+
+    TEST_STATUS = "RUNNING"
+
+    FINAL_BLOCKERS.clear()
+
+    line()
+
+    log(
+        f"{STAGE}: {PURPOSE}"
+    )
+
+    line()
+
+    check(
+        "REAL_ORDER_EXECUTION_DISABLED",
+        REAL_ORDER_EXECUTION is False,
+    )
+
+    check(
+        "DEMO_ORDER_EXECUTION_DISABLED",
+        DEMO_ORDER_EXECUTION is False,
+    )
+
+    check(
+        "EXCHANGE_MUTATION_TRANSPORT_DISABLED",
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        is False,
+    )
+
+    check(
+        "ORDER_SUBMISSION_DISABLED",
+        ORDER_SUBMISSION_ENABLED
+        is False,
+    )
+
+    check(
+        "LEVERAGE_MUTATION_DISABLED",
+        LEVERAGE_MUTATION_ENABLED
+        is False,
+    )
+
+    check(
+        "MARGIN_MODE_MUTATION_DISABLED",
+        MARGIN_MODE_MUTATION_ENABLED
+        is False,
+    )
+
+    check(
+        "POSITION_MUTATION_DISABLED",
+        POSITION_MUTATION_ENABLED
+        is False,
+    )
+
+    check(
+        "FIRST_REAL_ORDER_DISABLED",
+        FIRST_REAL_ORDER_ALLOWED
+        is False,
+    )
+
+    check(
+        "WEEX_API_KEY_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_KEY"
+            )
+        ),
+    )
+
+    check(
+        "WEEX_API_SECRET_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_SECRET"
+            )
+        ),
+    )
+
+    check(
+        "WEEX_API_PASSPHRASE_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_PASSPHRASE"
+            )
+        ),
+    )
+
+    r36a_ids = set()
+
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DEDUPE_FILE
+        )
+    )
+
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DECISION_FILE
+        )
+    )
+
+    R36A_EVIDENCE_OK = (
+        OLD_R36A_UPDATE_ID
+        in r36a_ids
+    )
+
+    check(
+        "R36A_DURABLE_EVIDENCE",
+        R36A_EVIDENCE_OK,
+        (
+            f"EXPECTED_UPDATE_ID="
+            f"{OLD_R36A_UPDATE_ID}"
+        ),
+    )
+
+    r36c_ids = set()
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DEDUPE_FILE
+        )
+    )
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DECISION_FILE
+        )
+    )
+
+    R36C_EVIDENCE_OK = (
+        R36C_UPDATE_ID
+        in r36c_ids
+    )
+
+    check(
+        "R36C_DURABLE_EVIDENCE",
+        R36C_EVIDENCE_OK,
+        (
+            f"EXPECTED_UPDATE_ID="
+            f"{R36C_UPDATE_ID}"
+        ),
+    )
+
+    r36d_snapshot = read_json_file(
+        R36D_SNAPSHOT_FILE,
+        default={},
+    )
+
+    R36D_EVIDENCE_OK = bool(
+        r36d_snapshot
+    )
+
+    check(
+        "R36D_SNAPSHOT_EVIDENCE",
+        R36D_EVIDENCE_OK,
+        f"path={R36D_SNAPSHOT_FILE}",
+    )
+
+    DURABLE_EVIDENCE_OK = (
+        R36A_EVIDENCE_OK
+        and R36C_EVIDENCE_OK
+        and R36D_EVIDENCE_OK
+    )
+
+    try:
+
+        await reconcile_weex()
+
+        WEEX_READ_ONLY_OK = True
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            True,
+        )
+
+    except Exception as exc:
+
+        WEEX_READ_ONLY_OK = False
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            False,
+            str(exc),
+        )
+
+    synthetic_long = None
+    synthetic_short = None
+
+    try:
+
+        (
+            synthetic_long,
+            synthetic_short,
+        ) = synthetic_cluster_tests()
+
+        check(
+            "SYNTHETIC_TP_ENGINE",
+            True,
+        )
+
+    except Exception as exc:
+
+        check(
+            "SYNTHETIC_TP_ENGINE",
+            False,
+            str(exc),
+        )
+
+    try:
+
+        rejection = (
+            synthetic_tp_rejection_test()
+        )
+
+        check(
+            "TP_APPROVAL_REJECTION_FLOW",
+            rejection[
+                "approved"
+            ] is False,
+        )
+
+    except Exception as exc:
+
+        check(
+            "TP_APPROVAL_REJECTION_FLOW",
+            False,
+            str(exc),
+        )
+
+    try:
+
+        synthetic_writer_quantity_tests()
+
+        check(
+            "STRICT_TP_QUANTITY_FEASIBILITY_TESTS",
+            True,
+        )
+
+        synthetic_balance_readiness_tests()
+
+        check(
+            "ADJUSTABLE_TP_BALANCE_READINESS_TESTS",
+            True,
+        )
+
+    except Exception as exc:
+
+        check(
+            "STRICT_TP_QUANTITY_FEASIBILITY_TESTS",
+            False,
+            str(exc),
+        )
+
+        check(
+            "ADJUSTABLE_TP_BALANCE_READINESS_TESTS",
+            False,
+            str(exc),
+        )
+
+    historical_rows = []
+
+    try:
+
+        historical_rows = (
+            await load_historical_klines()
+        )
+
+        check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            len(
+                historical_rows
+            ) >= 3,
+            f"rows={len(historical_rows)}",
+        )
+
+    except Exception as exc:
+
+        check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            False,
+            str(exc),
+        )
+
+    real_long_snapshot = None
+
+    REAL_LONG_MARKET_ELIGIBLE = False
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+
+        try:
+
+            real_long_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "LONG",
+                    "REAL_LONG_PREVIEW",
+                )
+            )
+
+            LONG_DIAGNOSTICS = (
+                real_long_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_LONG_MARKET_ELIGIBLE = bool(
+                real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+            diagnostic_check(
+                "REAL_LONG_TP_MARKET_ELIGIBILITY",
+                REAL_LONG_MARKET_ELIGIBLE,
+                (
+                    "TP_APPROVAL="
+                    + real_long_snapshot[
+                        "tp_approval"
+                    ][
+                        "status"
+                    ]
+                ),
+            )
+
+            log(
+                "REAL_LONG_TP_APPROVAL="
+                + real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ]
+            )
+
+        except Exception as exc:
+
+            LONG_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "LONG",
+                )
+            )
+
+            approval = (
+                evaluate_tp_approval(
+                    LONG_DIAGNOSTICS
+                )
+            )
+
+            REAL_LONG_MARKET_ELIGIBLE = False
+
+            diagnostic_check(
+                "REAL_LONG_TP_MARKET_ELIGIBILITY",
+                False,
+                (
+                    "TP_APPROVAL="
+                    + approval[
+                        "status"
+                    ]
+                    + " reason="
+                    + approval[
+                        "reason"
+                    ]
+                    + " error="
+                    + str(exc)
+                ),
+            )
+
+    real_short_snapshot = None
+
+    REAL_SHORT_MARKET_ELIGIBLE = False
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+
+        try:
+
+            real_short_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "SHORT",
+                    "REAL_SHORT_PREVIEW",
+                )
+            )
+
+            SHORT_DIAGNOSTICS = (
+                real_short_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_SHORT_MARKET_ELIGIBLE = bool(
+                real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+            diagnostic_check(
+                "REAL_SHORT_TP_MARKET_ELIGIBILITY",
+                REAL_SHORT_MARKET_ELIGIBLE,
+                (
+                    "TP_APPROVAL="
+                    + real_short_snapshot[
+                        "tp_approval"
+                    ][
+                        "status"
+                    ]
+                ),
+            )
+
+            log(
+                "REAL_SHORT_TP_APPROVAL="
+                + real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ]
+            )
+
+        except Exception as exc:
+
+            SHORT_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "SHORT",
+                )
+            )
+
+            approval = (
+                evaluate_tp_approval(
+                    SHORT_DIAGNOSTICS
+                )
+            )
+
+            REAL_SHORT_MARKET_ELIGIBLE = False
+
+            diagnostic_check(
+                "REAL_SHORT_TP_MARKET_ELIGIBILITY",
+                False,
+                (
+                    "TP_APPROVAL="
+                    + approval[
+                        "status"
+                    ]
+                    + " reason="
+                    + approval[
+                        "reason"
+                    ]
+                    + " error="
+                    + str(exc)
+                ),
+            )
+
+    canary_preview = None
+
+    try:
+
+        canary_preview = (
+            build_canary_preview()
+        )
+
+        diagnostic_check(
+            "CANARY_PREVIEW",
+            True,
+        )
+
+    except Exception as exc:
+
+        diagnostic_check(
+            "CANARY_PREVIEW",
+            False,
+            str(exc),
+        )
+
+    writer_preview = None
+    quantity_feasibility = None
+    balance_readiness = None
+
+    WRITER_CONSTRUCTION_ELIGIBLE = False
+
+    try:
+
+        selected_direction = None
+        selected_snapshot = None
+
+        if (
+            REAL_SHORT_MARKET_ELIGIBLE
+            and
+            real_short_snapshot is not None
+        ):
+
+            selected_direction = "SHORT"
+            selected_snapshot = (
+                real_short_snapshot
+            )
+
+        elif (
+            REAL_LONG_MARKET_ELIGIBLE
+            and
+            real_long_snapshot is not None
+        ):
+
+            selected_direction = "LONG"
+            selected_snapshot = (
+                real_long_snapshot
+            )
+
+        if selected_direction is None:
+
+            diagnostic_check(
+                "ADJUSTABLE_TP_BALANCE_READINESS",
+                False,
+                (
+                    "TRADE_NOT_ELIGIBLE: "
+                    "no currently eligible real market TP set"
+                ),
+            )
+
+            diagnostic_check(
+                "WRITER_REQUEST_CONSTRUCTION",
+                False,
+                (
+                    "blocked: "
+                    "no currently eligible real market TP set"
+                ),
+            )
+
+        elif (
+            AVAILABLE_BALANCE is None
+            or
+            MARK_PRICE is None
+        ):
+
+            diagnostic_check(
+                "ADJUSTABLE_TP_BALANCE_READINESS",
+                False,
+                (
+                    "READINESS_UNAVAILABLE: "
+                    "balance or mark price unavailable"
+                ),
+            )
+
+            diagnostic_check(
+                "WRITER_REQUEST_CONSTRUCTION",
+                False,
+                (
+                    "blocked: "
+                    "balance or mark price unavailable"
+                ),
+            )
+
+        else:
+
+            leverage = (
+                LEVERAGE_SHORT
+                if selected_direction
+                == "SHORT"
+                else
+                LEVERAGE_LONG
+            )
+
+            balance_readiness = (
+                evaluate_strict_tp_balance_readiness(
+                    AVAILABLE_BALANCE,
+                    MARK_PRICE,
+                    leverage,
+                )
+            )
+
+            quantity_feasibility = (
+                evaluate_writer_quantity_feasibility(
+                    D(
+                        balance_readiness[
+                            "planned_entry_quantity"
+                        ]
+                    )
+                )
+            )
+
+            log(
+                "R36F.10 ADJUSTABLE TP BALANCE READINESS "
+                + "direction="
+                + selected_direction
+                + " status="
+                + balance_readiness[
+                    "status"
+                ]
+                + " reason="
+                + balance_readiness[
+                    "reason"
+                ]
+                + " available_usdt="
+                + balance_readiness[
+                    "available_balance"
+                ]
+                + " planned_entry_qty="
+                + balance_readiness[
+                    "planned_entry_quantity"
+                ]
+                + " minimum_entry_qty="
+                + balance_readiness[
+                    "minimum_strict_tp_entry_quantity"
+                ]
+                + " required_margin_usdt="
+                + balance_readiness[
+                    "required_margin_for_minimum_qty"
+                ]
+                + " required_available_usdt="
+                + balance_readiness[
+                    "required_available_balance"
+                ]
+                + " shortfall_usdt="
+                + balance_readiness[
+                    "available_balance_shortfall"
+                ]
+            )
+
+            diagnostic_check(
+                "ADJUSTABLE_TP_BALANCE_READINESS",
+                balance_readiness[
+                    "eligible"
+                ],
+                (
+                    "status="
+                    + balance_readiness[
+                        "status"
+                    ]
+                    + " reason="
+                    + balance_readiness[
+                        "reason"
+                    ]
+                ),
+            )
+
+            diagnostic_check(
+                "ADJUSTABLE_TP_QUANTITY_FEASIBILITY",
+                quantity_feasibility[
+                    "feasible"
+                ],
+                (
+                    "reason="
+                    + quantity_feasibility[
+                        "reason"
+                    ]
+                ),
+            )
+
+            if not balance_readiness[
+                "eligible"
+            ]:
+
+                log(
+                    "R36F.9 TRADE_READINESS = REJECTED "
+                    + "reason="
+                    + balance_readiness[
+                        "reason"
+                    ]
+                )
+
+                diagnostic_check(
+                    "WRITER_REQUEST_CONSTRUCTION",
+                    False,
+                    (
+                        "blocked before construction: "
+                        + balance_readiness[
+                            "reason"
+                        ]
+                    ),
+                )
+
+            else:
+
+                quantity = D(
+                    balance_readiness[
+                        "planned_entry_quantity"
+                    ]
+                )
+
+                log(
+                    "R36F.9 TRADE_READINESS = ELIGIBLE "
+                    + "reason="
+                    + balance_readiness[
+                        "reason"
+                    ]
+                )
+
+                writer_preview = (
+                    build_writer_request_preview(
+                        selected_direction,
+                        MARK_PRICE,
+                        quantity,
+                        selected_snapshot,
+                    )
+                )
+
+                WRITER_CONSTRUCTION_ELIGIBLE = bool(
+                    writer_preview[
+                        "submitted"
+                    ] is False
+                    and
+                    writer_preview[
+                        "quantity_validation"
+                    ][
+                        "all_valid"
+                    ]
+                    and
+                    writer_preview[
+                        "transport_enabled"
+                    ] is False
+                )
+
+                diagnostic_check(
+                    "WRITER_REQUEST_CONSTRUCTION",
+                    WRITER_CONSTRUCTION_ELIGIBLE,
+                    (
+                        "direction="
+                        + selected_direction
+                        + " quantity="
+                        + writer_preview[
+                            "entry_quantity"
+                        ]
+                        + " tp1_qty="
+                        + writer_preview[
+                            "tp1_quantity"
+                        ]
+                        + " tp2_qty="
+                        + writer_preview[
+                            "tp2_quantity"
+                        ]
+                        + " tp3_qty="
+                        + writer_preview[
+                            "tp3_quantity"
+                        ]
+                    ),
+                )
+
+                for (
+                    validation_name,
+                    validation_result,
+                ) in writer_preview[
+                    "quantity_validation"
+                ].items():
+
+                    if (
+                        validation_name
+                        == "all_valid"
+                    ):
+                        continue
+
+                    diagnostic_check(
+                        "WRITER_QUANTITY_"
+                        + validation_name.upper(),
+                        validation_result,
+                    )
+
+    except Exception as exc:
+
+        diagnostic_check(
+            "ADJUSTABLE_TP_BALANCE_READINESS",
+            False,
+            str(exc),
+        )
+
+        diagnostic_check(
+            "WRITER_REQUEST_CONSTRUCTION",
+            False,
+            str(exc),
+        )
+
+    zero_write_conditions = (
+
+        REAL_ORDER_EXECUTION is False
+
+        and
+
+        DEMO_ORDER_EXECUTION is False
+
+        and
+
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        is False
+
+        and
+
+        ORDER_SUBMISSION_ENABLED
+        is False
+
+        and
+
+        LEVERAGE_MUTATION_ENABLED
+        is False
+
+        and
+
+        MARGIN_MODE_MUTATION_ENABLED
+        is False
+
+        and
+
+        POSITION_MUTATION_ENABLED
+        is False
+
+        and
+
+        FIRST_REAL_ORDER_ALLOWED
+        is False
+    )
+
+    ZERO_WRITE_INVARIANT_OK = (
+        zero_write_conditions
+    )
+
+    check(
+        "ZERO_WRITE_INVARIANTS",
+        ZERO_WRITE_INVARIANT_OK,
+    )
+
+    FINAL_GATE_OK = (
+        len(
+            FINAL_BLOCKERS
+        ) == 0
+    )
+
+    TEST_STATUS = (
+        "PASS"
+        if FINAL_GATE_OK
+        else
+        "FAIL"
+    )
+
+    line()
+
+    log(
+        f"{STAGE} FINAL STATUS = "
+        f"{TEST_STATUS}"
+    )
+
+    log(
+        f"{STAGE} FINAL_BLOCKER_COUNT = "
+        f"{len(FINAL_BLOCKERS)}"
+    )
+
+    for blocker in FINAL_BLOCKERS:
+
+        log(
+            f"{STAGE} FINAL_BLOCKER = "
+            f"{blocker}"
+        )
+
+    log(
+        f"{STAGE} REAL_LONG_MARKET_ELIGIBLE = "
+        f"{REAL_LONG_MARKET_ELIGIBLE}"
+    )
+
+    log(
+        f"{STAGE} REAL_SHORT_MARKET_ELIGIBLE = "
+        f"{REAL_SHORT_MARKET_ELIGIBLE}"
+    )
+
+    log(
+        f"{STAGE} WRITER_CONSTRUCTION_ELIGIBLE = "
+        f"{WRITER_CONSTRUCTION_ELIGIBLE}"
+    )
+
+    log(
+        f"{STAGE} STRICT_20_20_60_QUANTITY_FEASIBLE = "
+        f"{bool(quantity_feasibility and quantity_feasibility.get('feasible'))}"
+    )
+
+    if quantity_feasibility:
+
+        log(
+            f"{STAGE} ADJUSTABLE_TP_MIN_ENTRY_QTY = "
+            f"{quantity_feasibility.get('minimum_required_entry_quantity')}"
+        )
+
+    log(
+        f"{STAGE} ADJUSTABLE_TP_BALANCE_READY = "
+        f"{bool(balance_readiness and balance_readiness.get('eligible'))}"
+    )
+
+    if balance_readiness:
+
+        log(
+            f"{STAGE} TRADE_READINESS_STATUS = "
+            f"{balance_readiness.get('status')}"
+        )
+
+        log(
+            f"{STAGE} TRADE_READINESS_REASON = "
+            f"{balance_readiness.get('reason')}"
+        )
+
+        log(
+            f"{STAGE} REQUIRED_AVAILABLE_BALANCE = "
+            f"{balance_readiness.get('required_available_balance')}"
+        )
+
+        log(
+            f"{STAGE} AVAILABLE_BALANCE_SHORTFALL = "
+            f"{balance_readiness.get('available_balance_shortfall')}"
+        )
+
+    snapshot = {
+
+        "stage":
+            STAGE,
+
+        "purpose":
+            PURPOSE,
+
+        "timestamp":
+            now_iso(),
+
+        "test_status":
+            TEST_STATUS,
+
+        "final_gate_ok":
+            FINAL_GATE_OK,
+
+        "final_blockers":
+            FINAL_BLOCKERS,
+
+        "weex_read_only_ok":
+            WEEX_READ_ONLY_OK,
+
+        "durable_evidence_ok":
+            DURABLE_EVIDENCE_OK,
+
+        "r36a_evidence_ok":
+            R36A_EVIDENCE_OK,
+
+        "r36c_evidence_ok":
+            R36C_EVIDENCE_OK,
+
+        "r36d_evidence_ok":
+            R36D_EVIDENCE_OK,
+
+        "zero_write_invariant_ok":
+            ZERO_WRITE_INVARIANT_OK,
+
+        "mark_price":
+            decimal_to_string(
+                MARK_PRICE
+            ),
+
+        "available_balance":
+            decimal_to_string(
+                AVAILABLE_BALANCE
+            ),
+
+        "open_positions":
+            OPEN_POSITIONS,
+
+        "long_diagnostics":
+            LONG_DIAGNOSTICS,
+
+        "short_diagnostics":
+            SHORT_DIAGNOSTICS,
+
+        "tp_policy":
+            {
+
+                "required_valid_clusters":
+                    REQUIRED_TP_CLUSTERS,
+
+                "tp1_progress_percent":
+                    decimal_to_string(
+                        TP1_PROFIT_MARGIN_PERCENT
+                    ),
+
+                "tp2_progress_percent":
+                    decimal_to_string(
+                        TP2_PROFIT_MARGIN_PERCENT
+                    ),
+
+                "tp3_allocation_percent":
+                    decimal_to_string(
+                        TP3_ALLOCATION_PERCENT
+                    ),
+
+                "tp1_allocation_percent":
+                    decimal_to_string(
+                        TP1_ALLOCATION_PERCENT
+                    ),
+
+                "tp2_allocation_percent":
+                    decimal_to_string(
+                        TP2_ALLOCATION_PERCENT
+                    ),
+
+                "writer_quantity_policy":
+                    {
+
+                        "tp1_minimum":
+                            decimal_to_string(
+                                MIN_QUANTITY
+                            ),
+
+                        "tp2_minimum":
+                            decimal_to_string(
+                                MIN_QUANTITY
+                            ),
+
+                        "tp3_minimum":
+                            decimal_to_string(
+                                MIN_QUANTITY
+                            ),
+
+                        "strict_allocation":
+                            "20/20/60",
+
+                        "minimum_strict_entry_quantity":
+                            decimal_to_string(
+                                minimum_strict_tp_entry_quantity()
+                            ),
+
+                        "minimum_leg_promotion_allowed":
+                            False,
+
+                        "remainder_redistribution_allowed":
+                            False,
+                    },
+
+                "cluster_tolerance_percent":
+                    decimal_to_string(
+                        CLUSTER_TOLERANCE_PERCENT
+                    ),
+
+                "minimum_cluster_touches":
+                    MIN_CLUSTER_TOUCHES,
+            },
+
+        "synthetic_test_policy":
+            {
+
+                "long_requires_two_clusters":
+                    True,
+
+                "short_requires_two_clusters":
+                    True,
+
+                "one_cluster_must_reject":
+                    True,
+
+                "synthetic_fixtures_changed":
+                    True,
+
+                "production_tp_policy_changed":
+                    False,
+            },
+
+        "market_eligibility":
+            {
+
+                "real_long_market_eligible":
+                    REAL_LONG_MARKET_ELIGIBLE,
+
+                "real_short_market_eligible":
+                    REAL_SHORT_MARKET_ELIGIBLE,
+            },
+
+        "canary_preview":
+            canary_preview,
+
+        "writer_preview":
+            writer_preview,
+
+        "strict_tp_quantity_feasibility":
+            quantity_feasibility,
+
+        "strict_tp_balance_readiness":
+            balance_readiness,
+
+        "trade_readiness":
+            {
+
+                "status":
+                    (
+                        balance_readiness.get(
+                            "status"
+                        )
+                        if balance_readiness
+                        else "UNAVAILABLE"
+                    ),
+
+                "reason":
+                    (
+                        balance_readiness.get(
+                            "reason"
+                        )
+                        if balance_readiness
+                        else "READINESS_NOT_EVALUATED"
+                    ),
+
+                "eligible":
+                    bool(
+                        balance_readiness
+                        and balance_readiness.get(
+                            "eligible"
+                        )
+                    ),
+            },
+
+        "writer_construction_eligible":
+            WRITER_CONSTRUCTION_ELIGIBLE,
+
+        "execution_firebreak":
+            {
+
+                "real_order_execution":
+                    REAL_ORDER_EXECUTION,
+
+                "demo_order_execution":
+                    DEMO_ORDER_EXECUTION,
+
+                "exchange_mutation_transport_enabled":
+                    EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+                "order_submission_enabled":
+                    ORDER_SUBMISSION_ENABLED,
+
+                "leverage_mutation_enabled":
+                    LEVERAGE_MUTATION_ENABLED,
+
+                "margin_mode_mutation_enabled":
+                    MARGIN_MODE_MUTATION_ENABLED,
+
+                "position_mutation_enabled":
+                    POSITION_MUTATION_ENABLED,
+
+                "first_real_order_allowed":
+                    FIRST_REAL_ORDER_ALLOWED,
+            },
+
+        "writer_endpoints":
+            {
+
+                "entry":
+                    WRITER_ENDPOINT_ENTRY,
+
+                "tp1_tp2":
+                    WRITER_ENDPOINT_TPSL,
+
+                "tp3":
+                    WRITER_ENDPOINT_TRAILING,
+            },
+
+        "writer_submission_policy":
+            {
+
+                "submitted":
+                    False,
+
+                "post_requests_sent":
+                    False,
+
+                "exchange_mutation_sent":
+                    False,
+            },
+    }
+
+    write_json_file(
+        R36F_SNAPSHOT_FILE,
+        snapshot,
+    )
+
+    log(
+        f"{STAGE} SNAPSHOT WRITTEN = "
+        f"{R36F_SNAPSHOT_FILE}"
+    )
+
+    line()
+
+    log(
+        "NO REAL ORDER WAS SENT"
+    )
+
+    log(
+        "NO DEMO ORDER WAS SENT"
+    )
+
+    log(
+        "NO EXCHANGE MUTATION WAS SENT"
+    )
+
+    line()
+
+    return snapshot
+
+
+# ============================================================
+# HEARTBEAT
+# ============================================================
+
+async def heartbeat_loop():
+
+    global HEARTBEAT_COUNT
+
+    while True:
+
+        HEARTBEAT_COUNT += 1
+
+        log(
+            f"HEARTBEAT "
+            f"stage={STAGE} "
+            f"status={TEST_STATUS} "
+            f"count={HEARTBEAT_COUNT} "
+            f"r36a_id={OLD_R36A_UPDATE_ID} "
+            f"tp1_margin="
+            f"{decimal_to_string(TP1_PROFIT_MARGIN_PERCENT)} "
+            f"tp2_margin="
+            f"{decimal_to_string(TP2_PROFIT_MARGIN_PERCENT)} "
+            f"required_clusters="
+            f"{REQUIRED_TP_CLUSTERS} "
+            f"long_valid_clusters="
+            f"{LONG_DIAGNOSTICS.get('valid_cluster_count')} "
+            f"short_valid_clusters="
+            f"{SHORT_DIAGNOSTICS.get('valid_cluster_count')} "
+            f"write_transport="
+            f"{EXCHANGE_MUTATION_TRANSPORT_ENABLED} "
+            f"real_execution="
+            f"{REAL_ORDER_EXECUTION}"
+        )
+
+        await asyncio.sleep(
+            60
+        )
+
+
+# ============================================================
+# ASYNC MAIN
+# ============================================================
+
+async def async_main():
+
+    global TEST_STATUS
+
+    start_health_server()
+
+    try:
+
+        await run_r36f10()
+
+    except Exception as exc:
+
+        TEST_STATUS = "FAIL"
+
+        line()
+
+        log(
+            f"{STAGE} UNHANDLED ERROR = "
+            f"{exc}"
+        )
+
+        line()
+
+    await heartbeat_loop()
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    asyncio.run(
+        async_main()
+    )
+
+
+if __name__ == "__main__":
+
+    main()
