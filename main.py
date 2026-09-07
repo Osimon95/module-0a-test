@@ -2851,3 +2851,2256 @@ def build_cluster_tp_snapshot(
 # SYNTHETIC TP TESTS
 # ============================================================
 
+def synthetic_cluster_tests():
+
+    long_rows = [
+
+        [
+            1,
+            "99000",
+            "100000",
+            "99500",
+            "99500",
+            "1",
+        ],
+
+        [
+            2,
+            "99500",
+            "100100",
+            "99600",
+            "99800",
+            "1",
+        ],
+
+        [
+            3,
+            "99600",
+            "100000",
+            "99500",
+            "99700",
+            "1",
+        ],
+
+        [
+            4,
+            "99500",
+            "101000",
+            "99900",
+            "100100",
+            "1",
+        ],
+
+        [
+            5,
+            "99900",
+            "100200",
+            "99500",
+            "100000",
+            "1",
+        ],
+
+        [
+            6,
+            "99500",
+            "101500",
+            "100000",
+            "100500",
+            "1",
+        ],
+
+        [
+            7,
+            "100000",
+            "101000",
+            "99500",
+            "100500",
+            "1",
+        ],
+
+        [
+            8,
+            "99500",
+            "101400",
+            "99900",
+            "100800",
+            "1",
+        ],
+    ]
+
+    short_rows = [
+
+        [
+            1,
+            "81000",
+            "81500",
+            "80000",
+            "81000",
+            "1",
+        ],
+
+        [
+            2,
+            "81000",
+            "81500",
+            "80100",
+            "80800",
+            "1",
+        ],
+
+        [
+            3,
+            "80800",
+            "81400",
+            "80050",
+            "80500",
+            "1",
+        ],
+
+        [
+            4,
+            "80500",
+            "81300",
+            "79900",
+            "80300",
+            "1",
+        ],
+
+        [
+            5,
+            "80300",
+            "81200",
+            "80000",
+            "80500",
+            "1",
+        ],
+
+        [
+            6,
+            "80500",
+            "81400",
+            "79800",
+            "80400",
+            "1",
+        ],
+
+        [
+            7,
+            "80400",
+            "81300",
+            "80100",
+            "80600",
+            "1",
+        ],
+
+        [
+            8,
+            "80600",
+            "81500",
+            "79950",
+            "80800",
+            "1",
+        ],
+    ]
+
+    long_diagnostics = build_cluster_diagnostics(
+        long_rows,
+        Decimal("99000"),
+        "LONG",
+    )
+
+    long_approval = evaluate_tp_approval(
+        long_diagnostics
+    )
+
+    check(
+        "SYNTHETIC_LONG_TWO_CLUSTER_APPROVAL",
+        long_approval[
+            "approved"
+        ] is True,
+    )
+
+    short_diagnostics = build_cluster_diagnostics(
+        short_rows,
+        Decimal("82000"),
+        "SHORT",
+    )
+
+    short_approval = evaluate_tp_approval(
+        short_diagnostics
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TWO_CLUSTER_APPROVAL",
+        short_approval[
+            "approved"
+        ] is True,
+    )
+
+    return (
+        long_approval,
+        short_approval,
+    )
+
+
+# ============================================================
+# ONE-CLUSTER TP REJECTION
+# ============================================================
+
+def synthetic_tp_rejection_test():
+
+    rows = [
+
+        [
+            1,
+            "99000",
+            "100000",
+            "99500",
+            "99500",
+            "1",
+        ],
+
+        [
+            2,
+            "99500",
+            "100100",
+            "99600",
+            "99800",
+            "1",
+        ],
+
+        [
+            3,
+            "99600",
+            "100000",
+            "99500",
+            "99700",
+            "1",
+        ],
+
+        [
+            4,
+            "99500",
+            "100100",
+            "99800",
+            "99900",
+            "1",
+        ],
+
+    ]
+
+    entry = Decimal(
+        "99500"
+    )
+
+    diagnostics = build_cluster_diagnostics(
+        rows,
+        entry,
+        "LONG",
+    )
+
+    approval = evaluate_tp_approval(
+        diagnostics
+    )
+
+    check(
+        "ONE_CLUSTER_TP_REJECTED",
+        approval[
+            "approved"
+        ] is False,
+    )
+
+    check(
+        "ONE_CLUSTER_APPROVAL_STATUS_REJECTED",
+        approval[
+            "status"
+        ] == "REJECTED",
+    )
+
+    check(
+        "ONE_CLUSTER_DOES_NOT_APPROVE_TP_SET",
+        approval[
+            "available_valid_clusters"
+        ] < REQUIRED_TP_CLUSTERS,
+    )
+
+    return approval
+
+
+# ============================================================
+# CANARY PREVIEW
+# ============================================================
+
+def build_canary_preview():
+
+    return {
+
+        "stage":
+            STAGE,
+
+        "symbol":
+            SYMBOL,
+
+        "real_order_execution":
+            REAL_ORDER_EXECUTION,
+
+        "demo_order_execution":
+            DEMO_ORDER_EXECUTION,
+
+        "exchange_mutation_transport_enabled":
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+        "order_submission_enabled":
+            ORDER_SUBMISSION_ENABLED,
+
+        "first_real_order_allowed":
+            FIRST_REAL_ORDER_ALLOWED,
+
+        "submitted":
+            False,
+
+        "exchange_request_sent":
+            False,
+    }
+
+
+# ============================================================
+# R36F.10 WRITER HELPERS
+# ============================================================
+
+WRITER_ENDPOINT_ENTRY = (
+    "/capi/v3/order"
+)
+
+WRITER_ENDPOINT_TPSL = (
+    "/capi/v3/placeTpSlOrder"
+)
+
+WRITER_ENDPOINT_TRAILING = (
+    "/capi/v3/algoOrder"
+)
+
+
+def writer_entry_side(
+    direction,
+):
+
+    if direction == "LONG":
+
+        return (
+            "BUY",
+            "LONG",
+        )
+
+    if direction == "SHORT":
+
+        return (
+            "SELL",
+            "SHORT",
+        )
+
+    raise ValueError(
+        f"Unsupported direction={direction}"
+    )
+
+
+def writer_close_side(
+    direction,
+):
+
+    if direction == "LONG":
+
+        return (
+            "SELL",
+            "LONG",
+        )
+
+    if direction == "SHORT":
+
+        return (
+            "BUY",
+            "SHORT",
+        )
+
+    raise ValueError(
+        f"Unsupported direction={direction}"
+    )
+
+
+def writer_client_id(
+    direction,
+    leg,
+):
+
+    value = (
+        f"R36F8-{direction}-{leg}-0001"
+    )
+
+    if len(value) > 36:
+
+        raise ValueError(
+            "writer client id exceeds WEEX limit"
+        )
+
+    return value
+
+
+# ============================================================
+# WRITER QUANTITY ALLOCATION
+# ============================================================
+
+ADJUSTED_TP1_ALLOCATION_PERCENT = Decimal("25")
+ADJUSTED_TP2_ALLOCATION_PERCENT = Decimal("25")
+ADJUSTED_TP3_ALLOCATION_PERCENT = Decimal("50")
+
+
+def allocation_exactly_representable(
+    entry_quantity,
+    tp1_percent,
+    tp2_percent,
+    tp3_percent,
+):
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    percentages = (
+        D(tp1_percent),
+        D(tp2_percent),
+        D(tp3_percent),
+    )
+
+    if sum(percentages) != Decimal("100"):
+        return False
+
+    quantities = [
+        entry_quantity
+        * percent
+        / Decimal("100")
+        for percent in percentages
+    ]
+
+    return bool(
+        entry_quantity >= MIN_QUANTITY
+        and all(
+            q >= MIN_QUANTITY
+            for q in quantities
+        )
+        and all(
+            quantize_down(
+                q,
+                QUANTITY_STEP,
+            ) == q
+            for q in quantities
+        )
+        and sum(quantities)
+        == entry_quantity
+    )
+
+
+def select_tp_allocation(entry_quantity):
+    """Prefer 20/20/60; fall back only to the approved 25/25/50 allocation."""
+
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    preferred = (
+        TP1_ALLOCATION_PERCENT,
+        TP2_ALLOCATION_PERCENT,
+        TP3_ALLOCATION_PERCENT,
+    )
+
+    adjusted = (
+        ADJUSTED_TP1_ALLOCATION_PERCENT,
+        ADJUSTED_TP2_ALLOCATION_PERCENT,
+        ADJUSTED_TP3_ALLOCATION_PERCENT,
+    )
+
+    if allocation_exactly_representable(
+        entry_quantity,
+        *preferred,
+    ):
+        return {
+            "tp1_percent":
+                preferred[0],
+
+            "tp2_percent":
+                preferred[1],
+
+            "tp3_percent":
+                preferred[2],
+
+            "adjusted":
+                False,
+
+            "label":
+                "20/20/60",
+        }
+
+    if allocation_exactly_representable(
+        entry_quantity,
+        *adjusted,
+    ):
+        return {
+            "tp1_percent":
+                adjusted[0],
+
+            "tp2_percent":
+                adjusted[1],
+
+            "tp3_percent":
+                adjusted[2],
+
+            "adjusted":
+                True,
+
+            "label":
+                "25/25/50",
+        }
+
+    return None
+
+
+def writer_quantities(entry_quantity):
+    """Allocate TP quantities using preferred 20/20/60 or approved 25/25/50 fallback."""
+
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    allocation = select_tp_allocation(
+        entry_quantity
+    )
+
+    if allocation is None:
+        return (
+            entry_quantity,
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0"),
+        )
+
+    tp1 = (
+        entry_quantity
+        * allocation["tp1_percent"]
+        / Decimal("100")
+    )
+
+    tp2 = (
+        entry_quantity
+        * allocation["tp2_percent"]
+        / Decimal("100")
+    )
+
+    tp3 = (
+        entry_quantity
+        * allocation["tp3_percent"]
+        / Decimal("100")
+    )
+
+    return (
+        entry_quantity,
+        tp1,
+        tp2,
+        tp3,
+    )
+
+
+# ============================================================
+# WRITER QUANTITY VALIDATION
+# ============================================================
+
+def validate_writer_quantities(
+    entry_quantity,
+    tp1,
+    tp2,
+    tp3,
+):
+
+    allocation = select_tp_allocation(
+        entry_quantity
+    )
+
+    if allocation is None:
+        return {
+            "allocation_selected":
+                False,
+
+            "all_valid":
+                False,
+        }
+
+    exact_tp1 = (
+        entry_quantity
+        * allocation["tp1_percent"]
+        / Decimal("100")
+    )
+
+    exact_tp2 = (
+        entry_quantity
+        * allocation["tp2_percent"]
+        / Decimal("100")
+    )
+
+    exact_tp3 = (
+        entry_quantity
+        * allocation["tp3_percent"]
+        / Decimal("100")
+    )
+
+    checks = {
+        "allocation_selected":
+            True,
+
+        "entry_on_step":
+            quantize_down(
+                entry_quantity,
+                QUANTITY_STEP,
+            ) == entry_quantity,
+
+        "tp1_on_step":
+            quantize_down(
+                tp1,
+                QUANTITY_STEP,
+            ) == tp1,
+
+        "tp2_on_step":
+            quantize_down(
+                tp2,
+                QUANTITY_STEP,
+            ) == tp2,
+
+        "tp3_on_step":
+            quantize_down(
+                tp3,
+                QUANTITY_STEP,
+            ) == tp3,
+
+        "entry_minimum":
+            entry_quantity >= MIN_QUANTITY,
+
+        "tp1_minimum":
+            tp1 >= MIN_QUANTITY,
+
+        "tp2_minimum":
+            tp2 >= MIN_QUANTITY,
+
+        "tp3_minimum":
+            tp3 >= MIN_QUANTITY,
+
+        "allocation_sum_exact":
+            (
+                tp1
+                + tp2
+                + tp3
+            ) == entry_quantity,
+
+        "tp1_selected_percent_exact":
+            tp1 == exact_tp1,
+
+        "tp2_selected_percent_exact":
+            tp2 == exact_tp2,
+
+        "tp3_selected_percent_exact":
+            tp3 == exact_tp3,
+
+        "tp3_non_negative":
+            tp3 >= Decimal("0"),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+def minimum_adjustable_tp_entry_quantity():
+    """Return first exchange-step quantity supported by an approved allocation."""
+
+    candidate = QUANTITY_STEP
+
+    for _ in range(
+        100000
+    ):
+
+        (
+            quantity,
+            tp1,
+            tp2,
+            tp3,
+        ) = writer_quantities(
+            candidate
+        )
+
+        checks = validate_writer_quantities(
+            quantity,
+            tp1,
+            tp2,
+            tp3,
+        )
+
+        if checks.get(
+            "all_valid"
+        ):
+            return quantity
+
+        candidate += QUANTITY_STEP
+
+    raise RuntimeError(
+        "Unable to find adjustable TP minimum entry quantity"
+    )
+
+
+def minimum_strict_tp_entry_quantity():
+    """Compatibility alias: R36F.10 minimum under the approved adjustable allocation policy."""
+
+    return minimum_adjustable_tp_entry_quantity()
+
+
+def evaluate_writer_quantity_feasibility(
+    entry_quantity,
+):
+
+    (
+        quantity,
+        tp1,
+        tp2,
+        tp3,
+    ) = writer_quantities(
+        entry_quantity
+    )
+
+    allocation = select_tp_allocation(
+        quantity
+    )
+
+    checks = validate_writer_quantities(
+        quantity,
+        tp1,
+        tp2,
+        tp3,
+    )
+
+    minimum_required = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    feasible = bool(
+        checks.get(
+            "all_valid"
+        )
+    )
+
+    return {
+        "feasible":
+            feasible,
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_ALLOCATION_REPRESENTABLE"
+                if feasible
+                else
+                "POSITION_TOO_SMALL_OR_NOT_REPRESENTABLE_BY_APPROVED_TP_ALLOCATIONS"
+            ),
+
+        "entry_quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "tp1_quantity":
+            decimal_to_string(
+                tp1
+            ),
+
+        "tp2_quantity":
+            decimal_to_string(
+                tp2
+            ),
+
+        "tp3_quantity":
+            decimal_to_string(
+                tp3
+            ),
+
+        "requested_allocation":
+            "20/20/60",
+
+        "selected_allocation":
+            (
+                allocation["label"]
+                if allocation
+                else None
+            ),
+
+        "allocation_adjusted":
+            bool(
+                allocation
+                and allocation[
+                    "adjusted"
+                ]
+            ),
+
+        "selected_tp1_percent":
+            (
+                decimal_to_string(
+                    allocation[
+                        "tp1_percent"
+                    ]
+                )
+                if allocation
+                else None
+            ),
+
+        "selected_tp2_percent":
+            (
+                decimal_to_string(
+                    allocation[
+                        "tp2_percent"
+                    ]
+                )
+                if allocation
+                else None
+            ),
+
+        "selected_tp3_percent":
+            (
+                decimal_to_string(
+                    allocation[
+                        "tp3_percent"
+                    ]
+                )
+                if allocation
+                else None
+            ),
+
+        "minimum_required_entry_quantity":
+            decimal_to_string(
+                minimum_required
+            ),
+
+        "checks":
+            checks,
+    }
+
+
+def evaluate_strict_tp_balance_readiness(
+    available_balance,
+    mark_price,
+    leverage,
+):
+    """Classify balance readiness under R36F.10 approved adjustable TP allocation."""
+
+    available_balance = D(
+        available_balance
+    )
+
+    mark_price = D(
+        mark_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    if available_balance < Decimal("0"):
+        raise ValueError(
+            "available_balance must be non-negative"
+        )
+
+    if mark_price <= Decimal("0"):
+        raise ValueError(
+            "mark_price must be positive"
+        )
+
+    if leverage <= Decimal("0"):
+        raise ValueError(
+            "leverage must be positive"
+        )
+
+    entry_fraction = (
+        ENTRY_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    if entry_fraction <= Decimal("0"):
+        raise ValueError(
+            "ENTRY_MARGIN_PERCENT must be positive"
+        )
+
+    raw_entry_quantity = (
+        available_balance
+        * entry_fraction
+        * leverage
+        / mark_price
+    )
+
+    planned_entry_quantity = (
+        quantize_down(
+            raw_entry_quantity,
+            QUANTITY_STEP,
+        )
+    )
+
+    quantity_feasibility = (
+        evaluate_writer_quantity_feasibility(
+            planned_entry_quantity
+        )
+    )
+
+    minimum_entry_quantity = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    required_entry_margin = (
+        minimum_entry_quantity
+        * mark_price
+        / leverage
+    )
+
+    required_available_balance = (
+        required_entry_margin
+        / entry_fraction
+    )
+
+    available_balance_shortfall = max(
+        Decimal("0"),
+        required_available_balance
+        - available_balance,
+    )
+
+    eligible = bool(
+        quantity_feasibility[
+            "feasible"
+        ]
+        and
+        available_balance
+        >= required_available_balance
+    )
+
+    return {
+        "eligible":
+            eligible,
+
+        "status":
+            (
+                "ELIGIBLE"
+                if eligible
+                else "TRADE_NOT_ELIGIBLE"
+            ),
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_BALANCE_AND_QUANTITY_READY"
+                if eligible
+                else
+                "INSUFFICIENT_BALANCE_FOR_APPROVED_TP_ALLOCATION"
+            ),
+
+        "available_balance":
+            decimal_to_string(
+                available_balance
+            ),
+
+        "mark_price":
+            decimal_to_string(
+                mark_price
+            ),
+
+        "leverage":
+            decimal_to_string(
+                leverage
+            ),
+
+        "entry_margin_percent":
+            decimal_to_string(
+                ENTRY_MARGIN_PERCENT
+            ),
+
+        "raw_entry_quantity":
+            decimal_to_string(
+                raw_entry_quantity
+            ),
+
+        "planned_entry_quantity":
+            decimal_to_string(
+                planned_entry_quantity
+            ),
+
+        "minimum_strict_tp_entry_quantity":
+            decimal_to_string(
+                minimum_entry_quantity
+            ),
+
+        "required_margin_for_minimum_qty":
+            decimal_to_string(
+                required_entry_margin
+            ),
+
+        "required_available_balance":
+            decimal_to_string(
+                required_available_balance
+            ),
+
+        "available_balance_shortfall":
+            decimal_to_string(
+                available_balance_shortfall
+            ),
+
+        "quantity_feasible":
+            quantity_feasibility[
+                "feasible"
+            ],
+
+        "quantity_feasibility_reason":
+            quantity_feasibility[
+                "reason"
+            ],
+
+        "requested_allocation":
+            quantity_feasibility[
+                "requested_allocation"
+            ],
+
+        "selected_allocation":
+            quantity_feasibility[
+                "selected_allocation"
+            ],
+
+        "allocation_adjusted":
+            quantity_feasibility[
+                "allocation_adjusted"
+            ],
+
+        "tp1_quantity":
+            quantity_feasibility[
+                "tp1_quantity"
+            ],
+
+        "tp2_quantity":
+            quantity_feasibility[
+                "tp2_quantity"
+            ],
+
+        "tp3_quantity":
+            quantity_feasibility[
+                "tp3_quantity"
+            ],
+    }
+
+
+# ============================================================
+# WRITER REQUEST PREVIEW
+# ============================================================
+
+def build_writer_request_preview(
+    direction,
+    entry_price,
+    quantity,
+    tp_snapshot,
+):
+
+    if (
+        not tp_snapshot
+        or not tp_snapshot.get(
+            "tp_approval",
+            {},
+        ).get(
+            "approved"
+        )
+    ):
+
+        raise ValueError(
+            "writer requires an approved complete TP snapshot"
+        )
+
+    entry_price = quantize_down(
+        entry_price,
+        PRICE_STEP,
+    )
+
+    (
+        entry_quantity,
+        tp1_qty,
+        tp2_qty,
+        tp3_qty,
+    ) = writer_quantities(
+        quantity
+    )
+
+    quantity_checks = (
+        validate_writer_quantities(
+            entry_quantity,
+            tp1_qty,
+            tp2_qty,
+            tp3_qty,
+        )
+    )
+
+    (
+        entry_side,
+        position_side,
+    ) = writer_entry_side(
+        direction
+    )
+
+    (
+        close_side,
+        close_position_side,
+    ) = writer_close_side(
+        direction
+    )
+
+    tp1_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp1"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    tp2_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp2"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    if direction == "LONG":
+
+        if not (
+            tp1_price > entry_price
+            and
+            tp2_price > tp1_price
+        ):
+
+            raise ValueError(
+                "LONG TP ordering invalid"
+            )
+
+    elif direction == "SHORT":
+
+        if not (
+            tp1_price < entry_price
+            and
+            tp2_price < tp1_price
+        ):
+
+            raise ValueError(
+                "SHORT TP ordering invalid"
+            )
+
+    else:
+
+        raise ValueError(
+            "Invalid writer direction"
+        )
+
+    entry_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_ENTRY,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            entry_side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            decimal_to_string(
+                entry_quantity
+            ),
+
+        "newClientOrderId":
+            writer_client_id(
+                direction,
+                "ENTRY",
+            ),
+
+        "reduceOnly":
+            False,
+    }
+
+    tp1_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TPSL,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "positionSide":
+            close_position_side,
+
+        "planType":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "executePrice":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                tp1_qty
+            ),
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP1",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+    tp2_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TPSL,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "positionSide":
+            close_position_side,
+
+        "planType":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            decimal_to_string(
+                tp2_price
+            ),
+
+        "executePrice":
+            decimal_to_string(
+                tp2_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                tp2_qty
+            ),
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP2",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+    tp3_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TRAILING,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            close_side,
+
+        "positionSide":
+            close_position_side,
+
+        "type":
+            "TRAILING_MARKET",
+
+        "quantity":
+            decimal_to_string(
+                tp3_qty
+            ),
+
+        "callbackRate":
+            decimal_to_string(
+                TP3_TRAILING_DISTANCE_PERCENT
+            ),
+
+        "workingType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP3",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+    legs = {
+
+        "entry":
+            entry_leg,
+
+        "tp1":
+            tp1_leg,
+
+        "tp2":
+            tp2_leg,
+
+        "tp3":
+            tp3_leg,
+    }
+
+    integrity_hash = (
+        sha256_text(
+            canonical_json(
+                legs
+            )
+        )
+    )
+
+    return {
+
+        "stage":
+            STAGE,
+
+        "symbol":
+            SYMBOL,
+
+        "direction":
+            direction,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "entry_quantity":
+            decimal_to_string(
+                entry_quantity
+            ),
+
+        "tp1_quantity":
+            decimal_to_string(
+                tp1_qty
+            ),
+
+        "tp2_quantity":
+            decimal_to_string(
+                tp2_qty
+            ),
+
+        "tp3_quantity":
+            decimal_to_string(
+                tp3_qty
+            ),
+
+        "allocation_percent": {
+            "tp1":
+                decimal_to_string(
+                    select_tp_allocation(
+                        entry_quantity
+                    )["tp1_percent"]
+                ),
+
+            "tp2":
+                decimal_to_string(
+                    select_tp_allocation(
+                        entry_quantity
+                    )["tp2_percent"]
+                ),
+
+            "tp3":
+                decimal_to_string(
+                    select_tp_allocation(
+                        entry_quantity
+                    )["tp3_percent"]
+                ),
+        },
+
+        "allocation_label":
+            select_tp_allocation(
+                entry_quantity
+            )["label"],
+
+        "allocation_adjusted":
+            select_tp_allocation(
+                entry_quantity
+            )["adjusted"],
+
+        "quantity_validation":
+            quantity_checks,
+
+        "tp_approval":
+            tp_snapshot[
+                "tp_approval"
+            ],
+
+        "tp1":
+            tp_snapshot[
+                "tp1"
+            ],
+
+        "tp2":
+            tp_snapshot[
+                "tp2"
+            ],
+
+        "tp3":
+            tp_snapshot[
+                "tp3"
+            ],
+
+        "legs":
+            legs,
+
+        "primary_tp_immutable":
+            True,
+
+        "submitted":
+            False,
+
+        "transport_enabled":
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+        "integrity_sha256":
+            integrity_hash,
+    }
+
+
+# ============================================================
+# R36F.12 FIRST-LIVE WRITER SAFETY COMPLETION
+# ============================================================
+
+def validate_weex_v3_writer_shapes(
+    writer_preview,
+):
+    """Validate only documented request fields needed by the frozen writer."""
+
+    if not writer_preview:
+        return {
+            "all_valid":
+                False,
+
+            "reason":
+                "WRITER_PREVIEW_MISSING",
+        }
+
+    legs = writer_preview.get(
+        "legs",
+        {},
+    )
+
+    entry = legs.get(
+        "entry",
+        {},
+    )
+
+    tp1 = legs.get(
+        "tp1",
+        {},
+    )
+
+    tp2 = legs.get(
+        "tp2",
+        {},
+    )
+
+    tp3 = legs.get(
+        "tp3",
+        {},
+    )
+
+    entry_required = {
+        "endpoint",
+        "method",
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+        "reduceOnly",
+    }
+
+    tpsl_required = {
+        "endpoint",
+        "method",
+        "symbol",
+        "positionSide",
+        "planType",
+        "triggerPrice",
+        "executePrice",
+        "quantity",
+        "triggerPriceType",
+        "clientAlgoId",
+        "reduceOnly",
+    }
+
+    trailing_required = {
+        "endpoint",
+        "method",
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "callbackRate",
+        "workingType",
+        "clientAlgoId",
+        "reduceOnly",
+    }
+
+    checks = {
+        "entry_endpoint":
+            entry.get(
+                "endpoint"
+            ) == "/capi/v3/order",
+
+        "entry_method":
+            entry.get(
+                "method"
+            ) == "POST",
+
+        "entry_required_fields":
+            entry_required.issubset(
+                entry.keys()
+            ),
+
+        "entry_market_type":
+            entry.get(
+                "type"
+            ) == "MARKET",
+
+        "entry_reduce_only_false":
+            entry.get(
+                "reduceOnly"
+            ) is False,
+
+        "tp1_endpoint":
+            tp1.get(
+                "endpoint"
+            ) == "/capi/v3/placeTpSlOrder",
+
+        "tp2_endpoint":
+            tp2.get(
+                "endpoint"
+            ) == "/capi/v3/placeTpSlOrder",
+
+        "tp1_plan_type":
+            tp1.get(
+                "planType"
+            ) == "TAKE_PROFIT",
+
+        "tp2_plan_type":
+            tp2.get(
+                "planType"
+            ) == "TAKE_PROFIT",
+
+        "tp1_required_fields":
+            tpsl_required.issubset(
+                tp1.keys()
+            ),
+
+        "tp2_required_fields":
+            tpsl_required.issubset(
+                tp2.keys()
+            ),
+
+        "tp1_no_legacy_side":
+            "side" not in tp1,
+
+        "tp2_no_legacy_side":
+            "side" not in tp2,
+
+        "tp1_no_legacy_type":
+            "type" not in tp1,
+
+        "tp2_no_legacy_type":
+            "type" not in tp2,
+
+        "trailing_endpoint":
+            tp3.get(
+                "endpoint"
+            ) == "/capi/v3/algoOrder",
+
+        "trailing_type":
+            tp3.get(
+                "type"
+            ) == "TRAILING_MARKET",
+
+        "trailing_required_fields":
+            trailing_required.issubset(
+                tp3.keys()
+            ),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+def parse_canary_stop_price(text):
+
+    if not text:
+        return None
+
+    value = D(
+        text
+    )
+
+    if value <= Decimal("0"):
+        raise ValueError(
+            "R36F12_CANARY_STOP_PRICE must be positive"
+        )
+
+    return quantize_down(
+        value,
+        PRICE_STEP,
+    )
+
+
+def validate_canary_stop(
+    direction,
+    entry_price,
+    stop_price,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    if direction == "LONG":
+        return (
+            stop_price
+            < entry_price
+        )
+
+    if direction == "SHORT":
+        return (
+            stop_price
+            > entry_price
+        )
+
+    return False
+
+
+def unresolved_canary_journal(journal):
+
+    if not journal:
+        return False
+
+    return str(
+        journal.get(
+            "status",
+            "",
+        )
+    ).upper() in {
+        "PREPARED",
+        "DISPATCHING",
+        "SUBMITTED",
+        "AMBIGUOUS",
+    }
+
+
+def build_protected_canary_preview(
+    writer_preview,
+    stop_price,
+    explicit_arm_requested,
+    journal,
+    flat_position,
+):
+    """Build the R36F.12-ready canary package without sending it."""
+
+    if not writer_preview:
+        raise ValueError(
+            "writer preview required"
+        )
+
+    direction = writer_preview[
+        "direction"
+    ]
+
+    entry_price = D(
+        writer_preview[
+            "entry_price"
+        ]
+    )
+
+    entry_quantity = D(
+        writer_preview[
+            "entry_quantity"
+        ]
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    schema_checks = (
+        validate_weex_v3_writer_shapes(
+            writer_preview
+        )
+    )
+
+    stop_valid = validate_canary_stop(
+        direction,
+        entry_price,
+        stop_price,
+    )
+
+    quantity_capped = (
+        entry_quantity
+        <= CANARY_MAX_ENTRY_QUANTITY
+    )
+
+    journal_clear = (
+        not unresolved_canary_journal(
+            journal
+        )
+    )
+
+    protected_entry = dict(
+        writer_preview[
+            "legs"
+        ][
+            "entry"
+        ]
+    )
+
+    protected_entry[
+        "slTriggerPrice"
+    ] = decimal_to_string(
+        stop_price
+    )
+
+    protected_entry[
+        "SlWorkingType"
+    ] = CANARY_STOP_WORKING_TYPE
+
+    ready = bool(
+        schema_checks.get(
+            "all_valid"
+        )
+        and stop_valid
+        and quantity_capped
+        and explicit_arm_requested
+        and journal_clear
+        and flat_position
+        and writer_preview.get(
+            "quantity_validation",
+            {},
+        ).get(
+            "all_valid"
+        )
+    )
+
+    return {
+        "stage":
+            STAGE,
+
+        "status":
+            (
+                "READY_FOR_R36F12"
+                if ready
+                else "BLOCKED"
+            ),
+
+        "ready_for_r36f12":
+            ready,
+
+        "direction":
+            direction,
+
+        "entry_quantity":
+            decimal_to_string(
+                entry_quantity
+            ),
+
+        "canary_max_entry_quantity":
+            decimal_to_string(
+                CANARY_MAX_ENTRY_QUANTITY
+            ),
+
+        "quantity_capped":
+            quantity_capped,
+
+        "stop_price":
+            decimal_to_string(
+                stop_price
+            ),
+
+        "stop_valid":
+            stop_valid,
+
+        "stop_working_type":
+            CANARY_STOP_WORKING_TYPE,
+
+        "explicit_arm_requested":
+            bool(
+                explicit_arm_requested
+            ),
+
+        "journal_clear":
+            journal_clear,
+
+        "flat_position":
+            bool(
+                flat_position
+            ),
+
+        "writer_schema_valid":
+            bool(
+                schema_checks.get(
+                    "all_valid"
+                )
+            ),
+
+        "writer_schema_checks":
+            schema_checks,
+
+        "protected_entry_request":
+            protected_entry,
+
+        "tp1_request":
+            writer_preview[
+                "legs"
+            ][
+                "tp1"
+            ],
+
+        "tp2_request":
+            writer_preview[
+                "legs"
+            ][
+                "tp2"
+            ],
+
+        "tp3_request":
+            writer_preview[
+                "legs"
+            ][
+                "tp3"
+            ],
+
+        "submitted":
+            False,
+
+        "exchange_request_sent":
+            False,
+
+        "r36f12_transport_hard_disabled":
+            True,
+    }
+
+
+def synthetic_r36f12_writer_safety_tests():
+
+    synthetic_entry = Decimal(
+        "80000"
+    )
+
+    synthetic_rows = [
+        [
+            0,
+            "80000",
+            "80200",
+            "79900",
+            "80100",
+            "1",
+        ],
+
+        [
+            1,
+            "80100",
+            "80300",
+            "80000",
+            "80200",
+            "1",
+        ],
+
+        [
+            2,
+            "80200",
+            "80400",
+            "80100",
+            "80300",
+            "1",
+        ],
+
+        [
+            3,
+            "80300",
+            "80500",
+            "80200",
+            "80400",
+            "1",
+        ],
+
+        [
+            4,
+            "80400",
+            "80600",
+            "80300",
+            "80500",
+            "1",
+        ],
+    ]
+
+    # Use deterministic approved TP snapshot directly so this test targets
+    # writer safety rather than historical clustering.
+    tp_snapshot = {
+        "tp_approval": {
+            "approved":
+                True,
+
+            "status":
+                "APPROVED",
+
+            "reason":
+                "SYNTHETIC",
+        },
+
+        "tp1":
+            "80100",
+
+        "tp2":
+            "80300",
+
+        "tp3":
+            "TRAILING",
+    }
+
+    preview = build_writer_request_preview(
+        "LONG",
+        synthetic_entry,
+        Decimal("0.0004"),
+        tp_snapshot,
+    )
+
+    shape = validate_weex_v3_writer_shapes(
+        preview
+    )
+
+    check(
+        "R36F12_WEEX_V3_WRITER_SHAPES",
+        shape[
+            "all_valid"
+        ],
+    )
+
+    clear = build_protected_canary_preview(
+        preview,
+        Decimal("79600"),
+        True,
+        {},
+        True,
+    )
+
+    check(
+        "R36F12_SYNTHETIC_PROTECTED_CANARY_READY",
+        clear[
+            "ready_for_r36f12"
+        ] is True,
+    )
+
+    check(
+        "R36F12_SYNTHETIC_CANARY_QTY_CAP_00004",
+        clear[
+            "entry_quantity"
+        ] == "0.0004",
+    )
+
+    check(
+        "R36F12_SYNTHETIC_STOP_ATTACHED",
+        clear[
+            "protected_entry_request"
+        ].get(
+            "slTriggerPrice"
+        ) == "79600",
+    )
+
+    ambiguous = build_protected_canary_preview(
+        preview,
+        Decimal("79600"),
+        True,
+        {
+            "status":
+                "AMBIGUOUS"
+        },
+        True,
+    )
+
+    check(
+        "R36F12_AMBIGUOUS_JOURNAL_BLOCKS",
+        ambiguous[
+            "ready_for_r36f12"
+        ] is False,
+    )
+
+    unarmed = build_protected_canary_preview(
+        preview,
+        Decimal("79600"),
+        False,
+        {},
+        True,
+    )
+
+    check(
+        "R36F12_EXPLICIT_ARM_REQUIRED",
+        unarmed[
+            "ready_for_r36f12"
+        ] is False,
+    )
+
+    wrong_stop = build_protected_canary_preview(
+        preview,
+        Decimal("80400"),
+        True,
+        {},
+        True,
+    )
+
+    check(
+        "R36F12_WRONG_SIDE_STOP_BLOCKS",
+        wrong_stop[
+            "ready_for_r36f12"
+        ] is False,
+    )
+
+    return True
+
+
+# ============================================================
+# R36F.12 ADJUSTABLE TP QUANTITY FEASIBILITY TESTS
+# ============================================================
+
+def synthetic_writer_quantity_tests():
+
+    adjusted = evaluate_writer_quantity_feasibility(
+        Decimal("0.0004")
+    )
+
+    check(
+        "ADJUSTABLE_00004_APPROVED",
+        adjusted[
+            "feasible"
+        ] is True,
+    )
+
+    check(
+        "ADJUSTABLE_00004_SELECTED_25_25_50",
+        adjusted[
+            "selected_allocation"
+        ] == "25/25/50",
+    )
+
+    check(
+        "ADJUSTABLE_00004_ADJUSTED_TRUE",
+        adjusted[
+            "allocation_adjusted"
+        ] is True,
+    )
+
+    check(
+        "ADJUSTABLE_00004_TP1",
+        adjusted[
+            "tp1_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "ADJUSTABLE_00004_TP2",
+        adjusted[
+            "tp2_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "ADJUSTABLE_00004_TP3",
+        adjusted[
+            "tp3_quantity"
+        ] == "0.0002",
+    )
+
+    preferred = evaluate_writer_quantity_feasibility(
+        Decimal("0.0005")
+    )
+
+    check(
+        "PREFERRED_00005_APPROVED",
+        preferred[
+            "feasible"
+        ] is True,
+    )
+
+    check(
+        "PREFERRED_00005_RETAINS_20_20_60",
+        preferred[
+            "selected_allocation"
+        ] == "20/20/60",
+    )
+
+    check(
+        "PREFERRED_00005_ADJUSTED_FALSE",
+        preferred[
+            "allocation_adjusted"
+        ] is False,
+    )
+
+    check(
+        "PREFERRED_00005_TP1",
+        preferred[
+            "tp1_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "PREFERRED_00005_TP2",
+        preferred[
+            "tp2_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "PREFERRED_00005_TP3",
+        preferred[
+            "tp3_quantity"
+        ] == "0.0003",
+    )
+
+    smaller = evaluate_writer_quantity_feasibility(
+        Decimal("0.0003")
+    )
+
+    check(
+        "ADJUSTABLE_00003_REJECTED",
+        smaller[
+            "feasible"
+        ] is False,
+    )
+
+    check(
+        "ADJUSTABLE_MINIMUM_ENTRY_00004",
+        adjusted[
+            "minimum_required_entry_quantity"
+        ] == "0.0004",
+    )
+
+    return True
+
+
+def synthetic_balance_readiness_tests():
+
+    approved = evaluate_strict_tp_balance_readiness(
+        Decimal("7.19"),
+        Decimal("80000"),
+        Decimal("100"),
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_7_19_APPROVED",
+        approved[
+            "eligible"
+        ] is True,
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_7_19_PLANNED_00004",
+        approved[
+            "planned_entry_quantity"
+        ] == "0.0004",
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_7_19_SELECTED_25_25_50",
+        approved[
+            "selected_allocation"
+        ] == "25/25/50",
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_REQUIRED_BALANCE_6_40",
+        approved[
+            "required_available_balance"
+        ] == "6.4",
+    )
+
+    preferred = evaluate_strict_tp_balance_readiness(
+        Decimal("8"),
+        Decimal("80000"),
+        Decimal("100"),
+    )
+
+    check(
+        "PREFERRED_BALANCE_READINESS_8_00_APPROVED",
+        preferred[
+            "eligible"
+        ] is True,
+    )
+
+    check(
+        "PREFERRED_BALANCE_READINESS_8_00_PLANNED_00005",
+        preferred[
+            "planned_entry_quantity"
+        ] == "0.0005",
+    )
+
+    check(
+        "PREFERRED_BALANCE_READINESS_8_00_RETAINS_20_20_60",
+        preferred[
+            "selected_allocation"
+        ] == "20/20/60",
+    )
+
+    return True
+
+
+# ============================================================
+
