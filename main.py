@@ -1,8 +1,4 @@
-Yes. I recovered the **exact 5,324-line R36F.12 Library copy**. To prevent the interface from truncating Part 1 again, I’m splitting **Part 1 into 1A, 1B, and 1C**, all at zero-indentation joints.
 
-**R36F.12 — PART 1A — exact lines 1–448** 
-
-```python
 #!/usr/bin/env python3
 """
 R36F.12 - FROZEN EMA19/50/200 + TELEGRAM COMMAND INTEGRATION CHECKPOINT
@@ -450,13 +446,559 @@ def D(value):
         str(value)
     )
 
-```
-
-**Zero-indentation joint:** Part 1B begins exactly with:
-
-```python
 def quantize_down(
-```
+    value,
+    step,
+):
 
-Send **“Part 1B”** and I’ll continue from that exact line.
+    value = D(value)
+    step = D(step)
+
+    if step <= 0:
+        raise ValueError(
+            "Invalid quantization step"
+        )
+
+    units = (
+        value / step
+    ).to_integral_value(
+        rounding=ROUND_DOWN
+    )
+
+    return units * step
+
+
+def decimal_to_string(value):
+
+    if value is None:
+        return None
+
+    value = D(value)
+
+    text = format(
+        value,
+        "f",
+    )
+
+    if "." in text:
+
+        text = (
+            text
+            .rstrip("0")
+            .rstrip(".")
+        )
+
+    return text
+
+
+# ============================================================
+# JSON UTILITIES
+# ============================================================
+
+def canonical_json(data):
+
+    return json.dumps(
+        data,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+
+
+def sha256_text(text):
+
+    return hashlib.sha256(
+        text.encode("utf-8")
+    ).hexdigest()
+
+
+def read_json_file(
+    path,
+    default=None,
+):
+
+    if default is None:
+        default = {}
+
+    try:
+
+        if not os.path.exists(path):
+            return default
+
+        with open(
+            path,
+            "r",
+            encoding="utf-8",
+        ) as f:
+
+            return json.load(f)
+
+    except Exception as exc:
+
+        log(
+            f"READ JSON FAILED path={path} error={exc}"
+        )
+
+        return default
+
+
+def write_json_file(
+    path,
+    data,
+):
+
+    tmp = path + ".tmp"
+
+    with open(
+        tmp,
+        "w",
+        encoding="utf-8",
+    ) as f:
+
+        json.dump(
+            data,
+            f,
+            indent=2,
+            sort_keys=True,
+            default=str,
+        )
+
+    os.replace(
+        tmp,
+        path,
+    )
+
+
+# ============================================================
+# DURABLE ID COLLECTION
+# ============================================================
+
+def collect_ids_from_file(
+    path,
+):
+
+    ids = set()
+
+    data = read_json_file(
+        path,
+        default=None,
+    )
+
+    if data is None:
+        return ids
+
+    def walk(value):
+
+        if isinstance(
+            value,
+            dict,
+        ):
+
+            for key, item in value.items():
+
+                if (
+                    isinstance(key, str)
+                    and "id" in key.lower()
+                    and isinstance(item, str)
+                ):
+
+                    ids.add(item)
+
+                walk(item)
+
+        elif isinstance(
+            value,
+            list,
+        ):
+
+            for item in value:
+                walk(item)
+
+    walk(data)
+
+    return ids
+
+
+# ============================================================
+# HEALTH SERVER
+# ============================================================
+
+class HealthHandler(
+    BaseHTTPRequestHandler
+):
+
+    def do_GET(self):
+
+        body = (
+            f"stage={STAGE}\n"
+            f"status={TEST_STATUS}\n"
+        ).encode()
+
+        self.send_response(
+            200
+        )
+
+        self.send_header(
+            "Content-Type",
+            "text/plain",
+        )
+
+        self.send_header(
+            "Content-Length",
+            str(len(body)),
+        )
+
+        self.end_headers()
+
+        self.wfile.write(
+            body
+        )
+
+    def log_message(
+        self,
+        format_string,
+        *args,
+    ):
+        return
+
+
+def start_health_server():
+
+    port = int(
+        os.getenv(
+            "PORT",
+            "10000",
+        )
+    )
+
+    server = HTTPServer(
+        (
+            "0.0.0.0",
+            port,
+        ),
+        HealthHandler,
+    )
+
+    thread = Thread(
+        target=server.serve_forever,
+        daemon=True,
+    )
+
+    thread.start()
+
+    log(
+        f"{STAGE}: HEALTH SERVER STARTED ON PORT {port}"
+    )
+
+
+# ============================================================
+# WEEX SIGNING
+# ============================================================
+
+def build_signature(
+    timestamp,
+    method,
+    request_path,
+    body="",
+):
+
+    api_secret = os.getenv(
+        "WEEX_API_SECRET"
+    )
+
+    if not api_secret:
+        raise RuntimeError(
+            "WEEX_API_SECRET missing"
+        )
+
+    prehash = (
+        str(timestamp)
+        + method.upper()
+        + request_path
+        + body
+    )
+
+    digest = hmac.new(
+        api_secret.encode(),
+        prehash.encode(),
+        hashlib.sha256,
+    ).digest()
+
+    return base64.b64encode(
+        digest
+    ).decode()
+
+
+# ============================================================
+# READ-ONLY WEEX REQUEST
+# ============================================================
+
+async def weex_get(
+    path,
+    params=None,
+    authenticated=False,
+):
+    """
+    Read-only WEEX GET.
+
+    R36F.9 signs the exact query string for authenticated GET requests.
+    No POST/PUT/PATCH/DELETE transport exists here.
+    """
+
+    params = params or {}
+
+    from urllib.parse import urlencode
+
+    query_string = urlencode(
+        params,
+        doseq=True,
+    )
+
+    request_target = path
+
+    if query_string:
+        request_target += (
+            "?" + query_string
+        )
+
+    url = (
+        API_BASE_URL
+        + request_target
+    )
+
+    headers = {}
+
+    if authenticated:
+
+        api_key = os.getenv(
+            "WEEX_API_KEY"
+        )
+
+        passphrase = os.getenv(
+            "WEEX_API_PASSPHRASE"
+        )
+
+        if not api_key:
+            raise RuntimeError(
+                "WEEX_API_KEY missing"
+            )
+
+        if not passphrase:
+            raise RuntimeError(
+                "WEEX_API_PASSPHRASE missing"
+            )
+
+        timestamp = str(
+            int(
+                time.time() * 1000
+            )
+        )
+
+        signature = build_signature(
+            timestamp,
+            "GET",
+            request_target,
+            "",
+        )
+
+        headers = {
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": passphrase,
+            "Content-Type": "application/json",
+        }
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+
+        async with session.get(
+            url,
+            headers=headers,
+        ) as response:
+
+            text = await response.text()
+
+            if response.status >= 400:
+
+                raise RuntimeError(
+                    f"WEEX GET HTTP {response.status}: {text}"
+                )
+
+            try:
+                return json.loads(text)
+
+            except Exception:
+
+                return {
+                    "raw": text
+                }
+
+
+# ============================================================
+# MARK PRICE
+# ============================================================
+
+async def load_mark_price():
+
+    global MARK_PRICE
+
+    data = await weex_get(
+        "/capi/v3/market/symbolPrice",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=False,
+    )
+
+    candidates = []
+
+    if isinstance(
+        data,
+        dict,
+    ):
+
+        for key in (
+            "price",
+            "markPrice",
+            "lastPrice",
+        ):
+
+            if key in data:
+
+                candidates.append(
+                    data[key]
+                )
+
+        nested = data.get(
+            "data"
+        )
+
+        if isinstance(
+            nested,
+            dict,
+        ):
+
+            for key in (
+                "price",
+                "markPrice",
+                "lastPrice",
+            ):
+
+                if key in nested:
+
+                    candidates.append(
+                        nested[key]
+                    )
+
+    elif isinstance(
+        data,
+        list,
+    ):
+
+        for item in data:
+
+            if isinstance(
+                item,
+                dict,
+            ):
+
+                for key in (
+                    "price",
+                    "markPrice",
+                    "lastPrice",
+                ):
+
+                    if key in item:
+
+                        candidates.append(
+                            item[key]
+                        )
+
+    for candidate in candidates:
+
+        try:
+
+            MARK_PRICE = D(
+                candidate
+            )
+
+            if MARK_PRICE > 0:
+
+                log(
+                    "MARK PRICE = "
+                    + decimal_to_string(
+                        MARK_PRICE
+                    )
+                )
+
+                return MARK_PRICE
+
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Unable to determine WEEX mark price"
+    )
+
+
+# ============================================================
+# BALANCE
+# ============================================================
+
+async def load_available_balance():
+
+    global AVAILABLE_BALANCE
+
+    data = await weex_get(
+        "/capi/v3/account/balance",
+        authenticated=True,
+    )
+
+    candidates = []
+
+    def collect(
+        value,
+    ):
+
+        if isinstance(
+            value,
+            dict,
+        ):
+
+            for key, item in value.items():
+
+                key_lower = key.lower()
+
+                if key_lower in (
+                    "availablebalance",
+                    "available_balance",
+                    "available",
+                    "free",
+                    "usdtavailable",
+                ):
+
+                    candidates.append(
+                        item
+                    )
+
+                collect(item)
+
+        elif isinstance(
+            value,
+            list,
+        ):
+
+            for item in value:
+                collect(item)
+
+    collect(data)
+
+    for candidate in candidates:
+
 
