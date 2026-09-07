@@ -2585,3 +2585,1673 @@ def build_canary_preview():
         "exchange_request_sent":
             False,
     }
+
+# ============================================================
+# R36F.7 WRITER CONTRACT
+# ============================================================
+
+WRITER_ENDPOINT_ENTRY = (
+    "/capi/v3/order"
+)
+
+WRITER_ENDPOINT_TPSL = (
+    "/capi/v3/placeTpSlOrder"
+)
+
+WRITER_ENDPOINT_TRAILING = (
+    "/capi/v3/algoOrder"
+)
+
+
+# ============================================================
+# WRITER SIDE MAPPING
+# ============================================================
+
+def writer_entry_side(
+    direction,
+):
+
+    if direction == "LONG":
+
+        return (
+            "BUY",
+            "LONG",
+        )
+
+    if direction == "SHORT":
+
+        return (
+            "SELL",
+            "SHORT",
+        )
+
+    raise ValueError(
+        f"Unsupported direction={direction}"
+    )
+
+
+def writer_close_side(
+    direction,
+):
+
+    if direction == "LONG":
+
+        return (
+            "SELL",
+            "LONG",
+        )
+
+    if direction == "SHORT":
+
+        return (
+            "BUY",
+            "SHORT",
+        )
+
+    raise ValueError(
+        f"Unsupported direction={direction}"
+    )
+
+
+# ============================================================
+# DETERMINISTIC WRITER IDS
+# ============================================================
+
+def writer_client_id(
+    direction,
+    leg,
+):
+
+    value = (
+        f"R36F7-{direction}-{leg}-0001"
+    )
+
+    if len(value) > 36:
+
+        raise ValueError(
+            "writer client id exceeds WEEX limit"
+        )
+
+    return value
+
+
+# ============================================================
+# WRITER QUANTITY ALLOCATION
+# ============================================================
+
+def writer_quantities(
+    entry_quantity,
+):
+
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    tp1 = quantize_down(
+        entry_quantity
+        * TP1_ALLOCATION_PERCENT
+        / Decimal("100"),
+        QUANTITY_STEP,
+    )
+
+    tp2 = quantize_down(
+        entry_quantity
+        * TP2_ALLOCATION_PERCENT
+        / Decimal("100"),
+        QUANTITY_STEP,
+    )
+
+    tp3 = (
+        entry_quantity
+        - tp1
+        - tp2
+    )
+
+    return (
+        entry_quantity,
+        tp1,
+        tp2,
+        tp3,
+    )
+
+
+# ============================================================
+# WRITER QUANTITY VALIDATION
+# ============================================================
+
+def validate_writer_quantities(
+    entry_quantity,
+    tp1,
+    tp2,
+    tp3,
+):
+
+    checks = {
+
+        "entry_on_step":
+            quantize_down(
+                entry_quantity,
+                QUANTITY_STEP,
+            )
+            == entry_quantity,
+
+        "tp1_on_step":
+            quantize_down(
+                tp1,
+                QUANTITY_STEP,
+            )
+            == tp1,
+
+        "tp2_on_step":
+            quantize_down(
+                tp2,
+                QUANTITY_STEP,
+            )
+            == tp2,
+
+        "tp3_on_step":
+            quantize_down(
+                tp3,
+                QUANTITY_STEP,
+            )
+            == tp3,
+
+        "entry_minimum":
+            entry_quantity
+            >= MIN_QUANTITY,
+
+        "tp1_minimum":
+            tp1
+            >= MIN_QUANTITY,
+
+        "tp2_minimum":
+            tp2
+            >= MIN_QUANTITY,
+
+        "tp3_minimum":
+            tp3
+            >= MIN_QUANTITY,
+
+        "allocation_sum_exact":
+            (
+                tp1
+                + tp2
+                + tp3
+            )
+            == entry_quantity,
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+# ============================================================
+# CLIENT-ID VALIDATION
+# ============================================================
+
+def validate_client_id(
+    value,
+):
+
+    if not isinstance(
+        value,
+        str,
+    ):
+
+        return False
+
+    if not (
+        1
+        <= len(value)
+        <= 36
+    ):
+
+        return False
+
+    allowed = (
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz"
+        "0123456789"
+        "._-:/"
+    )
+
+    return all(
+        character in allowed
+        for character in value
+    )
+
+
+# ============================================================
+# ENTRY CONTRACT VALIDATION
+# ============================================================
+
+def validate_entry_contract(
+    leg,
+    direction,
+):
+
+    expected_side, expected_position = (
+        writer_entry_side(
+            direction
+        )
+    )
+
+    required_keys = {
+        "endpoint",
+        "method",
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+        "reduceOnly",
+    }
+
+    actual_keys = set(
+        leg.keys()
+    )
+
+    quantity = D(
+        leg.get(
+            "quantity",
+            "0",
+        )
+    )
+
+    checks = {
+
+        "required_fields_present":
+            required_keys.issubset(
+                actual_keys
+            ),
+
+        "endpoint":
+            leg.get(
+                "endpoint"
+            )
+            == WRITER_ENDPOINT_ENTRY,
+
+        "method":
+            leg.get(
+                "method"
+            )
+            == "POST",
+
+        "symbol":
+            leg.get(
+                "symbol"
+            )
+            == SYMBOL,
+
+        "side":
+            leg.get(
+                "side"
+            )
+            == expected_side,
+
+        "position_side":
+            leg.get(
+                "positionSide"
+            )
+            == expected_position,
+
+        "market_type":
+            leg.get(
+                "type"
+            )
+            == "MARKET",
+
+        "quantity_positive":
+            quantity > 0,
+
+        "quantity_on_step":
+            quantize_down(
+                quantity,
+                QUANTITY_STEP,
+            )
+            == quantity,
+
+        "client_id_valid":
+            validate_client_id(
+                leg.get(
+                    "newClientOrderId"
+                )
+            ),
+
+        "not_reduce_only":
+            leg.get(
+                "reduceOnly"
+            )
+            is False,
+
+        "no_attached_tp":
+            (
+                "tpTriggerPrice"
+                not in leg
+            ),
+
+        "no_attached_sl":
+            (
+                "slTriggerPrice"
+                not in leg
+            ),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+# ============================================================
+# TP1 / TP2 CONTRACT VALIDATION
+# ============================================================
+
+def validate_tpsl_contract(
+    leg,
+    direction,
+):
+
+    _, expected_position = (
+        writer_close_side(
+            direction
+        )
+    )
+
+    required_keys = {
+        "endpoint",
+        "method",
+        "symbol",
+        "clientAlgoId",
+        "planType",
+        "triggerPrice",
+        "executePrice",
+        "quantity",
+        "positionSide",
+        "triggerPriceType",
+        "reduceOnly",
+    }
+
+    actual_keys = set(
+        leg.keys()
+    )
+
+    trigger_price = D(
+        leg.get(
+            "triggerPrice",
+            "0",
+        )
+    )
+
+    execute_price = D(
+        leg.get(
+            "executePrice",
+            "-1",
+        )
+    )
+
+    quantity = D(
+        leg.get(
+            "quantity",
+            "0",
+        )
+    )
+
+    checks = {
+
+        "required_fields_present":
+            required_keys.issubset(
+                actual_keys
+            ),
+
+        "endpoint":
+            leg.get(
+                "endpoint"
+            )
+            == WRITER_ENDPOINT_TPSL,
+
+        "method":
+            leg.get(
+                "method"
+            )
+            == "POST",
+
+        "symbol":
+            leg.get(
+                "symbol"
+            )
+            == SYMBOL,
+
+        "client_id_valid":
+            validate_client_id(
+                leg.get(
+                    "clientAlgoId"
+                )
+            ),
+
+        "plan_type":
+            leg.get(
+                "planType"
+            )
+            == "TAKE_PROFIT",
+
+        "no_legacy_type_field":
+            (
+                "type"
+                not in leg
+            ),
+
+        "no_side_field":
+            (
+                "side"
+                not in leg
+            ),
+
+        "trigger_positive":
+            trigger_price > 0,
+
+        "market_execution":
+            execute_price
+            == Decimal("0"),
+
+        "quantity_positive":
+            quantity > 0,
+
+        "quantity_on_step":
+            quantize_down(
+                quantity,
+                QUANTITY_STEP,
+            )
+            == quantity,
+
+        "position_side":
+            leg.get(
+                "positionSide"
+            )
+            == expected_position,
+
+        "trigger_price_type":
+            leg.get(
+                "triggerPriceType"
+            )
+            == "MARK_PRICE",
+
+        "reduce_only":
+            leg.get(
+                "reduceOnly"
+            )
+            is True,
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+# ============================================================
+# TRAILING CONTRACT VALIDATION
+# ============================================================
+
+def validate_trailing_contract(
+    leg,
+    direction,
+):
+
+    expected_side, expected_position = (
+        writer_close_side(
+            direction
+        )
+    )
+
+    required_keys = {
+        "endpoint",
+        "method",
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "callbackRate",
+        "workingType",
+        "clientAlgoId",
+        "reduceOnly",
+    }
+
+    actual_keys = set(
+        leg.keys()
+    )
+
+    quantity = D(
+        leg.get(
+            "quantity",
+            "0",
+        )
+    )
+
+    callback_rate = D(
+        leg.get(
+            "callbackRate",
+            "0",
+        )
+    )
+
+    checks = {
+
+        "required_fields_present":
+            required_keys.issubset(
+                actual_keys
+            ),
+
+        "endpoint":
+            leg.get(
+                "endpoint"
+            )
+            == WRITER_ENDPOINT_TRAILING,
+
+        "method":
+            leg.get(
+                "method"
+            )
+            == "POST",
+
+        "symbol":
+            leg.get(
+                "symbol"
+            )
+            == SYMBOL,
+
+        "side":
+            leg.get(
+                "side"
+            )
+            == expected_side,
+
+        "position_side":
+            leg.get(
+                "positionSide"
+            )
+            == expected_position,
+
+        "trailing_type":
+            leg.get(
+                "type"
+            )
+            == "TRAILING_MARKET",
+
+        "quantity_positive":
+            quantity > 0,
+
+        "quantity_on_step":
+            quantize_down(
+                quantity,
+                QUANTITY_STEP,
+            )
+            == quantity,
+
+        "callback_rate_positive":
+            callback_rate > 0,
+
+        "callback_rate_weex_range":
+            (
+                callback_rate
+                >= Decimal("0.001")
+                and callback_rate
+                <= Decimal("0.9999")
+            ),
+
+        "working_type":
+            leg.get(
+                "workingType"
+            )
+            == "MARK_PRICE",
+
+        "client_id_valid":
+            validate_client_id(
+                leg.get(
+                    "clientAlgoId"
+                )
+            ),
+
+        "reduce_only":
+            leg.get(
+                "reduceOnly"
+            )
+            is True,
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+# ============================================================
+# COMPLETE WRITER-CONTRACT VALIDATION
+# ============================================================
+
+def validate_writer_contract(
+    preview,
+):
+
+    direction = preview[
+        "direction"
+    ]
+
+    legs = preview[
+        "legs"
+    ]
+
+    entry_checks = (
+        validate_entry_contract(
+            legs[
+                "entry"
+            ],
+            direction,
+        )
+    )
+
+    tp1_checks = (
+        validate_tpsl_contract(
+            legs[
+                "tp1"
+            ],
+            direction,
+        )
+    )
+
+    tp2_checks = (
+        validate_tpsl_contract(
+            legs[
+                "tp2"
+            ],
+            direction,
+        )
+    )
+
+    tp3_checks = (
+        validate_trailing_contract(
+            legs[
+                "tp3"
+            ],
+            direction,
+        )
+    )
+
+    checks = {
+
+        "entry":
+            entry_checks,
+
+        "tp1":
+            tp1_checks,
+
+        "tp2":
+            tp2_checks,
+
+        "tp3":
+            tp3_checks,
+
+        "entry_valid":
+            entry_checks[
+                "all_valid"
+            ],
+
+        "tp1_valid":
+            tp1_checks[
+                "all_valid"
+            ],
+
+        "tp2_valid":
+            tp2_checks[
+                "all_valid"
+            ],
+
+        "tp3_valid":
+            tp3_checks[
+                "all_valid"
+            ],
+
+        "submitted_false":
+            preview.get(
+                "submitted"
+            )
+            is False,
+
+        "transport_disabled":
+            preview.get(
+                "transport_enabled"
+            )
+            is False,
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        (
+            checks[
+                "entry_valid"
+            ],
+            checks[
+                "tp1_valid"
+            ],
+            checks[
+                "tp2_valid"
+            ],
+            checks[
+                "tp3_valid"
+            ],
+            checks[
+                "submitted_false"
+            ],
+            checks[
+                "transport_disabled"
+            ],
+        )
+    )
+
+    return checks
+
+
+# ============================================================
+# WRITER REQUEST PREVIEW
+# ============================================================
+
+def build_writer_request_preview(
+    direction,
+    entry_price,
+    quantity,
+    tp_snapshot,
+):
+
+    if (
+        not tp_snapshot
+        or not tp_snapshot.get(
+            "tp_approval",
+            {},
+        ).get(
+            "approved"
+        )
+    ):
+
+        raise ValueError(
+            "writer requires an approved complete TP snapshot"
+        )
+
+    entry_price = quantize_down(
+        entry_price,
+        PRICE_STEP,
+    )
+
+    (
+        entry_quantity,
+        tp1_qty,
+        tp2_qty,
+        tp3_qty,
+    ) = writer_quantities(
+        quantity
+    )
+
+    quantity_checks = (
+        validate_writer_quantities(
+            entry_quantity,
+            tp1_qty,
+            tp2_qty,
+            tp3_qty,
+        )
+    )
+
+    (
+        entry_side,
+        position_side,
+    ) = writer_entry_side(
+        direction
+    )
+
+    (
+        close_side,
+        close_position_side,
+    ) = writer_close_side(
+        direction
+    )
+
+    tp1_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp1"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    tp2_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp2"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    if direction == "LONG":
+
+        if not (
+            tp1_price > entry_price
+            and
+            tp2_price > tp1_price
+        ):
+
+            raise ValueError(
+                "LONG TP ordering invalid"
+            )
+
+    elif direction == "SHORT":
+
+        if not (
+            tp1_price < entry_price
+            and
+            tp2_price < tp1_price
+        ):
+
+            raise ValueError(
+                "SHORT TP ordering invalid"
+            )
+
+    else:
+
+        raise ValueError(
+            "Invalid writer direction"
+        )
+
+    # --------------------------------------------------------
+    # ENTRY
+    #
+    # No TP/SL fields are attached to the entry.
+    #
+    # TP1, TP2 and TP3 remain independent legs so that the
+    # intended 20 / 20 / 60 allocation remains explicit.
+    # --------------------------------------------------------
+
+    entry_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_ENTRY,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            entry_side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            decimal_to_string(
+                entry_quantity
+            ),
+
+        "newClientOrderId":
+            writer_client_id(
+                direction,
+                "ENTRY",
+            ),
+
+        "reduceOnly":
+            False,
+    }
+
+    # --------------------------------------------------------
+    # TP1
+    #
+    # R36F.7 correction:
+    #
+    # WEEX V3 placeTpSlOrder uses planType, not type.
+    # The endpoint does not use a side field.
+    #
+    # executePrice = 0 means market execution after trigger.
+    # --------------------------------------------------------
+
+    tp1_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TPSL,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP1",
+            ),
+
+        "planType":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "executePrice":
+            "0",
+
+        "quantity":
+            decimal_to_string(
+                tp1_qty
+            ),
+
+        "positionSide":
+            close_position_side,
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "reduceOnly":
+            True,
+    }
+
+    # --------------------------------------------------------
+    # TP2
+    # --------------------------------------------------------
+
+    tp2_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TPSL,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP2",
+            ),
+
+        "planType":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            decimal_to_string(
+                tp2_price
+            ),
+
+        "executePrice":
+            "0",
+
+        "quantity":
+            decimal_to_string(
+                tp2_qty
+            ),
+
+        "positionSide":
+            close_position_side,
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "reduceOnly":
+            True,
+    }
+
+    # --------------------------------------------------------
+    # TP3 TRAILING RUNNER
+    # --------------------------------------------------------
+
+    tp3_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TRAILING,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            close_side,
+
+        "positionSide":
+            close_position_side,
+
+        "type":
+            "TRAILING_MARKET",
+
+        "quantity":
+            decimal_to_string(
+                tp3_qty
+            ),
+
+        "callbackRate":
+            decimal_to_string(
+                TP3_TRAILING_DISTANCE_PERCENT
+            ),
+
+        "workingType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP3",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+    legs = {
+
+        "entry":
+            entry_leg,
+
+        "tp1":
+            tp1_leg,
+
+        "tp2":
+            tp2_leg,
+
+        "tp3":
+            tp3_leg,
+    }
+
+    integrity_hash = (
+        sha256_text(
+            canonical_json(
+                legs
+            )
+        )
+    )
+
+    preview = {
+
+        "stage":
+            STAGE,
+
+        "symbol":
+            SYMBOL,
+
+        "direction":
+            direction,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "entry_quantity":
+            decimal_to_string(
+                entry_quantity
+            ),
+
+        "tp1_quantity":
+            decimal_to_string(
+                tp1_qty
+            ),
+
+        "tp2_quantity":
+            decimal_to_string(
+                tp2_qty
+            ),
+
+        "tp3_quantity":
+            decimal_to_string(
+                tp3_qty
+            ),
+
+        "allocation_percent":
+            {
+
+                "tp1":
+                    decimal_to_string(
+                        TP1_ALLOCATION_PERCENT
+                    ),
+
+                "tp2":
+                    decimal_to_string(
+                        TP2_ALLOCATION_PERCENT
+                    ),
+
+                "tp3":
+                    decimal_to_string(
+                        TP3_ALLOCATION_PERCENT
+                    ),
+            },
+
+        "quantity_validation":
+            quantity_checks,
+
+        "tp_approval":
+            tp_snapshot[
+                "tp_approval"
+            ],
+
+        "tp1":
+            tp_snapshot[
+                "tp1"
+            ],
+
+        "tp2":
+            tp_snapshot[
+                "tp2"
+            ],
+
+        "tp3":
+            tp_snapshot[
+                "tp3"
+            ],
+
+        "legs":
+            legs,
+
+        "primary_tp_immutable":
+            True,
+
+        "submitted":
+            False,
+
+        "exchange_request_sent":
+            False,
+
+        "transport_enabled":
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+        "integrity_sha256":
+            integrity_hash,
+    }
+
+    preview[
+        "contract_validation"
+    ] = validate_writer_contract(
+        preview
+    )
+
+    return preview
+
+
+# ============================================================
+# SYNTHETIC WRITER SNAPSHOT
+# ============================================================
+
+def synthetic_writer_tp_snapshot(
+    direction,
+):
+
+    if direction == "LONG":
+
+        return {
+
+            "side":
+                "LONG",
+
+            "entry_price":
+                "100000",
+
+            "tp_approval":
+                {
+
+                    "status":
+                        "APPROVED",
+
+                    "approved":
+                        True,
+
+                    "required_valid_clusters":
+                        2,
+
+                    "available_valid_clusters":
+                        2,
+
+                    "reason":
+                        "TWO_OR_MORE_VALID_HISTORICAL_CLUSTERS",
+                },
+
+            "tp1":
+                "101000",
+
+            "tp2":
+                "102000",
+
+            "tp3":
+                {
+
+                    "type":
+                        "TRAILING",
+
+                    "allocation_percent":
+                        "60",
+
+                    "trailing_distance_percent":
+                        decimal_to_string(
+                            TP3_TRAILING_DISTANCE_PERCENT
+                        ),
+                },
+
+            "primary_tp_immutable":
+                True,
+        }
+
+    if direction == "SHORT":
+
+        return {
+
+            "side":
+                "SHORT",
+
+            "entry_price":
+                "100000",
+
+            "tp_approval":
+                {
+
+                    "status":
+                        "APPROVED",
+
+                    "approved":
+                        True,
+
+                    "required_valid_clusters":
+                        2,
+
+                    "available_valid_clusters":
+                        2,
+
+                    "reason":
+                        "TWO_OR_MORE_VALID_HISTORICAL_CLUSTERS",
+                },
+
+            "tp1":
+                "99000",
+
+            "tp2":
+                "98000",
+
+            "tp3":
+                {
+
+                    "type":
+                        "TRAILING",
+
+                    "allocation_percent":
+                        "60",
+
+                    "trailing_distance_percent":
+                        decimal_to_string(
+                            TP3_TRAILING_DISTANCE_PERCENT
+                        ),
+                },
+
+            "primary_tp_immutable":
+                True,
+        }
+
+    raise ValueError(
+        "Invalid synthetic writer direction"
+    )
+
+
+# ============================================================
+# SYNTHETIC WRITER CONTRACT TEST
+# ============================================================
+
+def synthetic_writer_contract_test():
+
+    # --------------------------------------------------------
+    # Use 0.001 BTC for deterministic representability:
+    #
+    # TP1 = 0.0002
+    # TP2 = 0.0002
+    # TP3 = 0.0006
+    #
+    # All three legs therefore meet the currently frozen
+    # 0.0001 BTC quantity step/minimum.
+    #
+    # This does NOT change the production entry sizing policy.
+    # --------------------------------------------------------
+
+    synthetic_quantity = Decimal(
+        "0.001"
+    )
+
+    synthetic_entry = Decimal(
+        "100000"
+    )
+
+    long_preview = (
+        build_writer_request_preview(
+            "LONG",
+            synthetic_entry,
+            synthetic_quantity,
+            synthetic_writer_tp_snapshot(
+                "LONG"
+            ),
+        )
+    )
+
+    short_preview = (
+        build_writer_request_preview(
+            "SHORT",
+            synthetic_entry,
+            synthetic_quantity,
+            synthetic_writer_tp_snapshot(
+                "SHORT"
+            ),
+        )
+    )
+
+    long_validation = (
+        long_preview[
+            "contract_validation"
+        ]
+    )
+
+    short_validation = (
+        short_preview[
+            "contract_validation"
+        ]
+    )
+
+    check(
+        "SYNTHETIC_LONG_ENTRY_CONTRACT",
+        long_validation[
+            "entry_valid"
+        ],
+    )
+
+    check(
+        "SYNTHETIC_LONG_TP1_CONTRACT",
+        long_validation[
+            "tp1_valid"
+        ],
+    )
+
+    check(
+        "SYNTHETIC_LONG_TP2_CONTRACT",
+        long_validation[
+            "tp2_valid"
+        ],
+    )
+
+    check(
+        "SYNTHETIC_LONG_TP3_CONTRACT",
+        long_validation[
+            "tp3_valid"
+        ],
+    )
+
+    check(
+        "SYNTHETIC_LONG_WRITER_CONTRACT",
+        long_validation[
+            "all_valid"
+        ],
+    )
+
+    check(
+        "SYNTHETIC_SHORT_ENTRY_CONTRACT",
+        short_validation[
+            "entry_valid"
+        ],
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TP1_CONTRACT",
+        short_validation[
+            "tp1_valid"
+        ],
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TP2_CONTRACT",
+        short_validation[
+            "tp2_valid"
+        ],
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TP3_CONTRACT",
+        short_validation[
+            "tp3_valid"
+        ],
+    )
+
+    check(
+        "SYNTHETIC_SHORT_WRITER_CONTRACT",
+        short_validation[
+            "all_valid"
+        ],
+    )
+
+    check(
+        "SYNTHETIC_WRITER_QUANTITY_20_20_60",
+        (
+            long_preview[
+                "tp1_quantity"
+            ]
+            == "0.0002"
+            and long_preview[
+                "tp2_quantity"
+            ]
+            == "0.0002"
+            and long_preview[
+                "tp3_quantity"
+            ]
+            == "0.0006"
+        ),
+    )
+
+    check(
+        "SYNTHETIC_ENTRY_NO_ATTACHED_TP",
+        (
+            "tpTriggerPrice"
+            not in long_preview[
+                "legs"
+            ][
+                "entry"
+            ]
+        ),
+    )
+
+    check(
+        "SYNTHETIC_TP1_PLAN_TYPE",
+        (
+            long_preview[
+                "legs"
+            ][
+                "tp1"
+            ][
+                "planType"
+            ]
+            == "TAKE_PROFIT"
+        ),
+    )
+
+    check(
+        "SYNTHETIC_TP2_PLAN_TYPE",
+        (
+            long_preview[
+                "legs"
+            ][
+                "tp2"
+            ][
+                "planType"
+            ]
+            == "TAKE_PROFIT"
+        ),
+    )
+
+    check(
+        "SYNTHETIC_TP1_MARKET_EXECUTION",
+        (
+            long_preview[
+                "legs"
+            ][
+                "tp1"
+            ][
+                "executePrice"
+            ]
+            == "0"
+        ),
+    )
+
+    check(
+        "SYNTHETIC_TP2_MARKET_EXECUTION",
+        (
+            long_preview[
+                "legs"
+            ][
+                "tp2"
+            ][
+                "executePrice"
+            ]
+            == "0"
+        ),
+    )
+
+    check(
+        "SYNTHETIC_TP1_NO_SIDE_FIELD",
+        (
+            "side"
+            not in long_preview[
+                "legs"
+            ][
+                "tp1"
+            ]
+        ),
+    )
+
+    check(
+        "SYNTHETIC_TP2_NO_SIDE_FIELD",
+        (
+            "side"
+            not in long_preview[
+                "legs"
+            ][
+                "tp2"
+            ]
+        ),
+    )
+
+    check(
+        "SYNTHETIC_TP3_TRAILING_MARKET",
+        (
+            long_preview[
+                "legs"
+            ][
+                "tp3"
+            ][
+                "type"
+            ]
+            == "TRAILING_MARKET"
+        ),
+    )
+
+    check(
+        "SYNTHETIC_TP3_CALLBACK_RATE",
+        (
+            D(
+                long_preview[
+                    "legs"
+                ][
+                    "tp3"
+                ][
+                    "callbackRate"
+                ]
+            )
+            == TP3_TRAILING_DISTANCE_PERCENT
+        ),
+    )
+
+    check(
+        "SYNTHETIC_WRITER_NOT_SUBMITTED",
+        (
+            long_preview[
+                "submitted"
+            ]
+            is False
+            and short_preview[
+                "submitted"
+            ]
+            is False
+        ),
+    )
+
+    check(
+        "SYNTHETIC_WRITER_TRANSPORT_DISABLED",
+        (
+            long_preview[
+                "transport_enabled"
+            ]
+            is False
+            and short_preview[
+                "transport_enabled"
+            ]
+            is False
+        ),
+    )
+
+    check(
+        "SYNTHETIC_WRITER_EXCHANGE_REQUEST_NOT_SENT",
+        (
+            long_preview[
+                "exchange_request_sent"
+            ]
+            is False
+            and short_preview[
+                "exchange_request_sent"
+            ]
+            is False
+        ),
+    )
+
+    return {
+        "long":
+            long_preview,
+
+        "short":
+            short_preview,
+
+        "passed":
+            (
+                long_validation[
+                    "all_valid"
+                ]
+                and short_validation[
+                    "all_valid"
+                ]
+            ),
+    }
+
+# ============================================================
+# MAIN R36F.7 TEST
+# ============================================================
