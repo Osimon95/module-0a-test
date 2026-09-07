@@ -4829,9 +4829,6 @@ async def run_r36f11():
     )
 ### R36F.11 — Part 4A
 
-Paste this **immediately after Part 3**. It starts from the exact next line after:
-
-```python
     r36a_ids.update(
         collect_ids_from_file(
             R36A_DEDUPE_FILE
