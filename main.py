@@ -634,3 +634,1288 @@ def start_health_server():
         f"{STAGE}: HEALTH SERVER STARTED ON PORT {port}"
     )
 
+## R36F.10 — Part 2
+
+
+# ============================================================
+# WEEX SIGNING
+# ============================================================
+
+def build_signature(
+    timestamp,
+    method,
+    request_path,
+    body="",
+):
+
+    api_secret = os.getenv(
+        "WEEX_API_SECRET"
+    )
+
+    if not api_secret:
+        raise RuntimeError(
+            "WEEX_API_SECRET missing"
+        )
+
+    prehash = (
+        str(timestamp)
+        + method.upper()
+        + request_path
+        + body
+    )
+
+    digest = hmac.new(
+        api_secret.encode(),
+        prehash.encode(),
+        hashlib.sha256,
+    ).digest()
+
+    return base64.b64encode(
+        digest
+    ).decode()
+
+
+# ============================================================
+# READ-ONLY WEEX REQUEST
+# ============================================================
+
+async def weex_get(
+    path,
+    params=None,
+    authenticated=False,
+):
+    """
+    Read-only WEEX GET.
+
+    R36F.10 signs the exact query string for authenticated GET requests.
+    No POST/PUT/PATCH/DELETE transport exists here.
+    """
+
+    params = params or {}
+
+    from urllib.parse import urlencode
+
+    query_string = urlencode(
+        params,
+        doseq=True,
+    )
+
+    request_target = path
+
+    if query_string:
+        request_target += (
+            "?" + query_string
+        )
+
+    url = (
+        API_BASE_URL
+        + request_target
+    )
+
+    headers = {}
+
+    if authenticated:
+
+        api_key = os.getenv(
+            "WEEX_API_KEY"
+        )
+
+        passphrase = os.getenv(
+            "WEEX_API_PASSPHRASE"
+        )
+
+        if not api_key:
+            raise RuntimeError(
+                "WEEX_API_KEY missing"
+            )
+
+        if not passphrase:
+            raise RuntimeError(
+                "WEEX_API_PASSPHRASE missing"
+            )
+
+        timestamp = str(
+            int(
+                time.time() * 1000
+            )
+        )
+
+        signature = build_signature(
+            timestamp,
+            "GET",
+            request_target,
+            "",
+        )
+
+        headers = {
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": passphrase,
+            "Content-Type": "application/json",
+        }
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+
+        async with session.get(
+            url,
+            headers=headers,
+        ) as response:
+
+            text = await response.text()
+
+            if response.status >= 400:
+
+                raise RuntimeError(
+                    f"WEEX GET HTTP {response.status}: {text}"
+                )
+
+            try:
+                return json.loads(text)
+
+            except Exception:
+
+                return {
+                    "raw": text
+                }
+
+
+# ============================================================
+# MARK PRICE
+# ============================================================
+
+async def load_mark_price():
+
+    global MARK_PRICE
+
+    data = await weex_get(
+        "/capi/v3/market/symbolPrice",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=False,
+    )
+
+    candidates = []
+
+    if isinstance(
+        data,
+        dict,
+    ):
+
+        for key in (
+            "price",
+            "markPrice",
+            "lastPrice",
+        ):
+
+            if key in data:
+                candidates.append(
+                    data[key]
+                )
+
+        nested = data.get(
+            "data"
+        )
+
+        if isinstance(
+            nested,
+            dict,
+        ):
+
+            for key in (
+                "price",
+                "markPrice",
+                "lastPrice",
+            ):
+
+                if key in nested:
+                    candidates.append(
+                        nested[key]
+                    )
+
+    elif isinstance(
+        data,
+        list,
+    ):
+
+        for item in data:
+
+            if isinstance(
+                item,
+                dict,
+            ):
+
+                for key in (
+                    "price",
+                    "markPrice",
+                    "lastPrice",
+                ):
+
+                    if key in item:
+                        candidates.append(
+                            item[key]
+                        )
+
+    for candidate in candidates:
+
+        try:
+
+            MARK_PRICE = D(
+                candidate
+            )
+
+            if MARK_PRICE > 0:
+
+                log(
+                    "MARK PRICE = "
+                    + decimal_to_string(
+                        MARK_PRICE
+                    )
+                )
+
+                return MARK_PRICE
+
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Unable to determine WEEX mark price"
+    )
+
+
+# ============================================================
+# BALANCE
+# ============================================================
+
+async def load_available_balance():
+
+    global AVAILABLE_BALANCE
+
+    data = await weex_get(
+        "/capi/v3/account/balance",
+        authenticated=True,
+    )
+
+    candidates = []
+
+    def collect(
+        value,
+    ):
+
+        if isinstance(
+            value,
+            dict,
+        ):
+
+            for key, item in value.items():
+
+                key_lower = key.lower()
+
+                if key_lower in (
+                    "availablebalance",
+                    "available_balance",
+                    "available",
+                    "free",
+                    "usdtavailable",
+                ):
+
+                    candidates.append(
+                        item
+                    )
+
+                collect(item)
+
+        elif isinstance(
+            value,
+            list,
+        ):
+
+            for item in value:
+                collect(item)
+
+    collect(data)
+
+    for candidate in candidates:
+
+        try:
+
+            value = D(
+                candidate
+            )
+
+            if value >= 0:
+
+                AVAILABLE_BALANCE = value
+
+                log(
+                    "AVAILABLE USDT = "
+                    + decimal_to_string(
+                        AVAILABLE_BALANCE
+                    )
+                )
+
+                return value
+
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Unable to determine available USDT balance"
+    )
+
+
+# ============================================================
+# OPEN POSITIONS
+# ============================================================
+
+async def load_open_positions():
+
+    global OPEN_POSITIONS
+
+    data = await weex_get(
+        "/capi/v3/account/position/singlePosition",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=True,
+    )
+
+    if isinstance(
+        data,
+        list,
+    ):
+
+        OPEN_POSITIONS = data
+
+    elif isinstance(
+        data,
+        dict,
+    ):
+
+        nested = data.get(
+            "data"
+        )
+
+        if isinstance(
+            nested,
+            list,
+        ):
+
+            OPEN_POSITIONS = nested
+
+        else:
+
+            OPEN_POSITIONS = []
+
+    else:
+
+        OPEN_POSITIONS = []
+
+    log(
+        "OPEN POSITIONS = "
+        + str(
+            len(
+                OPEN_POSITIONS
+            )
+        )
+    )
+
+    return OPEN_POSITIONS
+
+
+# ============================================================
+# EXCHANGE CONFIG
+# ============================================================
+
+async def load_exchange_config():
+
+    global WEEX_CONFIG
+
+    data = await weex_get(
+        "/capi/v3/market/exchangeInfo",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=False,
+    )
+
+    WEEX_CONFIG = (
+        data
+        if isinstance(
+            data,
+            dict,
+        )
+        else {}
+    )
+
+    log(
+        "WEEX EXCHANGE CONFIG READ COMPLETE"
+    )
+
+    return WEEX_CONFIG
+
+
+# ============================================================
+# WEEX READ-ONLY RECONCILIATION
+# ============================================================
+
+async def reconcile_weex():
+
+    await load_mark_price()
+
+    try:
+
+        await load_available_balance()
+
+    except Exception as exc:
+
+        log(
+            f"BALANCE READ FAILED = {exc}"
+        )
+
+        raise
+
+    try:
+
+        await load_open_positions()
+
+    except Exception as exc:
+
+        log(
+            f"POSITION READ FAILED = {exc}"
+        )
+
+        raise
+
+    try:
+
+        await load_exchange_config()
+
+    except Exception as exc:
+
+        log(
+            f"EXCHANGE CONFIG READ FAILED = {exc}"
+        )
+
+        raise
+
+    return True
+
+
+# ============================================================
+# HISTORICAL KLINES
+# ============================================================
+
+async def load_historical_klines():
+
+    all_rows = []
+
+    for page in range(
+        MAX_HISTORICAL_PAGES
+    ):
+
+        params = {
+            "symbol": SYMBOL,
+            "interval": KLINE_INTERVAL,
+            "limit": HISTORICAL_LIMIT,
+        }
+
+        if page > 0:
+
+            params[
+                "endTime"
+            ] = int(
+                time.time() * 1000
+            ) - (
+                page
+                * HISTORICAL_LIMIT
+                * 60
+                * 1000
+            )
+
+        data = await weex_get(
+            "/capi/v3/market/klines",
+            params=params,
+            authenticated=False,
+        )
+
+        rows = data
+
+        if isinstance(
+            data,
+            dict,
+        ):
+
+            rows = data.get(
+                "data",
+                data.get(
+                    "result",
+                    [],
+                ),
+            )
+
+        if not isinstance(
+            rows,
+            list,
+        ):
+
+            raise RuntimeError(
+                "Unexpected kline response"
+            )
+
+        all_rows.extend(
+            rows
+        )
+
+        if len(rows) < HISTORICAL_LIMIT:
+            break
+
+    return all_rows
+
+
+# ============================================================
+# KLINE VALUE HELPERS
+# ============================================================
+
+def candle_high(
+    row,
+):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        for key in (
+            "high",
+            "highPrice",
+        ):
+
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(
+        row,
+        list,
+    ) and len(row) >= 3:
+
+        return D(
+            row[2]
+        )
+
+    raise ValueError(
+        "Unable to read candle high"
+    )
+
+
+def candle_low(
+    row,
+):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        for key in (
+            "low",
+            "lowPrice",
+        ):
+
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(
+        row,
+        list,
+    ) and len(row) >= 4:
+
+        return D(
+            row[3]
+        )
+
+    raise ValueError(
+        "Unable to read candle low"
+    )
+
+
+def historical_highs(
+    rows,
+):
+
+    return [
+        candle_high(row)
+        for row in rows
+    ]
+
+
+def historical_lows(
+    rows,
+):
+
+    return [
+        candle_low(row)
+        for row in rows
+    ]
+
+
+# ============================================================
+# LOCAL EXTREMA
+# ============================================================
+
+def build_extrema(
+    values,
+):
+
+    if len(values) < 3:
+        return []
+
+    extrema = []
+
+    for index in range(
+        1,
+        len(values) - 1,
+    ):
+
+        previous_value = D(
+            values[index - 1]
+        )
+
+        current_value = D(
+            values[index]
+        )
+
+        next_value = D(
+            values[index + 1]
+        )
+
+        if (
+            current_value >= previous_value
+            and current_value >= next_value
+        ):
+
+            extrema.append(
+                current_value
+            )
+
+        elif (
+            current_value <= previous_value
+            and current_value <= next_value
+        ):
+
+            extrema.append(
+                current_value
+            )
+
+    return extrema
+
+
+def local_extrema_values(
+    rows,
+    side,
+):
+
+    if side == "LONG":
+
+        return build_extrema(
+            historical_highs(
+                rows
+            )
+        )
+
+    if side == "SHORT":
+
+        return build_extrema(
+            historical_lows(
+                rows
+            )
+        )
+
+    raise ValueError(
+        f"Unsupported side={side}"
+    )
+
+
+# ============================================================
+# CLUSTERING
+# ============================================================
+
+def cluster_extrema(
+    extrema,
+):
+
+    if not extrema:
+        return []
+
+    values = sorted(
+        D(value)
+        for value in extrema
+    )
+
+    clusters = []
+
+    current = []
+
+    for value in values:
+
+        if not current:
+
+            current = [
+                value
+            ]
+
+            continue
+
+        average = (
+            sum(current)
+            / Decimal(
+                len(current)
+            )
+        )
+
+        tolerance = (
+            average
+            * CLUSTER_TOLERANCE_PERCENT
+            / Decimal("100")
+        )
+
+        if abs(
+            value - average
+        ) <= tolerance:
+
+            current.append(
+                value
+            )
+
+        else:
+
+            clusters.append(
+                current
+            )
+
+            current = [
+                value
+            ]
+
+    if current:
+
+        clusters.append(
+            current
+        )
+
+    records = []
+
+    for cluster in clusters:
+
+        average = (
+            sum(cluster)
+            / Decimal(
+                len(cluster)
+            )
+        )
+
+        records.append(
+            {
+                "average": average,
+                "minimum": min(cluster),
+                "maximum": max(cluster),
+                "touches": len(cluster),
+            }
+        )
+
+    return records
+
+
+# ============================================================
+# CLUSTER VALIDATION
+# ============================================================
+
+def validate_clusters(
+    clusters,
+    entry_price,
+    side,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    valid = []
+    invalid = []
+
+    for cluster in clusters:
+
+        average = D(
+            cluster["average"]
+        )
+
+        touches = int(
+            cluster["touches"]
+        )
+
+        if touches < MIN_CLUSTER_TOUCHES:
+
+            invalid.append(
+                {
+                    **cluster,
+                    "valid": False,
+                    "reason":
+                        "INSUFFICIENT_CLUSTER_TOUCHES",
+                }
+            )
+
+            continue
+
+        if side == "LONG":
+
+            if average <= entry_price:
+
+                invalid.append(
+                    {
+                        **cluster,
+                        "valid": False,
+                        "reason":
+                            "CLUSTER_NOT_ABOVE_ENTRY",
+                    }
+                )
+
+                continue
+
+        elif side == "SHORT":
+
+            if average >= entry_price:
+
+                invalid.append(
+                    {
+                        **cluster,
+                        "valid": False,
+                        "reason":
+                            "CLUSTER_NOT_BELOW_ENTRY",
+                    }
+                )
+
+                continue
+
+        else:
+
+            raise ValueError(
+                f"Unsupported side={side}"
+            )
+
+        valid.append(
+            {
+                **cluster,
+                "valid": True,
+                "reason": "VALID",
+            }
+        )
+
+    if side == "LONG":
+
+        valid.sort(
+            key=lambda item:
+                D(
+                    item["average"]
+                )
+        )
+
+    else:
+
+        valid.sort(
+            key=lambda item:
+                D(
+                    item["average"]
+                ),
+            reverse=True,
+        )
+
+    return valid, invalid
+
+
+# ============================================================
+# CLUSTER DIAGNOSTICS
+# ============================================================
+
+def build_cluster_diagnostics(
+    rows,
+    entry_price,
+    side,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    extrema = local_extrema_values(
+        rows,
+        side,
+    )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    valid, invalid = validate_clusters(
+        clusters,
+        entry_price,
+        side,
+    )
+
+    valid_count = len(
+        valid
+    )
+
+    cluster_records = []
+
+    for cluster in valid:
+
+        cluster_records.append(
+            {
+                "cluster_number":
+                    len(
+                        cluster_records
+                    ) + 1,
+                "average":
+                    decimal_to_string(
+                        cluster["average"]
+                    ),
+                "minimum":
+                    decimal_to_string(
+                        cluster["minimum"]
+                    ),
+                "maximum":
+                    decimal_to_string(
+                        cluster["maximum"]
+                    ),
+                "touches":
+                    cluster["touches"],
+                "valid":
+                    True,
+                "reason":
+                    "VALID",
+            }
+        )
+
+    for cluster in invalid:
+
+        cluster_records.append(
+            {
+                "cluster_number":
+                    len(
+                        cluster_records
+                    ) + 1,
+                "average":
+                    decimal_to_string(
+                        cluster["average"]
+                    ),
+                "minimum":
+                    decimal_to_string(
+                        cluster["minimum"]
+                    ),
+                "maximum":
+                    decimal_to_string(
+                        cluster["maximum"]
+                    ),
+                "touches":
+                    cluster["touches"],
+                "valid":
+                    False,
+                "reason":
+                    cluster["reason"],
+            }
+        )
+
+    if valid_count >= REQUIRED_TP_CLUSTERS:
+
+        status = (
+            "ENOUGH_VALID_CLUSTERS"
+        )
+
+        failure_reason = None
+
+    elif valid_count == 1:
+
+        status = (
+            "ONLY_ONE_VALID_CLUSTER"
+        )
+
+        failure_reason = (
+            "ONLY_ONE_VALID_CLUSTER"
+        )
+
+    elif clusters:
+
+        status = (
+            "CLUSTERS_REJECTED_BY_POLICY"
+        )
+
+        failure_reason = (
+            "EXTREMA_EXIST_BUT_CLUSTER_REQUIREMENTS_NOT_MET"
+        )
+
+    else:
+
+        status = (
+            "NO_VALID_CLUSTERS"
+        )
+
+        failure_reason = (
+            "NO_VALID_HISTORICAL_CLUSTERS"
+        )
+
+    diagnostics = {
+
+        "side":
+            side,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "extrema_count":
+            len(
+                extrema
+            ),
+
+        "cluster_count":
+            len(
+                clusters
+            ),
+
+        "valid_cluster_count":
+            valid_count,
+
+        "clusters":
+            cluster_records,
+
+        "status":
+            status,
+
+        "failure_reason":
+            failure_reason,
+
+        "required_valid_clusters":
+            REQUIRED_TP_CLUSTERS,
+    }
+
+    log(
+        f"{side} HISTORICAL EXTREMA COUNT = "
+        f"{len(extrema)}"
+    )
+
+    log(
+        f"{side} HISTORICAL CLUSTER COUNT = "
+        f"{len(clusters)}"
+    )
+
+    log(
+        f"{side} VALID CLUSTER COUNT = "
+        f"{valid_count}"
+    )
+
+    for record in cluster_records:
+
+        log(
+            f"{side} CLUSTER "
+            f"{record['cluster_number']}: "
+            f"AVG={record['average']} "
+            f"MIN={record['minimum']} "
+            f"MAX={record['maximum']} "
+            f"TOUCHES={record['touches']} "
+            f"VALID={record['valid']} "
+            f"REASON={record['reason']}"
+        )
+
+    log(
+        f"{side} CLUSTER DIAGNOSTIC STATUS = "
+        f"{status}"
+    )
+
+    log(
+        f"{side} CLUSTER DIAGNOSTIC FAILURE_REASON = "
+        f"{failure_reason}"
+    )
+
+    return diagnostics
+
+
+# ============================================================
+# TP APPROVAL
+# ============================================================
+
+def evaluate_tp_approval(
+    diagnostics,
+):
+
+    valid_count = int(
+        diagnostics.get(
+            "valid_cluster_count",
+            0,
+        )
+    )
+
+    if valid_count >= REQUIRED_TP_CLUSTERS:
+
+        approval = {
+
+            "status":
+                "APPROVED",
+
+            "approved":
+                True,
+
+            "required_valid_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "available_valid_clusters":
+                valid_count,
+
+            "reason":
+                "TWO_OR_MORE_VALID_HISTORICAL_CLUSTERS",
+        }
+
+    else:
+
+        failure_reason = (
+            diagnostics.get(
+                "failure_reason"
+            )
+        )
+
+        if not failure_reason:
+
+            failure_reason = (
+                "FEWER_THAN_TWO_VALID_HISTORICAL_CLUSTERS"
+            )
+
+        approval = {
+
+            "status":
+                "REJECTED",
+
+            "approved":
+                False,
+
+            "required_valid_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "available_valid_clusters":
+                valid_count,
+
+            "reason":
+                failure_reason,
+        }
+
+    log(
+        f"{STAGE}_TP_APPROVAL = "
+        f"{approval['status']}"
+    )
+
+    log(
+        f"{STAGE}_TP_APPROVAL_REASON = "
+        f"{approval['reason']}"
+    )
+
+    log(
+        f"{STAGE}_TP_REQUIRED_CLUSTERS = "
+        f"{REQUIRED_TP_CLUSTERS}"
+    )
+
+    log(
+        f"{STAGE}_TP_AVAILABLE_CLUSTERS = "
+        f"{valid_count}"
+    )
+
+    return approval
+
+
+# ============================================================
+# VALID CLUSTERS
+# ============================================================
+
+def valid_clusters(
+    rows,
+    entry_price,
+    side,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    extrema = local_extrema_values(
+        rows,
+        side,
+    )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    valid = []
+
+    for cluster in clusters:
+
+        if (
+            cluster["touches"]
+            < MIN_CLUSTER_TOUCHES
+        ):
+
+            continue
+
+        average = cluster[
+            "average"
+        ]
+
+        if side == "LONG":
+
+            if average <= entry_price:
+                continue
+
+        elif side == "SHORT":
+
+            if average >= entry_price:
+                continue
+
+        else:
+
+            raise ValueError(
+                f"Unsupported side={side}"
+            )
+
+        valid.append(
+            cluster
+        )
+
+    if side == "LONG":
+
+        valid.sort(
+            key=lambda c:
+                c["average"]
+        )
+
+    else:
+
+        valid.sort(
+            key=lambda c:
+                c["average"],
+            reverse=True,
+        )
+
+    return valid
+
+# ============================================================
+# TP PRICE CALCULATION
+# ============================================================
