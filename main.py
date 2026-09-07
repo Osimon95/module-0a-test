@@ -1001,4 +1001,335 @@ async def load_available_balance():
 
     for candidate in candidates:
 
+        try:
+
+            value = D(
+                candidate
+            )
+
+            if value >= 0:
+
+                AVAILABLE_BALANCE = value
+
+                log(
+                    "AVAILABLE USDT = "
+                    + decimal_to_string(
+                        AVAILABLE_BALANCE
+                    )
+                )
+
+                return value
+
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Unable to determine available USDT balance"
+    )
+
+
+# ============================================================
+# OPEN POSITIONS
+# ============================================================
+
+async def load_open_positions():
+
+    global OPEN_POSITIONS
+
+    data = await weex_get(
+        "/capi/v3/account/position/singlePosition",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=True,
+    )
+
+    if isinstance(
+        data,
+        list,
+    ):
+
+        OPEN_POSITIONS = data
+
+    elif isinstance(
+        data,
+        dict,
+    ):
+
+        nested = data.get(
+            "data"
+        )
+
+        if isinstance(
+            nested,
+            list,
+        ):
+
+            OPEN_POSITIONS = nested
+
+        else:
+
+            OPEN_POSITIONS = []
+
+    else:
+
+        OPEN_POSITIONS = []
+
+    log(
+        "OPEN POSITIONS = "
+        + str(
+            len(
+                OPEN_POSITIONS
+            )
+        )
+    )
+
+    return OPEN_POSITIONS
+
+
+# ============================================================
+# EXCHANGE CONFIG
+# ============================================================
+
+async def load_exchange_config():
+
+    global WEEX_CONFIG
+
+    data = await weex_get(
+        "/capi/v3/market/exchangeInfo",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=False,
+    )
+
+    WEEX_CONFIG = (
+        data
+        if isinstance(
+            data,
+            dict,
+        )
+        else {}
+    )
+
+    log(
+        "WEEX EXCHANGE CONFIG READ COMPLETE"
+    )
+
+    return WEEX_CONFIG
+
+
+# ============================================================
+# WEEX READ-ONLY RECONCILIATION
+# ============================================================
+
+async def reconcile_weex():
+
+    await load_mark_price()
+
+    try:
+
+        await load_available_balance()
+
+    except Exception as exc:
+
+        log(
+            f"BALANCE READ FAILED = {exc}"
+        )
+
+        raise
+
+    try:
+
+        await load_open_positions()
+
+    except Exception as exc:
+
+        log(
+            f"POSITION READ FAILED = {exc}"
+        )
+
+        raise
+
+    try:
+
+        await load_exchange_config()
+
+    except Exception as exc:
+
+        log(
+            f"EXCHANGE CONFIG READ FAILED = {exc}"
+        )
+
+        raise
+
+    return True
+
+
+# ============================================================
+# HISTORICAL KLINES
+# ============================================================
+
+async def load_historical_klines():
+
+    all_rows = []
+
+    for page in range(
+        MAX_HISTORICAL_PAGES
+    ):
+
+        params = {
+            "symbol": SYMBOL,
+            "interval": KLINE_INTERVAL,
+            "limit": HISTORICAL_LIMIT,
+        }
+
+        if page > 0:
+
+            params[
+                "endTime"
+            ] = int(
+                time.time() * 1000
+            ) - (
+                page
+                * HISTORICAL_LIMIT
+                * 60
+                * 1000
+            )
+
+        data = await weex_get(
+            "/capi/v3/market/klines",
+            params=params,
+            authenticated=False,
+        )
+
+        rows = data
+
+        if isinstance(
+            data,
+            dict,
+        ):
+
+            rows = data.get(
+                "data",
+                data.get(
+                    "result",
+                    [],
+                ),
+            )
+
+        if not isinstance(
+            rows,
+            list,
+        ):
+
+            raise RuntimeError(
+                "Unexpected kline response"
+            )
+
+        all_rows.extend(
+            rows
+        )
+
+        if len(rows) < HISTORICAL_LIMIT:
+            break
+
+    return all_rows
+
+
+# ============================================================
+# KLINE VALUE HELPERS
+# ============================================================
+
+def candle_high(
+    row,
+):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        for key in (
+            "high",
+            "highPrice",
+        ):
+
+            if key in row:
+
+                return D(
+                    row[key]
+                )
+
+    if isinstance(
+        row,
+        list,
+    ) and len(row) >= 3:
+
+        return D(
+            row[2]
+        )
+
+    raise ValueError(
+        "Unable to read candle high"
+    )
+
+
+def candle_low(
+    row,
+):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        for key in (
+            "low",
+            "lowPrice",
+        ):
+
+            if key in row:
+
+                return D(
+                    row[key]
+                )
+
+    if isinstance(
+        row,
+        list,
+    ) and len(row) >= 4:
+
+        return D(
+            row[3]
+        )
+
+    raise ValueError(
+        "Unable to read candle low"
+    )
+
+
+def historical_highs(
+    rows,
+):
+
+    return [
+        candle_high(row)
+        for row in rows
+    ]
+
+
+def historical_lows(
+    rows,
+):
+
+    return [
+        candle_low(row)
+        for row in rows
+    ]
+
+
+# ============================================================
+# R36F.12 FROZEN EMA19 / EMA50 / EMA200 SIGNAL ENGINE
+# ============================================================
 
