@@ -6583,3 +6583,87 @@ async def run_r36f12():
     line()
 
     return snapshot
+id="k7r2mx"
+# ============================================================
+# HEARTBEAT
+# ============================================================
+
+async def heartbeat_loop():
+
+    global HEARTBEAT_COUNT
+
+    while True:
+
+        HEARTBEAT_COUNT += 1
+
+        log(
+            f"HEARTBEAT "
+            f"stage={STAGE} "
+            f"status={TEST_STATUS} "
+            f"count={HEARTBEAT_COUNT} "
+            f"r36a_id={OLD_R36A_UPDATE_ID} "
+            f"tp1_margin="
+            f"{decimal_to_string(TP1_PROFIT_MARGIN_PERCENT)} "
+            f"tp2_margin="
+            f"{decimal_to_string(TP2_PROFIT_MARGIN_PERCENT)} "
+            f"required_clusters="
+            f"{REQUIRED_TP_CLUSTERS} "
+            f"long_valid_clusters="
+            f"{LONG_DIAGNOSTICS.get('valid_cluster_count')} "
+            f"short_valid_clusters="
+            f"{SHORT_DIAGNOSTICS.get('valid_cluster_count')} "
+            f"write_transport="
+            f"{EXCHANGE_MUTATION_TRANSPORT_ENABLED} "
+            f"real_execution="
+            f"{REAL_ORDER_EXECUTION}"
+        )
+
+        await asyncio.sleep(
+            60
+        )
+
+
+# ============================================================
+# ASYNC MAIN
+# ============================================================
+
+async def async_main():
+
+    global TEST_STATUS
+
+    start_health_server()
+
+    try:
+
+        await run_r36f12()
+
+    except Exception as exc:
+
+        TEST_STATUS = "FAIL"
+
+        line()
+
+        log(
+            f"{STAGE} UNHANDLED ERROR = "
+            f"{exc}"
+        )
+
+        line()
+
+    await heartbeat_loop()
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    asyncio.run(
+        async_main()
+    )
+
+
+if __name__ == "__main__":
+
+    main()
