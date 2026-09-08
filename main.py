@@ -8490,3 +8490,688 @@ async def run_r36f12():
         f"{STAGE} TELEGRAM_COMMAND_AUTHORIZED_PREVIEW = "
         f"{TELEGRAM_COMMAND_PREVIEW.get('authorized_preview', False)}"
     )
+
+    log(
+        f"{STAGE} DEMO_ARM_REQUESTED = {R36F15_DEMO_ARM_REQUESTED}"
+    )
+
+    log(
+        f"{STAGE} DEMO_ORDER_ATTEMPTED = {bool(r36f15_demo_submission and r36f15_demo_submission.get('attempted'))}"
+    )
+
+    log(
+        f"{STAGE} DEMO_ORDER_ACCEPTED = {bool(r36f15_demo_submission and r36f15_demo_submission.get('accepted'))}"
+    )
+
+    log(
+        f"{STAGE} PROTECTIVE_STOP_PRICE = "
+        f"{decimal_to_string(r36f13_stop_price) if r36f13_stop_price is not None else None}"
+    )
+
+    log(
+        f"{STAGE} PROTECTIVE_STOP_VALID = "
+        f"{bool(r36f13_stop_checks and r36f13_stop_checks.get('all_valid'))}"
+    )
+
+    log(
+        f"{STAGE} PROTECTIVE_STOP_DISTANCE_PERCENT = "
+        f"{r36f131_stop_envelope.get('distance_percent') if r36f131_stop_envelope else None}"
+    )
+
+    log(
+        f"{STAGE} PROTECTIVE_STOP_RISK_ENVELOPE_VALID = "
+        f"{bool(r36f131_stop_envelope and r36f131_stop_envelope.get('all_valid'))}"
+    )
+
+    log(
+        f"{STAGE} PROTECTIVE_STOP_LOSS_BUDGET_VALID = "
+        f"{bool(r36f132_stop_loss_budget and r36f132_stop_loss_budget.get('all_valid'))}"
+    )
+
+    if r36f132_stop_loss_budget:
+        log(f"{STAGE} EXPECTED_STOP_LOSS_USDT = {r36f132_stop_loss_budget.get('expected_loss_usdt')}")
+        log(f"{STAGE} EXPECTED_STOP_LOSS_PERCENT = {r36f132_stop_loss_budget.get('expected_loss_percent_of_available_balance')}")
+        log(f"{STAGE} MAX_ACCOUNT_LOSS_PERCENT = {r36f132_stop_loss_budget.get('configured_max_account_loss_percent')}")
+
+    log(
+        f"{STAGE} STRICT_20_20_60_QUANTITY_FEASIBLE = "
+        f"{bool(quantity_feasibility and quantity_feasibility.get('feasible'))}"
+    )
+
+    if quantity_feasibility:
+
+        log(
+            f"{STAGE} ADJUSTABLE_TP_MIN_ENTRY_QTY = "
+            f"{quantity_feasibility.get('minimum_required_entry_quantity')}"
+        )
+
+    log(
+        f"{STAGE} ADJUSTABLE_TP_BALANCE_READY = "
+        f"{bool(balance_readiness and balance_readiness.get('eligible'))}"
+    )
+
+    if balance_readiness:
+
+        log(
+            f"{STAGE} TRADE_READINESS_STATUS = "
+            f"{balance_readiness.get('status')}"
+        )
+
+        log(
+            f"{STAGE} TRADE_READINESS_REASON = "
+            f"{balance_readiness.get('reason')}"
+        )
+
+        log(
+            f"{STAGE} REQUIRED_AVAILABLE_BALANCE = "
+            f"{balance_readiness.get('required_available_balance')}"
+        )
+
+        log(
+            f"{STAGE} AVAILABLE_BALANCE_SHORTFALL = "
+            f"{balance_readiness.get('available_balance_shortfall')}"
+        )
+
+    snapshot = {
+
+        "stage":
+            STAGE,
+
+        "purpose":
+            PURPOSE,
+
+        "timestamp":
+            now_iso(),
+
+        "test_status":
+            TEST_STATUS,
+
+        "final_gate_ok":
+            FINAL_GATE_OK,
+
+        "final_blockers":
+            FINAL_BLOCKERS,
+
+        "weex_read_only_ok":
+            WEEX_READ_ONLY_OK,
+
+        "durable_evidence_ok":
+            DURABLE_EVIDENCE_OK,
+
+        "r36a_evidence_ok":
+            R36A_EVIDENCE_OK,
+
+        "r36c_evidence_ok":
+            R36C_EVIDENCE_OK,
+
+        "r36d_evidence_ok":
+            R36D_EVIDENCE_OK,
+
+        "zero_write_invariant_ok":
+            ZERO_WRITE_INVARIANT_OK,
+
+        "mark_price":
+            decimal_to_string(
+                MARK_PRICE
+            ),
+
+        "available_balance":
+            decimal_to_string(
+                AVAILABLE_BALANCE
+            ),
+
+        "open_positions":
+            OPEN_POSITIONS,
+
+        "long_diagnostics":
+            LONG_DIAGNOSTICS,
+
+        "short_diagnostics":
+            SHORT_DIAGNOSTICS,
+
+        "tp_policy":
+            {
+
+                "required_valid_clusters":
+                    REQUIRED_TP_CLUSTERS,
+
+                "tp1_progress_percent":
+                    decimal_to_string(
+                        TP1_PROFIT_MARGIN_PERCENT
+                    ),
+
+                "tp2_progress_percent":
+                    decimal_to_string(
+                        TP2_PROFIT_MARGIN_PERCENT
+                    ),
+
+                "tp3_allocation_percent":
+                    decimal_to_string(
+                        TP3_ALLOCATION_PERCENT
+                    ),
+
+                "tp1_allocation_percent":
+                    decimal_to_string(
+                        TP1_ALLOCATION_PERCENT
+                    ),
+
+                "tp2_allocation_percent":
+                    decimal_to_string(
+                        TP2_ALLOCATION_PERCENT
+                    ),
+
+                "writer_quantity_policy":
+                    {
+
+                        "tp1_minimum":
+                            decimal_to_string(
+                                MIN_QUANTITY
+                            ),
+
+                        "tp2_minimum":
+                            decimal_to_string(
+                                MIN_QUANTITY
+                            ),
+
+                        "tp3_minimum":
+                            decimal_to_string(
+                                MIN_QUANTITY
+                            ),
+
+                        "strict_allocation":
+                            "20/20/60",
+
+                        "minimum_strict_entry_quantity":
+                            decimal_to_string(
+                                minimum_strict_tp_entry_quantity()
+                            ),
+
+                        "minimum_leg_promotion_allowed":
+                            False,
+
+                        "remainder_redistribution_allowed":
+                            False,
+                    },
+
+                "cluster_tolerance_percent":
+                    decimal_to_string(
+                        CLUSTER_TOLERANCE_PERCENT
+                    ),
+
+                "minimum_cluster_touches":
+                    MIN_CLUSTER_TOUCHES,
+            },
+
+        "synthetic_test_policy":
+            {
+
+                "long_requires_two_clusters":
+                    True,
+
+                "short_requires_two_clusters":
+                    True,
+
+                "one_cluster_must_reject":
+                    True,
+
+                "synthetic_fixtures_changed":
+                    True,
+
+                "production_tp_policy_changed":
+                    False,
+            },
+
+        "market_eligibility":
+            {
+
+                "real_long_market_eligible":
+                    REAL_LONG_MARKET_ELIGIBLE,
+
+                "real_short_market_eligible":
+                    REAL_SHORT_MARKET_ELIGIBLE,
+            },
+
+        "r36f12_ema_signal":
+            EMA_SIGNAL_SNAPSHOT,
+
+        "r36f12_telegram_command_preview":
+            TELEGRAM_COMMAND_PREVIEW,
+
+        "r36f12_telegram_policy":
+            {
+
+                "buy_command":
+                    TELEGRAM_BUY_COMMAND,
+
+                "sell_command":
+                    TELEGRAM_SELL_COMMAND,
+
+                "alerts_enabled":
+                    R36F12_TELEGRAM_ALERTS_ENABLED,
+
+                "command_can_execute_exchange_order":
+                    False,
+
+                "requires_ema_direction_agreement":
+                    True,
+
+                "requires_tp_market_eligibility":
+                    True,
+            },
+
+        "canary_preview":
+            canary_preview,
+
+        "writer_preview":
+            writer_preview,
+
+        "r36f12_protected_canary_preview":
+            protected_canary_preview,
+
+        "r36f13_protective_stop":
+            {
+
+                "distance_percent":
+                    decimal_to_string(
+                        R36F13_PROTECTIVE_STOP_DISTANCE_PERCENT
+                    ),
+
+                "price":
+                    (
+                        decimal_to_string(
+                            r36f13_stop_price
+                        )
+                        if r36f13_stop_price is not None
+                        else None
+                    ),
+
+                "checks":
+                    r36f13_stop_checks,
+
+                "mandatory_before_authorization":
+                    True,
+
+                "exchange_order_sent":
+                    False,
+            },
+
+        "r36f131_stop_risk_envelope":
+            {
+
+                "configured_maximum_percent":
+                    decimal_to_string(
+                        R36F131_MAX_PROTECTIVE_STOP_DISTANCE_PERCENT
+                    ),
+
+                "evaluation":
+                    r36f131_stop_envelope,
+
+                "mandatory_before_authorization":
+                    True,
+
+                "leverage_reference_is_not_liquidation_price":
+                    True,
+
+                "exchange_order_sent":
+                    False,
+            },
+
+        "r36f132_stop_loss_budget":
+            {
+                "configured_max_account_loss_percent":
+                    decimal_to_string(
+                        R36F132_MAX_ACCOUNT_LOSS_PERCENT
+                    ),
+
+                "evaluation":
+                    r36f132_stop_loss_budget,
+
+                "mandatory_before_authorization":
+                    True,
+
+                "exchange_order_sent":
+                    False,
+            },
+
+        "r36f12_canary_safety":
+            {
+
+                "max_entry_quantity":
+                    decimal_to_string(
+                        CANARY_MAX_ENTRY_QUANTITY
+                    ),
+
+                "stop_price_configured":
+                    bool(
+                        CANARY_STOP_PRICE_TEXT
+                    ),
+
+                "explicit_arm_requested":
+                    CANARY_ARM_REQUESTED,
+
+                "durable_journal_file":
+                    R36F12_CANARY_JOURNAL_FILE,
+
+                "durable_journal_unresolved":
+                    unresolved_canary_journal(
+                        read_json_file(
+                            R36F12_CANARY_JOURNAL_FILE,
+                            default={},
+                        )
+                    ),
+
+                "r36f12_zero_write":
+                    True,
+            },
+
+        "strict_tp_quantity_feasibility":
+            quantity_feasibility,
+
+        "strict_tp_balance_readiness":
+            balance_readiness,
+
+        "trade_readiness":
+            {
+
+                "status":
+                    (
+                        balance_readiness.get(
+                            "status"
+                        )
+                        if balance_readiness
+                        else "UNAVAILABLE"
+                    ),
+
+                "reason":
+                    (
+                        balance_readiness.get(
+                            "reason"
+                        )
+                        if balance_readiness
+                        else "READINESS_NOT_EVALUATED"
+                    ),
+
+                "eligible":
+                    bool(
+                        balance_readiness
+                        and balance_readiness.get(
+                            "eligible"
+                        )
+                    ),
+            },
+
+        "writer_construction_eligible":
+            WRITER_CONSTRUCTION_ELIGIBLE,
+
+        "execution_firebreak":
+            {
+
+                "real_order_execution":
+                    REAL_ORDER_EXECUTION,
+
+                "demo_order_execution":
+                    DEMO_ORDER_EXECUTION,
+
+                "exchange_mutation_transport_enabled":
+                    EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+                "order_submission_enabled":
+                    ORDER_SUBMISSION_ENABLED,
+
+                "leverage_mutation_enabled":
+                    LEVERAGE_MUTATION_ENABLED,
+
+                "margin_mode_mutation_enabled":
+                    MARGIN_MODE_MUTATION_ENABLED,
+
+                "position_mutation_enabled":
+                    POSITION_MUTATION_ENABLED,
+
+                "first_real_order_allowed":
+                    FIRST_REAL_ORDER_ALLOWED,
+
+                "demo_post_transport_enabled":
+                    R36F14_DEMO_POST_TRANSPORT_ENABLED,
+
+                "demo_order_submission_enabled":
+                    R36F14_DEMO_ORDER_SUBMISSION_ENABLED,
+
+                "first_demo_order_allowed":
+                    R36F14_FIRST_DEMO_ORDER_ALLOWED,
+
+                "r36f15_demo_post_transport_enabled":
+                    R36F15_DEMO_POST_TRANSPORT_ENABLED,
+
+                "r36f15_demo_order_submission_enabled":
+                    R36F15_DEMO_ORDER_SUBMISSION_ENABLED,
+
+                "r36f15_demo_arm_requested":
+                    R36F15_DEMO_ARM_REQUESTED,
+            },
+
+        "r36f14_weex_demo_integration":
+            {
+                "demo_symbol": R36F14_DEMO_SYMBOL,
+                "demo_asset": R36F14_DEMO_ASSET,
+                "balance_endpoint": R36F14_DEMO_BALANCE_ENDPOINT,
+                "positions_endpoint": R36F14_DEMO_POSITIONS_ENDPOINT,
+                "history_endpoint": R36F14_DEMO_ORDER_HISTORY_ENDPOINT,
+                "order_endpoint": R36F14_DEMO_ORDER_ENDPOINT,
+                "read_only_reconciliation": r36f14_demo_account,
+                "synthetic_integration": r36f14_demo_integration,
+                "real_market_demo_order_preview": r36f14_demo_order_preview,
+                "real_market_demo_order_validation": r36f14_demo_order_validation,
+                "demo_post_transport_enabled": R36F14_DEMO_POST_TRANSPORT_ENABLED,
+                "demo_order_submission_enabled": R36F14_DEMO_ORDER_SUBMISSION_ENABLED,
+                "first_demo_order_allowed": R36F14_FIRST_DEMO_ORDER_ALLOWED,
+                "actual_demo_order_sent": bool(
+                    r36f15_demo_submission
+                    and r36f15_demo_submission.get("sent")
+                ),
+                "actual_demo_order_accepted": bool(
+                    r36f15_demo_submission
+                    and r36f15_demo_submission.get("accepted")
+                ),
+                "r36f15_demo_submission": r36f15_demo_submission,
+                "r36f15_post_trade_reconciliation": r36f15_demo_reconciliation_after,
+                "actual_real_order_sent": False,
+            },
+
+        "writer_endpoints":
+            {
+
+                "entry":
+                    WRITER_ENDPOINT_ENTRY,
+
+                "tp1_tp2":
+                    WRITER_ENDPOINT_TPSL,
+
+                "tp3":
+                    WRITER_ENDPOINT_TRAILING,
+            },
+
+        "writer_submission_policy":
+            {
+
+                "submitted":
+                    False,
+
+                "post_requests_sent":
+                    False,
+
+                "exchange_mutation_sent":
+                    False,
+            },
+    }
+
+    write_json_file(
+        R36F_SNAPSHOT_FILE,
+        snapshot,
+    )
+
+    write_json_file(
+        R36F12_TELEGRAM_SIGNAL_FILE,
+        EMA_SIGNAL_SNAPSHOT,
+    )
+
+    write_json_file(
+        R36F12_TELEGRAM_COMMAND_FILE,
+        TELEGRAM_COMMAND_PREVIEW,
+    )
+
+    log(
+        f"{STAGE} SNAPSHOT WRITTEN = "
+        f"{R36F_SNAPSHOT_FILE}"
+    )
+
+    line()
+
+    log(
+        "NO REAL ORDER WAS SENT"
+    )
+
+    if (
+        r36f15_demo_submission
+        and r36f15_demo_submission.get("sent")
+    ):
+        log(
+            "WEEX DEMO ORDER WAS SENT; PRODUCTION REAL-MONEY ORDER REMAINS DISABLED"
+        )
+    else:
+        log(
+            "NO DEMO ORDER WAS SENT"
+        )
+
+    log(
+        "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+    )
+
+    line()
+
+    return snapshot
+
+
+# ============================================================
+# HEARTBEAT
+# ============================================================
+
+async def heartbeat_loop():
+
+    global HEARTBEAT_COUNT
+    global TEST_STATUS
+
+    while True:
+
+        HEARTBEAT_COUNT += 1
+
+        log(
+            f"HEARTBEAT "
+            f"stage={STAGE} "
+            f"status={TEST_STATUS} "
+            f"count={HEARTBEAT_COUNT} "
+            f"r36a_id={OLD_R36A_UPDATE_ID} "
+            f"tp1_margin="
+            f"{decimal_to_string(TP1_PROFIT_MARGIN_PERCENT)} "
+            f"tp2_margin="
+            f"{decimal_to_string(TP2_PROFIT_MARGIN_PERCENT)} "
+            f"required_clusters="
+            f"{REQUIRED_TP_CLUSTERS} "
+            f"long_valid_clusters="
+            f"{LONG_DIAGNOSTICS.get('valid_cluster_count')} "
+            f"short_valid_clusters="
+            f"{SHORT_DIAGNOSTICS.get('valid_cluster_count')} "
+            f"write_transport="
+            f"{EXCHANGE_MUTATION_TRANSPORT_ENABLED} "
+            f"real_execution="
+            f"{REAL_ORDER_EXECUTION} "
+            f"demo_arm="
+            f"{R36F15_DEMO_ARM_REQUESTED} "
+            f"reevaluation_seconds="
+            f"{R36F151_REEVALUATION_SECONDS}"
+        )
+
+        await asyncio.sleep(
+            R36F151_REEVALUATION_SECONDS
+        )
+
+        line()
+        log(
+            f"{STAGE} RUNTIME REEVALUATION START "
+            f"heartbeat={HEARTBEAT_COUNT}"
+        )
+        line()
+
+        try:
+            # Deliberately rerun the proven complete R36F.15 pipeline.
+            # This refetches mark price/history/account reads, recalculates
+            # EMA and historical TP clusters, revalidates the command,
+            # rebuilds stop/risk/writer previews, and reaches demo transport
+            # only when every existing authorization gate passes.
+            # The durable R36F15 demo journal inside submit_r36f15_demo_order()
+            # preserves exactly-once first-demo dispatch across every cycle
+            # and across service restarts.
+            await run_r36f12()
+
+            log(
+                f"{STAGE} RUNTIME REEVALUATION COMPLETE "
+                f"heartbeat={HEARTBEAT_COUNT} "
+                f"status={TEST_STATUS} "
+                f"long_valid_clusters="
+                f"{LONG_DIAGNOSTICS.get('valid_cluster_count')} "
+                f"short_valid_clusters="
+                f"{SHORT_DIAGNOSTICS.get('valid_cluster_count')}"
+            )
+
+        except Exception as exc:
+            TEST_STATUS = "FAIL"
+            line()
+            log(
+                f"{STAGE} RUNTIME REEVALUATION ERROR = {exc}"
+            )
+            line()
+
+
+# ============================================================
+# ASYNC MAIN
+# ============================================================
+
+async def async_main():
+
+    global TEST_STATUS
+
+    start_health_server()
+
+    try:
+
+        await run_r36f12()
+
+    except Exception as exc:
+
+        TEST_STATUS = "FAIL"
+
+        line()
+
+        log(
+            f"{STAGE} UNHANDLED ERROR = "
+            f"{exc}"
+        )
+
+        line()
+
+    await heartbeat_loop()
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    asyncio.run(
+        async_main()
+    )
+
+
+if __name__ == "__main__":
+
+    main()
