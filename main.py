@@ -7039,3 +7039,568 @@ def synthetic_balance_readiness_tests():
     )
 
     return True
+id="t4k9qn"
+# MAIN R36F.12 TEST
+# ============================================================
+
+async def run_r36f12():
+
+    global TEST_STATUS
+
+    global R36A_EVIDENCE_OK
+    global R36C_EVIDENCE_OK
+    global R36D_EVIDENCE_OK
+
+    global DURABLE_EVIDENCE_OK
+    global WEEX_READ_ONLY_OK
+
+    global ZERO_WRITE_INVARIANT_OK
+    global FINAL_GATE_OK
+
+    global LONG_DIAGNOSTICS
+    global SHORT_DIAGNOSTICS
+
+    TEST_STATUS = "RUNNING"
+
+    r36f14_demo_account = None
+    r36f14_demo_integration = None
+    r36f14_demo_order_preview = None
+    r36f14_demo_order_validation = None
+    r36f15_demo_submission = None
+    r36f15_demo_reconciliation_after = None
+
+    FINAL_BLOCKERS.clear()
+
+    line()
+
+    log(
+        f"{STAGE}: {PURPOSE}"
+    )
+
+    line()
+
+    check(
+        "REAL_ORDER_EXECUTION_DISABLED",
+        REAL_ORDER_EXECUTION is False,
+    )
+
+    check(
+        "DEMO_ORDER_EXECUTION_DISABLED",
+        DEMO_ORDER_EXECUTION is False,
+    )
+
+    check(
+        "EXCHANGE_MUTATION_TRANSPORT_DISABLED",
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        is False,
+    )
+
+    check(
+        "ORDER_SUBMISSION_DISABLED",
+        ORDER_SUBMISSION_ENABLED
+        is False,
+    )
+
+    check(
+        "LEVERAGE_MUTATION_DISABLED",
+        LEVERAGE_MUTATION_ENABLED
+        is False,
+    )
+
+    check(
+        "MARGIN_MODE_MUTATION_DISABLED",
+        MARGIN_MODE_MUTATION_ENABLED
+        is False,
+    )
+
+    check(
+        "POSITION_MUTATION_DISABLED",
+        POSITION_MUTATION_ENABLED
+        is False,
+    )
+
+    check(
+        "FIRST_REAL_ORDER_DISABLED",
+        FIRST_REAL_ORDER_ALLOWED
+        is False,
+    )
+
+    check(
+        "R36F14_DEMO_POST_TRANSPORT_DISABLED",
+        R36F14_DEMO_POST_TRANSPORT_ENABLED is False,
+    )
+
+    check(
+        "R36F14_DEMO_ORDER_SUBMISSION_DISABLED",
+        R36F14_DEMO_ORDER_SUBMISSION_ENABLED is False,
+    )
+
+    check(
+        "R36F14_FIRST_DEMO_ORDER_DISABLED",
+        R36F14_FIRST_DEMO_ORDER_ALLOWED is False,
+    )
+
+    check(
+        "R36F15_REAL_MONEY_FIREBREAK_INTACT",
+        REAL_ORDER_EXECUTION is False
+        and EXCHANGE_MUTATION_TRANSPORT_ENABLED is False
+        and ORDER_SUBMISSION_ENABLED is False
+        and FIRST_REAL_ORDER_ALLOWED is False,
+    )
+
+    check(
+        "R36F15_DEMO_ONLY_TRANSPORT_ENABLED",
+        R36F15_DEMO_POST_TRANSPORT_ENABLED is True
+        and R36F15_DEMO_ORDER_SUBMISSION_ENABLED is True
+        and R36F15_FIRST_DEMO_ORDER_ALLOWED is True,
+    )
+
+    check(
+        "WEEX_API_KEY_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_KEY"
+            )
+        ),
+    )
+
+    check(
+        "WEEX_API_SECRET_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_SECRET"
+            )
+        ),
+    )
+
+    check(
+        "WEEX_API_PASSPHRASE_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_PASSPHRASE"
+            )
+        ),
+    )
+
+    r36a_ids = set()
+
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DEDUPE_FILE
+        )
+    )
+
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DECISION_FILE
+        )
+    )
+
+    R36A_EVIDENCE_OK = (
+        OLD_R36A_UPDATE_ID
+        in r36a_ids
+    )
+
+    check(
+        "R36A_DURABLE_EVIDENCE",
+        R36A_EVIDENCE_OK,
+        (
+            f"EXPECTED_UPDATE_ID="
+            f"{OLD_R36A_UPDATE_ID}"
+        ),
+    )
+
+    r36c_ids = set()
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DEDUPE_FILE
+        )
+    )
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DECISION_FILE
+        )
+    )
+
+    R36C_EVIDENCE_OK = (
+        R36C_UPDATE_ID
+        in r36c_ids
+    )
+
+    check(
+        "R36C_DURABLE_EVIDENCE",
+        R36C_EVIDENCE_OK,
+        (
+            f"EXPECTED_UPDATE_ID="
+            f"{R36C_UPDATE_ID}"
+        ),
+    )
+
+    r36d_snapshot = read_json_file(
+        R36D_SNAPSHOT_FILE,
+        default={},
+    )
+
+    R36D_EVIDENCE_OK = bool(
+        r36d_snapshot
+    )
+
+    check(
+        "R36D_SNAPSHOT_EVIDENCE",
+        R36D_EVIDENCE_OK,
+        f"path={R36D_SNAPSHOT_FILE}",
+    )
+
+    DURABLE_EVIDENCE_OK = (
+        R36A_EVIDENCE_OK
+        and R36C_EVIDENCE_OK
+        and R36D_EVIDENCE_OK
+    )
+
+    try:
+
+        await reconcile_weex()
+
+        WEEX_READ_ONLY_OK = True
+
+        try:
+            r36f14_demo_account = await r36f14_read_demo_account()
+            diagnostic_check(
+                "R36F14_DEMO_READ_ONLY_RECONCILIATION",
+                r36f14_demo_account.get("all_reads_successful", False),
+                (
+                    "asset=" + str(r36f14_demo_account.get("demo_asset"))
+                    + " available=" + str(r36f14_demo_account.get("available_balance"))
+                    + " open_positions=" + str(r36f14_demo_account.get("open_demo_position_count"))
+                    + " history_count=" + str(r36f14_demo_account.get("history_count"))
+                ),
+            )
+        except Exception as exc:
+            r36f14_demo_account = {
+                "all_reads_successful": False,
+                "error": str(exc),
+            }
+            diagnostic_check(
+                "R36F14_DEMO_READ_ONLY_RECONCILIATION",
+                False,
+                str(exc),
+            )
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            True,
+        )
+
+    except Exception as exc:
+
+        WEEX_READ_ONLY_OK = False
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            False,
+            str(exc),
+        )
+
+    synthetic_long = None
+    synthetic_short = None
+
+    try:
+
+        (
+            synthetic_long,
+            synthetic_short,
+        ) = synthetic_cluster_tests()
+
+        check(
+            "SYNTHETIC_TP_ENGINE",
+            True,
+        )
+
+    except Exception as exc:
+
+        check(
+            "SYNTHETIC_TP_ENGINE",
+            False,
+            str(exc),
+        )
+
+    try:
+
+        rejection = (
+            synthetic_tp_rejection_test()
+        )
+
+        check(
+            "TP_APPROVAL_REJECTION_FLOW",
+            rejection[
+                "approved"
+            ] is False,
+        )
+
+    except Exception as exc:
+
+        check(
+            "TP_APPROVAL_REJECTION_FLOW",
+            False,
+            str(exc),
+        )
+
+    try:
+
+        synthetic_writer_quantity_tests()
+
+        check(
+            "STRICT_TP_QUANTITY_FEASIBILITY_TESTS",
+            True,
+        )
+
+        synthetic_balance_readiness_tests()
+
+        check(
+            "ADJUSTABLE_TP_BALANCE_READINESS_TESTS",
+            True,
+        )
+
+        synthetic_r36f12_writer_safety_tests()
+        synthetic_r36f12_ema_telegram_tests()
+        synthetic_r36f132_stop_loss_budget_tests()
+        r36f14_demo_integration = synthetic_r36f14_demo_integration_tests()
+
+        check(
+            "R36F12_WRITER_SAFETY_TESTS",
+            True,
+        )
+
+    except Exception as exc:
+
+        check(
+            "STRICT_TP_QUANTITY_FEASIBILITY_TESTS",
+            False,
+            str(exc),
+        )
+
+        check(
+            "ADJUSTABLE_TP_BALANCE_READINESS_TESTS",
+            False,
+            str(exc),
+        )
+
+    historical_rows = []
+
+    try:
+
+        historical_rows = (
+            await load_historical_klines()
+        )
+
+        check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            len(
+                historical_rows
+            ) >= 3,
+            f"rows={len(historical_rows)}",
+        )
+
+        global EMA_SIGNAL_SNAPSHOT
+        global TELEGRAM_COMMAND_PREVIEW
+
+        EMA_SIGNAL_SNAPSHOT = build_ema_signal_snapshot(
+            historical_rows
+        )
+
+        diagnostic_check(
+            "R36F12_EMA_ENGINE_READY",
+            EMA_SIGNAL_SNAPSHOT.get(
+                "ready"
+            ) is True,
+            f"reason={EMA_SIGNAL_SNAPSHOT.get('reason')}",
+        )
+
+        if EMA_SIGNAL_SNAPSHOT.get(
+            "ready"
+        ):
+
+            log(
+                f"R36F.12 EMA SNAPSHOT "
+                f"price={EMA_SIGNAL_SNAPSHOT.get('price')} "
+                f"EMA19={EMA_SIGNAL_SNAPSHOT.get('ema19')} "
+                f"EMA50={EMA_SIGNAL_SNAPSHOT.get('ema50')} "
+                f"EMA200={EMA_SIGNAL_SNAPSHOT.get('ema200')} "
+                f"structure={EMA_SIGNAL_SNAPSHOT.get('structure')} "
+                f"ideal_direction={EMA_SIGNAL_SNAPSHOT.get('ideal_direction')} "
+                f"fresh_crossover={EMA_SIGNAL_SNAPSHOT.get('fresh_crossover')}"
+            )
+
+            diagnostic_check(
+                "R36F12_EMA_19_50_SEPARATION_QUALITY",
+                EMA_SIGNAL_SNAPSHOT.get(
+                    "quality_ok"
+                ) is True,
+                f"separation="
+                f"{EMA_SIGNAL_SNAPSHOT.get('ema19_50_separation_percent')}%",
+            )
+
+            ideal_alert = (
+                build_ideal_condition_alert(
+                    EMA_SIGNAL_SNAPSHOT
+                )
+            )
+
+            if ideal_alert:
+
+                log(
+                    "R36F.12 TELEGRAM IDEAL-CONDITION ALERT PREVIEW:"
+                )
+
+                for alert_line in ideal_alert.splitlines():
+
+                    log(
+                        "      "
+                        + alert_line
+                    )
+
+                telegram_alert_result = (
+                    await send_r36f12_telegram_alert(
+                        ideal_alert
+                    )
+                )
+
+                diagnostic_check(
+                    "R36F12_TELEGRAM_IDEAL_ALERT_PATH",
+                    True,
+                    (
+                        f"enabled="
+                        f"{R36F12_TELEGRAM_ALERTS_ENABLED} "
+                        f"result="
+                        f"{telegram_alert_result}"
+                    ),
+                )
+
+            else:
+
+                diagnostic_check(
+                    "R36F12_TELEGRAM_IDEAL_ALERT_PATH",
+                    True,
+                    "No current ideal EMA direction; no alert sent",
+                )
+
+    except Exception as exc:
+
+        check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            False,
+            str(exc),
+        )
+
+    real_long_snapshot = None
+
+    REAL_LONG_MARKET_ELIGIBLE = False
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+
+        try:
+
+            real_long_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "LONG",
+                    "REAL_LONG_PREVIEW",
+                )
+            )
+
+            LONG_DIAGNOSTICS = (
+                real_long_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_LONG_MARKET_ELIGIBLE = bool(
+                real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+            diagnostic_check(
+                "REAL_LONG_TP_MARKET_ELIGIBILITY",
+                REAL_LONG_MARKET_ELIGIBLE,
+                (
+                    "TP_APPROVAL="
+                    + real_long_snapshot[
+                        "tp_approval"
+                    ][
+                        "status"
+                    ]
+                ),
+            )
+
+            log(
+                "REAL_LONG_TP_APPROVAL="
+                + real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ]
+            )
+
+        except Exception as exc:
+
+            LONG_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "LONG",
+                )
+            )
+
+            approval = (
+                evaluate_tp_approval(
+                    LONG_DIAGNOSTICS
+                )
+            )
+
+            REAL_LONG_MARKET_ELIGIBLE = False
+
+            diagnostic_check(
+                "REAL_LONG_TP_MARKET_ELIGIBILITY",
+                False,
+                (
+                    "TP_APPROVAL="
+                    + approval[
+                        "status"
+                    ]
+                    + " reason="
+                    + approval[
+                        "reason"
+                    ]
+                    + " error="
+                    + str(exc)
+                ),
+            )
+
+    real_short_snapshot = None
+
+    REAL_SHORT_MARKET_ELIGIBLE = False
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+
+        try:
+
+            real_short_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "SHORT",
+                    "REAL_SHORT_PREVIEW",
+                )
+            )
