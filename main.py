@@ -2839,3 +2839,619 @@ def cluster_extrema(
     )
 
     return clusters
+
+# ============================================================
+# CLUSTER VALIDATION
+# ============================================================
+
+def validate_clusters(
+    clusters,
+    entry_price,
+    side,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    valid = []
+    invalid = []
+
+    for cluster in clusters:
+
+        reasons = []
+
+        touches = cluster[
+            "touches"
+        ]
+
+        average = D(
+            cluster[
+                "average"
+            ]
+        )
+
+        if (
+            touches
+            < MIN_CLUSTER_TOUCHES
+        ):
+
+            reasons.append(
+                "INSUFFICIENT_TOUCHES"
+            )
+
+        if side == "LONG":
+
+            if average <= entry_price:
+
+                reasons.append(
+                    "CLUSTER_NOT_ABOVE_ENTRY"
+                )
+
+        elif side == "SHORT":
+
+            if average >= entry_price:
+
+                reasons.append(
+                    "CLUSTER_NOT_BELOW_ENTRY"
+                )
+
+        else:
+
+            reasons.append(
+                "INVALID_DIRECTION"
+            )
+
+        result = dict(
+            cluster
+        )
+
+        result[
+            "valid"
+        ] = not reasons
+
+        result[
+            "reasons"
+        ] = reasons
+
+        if reasons:
+
+            invalid.append(
+                result
+            )
+
+        else:
+
+            valid.append(
+                result
+            )
+
+    if side == "LONG":
+
+        valid.sort(
+            key=lambda item:
+                item[
+                    "average"
+                ]
+        )
+
+    elif side == "SHORT":
+
+        valid.sort(
+            key=lambda item:
+                item[
+                    "average"
+                ],
+            reverse=True,
+        )
+
+    return (
+        valid,
+        invalid,
+    )
+
+
+# ============================================================
+# CLUSTER DIAGNOSTICS
+# ============================================================
+
+def build_cluster_diagnostics(
+    rows,
+    entry_price,
+    side,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    if side == "LONG":
+
+        values = historical_highs(
+            rows
+        )
+
+    elif side == "SHORT":
+
+        values = historical_lows(
+            rows
+        )
+
+    else:
+
+        raise ValueError(
+            f"Unsupported side={side}"
+        )
+
+    extrema = build_extrema(
+        values
+    )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    (
+        valid,
+        invalid,
+    ) = validate_clusters(
+        clusters,
+        entry_price,
+        side,
+    )
+
+    diagnostics = {
+
+        "side":
+            side,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "historical_row_count":
+            len(
+                rows
+            ),
+
+        "extrema_count":
+            len(
+                extrema
+            ),
+
+        "cluster_count":
+            len(
+                clusters
+            ),
+
+        "valid_cluster_count":
+            len(
+                valid
+            ),
+
+        "invalid_cluster_count":
+            len(
+                invalid
+            ),
+
+        "required_valid_clusters":
+            REQUIRED_TP_CLUSTERS,
+
+        "valid_clusters":
+            valid,
+
+        "invalid_clusters":
+            invalid,
+    }
+
+    if (
+        len(
+            valid
+        )
+        >= REQUIRED_TP_CLUSTERS
+    ):
+
+        diagnostics[
+            "failure_reason"
+        ] = None
+
+    elif len(
+        valid
+    ) == 1:
+
+        diagnostics[
+            "failure_reason"
+        ] = "ONLY_ONE_VALID_CLUSTER"
+
+    elif len(
+        extrema
+    ) == 0:
+
+        diagnostics[
+            "failure_reason"
+        ] = "NO_LOCAL_EXTREMA"
+
+    elif len(
+        clusters
+    ) == 0:
+
+        diagnostics[
+            "failure_reason"
+        ] = "NO_HISTORICAL_CLUSTERS"
+
+    else:
+
+        diagnostics[
+            "failure_reason"
+        ] = (
+            "EXTREMA_EXIST_BUT_CLUSTER_REQUIREMENTS_NOT_MET"
+        )
+
+    log(
+        f"{side} HISTORICAL ROW COUNT = "
+        f"{diagnostics['historical_row_count']}"
+    )
+
+    log(
+        f"{side} EXTREMA COUNT = "
+        f"{diagnostics['extrema_count']}"
+    )
+
+    log(
+        f"{side} CLUSTER COUNT = "
+        f"{diagnostics['cluster_count']}"
+    )
+
+    log(
+        f"{side} VALID CLUSTER COUNT = "
+        f"{diagnostics['valid_cluster_count']}"
+    )
+
+    for (
+        index,
+        cluster,
+    ) in enumerate(
+        clusters,
+        start=1,
+    ):
+
+        log(
+            f"{side} CLUSTER {index}: "
+            f"average="
+            f"{decimal_to_string(cluster['average'])} "
+            f"minimum="
+            f"{decimal_to_string(cluster['minimum'])} "
+            f"maximum="
+            f"{decimal_to_string(cluster['maximum'])} "
+            f"touches="
+            f"{cluster['touches']}"
+        )
+
+    for (
+        index,
+        cluster,
+    ) in enumerate(
+        invalid,
+        start=1,
+    ):
+
+        log(
+            f"{side} INVALID CLUSTER {index}: "
+            f"average="
+            f"{decimal_to_string(cluster['average'])} "
+            f"reasons="
+            f"{','.join(cluster['reasons'])}"
+        )
+
+    if diagnostics[
+        "failure_reason"
+    ]:
+
+        log(
+            f"{side} CLUSTER DIAGNOSTIC "
+            f"FAILURE_REASON = "
+            f"{diagnostics['failure_reason']}"
+        )
+
+    return diagnostics
+
+
+# ============================================================
+# TP APPROVAL
+# ============================================================
+
+def evaluate_tp_approval(
+    diagnostics,
+):
+
+    valid_count = int(
+        diagnostics.get(
+            "valid_cluster_count",
+            0,
+        )
+    )
+
+    if (
+        valid_count
+        >= REQUIRED_TP_CLUSTERS
+    ):
+
+        approval = {
+
+            "status":
+                "APPROVED",
+
+            "approved":
+                True,
+
+            "required_valid_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "available_valid_clusters":
+                valid_count,
+
+            "reason":
+                "TWO_OR_MORE_VALID_HISTORICAL_CLUSTERS",
+        }
+
+    else:
+
+        failure_reason = (
+            diagnostics.get(
+                "failure_reason"
+            )
+            or
+            "INSUFFICIENT_VALID_HISTORICAL_CLUSTERS"
+        )
+
+        approval = {
+
+            "status":
+                "REJECTED",
+
+            "approved":
+                False,
+
+            "required_valid_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "available_valid_clusters":
+                valid_count,
+
+            "reason":
+                failure_reason,
+        }
+
+    log(
+        f"{STAGE}_TP_APPROVAL = "
+        f"{approval['status']}"
+    )
+
+    log(
+        f"{STAGE}_TP_APPROVAL_REASON = "
+        f"{approval['reason']}"
+    )
+
+    log(
+        f"{STAGE}_TP_REQUIRED_CLUSTERS = "
+        f"{REQUIRED_TP_CLUSTERS}"
+    )
+
+    log(
+        f"{STAGE}_TP_AVAILABLE_CLUSTERS = "
+        f"{valid_count}"
+    )
+
+    return approval
+
+
+# ============================================================
+# VALID CLUSTERS
+# ============================================================
+
+def valid_clusters(
+    rows,
+    entry_price,
+    side,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    extrema = local_extrema_values(
+        rows,
+        side,
+    )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    valid = []
+
+    for cluster in clusters:
+
+        if (
+            cluster[
+                "touches"
+            ]
+            < MIN_CLUSTER_TOUCHES
+        ):
+
+            continue
+
+        average = cluster[
+            "average"
+        ]
+
+        if side == "LONG":
+
+            if average <= entry_price:
+                continue
+
+        elif side == "SHORT":
+
+            if average >= entry_price:
+                continue
+
+        else:
+
+            raise ValueError(
+                f"Unsupported side={side}"
+            )
+
+        valid.append(
+            cluster
+        )
+
+    if side == "LONG":
+
+        valid.sort(
+            key=lambda c:
+                c[
+                    "average"
+                ]
+        )
+
+    else:
+
+        valid.sort(
+            key=lambda c:
+                c[
+                    "average"
+                ],
+            reverse=True,
+        )
+
+    return valid
+
+
+# ============================================================
+# TP PRICE CALCULATION
+# ============================================================
+
+def calculate_tp_prices(
+    entry_price,
+    valid_cluster_list,
+    direction,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    if len(
+        valid_cluster_list
+    ) < REQUIRED_TP_CLUSTERS:
+
+        raise RuntimeError(
+            "Cannot calculate complete TP set: "
+            "fewer than two valid historical clusters"
+        )
+
+    cluster1 = D(
+        valid_cluster_list[
+            0
+        ][
+            "average"
+        ]
+    )
+
+    cluster2 = D(
+        valid_cluster_list[
+            1
+        ][
+            "average"
+        ]
+    )
+
+    progress1 = (
+        TP1_PROFIT_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    progress2 = (
+        TP2_PROFIT_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    if direction == "LONG":
+
+        tp1 = (
+            entry_price
+            + (
+                cluster1
+                - entry_price
+            )
+            * progress1
+        )
+
+        tp2 = (
+            entry_price
+            + (
+                cluster2
+                - entry_price
+            )
+            * progress2
+        )
+
+    elif direction == "SHORT":
+
+        tp1 = (
+            entry_price
+            - (
+                entry_price
+                - cluster1
+            )
+            * progress1
+        )
+
+        tp2 = (
+            entry_price
+            - (
+                entry_price
+                - cluster2
+            )
+            * progress2
+        )
+
+    else:
+
+        raise RuntimeError(
+            "Invalid TP direction"
+        )
+
+    return {
+
+        "tp1":
+            quantize_down(
+                tp1,
+                PRICE_STEP,
+            ),
+
+        "tp2":
+            quantize_down(
+                tp2,
+                PRICE_STEP,
+            ),
+
+        "tp3": {
+
+            "type":
+                "TRAILING",
+
+            "allocation_percent":
+                TP3_ALLOCATION_PERCENT,
+
+            "trailing_distance_percent":
+                TP3_TRAILING_DISTANCE_PERCENT,
+        },
+
+        "cluster1_average":
+            cluster1,
+
+        "cluster2_average":
+            cluster2,
+    }
