@@ -6411,3 +6411,631 @@ def unresolved_canary_journal(
             "AMBIGUOUS",
         }
     )
+id="z7f3km"
+def build_protected_canary_preview(
+    writer_preview,
+    stop_price,
+    explicit_arm_requested,
+    journal,
+    flat_position,
+):
+    """
+    Build the R36F.12-ready canary package without sending it.
+    """
+
+    if not writer_preview:
+
+        raise ValueError(
+            "writer preview required"
+        )
+
+    direction = writer_preview[
+        "direction"
+    ]
+
+    entry_price = D(
+        writer_preview[
+            "entry_price"
+        ]
+    )
+
+    entry_quantity = D(
+        writer_preview[
+            "entry_quantity"
+        ]
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    schema_checks = (
+        validate_weex_v3_writer_shapes(
+            writer_preview
+        )
+    )
+
+    stop_valid = (
+        validate_canary_stop(
+            direction,
+            entry_price,
+            stop_price,
+        )
+    )
+
+    quantity_capped = (
+        entry_quantity
+        <= CANARY_MAX_ENTRY_QUANTITY
+    )
+
+    journal_clear = (
+        not unresolved_canary_journal(
+            journal
+        )
+    )
+
+    protected_entry = dict(
+        writer_preview[
+            "legs"
+        ][
+            "entry"
+        ]
+    )
+
+    protected_entry[
+        "slTriggerPrice"
+    ] = decimal_to_string(
+        stop_price
+    )
+
+    protected_entry[
+        "SlWorkingType"
+    ] = CANARY_STOP_WORKING_TYPE
+
+    ready = bool(
+
+        schema_checks.get(
+            "all_valid"
+        )
+
+        and
+
+        stop_valid
+
+        and
+
+        quantity_capped
+
+        and
+
+        explicit_arm_requested
+
+        and
+
+        journal_clear
+
+        and
+
+        flat_position
+
+        and
+
+        writer_preview.get(
+            "quantity_validation",
+            {},
+        ).get(
+            "all_valid"
+        )
+    )
+
+    return {
+
+        "stage":
+            STAGE,
+
+        "status":
+            (
+                "READY_FOR_R36F12"
+                if ready
+                else "BLOCKED"
+            ),
+
+        "ready_for_r36f12":
+            ready,
+
+        "direction":
+            direction,
+
+        "entry_quantity":
+            decimal_to_string(
+                entry_quantity
+            ),
+
+        "canary_max_entry_quantity":
+            decimal_to_string(
+                CANARY_MAX_ENTRY_QUANTITY
+            ),
+
+        "quantity_capped":
+            quantity_capped,
+
+        "stop_price":
+            decimal_to_string(
+                stop_price
+            ),
+
+        "stop_valid":
+            stop_valid,
+
+        "stop_working_type":
+            CANARY_STOP_WORKING_TYPE,
+
+        "explicit_arm_requested":
+            bool(
+                explicit_arm_requested
+            ),
+
+        "journal_clear":
+            journal_clear,
+
+        "flat_position":
+            bool(
+                flat_position
+            ),
+
+        "writer_schema_valid":
+            bool(
+                schema_checks.get(
+                    "all_valid"
+                )
+            ),
+
+        "writer_schema_checks":
+            schema_checks,
+
+        "protected_entry_request":
+            protected_entry,
+
+        "tp1_request":
+            writer_preview[
+                "legs"
+            ][
+                "tp1"
+            ],
+
+        "tp2_request":
+            writer_preview[
+                "legs"
+            ][
+                "tp2"
+            ],
+
+        "tp3_request":
+            writer_preview[
+                "legs"
+            ][
+                "tp3"
+            ],
+
+        "submitted":
+            False,
+
+        "exchange_request_sent":
+            False,
+
+        "r36f12_transport_hard_disabled":
+            True,
+    }
+
+
+def synthetic_r36f12_writer_safety_tests():
+
+    synthetic_entry = Decimal(
+        "80000"
+    )
+
+    synthetic_rows = [
+
+        [
+            0,
+            "80000",
+            "80200",
+            "79900",
+            "80100",
+            "1",
+        ],
+
+        [
+            1,
+            "80100",
+            "80300",
+            "80000",
+            "80200",
+            "1",
+        ],
+
+        [
+            2,
+            "80200",
+            "80400",
+            "80100",
+            "80300",
+            "1",
+        ],
+
+        [
+            3,
+            "80300",
+            "80500",
+            "80200",
+            "80400",
+            "1",
+        ],
+
+        [
+            4,
+            "80400",
+            "80600",
+            "80300",
+            "80500",
+            "1",
+        ],
+    ]
+
+    tp_snapshot = {
+
+        "tp_approval": {
+
+            "approved":
+                True,
+
+            "status":
+                "APPROVED",
+
+            "reason":
+                "SYNTHETIC",
+        },
+
+        "tp1":
+            "80100",
+
+        "tp2":
+            "80300",
+
+        "tp3":
+            "TRAILING",
+    }
+
+    preview = (
+        build_writer_request_preview(
+            "LONG",
+            synthetic_entry,
+            Decimal(
+                "0.0004"
+            ),
+            tp_snapshot,
+        )
+    )
+
+    shape = (
+        validate_weex_v3_writer_shapes(
+            preview
+        )
+    )
+
+    check(
+        "R36F12_WEEX_V3_WRITER_SHAPES",
+        shape[
+            "all_valid"
+        ],
+    )
+
+    clear = (
+        build_protected_canary_preview(
+            preview,
+            Decimal(
+                "79600"
+            ),
+            True,
+            {},
+            True,
+        )
+    )
+
+    check(
+        "R36F12_SYNTHETIC_PROTECTED_CANARY_READY",
+        clear[
+            "ready_for_r36f12"
+        ] is True,
+    )
+
+    check(
+        "R36F12_SYNTHETIC_CANARY_QTY_CAP_00004",
+        clear[
+            "entry_quantity"
+        ] == "0.0004",
+    )
+
+    check(
+        "R36F12_SYNTHETIC_STOP_ATTACHED",
+        clear[
+            "protected_entry_request"
+        ].get(
+            "slTriggerPrice"
+        ) == "79600",
+    )
+
+    ambiguous = (
+        build_protected_canary_preview(
+            preview,
+            Decimal(
+                "79600"
+            ),
+            True,
+            {
+                "status":
+                    "AMBIGUOUS"
+            },
+            True,
+        )
+    )
+
+    check(
+        "R36F12_AMBIGUOUS_JOURNAL_BLOCKS",
+        ambiguous[
+            "ready_for_r36f12"
+        ] is False,
+    )
+
+    unarmed = (
+        build_protected_canary_preview(
+            preview,
+            Decimal(
+                "79600"
+            ),
+            False,
+            {},
+            True,
+        )
+    )
+
+    check(
+        "R36F12_EXPLICIT_ARM_REQUIRED",
+        unarmed[
+            "ready_for_r36f12"
+        ] is False,
+    )
+
+    wrong_stop = (
+        build_protected_canary_preview(
+            preview,
+            Decimal(
+                "80400"
+            ),
+            True,
+            {},
+            True,
+        )
+    )
+
+    check(
+        "R36F12_WRONG_SIDE_STOP_BLOCKS",
+        wrong_stop[
+            "ready_for_r36f12"
+        ] is False,
+    )
+
+    return True
+
+
+# ============================================================
+# R36F.12 ADJUSTABLE TP QUANTITY FEASIBILITY TESTS
+# ============================================================
+
+def synthetic_writer_quantity_tests():
+
+    adjusted = (
+        evaluate_writer_quantity_feasibility(
+            Decimal(
+                "0.0004"
+            )
+        )
+    )
+
+    check(
+        "ADJUSTABLE_00004_APPROVED",
+        adjusted[
+            "feasible"
+        ] is True,
+    )
+
+    check(
+        "ADJUSTABLE_00004_SELECTED_25_25_50",
+        adjusted[
+            "selected_allocation"
+        ] == "25/25/50",
+    )
+
+    check(
+        "ADJUSTABLE_00004_ADJUSTED_TRUE",
+        adjusted[
+            "allocation_adjusted"
+        ] is True,
+    )
+
+    check(
+        "ADJUSTABLE_00004_TP1",
+        adjusted[
+            "tp1_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "ADJUSTABLE_00004_TP2",
+        adjusted[
+            "tp2_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "ADJUSTABLE_00004_TP3",
+        adjusted[
+            "tp3_quantity"
+        ] == "0.0002",
+    )
+
+    preferred = (
+        evaluate_writer_quantity_feasibility(
+            Decimal(
+                "0.0005"
+            )
+        )
+    )
+
+    check(
+        "PREFERRED_00005_APPROVED",
+        preferred[
+            "feasible"
+        ] is True,
+    )
+
+    check(
+        "PREFERRED_00005_RETAINS_20_20_60",
+        preferred[
+            "selected_allocation"
+        ] == "20/20/60",
+    )
+
+    check(
+        "PREFERRED_00005_ADJUSTED_FALSE",
+        preferred[
+            "allocation_adjusted"
+        ] is False,
+    )
+
+    check(
+        "PREFERRED_00005_TP1",
+        preferred[
+            "tp1_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "PREFERRED_00005_TP2",
+        preferred[
+            "tp2_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "PREFERRED_00005_TP3",
+        preferred[
+            "tp3_quantity"
+        ] == "0.0003",
+    )
+
+    smaller = (
+        evaluate_writer_quantity_feasibility(
+            Decimal(
+                "0.0003"
+            )
+        )
+    )
+
+    check(
+        "ADJUSTABLE_00003_REJECTED",
+        smaller[
+            "feasible"
+        ] is False,
+    )
+
+    check(
+        "ADJUSTABLE_MINIMUM_ENTRY_00004",
+        adjusted[
+            "minimum_required_entry_quantity"
+        ] == "0.0004",
+    )
+
+    return True
+
+
+def synthetic_balance_readiness_tests():
+
+    approved = (
+        evaluate_strict_tp_balance_readiness(
+            Decimal(
+                "7.19"
+            ),
+            Decimal(
+                "80000"
+            ),
+            Decimal(
+                "100"
+            ),
+        )
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_7_19_APPROVED",
+        approved[
+            "eligible"
+        ] is True,
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_7_19_PLANNED_00004",
+        approved[
+            "planned_entry_quantity"
+        ] == "0.0004",
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_7_19_SELECTED_25_25_50",
+        approved[
+            "selected_allocation"
+        ] == "25/25/50",
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_REQUIRED_BALANCE_6_40",
+        approved[
+            "required_available_balance"
+        ] == "6.4",
+    )
+
+    preferred = (
+        evaluate_strict_tp_balance_readiness(
+            Decimal(
+                "8"
+            ),
+            Decimal(
+                "80000"
+            ),
+            Decimal(
+                "100"
+            ),
+        )
+    )
+
+    check(
+        "PREFERRED_BALANCE_READINESS_8_00_APPROVED",
+        preferred[
+            "eligible"
+        ] is True,
+    )
+
+    check(
+        "PREFERRED_BALANCE_READINESS_8_00_PLANNED_00005",
+        preferred[
+            "planned_entry_quantity"
+        ] == "0.0005",
+    )
+
+    check(
+        "PREFERRED_BALANCE_READINESS_8_00_RETAINS_20_20_60",
+        preferred[
+            "selected_allocation"
+        ] == "20/20/60",
+    )
+
+    return True
