@@ -9373,7 +9373,7 @@ async def run_r36f12():
             LONG_DIAGNOSTICS,
 
         "short_diagnostics":
-            SHORT_DIAGNOSTICS,}
+            SHORT_DIAGNOSTICS,
 
         "tp_policy":
             {
@@ -9413,7 +9413,7 @@ id="m8q4pd"
 
     await heartbeat_loop()
 
-
+}
 # ============================================================
 # MAIN
 # ============================================================
