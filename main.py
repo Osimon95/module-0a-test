@@ -458,3 +458,1470 @@ R36F15_DEMO_JOURNAL_FILE = os.path.join(
     "r36f15_demo_dispatch_journal.json",
 )
 
+
+# ============================================================
+# DURABLE IDS
+# ============================================================
+
+OLD_R36A_UPDATE_ID = "R36A_SYNTHETIC_UPDATE_000001"
+
+R36C_UPDATE_ID = "R36C_SYNTHETIC_UPDATE_000001"
+
+
+# ============================================================
+# GLOBAL STATE
+# ============================================================
+
+TEST_STATUS = "NOT_STARTED"
+
+HEARTBEAT_COUNT = 0
+
+DURABLE_EVIDENCE_OK = False
+
+R36A_EVIDENCE_OK = False
+R36C_EVIDENCE_OK = False
+R36D_EVIDENCE_OK = False
+
+WEEX_READ_ONLY_OK = False
+
+ZERO_WRITE_INVARIANT_OK = False
+
+FINAL_GATE_OK = False
+
+FINAL_BLOCKERS = []
+
+MARK_PRICE = None
+
+AVAILABLE_BALANCE = None
+
+OPEN_POSITIONS = []
+
+WEEX_CONFIG = {}
+
+SHORT_DIAGNOSTICS = {}
+LONG_DIAGNOSTICS = {}
+
+LAST_TP_APPROVAL = None
+
+EMA_SIGNAL_SNAPSHOT = {}
+TELEGRAM_COMMAND_PREVIEW = {}
+
+
+# ============================================================
+# BASIC UTILITIES
+# ============================================================
+
+def now_iso():
+    return datetime.now(
+        timezone.utc
+    ).isoformat()
+
+
+def line():
+    print(
+        "----------------------------------------------------------------------------------------------------",
+        flush=True,
+    )
+
+
+def log(
+    message,
+):
+    print(
+        f"{now_iso()} {message}",
+        flush=True,
+    )
+
+
+# ============================================================
+# FINAL CHECK
+# ============================================================
+
+def check(
+    name,
+    condition,
+    detail=None,
+):
+
+    if condition:
+
+        log(
+            f"PASS: {name}"
+        )
+
+        if detail:
+            log(
+                f"      {detail}"
+            )
+
+        return True
+
+    log(
+        f"FAIL: {name}"
+    )
+
+    if detail:
+        log(
+            f"      {detail}"
+        )
+
+    FINAL_BLOCKERS.append(
+        name
+    )
+
+    return False
+
+
+# ============================================================
+# FROZEN DIAGNOSTIC CHECK
+# ============================================================
+
+def diagnostic_check(
+    name,
+    condition,
+    detail=None,
+):
+
+    if condition:
+
+        log(
+            f"DIAGNOSTIC PASS: {name}"
+        )
+
+        if detail:
+            log(
+                f"      {detail}"
+            )
+
+        return True
+
+    log(
+        f"DIAGNOSTIC FAIL: {name}"
+    )
+
+    if detail:
+        log(
+            f"      {detail}"
+        )
+
+    return False
+
+
+# ============================================================
+# DECIMAL UTILITIES
+# ============================================================
+
+def D(
+    value,
+):
+    return Decimal(
+        str(value)
+    )
+
+
+def quantize_down(
+    value,
+    step,
+):
+
+    value = D(
+        value
+    )
+
+    step = D(
+        step
+    )
+
+    if step <= 0:
+        raise ValueError(
+            "Invalid quantization step"
+        )
+
+    units = (
+        value
+        / step
+    ).to_integral_value(
+        rounding=ROUND_DOWN
+    )
+
+    return units * step
+
+
+def decimal_to_string(
+    value,
+):
+
+    if value is None:
+        return None
+
+    value = D(
+        value
+    )
+
+    text = format(
+        value,
+        "f",
+    )
+
+    if "." in text:
+
+        text = (
+            text
+            .rstrip(
+                "0"
+            )
+            .rstrip(
+                "."
+            )
+        )
+
+    return text
+
+
+# ============================================================
+# JSON UTILITIES
+# ============================================================
+
+def canonical_json(
+    data,
+):
+
+    return json.dumps(
+        data,
+        sort_keys=True,
+        separators=(
+            ",",
+            ":",
+        ),
+        default=str,
+    )
+
+
+def sha256_text(
+    text,
+):
+
+    return hashlib.sha256(
+        text.encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+def read_json_file(
+    path,
+    default=None,
+):
+
+    if default is None:
+        default = {}
+
+    try:
+
+        if not os.path.exists(
+            path
+        ):
+            return default
+
+        with open(
+            path,
+            "r",
+            encoding="utf-8",
+        ) as f:
+
+            return json.load(
+                f
+            )
+
+    except Exception as exc:
+
+        log(
+            f"READ JSON FAILED path={path} error={exc}"
+        )
+
+        return default
+
+
+def write_json_file(
+    path,
+    data,
+):
+
+    tmp = (
+        path
+        + ".tmp"
+    )
+
+    with open(
+        tmp,
+        "w",
+        encoding="utf-8",
+    ) as f:
+
+        json.dump(
+            data,
+            f,
+            indent=2,
+            sort_keys=True,
+            default=str,
+        )
+
+    os.replace(
+        tmp,
+        path,
+    )
+
+
+# ============================================================
+# DURABLE ID COLLECTION
+# ============================================================
+
+def collect_ids_from_file(
+    path,
+):
+
+    ids = set()
+
+    data = read_json_file(
+        path,
+        default=None,
+    )
+
+    if data is None:
+        return ids
+
+    def walk(
+        value,
+    ):
+
+        if isinstance(
+            value,
+            dict,
+        ):
+
+            for (
+                key,
+                item,
+            ) in value.items():
+
+                if (
+                    isinstance(
+                        key,
+                        str,
+                    )
+                    and
+                    "id"
+                    in key.lower()
+                    and
+                    isinstance(
+                        item,
+                        str,
+                    )
+                ):
+
+                    ids.add(
+                        item
+                    )
+
+                walk(
+                    item
+                )
+
+        elif isinstance(
+            value,
+            list,
+        ):
+
+            for item in value:
+
+                walk(
+                    item
+                )
+
+    walk(
+        data
+    )
+
+    return ids
+
+
+# ============================================================
+# HEALTH SERVER
+# ============================================================
+
+class HealthHandler(
+    BaseHTTPRequestHandler
+):
+
+    def do_GET(
+        self,
+    ):
+
+        body = (
+            f"stage={STAGE}\n"
+            f"status={TEST_STATUS}\n"
+        ).encode()
+
+        self.send_response(
+            200
+        )
+
+        self.send_header(
+            "Content-Type",
+            "text/plain",
+        )
+
+        self.send_header(
+            "Content-Length",
+            str(
+                len(
+                    body
+                )
+            ),
+        )
+
+        self.end_headers()
+
+        self.wfile.write(
+            body
+        )
+
+    def log_message(
+        self,
+        format_string,
+        *args,
+    ):
+        return
+
+
+def start_health_server():
+
+    port = int(
+        os.getenv(
+            "PORT",
+            "10000",
+        )
+    )
+
+    server = HTTPServer(
+        (
+            "0.0.0.0",
+            port,
+        ),
+        HealthHandler,
+    )
+
+    thread = Thread(
+        target=server.serve_forever,
+        daemon=True,
+    )
+
+    thread.start()
+
+    log(
+        f"{STAGE}: HEALTH SERVER STARTED ON PORT {port}"
+    )
+
+
+# ============================================================
+# WEEX SIGNING
+# ============================================================
+
+def build_signature(
+    timestamp,
+    method,
+    request_path,
+    body="",
+):
+
+    api_secret = os.getenv(
+        "WEEX_API_SECRET"
+    )
+
+    if not api_secret:
+        raise RuntimeError(
+            "WEEX_API_SECRET missing"
+        )
+
+    prehash = (
+        str(timestamp)
+        + method.upper()
+        + request_path
+        + body
+    )
+
+    digest = hmac.new(
+        api_secret.encode(),
+        prehash.encode(),
+        hashlib.sha256,
+    ).digest()
+
+    return base64.b64encode(
+        digest
+    ).decode()
+
+
+# ============================================================
+# READ-ONLY WEEX REQUEST
+# ============================================================
+
+async def weex_get(
+    request_path,
+    params=None,
+    authenticated=False,
+):
+
+    if params is None:
+        params = {}
+
+    headers = {}
+
+    if authenticated:
+
+        api_key = os.getenv(
+            "WEEX_API_KEY"
+        )
+
+        passphrase = os.getenv(
+            "WEEX_API_PASSPHRASE"
+        )
+
+        if not api_key:
+            raise RuntimeError(
+                "WEEX_API_KEY missing"
+            )
+
+        if not passphrase:
+            raise RuntimeError(
+                "WEEX_API_PASSPHRASE missing"
+            )
+
+        timestamp = str(
+            int(
+                time.time()
+                * 1000
+            )
+        )
+
+        query_string = "&".join(
+            f"{key}={value}"
+            for key, value
+            in sorted(
+                params.items()
+            )
+        )
+
+        signed_path = request_path
+
+        if query_string:
+            signed_path += (
+                "?"
+                + query_string
+            )
+
+        signature = build_signature(
+            timestamp,
+            "GET",
+            signed_path,
+            "",
+        )
+
+        headers = {
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": passphrase,
+            "Content-Type": "application/json",
+        }
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+
+        async with session.get(
+            API_BASE_URL
+            + request_path,
+            params=params,
+            headers=headers,
+        ) as response:
+
+            text = await response.text()
+
+            if response.status != 200:
+
+                raise RuntimeError(
+                    f"WEEX GET HTTP "
+                    f"{response.status}: "
+                    f"{text}"
+                )
+
+            try:
+
+                return json.loads(
+                    text
+                )
+
+            except Exception:
+
+                return text
+
+
+# ============================================================
+# R36F.14 READ-ONLY WEEX DEMO REQUEST
+# ============================================================
+
+async def r36f14_demo_get(
+    request_path,
+    params=None,
+):
+
+    if request_path not in {
+        R36F14_DEMO_BALANCE_ENDPOINT,
+        R36F14_DEMO_POSITIONS_ENDPOINT,
+        R36F14_DEMO_ORDER_HISTORY_ENDPOINT,
+    }:
+
+        raise RuntimeError(
+            "R36F14_DEMO_GET_ENDPOINT_NOT_ALLOWED"
+        )
+
+    if not R36F14_DEMO_READS_ENABLED:
+
+        raise RuntimeError(
+            "R36F14_DEMO_READS_DISABLED"
+        )
+
+    return await weex_get(
+        request_path,
+        params=params or {},
+        authenticated=True,
+    )
+
+
+# ============================================================
+# R36F.15 EXACT DEMO POST TRANSPORT
+# ============================================================
+
+async def r36f15_demo_post(
+    request_path,
+    payload,
+):
+
+    if request_path != R36F14_DEMO_ORDER_ENDPOINT:
+
+        raise RuntimeError(
+            "R36F15_DEMO_POST_ENDPOINT_NOT_ALLOWED"
+        )
+
+    if "/sim/" not in request_path:
+
+        raise RuntimeError(
+            "R36F15_NON_SIM_ENDPOINT_BLOCKED"
+        )
+
+    if request_path == "/capi/v3/order":
+
+        raise RuntimeError(
+            "R36F15_PRODUCTION_ORDER_ENDPOINT_BLOCKED"
+        )
+
+    if not R36F15_DEMO_POST_TRANSPORT_ENABLED:
+
+        raise RuntimeError(
+            "R36F15_DEMO_POST_TRANSPORT_DISABLED"
+        )
+
+    if not R36F15_DEMO_ORDER_SUBMISSION_ENABLED:
+
+        raise RuntimeError(
+            "R36F15_DEMO_ORDER_SUBMISSION_DISABLED"
+        )
+
+    if not R36F15_FIRST_DEMO_ORDER_ALLOWED:
+
+        raise RuntimeError(
+            "R36F15_FIRST_DEMO_ORDER_NOT_ALLOWED"
+        )
+
+    if not R36F15_DEMO_ARM_REQUESTED:
+
+        raise RuntimeError(
+            "R36F15_DEMO_ARM_NOT_REQUESTED"
+        )
+
+    api_key = os.getenv(
+        "WEEX_API_KEY"
+    )
+
+    passphrase = os.getenv(
+        "WEEX_API_PASSPHRASE"
+    )
+
+    if not api_key:
+        raise RuntimeError(
+            "WEEX_API_KEY missing"
+        )
+
+    if not passphrase:
+        raise RuntimeError(
+            "WEEX_API_PASSPHRASE missing"
+        )
+
+    body = canonical_json(
+        payload
+    )
+
+    timestamp = str(
+        int(
+            time.time()
+            * 1000
+        )
+    )
+
+    signature = build_signature(
+        timestamp,
+        "POST",
+        request_path,
+        body,
+    )
+
+    headers = {
+        "ACCESS-KEY": api_key,
+        "ACCESS-SIGN": signature,
+        "ACCESS-TIMESTAMP": timestamp,
+        "ACCESS-PASSPHRASE": passphrase,
+        "Content-Type": "application/json",
+    }
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+
+        async with session.post(
+            API_BASE_URL
+            + request_path,
+            data=body,
+            headers=headers,
+        ) as response:
+
+            text = await response.text()
+
+            try:
+                data = json.loads(
+                    text
+                )
+            except Exception:
+                data = {
+                    "raw": text
+                }
+
+            if response.status < 200 or response.status >= 300:
+
+                raise RuntimeError(
+                    f"WEEX DEMO POST HTTP "
+                    f"{response.status}: "
+                    f"{text}"
+                )
+
+            return {
+                "http_status": response.status,
+                "response": data,
+            }
+
+
+# ============================================================
+# MARK PRICE
+# ============================================================
+
+async def load_mark_price():
+
+    global MARK_PRICE
+
+    data = await weex_get(
+        "/capi/v2/market/ticker",
+        params={
+            "symbol": PUBLIC_TICKER_SYMBOL
+        },
+        authenticated=False,
+    )
+
+    candidate = None
+
+    if isinstance(
+        data,
+        dict,
+    ):
+
+        for key in (
+            "markPrice",
+            "mark_price",
+            "last",
+            "lastPrice",
+            "close",
+        ):
+
+            if key in data:
+                candidate = data[
+                    key
+                ]
+                break
+
+        if candidate is None:
+
+            nested = data.get(
+                "data"
+            )
+
+            if isinstance(
+                nested,
+                dict,
+            ):
+
+                for key in (
+                    "markPrice",
+                    "mark_price",
+                    "last",
+                    "lastPrice",
+                    "close",
+                ):
+
+                    if key in nested:
+                        candidate = nested[
+                            key
+                        ]
+                        break
+
+    if candidate is None:
+
+        raise RuntimeError(
+            "Unable to determine mark price"
+        )
+
+    MARK_PRICE = D(
+        candidate
+    )
+
+    log(
+        "MARK PRICE = "
+        + decimal_to_string(
+            MARK_PRICE
+        )
+    )
+
+    return MARK_PRICE
+
+
+# ============================================================
+# AVAILABLE BALANCE
+# ============================================================
+
+async def load_available_balance():
+
+    global AVAILABLE_BALANCE
+
+    data = await weex_get(
+        "/capi/v3/account/assets",
+        params={},
+        authenticated=True,
+    )
+
+    candidates = []
+
+    if isinstance(
+        data,
+        list,
+    ):
+
+        candidates.extend(
+            data
+        )
+
+    elif isinstance(
+        data,
+        dict,
+    ):
+
+        nested = data.get(
+            "data"
+        )
+
+        if isinstance(
+            nested,
+            list,
+        ):
+
+            candidates.extend(
+                nested
+            )
+
+        else:
+
+            candidates.append(
+                data
+            )
+
+    for item in candidates:
+
+        if not isinstance(
+            item,
+            dict,
+        ):
+            continue
+
+        asset = str(
+            item.get(
+                "asset",
+                item.get(
+                    "coin",
+                    item.get(
+                        "currency",
+                        "",
+                    ),
+                ),
+            )
+        ).upper()
+
+        if asset not in (
+            "",
+            "USDT",
+        ):
+            continue
+
+        candidate = None
+
+        for key in (
+            "available",
+            "availableBalance",
+            "availableAmount",
+            "balance",
+        ):
+
+            if key in item:
+                candidate = item[
+                    key
+                ]
+                break
+
+        if candidate is None:
+            continue
+
+        try:
+
+            value = D(
+                candidate
+            )
+
+            if value >= 0:
+
+                AVAILABLE_BALANCE = value
+
+                log(
+                    "AVAILABLE USDT = "
+                    + decimal_to_string(
+                        AVAILABLE_BALANCE
+                    )
+                )
+
+                return value
+
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Unable to determine available USDT balance"
+    )
+
+
+# ============================================================
+# OPEN POSITIONS
+# ============================================================
+
+async def load_open_positions():
+
+    global OPEN_POSITIONS
+
+    data = await weex_get(
+        "/capi/v3/account/position/singlePosition",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=True,
+    )
+
+    if isinstance(
+        data,
+        list,
+    ):
+
+        OPEN_POSITIONS = data
+
+    elif isinstance(
+        data,
+        dict,
+    ):
+
+        nested = data.get(
+            "data"
+        )
+
+        if isinstance(
+            nested,
+            list,
+        ):
+
+            OPEN_POSITIONS = nested
+
+        else:
+
+            OPEN_POSITIONS = []
+
+    else:
+
+        OPEN_POSITIONS = []
+
+    log(
+        "OPEN POSITIONS = "
+        + str(
+            len(
+                OPEN_POSITIONS
+            )
+        )
+    )
+
+    return OPEN_POSITIONS
+
+
+# ============================================================
+# EXCHANGE CONFIG
+# ============================================================
+
+async def load_exchange_config():
+
+    global WEEX_CONFIG
+
+    data = await weex_get(
+        "/capi/v3/market/exchangeInfo",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=False,
+    )
+
+    WEEX_CONFIG = (
+        data
+        if isinstance(
+            data,
+            dict,
+        )
+        else {}
+    )
+
+    log(
+        "WEEX EXCHANGE CONFIG READ COMPLETE"
+    )
+
+    return WEEX_CONFIG
+
+
+# ============================================================
+# WEEX READ-ONLY RECONCILIATION
+# ============================================================
+
+async def reconcile_weex():
+
+    await load_mark_price()
+
+    try:
+
+        await load_available_balance()
+
+    except Exception as exc:
+
+        log(
+            f"BALANCE READ FAILED = {exc}"
+        )
+
+        raise
+
+    try:
+
+        await load_open_positions()
+
+    except Exception as exc:
+
+        log(
+            f"POSITION READ FAILED = {exc}"
+        )
+
+        raise
+
+    try:
+
+        await load_exchange_config()
+
+    except Exception as exc:
+
+        log(
+            f"EXCHANGE CONFIG READ FAILED = {exc}"
+        )
+
+        raise
+
+    return True
+
+
+# ============================================================
+# HISTORICAL KLINES
+# ============================================================
+
+async def load_historical_klines():
+
+    all_rows = []
+
+    for page in range(
+        MAX_HISTORICAL_PAGES
+    ):
+
+        params = {
+            "symbol": SYMBOL,
+            "interval": KLINE_INTERVAL,
+            "limit": HISTORICAL_LIMIT,
+        }
+
+        if page > 0:
+
+            params[
+                "endTime"
+            ] = int(
+                time.time() * 1000
+            ) - (
+                page
+                * HISTORICAL_LIMIT
+                * 60
+                * 1000
+            )
+
+        data = await weex_get(
+            "/capi/v3/market/klines",
+            params=params,
+            authenticated=False,
+        )
+
+        rows = data
+
+        if isinstance(
+            data,
+            dict,
+        ):
+
+            rows = data.get(
+                "data",
+                data.get(
+                    "result",
+                    [],
+                ),
+            )
+
+        if not isinstance(
+            rows,
+            list,
+        ):
+
+            raise RuntimeError(
+                "Unexpected kline response"
+            )
+
+        all_rows.extend(
+            rows
+        )
+
+        if len(rows) < HISTORICAL_LIMIT:
+            break
+
+    return all_rows
+
+
+# ============================================================
+# KLINE VALUE HELPERS
+# ============================================================
+
+def candle_high(
+    row,
+):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        for key in (
+            "high",
+            "highPrice",
+        ):
+
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(
+        row,
+        list,
+    ) and len(row) >= 3:
+
+        return D(
+            row[2]
+        )
+
+    raise ValueError(
+        "Unable to read candle high"
+    )
+
+
+def candle_low(
+    row,
+):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        for key in (
+            "low",
+            "lowPrice",
+        ):
+
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(
+        row,
+        list,
+    ) and len(row) >= 4:
+
+        return D(
+            row[3]
+        )
+
+    raise ValueError(
+        "Unable to read candle low"
+    )
+
+
+def historical_highs(
+    rows,
+):
+
+    return [
+        candle_high(row)
+        for row in rows
+    ]
+
+
+def historical_lows(
+    rows,
+):
+
+    return [
+        candle_low(row)
+        for row in rows
+    ]
+
+
+# ============================================================
+# R36F.12 FROZEN EMA19 / EMA50 / EMA200 SIGNAL ENGINE
+# ============================================================
+
+def candle_close(row):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        for key in (
+            "close",
+            "closePrice",
+            "c",
+            "lastPrice",
+        ):
+
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(
+        row,
+        list,
+    ) and len(row) >= 5:
+
+        return D(
+            row[4]
+        )
+
+    raise ValueError(
+        "Unable to read candle close"
+    )
+
+
+def candle_timestamp(row):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        for key in (
+            "timestamp",
+            "ts",
+            "time",
+            "startTime",
+            "openTime",
+        ):
+
+            if key in row:
+
+                try:
+
+                    return int(
+                        float(
+                            row[key]
+                        )
+                    )
+
+                except Exception:
+                    return None
+
+    if isinstance(
+        row,
+        list,
+    ) and row:
+
+        try:
+
+            return int(
+                float(
+                    row[0]
+                )
+            )
+
+        except Exception:
+            return None
+
+    return None
+
+
+def chronological_rows(
+    rows,
+):
+
+    usable = []
+
+    for row in rows:
+
+        try:
+
+            close = candle_close(
+                row
+            )
+
+            if close <= 0:
+                continue
+
+            ts = candle_timestamp(
+                row
+            )
+
+            usable.append(
+                (
+                    ts,
+                    row,
+                )
+            )
+
+        except Exception:
+            continue
+
+    if (
+        usable
+        and
+        all(
+            item[0] is not None
+            for item in usable
+        )
+    ):
+
+        by_ts = {
+            item[0]: item[1]
+            for item in usable
+        }
+
+        return [
+            by_ts[ts]
+            for ts in sorted(
+                by_ts
+            )
+        ]
+
+    return [
+        item[1]
+        for item in usable
+    ]
+
+
+def ema_series(
+    values,
+    period,
+):
+
+    if len(
+        values
+    ) < period:
+        return None
+
+    multiplier = (
+        Decimal(
+            "2"
+        )
+        / Decimal(
+            period + 1
+        )
+    )
+
+    ema = (
+        sum(
+            values[
+                :period
+            ]
+        )
+        / Decimal(
+            period
+        )
+    )
+
+    for price in values[
+        period:
+    ]:
+
+        ema = (
+            (
+                price
+                - ema
+            )
+            * multiplier
+            + ema
+        )
+
+    return ema
