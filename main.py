@@ -1,4 +1,4 @@
-```python
+
 #!/usr/bin/env python3
 """
 R36F.12 - FROZEN EMA19/50/200 + TELEGRAM COMMAND INTEGRATION CHECKPOINT
