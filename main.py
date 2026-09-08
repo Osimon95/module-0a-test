@@ -9379,7 +9379,7 @@ async def run_r36f12():
             TP_POLICY,
     }
         
-            {
+        {
 
                 "required_valid_clusters":
                     REQUIRED_TP_CLUSTERS,
