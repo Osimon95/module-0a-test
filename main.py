@@ -6590,3 +6590,1157 @@ def validate_r36f13_protective_stop(
     )
 
     return checks
+
+def calculate_r36f131_stop_distance_percent(
+    entry_price,
+    stop_price,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    if entry_price <= 0:
+
+        raise ValueError(
+            "entry_price must be positive"
+        )
+
+    return (
+        abs(
+            stop_price
+            - entry_price
+        )
+        / entry_price
+        * Decimal("100")
+    )
+
+
+def validate_r36f131_stop_risk_envelope(
+    direction,
+    entry_price,
+    stop_price,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    actual_distance_percent = (
+        calculate_r36f131_stop_distance_percent(
+            entry_price,
+            stop_price,
+        )
+    )
+
+    configured_distance_percent = (
+        R36F13_PROTECTIVE_STOP_DISTANCE_PERCENT
+    )
+
+    maximum_distance_percent = (
+        R36F131_MAX_PROTECTIVE_STOP_DISTANCE_PERCENT
+    )
+
+    within_maximum = (
+        actual_distance_percent
+        <= maximum_distance_percent
+    )
+
+    configured_within_maximum = (
+        configured_distance_percent
+        <= maximum_distance_percent
+    )
+
+    if direction == "LONG":
+
+        correct_side = (
+            stop_price
+            < entry_price
+        )
+
+    elif direction == "SHORT":
+
+        correct_side = (
+            stop_price
+            > entry_price
+        )
+
+    else:
+
+        correct_side = False
+
+    checks = {
+
+        "direction_supported":
+            direction
+            in {
+                "LONG",
+                "SHORT",
+            },
+
+        "correct_side_of_entry":
+            correct_side,
+
+        "configured_distance_within_maximum":
+            configured_within_maximum,
+
+        "actual_distance_within_maximum":
+            within_maximum,
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return {
+
+        "direction":
+            direction,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "stop_price":
+            decimal_to_string(
+                stop_price
+            ),
+
+        "configured_stop_distance_percent":
+            decimal_to_string(
+                configured_distance_percent
+            ),
+
+        "actual_stop_distance_percent":
+            decimal_to_string(
+                actual_distance_percent
+            ),
+
+        "maximum_allowed_stop_distance_percent":
+            decimal_to_string(
+                maximum_distance_percent
+            ),
+
+        "checks":
+            checks,
+
+        "all_valid":
+            checks[
+                "all_valid"
+            ],
+
+        "authorization_status":
+            (
+                "APPROVED"
+                if checks[
+                    "all_valid"
+                ]
+                else
+                "BLOCKED"
+            ),
+
+        "authorization_reason":
+            (
+                "STOP_DISTANCE_WITHIN_RISK_ENVELOPE"
+                if checks[
+                    "all_valid"
+                ]
+                else
+                "STOP_DISTANCE_EXCEEDS_OR_VIOLATES_RISK_ENVELOPE"
+            ),
+    }
+
+
+def validate_r36f132_stop_loss_budget(
+    available_balance,
+    entry_price,
+    entry_quantity,
+    stop_price,
+):
+
+    available_balance = D(
+        available_balance
+    )
+
+    entry_price = D(
+        entry_price
+    )
+
+    entry_quantity = D(
+        entry_quantity
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    if available_balance <= 0:
+
+        raise ValueError(
+            "available_balance must be positive"
+        )
+
+    if entry_price <= 0:
+
+        raise ValueError(
+            "entry_price must be positive"
+        )
+
+    if entry_quantity <= 0:
+
+        raise ValueError(
+            "entry_quantity must be positive"
+        )
+
+    stop_distance = abs(
+        entry_price
+        - stop_price
+    )
+
+    expected_loss_usdt = (
+        stop_distance
+        * entry_quantity
+    )
+
+    expected_loss_percent = (
+        expected_loss_usdt
+        / available_balance
+        * Decimal("100")
+    )
+
+    within_budget = (
+        expected_loss_percent
+        <= R36F132_MAX_ACCOUNT_LOSS_PERCENT
+    )
+
+    return {
+
+        "available_balance":
+            decimal_to_string(
+                available_balance
+            ),
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "entry_quantity":
+            decimal_to_string(
+                entry_quantity
+            ),
+
+        "stop_price":
+            decimal_to_string(
+                stop_price
+            ),
+
+        "stop_distance":
+            decimal_to_string(
+                stop_distance
+            ),
+
+        "expected_loss_usdt":
+            decimal_to_string(
+                expected_loss_usdt
+            ),
+
+        "expected_loss_percent":
+            decimal_to_string(
+                expected_loss_percent
+            ),
+
+        "maximum_account_loss_percent":
+            decimal_to_string(
+                R36F132_MAX_ACCOUNT_LOSS_PERCENT
+            ),
+
+        "within_budget":
+            within_budget,
+
+        "authorization_status":
+            (
+                "APPROVED"
+                if within_budget
+                else
+                "BLOCKED"
+            ),
+
+        "authorization_reason":
+            (
+                "PROTECTIVE_STOP_LOSS_WITHIN_ACCOUNT_BUDGET"
+                if within_budget
+                else
+                "PROTECTIVE_STOP_LOSS_EXCEEDS_ACCOUNT_BUDGET"
+            ),
+    }
+
+
+def apply_r36f132_stop_loss_budget_authorization_gate(command_preview, loss_budget):
+    preview = dict(command_preview or {})
+    authorized = bool(
+        preview.get(
+            "authorized_preview"
+        )
+    )
+    approved = bool(
+        loss_budget.get(
+            "within_budget"
+        )
+    )
+    preview["stop_loss_budget_authorized"] = approved
+    if authorized and not approved:
+        preview["authorized_preview"] = False
+        preview["reason"] = "PROTECTIVE_STOP_LOSS_BUDGET_BLOCKED"
+    return preview
+
+
+def synthetic_r36f132_stop_loss_budget_tests():
+    approved = validate_r36f132_stop_loss_budget(
+        Decimal("10"),
+        Decimal("80000"),
+        Decimal("0.0004"),
+        Decimal("79600"),
+    )
+    blocked = validate_r36f132_stop_loss_budget(
+        Decimal("5"),
+        Decimal("80000"),
+        Decimal("0.001"),
+        Decimal("79000"),
+    )
+    check(
+        "R36F132_SYNTHETIC_STOP_LOSS_WITHIN_BUDGET_APPROVED",
+        approved.get("within_budget") is True,
+    )
+    check(
+        "R36F132_SYNTHETIC_STOP_LOSS_OVER_BUDGET_BLOCKED",
+        blocked.get("within_budget") is False,
+    )
+    return {"approved": approved, "blocked": blocked}
+
+
+def apply_r36f131_risk_envelope_authorization_gate(
+    command_preview,
+    risk_envelope,
+):
+
+    preview = dict(
+        command_preview
+        or {}
+    )
+
+    authorized = bool(
+        preview.get(
+            "authorized_preview"
+        )
+    )
+
+    envelope_approved = bool(
+        risk_envelope.get(
+            "all_valid"
+        )
+    )
+
+    preview[
+        "stop_risk_envelope_authorized"
+    ] = envelope_approved
+
+    preview[
+        "stop_risk_envelope_status"
+    ] = risk_envelope.get(
+        "authorization_status"
+    )
+
+    preview[
+        "stop_risk_envelope_reason"
+    ] = risk_envelope.get(
+        "authorization_reason"
+    )
+
+    preview[
+        "actual_stop_distance_percent"
+    ] = risk_envelope.get(
+        "actual_stop_distance_percent"
+    )
+
+    preview[
+        "maximum_allowed_stop_distance_percent"
+    ] = risk_envelope.get(
+        "maximum_allowed_stop_distance_percent"
+    )
+
+    if (
+        authorized
+        and
+        not envelope_approved
+    ):
+
+        preview[
+            "authorized_preview"
+        ] = False
+
+        preview[
+            "reason"
+        ] = (
+            "PROTECTIVE_STOP_RISK_ENVELOPE_BLOCKED"
+        )
+
+    return preview
+
+
+def apply_r36f13_stop_authorization_gate(
+    command_preview,
+    stop_validation,
+):
+
+    preview = dict(
+        command_preview
+        or {}
+    )
+
+    authorized = bool(
+        preview.get(
+            "authorized_preview"
+        )
+    )
+
+    stop_approved = bool(
+        stop_validation.get(
+            "all_valid"
+        )
+    )
+
+    preview[
+        "protective_stop_authorized"
+    ] = stop_approved
+
+    preview[
+        "protective_stop_validation"
+    ] = stop_validation
+
+    if (
+        authorized
+        and
+        not stop_approved
+    ):
+
+        preview[
+            "authorized_preview"
+        ] = False
+
+        preview[
+            "reason"
+        ] = (
+            "MANDATORY_PROTECTIVE_STOP_BLOCKED"
+        )
+
+    return preview
+
+
+def unresolved_canary_journal():
+
+    data = read_json_file(
+        R36F12_CANARY_JOURNAL_FILE,
+        default={},
+    )
+
+    state = str(
+        data.get(
+            "state",
+            "",
+        )
+    ).upper()
+
+    unresolved = (
+        state
+        in {
+            "PREPARED",
+            "AUTHORIZED",
+            "DISPATCHING",
+            "AMBIGUOUS",
+        }
+    )
+
+    return (
+        unresolved,
+        data,
+    )
+
+
+def build_protected_canary_preview(
+    writer_preview,
+    direction,
+    entry_price,
+    stop_price,
+):
+
+    if not writer_preview:
+
+        return None
+
+    legs = json.loads(
+        json.dumps(
+            writer_preview.get(
+                "legs",
+                {},
+            )
+        )
+    )
+
+    entry = legs.get(
+        "entry",
+        {}
+    )
+
+    entry[
+        "stopLoss"
+    ] = {
+
+        "type":
+            "STOP_MARKET",
+
+        "workingType":
+            CANARY_STOP_WORKING_TYPE,
+
+        "stopPrice":
+            decimal_to_string(
+                stop_price
+            ),
+
+        "positionSide":
+            direction,
+
+        "reduceOnly":
+            True,
+    }
+
+    protected = dict(
+        writer_preview
+    )
+
+    protected[
+        "legs"
+    ] = legs
+
+    protected[
+        "mandatory_protective_stop"
+    ] = {
+
+        "price":
+            decimal_to_string(
+                stop_price
+            ),
+
+        "working_type":
+            CANARY_STOP_WORKING_TYPE,
+
+        "direction":
+            direction,
+    }
+
+    protected[
+        "integrity_sha256"
+    ] = sha256_text(
+        canonical_json(
+            legs
+        )
+    )
+
+    return protected
+
+
+def parse_canary_stop_price(
+    direction,
+    entry_price,
+):
+
+    if not CANARY_STOP_PRICE_TEXT:
+
+        return None
+
+    try:
+
+        stop_price = D(
+            CANARY_STOP_PRICE_TEXT
+        )
+
+    except Exception:
+
+        return None
+
+    if direction == "LONG":
+
+        if stop_price >= entry_price:
+
+            return None
+
+    elif direction == "SHORT":
+
+        if stop_price <= entry_price:
+
+            return None
+
+    else:
+
+        return None
+
+    return quantize_down(
+        stop_price,
+        PRICE_STEP,
+    )
+
+
+def validate_canary_stop(
+    direction,
+    entry_price,
+    stop_price,
+):
+
+    if stop_price is None:
+
+        return False
+
+    if direction == "LONG":
+
+        return (
+            stop_price
+            < entry_price
+        )
+
+    if direction == "SHORT":
+
+        return (
+            stop_price
+            > entry_price
+        )
+
+    return False
+
+
+def synthetic_r36f12_writer_safety_tests():
+
+    synthetic_tp = {
+
+        "tp_approval": {
+
+            "approved":
+                True,
+        },
+
+        "tp1":
+            "80400.0",
+
+        "tp2":
+            "80800.0",
+
+        "tp3": {
+
+            "type":
+                "TRAILING",
+
+            "allocation_percent":
+                "60",
+
+            "trailing_distance_percent":
+                "0.20",
+        },
+    }
+
+    preview = (
+        build_writer_request_preview(
+            "LONG",
+            Decimal(
+                "80000"
+            ),
+            Decimal(
+                "0.0004"
+            ),
+            synthetic_tp,
+        )
+    )
+
+    shape_validation = (
+        validate_weex_v3_writer_shapes(
+            preview
+        )
+    )
+
+    client_id_validation = (
+        validate_writer_client_ids(
+            preview
+        )
+    )
+
+    for (
+        name,
+        result,
+    ) in shape_validation[
+        "checks"
+    ].items():
+
+        if name == "all_valid":
+            continue
+
+        check(
+            "R36F12_WRITER_SHAPE_"
+            + name.upper(),
+            result,
+        )
+
+    for (
+        name,
+        result,
+    ) in client_id_validation[
+        "checks"
+    ].items():
+
+        if name == "all_valid":
+            continue
+
+        check(
+            "R36F12_WRITER_CLIENT_ID_"
+            + name.upper(),
+            result,
+        )
+
+    calculated_stop = (
+        calculate_r36f13_protective_stop(
+            "LONG",
+            Decimal(
+                "80000"
+            ),
+        )
+    )
+
+    calculated_validation = (
+        validate_r36f13_protective_stop(
+            "LONG",
+            Decimal(
+                "80000"
+            ),
+            calculated_stop,
+            Decimal(
+                "80400"
+            ),
+            Decimal(
+                "80800"
+            ),
+        )
+    )
+
+    for (
+        name,
+        result,
+    ) in calculated_validation.items():
+
+        if name == "all_valid":
+            continue
+
+        check(
+            "R36F13_CALCULATED_STOP_"
+            + name.upper(),
+            result,
+        )
+
+    check(
+        "R36F13_CALCULATED_STOP_ALL_VALID",
+        calculated_validation[
+            "all_valid"
+        ],
+    )
+
+    wrong_side_validation = (
+        validate_r36f13_protective_stop(
+            "LONG",
+            Decimal(
+                "80000"
+            ),
+            Decimal(
+                "80400"
+            ),
+            Decimal(
+                "80500"
+            ),
+            Decimal(
+                "81000"
+            ),
+        )
+    )
+
+    check(
+        "R36F13_WRONG_SIDE_STOP_BLOCKED",
+        (
+            wrong_side_validation[
+                "all_valid"
+            ]
+            is False
+        ),
+    )
+
+    synthetic_command = {
+
+        "recognized":
+            True,
+
+        "direction":
+            "LONG",
+
+        "authorized_preview":
+            True,
+
+        "reason":
+            "SYNTHETIC_PRE_STOP_AUTHORIZATION",
+    }
+
+    gated_command = (
+        apply_r36f13_stop_authorization_gate(
+            synthetic_command,
+            wrong_side_validation,
+        )
+    )
+
+    check(
+        "R36F13_INVALID_STOP_REVOKES_AUTHORIZATION",
+        (
+            gated_command[
+                "authorized_preview"
+            ]
+            is False
+        ),
+    )
+
+    check(
+        "R36F12_WRITER_SHAPES_ALL_VALID",
+        shape_validation[
+            "all_valid"
+        ],
+    )
+
+    check(
+        "R36F12_WRITER_CLIENT_IDS_ALL_VALID",
+        client_id_validation[
+            "all_valid"
+        ],
+    )
+
+    check(
+        "R36F12_WRITER_REMAINS_UNSUBMITTED",
+        preview.get(
+            "submitted"
+        ) is False,
+    )
+
+    check(
+        "R36F12_REAL_ORDER_EXECUTION_STILL_DISABLED",
+        REAL_ORDER_EXECUTION
+        is False,
+    )
+
+    check(
+        "R36F12_ORDER_SUBMISSION_STILL_DISABLED",
+        ORDER_SUBMISSION_ENABLED
+        is False,
+    )
+
+    check(
+        "R36F12_EXCHANGE_MUTATION_TRANSPORT_STILL_DISABLED",
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        is False,
+    )
+
+    check(
+        "R36F12_FIRST_REAL_ORDER_STILL_FORBIDDEN",
+        FIRST_REAL_ORDER_ALLOWED
+        is False,
+    )
+
+    return {
+
+        "writer_preview":
+            preview,
+
+        "shape_validation":
+            shape_validation,
+
+        "client_id_validation":
+            client_id_validation,
+
+        "calculated_stop":
+            decimal_to_string(
+                calculated_stop
+            ),
+
+        "calculated_stop_validation":
+            calculated_validation,
+
+        "wrong_side_stop_validation":
+            wrong_side_validation,
+
+        "invalid_stop_gated_command":
+            gated_command,
+    }
+
+
+# ============================================================
+# SYNTHETIC WRITER QUANTITY TESTS
+# ============================================================
+
+def synthetic_writer_quantity_tests():
+
+    cases = {
+
+        "QTY_0004": {
+            "quantity":
+                Decimal(
+                    "0.0004"
+                ),
+            "expected_feasible":
+                True,
+            "expected_allocation":
+                "25/25/50",
+            "expected_tp1":
+                Decimal(
+                    "0.0001"
+                ),
+            "expected_tp2":
+                Decimal(
+                    "0.0001"
+                ),
+            "expected_tp3":
+                Decimal(
+                    "0.0002"
+                ),
+        },
+
+        "QTY_0005": {
+            "quantity":
+                Decimal(
+                    "0.0005"
+                ),
+            "expected_feasible":
+                True,
+            "expected_allocation":
+                "20/20/60",
+            "expected_tp1":
+                Decimal(
+                    "0.0001"
+                ),
+            "expected_tp2":
+                Decimal(
+                    "0.0001"
+                ),
+            "expected_tp3":
+                Decimal(
+                    "0.0003"
+                ),
+        },
+
+        "QTY_0003": {
+            "quantity":
+                Decimal(
+                    "0.0003"
+                ),
+            "expected_feasible":
+                False,
+            "expected_allocation":
+                None,
+        },
+    }
+
+    results = {}
+
+    for (
+        name,
+        case,
+    ) in cases.items():
+
+        feasibility = (
+            evaluate_writer_quantity_feasibility(
+                case[
+                    "quantity"
+                ]
+            )
+        )
+
+        results[
+            name
+        ] = feasibility
+
+        check(
+            f"WRITER_QUANTITY_{name}_FEASIBILITY",
+            feasibility[
+                "feasible"
+            ]
+            is
+            case[
+                "expected_feasible"
+            ],
+        )
+
+        check(
+            f"WRITER_QUANTITY_{name}_ALLOCATION",
+            feasibility[
+                "selected_allocation"
+            ]
+            ==
+            case[
+                "expected_allocation"
+            ],
+        )
+
+        if case[
+            "expected_feasible"
+        ]:
+
+            check(
+                f"WRITER_QUANTITY_{name}_TP1",
+                D(
+                    feasibility[
+                        "tp1_quantity"
+                    ]
+                )
+                ==
+                case[
+                    "expected_tp1"
+                ],
+            )
+
+            check(
+                f"WRITER_QUANTITY_{name}_TP2",
+                D(
+                    feasibility[
+                        "tp2_quantity"
+                    ]
+                )
+                ==
+                case[
+                    "expected_tp2"
+                ],
+            )
+
+            check(
+                f"WRITER_QUANTITY_{name}_TP3",
+                D(
+                    feasibility[
+                        "tp3_quantity"
+                    ]
+                )
+                ==
+                case[
+                    "expected_tp3"
+                ],
+            )
+
+    minimum = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    check(
+        "WRITER_QUANTITY_MINIMUM_ADJUSTABLE_ENTRY_QTY",
+        minimum
+        == Decimal(
+            "0.0004"
+        ),
+    )
+
+    return results
+
+
+# ============================================================
+# SYNTHETIC BALANCE READINESS TESTS
+# ============================================================
+
+def synthetic_balance_readiness_tests():
+
+    mark_price = Decimal(
+        "80000"
+    )
+
+    leverage = Decimal(
+        "100"
+    )
+
+    eligible_balance = Decimal(
+        "7.20"
+    )
+
+    ineligible_balance = Decimal(
+        "4.00"
+    )
+
+    eligible = (
+        evaluate_strict_tp_balance_readiness(
+            eligible_balance,
+            mark_price,
+            leverage,
+        )
+    )
+
+    ineligible = (
+        evaluate_strict_tp_balance_readiness(
+            ineligible_balance,
+            mark_price,
+            leverage,
+        )
+    )
+
+    check(
+        "SYNTHETIC_BALANCE_ELIGIBLE_STATUS",
+        eligible[
+            "eligible"
+        ] is True,
+    )
+
+    check(
+        "SYNTHETIC_BALANCE_ELIGIBLE_REASON",
+        eligible[
+            "reason"
+        ]
+        ==
+        "ADJUSTABLE_TP_BALANCE_AND_QUANTITY_READY",
+    )
+
+    check(
+        "SYNTHETIC_BALANCE_INELIGIBLE_STATUS",
+        ineligible[
+            "eligible"
+        ] is False,
+    )
+
+    check(
+        "SYNTHETIC_BALANCE_INELIGIBLE_CLASSIFICATION",
+        ineligible[
+            "status"
+        ]
+        ==
+        "TRADE_NOT_ELIGIBLE",
+    )
+
+    check(
+        "SYNTHETIC_BALANCE_INELIGIBLE_REASON",
+        ineligible[
+            "reason"
+        ]
+        ==
+        "INSUFFICIENT_BALANCE_FOR_APPROVED_TP_ALLOCATION",
+    )
+
+    return {
+
+        "eligible":
+            eligible,
+
+        "ineligible":
+            ineligible,
+    }
