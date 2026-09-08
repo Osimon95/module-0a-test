@@ -9375,12 +9375,8 @@ async def run_r36f12():
         "short_diagnostics":
             SHORT_DIAGNOSTICS,
 
-        "tp_policy":
-            TP_POLICY,
-    }
-        
-        {
-
+                "tp_policy":
+            {
                 "required_valid_clusters":
                     REQUIRED_TP_CLUSTERS,
 
@@ -9404,6 +9400,8 @@ async def run_r36f12():
                         TP3_TRAILING_DISTANCE_PERCENT
                     ),
             },
+    }
+            
 
         line()
 
