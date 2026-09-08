@@ -9321,7 +9321,7 @@ async def run_r36f12():
 
     snapshot = {}
 
-        "stage":
+    "stage":
             STAGE,
 
         "purpose":
