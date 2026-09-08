@@ -9402,3 +9402,30 @@ async def run_r36f12():
                         TP3_TRAILING_DISTANCE_PERCENT
                     ),
             },
+id="m8q4pd"
+        line()
+
+        log(
+            f"{STAGE} UNHANDLED ERROR = "
+            f"{exc}"
+        )
+
+        line()
+
+    await heartbeat_loop()
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    asyncio.run(
+        async_main()
+    )
+
+
+if __name__ == "__main__":
+
+    main()
