@@ -9319,7 +9319,7 @@ async def run_r36f12():
             f"{balance_readiness.get('available_balance_shortfall')}"
         )
 
-        snapshot = {
+            snapshot = {
         "stage":
             STAGE,
 
@@ -9376,6 +9376,9 @@ async def run_r36f12():
             SHORT_DIAGNOSTICS,
 
         "tp_policy":
+            TP_POLICY,
+    }
+        
             {
 
                 "required_valid_clusters":
@@ -9401,7 +9404,7 @@ async def run_r36f12():
                         TP3_TRAILING_DISTANCE_PERCENT
                     ),
             },
-id="m8q4pd"
+
         line()
 
         log(
