@@ -9424,7 +9424,7 @@ async def run_r36f12():
 def main():
 
     asyncio.run(
-        async_main()
+        run_r36f12()
     )
 
 
