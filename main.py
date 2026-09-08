@@ -5998,3 +5998,416 @@ def validate_r36f13_protective_stop(
 
     return checks
 
+
+def calculate_r36f131_stop_distance_percent(
+    entry_price,
+    stop_price,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    if entry_price <= 0:
+
+        raise ValueError(
+            "entry_price must be positive"
+        )
+
+    return (
+        abs(
+            stop_price
+            - entry_price
+        )
+        / entry_price
+        * Decimal("100")
+    )
+
+
+def validate_r36f131_stop_risk_envelope(
+    direction,
+    entry_price,
+    stop_price,
+    leverage,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    if leverage <= 0:
+
+        raise ValueError(
+            "leverage must be positive"
+        )
+
+    distance_percent = (
+        calculate_r36f131_stop_distance_percent(
+            entry_price,
+            stop_price,
+        )
+    )
+
+    leverage_reference_percent = (
+        Decimal("100")
+        / leverage
+    )
+
+    minimum_step_distance_percent = (
+        PRICE_STEP
+        / entry_price
+        * Decimal("100")
+    )
+
+    checks = {
+
+        "direction_valid":
+            direction
+            in {
+                "LONG",
+                "SHORT",
+            },
+
+        "distance_positive":
+            distance_percent
+            > 0,
+
+        "at_least_one_price_step":
+            abs(
+                stop_price
+                - entry_price
+            )
+            >= PRICE_STEP,
+
+        "within_configured_maximum":
+            (
+                distance_percent
+                <=
+                R36F131_MAX_PROTECTIVE_STOP_DISTANCE_PERCENT
+            ),
+
+        "inside_leverage_reference":
+            (
+                distance_percent
+                <
+                leverage_reference_percent
+            ),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return {
+
+        "distance_percent":
+            decimal_to_string(
+                distance_percent
+            ),
+
+        "configured_maximum_percent":
+            decimal_to_string(
+                R36F131_MAX_PROTECTIVE_STOP_DISTANCE_PERCENT
+            ),
+
+        "leverage_reference_percent":
+            decimal_to_string(
+                leverage_reference_percent
+            ),
+
+        "minimum_step_distance_percent":
+            decimal_to_string(
+                minimum_step_distance_percent
+            ),
+
+        "leverage":
+            decimal_to_string(
+                leverage
+            ),
+
+        "reference_is_not_liquidation_price":
+            True,
+
+        "checks":
+            checks,
+
+        "all_valid":
+            checks[
+                "all_valid"
+            ],
+    }
+
+
+def validate_r36f132_stop_loss_budget(
+    entry_price,
+    stop_price,
+    entry_quantity,
+    available_balance,
+    leverage,
+):
+    entry_price = D(entry_price)
+    stop_price = D(stop_price)
+    entry_quantity = D(entry_quantity)
+    available_balance = D(available_balance)
+    leverage = D(leverage)
+
+    if entry_price <= 0:
+        raise ValueError("entry_price must be positive")
+    if entry_quantity <= 0:
+        raise ValueError("entry_quantity must be positive")
+    if available_balance <= 0:
+        raise ValueError("available_balance must be positive")
+    if leverage <= 0:
+        raise ValueError("leverage must be positive")
+
+    price_distance = abs(entry_price - stop_price)
+    expected_loss = price_distance * entry_quantity
+    expected_loss_percent = expected_loss / available_balance * Decimal("100")
+    account_loss_budget = available_balance * R36F132_MAX_ACCOUNT_LOSS_PERCENT / Decimal("100")
+    isolated_entry_margin = entry_price * entry_quantity / leverage
+
+    checks = {
+        "price_distance_positive": price_distance > 0,
+        "expected_loss_positive": expected_loss > 0,
+        "within_account_loss_budget": expected_loss <= account_loss_budget,
+        "within_isolated_entry_margin_budget": expected_loss <= isolated_entry_margin,
+    }
+    checks["all_valid"] = all(checks.values())
+
+    return {
+        "entry_price": decimal_to_string(entry_price),
+        "stop_price": decimal_to_string(stop_price),
+        "entry_quantity": decimal_to_string(entry_quantity),
+        "available_balance": decimal_to_string(available_balance),
+        "leverage": decimal_to_string(leverage),
+        "price_distance": decimal_to_string(price_distance),
+        "expected_loss_usdt": decimal_to_string(expected_loss),
+        "expected_loss_percent_of_available_balance": decimal_to_string(expected_loss_percent),
+        "configured_max_account_loss_percent": decimal_to_string(R36F132_MAX_ACCOUNT_LOSS_PERCENT),
+        "account_loss_budget_usdt": decimal_to_string(account_loss_budget),
+        "isolated_entry_margin_usdt": decimal_to_string(isolated_entry_margin),
+        "checks": checks,
+        "all_valid": checks["all_valid"],
+    }
+
+
+def apply_r36f132_stop_loss_budget_authorization_gate(command_preview, loss_budget):
+    preview = dict(command_preview or {})
+    preview["r36f132_stop_loss_budget_required"] = True
+    preview["r36f132_stop_loss_budget_valid"] = bool(loss_budget and loss_budget.get("all_valid"))
+    if not preview.get("authorized_preview"):
+        return preview
+    if not loss_budget or not loss_budget.get("all_valid"):
+        preview["authorized_preview"] = False
+        preview["reason"] = "PROTECTIVE_STOP_LOSS_BUDGET_NOT_READY"
+        preview["exchange_order_sent"] = False
+        return preview
+    preview["reason"] = "COMMAND_EMA_TP_STOP_RISK_ENVELOPE_AND_LOSS_BUDGET_AGREE"
+    preview["exchange_order_sent"] = False
+    return preview
+
+
+def synthetic_r36f132_stop_loss_budget_tests():
+    passing = validate_r36f132_stop_loss_budget(Decimal("80000"), Decimal("79600"), Decimal("0.0004"), Decimal("7.19"), Decimal("100"))
+    check("R36F132_SYNTHETIC_STOP_LOSS_BUDGET_APPROVED", passing["all_valid"] is True)
+    check("R36F132_SYNTHETIC_EXPECTED_LOSS_016_USDT", passing["expected_loss_usdt"] == "0.16")
+    check("R36F132_SYNTHETIC_WITHIN_ACCOUNT_LOSS_BUDGET", passing["checks"]["within_account_loss_budget"] is True)
+    check("R36F132_SYNTHETIC_WITHIN_ENTRY_MARGIN_BUDGET", passing["checks"]["within_isolated_entry_margin_budget"] is True)
+
+    failing = validate_r36f132_stop_loss_budget(Decimal("80000"), Decimal("79200"), Decimal("0.0004"), Decimal("7.19"), Decimal("100"))
+    check("R36F132_SYNTHETIC_EXCESSIVE_ACCOUNT_LOSS_REJECTED", failing["checks"]["within_account_loss_budget"] is False)
+
+    authorized = apply_r36f132_stop_loss_budget_authorization_gate({"authorized_preview": True, "exchange_order_sent": False}, passing)
+    blocked = apply_r36f132_stop_loss_budget_authorization_gate({"authorized_preview": True, "exchange_order_sent": False}, failing)
+    check("R36F132_SYNTHETIC_AUTHORIZATION_GATE_APPROVES_SAFE_LOSS", authorized["authorized_preview"] is True)
+    check("R36F132_SYNTHETIC_AUTHORIZATION_GATE_BLOCKS_EXCESSIVE_LOSS", blocked["authorized_preview"] is False)
+    check("R36F132_SYNTHETIC_GATE_NEVER_SENDS_ORDER", authorized.get("exchange_order_sent") is False and blocked.get("exchange_order_sent") is False)
+    return True
+
+
+def apply_r36f131_risk_envelope_authorization_gate(
+    command_preview,
+    envelope,
+):
+
+    preview = dict(
+        command_preview
+        or {}
+    )
+
+    preview[
+        "r36f131_stop_risk_envelope_required"
+    ] = True
+
+    preview[
+        "r36f131_stop_risk_envelope_valid"
+    ] = bool(
+        envelope
+        and
+        envelope.get(
+            "all_valid"
+        )
+    )
+
+    if not preview.get(
+        "authorized_preview"
+    ):
+
+        return preview
+
+    if (
+        not envelope
+        or
+        not envelope.get(
+            "all_valid"
+        )
+    ):
+
+        preview[
+            "authorized_preview"
+        ] = False
+
+        preview[
+            "reason"
+        ] = (
+            "PROTECTIVE_STOP_RISK_ENVELOPE_NOT_READY"
+        )
+
+        preview[
+            "exchange_order_sent"
+        ] = False
+
+        return preview
+
+    preview[
+        "reason"
+    ] = (
+        "COMMAND_EMA_TP_STOP_AND_RISK_ENVELOPE_AGREE"
+    )
+
+    preview[
+        "exchange_order_sent"
+    ] = False
+
+    return preview
+
+
+def apply_r36f13_stop_authorization_gate(
+    command_preview,
+    stop_checks,
+):
+
+    preview = dict(
+        command_preview
+        or {}
+    )
+
+    if not preview.get(
+        "authorized_preview"
+    ):
+
+        preview[
+            "r36f13_protective_stop_required"
+        ] = True
+
+        preview[
+            "r36f13_protective_stop_valid"
+        ] = bool(
+            stop_checks
+            and
+            stop_checks.get(
+                "all_valid"
+            )
+        )
+
+        return preview
+
+    if (
+        not stop_checks
+        or
+        not stop_checks.get(
+            "all_valid"
+        )
+    ):
+
+        preview[
+            "authorized_preview"
+        ] = False
+
+        preview[
+            "reason"
+        ] = (
+            "PROTECTIVE_STOP_NOT_READY"
+        )
+
+        preview[
+            "r36f13_protective_stop_required"
+        ] = True
+
+        preview[
+            "r36f13_protective_stop_valid"
+        ] = False
+
+        preview[
+            "exchange_order_sent"
+        ] = False
+
+        return preview
+
+    preview[
+        "reason"
+    ] = (
+        "COMMAND_EMA_TP_AND_PROTECTIVE_STOP_AGREE"
+    )
+
+    preview[
+        "r36f13_protective_stop_required"
+    ] = True
+
+    preview[
+        "r36f13_protective_stop_valid"
+    ] = True
+
+    preview[
+        "exchange_order_sent"
+    ] = False
+
+    return preview
+
+
+def unresolved_canary_journal(
+    journal,
+):
+
+    if not journal:
+
+        return False
+
+    return (
+        str(
+            journal.get(
+                "status",
+                "",
+            )
+        ).upper()
+        in {
+            "PREPARED",
+            "DISPATCHING",
+            "SUBMITTED",
+            "AMBIGUOUS",
+        }
+    )
