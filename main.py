@@ -1925,3 +1925,613 @@ def ema_series(
         )
 
     return ema
+
+def calculate_emas(
+    closes,
+):
+
+    return (
+        ema_series(
+            closes,
+            EMA_FAST,
+        ),
+        ema_series(
+            closes,
+            EMA_MID,
+        ),
+        ema_series(
+            closes,
+            EMA_SLOW,
+        ),
+    )
+
+
+def ema_structure(
+    ema19,
+    ema50,
+    ema200,
+):
+
+    if (
+        ema19
+        > ema50
+        > ema200
+    ):
+
+        return "STRONG_BULLISH"
+
+    if (
+        ema19
+        < ema50
+        < ema200
+    ):
+
+        return "STRONG_BEARISH"
+
+    if ema19 > ema50:
+
+        return "EARLY_BULLISH"
+
+    if ema19 < ema50:
+
+        return "EARLY_BEARISH"
+
+    return "NEUTRAL"
+
+
+def ema_direction(
+    structure,
+):
+
+    if structure == "STRONG_BULLISH":
+
+        return "LONG"
+
+    if structure == "STRONG_BEARISH":
+
+        return "SHORT"
+
+    return None
+
+
+def ema_separation_percent(
+    price,
+    ema19,
+    ema50,
+):
+
+    if price <= 0:
+
+        return Decimal("0")
+
+    return (
+        abs(
+            ema19
+            - ema50
+        )
+        / price
+        * Decimal("100")
+    )
+
+
+def detect_ema19_50_crossover(
+    previous19,
+    previous50,
+    current19,
+    current50,
+):
+
+    if None in (
+        previous19,
+        previous50,
+        current19,
+        current50,
+    ):
+
+        return None
+
+    if (
+        previous19
+        <= previous50
+        and
+        current19
+        > current50
+    ):
+
+        return "LONG"
+
+    if (
+        previous19
+        >= previous50
+        and
+        current19
+        < current50
+    ):
+
+        return "SHORT"
+
+    return None
+
+
+def build_ema_signal_snapshot(
+    rows,
+):
+
+    ordered = chronological_rows(
+        rows
+    )
+
+    closes = [
+        candle_close(
+            row
+        )
+        for row in ordered
+    ]
+
+    if len(
+        closes
+    ) < (
+        EMA_SLOW
+        + EMA_CONFIRMATION_CANDLES
+    ):
+
+        return {
+            "ready":
+                False,
+
+            "reason":
+                "INSUFFICIENT_CANDLES_FOR_EMA200_CONFIRMATION",
+
+            "rows":
+                len(
+                    closes
+                ),
+        }
+
+    (
+        current19,
+        current50,
+        current200,
+    ) = calculate_emas(
+        closes
+    )
+
+    (
+        previous19,
+        previous50,
+        previous200,
+    ) = calculate_emas(
+        closes[:-1]
+    )
+
+    current_price = closes[
+        -1
+    ]
+
+    structure = ema_structure(
+        current19,
+        current50,
+        current200,
+    )
+
+    direction = ema_direction(
+        structure
+    )
+
+    separation = (
+        ema_separation_percent(
+            current_price,
+            current19,
+            current50,
+        )
+    )
+
+    crossover = (
+        detect_ema19_50_crossover(
+            previous19,
+            previous50,
+            current19,
+            current50,
+        )
+    )
+
+    quality_ok = (
+        separation
+        >=
+        MIN_EMA_19_50_SEPARATION_PERCENT
+    )
+
+    ideal_direction = (
+        direction
+        if quality_ok
+        else None
+    )
+
+    return {
+
+        "ready":
+            True,
+
+        "reason":
+            "EMA_ENGINE_READY",
+
+        "rows":
+            len(
+                closes
+            ),
+
+        "price":
+            decimal_to_string(
+                current_price
+            ),
+
+        "ema19":
+            decimal_to_string(
+                current19
+            ),
+
+        "ema50":
+            decimal_to_string(
+                current50
+            ),
+
+        "ema200":
+            decimal_to_string(
+                current200
+            ),
+
+        "structure":
+            structure,
+
+        "direction":
+            direction,
+
+        "ideal_direction":
+            ideal_direction,
+
+        "ema19_50_separation_percent":
+            decimal_to_string(
+                separation
+            ),
+
+        "minimum_separation_percent":
+            decimal_to_string(
+                MIN_EMA_19_50_SEPARATION_PERCENT
+            ),
+
+        "quality_ok":
+            quality_ok,
+
+        "fresh_crossover":
+            crossover,
+
+        "confirmation_policy":
+            "NEXT_CLOSED_1M_CANDLE",
+
+        "signal_expiry_seconds":
+            SIGNAL_EXPIRY_SECONDS,
+    }
+
+
+def normalize_telegram_command(
+    text,
+):
+
+    return " ".join(
+        str(
+            text or ""
+        )
+        .strip()
+        .upper()
+        .split()
+    )
+
+
+def parse_telegram_trade_command(
+    text,
+):
+
+    normalized = (
+        normalize_telegram_command(
+            text
+        )
+    )
+
+    if (
+        normalized
+        == TELEGRAM_BUY_COMMAND
+    ):
+
+        return {
+            "recognized":
+                True,
+
+            "command":
+                normalized,
+
+            "direction":
+                "LONG",
+        }
+
+    if (
+        normalized
+        == TELEGRAM_SELL_COMMAND
+    ):
+
+        return {
+            "recognized":
+                True,
+
+            "command":
+                normalized,
+
+            "direction":
+                "SHORT",
+        }
+
+    return {
+        "recognized":
+            False,
+
+        "command":
+            normalized,
+
+        "direction":
+            None,
+    }
+
+
+def validate_telegram_command_against_signal(
+    text,
+    ema_snapshot,
+    long_eligible,
+    short_eligible,
+):
+
+    parsed = (
+        parse_telegram_trade_command(
+            text
+        )
+    )
+
+    direction = parsed[
+        "direction"
+    ]
+
+    if not parsed[
+        "recognized"
+    ]:
+
+        return {
+            **parsed,
+
+            "authorized_preview":
+                False,
+
+            "reason":
+                "UNRECOGNIZED_COMMAND",
+        }
+
+    if not ema_snapshot.get(
+        "ready"
+    ):
+
+        return {
+            **parsed,
+
+            "authorized_preview":
+                False,
+
+            "reason":
+                "EMA_ENGINE_NOT_READY",
+        }
+
+    ideal = ema_snapshot.get(
+        "ideal_direction"
+    )
+
+    if ideal != direction:
+
+        return {
+            **parsed,
+
+            "authorized_preview":
+                False,
+
+            "reason":
+                "COMMAND_DIRECTION_DOES_NOT_MATCH_IDEAL_EMA_CONDITION",
+
+            "ema_ideal_direction":
+                ideal,
+        }
+
+    market_ok = (
+        long_eligible
+        if direction == "LONG"
+        else short_eligible
+    )
+
+    if not market_ok:
+
+        return {
+            **parsed,
+
+            "authorized_preview":
+                False,
+
+            "reason":
+                "COMMAND_DIRECTION_TP_MARKET_NOT_ELIGIBLE",
+
+            "ema_ideal_direction":
+                ideal,
+        }
+
+    return {
+        **parsed,
+
+        "authorized_preview":
+            True,
+
+        "reason":
+            "COMMAND_AND_EMA_AND_TP_DIRECTION_AGREE",
+
+        "ema_ideal_direction":
+            ideal,
+
+        "exchange_order_sent":
+            False,
+    }
+
+
+def build_ideal_condition_alert(
+    ema_snapshot,
+):
+
+    if not ema_snapshot.get(
+        "ready"
+    ):
+
+        return None
+
+    direction = ema_snapshot.get(
+        "ideal_direction"
+    )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+
+        return None
+
+    command = (
+        TELEGRAM_BUY_COMMAND
+        if direction == "LONG"
+        else TELEGRAM_SELL_COMMAND
+    )
+
+    return (
+        f"R36F.13.2 IDEAL {direction} CONDITION | {SYMBOL}\n"
+        f"Price={ema_snapshot.get('price')} "
+        f"EMA19={ema_snapshot.get('ema19')} "
+        f"EMA50={ema_snapshot.get('ema50')} "
+        f"EMA200={ema_snapshot.get('ema200')}\n"
+        f"Structure={ema_snapshot.get('structure')} "
+        f"EMA19/50 separation="
+        f"{ema_snapshot.get('ema19_50_separation_percent')}%\n"
+        f"Manual command: {command}\n"
+        "R36F.13.2 exchange execution remains disabled."
+    )
+
+
+async def send_r36f12_telegram_alert(
+    message,
+):
+
+    if not message:
+
+        return {
+            "attempted":
+                False,
+
+            "sent":
+                False,
+
+            "reason":
+                "NO_IDEAL_ALERT",
+        }
+
+    if not R36F12_TELEGRAM_ALERTS_ENABLED:
+
+        return {
+            "attempted":
+                False,
+
+            "sent":
+                False,
+
+            "reason":
+                "ALERTS_DISABLED_BY_DEFAULT",
+        }
+
+    if (
+        not TELEGRAM_BOT_TOKEN
+        or
+        not TELEGRAM_CHAT_ID
+    ):
+
+        return {
+            "attempted":
+                False,
+
+            "sent":
+                False,
+
+            "reason":
+                "TELEGRAM_CONFIG_MISSING",
+        }
+
+    url = (
+        f"https://api.telegram.org/"
+        f"bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    )
+
+    payload = {
+
+        "chat_id":
+            TELEGRAM_CHAT_ID,
+
+        "text":
+            message,
+
+        "disable_web_page_preview":
+            True,
+    }
+
+    try:
+
+        async with aiohttp.ClientSession() as session:
+
+            async with session.post(
+                url,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(
+                    total=15
+                ),
+            ) as response:
+
+                body = (
+                    await response.text()
+                )
+
+                return {
+
+                    "attempted":
+                        True,
+
+                    "sent":
+                        (
+                            200
+                            <= response.status
+                            < 300
+                        ),
+
+                    "http_status":
+                        response.status,
+
+                    "response_preview":
+                        body[:200],
+                }
+
+    except Exception as exc:
+
+        return {
+            "attempted":
+                True,
+
+            "sent":
+                False,
+
+            "reason":
+                f"{type(exc).__name__}: {exc}",
+        }
