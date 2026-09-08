@@ -5303,3 +5303,698 @@ def build_writer_request_preview(
         "reduceOnly":
             False,
     }
+
+    tp1_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TPSL,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "positionSide":
+            close_position_side,
+
+        "planType":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "executePrice":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                tp1_qty
+            ),
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP1",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+    tp2_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TPSL,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "positionSide":
+            close_position_side,
+
+        "planType":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            decimal_to_string(
+                tp2_price
+            ),
+
+        "executePrice":
+            decimal_to_string(
+                tp2_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                tp2_qty
+            ),
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP2",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+    tp3_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_TRAILING,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            close_side,
+
+        "positionSide":
+            close_position_side,
+
+        "type":
+            "TRAILING_MARKET",
+
+        "quantity":
+            decimal_to_string(
+                tp3_qty
+            ),
+
+        "callbackRate":
+            decimal_to_string(
+                TP3_TRAILING_DISTANCE_PERCENT
+            ),
+
+        "workingType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            writer_client_id(
+                direction,
+                "TP3",
+            ),
+
+        "reduceOnly":
+            True,
+    }
+
+    legs = {
+
+        "entry":
+            entry_leg,
+
+        "tp1":
+            tp1_leg,
+
+        "tp2":
+            tp2_leg,
+
+        "tp3":
+            tp3_leg,
+    }
+
+    integrity_hash = (
+        sha256_text(
+            canonical_json(
+                legs
+            )
+        )
+    )
+
+    return {
+
+        "stage":
+            STAGE,
+
+        "symbol":
+            SYMBOL,
+
+        "direction":
+            direction,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "entry_quantity":
+            decimal_to_string(
+                entry_quantity
+            ),
+
+        "tp1_quantity":
+            decimal_to_string(
+                tp1_qty
+            ),
+
+        "tp2_quantity":
+            decimal_to_string(
+                tp2_qty
+            ),
+
+        "tp3_quantity":
+            decimal_to_string(
+                tp3_qty
+            ),
+
+        "allocation_percent": {
+
+            "tp1":
+                decimal_to_string(
+                    select_tp_allocation(
+                        entry_quantity
+                    )[
+                        "tp1_percent"
+                    ]
+                ),
+
+            "tp2":
+                decimal_to_string(
+                    select_tp_allocation(
+                        entry_quantity
+                    )[
+                        "tp2_percent"
+                    ]
+                ),
+
+            "tp3":
+                decimal_to_string(
+                    select_tp_allocation(
+                        entry_quantity
+                    )[
+                        "tp3_percent"
+                    ]
+                ),
+        },
+
+        "allocation_label":
+            select_tp_allocation(
+                entry_quantity
+            )[
+                "label"
+            ],
+
+        "allocation_adjusted":
+            select_tp_allocation(
+                entry_quantity
+            )[
+                "adjusted"
+            ],
+
+        "quantity_validation":
+            quantity_checks,
+
+        "tp_approval":
+            tp_snapshot[
+                "tp_approval"
+            ],
+
+        "tp1":
+            tp_snapshot[
+                "tp1"
+            ],
+
+        "tp2":
+            tp_snapshot[
+                "tp2"
+            ],
+
+        "tp3":
+            tp_snapshot[
+                "tp3"
+            ],
+
+        "legs":
+            legs,
+
+        "primary_tp_immutable":
+            True,
+
+        "submitted":
+            False,
+
+        "transport_enabled":
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+        "integrity_sha256":
+            integrity_hash,
+    }
+
+
+# ============================================================
+# R36F.12 FIRST-LIVE WRITER SAFETY COMPLETION
+# ============================================================
+
+def validate_weex_v3_writer_shapes(
+    writer_preview,
+):
+    """
+    Validate only documented request fields needed
+    by the frozen writer.
+    """
+
+    if not writer_preview:
+
+        return {
+
+            "all_valid":
+                False,
+
+            "reason":
+                "WRITER_PREVIEW_MISSING",
+        }
+
+    legs = writer_preview.get(
+        "legs",
+        {},
+    )
+
+    entry = legs.get(
+        "entry",
+        {},
+    )
+
+    tp1 = legs.get(
+        "tp1",
+        {},
+    )
+
+    tp2 = legs.get(
+        "tp2",
+        {},
+    )
+
+    tp3 = legs.get(
+        "tp3",
+        {},
+    )
+
+    entry_required = {
+
+        "endpoint",
+        "method",
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+        "reduceOnly",
+    }
+
+    tpsl_required = {
+
+        "endpoint",
+        "method",
+        "symbol",
+        "positionSide",
+        "planType",
+        "triggerPrice",
+        "executePrice",
+        "quantity",
+        "triggerPriceType",
+        "clientAlgoId",
+        "reduceOnly",
+    }
+
+    trailing_required = {
+
+        "endpoint",
+        "method",
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "callbackRate",
+        "workingType",
+        "clientAlgoId",
+        "reduceOnly",
+    }
+
+    checks = {
+
+        "entry_endpoint":
+            entry.get(
+                "endpoint"
+            )
+            == "/capi/v3/order",
+
+        "entry_method":
+            entry.get(
+                "method"
+            )
+            == "POST",
+
+        "entry_required_fields":
+            entry_required.issubset(
+                entry.keys()
+            ),
+
+        "entry_market_type":
+            entry.get(
+                "type"
+            )
+            == "MARKET",
+
+        "entry_reduce_only_false":
+            entry.get(
+                "reduceOnly"
+            )
+            is False,
+
+        "tp1_endpoint":
+            tp1.get(
+                "endpoint"
+            )
+            == "/capi/v3/placeTpSlOrder",
+
+        "tp2_endpoint":
+            tp2.get(
+                "endpoint"
+            )
+            == "/capi/v3/placeTpSlOrder",
+
+        "tp1_plan_type":
+            tp1.get(
+                "planType"
+            )
+            == "TAKE_PROFIT",
+
+        "tp2_plan_type":
+            tp2.get(
+                "planType"
+            )
+            == "TAKE_PROFIT",
+
+        "tp1_required_fields":
+            tpsl_required.issubset(
+                tp1.keys()
+            ),
+
+        "tp2_required_fields":
+            tpsl_required.issubset(
+                tp2.keys()
+            ),
+
+        "tp1_no_legacy_side":
+            "side"
+            not in tp1,
+
+        "tp2_no_legacy_side":
+            "side"
+            not in tp2,
+
+        "tp1_no_legacy_type":
+            "type"
+            not in tp1,
+
+        "tp2_no_legacy_type":
+            "type"
+            not in tp2,
+
+        "trailing_endpoint":
+            tp3.get(
+                "endpoint"
+            )
+            == "/capi/v3/algoOrder",
+
+        "trailing_type":
+            tp3.get(
+                "type"
+            )
+            == "TRAILING_MARKET",
+
+        "trailing_required_fields":
+            trailing_required.issubset(
+                tp3.keys()
+            ),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+def parse_canary_stop_price(
+    text,
+):
+
+    if not text:
+
+        return None
+
+    value = D(
+        text
+    )
+
+    if value <= Decimal("0"):
+
+        raise ValueError(
+            "R36F12_CANARY_STOP_PRICE must be positive"
+        )
+
+    return quantize_down(
+        value,
+        PRICE_STEP,
+    )
+
+
+def validate_canary_stop(
+    direction,
+    entry_price,
+    stop_price,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    if direction == "LONG":
+
+        return (
+            stop_price
+            < entry_price
+        )
+
+    if direction == "SHORT":
+
+        return (
+            stop_price
+            > entry_price
+        )
+
+    return False
+
+
+def calculate_r36f13_protective_stop(
+    direction,
+    entry_price,
+):
+    """
+    Calculate the mandatory preview protective stop;
+    never submits it.
+    """
+
+    entry_price = D(
+        entry_price
+    )
+
+    distance = (
+        R36F13_PROTECTIVE_STOP_DISTANCE_PERCENT
+        / Decimal("100")
+    )
+
+    if direction == "LONG":
+
+        raw_stop = (
+            entry_price
+            * (
+                Decimal("1")
+                - distance
+            )
+        )
+
+        stop_price = (
+            quantize_down(
+                raw_stop,
+                PRICE_STEP,
+            )
+        )
+
+    elif direction == "SHORT":
+
+        raw_stop = (
+            entry_price
+            * (
+                Decimal("1")
+                + distance
+            )
+        )
+
+        stop_price = (
+            quantize_down(
+                raw_stop,
+                PRICE_STEP,
+            )
+        )
+
+        if stop_price <= entry_price:
+
+            stop_price = (
+                quantize_down(
+                    entry_price,
+                    PRICE_STEP,
+                )
+                + PRICE_STEP
+            )
+
+    else:
+
+        raise ValueError(
+            "Invalid protective-stop direction"
+        )
+
+    return stop_price
+
+
+def validate_r36f13_protective_stop(
+    direction,
+    entry_price,
+    stop_price,
+    tp1_price,
+    tp2_price,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    tp1_price = D(
+        tp1_price
+    )
+
+    tp2_price = D(
+        tp2_price
+    )
+
+    on_step = (
+        stop_price
+        % PRICE_STEP
+    ) == 0
+
+    positive = (
+        stop_price
+        > 0
+    )
+
+    if direction == "LONG":
+
+        correct_side = (
+            stop_price
+            < entry_price
+        )
+
+        separated_from_tp = (
+            stop_price
+            < entry_price
+            < tp1_price
+            < tp2_price
+        )
+
+    elif direction == "SHORT":
+
+        correct_side = (
+            stop_price
+            > entry_price
+        )
+
+        separated_from_tp = (
+            stop_price
+            > entry_price
+            > tp1_price
+            > tp2_price
+        )
+
+    else:
+
+        correct_side = False
+        separated_from_tp = False
+
+    checks = {
+
+        "configured_or_calculated":
+            True,
+
+        "positive":
+            positive,
+
+        "correct_side_of_entry":
+            correct_side,
+
+        "price_step_normalized":
+            on_step,
+
+        "does_not_cross_entry_or_tp":
+            separated_from_tp,
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
