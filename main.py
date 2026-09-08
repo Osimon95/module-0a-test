@@ -9319,7 +9319,7 @@ async def run_r36f12():
             f"{balance_readiness.get('available_balance_shortfall')}"
         )
 
-        snapshot = {}
+        snapshot = {
         "stage":
             STAGE,
 
@@ -9373,7 +9373,7 @@ async def run_r36f12():
             LONG_DIAGNOSTICS,
 
         "short_diagnostics":
-            SHORT_DIAGNOSTICS,
+            SHORT_DIAGNOSTICS,}
 
         "tp_policy":
             {
