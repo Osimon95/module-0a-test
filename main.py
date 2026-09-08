@@ -9319,15 +9319,9 @@ async def run_r36f12():
             f"{balance_readiness.get('available_balance_shortfall')}"
         )
 
-    snapshot = {}
-
-    snapshot = {
-    "stage": "R36F.15.2",
-    "status": status,
-    # other snapshot fields here
-}
-
-        STAGE,
+        snapshot = {
+        "stage":
+            STAGE,
 
         "purpose":
             PURPOSE,
