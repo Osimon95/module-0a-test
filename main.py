@@ -2535,3 +2535,3142 @@ async def send_r36f12_telegram_alert(
             "reason":
                 f"{type(exc).__name__}: {exc}",
         }
+
+def synthetic_r36f12_ema_telegram_tests():
+
+    bullish = {
+
+        "ready":
+            True,
+
+        "ideal_direction":
+            "LONG",
+
+        "structure":
+            "STRONG_BULLISH",
+
+        "price":
+            "80000",
+
+        "ema19":
+            "80100",
+
+        "ema50":
+            "80000",
+
+        "ema200":
+            "79000",
+
+        "ema19_50_separation_percent":
+            "0.125",
+    }
+
+    bearish = {
+
+        "ready":
+            True,
+
+        "ideal_direction":
+            "SHORT",
+
+        "structure":
+            "STRONG_BEARISH",
+
+        "price":
+            "80000",
+
+        "ema19":
+            "79900",
+
+        "ema50":
+            "80000",
+
+        "ema200":
+            "81000",
+
+        "ema19_50_separation_percent":
+            "0.125",
+    }
+
+    buy = (
+        parse_telegram_trade_command(
+            "  buy   btc now "
+        )
+    )
+
+    sell = (
+        parse_telegram_trade_command(
+            "SELL BTC NOW"
+        )
+    )
+
+    check(
+        "R36F12_TELEGRAM_BUY_COMMAND_PARSES_LONG",
+        (
+            buy[
+                "recognized"
+            ]
+            and
+            buy[
+                "direction"
+            ] == "LONG"
+        ),
+    )
+
+    check(
+        "R36F12_TELEGRAM_SELL_COMMAND_PARSES_SHORT",
+        (
+            sell[
+                "recognized"
+            ]
+            and
+            sell[
+                "direction"
+            ] == "SHORT"
+        ),
+    )
+
+    check(
+        "R36F12_TELEGRAM_UNKNOWN_COMMAND_REJECTED",
+        (
+            parse_telegram_trade_command(
+                "BUY ETH NOW"
+            )[
+                "recognized"
+            ]
+            is False
+        ),
+    )
+
+    buy_ok = (
+        validate_telegram_command_against_signal(
+            "BUY BTC NOW",
+            bullish,
+            True,
+            False,
+        )
+    )
+
+    sell_ok = (
+        validate_telegram_command_against_signal(
+            "SELL BTC NOW",
+            bearish,
+            False,
+            True,
+        )
+    )
+
+    mismatch = (
+        validate_telegram_command_against_signal(
+            "SELL BTC NOW",
+            bullish,
+            True,
+            True,
+        )
+    )
+
+    check(
+        "R36F12_BUY_MATCHING_IDEAL_LONG_PREVIEW_APPROVED",
+        (
+            buy_ok[
+                "authorized_preview"
+            ]
+            is True
+        ),
+    )
+
+    check(
+        "R36F12_SELL_MATCHING_IDEAL_SHORT_PREVIEW_APPROVED",
+        (
+            sell_ok[
+                "authorized_preview"
+            ]
+            is True
+        ),
+    )
+
+    check(
+        "R36F12_DIRECTION_MISMATCH_BLOCKED",
+        (
+            mismatch[
+                "authorized_preview"
+            ]
+            is False
+        ),
+    )
+
+    check(
+        "R36F12_COMMAND_PREVIEW_NEVER_SENDS_ORDER",
+        (
+            buy_ok.get(
+                "exchange_order_sent"
+            )
+            is False
+        ),
+    )
+
+    return True
+
+
+# ============================================================
+# LOCAL EXTREMA
+# ============================================================
+
+def build_extrema(
+    values,
+):
+
+    if len(
+        values
+    ) < 3:
+
+        return []
+
+    extrema = []
+
+    for index in range(
+        1,
+        len(values) - 1,
+    ):
+
+        previous_value = D(
+            values[
+                index - 1
+            ]
+        )
+
+        current_value = D(
+            values[
+                index
+            ]
+        )
+
+        next_value = D(
+            values[
+                index + 1
+            ]
+        )
+
+        if (
+            current_value
+            >= previous_value
+            and
+            current_value
+            >= next_value
+        ):
+
+            extrema.append(
+                current_value
+            )
+
+        elif (
+            current_value
+            <= previous_value
+            and
+            current_value
+            <= next_value
+        ):
+
+            extrema.append(
+                current_value
+            )
+
+    return extrema
+
+
+def local_extrema_values(
+    rows,
+    side,
+):
+
+    if side == "LONG":
+
+        values = historical_highs(
+            rows
+        )
+
+    elif side == "SHORT":
+
+        values = historical_lows(
+            rows
+        )
+
+    else:
+
+        raise ValueError(
+            f"Unsupported side={side}"
+        )
+
+    return build_extrema(
+        values
+    )
+
+
+# ============================================================
+# CLUSTER EXTREMA
+# ============================================================
+
+def cluster_extrema(
+    extrema,
+):
+
+    if not extrema:
+
+        return []
+
+    sorted_values = sorted(
+        [
+            D(
+                value
+            )
+            for value in extrema
+        ]
+    )
+
+    clusters = []
+
+    current = [
+        sorted_values[0]
+    ]
+
+    for value in sorted_values[
+        1:
+    ]:
+
+        current_average = (
+            sum(
+                current
+            )
+            / Decimal(
+                len(
+                    current
+                )
+            )
+        )
+
+        tolerance = (
+            current_average
+            * CLUSTER_TOLERANCE_PERCENT
+            / Decimal("100")
+        )
+
+        if abs(
+            value
+            - current_average
+        ) <= tolerance:
+
+            current.append(
+                value
+            )
+
+        else:
+
+            clusters.append(
+                {
+
+                    "minimum":
+                        min(
+                            current
+                        ),
+
+                    "maximum":
+                        max(
+                            current
+                        ),
+
+                    "average":
+                        (
+                            sum(
+                                current
+                            )
+                            / Decimal(
+                                len(
+                                    current
+                                )
+                            )
+                        ),
+
+                    "touches":
+                        len(
+                            current
+                        ),
+                }
+            )
+
+            current = [
+                value
+            ]
+
+    clusters.append(
+        {
+
+            "minimum":
+                min(
+                    current
+                ),
+
+            "maximum":
+                max(
+                    current
+                ),
+
+            "average":
+                (
+                    sum(
+                        current
+                    )
+                    / Decimal(
+                        len(
+                            current
+                        )
+                    )
+                ),
+
+            "touches":
+                len(
+                    current
+                ),
+        }
+    )
+
+    return clusters
+
+
+# ============================================================
+# CLUSTER VALIDATION
+# ============================================================
+
+def validate_clusters(
+    clusters,
+    entry_price,
+    side,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    valid = []
+    invalid = []
+
+    for cluster in clusters:
+
+        reasons = []
+
+        touches = cluster[
+            "touches"
+        ]
+
+        average = D(
+            cluster[
+                "average"
+            ]
+        )
+
+        if (
+            touches
+            < MIN_CLUSTER_TOUCHES
+        ):
+
+            reasons.append(
+                "INSUFFICIENT_TOUCHES"
+            )
+
+        if side == "LONG":
+
+            if average <= entry_price:
+
+                reasons.append(
+                    "CLUSTER_NOT_ABOVE_ENTRY"
+                )
+
+        elif side == "SHORT":
+
+            if average >= entry_price:
+
+                reasons.append(
+                    "CLUSTER_NOT_BELOW_ENTRY"
+                )
+
+        else:
+
+            reasons.append(
+                "INVALID_DIRECTION"
+            )
+
+        result = dict(
+            cluster
+        )
+
+        result[
+            "valid"
+        ] = not reasons
+
+        result[
+            "reasons"
+        ] = reasons
+
+        if reasons:
+
+            invalid.append(
+                result
+            )
+
+        else:
+
+            valid.append(
+                result
+            )
+
+    if side == "LONG":
+
+        valid.sort(
+            key=lambda item:
+                item[
+                    "average"
+                ]
+        )
+
+    elif side == "SHORT":
+
+        valid.sort(
+            key=lambda item:
+                item[
+                    "average"
+                ],
+            reverse=True,
+        )
+
+    return (
+        valid,
+        invalid,
+    )
+
+
+# ============================================================
+# CLUSTER DIAGNOSTICS
+# ============================================================
+
+def build_cluster_diagnostics(
+    rows,
+    entry_price,
+    side,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    if side == "LONG":
+
+        values = historical_highs(
+            rows
+        )
+
+    elif side == "SHORT":
+
+        values = historical_lows(
+            rows
+        )
+
+    else:
+
+        raise ValueError(
+            f"Unsupported side={side}"
+        )
+
+    extrema = build_extrema(
+        values
+    )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    (
+        valid,
+        invalid,
+    ) = validate_clusters(
+        clusters,
+        entry_price,
+        side,
+    )
+
+    diagnostics = {
+
+        "side":
+            side,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "historical_row_count":
+            len(
+                rows
+            ),
+
+        "extrema_count":
+            len(
+                extrema
+            ),
+
+        "cluster_count":
+            len(
+                clusters
+            ),
+
+        "valid_cluster_count":
+            len(
+                valid
+            ),
+
+        "invalid_cluster_count":
+            len(
+                invalid
+            ),
+
+        "required_valid_clusters":
+            REQUIRED_TP_CLUSTERS,
+
+        "valid_clusters":
+            valid,
+
+        "invalid_clusters":
+            invalid,
+    }
+
+    if (
+        len(
+            valid
+        )
+        >= REQUIRED_TP_CLUSTERS
+    ):
+
+        diagnostics[
+            "failure_reason"
+        ] = None
+
+    elif len(
+        valid
+    ) == 1:
+
+        diagnostics[
+            "failure_reason"
+        ] = "ONLY_ONE_VALID_CLUSTER"
+
+    elif len(
+        extrema
+    ) == 0:
+
+        diagnostics[
+            "failure_reason"
+        ] = "NO_LOCAL_EXTREMA"
+
+    elif len(
+        clusters
+    ) == 0:
+
+        diagnostics[
+            "failure_reason"
+        ] = "NO_HISTORICAL_CLUSTERS"
+
+    else:
+
+        diagnostics[
+            "failure_reason"
+        ] = (
+            "EXTREMA_EXIST_BUT_CLUSTER_REQUIREMENTS_NOT_MET"
+        )
+
+    log(
+        f"{side} HISTORICAL ROW COUNT = "
+        f"{diagnostics['historical_row_count']}"
+    )
+
+    log(
+        f"{side} EXTREMA COUNT = "
+        f"{diagnostics['extrema_count']}"
+    )
+
+    log(
+        f"{side} CLUSTER COUNT = "
+        f"{diagnostics['cluster_count']}"
+    )
+
+    log(
+        f"{side} VALID CLUSTER COUNT = "
+        f"{diagnostics['valid_cluster_count']}"
+    )
+
+    for (
+        index,
+        cluster,
+    ) in enumerate(
+        clusters,
+        start=1,
+    ):
+
+        log(
+            f"{side} CLUSTER {index}: "
+            f"average="
+            f"{decimal_to_string(cluster['average'])} "
+            f"minimum="
+            f"{decimal_to_string(cluster['minimum'])} "
+            f"maximum="
+            f"{decimal_to_string(cluster['maximum'])} "
+            f"touches="
+            f"{cluster['touches']}"
+        )
+
+    for (
+        index,
+        cluster,
+    ) in enumerate(
+        invalid,
+        start=1,
+    ):
+
+        log(
+            f"{side} INVALID CLUSTER {index}: "
+            f"average="
+            f"{decimal_to_string(cluster['average'])} "
+            f"reasons="
+            f"{','.join(cluster['reasons'])}"
+        )
+
+    if diagnostics[
+        "failure_reason"
+    ]:
+
+        log(
+            f"{side} CLUSTER DIAGNOSTIC "
+            f"FAILURE_REASON = "
+            f"{diagnostics['failure_reason']}"
+        )
+
+    return diagnostics
+
+
+# ============================================================
+# TP APPROVAL
+# ============================================================
+
+def evaluate_tp_approval(
+    diagnostics,
+):
+
+    valid_count = int(
+        diagnostics.get(
+            "valid_cluster_count",
+            0,
+        )
+    )
+
+    if (
+        valid_count
+        >= REQUIRED_TP_CLUSTERS
+    ):
+
+        approval = {
+
+            "status":
+                "APPROVED",
+
+            "approved":
+                True,
+
+            "required_valid_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "available_valid_clusters":
+                valid_count,
+
+            "reason":
+                "TWO_OR_MORE_VALID_HISTORICAL_CLUSTERS",
+        }
+
+    else:
+
+        failure_reason = (
+            diagnostics.get(
+                "failure_reason"
+            )
+            or
+            "INSUFFICIENT_VALID_HISTORICAL_CLUSTERS"
+        )
+
+        approval = {
+
+            "status":
+                "REJECTED",
+
+            "approved":
+                False,
+
+            "required_valid_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "available_valid_clusters":
+                valid_count,
+
+            "reason":
+                failure_reason,
+        }
+
+    log(
+        f"{STAGE}_TP_APPROVAL = "
+        f"{approval['status']}"
+    )
+
+    log(
+        f"{STAGE}_TP_APPROVAL_REASON = "
+        f"{approval['reason']}"
+    )
+
+    log(
+        f"{STAGE}_TP_REQUIRED_CLUSTERS = "
+        f"{REQUIRED_TP_CLUSTERS}"
+    )
+
+    log(
+        f"{STAGE}_TP_AVAILABLE_CLUSTERS = "
+        f"{valid_count}"
+    )
+
+    return approval
+
+
+# ============================================================
+# VALID CLUSTERS
+# ============================================================
+
+def valid_clusters(
+    rows,
+    entry_price,
+    side,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    extrema = local_extrema_values(
+        rows,
+        side,
+    )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    valid = []
+
+    for cluster in clusters:
+
+        if (
+            cluster[
+                "touches"
+            ]
+            < MIN_CLUSTER_TOUCHES
+        ):
+
+            continue
+
+        average = cluster[
+            "average"
+        ]
+
+        if side == "LONG":
+
+            if average <= entry_price:
+                continue
+
+        elif side == "SHORT":
+
+            if average >= entry_price:
+                continue
+
+        else:
+
+            raise ValueError(
+                f"Unsupported side={side}"
+            )
+
+        valid.append(
+            cluster
+        )
+
+    if side == "LONG":
+
+        valid.sort(
+            key=lambda c:
+                c[
+                    "average"
+                ]
+        )
+
+    else:
+
+        valid.sort(
+            key=lambda c:
+                c[
+                    "average"
+                ],
+            reverse=True,
+        )
+
+    return valid
+
+
+# ============================================================
+# TP PRICE CALCULATION
+# ============================================================
+
+def calculate_tp_prices(
+    entry_price,
+    valid_cluster_list,
+    direction,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    if len(
+        valid_cluster_list
+    ) < REQUIRED_TP_CLUSTERS:
+
+        raise RuntimeError(
+            "Cannot calculate complete TP set: "
+            "fewer than two valid historical clusters"
+        )
+
+    cluster1 = D(
+        valid_cluster_list[
+            0
+        ][
+            "average"
+        ]
+    )
+
+    cluster2 = D(
+        valid_cluster_list[
+            1
+        ][
+            "average"
+        ]
+    )
+
+    progress1 = (
+        TP1_PROFIT_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    progress2 = (
+        TP2_PROFIT_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    if direction == "LONG":
+
+        tp1 = (
+            entry_price
+            + (
+                cluster1
+                - entry_price
+            )
+            * progress1
+        )
+
+        tp2 = (
+            entry_price
+            + (
+                cluster2
+                - entry_price
+            )
+            * progress2
+        )
+
+    elif direction == "SHORT":
+
+        tp1 = (
+            entry_price
+            - (
+                entry_price
+                - cluster1
+            )
+            * progress1
+        )
+
+        tp2 = (
+            entry_price
+            - (
+                entry_price
+                - cluster2
+            )
+            * progress2
+        )
+
+    else:
+
+        raise RuntimeError(
+            "Invalid TP direction"
+        )
+
+    return {
+
+        "tp1":
+            quantize_down(
+                tp1,
+                PRICE_STEP,
+            ),
+
+        "tp2":
+            quantize_down(
+                tp2,
+                PRICE_STEP,
+            ),
+
+        "tp3": {
+
+            "type":
+                "TRAILING",
+
+            "allocation_percent":
+                TP3_ALLOCATION_PERCENT,
+
+            "trailing_distance_percent":
+                TP3_TRAILING_DISTANCE_PERCENT,
+        },
+
+        "cluster1_average":
+            cluster1,
+
+        "cluster2_average":
+            cluster2,
+    }
+
+
+# ============================================================
+# TP ENGINE
+# ============================================================
+
+def run_tp_engine(
+    rows,
+    entry_price,
+    direction,
+):
+
+    if direction == "LONG":
+
+        values = historical_highs(
+            rows
+        )
+
+        extrema = build_extrema(
+            values
+        )
+
+    elif direction == "SHORT":
+
+        values = historical_lows(
+            rows
+        )
+
+        extrema = build_extrema(
+            values
+        )
+
+    else:
+
+        raise RuntimeError(
+            "Invalid direction"
+        )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    (
+        valid,
+        invalid,
+    ) = validate_clusters(
+        clusters,
+        entry_price,
+        direction,
+    )
+
+    approval = evaluate_tp_approval(
+        {
+
+            "valid_cluster_count":
+                len(
+                    valid
+                ),
+
+            "failure_reason":
+                (
+                    "ONLY_ONE_VALID_CLUSTER"
+                    if len(valid) == 1
+                    else
+                    "INSUFFICIENT_VALID_CLUSTERS"
+                ),
+        }
+    )
+
+    if not approval[
+        "approved"
+    ]:
+
+        return {
+
+            "approved":
+                False,
+
+            "approval":
+                approval,
+
+            "valid_clusters":
+                valid,
+
+            "invalid_clusters":
+                invalid,
+        }
+
+    prices = calculate_tp_prices(
+        entry_price,
+        valid,
+        direction,
+    )
+
+    return {
+
+        "approved":
+            True,
+
+        "approval":
+            approval,
+
+        "valid_clusters":
+            valid,
+
+        "invalid_clusters":
+            invalid,
+
+        "prices":
+            prices,
+    }
+
+
+# ============================================================
+# TP SNAPSHOT
+# ============================================================
+
+def build_cluster_tp_snapshot(
+    entry_price,
+    rows,
+    side,
+    fill_label,
+):
+
+    global LAST_TP_APPROVAL
+
+    entry_price = D(
+        entry_price
+    )
+
+    diagnostics = (
+        build_cluster_diagnostics(
+            rows,
+            entry_price,
+            side,
+        )
+    )
+
+    approval = (
+        evaluate_tp_approval(
+            diagnostics
+        )
+    )
+
+    LAST_TP_APPROVAL = approval
+
+    if not approval[
+        "approved"
+    ]:
+
+        log(
+            f"{side} TP SET REJECTED: "
+            f"{approval['reason']}"
+        )
+
+        raise RuntimeError(
+            f"{side} historical TP set rejected: "
+            f"requires at least "
+            f"{REQUIRED_TP_CLUSTERS} valid clusters; "
+            f"found "
+            f"{approval['available_valid_clusters']}"
+        )
+
+    clusters = valid_clusters(
+        rows,
+        entry_price,
+        side,
+    )
+
+    if len(
+        clusters
+    ) < REQUIRED_TP_CLUSTERS:
+
+        raise RuntimeError(
+            "TP approval inconsistency: "
+            "diagnostics approved but independent "
+            "cluster extraction found fewer than "
+            "two valid clusters"
+        )
+
+    prices = calculate_tp_prices(
+        entry_price,
+        clusters,
+        side,
+    )
+
+    snapshot = {
+
+        "fill_label":
+            fill_label,
+
+        "side":
+            side,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "historical_diagnostics":
+            diagnostics,
+
+        "tp_approval":
+            approval,
+
+        "tp1":
+            decimal_to_string(
+                prices[
+                    "tp1"
+                ]
+            ),
+
+        "tp2":
+            decimal_to_string(
+                prices[
+                    "tp2"
+                ]
+            ),
+
+        "tp3": {
+
+            "type":
+                "TRAILING",
+
+            "allocation_percent":
+                decimal_to_string(
+                    TP3_ALLOCATION_PERCENT
+                ),
+
+            "trailing_distance_percent":
+                decimal_to_string(
+                    TP3_TRAILING_DISTANCE_PERCENT
+                ),
+        },
+
+        "cluster1_average":
+            decimal_to_string(
+                prices[
+                    "cluster1_average"
+                ]
+            ),
+
+        "cluster2_average":
+            decimal_to_string(
+                prices[
+                    "cluster2_average"
+                ]
+            ),
+
+        "primary_tp_immutable":
+            True,
+    }
+
+    log(
+        f"{side} TP SET APPROVED WITH "
+        f"{len(clusters)} VALID CLUSTERS"
+    )
+
+    log(
+        f"{side} TP1 = "
+        f"{snapshot['tp1']} "
+        f"(20% adjustable progress)"
+    )
+
+    log(
+        f"{side} TP2 = "
+        f"{snapshot['tp2']} "
+        f"(50% adjustable progress)"
+    )
+
+    log(
+        f"{side} TP3 = "
+        f"{TP3_ALLOCATION_PERCENT}% trailing runner"
+    )
+
+    return snapshot
+
+
+# ============================================================
+# SYNTHETIC TP TESTS
+# ============================================================
+
+def synthetic_cluster_tests():
+
+    long_rows = [
+
+        [
+            1,
+            "99000",
+            "100000",
+            "99500",
+            "99500",
+            "1",
+        ],
+
+        [
+            2,
+            "99500",
+            "100100",
+            "99600",
+            "99800",
+            "1",
+        ],
+
+        [
+            3,
+            "99600",
+            "100000",
+            "99500",
+            "99700",
+            "1",
+        ],
+
+        [
+            4,
+            "99500",
+            "101000",
+            "99900",
+            "100100",
+            "1",
+        ],
+
+        [
+            5,
+            "99900",
+            "100200",
+            "99500",
+            "100000",
+            "1",
+        ],
+
+        [
+            6,
+            "99500",
+            "101500",
+            "100000",
+            "100500",
+            "1",
+        ],
+
+        [
+            7,
+            "100000",
+            "101000",
+            "99500",
+            "100500",
+            "1",
+        ],
+
+        [
+            8,
+            "99500",
+            "101400",
+            "99900",
+            "100800",
+            "1",
+        ],
+    ]
+
+    short_rows = [
+
+        [
+            1,
+            "81000",
+            "81500",
+            "80000",
+            "81000",
+            "1",
+        ],
+
+        [
+            2,
+            "81000",
+            "81500",
+            "80100",
+            "80800",
+            "1",
+        ],
+
+        [
+            3,
+            "80800",
+            "81400",
+            "80050",
+            "80500",
+            "1",
+        ],
+
+        [
+            4,
+            "80500",
+            "81300",
+            "79900",
+            "80300",
+            "1",
+        ],
+
+        [
+            5,
+            "80300",
+            "81200",
+            "80000",
+            "80500",
+            "1",
+        ],
+
+        [
+            6,
+            "80500",
+            "81400",
+            "79800",
+            "80400",
+            "1",
+        ],
+
+        [
+            7,
+            "80400",
+            "81300",
+            "80100",
+            "80600",
+            "1",
+        ],
+
+        [
+            8,
+            "80600",
+            "81500",
+            "79950",
+            "80800",
+            "1",
+        ],
+    ]
+
+    long_diagnostics = (
+        build_cluster_diagnostics(
+            long_rows,
+            Decimal("99000"),
+            "LONG",
+        )
+    )
+
+    long_approval = (
+        evaluate_tp_approval(
+            long_diagnostics
+        )
+    )
+
+    check(
+        "SYNTHETIC_LONG_TWO_CLUSTER_APPROVAL",
+        long_approval[
+            "approved"
+        ] is True,
+    )
+
+    short_diagnostics = (
+        build_cluster_diagnostics(
+            short_rows,
+            Decimal("82000"),
+            "SHORT",
+        )
+    )
+
+    short_approval = (
+        evaluate_tp_approval(
+            short_diagnostics
+        )
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TWO_CLUSTER_APPROVAL",
+        short_approval[
+            "approved"
+        ] is True,
+    )
+
+    return (
+        long_approval,
+        short_approval,
+    )
+
+
+# ============================================================
+# ONE-CLUSTER TP REJECTION
+# ============================================================
+
+def synthetic_tp_rejection_test():
+
+    rows = [
+
+        [
+            1,
+            "99000",
+            "100000",
+            "99500",
+            "99500",
+            "1",
+        ],
+
+        [
+            2,
+            "99500",
+            "100100",
+            "99600",
+            "99800",
+            "1",
+        ],
+
+        [
+            3,
+            "99600",
+            "100000",
+            "99500",
+            "99700",
+            "1",
+        ],
+
+        [
+            4,
+            "99500",
+            "100100",
+            "99800",
+            "99900",
+            "1",
+        ],
+    ]
+
+    entry = Decimal(
+        "99500"
+    )
+
+    diagnostics = (
+        build_cluster_diagnostics(
+            rows,
+            entry,
+            "LONG",
+        )
+    )
+
+    approval = (
+        evaluate_tp_approval(
+            diagnostics
+        )
+    )
+
+    check(
+        "ONE_CLUSTER_TP_REJECTED",
+        approval[
+            "approved"
+        ] is False,
+    )
+
+    check(
+        "ONE_CLUSTER_APPROVAL_STATUS_REJECTED",
+        approval[
+            "status"
+        ] == "REJECTED",
+    )
+
+    check(
+        "ONE_CLUSTER_DOES_NOT_APPROVE_TP_SET",
+        (
+            approval[
+                "available_valid_clusters"
+            ]
+            < REQUIRED_TP_CLUSTERS
+        ),
+    )
+
+    return approval
+
+
+# ============================================================
+# CANARY PREVIEW
+# ============================================================
+
+def build_canary_preview():
+
+    return {
+
+        "stage":
+            STAGE,
+
+        "symbol":
+            SYMBOL,
+
+        "real_order_execution":
+            REAL_ORDER_EXECUTION,
+
+        "demo_order_execution":
+            DEMO_ORDER_EXECUTION,
+
+        "exchange_mutation_transport_enabled":
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+        "order_submission_enabled":
+            ORDER_SUBMISSION_ENABLED,
+
+        "first_real_order_allowed":
+            FIRST_REAL_ORDER_ALLOWED,
+
+        "submitted":
+            False,
+
+        "exchange_request_sent":
+            False,
+    }
+
+
+# ============================================================
+# R36F.10 WRITER HELPERS
+# ============================================================
+
+WRITER_ENDPOINT_ENTRY = (
+    "/capi/v3/order"
+)
+
+WRITER_ENDPOINT_TPSL = (
+    "/capi/v3/placeTpSlOrder"
+)
+
+WRITER_ENDPOINT_TRAILING = (
+    "/capi/v3/algoOrder"
+)
+
+
+def writer_entry_side(
+    direction,
+):
+
+    if direction == "LONG":
+
+        return (
+            "BUY",
+            "LONG",
+        )
+
+    if direction == "SHORT":
+
+        return (
+            "SELL",
+            "SHORT",
+        )
+
+    raise ValueError(
+        f"Unsupported direction={direction}"
+    )
+
+
+def writer_close_side(
+    direction,
+):
+
+    if direction == "LONG":
+
+        return (
+            "SELL",
+            "LONG",
+        )
+
+    if direction == "SHORT":
+
+        return (
+            "BUY",
+            "SHORT",
+        )
+
+    raise ValueError(
+        f"Unsupported direction={direction}"
+    )
+
+
+def writer_client_id(
+    direction,
+    leg,
+):
+
+    value = (
+        f"R36F8-{direction}-{leg}-0001"
+    )
+
+    if len(value) > 36:
+
+        raise ValueError(
+            "writer client id exceeds WEEX limit"
+        )
+
+    return value
+
+
+# ============================================================
+# WRITER QUANTITY ALLOCATION
+# ============================================================
+
+ADJUSTED_TP1_ALLOCATION_PERCENT = Decimal("25")
+ADJUSTED_TP2_ALLOCATION_PERCENT = Decimal("25")
+ADJUSTED_TP3_ALLOCATION_PERCENT = Decimal("50")
+
+
+def allocation_exactly_representable(
+    entry_quantity,
+    tp1_percent,
+    tp2_percent,
+    tp3_percent,
+):
+
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    percentages = (
+        D(tp1_percent),
+        D(tp2_percent),
+        D(tp3_percent),
+    )
+
+    if sum(
+        percentages
+    ) != Decimal("100"):
+
+        return False
+
+    quantities = [
+
+        entry_quantity
+        * percent
+        / Decimal("100")
+
+        for percent
+        in percentages
+    ]
+
+    return bool(
+
+        entry_quantity
+        >= MIN_QUANTITY
+
+        and
+
+        all(
+            q >= MIN_QUANTITY
+            for q in quantities
+        )
+
+        and
+
+        all(
+            quantize_down(
+                q,
+                QUANTITY_STEP,
+            ) == q
+            for q in quantities
+        )
+
+        and
+
+        sum(
+            quantities
+        ) == entry_quantity
+    )
+
+
+def select_tp_allocation(
+    entry_quantity,
+):
+    """
+    Prefer 20/20/60; fall back only to the approved 25/25/50 allocation.
+    """
+
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    preferred = (
+        TP1_ALLOCATION_PERCENT,
+        TP2_ALLOCATION_PERCENT,
+        TP3_ALLOCATION_PERCENT,
+    )
+
+    adjusted = (
+        ADJUSTED_TP1_ALLOCATION_PERCENT,
+        ADJUSTED_TP2_ALLOCATION_PERCENT,
+        ADJUSTED_TP3_ALLOCATION_PERCENT,
+    )
+
+    if allocation_exactly_representable(
+        entry_quantity,
+        *preferred,
+    ):
+
+        return {
+
+            "tp1_percent":
+                preferred[0],
+
+            "tp2_percent":
+                preferred[1],
+
+            "tp3_percent":
+                preferred[2],
+
+            "adjusted":
+                False,
+
+            "label":
+                "20/20/60",
+        }
+
+    if allocation_exactly_representable(
+        entry_quantity,
+        *adjusted,
+    ):
+
+        return {
+
+            "tp1_percent":
+                adjusted[0],
+
+            "tp2_percent":
+                adjusted[1],
+
+            "tp3_percent":
+                adjusted[2],
+
+            "adjusted":
+                True,
+
+            "label":
+                "25/25/50",
+        }
+
+    return None
+
+
+def writer_quantities(
+    entry_quantity,
+):
+    """
+    Allocate TP quantities using preferred 20/20/60
+    or approved 25/25/50 fallback.
+    """
+
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    allocation = (
+        select_tp_allocation(
+            entry_quantity
+        )
+    )
+
+    if allocation is None:
+
+        return (
+            entry_quantity,
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0"),
+        )
+
+    tp1 = (
+        entry_quantity
+        * allocation[
+            "tp1_percent"
+        ]
+        / Decimal("100")
+    )
+
+    tp2 = (
+        entry_quantity
+        * allocation[
+            "tp2_percent"
+        ]
+        / Decimal("100")
+    )
+
+    tp3 = (
+        entry_quantity
+        * allocation[
+            "tp3_percent"
+        ]
+        / Decimal("100")
+    )
+
+    return (
+        entry_quantity,
+        tp1,
+        tp2,
+        tp3,
+    )
+
+
+# ============================================================
+# WRITER QUANTITY VALIDATION
+# ============================================================
+
+def validate_writer_quantities(
+    entry_quantity,
+    tp1,
+    tp2,
+    tp3,
+):
+
+    allocation = (
+        select_tp_allocation(
+            entry_quantity
+        )
+    )
+
+    if allocation is None:
+
+        return {
+
+            "allocation_selected":
+                False,
+
+            "all_valid":
+                False,
+        }
+
+    exact_tp1 = (
+        entry_quantity
+        * allocation[
+            "tp1_percent"
+        ]
+        / Decimal("100")
+    )
+
+    exact_tp2 = (
+        entry_quantity
+        * allocation[
+            "tp2_percent"
+        ]
+        / Decimal("100")
+    )
+
+    exact_tp3 = (
+        entry_quantity
+        * allocation[
+            "tp3_percent"
+        ]
+        / Decimal("100")
+    )
+
+    checks = {
+
+        "allocation_selected":
+            True,
+
+        "entry_on_step":
+            quantize_down(
+                entry_quantity,
+                QUANTITY_STEP,
+            ) == entry_quantity,
+
+        "tp1_on_step":
+            quantize_down(
+                tp1,
+                QUANTITY_STEP,
+            ) == tp1,
+
+        "tp2_on_step":
+            quantize_down(
+                tp2,
+                QUANTITY_STEP,
+            ) == tp2,
+
+        "tp3_on_step":
+            quantize_down(
+                tp3,
+                QUANTITY_STEP,
+            ) == tp3,
+
+        "entry_minimum":
+            entry_quantity
+            >= MIN_QUANTITY,
+
+        "tp1_minimum":
+            tp1
+            >= MIN_QUANTITY,
+
+        "tp2_minimum":
+            tp2
+            >= MIN_QUANTITY,
+
+        "tp3_minimum":
+            tp3
+            >= MIN_QUANTITY,
+
+        "allocation_sum_exact":
+            (
+                tp1
+                + tp2
+                + tp3
+            ) == entry_quantity,
+
+        "tp1_selected_percent_exact":
+            tp1
+            == exact_tp1,
+
+        "tp2_selected_percent_exact":
+            tp2
+            == exact_tp2,
+
+        "tp3_selected_percent_exact":
+            tp3
+            == exact_tp3,
+
+        "tp3_non_negative":
+            tp3
+            >= Decimal("0"),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+def minimum_adjustable_tp_entry_quantity():
+    """
+    Return first exchange-step quantity supported
+    by an approved allocation.
+    """
+
+    candidate = QUANTITY_STEP
+
+    for _ in range(
+        100000
+    ):
+
+        (
+            quantity,
+            tp1,
+            tp2,
+            tp3,
+        ) = writer_quantities(
+            candidate
+        )
+
+        checks = (
+            validate_writer_quantities(
+                quantity,
+                tp1,
+                tp2,
+                tp3,
+            )
+        )
+
+        if checks.get(
+            "all_valid"
+        ):
+
+            return quantity
+
+        candidate += QUANTITY_STEP
+
+    raise RuntimeError(
+        "Unable to find adjustable TP minimum entry quantity"
+    )
+
+
+def minimum_strict_tp_entry_quantity():
+    """
+    Compatibility alias: R36F.10 minimum under the
+    approved adjustable allocation policy.
+    """
+
+    return (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+
+def evaluate_writer_quantity_feasibility(
+    entry_quantity,
+):
+
+    (
+        quantity,
+        tp1,
+        tp2,
+        tp3,
+    ) = writer_quantities(
+        entry_quantity
+    )
+
+    allocation = (
+        select_tp_allocation(
+            quantity
+        )
+    )
+
+    checks = (
+        validate_writer_quantities(
+            quantity,
+            tp1,
+            tp2,
+            tp3,
+        )
+    )
+
+    minimum_required = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    feasible = bool(
+        checks.get(
+            "all_valid"
+        )
+    )
+
+    return {
+
+        "feasible":
+            feasible,
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_ALLOCATION_REPRESENTABLE"
+                if feasible
+                else
+                "POSITION_TOO_SMALL_OR_NOT_REPRESENTABLE_BY_APPROVED_TP_ALLOCATIONS"
+            ),
+
+        "entry_quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "tp1_quantity":
+            decimal_to_string(
+                tp1
+            ),
+
+        "tp2_quantity":
+            decimal_to_string(
+                tp2
+            ),
+
+        "tp3_quantity":
+            decimal_to_string(
+                tp3
+            ),
+
+        "requested_allocation":
+            "20/20/60",
+
+        "selected_allocation":
+            (
+                allocation[
+                    "label"
+                ]
+                if allocation
+                else None
+            ),
+
+        "allocation_adjusted":
+            bool(
+                allocation
+                and
+                allocation[
+                    "adjusted"
+                ]
+            ),
+
+        "selected_tp1_percent":
+            (
+                decimal_to_string(
+                    allocation[
+                        "tp1_percent"
+                    ]
+                )
+                if allocation
+                else None
+            ),
+
+        "selected_tp2_percent":
+            (
+                decimal_to_string(
+                    allocation[
+                        "tp2_percent"
+                    ]
+                )
+                if allocation
+                else None
+            ),
+
+        "selected_tp3_percent":
+            (
+                decimal_to_string(
+                    allocation[
+                        "tp3_percent"
+                    ]
+                )
+                if allocation
+                else None
+            ),
+
+        "minimum_required_entry_quantity":
+            decimal_to_string(
+                minimum_required
+            ),
+
+        "checks":
+            checks,
+    }
+
+
+def evaluate_strict_tp_balance_readiness(
+    available_balance,
+    mark_price,
+    leverage,
+):
+    """
+    Classify balance readiness under R36F.10
+    approved adjustable TP allocation.
+    """
+
+    available_balance = D(
+        available_balance
+    )
+
+    mark_price = D(
+        mark_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    if available_balance < Decimal("0"):
+
+        raise ValueError(
+            "available_balance must be non-negative"
+        )
+
+    if mark_price <= Decimal("0"):
+
+        raise ValueError(
+            "mark_price must be positive"
+        )
+
+    if leverage <= Decimal("0"):
+
+        raise ValueError(
+            "leverage must be positive"
+        )
+
+    entry_fraction = (
+        ENTRY_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    if entry_fraction <= Decimal("0"):
+
+        raise ValueError(
+            "ENTRY_MARGIN_PERCENT must be positive"
+        )
+
+    raw_entry_quantity = (
+        available_balance
+        * entry_fraction
+        * leverage
+        / mark_price
+    )
+
+    planned_entry_quantity = (
+        quantize_down(
+            raw_entry_quantity,
+            QUANTITY_STEP,
+        )
+    )
+
+    quantity_feasibility = (
+        evaluate_writer_quantity_feasibility(
+            planned_entry_quantity
+        )
+    )
+
+    minimum_entry_quantity = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    required_entry_margin = (
+        minimum_entry_quantity
+        * mark_price
+        / leverage
+    )
+
+    required_available_balance = (
+        required_entry_margin
+        / entry_fraction
+    )
+
+    available_balance_shortfall = max(
+        Decimal("0"),
+        (
+            required_available_balance
+            - available_balance
+        ),
+    )
+
+    eligible = bool(
+
+        quantity_feasibility[
+            "feasible"
+        ]
+
+        and
+
+        available_balance
+        >= required_available_balance
+    )
+
+    return {
+
+        "eligible":
+            eligible,
+
+        "status":
+            (
+                "ELIGIBLE"
+                if eligible
+                else
+                "TRADE_NOT_ELIGIBLE"
+            ),
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_BALANCE_AND_QUANTITY_READY"
+                if eligible
+                else
+                "INSUFFICIENT_BALANCE_FOR_APPROVED_TP_ALLOCATION"
+            ),
+
+        "available_balance":
+            decimal_to_string(
+                available_balance
+            ),
+
+        "mark_price":
+            decimal_to_string(
+                mark_price
+            ),
+
+        "leverage":
+            decimal_to_string(
+                leverage
+            ),
+
+        "entry_margin_percent":
+            decimal_to_string(
+                ENTRY_MARGIN_PERCENT
+            ),
+
+        "raw_entry_quantity":
+            decimal_to_string(
+                raw_entry_quantity
+            ),
+
+        "planned_entry_quantity":
+            decimal_to_string(
+                planned_entry_quantity
+            ),
+
+        "minimum_strict_tp_entry_quantity":
+            decimal_to_string(
+                minimum_entry_quantity
+            ),
+
+        "required_margin_for_minimum_qty":
+            decimal_to_string(
+                required_entry_margin
+            ),
+
+        "required_available_balance":
+            decimal_to_string(
+                required_available_balance
+            ),
+
+        "available_balance_shortfall":
+            decimal_to_string(
+                available_balance_shortfall
+            ),
+
+        "quantity_feasible":
+            quantity_feasibility[
+                "feasible"
+            ],
+
+        "quantity_feasibility_reason":
+            quantity_feasibility[
+                "reason"
+            ],
+
+        "requested_allocation":
+            quantity_feasibility[
+                "requested_allocation"
+            ],
+
+        "selected_allocation":
+            quantity_feasibility[
+                "selected_allocation"
+            ],
+
+        "allocation_adjusted":
+            quantity_feasibility[
+                "allocation_adjusted"
+            ],
+
+        "tp1_quantity":
+            quantity_feasibility[
+                "tp1_quantity"
+            ],
+
+        "tp2_quantity":
+            quantity_feasibility[
+                "tp2_quantity"
+            ],
+
+        "tp3_quantity":
+            quantity_feasibility[
+                "tp3_quantity"
+            ],
+    }
+
+
+# ============================================================
+# R36F.14 WEEX DEMO READ-ONLY RECONCILIATION + PAYLOAD PREVIEW
+# ============================================================
+
+async def r36f14_read_demo_account():
+    """Read only documented WEEX V3 paper-trading resources."""
+
+    balance_rows = await weex_get(
+        R36F14_DEMO_BALANCE_ENDPOINT,
+        authenticated=True,
+    )
+
+    position_rows = await weex_get(
+        R36F14_DEMO_POSITIONS_ENDPOINT,
+        authenticated=True,
+    )
+
+    history_rows = await weex_get(
+        R36F14_DEMO_ORDER_HISTORY_ENDPOINT,
+        params={
+            "symbol": R36F14_DEMO_SYMBOL,
+            "limit": 20,
+            "page": 0,
+        },
+        authenticated=True,
+    )
+
+    balance_rows = (
+        balance_rows
+        if isinstance(
+            balance_rows,
+            list,
+        )
+        else []
+    )
+
+    position_rows = (
+        position_rows
+        if isinstance(
+            position_rows,
+            list,
+        )
+        else []
+    )
+
+    history_rows = (
+        history_rows
+        if isinstance(
+            history_rows,
+            list,
+        )
+        else []
+    )
+
+    demo_asset_row = None
+
+    for row in balance_rows:
+
+        if (
+            str(
+                row.get(
+                    "asset",
+                    "",
+                )
+            ).upper()
+            == R36F14_DEMO_ASSET
+        ):
+
+            demo_asset_row = row
+            break
+
+    demo_positions = [
+
+        row
+        for row in position_rows
+
+        if (
+            str(
+                row.get(
+                    "symbol",
+                    "",
+                )
+            ).upper()
+            == R36F14_DEMO_SYMBOL
+
+            and
+
+            D(
+                row.get(
+                    "size",
+                    "0",
+                )
+            ) != 0
+        )
+    ]
+
+    return {
+
+        "balance_endpoint":
+            R36F14_DEMO_BALANCE_ENDPOINT,
+
+        "positions_endpoint":
+            R36F14_DEMO_POSITIONS_ENDPOINT,
+
+        "history_endpoint":
+            R36F14_DEMO_ORDER_HISTORY_ENDPOINT,
+
+        "demo_symbol":
+            R36F14_DEMO_SYMBOL,
+
+        "demo_asset":
+            R36F14_DEMO_ASSET,
+
+        "asset_present":
+            demo_asset_row
+            is not None,
+
+        "balance":
+            (
+                str(
+                    demo_asset_row.get(
+                        "balance"
+                    )
+                )
+                if demo_asset_row
+                else None
+            ),
+
+        "available_balance":
+            (
+                str(
+                    demo_asset_row.get(
+                        "availableBalance"
+                    )
+                )
+                if demo_asset_row
+                else None
+            ),
+
+        "open_demo_position_count":
+            len(
+                demo_positions
+            ),
+
+        "history_count":
+            len(
+                history_rows
+            ),
+
+        "all_reads_successful":
+            demo_asset_row
+            is not None,
+    }
+
+
+def build_r36f14_demo_order_preview(
+    direction,
+    entry_quantity,
+    tp_snapshot,
+    protective_stop_price,
+):
+    """
+    Construct only the documented WEEX V3 demo Place Order payload.
+
+    WEEX's documented demo surface exposes Place Order with optional single
+    tpTriggerPrice/slTriggerPrice but does not document demo equivalents of the
+    production multi-TP conditional/trailing endpoints. Therefore the frozen
+    TP1/TP2/TP3 plan remains validated and preserved internally; the demo entry
+    preview carries TP1 plus the mandatory protective stop. No POST is sent.
+    """
+
+    if (
+        not tp_snapshot
+        or
+        not tp_snapshot.get(
+            "tp_approval",
+            {},
+        ).get(
+            "approved"
+        )
+    ):
+
+        raise ValueError(
+            "demo writer requires approved complete TP snapshot"
+        )
+
+    direction = str(
+        direction
+    ).upper()
+
+    entry_quantity = (
+        quantize_down(
+            D(
+                entry_quantity
+            ),
+            QUANTITY_STEP,
+        )
+    )
+
+    stop_price = (
+        quantize_down(
+            D(
+                protective_stop_price
+            ),
+            PRICE_STEP,
+        )
+    )
+
+    tp1_price = (
+        quantize_down(
+            D(
+                tp_snapshot[
+                    "tp1"
+                ]
+            ),
+            PRICE_STEP,
+        )
+    )
+
+    if direction == "LONG":
+
+        side = "BUY"
+        position_side = "LONG"
+
+    elif direction == "SHORT":
+
+        side = "SELL"
+        position_side = "SHORT"
+
+    else:
+
+        raise ValueError(
+            "unsupported demo direction"
+        )
+
+    if entry_quantity <= 0:
+
+        raise ValueError(
+            "demo entry quantity must be positive"
+        )
+
+    payload = {
+
+        "symbol":
+            R36F14_DEMO_SYMBOL,
+
+        "side":
+            side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            decimal_to_string(
+                entry_quantity
+            ),
+
+        "newClientOrderId":
+            writer_client_id(
+                direction,
+                "D14",
+            ),
+
+        "tpTriggerPrice":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "slTriggerPrice":
+            decimal_to_string(
+                stop_price
+            ),
+
+        "TpWorkingType":
+            "MARK_PRICE",
+
+        "SlWorkingType":
+            "MARK_PRICE",
+    }
+
+    full_tp_plan = {
+
+        "tp1":
+            tp_snapshot.get(
+                "tp1"
+            ),
+
+        "tp2":
+            tp_snapshot.get(
+                "tp2"
+            ),
+
+        "tp3":
+            tp_snapshot.get(
+                "tp3"
+            ),
+
+        "allocation_percent": {
+
+            "tp1":
+                decimal_to_string(
+                    TP1_ALLOCATION_PERCENT
+                ),
+
+            "tp2":
+                decimal_to_string(
+                    TP2_ALLOCATION_PERCENT
+                ),
+
+            "tp3":
+                decimal_to_string(
+                    TP3_ALLOCATION_PERCENT
+                ),
+        },
+
+        "tp3_trailing_distance_percent":
+            decimal_to_string(
+                TP3_TRAILING_DISTANCE_PERCENT
+            ),
+
+        "preserved_internally":
+            True,
+
+        "demo_api_multi_tp_not_assumed":
+            True,
+    }
+
+    return {
+
+        "stage":
+            STAGE,
+
+        "endpoint":
+            R36F14_DEMO_ORDER_ENDPOINT,
+
+        "method":
+            "POST",
+
+        "payload":
+            payload,
+
+        "full_tp_plan":
+            full_tp_plan,
+
+        "submitted":
+            False,
+
+        "demo_post_transport_enabled":
+            R36F14_DEMO_POST_TRANSPORT_ENABLED,
+
+        "demo_order_submission_enabled":
+            R36F14_DEMO_ORDER_SUBMISSION_ENABLED,
+
+        "first_demo_order_allowed":
+            R36F14_FIRST_DEMO_ORDER_ALLOWED,
+
+        "real_order_execution":
+            REAL_ORDER_EXECUTION,
+
+        "integrity_sha256":
+            sha256_text(
+                canonical_json(
+                    payload
+                )
+            ),
+    }
+
+
+def validate_r36f14_demo_order_preview(
+    preview,
+    direction,
+    entry_price,
+):
+
+    if not preview:
+
+        return {
+            "all_valid":
+                False,
+
+            "reason":
+                "DEMO_PREVIEW_MISSING",
+        }
+
+    payload = preview.get(
+        "payload",
+        {},
+    )
+
+    direction = str(
+        direction
+    ).upper()
+
+    entry_price = D(
+        entry_price
+    )
+
+    required = {
+
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+        "tpTriggerPrice",
+        "slTriggerPrice",
+        "TpWorkingType",
+        "SlWorkingType",
+    }
+
+    client_id = str(
+        payload.get(
+            "newClientOrderId",
+            "",
+        )
+    )
+
+    qty = D(
+        payload.get(
+            "quantity",
+            "0",
+        )
+    )
+
+    tp = D(
+        payload.get(
+            "tpTriggerPrice",
+            "0",
+        )
+    )
+
+    sl = D(
+        payload.get(
+            "slTriggerPrice",
+            "0",
+        )
+    )
+
+    direction_ok = (
+
+        direction == "LONG"
+
+        and
+
+        payload.get(
+            "side"
+        ) == "BUY"
+
+        and
+
+        payload.get(
+            "positionSide"
+        ) == "LONG"
+
+    ) or (
+
+        direction == "SHORT"
+
+        and
+
+        payload.get(
+            "side"
+        ) == "SELL"
+
+        and
+
+        payload.get(
+            "positionSide"
+        ) == "SHORT"
+    )
+
+    price_direction_ok = (
+
+        direction == "LONG"
+
+        and
+
+        tp > entry_price
+
+        and
+
+        sl < entry_price
+
+    ) or (
+
+        direction == "SHORT"
+
+        and
+
+        tp < entry_price
+
+        and
+
+        sl > entry_price
+    )
+
+    checks = {
+
+        "documented_endpoint":
+            preview.get(
+                "endpoint"
+            )
+            == R36F14_DEMO_ORDER_ENDPOINT,
+
+        "post_preview_only":
+            (
+                preview.get(
+                    "method"
+                ) == "POST"
+
+                and
+
+                preview.get(
+                    "submitted"
+                )
+                is False
+            ),
+
+        "required_fields_present":
+            required.issubset(
+                set(
+                    payload.keys()
+                )
+            ),
+
+        "demo_symbol_exact":
+            payload.get(
+                "symbol"
+            )
+            == R36F14_DEMO_SYMBOL,
+
+        "market_order":
+            payload.get(
+                "type"
+            )
+            == "MARKET",
+
+        "direction_mapping":
+            direction_ok,
+
+        "quantity_positive":
+            qty > 0,
+
+        "client_id_valid_length":
+            (
+                1
+                <= len(
+                    client_id
+                )
+                <= 36
+            ),
+
+        "tp_sl_direction_valid":
+            price_direction_ok,
+
+        "working_types_mark_price":
+            (
+                payload.get(
+                    "TpWorkingType"
+                )
+                == "MARK_PRICE"
+
+                and
+
+                payload.get(
+                    "SlWorkingType"
+                )
+                == "MARK_PRICE"
+            ),
+
+        "demo_transport_disabled":
+            R36F14_DEMO_POST_TRANSPORT_ENABLED
+            is False,
+
+        "demo_submission_disabled":
+            R36F14_DEMO_ORDER_SUBMISSION_ENABLED
+            is False,
+
+        "first_demo_order_disabled":
+            R36F14_FIRST_DEMO_ORDER_ALLOWED
+            is False,
+
+        "real_execution_disabled":
+            REAL_ORDER_EXECUTION
+            is False,
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return {
+
+        "checks":
+            checks,
+
+        "all_valid":
+            checks[
+                "all_valid"
+            ],
+    }
+
+
+def synthetic_r36f14_demo_integration_tests():
+
+    synthetic_tp = {
+
+        "tp_approval": {
+            "approved":
+                True
+        },
+
+        "tp1":
+            "80400.0",
+
+        "tp2":
+            "80800.0",
+
+        "tp3":
+            "TRAILING_RUNNER",
+    }
+
+    preview = (
+        build_r36f14_demo_order_preview(
+            "LONG",
+            Decimal(
+                "0.0004"
+            ),
+            synthetic_tp,
+            Decimal(
+                "79600.0"
+            ),
+        )
+    )
+
+    validation = (
+        validate_r36f14_demo_order_preview(
+            preview,
+            "LONG",
+            Decimal(
+                "80000.0"
+            ),
+        )
+    )
+
+    for (
+        name,
+        result,
+    ) in validation[
+        "checks"
+    ].items():
+
+        if name == "all_valid":
+            continue
+
+        check(
+            "R36F14_SYNTHETIC_DEMO_"
+            + name.upper(),
+            result,
+        )
+
+    check(
+        "R36F14_SYNTHETIC_DEMO_INTEGRATION_VALID",
+        validation[
+            "all_valid"
+        ],
+    )
+
+    check(
+        "R36F14_SYNTHETIC_DEMO_POST_NOT_SENT",
+        preview[
+            "submitted"
+        ] is False,
+    )
+
+    return {
+
+        "preview":
+            preview,
+
+        "validation":
+            validation,
+    }
