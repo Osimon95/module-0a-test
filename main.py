@@ -4565,3 +4565,741 @@ def evaluate_writer_quantity_feasibility(
             tp3,
         )
     )
+
+    minimum_required = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    feasible = bool(
+        checks.get(
+            "all_valid"
+        )
+    )
+
+    return {
+
+        "feasible":
+            feasible,
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_ALLOCATION_REPRESENTABLE"
+                if feasible
+                else
+                "POSITION_TOO_SMALL_OR_NOT_REPRESENTABLE_BY_APPROVED_TP_ALLOCATIONS"
+            ),
+
+        "entry_quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "tp1_quantity":
+            decimal_to_string(
+                tp1
+            ),
+
+        "tp2_quantity":
+            decimal_to_string(
+                tp2
+            ),
+
+        "tp3_quantity":
+            decimal_to_string(
+                tp3
+            ),
+
+        "requested_allocation":
+            "20/20/60",
+
+        "selected_allocation":
+            (
+                allocation[
+                    "label"
+                ]
+                if allocation
+                else None
+            ),
+
+        "allocation_adjusted":
+            bool(
+                allocation
+                and
+                allocation[
+                    "adjusted"
+                ]
+            ),
+
+        "selected_tp1_percent":
+            (
+                decimal_to_string(
+                    allocation[
+                        "tp1_percent"
+                    ]
+                )
+                if allocation
+                else None
+            ),
+
+        "selected_tp2_percent":
+            (
+                decimal_to_string(
+                    allocation[
+                        "tp2_percent"
+                    ]
+                )
+                if allocation
+                else None
+            ),
+
+        "selected_tp3_percent":
+            (
+                decimal_to_string(
+                    allocation[
+                        "tp3_percent"
+                    ]
+                )
+                if allocation
+                else None
+            ),
+
+        "minimum_required_entry_quantity":
+            decimal_to_string(
+                minimum_required
+            ),
+
+        "checks":
+            checks,
+    }
+
+
+def evaluate_strict_tp_balance_readiness(
+    available_balance,
+    mark_price,
+    leverage,
+):
+    """
+    Classify balance readiness under R36F.10
+    approved adjustable TP allocation.
+    """
+
+    available_balance = D(
+        available_balance
+    )
+
+    mark_price = D(
+        mark_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    if available_balance < Decimal("0"):
+
+        raise ValueError(
+            "available_balance must be non-negative"
+        )
+
+    if mark_price <= Decimal("0"):
+
+        raise ValueError(
+            "mark_price must be positive"
+        )
+
+    if leverage <= Decimal("0"):
+
+        raise ValueError(
+            "leverage must be positive"
+        )
+
+    entry_fraction = (
+        ENTRY_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    if entry_fraction <= Decimal("0"):
+
+        raise ValueError(
+            "ENTRY_MARGIN_PERCENT must be positive"
+        )
+
+    raw_entry_quantity = (
+        available_balance
+        * entry_fraction
+        * leverage
+        / mark_price
+    )
+
+    planned_entry_quantity = (
+        quantize_down(
+            raw_entry_quantity,
+            QUANTITY_STEP,
+        )
+    )
+
+    quantity_feasibility = (
+        evaluate_writer_quantity_feasibility(
+            planned_entry_quantity
+        )
+    )
+
+    minimum_entry_quantity = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    required_entry_margin = (
+        minimum_entry_quantity
+        * mark_price
+        / leverage
+    )
+
+    required_available_balance = (
+        required_entry_margin
+        / entry_fraction
+    )
+
+    available_balance_shortfall = max(
+        Decimal("0"),
+        (
+            required_available_balance
+            - available_balance
+        ),
+    )
+
+    eligible = bool(
+
+        quantity_feasibility[
+            "feasible"
+        ]
+
+        and
+
+        available_balance
+        >= required_available_balance
+    )
+
+    return {
+
+        "eligible":
+            eligible,
+
+        "status":
+            (
+                "ELIGIBLE"
+                if eligible
+                else
+                "TRADE_NOT_ELIGIBLE"
+            ),
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_BALANCE_AND_QUANTITY_READY"
+                if eligible
+                else
+                "INSUFFICIENT_BALANCE_FOR_APPROVED_TP_ALLOCATION"
+            ),
+
+        "available_balance":
+            decimal_to_string(
+                available_balance
+            ),
+
+        "mark_price":
+            decimal_to_string(
+                mark_price
+            ),
+
+        "leverage":
+            decimal_to_string(
+                leverage
+            ),
+
+        "entry_margin_percent":
+            decimal_to_string(
+                ENTRY_MARGIN_PERCENT
+            ),
+
+        "raw_entry_quantity":
+            decimal_to_string(
+                raw_entry_quantity
+            ),
+
+        "planned_entry_quantity":
+            decimal_to_string(
+                planned_entry_quantity
+            ),
+
+        "minimum_strict_tp_entry_quantity":
+            decimal_to_string(
+                minimum_entry_quantity
+            ),
+
+        "required_margin_for_minimum_qty":
+            decimal_to_string(
+                required_entry_margin
+            ),
+
+        "required_available_balance":
+            decimal_to_string(
+                required_available_balance
+            ),
+
+        "available_balance_shortfall":
+            decimal_to_string(
+                available_balance_shortfall
+            ),
+
+        "quantity_feasible":
+            quantity_feasibility[
+                "feasible"
+            ],
+
+        "quantity_feasibility_reason":
+            quantity_feasibility[
+                "reason"
+            ],
+
+        "requested_allocation":
+            quantity_feasibility[
+                "requested_allocation"
+            ],
+
+        "selected_allocation":
+            quantity_feasibility[
+                "selected_allocation"
+            ],
+
+        "allocation_adjusted":
+            quantity_feasibility[
+                "allocation_adjusted"
+            ],
+
+        "tp1_quantity":
+            quantity_feasibility[
+                "tp1_quantity"
+            ],
+
+        "tp2_quantity":
+            quantity_feasibility[
+                "tp2_quantity"
+            ],
+
+        "tp3_quantity":
+            quantity_feasibility[
+                "tp3_quantity"
+            ],
+    }
+
+
+# ============================================================
+# R36F.14 WEEX DEMO READ-ONLY RECONCILIATION + PAYLOAD PREVIEW
+# ============================================================
+
+async def r36f14_read_demo_account():
+    """Read only documented WEEX V3 paper-trading resources."""
+
+    balance_rows = await weex_get(
+        R36F14_DEMO_BALANCE_ENDPOINT,
+        authenticated=True,
+    )
+
+    position_rows = await weex_get(
+        R36F14_DEMO_POSITIONS_ENDPOINT,
+        authenticated=True,
+    )
+
+    history_rows = await weex_get(
+        R36F14_DEMO_ORDER_HISTORY_ENDPOINT,
+        params={
+            "symbol": R36F14_DEMO_SYMBOL,
+            "limit": 20,
+            "page": 0,
+        },
+        authenticated=True,
+    )
+
+    balance_rows = balance_rows if isinstance(balance_rows, list) else []
+    position_rows = position_rows if isinstance(position_rows, list) else []
+    history_rows = history_rows if isinstance(history_rows, list) else []
+
+    demo_asset_row = None
+    for row in balance_rows:
+        if str(row.get("asset", "")).upper() == R36F14_DEMO_ASSET:
+            demo_asset_row = row
+            break
+
+    demo_positions = [
+        row for row in position_rows
+        if str(row.get("symbol", "")).upper() == R36F14_DEMO_SYMBOL
+        and D(row.get("size", "0")) != 0
+    ]
+
+    return {
+        "balance_endpoint": R36F14_DEMO_BALANCE_ENDPOINT,
+        "positions_endpoint": R36F14_DEMO_POSITIONS_ENDPOINT,
+        "history_endpoint": R36F14_DEMO_ORDER_HISTORY_ENDPOINT,
+        "demo_symbol": R36F14_DEMO_SYMBOL,
+        "demo_asset": R36F14_DEMO_ASSET,
+        "asset_present": demo_asset_row is not None,
+        "balance": (
+            str(demo_asset_row.get("balance"))
+            if demo_asset_row else None
+        ),
+        "available_balance": (
+            str(demo_asset_row.get("availableBalance"))
+            if demo_asset_row else None
+        ),
+        "open_demo_position_count": len(demo_positions),
+        "history_count": len(history_rows),
+        "all_reads_successful": demo_asset_row is not None,
+    }
+
+
+def build_r36f14_demo_order_preview(
+    direction,
+    entry_quantity,
+    tp_snapshot,
+    protective_stop_price,
+):
+    """
+    Construct only the documented WEEX V3 demo Place Order payload.
+
+    WEEX's documented demo surface exposes Place Order with optional single
+    tpTriggerPrice/slTriggerPrice but does not document demo equivalents of the
+    production multi-TP conditional/trailing endpoints. Therefore the frozen
+    TP1/TP2/TP3 plan remains validated and preserved internally; the demo entry
+    preview carries TP1 plus the mandatory protective stop. No POST is sent.
+    """
+
+    if not tp_snapshot or not tp_snapshot.get("tp_approval", {}).get("approved"):
+        raise ValueError("demo writer requires approved complete TP snapshot")
+
+    direction = str(direction).upper()
+    entry_quantity = quantize_down(D(entry_quantity), QUANTITY_STEP)
+    stop_price = quantize_down(D(protective_stop_price), PRICE_STEP)
+    tp1_price = quantize_down(D(tp_snapshot["tp1"]), PRICE_STEP)
+
+    if direction == "LONG":
+        side = "BUY"
+        position_side = "LONG"
+    elif direction == "SHORT":
+        side = "SELL"
+        position_side = "SHORT"
+    else:
+        raise ValueError("unsupported demo direction")
+
+    if entry_quantity <= 0:
+        raise ValueError("demo entry quantity must be positive")
+
+    payload = {
+        "symbol": R36F14_DEMO_SYMBOL,
+        "side": side,
+        "positionSide": position_side,
+        "type": "MARKET",
+        "quantity": decimal_to_string(entry_quantity),
+        "newClientOrderId": writer_client_id(direction, "D14"),
+        "tpTriggerPrice": decimal_to_string(tp1_price),
+        "slTriggerPrice": decimal_to_string(stop_price),
+        "TpWorkingType": "MARK_PRICE",
+        "SlWorkingType": "MARK_PRICE",
+    }
+
+    full_tp_plan = {
+        "tp1": tp_snapshot.get("tp1"),
+        "tp2": tp_snapshot.get("tp2"),
+        "tp3": tp_snapshot.get("tp3"),
+        "allocation_percent": {
+            "tp1": decimal_to_string(TP1_ALLOCATION_PERCENT),
+            "tp2": decimal_to_string(TP2_ALLOCATION_PERCENT),
+            "tp3": decimal_to_string(TP3_ALLOCATION_PERCENT),
+        },
+        "tp3_trailing_distance_percent": decimal_to_string(
+            TP3_TRAILING_DISTANCE_PERCENT
+        ),
+        "preserved_internally": True,
+        "demo_api_multi_tp_not_assumed": True,
+    }
+
+    return {
+        "stage": STAGE,
+        "endpoint": R36F14_DEMO_ORDER_ENDPOINT,
+        "method": "POST",
+        "payload": payload,
+        "full_tp_plan": full_tp_plan,
+        "submitted": False,
+        "demo_post_transport_enabled": R36F14_DEMO_POST_TRANSPORT_ENABLED,
+        "demo_order_submission_enabled": R36F14_DEMO_ORDER_SUBMISSION_ENABLED,
+        "first_demo_order_allowed": R36F14_FIRST_DEMO_ORDER_ALLOWED,
+        "real_order_execution": REAL_ORDER_EXECUTION,
+        "integrity_sha256": sha256_text(canonical_json(payload)),
+    }
+
+
+def validate_r36f14_demo_order_preview(preview, direction, entry_price):
+    if not preview:
+        return {"all_valid": False, "reason": "DEMO_PREVIEW_MISSING"}
+
+    payload = preview.get("payload", {})
+    direction = str(direction).upper()
+    entry_price = D(entry_price)
+
+    required = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+        "tpTriggerPrice",
+        "slTriggerPrice",
+        "TpWorkingType",
+        "SlWorkingType",
+    }
+
+    client_id = str(payload.get("newClientOrderId", ""))
+    qty = D(payload.get("quantity", "0"))
+    tp = D(payload.get("tpTriggerPrice", "0"))
+    sl = D(payload.get("slTriggerPrice", "0"))
+
+    direction_ok = (
+        direction == "LONG"
+        and payload.get("side") == "BUY"
+        and payload.get("positionSide") == "LONG"
+    ) or (
+        direction == "SHORT"
+        and payload.get("side") == "SELL"
+        and payload.get("positionSide") == "SHORT"
+    )
+
+    price_direction_ok = (
+        direction == "LONG" and tp > entry_price and sl < entry_price
+    ) or (
+        direction == "SHORT" and tp < entry_price and sl > entry_price
+    )
+
+    checks = {
+        "documented_endpoint": preview.get("endpoint") == R36F14_DEMO_ORDER_ENDPOINT,
+        "post_preview_only": preview.get("method") == "POST" and preview.get("submitted") is False,
+        "required_fields_present": required.issubset(set(payload.keys())),
+        "demo_symbol_exact": payload.get("symbol") == R36F14_DEMO_SYMBOL,
+        "market_order": payload.get("type") == "MARKET",
+        "direction_mapping": direction_ok,
+        "quantity_positive": qty > 0,
+        "client_id_valid_length": 1 <= len(client_id) <= 36,
+        "tp_sl_direction_valid": price_direction_ok,
+        "working_types_mark_price": (
+            payload.get("TpWorkingType") == "MARK_PRICE"
+            and payload.get("SlWorkingType") == "MARK_PRICE"
+        ),
+        "demo_transport_disabled": R36F14_DEMO_POST_TRANSPORT_ENABLED is False,
+        "demo_submission_disabled": R36F14_DEMO_ORDER_SUBMISSION_ENABLED is False,
+        "first_demo_order_disabled": R36F14_FIRST_DEMO_ORDER_ALLOWED is False,
+        "real_execution_disabled": REAL_ORDER_EXECUTION is False,
+    }
+    checks["all_valid"] = all(checks.values())
+
+    return {
+        "checks": checks,
+        "all_valid": checks["all_valid"],
+    }
+
+
+def synthetic_r36f14_demo_integration_tests():
+    synthetic_tp = {
+        "tp_approval": {"approved": True},
+        "tp1": "80400.0",
+        "tp2": "80800.0",
+        "tp3": "TRAILING_RUNNER",
+    }
+
+    preview = build_r36f14_demo_order_preview(
+        "LONG",
+        Decimal("0.0004"),
+        synthetic_tp,
+        Decimal("79600.0"),
+    )
+    validation = validate_r36f14_demo_order_preview(
+        preview,
+        "LONG",
+        Decimal("80000.0"),
+    )
+
+    for name, result in validation["checks"].items():
+        if name == "all_valid":
+            continue
+        check(
+            "R36F14_SYNTHETIC_DEMO_" + name.upper(),
+            result,
+        )
+
+    check(
+        "R36F14_SYNTHETIC_DEMO_INTEGRATION_VALID",
+        validation["all_valid"],
+    )
+    check(
+        "R36F14_SYNTHETIC_DEMO_POST_NOT_SENT",
+        preview["submitted"] is False,
+    )
+
+    return {
+        "preview": preview,
+        "validation": validation,
+    }
+
+
+# ============================================================
+# WRITER REQUEST PREVIEW
+# ============================================================
+
+def build_writer_request_preview(
+    direction,
+    entry_price,
+    quantity,
+    tp_snapshot,
+):
+
+    if (
+        not tp_snapshot
+
+        or
+
+        not tp_snapshot.get(
+            "tp_approval",
+            {},
+        ).get(
+            "approved"
+        )
+    ):
+
+        raise ValueError(
+            "writer requires an approved complete TP snapshot"
+        )
+
+    entry_price = quantize_down(
+        entry_price,
+        PRICE_STEP,
+    )
+
+    (
+        entry_quantity,
+        tp1_qty,
+        tp2_qty,
+        tp3_qty,
+    ) = writer_quantities(
+        quantity
+    )
+
+    quantity_checks = (
+        validate_writer_quantities(
+            entry_quantity,
+            tp1_qty,
+            tp2_qty,
+            tp3_qty,
+        )
+    )
+
+    (
+        entry_side,
+        position_side,
+    ) = writer_entry_side(
+        direction
+    )
+
+    (
+        close_side,
+        close_position_side,
+    ) = writer_close_side(
+        direction
+    )
+
+    tp1_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp1"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    tp2_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp2"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    if direction == "LONG":
+
+        if not (
+            tp1_price
+            > entry_price
+
+            and
+
+            tp2_price
+            > tp1_price
+        ):
+
+            raise ValueError(
+                "LONG TP ordering invalid"
+            )
+
+    elif direction == "SHORT":
+
+        if not (
+            tp1_price
+            < entry_price
+
+            and
+
+            tp2_price
+            < tp1_price
+        ):
+
+            raise ValueError(
+                "SHORT TP ordering invalid"
+            )
+
+    else:
+
+        raise ValueError(
+            "Invalid writer direction"
+        )
+
+    entry_leg = {
+
+        "endpoint":
+            WRITER_ENDPOINT_ENTRY,
+
+        "method":
+            "POST",
+
+        "symbol":
+            SYMBOL,
+
+        "side":
+            entry_side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            decimal_to_string(
+                entry_quantity
+            ),
+
+        "newClientOrderId":
+            writer_client_id(
+                direction,
+                "ENTRY",
+            ),
+
+        "reduceOnly":
+            False,
+    }
