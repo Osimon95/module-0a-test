@@ -7401,3 +7401,2298 @@ def synthetic_r36f12_writer_safety_tests():
 # ============================================================
 # R36F.12 ADJUSTABLE TP QUANTITY FEASIBILITY TESTS
 # ============================================================
+### R36F.15.2 — Part 4 of 4
+
+
+def synthetic_writer_quantity_tests():
+
+    adjusted = (
+        evaluate_writer_quantity_feasibility(
+            Decimal(
+                "0.0004"
+            )
+        )
+    )
+
+    check(
+        "ADJUSTABLE_00004_APPROVED",
+        adjusted[
+            "feasible"
+        ] is True,
+    )
+
+    check(
+        "ADJUSTABLE_00004_SELECTED_25_25_50",
+        adjusted[
+            "selected_allocation"
+        ] == "25/25/50",
+    )
+
+    check(
+        "ADJUSTABLE_00004_ADJUSTED_TRUE",
+        adjusted[
+            "allocation_adjusted"
+        ] is True,
+    )
+
+    check(
+        "ADJUSTABLE_00004_TP1",
+        adjusted[
+            "tp1_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "ADJUSTABLE_00004_TP2",
+        adjusted[
+            "tp2_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "ADJUSTABLE_00004_TP3",
+        adjusted[
+            "tp3_quantity"
+        ] == "0.0002",
+    )
+
+    preferred = (
+        evaluate_writer_quantity_feasibility(
+            Decimal(
+                "0.0005"
+            )
+        )
+    )
+
+    check(
+        "PREFERRED_00005_APPROVED",
+        preferred[
+            "feasible"
+        ] is True,
+    )
+
+    check(
+        "PREFERRED_00005_RETAINS_20_20_60",
+        preferred[
+            "selected_allocation"
+        ] == "20/20/60",
+    )
+
+    check(
+        "PREFERRED_00005_ADJUSTED_FALSE",
+        preferred[
+            "allocation_adjusted"
+        ] is False,
+    )
+
+    check(
+        "PREFERRED_00005_TP1",
+        preferred[
+            "tp1_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "PREFERRED_00005_TP2",
+        preferred[
+            "tp2_quantity"
+        ] == "0.0001",
+    )
+
+    check(
+        "PREFERRED_00005_TP3",
+        preferred[
+            "tp3_quantity"
+        ] == "0.0003",
+    )
+
+    smaller = (
+        evaluate_writer_quantity_feasibility(
+            Decimal(
+                "0.0003"
+            )
+        )
+    )
+
+    check(
+        "ADJUSTABLE_00003_REJECTED",
+        smaller[
+            "feasible"
+        ] is False,
+    )
+
+    check(
+        "ADJUSTABLE_MINIMUM_ENTRY_00004",
+        adjusted[
+            "minimum_required_entry_quantity"
+        ] == "0.0004",
+    )
+
+    return True
+
+
+def synthetic_balance_readiness_tests():
+
+    approved = (
+        evaluate_strict_tp_balance_readiness(
+            Decimal(
+                "7.19"
+            ),
+            Decimal(
+                "80000"
+            ),
+            Decimal(
+                "100"
+            ),
+        )
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_7_19_APPROVED",
+        approved[
+            "eligible"
+        ] is True,
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_7_19_PLANNED_00004",
+        approved[
+            "planned_entry_quantity"
+        ] == "0.0004",
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_7_19_SELECTED_25_25_50",
+        approved[
+            "selected_allocation"
+        ] == "25/25/50",
+    )
+
+    check(
+        "ADJUSTABLE_BALANCE_READINESS_REQUIRED_BALANCE_6_40",
+        approved[
+            "required_available_balance"
+        ] == "6.4",
+    )
+
+    preferred = (
+        evaluate_strict_tp_balance_readiness(
+            Decimal(
+                "8"
+            ),
+            Decimal(
+                "80000"
+            ),
+            Decimal(
+                "100"
+            ),
+        )
+    )
+
+    check(
+        "PREFERRED_BALANCE_READINESS_8_00_APPROVED",
+        preferred[
+            "eligible"
+        ] is True,
+    )
+
+    check(
+        "PREFERRED_BALANCE_READINESS_8_00_PLANNED_00005",
+        preferred[
+            "planned_entry_quantity"
+        ] == "0.0005",
+    )
+
+    check(
+        "PREFERRED_BALANCE_READINESS_8_00_RETAINS_20_20_60",
+        preferred[
+            "selected_allocation"
+        ] == "20/20/60",
+    )
+
+    return True
+
+
+# ============================================================
+
+# MAIN R36F.12 TEST
+# ============================================================
+
+async def run_r36f12():
+
+    global TEST_STATUS
+
+    global R36A_EVIDENCE_OK
+    global R36C_EVIDENCE_OK
+    global R36D_EVIDENCE_OK
+
+    global DURABLE_EVIDENCE_OK
+    global WEEX_READ_ONLY_OK
+
+    global ZERO_WRITE_INVARIANT_OK
+    global FINAL_GATE_OK
+
+    global LONG_DIAGNOSTICS
+    global SHORT_DIAGNOSTICS
+
+    TEST_STATUS = "RUNNING"
+
+    r36f14_demo_account = None
+    r36f14_demo_integration = None
+    r36f14_demo_order_preview = None
+    r36f14_demo_order_validation = None
+    r36f15_demo_submission = None
+    r36f15_demo_reconciliation_after = None
+
+    FINAL_BLOCKERS.clear()
+
+    line()
+
+    log(
+        f"{STAGE}: {PURPOSE}"
+    )
+
+    line()
+
+    check(
+        "REAL_ORDER_EXECUTION_DISABLED",
+        REAL_ORDER_EXECUTION is False,
+    )
+
+    check(
+        "DEMO_ORDER_EXECUTION_DISABLED",
+        DEMO_ORDER_EXECUTION is False,
+    )
+
+    check(
+        "EXCHANGE_MUTATION_TRANSPORT_DISABLED",
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        is False,
+    )
+
+    check(
+        "ORDER_SUBMISSION_DISABLED",
+        ORDER_SUBMISSION_ENABLED
+        is False,
+    )
+
+    check(
+        "LEVERAGE_MUTATION_DISABLED",
+        LEVERAGE_MUTATION_ENABLED
+        is False,
+    )
+
+    check(
+        "MARGIN_MODE_MUTATION_DISABLED",
+        MARGIN_MODE_MUTATION_ENABLED
+        is False,
+    )
+
+    check(
+        "POSITION_MUTATION_DISABLED",
+        POSITION_MUTATION_ENABLED
+        is False,
+    )
+
+    check(
+        "FIRST_REAL_ORDER_DISABLED",
+        FIRST_REAL_ORDER_ALLOWED
+        is False,
+    )
+
+    check(
+        "R36F14_DEMO_POST_TRANSPORT_DISABLED",
+        R36F14_DEMO_POST_TRANSPORT_ENABLED is False,
+    )
+
+    check(
+        "R36F14_DEMO_ORDER_SUBMISSION_DISABLED",
+        R36F14_DEMO_ORDER_SUBMISSION_ENABLED is False,
+    )
+
+    check(
+        "R36F14_FIRST_DEMO_ORDER_DISABLED",
+        R36F14_FIRST_DEMO_ORDER_ALLOWED is False,
+    )
+
+    check(
+        "R36F15_REAL_MONEY_FIREBREAK_INTACT",
+        REAL_ORDER_EXECUTION is False
+        and EXCHANGE_MUTATION_TRANSPORT_ENABLED is False
+        and ORDER_SUBMISSION_ENABLED is False
+        and FIRST_REAL_ORDER_ALLOWED is False,
+    )
+
+    check(
+        "R36F15_DEMO_ONLY_TRANSPORT_ENABLED",
+        R36F15_DEMO_POST_TRANSPORT_ENABLED is True
+        and R36F15_DEMO_ORDER_SUBMISSION_ENABLED is True
+        and R36F15_FIRST_DEMO_ORDER_ALLOWED is True,
+    )
+
+    check(
+        "WEEX_API_KEY_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_KEY"
+            )
+        ),
+    )
+
+    check(
+        "WEEX_API_SECRET_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_SECRET"
+            )
+        ),
+    )
+
+    check(
+        "WEEX_API_PASSPHRASE_PRESENT",
+        bool(
+            os.getenv(
+                "WEEX_API_PASSPHRASE"
+            )
+        ),
+    )
+
+    r36a_ids = set()
+
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DEDUPE_FILE
+        )
+    )
+
+    r36a_ids.update(
+        collect_ids_from_file(
+            R36A_DECISION_FILE
+        )
+    )
+
+    R36A_EVIDENCE_OK = (
+        OLD_R36A_UPDATE_ID
+        in r36a_ids
+    )
+
+    check(
+        "R36A_DURABLE_EVIDENCE",
+        R36A_EVIDENCE_OK,
+        (
+            f"EXPECTED_UPDATE_ID="
+            f"{OLD_R36A_UPDATE_ID}"
+        ),
+    )
+
+    r36c_ids = set()
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DEDUPE_FILE
+        )
+    )
+
+    r36c_ids.update(
+        collect_ids_from_file(
+            R36C_DECISION_FILE
+        )
+    )
+
+    R36C_EVIDENCE_OK = (
+        R36C_UPDATE_ID
+        in r36c_ids
+    )
+
+    check(
+        "R36C_DURABLE_EVIDENCE",
+        R36C_EVIDENCE_OK,
+        (
+            f"EXPECTED_UPDATE_ID="
+            f"{R36C_UPDATE_ID}"
+        ),
+    )
+
+    r36d_snapshot = read_json_file(
+        R36D_SNAPSHOT_FILE,
+        default={},
+    )
+
+    R36D_EVIDENCE_OK = bool(
+        r36d_snapshot
+    )
+
+    check(
+        "R36D_SNAPSHOT_EVIDENCE",
+        R36D_EVIDENCE_OK,
+        f"path={R36D_SNAPSHOT_FILE}",
+    )
+
+    DURABLE_EVIDENCE_OK = (
+        R36A_EVIDENCE_OK
+        and R36C_EVIDENCE_OK
+        and R36D_EVIDENCE_OK
+    )
+
+    try:
+
+        await reconcile_weex()
+
+        WEEX_READ_ONLY_OK = True
+
+        try:
+            r36f14_demo_account = await r36f14_read_demo_account()
+            diagnostic_check(
+                "R36F14_DEMO_READ_ONLY_RECONCILIATION",
+                r36f14_demo_account.get("all_reads_successful", False),
+                (
+                    "asset=" + str(r36f14_demo_account.get("demo_asset"))
+                    + " available=" + str(r36f14_demo_account.get("available_balance"))
+                    + " open_positions=" + str(r36f14_demo_account.get("open_demo_position_count"))
+                    + " history_count=" + str(r36f14_demo_account.get("history_count"))
+                ),
+            )
+        except Exception as exc:
+            r36f14_demo_account = {
+                "all_reads_successful": False,
+                "error": str(exc),
+            }
+            diagnostic_check(
+                "R36F14_DEMO_READ_ONLY_RECONCILIATION",
+                False,
+                str(exc),
+            )
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            True,
+        )
+
+    except Exception as exc:
+
+        WEEX_READ_ONLY_OK = False
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            False,
+            str(exc),
+        )
+
+    synthetic_long = None
+    synthetic_short = None
+
+    try:
+
+        (
+            synthetic_long,
+            synthetic_short,
+        ) = synthetic_cluster_tests()
+
+        check(
+            "SYNTHETIC_TP_ENGINE",
+            True,
+        )
+
+    except Exception as exc:
+
+        check(
+            "SYNTHETIC_TP_ENGINE",
+            False,
+            str(exc),
+        )
+
+    try:
+
+        rejection = (
+            synthetic_tp_rejection_test()
+        )
+
+        check(
+            "TP_APPROVAL_REJECTION_FLOW",
+            rejection[
+                "approved"
+            ] is False,
+        )
+
+    except Exception as exc:
+
+        check(
+            "TP_APPROVAL_REJECTION_FLOW",
+            False,
+            str(exc),
+        )
+
+    try:
+
+        synthetic_writer_quantity_tests()
+
+        check(
+            "STRICT_TP_QUANTITY_FEASIBILITY_TESTS",
+            True,
+        )
+
+        synthetic_balance_readiness_tests()
+
+        check(
+            "ADJUSTABLE_TP_BALANCE_READINESS_TESTS",
+            True,
+        )
+
+        synthetic_r36f12_writer_safety_tests()
+        synthetic_r36f12_ema_telegram_tests()
+        synthetic_r36f132_stop_loss_budget_tests()
+        r36f14_demo_integration = synthetic_r36f14_demo_integration_tests()
+
+        check(
+            "R36F12_WRITER_SAFETY_TESTS",
+            True,
+        )
+
+    except Exception as exc:
+
+        check(
+            "STRICT_TP_QUANTITY_FEASIBILITY_TESTS",
+            False,
+            str(exc),
+        )
+
+        check(
+            "ADJUSTABLE_TP_BALANCE_READINESS_TESTS",
+            False,
+            str(exc),
+        )
+
+    historical_rows = []
+
+    try:
+
+        historical_rows = (
+            await load_historical_klines()
+        )
+
+        check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            len(
+                historical_rows
+            ) >= 3,
+            f"rows={len(historical_rows)}",
+        )
+
+        global EMA_SIGNAL_SNAPSHOT
+        global TELEGRAM_COMMAND_PREVIEW
+
+        EMA_SIGNAL_SNAPSHOT = build_ema_signal_snapshot(
+            historical_rows
+        )
+
+        diagnostic_check(
+            "R36F12_EMA_ENGINE_READY",
+            EMA_SIGNAL_SNAPSHOT.get(
+                "ready"
+            ) is True,
+            f"reason={EMA_SIGNAL_SNAPSHOT.get('reason')}",
+        )
+
+        if EMA_SIGNAL_SNAPSHOT.get(
+            "ready"
+        ):
+
+            log(
+                f"R36F.12 EMA SNAPSHOT "
+                f"price={EMA_SIGNAL_SNAPSHOT.get('price')} "
+                f"EMA19={EMA_SIGNAL_SNAPSHOT.get('ema19')} "
+                f"EMA50={EMA_SIGNAL_SNAPSHOT.get('ema50')} "
+                f"EMA200={EMA_SIGNAL_SNAPSHOT.get('ema200')} "
+                f"structure={EMA_SIGNAL_SNAPSHOT.get('structure')} "
+                f"ideal_direction={EMA_SIGNAL_SNAPSHOT.get('ideal_direction')} "
+                f"fresh_crossover={EMA_SIGNAL_SNAPSHOT.get('fresh_crossover')}"
+            )
+
+            diagnostic_check(
+                "R36F12_EMA_19_50_SEPARATION_QUALITY",
+                EMA_SIGNAL_SNAPSHOT.get(
+                    "quality_ok"
+                ) is True,
+                f"separation="
+                f"{EMA_SIGNAL_SNAPSHOT.get('ema19_50_separation_percent')}%",
+            )
+
+            ideal_alert = (
+                build_ideal_condition_alert(
+                    EMA_SIGNAL_SNAPSHOT
+                )
+            )
+
+            if ideal_alert:
+
+                log(
+                    "R36F.12 TELEGRAM IDEAL-CONDITION ALERT PREVIEW:"
+                )
+
+                for alert_line in ideal_alert.splitlines():
+
+                    log(
+                        "      "
+                        + alert_line
+                    )
+
+                telegram_alert_result = (
+                    await send_r36f12_telegram_alert(
+                        ideal_alert
+                    )
+                )
+
+                diagnostic_check(
+                    "R36F12_TELEGRAM_IDEAL_ALERT_PATH",
+                    True,
+                    (
+                        f"enabled="
+                        f"{R36F12_TELEGRAM_ALERTS_ENABLED} "
+                        f"result="
+                        f"{telegram_alert_result}"
+                    ),
+                )
+
+            else:
+
+                diagnostic_check(
+                    "R36F12_TELEGRAM_IDEAL_ALERT_PATH",
+                    True,
+                    "No current ideal EMA direction; no alert sent",
+                )
+
+    except Exception as exc:
+
+        check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            False,
+            str(exc),
+        )
+
+    real_long_snapshot = None
+
+    REAL_LONG_MARKET_ELIGIBLE = False
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+
+        try:
+
+            real_long_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "LONG",
+                    "REAL_LONG_PREVIEW",
+                )
+            )
+
+            LONG_DIAGNOSTICS = (
+                real_long_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_LONG_MARKET_ELIGIBLE = bool(
+                real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+            diagnostic_check(
+                "REAL_LONG_TP_MARKET_ELIGIBILITY",
+                REAL_LONG_MARKET_ELIGIBLE,
+                (
+                    "TP_APPROVAL="
+                    + real_long_snapshot[
+                        "tp_approval"
+                    ][
+                        "status"
+                    ]
+                ),
+            )
+
+            log(
+                "REAL_LONG_TP_APPROVAL="
+                + real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ]
+            )
+
+        except Exception as exc:
+
+            LONG_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "LONG",
+                )
+            )
+
+            approval = (
+                evaluate_tp_approval(
+                    LONG_DIAGNOSTICS
+                )
+            )
+
+            REAL_LONG_MARKET_ELIGIBLE = False
+
+            diagnostic_check(
+                "REAL_LONG_TP_MARKET_ELIGIBILITY",
+                False,
+                (
+                    "TP_APPROVAL="
+                    + approval[
+                        "status"
+                    ]
+                    + " reason="
+                    + approval[
+                        "reason"
+                    ]
+                    + " error="
+                    + str(exc)
+                ),
+            )
+
+    real_short_snapshot = None
+
+    REAL_SHORT_MARKET_ELIGIBLE = False
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+
+        try:
+
+            real_short_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "SHORT",
+                    "REAL_SHORT_PREVIEW",
+                )
+            )
+
+            SHORT_DIAGNOSTICS = (
+                real_short_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_SHORT_MARKET_ELIGIBLE = bool(
+                real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+            diagnostic_check(
+                "REAL_SHORT_TP_MARKET_ELIGIBILITY",
+                REAL_SHORT_MARKET_ELIGIBLE,
+                (
+                    "TP_APPROVAL="
+                    + real_short_snapshot[
+                        "tp_approval"
+                    ][
+                        "status"
+                    ]
+                ),
+            )
+
+            log(
+                "REAL_SHORT_TP_APPROVAL="
+                + real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "status"
+                ]
+            )
+
+        except Exception as exc:
+
+            SHORT_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "SHORT",
+                )
+            )
+
+            approval = (
+                evaluate_tp_approval(
+                    SHORT_DIAGNOSTICS
+                )
+            )
+
+            REAL_SHORT_MARKET_ELIGIBLE = False
+
+            diagnostic_check(
+                "REAL_SHORT_TP_MARKET_ELIGIBILITY",
+                False,
+                (
+                    "TP_APPROVAL="
+                    + approval[
+                        "status"
+                    ]
+                    + " reason="
+                    + approval[
+                        "reason"
+                    ]
+                    + " error="
+                    + str(exc)
+                ),
+            )
+
+    canary_preview = None
+
+    try:
+
+        current_command = os.getenv(
+            "R36F12_TELEGRAM_COMMAND_TEXT",
+            "",
+        ).strip()
+
+        if current_command:
+
+            TELEGRAM_COMMAND_PREVIEW = (
+                validate_telegram_command_against_signal(
+                    current_command,
+                    EMA_SIGNAL_SNAPSHOT,
+                    REAL_LONG_MARKET_ELIGIBLE,
+                    REAL_SHORT_MARKET_ELIGIBLE,
+                )
+            )
+
+            log(
+                f"R36F.12 TELEGRAM COMMAND PREVIEW = "
+                f"{TELEGRAM_COMMAND_PREVIEW}"
+            )
+
+        else:
+
+            TELEGRAM_COMMAND_PREVIEW = {
+
+                "recognized":
+                    False,
+
+                "authorized_preview":
+                    False,
+
+                "reason":
+                    "NO_COMMAND_SUPPLIED",
+
+                "exchange_order_sent":
+                    False,
+            }
+
+        canary_preview = (
+            build_canary_preview()
+        )
+
+        diagnostic_check(
+            "CANARY_PREVIEW",
+            True,
+        )
+
+    except Exception as exc:
+
+        diagnostic_check(
+            "CANARY_PREVIEW",
+            False,
+            str(exc),
+        )
+
+    writer_preview = None
+    protected_canary_preview = None
+    r36f13_stop_price = None
+    r36f13_stop_checks = None
+    r36f131_stop_envelope = None
+    r36f132_stop_loss_budget = None
+    quantity_feasibility = None
+    balance_readiness = None
+
+    WRITER_CONSTRUCTION_ELIGIBLE = False
+
+    try:
+
+        selected_direction = None
+        selected_snapshot = None
+
+        if (
+            REAL_SHORT_MARKET_ELIGIBLE
+            and
+            real_short_snapshot is not None
+        ):
+
+            selected_direction = "SHORT"
+            selected_snapshot = real_short_snapshot
+
+        elif (
+            REAL_LONG_MARKET_ELIGIBLE
+            and
+            real_long_snapshot is not None
+        ):
+
+            selected_direction = "LONG"
+            selected_snapshot = real_long_snapshot
+
+        if selected_direction is None:
+
+            diagnostic_check(
+                "ADJUSTABLE_TP_BALANCE_READINESS",
+                False,
+                "TRADE_NOT_ELIGIBLE: no currently eligible real market TP set",
+            )
+
+            diagnostic_check(
+                "WRITER_REQUEST_CONSTRUCTION",
+                False,
+                "blocked: no currently eligible real market TP set",
+            )
+
+        elif (
+            AVAILABLE_BALANCE is None
+            or
+            MARK_PRICE is None
+        ):
+
+            diagnostic_check(
+                "ADJUSTABLE_TP_BALANCE_READINESS",
+                False,
+                "READINESS_UNAVAILABLE: balance or mark price unavailable",
+            )
+
+            diagnostic_check(
+                "WRITER_REQUEST_CONSTRUCTION",
+                False,
+                "blocked: balance or mark price unavailable",
+            )
+
+        else:
+
+            leverage = (
+                LEVERAGE_SHORT
+                if selected_direction == "SHORT"
+                else LEVERAGE_LONG
+            )
+
+            balance_readiness = (
+                evaluate_strict_tp_balance_readiness(
+                    AVAILABLE_BALANCE,
+                    MARK_PRICE,
+                    leverage,
+                )
+            )
+
+            quantity_feasibility = (
+                evaluate_writer_quantity_feasibility(
+                    D(
+                        balance_readiness[
+                            "planned_entry_quantity"
+                        ]
+                    )
+                )
+            )
+
+            log(
+                "R36F.12 ADJUSTABLE TP BALANCE READINESS "
+                + "direction=" + selected_direction
+                + " status=" + balance_readiness["status"]
+                + " reason=" + balance_readiness["reason"]
+                + " available_usdt="
+                + balance_readiness["available_balance"]
+                + " planned_entry_qty="
+                + balance_readiness["planned_entry_quantity"]
+                + " minimum_entry_qty="
+                + balance_readiness[
+                    "minimum_strict_tp_entry_quantity"
+                ]
+                + " required_margin_usdt="
+                + balance_readiness[
+                    "required_margin_for_minimum_qty"
+                ]
+                + " required_available_usdt="
+                + balance_readiness[
+                    "required_available_balance"
+                ]
+                + " shortfall_usdt="
+                + balance_readiness[
+                    "available_balance_shortfall"
+                ]
+            )
+
+            diagnostic_check(
+                "ADJUSTABLE_TP_BALANCE_READINESS",
+                balance_readiness[
+                    "eligible"
+                ],
+                (
+                    "status="
+                    + balance_readiness[
+                        "status"
+                    ]
+                    + " reason="
+                    + balance_readiness[
+                        "reason"
+                    ]
+                ),
+            )
+
+            diagnostic_check(
+                "ADJUSTABLE_TP_QUANTITY_FEASIBILITY",
+                quantity_feasibility[
+                    "feasible"
+                ],
+                (
+                    "reason="
+                    + quantity_feasibility[
+                        "reason"
+                    ]
+                ),
+            )
+
+            if not balance_readiness[
+                "eligible"
+            ]:
+
+                log(
+                    "R36F.11 TRADE_READINESS = REJECTED "
+                    + "reason="
+                    + balance_readiness[
+                        "reason"
+                    ]
+                )
+
+                diagnostic_check(
+                    "WRITER_REQUEST_CONSTRUCTION",
+                    False,
+                    (
+                        "blocked before construction: "
+                        + balance_readiness[
+                            "reason"
+                        ]
+                    ),
+                )
+
+            else:
+
+                quantity = D(
+                    balance_readiness[
+                        "planned_entry_quantity"
+                    ]
+                )
+
+                log(
+                    "R36F.11 TRADE_READINESS = ELIGIBLE "
+                    + "reason="
+                    + balance_readiness[
+                        "reason"
+                    ]
+                )
+
+                writer_preview = (
+                    build_writer_request_preview(
+                        selected_direction,
+                        MARK_PRICE,
+                        quantity,
+                        selected_snapshot,
+                    )
+                )
+
+                WRITER_CONSTRUCTION_ELIGIBLE = bool(
+                    writer_preview[
+                        "submitted"
+                    ] is False
+                    and writer_preview[
+                        "quantity_validation"
+                    ][
+                        "all_valid"
+                    ]
+                    and writer_preview[
+                        "transport_enabled"
+                    ] is False
+                )
+
+                diagnostic_check(
+                    "WRITER_REQUEST_CONSTRUCTION",
+                    WRITER_CONSTRUCTION_ELIGIBLE,
+                    (
+                        "direction="
+                        + selected_direction
+                        + " quantity="
+                        + writer_preview[
+                            "entry_quantity"
+                        ]
+                        + " tp1_qty="
+                        + writer_preview[
+                            "tp1_quantity"
+                        ]
+                        + " tp2_qty="
+                        + writer_preview[
+                            "tp2_quantity"
+                        ]
+                        + " tp3_qty="
+                        + writer_preview[
+                            "tp3_quantity"
+                        ]
+                    ),
+                )
+
+                for (
+                    validation_name,
+                    validation_result,
+                ) in writer_preview[
+                    "quantity_validation"
+                ].items():
+
+                    if validation_name == "all_valid":
+                        continue
+
+                    diagnostic_check(
+                        "WRITER_QUANTITY_"
+                        + validation_name.upper(),
+                        validation_result,
+                    )
+
+                canary_quantity = min(
+                    quantity,
+                    CANARY_MAX_ENTRY_QUANTITY,
+                )
+
+                canary_writer_preview = (
+                    build_writer_request_preview(
+                        selected_direction,
+                        MARK_PRICE,
+                        canary_quantity,
+                        selected_snapshot,
+                    )
+                )
+
+                production_journal = (
+                    read_json_file(
+                        R36F12_CANARY_JOURNAL_FILE,
+                        default={},
+                    )
+                )
+
+                configured_stop = (
+                    parse_canary_stop_price(
+                        CANARY_STOP_PRICE_TEXT
+                    )
+                )
+
+                r36f13_stop_price = (
+                    configured_stop
+                    if configured_stop is not None
+                    else
+                    calculate_r36f13_protective_stop(
+                        selected_direction,
+                        canary_writer_preview[
+                            "entry_price"
+                        ],
+                    )
+                )
+
+                r36f13_stop_checks = (
+                    validate_r36f13_protective_stop(
+                        selected_direction,
+                        canary_writer_preview[
+                            "entry_price"
+                        ],
+                        r36f13_stop_price,
+                        canary_writer_preview[
+                            "tp1"
+                        ],
+                        canary_writer_preview[
+                            "tp2"
+                        ],
+                    )
+                )
+
+                diagnostic_check(
+                    "R36F13_PROTECTIVE_STOP_CALCULATED_OR_CONFIGURED",
+                    r36f13_stop_checks[
+                        "configured_or_calculated"
+                    ],
+                    (
+                        "stop="
+                        + decimal_to_string(
+                            r36f13_stop_price
+                        )
+                    ),
+                )
+
+                for (
+                    stop_check_name,
+                    stop_check_result,
+                ) in r36f13_stop_checks.items():
+
+                    if stop_check_name in {
+                        "all_valid",
+                        "configured_or_calculated",
+                    }:
+
+                        continue
+
+                    diagnostic_check(
+                        "R36F13_PROTECTIVE_STOP_"
+                        + stop_check_name.upper(),
+                        stop_check_result,
+                    )
+
+                check(
+                    "R36F13_PROTECTIVE_STOP_AUTHORIZATION_GATE",
+                    r36f13_stop_checks[
+                        "all_valid"
+                    ],
+                )
+
+                r36f131_stop_envelope = (
+                    validate_r36f131_stop_risk_envelope(
+                        selected_direction,
+                        canary_writer_preview[
+                            "entry_price"
+                        ],
+                        r36f13_stop_price,
+                        leverage,
+                    )
+                )
+
+                log(
+                    "R36F.13.1 STOP RISK ENVELOPE "
+                    + "distance_percent="
+                    + r36f131_stop_envelope[
+                        "distance_percent"
+                    ]
+                    + " max_percent="
+                    + r36f131_stop_envelope[
+                        "configured_maximum_percent"
+                    ]
+                    + " leverage_reference_percent="
+                    + r36f131_stop_envelope[
+                        "leverage_reference_percent"
+                    ]
+                )
+
+                for (
+                    envelope_check_name,
+                    envelope_check_result,
+                ) in r36f131_stop_envelope[
+                    "checks"
+                ].items():
+
+                    diagnostic_check(
+                        "R36F131_STOP_RISK_ENVELOPE_"
+                        + envelope_check_name.upper(),
+                        envelope_check_result,
+                    )
+
+                check(
+                    "R36F131_STOP_RISK_ENVELOPE_AUTHORIZATION_GATE",
+                    r36f131_stop_envelope[
+                        "all_valid"
+                    ],
+                )
+
+                r36f132_stop_loss_budget = validate_r36f132_stop_loss_budget(
+                    canary_writer_preview["entry_price"],
+                    r36f13_stop_price,
+                    canary_writer_preview["entry_quantity"],
+                    AVAILABLE_BALANCE,
+                    leverage,
+                )
+
+                log(
+                    "R36F.13.2 STOP LOSS BUDGET "
+                    + "expected_loss_usdt=" + r36f132_stop_loss_budget["expected_loss_usdt"]
+                    + " expected_loss_percent=" + r36f132_stop_loss_budget["expected_loss_percent_of_available_balance"]
+                    + " max_account_loss_percent=" + r36f132_stop_loss_budget["configured_max_account_loss_percent"]
+                    + " isolated_entry_margin_usdt=" + r36f132_stop_loss_budget["isolated_entry_margin_usdt"]
+                )
+
+                for loss_check_name, loss_check_result in r36f132_stop_loss_budget["checks"].items():
+                    if loss_check_name == "all_valid":
+                        continue
+                    diagnostic_check(
+                        "R36F132_STOP_LOSS_BUDGET_" + loss_check_name.upper(),
+                        loss_check_result,
+                    )
+
+                check(
+                    "R36F132_STOP_LOSS_BUDGET_AUTHORIZATION_GATE",
+                    r36f132_stop_loss_budget["all_valid"],
+                )
+
+                # R36F.15.2: use the direction-specific TP snapshot selected above.
+                # R36F.15.1 accidentally referenced the nonexistent
+                # selected_tp_snapshot name here.
+                check(
+                    "R36F152_SELECTED_TP_SNAPSHOT_AVAILABLE",
+                    selected_snapshot is not None,
+                )
+
+                r36f14_demo_order_preview = build_r36f14_demo_order_preview(
+                    selected_direction,
+                    canary_writer_preview["entry_quantity"],
+                    selected_snapshot,
+                    r36f13_stop_price,
+                )
+
+                r36f14_demo_order_validation = validate_r36f14_demo_order_preview(
+                    r36f14_demo_order_preview,
+                    selected_direction,
+                    canary_writer_preview["entry_price"],
+                )
+
+                for demo_check_name, demo_check_result in r36f14_demo_order_validation["checks"].items():
+                    if demo_check_name == "all_valid":
+                        continue
+                    diagnostic_check(
+                        "R36F14_DEMO_ORDER_" + demo_check_name.upper(),
+                        demo_check_result,
+                    )
+
+                check(
+                    "R36F14_DEMO_ORDER_INTEGRATION_GATE",
+                    r36f14_demo_order_validation["all_valid"],
+                )
+
+                protected_canary_preview = (
+                    build_protected_canary_preview(
+                        canary_writer_preview,
+                        r36f13_stop_price,
+                        CANARY_ARM_REQUESTED,
+                        production_journal,
+                        len(
+                            OPEN_POSITIONS
+                        ) == 0,
+                    )
+                )
+
+                diagnostic_check(
+                    "R36F13_CANARY_QUANTITY_CAPPED",
+                    protected_canary_preview[
+                        "quantity_capped"
+                    ],
+                    "max=0.0004 BTC",
+                )
+
+                diagnostic_check(
+                    "R36F13_DURABLE_JOURNAL_CLEAR",
+                    protected_canary_preview[
+                        "journal_clear"
+                    ],
+                )
+
+                TELEGRAM_COMMAND_PREVIEW = (
+                    apply_r36f13_stop_authorization_gate(
+                        TELEGRAM_COMMAND_PREVIEW,
+                        r36f13_stop_checks,
+                    )
+                )
+
+                TELEGRAM_COMMAND_PREVIEW = (
+                    apply_r36f131_risk_envelope_authorization_gate(
+                        TELEGRAM_COMMAND_PREVIEW,
+                        r36f131_stop_envelope,
+                    )
+                )
+
+                TELEGRAM_COMMAND_PREVIEW = (
+                    apply_r36f132_stop_loss_budget_authorization_gate(
+                        TELEGRAM_COMMAND_PREVIEW,
+                        r36f132_stop_loss_budget,
+                    )
+                )
+
+                log(
+                    f"R36F.15 DEMO ARM REQUESTED = {R36F15_DEMO_ARM_REQUESTED}"
+                )
+
+                r36f15_demo_submission = await submit_r36f15_demo_order(
+                    r36f14_demo_order_preview,
+                    TELEGRAM_COMMAND_PREVIEW,
+                )
+
+                log(
+                    "R36F.15 DEMO SUBMISSION RESULT = "
+                    + canonical_json(r36f15_demo_submission)
+                )
+
+                if r36f15_demo_submission.get("attempted"):
+                    check(
+                        "R36F15_DEMO_ORDER_ACCEPTED",
+                        r36f15_demo_submission.get("accepted") is True,
+                        str(r36f15_demo_submission.get("transport")),
+                    )
+
+                    if r36f15_demo_submission.get("accepted"):
+                        await asyncio.sleep(float(R36F15_RECONCILE_DELAY_SECONDS))
+                        r36f15_demo_reconciliation_after = await r36f14_read_demo_account()
+                        diagnostic_check(
+                            "R36F15_POST_TRADE_DEMO_RECONCILIATION",
+                            r36f15_demo_reconciliation_after.get("all_reads_successful") is True,
+                            canonical_json(r36f15_demo_reconciliation_after),
+                        )
+                else:
+                    diagnostic_check(
+                        "R36F15_DEMO_DISPATCH_NOT_ATTEMPTED",
+                        True,
+                        r36f15_demo_submission.get("reason"),
+                    )
+
+                check(
+                    "R36F132_LIVE_TRANSPORT_REMAINS_DISABLED",
+                    EXCHANGE_MUTATION_TRANSPORT_ENABLED
+                    is False
+                    and
+                    ORDER_SUBMISSION_ENABLED
+                    is False
+                    and
+                    REAL_ORDER_EXECUTION
+                    is False
+                    and
+                    FIRST_REAL_ORDER_ALLOWED
+                    is False,
+                )
+
+    except Exception as exc:
+
+        diagnostic_check(
+            "ADJUSTABLE_TP_BALANCE_READINESS",
+            False,
+            str(exc),
+        )
+
+        diagnostic_check(
+            "WRITER_REQUEST_CONSTRUCTION",
+            False,
+            str(exc),
+        )
+
+        # R36F.15.2: an unexpected exception in the eligible writer/demo
+        # construction path is a capability failure, not normal market
+        # ineligibility, and must therefore become a final blocker.
+        check(
+            "R36F152_WRITER_DEMO_PIPELINE_EXCEPTION_FREE",
+            False,
+            str(exc),
+        )
+
+    zero_write_conditions = (
+
+        REAL_ORDER_EXECUTION is False
+
+        and
+
+        DEMO_ORDER_EXECUTION is False
+
+        and
+
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        is False
+
+        and
+
+        ORDER_SUBMISSION_ENABLED
+        is False
+
+        and
+
+        LEVERAGE_MUTATION_ENABLED
+        is False
+
+        and
+
+        MARGIN_MODE_MUTATION_ENABLED
+        is False
+
+        and
+
+        POSITION_MUTATION_ENABLED
+        is False
+
+        and
+
+        FIRST_REAL_ORDER_ALLOWED
+        is False
+
+        and
+
+        R36F14_DEMO_POST_TRANSPORT_ENABLED
+        is False
+
+        and
+
+        R36F14_DEMO_ORDER_SUBMISSION_ENABLED
+        is False
+
+        and
+
+        R36F14_FIRST_DEMO_ORDER_ALLOWED
+        is False
+    )
+
+    ZERO_WRITE_INVARIANT_OK = (
+        zero_write_conditions
+    )
+
+    check(
+        "REAL_MONEY_ZERO_WRITE_INVARIANTS",
+        ZERO_WRITE_INVARIANT_OK,
+    )
+
+    FINAL_GATE_OK = (
+        len(
+            FINAL_BLOCKERS
+        ) == 0
+    )
+
+    TEST_STATUS = (
+        "PASS"
+        if FINAL_GATE_OK
+        else
+        "FAIL"
+    )
+
+    line()
+
+    log(
+        f"{STAGE} FINAL STATUS = "
+        f"{TEST_STATUS}"
+    )
+
+    log(
+        f"{STAGE} FINAL_BLOCKER_COUNT = "
+        f"{len(FINAL_BLOCKERS)}"
+    )
+
+    for blocker in FINAL_BLOCKERS:
+
+        log(
+            f"{STAGE} FINAL_BLOCKER = "
+            f"{blocker}"
+        )
+
+    log(
+        f"{STAGE} REAL_LONG_MARKET_ELIGIBLE = "
+        f"{REAL_LONG_MARKET_ELIGIBLE}"
+    )
+
+    log(
+        f"{STAGE} REAL_SHORT_MARKET_ELIGIBLE = "
+        f"{REAL_SHORT_MARKET_ELIGIBLE}"
+    )
+
+    log(
+        f"{STAGE} WRITER_CONSTRUCTION_ELIGIBLE = "
+        f"{WRITER_CONSTRUCTION_ELIGIBLE}"
+    )
+
+    log(
+        f"{STAGE} EMA_IDEAL_DIRECTION = "
+        f"{EMA_SIGNAL_SNAPSHOT.get('ideal_direction')}"
+    )
+
+    log(
+        f"{STAGE} EMA_STRUCTURE = "
+        f"{EMA_SIGNAL_SNAPSHOT.get('structure')}"
+    )
+
+    log(
+        f"{STAGE} TELEGRAM_COMMAND_AUTHORIZED_PREVIEW = "
+        f"{TELEGRAM_COMMAND_PREVIEW.get('authorized_preview', False)}"
+    )
+
+    log(
+        f"{STAGE} DEMO_ARM_REQUESTED = {R36F15_DEMO_ARM_REQUESTED}"
+    )
+
+    log(
+        f"{STAGE} DEMO_ORDER_ATTEMPTED = {bool(r36f15_demo_submission and r36f15_demo_submission.get('attempted'))}"
+    )
+
+    log(
+        f"{STAGE} DEMO_ORDER_ACCEPTED = {bool(r36f15_demo_submission and r36f15_demo_submission.get('accepted'))}"
+    )
+
+    log(
+        f"{STAGE} PROTECTIVE_STOP_PRICE = "
+        f"{decimal_to_string(r36f13_stop_price) if r36f13_stop_price is not None else None}"
+    )
+
+    log(
+        f"{STAGE} PROTECTIVE_STOP_VALID = "
+        f"{bool(r36f13_stop_checks and r36f13_stop_checks.get('all_valid'))}"
+    )
+
+    log(
+        f"{STAGE} PROTECTIVE_STOP_DISTANCE_PERCENT = "
+        f"{r36f131_stop_envelope.get('distance_percent') if r36f131_stop_envelope else None}"
+    )
+
+    log(
+        f"{STAGE} PROTECTIVE_STOP_RISK_ENVELOPE_VALID = "
+        f"{bool(r36f131_stop_envelope and r36f131_stop_envelope.get('all_valid'))}"
+    )
+
+    log(
+        f"{STAGE} PROTECTIVE_STOP_LOSS_BUDGET_VALID = "
+        f"{bool(r36f132_stop_loss_budget and r36f132_stop_loss_budget.get('all_valid'))}"
+    )
+
+    if r36f132_stop_loss_budget:
+        log(f"{STAGE} EXPECTED_STOP_LOSS_USDT = {r36f132_stop_loss_budget.get('expected_loss_usdt')}")
+        log(f"{STAGE} EXPECTED_STOP_LOSS_PERCENT = {r36f132_stop_loss_budget.get('expected_loss_percent_of_available_balance')}")
+        log(f"{STAGE} MAX_ACCOUNT_LOSS_PERCENT = {r36f132_stop_loss_budget.get('configured_max_account_loss_percent')}")
+
+    log(
+        f"{STAGE} STRICT_20_20_60_QUANTITY_FEASIBLE = "
+        f"{bool(quantity_feasibility and quantity_feasibility.get('feasible'))}"
+    )
+
+    if quantity_feasibility:
+
+        log(
+            f"{STAGE} ADJUSTABLE_TP_MIN_ENTRY_QTY = "
+            f"{quantity_feasibility.get('minimum_required_entry_quantity')}"
+        )
+
+    log(
+        f"{STAGE} ADJUSTABLE_TP_BALANCE_READY = "
+        f"{bool(balance_readiness and balance_readiness.get('eligible'))}"
+    )
+
+    if balance_readiness:
+
+        log(
+            f"{STAGE} TRADE_READINESS_STATUS = "
+            f"{balance_readiness.get('status')}"
+        )
+
+        log(
+            f"{STAGE} TRADE_READINESS_REASON = "
+            f"{balance_readiness.get('reason')}"
+        )
+
+        log(
+            f"{STAGE} REQUIRED_AVAILABLE_BALANCE = "
+            f"{balance_readiness.get('required_available_balance')}"
+        )
+
+        log(
+            f"{STAGE} AVAILABLE_BALANCE_SHORTFALL = "
+            f"{balance_readiness.get('available_balance_shortfall')}"
+        )
+
+    snapshot = {
+
+        "stage":
+            STAGE,
+
+        "purpose":
+            PURPOSE,
+
+        "timestamp":
+            now_iso(),
+
+        "test_status":
+            TEST_STATUS,
+
+        "final_gate_ok":
+            FINAL_GATE_OK,
+
+        "final_blockers":
+            FINAL_BLOCKERS,
+
+        "weex_read_only_ok":
+            WEEX_READ_ONLY_OK,
+
+        "durable_evidence_ok":
+            DURABLE_EVIDENCE_OK,
+
+        "r36a_evidence_ok":
+            R36A_EVIDENCE_OK,
+
+        "r36c_evidence_ok":
+            R36C_EVIDENCE_OK,
+
+        "r36d_evidence_ok":
+            R36D_EVIDENCE_OK,
+
+        "zero_write_invariant_ok":
+            ZERO_WRITE_INVARIANT_OK,
+
+        "mark_price":
+            decimal_to_string(
+                MARK_PRICE
+            ),
+
+        "available_balance":
+            decimal_to_string(
+                AVAILABLE_BALANCE
+            ),
+
+        "open_positions":
+            OPEN_POSITIONS,
+
+        "long_diagnostics":
+            LONG_DIAGNOSTICS,
+
+        "short_diagnostics":
+            SHORT_DIAGNOSTICS,
+
+        "tp_policy":
+            {
+
+                "required_valid_clusters":
+                    REQUIRED_TP_CLUSTERS,
+
+                "tp1_progress_percent":
+                    decimal_to_string(
+                        TP1_PROFIT_MARGIN_PERCENT
+                    ),
+
+                "tp2_progress_percent":
+                    decimal_to_string(
+                        TP2_PROFIT_MARGIN_PERCENT
+                    ),
+
+                "tp3_allocation_percent":
+                    decimal_to_string(
+                        TP3_ALLOCATION_PERCENT
+                    ),
+
+                "tp1_allocation_percent":
+                    decimal_to_string(
+                        TP1_ALLOCATION_PERCENT
+                    ),
+
+                "tp2_allocation_percent":
+                    decimal_to_string(
+                        TP2_ALLOCATION_PERCENT
+                    ),
+
+                "writer_quantity_policy":
+                    {
+
+                        "tp1_minimum":
+                            decimal_to_string(
+                                MIN_QUANTITY
+                            ),
+
+                        "tp2_minimum":
+                            decimal_to_string(
+                                MIN_QUANTITY
+                            ),
+
+                        "tp3_minimum":
+                            decimal_to_string(
+                                MIN_QUANTITY
+                            ),
+
+                        "strict_allocation":
+                            "20/20/60",
+
+                        "minimum_strict_entry_quantity":
+                            decimal_to_string(
+                                minimum_strict_tp_entry_quantity()
+                            ),
+
+                        "minimum_leg_promotion_allowed":
+                            False,
+
+                        "remainder_redistribution_allowed":
+                            False,
+                    },
+
+                "cluster_tolerance_percent":
+                    decimal_to_string(
+                        CLUSTER_TOLERANCE_PERCENT
+                    ),
+
+                "minimum_cluster_touches":
+                    MIN_CLUSTER_TOUCHES,
+            },
+
+        "synthetic_test_policy":
+            {
+
+                "long_requires_two_clusters":
+                    True,
+
+                "short_requires_two_clusters":
+                    True,
+
+                "one_cluster_must_reject":
+                    True,
+
+                "synthetic_fixtures_changed":
+                    True,
+
+                "production_tp_policy_changed":
+                    False,
+            },
+
+        "market_eligibility":
+            {
+
+                "real_long_market_eligible":
+                    REAL_LONG_MARKET_ELIGIBLE,
+
+                "real_short_market_eligible":
+                    REAL_SHORT_MARKET_ELIGIBLE,
+            },
+
+        "r36f12_ema_signal":
+            EMA_SIGNAL_SNAPSHOT,
+
+        "r36f12_telegram_command_preview":
+            TELEGRAM_COMMAND_PREVIEW,
+
+        "r36f12_telegram_policy":
+            {
+
+                "buy_command":
+                    TELEGRAM_BUY_COMMAND,
+
+                "sell_command":
+                    TELEGRAM_SELL_COMMAND,
+
+                "alerts_enabled":
+                    R36F12_TELEGRAM_ALERTS_ENABLED,
+
+                "command_can_execute_exchange_order":
+                    False,
+
+                "requires_ema_direction_agreement":
+                    True,
+
+                "requires_tp_market_eligibility":
+                    True,
+            },
+
+        "canary_preview":
+            canary_preview,
+
+        "writer_preview":
+            writer_preview,
+
+        "r36f12_protected_canary_preview":
+            protected_canary_preview,
+
+        "r36f13_protective_stop":
+            {
+
+                "distance_percent":
+                    decimal_to_string(
+                        R36F13_PROTECTIVE_STOP_DISTANCE_PERCENT
+                    ),
+
+                "price":
+                    (
+                        decimal_to_string(
+                            r36f13_stop_price
+                        )
+                        if r36f13_stop_price is not None
+                        else None
+                    ),
+
+                "checks":
+                    r36f13_stop_checks,
+
+                "mandatory_before_authorization":
+                    True,
+
+                "exchange_order_sent":
+                    False,
+            },
+
+        "r36f131_stop_risk_envelope":
+            {
+
+                "configured_maximum_percent":
+                    decimal_to_string(
+                        R36F131_MAX_PROTECTIVE_STOP_DISTANCE_PERCENT
+                    ),
+
+                "evaluation":
+                    r36f131_stop_envelope,
+
+                "mandatory_before_authorization":
+                    True,
+
+                "leverage_reference_is_not_liquidation_price":
+                    True,
+
+                "exchange_order_sent":
+                    False,
+            },
+
+        "r36f132_stop_loss_budget":
+            {
+                "configured_max_account_loss_percent":
+                    decimal_to_string(
+                        R36F132_MAX_ACCOUNT_LOSS_PERCENT
+                    ),
+
+                "evaluation":
+                    r36f132_stop_loss_budget,
+
+                "mandatory_before_authorization":
+                    True,
+
+                "exchange_order_sent":
+                    False,
+            },
+
+        "r36f12_canary_safety":
+            {
+
+                "max_entry_quantity":
+                    decimal_to_string(
+                        CANARY_MAX_ENTRY_QUANTITY
+                    ),
+
+                "stop_price_configured":
+                    bool(
+                        CANARY_STOP_PRICE_TEXT
+                    ),
+
+                "explicit_arm_requested":
+                    CANARY_ARM_REQUESTED,
+
+                "durable_journal_file":
+                    R36F12_CANARY_JOURNAL_FILE,
+
+                "durable_journal_unresolved":
+                    unresolved_canary_journal(
+                        read_json_file(
+                            R36F12_CANARY_JOURNAL_FILE,
+                            default={},
+                        )
+                    ),
+
+                "r36f12_zero_write":
+                    True,
+            },
+
+        "strict_tp_quantity_feasibility":
+            quantity_feasibility,
+
+        "strict_tp_balance_readiness":
+            balance_readiness,
+
+        "trade_readiness":
+            {
+
+                "status":
+                    (
+                        balance_readiness.get(
+                            "status"
+                        )
+                        if balance_readiness
+                        else "UNAVAILABLE"
+                    ),
+
+                "reason":
+                    (
+                        balance_readiness.get(
+                            "reason"
+                        )
+                        if balance_readiness
+                        else "READINESS_NOT_EVALUATED"
+                    ),
+
+                "eligible":
+                    bool(
+                        balance_readiness
+                        and balance_readiness.get(
+                            "eligible"
+                        )
+                    ),
+            },
+
+        "writer_construction_eligible":
+            WRITER_CONSTRUCTION_ELIGIBLE,
+
+        "execution_firebreak":
+            {
+
+                "real_order_execution":
+                    REAL_ORDER_EXECUTION,
+
+                "demo_order_execution":
+                    DEMO_ORDER_EXECUTION,
+
+                "exchange_mutation_transport_enabled":
+                    EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+                "order_submission_enabled":
+                    ORDER_SUBMISSION_ENABLED,
+
+                "leverage_mutation_enabled":
+                    LEVERAGE_MUTATION_ENABLED,
+
+                "margin_mode_mutation_enabled":
+                    MARGIN_MODE_MUTATION_ENABLED,
+
+                "position_mutation_enabled":
+                    POSITION_MUTATION_ENABLED,
+
+                "first_real_order_allowed":
+                    FIRST_REAL_ORDER_ALLOWED,
+
+                "demo_post_transport_enabled":
+                    R36F14_DEMO_POST_TRANSPORT_ENABLED,
+
+                "demo_order_submission_enabled":
+                    R36F14_DEMO_ORDER_SUBMISSION_ENABLED,
+
+                "first_demo_order_allowed":
+                    R36F14_FIRST_DEMO_ORDER_ALLOWED,
+
+                "r36f15_demo_post_transport_enabled":
+                    R36F15_DEMO_POST_TRANSPORT_ENABLED,
+
+                "r36f15_demo_order_submission_enabled":
+                    R36F15_DEMO_ORDER_SUBMISSION_ENABLED,
+
+                "r36f15_demo_arm_requested":
+                    R36F15_DEMO_ARM_REQUESTED,
+            },
+
+        "r36f14_weex_demo_integration":
+            {
+                "demo_symbol": R36F14_DEMO_SYMBOL,
+                "demo_asset": R36F14_DEMO_ASSET,
+                "balance_endpoint": R36F14_DEMO_BALANCE_ENDPOINT,
+                "positions_endpoint": R36F14_DEMO_POSITIONS_ENDPOINT,
+                "history_endpoint": R36F14_DEMO_ORDER_HISTORY_ENDPOINT,
+                "order_endpoint": R36F14_DEMO_ORDER_ENDPOINT,
+                "read_only_reconciliation": r36f14_demo_account,
+                "synthetic_integration": r36f14_demo_integration,
+                "real_market_demo_order_preview": r36f14_demo_order_preview,
+                "real_market_demo_order_validation": r36f14_demo_order_validation,
+                "demo_post_transport_enabled": R36F14_DEMO_POST_TRANSPORT_ENABLED,
+                "demo_order_submission_enabled": R36F14_DEMO_ORDER_SUBMISSION_ENABLED,
+                "first_demo_order_allowed": R36F14_FIRST_DEMO_ORDER_ALLOWED,
+                "actual_demo_order_sent": bool(
+                    r36f15_demo_submission
+                    and r36f15_demo_submission.get("sent")
+                ),
+                "actual_demo_order_accepted": bool(
+                    r36f15_demo_submission
+                    and r36f15_demo_submission.get("accepted")
+                ),
+                "r36f15_demo_submission": r36f15_demo_submission,
+                "r36f15_post_trade_reconciliation": r36f15_demo_reconciliation_after,
+                "actual_real_order_sent": False,
+            },
+
+        "writer_endpoints":
+            {
+
+                "entry":
+                    WRITER_ENDPOINT_ENTRY,
+
+                "tp1_tp2":
+                    WRITER_ENDPOINT_TPSL,
+
+                "tp3":
+                    WRITER_ENDPOINT_TRAILING,
+            },
+
+        "writer_submission_policy":
+            {
+
+                "submitted":
+                    False,
+
+                "post_requests_sent":
+                    False,
+
+                "exchange_mutation_sent":
+                    False,
+            },
+    }
+
+    write_json_file(
+        R36F_SNAPSHOT_FILE,
+        snapshot,
+    )
+
+    write_json_file(
+        R36F12_TELEGRAM_SIGNAL_FILE,
+        EMA_SIGNAL_SNAPSHOT,
+    )
+
+    write_json_file(
+        R36F12_TELEGRAM_COMMAND_FILE,
+        TELEGRAM_COMMAND_PREVIEW,
+    )
+
+    log(
+        f"{STAGE} SNAPSHOT WRITTEN = "
+        f"{R36F_SNAPSHOT_FILE}"
+    )
+
+    line()
+
+    log(
+        "NO REAL ORDER WAS SENT"
+    )
+
+    if (
+        r36f15_demo_submission
+        and r36f15_demo_submission.get("sent")
+    ):
+        log(
+            "WEEX DEMO ORDER WAS SENT; PRODUCTION REAL-MONEY ORDER REMAINS DISABLED"
+        )
+    else:
+        log(
+            "NO DEMO ORDER WAS SENT"
+        )
+
+    log(
+        "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+    )
+
+    line()
+
+    return snapshot
+
+
+# ============================================================
+# HEARTBEAT
+# ============================================================
+
+async def heartbeat_loop():
+
+    global HEARTBEAT_COUNT
+    global TEST_STATUS
+
+    while True:
+
+        HEARTBEAT_COUNT += 1
+
+        log(
+            f"HEARTBEAT "
+            f"stage={STAGE} "
+            f"status={TEST_STATUS} "
+            f"count={HEARTBEAT_COUNT} "
+            f"r36a_id={OLD_R36A_UPDATE_ID} "
+            f"tp1_margin="
+            f"{decimal_to_string(TP1_PROFIT_MARGIN_PERCENT)} "
+            f"tp2_margin="
+            f"{decimal_to_string(TP2_PROFIT_MARGIN_PERCENT)} "
+            f"required_clusters="
+            f"{REQUIRED_TP_CLUSTERS} "
+            f"long_valid_clusters="
+            f"{LONG_DIAGNOSTICS.get('valid_cluster_count')} "
+            f"short_valid_clusters="
+            f"{SHORT_DIAGNOSTICS.get('valid_cluster_count')} "
+            f"write_transport="
+            f"{EXCHANGE_MUTATION_TRANSPORT_ENABLED} "
+            f"real_execution="
+            f"{REAL_ORDER_EXECUTION} "
+            f"demo_arm="
+            f"{R36F15_DEMO_ARM_REQUESTED} "
+            f"reevaluation_seconds="
+            f"{R36F151_REEVALUATION_SECONDS}"
+        )
+
+        await asyncio.sleep(
+            R36F151_REEVALUATION_SECONDS
+        )
+
+        line()
+        log(
+            f"{STAGE} RUNTIME REEVALUATION START "
+            f"heartbeat={HEARTBEAT_COUNT}"
+        )
+        line()
+
+        try:
+            # Deliberately rerun the proven complete R36F.15 pipeline.
+            # This refetches mark price/history/account reads, recalculates
+            # EMA and historical TP clusters, revalidates the command,
+            # rebuilds stop/risk/writer previews, and reaches demo transport
+            # only when every existing authorization gate passes.
+            # The durable R36F15 demo journal inside submit_r36f15_demo_order()
+            # preserves exactly-once first-demo dispatch across every cycle
+            # and across service restarts.
+            await run_r36f12()
+
+            log(
+                f"{STAGE} RUNTIME REEVALUATION COMPLETE "
+                f"heartbeat={HEARTBEAT_COUNT} "
+                f"status={TEST_STATUS} "
+                f"long_valid_clusters="
+                f"{LONG_DIAGNOSTICS.get('valid_cluster_count')} "
+                f"short_valid_clusters="
+                f"{SHORT_DIAGNOSTICS.get('valid_cluster_count')}"
+            )
+
+        except Exception as exc:
+            TEST_STATUS = "FAIL"
+            line()
+            log(
+                f"{STAGE} RUNTIME REEVALUATION ERROR = {exc}"
+            )
+            line()
+
+
+# ============================================================
+# ASYNC MAIN
+# ============================================================
+
+async def async_main():
+
+    global TEST_STATUS
+
+    start_health_server()
+
+    try:
+
+        await run_r36f12()
+
+    except Exception as exc:
+
+        TEST_STATUS = "FAIL"
+
+        line()
+
+        log(
+            f"{STAGE} UNHANDLED ERROR = "
+            f"{exc}"
+        )
+
+        line()
+
+    await heartbeat_loop()
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    asyncio.run(
+        async_main()
+    )
+
+
+if __name__ == "__main__":
+
+    main()
