@@ -4342,3 +4342,856 @@ def synthetic_tp_rejection_test():
 
     entry = Decimal(
         "99500"
+### R36F.15.2 — Part 6
+
+
+    )
+
+    diagnostics = (
+        build_cluster_diagnostics(
+            rows,
+            entry,
+            "LONG",
+        )
+    )
+
+    approval = (
+        evaluate_tp_approval(
+            diagnostics
+        )
+    )
+
+    check(
+        "ONE_CLUSTER_TP_REJECTED",
+        approval[
+            "approved"
+        ] is False,
+    )
+
+    check(
+        "ONE_CLUSTER_APPROVAL_STATUS_REJECTED",
+        approval[
+            "status"
+        ] == "REJECTED",
+    )
+
+    check(
+        "ONE_CLUSTER_DOES_NOT_APPROVE_TP_SET",
+        (
+            approval[
+                "available_valid_clusters"
+            ]
+            < REQUIRED_TP_CLUSTERS
+        ),
+    )
+
+    return approval
+
+# ============================================================
+# CANARY PREVIEW
+# ============================================================
+
+def build_canary_preview():
+
+    return {
+
+        "stage":
+            STAGE,
+
+        "symbol":
+            SYMBOL,
+
+        "real_order_execution":
+            REAL_ORDER_EXECUTION,
+
+        "demo_order_execution":
+            DEMO_ORDER_EXECUTION,
+
+        "exchange_mutation_transport_enabled":
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+        "order_submission_enabled":
+            ORDER_SUBMISSION_ENABLED,
+
+        "first_real_order_allowed":
+            FIRST_REAL_ORDER_ALLOWED,
+
+        "submitted":
+            False,
+
+        "exchange_request_sent":
+            False,
+    }
+
+
+# ============================================================
+# R36F.10 WRITER HELPERS
+# ============================================================
+
+WRITER_ENDPOINT_ENTRY = (
+    "/capi/v3/order"
+)
+
+WRITER_ENDPOINT_TPSL = (
+    "/capi/v3/placeTpSlOrder"
+)
+
+WRITER_ENDPOINT_TRAILING = (
+    "/capi/v3/algoOrder"
+)
+
+
+def writer_entry_side(
+    direction,
+):
+
+    if direction == "LONG":
+
+        return (
+            "BUY",
+            "LONG",
+        )
+
+    if direction == "SHORT":
+
+        return (
+            "SELL",
+            "SHORT",
+        )
+
+    raise ValueError(
+        f"Unsupported direction={direction}"
+    )
+
+
+def writer_close_side(
+    direction,
+):
+
+    if direction == "LONG":
+
+        return (
+            "SELL",
+            "LONG",
+        )
+
+    if direction == "SHORT":
+
+        return (
+            "BUY",
+            "SHORT",
+        )
+
+    raise ValueError(
+        f"Unsupported direction={direction}"
+    )
+
+
+def writer_client_id(
+    direction,
+    leg,
+):
+
+    value = (
+        f"R36F8-{direction}-{leg}-0001"
+    )
+
+    if len(value) > 36:
+
+        raise ValueError(
+            "writer client id exceeds WEEX limit"
+        )
+
+    return value
+
+
+# ============================================================
+# WRITER QUANTITY ALLOCATION
+# ============================================================
+
+ADJUSTED_TP1_ALLOCATION_PERCENT = Decimal("25")
+ADJUSTED_TP2_ALLOCATION_PERCENT = Decimal("25")
+ADJUSTED_TP3_ALLOCATION_PERCENT = Decimal("50")
+
+
+def allocation_exactly_representable(
+    entry_quantity,
+    tp1_percent,
+    tp2_percent,
+    tp3_percent,
+):
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    percentages = (
+        D(tp1_percent),
+        D(tp2_percent),
+        D(tp3_percent),
+    )
+
+    if sum(
+        percentages
+    ) != Decimal("100"):
+
+        return False
+
+    quantities = [
+
+        entry_quantity
+        * percent
+        / Decimal("100")
+
+        for percent
+        in percentages
+    ]
+
+    return bool(
+
+        entry_quantity
+        >= MIN_QUANTITY
+
+        and
+
+        all(
+            q >= MIN_QUANTITY
+            for q in quantities
+        )
+
+        and
+
+        all(
+            quantize_down(
+                q,
+                QUANTITY_STEP,
+            ) == q
+            for q in quantities
+        )
+
+        and
+
+        sum(
+            quantities
+        ) == entry_quantity
+    )
+
+
+def select_tp_allocation(
+    entry_quantity,
+):
+    """
+    Prefer 20/20/60; fall back only to the approved 25/25/50 allocation.
+    """
+
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    preferred = (
+        TP1_ALLOCATION_PERCENT,
+        TP2_ALLOCATION_PERCENT,
+        TP3_ALLOCATION_PERCENT,
+    )
+
+    adjusted = (
+        ADJUSTED_TP1_ALLOCATION_PERCENT,
+        ADJUSTED_TP2_ALLOCATION_PERCENT,
+        ADJUSTED_TP3_ALLOCATION_PERCENT,
+    )
+
+    if allocation_exactly_representable(
+        entry_quantity,
+        *preferred,
+    ):
+
+        return {
+
+            "tp1_percent":
+                preferred[0],
+
+            "tp2_percent":
+                preferred[1],
+
+            "tp3_percent":
+                preferred[2],
+
+            "adjusted":
+                False,
+
+            "label":
+                "20/20/60",
+        }
+
+    if allocation_exactly_representable(
+        entry_quantity,
+        *adjusted,
+    ):
+
+        return {
+
+            "tp1_percent":
+                adjusted[0],
+
+            "tp2_percent":
+                adjusted[1],
+
+            "tp3_percent":
+                adjusted[2],
+
+            "adjusted":
+                True,
+
+            "label":
+                "25/25/50",
+        }
+
+    return None
+
+
+def writer_quantities(
+    entry_quantity,
+):
+    """
+    Allocate TP quantities using preferred 20/20/60
+    or approved 25/25/50 fallback.
+    """
+
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    allocation = (
+        select_tp_allocation(
+            entry_quantity
+        )
+    )
+
+    if allocation is None:
+
+        return (
+            entry_quantity,
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0"),
+        )
+
+    tp1 = (
+        entry_quantity
+        * allocation[
+            "tp1_percent"
+        ]
+        / Decimal("100")
+    )
+
+    tp2 = (
+        entry_quantity
+        * allocation[
+            "tp2_percent"
+        ]
+        / Decimal("100")
+    )
+
+    tp3 = (
+        entry_quantity
+        * allocation[
+            "tp3_percent"
+        ]
+        / Decimal("100")
+    )
+
+    return (
+        entry_quantity,
+        tp1,
+        tp2,
+        tp3,
+    )
+
+
+# ============================================================
+# WRITER QUANTITY VALIDATION
+# ============================================================
+
+def validate_writer_quantities(
+    entry_quantity,
+    tp1,
+    tp2,
+    tp3,
+):
+
+    allocation = (
+        select_tp_allocation(
+            entry_quantity
+        )
+    )
+
+    if allocation is None:
+
+        return {
+
+            "allocation_selected":
+                False,
+
+            "all_valid":
+                False,
+        }
+
+    exact_tp1 = (
+        entry_quantity
+        * allocation[
+            "tp1_percent"
+        ]
+        / Decimal("100")
+    )
+
+    exact_tp2 = (
+        entry_quantity
+        * allocation[
+            "tp2_percent"
+        ]
+        / Decimal("100")
+    )
+
+    exact_tp3 = (
+        entry_quantity
+        * allocation[
+            "tp3_percent"
+        ]
+        / Decimal("100")
+    )
+
+    checks = {
+
+        "allocation_selected":
+            True,
+
+        "entry_on_step":
+            quantize_down(
+                entry_quantity,
+                QUANTITY_STEP,
+            ) == entry_quantity,
+
+        "tp1_on_step":
+            quantize_down(
+                tp1,
+                QUANTITY_STEP,
+            ) == tp1,
+
+        "tp2_on_step":
+            quantize_down(
+                tp2,
+                QUANTITY_STEP,
+            ) == tp2,
+
+        "tp3_on_step":
+            quantize_down(
+                tp3,
+                QUANTITY_STEP,
+            ) == tp3,
+
+        "entry_minimum":
+            entry_quantity
+            >= MIN_QUANTITY,
+
+        "tp1_minimum":
+            tp1
+            >= MIN_QUANTITY,
+
+        "tp2_minimum":
+            tp2
+            >= MIN_QUANTITY,
+
+        "tp3_minimum":
+            tp3
+            >= MIN_QUANTITY,
+
+        "allocation_sum_exact":
+            (
+                tp1
+                + tp2
+                + tp3
+            ) == entry_quantity,
+
+        "tp1_selected_percent_exact":
+            tp1
+            == exact_tp1,
+
+        "tp2_selected_percent_exact":
+            tp2
+            == exact_tp2,
+
+        "tp3_selected_percent_exact":
+            tp3
+            == exact_tp3,
+
+        "tp3_non_negative":
+            tp3
+            >= Decimal("0"),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+def minimum_adjustable_tp_entry_quantity():
+    """
+    Return first exchange-step quantity supported
+    by an approved allocation.
+    """
+
+    candidate = QUANTITY_STEP
+
+    for _ in range(
+        100000
+    ):
+
+        (
+            quantity,
+            tp1,
+            tp2,
+            tp3,
+        ) = writer_quantities(
+            candidate
+        )
+
+        checks = (
+            validate_writer_quantities(
+                quantity,
+                tp1,
+                tp2,
+                tp3,
+            )
+        )
+
+        if checks.get(
+            "all_valid"
+        ):
+
+            return quantity
+
+        candidate += QUANTITY_STEP
+
+    raise RuntimeError(
+        "Unable to find adjustable TP minimum entry quantity"
+    )
+
+
+def minimum_strict_tp_entry_quantity():
+    """
+    Compatibility alias: R36F.10 minimum under the
+    approved adjustable allocation policy.
+    """
+
+    return (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+
+def evaluate_writer_quantity_feasibility(
+    entry_quantity,
+):
+
+    (
+        quantity,
+        tp1,
+        tp2,
+        tp3,
+    ) = writer_quantities(
+        entry_quantity
+    )
+
+    allocation = (
+        select_tp_allocation(
+            quantity
+        )
+    )
+
+    checks = (
+        validate_writer_quantities(
+            quantity,
+            tp1,
+            tp2,
+            tp3,
+        )
+    )
+
+    minimum_required = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    feasible = bool(
+        checks.get(
+            "all_valid"
+        )
+    )
+
+    return {
+
+        "feasible":
+            feasible,
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_ALLOCATION_REPRESENTABLE"
+                if feasible
+                else
+                "POSITION_TOO_SMALL_OR_NOT_REPRESENTABLE_BY_APPROVED_TP_ALLOCATIONS"
+            ),
+
+        "entry_quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "tp1_quantity":
+            decimal_to_string(
+                tp1
+            ),
+
+        "tp2_quantity":
+            decimal_to_string(
+                tp2
+            ),
+
+        "tp3_quantity":
+            decimal_to_string(
+                tp3
+            ),
+
+        "requested_allocation":
+            "20/20/60",
+
+        "selected_allocation":
+            (
+                allocation[
+                    "label"
+                ]
+                if allocation
+                else None
+            ),
+
+        "allocation_adjusted":
+            bool(
+                allocation
+                and
+                allocation[
+                    "adjusted"
+                ]
+            ),
+
+        "selected_tp1_percent":
+            (
+                decimal_to_string(
+                    allocation[
+                        "tp1_percent"
+                    ]
+                )
+                if allocation
+                else None
+            ),
+
+        "selected_tp2_percent":
+            (
+                decimal_to_string(
+                    allocation[
+                        "tp2_percent"
+                    ]
+                )
+                if allocation
+                else None
+            ),
+
+        "selected_tp3_percent":
+            (
+                decimal_to_string(
+                    allocation[
+                        "tp3_percent"
+                    ]
+                )
+                if allocation
+                else None
+            ),
+
+        "minimum_required_entry_quantity":
+            decimal_to_string(
+                minimum_required
+            ),
+
+        "checks":
+            checks,
+    }
+
+
+def evaluate_strict_tp_balance_readiness(
+    available_balance,
+    mark_price,
+    leverage,
+):
+    """
+    Classify balance readiness under R36F.10
+    approved adjustable TP allocation.
+    """
+
+    available_balance = D(
+        available_balance
+    )
+
+    mark_price = D(
+        mark_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    if available_balance < Decimal("0"):
+
+        raise ValueError(
+            "available_balance must be non-negative"
+        )
+
+    if mark_price <= Decimal("0"):
+
+        raise ValueError(
+            "mark_price must be positive"
+        )
+
+    if leverage <= Decimal("0"):
+
+        raise ValueError(
+            "leverage must be positive"
+        )
+
+    entry_fraction = (
+        ENTRY_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    if entry_fraction <= Decimal("0"):
+
+        raise ValueError(
+            "ENTRY_MARGIN_PERCENT must be positive"
+        )
+
+    raw_entry_quantity = (
+        available_balance
+        * entry_fraction
+        * leverage
+        / mark_price
+    )
+
+    planned_entry_quantity = (
+        quantize_down(
+            raw_entry_quantity,
+            QUANTITY_STEP,
+        )
+    )
+
+    quantity_feasibility = (
+        evaluate_writer_quantity_feasibility(
+            planned_entry_quantity
+        )
+    )
+
+    minimum_entry_quantity = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    required_entry_margin = (
+        minimum_entry_quantity
+        * mark_price
+        / leverage
+    )
+
+    required_available_balance = (
+        required_entry_margin
+        / entry_fraction
+    )
+
+    available_balance_shortfall = max(
+        Decimal("0"),
+        (
+            required_available_balance
+            - available_balance
+        ),
+    )
+
+    eligible = bool(
+
+        quantity_feasibility[
+            "feasible"
+        ]
+
+        and
+
+        available_balance
+        >= required_available_balance
+    )
+
+    return {
+
+        "eligible":
+            eligible,
+
+        "status":
+            (
+                "ELIGIBLE"
+                if eligible
+                else
+                "TRADE_NOT_ELIGIBLE"
+            ),
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_BALANCE_AND_QUANTITY_READY"
+                if eligible
+                else
+                "INSUFFICIENT_BALANCE_FOR_APPROVED_TP_ALLOCATION"
+            ),
+
+        "available_balance":
+            decimal_to_string(
+                available_balance
+            ),
+
+        "mark_price":
+            decimal_to_string(
+                mark_price
+            ),
+
+        "leverage":
+            decimal_to_string(
+                leverage
+            ),
+
+        "entry_margin_percent":
+            decimal_to_string(
+                ENTRY_MARGIN_PERCENT
+            ),
+
+        "raw_entry_quantity":
+            decimal_to_string(
+                raw_entry_quantity
+            ),
+
+        "planned_entry_quantity":
+            decimal_to_string(
+                planned_entry_quantity
+            ),
+
+        "minimum_strict_tp_entry_quantity":
+            decimal_to_string(
+                minimum_entry_quantity
+            ),
+
+        "required_margin_for_minimum_qty":
+            decimal_to_string(
+                required_entry_margin
+            ),
