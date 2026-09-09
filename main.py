@@ -9421,7 +9421,7 @@ async def run_r36f12():
 
 def main():
 
-    async def heartbeat_loop():
+   async def heartbeat_loop():
 
     count = 0
 
@@ -9438,6 +9438,7 @@ def main():
         )
 
         await asyncio.sleep(60)
+    
     asyncio.run(
         run_r36f12()
     )
