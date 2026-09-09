@@ -927,3 +927,868 @@ def start_health_server():
         f"{STAGE}: HEALTH SERVER STARTED ON PORT {port}"
     )
 
+### R36F.15.2 — Part 2
+
+
+# WEEX SIGNING
+# ============================================================
+
+def build_signature(
+    timestamp,
+    method,
+    request_path,
+    body="",
+):
+
+    api_secret = os.getenv(
+        "WEEX_API_SECRET"
+    )
+
+    if not api_secret:
+        raise RuntimeError(
+            "WEEX_API_SECRET missing"
+        )
+
+    prehash = (
+        str(timestamp)
+        + method.upper()
+        + request_path
+        + body
+    )
+
+    digest = hmac.new(
+        api_secret.encode(),
+        prehash.encode(),
+        hashlib.sha256,
+    ).digest()
+
+    return base64.b64encode(
+        digest
+    ).decode()
+
+
+# ============================================================
+# READ-ONLY WEEX REQUEST
+# ============================================================
+
+async def weex_get(
+    path,
+    params=None,
+    authenticated=False,
+):
+    """
+    Read-only WEEX GET.
+
+    R36F.9 signs the exact query string for authenticated GET requests.
+    No POST/PUT/PATCH/DELETE transport exists here.
+    """
+
+    params = params or {}
+
+    from urllib.parse import urlencode
+
+    query_string = urlencode(
+        params,
+        doseq=True,
+    )
+
+    request_target = path
+
+    if query_string:
+        request_target += (
+            "?" + query_string
+        )
+
+    url = (
+        API_BASE_URL
+        + request_target
+    )
+
+    headers = {}
+
+    if authenticated:
+
+        api_key = os.getenv(
+            "WEEX_API_KEY"
+        )
+
+        passphrase = os.getenv(
+            "WEEX_API_PASSPHRASE"
+        )
+
+        if not api_key:
+            raise RuntimeError(
+                "WEEX_API_KEY missing"
+            )
+
+        if not passphrase:
+            raise RuntimeError(
+                "WEEX_API_PASSPHRASE missing"
+            )
+
+        timestamp = str(
+            int(
+                time.time() * 1000
+            )
+        )
+
+        signature = build_signature(
+            timestamp,
+            "GET",
+            request_target,
+            "",
+        )
+
+        headers = {
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": passphrase,
+            "Content-Type": "application/json",
+        }
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+
+        async with session.get(
+            url,
+            headers=headers,
+        ) as response:
+
+            text = await response.text()
+
+            if response.status >= 400:
+
+                raise RuntimeError(
+                    f"WEEX GET HTTP {response.status}: {text}"
+                )
+
+            try:
+                return json.loads(text)
+
+            except Exception:
+
+                return {
+                    "raw": text
+                }
+
+
+# ============================================================
+# R36F.15 DEMO-ONLY WEEX POST TRANSPORT
+# ============================================================
+
+async def weex_demo_post(path, payload):
+    """
+    Send one authenticated JSON POST only to WEEX's paper-trading order endpoint.
+
+    Production order/mutation paths remain unreachable because this function rejects
+    every path except R36F14_DEMO_ORDER_ENDPOINT and independently requires the
+    production execution firebreak to remain fully disabled.
+    """
+
+    if path != R36F14_DEMO_ORDER_ENDPOINT:
+        raise RuntimeError(
+            "R36F.15 demo transport refused non-demo endpoint"
+        )
+
+    if not (
+        R36F15_DEMO_POST_TRANSPORT_ENABLED
+        and
+        R36F15_DEMO_ORDER_SUBMISSION_ENABLED
+        and
+        R36F15_FIRST_DEMO_ORDER_ALLOWED
+    ):
+        raise RuntimeError(
+            "R36F.15 demo transport is disabled"
+        )
+
+    if not (
+        REAL_ORDER_EXECUTION is False
+        and
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED is False
+        and
+        ORDER_SUBMISSION_ENABLED is False
+        and
+        LEVERAGE_MUTATION_ENABLED is False
+        and
+        MARGIN_MODE_MUTATION_ENABLED is False
+        and
+        POSITION_MUTATION_ENABLED is False
+        and
+        FIRST_REAL_ORDER_ALLOWED is False
+    ):
+        raise RuntimeError(
+            "R36F.15 production firebreak is not intact"
+        )
+
+    api_key = os.getenv(
+        "WEEX_API_KEY"
+    )
+
+    passphrase = os.getenv(
+        "WEEX_API_PASSPHRASE"
+    )
+
+    if not api_key:
+        raise RuntimeError(
+            "WEEX_API_KEY missing"
+        )
+
+    if not passphrase:
+        raise RuntimeError(
+            "WEEX_API_PASSPHRASE missing"
+        )
+
+    body = canonical_json(
+        payload
+    )
+
+    timestamp = str(
+        int(
+            time.time() * 1000
+        )
+    )
+
+    signature = build_signature(
+        timestamp,
+        "POST",
+        path,
+        body,
+    )
+
+    headers = {
+        "ACCESS-KEY": api_key,
+        "ACCESS-SIGN": signature,
+        "ACCESS-TIMESTAMP": timestamp,
+        "ACCESS-PASSPHRASE": passphrase,
+        "Content-Type": "application/json",
+    }
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    url = (
+        API_BASE_URL
+        + path
+    )
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+
+        async with session.post(
+            url,
+            headers=headers,
+            data=body,
+        ) as response:
+
+            text = await response.text()
+
+            try:
+
+                data = json.loads(
+                    text
+                )
+
+            except Exception:
+
+                data = {
+                    "raw": text
+                }
+
+            result = {
+                "http_status":
+                    response.status,
+
+                "response":
+                    data,
+
+                "raw_text":
+                    text,
+            }
+
+            if response.status >= 400:
+
+                raise RuntimeError(
+                    f"WEEX DEMO POST HTTP "
+                    f"{response.status}: "
+                    f"{text}"
+                )
+
+            return result
+
+
+def r36f15_demo_journal_unresolved(
+    journal,
+):
+
+    if (
+        not isinstance(
+            journal,
+            dict,
+        )
+        or
+        not journal
+    ):
+        return False
+
+    return journal.get(
+        "state"
+    ) in {
+        "PREPARED",
+        "SENT_AMBIGUOUS",
+    }
+
+
+def r36f15_demo_journal_completed(
+    journal,
+):
+
+    return bool(
+        isinstance(
+            journal,
+            dict,
+        )
+        and
+        journal.get(
+            "state"
+        ) == "COMPLETED"
+        and
+        journal.get(
+            "success"
+        ) is True
+    )
+
+
+async def submit_r36f15_demo_order(
+    preview,
+    command_preview,
+):
+    """
+    Exactly-once, durably journaled first WEEX demo order.
+    """
+
+    if not R36F15_DEMO_ARM_REQUESTED:
+
+        return {
+            "attempted":
+                False,
+
+            "sent":
+                False,
+
+            "reason":
+                "DEMO_ARM_NOT_REQUESTED",
+        }
+
+    if not command_preview.get(
+        "authorized_preview"
+    ):
+
+        return {
+            "attempted":
+                False,
+
+            "sent":
+                False,
+
+            "reason":
+                "TELEGRAM_COMMAND_NOT_AUTHORIZED",
+        }
+
+    if (
+        not preview
+        or
+        not preview.get(
+            "payload"
+        )
+    ):
+
+        return {
+            "attempted":
+                False,
+
+            "sent":
+                False,
+
+            "reason":
+                "DEMO_PREVIEW_MISSING",
+        }
+
+    existing = read_json_file(
+        R36F15_DEMO_JOURNAL_FILE,
+        default={},
+    )
+
+    if r36f15_demo_journal_unresolved(
+        existing
+    ):
+
+        return {
+            "attempted":
+                False,
+
+            "sent":
+                False,
+
+            "reason":
+                "UNRESOLVED_DEMO_JOURNAL_BLOCKS_RETRY",
+
+            "journal":
+                existing,
+        }
+
+    if r36f15_demo_journal_completed(
+        existing
+    ):
+
+        return {
+            "attempted":
+                False,
+
+            "sent":
+                False,
+
+            "reason":
+                "FIRST_DEMO_ORDER_ALREADY_COMPLETED",
+
+            "journal":
+                existing,
+        }
+
+    payload = dict(
+        preview[
+            "payload"
+        ]
+    )
+
+    payload_hash = sha256_text(
+        canonical_json(
+            payload
+        )
+    )
+
+    prepared = {
+        "stage":
+            STAGE,
+
+        "state":
+            "PREPARED",
+
+        "created_at":
+            now_iso(),
+
+        "endpoint":
+            R36F14_DEMO_ORDER_ENDPOINT,
+
+        "client_order_id":
+            payload.get(
+                "newClientOrderId"
+            ),
+
+        "payload_sha256":
+            payload_hash,
+
+        "payload":
+            payload,
+
+        "real_order_execution":
+            REAL_ORDER_EXECUTION,
+    }
+
+    write_json_file(
+        R36F15_DEMO_JOURNAL_FILE,
+        prepared,
+    )
+
+    try:
+
+        transport = await weex_demo_post(
+            R36F14_DEMO_ORDER_ENDPOINT,
+            payload,
+        )
+
+    except Exception as exc:
+
+        ambiguous = {
+            **prepared,
+
+            "state":
+                "SENT_AMBIGUOUS",
+
+            "updated_at":
+                now_iso(),
+
+            "error":
+                str(
+                    exc
+                ),
+        }
+
+        write_json_file(
+            R36F15_DEMO_JOURNAL_FILE,
+            ambiguous,
+        )
+
+        raise
+
+    response = (
+        transport.get(
+            "response"
+        )
+        if isinstance(
+            transport,
+            dict,
+        )
+        else
+        {}
+    )
+
+    response = (
+        response
+        if isinstance(
+            response,
+            dict,
+        )
+        else
+        {}
+    )
+
+    success = bool(
+        response.get(
+            "success"
+        )
+    )
+
+    completed = {
+        **prepared,
+
+        "state":
+            (
+                "COMPLETED"
+                if success
+                else
+                "REJECTED"
+            ),
+
+        "updated_at":
+            now_iso(),
+
+        "http_status":
+            transport.get(
+                "http_status"
+            ),
+
+        "response":
+            response,
+
+        "success":
+            success,
+
+        "order_id":
+            str(
+                response.get(
+                    "orderId",
+                    "",
+                )
+            ),
+
+        "client_order_id_response":
+            str(
+                response.get(
+                    "clientOrderId",
+                    "",
+                )
+            ),
+
+        "error_code":
+            str(
+                response.get(
+                    "errorCode",
+                    "",
+                )
+            ),
+
+        "error_message":
+            str(
+                response.get(
+                    "errorMessage",
+                    "",
+                )
+            ),
+    }
+
+    write_json_file(
+        R36F15_DEMO_JOURNAL_FILE,
+        completed,
+    )
+
+    return {
+        "attempted":
+            True,
+
+        "sent":
+            True,
+
+        "accepted":
+            success,
+
+        "transport":
+            transport,
+
+        "journal":
+            completed,
+    }
+
+
+# ============================================================
+# MARK PRICE
+# ============================================================
+
+async def load_mark_price():
+
+    global MARK_PRICE
+
+    data = await weex_get(
+        "/capi/v3/market/symbolPrice",
+        params={
+            "symbol":
+                SYMBOL
+        },
+        authenticated=False,
+    )
+
+    candidates = []
+
+    if isinstance(
+        data,
+        dict,
+    ):
+
+        for key in (
+            "price",
+            "markPrice",
+            "lastPrice",
+        ):
+
+            if key in data:
+
+                candidates.append(
+                    data[
+                        key
+                    ]
+                )
+
+        nested = data.get(
+            "data"
+        )
+
+        if isinstance(
+            nested,
+            dict,
+        ):
+
+            for key in (
+                "price",
+                "markPrice",
+                "lastPrice",
+            ):
+
+                if key in nested:
+
+                    candidates.append(
+                        nested[
+                            key
+                        ]
+                    )
+
+    elif isinstance(
+        data,
+        list,
+    ):
+
+        for item in data:
+
+            if isinstance(
+                item,
+                dict,
+            ):
+
+                for key in (
+                    "price",
+                    "markPrice",
+                    "lastPrice",
+                ):
+
+                    if key in item:
+
+                        candidates.append(
+                            item[
+                                key
+                            ]
+                        )
+
+    for candidate in candidates:
+
+        try:
+
+            MARK_PRICE = D(
+                candidate
+            )
+
+            if MARK_PRICE > 0:
+
+                log(
+                    "MARK PRICE = "
+                    + decimal_to_string(
+                        MARK_PRICE
+                    )
+                )
+
+                return MARK_PRICE
+
+        except Exception:
+
+            continue
+
+    raise RuntimeError(
+        "Unable to determine WEEX mark price"
+    )
+
+
+# ============================================================
+# BALANCE
+# ============================================================
+
+async def load_available_balance():
+
+    global AVAILABLE_BALANCE
+
+    data = await weex_get(
+        "/capi/v3/account/balance",
+        authenticated=True,
+    )
+
+    candidates = []
+
+    def collect(
+        value,
+    ):
+
+        if isinstance(
+            value,
+            dict,
+        ):
+
+            for (
+                key,
+                item,
+            ) in value.items():
+
+                key_lower = (
+                    key.lower()
+                )
+
+                if key_lower in (
+                    "availablebalance",
+                    "available_balance",
+                    "available",
+                    "free",
+                    "usdtavailable",
+                ):
+
+                    candidates.append(
+                        item
+                    )
+
+                collect(
+                    item
+                )
+
+        elif isinstance(
+            value,
+            list,
+        ):
+
+            for item in value:
+
+                collect(
+                    item
+                )
+
+    collect(
+        data
+    )
+
+    for candidate in candidates:
+
+        try:
+
+            value = D(
+                candidate
+            )
+
+            if value >= 0:
+
+                AVAILABLE_BALANCE = (
+                    value
+                )
+
+                log(
+                    "AVAILABLE USDT = "
+                    + decimal_to_string(
+                        AVAILABLE_BALANCE
+                    )
+                )
+
+                return value
+
+        except Exception:
+
+            continue
+
+    raise RuntimeError(
+        "Unable to determine available USDT balance"
+    )
+
+
+# ============================================================
+# OPEN POSITIONS
+# ============================================================
+
+async def load_open_positions():
+
+    global OPEN_POSITIONS
+
+    data = await weex_get(
+        "/capi/v3/account/position/singlePosition",
+        params={
+            "symbol":
+                SYMBOL
+        },
+        authenticated=True,
+    )
+
+    if isinstance(
+        data,
+        list,
+    ):
+
+        OPEN_POSITIONS = (
+            data
+        )
+
+    elif isinstance(
+        data,
+        dict,
+    ):
+
+        nested = data.get(
+            "data"
+        )
