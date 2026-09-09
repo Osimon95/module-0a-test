@@ -9421,6 +9421,23 @@ async def run_r36f12():
 
 def main():
 
+    async def heartbeat_loop():
+
+    count = 0
+
+    while True:
+
+        count += 1
+
+        log(
+            f"HEARTBEAT "
+            f"stage={STAGE} "
+            f"status={TEST_STATUS} "
+            f"count={count} "
+            f"real_execution={REAL_ORDER_EXECUTION}"
+        )
+
+        await asyncio.sleep(60)
     asyncio.run(
         run_r36f12()
     )
