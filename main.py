@@ -2542,3 +2542,950 @@ def validate_telegram_command_against_signal(
     long_eligible,
     short_eligible,
 ):
+### R36F.15.2 — Part 4
+
+
+    parsed = (
+        parse_telegram_trade_command(
+            text
+        )
+    )
+
+    direction = parsed[
+        "direction"
+    ]
+
+    if not parsed[
+        "recognized"
+    ]:
+
+        return {
+            **parsed,
+
+            "authorized_preview":
+                False,
+
+            "reason":
+                "UNRECOGNIZED_COMMAND",
+        }
+
+    if not ema_snapshot.get(
+        "ready"
+    ):
+
+        return {
+            **parsed,
+
+            "authorized_preview":
+                False,
+
+            "reason":
+                "EMA_ENGINE_NOT_READY",
+        }
+
+    ideal = ema_snapshot.get(
+        "ideal_direction"
+    )
+
+    if ideal != direction:
+
+        return {
+            **parsed,
+
+            "authorized_preview":
+                False,
+
+            "reason":
+                "COMMAND_DIRECTION_DOES_NOT_MATCH_IDEAL_EMA_CONDITION",
+
+            "ema_ideal_direction":
+                ideal,
+        }
+
+    market_ok = (
+        long_eligible
+        if direction == "LONG"
+        else short_eligible
+    )
+
+    if not market_ok:
+
+        return {
+            **parsed,
+
+            "authorized_preview":
+                False,
+
+            "reason":
+                "COMMAND_DIRECTION_TP_MARKET_NOT_ELIGIBLE",
+
+            "ema_ideal_direction":
+                ideal,
+        }
+
+    return {
+        **parsed,
+
+        "authorized_preview":
+            True,
+
+        "reason":
+            "COMMAND_AND_EMA_AND_TP_DIRECTION_AGREE",
+
+        "ema_ideal_direction":
+            ideal,
+
+        "exchange_order_sent":
+            False,
+    }
+
+
+def build_ideal_condition_alert(
+    ema_snapshot,
+):
+
+    if not ema_snapshot.get(
+        "ready"
+    ):
+
+        return None
+
+    direction = ema_snapshot.get(
+        "ideal_direction"
+    )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+
+        return None
+
+    command = (
+        TELEGRAM_BUY_COMMAND
+        if direction == "LONG"
+        else TELEGRAM_SELL_COMMAND
+    )
+
+    return (
+        f"R36F.13.2 IDEAL {direction} CONDITION | {SYMBOL}\n"
+        f"Price={ema_snapshot.get('price')} "
+        f"EMA19={ema_snapshot.get('ema19')} "
+        f"EMA50={ema_snapshot.get('ema50')} "
+        f"EMA200={ema_snapshot.get('ema200')}\n"
+        f"Structure={ema_snapshot.get('structure')} "
+        f"EMA19/50 separation="
+        f"{ema_snapshot.get('ema19_50_separation_percent')}%\n"
+        f"Manual command: {command}\n"
+        "R36F.13.2 exchange execution remains disabled."
+    )
+
+
+async def send_r36f12_telegram_alert(
+    message,
+):
+
+    if not message:
+
+        return {
+            "attempted":
+                False,
+
+            "sent":
+                False,
+
+            "reason":
+                "NO_IDEAL_ALERT",
+        }
+
+    if not R36F12_TELEGRAM_ALERTS_ENABLED:
+
+        return {
+            "attempted":
+                False,
+
+            "sent":
+                False,
+
+            "reason":
+                "ALERTS_DISABLED_BY_DEFAULT",
+        }
+
+    if (
+        not TELEGRAM_BOT_TOKEN
+        or
+        not TELEGRAM_CHAT_ID
+    ):
+
+        return {
+            "attempted":
+                False,
+
+            "sent":
+                False,
+
+            "reason":
+                "TELEGRAM_CONFIG_MISSING",
+        }
+
+    url = (
+        f"https://api.telegram.org/"
+        f"bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    )
+
+    payload = {
+
+        "chat_id":
+            TELEGRAM_CHAT_ID,
+
+        "text":
+            message,
+
+        "disable_web_page_preview":
+            True,
+    }
+
+    try:
+
+        async with aiohttp.ClientSession() as session:
+
+            async with session.post(
+                url,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(
+                    total=15
+                ),
+            ) as response:
+
+                body = (
+                    await response.text()
+                )
+
+                return {
+
+                    "attempted":
+                        True,
+
+                    "sent":
+                        (
+                            200
+                            <= response.status
+                            < 300
+                        ),
+
+                    "http_status":
+                        response.status,
+
+                    "response_preview":
+                        body[:200],
+                }
+
+    except Exception as exc:
+
+        return {
+            "attempted":
+                True,
+
+            "sent":
+                False,
+
+            "reason":
+                f"{type(exc).__name__}: {exc}",
+        }
+
+
+def synthetic_r36f12_ema_telegram_tests():
+
+    bullish = {
+
+        "ready":
+            True,
+
+        "ideal_direction":
+            "LONG",
+
+        "structure":
+            "STRONG_BULLISH",
+
+        "price":
+            "80000",
+
+        "ema19":
+            "80100",
+
+        "ema50":
+            "80000",
+
+        "ema200":
+            "79000",
+
+        "ema19_50_separation_percent":
+            "0.125",
+    }
+
+    bearish = {
+
+        "ready":
+            True,
+
+        "ideal_direction":
+            "SHORT",
+
+        "structure":
+            "STRONG_BEARISH",
+
+        "price":
+            "80000",
+
+        "ema19":
+            "79900",
+
+        "ema50":
+            "80000",
+
+        "ema200":
+            "81000",
+
+        "ema19_50_separation_percent":
+            "0.125",
+    }
+
+    buy = (
+        parse_telegram_trade_command(
+            "  buy   btc now "
+        )
+    )
+
+    sell = (
+        parse_telegram_trade_command(
+            "SELL BTC NOW"
+        )
+    )
+
+    check(
+        "R36F12_TELEGRAM_BUY_COMMAND_PARSES_LONG",
+        (
+            buy[
+                "recognized"
+            ]
+            and
+            buy[
+                "direction"
+            ] == "LONG"
+        ),
+    )
+
+    check(
+        "R36F12_TELEGRAM_SELL_COMMAND_PARSES_SHORT",
+        (
+            sell[
+                "recognized"
+            ]
+            and
+            sell[
+                "direction"
+            ] == "SHORT"
+        ),
+    )
+
+    check(
+        "R36F12_TELEGRAM_UNKNOWN_COMMAND_REJECTED",
+        (
+            parse_telegram_trade_command(
+                "BUY ETH NOW"
+            )[
+                "recognized"
+            ]
+            is False
+        ),
+    )
+
+    buy_ok = (
+        validate_telegram_command_against_signal(
+            "BUY BTC NOW",
+            bullish,
+            True,
+            False,
+        )
+    )
+
+    sell_ok = (
+        validate_telegram_command_against_signal(
+            "SELL BTC NOW",
+            bearish,
+            False,
+            True,
+        )
+    )
+
+    mismatch = (
+        validate_telegram_command_against_signal(
+            "SELL BTC NOW",
+            bullish,
+            True,
+            True,
+        )
+    )
+
+    check(
+        "R36F12_BUY_MATCHING_IDEAL_LONG_PREVIEW_APPROVED",
+        (
+            buy_ok[
+                "authorized_preview"
+            ]
+            is True
+        ),
+    )
+
+    check(
+        "R36F12_SELL_MATCHING_IDEAL_SHORT_PREVIEW_APPROVED",
+        (
+            sell_ok[
+                "authorized_preview"
+            ]
+            is True
+        ),
+    )
+
+    check(
+        "R36F12_DIRECTION_MISMATCH_BLOCKED",
+        (
+            mismatch[
+                "authorized_preview"
+            ]
+            is False
+        ),
+    )
+
+    check(
+        "R36F12_COMMAND_PREVIEW_NEVER_SENDS_ORDER",
+        (
+            buy_ok.get(
+                "exchange_order_sent"
+            )
+            is False
+        ),
+    )
+
+    return True
+
+
+# ============================================================
+# LOCAL EXTREMA
+# ============================================================
+
+def build_extrema(
+    values,
+):
+
+    if len(
+        values
+    ) < 3:
+
+        return []
+
+    extrema = []
+
+    for index in range(
+        1,
+        len(values) - 1,
+    ):
+
+        previous_value = D(
+            values[
+                index - 1
+            ]
+        )
+
+        current_value = D(
+            values[
+                index
+            ]
+        )
+
+        next_value = D(
+            values[
+                index + 1
+            ]
+        )
+
+        if (
+            current_value
+            >= previous_value
+            and
+            current_value
+            >= next_value
+        ):
+
+            extrema.append(
+                current_value
+            )
+
+        elif (
+            current_value
+            <= previous_value
+            and
+            current_value
+            <= next_value
+        ):
+
+            extrema.append(
+                current_value
+            )
+
+    return extrema
+
+
+def local_extrema_values(
+    rows,
+    side,
+):
+
+    if side == "LONG":
+
+        values = historical_highs(
+            rows
+        )
+
+    elif side == "SHORT":
+
+        values = historical_lows(
+            rows
+        )
+
+    else:
+
+        raise ValueError(
+            f"Unsupported side={side}"
+        )
+
+    return build_extrema(
+        values
+    )
+
+
+# ============================================================
+# CLUSTER EXTREMA
+# ============================================================
+
+def cluster_extrema(
+    extrema,
+):
+
+    if not extrema:
+
+        return []
+
+    sorted_values = sorted(
+        [
+            D(
+                value
+            )
+            for value in extrema
+        ]
+    )
+
+    clusters = []
+
+    current = [
+        sorted_values[0]
+    ]
+
+    for value in sorted_values[
+        1:
+    ]:
+
+        current_average = (
+            sum(
+                current
+            )
+            / Decimal(
+                len(
+                    current
+                )
+            )
+        )
+
+        tolerance = (
+            current_average
+            * CLUSTER_TOLERANCE_PERCENT
+            / Decimal("100")
+        )
+
+        if abs(
+            value
+            - current_average
+        ) <= tolerance:
+
+            current.append(
+                value
+            )
+
+        else:
+
+            clusters.append(
+                {
+
+                    "minimum":
+                        min(
+                            current
+                        ),
+
+                    "maximum":
+                        max(
+                            current
+                        ),
+
+                    "average":
+                        (
+                            sum(
+                                current
+                            )
+                            / Decimal(
+                                len(
+                                    current
+                                )
+                            )
+                        ),
+
+                    "touches":
+                        len(
+                            current
+                        ),
+                }
+            )
+
+            current = [
+                value
+            ]
+
+    clusters.append(
+        {
+
+            "minimum":
+                min(
+                    current
+                ),
+
+            "maximum":
+                max(
+                    current
+                ),
+
+            "average":
+                (
+                    sum(
+                        current
+                    )
+                    / Decimal(
+                        len(
+                            current
+                        )
+                    )
+                ),
+
+            "touches":
+                len(
+                    current
+                ),
+        }
+    )
+
+    return clusters
+
+
+# ============================================================
+# CLUSTER VALIDATION
+# ============================================================
+
+def validate_clusters(
+    clusters,
+    entry_price,
+    side,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    valid = []
+    invalid = []
+
+    for cluster in clusters:
+
+        reasons = []
+
+        touches = cluster[
+            "touches"
+        ]
+
+        average = D(
+            cluster[
+                "average"
+            ]
+        )
+
+        if (
+            touches
+            < MIN_CLUSTER_TOUCHES
+        ):
+
+            reasons.append(
+                "INSUFFICIENT_TOUCHES"
+            )
+
+        if side == "LONG":
+
+            if average <= entry_price:
+
+                reasons.append(
+                    "CLUSTER_NOT_ABOVE_ENTRY"
+                )
+
+        elif side == "SHORT":
+
+            if average >= entry_price:
+
+                reasons.append(
+                    "CLUSTER_NOT_BELOW_ENTRY"
+                )
+
+        else:
+
+            reasons.append(
+                "INVALID_DIRECTION"
+            )
+
+        result = dict(
+            cluster
+        )
+
+        result[
+            "valid"
+        ] = not reasons
+
+        result[
+            "reasons"
+        ] = reasons
+
+        if reasons:
+
+            invalid.append(
+                result
+            )
+
+        else:
+
+            valid.append(
+                result
+            )
+
+    if side == "LONG":
+
+        valid.sort(
+            key=lambda item:
+                item[
+                    "average"
+                ]
+        )
+
+    elif side == "SHORT":
+
+        valid.sort(
+            key=lambda item:
+                item[
+                    "average"
+                ],
+            reverse=True,
+        )
+
+    return (
+        valid,
+        invalid,
+    )
+
+
+# ============================================================
+# CLUSTER DIAGNOSTICS
+# ============================================================
+
+def build_cluster_diagnostics(
+    rows,
+    entry_price,
+    side,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    if side == "LONG":
+
+        values = historical_highs(
+            rows
+        )
+
+    elif side == "SHORT":
+
+        values = historical_lows(
+            rows
+        )
+
+    else:
+
+        raise ValueError(
+            f"Unsupported side={side}"
+        )
+
+    extrema = build_extrema(
+        values
+    )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    (
+        valid,
+        invalid,
+    ) = validate_clusters(
+        clusters,
+        entry_price,
+        side,
+    )
+
+    diagnostics = {
+
+        "side":
+            side,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "historical_row_count":
+            len(
+                rows
+            ),
+
+        "extrema_count":
+            len(
+                extrema
+            ),
+
+        "cluster_count":
+            len(
+                clusters
+            ),
+
+        "valid_cluster_count":
+            len(
+                valid
+            ),
+
+        "invalid_cluster_count":
+            len(
+                invalid
+            ),
+
+        "required_valid_clusters":
+            REQUIRED_TP_CLUSTERS,
+
+        "valid_clusters":
+            valid,
+
+        "invalid_clusters":
+            invalid,
+    }
+
+    if (
+        len(
+            valid
+        )
+        >= REQUIRED_TP_CLUSTERS
+    ):
+
+        diagnostics[
+            "failure_reason"
+        ] = None
+
+    elif len(
+        valid
+    ) == 1:
+
+        diagnostics[
+            "failure_reason"
+        ] = "ONLY_ONE_VALID_CLUSTER"
+
+    elif len(
+        extrema
+    ) == 0:
+
+        diagnostics[
+            "failure_reason"
+        ] = "NO_LOCAL_EXTREMA"
+
+    elif len(
+        clusters
+    ) == 0:
+
+        diagnostics[
+            "failure_reason"
+        ] = "NO_HISTORICAL_CLUSTERS"
+
+    else:
+
+        diagnostics[
+            "failure_reason"
+        ] = (
+            "EXTREMA_EXIST_BUT_CLUSTER_REQUIREMENTS_NOT_MET"
+        )
+
+    log(
+        f"{side} HISTORICAL ROW COUNT = "
+        f"{diagnostics['historical_row_count']}"
+    )
+
+    log(
+        f"{side} EXTREMA COUNT = "
+        f"{diagnostics['extrema_count']}"
+    )
+
+    log(
+        f"{side} CLUSTER COUNT = "
+        f"{diagnostics['cluster_count']}"
+    )
+
+    log(
+        f"{side} VALID CLUSTER COUNT = "
+        f"{diagnostics['valid_cluster_count']}"
+    )
+
+    for (
+        index,
+        cluster,
+    ) in enumerate(
+        clusters,
+        start=1,
+    ):
+
+        log(
+            f"{side} CLUSTER {index}: "
+            f"average="
+            f"{decimal_to_string(cluster['average'])} "
+            f"minimum="
+            f"{decimal_to_string(cluster['minimum'])} "
+            f"maximum="
+            f"{decimal_to_string(cluster['maximum'])} "
+            f"touches="
+            f"{cluster['touches']}"
+        )
+
+    for (
+        index,
+        cluster,
+    ) in enumerate(
+        invalid,
+        start=1,
+    ):
