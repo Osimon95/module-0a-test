@@ -1792,3 +1792,753 @@ async def load_open_positions():
         nested = data.get(
             "data"
         )
+### R36F.15.2 — Part 3
+
+        if isinstance(
+            nested,
+            list,
+        ):
+
+            OPEN_POSITIONS = nested
+
+        else:
+
+            OPEN_POSITIONS = []
+
+    else:
+
+        OPEN_POSITIONS = []
+
+    log(
+        "OPEN POSITIONS = "
+        + str(
+            len(
+                OPEN_POSITIONS
+            )
+        )
+    )
+
+    return OPEN_POSITIONS
+
+
+# ============================================================
+# EXCHANGE CONFIG
+# ============================================================
+
+async def load_exchange_config():
+
+    global WEEX_CONFIG
+
+    data = await weex_get(
+        "/capi/v3/market/exchangeInfo",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=False,
+    )
+
+    WEEX_CONFIG = (
+        data
+        if isinstance(
+            data,
+            dict,
+        )
+        else {}
+    )
+
+    log(
+        "WEEX EXCHANGE CONFIG READ COMPLETE"
+    )
+
+    return WEEX_CONFIG
+
+
+# ============================================================
+# WEEX READ-ONLY RECONCILIATION
+# ============================================================
+
+async def reconcile_weex():
+
+    await load_mark_price()
+
+    try:
+
+        await load_available_balance()
+
+    except Exception as exc:
+
+        log(
+            f"BALANCE READ FAILED = {exc}"
+        )
+
+        raise
+
+    try:
+
+        await load_open_positions()
+
+    except Exception as exc:
+
+        log(
+            f"POSITION READ FAILED = {exc}"
+        )
+
+        raise
+
+    try:
+
+        await load_exchange_config()
+
+    except Exception as exc:
+
+        log(
+            f"EXCHANGE CONFIG READ FAILED = {exc}"
+        )
+
+        raise
+
+    return True
+
+
+# ============================================================
+# HISTORICAL KLINES
+# ============================================================
+
+async def load_historical_klines():
+
+    all_rows = []
+
+    for page in range(
+        MAX_HISTORICAL_PAGES
+    ):
+
+        params = {
+            "symbol": SYMBOL,
+            "interval": KLINE_INTERVAL,
+            "limit": HISTORICAL_LIMIT,
+        }
+
+        if page > 0:
+
+            params[
+                "endTime"
+            ] = int(
+                time.time() * 1000
+            ) - (
+                page
+                * HISTORICAL_LIMIT
+                * 60
+                * 1000
+            )
+
+        data = await weex_get(
+            "/capi/v3/market/klines",
+            params=params,
+            authenticated=False,
+        )
+
+        rows = data
+
+        if isinstance(
+            data,
+            dict,
+        ):
+
+            rows = data.get(
+                "data",
+                data.get(
+                    "result",
+                    [],
+                ),
+            )
+
+        if not isinstance(
+            rows,
+            list,
+        ):
+
+            raise RuntimeError(
+                "Unexpected kline response"
+            )
+
+        all_rows.extend(
+            rows
+        )
+
+        if len(rows) < HISTORICAL_LIMIT:
+            break
+
+    return all_rows
+
+
+# ============================================================
+# KLINE VALUE HELPERS
+# ============================================================
+
+def candle_high(
+    row,
+):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        for key in (
+            "high",
+            "highPrice",
+        ):
+
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(
+        row,
+        list,
+    ) and len(row) >= 3:
+
+        return D(
+            row[2]
+        )
+
+    raise ValueError(
+        "Unable to read candle high"
+    )
+
+
+def candle_low(
+    row,
+):
+
+    if isinstance(
+        row,
+        dict,
+    ):
+
+        for key in (
+            "low",
+            "lowPrice",
+        ):
+
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(
+        row,
+        list,
+    ) and len(row) >= 4:
+
+        return D(
+            row[3]
+        )
+
+    raise ValueError(
+        "Unable to read candle low"
+    )
+
+
+def historical_highs(
+    rows,
+):
+
+    return [
+        candle_high(row)
+        for row in rows
+    ]
+
+
+def historical_lows(
+    rows,
+):
+
+    return [
+        candle_low(row)
+        for row in rows
+    ]
+
+
+# ============================================================
+# R36F.12 FROZEN EMA19 / EMA50 / EMA200 SIGNAL ENGINE
+# ============================================================
+
+def candle_close(row):
+    if isinstance(row, dict):
+        for key in ("close", "closePrice", "c", "lastPrice"):
+            if key in row:
+                return D(row[key])
+    if isinstance(row, list) and len(row) >= 5:
+        return D(row[4])
+    raise ValueError("Unable to read candle close")
+
+
+def candle_timestamp(row):
+    if isinstance(row, dict):
+        for key in ("timestamp", "ts", "time", "startTime", "openTime"):
+            if key in row:
+                try:
+                    return int(float(row[key]))
+                except Exception:
+                    return None
+    if isinstance(row, list) and row:
+        try:
+            return int(float(row[0]))
+        except Exception:
+            return None
+    return None
+
+def chronological_rows(rows):
+    usable = []
+
+    for row in rows:
+
+        try:
+
+            close = candle_close(row)
+
+            if close <= 0:
+                continue
+
+            ts = candle_timestamp(row)
+
+            usable.append(
+                (
+                    ts,
+                    row,
+                )
+            )
+
+        except Exception:
+            continue
+
+    if (
+        usable
+        and
+        all(
+            item[0] is not None
+            for item in usable
+        )
+    ):
+
+        by_ts = {
+            item[0]: item[1]
+            for item in usable
+        }
+
+        return [
+            by_ts[ts]
+            for ts in sorted(
+                by_ts
+            )
+        ]
+
+    return [
+        item[1]
+        for item in usable
+    ]
+
+
+def ema_series(
+    values,
+    period,
+):
+
+    if len(values) < period:
+        return None
+
+    multiplier = (
+        Decimal("2")
+        / Decimal(
+            period + 1
+        )
+    )
+
+    ema = (
+        sum(
+            values[:period]
+        )
+        / Decimal(
+            period
+        )
+    )
+
+    for price in values[
+        period:
+    ]:
+
+        ema = (
+            (
+                price
+                - ema
+            )
+            * multiplier
+            + ema
+        )
+
+    return ema
+
+
+def calculate_emas(
+    closes,
+):
+
+    return (
+        ema_series(
+            closes,
+            EMA_FAST,
+        ),
+        ema_series(
+            closes,
+            EMA_MID,
+        ),
+        ema_series(
+            closes,
+            EMA_SLOW,
+        ),
+    )
+
+
+def ema_structure(
+    ema19,
+    ema50,
+    ema200,
+):
+
+    if (
+        ema19
+        > ema50
+        > ema200
+    ):
+
+        return "STRONG_BULLISH"
+
+    if (
+        ema19
+        < ema50
+        < ema200
+    ):
+
+        return "STRONG_BEARISH"
+
+    if ema19 > ema50:
+
+        return "EARLY_BULLISH"
+
+    if ema19 < ema50:
+
+        return "EARLY_BEARISH"
+
+    return "NEUTRAL"
+
+
+def ema_direction(
+    structure,
+):
+
+    if structure == "STRONG_BULLISH":
+
+        return "LONG"
+
+    if structure == "STRONG_BEARISH":
+
+        return "SHORT"
+
+    return None
+
+
+def ema_separation_percent(
+    price,
+    ema19,
+    ema50,
+):
+
+    if price <= 0:
+
+        return Decimal("0")
+
+    return (
+        abs(
+            ema19
+            - ema50
+        )
+        / price
+        * Decimal("100")
+    )
+
+
+def detect_ema19_50_crossover(
+    previous19,
+    previous50,
+    current19,
+    current50,
+):
+
+    if None in (
+        previous19,
+        previous50,
+        current19,
+        current50,
+    ):
+
+        return None
+
+    if (
+        previous19
+        <= previous50
+        and
+        current19
+        > current50
+    ):
+
+        return "LONG"
+
+    if (
+        previous19
+        >= previous50
+        and
+        current19
+        < current50
+    ):
+
+        return "SHORT"
+
+    return None
+
+
+def build_ema_signal_snapshot(
+    rows,
+):
+
+    ordered = chronological_rows(
+        rows
+    )
+
+    closes = [
+        candle_close(
+            row
+        )
+        for row in ordered
+    ]
+
+    if len(
+        closes
+    ) < (
+        EMA_SLOW
+        + EMA_CONFIRMATION_CANDLES
+    ):
+
+        return {
+            "ready":
+                False,
+
+            "reason":
+                "INSUFFICIENT_CANDLES_FOR_EMA200_CONFIRMATION",
+
+            "rows":
+                len(
+                    closes
+                ),
+        }
+
+    (
+        current19,
+        current50,
+        current200,
+    ) = calculate_emas(
+        closes
+    )
+
+    (
+        previous19,
+        previous50,
+        previous200,
+    ) = calculate_emas(
+        closes[:-1]
+    )
+
+    current_price = closes[
+        -1
+    ]
+
+    structure = ema_structure(
+        current19,
+        current50,
+        current200,
+    )
+
+    direction = ema_direction(
+        structure
+    )
+
+    separation = (
+        ema_separation_percent(
+            current_price,
+            current19,
+            current50,
+        )
+    )
+
+    crossover = (
+        detect_ema19_50_crossover(
+            previous19,
+            previous50,
+            current19,
+            current50,
+        )
+    )
+
+    quality_ok = (
+        separation
+        >=
+        MIN_EMA_19_50_SEPARATION_PERCENT
+    )
+
+    ideal_direction = (
+        direction
+        if quality_ok
+        else None
+    )
+
+    return {
+
+        "ready":
+            True,
+
+        "reason":
+            "EMA_ENGINE_READY",
+
+        "rows":
+            len(
+                closes
+            ),
+
+        "price":
+            decimal_to_string(
+                current_price
+            ),
+
+        "ema19":
+            decimal_to_string(
+                current19
+            ),
+
+        "ema50":
+            decimal_to_string(
+                current50
+            ),
+
+        "ema200":
+            decimal_to_string(
+                current200
+            ),
+
+        "structure":
+            structure,
+
+        "direction":
+            direction,
+
+        "ideal_direction":
+            ideal_direction,
+
+        "ema19_50_separation_percent":
+            decimal_to_string(
+                separation
+            ),
+
+        "minimum_separation_percent":
+            decimal_to_string(
+                MIN_EMA_19_50_SEPARATION_PERCENT
+            ),
+
+        "quality_ok":
+            quality_ok,
+
+        "fresh_crossover":
+            crossover,
+
+        "confirmation_policy":
+            "NEXT_CLOSED_1M_CANDLE",
+
+        "signal_expiry_seconds":
+            SIGNAL_EXPIRY_SECONDS,
+    }
+
+
+def normalize_telegram_command(
+    text,
+):
+
+    return " ".join(
+        str(
+            text or ""
+        )
+        .strip()
+        .upper()
+        .split()
+    )
+
+
+def parse_telegram_trade_command(
+    text,
+):
+
+    normalized = (
+        normalize_telegram_command(
+            text
+        )
+    )
+
+    if (
+        normalized
+        == TELEGRAM_BUY_COMMAND
+    ):
+
+        return {
+            "recognized":
+                True,
+
+            "command":
+                normalized,
+
+            "direction":
+                "LONG",
+        }
+
+    if (
+        normalized
+        == TELEGRAM_SELL_COMMAND
+    ):
+
+        return {
+            "recognized":
+                True,
+
+            "command":
+                normalized,
+
+            "direction":
+                "SHORT",
+        }
+
+    return {
+        "recognized":
+            False,
+
+        "command":
+            normalized,
+
+        "direction":
+            None,
+    }
+
+
+def validate_telegram_command_against_signal(
+    text,
+    ema_snapshot,
+    long_eligible,
+    short_eligible,
+):
