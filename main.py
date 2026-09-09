@@ -2293,4 +2293,2814 @@ def validate_telegram_command_against_signal(
             False,
     }
 
+### R36F.15.2 — Part 2 of 4
+
+
+def build_ideal_condition_alert(
+    ema_snapshot,
+    long_eligible,
+    short_eligible,
+):
+
+    if not ema_snapshot.get(
+        "ready"
+    ):
+
+        return {
+            "alert":
+                False,
+
+            "reason":
+                "EMA_ENGINE_NOT_READY",
+        }
+
+    direction = ema_snapshot.get(
+        "ideal_direction"
+    )
+
+    if direction == "LONG":
+
+        market_ok = long_eligible
+
+        command = TELEGRAM_BUY_COMMAND
+
+    elif direction == "SHORT":
+
+        market_ok = short_eligible
+
+        command = TELEGRAM_SELL_COMMAND
+
+    else:
+
+        return {
+            "alert":
+                False,
+
+            "reason":
+                "NO_IDEAL_EMA_DIRECTION",
+        }
+
+    if not market_ok:
+
+        return {
+            "alert":
+                False,
+
+            "reason":
+                "IDEAL_EMA_DIRECTION_NOT_TP_MARKET_ELIGIBLE",
+
+            "direction":
+                direction,
+        }
+
+    return {
+
+        "alert":
+            True,
+
+        "reason":
+            "IDEAL_EMA_AND_TP_MARKET_CONDITION",
+
+        "direction":
+            direction,
+
+        "command":
+            command,
+
+        "message":
+            (
+                f"{STAGE} IDEAL {direction} CONDITION\n"
+                f"EMA19={ema_snapshot.get('ema19')}\n"
+                f"EMA50={ema_snapshot.get('ema50')}\n"
+                f"EMA200={ema_snapshot.get('ema200')}\n"
+                f"COMMAND={command}"
+            ),
+    }
+
+
+async def send_r36f12_telegram_alert(
+    alert,
+):
+
+    if not alert.get(
+        "alert"
+    ):
+
+        return {
+            "attempted":
+                False,
+
+            "sent":
+                False,
+
+            "reason":
+                alert.get(
+                    "reason"
+                ),
+        }
+
+    if not R36F12_TELEGRAM_ALERTS_ENABLED:
+
+        return {
+            "attempted":
+                False,
+
+            "sent":
+                False,
+
+            "reason":
+                "TELEGRAM_ALERTS_DISABLED",
+
+            "preview_message":
+                alert.get(
+                    "message"
+                ),
+        }
+
+    if not TELEGRAM_BOT_TOKEN:
+
+        return {
+            "attempted":
+                False,
+
+            "sent":
+                False,
+
+            "reason":
+                "TELEGRAM_BOT_TOKEN_MISSING",
+        }
+
+    if not TELEGRAM_CHAT_ID:
+
+        return {
+            "attempted":
+                False,
+
+            "sent":
+                False,
+
+            "reason":
+                "TELEGRAM_CHAT_ID_MISSING",
+        }
+
+    url = (
+        "https://api.telegram.org/bot"
+        + TELEGRAM_BOT_TOKEN
+        + "/sendMessage"
+    )
+
+    payload = {
+        "chat_id":
+            TELEGRAM_CHAT_ID,
+
+        "text":
+            alert.get(
+                "message",
+                "",
+            ),
+    }
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    try:
+
+        async with aiohttp.ClientSession(
+            timeout=timeout
+        ) as session:
+
+            async with session.post(
+                url,
+                json=payload,
+            ) as response:
+
+                text = await response.text()
+
+                try:
+
+                    data = json.loads(
+                        text
+                    )
+
+                except Exception:
+
+                    data = {
+                        "raw":
+                            text
+                    }
+
+                return {
+                    "attempted":
+                        True,
+
+                    "sent":
+                        (
+                            response.status < 400
+                            and
+                            bool(
+                                data.get(
+                                    "ok"
+                                )
+                                if isinstance(
+                                    data,
+                                    dict,
+                                )
+                                else False
+                            )
+                        ),
+
+                    "http_status":
+                        response.status,
+
+                    "response":
+                        data,
+                }
+
+    except Exception as exc:
+
+        return {
+            "attempted":
+                True,
+
+            "sent":
+                False,
+
+            "reason":
+                "TELEGRAM_SEND_EXCEPTION",
+
+            "error":
+                str(
+                    exc
+                ),
+        }
+
+
+# ============================================================
+# LOCAL EXTREMA
+# ============================================================
+
+def local_extrema(
+    values,
+    mode,
+):
+
+    output = []
+
+    if len(
+        values
+    ) < 3:
+
+        return output
+
+    for index in range(
+        1,
+        len(values) - 1,
+    ):
+
+        previous_value = values[
+            index - 1
+        ]
+
+        current_value = values[
+            index
+        ]
+
+        next_value = values[
+            index + 1
+        ]
+
+        if mode == "HIGH":
+
+            if (
+                current_value >= previous_value
+                and
+                current_value >= next_value
+            ):
+
+                output.append(
+                    current_value
+                )
+
+        elif mode == "LOW":
+
+            if (
+                current_value <= previous_value
+                and
+                current_value <= next_value
+            ):
+
+                output.append(
+                    current_value
+                )
+
+        else:
+
+            raise ValueError(
+                "mode must be HIGH or LOW"
+            )
+
+    return output
+
+
+# ============================================================
+# CLUSTER ENGINE
+# ============================================================
+
+def build_clusters(
+    values,
+):
+
+    if not values:
+
+        return []
+
+    ordered = sorted(
+        [
+            D(
+                value
+            )
+            for value in values
+        ]
+    )
+
+    clusters = []
+
+    current = [
+        ordered[0]
+    ]
+
+    for value in ordered[
+        1:
+    ]:
+
+        current_average = (
+            sum(
+                current
+            )
+            / D(
+                len(
+                    current
+                )
+            )
+        )
+
+        distance_percent = (
+            abs(
+                value
+                - current_average
+            )
+            / current_average
+            * Decimal("100")
+        )
+
+        if (
+            distance_percent
+            <= CLUSTER_TOLERANCE_PERCENT
+        ):
+
+            current.append(
+                value
+            )
+
+        else:
+
+            clusters.append(
+                current
+            )
+
+            current = [
+                value
+            ]
+
+    clusters.append(
+        current
+    )
+
+    output = []
+
+    for cluster in clusters:
+
+        average = (
+            sum(
+                cluster
+            )
+            / D(
+                len(
+                    cluster
+                )
+            )
+        )
+
+        output.append(
+            {
+                "average":
+                    average,
+
+                "minimum":
+                    min(
+                        cluster
+                    ),
+
+                "maximum":
+                    max(
+                        cluster
+                    ),
+
+                "touches":
+                    len(
+                        cluster
+                    ),
+            }
+        )
+
+    return output
+
+
+# ============================================================
+# DIRECTIONAL CLUSTER VALIDATION
+# ============================================================
+
+def validate_clusters(
+    clusters,
+    entry_price,
+    direction,
+):
+
+    valid = []
+
+    rejected = []
+
+    entry_price = D(
+        entry_price
+    )
+
+    for cluster in clusters:
+
+        reasons = []
+
+        if (
+            cluster[
+                "touches"
+            ]
+            < MIN_CLUSTER_TOUCHES
+        ):
+
+            reasons.append(
+                "INSUFFICIENT_TOUCHES"
+            )
+
+        average = cluster[
+            "average"
+        ]
+
+        if direction == "LONG":
+
+            if average <= entry_price:
+
+                reasons.append(
+                    "CLUSTER_NOT_ABOVE_ENTRY"
+                )
+
+        elif direction == "SHORT":
+
+            if average >= entry_price:
+
+                reasons.append(
+                    "CLUSTER_NOT_BELOW_ENTRY"
+                )
+
+        else:
+
+            raise ValueError(
+                "direction must be LONG or SHORT"
+            )
+
+        if reasons:
+
+            rejected.append(
+                {
+                    **cluster,
+
+                    "reasons":
+                        reasons,
+                }
+            )
+
+        else:
+
+            valid.append(
+                cluster
+            )
+
+    if direction == "LONG":
+
+        valid = sorted(
+            valid,
+            key=lambda item: item[
+                "average"
+            ],
+        )
+
+    else:
+
+        valid = sorted(
+            valid,
+            key=lambda item: item[
+                "average"
+            ],
+            reverse=True,
+        )
+
+    return (
+        valid,
+        rejected,
+    )
+
+
+# ============================================================
+# TP APPROVAL
+# ============================================================
+
+def approve_tp_clusters(
+    valid_clusters,
+):
+
+    available = len(
+        valid_clusters
+    )
+
+    if available >= REQUIRED_TP_CLUSTERS:
+
+        return {
+            "approved":
+                True,
+
+            "status":
+                "APPROVED",
+
+            "reason":
+                "ENOUGH_VALID_CLUSTERS",
+
+            "required_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "available_clusters":
+                available,
+
+            "selected_clusters":
+                valid_clusters[
+                    :REQUIRED_TP_CLUSTERS
+                ],
+        }
+
+    if available == 1:
+
+        reason = (
+            "ONLY_ONE_VALID_CLUSTER"
+        )
+
+    else:
+
+        reason = (
+            "EXTREMA_EXIST_BUT_CLUSTER_REQUIREMENTS_NOT_MET"
+        )
+
+    return {
+        "approved":
+            False,
+
+        "status":
+            "REJECTED",
+
+        "reason":
+            reason,
+
+        "required_clusters":
+            REQUIRED_TP_CLUSTERS,
+
+        "available_clusters":
+            available,
+
+        "selected_clusters":
+            [],
+    }
+
+
+# ============================================================
+# TP PRICE ENGINE
+# ============================================================
+
+def build_tp_prices(
+    entry_price,
+    direction,
+    approval,
+):
+
+    if not approval.get(
+        "approved"
+    ):
+
+        return None
+
+    entry_price = D(
+        entry_price
+    )
+
+    clusters = approval[
+        "selected_clusters"
+    ]
+
+    cluster_1 = D(
+        clusters[
+            0
+        ][
+            "average"
+        ]
+    )
+
+    cluster_2 = D(
+        clusters[
+            1
+        ][
+            "average"
+        ]
+    )
+
+    if direction == "LONG":
+
+        tp1 = (
+            entry_price
+            +
+            (
+                cluster_1
+                - entry_price
+            )
+            *
+            (
+                TP1_PROFIT_MARGIN_PERCENT
+                / Decimal("100")
+            )
+        )
+
+        tp2 = (
+            entry_price
+            +
+            (
+                cluster_2
+                - entry_price
+            )
+            *
+            (
+                TP2_PROFIT_MARGIN_PERCENT
+                / Decimal("100")
+            )
+        )
+
+    elif direction == "SHORT":
+
+        tp1 = (
+            entry_price
+            -
+            (
+                entry_price
+                - cluster_1
+            )
+            *
+            (
+                TP1_PROFIT_MARGIN_PERCENT
+                / Decimal("100")
+            )
+        )
+
+        tp2 = (
+            entry_price
+            -
+            (
+                entry_price
+                - cluster_2
+            )
+            *
+            (
+                TP2_PROFIT_MARGIN_PERCENT
+                / Decimal("100")
+            )
+        )
+
+    else:
+
+        raise ValueError(
+            "direction must be LONG or SHORT"
+        )
+
+    return {
+        "entry":
+            quantize_down(
+                entry_price,
+                PRICE_STEP,
+            ),
+
+        "tp1":
+            quantize_down(
+                tp1,
+                PRICE_STEP,
+            ),
+
+        "tp2":
+            quantize_down(
+                tp2,
+                PRICE_STEP,
+            ),
+
+        "tp3":
+            {
+                "allocation_percent":
+                    TP3_ALLOCATION_PERCENT,
+
+                "trailing_distance_percent":
+                    TP3_TRAILING_DISTANCE_PERCENT,
+
+                "runner":
+                    True,
+            },
+
+        "cluster_1_average":
+            cluster_1,
+
+        "cluster_2_average":
+            cluster_2,
+
+        "direction":
+            direction,
+    }
+
+
+# ============================================================
+# DIRECTION ANALYSIS
+# ============================================================
+
+def analyze_direction(
+    rows,
+    entry_price,
+    direction,
+):
+
+    if direction == "LONG":
+
+        values = historical_highs(
+            rows
+        )
+
+        extrema = local_extrema(
+            values,
+            "HIGH",
+        )
+
+    else:
+
+        values = historical_lows(
+            rows
+        )
+
+        extrema = local_extrema(
+            values,
+            "LOW",
+        )
+
+    clusters = build_clusters(
+        extrema
+    )
+
+    (
+        valid_clusters,
+        rejected_clusters,
+    ) = validate_clusters(
+        clusters,
+        entry_price,
+        direction,
+    )
+
+    approval = approve_tp_clusters(
+        valid_clusters
+    )
+
+    tp_prices = build_tp_prices(
+        entry_price,
+        direction,
+        approval,
+    )
+
+    return {
+
+        "direction":
+            direction,
+
+        "extrema_count":
+            len(
+                extrema
+            ),
+
+        "cluster_count":
+            len(
+                clusters
+            ),
+
+        "valid_cluster_count":
+            len(
+                valid_clusters
+            ),
+
+        "clusters":
+            clusters,
+
+        "valid_clusters":
+            valid_clusters,
+
+        "rejected_clusters":
+            rejected_clusters,
+
+        "approval":
+            approval,
+
+        "tp_prices":
+            tp_prices,
+    }
+
+
+# ============================================================
+# DIRECTION DIAGNOSTIC LOGGING
+# ============================================================
+
+def log_direction_diagnostics(
+    diagnostics,
+):
+
+    direction = diagnostics[
+        "direction"
+    ]
+
+    log(
+        f"{direction} EXTREMA = "
+        + str(
+            diagnostics[
+                "extrema_count"
+            ]
+        )
+    )
+
+    log(
+        f"{direction} CLUSTERS = "
+        + str(
+            diagnostics[
+                "cluster_count"
+            ]
+        )
+    )
+
+    log(
+        f"{direction} VALID CLUSTERS = "
+        + str(
+            diagnostics[
+                "valid_cluster_count"
+            ]
+        )
+    )
+
+    for (
+        index,
+        cluster,
+    ) in enumerate(
+        diagnostics[
+            "valid_clusters"
+        ],
+        start=1,
+    ):
+
+        log(
+            f"{direction} VALID CLUSTER {index}: "
+            f"AVG={decimal_to_string(cluster['average'])} "
+            f"MIN={decimal_to_string(cluster['minimum'])} "
+            f"MAX={decimal_to_string(cluster['maximum'])} "
+            f"TOUCHES={cluster['touches']}"
+        )
+
+    for (
+        index,
+        cluster,
+    ) in enumerate(
+        diagnostics[
+            "rejected_clusters"
+        ],
+        start=1,
+    ):
+
+        log(
+            f"{direction} INVALID CLUSTER {index}: "
+            f"average={decimal_to_string(cluster['average'])} "
+            f"reasons={','.join(cluster['reasons'])}"
+        )
+
+    approval = diagnostics[
+        "approval"
+    ]
+
+    log(
+        f"{direction} CLUSTER DIAGNOSTIC FAILURE_REASON = "
+        + (
+            "NONE"
+            if approval[
+                "approved"
+            ]
+            else approval[
+                "reason"
+            ]
+        )
+    )
+
+    log(
+        f"{STAGE}_TP_APPROVAL = "
+        + approval[
+            "status"
+        ]
+    )
+
+    log(
+        f"{STAGE}_TP_APPROVAL_REASON = "
+        + approval[
+            "reason"
+        ]
+    )
+
+    log(
+        f"{STAGE}_TP_REQUIRED_CLUSTERS = "
+        + str(
+            approval[
+                "required_clusters"
+            ]
+        )
+    )
+
+    log(
+        f"{STAGE}_TP_AVAILABLE_CLUSTERS = "
+        + str(
+            approval[
+                "available_clusters"
+            ]
+        )
+    )
+
+    if diagnostics[
+        "tp_prices"
+    ]:
+
+        tp = diagnostics[
+            "tp_prices"
+        ]
+
+        log(
+            f"{direction} TP1 = "
+            + decimal_to_string(
+                tp[
+                    "tp1"
+                ]
+            )
+        )
+
+        log(
+            f"{direction} TP2 = "
+            + decimal_to_string(
+                tp[
+                    "tp2"
+                ]
+            )
+        )
+
+        log(
+            f"{direction} TP3 = 60% TRAILING RUNNER"
+        )
+
+
+# ============================================================
+# TP QUANTITY ALLOCATION
+# ============================================================
+
+def allocate_tp_quantities(
+    entry_quantity,
+):
+
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    tp1_quantity = quantize_down(
+        (
+            entry_quantity
+            *
+            TP1_ALLOCATION_PERCENT
+            / Decimal("100")
+        ),
+        QUANTITY_STEP,
+    )
+
+    tp2_quantity = quantize_down(
+        (
+            entry_quantity
+            *
+            TP2_ALLOCATION_PERCENT
+            / Decimal("100")
+        ),
+        QUANTITY_STEP,
+    )
+
+    tp3_quantity = quantize_down(
+        (
+            entry_quantity
+            *
+            TP3_ALLOCATION_PERCENT
+            / Decimal("100")
+        ),
+        QUANTITY_STEP,
+    )
+
+    return {
+        "entry_quantity":
+            entry_quantity,
+
+        "tp1_quantity":
+            tp1_quantity,
+
+        "tp2_quantity":
+            tp2_quantity,
+
+        "tp3_quantity":
+            tp3_quantity,
+
+        "total_allocated":
+            (
+                tp1_quantity
+                +
+                tp2_quantity
+                +
+                tp3_quantity
+            ),
+    }
+
+
+# ============================================================
+# ADJUSTABLE TP QUANTITY REPRESENTABILITY
+# ============================================================
+
+def quantity_allocation_exact(
+    entry_quantity,
+):
+
+    allocation = allocate_tp_quantities(
+        entry_quantity
+    )
+
+    return (
+        allocation[
+            "total_allocated"
+        ]
+        == allocation[
+            "entry_quantity"
+        ]
+        and
+        allocation[
+            "tp1_quantity"
+        ] >= MIN_QUANTITY
+        and
+        allocation[
+            "tp2_quantity"
+        ] >= MIN_QUANTITY
+        and
+        allocation[
+            "tp3_quantity"
+        ] >= MIN_QUANTITY
+    )
+
+
+def discover_minimum_exact_entry_quantity():
+
+    quantity = MIN_QUANTITY
+
+    for _ in range(
+        100000
+    ):
+
+        if quantity_allocation_exact(
+            quantity
+        ):
+
+            return quantity
+
+        quantity += QUANTITY_STEP
+
+    raise RuntimeError(
+        "Unable to determine minimum exact TP entry quantity"
+    )
+
+
+# ============================================================
+# ENTRY QUANTITY
+# ============================================================
+
+def calculate_entry_quantity(
+    available_balance,
+    price,
+    leverage,
+):
+
+    available_balance = D(
+        available_balance
+    )
+
+    price = D(
+        price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    margin = (
+        available_balance
+        *
+        ENTRY_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    notional = (
+        margin
+        *
+        leverage
+    )
+
+    raw_quantity = (
+        notional
+        / price
+    )
+
+    quantity = quantize_down(
+        raw_quantity,
+        QUANTITY_STEP,
+    )
+
+    return {
+        "available_balance":
+            available_balance,
+
+        "margin":
+            margin,
+
+        "notional":
+            notional,
+
+        "raw_quantity":
+            raw_quantity,
+
+        "quantity":
+            quantity,
+    }
+
+
+# ============================================================
+# STRICT WRITER QUANTITY TEST
+# ============================================================
+
+def strict_quantity_feasibility(
+    entry_quantity,
+):
+
+    entry_quantity = quantize_down(
+        entry_quantity,
+        QUANTITY_STEP,
+    )
+
+    allocation = allocate_tp_quantities(
+        entry_quantity
+    )
+
+    minimum_entry_quantity = (
+        discover_minimum_exact_entry_quantity()
+    )
+
+    feasible = (
+        entry_quantity
+        >= minimum_entry_quantity
+        and
+        quantity_allocation_exact(
+            entry_quantity
+        )
+    )
+
+    return {
+        **allocation,
+
+        "minimum_entry_quantity":
+            minimum_entry_quantity,
+
+        "feasible":
+            feasible,
+
+        "reason":
+            (
+                "STRICT_20_20_60_QUANTITY_FEASIBLE"
+                if feasible
+                else "POSITION_TOO_SMALL_OR_NOT_EXACTLY_REPRESENTABLE_FOR_20_20_60"
+            ),
+    }
+
+
+# ============================================================
+# BALANCE READINESS
+# ============================================================
+
+def strict_balance_readiness(
+    available_balance,
+    price,
+    direction,
+):
+
+    leverage = (
+        LEVERAGE_LONG
+        if direction == "LONG"
+        else LEVERAGE_SHORT
+    )
+
+    entry = calculate_entry_quantity(
+        available_balance,
+        price,
+        leverage,
+    )
+
+    minimum_quantity = (
+        discover_minimum_exact_entry_quantity()
+    )
+
+    required_notional = (
+        minimum_quantity
+        *
+        D(
+            price
+        )
+    )
+
+    required_margin = (
+        required_notional
+        /
+        leverage
+    )
+
+    required_available_balance = (
+        required_margin
+        /
+        (
+            ENTRY_MARGIN_PERCENT
+            /
+            Decimal("100")
+        )
+    )
+
+    shortfall = max(
+        Decimal("0"),
+        required_available_balance
+        - D(
+            available_balance
+        ),
+    )
+
+    quantity_feasible = (
+        quantity_allocation_exact(
+            entry[
+                "quantity"
+            ]
+        )
+        and
+        entry[
+            "quantity"
+        ]
+        >= minimum_quantity
+    )
+
+    eligible = (
+        D(
+            available_balance
+        )
+        >= required_available_balance
+        and
+        quantity_feasible
+    )
+
+    return {
+
+        "direction":
+            direction,
+
+        "available_usdt":
+            D(
+                available_balance
+            ),
+
+        "planned_entry_qty":
+            entry[
+                "quantity"
+            ],
+
+        "minimum_strict_tp_entry_qty":
+            minimum_quantity,
+
+        "required_margin_usdt":
+            required_margin,
+
+        "required_available_usdt":
+            required_available_balance,
+
+        "available_balance_shortfall":
+            shortfall,
+
+        "quantity_feasible":
+            quantity_feasible,
+
+        "trade_readiness_status":
+            (
+                "ELIGIBLE"
+                if eligible
+                else "TRADE_NOT_ELIGIBLE"
+            ),
+
+        "reason":
+            (
+                "BALANCE_AND_QUANTITY_READY"
+                if eligible
+                else "INSUFFICIENT_BALANCE_FOR_STRICT_20_20_60"
+            ),
+    }
+
+
+# ============================================================
+# WRITER REQUEST CONSTRUCTION
+# ============================================================
+
+def build_writer_request(
+    direction,
+    quantity,
+    tp_snapshot,
+):
+
+    if not tp_snapshot:
+
+        raise ValueError(
+            "TP snapshot missing"
+        )
+
+    direction = str(
+        direction
+    ).upper()
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+
+        raise ValueError(
+            "Invalid direction"
+        )
+
+    quantity = quantize_down(
+        quantity,
+        QUANTITY_STEP,
+    )
+
+    tp_quantities = allocate_tp_quantities(
+        quantity
+    )
+
+    return {
+
+        "symbol":
+            SYMBOL,
+
+        "direction":
+            direction,
+
+        "side":
+            (
+                "BUY"
+                if direction == "LONG"
+                else "SELL"
+            ),
+
+        "margin_mode":
+            MARGIN_MODE,
+
+        "leverage":
+            decimal_to_string(
+                LEVERAGE_LONG
+                if direction == "LONG"
+                else LEVERAGE_SHORT
+            ),
+
+        "entry_quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "tp1_quantity":
+            decimal_to_string(
+                tp_quantities[
+                    "tp1_quantity"
+                ]
+            ),
+
+        "tp2_quantity":
+            decimal_to_string(
+                tp_quantities[
+                    "tp2_quantity"
+                ]
+            ),
+
+        "tp3_quantity":
+            decimal_to_string(
+                tp_quantities[
+                    "tp3_quantity"
+                ]
+            ),
+
+        "tp1_price":
+            decimal_to_string(
+                tp_snapshot[
+                    "tp1"
+                ]
+            ),
+
+        "tp2_price":
+            decimal_to_string(
+                tp_snapshot[
+                    "tp2"
+                ]
+            ),
+
+        "tp3":
+            {
+                "runner":
+                    True,
+
+                "allocation_percent":
+                    decimal_to_string(
+                        TP3_ALLOCATION_PERCENT
+                    ),
+
+                "trailing_distance_percent":
+                    decimal_to_string(
+                        TP3_TRAILING_DISTANCE_PERCENT
+                    ),
+            },
+
+        "submitted":
+            False,
+    }
+
+
+# ============================================================
+# R36F.12 FIRST-LIVE CANARY PREVIEW
+# ============================================================
+
+def build_first_live_canary_preview(
+    direction,
+    quantity,
+    entry_price,
+    tp_snapshot,
+):
+
+    writer_request = build_writer_request(
+        direction,
+        quantity,
+        tp_snapshot,
+    )
+
+    quantity = D(
+        writer_request[
+            "entry_quantity"
+        ]
+    )
+
+    if quantity > CANARY_MAX_ENTRY_QUANTITY:
+
+        quantity = CANARY_MAX_ENTRY_QUANTITY
+
+    quantity = quantize_down(
+        quantity,
+        QUANTITY_STEP,
+    )
+
+    allocation = allocate_tp_quantities(
+        quantity
+    )
+
+    return {
+        "stage":
+            STAGE,
+
+        "direction":
+            direction,
+
+        "symbol":
+            SYMBOL,
+
+        "entry_price":
+            quantize_down(
+                entry_price,
+                PRICE_STEP,
+            ),
+
+        "entry_quantity":
+            quantity,
+
+        "tp1_quantity":
+            allocation[
+                "tp1_quantity"
+            ],
+
+        "tp2_quantity":
+            allocation[
+                "tp2_quantity"
+            ],
+
+        "tp3_quantity":
+            allocation[
+                "tp3_quantity"
+            ],
+
+        "tp1_price":
+            tp_snapshot[
+                "tp1"
+            ],
+
+        "tp2_price":
+            tp_snapshot[
+                "tp2"
+            ],
+
+        "tp3_runner":
+            True,
+
+        "tp3_trailing_distance_percent":
+            TP3_TRAILING_DISTANCE_PERCENT,
+
+        "canary_quantity_cap":
+            CANARY_MAX_ENTRY_QUANTITY,
+
+        "arm_requested":
+            CANARY_ARM_REQUESTED,
+
+        "stop_price_text":
+            CANARY_STOP_PRICE_TEXT,
+
+        "stop_working_type":
+            CANARY_STOP_WORKING_TYPE,
+
+        "production_order_sent":
+            False,
+
+        "submitted":
+            False,
+    }
+
+
+# ============================================================
+# R36F.13 PROTECTIVE-STOP PRICE ENGINE
+# ============================================================
+
+def calculate_r36f13_protective_stop_price(
+    direction,
+    entry_price,
+    distance_percent=None,
+):
+
+    direction = str(
+        direction
+    ).upper()
+
+    entry_price = D(
+        entry_price
+    )
+
+    if distance_percent is None:
+
+        distance_percent = (
+            R36F13_PROTECTIVE_STOP_DISTANCE_PERCENT
+        )
+
+    distance_percent = D(
+        distance_percent
+    )
+
+    if entry_price <= 0:
+
+        raise ValueError(
+            "Entry price must be positive"
+        )
+
+    if distance_percent <= 0:
+
+        raise ValueError(
+            "Protective stop distance must be positive"
+        )
+
+    distance = (
+        distance_percent
+        / Decimal("100")
+    )
+
+    if direction == "LONG":
+
+        raw_stop_price = (
+            entry_price
+            *
+            (
+                Decimal("1")
+                - distance
+            )
+        )
+
+    elif direction == "SHORT":
+
+        raw_stop_price = (
+            entry_price
+            *
+            (
+                Decimal("1")
+                + distance
+            )
+        )
+
+    else:
+
+        raise ValueError(
+            "direction must be LONG or SHORT"
+        )
+
+    stop_price = quantize_down(
+        raw_stop_price,
+        PRICE_STEP,
+    )
+
+    return stop_price
+
+
+def validate_r36f13_protective_stop(
+    direction,
+    entry_price,
+    stop_price,
+    tp_snapshot,
+):
+
+    direction = str(
+        direction
+    ).upper()
+
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    checks = {}
+
+    checks[
+        "stop_present"
+    ] = (
+        stop_price > 0
+    )
+
+    checks[
+        "stop_price_step_normalized"
+    ] = (
+        stop_price
+        ==
+        quantize_down(
+            stop_price,
+            PRICE_STEP,
+        )
+    )
+
+    if direction == "LONG":
+
+        checks[
+            "stop_correct_side_of_entry"
+        ] = (
+            stop_price < entry_price
+        )
+
+        checks[
+            "stop_separate_from_tp1"
+        ] = (
+            tp_snapshot is not None
+            and
+            stop_price
+            < D(
+                tp_snapshot[
+                    "tp1"
+                ]
+            )
+        )
+
+        checks[
+            "stop_separate_from_tp2"
+        ] = (
+            tp_snapshot is not None
+            and
+            stop_price
+            < D(
+                tp_snapshot[
+                    "tp2"
+                ]
+            )
+        )
+
+    elif direction == "SHORT":
+
+        checks[
+            "stop_correct_side_of_entry"
+        ] = (
+            stop_price > entry_price
+        )
+
+        checks[
+            "stop_separate_from_tp1"
+        ] = (
+            tp_snapshot is not None
+            and
+            stop_price
+            > D(
+                tp_snapshot[
+                    "tp1"
+                ]
+            )
+        )
+
+        checks[
+            "stop_separate_from_tp2"
+        ] = (
+            tp_snapshot is not None
+            and
+            stop_price
+            > D(
+                tp_snapshot[
+                    "tp2"
+                ]
+            )
+        )
+
+    else:
+
+        checks[
+            "stop_correct_side_of_entry"
+        ] = False
+
+        checks[
+            "stop_separate_from_tp1"
+        ] = False
+
+        checks[
+            "stop_separate_from_tp2"
+        ] = False
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+def apply_r36f13_stop_authorization_gate(
+    command_preview,
+    stop_checks,
+):
+
+    updated = dict(
+        command_preview
+    )
+
+    previously_authorized = bool(
+        updated.get(
+            "authorized_preview"
+        )
+    )
+
+    stop_ok = bool(
+        stop_checks.get(
+            "all_valid"
+        )
+    )
+
+    updated[
+        "r36f13_protective_stop_gate"
+    ] = stop_ok
+
+    updated[
+        "authorized_preview"
+    ] = (
+        previously_authorized
+        and stop_ok
+    )
+
+    if (
+        previously_authorized
+        and not stop_ok
+    ):
+
+        updated[
+            "reason"
+        ] = (
+            "PROTECTIVE_STOP_VALIDATION_FAILED"
+        )
+
+    return updated
+
+
+# ============================================================
+# R36F.13.1 STOP-DISTANCE RISK ENVELOPE
+# ============================================================
+
+def calculate_stop_distance_percent(
+    entry_price,
+    stop_price,
+):
+
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    if entry_price <= 0:
+
+        raise ValueError(
+            "Entry price must be positive"
+        )
+
+    return (
+        abs(
+            entry_price
+            - stop_price
+        )
+        / entry_price
+        * Decimal("100")
+    )
+
+
+def validate_r36f131_stop_risk_envelope(
+    direction,
+    entry_price,
+    stop_price,
+):
+
+    direction = str(
+        direction
+    ).upper()
+
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    distance_percent = (
+        calculate_stop_distance_percent(
+            entry_price,
+            stop_price,
+        )
+    )
+
+    maximum_percent = (
+        R36F131_MAX_PROTECTIVE_STOP_DISTANCE_PERCENT
+    )
+
+    checks = {
+
+        "direction_valid":
+            direction
+            in {
+                "LONG",
+                "SHORT",
+            },
+
+        "distance_positive":
+            distance_percent
+            > Decimal("0"),
+
+        "distance_within_maximum":
+            distance_percent
+            <= maximum_percent,
+    }
+
+    if direction == "LONG":
+
+        checks[
+            "stop_correct_side"
+        ] = (
+            stop_price < entry_price
+        )
+
+    elif direction == "SHORT":
+
+        checks[
+            "stop_correct_side"
+        ] = (
+            stop_price > entry_price
+        )
+
+    else:
+
+        checks[
+            "stop_correct_side"
+        ] = False
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return {
+        **checks,
+
+        "direction":
+            direction,
+
+        "entry_price":
+            entry_price,
+
+        "stop_price":
+            stop_price,
+
+        "distance_percent":
+            distance_percent,
+
+        "maximum_allowed_percent":
+            maximum_percent,
+    }
+
+
+def apply_r36f131_risk_envelope_authorization_gate(
+    command_preview,
+    envelope,
+):
+
+    updated = dict(
+        command_preview
+    )
+
+    previously_authorized = bool(
+        updated.get(
+            "authorized_preview"
+        )
+    )
+
+    envelope_ok = bool(
+        envelope.get(
+            "all_valid"
+        )
+    )
+
+    updated[
+        "r36f131_stop_risk_envelope_gate"
+    ] = envelope_ok
+
+    updated[
+        "authorized_preview"
+    ] = (
+        previously_authorized
+        and envelope_ok
+    )
+
+    if (
+        previously_authorized
+        and not envelope_ok
+    ):
+
+        updated[
+            "reason"
+        ] = (
+            "PROTECTIVE_STOP_RISK_ENVELOPE_FAILED"
+        )
+
+    return updated
+
+
+# ============================================================
+# R36F.13.2 STOP-LOSS ACCOUNT BUDGET
+# ============================================================
+
+def calculate_r36f132_stop_loss_budget(
+    available_balance,
+    direction,
+    entry_price,
+    stop_price,
+    entry_quantity,
+):
+
+    available_balance = D(
+        available_balance
+    )
+
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    entry_quantity = D(
+        entry_quantity
+    )
+
+    direction = str(
+        direction
+    ).upper()
+
+    absolute_stop_distance = abs(
+        entry_price
+        - stop_price
+    )
+
+    estimated_loss_usdt = (
+        absolute_stop_distance
+        *
+        entry_quantity
+    )
+
+    maximum_loss_usdt = (
+        available_balance
+        *
+        R36F132_MAX_ACCOUNT_LOSS_PERCENT
+        / Decimal("100")
+    )
+
+    checks = {
+
+        "balance_positive":
+            available_balance
+            > Decimal("0"),
+
+        "entry_quantity_positive":
+            entry_quantity
+            > Decimal("0"),
+
+        "stop_distance_positive":
+            absolute_stop_distance
+            > Decimal("0"),
+
+        "estimated_loss_within_budget":
+            estimated_loss_usdt
+            <= maximum_loss_usdt,
+    }
+
+    if direction == "LONG":
+
+        checks[
+            "stop_correct_side"
+        ] = (
+            stop_price < entry_price
+        )
+
+    elif direction == "SHORT":
+
+        checks[
+            "stop_correct_side"
+        ] = (
+            stop_price > entry_price
+        )
+
+    else:
+
+        checks[
+            "stop_correct_side"
+        ] = False
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return {
+        **checks,
+
+        "direction":
+            direction,
+
+        "available_balance":
+            available_balance,
+
+        "entry_price":
+            entry_price,
+
+        "stop_price":
+            stop_price,
+
+        "entry_quantity":
+            entry_quantity,
+
+        "absolute_stop_distance":
+            absolute_stop_distance,
+
+        "estimated_loss_usdt":
+            estimated_loss_usdt,
+
+        "maximum_account_loss_percent":
+            R36F132_MAX_ACCOUNT_LOSS_PERCENT,
+
+        "maximum_loss_usdt":
+            maximum_loss_usdt,
+    }
+
+
+def apply_r36f132_stop_loss_budget_authorization_gate(
+    command_preview,
+    stop_loss_budget,
+):
+
+    updated = dict(
+        command_preview
+    )
+
+    previously_authorized = bool(
+        updated.get(
+            "authorized_preview"
+        )
+    )
+
+    budget_ok = bool(
+        stop_loss_budget.get(
+            "all_valid"
+        )
+    )
+
+    updated[
+        "r36f132_stop_loss_budget_gate"
+    ] = budget_ok
+
+    updated[
+        "authorized_preview"
+    ] = (
+        previously_authorized
+        and budget_ok
+    )
+
+    if (
+        previously_authorized
+        and not budget_ok
+    ):
+
+        updated[
+            "reason"
+        ] = (
+            "PROTECTIVE_STOP_LOSS_BUDGET_FAILED"
+        )
+
+    return updated
+
+
+# ============================================================
+# R36F.13 PROTECTED FIRST-LIVE CANARY PREVIEW
+# ============================================================
+
+def build_protected_canary_preview(
+    canary_preview,
+    stop_price,
+    arm_requested,
+    journal,
+    account_flat,
+):
+
+    preview = dict(
+        canary_preview
+    )
+
+    quantity = D(
+        preview.get(
+            "entry_quantity",
+            "0",
+        )
+    )
+
+    quantity_capped = (
+        quantity
+        <= CANARY_MAX_ENTRY_QUANTITY
+    )
+
+    journal_clear = (
+        not r36f15_demo_journal_unresolved(
+            journal
+        )
+        and
+        not r36f15_demo_journal_completed(
+            journal
+        )
+    )
+
+    preview.update(
+        {
+
+            "protective_stop_price":
+                stop_price,
+
+            "protective_stop_working_type":
+                CANARY_STOP_WORKING_TYPE,
+
+            "quantity_capped":
+                quantity_capped,
+
+            "journal_clear":
+                journal_clear,
+
+            "account_flat":
+                bool(
+                    account_flat
+                ),
+
+            "arm_requested":
+                bool(
+                    arm_requested
+                ),
+
+            "production_order_sent":
+                False,
+
+            "submitted":
+                False,
+        }
+    )
+
+    return preview
+
+
+# ============================================================
+# R36F.14 WEEX DEMO READS
+# ============================================================
+
+async def load_r36f14_demo_balance():
+
+    data = await weex_get(
+        R36F14_DEMO_BALANCE_ENDPOINT,
+        params={
+            "coin":
+                R36F14_DEMO_ASSET
+        },
+        authenticated=True,
+    )
+
+    log(
+        "R36F.14 DEMO BALANCE READ = "
+        + canonical_json(
+            data
+        )
+    )
+
+    return data
+
+
+async def load_r36f14_demo_positions():
+
+    data = await weex_get(
+        R36F14_DEMO_POSITIONS_ENDPOINT,
+        authenticated=True,
+    )
+
+    log(
+        "R36F.14 DEMO POSITIONS READ = "
+        + canonical_json(
+            data
+        )
+    )
+
+    return data
+
+
+async def load_r36f14_demo_order_history():
+
+    data = await weex_get(
+        R36F14_DEMO_ORDER_HISTORY_ENDPOINT,
+        params={
+            "symbol":
+                R36F14_DEMO_SYMBOL
+        },
+        authenticated=True,
+    )
+
+    log(
+        "R36F.14 DEMO ORDER HISTORY READ = "
+        + canonical_json(
+            data
+        )
+    )
+
+    return data
+
+
+# ============================================================
+# R36F.14 DEMO ORDER PREVIEW
+# ============================================================
+
+def build_r36f14_demo_order_preview(
+    direction,
+    quantity,
+    tp_snapshot,
+    stop_price,
+):
+
+    direction = str(
+        direction
+    ).upper()
+
+    quantity = quantize_down(
+        quantity,
+        QUANTITY_STEP,
+    )
+
+    stop_price = quantize_down(
+        stop_price,
+        PRICE_STEP,
+    )
+
+    if direction == "LONG":
+
+        side = "BUY"
+
+    elif direction == "SHORT":
+
+        side = "SELL"
+
+    else:
+
+        raise ValueError(
+            "direction must be LONG or SHORT"
+        )
+
+    client_order_id = (
+        "R36F14_"
+        + direction
+        + "_"
+        + str(
+            int(
+                time.time()
+            )
+        )
+    )
+
+    payload = {
+
+        "symbol":
+            R36F14_DEMO_SYMBOL,
+
+        "side":
+            side,
+
+        "orderType":
+            "MARKET",
+
+        "quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "newClientOrderId":
+            client_order_id,
+
+        "stopLossPrice":
+            decimal_to_string(
+                stop_price
+            ),
+
+        "stopLossWorkingType":
+            CANARY_STOP_WORKING_TYPE,
+    }
+
+    return {
+
+        "stage":
+            STAGE,
+
+        "endpoint":
+            R36F14_DEMO_ORDER_ENDPOINT,
+
+        "method":
+            "POST",
+
+        "direction":
+            direction,
+
+        "payload":
+            payload,
+
+        "tp_snapshot":
+            tp_snapshot,
+
+        "transport_enabled":
+            R36F15_DEMO_POST_TRANSPORT_ENABLED,
+
+        "submission_enabled":
+            R36F15_DEMO_ORDER_SUBMISSION_ENABLED,
+
+        "first_demo_order_allowed":
+            R36F15_FIRST_DEMO_ORDER_ALLOWED,
+
+        "submitted":
+            False,
+    }
+
+
+def validate_r36f14_demo_order_preview(
+    preview,
+    direction,
+    entry_price,
+):
+
+    direction = str(
+        direction
+    ).upper()
+
+    entry_price = D(
+        entry_price
+    )
+
+    payload = preview.get(
+        "payload",
+        {}
+    )
+
+    quantity = D(
+        payload.get(
+            "quantity",
+            "0",
+        )
+    )
+
+    stop_price = D(
+        payload.get(
+            "stopLossPrice",
+            "0",
+        )
+    )
+
+    checks = {
+
+        "endpoint_exact":
+            preview.get(
+                "endpoint"
+            )
+            == R36F14_DEMO_ORDER_ENDPOINT,
+
+        "method_post":
+            preview.get(
+                "method"
+            )
+            == "POST",
+
+        "demo_symbol_exact":
+            payload.get(
+                "symbol"
+            )
+            == R36F14_DEMO_SYMBOL,
+
+        "market_order":
+            payload.get(
+                "orderType"
+            )
+            == "MARKET",
+
+        "quantity_positive":
+            quantity > 0,
+
+        "quantity_step_normalized":
+            quantity
+            ==
+            quantize_down(
+                quantity,
+                QUANTITY_STEP,
+            ),
+
+        "stop_present":
+            stop_price > 0,
+
+        "stop_price_step_normalized":
+            stop_price
+            ==
+            quantize_down(
+                stop_price,
+                PRICE_STEP,
+            ),
+
+        "client_order_id_present":
+            bool(
+                payload.get(
+                    "newClientOrderId"
+                )
+            ),
+
+        "production_transport_disabled":
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED
+            is False,
+
+        "production_order_submission_disabled":
+            ORDER_SUBMISSION_ENABLED
+            is False,
+
+        "first_real_order_forbidden":
+            FIRST_REAL_ORDER_ALLOWED
+            is False,
+    }
+
+    if direction == "LONG":
+
+        checks[
+            "side_correct"
+        ] = (
+            payload.get(
+                "side"
+            )
+            == "BUY"
+        )
+
+        checks[
+            "stop_correct_side"
+        ] = (
+            stop_price
+            < entry_price
+        )
+
+    elif direction == "SHORT":
+
+        checks[
+            "side_correct"
+        ] = (
+            payload.get(
+                "side"
+            )
+            == "SELL"
+        )
+
+        checks[
+            "stop_correct_side"
+        ] = (
+            stop_price
+            > entry_price
+        )
+
+    else:
+
+        checks[
+            "side_correct"
+        ] = False
+
+        checks[
+            "stop_correct_side"
+        ] = False
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+# ============================================================
+# BACKUP ORDER SNAPSHOT
+# ============================================================
+
+def build_backup_snapshot(
+    direction,
+    primary_entry,
+    backup_entry,
+    rows,
+):
+
+    primary_entry = D(
+        primary_entry
+    )
+
+    backup_entry = D(
+        backup_entry
+    )
+
+    primary = analyze_direction(
+        rows,
+        primary_entry,
+        direction,
+    )
+
+    backup = analyze_direction(
+        rows,
+        backup_entry,
+        direction,
+    )
+
+    return {
+
+        "direction":
+            direction,
+
+        "primary_entry":
+            primary_entry,
+
+        "backup_entry":
+            backup_entry,
+
+        "primary_tp_locked":
+            primary[
+                "tp_prices"
+            ],
+
+        "backup_tp_recalculated":
+            backup[
+                "tp_prices"
+            ],
+    }
+
+
+# ============================================================
+# STRATEGY QUANTITY PREVIEW
+# ============================================================
+
+def strategy_quantity_preview(
+    available_balance,
+    mark_price,
+    direction,
+):
+
+    leverage = (
+        LEVERAGE_LONG
+        if direction == "LONG"
+        else LEVERAGE_SHORT
+    )
+
+    return calculate_entry_quantity(
+        available_balance,
+        mark_price,
+        leverage,
+    )
+
+
+# ============================================================
+# EXPOSURE CHECK
+# ============================================================
+
+def exposure_within_limit(
+    current_exposure_percent,
+    additional_percent,
+):
+
+    total = (
+        D(
+            current_exposure_percent
+        )
+        +
+        D(
+            additional_percent
+        )
+    )
+
+    return (
+        total
+        <= MAX_FUND_EXPOSURE_PERCENT
+    )
+
+
+# ============================================================
+# IMMUTABLE PRIMARY TP SNAPSHOT
+# ============================================================
+
+def freeze_primary_tp_snapshot(
+    direction,
+    entry_price,
+    tp_prices,
+):
+
+    if not tp_prices:
+
+        return None
+
+    return {
+
+        "direction":
+            direction,
+
+        "entry_price":
+            D(
+                entry_price
+            ),
+
+        "tp1":
+            D(
+                tp_prices[
+                    "tp1"
+                ]
+            ),
+
+        "tp2":
+            D(
+                tp_prices[
+                    "tp2"
+                ]
+            ),
+
+        "tp3":
+            dict(
+                tp_prices[
+                    "tp3"
+                ]
+            ),
+
+        "immutable":
+            True,
+
+        "created_at":
+            now_iso(),
+    }
+
+
+# ============================================================
+# BACKUP TP RECALCULATION
+# ============================================================
+
+def recalculate_backup_tp_snapshot(
+    direction,
+    backup_entry,
+    rows,
+):
+
+    diagnostics = analyze_direction(
+        rows,
+        backup_entry,
+        direction,
+    )
+
+    if not diagnostics[
+        "approval"
+    ][
+        "approved"
+    ]:
+
+        return {
+
+            "approved":
+                False,
+
+            "reason":
+                diagnostics[
+                    "approval"
+                ][
+                    "reason"
+                ],
+
+            "tp_snapshot":
+                None,
+        }
+
+    return {
+
+        "approved":
+            True,
+
+        "reason":
+            "BACKUP_TP_RECALCULATED_ON_BACKUP_FILL",
+
+        "tp_snapshot":
+            freeze_primary_tp_snapshot(
+                direction,
+                backup_entry,
+                diagnostics[
+                    "tp_prices"
+                ],
+            ),
+    }
+
+
+# ============================================================
+# R36F.11 STRICT BALANCE READINESS GATE
+# ============================================================
+
+def minimum_adjustable_tp_entry_quantity():
+
+    return discover_minimum_exact_entry_quantity()
+
+
+def minimum_strict_tp_entry_quantity():
+
+    return minimum_adjustable_tp_entry_quantity()
 
