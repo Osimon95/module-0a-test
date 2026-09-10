@@ -58,7 +58,9 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlencode
 
-import requests
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+
 
 
 # ============================================================
