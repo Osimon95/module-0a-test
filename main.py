@@ -290,18 +290,7 @@ def make_signature(
 
 
 import requests
-```
 
-with:
-
-```python
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
-```
-
-Then replace the entire `weex_get()` function with this version:
-
-```python
 def weex_get(path, params=None):
 
     if not path.startswith("/capi/v3/sim/"):
