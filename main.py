@@ -417,6 +417,18 @@ def weex_get(path, params=None):
             "exception": str(exc)
         }
 
+
+    except Exception as exc:
+
+        return {
+            "ok": False,
+            "http": None,
+            "data": None,
+            "text": None,
+            "exception_type": type(exc).__name__,
+            "exception": str(exc)
+        }
+
 def weex_get(path, params=None):
 
     if not path.startswith("/capi/v3/sim/"):
