@@ -289,7 +289,6 @@ def make_signature(
 # ============================================================
 
 
-import requests
 
 def weex_get(path, params=None):
 
