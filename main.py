@@ -3273,3 +3273,1496 @@ def build_cluster_tp_snapshot(
     )
 
     return snapshot
+**Part 3 of 4 — continue immediately after Part 2’s `return snapshot`.**
+
+id="b7h3r9"
+def synthetic_two_cluster_tests():
+    synthetic_entry = Decimal('100')
+
+    long_rows = [
+        [1, '99', '101', '98', '100'],
+        [2, '100', '102', '99', '101'],
+        [3, '101', '101.9', '100', '101'],
+        [4, '101', '104', '100', '103'],
+        [5, '103', '102', '101', '102'],
+        [6, '102', '106', '101', '105'],
+        [7, '105', '104', '102', '103'],
+        [8, '103', '108', '102', '107'],
+        [9, '107', '106', '104', '105']
+    ]
+
+    short_rows = [
+        [1, '101', '102', '99', '100'],
+        [2, '100', '101', '98', '99'],
+        [3, '99', '100', '98.1', '99'],
+        [4, '99', '100', '96', '97'],
+        [5, '97', '99', '98', '98'],
+        [6, '98', '99', '94', '95'],
+        [7, '95', '97', '96', '96'],
+        [8, '96', '97', '92', '93'],
+        [9, '93', '95', '94', '94']
+    ]
+
+    try:
+        long_diag = build_cluster_diagnostics(
+            long_rows,
+            synthetic_entry,
+            'LONG'
+        )
+
+        short_diag = build_cluster_diagnostics(
+            short_rows,
+            synthetic_entry,
+            'SHORT'
+        )
+
+        diagnostic_check(
+            'SYNTHETIC_LONG_TWO_CLUSTER_APPROVAL',
+            long_diag.get('valid_cluster_count', 0)
+            >= REQUIRED_TP_CLUSTERS
+        )
+
+        diagnostic_check(
+            'SYNTHETIC_SHORT_TWO_CLUSTER_APPROVAL',
+            short_diag.get('valid_cluster_count', 0)
+            >= REQUIRED_TP_CLUSTERS
+        )
+
+    except Exception as exc:
+        log(
+            f'SYNTHETIC TP TEST ERROR = {exc}'
+        )
+
+    return True
+
+
+def calculate_entry_quantity(
+    available_balance,
+    price,
+    leverage
+):
+    available_balance = D(
+        available_balance
+    )
+
+    price = D(
+        price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    if (
+        available_balance <= 0
+        or price <= 0
+        or leverage <= 0
+    ):
+        return Decimal('0')
+
+    margin = (
+        available_balance
+        * ENTRY_MARGIN_PERCENT
+        / Decimal('100')
+    )
+
+    notional = (
+        margin
+        * leverage
+    )
+
+    raw_qty = (
+        notional
+        / price
+    )
+
+    return quantize_down(
+        raw_qty,
+        QUANTITY_STEP
+    )
+
+
+def minimum_strict_tp_entry_quantity():
+    percentages = [
+        TP1_ALLOCATION_PERCENT,
+        TP2_ALLOCATION_PERCENT,
+        TP3_ALLOCATION_PERCENT
+    ]
+
+    smallest = min(
+        percentages
+    )
+
+    if smallest <= 0:
+        raise RuntimeError(
+            'Invalid TP allocation percentage'
+        )
+
+    minimum = (
+        MIN_QUANTITY
+        * Decimal('100')
+        / smallest
+    )
+
+    return quantize_down(
+        minimum + QUANTITY_STEP,
+        QUANTITY_STEP
+    )
+
+
+def build_tp_quantity_allocation(
+    entry_qty
+):
+    entry_qty = D(
+        entry_qty
+    )
+
+    tp1_qty = quantize_down(
+        entry_qty
+        * TP1_ALLOCATION_PERCENT
+        / Decimal('100'),
+        QUANTITY_STEP
+    )
+
+    tp2_qty = quantize_down(
+        entry_qty
+        * TP2_ALLOCATION_PERCENT
+        / Decimal('100'),
+        QUANTITY_STEP
+    )
+
+    tp3_qty = (
+        entry_qty
+        - tp1_qty
+        - tp2_qty
+    )
+
+    tp3_qty = quantize_down(
+        tp3_qty,
+        QUANTITY_STEP
+    )
+
+    return {
+        'entry_qty': entry_qty,
+        'tp1_qty': tp1_qty,
+        'tp2_qty': tp2_qty,
+        'tp3_qty': tp3_qty,
+        'total_qty': (
+            tp1_qty
+            + tp2_qty
+            + tp3_qty
+        )
+    }
+
+
+def build_adjustable_tp_quantity_allocation(
+    entry_qty
+):
+    entry_qty = D(
+        entry_qty
+    )
+
+    preferred = (
+        Decimal('20'),
+        Decimal('20'),
+        Decimal('60')
+    )
+
+    fallback = (
+        Decimal('25'),
+        Decimal('25'),
+        Decimal('50')
+    )
+
+    candidates = [
+        preferred,
+        fallback
+    ]
+
+    for tp1_percent, tp2_percent, tp3_percent in candidates:
+        tp1_qty = quantize_down(
+            entry_qty
+            * tp1_percent
+            / Decimal('100'),
+            QUANTITY_STEP
+        )
+
+        tp2_qty = quantize_down(
+            entry_qty
+            * tp2_percent
+            / Decimal('100'),
+            QUANTITY_STEP
+        )
+
+        tp3_qty = (
+            entry_qty
+            - tp1_qty
+            - tp2_qty
+        )
+
+        tp3_qty = quantize_down(
+            tp3_qty,
+            QUANTITY_STEP
+        )
+
+        if (
+            tp1_qty >= MIN_QUANTITY
+            and tp2_qty >= MIN_QUANTITY
+            and tp3_qty >= MIN_QUANTITY
+            and (
+                tp1_qty
+                + tp2_qty
+                + tp3_qty
+            ) == entry_qty
+        ):
+            return {
+                'feasible': True,
+                'allocation_percentages': {
+                    'tp1': tp1_percent,
+                    'tp2': tp2_percent,
+                    'tp3': tp3_percent
+                },
+                'entry_qty': entry_qty,
+                'tp1_qty': tp1_qty,
+                'tp2_qty': tp2_qty,
+                'tp3_qty': tp3_qty,
+                'total_qty': entry_qty,
+                'policy': (
+                    'STRICT_20_20_60'
+                    if (
+                        tp1_percent,
+                        tp2_percent,
+                        tp3_percent
+                    ) == preferred
+                    else 'ADJUSTED_25_25_50'
+                )
+            }
+
+    return {
+        'feasible': False,
+        'entry_qty': entry_qty,
+        'tp1_qty': Decimal('0'),
+        'tp2_qty': Decimal('0'),
+        'tp3_qty': Decimal('0'),
+        'total_qty': Decimal('0'),
+        'policy': 'NO_FEASIBLE_ALLOCATION'
+    }
+
+
+def build_quantity_readiness(
+    available_balance,
+    mark_price,
+    leverage
+):
+    available_balance = D(
+        available_balance
+    )
+
+    mark_price = D(
+        mark_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    planned_entry_qty = calculate_entry_quantity(
+        available_balance,
+        mark_price,
+        leverage
+    )
+
+    minimum_entry_qty = (
+        minimum_strict_tp_entry_quantity()
+    )
+
+    minimum_notional = (
+        minimum_entry_qty
+        * mark_price
+    )
+
+    required_margin_for_minimum_qty = (
+        minimum_notional
+        / leverage
+    )
+
+    required_available_balance = (
+        required_margin_for_minimum_qty
+        * Decimal('100')
+        / ENTRY_MARGIN_PERCENT
+    )
+
+    shortfall = max(
+        Decimal('0'),
+        (
+            required_available_balance
+            - available_balance
+        )
+    )
+
+    strict_allocation = (
+        build_tp_quantity_allocation(
+            planned_entry_qty
+        )
+    )
+
+    strict_quantity_feasible = (
+        planned_entry_qty
+        >= minimum_entry_qty
+        and strict_allocation[
+            'tp1_qty'
+        ] >= MIN_QUANTITY
+        and strict_allocation[
+            'tp2_qty'
+        ] >= MIN_QUANTITY
+        and strict_allocation[
+            'tp3_qty'
+        ] >= MIN_QUANTITY
+    )
+
+    adjustable_allocation = (
+        build_adjustable_tp_quantity_allocation(
+            planned_entry_qty
+        )
+    )
+
+    adjustable_feasible = bool(
+        adjustable_allocation.get(
+            'feasible'
+        )
+    )
+
+    if adjustable_feasible:
+        trade_status = 'ELIGIBLE'
+        reason = (
+            'ADJUSTABLE_TP_QUANTITY_ALLOCATION_FEASIBLE'
+        )
+
+    else:
+        trade_status = 'TRADE_NOT_ELIGIBLE'
+        reason = (
+            'INSUFFICIENT_BALANCE_FOR_REPRESENTABLE_TP_ALLOCATION'
+        )
+
+    return {
+        'planned_entry_qty': planned_entry_qty,
+        'minimum_strict_tp_entry_qty': minimum_entry_qty,
+        'required_margin_for_minimum_qty': required_margin_for_minimum_qty,
+        'required_available_balance': required_available_balance,
+        'available_balance_shortfall': shortfall,
+        'strict_20_20_60_feasible': strict_quantity_feasible,
+        'adjustable_tp_feasible': adjustable_feasible,
+        'adjustable_allocation': adjustable_allocation,
+        'trade_readiness_status': trade_status,
+        'trade_readiness_reason': reason
+    }
+
+
+def calculate_protective_stop(
+    entry_price,
+    direction
+):
+    entry_price = D(
+        entry_price
+    )
+
+    distance_fraction = (
+        R36F13_PROTECTIVE_STOP_DISTANCE_PERCENT
+        / Decimal('100')
+    )
+
+    if direction == 'LONG':
+        raw_stop = (
+            entry_price
+            * (
+                Decimal('1')
+                - distance_fraction
+            )
+        )
+
+    elif direction == 'SHORT':
+        raw_stop = (
+            entry_price
+            * (
+                Decimal('1')
+                + distance_fraction
+            )
+        )
+
+    else:
+        raise RuntimeError(
+            'Invalid direction for protective stop'
+        )
+
+    return quantize_down(
+        raw_stop,
+        PRICE_STEP
+    )
+
+
+def validate_protective_stop(
+    entry_price,
+    stop_price,
+    direction,
+    tp1=None,
+    tp2=None
+):
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    valid_direction = False
+
+    if direction == 'LONG':
+        valid_direction = (
+            stop_price
+            < entry_price
+        )
+
+    elif direction == 'SHORT':
+        valid_direction = (
+            stop_price
+            > entry_price
+        )
+
+    price_step_ok = (
+        stop_price
+        == quantize_down(
+            stop_price,
+            PRICE_STEP
+        )
+    )
+
+    tp_separation_ok = True
+
+    if tp1 is not None:
+        tp1 = D(
+            tp1
+        )
+
+        if direction == 'LONG':
+            tp_separation_ok = (
+                tp1 > entry_price
+            )
+
+        else:
+            tp_separation_ok = (
+                tp1 < entry_price
+            )
+
+    if (
+        tp_separation_ok
+        and tp2 is not None
+    ):
+        tp2 = D(
+            tp2
+        )
+
+        if direction == 'LONG':
+            tp_separation_ok = (
+                tp2 > entry_price
+            )
+
+        else:
+            tp_separation_ok = (
+                tp2 < entry_price
+            )
+
+    return {
+        'valid': (
+            valid_direction
+            and price_step_ok
+            and tp_separation_ok
+        ),
+        'direction_valid': valid_direction,
+        'price_step_valid': price_step_ok,
+        'tp_separation_valid': tp_separation_ok
+    }
+
+
+def protective_stop_distance_percent(
+    entry_price,
+    stop_price
+):
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    if entry_price <= 0:
+        return Decimal('0')
+
+    return (
+        abs(
+            stop_price
+            - entry_price
+        )
+        / entry_price
+        * Decimal('100')
+    )
+
+
+def build_stop_risk_envelope(
+    entry_price,
+    stop_price
+):
+    distance_percent = (
+        protective_stop_distance_percent(
+            entry_price,
+            stop_price
+        )
+    )
+
+    within_limit = (
+        distance_percent
+        <= R36F131_MAX_PROTECTIVE_STOP_DISTANCE_PERCENT
+    )
+
+    return {
+        'distance_percent': distance_percent,
+        'maximum_allowed_percent': R36F131_MAX_PROTECTIVE_STOP_DISTANCE_PERCENT,
+        'within_limit': within_limit
+    }
+
+
+def build_stop_loss_budget(
+    entry_qty,
+    entry_price,
+    stop_price,
+    available_balance
+):
+    entry_qty = D(
+        entry_qty
+    )
+
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    available_balance = D(
+        available_balance
+    )
+
+    expected_loss = (
+        abs(
+            stop_price
+            - entry_price
+        )
+        * entry_qty
+    )
+
+    if available_balance > 0:
+        account_loss_percent = (
+            expected_loss
+            / available_balance
+            * Decimal('100')
+        )
+
+    else:
+        account_loss_percent = Decimal('0')
+
+    within_budget = (
+        account_loss_percent
+        <= R36F132_MAX_ACCOUNT_LOSS_PERCENT
+    )
+
+    return {
+        'expected_loss_usdt': expected_loss,
+        'account_loss_percent': account_loss_percent,
+        'maximum_account_loss_percent': R36F132_MAX_ACCOUNT_LOSS_PERCENT,
+        'within_budget': within_budget
+    }
+
+
+def build_writer_request(
+    direction,
+    quantity,
+    tp_snapshot,
+    protective_stop
+):
+    direction = str(
+        direction
+    ).upper()
+
+    quantity = D(
+        quantity
+    )
+
+    protective_stop = D(
+        protective_stop
+    )
+
+    if direction not in (
+        'LONG',
+        'SHORT'
+    ):
+        raise RuntimeError(
+            'Invalid writer direction'
+        )
+
+    if not tp_snapshot:
+        raise RuntimeError(
+            'Missing TP snapshot'
+        )
+
+    tp1 = D(
+        tp_snapshot['tp1']
+    )
+
+    tp2 = D(
+        tp_snapshot['tp2']
+    )
+
+    allocation = (
+        build_adjustable_tp_quantity_allocation(
+            quantity
+        )
+    )
+
+    if not allocation.get(
+        'feasible'
+    ):
+        raise RuntimeError(
+            'Writer quantity allocation infeasible'
+        )
+
+    order_side = (
+        'BUY'
+        if direction == 'LONG'
+        else 'SELL'
+    )
+
+    payload = {
+        'symbol': SYMBOL,
+        'side': order_side,
+        'positionSide': direction,
+        'type': 'MARKET',
+        'quantity': decimal_to_string(
+            quantity
+        ),
+        'marginMode': MARGIN_MODE,
+        'tpTriggerPrice': decimal_to_string(
+            tp1
+        ),
+        'tpOrderPrice': decimal_to_string(
+            tp1
+        ),
+        'tpTriggerType': 'MARK_PRICE',
+        'slTriggerPrice': decimal_to_string(
+            protective_stop
+        ),
+        'slOrderPrice': decimal_to_string(
+            protective_stop
+        ),
+        'slTriggerType': CANARY_STOP_WORKING_TYPE
+    }
+
+    return {
+        'direction': direction,
+        'quantity': quantity,
+        'tp1': tp1,
+        'tp2': tp2,
+        'protective_stop': protective_stop,
+        'allocation': allocation,
+        'payload': payload,
+        'submitted': False
+    }
+
+
+def build_demo_writer_preview(
+    direction,
+    quantity,
+    tp_snapshot,
+    protective_stop
+):
+    base = build_writer_request(
+        direction,
+        quantity,
+        tp_snapshot,
+        protective_stop
+    )
+
+    payload = dict(
+        base['payload']
+    )
+
+    payload[
+        'symbol'
+    ] = R36F14_DEMO_SYMBOL
+
+    client_order_id = (
+        'r36f15-'
+        + str(
+            int(
+                time.time()
+                * 1000
+            )
+        )
+    )
+
+    payload[
+        'newClientOrderId'
+    ] = client_order_id
+
+    return {
+        **base,
+        'payload': payload,
+        'demo_symbol': R36F14_DEMO_SYMBOL,
+        'demo_asset': R36F14_DEMO_ASSET,
+        'demo_endpoint': R36F14_DEMO_ORDER_ENDPOINT,
+        'client_order_id': client_order_id,
+        'submitted': False
+    }
+
+
+def build_market_snapshot(
+    side,
+    tp_snapshot,
+    quantity_readiness
+):
+    return {
+        'side': side,
+        'tp_snapshot_available': bool(
+            tp_snapshot
+        ),
+        'trade_readiness_status': (
+            quantity_readiness.get(
+                'trade_readiness_status'
+            )
+        ),
+        'trade_readiness_reason': (
+            quantity_readiness.get(
+                'trade_readiness_reason'
+            )
+        ),
+        'planned_entry_qty': decimal_to_string(
+            quantity_readiness.get(
+                'planned_entry_qty',
+                0
+            )
+        ),
+        'strict_20_20_60_feasible': bool(
+            quantity_readiness.get(
+                'strict_20_20_60_feasible'
+            )
+        ),
+        'adjustable_tp_feasible': bool(
+            quantity_readiness.get(
+                'adjustable_tp_feasible'
+            )
+        )
+    }
+
+
+def validate_zero_write_invariants():
+    checks = [
+        (
+            'REAL_ORDER_EXECUTION_DISABLED',
+            REAL_ORDER_EXECUTION is False
+        ),
+        (
+            'DEMO_ORDER_EXECUTION_DISABLED',
+            DEMO_ORDER_EXECUTION is False
+        ),
+        (
+            'EXCHANGE_MUTATION_TRANSPORT_DISABLED',
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED
+            is False
+        ),
+        (
+            'ORDER_SUBMISSION_DISABLED',
+            ORDER_SUBMISSION_ENABLED
+            is False
+        ),
+        (
+            'LEVERAGE_MUTATION_DISABLED',
+            LEVERAGE_MUTATION_ENABLED
+            is False
+        ),
+        (
+            'MARGIN_MODE_MUTATION_DISABLED',
+            MARGIN_MODE_MUTATION_ENABLED
+            is False
+        ),
+        (
+            'POSITION_MUTATION_DISABLED',
+            POSITION_MUTATION_ENABLED
+            is False
+        ),
+        (
+            'FIRST_REAL_ORDER_DISABLED',
+            FIRST_REAL_ORDER_ALLOWED
+            is False
+        )
+    ]
+
+    all_ok = True
+
+    for name, condition in checks:
+        if not diagnostic_check(
+            name,
+            condition
+        ):
+            all_ok = False
+
+    return all_ok
+
+
+def build_final_snapshot(
+    long_snapshot,
+    short_snapshot,
+    long_readiness,
+    short_readiness,
+    selected_snapshot,
+    selected_readiness,
+    selected_direction,
+    writer_preview,
+    protective_stop,
+    stop_validation,
+    stop_risk,
+    stop_budget,
+    demo_submission,
+    telegram_alert_result
+):
+    return {
+        'stage': STAGE,
+        'generated_at': now_iso(),
+        'purpose': PURPOSE,
+        'mark_price': decimal_to_string(
+            MARK_PRICE
+        ),
+        'available_balance': decimal_to_string(
+            AVAILABLE_BALANCE
+        ),
+        'open_positions': len(
+            OPEN_POSITIONS
+        ),
+        'ema_signal_snapshot': EMA_SIGNAL_SNAPSHOT,
+        'telegram_command_preview': TELEGRAM_COMMAND_PREVIEW,
+        'long_market': build_market_snapshot(
+            'LONG',
+            long_snapshot,
+            long_readiness
+        ),
+        'short_market': build_market_snapshot(
+            'SHORT',
+            short_snapshot,
+            short_readiness
+        ),
+        'selected_direction': selected_direction,
+        'selected_tp_snapshot_available': bool(
+            selected_snapshot
+        ),
+        'selected_trade_readiness': (
+            selected_readiness
+        ),
+        'writer_preview': writer_preview,
+        'protective_stop': (
+            decimal_to_string(
+                protective_stop
+            )
+            if protective_stop is not None
+            else None
+        ),
+        'protective_stop_validation': stop_validation,
+        'stop_risk_envelope': stop_risk,
+        'stop_loss_budget': stop_budget,
+        'demo_arm_requested': R36F15_DEMO_ARM_REQUESTED,
+        'demo_submission': demo_submission,
+        'telegram_state_change_alert_result': (
+            telegram_alert_result
+        ),
+        'production_real_order_execution': REAL_ORDER_EXECUTION,
+        'production_exchange_mutation_transport': (
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        ),
+        'production_order_submission_enabled': (
+            ORDER_SUBMISSION_ENABLED
+        )
+    }
+
+
+async def run_r36f12():
+    global EMA_SIGNAL_SNAPSHOT
+    global TELEGRAM_COMMAND_PREVIEW
+    global WEEX_READ_ONLY_OK
+    global ZERO_WRITE_INVARIANT_OK
+    global TEST_STATUS
+
+    FINAL_BLOCKERS.clear()
+
+    line()
+    log(
+        f'{STAGE}: MAIN EVALUATION CYCLE ENTERED'
+    )
+    line()
+
+    log(
+        f'PURPOSE={PURPOSE}'
+    )
+
+    ZERO_WRITE_INVARIANT_OK = (
+        validate_zero_write_invariants()
+    )
+
+    if not ZERO_WRITE_INVARIANT_OK:
+        FINAL_BLOCKERS.append(
+            'ZERO_WRITE_INVARIANT'
+        )
+
+    try:
+        await reconcile_weex()
+        WEEX_READ_ONLY_OK = True
+        diagnostic_check(
+            'WEEX_READ_ONLY_RECONCILIATION',
+            True
+        )
+
+    except Exception as exc:
+        WEEX_READ_ONLY_OK = False
+        diagnostic_check(
+            'WEEX_READ_ONLY_RECONCILIATION',
+            False,
+            str(exc)
+        )
+
+    try:
+        rows = await load_historical_klines()
+
+    except Exception as exc:
+        rows = []
+        FINAL_BLOCKERS.append(
+            'HISTORICAL_KLINE_READ'
+        )
+        log(
+            f'HISTORICAL KLINE READ FAILED = {exc}'
+        )
+
+    EMA_SIGNAL_SNAPSHOT = (
+        build_ema_signal_snapshot(
+            rows
+        )
+        if rows
+        else {
+            'ready': False,
+            'reason': 'NO_HISTORICAL_ROWS'
+        }
+    )
+
+    log(
+        'EMA SIGNAL SNAPSHOT = '
+        + canonical_json(
+            EMA_SIGNAL_SNAPSHOT
+        )
+    )
+
+    ideal_alert = (
+        build_ideal_condition_alert(
+            EMA_SIGNAL_SNAPSHOT
+        )
+    )
+
+    if ideal_alert:
+        log(
+            'IDEAL EMA ALERT PREVIEW = '
+            + ideal_alert.replace(
+                '\n',
+                ' | '
+            )
+        )
+
+    if (
+        ideal_alert
+        and R36F1541_ROUTINE_TELEGRAM_ALERTS_ENABLED
+    ):
+        routine_alert_result = (
+            await send_r36f12_telegram_alert(
+                ideal_alert
+            )
+        )
+
+    else:
+        routine_alert_result = {
+            'attempted': False,
+            'sent': False,
+            'reason': (
+                'R36F1541_ROUTINE_TELEGRAM_SUPPRESSED'
+                if ideal_alert
+                else 'NO_IDEAL_ALERT'
+            )
+        }
+
+    log(
+        'R36F.15.4.1 ROUTINE TELEGRAM ALERT RESULT = '
+        + canonical_json(
+            routine_alert_result
+        )
+    )
+
+    long_snapshot = None
+    short_snapshot = None
+
+    if rows and MARK_PRICE:
+        try:
+            long_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    rows,
+                    'LONG',
+                    'PRIMARY'
+                )
+            )
+
+        except Exception as exc:
+            log(
+                f'LONG TP SNAPSHOT REJECTED = {exc}'
+            )
+
+        try:
+            short_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    rows,
+                    'SHORT',
+                    'PRIMARY'
+                )
+            )
+
+        except Exception as exc:
+            log(
+                f'SHORT TP SNAPSHOT REJECTED = {exc}'
+            )
+
+    long_readiness = (
+        build_quantity_readiness(
+            AVAILABLE_BALANCE or 0,
+            MARK_PRICE or 0,
+            LEVERAGE_LONG
+        )
+    )
+
+    short_readiness = (
+        build_quantity_readiness(
+            AVAILABLE_BALANCE or 0,
+            MARK_PRICE or 0,
+            LEVERAGE_SHORT
+        )
+    )
+
+    long_eligible = bool(
+        long_snapshot
+        and long_readiness.get(
+            'adjustable_tp_feasible'
+        )
+    )
+
+    short_eligible = bool(
+        short_snapshot
+        and short_readiness.get(
+            'adjustable_tp_feasible'
+        )
+    )
+
+    command_text = os.getenv(
+        'R36F12_TELEGRAM_COMMAND',
+        ''
+    )
+
+    TELEGRAM_COMMAND_PREVIEW = (
+        validate_telegram_command_against_signal(
+            command_text,
+            EMA_SIGNAL_SNAPSHOT,
+            long_eligible,
+            short_eligible
+        )
+    )
+
+    log(
+        'R36F.15.4.1 TELEGRAM COMMAND PREVIEW = '
+        + canonical_json(
+            TELEGRAM_COMMAND_PREVIEW
+        )
+    )
+
+    selected_direction = (
+        TELEGRAM_COMMAND_PREVIEW.get(
+            'direction'
+        )
+    )
+
+    selected_snapshot = None
+    selected_readiness = None
+
+    if selected_direction == 'LONG':
+        selected_snapshot = long_snapshot
+        selected_readiness = long_readiness
+
+    elif selected_direction == 'SHORT':
+        selected_snapshot = short_snapshot
+        selected_readiness = short_readiness
+
+    writer_preview = None
+    protective_stop = None
+    stop_validation = {}
+    stop_risk = {}
+    stop_budget = {}
+
+    if (
+        selected_snapshot
+        and selected_readiness
+        and selected_readiness.get(
+            'adjustable_tp_feasible'
+        )
+        and selected_direction
+    ):
+        try:
+            planned_qty = D(
+                selected_readiness[
+                    'planned_entry_qty'
+                ]
+            )
+
+            protective_stop = (
+                calculate_protective_stop(
+                    MARK_PRICE,
+                    selected_direction
+                )
+            )
+
+            stop_validation = (
+                validate_protective_stop(
+                    MARK_PRICE,
+                    protective_stop,
+                    selected_direction,
+                    selected_snapshot.get(
+                        'tp1'
+                    ),
+                    selected_snapshot.get(
+                        'tp2'
+                    )
+                )
+            )
+
+            stop_risk = (
+                build_stop_risk_envelope(
+                    MARK_PRICE,
+                    protective_stop
+                )
+            )
+
+            stop_budget = (
+                build_stop_loss_budget(
+                    planned_qty,
+                    MARK_PRICE,
+                    protective_stop,
+                    AVAILABLE_BALANCE or 0
+                )
+            )
+
+            diagnostic_check(
+                'R36F13_PROTECTIVE_STOP_VALID',
+                stop_validation.get(
+                    'valid'
+                )
+                is True
+            )
+
+            diagnostic_check(
+                'R36F131_STOP_RISK_WITHIN_ENVELOPE',
+                stop_risk.get(
+                    'within_limit'
+                )
+                is True
+            )
+
+            diagnostic_check(
+                'R36F132_STOP_LOSS_WITHIN_ACCOUNT_BUDGET',
+                stop_budget.get(
+                    'within_budget'
+                )
+                is True
+            )
+
+            if (
+                stop_validation.get(
+                    'valid'
+                )
+                and stop_risk.get(
+                    'within_limit'
+                )
+                and stop_budget.get(
+                    'within_budget'
+                )
+            ):
+                writer_preview = (
+                    build_demo_writer_preview(
+                        selected_direction,
+                        planned_qty,
+                        selected_snapshot,
+                        protective_stop
+                    )
+                )
+
+                diagnostic_check(
+                    'WRITER_REQUEST_CONSTRUCTION',
+                    bool(
+                        writer_preview
+                        and writer_preview.get(
+                            'payload'
+                        )
+                    )
+                )
+
+        except Exception as exc:
+            log(
+                'WRITER / STOP PREVIEW FAILED = '
+                + str(
+                    exc
+                )
+            )
+
+            FINAL_BLOCKERS.append(
+                'ELIGIBLE_WRITER_PIPELINE_EXCEPTION'
+            )
+
+    demo_submission = (
+        await submit_r36f15_demo_order(
+            writer_preview,
+            TELEGRAM_COMMAND_PREVIEW
+        )
+    )
+
+    log(
+        'R36F.15 DEMO SUBMISSION RESULT = '
+        + canonical_json(
+            demo_submission
+        )
+    )
+
+    telegram_alert_result = (
+        await send_r36f1541_state_change_alert(
+            TELEGRAM_COMMAND_PREVIEW,
+            demo_submission
+        )
+    )
+
+    log(
+        'R36F.15.4.1 TELEGRAM STATE-CHANGE ALERT RESULT = '
+        + canonical_json(
+            telegram_alert_result
+        )
+    )
+
+    snapshot = build_final_snapshot(
+        long_snapshot,
+        short_snapshot,
+        long_readiness,
+        short_readiness,
+        selected_snapshot,
+        selected_readiness,
+        selected_direction,
+        writer_preview,
+        protective_stop,
+        stop_validation,
+        stop_risk,
+        stop_budget,
+        demo_submission,
+        telegram_alert_result
+    )
+
+    write_json_file(
+        R36F_SNAPSHOT_FILE,
+        snapshot
+    )
+
+    log(
+        'R36F SNAPSHOT WRITTEN = '
+        + R36F_SNAPSHOT_FILE
+    )
+
+    diagnostic_check(
+        'REAL_MONEY_ZERO_WRITE_INVARIANTS',
+        (
+            REAL_ORDER_EXECUTION is False
+            and EXCHANGE_MUTATION_TRANSPORT_ENABLED is False
+            and ORDER_SUBMISSION_ENABLED is False
+            and FIRST_REAL_ORDER_ALLOWED is False
+        )
+    )
+
+    if FINAL_BLOCKERS:
+        TEST_STATUS = 'FAIL'
+
+    else:
+        TEST_STATUS = 'PASS'
+
+    line()
+
+    log(
+        f'FINAL STATUS = {TEST_STATUS}'
+    )
+
+    log(
+        'FINAL_BLOCKER_COUNT = '
+        + str(
+            len(
+                FINAL_BLOCKERS
+            )
+        )
+    )
+
+    if FINAL_BLOCKERS:
+        log(
+            'FINAL_BLOCKERS = '
+            + canonical_json(
+                FINAL_BLOCKERS
+            )
+        )
+
+    log(
+        'REAL_LONG_MARKET_ELIGIBLE = '
+        + str(
+            long_eligible
+        )
+    )
+
+    log(
+        'REAL_SHORT_MARKET_ELIGIBLE = '
+        + str(
+            short_eligible
+        )
+    )
+
+    log(
+        'EMA_IDEAL_DIRECTION = '
+        + str(
+            EMA_SIGNAL_SNAPSHOT.get(
+                'ideal_direction'
+            )
+        )
+    )
+
+    log(
+        'EMA_STRUCTURE = '
+        + str(
+            EMA_SIGNAL_SNAPSHOT.get(
+                'structure'
+            )
+        )
+    )
+
+    log(
+        'TELEGRAM_COMMAND_AUTHORIZED_PREVIEW = '
+        + str(
+            TELEGRAM_COMMAND_PREVIEW.get(
+                'authorized_preview'
+            )
+        )
+    )
+
+    log(
+        'DEMO_ARM_REQUESTED = '
+        + str(
+            R36F15_DEMO_ARM_REQUESTED
+        )
+    )
+
+    log(
+        'DEMO_ORDER_ATTEMPTED = '
+        + str(
+            demo_submission.get(
+                'attempted'
+            )
+        )
+    )
+
+    log(
+        'DEMO_ORDER_ACCEPTED = '
+        + str(
+            demo_submission.get(
+                'accepted'
+            )
+        )
+    )
+
+    if protective_stop is not None:
+        log(
+            'PROTECTIVE_STOP = '
+            + decimal_to_string(
+                protective_stop
+            )
+        )
+
+    if stop_risk:
+        log(
+            'STOP_RISK_DISTANCE_PERCENT = '
+            + decimal_to_string(
+                stop_risk.get(
+                    'distance_percent',
+                    0
+                )
+            )
+        )
+
+        log(
+            'STOP_RISK_MAX_PERCENT = '
+            + decimal_to_string(
+                stop_risk.get(
+                    'maximum_allowed_percent',
+                    0
+                )
+            )
+        )
+
+    if stop_budget:
+        log(
+            'EXPECTED_STOP_LOSS_USDT = '
+            + decimal_to_string(
+                stop_budget.get(
+                    'expected_loss_usdt',
+                    0
+                )
+            )
+        )
+
+        log(
+            'EXPECTED_STOP_LOSS_ACCOUNT_PERCENT = '
+            + decimal_to_string(
+                stop_budget.get(
+                    'account_loss_percent',
+                    0
+                )
+            )
+        )
+
+        log(
+            'MAX_ACCOUNT_LOSS_PERCENT = '
+            + decimal_to_string(
+                stop_budget.get(
+                    'maximum_account_loss_percent',
+                    0
+                )
+            )
+        )
+
+    log(
+        'R36F151_REEVALUATION_SECONDS = '
+        + str(
+            R36F151_REEVALUATION_SECONDS
+        )
+    )
+
+    line()
+
+    return snapshot
