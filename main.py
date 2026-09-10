@@ -76,3 +76,13 @@ _DATA=(
     "UHjsvZ2+8UoF7izOQmuW9yD5CSJdpprWNJ8O4eGPO5zS49qajC3aSSTXhrzQ+CF6m+hoHp1nkjgBhNN5YHaNJppsmCbbRJJJJIRABsu2qW2cY6Txhh3eNtmviEkJMYyefbr5bjpAkJAIQJHNPTXiqdeoKr0zMMyKmqAoqiwqcShjHBv038KhISUQqUUC9DwtZ84fLk9kfmFdhonjj3XTqqlVVSpKklXXnwJGq9T14npzRo9Q"
 
 
+)
+_EXPECTED="5e25ce1ccf4520e8bcf138b1b6786b84540216ee06fe7f7f69a3549fb9aa5f3e"
+_RAW=base64.b64decode(_DATA)
+if hashlib.sha256(_RAW).hexdigest()!=_EXPECTED:
+    raise RuntimeError("R36F.15.4.1 paste integrity check failed: main.py text was altered or truncated")
+_SRC=bz2.decompress(_RAW).decode("utf-8")
+compile(_SRC,"main.py","exec")
+exec(compile(_SRC,"main.py","exec"))
+
+
