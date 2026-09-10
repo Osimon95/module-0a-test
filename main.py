@@ -288,6 +288,147 @@ def make_signature(
 # AUTHENTICATED READ-ONLY WEEX GET
 # ============================================================
 
+
+import requests
+```
+
+with:
+
+```python
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+```
+
+Then replace the entire `weex_get()` function with this version:
+
+```python
+def weex_get(path, params=None):
+
+    if not path.startswith("/capi/v3/sim/"):
+        raise RuntimeError(
+            "NON-DEMO ENDPOINT BLOCKED BY R36F.15.5 TEST UNIT: "
+            + path
+        )
+
+    params = params or {}
+
+    query_string = urlencode(
+        params,
+        doseq=True
+    )
+
+    timestamp = str(
+        int(time.time() * 1000)
+    )
+
+    signature = make_signature(
+        timestamp=timestamp,
+        method="GET",
+        request_path=path,
+        query_string=query_string,
+        body=""
+    )
+
+    headers = {
+        "ACCESS-KEY": WEEX_API_KEY,
+        "ACCESS-SIGN": signature,
+        "ACCESS-PASSPHRASE": WEEX_API_PASSPHRASE,
+        "ACCESS-TIMESTAMP": timestamp,
+        "Content-Type": "application/json"
+    }
+
+    url = WEEX_BASE_URL + path
+
+    if query_string:
+        url = url + "?" + query_string
+
+    log(
+        f"{STAGE} READ GET {path}"
+    )
+
+    request = Request(
+        url=url,
+        headers=headers,
+        method="GET"
+    )
+
+    try:
+
+        with urlopen(
+            request,
+            timeout=20
+        ) as response:
+
+            http_status = response.getcode()
+
+            raw = response.read().decode(
+                "utf-8",
+                errors="replace"
+            )
+
+            try:
+                data = json.loads(raw)
+
+            except Exception:
+                data = None
+
+            return {
+                "ok": http_status == 200,
+                "http": http_status,
+                "data": data,
+                "text": raw,
+                "exception_type": None,
+                "exception": None
+            }
+
+    except HTTPError as exc:
+
+        try:
+            raw = exc.read().decode(
+                "utf-8",
+                errors="replace"
+            )
+
+        except Exception:
+            raw = str(exc)
+
+        try:
+            data = json.loads(raw)
+
+        except Exception:
+            data = None
+
+        return {
+            "ok": False,
+            "http": exc.code,
+            "data": data,
+            "text": raw,
+            "exception_type": "HTTPError",
+            "exception": str(exc)
+        }
+
+    except URLError as exc:
+
+        return {
+            "ok": False,
+            "http": None,
+            "data": None,
+            "text": None,
+            "exception_type": "URLError",
+            "exception": str(exc)
+        }
+
+    except Exception as exc:
+
+        return {
+            "ok": False,
+            "http": None,
+            "data": None,
+            "text": None,
+            "exception_type": type(exc).__name__,
+            "exception": str(exc)
+        }
+
 def weex_get(path, params=None):
 
     if not path.startswith("/capi/v3/sim/"):
