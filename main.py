@@ -19,8 +19,9 @@ TARGET_CLIENT_ID = os.getenv(
 
 JOURNAL_FILE = os.getenv(
     "R36F15_DEMO_JOURNAL_FILE",
-    "/var/data/r36f_state/r36f15_demo_order_journal.json",
+    "/var/data/r36f_state/r36f15_demo_dispatch_journal.json",
 ).strip()
+
 
 
 def now_iso():
