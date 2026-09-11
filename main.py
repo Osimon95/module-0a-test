@@ -4933,10 +4933,7 @@ def evaluate_tp_approval(
 # VALID CLUSTERS
 # ============================================================
 
-**Part 3 of 5 — exact continuation.**
-It starts exactly at `def valid_clusters(` and ends immediately before `def writer_quantities(`.
 
-```python
 def valid_clusters(
     rows,
     entry_price,
