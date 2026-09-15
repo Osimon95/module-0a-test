@@ -4638,32 +4638,237 @@ def validate_clusters(
 # CLUSTER DIAGNOSTICS
 # ============================================================
 
+R36F15101_TOLERANCE_GRID = (
+    Decimal('0.05'),
+    Decimal('0.10'),
+    Decimal('0.15'),
+    Decimal('0.20'),
+    Decimal('0.25'),
+    Decimal('0.30'),
+)
+
+
+def cluster_extrema_at_tolerance(extrema, tolerance_percent):
+    tolerance_percent = D(tolerance_percent)
+
+    if not extrema:
+        return []
+
+    sorted_values = sorted(
+        D(value)
+        for value in extrema
+    )
+
+    clusters = []
+    current = [
+        sorted_values[0]
+    ]
+
+    for value in sorted_values[1:]:
+        current_average = (
+            sum(current)
+            / Decimal(len(current))
+        )
+
+        tolerance = (
+            current_average
+            * tolerance_percent
+            / Decimal('100')
+        )
+
+        if (
+            abs(value - current_average)
+            <= tolerance
+        ):
+            current.append(
+                value
+            )
+
+        else:
+            clusters.append(
+                {
+                    'minimum':
+                        min(current),
+
+                    'maximum':
+                        max(current),
+
+                    'average':
+                        (
+                            sum(current)
+                            / Decimal(
+                                len(current)
+                            )
+                        ),
+
+                    'touches':
+                        len(current),
+                }
+            )
+
+            current = [
+                value
+            ]
+
+    clusters.append(
+        {
+            'minimum':
+                min(current),
+
+            'maximum':
+                max(current),
+
+            'average':
+                (
+                    sum(current)
+                    / Decimal(
+                        len(current)
+                    )
+                ),
+
+            'touches':
+                len(current),
+        }
+    )
+
+    return clusters
+
+
+def r36f15101_side_distance_percent(
+    entry_price,
+    average,
+    side,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    average = D(
+        average
+    )
+
+    if entry_price <= 0:
+        return None
+
+    if side == 'LONG':
+        return (
+            (
+                average
+                - entry_price
+            )
+            / entry_price
+            * Decimal('100')
+        )
+
+    if side == 'SHORT':
+        return (
+            (
+                entry_price
+                - average
+            )
+            / entry_price
+            * Decimal('100')
+        )
+
+    return None
+
+
+def r36f15101_cluster_span_percent(
+    cluster
+):
+    average = D(
+        cluster['average']
+    )
+
+    if average <= 0:
+        return None
+
+    return (
+        (
+            D(cluster['maximum'])
+            - D(cluster['minimum'])
+        )
+        / average
+        * Decimal('100')
+    )
+
+
+def r36f15101_tolerance_sweep(
+    extrema,
+    entry_price,
+    side,
+):
+    results = []
+
+    for tolerance_percent in (
+        R36F15101_TOLERANCE_GRID
+    ):
+        clusters = (
+            cluster_extrema_at_tolerance(
+                extrema,
+                tolerance_percent,
+            )
+        )
+
+        valid, invalid = (
+            validate_clusters(
+                clusters,
+                entry_price,
+                side,
+            )
+        )
+
+        results.append(
+            {
+                'tolerance_percent':
+                    tolerance_percent,
+
+                'cluster_count':
+                    len(clusters),
+
+                'valid_cluster_count':
+                    len(valid),
+
+                'invalid_cluster_count':
+                    len(invalid),
+
+                'approved_if_used':
+                    (
+                        len(valid)
+                        >= REQUIRED_TP_CLUSTERS
+                    ),
+            }
+        )
+
+    return results
+
+
 def build_cluster_diagnostics(
     rows,
     entry_price,
     side,
 ):
-
     entry_price = D(
         entry_price
     )
 
-    if side == "LONG":
-
-        values = historical_highs(
-            rows
+    if side == 'LONG':
+        values = (
+            historical_highs(
+                rows
+            )
         )
 
-    elif side == "SHORT":
-
-        values = historical_lows(
-            rows
+    elif side == 'SHORT':
+        values = (
+            historical_lows(
+                rows
+            )
         )
 
     else:
-
         raise ValueError(
-            f"Unsupported side={side}"
+            f'Unsupported side={side}'
         )
 
     extrema = build_extrema(
@@ -4674,101 +4879,84 @@ def build_cluster_diagnostics(
         extrema
     )
 
-    (
-        valid,
-        invalid,
-    ) = validate_clusters(
-        clusters,
-        entry_price,
-        side,
+    valid, invalid = (
+        validate_clusters(
+            clusters,
+            entry_price,
+            side,
+        )
     )
 
     diagnostics = {
-
-        "side":
+        'side':
             side,
 
-        "entry_price":
+        'entry_price':
             decimal_to_string(
                 entry_price
             ),
 
-        "historical_row_count":
-            len(
-                rows
-            ),
+        'historical_row_count':
+            len(rows),
 
-        "extrema_count":
-            len(
-                extrema
-            ),
+        'extrema_count':
+            len(extrema),
 
-        "cluster_count":
-            len(
-                clusters
-            ),
+        'cluster_count':
+            len(clusters),
 
-        "valid_cluster_count":
-            len(
-                valid
-            ),
+        'valid_cluster_count':
+            len(valid),
 
-        "invalid_cluster_count":
-            len(
-                invalid
-            ),
+        'invalid_cluster_count':
+            len(invalid),
 
-        "required_valid_clusters":
+        'required_valid_clusters':
             REQUIRED_TP_CLUSTERS,
 
-        "valid_clusters":
+        'valid_clusters':
             valid,
 
-        "invalid_clusters":
+        'invalid_clusters':
             invalid,
     }
 
     if (
-        len(
-            valid
-        )
+        len(valid)
         >= REQUIRED_TP_CLUSTERS
     ):
-
         diagnostics[
-            "failure_reason"
+            'failure_reason'
         ] = None
 
-    elif len(
-        valid
-    ) == 1:
-
+    elif len(valid) == 1:
         diagnostics[
-            "failure_reason"
-        ] = "ONLY_ONE_VALID_CLUSTER"
+            'failure_reason'
+        ] = (
+            'ONLY_ONE_VALID_CLUSTER'
+        )
 
-    elif len(
-        extrema
-    ) == 0:
-
+    elif len(extrema) == 0:
         diagnostics[
-            "failure_reason"
-        ] = "NO_LOCAL_EXTREMA"
+            'failure_reason'
+        ] = (
+            'NO_LOCAL_EXTREMA'
+        )
 
-    elif len(
-        clusters
-    ) == 0:
-
+    elif len(clusters) == 0:
         diagnostics[
-            "failure_reason"
-        ] = "NO_HISTORICAL_CLUSTERS"
+            'failure_reason'
+        ] = (
+            'NO_HISTORICAL_CLUSTERS'
+        )
 
     else:
-
         diagnostics[
-            "failure_reason"
+            'failure_reason'
         ] = (
-            "EXTREMA_EXIST_BUT_CLUSTER_REQUIREMENTS_NOT_MET"
+            'EXTREMA_EXIST_BUT_'
+            'CLUSTER_REQUIREMENTS_'
+            'NOT_MET'
         )
 
     log(
@@ -4798,44 +4986,171 @@ def build_cluster_diagnostics(
         clusters,
         start=1,
     ):
+        average = D(
+            cluster['average']
+        )
+
+        distance_percent = (
+            r36f15101_side_distance_percent(
+                entry_price,
+                average,
+                side,
+            )
+        )
+
+        span_percent = (
+            r36f15101_cluster_span_percent(
+                cluster
+            )
+        )
+
+        if side == 'LONG':
+            side_ok = (
+                average
+                > entry_price
+            )
+
+        else:
+            side_ok = (
+                average
+                < entry_price
+            )
+
+        touches_ok = (
+            cluster['touches']
+            >= MIN_CLUSTER_TOUCHES
+        )
+
+        reasons = []
+
+        if not touches_ok:
+            reasons.append(
+                'INSUFFICIENT_TOUCHES'
+            )
+
+        if not side_ok:
+            if side == 'LONG':
+                reasons.append(
+                    'CLUSTER_NOT_ABOVE_ENTRY'
+                )
+
+            else:
+                reasons.append(
+                    'CLUSTER_NOT_BELOW_ENTRY'
+                )
+
+        if not reasons:
+            reasons.append(
+                'VALID'
+            )
 
         log(
-            f"{side} CLUSTER {index}: "
+            f"R36F.15.10.1 "
+            f"{side} LIVE CLUSTER "
+            f"{index}: "
             f"average="
-            f"{decimal_to_string(cluster['average'])} "
+            f"{decimal_to_string(average)} "
             f"minimum="
             f"{decimal_to_string(cluster['minimum'])} "
             f"maximum="
             f"{decimal_to_string(cluster['maximum'])} "
             f"touches="
-            f"{cluster['touches']}"
+            f"{cluster['touches']} "
+            f"span_percent="
+            f"{decimal_to_string(span_percent)} "
+            f"directional_distance_percent="
+            f"{decimal_to_string(distance_percent)} "
+            f"touches_ok="
+            f"{touches_ok} "
+            f"side_ok="
+            f"{side_ok} "
+            f"reasons="
+            f"{','.join(reasons)}"
         )
 
-    for (
-        index,
-        cluster,
-    ) in enumerate(
-        invalid,
-        start=1,
-    ):
+    sweep = (
+        r36f15101_tolerance_sweep(
+            extrema,
+            entry_price,
+            side,
+        )
+    )
 
+    diagnostics[
+        'r36f15101_tolerance_sweep'
+    ] = [
+        {
+            'tolerance_percent':
+                decimal_to_string(
+                    item[
+                        'tolerance_percent'
+                    ]
+                ),
+
+            'cluster_count':
+                item[
+                    'cluster_count'
+                ],
+
+            'valid_cluster_count':
+                item[
+                    'valid_cluster_count'
+                ],
+
+            'invalid_cluster_count':
+                item[
+                    'invalid_cluster_count'
+                ],
+
+            'approved_if_used':
+                item[
+                    'approved_if_used'
+                ],
+        }
+
+        for item in sweep
+    ]
+
+    for item in sweep:
         log(
-            f"{side} INVALID CLUSTER {index}: "
-            f"average="
-            f"{decimal_to_string(cluster['average'])} "
-            f"reasons="
-            f"{','.join(cluster['reasons'])}"
+            f"R36F.15.10.1 "
+            f"{side} TOLERANCE TEST "
+            f"tolerance_percent="
+            f"{decimal_to_string(item['tolerance_percent'])} "
+            f"cluster_count="
+            f"{item['cluster_count']} "
+            f"valid_cluster_count="
+            f"{item['valid_cluster_count']} "
+            f"required_clusters="
+            f"{REQUIRED_TP_CLUSTERS} "
+            f"approved_if_used="
+            f"{item['approved_if_used']}"
         )
 
     if diagnostics[
-        "failure_reason"
+        'failure_reason'
     ]:
-
         log(
-            f"{side} CLUSTER DIAGNOSTIC "
+            f"{side} "
+            f"CLUSTER DIAGNOSTIC "
             f"FAILURE_REASON = "
             f"{diagnostics['failure_reason']}"
         )
+
+    log(
+        f"R36F.15.10.1 "
+        f"{side} LIVE AUDIT SUMMARY "
+        f"current_tolerance_percent="
+        f"{decimal_to_string(CLUSTER_TOLERANCE_PERCENT)} "
+        f"min_cluster_touches="
+        f"{MIN_CLUSTER_TOUCHES} "
+        f"required_clusters="
+        f"{REQUIRED_TP_CLUSTERS} "
+        f"actual_valid_clusters="
+        f"{diagnostics['valid_cluster_count']} "
+        f"failure_reason="
+        f"{diagnostics['failure_reason']}"
+    )
 
     return diagnostics
 
