@@ -131,7 +131,7 @@ from threading import Thread
 # STAGE
 # ============================================================
 
-STAGE = "R36F.15.9-MERGED"
+stage="R36F.15.10.3"
 
 PURPOSE = (
     "SELECTED TP SNAPSHOT SCOPE FIX: preserve the complete R36F.15.1 continuous "
