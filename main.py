@@ -11818,7 +11818,395 @@ async def heartbeat_loop():
             )
             line()
 
+# =============================================================================
+# R36F.15.10.3 AUTO-MODE MERGER INTERFACE
+# Diagnostic-only integration layer.
+# DOES NOT SEND REAL OR DEMO ORDERS.
+# =============================================================================
 
+import time
+
+R36F15103_STAGE = "R36F.15.10.3"
+
+# Hard safety freeze for this merger test.
+R36F15103_REAL_ORDER_EXECUTION = False
+R36F15103_DEMO_ORDER_EXECUTION = False
+R36F15103_WRITE_TRANSPORT = False
+
+# Classifier tuning frozen from passed R36F.15.10.2 behaviour.
+R36F15103_MODE_CONFIRMATIONS_REQUIRED = 3
+
+# These thresholds are merger-interface defaults.
+# They can later be connected to the exact 15.10.2 constants.
+R36F15103_BREAKOUT_MOVE_PERCENT = 0.60
+R36F15103_STRONG_EMA_SEPARATION_PERCENT = 0.05
+
+R36F15103_ACTIVE_MODE = None
+R36F15103_PENDING_MODE = None
+R36F15103_PENDING_COUNT = 0
+R36F15103_MODE_LOCKED = False
+R36F15103_LAST_DIRECTION = None
+R36F15103_LAST_REASON = None
+R36F15103_CYCLE = 0
+
+
+def r36f15103_safe_float(value, default=None):
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def r36f15103_direction_from_ema(ema19, ema50, ema200):
+    e19 = r36f15103_safe_float(ema19)
+    e50 = r36f15103_safe_float(ema50)
+    e200 = r36f15103_safe_float(ema200)
+
+    if e19 is None or e50 is None or e200 is None:
+        return None
+
+    if e19 > e50 > e200:
+        return "LONG"
+
+    if e19 < e50 < e200:
+        return "SHORT"
+
+    return None
+
+
+def r36f15103_ema_separation_percent(ema19, ema50):
+    e19 = r36f15103_safe_float(ema19)
+    e50 = r36f15103_safe_float(ema50)
+
+    if e19 is None or e50 in (None, 0):
+        return 0.0
+
+    return abs(e19 - e50) / abs(e50) * 100.0
+
+
+def r36f15103_move_percent(current_price, reference_price):
+    current = r36f15103_safe_float(current_price)
+    reference = r36f15103_safe_float(reference_price)
+
+    if current is None or reference in (None, 0):
+        return 0.0
+
+    return abs(current - reference) / abs(reference) * 100.0
+
+
+def r36f15103_raw_classifier(
+    direction,
+    valid_cluster_count,
+    ema_separation_percent,
+    short_term_move_percent,
+):
+    """
+    Returns exactly ONE raw mode:
+        SCALP
+        STRUCTURE
+        BREAKOUT
+
+    IMPORTANT:
+    SCALP does NOT itself authorize LONG or SHORT.
+    It only selects the scalp rule family.
+    """
+
+    try:
+        clusters = int(valid_cluster_count or 0)
+    except Exception:
+        clusters = 0
+
+    ema_sep = r36f15103_safe_float(
+        ema_separation_percent,
+        0.0,
+    )
+
+    movement = r36f15103_safe_float(
+        short_term_move_percent,
+        0.0,
+    )
+
+    strong_direction = (
+        direction in ("LONG", "SHORT")
+        and ema_sep >= R36F15103_STRONG_EMA_SEPARATION_PERCENT
+    )
+
+    # Large directional movement has highest classification priority.
+    if (
+        strong_direction
+        and movement >= R36F15103_BREAKOUT_MOVE_PERCENT
+    ):
+        return (
+            "BREAKOUT",
+            "STRONG_EMA_DIRECTION_PLUS_LARGE_SHORT_TERM_MOVE",
+        )
+
+    # Strong directional market with historical TP structure.
+    if strong_direction and clusters >= 2:
+        return (
+            "STRUCTURE",
+            "STRONG_EMA_DIRECTION_WITH_TWO_OR_MORE_VALID_CLUSTERS",
+        )
+
+    # Strong trend but historical two-cluster structure unavailable.
+    if strong_direction and clusters < 2:
+        return (
+            "BREAKOUT",
+            "STRONG_EMA_DIRECTION_BUT_TWO_CLUSTER_STRUCTURE_UNAVAILABLE",
+        )
+
+    # Ordinary/small movement market.
+    return (
+        "SCALP",
+        "NO_CONFIRMED_STRUCTURE_OR_BREAKOUT_CONDITION",
+    )
+
+
+def r36f15103_update_mode(
+    raw_mode,
+    reason,
+    trade_active=False,
+):
+    global R36F15103_ACTIVE_MODE
+    global R36F15103_PENDING_MODE
+    global R36F15103_PENDING_COUNT
+    global R36F15103_MODE_LOCKED
+    global R36F15103_LAST_REASON
+
+    # -------------------------------------------------------------
+    # Active-trade lock.
+    # Never transform an existing trade from one strategy into another.
+    # -------------------------------------------------------------
+
+    if trade_active:
+        R36F15103_MODE_LOCKED = True
+
+        if R36F15103_ACTIVE_MODE is None:
+            R36F15103_ACTIVE_MODE = raw_mode
+
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+        R36F15103_LAST_REASON = "MODE_LOCKED_FOR_ACTIVE_TRADE"
+
+        return R36F15103_ACTIVE_MODE
+
+    R36F15103_MODE_LOCKED = False
+
+    # First classification after startup.
+    if R36F15103_ACTIVE_MODE is None:
+        R36F15103_ACTIVE_MODE = raw_mode
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+        R36F15103_LAST_REASON = (
+            "INITIAL_MODE_SELECTED:" + str(reason)
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    # Existing mode reconfirmed.
+    if raw_mode == R36F15103_ACTIVE_MODE:
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+        R36F15103_LAST_REASON = (
+            "ACTIVE_MODE_CONFIRMED:" + str(reason)
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    # Candidate mode changed before confirmation completed.
+    if R36F15103_PENDING_MODE != raw_mode:
+        R36F15103_PENDING_MODE = raw_mode
+        R36F15103_PENDING_COUNT = 1
+
+        R36F15103_LAST_REASON = (
+            "MODE_CHANGE_PENDING:" + str(reason)
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    # Same candidate appeared again.
+    R36F15103_PENDING_COUNT += 1
+
+    if (
+        R36F15103_PENDING_COUNT
+        >= R36F15103_MODE_CONFIRMATIONS_REQUIRED
+    ):
+        previous_mode = R36F15103_ACTIVE_MODE
+
+        R36F15103_ACTIVE_MODE = raw_mode
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+
+        R36F15103_LAST_REASON = (
+            "MODE_CHANGED_AFTER_3_CONFIRMATIONS:"
+            + str(previous_mode)
+            + "_TO_"
+            + str(raw_mode)
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    R36F15103_LAST_REASON = (
+        "MODE_CHANGE_PENDING:" + str(reason)
+    )
+
+    return R36F15103_ACTIVE_MODE
+
+
+def r36f15103_merge_cycle(
+    current_price=None,
+    reference_price=None,
+    ema19=None,
+    ema50=None,
+    ema200=None,
+    valid_cluster_count=0,
+    existing_direction=None,
+    trade_active=False,
+):
+    """
+    R36F.15.10.3 merger entry point.
+
+    READ / CLASSIFY / REPORT ONLY.
+
+    This function deliberately contains:
+        NO requests.post()
+        NO order submission
+        NO WEEX mutation
+        NO Telegram trade authorization
+        NO leverage mutation
+        NO position mutation
+    """
+
+    global R36F15103_CYCLE
+    global R36F15103_LAST_DIRECTION
+
+    R36F15103_CYCLE += 1
+
+    calculated_direction = r36f15103_direction_from_ema(
+        ema19,
+        ema50,
+        ema200,
+    )
+
+    if existing_direction in ("LONG", "SHORT"):
+        direction = existing_direction
+    else:
+        direction = calculated_direction
+
+    R36F15103_LAST_DIRECTION = direction
+
+    ema_sep = r36f15103_ema_separation_percent(
+        ema19,
+        ema50,
+    )
+
+    movement = r36f15103_move_percent(
+        current_price,
+        reference_price,
+    )
+
+    raw_mode, classifier_reason = r36f15103_raw_classifier(
+        direction=direction,
+        valid_cluster_count=valid_cluster_count,
+        ema_separation_percent=ema_sep,
+        short_term_move_percent=movement,
+    )
+
+    active_mode = r36f15103_update_mode(
+        raw_mode=raw_mode,
+        reason=classifier_reason,
+        trade_active=bool(trade_active),
+    )
+
+    # Exclusive-mode assertion.
+    if active_mode not in (
+        "SCALP",
+        "STRUCTURE",
+        "BREAKOUT",
+    ):
+        raise RuntimeError(
+            "R36F.15.10.3 EXCLUSIVE MODE FAILURE"
+        )
+
+    result = {
+        "stage": R36F15103_STAGE,
+        "cycle": R36F15103_CYCLE,
+        "raw_mode": raw_mode,
+        "active_mode": active_mode,
+        "direction": direction,
+        "valid_cluster_count": int(valid_cluster_count or 0),
+        "ema_separation_percent": ema_sep,
+        "short_term_move_percent": movement,
+        "pending_mode": R36F15103_PENDING_MODE,
+        "pending_count": R36F15103_PENDING_COUNT,
+        "mode_locked": R36F15103_MODE_LOCKED,
+        "reason": R36F15103_LAST_REASON,
+        "real_execution": False,
+        "demo_execution": False,
+        "write_transport": False,
+    }
+
+    print(
+        f"{R36F15103_STAGE} "
+        f"CYCLE={result['cycle']} "
+        f"raw_mode={result['raw_mode']} "
+        f"active_mode={result['active_mode']} "
+        f"direction={result['direction']} "
+        f"clusters={result['valid_cluster_count']} "
+        f"ema_sep={result['ema_separation_percent']:.6f}% "
+        f"move={result['short_term_move_percent']:.6f}% "
+        f"pending_mode={result['pending_mode']} "
+        f"pending_count={result['pending_count']} "
+        f"locked={result['mode_locked']} "
+        f"reason={result['reason']}"
+    )
+
+    print(
+        f"{R36F15103_STAGE} "
+        "REAL_ORDER_EXECUTION=False "
+        "DEMO_ORDER_EXECUTION=False "
+        "WRITE_TRANSPORT=False"
+    )
+
+    return result
+
+
+def r36f15103_startup_diagnostic():
+    print("-" * 96)
+    print(
+        "R36F.15.10.3 AUTO-MODE MERGER INTERFACE LOADED"
+    )
+    print(
+        "R36F.15.10.3 MODES=SCALP|STRUCTURE|BREAKOUT"
+    )
+    print(
+        "R36F.15.10.3 EXCLUSIVE_MODE=True"
+    )
+    print(
+        "R36F.15.10.3 MODE_CHANGE_CONFIRMATIONS=3"
+    )
+    print(
+        "R36F.15.10.3 ACTIVE_TRADE_MODE_LOCK=True"
+    )
+    print(
+        "R36F.15.10.3 REAL_ORDER_EXECUTION=False"
+    )
+    print(
+        "R36F.15.10.3 DEMO_ORDER_EXECUTION=False"
+    )
+    print(
+        "R36F.15.10.3 WRITE_TRANSPORT=False"
+    )
+    print("-" * 96)
+
+
+r36f15103_startup_diagnostic()
+
+# =============================================================================
+# END R36F.15.10.3 AUTO-MODE MERGER INTERFACE
+# =============================================================================
 # ============================================================
 # ASYNC MAIN
 # ============================================================
