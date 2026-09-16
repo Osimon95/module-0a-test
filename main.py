@@ -5177,3 +5177,964 @@ def writer_allocate_tp_quantities(
                 + tp3_quantity
             ),
     }
+
+# ============================================================
+# R36F.15.10.4b — PART 5A
+# BALANCE READINESS + PROTECTIVE STOP
+# ============================================================
+
+# R36F.15.10.4b BALANCE READINESS LEVERAGE COMPATIBILITY FIX
+try:
+    TARGET_LONG_LEVERAGE
+except NameError:
+    TARGET_LONG_LEVERAGE = 100
+
+try:
+    TARGET_SHORT_LEVERAGE
+except NameError:
+    TARGET_SHORT_LEVERAGE = 100
+# END R36F.15.10.4b BALANCE READINESS LEVERAGE COMPATIBILITY FIX
+
+
+ADJUSTED_TP1_ALLOCATION_PERCENT = Decimal("25")
+ADJUSTED_TP2_ALLOCATION_PERCENT = Decimal("25")
+ADJUSTED_TP3_ALLOCATION_PERCENT = Decimal("50")
+
+
+def allocation_exactly_representable(
+    entry_quantity,
+    tp1_percent,
+    tp2_percent,
+    tp3_percent,
+):
+    entry_quantity = quantize_down(
+        D(entry_quantity),
+        QUANTITY_STEP,
+    )
+
+    percentages = (
+        D(tp1_percent),
+        D(tp2_percent),
+        D(tp3_percent),
+    )
+
+    if sum(percentages) != Decimal("100"):
+        return False
+
+    quantities = [
+        entry_quantity
+        * percent
+        / Decimal("100")
+        for percent in percentages
+    ]
+
+    return bool(
+        entry_quantity >= MIN_QUANTITY
+        and all(
+            quantity >= MIN_QUANTITY
+            for quantity in quantities
+        )
+        and all(
+            quantize_down(
+                quantity,
+                QUANTITY_STEP,
+            ) == quantity
+            for quantity in quantities
+        )
+        and sum(quantities)
+        == entry_quantity
+    )
+
+
+def select_tp_allocation(
+    entry_quantity,
+):
+    entry_quantity = quantize_down(
+        D(entry_quantity),
+        QUANTITY_STEP,
+    )
+
+    preferred = (
+        TP1_ALLOCATION_PERCENT,
+        TP2_ALLOCATION_PERCENT,
+        TP3_ALLOCATION_PERCENT,
+    )
+
+    adjusted = (
+        ADJUSTED_TP1_ALLOCATION_PERCENT,
+        ADJUSTED_TP2_ALLOCATION_PERCENT,
+        ADJUSTED_TP3_ALLOCATION_PERCENT,
+    )
+
+    if allocation_exactly_representable(
+        entry_quantity,
+        *preferred,
+    ):
+        return {
+            "tp1_percent":
+                preferred[0],
+
+            "tp2_percent":
+                preferred[1],
+
+            "tp3_percent":
+                preferred[2],
+
+            "adjusted":
+                False,
+
+            "label":
+                "20/20/60",
+        }
+
+    if allocation_exactly_representable(
+        entry_quantity,
+        *adjusted,
+    ):
+        return {
+            "tp1_percent":
+                adjusted[0],
+
+            "tp2_percent":
+                adjusted[1],
+
+            "tp3_percent":
+                adjusted[2],
+
+            "adjusted":
+                True,
+
+            "label":
+                "25/25/50",
+        }
+
+    return None
+
+
+def writer_quantities(
+    entry_quantity,
+):
+    entry_quantity = quantize_down(
+        D(entry_quantity),
+        QUANTITY_STEP,
+    )
+
+    allocation = select_tp_allocation(
+        entry_quantity
+    )
+
+    if allocation is None:
+        return (
+            entry_quantity,
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0"),
+        )
+
+    tp1 = (
+        entry_quantity
+        * allocation[
+            "tp1_percent"
+        ]
+        / Decimal("100")
+    )
+
+    tp2 = (
+        entry_quantity
+        * allocation[
+            "tp2_percent"
+        ]
+        / Decimal("100")
+    )
+
+    tp3 = (
+        entry_quantity
+        * allocation[
+            "tp3_percent"
+        ]
+        / Decimal("100")
+    )
+
+    return (
+        entry_quantity,
+        tp1,
+        tp2,
+        tp3,
+    )
+
+
+def validate_writer_quantities(
+    entry_quantity,
+    tp1,
+    tp2,
+    tp3,
+):
+    allocation = select_tp_allocation(
+        entry_quantity
+    )
+
+    if allocation is None:
+        return {
+            "allocation_selected":
+                False,
+
+            "all_valid":
+                False,
+        }
+
+    exact_tp1 = (
+        entry_quantity
+        * allocation[
+            "tp1_percent"
+        ]
+        / Decimal("100")
+    )
+
+    exact_tp2 = (
+        entry_quantity
+        * allocation[
+            "tp2_percent"
+        ]
+        / Decimal("100")
+    )
+
+    exact_tp3 = (
+        entry_quantity
+        * allocation[
+            "tp3_percent"
+        ]
+        / Decimal("100")
+    )
+
+    checks = {
+        "allocation_selected":
+            True,
+
+        "entry_on_step":
+            quantize_down(
+                entry_quantity,
+                QUANTITY_STEP,
+            ) == entry_quantity,
+
+        "tp1_on_step":
+            quantize_down(
+                tp1,
+                QUANTITY_STEP,
+            ) == tp1,
+
+        "tp2_on_step":
+            quantize_down(
+                tp2,
+                QUANTITY_STEP,
+            ) == tp2,
+
+        "tp3_on_step":
+            quantize_down(
+                tp3,
+                QUANTITY_STEP,
+            ) == tp3,
+
+        "entry_minimum":
+            entry_quantity
+            >= MIN_QUANTITY,
+
+        "tp1_minimum":
+            tp1
+            >= MIN_QUANTITY,
+
+        "tp2_minimum":
+            tp2
+            >= MIN_QUANTITY,
+
+        "tp3_minimum":
+            tp3
+            >= MIN_QUANTITY,
+
+        "allocation_sum_exact":
+            (
+                tp1
+                + tp2
+                + tp3
+            )
+            == entry_quantity,
+
+        "tp1_selected_percent_exact":
+            tp1 == exact_tp1,
+
+        "tp2_selected_percent_exact":
+            tp2 == exact_tp2,
+
+        "tp3_selected_percent_exact":
+            tp3 == exact_tp3,
+
+        "tp3_non_negative":
+            tp3 >= Decimal("0"),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+def minimum_adjustable_tp_entry_quantity():
+    candidate = QUANTITY_STEP
+
+    for _ in range(100000):
+        (
+            quantity,
+            tp1,
+            tp2,
+            tp3,
+        ) = writer_quantities(
+            candidate
+        )
+
+        checks = (
+            validate_writer_quantities(
+                quantity,
+                tp1,
+                tp2,
+                tp3,
+            )
+        )
+
+        if checks.get(
+            "all_valid"
+        ):
+            return quantity
+
+        candidate += QUANTITY_STEP
+
+    raise RuntimeError(
+        "Unable to find adjustable TP minimum quantity"
+    )
+
+
+def minimum_strict_tp_entry_quantity():
+    return (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+
+def evaluate_writer_quantity_feasibility(
+    entry_quantity,
+):
+    (
+        quantity,
+        tp1,
+        tp2,
+        tp3,
+    ) = writer_quantities(
+        entry_quantity
+    )
+
+    allocation = select_tp_allocation(
+        quantity
+    )
+
+    checks = (
+        validate_writer_quantities(
+            quantity,
+            tp1,
+            tp2,
+            tp3,
+        )
+    )
+
+    minimum_required = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    feasible = bool(
+        checks.get(
+            "all_valid"
+        )
+    )
+
+    return {
+        "feasible":
+            feasible,
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_ALLOCATION_REPRESENTABLE"
+                if feasible
+                else
+                "POSITION_TOO_SMALL_OR_NOT_REPRESENTABLE"
+            ),
+
+        "entry_quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "tp1_quantity":
+            decimal_to_string(
+                tp1
+            ),
+
+        "tp2_quantity":
+            decimal_to_string(
+                tp2
+            ),
+
+        "tp3_quantity":
+            decimal_to_string(
+                tp3
+            ),
+
+        "requested_allocation":
+            "20/20/60",
+
+        "selected_allocation":
+            (
+                allocation[
+                    "label"
+                ]
+                if allocation
+                else None
+            ),
+
+        "allocation_adjusted":
+            bool(
+                allocation
+                and allocation[
+                    "adjusted"
+                ]
+            ),
+
+        "minimum_required_entry_quantity":
+            decimal_to_string(
+                minimum_required
+            ),
+
+        "checks":
+            checks,
+    }
+
+
+def evaluate_strict_tp_balance_readiness(
+    available_balance,
+    mark_price,
+    leverage,
+):
+    available_balance = D(
+        available_balance
+    )
+
+    mark_price = D(
+        mark_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    if available_balance < 0:
+        raise ValueError(
+            "available_balance must be non-negative"
+        )
+
+    if mark_price <= 0:
+        raise ValueError(
+            "mark_price must be positive"
+        )
+
+    if leverage <= 0:
+        raise ValueError(
+            "leverage must be positive"
+        )
+
+    entry_fraction = (
+        ENTRY_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    raw_entry_quantity = (
+        available_balance
+        * entry_fraction
+        * leverage
+        / mark_price
+    )
+
+    planned_entry_quantity = (
+        quantize_down(
+            raw_entry_quantity,
+            QUANTITY_STEP,
+        )
+    )
+
+    feasibility = (
+        evaluate_writer_quantity_feasibility(
+            planned_entry_quantity
+        )
+    )
+
+    minimum_quantity = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    required_entry_margin = (
+        minimum_quantity
+        * mark_price
+        / leverage
+    )
+
+    required_available_balance = (
+        required_entry_margin
+        / entry_fraction
+    )
+
+    shortfall = max(
+        Decimal("0"),
+        required_available_balance
+        - available_balance,
+    )
+
+    eligible = bool(
+        feasibility[
+            "feasible"
+        ]
+        and
+        available_balance
+        >= required_available_balance
+    )
+
+    return {
+        "eligible":
+            eligible,
+
+        "status":
+            (
+                "ELIGIBLE"
+                if eligible
+                else
+                "TRADE_NOT_ELIGIBLE"
+            ),
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_BALANCE_AND_QUANTITY_READY"
+                if eligible
+                else
+                "INSUFFICIENT_BALANCE_FOR_APPROVED_TP_ALLOCATION"
+            ),
+
+        "available_balance":
+            decimal_to_string(
+                available_balance
+            ),
+
+        "mark_price":
+            decimal_to_string(
+                mark_price
+            ),
+
+        "leverage":
+            decimal_to_string(
+                leverage
+            ),
+
+        "planned_entry_quantity":
+            decimal_to_string(
+                planned_entry_quantity
+            ),
+
+        "minimum_required_entry_quantity":
+            decimal_to_string(
+                minimum_quantity
+            ),
+
+        "required_available_balance":
+            decimal_to_string(
+                required_available_balance
+            ),
+
+        "available_balance_shortfall":
+            decimal_to_string(
+                shortfall
+            ),
+
+        "quantity_feasible":
+            feasibility[
+                "feasible"
+            ],
+
+        "selected_allocation":
+            feasibility[
+                "selected_allocation"
+            ],
+
+        "allocation_adjusted":
+            feasibility[
+                "allocation_adjusted"
+            ],
+
+        "tp1_quantity":
+            feasibility[
+                "tp1_quantity"
+            ],
+
+        "tp2_quantity":
+            feasibility[
+                "tp2_quantity"
+            ],
+
+        "tp3_quantity":
+            feasibility[
+                "tp3_quantity"
+            ],
+    }
+
+
+# ============================================================
+# PROTECTIVE STOP
+# ============================================================
+
+def calculate_r36f13_protective_stop(
+    direction,
+    entry_price,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    distance = (
+        R36F13_PROTECTIVE_STOP_DISTANCE_PERCENT
+        / Decimal("100")
+    )
+
+    if direction == "LONG":
+        raw_stop = (
+            entry_price
+            * (
+                Decimal("1")
+                - distance
+            )
+        )
+
+        return quantize_down(
+            raw_stop,
+            PRICE_STEP,
+        )
+
+    if direction == "SHORT":
+        raw_stop = (
+            entry_price
+            * (
+                Decimal("1")
+                + distance
+            )
+        )
+
+        stop_price = quantize_down(
+            raw_stop,
+            PRICE_STEP,
+        )
+
+        if stop_price <= entry_price:
+            stop_price = (
+                quantize_down(
+                    entry_price,
+                    PRICE_STEP,
+                )
+                + PRICE_STEP
+            )
+
+        return stop_price
+
+    raise ValueError(
+        "Invalid protective-stop direction"
+    )
+
+
+def validate_r36f13_protective_stop(
+    direction,
+    entry_price,
+    stop_price,
+    tp1_price,
+    tp2_price,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    tp1_price = D(
+        tp1_price
+    )
+
+    tp2_price = D(
+        tp2_price
+    )
+
+    if direction == "LONG":
+        correct_side = (
+            stop_price
+            < entry_price
+        )
+
+        separated = (
+            stop_price
+            < entry_price
+            < tp1_price
+            < tp2_price
+        )
+
+    elif direction == "SHORT":
+        correct_side = (
+            stop_price
+            > entry_price
+        )
+
+        separated = (
+            stop_price
+            > entry_price
+            > tp1_price
+            > tp2_price
+        )
+
+    else:
+        correct_side = False
+        separated = False
+
+    checks = {
+        "configured_or_calculated":
+            True,
+
+        "positive":
+            stop_price > 0,
+
+        "correct_side_of_entry":
+            correct_side,
+
+        "price_step_normalized":
+            (
+                stop_price
+                % PRICE_STEP
+            ) == 0,
+
+        "does_not_cross_entry_or_tp":
+            separated,
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+def validate_r36f131_stop_risk_envelope(
+    direction,
+    entry_price,
+    stop_price,
+    leverage,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    distance_percent = (
+        abs(
+            stop_price
+            - entry_price
+        )
+        / entry_price
+        * Decimal("100")
+    )
+
+    leverage_reference = (
+        Decimal("100")
+        / leverage
+    )
+
+    checks = {
+        "direction_valid":
+            direction
+            in {
+                "LONG",
+                "SHORT",
+            },
+
+        "distance_positive":
+            distance_percent > 0,
+
+        "at_least_one_price_step":
+            abs(
+                stop_price
+                - entry_price
+            )
+            >= PRICE_STEP,
+
+        "within_configured_maximum":
+            (
+                distance_percent
+                <=
+                R36F131_MAX_PROTECTIVE_STOP_DISTANCE_PERCENT
+            ),
+
+        "inside_leverage_reference":
+            (
+                distance_percent
+                <
+                leverage_reference
+            ),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return {
+        "distance_percent":
+            decimal_to_string(
+                distance_percent
+            ),
+
+        "leverage_reference_percent":
+            decimal_to_string(
+                leverage_reference
+            ),
+
+        "checks":
+            checks,
+
+        "all_valid":
+            checks[
+                "all_valid"
+            ],
+    }
+
+
+def validate_r36f132_stop_loss_budget(
+    entry_price,
+    stop_price,
+    entry_quantity,
+    available_balance,
+    leverage,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    entry_quantity = D(
+        entry_quantity
+    )
+
+    available_balance = D(
+        available_balance
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    price_distance = abs(
+        entry_price
+        - stop_price
+    )
+
+    expected_loss = (
+        price_distance
+        * entry_quantity
+    )
+
+    expected_loss_percent = (
+        expected_loss
+        / available_balance
+        * Decimal("100")
+        if available_balance > 0
+        else Decimal("999")
+    )
+
+    account_loss_budget = (
+        available_balance
+        * R36F132_MAX_ACCOUNT_LOSS_PERCENT
+        / Decimal("100")
+    )
+
+    isolated_entry_margin = (
+        entry_price
+        * entry_quantity
+        / leverage
+    )
+
+    checks = {
+        "price_distance_positive":
+            price_distance > 0,
+
+        "expected_loss_positive":
+            expected_loss > 0,
+
+        "within_account_loss_budget":
+            (
+                expected_loss
+                <= account_loss_budget
+            ),
+
+        "within_isolated_entry_margin_budget":
+            (
+                expected_loss
+                <= isolated_entry_margin
+            ),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return {
+        "expected_loss_usdt":
+            decimal_to_string(
+                expected_loss
+            ),
+
+        "expected_loss_percent_of_available_balance":
+            decimal_to_string(
+                expected_loss_percent
+            ),
+
+        "configured_max_account_loss_percent":
+            decimal_to_string(
+                R36F132_MAX_ACCOUNT_LOSS_PERCENT
+            ),
+
+        "isolated_entry_margin_usdt":
+            decimal_to_string(
+                isolated_entry_margin
+            ),
+
+        "checks":
+            checks,
+
+        "all_valid":
+            checks[
+                "all_valid"
+            ],
+    }
