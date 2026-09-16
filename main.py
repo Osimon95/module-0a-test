@@ -5154,114 +5154,6 @@ def build_cluster_diagnostics(
 
     return diagnostics
 
-# ================================================================
-# R36F.15.10.3 CLEANUP
-# Stage identity + merger-interface verification only.
-# DO NOT modify frozen R36F.15.9 trading/execution logic.
-# ================================================================
-
-R36F15103_STAGE = "R36F.15.10.3"
-R36F15103_BASELINE_STAGE = "R36F.15.9-MERGED"
-R36F15103_REGIME_STAGE = "R36F.15.10.2"
-
-def r36f15103_cleanup_snapshot(base_snapshot, regime_snapshot=None):
-    """
-    Non-mutating merger cleanup.
-    Preserves the frozen R36F.15.9 execution baseline.
-    Adds R36F.15.10.3 stage identity and records the
-    R36F.15.10.2 regime-selection interface.
-    """
-
-    if not isinstance(base_snapshot, dict):
-        base_snapshot = {}
-
-    if not isinstance(regime_snapshot, dict):
-        regime_snapshot = {}
-
-    cleaned = dict(base_snapshot)
-
-    # ------------------------------------------------------------
-    # STAGE IDENTITY
-    # ------------------------------------------------------------
-    cleaned["stage"] = R36F15103_STAGE
-    cleaned["baseline_stage"] = R36F15103_BASELINE_STAGE
-    cleaned["regime_stage"] = R36F15103_REGIME_STAGE
-
-    # ------------------------------------------------------------
-    # PRESERVE FROZEN SAFETY STATE
-    # ------------------------------------------------------------
-    cleaned["real_execution"] = False
-    cleaned["write_transport"] = False
-
-    # ------------------------------------------------------------
-    # REGIME INTERFACE
-    # Read only. No exchange write is introduced here.
-    # ------------------------------------------------------------
-    selected_regime = (
-        regime_snapshot.get("selected_regime")
-        or regime_snapshot.get("regime")
-        or regime_snapshot.get("market_regime")
-        or "UNAVAILABLE"
-    )
-
-    selected_direction = (
-        regime_snapshot.get("selected_direction")
-        or regime_snapshot.get("direction")
-        or regime_snapshot.get("ideal_direction")
-        or "NONE"
-    )
-
-    cleaned["r36f15102_selected_regime"] = selected_regime
-    cleaned["r36f15102_selected_direction"] = selected_direction
-
-    cleaned["r36f15102_interface_available"] = bool(regime_snapshot)
-
-    cleaned["r36f15103_execution_baseline_preserved"] = True
-    cleaned["r36f15103_zero_write_preserved"] = True
-
-    return cleaned
-
-
-def r36f15103_print_cleanup(cleaned):
-    print("-" * 100)
-    print(f"{R36F15103_STAGE} CLEANUP")
-    print(
-        f"{R36F15103_STAGE} BASELINE_STAGE = "
-        f"{cleaned.get('baseline_stage')}"
-    )
-    print(
-        f"{R36F15103_STAGE} REGIME_STAGE = "
-        f"{cleaned.get('regime_stage')}"
-    )
-    print(
-        f"{R36F15103_STAGE} REGIME_INTERFACE_AVAILABLE = "
-        f"{cleaned.get('r36f15102_interface_available')}"
-    )
-    print(
-        f"{R36F15103_STAGE} SELECTED_REGIME = "
-        f"{cleaned.get('r36f15102_selected_regime')}"
-    )
-    print(
-        f"{R36F15103_STAGE} SELECTED_DIRECTION = "
-        f"{cleaned.get('r36f15102_selected_direction')}"
-    )
-    print(
-        f"{R36F15103_STAGE} EXECUTION_BASELINE_PRESERVED = "
-        f"{cleaned.get('r36f15103_execution_baseline_preserved')}"
-    )
-    print(
-        f"{R36F15103_STAGE} ZERO_WRITE_PRESERVED = "
-        f"{cleaned.get('r36f15103_zero_write_preserved')}"
-    )
-    print(
-        f"{R36F15103_STAGE} WRITE_TRANSPORT = "
-        f"{cleaned.get('write_transport')}"
-    )
-    print(
-        f"{R36F15103_STAGE} REAL_EXECUTION = "
-        f"{cleaned.get('real_execution')}"
-    )
-    print("-" * 100)
 # ============================================================
 # TP APPROVAL
 # ============================================================
@@ -5838,12 +5730,6 @@ def build_cluster_tp_snapshot(
 
     return snapshot
 
-snapshot = r36f15103_cleanup_snapshot(
-    snapshot,
-    globals().get("r36f15102_snapshot", {})
-)
-
-r36f15103_print_cleanup(snapshot)
 # ============================================================
 # SYNTHETIC TP TESTS
 # ============================================================
