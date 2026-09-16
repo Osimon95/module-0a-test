@@ -7538,4 +7538,212 @@ async def run_r36f12():
 
         log(
             f"{STAGE} SELECTED_TP_ALLOCATION = "
-            f"{balance_readiness.get('selected_allocatio
+            f"{balance_readiness.get('selected_allocation')}"
+        )
+
+    if protective_stop_price is not None:
+        log(
+            f"{STAGE} PROTECTIVE_STOP_PRICE = "
+            f"{decimal_to_string(protective_stop_price)}"
+        )
+
+        log(
+            f"{STAGE} PROTECTIVE_STOP_VALID = "
+            f"{bool(protective_stop_checks and protective_stop_checks.get('all_valid'))}"
+        )
+
+    log(
+        "NO REAL ORDER WAS SENT"
+    )
+
+    log(
+        "NO DEMO ORDER WAS SENT"
+    )
+
+    log(
+        "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+    )
+
+    line()
+
+    return snapshot
+
+
+# ============================================================
+# 60-SECOND REEVALUATION
+# ============================================================
+
+async def heartbeat_loop():
+    global HEARTBEAT_COUNT
+    global TEST_STATUS
+
+    while True:
+        HEARTBEAT_COUNT += 1
+
+        log(
+            f"HEARTBEAT "
+            f"stage={STAGE} "
+            f"status={TEST_STATUS} "
+            f"count={HEARTBEAT_COUNT} "
+            f"active_mode={R36F15103_ACTIVE_MODE} "
+            f"pending_mode={R36F15103_PENDING_MODE} "
+            f"pending_count={R36F15103_PENDING_COUNT} "
+            f"mode_locked={R36F15103_MODE_LOCKED} "
+            f"long_valid_clusters="
+            f"{LONG_DIAGNOSTICS.get('valid_cluster_count', 0)} "
+            f"short_valid_clusters="
+            f"{SHORT_DIAGNOSTICS.get('valid_cluster_count', 0)} "
+            f"write_transport=False "
+            f"real_execution=False "
+            f"demo_execution=False "
+            f"reevaluation_seconds="
+            f"{R36F151_REEVALUATION_SECONDS}"
+        )
+
+        await asyncio.sleep(
+            R36F151_REEVALUATION_SECONDS
+        )
+
+        line()
+
+        log(
+            f"{STAGE} "
+            f"RUNTIME REEVALUATION START "
+            f"heartbeat={HEARTBEAT_COUNT}"
+        )
+
+        line()
+
+        try:
+            exposure = (
+                await r36f159_reconcile_current_demo_exposure()
+            )
+
+            log(
+                "R36F.15.10.4b CYCLE "
+                "DUPLICATE BLOCKED = "
+                + str(
+                    exposure.get(
+                        "duplicate_entry_blocked",
+                        True,
+                    )
+                )
+            )
+
+            log(
+                "R36F.15.10.4b CYCLE "
+                "BLOCK REASON = "
+                + str(
+                    exposure.get(
+                        "duplicate_block_reason"
+                    )
+                )
+            )
+
+            await run_r36f12()
+
+            log(
+                f"{STAGE} "
+                f"RUNTIME REEVALUATION COMPLETE "
+                f"heartbeat={HEARTBEAT_COUNT} "
+                f"status={TEST_STATUS} "
+                f"active_mode="
+                f"{R36F15103_ACTIVE_MODE} "
+                f"raw_mode="
+                f"{R36F15103_LAST_RESULT.get('raw_mode')} "
+                f"pending_mode="
+                f"{R36F15103_PENDING_MODE} "
+                f"pending_count="
+                f"{R36F15103_PENDING_COUNT} "
+                f"mode_locked="
+                f"{R36F15103_MODE_LOCKED} "
+                f"long_valid_clusters="
+                f"{LONG_DIAGNOSTICS.get('valid_cluster_count', 0)} "
+                f"short_valid_clusters="
+                f"{SHORT_DIAGNOSTICS.get('valid_cluster_count', 0)}"
+            )
+
+        except Exception as exc:
+            TEST_STATUS = "FAIL"
+
+            line()
+
+            log(
+                f"{STAGE} "
+                f"RUNTIME REEVALUATION ERROR = "
+                f"{exc}"
+            )
+
+            line()
+
+
+# ============================================================
+# STARTUP
+# ============================================================
+
+async def async_main():
+    global TEST_STATUS
+
+    start_health_server()
+
+    r36f15103_startup_diagnostic()
+
+    try:
+        startup_exposure = (
+            await r36f159_reconcile_current_demo_exposure()
+        )
+
+        log(
+            "R36F.15.10.4b STARTUP "
+            "DUPLICATE BLOCKED = "
+            + str(
+                startup_exposure.get(
+                    "duplicate_entry_blocked",
+                    True,
+                )
+            )
+        )
+
+        log(
+            "R36F.15.10.4b STARTUP "
+            "BLOCK REASON = "
+            + str(
+                startup_exposure.get(
+                    "duplicate_block_reason"
+                )
+            )
+        )
+
+    except Exception as exc:
+        log(
+            "R36F.15.10.4b STARTUP "
+            "EXPOSURE RECONCILIATION ERROR = "
+            + str(exc)
+        )
+
+    try:
+        await run_r36f12()
+
+    except Exception as exc:
+        TEST_STATUS = "FAIL"
+
+        line()
+
+        log(
+            f"{STAGE} UNHANDLED ERROR = "
+            f"{exc}"
+        )
+
+        line()
+
+    await heartbeat_loop()
+
+
+def main():
+    asyncio.run(
+        async_main()
+    )
+
+
+if __name__ == "__main__":
+    main()
