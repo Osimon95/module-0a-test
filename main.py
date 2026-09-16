@@ -2769,3 +2769,972 @@ def candle_timestamp(row):
         return row[0]
 
     return None
+def chronological_rows(rows):
+    usable = []
+
+    for row in rows:
+        try:
+            close = candle_close(row)
+
+            if close <= 0:
+                continue
+
+            ts = candle_timestamp(row)
+
+            usable.append(
+                (
+                    ts,
+                    row,
+                )
+            )
+
+        except Exception:
+            continue
+
+    if (
+        usable
+        and all(
+            item[0] is not None
+            for item in usable
+        )
+    ):
+        by_ts = {
+            item[0]: item[1]
+            for item in usable
+        }
+
+        return [
+            by_ts[ts]
+            for ts in sorted(by_ts)
+        ]
+
+    return [
+        item[1]
+        for item in usable
+    ]
+
+def ema_series(
+    values,
+    period,
+):
+    if len(values) < period:
+        return None
+
+    multiplier = (
+        Decimal("2")
+        / Decimal(period + 1)
+    )
+
+    ema = (
+        sum(values[:period])
+        / Decimal(period)
+    )
+
+    for price in values[period:]:
+        ema = (
+            (
+                price
+                - ema
+            )
+            * multiplier
+            + ema
+        )
+
+    return ema
+
+def calculate_emas(closes):
+    return (
+        ema_series(
+            closes,
+            EMA_FAST,
+        ),
+        ema_series(
+            closes,
+            EMA_MID,
+        ),
+        ema_series(
+            closes,
+            EMA_SLOW,
+        ),
+    )
+
+def ema_structure(
+    ema19,
+    ema50,
+    ema200,
+):
+    if (
+        ema19
+        > ema50
+        > ema200
+    ):
+        return "STRONG_BULLISH"
+
+    if (
+        ema19
+        < ema50
+        < ema200
+    ):
+        return "STRONG_BEARISH"
+
+    if ema19 > ema50:
+        return "EARLY_BULLISH"
+
+    if ema19 < ema50:
+        return "EARLY_BEARISH"
+
+    return "NEUTRAL"
+
+def ema_direction(structure):
+    if structure == "STRONG_BULLISH":
+        return "LONG"
+
+    if structure == "STRONG_BEARISH":
+        return "SHORT"
+
+    return None
+
+def ema_separation_percent(
+    price,
+    ema19,
+    ema50,
+):
+    if price <= 0:
+        return Decimal("0")
+
+    return (
+        abs(
+            ema19
+            - ema50
+        )
+        / price
+        * Decimal("100")
+    )
+
+def detect_ema19_50_crossover(
+    previous19,
+    previous50,
+    current19,
+    current50,
+):
+    if None in (
+        previous19,
+        previous50,
+        current19,
+        current50,
+    ):
+        return None
+
+    if (
+        previous19
+        <= previous50
+        and current19
+        > current50
+    ):
+        return "LONG"
+
+    if (
+        previous19
+        >= previous50
+        and current19
+        < current50
+    ):
+        return "SHORT"
+
+    return None
+
+def build_ema_signal_snapshot(rows):
+    ordered = chronological_rows(
+        rows
+    )
+
+    closes = [
+        candle_close(row)
+        for row in ordered
+    ]
+
+    if len(closes) < (
+        EMA_SLOW
+        + EMA_CONFIRMATION_CANDLES
+    ):
+        return {
+            "ready": False,
+            "reason": "INSUFFICIENT_CANDLES_FOR_EMA200_CONFIRMATION",
+            "rows": len(closes),
+        }
+
+    (
+        current19,
+        current50,
+        current200,
+    ) = calculate_emas(
+        closes
+    )
+
+    (
+        previous19,
+        previous50,
+        previous200,
+    ) = calculate_emas(
+        closes[:-1]
+    )
+
+    current_price = closes[-1]
+
+    structure = ema_structure(
+        current19,
+        current50,
+        current200,
+    )
+
+    direction = ema_direction(
+        structure
+    )
+
+    separation = (
+        ema_separation_percent(
+            current_price,
+            current19,
+            current50,
+        )
+    )
+
+    crossover = (
+        detect_ema19_50_crossover(
+            previous19,
+            previous50,
+            current19,
+            current50,
+        )
+    )
+
+    quality_ok = (
+        separation
+        >= MIN_EMA_19_50_SEPARATION_PERCENT
+    )
+
+    ideal_direction = (
+        direction
+        if quality_ok
+        else None
+    )
+
+    return {
+        "ready": True,
+        "reason": "EMA_ENGINE_READY",
+        "rows": len(closes),
+        "price": decimal_to_string(
+            current_price
+        ),
+        "ema19": decimal_to_string(
+            current19
+        ),
+        "ema50": decimal_to_string(
+            current50
+        ),
+        "ema200": decimal_to_string(
+            current200
+        ),
+        "structure": structure,
+        "direction": direction,
+        "ideal_direction": (
+            ideal_direction
+        ),
+        "ema19_50_separation_percent": (
+            decimal_to_string(
+                separation
+            )
+        ),
+        "minimum_separation_percent": (
+            decimal_to_string(
+                MIN_EMA_19_50_SEPARATION_PERCENT
+            )
+        ),
+        "quality_ok": quality_ok,
+        "fresh_crossover": crossover,
+        "confirmation_policy": (
+            "NEXT_CLOSED_1M_CANDLE"
+        ),
+        "signal_expiry_seconds": (
+            SIGNAL_EXPIRY_SECONDS
+        ),
+    }
+
+def normalize_telegram_command(text):
+    return " ".join(
+        str(
+            text or ""
+        )
+        .strip()
+        .upper()
+        .split()
+    )
+
+def parse_telegram_trade_command(text):
+    normalized = (
+        normalize_telegram_command(
+            text
+        )
+    )
+
+    if (
+        normalized
+        == TELEGRAM_BUY_COMMAND
+    ):
+        return {
+            "recognized": True,
+            "command": normalized,
+            "direction": "LONG",
+        }
+
+    if (
+        normalized
+        == TELEGRAM_SELL_COMMAND
+    ):
+        return {
+            "recognized": True,
+            "command": normalized,
+            "direction": "SHORT",
+        }
+
+    return {
+        "recognized": False,
+        "command": normalized,
+        "direction": None,
+    }
+
+def validate_telegram_command_against_signal(
+    text,
+    ema_snapshot,
+    long_eligible,
+    short_eligible,
+):
+    parsed = (
+        parse_telegram_trade_command(
+            text
+        )
+    )
+
+    direction = parsed[
+        "direction"
+    ]
+
+    if not parsed[
+        "recognized"
+    ]:
+        return {
+            **parsed,
+            "authorized_preview": False,
+            "reason": "UNRECOGNIZED_COMMAND",
+        }
+
+    if not ema_snapshot.get(
+        "ready"
+    ):
+        return {
+            **parsed,
+            "authorized_preview": False,
+            "reason": "EMA_ENGINE_NOT_READY",
+        }
+
+    ideal = ema_snapshot.get(
+        "ideal_direction"
+    )
+
+    if ideal != direction:
+        return {
+            **parsed,
+            "authorized_preview": False,
+            "reason": "COMMAND_DIRECTION_DOES_NOT_MATCH_IDEAL_EMA_CONDITION",
+            "ema_ideal_direction": ideal,
+        }
+
+    market_ok = (
+        long_eligible
+        if direction == "LONG"
+        else short_eligible
+    )
+
+    if not market_ok:
+        return {
+            **parsed,
+            "authorized_preview": False,
+            "reason": "COMMAND_DIRECTION_TP_MARKET_NOT_ELIGIBLE",
+            "ema_ideal_direction": ideal,
+        }
+
+    return {
+        **parsed,
+        "authorized_preview": True,
+        "reason": "COMMAND_AND_EMA_AND_TP_DIRECTION_AGREE",
+        "ema_ideal_direction": ideal,
+        "exchange_order_sent": False,
+    }
+
+def build_ideal_condition_alert(
+    ema_snapshot,
+):
+    if not ema_snapshot.get(
+        "ready"
+    ):
+        return None
+
+    direction = ema_snapshot.get(
+        "ideal_direction"
+    )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+        return None
+
+    command = (
+        TELEGRAM_BUY_COMMAND
+        if direction == "LONG"
+        else TELEGRAM_SELL_COMMAND
+    )
+
+    return (
+        f"R36F.13.2 IDEAL {direction} CONDITION | {SYMBOL}\n"
+        f"Price={ema_snapshot.get('price')} "
+        f"EMA19={ema_snapshot.get('ema19')} "
+        f"EMA50={ema_snapshot.get('ema50')} "
+        f"EMA200={ema_snapshot.get('ema200')}\n"
+        f"Structure={ema_snapshot.get('structure')} "
+        f"EMA19/50 separation="
+        f"{ema_snapshot.get('ema19_50_separation_percent')}%\n"
+        f"Manual command: {command}\n"
+        "R36F.13.2 exchange execution remains disabled."
+    )
+
+async def send_r36f12_telegram_alert(
+    message,
+):
+    if not message:
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "NO_IDEAL_ALERT",
+        }
+
+    if not R36F12_TELEGRAM_ALERTS_ENABLED:
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "ALERTS_DISABLED_BY_DEFAULT",
+        }
+
+    if (
+        not TELEGRAM_BOT_TOKEN
+        or not TELEGRAM_CHAT_ID
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "TELEGRAM_CONFIG_MISSING",
+        }
+
+    url = (
+        f"https://api.telegram.org/"
+        f"bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    )
+
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "disable_web_page_preview": True,
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(
+                    total=15
+                ),
+            ) as response:
+                body = await response.text()
+
+                return {
+                    "attempted": True,
+                    "sent": (
+                        200
+                        <= response.status
+                        < 300
+                    ),
+                    "http_status": (
+                        response.status
+                    ),
+                    "response_preview": (
+                        body[:200]
+                    ),
+                }
+
+    except Exception as exc:
+        return {
+            "attempted": True,
+            "sent": False,
+            "reason": (
+                f"{type(exc).__name__}: {exc}"
+            ),
+        }
+
+def r36f1541_classify_demo_event(
+    command_preview,
+    submission,
+):
+    command_preview = (
+        command_preview
+        if isinstance(
+            command_preview,
+            dict,
+        )
+        else {}
+    )
+
+    submission = (
+        submission
+        if isinstance(
+            submission,
+            dict,
+        )
+        else {}
+    )
+
+    direction = str(
+        command_preview.get(
+            "direction"
+        )
+        or "UNKNOWN"
+    ).upper()
+
+    authorized = bool(
+        command_preview.get(
+            "authorized_preview"
+        )
+    )
+
+    reason = str(
+        submission.get("reason")
+        or ""
+    )
+
+    if (
+        submission.get("accepted")
+        is True
+    ):
+        return (
+            "DEMO_ORDER_ACCEPTED",
+            direction,
+        )
+
+    if (
+        submission.get("attempted")
+        is True
+        and submission.get(
+            "accepted"
+        )
+        is not True
+    ):
+        return (
+            "DEMO_ORDER_REJECTED",
+            direction,
+        )
+
+    if (
+        reason
+        == "JIT_DEMO_TRIGGER_VALIDATION_BLOCKED"
+    ):
+        return (
+            "JIT_TRIGGER_BLOCKED",
+            direction,
+        )
+
+    if (
+        authorized
+        and reason not in (
+            "FIRST_DEMO_ORDER_ALREADY_COMPLETED",
+            "UNRESOLVED_DEMO_JOURNAL_BLOCKS_RETRY",
+        )
+    ):
+        return (
+            "DEMO_TRADE_READY",
+            direction,
+        )
+
+    return (
+        "WAITING",
+        direction,
+    )
+
+def r36f1541_build_event_message(
+    event_name,
+    direction,
+    command_preview,
+    submission,
+):
+    command_preview = (
+        command_preview
+        if isinstance(
+            command_preview,
+            dict,
+        )
+        else {}
+    )
+
+    submission = (
+        submission
+        if isinstance(
+            submission,
+            dict,
+        )
+        else {}
+    )
+
+    jit = (
+        submission.get(
+            "jit_validation"
+        )
+        if isinstance(
+            submission.get(
+                "jit_validation"
+            ),
+            dict,
+        )
+        else {}
+    )
+
+    journal = (
+        submission.get("journal")
+        if isinstance(
+            submission.get("journal"),
+            dict,
+        )
+        else {}
+    )
+
+    transport = (
+        submission.get("transport")
+        if isinstance(
+            submission.get(
+                "transport"
+            ),
+            dict,
+        )
+        else {}
+    )
+
+    if (
+        event_name
+        == "DEMO_ORDER_ACCEPTED"
+    ):
+        title = (
+            "WEEX DEMO ORDER ACCEPTED"
+        )
+
+    elif (
+        event_name
+        == "DEMO_ORDER_REJECTED"
+    ):
+        title = (
+            "WEEX DEMO ORDER REJECTED"
+        )
+
+    elif (
+        event_name
+        == "JIT_TRIGGER_BLOCKED"
+    ):
+        title = (
+            "DEMO TRADE BLOCKED"
+        )
+
+    else:
+        title = (
+            "R36F.15.4.1 ACTION ALERT"
+        )
+
+    reason = str(
+        submission.get("reason")
+        or journal.get(
+            "error_message"
+        )
+        or journal.get("error")
+        or "NONE"
+    )
+
+    lines = [
+        title,
+        f"Event: {event_name}",
+        f"Direction: {direction}",
+        (
+            "EMA: "
+            + str(
+                EMA_SIGNAL_SNAPSHOT.get(
+                    "ideal_direction"
+                )
+            )
+        ),
+        (
+            "Command authorized: "
+            + str(
+                command_preview.get(
+                    "authorized_preview",
+                    False,
+                )
+            )
+        ),
+        f"Reason: {reason}",
+    ]
+
+    if jit:
+        lines.extend(
+            [
+                (
+                    "JIT: "
+                    + (
+                        "PASSED"
+                        if jit.get("valid")
+                        else "BLOCKED"
+                    )
+                ),
+                (
+                    "Fresh mark: "
+                    + str(
+                        jit.get(
+                            "fresh_mark_price"
+                        )
+                    )
+                ),
+                (
+                    "TP: "
+                    + str(
+                        jit.get(
+                            "tp_trigger_price"
+                        )
+                    )
+                ),
+                (
+                    "SL: "
+                    + str(
+                        jit.get(
+                            "sl_trigger_price"
+                        )
+                    )
+                ),
+            ]
+        )
+
+    order_id = (
+        journal.get("order_id")
+        or ""
+    )
+
+    if order_id:
+        lines.append(
+            f"Demo order ID: {order_id}"
+        )
+
+    http_status = transport.get(
+        "http_status"
+    )
+
+    if http_status is not None:
+        lines.append(
+            f"WEEX HTTP: {http_status}"
+        )
+
+    lines.append(
+        "Production real-money execution remains disabled."
+    )
+
+    return "\n".join(lines)
+
+async def send_r36f1541_state_change_alert(
+    command_preview,
+    submission,
+):
+    (
+        event_name,
+        direction,
+    ) = r36f1541_classify_demo_event(
+        command_preview,
+        submission,
+    )
+
+    previous = read_json_file(
+        R36F1541_TELEGRAM_EVENT_STATE_FILE,
+        default={},
+    )
+
+    previous_event = str(
+        previous.get(
+            "event_name"
+        )
+        or ""
+    )
+
+    previous_direction = str(
+        previous.get(
+            "direction"
+        )
+        or ""
+    )
+
+    if event_name == "WAITING":
+        if (
+            previous_event
+            != "WAITING"
+            or previous_direction
+            != direction
+        ):
+            write_json_file(
+                R36F1541_TELEGRAM_EVENT_STATE_FILE,
+                {
+                    "stage": STAGE,
+                    "event_name": (
+                        "WAITING"
+                    ),
+                    "direction": (
+                        direction
+                    ),
+                    "updated_at": (
+                        now_iso()
+                    ),
+                },
+            )
+
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "WAITING_STATE_SILENT",
+        }
+
+    if (
+        previous_event
+        == event_name
+        and previous_direction
+        == direction
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "deduplicated": True,
+            "reason": "DUPLICATE_NOTIFICATION_BLOCKED",
+            "event_name": event_name,
+        }
+
+    message = (
+        r36f1541_build_event_message(
+            event_name,
+            direction,
+            command_preview,
+            submission,
+        )
+    )
+
+    result = (
+        await send_r36f12_telegram_alert(
+            message
+        )
+    )
+
+    if result.get("sent"):
+        write_json_file(
+            R36F1541_TELEGRAM_EVENT_STATE_FILE,
+            {
+                "stage": STAGE,
+                "event_name": (
+                    event_name
+                ),
+                "direction": (
+                    direction
+                ),
+                "updated_at": (
+                    now_iso()
+                ),
+            },
+        )
+
+    result = dict(result)
+    result["event_name"] = event_name
+    result["direction"] = direction
+
+    return result
+
+def synthetic_r36f12_ema_telegram_tests():
+    bullish = {
+        "ready": True,
+        "ideal_direction": "LONG",
+        "structure": "STRONG_BULLISH",
+        "price": "80000",
+        "ema19": "80100",
+        "ema50": "80000",
+        "ema200": "79000",
+        "quality_ok": True,
+    }
+
+    bearish = {
+        "ready": True,
+        "ideal_direction": "SHORT",
+        "structure": "STRONG_BEARISH",
+        "price": "80000",
+        "ema19": "79900",
+        "ema50": "80000",
+        "ema200": "81000",
+        "quality_ok": True,
+    }
+
+    long_ok = (
+        validate_telegram_command_against_signal(
+            TELEGRAM_BUY_COMMAND,
+            bullish,
+            True,
+            False,
+        )
+    )
+
+    short_ok = (
+        validate_telegram_command_against_signal(
+            TELEGRAM_SELL_COMMAND,
+            bearish,
+            False,
+            True,
+        )
+    )
+
+    wrong_direction = (
+        validate_telegram_command_against_signal(
+            TELEGRAM_SELL_COMMAND,
+            bullish,
+            True,
+            True,
+        )
+    )
+
+    check(
+        "R36F12_SYNTHETIC_LONG_COMMAND_AUTHORIZATION",
+        long_ok.get(
+            "authorized_preview"
+        )
+        is True,
+    )
+
+    check(
+        "R36F12_SYNTHETIC_SHORT_COMMAND_AUTHORIZATION",
+        short_ok.get(
+            "authorized_preview"
+        )
+        is True,
+    )
+
+    check(
+        "R36F12_SYNTHETIC_WRONG_DIRECTION_REJECTED",
+        wrong_direction.get(
+            "authorized_preview"
+        )
+        is False,
+    )
+
+    return True
