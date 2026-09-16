@@ -6683,3 +6683,859 @@ def r36f15103_startup_diagnostic():
     )
 
     line()
+id="d9r7k2"
+# ============================================================
+# R36F.15.10.4b COMPLETE REEVALUATION
+# ============================================================
+
+async def run_r36f12():
+    global TEST_STATUS
+    global WEEX_READ_ONLY_OK
+    global ZERO_WRITE_INVARIANT_OK
+    global FINAL_GATE_OK
+    global LONG_DIAGNOSTICS
+    global SHORT_DIAGNOSTICS
+    global EMA_SIGNAL_SNAPSHOT
+    global TELEGRAM_COMMAND_PREVIEW
+    global R36F15103_REFERENCE_PRICE
+    global R36F15103_LAST_RESULT
+
+    TEST_STATUS = "RUNNING"
+
+    FINAL_BLOCKERS.clear()
+
+    line()
+
+    log(
+        f"{STAGE}: "
+        "R36F.15.10.4b AUTO-MODE + "
+        "CONFIRMED TRANSITION MERGED REEVALUATION"
+    )
+
+    line()
+
+    check(
+        "REAL_ORDER_EXECUTION_DISABLED",
+        REAL_ORDER_EXECUTION
+        is False,
+    )
+
+    check(
+        "DEMO_ORDER_EXECUTION_DISABLED",
+        DEMO_ORDER_EXECUTION
+        is False,
+    )
+
+    check(
+        "EXCHANGE_MUTATION_TRANSPORT_DISABLED",
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        is False,
+    )
+
+    check(
+        "ORDER_SUBMISSION_DISABLED",
+        ORDER_SUBMISSION_ENABLED
+        is False,
+    )
+
+    check(
+        "FIRST_REAL_ORDER_DISABLED",
+        FIRST_REAL_ORDER_ALLOWED
+        is False,
+    )
+
+    check(
+        "R36F15103_REAL_EXECUTION_DISABLED",
+        R36F15103_REAL_ORDER_EXECUTION
+        is False,
+    )
+
+    check(
+        "R36F15103_DEMO_EXECUTION_DISABLED",
+        R36F15103_DEMO_ORDER_EXECUTION
+        is False,
+    )
+
+    check(
+        "R36F15103_WRITE_TRANSPORT_DISABLED",
+        R36F15103_WRITE_TRANSPORT
+        is False,
+    )
+
+    check(
+        "R36F15104B_EXCLUSIVE_MODE_ENABLED",
+        R36F15103_EXCLUSIVE_MODE
+        is True,
+    )
+
+    check(
+        "R36F15104B_MODE_CONFIRMATIONS_EQUALS_3",
+        R36F15103_MODE_CONFIRMATIONS_REQUIRED
+        == 3,
+    )
+
+    check(
+        "R36F15104B_ACTIVE_TRADE_MODE_LOCK_ENABLED",
+        R36F15103_ACTIVE_TRADE_MODE_LOCK
+        is True,
+    )
+
+    try:
+        await reconcile_weex()
+
+        WEEX_READ_ONLY_OK = True
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            True,
+        )
+
+    except Exception as exc:
+        WEEX_READ_ONLY_OK = False
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            False,
+            str(exc),
+        )
+
+    historical_rows = []
+
+    try:
+        historical_rows = (
+            await load_historical_klines()
+        )
+
+        diagnostic_check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            len(
+                historical_rows
+            ) >= 3,
+            f"rows={len(historical_rows)}",
+        )
+
+    except Exception as exc:
+        diagnostic_check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            False,
+            str(exc),
+        )
+
+    if historical_rows:
+        try:
+            EMA_SIGNAL_SNAPSHOT = (
+                build_ema_signal_snapshot(
+                    historical_rows
+                )
+            )
+
+            diagnostic_check(
+                "R36F15103_EMA_ENGINE_READY",
+                EMA_SIGNAL_SNAPSHOT.get(
+                    "ready"
+                )
+                is True,
+                str(
+                    EMA_SIGNAL_SNAPSHOT.get(
+                        "reason"
+                    )
+                ),
+            )
+
+            if EMA_SIGNAL_SNAPSHOT.get(
+                "ready"
+            ):
+                log(
+                    "R36F.15.10.4b EMA "
+                    f"price={EMA_SIGNAL_SNAPSHOT.get('price')} "
+                    f"EMA19={EMA_SIGNAL_SNAPSHOT.get('ema19')} "
+                    f"EMA50={EMA_SIGNAL_SNAPSHOT.get('ema50')} "
+                    f"EMA200={EMA_SIGNAL_SNAPSHOT.get('ema200')} "
+                    f"structure={EMA_SIGNAL_SNAPSHOT.get('structure')} "
+                    f"ideal_direction={EMA_SIGNAL_SNAPSHOT.get('ideal_direction')}"
+                )
+
+        except Exception as exc:
+            EMA_SIGNAL_SNAPSHOT = {
+                "ready":
+                    False,
+
+                "reason":
+                    "EMA_EXCEPTION",
+
+                "error":
+                    str(exc),
+            }
+
+            diagnostic_check(
+                "R36F15103_EMA_ENGINE_READY",
+                False,
+                str(exc),
+            )
+
+    REAL_LONG_MARKET_ELIGIBLE = False
+    REAL_SHORT_MARKET_ELIGIBLE = False
+
+    LONG_DIAGNOSTICS = {}
+    SHORT_DIAGNOSTICS = {}
+
+    real_long_snapshot = None
+    real_short_snapshot = None
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+        try:
+            real_long_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "LONG",
+                    "R36F15103_LONG",
+                )
+            )
+
+            LONG_DIAGNOSTICS = (
+                real_long_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_LONG_MARKET_ELIGIBLE = bool(
+                real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+        except Exception as exc:
+            LONG_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "LONG",
+                )
+            )
+
+            log(
+                "R36F.15.10.4b LONG TP = REJECTED "
+                + str(exc)
+            )
+
+        try:
+            real_short_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "SHORT",
+                    "R36F15103_SHORT",
+                )
+            )
+
+            SHORT_DIAGNOSTICS = (
+                real_short_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_SHORT_MARKET_ELIGIBLE = bool(
+                real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+        except Exception as exc:
+            SHORT_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "SHORT",
+                )
+            )
+
+            log(
+                "R36F.15.10.4b SHORT TP = REJECTED "
+                + str(exc)
+            )
+
+    merger_direction = (
+        EMA_SIGNAL_SNAPSHOT.get(
+            "ideal_direction"
+        )
+        or
+        EMA_SIGNAL_SNAPSHOT.get(
+            "direction"
+        )
+    )
+
+    if merger_direction == "LONG":
+        merger_clusters = int(
+            LONG_DIAGNOSTICS.get(
+                "valid_cluster_count",
+                0,
+            )
+            or 0
+        )
+
+    elif merger_direction == "SHORT":
+        merger_clusters = int(
+            SHORT_DIAGNOSTICS.get(
+                "valid_cluster_count",
+                0,
+            )
+            or 0
+        )
+
+    else:
+        merger_clusters = max(
+            int(
+                LONG_DIAGNOSTICS.get(
+                    "valid_cluster_count",
+                    0,
+                )
+                or 0
+            ),
+            int(
+                SHORT_DIAGNOSTICS.get(
+                    "valid_cluster_count",
+                    0,
+                )
+                or 0
+            ),
+        )
+
+    merger_current_price = (
+        EMA_SIGNAL_SNAPSHOT.get(
+            "price"
+        )
+    )
+
+    if (
+        merger_current_price is None
+        and MARK_PRICE is not None
+    ):
+        merger_current_price = (
+            decimal_to_string(
+                MARK_PRICE
+            )
+        )
+
+    if (
+        R36F15103_REFERENCE_PRICE
+        is None
+    ):
+        R36F15103_REFERENCE_PRICE = (
+            merger_current_price
+        )
+
+    try:
+        R36F15103_LAST_RESULT = (
+            r36f15103_merge_cycle(
+                current_price=(
+                    merger_current_price
+                ),
+                reference_price=(
+                    R36F15103_REFERENCE_PRICE
+                ),
+                ema19=(
+                    EMA_SIGNAL_SNAPSHOT.get(
+                        "ema19"
+                    )
+                ),
+                ema50=(
+                    EMA_SIGNAL_SNAPSHOT.get(
+                        "ema50"
+                    )
+                ),
+                ema200=(
+                    EMA_SIGNAL_SNAPSHOT.get(
+                        "ema200"
+                    )
+                ),
+                valid_cluster_count=(
+                    merger_clusters
+                ),
+                existing_direction=(
+                    merger_direction
+                ),
+                trade_active=bool(
+                    OPEN_POSITIONS
+                ),
+            )
+        )
+
+        diagnostic_check(
+            "R36F15104B_AUTO_MODE_REEVALUATION",
+            True,
+            (
+                "raw_mode="
+                + str(
+                    R36F15103_LAST_RESULT.get(
+                        "raw_mode"
+                    )
+                )
+                + " active_mode="
+                + str(
+                    R36F15103_LAST_RESULT.get(
+                        "active_mode"
+                    )
+                )
+                + " pending_mode="
+                + str(
+                    R36F15103_LAST_RESULT.get(
+                        "pending_mode"
+                    )
+                )
+                + " pending_count="
+                + str(
+                    R36F15103_LAST_RESULT.get(
+                        "pending_count"
+                    )
+                )
+            ),
+        )
+
+    except Exception as exc:
+        R36F15103_LAST_RESULT = {
+            "stage":
+                R36F15103_STAGE,
+
+            "error":
+                str(exc),
+
+            "real_execution":
+                False,
+
+            "demo_execution":
+                False,
+
+            "write_transport":
+                False,
+        }
+
+        diagnostic_check(
+            "R36F15104B_AUTO_MODE_REEVALUATION",
+            False,
+            str(exc),
+        )
+
+    if merger_current_price is not None:
+        R36F15103_REFERENCE_PRICE = (
+            merger_current_price
+        )
+
+    current_command = os.getenv(
+        "R36F12_TELEGRAM_COMMAND_TEXT",
+        "",
+    ).strip()
+
+    if current_command:
+        TELEGRAM_COMMAND_PREVIEW = (
+            validate_telegram_command_against_signal(
+                current_command,
+                EMA_SIGNAL_SNAPSHOT,
+                REAL_LONG_MARKET_ELIGIBLE,
+                REAL_SHORT_MARKET_ELIGIBLE,
+            )
+        )
+
+    else:
+        TELEGRAM_COMMAND_PREVIEW = {
+            "recognized":
+                False,
+
+            "authorized_preview":
+                False,
+
+            "reason":
+                "NO_COMMAND_SUPPLIED",
+
+            "exchange_order_sent":
+                False,
+        }
+
+    balance_readiness = None
+    quantity_feasibility = None
+
+    if (
+        AVAILABLE_BALANCE is not None
+        and MARK_PRICE is not None
+    ):
+        try:
+            balance_readiness = (
+                evaluate_strict_tp_balance_readiness(
+                    AVAILABLE_BALANCE,
+                    MARK_PRICE,
+                    TARGET_LONG_LEVERAGE,
+                )
+            )
+
+            planned_quantity = D(
+                balance_readiness.get(
+                    "planned_entry_quantity",
+                    "0",
+                )
+            )
+
+            quantity_feasibility = (
+                evaluate_writer_quantity_feasibility(
+                    planned_quantity
+                )
+            )
+
+        except Exception as exc:
+            log(
+                "R36F.15.10.4b BALANCE READINESS ERROR = "
+                + str(exc)
+            )
+
+    selected_direction = (
+        TELEGRAM_COMMAND_PREVIEW.get(
+            "direction"
+        )
+        or merger_direction
+    )
+
+    selected_tp_snapshot = None
+
+    if selected_direction == "LONG":
+        selected_tp_snapshot = (
+            real_long_snapshot
+        )
+
+    elif selected_direction == "SHORT":
+        selected_tp_snapshot = (
+            real_short_snapshot
+        )
+
+    protective_stop_price = None
+    protective_stop_checks = None
+    protective_stop_envelope = None
+    protective_stop_budget = None
+
+    if (
+        selected_direction
+        in (
+            "LONG",
+            "SHORT",
+        )
+        and
+        selected_tp_snapshot
+        and
+        MARK_PRICE is not None
+    ):
+        try:
+            protective_stop_price = (
+                calculate_r36f13_protective_stop(
+                    selected_direction,
+                    MARK_PRICE,
+                )
+            )
+
+            protective_stop_checks = (
+                validate_r36f13_protective_stop(
+                    selected_direction,
+                    MARK_PRICE,
+                    protective_stop_price,
+                    selected_tp_snapshot[
+                        "tp1"
+                    ],
+                    selected_tp_snapshot[
+                        "tp2"
+                    ],
+                )
+            )
+
+            protective_stop_envelope = (
+                validate_r36f131_stop_risk_envelope(
+                    selected_direction,
+                    MARK_PRICE,
+                    protective_stop_price,
+                    TARGET_LONG_LEVERAGE,
+                )
+            )
+
+            if (
+                balance_readiness
+                and
+                D(
+                    balance_readiness.get(
+                        "planned_entry_quantity",
+                        "0",
+                    )
+                ) > 0
+            ):
+                protective_stop_budget = (
+                    validate_r36f132_stop_loss_budget(
+                        MARK_PRICE,
+                        protective_stop_price,
+                        D(
+                            balance_readiness[
+                                "planned_entry_quantity"
+                            ]
+                        ),
+                        AVAILABLE_BALANCE,
+                        TARGET_LONG_LEVERAGE,
+                    )
+                )
+
+        except Exception as exc:
+            log(
+                "R36F.15.10.4b PROTECTIVE STOP ERROR = "
+                + str(exc)
+            )
+
+    ZERO_WRITE_INVARIANT_OK = bool(
+        REAL_ORDER_EXECUTION
+        is False
+        and
+        DEMO_ORDER_EXECUTION
+        is False
+        and
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        is False
+        and
+        ORDER_SUBMISSION_ENABLED
+        is False
+        and
+        FIRST_REAL_ORDER_ALLOWED
+        is False
+        and
+        R36F15103_REAL_ORDER_EXECUTION
+        is False
+        and
+        R36F15103_DEMO_ORDER_EXECUTION
+        is False
+        and
+        R36F15103_WRITE_TRANSPORT
+        is False
+    )
+
+    check(
+        "R36F15104B_ZERO_WRITE_INVARIANT",
+        ZERO_WRITE_INVARIANT_OK,
+    )
+
+    FINAL_GATE_OK = bool(
+        WEEX_READ_ONLY_OK
+        and
+        ZERO_WRITE_INVARIANT_OK
+        and
+        R36F15103_LAST_RESULT.get(
+            "active_mode"
+        )
+        in R36F15103_VALID_MODES
+    )
+
+    if FINAL_GATE_OK:
+        TEST_STATUS = "PASS"
+
+    else:
+        TEST_STATUS = "FAIL"
+
+    snapshot = {
+        "stage":
+            STAGE,
+
+        "timestamp":
+            now_iso(),
+
+        "status":
+            TEST_STATUS,
+
+        "final_gate_ok":
+            FINAL_GATE_OK,
+
+        "weex_read_only_ok":
+            WEEX_READ_ONLY_OK,
+
+        "zero_write_invariant_ok":
+            ZERO_WRITE_INVARIANT_OK,
+
+        "mark_price":
+            (
+                decimal_to_string(
+                    MARK_PRICE
+                )
+                if MARK_PRICE is not None
+                else None
+            ),
+
+        "available_balance":
+            (
+                decimal_to_string(
+                    AVAILABLE_BALANCE
+                )
+                if AVAILABLE_BALANCE
+                is not None
+                else None
+            ),
+
+        "open_positions":
+            OPEN_POSITIONS,
+
+        "ema_signal":
+            EMA_SIGNAL_SNAPSHOT,
+
+        "long_diagnostics":
+            LONG_DIAGNOSTICS,
+
+        "short_diagnostics":
+            SHORT_DIAGNOSTICS,
+
+        "real_long_market_eligible":
+            REAL_LONG_MARKET_ELIGIBLE,
+
+        "real_short_market_eligible":
+            REAL_SHORT_MARKET_ELIGIBLE,
+
+        "telegram_command_preview":
+            TELEGRAM_COMMAND_PREVIEW,
+
+        "balance_readiness":
+            balance_readiness,
+
+        "quantity_feasibility":
+            quantity_feasibility,
+
+        "protective_stop": {
+            "direction":
+                selected_direction,
+
+            "price":
+                (
+                    decimal_to_string(
+                        protective_stop_price
+                    )
+                    if protective_stop_price
+                    is not None
+                    else None
+                ),
+
+            "checks":
+                protective_stop_checks,
+
+            "risk_envelope":
+                protective_stop_envelope,
+
+            "loss_budget":
+                protective_stop_budget,
+        },
+
+        "r36f15104b_auto_mode_merger":
+            R36F15103_LAST_RESULT,
+
+        "execution_firebreak": {
+            "real_order_execution":
+                False,
+
+            "demo_order_execution":
+                False,
+
+            "write_transport":
+                False,
+
+            "exchange_mutation_sent":
+                False,
+
+            "real_order_sent":
+                False,
+
+            "demo_order_sent":
+                False,
+        },
+    }
+
+    write_json_file(
+        R36F_SNAPSHOT_FILE,
+        snapshot,
+    )
+
+    log(
+        f"{STAGE} FINAL STATUS = "
+        f"{TEST_STATUS}"
+    )
+
+    log(
+        f"{STAGE} AUTO RAW MODE = "
+        f"{R36F15103_LAST_RESULT.get('raw_mode')}"
+    )
+
+    log(
+        f"{STAGE} AUTO ACTIVE MODE = "
+        f"{R36F15103_LAST_RESULT.get('active_mode')}"
+    )
+
+    log(
+        f"{STAGE} AUTO DIRECTION = "
+        f"{R36F15103_LAST_RESULT.get('direction')}"
+    )
+
+    log(
+        f"{STAGE} AUTO MOVE PERCENT = "
+        f"{R36F15103_LAST_RESULT.get('short_term_move_percent')}"
+    )
+
+    log(
+        f"{STAGE} AUTO EMA SEPARATION = "
+        f"{R36F15103_LAST_RESULT.get('ema_separation_percent')}"
+    )
+
+    log(
+        f"{STAGE} AUTO MODE LOCKED = "
+        f"{R36F15103_LAST_RESULT.get('mode_locked')}"
+    )
+
+    log(
+        f"{STAGE} AUTO PENDING MODE = "
+        f"{R36F15103_LAST_RESULT.get('pending_mode')}"
+    )
+
+    log(
+        f"{STAGE} AUTO PENDING COUNT = "
+        f"{R36F15103_LAST_RESULT.get('pending_count')}"
+    )
+
+    log(
+        f"{STAGE} AUTO TRANSITION REASON = "
+        f"{R36F15103_LAST_RESULT.get('reason')}"
+    )
+
+    log(
+        f"{STAGE} LONG VALID CLUSTERS = "
+        f"{LONG_DIAGNOSTICS.get('valid_cluster_count', 0)}"
+    )
+
+    log(
+        f"{STAGE} SHORT VALID CLUSTERS = "
+        f"{SHORT_DIAGNOSTICS.get('valid_cluster_count', 0)}"
+    )
+
+    log(
+        f"{STAGE} REAL_LONG_MARKET_ELIGIBLE = "
+        f"{REAL_LONG_MARKET_ELIGIBLE}"
+    )
+
+    log(
+        f"{STAGE} REAL_SHORT_MARKET_ELIGIBLE = "
+        f"{REAL_SHORT_MARKET_ELIGIBLE}"
+    )
+
+    log(
+        f"{STAGE} TELEGRAM_COMMAND_AUTHORIZED_PREVIEW = "
+        f"{TELEGRAM_COMMAND_PREVIEW.get('authorized_preview', False)}"
+    )
+
+    if balance_readiness:
+        log(
+            f"{STAGE} TRADE_READINESS_STATUS = "
+            f"{balance_readiness.get('status')}"
+        )
+
+        log(
+            f"{STAGE} SELECTED_TP_ALLOCATION = "
+            f"{balance_readiness.get('selected_allocatio
