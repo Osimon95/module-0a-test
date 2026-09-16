@@ -6138,3 +6138,548 @@ def validate_r36f132_stop_loss_budget(
                 "all_valid"
             ],
     }
+
+# ============================================================
+# R36F.15.10.4b AUTO MODE MERGER
+# ============================================================
+
+R36F15103_STAGE = (
+    "R36F.15.10.4b"
+)
+
+R36F15103_REAL_ORDER_EXECUTION = False
+R36F15103_DEMO_ORDER_EXECUTION = False
+R36F15103_WRITE_TRANSPORT = False
+
+R36F15103_MODE_CONFIRMATIONS_REQUIRED = 3
+
+R36F15103_BREAKOUT_MOVE_PERCENT = 0.60
+
+R36F15103_STRONG_EMA_SEPARATION_PERCENT = 0.05
+
+R36F15103_VALID_MODES = (
+    "SCALP",
+    "STRUCTURE",
+    "BREAKOUT",
+)
+
+R36F15103_EXCLUSIVE_MODE = True
+R36F15103_ACTIVE_TRADE_MODE_LOCK = True
+
+R36F15103_ACTIVE_MODE = None
+R36F15103_PENDING_MODE = None
+R36F15103_PENDING_COUNT = 0
+R36F15103_MODE_LOCKED = False
+R36F15103_LAST_DIRECTION = None
+R36F15103_LAST_REASON = None
+R36F15103_CYCLE = 0
+
+R36F15103_REFERENCE_PRICE = None
+
+R36F15103_LAST_RESULT = {}
+
+
+def r36f15103_safe_float(
+    value,
+    default=None,
+):
+    try:
+        if value is None:
+            return default
+
+        return float(
+            value
+        )
+
+    except Exception:
+        return default
+
+
+def r36f15103_direction_from_ema(
+    ema19,
+    ema50,
+    ema200,
+):
+    e19 = r36f15103_safe_float(
+        ema19
+    )
+
+    e50 = r36f15103_safe_float(
+        ema50
+    )
+
+    e200 = r36f15103_safe_float(
+        ema200
+    )
+
+    if (
+        e19 is None
+        or e50 is None
+        or e200 is None
+    ):
+        return None
+
+    if (
+        e19
+        > e50
+        > e200
+    ):
+        return "LONG"
+
+    if (
+        e19
+        < e50
+        < e200
+    ):
+        return "SHORT"
+
+    return None
+
+
+def r36f15103_ema_separation_percent(
+    ema19,
+    ema50,
+):
+    e19 = r36f15103_safe_float(
+        ema19
+    )
+
+    e50 = r36f15103_safe_float(
+        ema50
+    )
+
+    if (
+        e19 is None
+        or e50 in (
+            None,
+            0,
+        )
+    ):
+        return 0.0
+
+    return (
+        abs(
+            e19
+            - e50
+        )
+        / abs(e50)
+        * 100.0
+    )
+
+
+def r36f15103_move_percent(
+    current_price,
+    reference_price,
+):
+    current = r36f15103_safe_float(
+        current_price
+    )
+
+    reference = r36f15103_safe_float(
+        reference_price
+    )
+
+    if (
+        current is None
+        or reference in (
+            None,
+            0,
+        )
+    ):
+        return 0.0
+
+    return (
+        abs(
+            current
+            - reference
+        )
+        / abs(reference)
+        * 100.0
+    )
+
+
+def r36f15103_raw_classifier(
+    direction,
+    valid_cluster_count,
+    ema_separation_percent,
+    short_term_move_percent,
+):
+    try:
+        clusters = int(
+            valid_cluster_count
+            or 0
+        )
+
+    except Exception:
+        clusters = 0
+
+    ema_sep = (
+        r36f15103_safe_float(
+            ema_separation_percent,
+            0.0,
+        )
+    )
+
+    movement = (
+        r36f15103_safe_float(
+            short_term_move_percent,
+            0.0,
+        )
+    )
+
+    strong_direction = (
+        direction
+        in (
+            "LONG",
+            "SHORT",
+        )
+        and
+        ema_sep
+        >=
+        R36F15103_STRONG_EMA_SEPARATION_PERCENT
+    )
+
+    if (
+        strong_direction
+        and movement
+        >=
+        R36F15103_BREAKOUT_MOVE_PERCENT
+    ):
+        return (
+            "BREAKOUT",
+            "STRONG_EMA_DIRECTION_PLUS_LARGE_SHORT_TERM_MOVE",
+        )
+
+    if (
+        strong_direction
+        and clusters >= 2
+    ):
+        return (
+            "STRUCTURE",
+            "STRONG_EMA_DIRECTION_WITH_TWO_OR_MORE_VALID_CLUSTERS",
+        )
+
+    if (
+        strong_direction
+        and clusters < 2
+    ):
+        return (
+            "BREAKOUT",
+            "STRONG_EMA_DIRECTION_BUT_TWO_CLUSTER_STRUCTURE_UNAVAILABLE",
+        )
+
+    return (
+        "SCALP",
+        "NO_CONFIRMED_STRUCTURE_OR_BREAKOUT_CONDITION",
+    )
+
+
+def r36f15103_update_mode(
+    raw_mode,
+    reason,
+    trade_active=False,
+):
+    global R36F15103_ACTIVE_MODE
+    global R36F15103_PENDING_MODE
+    global R36F15103_PENDING_COUNT
+    global R36F15103_MODE_LOCKED
+    global R36F15103_LAST_REASON
+
+    raw_mode = str(
+        raw_mode or ""
+    ).strip().upper()
+
+    if (
+        raw_mode
+        not in R36F15103_VALID_MODES
+    ):
+        R36F15103_LAST_REASON = (
+            "INVALID_MODE_REJECTED"
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    if (
+        trade_active
+        and R36F15103_ACTIVE_TRADE_MODE_LOCK
+    ):
+        R36F15103_MODE_LOCKED = True
+
+        if R36F15103_ACTIVE_MODE is None:
+            R36F15103_ACTIVE_MODE = raw_mode
+
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+
+        R36F15103_LAST_REASON = (
+            "ACTIVE_TRADE_MODE_LOCK"
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    R36F15103_MODE_LOCKED = False
+
+    if R36F15103_ACTIVE_MODE is None:
+        R36F15103_ACTIVE_MODE = raw_mode
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+
+        R36F15103_LAST_REASON = (
+            "INITIAL_MODE_SELECTED:"
+            + str(reason)
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    if raw_mode == R36F15103_ACTIVE_MODE:
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+
+        R36F15103_LAST_REASON = (
+            "ACTIVE_MODE_CONFIRMED:"
+            + str(reason)
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    if R36F15103_PENDING_MODE != raw_mode:
+        R36F15103_PENDING_MODE = raw_mode
+        R36F15103_PENDING_COUNT = 1
+
+        R36F15103_LAST_REASON = (
+            "NEW_MODE_PENDING:"
+            + str(reason)
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    R36F15103_PENDING_COUNT += 1
+
+    if (
+        R36F15103_PENDING_COUNT
+        >= R36F15103_MODE_CONFIRMATIONS_REQUIRED
+    ):
+        previous_mode = (
+            R36F15103_ACTIVE_MODE
+        )
+
+        R36F15103_ACTIVE_MODE = raw_mode
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+
+        R36F15103_LAST_REASON = (
+            "THREE_CONFIRMATION_TRANSITION:"
+            + str(previous_mode)
+            + "_TO_"
+            + str(raw_mode)
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    R36F15103_LAST_REASON = (
+        "MODE_CONFIRMATION_PENDING:"
+        + str(reason)
+    )
+
+    return R36F15103_ACTIVE_MODE
+
+
+def r36f15103_merge_cycle(
+    current_price=None,
+    reference_price=None,
+    ema19=None,
+    ema50=None,
+    ema200=None,
+    valid_cluster_count=0,
+    existing_direction=None,
+    trade_active=False,
+):
+    global R36F15103_CYCLE
+    global R36F15103_LAST_DIRECTION
+
+    R36F15103_CYCLE += 1
+
+    calculated_direction = (
+        r36f15103_direction_from_ema(
+            ema19,
+            ema50,
+            ema200,
+        )
+    )
+
+    if existing_direction in (
+        "LONG",
+        "SHORT",
+    ):
+        direction = (
+            existing_direction
+        )
+
+    else:
+        direction = (
+            calculated_direction
+        )
+
+    R36F15103_LAST_DIRECTION = (
+        direction
+    )
+
+    ema_sep = (
+        r36f15103_ema_separation_percent(
+            ema19,
+            ema50,
+        )
+    )
+
+    movement = (
+        r36f15103_move_percent(
+            current_price,
+            reference_price,
+        )
+    )
+
+    (
+        raw_mode,
+        classifier_reason,
+    ) = r36f15103_raw_classifier(
+        direction=direction,
+        valid_cluster_count=(
+            valid_cluster_count
+        ),
+        ema_separation_percent=(
+            ema_sep
+        ),
+        short_term_move_percent=(
+            movement
+        ),
+    )
+
+    active_mode = (
+        r36f15103_update_mode(
+            raw_mode=raw_mode,
+            reason=classifier_reason,
+            trade_active=bool(
+                trade_active
+            ),
+        )
+    )
+
+    if (
+        active_mode
+        not in R36F15103_VALID_MODES
+    ):
+        raise RuntimeError(
+            "R36F.15.10.4b EXCLUSIVE MODE FAILURE"
+        )
+
+    result = {
+        "stage":
+            R36F15103_STAGE,
+
+        "cycle":
+            R36F15103_CYCLE,
+
+        "raw_mode":
+            raw_mode,
+
+        "active_mode":
+            active_mode,
+
+        "direction":
+            direction,
+
+        "valid_cluster_count":
+            int(
+                valid_cluster_count
+                or 0
+            ),
+
+        "ema_separation_percent":
+            ema_sep,
+
+        "short_term_move_percent":
+            movement,
+
+        "pending_mode":
+            R36F15103_PENDING_MODE,
+
+        "pending_count":
+            R36F15103_PENDING_COUNT,
+
+        "mode_locked":
+            R36F15103_MODE_LOCKED,
+
+        "reason":
+            R36F15103_LAST_REASON,
+
+        "real_execution":
+            False,
+
+        "demo_execution":
+            False,
+
+        "write_transport":
+            False,
+    }
+
+    log(
+        f"{R36F15103_STAGE} "
+        f"CYCLE={result['cycle']} "
+        f"raw_mode={result['raw_mode']} "
+        f"active_mode={result['active_mode']} "
+        f"direction={result['direction']} "
+        f"clusters={result['valid_cluster_count']} "
+        f"ema_sep={result['ema_separation_percent']:.6f}% "
+        f"move={result['short_term_move_percent']:.6f}% "
+        f"pending_mode={result['pending_mode']} "
+        f"pending_count={result['pending_count']} "
+        f"locked={result['mode_locked']} "
+        f"reason={result['reason']}"
+    )
+
+    log(
+        f"{R36F15103_STAGE} "
+        "REAL_ORDER_EXECUTION=False "
+        "DEMO_ORDER_EXECUTION=False "
+        "WRITE_TRANSPORT=False"
+    )
+
+    return result
+
+
+def r36f15103_startup_diagnostic():
+    line()
+
+    log(
+        "R36F.15.10.4b AUTO-MODE MERGER INTERFACE LOADED"
+    )
+
+    log(
+        "R36F.15.10.4b MODES=SCALP|STRUCTURE|BREAKOUT"
+    )
+
+    log(
+        "R36F.15.10.4b EXCLUSIVE_MODE=True"
+    )
+
+    log(
+        "R36F.15.10.4b MODE_CHANGE_CONFIRMATIONS=3"
+    )
+
+    log(
+        "R36F.15.10.4b ACTIVE_TRADE_MODE_LOCK=True"
+    )
+
+    log(
+        "R36F.15.10.4b REAL_ORDER_EXECUTION=False"
+    )
+
+    log(
+        "R36F.15.10.4b DEMO_ORDER_EXECUTION=False"
+    )
+
+    log(
+        "R36F.15.10.4b WRITE_TRANSPORT=False"
+    )
+
+    line()
