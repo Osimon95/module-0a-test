@@ -4343,3 +4343,1256 @@ def build_cluster_diagnostics(
     ]
 
     return diagnostics
+
+# ============================================================
+# R36F.15.10.4b AUTO MODE TRANSITION CONTROLLER MERGER
+# ============================================================
+#
+# MERGER POLICY
+#
+# Existing R36F.15.10.3 raw classifier remains responsible for
+# choosing exactly one candidate:
+#
+#     SCALP
+#     STRUCTURE
+#     BREAKOUT
+#
+# R36F.15.10.4b adds the passed R36F.15.10.4a transition
+# controller between RAW classification and ACTIVE mode.
+#
+# A different raw mode must appear on THREE consecutive
+# reevaluations before ACTIVE mode changes.
+#
+# If the candidate changes before confirmation completes,
+# confirmation restarts from 1 for the new candidate.
+#
+# While a trade is active the ACTIVE mode is frozen.
+#
+# AUTO MODE DOES NOT:
+#   submit an order
+#   enable a writer
+#   enable demo execution
+#   enable real execution
+#   mutate exchange configuration
+#
+# ============================================================
+
+R36F15104B_VALID_MODES = (
+    "SCALP",
+    "STRUCTURE",
+    "BREAKOUT",
+)
+
+R36F15104B_MODE_CHANGE_CONFIRMATIONS = 3
+
+R36F15104B_EXCLUSIVE_MODE = True
+
+R36F15104B_ACTIVE_TRADE_MODE_LOCK = True
+
+R36F15104B_STATE = {
+    "cycle": 0,
+    "raw_mode": None,
+    "active_mode": None,
+    "previous_active_mode": None,
+    "pending_mode": None,
+    "pending_count": 0,
+    "trade_active": False,
+    "mode_locked": False,
+    "transitioned": False,
+    "reason": "NOT_EVALUATED",
+}
+
+R36F15104B_LAST_RESULT = {}
+
+def r36f15104b_normalize_mode(
+    mode,
+):
+    value = str(
+        mode or ""
+    ).strip().upper()
+
+    if value not in (
+        R36F15104B_VALID_MODES
+    ):
+        raise ValueError(
+            "R36F.15.10.4b INVALID MODE: "
+            + str(mode)
+        )
+
+    return value
+
+def r36f15104b_mode_flags(
+    active_mode,
+):
+    return {
+        "scalp_active":
+            active_mode == "SCALP",
+
+        "structure_active":
+            active_mode == "STRUCTURE",
+
+        "breakout_active":
+            active_mode == "BREAKOUT",
+    }
+
+def r36f15104b_exclusive_mode_ok(
+    active_mode,
+):
+    flags = (
+        r36f15104b_mode_flags(
+            active_mode
+        )
+    )
+
+    return (
+        sum(
+            1
+            for value in flags.values()
+            if value
+        )
+        == 1
+    )
+
+def r36f15104b_update_mode(
+    raw_mode,
+    trade_active=False,
+):
+    global R36F15104B_STATE
+    global R36F15104B_LAST_RESULT
+
+    raw_mode = (
+        r36f15104b_normalize_mode(
+            raw_mode
+        )
+    )
+
+    trade_active = bool(
+        trade_active
+    )
+
+    state = dict(
+        R36F15104B_STATE
+    )
+
+    state["cycle"] = (
+        int(
+            state.get(
+                "cycle",
+                0,
+            )
+        )
+        + 1
+    )
+
+    state["raw_mode"] = (
+        raw_mode
+    )
+
+    state["trade_active"] = (
+        trade_active
+    )
+
+    state["transitioned"] = False
+
+    active_mode = (
+        state.get(
+            "active_mode"
+        )
+    )
+
+    pending_mode = (
+        state.get(
+            "pending_mode"
+        )
+    )
+
+    pending_count = int(
+        state.get(
+            "pending_count",
+            0,
+        )
+        or 0
+    )
+
+    #
+    # FIRST CLASSIFICATION
+    #
+    # There is no previous ACTIVE mode to protect.
+    # The first valid classifier result becomes the
+    # initial ACTIVE mode.
+    #
+    if active_mode is None:
+        state[
+            "previous_active_mode"
+        ] = None
+
+        state[
+            "active_mode"
+        ] = raw_mode
+
+        state[
+            "pending_mode"
+        ] = None
+
+        state[
+            "pending_count"
+        ] = 0
+
+        state[
+            "mode_locked"
+        ] = bool(
+            trade_active
+            and R36F15104B_ACTIVE_TRADE_MODE_LOCK
+        )
+
+        state[
+            "reason"
+        ] = "INITIAL_MODE"
+
+    #
+    # ACTIVE TRADE LOCK
+    #
+    # Once a trade is active, market classification may
+    # continue changing but ACTIVE mode remains unchanged.
+    #
+    elif (
+        trade_active
+        and R36F15104B_ACTIVE_TRADE_MODE_LOCK
+    ):
+        state[
+            "previous_active_mode"
+        ] = active_mode
+
+        state[
+            "active_mode"
+        ] = active_mode
+
+        state[
+            "pending_mode"
+        ] = None
+
+        state[
+            "pending_count"
+        ] = 0
+
+        state[
+            "mode_locked"
+        ] = True
+
+        state[
+            "reason"
+        ] = "ACTIVE_TRADE_MODE_LOCK"
+
+    #
+    # CLASSIFIER STILL AGREES WITH ACTIVE MODE
+    #
+    # Any unfinished candidate transition is cancelled.
+    #
+    elif raw_mode == active_mode:
+        state[
+            "previous_active_mode"
+        ] = active_mode
+
+        state[
+            "active_mode"
+        ] = active_mode
+
+        state[
+            "pending_mode"
+        ] = None
+
+        state[
+            "pending_count"
+        ] = 0
+
+        state[
+            "mode_locked"
+        ] = False
+
+        state[
+            "reason"
+        ] = "ACTIVE_MODE_CONFIRMED"
+
+    #
+    # FIRST READING OF A NEW CANDIDATE
+    #
+    elif pending_mode != raw_mode:
+        state[
+            "previous_active_mode"
+        ] = active_mode
+
+        state[
+            "active_mode"
+        ] = active_mode
+
+        state[
+            "pending_mode"
+        ] = raw_mode
+
+        state[
+            "pending_count"
+        ] = 1
+
+        state[
+            "mode_locked"
+        ] = False
+
+        state[
+            "reason"
+        ] = "NEW_MODE_PENDING"
+
+    #
+    # SAME CANDIDATE AGAIN
+    #
+    else:
+        pending_count += 1
+
+        if (
+            pending_count
+            >=
+            R36F15104B_MODE_CHANGE_CONFIRMATIONS
+        ):
+            state[
+                "previous_active_mode"
+            ] = active_mode
+
+            state[
+                "active_mode"
+            ] = raw_mode
+
+            state[
+                "pending_mode"
+            ] = None
+
+            state[
+                "pending_count"
+            ] = 0
+
+            state[
+                "mode_locked"
+            ] = False
+
+            state[
+                "transitioned"
+            ] = True
+
+            state[
+                "reason"
+            ] = (
+                "THREE_CONFIRMATION_TRANSITION"
+            )
+
+        else:
+            state[
+                "previous_active_mode"
+            ] = active_mode
+
+            state[
+                "active_mode"
+            ] = active_mode
+
+            state[
+                "pending_mode"
+            ] = raw_mode
+
+            state[
+                "pending_count"
+            ] = pending_count
+
+            state[
+                "mode_locked"
+            ] = False
+
+            state[
+                "reason"
+            ] = (
+                "MODE_CHANGE_CONFIRMATION_PENDING"
+            )
+
+    active_mode = (
+        state[
+            "active_mode"
+        ]
+    )
+
+    flags = (
+        r36f15104b_mode_flags(
+            active_mode
+        )
+    )
+
+    exclusive_ok = (
+        r36f15104b_exclusive_mode_ok(
+            active_mode
+        )
+    )
+
+    state.update(
+        flags
+    )
+
+    state[
+        "exclusive_mode"
+    ] = (
+        R36F15104B_EXCLUSIVE_MODE
+    )
+
+    state[
+        "exclusive_mode_ok"
+    ] = exclusive_ok
+
+    state[
+        "mode_change_confirmations"
+    ] = (
+        R36F15104B_MODE_CHANGE_CONFIRMATIONS
+    )
+
+    state[
+        "active_trade_mode_lock_enabled"
+    ] = (
+        R36F15104B_ACTIVE_TRADE_MODE_LOCK
+    )
+
+    if (
+        R36F15104B_EXCLUSIVE_MODE
+        and not exclusive_ok
+    ):
+        raise RuntimeError(
+            "R36F.15.10.4b EXCLUSIVE MODE INVARIANT FAILED"
+        )
+
+    R36F15104B_STATE = (
+        state
+    )
+
+    R36F15104B_LAST_RESULT = (
+        dict(state)
+    )
+
+    return dict(
+        state
+    )
+
+def r36f15104b_reset_controller(
+    active_mode=None,
+):
+    global R36F15104B_STATE
+    global R36F15104B_LAST_RESULT
+
+    if active_mode is not None:
+        active_mode = (
+            r36f15104b_normalize_mode(
+                active_mode
+            )
+        )
+
+    R36F15104B_STATE = {
+        "cycle": 0,
+        "raw_mode": None,
+        "active_mode": active_mode,
+        "previous_active_mode": None,
+        "pending_mode": None,
+        "pending_count": 0,
+        "trade_active": False,
+        "mode_locked": False,
+        "transitioned": False,
+        "reason": "CONTROLLER_RESET",
+    }
+
+    if active_mode is not None:
+        R36F15104B_STATE.update(
+            r36f15104b_mode_flags(
+                active_mode
+            )
+        )
+
+        R36F15104B_STATE[
+            "exclusive_mode_ok"
+        ] = (
+            r36f15104b_exclusive_mode_ok(
+                active_mode
+            )
+        )
+
+    R36F15104B_LAST_RESULT = dict(
+        R36F15104B_STATE
+    )
+
+    return dict(
+        R36F15104B_STATE
+    )
+
+def r36f15104b_trade_active():
+    #
+    # Existing exchange reconciliation remains authoritative.
+    #
+    # Any non-zero/open position freezes the current mode.
+    #
+    try:
+        return bool(
+            OPEN_POSITIONS
+        )
+
+    except Exception:
+        return False
+
+def r36f15104b_apply_controller(
+    raw_classifier_result,
+):
+    if not isinstance(
+        raw_classifier_result,
+        dict,
+    ):
+        raise TypeError(
+            "R36F.15.10.4b RAW CLASSIFIER RESULT MUST BE DICT"
+        )
+
+    raw_mode = str(
+        raw_classifier_result.get(
+            "raw_mode"
+        )
+        or raw_classifier_result.get(
+            "mode"
+        )
+        or ""
+    ).strip().upper()
+
+    raw_mode = (
+        r36f15104b_normalize_mode(
+            raw_mode
+        )
+    )
+
+    trade_active = (
+        r36f15104b_trade_active()
+    )
+
+    transition = (
+        r36f15104b_update_mode(
+            raw_mode,
+            trade_active=trade_active,
+        )
+    )
+
+    merged = dict(
+        raw_classifier_result
+    )
+
+    merged[
+        "raw_mode"
+    ] = raw_mode
+
+    merged[
+        "active_mode"
+    ] = transition.get(
+        "active_mode"
+    )
+
+    merged[
+        "previous_active_mode"
+    ] = transition.get(
+        "previous_active_mode"
+    )
+
+    merged[
+        "pending_mode"
+    ] = transition.get(
+        "pending_mode"
+    )
+
+    merged[
+        "pending_count"
+    ] = transition.get(
+        "pending_count"
+    )
+
+    merged[
+        "mode_transitioned"
+    ] = transition.get(
+        "transitioned",
+        False,
+    )
+
+    merged[
+        "mode_transition_reason"
+    ] = transition.get(
+        "reason"
+    )
+
+    merged[
+        "mode_locked"
+    ] = transition.get(
+        "mode_locked",
+        False,
+    )
+
+    merged[
+        "trade_active"
+    ] = transition.get(
+        "trade_active",
+        False,
+    )
+
+    merged[
+        "exclusive_mode_ok"
+    ] = transition.get(
+        "exclusive_mode_ok",
+        False,
+    )
+
+    merged[
+        "mode_change_confirmations"
+    ] = (
+        R36F15104B_MODE_CHANGE_CONFIRMATIONS
+    )
+
+    merged[
+        "scalp_active"
+    ] = transition.get(
+        "scalp_active",
+        False,
+    )
+
+    merged[
+        "structure_active"
+    ] = transition.get(
+        "structure_active",
+        False,
+    )
+
+    merged[
+        "breakout_active"
+    ] = transition.get(
+        "breakout_active",
+        False,
+    )
+
+    return merged
+
+def r36f15104b_log_transition(
+    result,
+):
+    if not isinstance(
+        result,
+        dict,
+    ):
+        return
+
+    log(
+        "R36F.15.10.4b AUTO MODE"
+        + " | RAW="
+        + str(
+            result.get(
+                "raw_mode"
+            )
+        )
+        + " | ACTIVE="
+        + str(
+            result.get(
+                "active_mode"
+            )
+        )
+        + " | PREVIOUS="
+        + str(
+            result.get(
+                "previous_active_mode"
+            )
+        )
+        + " | PENDING="
+        + str(
+            result.get(
+                "pending_mode"
+            )
+        )
+        + " | COUNT="
+        + str(
+            result.get(
+                "pending_count"
+            )
+        )
+        + " | LOCKED="
+        + str(
+            result.get(
+                "mode_locked"
+            )
+        )
+        + " | TRADE_ACTIVE="
+        + str(
+            result.get(
+                "trade_active"
+            )
+        )
+        + " | REASON="
+        + str(
+            result.get(
+                "mode_transition_reason"
+            )
+        )
+    )
+
+def r36f15104b_active_mode_rules(
+    merged_result,
+):
+    if not isinstance(
+        merged_result,
+        dict,
+    ):
+        raise TypeError(
+            "R36F.15.10.4b MERGED RESULT MUST BE DICT"
+        )
+
+    active_mode = (
+        r36f15104b_normalize_mode(
+            merged_result.get(
+                "active_mode"
+            )
+        )
+    )
+
+    #
+    # Exactly ONE rule family is exposed.
+    #
+    if active_mode == "SCALP":
+        return {
+            "mode": "SCALP",
+            "scalp_rules": True,
+            "structure_rules": False,
+            "breakout_rules": False,
+        }
+
+    if active_mode == "STRUCTURE":
+        return {
+            "mode": "STRUCTURE",
+            "scalp_rules": False,
+            "structure_rules": True,
+            "breakout_rules": False,
+        }
+
+    return {
+        "mode": "BREAKOUT",
+        "scalp_rules": False,
+        "structure_rules": False,
+        "breakout_rules": True,
+    }
+
+def r36f15104b_merge_with_classifier(
+    classifier_result,
+):
+    merged = (
+        r36f15104b_apply_controller(
+            classifier_result
+        )
+    )
+
+    active_rules = (
+        r36f15104b_active_mode_rules(
+            merged
+        )
+    )
+
+    merged[
+        "active_rules"
+    ] = active_rules
+
+    merged[
+        "real_order_execution"
+    ] = False
+
+    merged[
+        "demo_order_execution"
+    ] = False
+
+    merged[
+        "write_transport"
+    ] = False
+
+    merged[
+        "exchange_mutation"
+    ] = False
+
+    r36f15104b_log_transition(
+        merged
+    )
+
+    return merged
+
+# ============================================================
+# R36F.15.10.4b SAFETY ASSERTIONS
+# ============================================================
+
+def r36f15104b_safety_assertions():
+    check(
+        "R36F15104B_EXCLUSIVE_MODE_ENABLED",
+        R36F15104B_EXCLUSIVE_MODE
+        is True,
+    )
+
+    check(
+        "R36F15104B_MODE_CHANGE_CONFIRMATIONS_EQUALS_3",
+        R36F15104B_MODE_CHANGE_CONFIRMATIONS
+        == 3,
+    )
+
+    check(
+        "R36F15104B_ACTIVE_TRADE_MODE_LOCK_ENABLED",
+        R36F15104B_ACTIVE_TRADE_MODE_LOCK
+        is True,
+    )
+
+    check(
+        "R36F15104B_REAL_ORDER_EXECUTION_DISABLED",
+        REAL_ORDER_EXECUTION
+        is False,
+    )
+
+    check(
+        "R36F15104B_DEMO_ORDER_EXECUTION_DISABLED",
+        DEMO_ORDER_EXECUTION
+        is False,
+    )
+
+    check(
+        "R36F15104B_WRITE_TRANSPORT_DISABLED",
+        WRITE_TRANSPORT
+        is False,
+    )
+
+    return True
+
+# ============================================================
+# R36F.15.10.4b CONTROLLER SELF-TEST
+# ============================================================
+
+def synthetic_r36f15104b_transition_tests():
+    #
+    # TEST 1
+    # Initial mode.
+    #
+    r36f15104b_reset_controller()
+
+    initial = (
+        r36f15104b_update_mode(
+            "SCALP",
+            trade_active=False,
+        )
+    )
+
+    check(
+        "R36F15104B_INITIAL_MODE_SCALP",
+        initial.get(
+            "active_mode"
+        )
+        == "SCALP",
+    )
+
+    #
+    # TEST 2
+    # SCALP -> BREAKOUT:
+    # first and second classifications do not switch.
+    # third does.
+    #
+    first = (
+        r36f15104b_update_mode(
+            "BREAKOUT",
+            trade_active=False,
+        )
+    )
+
+    check(
+        "R36F15104B_FIRST_BREAKOUT_DOES_NOT_SWITCH",
+        (
+            first.get(
+                "active_mode"
+            )
+            == "SCALP"
+            and first.get(
+                "pending_count"
+            )
+            == 1
+        ),
+    )
+
+    second = (
+        r36f15104b_update_mode(
+            "BREAKOUT",
+            trade_active=False,
+        )
+    )
+
+    check(
+        "R36F15104B_SECOND_BREAKOUT_DOES_NOT_SWITCH",
+        (
+            second.get(
+                "active_mode"
+            )
+            == "SCALP"
+            and second.get(
+                "pending_count"
+            )
+            == 2
+        ),
+    )
+
+    third = (
+        r36f15104b_update_mode(
+            "BREAKOUT",
+            trade_active=False,
+        )
+    )
+
+    check(
+        "R36F15104B_THIRD_BREAKOUT_SWITCHES",
+        (
+            third.get(
+                "active_mode"
+            )
+            == "BREAKOUT"
+            and third.get(
+                "transitioned"
+            )
+            is True
+        ),
+    )
+
+    #
+    # TEST 3
+    # False breakout reset.
+    #
+    r36f15104b_reset_controller(
+        "STRUCTURE"
+    )
+
+    r36f15104b_update_mode(
+        "BREAKOUT",
+        trade_active=False,
+    )
+
+    false_second = (
+        r36f15104b_update_mode(
+            "BREAKOUT",
+            trade_active=False,
+        )
+    )
+
+    check(
+        "R36F15104B_FALSE_BREAKOUT_SECOND_PENDING",
+        (
+            false_second.get(
+                "active_mode"
+            )
+            == "STRUCTURE"
+            and false_second.get(
+                "pending_count"
+            )
+            == 2
+        ),
+    )
+
+    false_reset = (
+        r36f15104b_update_mode(
+            "STRUCTURE",
+            trade_active=False,
+        )
+    )
+
+    check(
+        "R36F15104B_FALSE_BREAKOUT_REJECTED",
+        (
+            false_reset.get(
+                "active_mode"
+            )
+            == "STRUCTURE"
+            and false_reset.get(
+                "pending_mode"
+            )
+            is None
+            and false_reset.get(
+                "pending_count"
+            )
+            == 0
+        ),
+    )
+
+    #
+    # TEST 4
+    # New candidate resets count to 1.
+    #
+    r36f15104b_reset_controller(
+        "SCALP"
+    )
+
+    r36f15104b_update_mode(
+        "BREAKOUT",
+        trade_active=False,
+    )
+
+    changed_candidate = (
+        r36f15104b_update_mode(
+            "STRUCTURE",
+            trade_active=False,
+        )
+    )
+
+    check(
+        "R36F15104B_CANDIDATE_CHANGE_RESETS_COUNT",
+        (
+            changed_candidate.get(
+                "active_mode"
+            )
+            == "SCALP"
+            and changed_candidate.get(
+                "pending_mode"
+            )
+            == "STRUCTURE"
+            and changed_candidate.get(
+                "pending_count"
+            )
+            == 1
+        ),
+    )
+
+    #
+    # TEST 5
+    # Active trade lock.
+    #
+    r36f15104b_reset_controller(
+        "STRUCTURE"
+    )
+
+    locked1 = (
+        r36f15104b_update_mode(
+            "BREAKOUT",
+            trade_active=True,
+        )
+    )
+
+    locked2 = (
+        r36f15104b_update_mode(
+            "BREAKOUT",
+            trade_active=True,
+        )
+    )
+
+    locked3 = (
+        r36f15104b_update_mode(
+            "BREAKOUT",
+            trade_active=True,
+        )
+    )
+
+    check(
+        "R36F15104B_ACTIVE_TRADE_LOCK_PRESERVES_STRUCTURE",
+        (
+            locked1.get(
+                "active_mode"
+            )
+            == "STRUCTURE"
+            and locked2.get(
+                "active_mode"
+            )
+            == "STRUCTURE"
+            and locked3.get(
+                "active_mode"
+            )
+            == "STRUCTURE"
+        ),
+    )
+
+    check(
+        "R36F15104B_ACTIVE_TRADE_LOCK_NO_PENDING_COUNT",
+        (
+            locked3.get(
+                "pending_count"
+            )
+            == 0
+            and locked3.get(
+                "mode_locked"
+            )
+            is True
+        ),
+    )
+
+    #
+    # After trade closes, confirmations restart.
+    #
+    unlocked1 = (
+        r36f15104b_update_mode(
+            "BREAKOUT",
+            trade_active=False,
+        )
+    )
+
+    unlocked2 = (
+        r36f15104b_update_mode(
+            "BREAKOUT",
+            trade_active=False,
+        )
+    )
+
+    unlocked3 = (
+        r36f15104b_update_mode(
+            "BREAKOUT",
+            trade_active=False,
+        )
+    )
+
+    check(
+        "R36F15104B_UNLOCK_RESTARTS_CONFIRMATION",
+        (
+            unlocked1.get(
+                "active_mode"
+            )
+            == "STRUCTURE"
+            and unlocked1.get(
+                "pending_count"
+            )
+            == 1
+        ),
+    )
+
+    check(
+        "R36F15104B_UNLOCK_THIRD_CONFIRMATION_SWITCHES",
+        (
+            unlocked3.get(
+                "active_mode"
+            )
+            == "BREAKOUT"
+            and unlocked3.get(
+                "transitioned"
+            )
+            is True
+        ),
+    )
+
+    #
+    # TEST 6
+    # Exclusive invariant for every supported mode.
+    #
+    for mode in (
+        R36F15104B_VALID_MODES
+    ):
+        check(
+            "R36F15104B_EXCLUSIVE_"
+            + mode,
+            r36f15104b_exclusive_mode_ok(
+                mode
+            ),
+        )
+
+    #
+    # TEST 7
+    # Invalid mode rejection.
+    #
+    invalid_rejected = False
+
+    try:
+        r36f15104b_normalize_mode(
+            "INVALID"
+        )
+
+    except ValueError:
+        invalid_rejected = True
+
+    check(
+        "R36F15104B_INVALID_MODE_REJECTED",
+        invalid_rejected,
+    )
+
+    #
+    # Return controller to neutral startup state so
+    # synthetic testing cannot contaminate production
+    # reevaluation state.
+    #
+    r36f15104b_reset_controller()
+
+    return True
+
+# ============================================================
+# R36F.15.10.4b MERGER INTERFACE
+# ============================================================
+#
+# IMPORTANT:
+#
+# Existing R36F.15.10.3 merge_cycle() remains responsible
+# for producing RAW classifier output.
+#
+# Feed that existing result through this function:
+#
+#     confirmed = r36f15104b_confirm_auto_mode(raw_result)
+#
+# The confirmed ACTIVE mode, rather than a one-cycle RAW mode,
+# is what subsequent mode-specific TP/entry logic must use.
+#
+# ============================================================
+
+def r36f15104b_confirm_auto_mode(
+    raw_result,
+):
+    confirmed = (
+        r36f15104b_merge_with_classifier(
+            raw_result
+        )
+    )
+
+    if not confirmed.get(
+        "exclusive_mode_ok"
+    ):
+        raise RuntimeError(
+            "R36F.15.10.4b EXCLUSIVE MODE CHECK FAILED"
+        )
+
+    return confirmed
+
+# ============================================================
+# R36F.15.10.4b FROZEN ZERO-WRITE BOUNDARY
+# ============================================================
+
+def r36f15104b_zero_write_boundary():
+    result = {
+        "stage":
+            "R36F.15.10.4b",
+
+        "real_order_execution":
+            REAL_ORDER_EXECUTION,
+
+        "demo_order_execution":
+            DEMO_ORDER_EXECUTION,
+
+        "write_transport":
+            WRITE_TRANSPORT,
+
+        "exclusive_mode":
+            R36F15104B_EXCLUSIVE_MODE,
+
+        "mode_change_confirmations":
+            R36F15104B_MODE_CHANGE_CONFIRMATIONS,
+
+        "active_trade_mode_lock":
+            R36F15104B_ACTIVE_TRADE_MODE_LOCK,
+    }
+
+    check(
+        "R36F15104B_ZERO_WRITE_REAL",
+        result[
+            "real_order_execution"
+        ]
+        is False,
+    )
+
+    check(
+        "R36F15104B_ZERO_WRITE_DEMO",
+        result[
+            "demo_order_execution"
+        ]
+        is False,
+    )
+
+    check(
+        "R36F15104B_ZERO_WRITE_TRANSPORT",
+        result[
+            "write_transport"
+        ]
+        is False,
+    )
+
+    return result
