@@ -5838,7 +5838,12 @@ def build_cluster_tp_snapshot(
 
     return snapshot
 
+snapshot = r36f15103_cleanup_snapshot(
+    snapshot,
+    globals().get("r36f15102_snapshot", {})
+)
 
+r36f15103_print_cleanup(snapshot)
 # ============================================================
 # SYNTHETIC TP TESTS
 # ============================================================
