@@ -5350,10 +5350,23 @@ def writer_allocate_tp_quantities(
                 + tp3_quantity
             ),
     }
-# ============================================================
+
+  # ============================================================
 # R36F.15.10.3 — PART 5 OF 5
 # FINAL AUTO-MODE MERGER + RUNTIME
 # ============================================================
+
+# R36F.15.10.3 BALANCE READINESS LEVERAGE COMPATIBILITY FIX
+try:
+    TARGET_LONG_LEVERAGE
+except NameError:
+    TARGET_LONG_LEVERAGE = 100
+
+try:
+    TARGET_SHORT_LEVERAGE
+except NameError:
+    TARGET_SHORT_LEVERAGE = 100
+# END R36F.15.10.3 BALANCE READINESS LEVERAGE COMPATIBILITY FIX
 
 ADJUSTED_TP1_ALLOCATION_PERCENT = Decimal("25")
 ADJUSTED_TP2_ALLOCATION_PERCENT = Decimal("25")
@@ -5365,7 +5378,7 @@ def allocation_exactly_representable(
     tp1_percent,
     tp2_percent,
     tp3_percent,
-):
+):  
     entry_quantity = quantize_down(
         D(entry_quantity),
         QUANTITY_STEP,
