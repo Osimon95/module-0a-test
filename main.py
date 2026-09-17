@@ -3588,6 +3588,520 @@ async def send_r36f1541_state_change_alert(
             "direction"
         )
         or ""
-Yes — I’ll maintain the **zero-indentation demarcation** for the major part joints. For this **3a → 3b continuation**, however, 3a ended inside an existing expression, so 3b must first close that exact expression. I will not introduce any extra indentation.
+    )
 
-### R36F.15.10.5 — Part 3b
+    if event_name == "WAITING":
+        if (
+            previous_event
+            != "WAITING"
+            or previous_direction
+            != direction
+        ):
+            write_json_file(
+                R36F1541_TELEGRAM_EVENT_STATE_FILE,
+                {
+                    "stage": STAGE,
+                    "event_name": (
+                        "WAITING"
+                    ),
+                    "direction": (
+                        direction
+                    ),
+                    "updated_at": (
+                        now_iso()
+                    ),
+                },
+            )
+
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "WAITING_STATE_SILENT",
+        }
+
+    if (
+        previous_event
+        == event_name
+        and previous_direction
+        == direction
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "deduplicated": True,
+            "reason": "DUPLICATE_NOTIFICATION_BLOCKED",
+            "event_name": event_name,
+        }
+
+    message = (
+        r36f1541_build_event_message(
+            event_name,
+            direction,
+            command_preview,
+            submission,
+        )
+    )
+
+    result = (
+        await send_r36f12_telegram_alert(
+            message
+        )
+    )
+
+    if result.get("sent"):
+        write_json_file(
+            R36F1541_TELEGRAM_EVENT_STATE_FILE,
+            {
+                "stage": STAGE,
+                "event_name": (
+                    event_name
+                ),
+                "direction": (
+                    direction
+                ),
+                "updated_at": (
+                    now_iso()
+                ),
+            },
+        )
+
+    result = dict(result)
+    result["event_name"] = event_name
+    result["direction"] = direction
+
+    return result
+
+def synthetic_r36f12_ema_telegram_tests():
+    bullish = {
+        "ready": True,
+        "ideal_direction": "LONG",
+        "structure": "STRONG_BULLISH",
+        "price": "80000",
+        "ema19": "80100",
+        "ema50": "80000",
+        "ema200": "79000",
+        "quality_ok": True,
+    }
+
+    bearish = {
+        "ready": True,
+        "ideal_direction": "SHORT",
+        "structure": "STRONG_BEARISH",
+        "price": "80000",
+        "ema19": "79900",
+        "ema50": "80000",
+        "ema200": "81000",
+        "quality_ok": True,
+    }
+
+    long_ok = (
+        validate_telegram_command_against_signal(
+            TELEGRAM_BUY_COMMAND,
+            bullish,
+            True,
+            False,
+        )
+    )
+
+    short_ok = (
+        validate_telegram_command_against_signal(
+            TELEGRAM_SELL_COMMAND,
+            bearish,
+            False,
+            True,
+        )
+    )
+
+    wrong_direction = (
+        validate_telegram_command_against_signal(
+            TELEGRAM_SELL_COMMAND,
+            bullish,
+            True,
+            True,
+        )
+    )
+
+    check(
+        "R36F12_SYNTHETIC_LONG_COMMAND_AUTHORIZATION",
+        long_ok.get(
+            "authorized_preview"
+        )
+        is True,
+    )
+
+    check(
+        "R36F12_SYNTHETIC_SHORT_COMMAND_AUTHORIZATION",
+        short_ok.get(
+            "authorized_preview"
+        )
+        is True,
+    )
+
+    check(
+        "R36F12_SYNTHETIC_WRONG_DIRECTION_REJECTED",
+        wrong_direction.get(
+            "authorized_preview"
+        )
+        is False,
+    )
+
+    return True
+
+# ============================================================
+# LOCAL EXTREMA
+# ============================================================
+
+def build_extrema(values):
+    if len(values) < 3:
+        return []
+
+    extrema = []
+
+    for index in range(
+        1,
+        len(values) - 1,
+    ):
+        previous_value = D(
+            values[index - 1]
+        )
+        current_value = D(
+            values[index]
+        )
+        next_value = D(
+            values[index + 1]
+        )
+
+        if (
+            current_value >= previous_value
+            and current_value >= next_value
+        ):
+            extrema.append(
+                current_value
+            )
+
+        elif (
+            current_value <= previous_value
+            and current_value <= next_value
+        ):
+            extrema.append(
+                current_value
+            )
+
+    return extrema
+
+def local_extrema_values(
+    rows,
+    side,
+):
+    if side == "LONG":
+        values = historical_highs(
+            rows
+        )
+
+    elif side == "SHORT":
+        values = historical_lows(
+            rows
+        )
+
+    else:
+        raise ValueError(
+            f"Unsupported side={side}"
+        )
+
+    return build_extrema(
+        values
+    )
+
+# ============================================================
+# CLUSTER EXTREMA
+# ============================================================
+
+def cluster_extrema(
+    extrema,
+):
+    if not extrema:
+        return []
+
+    sorted_values = sorted(
+        D(value)
+        for value in extrema
+    )
+
+    clusters = []
+    current = [
+        sorted_values[0]
+    ]
+
+    for value in sorted_values[1:]:
+        current_average = (
+            sum(current)
+            / Decimal(
+                len(current)
+            )
+        )
+
+        tolerance = (
+            current_average
+            * CLUSTER_TOLERANCE_PERCENT
+            / Decimal("100")
+        )
+
+        if (
+            abs(
+                value
+                - current_average
+            )
+            <= tolerance
+        ):
+            current.append(
+                value
+            )
+
+        else:
+            clusters.append(
+                {
+                    "minimum":
+                        min(current),
+
+                    "maximum":
+                        max(current),
+
+                    "average":
+                        (
+                            sum(current)
+                            / Decimal(
+                                len(current)
+                            )
+                        ),
+
+                    "touches":
+                        len(current),
+                }
+            )
+
+            current = [
+                value
+            ]
+
+    clusters.append(
+        {
+            "minimum":
+                min(current),
+
+            "maximum":
+                max(current),
+
+            "average":
+                (
+                    sum(current)
+                    / Decimal(
+                        len(current)
+                    )
+                ),
+
+            "touches":
+                len(current),
+        }
+    )
+
+    return clusters
+
+# ============================================================
+# CLUSTER VALIDATION
+# ============================================================
+
+def validate_clusters(
+    clusters,
+    entry_price,
+    side,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    valid = []
+    invalid = []
+
+    for cluster in clusters:
+        reasons = []
+
+        touches = cluster[
+            "touches"
+        ]
+
+        average = D(
+            cluster[
+                "average"
+            ]
+        )
+
+        if (
+            touches
+            < MIN_CLUSTER_TOUCHES
+        ):
+            reasons.append(
+                "INSUFFICIENT_TOUCHES"
+            )
+
+        if side == "LONG":
+            if average <= entry_price:
+                reasons.append(
+                    "CLUSTER_NOT_ABOVE_ENTRY"
+                )
+
+        elif side == "SHORT":
+            if average >= entry_price:
+                reasons.append(
+                    "CLUSTER_NOT_BELOW_ENTRY"
+                )
+
+        else:
+            reasons.append(
+                "INVALID_DIRECTION"
+            )
+
+        result = dict(
+            cluster
+        )
+
+        result["valid"] = (
+            not reasons
+        )
+        result["reasons"] = (
+            reasons
+        )
+
+        if reasons:
+            invalid.append(
+                result
+            )
+        else:
+            valid.append(
+                result
+            )
+
+    if side == "LONG":
+        valid.sort(
+            key=lambda item:
+                item["average"]
+        )
+
+    elif side == "SHORT":
+        valid.sort(
+            key=lambda item:
+                item["average"],
+            reverse=True,
+        )
+
+    return (
+        valid,
+        invalid,
+    )
+
+# ============================================================
+# R36F.15.10.1 CLUSTER DIAGNOSTICS
+# ============================================================
+
+R36F15101_TOLERANCE_GRID = (
+    Decimal("0.05"),
+    Decimal("0.10"),
+    Decimal("0.15"),
+    Decimal("0.20"),
+    Decimal("0.25"),
+    Decimal("0.30"),
+)
+
+def cluster_extrema_at_tolerance(
+    extrema,
+    tolerance_percent,
+):
+    tolerance_percent = D(
+        tolerance_percent
+    )
+
+    if not extrema:
+        return []
+
+    sorted_values = sorted(
+        D(value)
+        for value in extrema
+    )
+
+    clusters = []
+    current = [
+        sorted_values[0]
+    ]
+
+    for value in sorted_values[1:]:
+        current_average = (
+            sum(current)
+            / Decimal(
+                len(current)
+            )
+        )
+
+        tolerance = (
+            current_average
+            * tolerance_percent
+            / Decimal("100")
+        )
+
+        if (
+            abs(
+                value
+                - current_average
+            )
+            <= tolerance
+        ):
+            current.append(
+                value
+            )
+
+        else:
+            clusters.append(
+                {
+                    "minimum":
+                        min(current),
+
+                    "maximum":
+                        max(current),
+
+                    "average":
+                        (
+                            sum(current)
+                            / Decimal(
+                                len(current)
+                            )
+                        ),
+
+                    "touches":
+                        len(current),
+                }
+            )
+
+            current = [
+                value
+            ]
+
+    clusters.append(
+        {
+            "minimum":
+                min(current),
+
+            "maximum":
+                max(current),
+
+            "average":
+                (
+                    sum(current)
+                    / Decimal(
+                        len(current)
+                    )
+                ),
+
+            "touches":
+                len(current),
+        }
+    )
+
+    return clusters
