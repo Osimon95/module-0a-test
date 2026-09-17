@@ -6417,3 +6417,245 @@ def r36f15103_merge_cycle(
     )
 
     return result
+    ### R36F.15.10.5 — Part 5b
+
+def r36f15103_startup_diagnostic():
+    line()
+
+    log(
+        "R36F.15.10.4b AUTO-MODE MERGER INTERFACE LOADED"
+    )
+
+    log(
+        "R36F.15.10.4b MODES=SCALP|STRUCTURE|BREAKOUT"
+    )
+
+    log(
+        "R36F.15.10.4b EXCLUSIVE_MODE=True"
+    )
+
+    log(
+        "R36F.15.10.4b MODE_CHANGE_CONFIRMATIONS=3"
+    )
+
+    log(
+        "R36F.15.10.4b ACTIVE_TRADE_MODE_LOCK=True"
+    )
+
+    log(
+        "R36F.15.10.4b REAL_ORDER_EXECUTION=False"
+    )
+
+    log(
+        "R36F.15.10.4b DEMO_ORDER_EXECUTION=False"
+    )
+
+    log(
+        "R36F.15.10.4b WRITE_TRANSPORT=False"
+    )
+
+    line()
+
+
+# ============================================================
+# R36F.15.10.5 REGIME -> DEMO EXECUTION ROUTER
+# NORMAL is represented internally by the already-tested STRUCTURE mode.
+# Real-money execution remains hard-disabled.
+# ============================================================
+
+R36F15105_SCALP_MIN_CLUSTERS = int(os.getenv("R36F15105_SCALP_MIN_CLUSTERS", "1"))
+R36F15105_NORMAL_MIN_CLUSTERS = int(os.getenv("R36F15105_NORMAL_MIN_CLUSTERS", "2"))
+R36F15105_BREAKOUT_MIN_CLUSTERS = int(os.getenv("R36F15105_BREAKOUT_MIN_CLUSTERS", "1"))
+R36F15105_SCALP_MIN_EMA_SEPARATION_PERCENT = Decimal(os.getenv("R36F15105_SCALP_MIN_EMA_SEPARATION_PERCENT", "0.001"))
+R36F15105_NORMAL_MIN_EMA_SEPARATION_PERCENT = Decimal(os.getenv("R36F15105_NORMAL_MIN_EMA_SEPARATION_PERCENT", "0.01"))
+R36F15105_BREAKOUT_MIN_MOVE_PERCENT = Decimal(os.getenv("R36F15105_BREAKOUT_MIN_MOVE_PERCENT", "0.60"))
+R36F15105_AUTO_DEMO_ENABLED = os.getenv("R36F15105_AUTO_DEMO_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def r36f15105_regime_label(active_mode):
+    return "NORMAL" if active_mode == "STRUCTURE" else active_mode
+
+
+def r36f15105_direction_cluster_count(direction):
+    if direction == "LONG":
+        return int(LONG_DIAGNOSTICS.get("valid_cluster_count", 0) or 0)
+    if direction == "SHORT":
+        return int(SHORT_DIAGNOSTICS.get("valid_cluster_count", 0) or 0)
+    return 0
+
+
+def r36f15105_direction_snapshot(direction, long_snapshot, short_snapshot):
+    if direction == "LONG":
+        return long_snapshot
+    if direction == "SHORT":
+        return short_snapshot
+    return None
+
+
+def r36f15105_regime_gate(auto_result, ema_snapshot, long_snapshot, short_snapshot):
+    auto_result = auto_result if isinstance(auto_result, dict) else {}
+    ema_snapshot = ema_snapshot if isinstance(ema_snapshot, dict) else {}
+    active_mode = str(auto_result.get("active_mode") or "").upper()
+    direction = str(auto_result.get("direction") or "").upper()
+    clusters = r36f15105_direction_cluster_count(direction)
+    ema_sep = D(auto_result.get("ema_separation_percent") or "0")
+    movement = D(auto_result.get("short_term_move_percent") or "0")
+    selected_snapshot = r36f15105_direction_snapshot(direction, long_snapshot, short_snapshot)
+
+    result = {
+        "active_mode": active_mode,
+        "regime": r36f15105_regime_label(active_mode),
+        "direction": direction if direction in {"LONG", "SHORT"} else None,
+        "clusters": clusters,
+        "ema_separation_percent": decimal_to_string(ema_sep),
+        "move_percent": decimal_to_string(movement),
+        "approved": False,
+        "reason": "REGIME_GATE_NOT_EVALUATED",
+        "selected_tp_snapshot": selected_snapshot,
+    }
+
+    if active_mode not in R36F15103_VALID_MODES:
+        result["reason"] = "INVALID_ACTIVE_MODE"
+        return result
+    if direction not in {"LONG", "SHORT"}:
+        result["reason"] = "NO_AUTO_DIRECTION"
+        return result
+    if not ema_snapshot.get("ready"):
+        result["reason"] = "EMA_ENGINE_NOT_READY"
+        return result
+
+    # SCALP deliberately does not inherit the old two-cluster structure rule.
+    # It still requires a direction, at least one valid nearby historical cluster,
+    # minimum EMA separation, quantity/balance readiness and all downstream safety gates.
+    if active_mode == "SCALP":
+        if clusters < R36F15105_SCALP_MIN_CLUSTERS:
+            result["reason"] = "SCALP_INSUFFICIENT_CLUSTERS"
+            return result
+        if ema_sep < R36F15105_SCALP_MIN_EMA_SEPARATION_PERCENT:
+            result["reason"] = "SCALP_EMA_SEPARATION_TOO_SMALL"
+            return result
+        result["approved"] = True
+        result["reason"] = "SCALP_ENTRY_GATE_APPROVED"
+        return result
+
+    if active_mode == "STRUCTURE":
+        if clusters < R36F15105_NORMAL_MIN_CLUSTERS:
+            result["reason"] = "NORMAL_INSUFFICIENT_CLUSTERS"
+            return result
+        if ema_sep < R36F15105_NORMAL_MIN_EMA_SEPARATION_PERCENT:
+            result["reason"] = "NORMAL_EMA_SEPARATION_TOO_SMALL"
+            return result
+        if not selected_snapshot or not selected_snapshot.get("tp_approval", {}).get("approved"):
+            result["reason"] = "NORMAL_TWO_CLUSTER_TP_NOT_APPROVED"
+            return result
+        result["approved"] = True
+        result["reason"] = "NORMAL_ENTRY_GATE_APPROVED"
+        return result
+
+    if active_mode == "BREAKOUT":
+        if movement < R36F15105_BREAKOUT_MIN_MOVE_PERCENT:
+            result["reason"] = "BREAKOUT_MOVE_NOT_CONFIRMED"
+            return result
+        if clusters < R36F15105_BREAKOUT_MIN_CLUSTERS:
+            result["reason"] = "BREAKOUT_NO_REFERENCE_CLUSTER"
+            return result
+        result["approved"] = True
+        result["reason"] = "BREAKOUT_ENTRY_GATE_APPROVED"
+        return result
+
+    result["reason"] = "UNHANDLED_ACTIVE_MODE"
+    return result
+
+
+def r36f15105_scalp_tp_snapshot(direction, entry_price, diagnostics):
+    """Build a conservative one-cluster TP set for SCALP only.
+
+    TP1 uses the nearest valid cluster. TP2 is a small extension beyond TP1 so
+    the frozen stop/TP ordering checks remain meaningful. TP3 remains handled
+    by the existing allocation/trailing policy downstream.
+    """
+    entry = D(entry_price)
+    valid = diagnostics.get("valid_clusters", []) if isinstance(diagnostics, dict) else []
+    if not valid:
+        return None
+
+    def cluster_price(row):
+        if isinstance(row, dict):
+            for key in ("average", "avg", "price", "cluster_average"):
+                if row.get(key) is not None:
+                    return D(row.get(key))
+        return None
+
+    prices = [cluster_price(row) for row in valid]
+    prices = [p for p in prices if p is not None and p > 0]
+    if direction == "LONG":
+        prices = sorted(p for p in prices if p > entry)
+    else:
+        prices = sorted((p for p in prices if p < entry), reverse=True)
+    if not prices:
+        return None
+
+    tp1 = quantize_down(prices[0], PRICE_STEP)
+    extension = max(PRICE_STEP, quantize_down(entry * Decimal("0.001"), PRICE_STEP))
+    tp2 = tp1 + extension if direction == "LONG" else tp1 - extension
+    tp2 = quantize_down(tp2, PRICE_STEP)
+    if direction == "LONG" and not (entry < tp1 < tp2):
+        return None
+    if direction == "SHORT" and not (entry > tp1 > tp2 > 0):
+        return None
+
+    return {
+        "direction": direction,
+        "tp1": tp1,
+        "tp2": tp2,
+        "tp3_policy": "TRAILING_RUNNER",
+        "tp_approval": {"approved": True, "reason": "SCALP_ONE_CLUSTER_TP_APPROVED"},
+        "historical_diagnostics": diagnostics,
+        "scalp_specific": True,
+    }
+
+
+def r36f15105_build_auto_command_preview(regime_gate):
+    direction = regime_gate.get("direction")
+    approved = bool(regime_gate.get("approved"))
+    command = TELEGRAM_BUY_COMMAND if direction == "LONG" else TELEGRAM_SELL_COMMAND if direction == "SHORT" else ""
+    return {
+        "recognized": direction in {"LONG", "SHORT"},
+        "command": command,
+        "direction": direction,
+        "authorized_preview": approved,
+        "reason": regime_gate.get("reason"),
+        "authorization_source": "R36F.15.10.5_AUTO_REGIME",
+        "exchange_order_sent": False,
+    }
+
+
+def r36f15105_build_demo_preview(direction, tp_snapshot, balance_readiness, protective_stop_price):
+    if direction not in {"LONG", "SHORT"} or not tp_snapshot or not balance_readiness or protective_stop_price is None:
+        return None
+    quantity = D(balance_readiness.get("planned_entry_quantity", "0"))
+    if quantity <= 0:
+        return None
+    tp1 = D(tp_snapshot.get("tp1"))
+    side = "BUY" if direction == "LONG" else "SELL"
+    payload = {
+        "symbol": R36F14_DEMO_SYMBOL,
+        "side": side,
+        "positionSide": direction,
+        "type": "MARKET",
+        "quantity": decimal_to_string(quantity),
+        "tpTriggerPrice": decimal_to_string(tp1),
+        "slTriggerPrice": decimal_to_string(protective_stop_price),
+    }
+    return {
+        "stage": STAGE,
+        "demo_only": True,
+        "submitted": False,
+        "payload": payload,
+    }
+
+
+# ============================================================
+# R36F.15.10.5 COMPLETE REEVALUATION
+# ============================================================
+
