@@ -2072,3 +2072,506 @@ async def r36f159_reconcile_second_demo_journal(
         "resolved": False,
         "retry_allowed": False,
         "reason": lookup.get(
+### R36F.15.10.5 — Part 2b
+
+            "reason",
+            "SECOND_DEMO_RECONCILIATION_UNKNOWN",
+        ),
+        "journal": journal,
+        "lookup": lookup,
+        "changed": False,
+    }
+
+async def submit_r36f15_demo_order(
+    preview,
+    command_preview,
+):
+    if not R36F159_DEMO_ARM_REQUESTED:
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "SECOND_DEMO_ARM_NOT_REQUESTED",
+        }
+
+    if not command_preview.get(
+        "authorized_preview"
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "TELEGRAM_COMMAND_NOT_AUTHORIZED",
+        }
+
+    if (
+        not preview
+        or not preview.get("payload")
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "DEMO_PREVIEW_MISSING",
+        }
+
+    if not R36F159_COMMAND_TOKEN:
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "SECOND_DEMO_COMMAND_TOKEN_MISSING",
+        }
+
+    existing = read_json_file(
+        R36F159_DEMO_JOURNAL_FILE,
+        default={},
+    )
+
+    command_identity = (
+        r36f159_command_identity(
+            command_preview
+        )
+    )
+
+    if isinstance(existing, dict) and existing:
+        existing_identity = str(
+            existing.get(
+                "command_identity_sha256"
+            ) or ""
+        ).strip()
+
+        if (
+            existing_identity
+            and hmac.compare_digest(
+                existing_identity,
+                command_identity,
+            )
+        ):
+            reconciliation = (
+                await r36f159_reconcile_second_demo_journal(
+                    existing
+                )
+            )
+
+            return {
+                "attempted": False,
+                "sent": False,
+                "accepted": False,
+                "reason": "R36F159_COMMAND_REPLAY_BLOCKED",
+                "reconciliation": reconciliation,
+                "journal": reconciliation.get(
+                    "journal",
+                    existing,
+                ),
+            }
+
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "R36F159_EXISTING_SECOND_DEMO_JOURNAL_BLOCKS_NEW_TOKEN",
+            "journal": existing,
+        }
+
+    exposure = (
+        await r36f159_reconcile_current_demo_exposure()
+    )
+
+    if exposure.get(
+        "duplicate_entry_blocked",
+        True,
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "R36F159_CURRENT_EXPOSURE_BLOCKED",
+            "duplicate_block_reason": exposure.get(
+                "duplicate_block_reason"
+            ),
+            "exposure": exposure,
+        }
+
+    payload = dict(
+        preview["payload"]
+    )
+
+    client_order_id = (
+        r36f159_client_order_id(
+            command_preview
+        )
+    )
+
+    if client_order_id in set(
+        exposure.get(
+            "existing_client_ids",
+            [],
+        )
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "R36F159_CLIENT_ORDER_ID_ALREADY_EXISTS",
+            "client_order_id": client_order_id,
+        }
+
+    payload[
+        "newClientOrderId"
+    ] = client_order_id
+
+    jit_validation = (
+        await r36f154_validate_fresh_demo_triggers(
+            payload
+        )
+    )
+
+    log(
+        "R36F.15.9 JIT DEMO TRIGGER VALIDATION = "
+        + canonical_json(
+            jit_validation
+        )
+    )
+
+    if not jit_validation.get("valid"):
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "JIT_DEMO_TRIGGER_VALIDATION_BLOCKED",
+            "jit_validation": jit_validation,
+        }
+
+    payload_hash = sha256_text(
+        canonical_json(payload)
+    )
+
+    prepared = {
+        "stage": STAGE,
+        "state": "PREPARED",
+        "created_at": now_iso(),
+        "endpoint": R36F14_DEMO_ORDER_ENDPOINT,
+        "command": str(
+            command_preview.get("command")
+            or ""
+        ),
+        "direction": str(
+            command_preview.get("direction")
+            or ""
+        ),
+        "command_token_sha256": sha256_text(
+            R36F159_COMMAND_TOKEN
+        ),
+        "command_identity_sha256": (
+            command_identity
+        ),
+        "client_order_id": client_order_id,
+        "payload_sha256": payload_hash,
+        "payload": payload,
+        "pre_post_journal_verified": True,
+        "real_order_execution": (
+            REAL_ORDER_EXECUTION
+        ),
+        "demo_only": True,
+    }
+
+    write_json_file(
+        R36F159_DEMO_JOURNAL_FILE,
+        prepared,
+    )
+
+    reloaded = read_json_file(
+        R36F159_DEMO_JOURNAL_FILE,
+        default={},
+    )
+
+    reload_payload_hash = sha256_text(
+        canonical_json(
+            reloaded.get(
+                "payload",
+                {},
+            )
+        )
+    )
+
+    pre_post_reload_match = bool(
+        reloaded.get("client_order_id")
+        == client_order_id
+        and reloaded.get(
+            "command_identity_sha256"
+        )
+        == command_identity
+        and reloaded.get(
+            "payload_sha256"
+        )
+        == payload_hash
+        and hmac.compare_digest(
+            reload_payload_hash,
+            payload_hash,
+        )
+    )
+
+    log(
+        "R36F.15.9 PRE_POST_JOURNAL_WRITTEN = True"
+    )
+    log(
+        "R36F.15.9 PRE_POST_JOURNAL_RELOAD_MATCH = "
+        + str(pre_post_reload_match)
+    )
+    log(
+        "R36F.15.9 CLIENT ORDER ID = "
+        + client_order_id
+    )
+
+    if not pre_post_reload_match:
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "R36F159_PRE_POST_JOURNAL_VERIFICATION_FAILED",
+            "journal": reloaded,
+        }
+
+    try:
+        transport = await weex_demo_post(
+            R36F14_DEMO_ORDER_ENDPOINT,
+            payload,
+        )
+
+    except Exception as exc:
+        ambiguous = {
+            **prepared,
+            "state": "SENT_AMBIGUOUS",
+            "updated_at": now_iso(),
+            "error": str(exc),
+        }
+
+        write_json_file(
+            R36F159_DEMO_JOURNAL_FILE,
+            ambiguous,
+        )
+
+        return {
+            "attempted": True,
+            "sent": False,
+            "accepted": False,
+            "reason": "SECOND_DEMO_POST_EXCEPTION_JOURNALED_AMBIGUOUS",
+            "error": str(exc),
+            "journal": ambiguous,
+        }
+
+    response = (
+        transport.get("response")
+        if isinstance(transport, dict)
+        else {}
+    )
+
+    if not isinstance(response, dict):
+        response = {}
+
+    success = bool(
+        response.get("success")
+    )
+
+    completed = {
+        **prepared,
+        "state": (
+            "COMPLETED"
+            if success
+            else "REJECTED"
+        ),
+        "updated_at": now_iso(),
+        "http_status": transport.get(
+            "http_status"
+        ),
+        "response": response,
+        "success": success,
+        "order_id": str(
+            response.get("orderId", "")
+        ),
+        "client_order_id_response": str(
+            response.get(
+                "clientOrderId",
+                "",
+            )
+        ),
+        "error_code": str(
+            response.get(
+                "errorCode",
+                "",
+            )
+        ),
+        "error_message": str(
+            response.get(
+                "errorMessage",
+                "",
+            )
+        ),
+    }
+
+    write_json_file(
+        R36F159_DEMO_JOURNAL_FILE,
+        completed,
+    )
+
+    return {
+        "attempted": True,
+        "sent": True,
+        "accepted": success,
+        "transport": transport,
+        "journal": completed,
+    }
+
+async def load_mark_price():
+    global MARK_PRICE
+
+    data = await weex_get(
+        "/capi/v3/market/symbolPrice",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=False,
+    )
+
+    candidates = []
+
+    if isinstance(data, dict):
+        for key in (
+            "price",
+            "markPrice",
+            "lastPrice",
+        ):
+            if key in data:
+                candidates.append(
+                    data[key]
+                )
+
+        nested = data.get("data")
+
+        if isinstance(nested, dict):
+            for key in (
+                "price",
+                "markPrice",
+                "lastPrice",
+            ):
+                if key in nested:
+                    candidates.append(
+                        nested[key]
+                    )
+
+    elif isinstance(data, list):
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+
+            for key in (
+                "price",
+                "markPrice",
+                "lastPrice",
+            ):
+                if key in item:
+                    candidates.append(
+                        item[key]
+                    )
+
+    for candidate in candidates:
+        try:
+            MARK_PRICE = D(candidate)
+
+            if MARK_PRICE > 0:
+                log(
+                    "MARK PRICE = "
+                    + decimal_to_string(
+                        MARK_PRICE
+                    )
+                )
+                return MARK_PRICE
+
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Unable to determine WEEX mark price"
+    )
+
+async def load_available_balance():
+    global AVAILABLE_BALANCE
+
+    data = await weex_get(
+        "/capi/v3/account/balance",
+        authenticated=True,
+    )
+
+    candidates = []
+
+    def collect(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                key_lower = key.lower()
+
+                if key_lower in (
+                    "availablebalance",
+                    "available_balance",
+                    "available",
+                    "free",
+                    "usdtavailable",
+                ):
+                    candidates.append(item)
+
+                collect(item)
+
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    collect(data)
+
+    for candidate in candidates:
+        try:
+            value = D(candidate)
+
+            if value >= 0:
+                AVAILABLE_BALANCE = value
+
+                log(
+                    "AVAILABLE USDT = "
+                    + decimal_to_string(
+                        AVAILABLE_BALANCE
+                    )
+                )
+
+                return value
+
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Unable to determine available USDT balance"
+    )
+
+async def load_open_positions():
+    global OPEN_POSITIONS
+
+    data = await weex_get(
+        "/capi/v3/account/position/singlePosition",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=True,
+    )
+
+    if isinstance(data, list):
+        OPEN_POSITIONS = data
+
+    elif isinstance(data, dict):
+        nested = data.get("data")
+
+        if isinstance(nested, list):
+            OPEN_POSITIONS = nested
+        else:
+            OPEN_POSITIONS = []
+
+    else:
+        OPEN_POSITIONS = []
+
+    log(
+        "OPEN POSITIONS = "
+        + str(len(OPEN_POSITIONS))
+    )
