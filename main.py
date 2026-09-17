@@ -4105,3 +4105,1025 @@ def cluster_extrema_at_tolerance(
     )
 
     return clusters
+### R36F.15.10.5 — Part 4a
+
+def r36f15101_side_distance_percent(
+    entry_price,
+    cluster_average,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    cluster_average = D(
+        cluster_average
+    )
+
+    if entry_price <= 0:
+        return Decimal("0")
+
+    return (
+        abs(
+            cluster_average
+            - entry_price
+        )
+        / entry_price
+        * Decimal("100")
+    )
+
+def r36f15101_analyze_tolerance(
+    extrema,
+    entry_price,
+    side,
+    tolerance_percent,
+):
+    clusters = (
+        cluster_extrema_at_tolerance(
+            extrema,
+            tolerance_percent,
+        )
+    )
+
+    valid_clusters, invalid_clusters = (
+        validate_clusters(
+            clusters,
+            entry_price,
+            side,
+        )
+    )
+
+    nearest_valid_distance = None
+
+    if valid_clusters:
+        nearest_valid_distance = (
+            r36f15101_side_distance_percent(
+                entry_price,
+                valid_clusters[0][
+                    "average"
+                ],
+            )
+        )
+
+    return {
+        "tolerance_percent": (
+            D(tolerance_percent)
+        ),
+        "raw_cluster_count": (
+            len(clusters)
+        ),
+        "valid_cluster_count": (
+            len(valid_clusters)
+        ),
+        "invalid_cluster_count": (
+            len(invalid_clusters)
+        ),
+        "nearest_valid_distance_percent": (
+            nearest_valid_distance
+        ),
+        "valid_clusters": (
+            valid_clusters
+        ),
+        "invalid_clusters": (
+            invalid_clusters
+        ),
+    }
+
+def r36f15101_build_side_diagnostic(
+    rows,
+    entry_price,
+    side,
+):
+    extrema = (
+        local_extrema_values(
+            rows,
+            side,
+        )
+    )
+
+    tolerance_results = []
+
+    for tolerance in (
+        R36F15101_TOLERANCE_GRID
+    ):
+        result = (
+            r36f15101_analyze_tolerance(
+                extrema,
+                entry_price,
+                side,
+                tolerance,
+            )
+        )
+
+        tolerance_results.append(
+            result
+        )
+
+    frozen_result = None
+
+    for result in tolerance_results:
+        if (
+            result[
+                "tolerance_percent"
+            ]
+            == CLUSTER_TOLERANCE_PERCENT
+        ):
+            frozen_result = result
+            break
+
+    if frozen_result is None:
+        frozen_result = (
+            r36f15101_analyze_tolerance(
+                extrema,
+                entry_price,
+                side,
+                CLUSTER_TOLERANCE_PERCENT,
+            )
+        )
+
+    return {
+        "side": side,
+        "entry_price": (
+            D(entry_price)
+        ),
+        "extrema_count": (
+            len(extrema)
+        ),
+        "frozen_tolerance_percent": (
+            CLUSTER_TOLERANCE_PERCENT
+        ),
+        "frozen_valid_cluster_count": (
+            frozen_result[
+                "valid_cluster_count"
+            ]
+        ),
+        "frozen_nearest_valid_distance_percent": (
+            frozen_result[
+                "nearest_valid_distance_percent"
+            ]
+        ),
+        "tolerance_results": (
+            tolerance_results
+        ),
+    }
+
+def r36f15101_log_side_diagnostic(
+    diagnostic,
+):
+    side = diagnostic[
+        "side"
+    ]
+
+    log(
+        "R36F.15.10.1 "
+        + side
+        + " CLUSTER DIAGNOSTIC"
+    )
+
+    log(
+        "R36F.15.10.1 "
+        + side
+        + " EXTREMA COUNT = "
+        + str(
+            diagnostic[
+                "extrema_count"
+            ]
+        )
+    )
+
+    for result in diagnostic[
+        "tolerance_results"
+    ]:
+        tolerance = (
+            decimal_to_string(
+                result[
+                    "tolerance_percent"
+                ]
+            )
+        )
+
+        nearest = (
+            result[
+                "nearest_valid_distance_percent"
+            ]
+        )
+
+        nearest_text = (
+            decimal_to_string(
+                nearest
+            )
+            if nearest is not None
+            else "NONE"
+        )
+
+        log(
+            "R36F.15.10.1 "
+            + side
+            + " TOLERANCE="
+            + tolerance
+            + "% RAW="
+            + str(
+                result[
+                    "raw_cluster_count"
+                ]
+            )
+            + " VALID="
+            + str(
+                result[
+                    "valid_cluster_count"
+                ]
+            )
+            + " NEAREST_DISTANCE="
+            + nearest_text
+            + "%"
+        )
+
+def r36f15101_build_diagnostics(
+    rows,
+    entry_price,
+):
+    return {
+        "long": (
+            r36f15101_build_side_diagnostic(
+                rows,
+                entry_price,
+                "LONG",
+            )
+        ),
+        "short": (
+            r36f15101_build_side_diagnostic(
+                rows,
+                entry_price,
+                "SHORT",
+            )
+        ),
+    }
+
+def r36f15101_log_diagnostics(
+    diagnostics,
+):
+    if not isinstance(
+        diagnostics,
+        dict,
+    ):
+        return
+
+    long_diagnostic = (
+        diagnostics.get(
+            "long"
+        )
+    )
+
+    short_diagnostic = (
+        diagnostics.get(
+            "short"
+        )
+    )
+
+    if isinstance(
+        long_diagnostic,
+        dict,
+    ):
+        r36f15101_log_side_diagnostic(
+            long_diagnostic
+        )
+
+    if isinstance(
+        short_diagnostic,
+        dict,
+    ):
+        r36f15101_log_side_diagnostic(
+            short_diagnostic
+        )
+
+# ============================================================
+# FROZEN TWO-CLUSTER TP ENGINE
+# ============================================================
+
+def build_cluster_diagnostics(
+    rows,
+    entry_price,
+    side,
+):
+    extrema = (
+        local_extrema_values(
+            rows,
+            side,
+        )
+    )
+
+    clusters = (
+        cluster_extrema(
+            extrema
+        )
+    )
+
+    (
+        valid_clusters,
+        invalid_clusters,
+    ) = validate_clusters(
+        clusters,
+        entry_price,
+        side,
+    )
+
+    if len(valid_clusters) >= 2:
+        failure_reason = None
+
+    elif len(valid_clusters) == 1:
+        failure_reason = (
+            "ONLY_ONE_VALID_CLUSTER"
+        )
+
+    elif extrema:
+        failure_reason = (
+            "EXTREMA_EXIST_BUT_CLUSTER_REQUIREMENTS_NOT_MET"
+        )
+
+    else:
+        failure_reason = (
+            "NO_EXTREMA_FOUND"
+        )
+
+    return {
+        "side": side,
+        "entry_price": (
+            D(entry_price)
+        ),
+        "extrema_count": (
+            len(extrema)
+        ),
+        "cluster_count": (
+            len(clusters)
+        ),
+        "valid_cluster_count": (
+            len(valid_clusters)
+        ),
+        "invalid_cluster_count": (
+            len(invalid_clusters)
+        ),
+        "valid_clusters": (
+            valid_clusters
+        ),
+        "invalid_clusters": (
+            invalid_clusters
+        ),
+        "failure_reason": (
+            failure_reason
+        ),
+    }
+
+def build_tp_snapshot(
+    diagnostics,
+):
+    side = diagnostics[
+        "side"
+    ]
+
+    entry_price = D(
+        diagnostics[
+            "entry_price"
+        ]
+    )
+
+    valid_clusters = (
+        diagnostics[
+            "valid_clusters"
+        ]
+    )
+
+    if len(valid_clusters) < 2:
+        return {
+            "approved": False,
+            "side": side,
+            "entry_price": (
+                entry_price
+            ),
+            "tp1": None,
+            "tp2": None,
+            "tp3": None,
+            "reason": (
+                diagnostics[
+                    "failure_reason"
+                ]
+            ),
+        }
+
+    tp1 = quantize_down(
+        D(
+            valid_clusters[0][
+                "average"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    tp2 = quantize_down(
+        D(
+            valid_clusters[1][
+                "average"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    if side == "LONG":
+        valid_order = (
+            entry_price
+            < tp1
+            < tp2
+        )
+
+    elif side == "SHORT":
+        valid_order = (
+            entry_price
+            > tp1
+            > tp2
+        )
+
+    else:
+        valid_order = False
+
+    if not valid_order:
+        return {
+            "approved": False,
+            "side": side,
+            "entry_price": (
+                entry_price
+            ),
+            "tp1": tp1,
+            "tp2": tp2,
+            "tp3": None,
+            "reason": (
+                "TP_ORDER_INVALID"
+            ),
+        }
+
+    return {
+        "approved": True,
+        "side": side,
+        "entry_price": (
+            entry_price
+        ),
+        "tp1": tp1,
+        "tp2": tp2,
+        "tp3": (
+            "TRAILING_RUNNER"
+        ),
+        "tp3_trailing_distance_percent": (
+            TP3_TRAILING_DISTANCE_PERCENT
+        ),
+        "reason": (
+            "TWO_VALID_CLUSTERS_APPROVED"
+        ),
+    }
+
+def log_cluster_diagnostics(
+    diagnostics,
+):
+    side = diagnostics[
+        "side"
+    ]
+
+    log(
+        side
+        + " EXTREMA COUNT = "
+        + str(
+            diagnostics[
+                "extrema_count"
+            ]
+        )
+    )
+
+    log(
+        side
+        + " CLUSTER COUNT = "
+        + str(
+            diagnostics[
+                "cluster_count"
+            ]
+        )
+    )
+
+    for index, cluster in enumerate(
+        diagnostics[
+            "valid_clusters"
+        ],
+        start=1,
+    ):
+        log(
+            side
+            + " VALID CLUSTER "
+            + str(index)
+            + ": average="
+            + decimal_to_string(
+                cluster[
+                    "average"
+                ]
+            )
+            + " touches="
+            + str(
+                cluster[
+                    "touches"
+                ]
+            )
+        )
+
+    for index, cluster in enumerate(
+        diagnostics[
+            "invalid_clusters"
+        ],
+        start=1,
+    ):
+        log(
+            side
+            + " INVALID CLUSTER "
+            + str(index)
+            + ": average="
+            + decimal_to_string(
+                cluster[
+                    "average"
+                ]
+            )
+            + " reasons="
+            + ",".join(
+                cluster[
+                    "reasons"
+                ]
+            )
+        )
+
+    if diagnostics[
+        "failure_reason"
+    ]:
+        log(
+            side
+            + " CLUSTER DIAGNOSTIC FAILURE_REASON = "
+            + diagnostics[
+                "failure_reason"
+            ]
+        )
+
+# ============================================================
+# TP QUANTITY ALLOCATION
+# ============================================================
+
+def minimum_entry_quantity_for_tp_split():
+    percentages = (
+        TP1_ALLOCATION_PERCENT,
+        TP2_ALLOCATION_PERCENT,
+        TP3_ALLOCATION_PERCENT,
+    )
+
+    quantity = MIN_QUANTITY
+
+    for _ in range(100000):
+        quantity = (
+            quantize_down(
+                quantity,
+                QUANTITY_STEP,
+            )
+        )
+
+        allocations = []
+
+        for percent in percentages:
+            allocation = (
+                quantize_down(
+                    quantity
+                    * percent
+                    / Decimal("100"),
+                    QUANTITY_STEP,
+                )
+            )
+
+            allocations.append(
+                allocation
+            )
+
+        if (
+            all(
+                allocation
+                >= MIN_QUANTITY
+                for allocation
+                in allocations
+            )
+            and sum(
+                allocations
+            )
+            <= quantity
+        ):
+            return quantity
+
+        quantity += (
+            QUANTITY_STEP
+        )
+
+    raise RuntimeError(
+        "Unable to determine minimum TP-splittable entry quantity"
+    )
+
+def calculate_entry_quantity(
+    available_balance,
+    entry_price,
+    leverage,
+):
+    available_balance = D(
+        available_balance
+    )
+
+    entry_price = D(
+        entry_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    if (
+        available_balance <= 0
+        or entry_price <= 0
+        or leverage <= 0
+    ):
+        return Decimal("0")
+
+    margin_budget = (
+        available_balance
+        * ENTRY_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    notional = (
+        margin_budget
+        * leverage
+    )
+
+    raw_quantity = (
+        notional
+        / entry_price
+    )
+
+    return quantize_down(
+        raw_quantity,
+        QUANTITY_STEP,
+    )
+
+def allocate_tp_quantities(
+    entry_quantity,
+):
+    entry_quantity = D(
+        entry_quantity
+    )
+
+    tp1_quantity = (
+        quantize_down(
+            entry_quantity
+            * TP1_ALLOCATION_PERCENT
+            / Decimal("100"),
+            QUANTITY_STEP,
+        )
+    )
+
+    tp2_quantity = (
+        quantize_down(
+            entry_quantity
+            * TP2_ALLOCATION_PERCENT
+            / Decimal("100"),
+            QUANTITY_STEP,
+        )
+    )
+
+    tp3_quantity = (
+        entry_quantity
+        - tp1_quantity
+        - tp2_quantity
+    )
+
+    tp3_quantity = (
+        quantize_down(
+            tp3_quantity,
+            QUANTITY_STEP,
+        )
+    )
+
+    return {
+        "entry_quantity": (
+            entry_quantity
+        ),
+        "tp1_quantity": (
+            tp1_quantity
+        ),
+        "tp2_quantity": (
+            tp2_quantity
+        ),
+        "tp3_quantity": (
+            tp3_quantity
+        ),
+        "tp1_percent": (
+            TP1_ALLOCATION_PERCENT
+        ),
+        "tp2_percent": (
+            TP2_ALLOCATION_PERCENT
+        ),
+        "tp3_percent": (
+            TP3_ALLOCATION_PERCENT
+        ),
+    }
+
+def strict_tp_allocation_feasible(
+    allocation,
+):
+    if not isinstance(
+        allocation,
+        dict,
+    ):
+        return False
+
+    entry_quantity = D(
+        allocation.get(
+            "entry_quantity",
+            "0",
+        )
+    )
+
+    tp1_quantity = D(
+        allocation.get(
+            "tp1_quantity",
+            "0",
+        )
+    )
+
+    tp2_quantity = D(
+        allocation.get(
+            "tp2_quantity",
+            "0",
+        )
+    )
+
+    tp3_quantity = D(
+        allocation.get(
+            "tp3_quantity",
+            "0",
+        )
+    )
+
+    if entry_quantity <= 0:
+        return False
+
+    if (
+        tp1_quantity
+        < MIN_QUANTITY
+    ):
+        return False
+
+    if (
+        tp2_quantity
+        < MIN_QUANTITY
+    ):
+        return False
+
+    if (
+        tp3_quantity
+        < MIN_QUANTITY
+    ):
+        return False
+
+    return (
+        tp1_quantity
+        + tp2_quantity
+        + tp3_quantity
+        == entry_quantity
+    )
+
+# ============================================================
+# ADJUSTABLE TP ALLOCATION
+# ============================================================
+
+R36F10_TP_ALLOCATION_CANDIDATES = (
+    (
+        Decimal("20"),
+        Decimal("20"),
+        Decimal("60"),
+    ),
+    (
+        Decimal("25"),
+        Decimal("25"),
+        Decimal("50"),
+    ),
+    (
+        Decimal("25"),
+        Decimal("50"),
+        Decimal("25"),
+    ),
+    (
+        Decimal("50"),
+        Decimal("25"),
+        Decimal("25"),
+    ),
+)
+
+def allocate_tp_quantities_by_percentages(
+    entry_quantity,
+    percentages,
+):
+    entry_quantity = D(
+        entry_quantity
+    )
+
+    (
+        tp1_percent,
+        tp2_percent,
+        tp3_percent,
+    ) = tuple(
+        D(value)
+        for value in percentages
+    )
+
+    if (
+        tp1_percent
+        + tp2_percent
+        + tp3_percent
+        != Decimal("100")
+    ):
+        raise ValueError(
+            "TP allocation percentages must total 100"
+        )
+
+    tp1_quantity = (
+        quantize_down(
+            entry_quantity
+            * tp1_percent
+            / Decimal("100"),
+            QUANTITY_STEP,
+        )
+    )
+
+    tp2_quantity = (
+        quantize_down(
+            entry_quantity
+            * tp2_percent
+            / Decimal("100"),
+            QUANTITY_STEP,
+        )
+    )
+
+    tp3_quantity = (
+        entry_quantity
+        - tp1_quantity
+        - tp2_quantity
+    )
+
+    tp3_quantity = (
+        quantize_down(
+            tp3_quantity,
+            QUANTITY_STEP,
+        )
+    )
+
+    return {
+        "entry_quantity": (
+            entry_quantity
+        ),
+        "tp1_quantity": (
+            tp1_quantity
+        ),
+        "tp2_quantity": (
+            tp2_quantity
+        ),
+        "tp3_quantity": (
+            tp3_quantity
+        ),
+        "tp1_percent": (
+            tp1_percent
+        ),
+        "tp2_percent": (
+            tp2_percent
+        ),
+        "tp3_percent": (
+            tp3_percent
+        ),
+    }
+
+def allocation_exact(
+    allocation,
+):
+    if not isinstance(
+        allocation,
+        dict,
+    ):
+        return False
+
+    entry_quantity = D(
+        allocation.get(
+            "entry_quantity",
+            "0",
+        )
+    )
+
+    quantities = (
+        D(
+            allocation.get(
+                "tp1_quantity",
+                "0",
+            )
+        ),
+        D(
+            allocation.get(
+                "tp2_quantity",
+                "0",
+            )
+        ),
+        D(
+            allocation.get(
+                "tp3_quantity",
+                "0",
+            )
+        ),
+    )
+
+    return bool(
+        entry_quantity > 0
+        and all(
+            quantity
+            >= MIN_QUANTITY
+            for quantity
+            in quantities
+        )
+        and sum(
+            quantities
+        )
+        == entry_quantity
+    )
+
+def select_adjustable_tp_allocation(
+    entry_quantity,
+):
+    entry_quantity = D(
+        entry_quantity
+    )
+
+    attempts = []
+
+    for percentages in (
+        R36F10_TP_ALLOCATION_CANDIDATES
+    ):
+        allocation = (
+            allocate_tp_quantities_by_percentages(
+                entry_quantity,
+                percentages,
+            )
+        )
+
+        exact = allocation_exact(
+            allocation
+        )
+
+        attempts.append(
+            {
+                "percentages": (
+                    tuple(
+                        D(value)
+                        for value
+                        in percentages
+                    )
+                ),
+                "allocation": (
+                    allocation
+                ),
+                "exact": exact,
+            }
+        )
+
+        if exact:
+            return {
+                "eligible": True,
+                "reason": (
+                    "EXACT_ADJUSTABLE_TP_ALLOCATION_FOUND"
+                ),
+                "selected_percentages": (
+                    tuple(
+                        D(value)
+                        for value
+                        in percentages
+                    )
+                ),
+                "allocation": (
+                    allocation
+                ),
+                "attempts": (
+                    attempts
+                ),
+            }
+
+    return {
+        "eligible": False,
+        "reason": (
+            "NO_EXACT_THREE_WAY_TP_ALLOCATION"
+        ),
+        "selected_percentages": (
+            None
+        ),
+        "allocation": (
+            None
+        ),
+        "attempts": attempts,
+    }
