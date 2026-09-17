@@ -498,3 +498,509 @@ class HealthHandler(BaseHTTPRequestHandler):
         format_string,
         *args,
     ):
+    ):
+        return
+
+def start_health_server():
+    port = int(
+        os.getenv(
+            "PORT",
+            "10000",
+        )
+    )
+
+    server = HTTPServer(
+        (
+            "0.0.0.0",
+            port,
+        ),
+        HealthHandler,
+    )
+
+    thread = Thread(
+        target=server.serve_forever,
+        daemon=True,
+    )
+
+    thread.start()
+
+    log(
+        f"{STAGE}: HEALTH SERVER STARTED ON PORT {port}"
+    )
+
+def build_signature(
+    timestamp,
+    method,
+    request_path,
+    body="",
+):
+    api_secret = os.getenv(
+        "WEEX_API_SECRET"
+    )
+
+    if not api_secret:
+        raise RuntimeError(
+            "WEEX_API_SECRET missing"
+        )
+
+    prehash = (
+        str(timestamp)
+        + method.upper()
+        + request_path
+        + body
+    )
+
+    digest = hmac.new(
+        api_secret.encode(),
+        prehash.encode(),
+        hashlib.sha256,
+    ).digest()
+
+    return base64.b64encode(
+        digest
+    ).decode()
+
+async def weex_get(
+    path,
+    params=None,
+    authenticated=False,
+):
+    params = params or {}
+
+    from urllib.parse import urlencode
+
+    query_string = urlencode(
+        params,
+        doseq=True,
+    )
+
+    request_target = path
+
+    if query_string:
+        request_target += (
+            "?" + query_string
+        )
+
+    url = (
+        API_BASE_URL
+        + request_target
+    )
+
+    headers = {}
+
+    if authenticated:
+        api_key = os.getenv(
+            "WEEX_API_KEY"
+        )
+
+        passphrase = os.getenv(
+            "WEEX_API_PASSPHRASE"
+        )
+
+        if not api_key:
+            raise RuntimeError(
+                "WEEX_API_KEY missing"
+            )
+
+        if not passphrase:
+            raise RuntimeError(
+                "WEEX_API_PASSPHRASE missing"
+            )
+
+        timestamp = str(
+            int(time.time() * 1000)
+        )
+
+        signature = build_signature(
+            timestamp,
+            "GET",
+            request_target,
+            "",
+        )
+
+        headers = {
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": passphrase,
+            "Content-Type": "application/json",
+        }
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+        async with session.get(
+            url,
+            headers=headers,
+        ) as response:
+            text = await response.text()
+
+            if response.status >= 400:
+                raise RuntimeError(
+                    f"WEEX GET HTTP {response.status}: {text}"
+                )
+
+            try:
+                return json.loads(text)
+
+            except Exception:
+                return {
+                    "raw": text
+                }
+
+async def weex_demo_post(
+    path,
+    payload,
+):
+    if path != R36F14_DEMO_ORDER_ENDPOINT:
+        raise RuntimeError(
+            "R36F.15 demo transport refused non-demo endpoint"
+        )
+
+    if not (
+        R36F15_DEMO_POST_TRANSPORT_ENABLED
+        and R36F15_DEMO_ORDER_SUBMISSION_ENABLED
+        and R36F15_FIRST_DEMO_ORDER_ALLOWED
+    ):
+        raise RuntimeError(
+            "R36F.15 demo transport is disabled"
+        )
+
+    if not (
+        REAL_ORDER_EXECUTION is False
+        and EXCHANGE_MUTATION_TRANSPORT_ENABLED is False
+        and ORDER_SUBMISSION_ENABLED is False
+        and LEVERAGE_MUTATION_ENABLED is False
+        and MARGIN_MODE_MUTATION_ENABLED is False
+        and POSITION_MUTATION_ENABLED is False
+        and FIRST_REAL_ORDER_ALLOWED is False
+    ):
+        raise RuntimeError(
+            "R36F.15 production firebreak is not intact"
+        )
+
+    api_key = os.getenv(
+        "WEEX_API_KEY"
+    )
+
+    passphrase = os.getenv(
+        "WEEX_API_PASSPHRASE"
+    )
+
+    if not api_key:
+        raise RuntimeError(
+            "WEEX_API_KEY missing"
+        )
+
+    if not passphrase:
+        raise RuntimeError(
+            "WEEX_API_PASSPHRASE missing"
+        )
+
+    body = canonical_json(payload)
+    timestamp = str(
+        int(time.time() * 1000)
+    )
+
+    signature = build_signature(
+        timestamp,
+        "POST",
+        path,
+        body,
+    )
+
+    headers = {
+        "ACCESS-KEY": api_key,
+        "ACCESS-SIGN": signature,
+        "ACCESS-TIMESTAMP": timestamp,
+        "ACCESS-PASSPHRASE": passphrase,
+        "Content-Type": "application/json",
+    }
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    url = (
+        API_BASE_URL
+        + path
+    )
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+        async with session.post(
+            url,
+            headers=headers,
+            data=body,
+        ) as response:
+            text = await response.text()
+
+            try:
+                data = json.loads(text)
+
+            except Exception:
+                data = {
+                    "raw": text
+                }
+
+            result = {
+                "http_status": response.status,
+                "response": data,
+                "raw_text": text,
+            }
+
+            if response.status >= 400:
+                raise RuntimeError(
+                    f"WEEX DEMO POST HTTP {response.status}: {text}"
+                )
+
+            return result
+
+def r36f15_demo_journal_unresolved(
+    journal,
+):
+    if (
+        not isinstance(journal, dict)
+        or not journal
+    ):
+        return False
+
+    return journal.get(
+        "state"
+    ) in {
+        "PREPARED",
+        "SENT_AMBIGUOUS",
+    }
+
+def r36f15_demo_journal_completed(
+    journal,
+):
+    return bool(
+        isinstance(journal, dict)
+        and journal.get("state") == "COMPLETED"
+        and journal.get("success") is True
+    )
+
+def _r36f153_history_rows(data):
+    if isinstance(data, list):
+        return data
+
+    if isinstance(data, dict):
+        for key in (
+            "data",
+            "list",
+            "rows",
+            "orders",
+        ):
+            value = data.get(key)
+
+            if isinstance(value, list):
+                return value
+
+    return None
+
+async def r36f153_lookup_demo_order_by_client_id(
+    client_order_id,
+):
+    client_order_id = str(
+        client_order_id or ""
+    ).strip()
+
+    if not client_order_id:
+        return {
+            "status": "UNKNOWN",
+            "reason": "MISSING_CLIENT_ORDER_ID",
+            "order": None,
+        }
+
+    try:
+        data = await weex_get(
+            R36F14_DEMO_ORDER_HISTORY_ENDPOINT,
+            params={
+                "symbol": R36F14_DEMO_SYMBOL,
+                "limit": 1000,
+                "page": 0,
+            },
+            authenticated=True,
+        )
+
+    except Exception as exc:
+        return {
+            "status": "UNKNOWN",
+            "reason": "DEMO_HISTORY_LOOKUP_FAILED",
+            "error": str(exc),
+            "order": None,
+        }
+
+    rows = _r36f153_history_rows(
+        data
+    )
+
+    if rows is None:
+        return {
+            "status": "UNKNOWN",
+            "reason": "DEMO_HISTORY_RESPONSE_UNRECOGNIZED",
+            "order": None,
+        }
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+
+        row_client_id = str(
+            row.get("clientOrderId")
+            or row.get("newClientOrderId")
+            or ""
+        ).strip()
+
+        if row_client_id == client_order_id:
+            return {
+                "status": "FOUND",
+                "reason": "CLIENT_ORDER_ID_FOUND_IN_DEMO_HISTORY",
+                "order": row,
+            }
+
+    return {
+        "status": "NOT_FOUND",
+        "reason": "CLIENT_ORDER_ID_NOT_FOUND_IN_DEMO_HISTORY",
+        "order": None,
+    }
+
+async def r36f153_reconcile_demo_journal(journal):
+    if not isinstance(journal, dict) or not journal:
+        return {
+            "resolved": True,
+            "retry_allowed": True,
+            "reason": "NO_JOURNAL",
+            "journal": {},
+            "changed": False,
+        }
+
+    state = str(
+        journal.get("state") or ""
+    ).strip().upper()
+
+    if state == "COMPLETED":
+        return {
+            "resolved": True,
+            "retry_allowed": False,
+            "reason": "COMPLETED_REMAINS_TERMINAL",
+            "journal": journal,
+            "changed": False,
+        }
+
+    if state == "REJECTED":
+        return {
+            "resolved": True,
+            "retry_allowed": True,
+            "reason": "REJECTED_PERMITS_FRESH_RETRY",
+            "journal": journal,
+            "changed": False,
+        }
+
+    if state not in {
+        "PREPARED",
+        "SENT_AMBIGUOUS",
+    }:
+        return {
+            "resolved": False,
+            "retry_allowed": False,
+            "reason": "UNKNOWN_JOURNAL_STATE_BLOCKS_RETRY",
+            "journal": journal,
+            "changed": False,
+        }
+
+    client_order_id = str(
+        journal.get("client_order_id") or ""
+    ).strip()
+
+    if not client_order_id:
+        return {
+            "resolved": False,
+            "retry_allowed": False,
+            "reason": "MISSING_CLIENT_ID_BLOCKS_RETRY",
+            "journal": journal,
+            "changed": False,
+        }
+
+    lookup = await r36f153_lookup_demo_order_by_client_id(
+        client_order_id
+    )
+
+    lookup_status = lookup.get("status")
+
+    if lookup_status == "FOUND":
+        order = (
+            lookup.get("order")
+            if isinstance(lookup.get("order"), dict)
+            else {}
+        )
+
+        reconciled = {
+            **journal,
+            "state": "COMPLETED",
+            "updated_at": now_iso(),
+            "success": True,
+            "reconciliation_status": "FOUND",
+            "reconciliation_reason": lookup.get("reason"),
+            "order_id": str(
+                order.get(
+                    "orderId",
+                    journal.get("order_id", ""),
+                )
+            ),
+            "client_order_id_response": str(
+                order.get(
+                    "clientOrderId",
+                    client_order_id,
+                )
+            ),
+            "reconciled_order": order,
+        }
+
+        write_json_file(
+            R36F15_DEMO_JOURNAL_FILE,
+            reconciled,
+        )
+
+        return {
+            "resolved": True,
+            "retry_allowed": False,
+            "reason": "AMBIGUOUS_FOUND_MARKED_COMPLETED",
+            "journal": reconciled,
+            "changed": True,
+        }
+
+    if lookup_status == "NOT_FOUND":
+        reconciled = {
+            **journal,
+            "state": "REJECTED",
+            "updated_at": now_iso(),
+            "success": False,
+            "reconciliation_status": "NOT_FOUND",
+            "reconciliation_reason": lookup.get("reason"),
+        }
+
+        write_json_file(
+            R36F15_DEMO_JOURNAL_FILE,
+            reconciled,
+        )
+
+        return {
+            "resolved": True,
+            "retry_allowed": True,
+            "reason": "AMBIGUOUS_NOT_FOUND_MARKED_REJECTED",
+            "journal": reconciled,
+            "changed": True,
+        }
+
+    return {
+        "resolved": False,
+        "retry_allowed": False,
+        "reason": lookup.get(
+            "reason",
