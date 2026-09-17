@@ -5346,3 +5346,2699 @@ def writer_quantities(
         tp3,
     )
 
+
+def validate_writer_quantities(
+    entry_quantity,
+    tp1,
+    tp2,
+    tp3,
+):
+    allocation = select_tp_allocation(
+        entry_quantity
+    )
+
+    if allocation is None:
+        return {
+            "allocation_selected":
+                False,
+
+            "all_valid":
+                False,
+        }
+
+    exact_tp1 = (
+        entry_quantity
+        * allocation[
+            "tp1_percent"
+        ]
+        / Decimal("100")
+    )
+
+    exact_tp2 = (
+        entry_quantity
+        * allocation[
+            "tp2_percent"
+        ]
+        / Decimal("100")
+    )
+
+    exact_tp3 = (
+        entry_quantity
+        * allocation[
+            "tp3_percent"
+        ]
+        / Decimal("100")
+    )
+
+    checks = {
+        "allocation_selected":
+            True,
+
+        "entry_on_step":
+            quantize_down(
+                entry_quantity,
+                QUANTITY_STEP,
+            ) == entry_quantity,
+
+        "tp1_on_step":
+            quantize_down(
+                tp1,
+                QUANTITY_STEP,
+            ) == tp1,
+
+        "tp2_on_step":
+            quantize_down(
+                tp2,
+                QUANTITY_STEP,
+            ) == tp2,
+
+        "tp3_on_step":
+            quantize_down(
+                tp3,
+                QUANTITY_STEP,
+            ) == tp3,
+
+        "entry_minimum":
+            entry_quantity
+            >= MIN_QUANTITY,
+
+        "tp1_minimum":
+            tp1
+            >= MIN_QUANTITY,
+
+        "tp2_minimum":
+            tp2
+            >= MIN_QUANTITY,
+
+        "tp3_minimum":
+            tp3
+            >= MIN_QUANTITY,
+
+        "allocation_sum_exact":
+            (
+                tp1
+                + tp2
+                + tp3
+            )
+            == entry_quantity,
+
+        "tp1_selected_percent_exact":
+            tp1 == exact_tp1,
+
+        "tp2_selected_percent_exact":
+            tp2 == exact_tp2,
+
+        "tp3_selected_percent_exact":
+            tp3 == exact_tp3,
+
+        "tp3_non_negative":
+            tp3 >= Decimal("0"),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+def minimum_adjustable_tp_entry_quantity():
+    candidate = QUANTITY_STEP
+
+    for _ in range(100000):
+        (
+            quantity,
+            tp1,
+            tp2,
+            tp3,
+        ) = writer_quantities(
+            candidate
+        )
+
+        checks = (
+            validate_writer_quantities(
+                quantity,
+                tp1,
+                tp2,
+                tp3,
+            )
+        )
+
+        if checks.get(
+            "all_valid"
+        ):
+            return quantity
+
+        candidate += QUANTITY_STEP
+
+    raise RuntimeError(
+        "Unable to find adjustable TP minimum quantity"
+    )
+
+
+def minimum_strict_tp_entry_quantity():
+    return (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+
+def evaluate_writer_quantity_feasibility(
+    entry_quantity,
+):
+    (
+        quantity,
+        tp1,
+        tp2,
+        tp3,
+    ) = writer_quantities(
+        entry_quantity
+    )
+
+    allocation = select_tp_allocation(
+        quantity
+    )
+
+    checks = (
+        validate_writer_quantities(
+            quantity,
+            tp1,
+            tp2,
+            tp3,
+        )
+    )
+
+    minimum_required = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    feasible = bool(
+        checks.get(
+            "all_valid"
+        )
+    )
+
+    return {
+        "feasible":
+            feasible,
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_ALLOCATION_REPRESENTABLE"
+                if feasible
+                else
+                "POSITION_TOO_SMALL_OR_NOT_REPRESENTABLE"
+            ),
+
+        "entry_quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "tp1_quantity":
+            decimal_to_string(
+                tp1
+            ),
+
+        "tp2_quantity":
+            decimal_to_string(
+                tp2
+            ),
+
+        "tp3_quantity":
+            decimal_to_string(
+                tp3
+            ),
+
+        "requested_allocation":
+            "20/20/60",
+
+        "selected_allocation":
+            (
+                allocation[
+                    "label"
+                ]
+                if allocation
+                else None
+            ),
+
+        "allocation_adjusted":
+            bool(
+                allocation
+                and allocation[
+                    "adjusted"
+                ]
+            ),
+
+        "minimum_required_entry_quantity":
+            decimal_to_string(
+                minimum_required
+            ),
+
+        "checks":
+            checks,
+    }
+
+
+def evaluate_strict_tp_balance_readiness(
+    available_balance,
+    mark_price,
+    leverage,
+):
+    available_balance = D(
+        available_balance
+    )
+
+    mark_price = D(
+        mark_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    if available_balance < 0:
+        raise ValueError(
+            "available_balance must be non-negative"
+        )
+
+    if mark_price <= 0:
+        raise ValueError(
+            "mark_price must be positive"
+        )
+
+    if leverage <= 0:
+        raise ValueError(
+            "leverage must be positive"
+        )
+
+    entry_fraction = (
+        ENTRY_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    raw_entry_quantity = (
+        available_balance
+        * entry_fraction
+        * leverage
+        / mark_price
+    )
+
+    planned_entry_quantity = (
+        quantize_down(
+            raw_entry_quantity,
+            QUANTITY_STEP,
+        )
+    )
+
+    feasibility = (
+        evaluate_writer_quantity_feasibility(
+            planned_entry_quantity
+        )
+    )
+
+    minimum_quantity = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    required_entry_margin = (
+        minimum_quantity
+        * mark_price
+        / leverage
+    )
+
+    required_available_balance = (
+        required_entry_margin
+        / entry_fraction
+    )
+
+    shortfall = max(
+        Decimal("0"),
+        required_available_balance
+        - available_balance,
+    )
+
+    eligible = bool(
+        feasibility[
+            "feasible"
+        ]
+        and
+        available_balance
+        >= required_available_balance
+    )
+
+    return {
+        "eligible":
+            eligible,
+
+        "status":
+            (
+                "ELIGIBLE"
+                if eligible
+                else
+                "TRADE_NOT_ELIGIBLE"
+            ),
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_BALANCE_AND_QUANTITY_READY"
+                if eligible
+                else
+                "INSUFFICIENT_BALANCE_FOR_APPROVED_TP_ALLOCATION"
+            ),
+
+        "available_balance":
+            decimal_to_string(
+                available_balance
+            ),
+
+        "mark_price":
+            decimal_to_string(
+                mark_price
+            ),
+
+        "leverage":
+            decimal_to_string(
+                leverage
+            ),
+
+        "planned_entry_quantity":
+            decimal_to_string(
+                planned_entry_quantity
+            ),
+
+        "minimum_required_entry_quantity":
+            decimal_to_string(
+                minimum_quantity
+            ),
+
+        "required_available_balance":
+            decimal_to_string(
+                required_available_balance
+            ),
+
+        "available_balance_shortfall":
+            decimal_to_string(
+                shortfall
+            ),
+
+        "quantity_feasible":
+            feasibility[
+                "feasible"
+            ],
+
+        "selected_allocation":
+            feasibility[
+                "selected_allocation"
+            ],
+
+        "allocation_adjusted":
+            feasibility[
+                "allocation_adjusted"
+            ],
+
+        "tp1_quantity":
+            feasibility[
+                "tp1_quantity"
+            ],
+
+        "tp2_quantity":
+            feasibility[
+                "tp2_quantity"
+            ],
+
+        "tp3_quantity":
+            feasibility[
+                "tp3_quantity"
+            ],
+    }
+
+
+# ============================================================
+# PROTECTIVE STOP
+# ============================================================
+
+def calculate_r36f13_protective_stop(
+    direction,
+    entry_price,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    distance = (
+        R36F13_PROTECTIVE_STOP_DISTANCE_PERCENT
+        / Decimal("100")
+    )
+
+    if direction == "LONG":
+        raw_stop = (
+            entry_price
+            * (
+                Decimal("1")
+                - distance
+            )
+        )
+
+        return quantize_down(
+            raw_stop,
+            PRICE_STEP,
+        )
+
+    if direction == "SHORT":
+        raw_stop = (
+            entry_price
+            * (
+                Decimal("1")
+                + distance
+            )
+        )
+
+        stop_price = quantize_down(
+            raw_stop,
+            PRICE_STEP,
+        )
+
+        if stop_price <= entry_price:
+            stop_price = (
+                quantize_down(
+                    entry_price,
+                    PRICE_STEP,
+                )
+                + PRICE_STEP
+            )
+
+        return stop_price
+
+    raise ValueError(
+        "Invalid protective-stop direction"
+    )
+
+
+def validate_r36f13_protective_stop(
+    direction,
+    entry_price,
+    stop_price,
+    tp1_price,
+    tp2_price,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    tp1_price = D(
+        tp1_price
+    )
+
+    tp2_price = D(
+        tp2_price
+    )
+
+    if direction == "LONG":
+        correct_side = (
+            stop_price
+            < entry_price
+        )
+
+        separated = (
+            stop_price
+            < entry_price
+            < tp1_price
+            < tp2_price
+        )
+
+    elif direction == "SHORT":
+        correct_side = (
+            stop_price
+            > entry_price
+        )
+
+        separated = (
+            stop_price
+            > entry_price
+            > tp1_price
+            > tp2_price
+        )
+
+    else:
+        correct_side = False
+        separated = False
+
+    checks = {
+        "configured_or_calculated":
+            True,
+
+        "positive":
+            stop_price > 0,
+
+        "correct_side_of_entry":
+            correct_side,
+
+        "price_step_normalized":
+            (
+                stop_price
+                % PRICE_STEP
+            ) == 0,
+
+        "does_not_cross_entry_or_tp":
+            separated,
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+def validate_r36f131_stop_risk_envelope(
+    direction,
+    entry_price,
+    stop_price,
+    leverage,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    distance_percent = (
+        abs(
+            stop_price
+            - entry_price
+        )
+        / entry_price
+        * Decimal("100")
+    )
+
+    leverage_reference = (
+        Decimal("100")
+        / leverage
+    )
+
+    checks = {
+        "direction_valid":
+            direction
+            in {
+                "LONG",
+                "SHORT",
+            },
+
+        "distance_positive":
+            distance_percent > 0,
+
+        "at_least_one_price_step":
+            abs(
+                stop_price
+                - entry_price
+            )
+            >= PRICE_STEP,
+
+        "within_configured_maximum":
+            (
+                distance_percent
+                <=
+                R36F131_MAX_PROTECTIVE_STOP_DISTANCE_PERCENT
+            ),
+
+        "inside_leverage_reference":
+            (
+                distance_percent
+                <
+                leverage_reference
+            ),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return {
+        "distance_percent":
+            decimal_to_string(
+                distance_percent
+            ),
+
+        "leverage_reference_percent":
+            decimal_to_string(
+                leverage_reference
+            ),
+
+        "checks":
+            checks,
+
+        "all_valid":
+            checks[
+                "all_valid"
+            ],
+    }
+
+
+def validate_r36f132_stop_loss_budget(
+    entry_price,
+    stop_price,
+    entry_quantity,
+    available_balance,
+    leverage,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    entry_quantity = D(
+        entry_quantity
+    )
+
+    available_balance = D(
+        available_balance
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    price_distance = abs(
+        entry_price
+        - stop_price
+    )
+
+    expected_loss = (
+        price_distance
+        * entry_quantity
+    )
+
+    expected_loss_percent = (
+        expected_loss
+        / available_balance
+        * Decimal("100")
+        if available_balance > 0
+        else Decimal("999")
+    )
+
+    account_loss_budget = (
+        available_balance
+        * R36F132_MAX_ACCOUNT_LOSS_PERCENT
+        / Decimal("100")
+    )
+
+    isolated_entry_margin = (
+        entry_price
+        * entry_quantity
+        / leverage
+    )
+
+    checks = {
+        "price_distance_positive":
+            price_distance > 0,
+
+        "expected_loss_positive":
+            expected_loss > 0,
+
+        "within_account_loss_budget":
+            (
+                expected_loss
+                <= account_loss_budget
+            ),
+
+        "within_isolated_entry_margin_budget":
+            (
+                expected_loss
+                <= isolated_entry_margin
+            ),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return {
+        "expected_loss_usdt":
+            decimal_to_string(
+                expected_loss
+            ),
+
+        "expected_loss_percent_of_available_balance":
+            decimal_to_string(
+                expected_loss_percent
+            ),
+
+        "configured_max_account_loss_percent":
+            decimal_to_string(
+                R36F132_MAX_ACCOUNT_LOSS_PERCENT
+            ),
+
+        "isolated_entry_margin_usdt":
+            decimal_to_string(
+                isolated_entry_margin
+            ),
+
+        "checks":
+            checks,
+
+        "all_valid":
+            checks[
+                "all_valid"
+            ],
+    }
+
+# ============================================================
+# R36F.15.10.4b AUTO MODE MERGER
+# ============================================================
+
+R36F15103_STAGE = (
+    "R36F.15.10.4b"
+)
+
+R36F15103_REAL_ORDER_EXECUTION = False
+R36F15103_DEMO_ORDER_EXECUTION = False
+R36F15103_WRITE_TRANSPORT = False
+
+R36F15103_MODE_CONFIRMATIONS_REQUIRED = 3
+
+R36F15103_BREAKOUT_MOVE_PERCENT = 0.60
+
+R36F15103_STRONG_EMA_SEPARATION_PERCENT = 0.05
+
+R36F15103_VALID_MODES = (
+    "SCALP",
+    "STRUCTURE",
+    "BREAKOUT",
+)
+
+R36F15103_EXCLUSIVE_MODE = True
+R36F15103_ACTIVE_TRADE_MODE_LOCK = True
+
+R36F15103_ACTIVE_MODE = None
+R36F15103_PENDING_MODE = None
+R36F15103_PENDING_COUNT = 0
+R36F15103_MODE_LOCKED = False
+R36F15103_LAST_DIRECTION = None
+R36F15103_LAST_REASON = None
+R36F15103_CYCLE = 0
+
+R36F15103_REFERENCE_PRICE = None
+
+R36F15103_LAST_RESULT = {}
+
+
+def r36f15103_safe_float(
+    value,
+    default=None,
+):
+    try:
+        if value is None:
+            return default
+
+        return float(
+            value
+        )
+
+    except Exception:
+        return default
+
+
+def r36f15103_direction_from_ema(
+    ema19,
+    ema50,
+    ema200,
+):
+    e19 = r36f15103_safe_float(
+        ema19
+    )
+
+    e50 = r36f15103_safe_float(
+        ema50
+    )
+
+    e200 = r36f15103_safe_float(
+        ema200
+    )
+
+    if (
+        e19 is None
+        or e50 is None
+        or e200 is None
+    ):
+        return None
+
+    if (
+        e19
+        > e50
+        > e200
+    ):
+        return "LONG"
+
+    if (
+        e19
+        < e50
+        < e200
+    ):
+        return "SHORT"
+
+    return None
+
+
+def r36f15103_ema_separation_percent(
+    ema19,
+    ema50,
+):
+    e19 = r36f15103_safe_float(
+        ema19
+    )
+
+    e50 = r36f15103_safe_float(
+        ema50
+    )
+
+    if (
+        e19 is None
+        or e50 in (
+            None,
+            0,
+        )
+    ):
+        return 0.0
+
+    return (
+        abs(
+            e19
+            - e50
+        )
+        / abs(e50)
+        * 100.0
+    )
+
+
+def r36f15103_move_percent(
+    current_price,
+    reference_price,
+):
+    current = r36f15103_safe_float(
+        current_price
+    )
+
+    reference = r36f15103_safe_float(
+        reference_price
+    )
+
+    if (
+        current is None
+        or reference in (
+            None,
+            0,
+        )
+    ):
+        return 0.0
+
+    return (
+        abs(
+            current
+            - reference
+        )
+        / abs(reference)
+        * 100.0
+    )
+
+
+def r36f15103_raw_classifier(
+    direction,
+    valid_cluster_count,
+    ema_separation_percent,
+    short_term_move_percent,
+):
+    try:
+        clusters = int(
+            valid_cluster_count
+            or 0
+        )
+
+    except Exception:
+        clusters = 0
+
+    ema_sep = (
+        r36f15103_safe_float(
+            ema_separation_percent,
+            0.0,
+        )
+    )
+
+    movement = (
+        r36f15103_safe_float(
+            short_term_move_percent,
+            0.0,
+        )
+    )
+
+    strong_direction = (
+        direction
+        in (
+            "LONG",
+            "SHORT",
+        )
+        and
+        ema_sep
+        >=
+        R36F15103_STRONG_EMA_SEPARATION_PERCENT
+    )
+
+    if (
+        strong_direction
+        and movement
+        >=
+        R36F15103_BREAKOUT_MOVE_PERCENT
+    ):
+        return (
+            "BREAKOUT",
+            "STRONG_EMA_DIRECTION_PLUS_LARGE_SHORT_TERM_MOVE",
+        )
+
+    if (
+        strong_direction
+        and clusters >= 2
+    ):
+        return (
+            "STRUCTURE",
+            "STRONG_EMA_DIRECTION_WITH_TWO_OR_MORE_VALID_CLUSTERS",
+        )
+
+    if (
+        strong_direction
+        and clusters < 2
+    ):
+        return (
+            "BREAKOUT",
+            "STRONG_EMA_DIRECTION_BUT_TWO_CLUSTER_STRUCTURE_UNAVAILABLE",
+        )
+
+    return (
+        "SCALP",
+        "NO_CONFIRMED_STRUCTURE_OR_BREAKOUT_CONDITION",
+    )
+
+
+def r36f15103_update_mode(
+    raw_mode,
+    reason,
+    trade_active=False,
+):
+    global R36F15103_ACTIVE_MODE
+    global R36F15103_PENDING_MODE
+    global R36F15103_PENDING_COUNT
+    global R36F15103_MODE_LOCKED
+    global R36F15103_LAST_REASON
+
+    raw_mode = str(
+        raw_mode or ""
+    ).strip().upper()
+
+    if (
+        raw_mode
+        not in R36F15103_VALID_MODES
+    ):
+        R36F15103_LAST_REASON = (
+            "INVALID_MODE_REJECTED"
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    if (
+        trade_active
+        and R36F15103_ACTIVE_TRADE_MODE_LOCK
+    ):
+        R36F15103_MODE_LOCKED = True
+
+        if R36F15103_ACTIVE_MODE is None:
+            R36F15103_ACTIVE_MODE = raw_mode
+
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+
+        R36F15103_LAST_REASON = (
+            "ACTIVE_TRADE_MODE_LOCK"
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    R36F15103_MODE_LOCKED = False
+
+    if R36F15103_ACTIVE_MODE is None:
+        R36F15103_ACTIVE_MODE = raw_mode
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+
+        R36F15103_LAST_REASON = (
+            "INITIAL_MODE_SELECTED:"
+            + str(reason)
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    if raw_mode == R36F15103_ACTIVE_MODE:
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+
+        R36F15103_LAST_REASON = (
+            "ACTIVE_MODE_CONFIRMED:"
+            + str(reason)
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    if R36F15103_PENDING_MODE != raw_mode:
+        R36F15103_PENDING_MODE = raw_mode
+        R36F15103_PENDING_COUNT = 1
+
+        R36F15103_LAST_REASON = (
+            "NEW_MODE_PENDING:"
+            + str(reason)
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    R36F15103_PENDING_COUNT += 1
+
+    if (
+        R36F15103_PENDING_COUNT
+        >= R36F15103_MODE_CONFIRMATIONS_REQUIRED
+    ):
+        previous_mode = (
+            R36F15103_ACTIVE_MODE
+        )
+
+        R36F15103_ACTIVE_MODE = raw_mode
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+
+        R36F15103_LAST_REASON = (
+            "THREE_CONFIRMATION_TRANSITION:"
+            + str(previous_mode)
+            + "_TO_"
+            + str(raw_mode)
+        )
+
+        return R36F15103_ACTIVE_MODE
+
+    R36F15103_LAST_REASON = (
+        "MODE_CONFIRMATION_PENDING:"
+        + str(reason)
+    )
+
+    return R36F15103_ACTIVE_MODE
+
+
+def r36f15103_merge_cycle(
+    current_price=None,
+    reference_price=None,
+    ema19=None,
+    ema50=None,
+    ema200=None,
+    valid_cluster_count=0,
+    existing_direction=None,
+    trade_active=False,
+):
+    global R36F15103_CYCLE
+    global R36F15103_LAST_DIRECTION
+
+    R36F15103_CYCLE += 1
+
+    calculated_direction = (
+        r36f15103_direction_from_ema(
+            ema19,
+            ema50,
+            ema200,
+        )
+    )
+
+    if existing_direction in (
+        "LONG",
+        "SHORT",
+    ):
+        direction = (
+            existing_direction
+        )
+
+    else:
+        direction = (
+            calculated_direction
+        )
+
+    R36F15103_LAST_DIRECTION = (
+        direction
+    )
+
+    ema_sep = (
+        r36f15103_ema_separation_percent(
+            ema19,
+            ema50,
+        )
+    )
+
+    movement = (
+        r36f15103_move_percent(
+            current_price,
+            reference_price,
+        )
+    )
+
+    (
+        raw_mode,
+        classifier_reason,
+    ) = r36f15103_raw_classifier(
+        direction=direction,
+        valid_cluster_count=(
+            valid_cluster_count
+        ),
+        ema_separation_percent=(
+            ema_sep
+        ),
+        short_term_move_percent=(
+            movement
+        ),
+    )
+
+    active_mode = (
+        r36f15103_update_mode(
+            raw_mode=raw_mode,
+            reason=classifier_reason,
+            trade_active=bool(
+                trade_active
+            ),
+        )
+    )
+
+    if (
+        active_mode
+        not in R36F15103_VALID_MODES
+    ):
+        raise RuntimeError(
+            "R36F.15.10.4b EXCLUSIVE MODE FAILURE"
+        )
+
+    result = {
+        "stage":
+            R36F15103_STAGE,
+
+        "cycle":
+            R36F15103_CYCLE,
+
+        "raw_mode":
+            raw_mode,
+
+        "active_mode":
+            active_mode,
+
+        "direction":
+            direction,
+
+        "valid_cluster_count":
+            int(
+                valid_cluster_count
+                or 0
+            ),
+
+        "ema_separation_percent":
+            ema_sep,
+
+        "short_term_move_percent":
+            movement,
+
+        "pending_mode":
+            R36F15103_PENDING_MODE,
+
+        "pending_count":
+            R36F15103_PENDING_COUNT,
+
+        "mode_locked":
+            R36F15103_MODE_LOCKED,
+
+        "reason":
+            R36F15103_LAST_REASON,
+
+        "real_execution":
+            False,
+
+        "demo_execution":
+            False,
+
+        "write_transport":
+            False,
+    }
+
+    log(
+        f"{R36F15103_STAGE} "
+        f"CYCLE={result['cycle']} "
+        f"raw_mode={result['raw_mode']} "
+        f"active_mode={result['active_mode']} "
+        f"direction={result['direction']} "
+        f"clusters={result['valid_cluster_count']} "
+        f"ema_sep={result['ema_separation_percent']:.6f}% "
+        f"move={result['short_term_move_percent']:.6f}% "
+        f"pending_mode={result['pending_mode']} "
+        f"pending_count={result['pending_count']} "
+        f"locked={result['mode_locked']} "
+        f"reason={result['reason']}"
+    )
+
+    log(
+        f"{R36F15103_STAGE} "
+        "REAL_ORDER_EXECUTION=False "
+        "DEMO_ORDER_EXECUTION=False "
+        "WRITE_TRANSPORT=False"
+    )
+
+    return result
+
+
+def r36f15103_startup_diagnostic():
+    line()
+
+    log(
+        "R36F.15.10.4b AUTO-MODE MERGER INTERFACE LOADED"
+    )
+
+    log(
+        "R36F.15.10.4b MODES=SCALP|STRUCTURE|BREAKOUT"
+    )
+
+    log(
+        "R36F.15.10.4b EXCLUSIVE_MODE=True"
+    )
+
+    log(
+        "R36F.15.10.4b MODE_CHANGE_CONFIRMATIONS=3"
+    )
+
+    log(
+        "R36F.15.10.4b ACTIVE_TRADE_MODE_LOCK=True"
+    )
+
+    log(
+        "R36F.15.10.4b REAL_ORDER_EXECUTION=False"
+    )
+
+    log(
+        "R36F.15.10.4b DEMO_ORDER_EXECUTION=False"
+    )
+
+    log(
+        "R36F.15.10.4b WRITE_TRANSPORT=False"
+    )
+
+    line()
+
+# ============================================================
+# R36F.15.10.5 REGIME -> DEMO EXECUTION ROUTER
+# NORMAL is represented internally by the already-tested STRUCTURE mode.
+# Real-money execution remains hard-disabled.
+# ============================================================
+
+R36F15105_SCALP_MIN_CLUSTERS = int(os.getenv("R36F15105_SCALP_MIN_CLUSTERS", "1"))
+R36F15105_NORMAL_MIN_CLUSTERS = int(os.getenv("R36F15105_NORMAL_MIN_CLUSTERS", "2"))
+R36F15105_BREAKOUT_MIN_CLUSTERS = int(os.getenv("R36F15105_BREAKOUT_MIN_CLUSTERS", "1"))
+R36F15105_SCALP_MIN_EMA_SEPARATION_PERCENT = Decimal(os.getenv("R36F15105_SCALP_MIN_EMA_SEPARATION_PERCENT", "0.001"))
+R36F15105_NORMAL_MIN_EMA_SEPARATION_PERCENT = Decimal(os.getenv("R36F15105_NORMAL_MIN_EMA_SEPARATION_PERCENT", "0.01"))
+R36F15105_BREAKOUT_MIN_MOVE_PERCENT = Decimal(os.getenv("R36F15105_BREAKOUT_MIN_MOVE_PERCENT", "0.60"))
+R36F15105_AUTO_DEMO_ENABLED = os.getenv("R36F15105_AUTO_DEMO_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def r36f15105_regime_label(active_mode):
+    return "NORMAL" if active_mode == "STRUCTURE" else active_mode
+
+
+def r36f15105_direction_cluster_count(direction):
+    if direction == "LONG":
+        return int(LONG_DIAGNOSTICS.get("valid_cluster_count", 0) or 0)
+    if direction == "SHORT":
+        return int(SHORT_DIAGNOSTICS.get("valid_cluster_count", 0) or 0)
+    return 0
+
+
+def r36f15105_direction_snapshot(direction, long_snapshot, short_snapshot):
+    if direction == "LONG":
+        return long_snapshot
+    if direction == "SHORT":
+        return short_snapshot
+    return None
+
+
+def r36f15105_regime_gate(auto_result, ema_snapshot, long_snapshot, short_snapshot):
+    auto_result = auto_result if isinstance(auto_result, dict) else {}
+    ema_snapshot = ema_snapshot if isinstance(ema_snapshot, dict) else {}
+    active_mode = str(auto_result.get("active_mode") or "").upper()
+    direction = str(auto_result.get("direction") or "").upper()
+    clusters = r36f15105_direction_cluster_count(direction)
+    ema_sep = D(auto_result.get("ema_separation_percent") or "0")
+    movement = D(auto_result.get("short_term_move_percent") or "0")
+    selected_snapshot = r36f15105_direction_snapshot(direction, long_snapshot, short_snapshot)
+
+    result = {
+        "active_mode": active_mode,
+        "regime": r36f15105_regime_label(active_mode),
+        "direction": direction if direction in {"LONG", "SHORT"} else None,
+        "clusters": clusters,
+        "ema_separation_percent": decimal_to_string(ema_sep),
+        "move_percent": decimal_to_string(movement),
+        "approved": False,
+        "reason": "REGIME_GATE_NOT_EVALUATED",
+        "selected_tp_snapshot": selected_snapshot,
+    }
+
+    if active_mode not in R36F15103_VALID_MODES:
+        result["reason"] = "INVALID_ACTIVE_MODE"
+        return result
+    if direction not in {"LONG", "SHORT"}:
+        result["reason"] = "NO_AUTO_DIRECTION"
+        return result
+    if not ema_snapshot.get("ready"):
+        result["reason"] = "EMA_ENGINE_NOT_READY"
+        return result
+
+    # SCALP deliberately does not inherit the old two-cluster structure rule.
+    # It still requires a direction, at least one valid nearby historical cluster,
+    # minimum EMA separation, quantity/balance readiness and all downstream safety gates.
+    if active_mode == "SCALP":
+        if clusters < R36F15105_SCALP_MIN_CLUSTERS:
+            result["reason"] = "SCALP_INSUFFICIENT_CLUSTERS"
+            return result
+        if ema_sep < R36F15105_SCALP_MIN_EMA_SEPARATION_PERCENT:
+            result["reason"] = "SCALP_EMA_SEPARATION_TOO_SMALL"
+            return result
+        result["approved"] = True
+        result["reason"] = "SCALP_ENTRY_GATE_APPROVED"
+        return result
+
+    if active_mode == "STRUCTURE":
+        if clusters < R36F15105_NORMAL_MIN_CLUSTERS:
+            result["reason"] = "NORMAL_INSUFFICIENT_CLUSTERS"
+            return result
+        if ema_sep < R36F15105_NORMAL_MIN_EMA_SEPARATION_PERCENT:
+            result["reason"] = "NORMAL_EMA_SEPARATION_TOO_SMALL"
+            return result
+        if not selected_snapshot or not selected_snapshot.get("tp_approval", {}).get("approved"):
+            result["reason"] = "NORMAL_TWO_CLUSTER_TP_NOT_APPROVED"
+            return result
+        result["approved"] = True
+        result["reason"] = "NORMAL_ENTRY_GATE_APPROVED"
+        return result
+
+    if active_mode == "BREAKOUT":
+        if movement < R36F15105_BREAKOUT_MIN_MOVE_PERCENT:
+            result["reason"] = "BREAKOUT_MOVE_NOT_CONFIRMED"
+            return result
+        if clusters < R36F15105_BREAKOUT_MIN_CLUSTERS:
+            result["reason"] = "BREAKOUT_NO_REFERENCE_CLUSTER"
+            return result
+        result["approved"] = True
+        result["reason"] = "BREAKOUT_ENTRY_GATE_APPROVED"
+        return result
+
+    result["reason"] = "UNHANDLED_ACTIVE_MODE"
+    return result
+
+
+def r36f15105_scalp_tp_snapshot(direction, entry_price, diagnostics):
+    """Build a conservative one-cluster TP set for SCALP only.
+
+    TP1 uses the nearest valid cluster. TP2 is a small extension beyond TP1 so
+    the frozen stop/TP ordering checks remain meaningful. TP3 remains handled
+    by the existing allocation/trailing policy downstream.
+    """
+    entry = D(entry_price)
+    valid = diagnostics.get("valid_clusters", []) if isinstance(diagnostics, dict) else []
+    if not valid:
+        return None
+
+    def cluster_price(row):
+        if isinstance(row, dict):
+            for key in ("average", "avg", "price", "cluster_average"):
+                if row.get(key) is not None:
+                    return D(row.get(key))
+        return None
+
+    prices = [cluster_price(row) for row in valid]
+    prices = [p for p in prices if p is not None and p > 0]
+    if direction == "LONG":
+        prices = sorted(p for p in prices if p > entry)
+    else:
+        prices = sorted((p for p in prices if p < entry), reverse=True)
+    if not prices:
+        return None
+
+    tp1 = quantize_down(prices[0], PRICE_STEP)
+    extension = max(PRICE_STEP, quantize_down(entry * Decimal("0.001"), PRICE_STEP))
+    tp2 = tp1 + extension if direction == "LONG" else tp1 - extension
+    tp2 = quantize_down(tp2, PRICE_STEP)
+    if direction == "LONG" and not (entry < tp1 < tp2):
+        return None
+    if direction == "SHORT" and not (entry > tp1 > tp2 > 0):
+        return None
+
+    return {
+        "direction": direction,
+        "tp1": tp1,
+        "tp2": tp2,
+        "tp3_policy": "TRAILING_RUNNER",
+        "tp_approval": {"approved": True, "reason": "SCALP_ONE_CLUSTER_TP_APPROVED"},
+        "historical_diagnostics": diagnostics,
+        "scalp_specific": True,
+    }
+
+
+def r36f15105_build_auto_command_preview(regime_gate):
+    direction = regime_gate.get("direction")
+    approved = bool(regime_gate.get("approved"))
+    command = TELEGRAM_BUY_COMMAND if direction == "LONG" else TELEGRAM_SELL_COMMAND if direction == "SHORT" else ""
+    return {
+        "recognized": direction in {"LONG", "SHORT"},
+        "command": command,
+        "direction": direction,
+        "authorized_preview": approved,
+        "reason": regime_gate.get("reason"),
+        "authorization_source": "R36F.15.10.5_AUTO_REGIME",
+        "exchange_order_sent": False,
+    }
+
+
+def r36f15105_build_demo_preview(
+    direction,
+    tp_snapshot,
+    balance_readiness,
+    protective_stop_price,
+):
+    # Preserve the previously proven R36F.14 WEEX demo payload shape.
+    if (
+        direction not in {"LONG", "SHORT"}
+        or not tp_snapshot
+        or not tp_snapshot.get("tp_approval", {}).get("approved")
+        or not balance_readiness
+        or protective_stop_price is None
+    ):
+        return None
+
+    quantity = quantize_down(
+        D(balance_readiness.get("planned_entry_quantity", "0")),
+        QUANTITY_STEP,
+    )
+    if quantity <= 0:
+        return None
+
+    tp1_price = quantize_down(
+        D(tp_snapshot["tp1"]),
+        PRICE_STEP,
+    )
+    stop_price = quantize_down(
+        D(protective_stop_price),
+        PRICE_STEP,
+    )
+
+    if direction == "LONG":
+        side = "BUY"
+        position_side = "LONG"
+    else:
+        side = "SELL"
+        position_side = "SHORT"
+
+    payload = {
+        "symbol": R36F14_DEMO_SYMBOL,
+        "side": side,
+        "positionSide": position_side,
+        "type": "MARKET",
+        "quantity": decimal_to_string(quantity),
+        "newClientOrderId": writer_client_id(direction, "D14"),
+        "tpTriggerPrice": decimal_to_string(tp1_price),
+        "slTriggerPrice": decimal_to_string(stop_price),
+        "TpWorkingType": "MARK_PRICE",
+        "SlWorkingType": "MARK_PRICE",
+    }
+
+    return {
+        "stage": STAGE,
+        "endpoint": R36F14_DEMO_ORDER_ENDPOINT,
+        "method": "POST",
+        "payload": payload,
+        "submitted": False,
+        "demo_only": True,
+        "real_order_execution": REAL_ORDER_EXECUTION,
+        "integrity_sha256": sha256_text(canonical_json(payload)),
+    }
+
+# ============================================================
+# R36F.15.10.5 COMPLETE REEVALUATION
+# ============================================================
+
+async def run_r36f12():
+    global TEST_STATUS
+    global WEEX_READ_ONLY_OK
+    global ZERO_WRITE_INVARIANT_OK
+    global FINAL_GATE_OK
+    global LONG_DIAGNOSTICS
+    global SHORT_DIAGNOSTICS
+    global EMA_SIGNAL_SNAPSHOT
+    global TELEGRAM_COMMAND_PREVIEW
+    global R36F15103_REFERENCE_PRICE
+    global R36F15103_LAST_RESULT
+
+    TEST_STATUS = "RUNNING"
+
+    FINAL_BLOCKERS.clear()
+
+    line()
+
+    log(
+        f"{STAGE}: "
+        "R36F.15.10.4b AUTO-MODE + "
+        "CONFIRMED TRANSITION MERGED REEVALUATION"
+    )
+
+    line()
+
+    check(
+        "REAL_ORDER_EXECUTION_DISABLED",
+        REAL_ORDER_EXECUTION
+        is False,
+    )
+
+    check(
+        "DEMO_ORDER_EXECUTION_DISABLED",
+        DEMO_ORDER_EXECUTION
+        is False,
+    )
+
+    check(
+        "EXCHANGE_MUTATION_TRANSPORT_DISABLED",
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        is False,
+    )
+
+    check(
+        "ORDER_SUBMISSION_DISABLED",
+        ORDER_SUBMISSION_ENABLED
+        is False,
+    )
+
+    check(
+        "FIRST_REAL_ORDER_DISABLED",
+        FIRST_REAL_ORDER_ALLOWED
+        is False,
+    )
+
+    check(
+        "R36F15103_REAL_EXECUTION_DISABLED",
+        R36F15103_REAL_ORDER_EXECUTION
+        is False,
+    )
+
+    check(
+        "R36F15103_DEMO_EXECUTION_DISABLED",
+        R36F15103_DEMO_ORDER_EXECUTION
+        is False,
+    )
+
+    check(
+        "R36F15103_WRITE_TRANSPORT_DISABLED",
+        R36F15103_WRITE_TRANSPORT
+        is False,
+    )
+
+    check(
+        "R36F15104B_EXCLUSIVE_MODE_ENABLED",
+        R36F15103_EXCLUSIVE_MODE
+        is True,
+    )
+
+    check(
+        "R36F15104B_MODE_CONFIRMATIONS_EQUALS_3",
+        R36F15103_MODE_CONFIRMATIONS_REQUIRED
+        == 3,
+    )
+
+    check(
+        "R36F15104B_ACTIVE_TRADE_MODE_LOCK_ENABLED",
+        R36F15103_ACTIVE_TRADE_MODE_LOCK
+        is True,
+    )
+
+    try:
+        await reconcile_weex()
+
+        WEEX_READ_ONLY_OK = True
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            True,
+        )
+
+    except Exception as exc:
+        WEEX_READ_ONLY_OK = False
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_RECONCILIATION",
+            False,
+            str(exc),
+        )
+
+    historical_rows = []
+
+    try:
+        historical_rows = (
+            await load_historical_klines()
+        )
+
+        diagnostic_check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            len(
+                historical_rows
+            ) >= 3,
+            f"rows={len(historical_rows)}",
+        )
+
+    except Exception as exc:
+        diagnostic_check(
+            "REAL_HISTORICAL_KLINES_LOADED",
+            False,
+            str(exc),
+        )
+
+    if historical_rows:
+        try:
+            EMA_SIGNAL_SNAPSHOT = (
+                build_ema_signal_snapshot(
+                    historical_rows
+                )
+            )
+
+            diagnostic_check(
+                "R36F15103_EMA_ENGINE_READY",
+                EMA_SIGNAL_SNAPSHOT.get(
+                    "ready"
+                )
+                is True,
+                str(
+                    EMA_SIGNAL_SNAPSHOT.get(
+                        "reason"
+                    )
+                ),
+            )
+
+            if EMA_SIGNAL_SNAPSHOT.get(
+                "ready"
+            ):
+                log(
+                    "R36F.15.10.4b EMA "
+                    f"price={EMA_SIGNAL_SNAPSHOT.get('price')} "
+                    f"EMA19={EMA_SIGNAL_SNAPSHOT.get('ema19')} "
+                    f"EMA50={EMA_SIGNAL_SNAPSHOT.get('ema50')} "
+                    f"EMA200={EMA_SIGNAL_SNAPSHOT.get('ema200')} "
+                    f"structure={EMA_SIGNAL_SNAPSHOT.get('structure')} "
+                    f"ideal_direction={EMA_SIGNAL_SNAPSHOT.get('ideal_direction')}"
+                )
+
+        except Exception as exc:
+            EMA_SIGNAL_SNAPSHOT = {
+                "ready":
+                    False,
+
+                "reason":
+                    "EMA_EXCEPTION",
+
+                "error":
+                    str(exc),
+            }
+
+            diagnostic_check(
+                "R36F15103_EMA_ENGINE_READY",
+                False,
+                str(exc),
+            )
+
+    REAL_LONG_MARKET_ELIGIBLE = False
+    REAL_SHORT_MARKET_ELIGIBLE = False
+
+    LONG_DIAGNOSTICS = {}
+    SHORT_DIAGNOSTICS = {}
+
+    real_long_snapshot = None
+    real_short_snapshot = None
+
+    if (
+        historical_rows
+        and MARK_PRICE is not None
+    ):
+        try:
+            real_long_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "LONG",
+                    "R36F15103_LONG",
+                )
+            )
+
+            LONG_DIAGNOSTICS = (
+                real_long_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_LONG_MARKET_ELIGIBLE = bool(
+                real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+        except Exception as exc:
+            LONG_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "LONG",
+                )
+            )
+
+            log(
+                "R36F.15.10.4b LONG TP = REJECTED "
+                + str(exc)
+            )
+
+        try:
+            real_short_snapshot = (
+                build_cluster_tp_snapshot(
+                    MARK_PRICE,
+                    historical_rows,
+                    "SHORT",
+                    "R36F15103_SHORT",
+                )
+            )
+
+            SHORT_DIAGNOSTICS = (
+                real_short_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_SHORT_MARKET_ELIGIBLE = bool(
+                real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+        except Exception as exc:
+            SHORT_DIAGNOSTICS = (
+                build_cluster_diagnostics(
+                    historical_rows,
+                    MARK_PRICE,
+                    "SHORT",
+                )
+            )
+
+            log(
+                "R36F.15.10.4b SHORT TP = REJECTED "
+                + str(exc)
+            )
+
+    merger_direction = (
+        EMA_SIGNAL_SNAPSHOT.get(
+            "ideal_direction"
+        )
+        or
+        EMA_SIGNAL_SNAPSHOT.get(
+            "direction"
+        )
+    )
+
+    if merger_direction == "LONG":
+        merger_clusters = int(
+            LONG_DIAGNOSTICS.get(
+                "valid_cluster_count",
+                0,
+            )
+            or 0
+        )
+
+    elif merger_direction == "SHORT":
+        merger_clusters = int(
+            SHORT_DIAGNOSTICS.get(
+                "valid_cluster_count",
+                0,
+            )
+            or 0
+        )
+
+    else:
+        merger_clusters = max(
+            int(
+                LONG_DIAGNOSTICS.get(
+                    "valid_cluster_count",
+                    0,
+                )
+                or 0
+            ),
+            int(
+                SHORT_DIAGNOSTICS.get(
+                    "valid_cluster_count",
+                    0,
+                )
+                or 0
+            ),
+        )
+
+    merger_current_price = (
+        EMA_SIGNAL_SNAPSHOT.get(
+            "price"
+        )
+    )
+
+    if (
+        merger_current_price is None
+        and MARK_PRICE is not None
+    ):
+        merger_current_price = (
+            decimal_to_string(
+                MARK_PRICE
+            )
+        )
+
+    if (
+        R36F15103_REFERENCE_PRICE
+        is None
+    ):
+        R36F15103_REFERENCE_PRICE = (
+            merger_current_price
+        )
+
+    try:
+        R36F15103_LAST_RESULT = (
+            r36f15103_merge_cycle(
+                current_price=(
+                    merger_current_price
+                ),
+                reference_price=(
+                    R36F15103_REFERENCE_PRICE
+                ),
+                ema19=(
+                    EMA_SIGNAL_SNAPSHOT.get(
+                        "ema19"
+                    )
+                ),
+                ema50=(
+                    EMA_SIGNAL_SNAPSHOT.get(
+                        "ema50"
+                    )
+                ),
+                ema200=(
+                    EMA_SIGNAL_SNAPSHOT.get(
+                        "ema200"
+                    )
+                ),
+                valid_cluster_count=(
+                    merger_clusters
+                ),
+                existing_direction=(
+                    merger_direction
+                ),
+                trade_active=bool(
+                    OPEN_POSITIONS
+                ),
+            )
+        )
+
+        diagnostic_check(
+            "R36F15104B_AUTO_MODE_REEVALUATION",
+            True,
+            (
+                "raw_mode="
+                + str(
+                    R36F15103_LAST_RESULT.get(
+                        "raw_mode"
+                    )
+                )
+                + " active_mode="
+                + str(
+                    R36F15103_LAST_RESULT.get(
+                        "active_mode"
+                    )
+                )
+                + " pending_mode="
+                + str(
+                    R36F15103_LAST_RESULT.get(
+                        "pending_mode"
+                    )
+                )
+                + " pending_count="
+                + str(
+                    R36F15103_LAST_RESULT.get(
+                        "pending_count"
+                    )
+                )
+            ),
+        )
+
+    except Exception as exc:
+        R36F15103_LAST_RESULT = {
+            "stage":
+                R36F15103_STAGE,
+
+            "error":
+                str(exc),
+
+            "real_execution":
+                False,
+
+            "demo_execution":
+                False,
+
+            "write_transport":
+                False,
+        }
+
+        diagnostic_check(
+            "R36F15104B_AUTO_MODE_REEVALUATION",
+            False,
+            str(exc),
+        )
+
+    if merger_current_price is not None:
+        R36F15103_REFERENCE_PRICE = (
+            merger_current_price
+        )
+
+    regime_gate = r36f15105_regime_gate(
+        R36F15103_LAST_RESULT,
+        EMA_SIGNAL_SNAPSHOT,
+        real_long_snapshot,
+        real_short_snapshot,
+    )
+
+    # SCALP may use one valid nearby cluster; NORMAL/STRUCTURE keeps the frozen
+    # two-cluster TP approval. Build the SCALP TP snapshot only after SCALP gate.
+    if regime_gate.get("approved") and regime_gate.get("active_mode") == "SCALP":
+        scalp_diag = LONG_DIAGNOSTICS if regime_gate.get("direction") == "LONG" else SHORT_DIAGNOSTICS
+        scalp_snapshot = r36f15105_scalp_tp_snapshot(
+            regime_gate.get("direction"),
+            MARK_PRICE,
+            scalp_diag,
+        )
+        if scalp_snapshot is None:
+            regime_gate["approved"] = False
+            regime_gate["reason"] = "SCALP_TP_CONSTRUCTION_FAILED"
+        else:
+            regime_gate["selected_tp_snapshot"] = scalp_snapshot
+
+    current_command = os.getenv(
+        "R36F12_TELEGRAM_COMMAND_TEXT",
+        "",
+    ).strip()
+
+    if current_command:
+        manual = parse_telegram_trade_command(current_command)
+        auto_direction = regime_gate.get("direction")
+        manual_ok = bool(
+            manual.get("recognized")
+            and regime_gate.get("approved")
+            and manual.get("direction") == auto_direction
+        )
+        TELEGRAM_COMMAND_PREVIEW = {
+            **manual,
+            "authorized_preview": manual_ok,
+            "reason": (
+                "MANUAL_COMMAND_AND_AUTO_REGIME_AGREE"
+                if manual_ok
+                else "MANUAL_COMMAND_DOES_NOT_MATCH_AUTO_REGIME"
+            ),
+            "authorization_source": "R36F.15.10.5_MANUAL_PLUS_AUTO_REGIME",
+            "exchange_order_sent": False,
+        }
+    else:
+        TELEGRAM_COMMAND_PREVIEW = r36f15105_build_auto_command_preview(regime_gate)
+
+    balance_readiness = None
+    quantity_feasibility = None
+
+    if (
+        AVAILABLE_BALANCE is not None
+        and MARK_PRICE is not None
+    ):
+        try:
+            balance_readiness = (
+                evaluate_strict_tp_balance_readiness(
+                    AVAILABLE_BALANCE,
+                    MARK_PRICE,
+                    TARGET_LONG_LEVERAGE,
+                )
+            )
+
+            planned_quantity = D(
+                balance_readiness.get(
+                    "planned_entry_quantity",
+                    "0",
+                )
+            )
+
+            quantity_feasibility = (
+                evaluate_writer_quantity_feasibility(
+                    planned_quantity
+                )
+            )
+
+        except Exception as exc:
+            log(
+                "R36F.15.10.4b BALANCE READINESS ERROR = "
+                + str(exc)
+            )
+
+    selected_direction = TELEGRAM_COMMAND_PREVIEW.get("direction") or merger_direction
+    selected_tp_snapshot = regime_gate.get("selected_tp_snapshot")
+    if selected_tp_snapshot is None:
+        if selected_direction == "LONG":
+            selected_tp_snapshot = real_long_snapshot
+        elif selected_direction == "SHORT":
+            selected_tp_snapshot = real_short_snapshot
+
+    protective_stop_price = None
+    protective_stop_checks = None
+    protective_stop_envelope = None
+    protective_stop_budget = None
+
+    if (
+        selected_direction
+        in (
+            "LONG",
+            "SHORT",
+        )
+        and
+        selected_tp_snapshot
+        and
+        MARK_PRICE is not None
+    ):
+        try:
+            protective_stop_price = (
+                calculate_r36f13_protective_stop(
+                    selected_direction,
+                    MARK_PRICE,
+                )
+            )
+
+            protective_stop_checks = (
+                validate_r36f13_protective_stop(
+                    selected_direction,
+                    MARK_PRICE,
+                    protective_stop_price,
+                    selected_tp_snapshot[
+                        "tp1"
+                    ],
+                    selected_tp_snapshot[
+                        "tp2"
+                    ],
+                )
+            )
+
+            protective_stop_envelope = (
+                validate_r36f131_stop_risk_envelope(
+                    selected_direction,
+                    MARK_PRICE,
+                    protective_stop_price,
+                    TARGET_LONG_LEVERAGE,
+                )
+            )
+
+            if (
+                balance_readiness
+                and
+                D(
+                    balance_readiness.get(
+                        "planned_entry_quantity",
+                        "0",
+                    )
+                ) > 0
+            ):
+                protective_stop_budget = (
+                    validate_r36f132_stop_loss_budget(
+                        MARK_PRICE,
+                        protective_stop_price,
+                        D(
+                            balance_readiness[
+                                "planned_entry_quantity"
+                            ]
+                        ),
+                        AVAILABLE_BALANCE,
+                        TARGET_LONG_LEVERAGE,
+                    )
+                )
+
+        except Exception as exc:
+            log(
+                "R36F.15.10.4b PROTECTIVE STOP ERROR = "
+                + str(exc)
+            )
+
+    demo_preview = None
+    demo_submission = {
+        "attempted": False,
+        "sent": False,
+        "accepted": False,
+        "reason": "AUTO_DEMO_NOT_EVALUATED",
+    }
+
+    downstream_ready = bool(
+        regime_gate.get("approved")
+        and TELEGRAM_COMMAND_PREVIEW.get("authorized_preview")
+        and balance_readiness
+        and balance_readiness.get("eligible")
+        and quantity_feasibility
+        and quantity_feasibility.get("feasible")
+        and protective_stop_checks
+        and protective_stop_checks.get("all_valid")
+        and protective_stop_envelope
+        and protective_stop_envelope.get("all_valid")
+        and protective_stop_budget
+        and protective_stop_budget.get("all_valid")
+    )
+
+    if downstream_ready:
+        demo_preview = r36f15105_build_demo_preview(
+            selected_direction,
+            selected_tp_snapshot,
+            balance_readiness,
+            protective_stop_price,
+        )
+
+    if not R36F15105_AUTO_DEMO_ENABLED:
+        demo_submission["reason"] = "R36F15105_AUTO_DEMO_DISABLED"
+    elif not downstream_ready:
+        demo_submission["reason"] = "R36F15105_DOWNSTREAM_GATES_NOT_READY"
+    elif not demo_preview:
+        demo_submission["reason"] = "R36F15105_DEMO_PREVIEW_NOT_BUILT"
+    else:
+        demo_submission = await submit_r36f15_demo_order(
+            demo_preview,
+            TELEGRAM_COMMAND_PREVIEW,
+        )
+
+    log(
+        f"{STAGE} REGIME = {regime_gate.get('regime')} "
+        f"DIRECTION = {regime_gate.get('direction')} "
+        f"REGIME_APPROVED = {regime_gate.get('approved')} "
+        f"REASON = {regime_gate.get('reason')}"
+    )
+    log(
+        f"{STAGE} AUTO_DEMO_ENABLED = {R36F15105_AUTO_DEMO_ENABLED} "
+        f"SECOND_DEMO_ARM = {R36F159_DEMO_ARM_REQUESTED} "
+        f"DOWNSTREAM_READY = {downstream_ready}"
+    )
+    log(
+        f"{STAGE} DEMO ATTEMPTED = {demo_submission.get('attempted', False)} "
+        f"DEMO SENT = {demo_submission.get('sent', False)} "
+        f"DEMO ACCEPTED = {demo_submission.get('accepted', False)} "
+        f"DEMO REASON = {demo_submission.get('reason')}"
+    )
+
+    ZERO_WRITE_INVARIANT_OK = bool(
+        REAL_ORDER_EXECUTION
+        is False
+        and
+        DEMO_ORDER_EXECUTION
+        is False
+        and
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        is False
+        and
+        ORDER_SUBMISSION_ENABLED
+        is False
+        and
+        FIRST_REAL_ORDER_ALLOWED
+        is False
+        and
+        R36F15103_REAL_ORDER_EXECUTION
+        is False
+        and
+        R36F15103_DEMO_ORDER_EXECUTION
+        is False
+        and
+        R36F15103_WRITE_TRANSPORT
+        is False
+    )
+
+    check(
+        "R36F15104B_ZERO_WRITE_INVARIANT",
+        ZERO_WRITE_INVARIANT_OK,
+    )
+
+    FINAL_GATE_OK = bool(
+        WEEX_READ_ONLY_OK
+        and
+        ZERO_WRITE_INVARIANT_OK
+        and
+        R36F15103_LAST_RESULT.get(
+            "active_mode"
+        )
+        in R36F15103_VALID_MODES
+    )
+
+    if FINAL_GATE_OK:
+        TEST_STATUS = "PASS"
+
+    else:
+        TEST_STATUS = "FAIL"
+
+    snapshot = {
+        "stage":
+            STAGE,
+
+        "timestamp":
+            now_iso(),
+
+        "status":
+            TEST_STATUS,
+
+        "final_gate_ok":
+            FINAL_GATE_OK,
+
+        "weex_read_only_ok":
+            WEEX_READ_ONLY_OK,
+
+        "zero_write_invariant_ok":
+            ZERO_WRITE_INVARIANT_OK,
+
+        "mark_price":
+            (
+                decimal_to_string(
+                    MARK_PRICE
+                )
+                if MARK_PRICE is not None
+                else None
+            ),
+
+        "available_balance":
+            (
+                decimal_to_string(
+                    AVAILABLE_BALANCE
+                )
+                if AVAILABLE_BALANCE
+                is not None
+                else None
+            ),
+
+        "open_positions":
+            OPEN_POSITIONS,
+
+        "ema_signal":
+            EMA_SIGNAL_SNAPSHOT,
+
+        "long_diagnostics":
+            LONG_DIAGNOSTICS,
+
+        "short_diagnostics":
+            SHORT_DIAGNOSTICS,
+
+        "real_long_market_eligible":
+            REAL_LONG_MARKET_ELIGIBLE,
+
+        "real_short_market_eligible":
+            REAL_SHORT_MARKET_ELIGIBLE,
+
+        "telegram_command_preview":
+            TELEGRAM_COMMAND_PREVIEW,
+
+        "balance_readiness":
+            balance_readiness,
+
+        "quantity_feasibility":
+            quantity_feasibility,
+
+        "protective_stop": {
+            "direction":
+                selected_direction,
+
+            "price":
+                (
+                    decimal_to_string(
+                        protective_stop_price
+                    )
+                    if protective_stop_price
+                    is not None
+                    else None
+                ),
+
+            "checks":
+                protective_stop_checks,
+
+            "risk_envelope":
+                protective_stop_envelope,
+
+            "loss_budget":
+                protective_stop_budget,
+        },
+
+        "r36f15104b_auto_mode_merger":
+            R36F15103_LAST_RESULT,
+
+        "r36f15105_regime_gate": regime_gate,
+        "r36f15105_downstream_ready": downstream_ready,
+        "r36f15105_demo_preview": demo_preview,
+        "r36f15105_demo_submission": demo_submission,
+
+        "execution_firebreak": {
+            "real_order_execution":
+                False,
+
+            "demo_order_execution":
+                False,
+
+            "write_transport":
+                False,
+
+            "exchange_mutation_sent":
+                False,
+
+            "real_order_sent":
+                False,
+
+            "demo_order_sent":
+                False,
+        },
+    }
+
+    write_json_file(
+        R36F_SNAPSHOT_FILE,
+        snapshot,
+    )
+
+    log(
+        f"{STAGE} FINAL STATUS = "
+        f"{TEST_STATUS}"
+    )
+
+    log(
+        f"{STAGE} AUTO RAW MODE = "
+        f"{R36F15103_LAST_RESULT.get('raw_mode')}"
+    )
+
+    log(
+        f"{STAGE} AUTO ACTIVE MODE = "
+        f"{R36F15103_LAST_RESULT.get('active_mode')}"
+    )
+
+    log(
+        f"{STAGE} AUTO DIRECTION = "
+        f"{R36F15103_LAST_RESULT.get('direction')}"
+    )
+
+    log(
+        f"{STAGE} AUTO MOVE PERCENT = "
+        f"{R36F15103_LAST_RESULT.get('short_term_move_percent')}"
+    )
+
+    log(
+        f"{STAGE} AUTO EMA SEPARATION = "
+        f"{R36F15103_LAST_RESULT.get('ema_separation_percent')}"
+    )
+
+    log(
+        f"{STAGE} AUTO MODE LOCKED = "
+        f"{R36F15103_LAST_RESULT.get('mode_locked')}"
+    )
+
+    log(
+        f"{STAGE} AUTO PENDING MODE = "
+        f"{R36F15103_LAST_RESULT.get('pending_mode')}"
+    )
+
+    log(
+        f"{STAGE} AUTO PENDING COUNT = "
+        f"{R36F15103_LAST_RESULT.get('pending_count')}"
+    )
+
+    log(
+        f"{STAGE} AUTO TRANSITION REASON = "
+        f"{R36F15103_LAST_RESULT.get('reason')}"
+    )
+
+    log(
+        f"{STAGE} LONG VALID CLUSTERS = "
+        f"{LONG_DIAGNOSTICS.get('valid_cluster_count', 0)}"
+    )
+
+    log(
+        f"{STAGE} SHORT VALID CLUSTERS = "
+        f"{SHORT_DIAGNOSTICS.get('valid_cluster_count', 0)}"
+    )
+
+    log(
+        f"{STAGE} REAL_LONG_MARKET_ELIGIBLE = "
+        f"{REAL_LONG_MARKET_ELIGIBLE}"
+    )
+
+    log(
+        f"{STAGE} REAL_SHORT_MARKET_ELIGIBLE = "
+        f"{REAL_SHORT_MARKET_ELIGIBLE}"
+    )
+
+    log(
+        f"{STAGE} TELEGRAM_COMMAND_AUTHORIZED_PREVIEW = "
+        f"{TELEGRAM_COMMAND_PREVIEW.get('authorized_preview', False)}"
+    )
+
+    if balance_readiness:
+        log(
+            f"{STAGE} TRADE_READINESS_STATUS = "
+            f"{balance_readiness.get('status')}"
+        )
+
+        log(
+            f"{STAGE} SELECTED_TP_ALLOCATION = "
+            f"{balance_readiness.get('selected_allocation')}"
+        )
+
+    if protective_stop_price is not None:
+        log(
+            f"{STAGE} PROTECTIVE_STOP_PRICE = "
+            f"{decimal_to_string(protective_stop_price)}"
+        )
+
+        log(
+            f"{STAGE} PROTECTIVE_STOP_VALID = "
+            f"{bool(protective_stop_checks and protective_stop_checks.get('all_valid'))}"
+        )
+
+    log(
+        "NO REAL ORDER WAS SENT"
+    )
+
+    if demo_submission.get("sent"):
+        log("WEEX DEMO ORDER TRANSPORT OCCURRED")
+    else:
+        log("NO DEMO ORDER WAS SENT")
+
+    log(
+        "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+    )
+
+    line()
+
+    return snapshot
+
+
+# ============================================================
+# 60-SECOND REEVALUATION
+# ============================================================
+
+async def heartbeat_loop():
+    global HEARTBEAT_COUNT
+    global TEST_STATUS
+
+    while True:
+        HEARTBEAT_COUNT += 1
+
+        log(
+            f"HEARTBEAT "
+            f"stage={STAGE} "
+            f"status={TEST_STATUS} "
+            f"count={HEARTBEAT_COUNT} "
+            f"active_mode={R36F15103_ACTIVE_MODE} "
+            f"pending_mode={R36F15103_PENDING_MODE} "
+            f"pending_count={R36F15103_PENDING_COUNT} "
+            f"mode_locked={R36F15103_MODE_LOCKED} "
+            f"long_valid_clusters="
+            f"{LONG_DIAGNOSTICS.get('valid_cluster_count', 0)} "
+            f"short_valid_clusters="
+            f"{SHORT_DIAGNOSTICS.get('valid_cluster_count', 0)} "
+            f"write_transport=False "
+            f"real_execution=False "
+            f"demo_execution=False "
+            f"reevaluation_seconds="
+            f"{R36F151_REEVALUATION_SECONDS}"
+        )
+
+        await asyncio.sleep(
+            R36F151_REEVALUATION_SECONDS
+        )
+
+        line()
+
+        log(
+            f"{STAGE} "
+            f"RUNTIME REEVALUATION START "
+            f"heartbeat={HEARTBEAT_COUNT}"
+        )
+
+        line()
+
+        try:
+            exposure = (
+                await r36f159_reconcile_current_demo_exposure()
+            )
+
+            log(
+                "R36F.15.10.5 CYCLE "
+                "DUPLICATE BLOCKED = "
+                + str(
+                    exposure.get(
+                        "duplicate_entry_blocked",
+                        True,
+                    )
+                )
+            )
+
+            log(
+                "R36F.15.10.5 CYCLE "
+                "BLOCK REASON = "
+                + str(
+                    exposure.get(
+                        "duplicate_block_reason"
+                    )
+                )
+            )
+
+            await run_r36f12()
+
+            log(
+                f"{STAGE} "
+                f"RUNTIME REEVALUATION COMPLETE "
+                f"heartbeat={HEARTBEAT_COUNT} "
+                f"status={TEST_STATUS} "
+                f"active_mode="
+                f"{R36F15103_ACTIVE_MODE} "
+                f"raw_mode="
+                f"{R36F15103_LAST_RESULT.get('raw_mode')} "
+                f"pending_mode="
+                f"{R36F15103_PENDING_MODE} "
+                f"pending_count="
+                f"{R36F15103_PENDING_COUNT} "
+                f"mode_locked="
+                f"{R36F15103_MODE_LOCKED} "
+                f"long_valid_clusters="
+                f"{LONG_DIAGNOSTICS.get('valid_cluster_count', 0)} "
+                f"short_valid_clusters="
+                f"{SHORT_DIAGNOSTICS.get('valid_cluster_count', 0)}"
+            )
+
+        except Exception as exc:
+            TEST_STATUS = "FAIL"
+
+            line()
+
+            log(
+                f"{STAGE} "
+                f"RUNTIME REEVALUATION ERROR = "
+                f"{exc}"
+            )
+
+            line()
+
+
+# ============================================================
+# STARTUP
+# ============================================================
+
+async def async_main():
+    global TEST_STATUS
+
+    start_health_server()
+
+    r36f15103_startup_diagnostic()
+
+    try:
+        startup_exposure = (
+            await r36f159_reconcile_current_demo_exposure()
+        )
+
+        log(
+            "R36F.15.10.5 STARTUP "
+            "DUPLICATE BLOCKED = "
+            + str(
+                startup_exposure.get(
+                    "duplicate_entry_blocked",
+                    True,
+                )
+            )
+        )
+
+        log(
+            "R36F.15.10.5 STARTUP "
+            "BLOCK REASON = "
+            + str(
+                startup_exposure.get(
+                    "duplicate_block_reason"
+                )
+            )
+        )
+
+    except Exception as exc:
+        log(
+            "R36F.15.10.5 STARTUP "
+            "EXPOSURE RECONCILIATION ERROR = "
+            + str(exc)
+        )
+
+    try:
+        await run_r36f12()
+
+    except Exception as exc:
+        TEST_STATUS = "FAIL"
+
+        line()
+
+        log(
+            f"{STAGE} UNHANDLED ERROR = "
+            f"{exc}"
+        )
+
+        line()
+
+    await heartbeat_loop()
+
+
+def main():
+    asyncio.run(
+        async_main()
+    )
+
+
+if __name__ == "__main__":
+    main()
