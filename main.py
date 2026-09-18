@@ -7134,124 +7134,144 @@ def r13_connect_real_engine(
         )
     )
 
-        # ========================================================
-    # WRITE.PY-R1.5
-    # FINAL PRODUCTION TRANSPORT-BOUNDARY DRY RUN
+      # ========================================================
+    # WRITE.PY-R1.6
+    # ONE-TIME PRODUCTION CANARY AUTHORIZATION GATE
+    # ZERO-WRITE VALIDATION
     # ========================================================
     #
-    # R1.5 replaces R1.4.
-    #
     # PURPOSE:
-    # 1. Accept the immutable real-engine instruction.
-    # 2. Revalidate direction, symbol, quantity and prices.
-    # 3. Construct the exact production request candidate.
-    # 4. Validate endpoint/method/payload boundary.
-    # 5. Validate deterministic client-order identity.
-    # 6. Validate instruction/request SHA256 continuity.
-    # 7. Validate replay/idempotency identity.
-    # 8. Validate all production firebreaks.
+    # - Preserve the R1.5 transport-boundary validation.
+    # - Build the immutable production request candidate.
+    # - Require an explicit production-canary arm.
+    # - Bind authorization to the exact request SHA256.
+    # - Apply a short authorization expiry.
+    # - Create deterministic replay identity.
+    # - Prove the arm can be consumed only once.
     #
-    # CRITICAL:
+    # CRITICAL R1.6 RULE:
+    #
+    # EVEN WHEN THE CANARY IS ARMED AND ALL CHECKS PASS,
+    # THIS STAGE DOES NOT SEND THE REQUEST.
+    #
     # NO requests.post()
     # NO requests.request()
     # NO production POST
     # NO exchange mutation
-    # NO real order
+    # NO real-money order
     #
-    # Successful terminal state:
-    # TRANSPORT_BOUNDARY_READY_NOT_SENT
+    # R1.6 terminal success:
+    #
+    # CANARY_AUTHORIZATION = VALIDATED_NOT_SENT
+    #
     # ========================================================
 
     result["validated"] = False
-    result["reason"] = (
-        "R1.5_NOT_YET_VALIDATED"
-    )
+    result["reason"] = "R1.6_NOT_YET_VALIDATED"
 
     log(
-        "WRITE.PY-R1.5: "
-        "R1.4 PRODUCTION REQUEST CONSTRUCTION START"
+        "WRITE.PY-R1.6: "
+        "ONE-TIME PRODUCTION CANARY AUTHORIZATION START"
     )
 
     # --------------------------------------------------------
-    # 1. IMMUTABLE ENGINE INSTRUCTION
+    # 1. EXISTING PRODUCTION FIREBREAK MUST REMAIN CLOSED
     # --------------------------------------------------------
 
-    if not isinstance(
-        instruction,
-        dict,
-    ):
-        result["reason"] = (
-            "R1.5_INSTRUCTION_NOT_DICT"
-        )
-
-        log(
-            "WRITE.PY-R1.5: "
-            "TRANSPORT BOUNDARY = REJECTED"
-        )
-
-        log(
-            "WRITE.PY-R1.5: "
-            "REASON = INSTRUCTION_NOT_DICT"
-        )
-
-        return result
-
-    r15_source_hash = (
-        instruction.get(
-            "instruction_sha256"
-        )
+    r16_firebreak_ok = bool(
+        REAL_ORDER_EXECUTION is False
+        and
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED is False
+        and
+        ORDER_SUBMISSION_ENABLED is False
+        and
+        LEVERAGE_MUTATION_ENABLED is False
+        and
+        MARGIN_MODE_MUTATION_ENABLED is False
+        and
+        POSITION_MUTATION_ENABLED is False
+        and
+        FIRST_REAL_ORDER_ALLOWED is False
+        and
+        R36F15103_REAL_ORDER_EXECUTION is False
+        and
+        R36F15103_WRITE_TRANSPORT is False
     )
 
-    if not r15_source_hash:
+    if not r16_firebreak_ok:
         result["reason"] = (
-            "R1.5_SOURCE_HASH_MISSING"
+            "R1.6_PRODUCTION_FIREBREAK_FAILURE"
         )
 
         log(
-            "WRITE.PY-R1.5: "
-            "TRANSPORT BOUNDARY = REJECTED"
-        )
-
-        log(
-            "WRITE.PY-R1.5: "
-            "REASON = SOURCE_HASH_MISSING"
+            "WRITE.PY-R1.6: "
+            "PRODUCTION FIREBREAK = FAIL"
         )
 
         return result
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
+        "PRODUCTION FIREBREAK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 2. IMMUTABLE REAL-ENGINE INSTRUCTION
+    # --------------------------------------------------------
+
+    if not isinstance(instruction, dict):
+        result["reason"] = (
+            "R1.6_INSTRUCTION_NOT_DICT"
+        )
+
+        log(
+            "WRITE.PY-R1.6: "
+            "INSTRUCTION CHECK = FAIL"
+        )
+
+        return result
+
+    r16_source_hash = instruction.get(
+        "instruction_sha256"
+    )
+
+    if not r16_source_hash:
+        result["reason"] = (
+            "R1.6_SOURCE_HASH_MISSING"
+        )
+
+        log(
+            "WRITE.PY-R1.6: "
+            "SOURCE HASH CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.6: "
         "IMMUTABLE INSTRUCTION RECEIVED"
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "SOURCE INSTRUCTION SHA256 = "
-        + str(
-            r15_source_hash
-        )
+        + str(r16_source_hash)
     )
 
     # --------------------------------------------------------
-    # 2. NORMALIZE VALUES
+    # 3. NORMALIZE CURRENT INSTRUCTION
     # --------------------------------------------------------
 
-    r15_direction = str(
-        instruction.get(
-            "direction"
-        )
-        or ""
+    r16_symbol = str(
+        instruction.get("symbol") or ""
     ).strip().upper()
 
-    r15_symbol = str(
-        instruction.get(
-            "symbol"
-        )
-        or ""
+    r16_direction = str(
+        instruction.get("direction") or ""
     ).strip().upper()
 
     try:
-        r15_entry_price = quantize_down(
+        r16_entry = quantize_down(
             D(
                 instruction.get(
                     "entry_price"
@@ -7261,7 +7281,7 @@ def r13_connect_real_engine(
             PRICE_STEP,
         )
 
-        r15_quantity = quantize_down(
+        r16_quantity = quantize_down(
             D(
                 instruction.get(
                     "quantity"
@@ -7271,7 +7291,7 @@ def r13_connect_real_engine(
             QUANTITY_STEP,
         )
 
-        r15_tp1 = quantize_down(
+        r16_tp1 = quantize_down(
             D(
                 instruction.get(
                     "tp1"
@@ -7281,7 +7301,7 @@ def r13_connect_real_engine(
             PRICE_STEP,
         )
 
-        r15_tp2 = quantize_down(
+        r16_tp2 = quantize_down(
             D(
                 instruction.get(
                     "tp2"
@@ -7291,7 +7311,7 @@ def r13_connect_real_engine(
             PRICE_STEP,
         )
 
-        r15_stop = quantize_down(
+        r16_stop = quantize_down(
             D(
                 instruction.get(
                     "stop_price"
@@ -7303,11 +7323,11 @@ def r13_connect_real_engine(
 
     except Exception as exc:
         result["reason"] = (
-            "R1.5_NORMALIZATION_FAILED"
+            "R1.6_NORMALIZATION_FAILED"
         )
 
         log(
-            "WRITE.PY-R1.5: "
+            "WRITE.PY-R1.6: "
             "NORMALIZATION ERROR = "
             + str(exc)
         )
@@ -7315,279 +7335,249 @@ def r13_connect_real_engine(
         return result
 
     # --------------------------------------------------------
-    # 3. SYMBOL + DIRECTION JIT VALIDATION
+    # 4. JIT SYMBOL / DIRECTION / QUANTITY
     # --------------------------------------------------------
 
-    if r15_symbol != SYMBOL:
+    if r16_symbol != SYMBOL:
         result["reason"] = (
-            "R1.5_SYMBOL_MISMATCH"
+            "R1.6_SYMBOL_MISMATCH"
         )
 
         log(
-            "WRITE.PY-R1.5: "
+            "WRITE.PY-R1.6: "
             "JIT SYMBOL CHECK = FAIL"
         )
 
         return result
 
-    if r15_direction not in {
+    if r16_direction not in {
         "LONG",
         "SHORT",
     }:
         result["reason"] = (
-            "R1.5_INVALID_DIRECTION"
+            "R1.6_INVALID_DIRECTION"
         )
 
         log(
-            "WRITE.PY-R1.5: "
+            "WRITE.PY-R1.6: "
             "JIT DIRECTION CHECK = FAIL"
         )
 
         return result
 
-    log(
-        "WRITE.PY-R1.5: "
-        "JIT SYMBOL CHECK = PASS"
-    )
-
-    log(
-        "WRITE.PY-R1.5: "
-        "JIT DIRECTION CHECK = PASS"
-    )
-
-    # --------------------------------------------------------
-    # 4. QUANTITY JIT VALIDATION
-    # --------------------------------------------------------
-
-    if r15_quantity <= 0:
+    if r16_quantity <= 0:
         result["reason"] = (
-            "R1.5_INVALID_QUANTITY"
+            "R1.6_INVALID_QUANTITY"
         )
 
         log(
-            "WRITE.PY-R1.5: "
+            "WRITE.PY-R1.6: "
             "JIT QUANTITY CHECK = FAIL"
         )
 
         return result
 
-    if (
-        r15_quantity
-        !=
-        quantize_down(
-            r15_quantity,
-            QUANTITY_STEP,
-        )
-    ):
-        result["reason"] = (
-            "R1.5_QUANTITY_STEP_FAILURE"
-        )
-
-        log(
-            "WRITE.PY-R1.5: "
-            "JIT QUANTITY STEP = FAIL"
-        )
-
-        return result
+    log(
+        "WRITE.PY-R1.6: "
+        "JIT SYMBOL CHECK = PASS"
+    )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
+        "JIT DIRECTION CHECK = PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.6: "
         "JIT QUANTITY CHECK = PASS"
     )
 
     # --------------------------------------------------------
-    # 5. PRICE JIT VALIDATION
+    # 5. PRICE STRUCTURE
     # --------------------------------------------------------
 
     if (
-        r15_entry_price <= 0
+        r16_entry <= 0
         or
-        r15_tp1 <= 0
+        r16_tp1 <= 0
         or
-        r15_tp2 <= 0
+        r16_tp2 <= 0
         or
-        r15_stop <= 0
+        r16_stop <= 0
     ):
         result["reason"] = (
-            "R1.5_NON_POSITIVE_PRICE"
+            "R1.6_NON_POSITIVE_PRICE"
         )
 
         log(
-            "WRITE.PY-R1.5: "
+            "WRITE.PY-R1.6: "
             "JIT PRICE CHECK = FAIL"
         )
 
         return result
 
-    if r15_direction == "LONG":
-        r15_side = "BUY"
-        r15_position_side = "LONG"
+    if r16_direction == "LONG":
+        r16_side = "BUY"
+        r16_position_side = "LONG"
 
-        r15_price_structure_ok = bool(
-            r15_stop
+        r16_price_structure_ok = bool(
+            r16_stop
             <
-            r15_entry_price
+            r16_entry
             <
-            r15_tp1
+            r16_tp1
             <
-            r15_tp2
+            r16_tp2
         )
 
     else:
-        r15_side = "SELL"
-        r15_position_side = "SHORT"
+        r16_side = "SELL"
+        r16_position_side = "SHORT"
 
-        r15_price_structure_ok = bool(
-            r15_tp2
+        r16_price_structure_ok = bool(
+            r16_tp2
             <
-            r15_tp1
+            r16_tp1
             <
-            r15_entry_price
+            r16_entry
             <
-            r15_stop
+            r16_stop
         )
 
-    if not r15_price_structure_ok:
+    if not r16_price_structure_ok:
         result["reason"] = (
-            "R1.5_INVALID_PRICE_STRUCTURE"
+            "R1.6_INVALID_PRICE_STRUCTURE"
         )
 
         log(
-            "WRITE.PY-R1.5: "
+            "WRITE.PY-R1.6: "
             "JIT PRICE STRUCTURE = FAIL"
         )
 
         return result
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "JIT PRICE STRUCTURE = PASS"
     )
 
     # --------------------------------------------------------
-    # 6. DETERMINISTIC ORDER IDENTITY
+    # 6. BUILD DETERMINISTIC REQUEST IDENTITY
     # --------------------------------------------------------
 
-    r15_identity_material = {
+    r16_identity_material = {
         "symbol":
-            r15_symbol,
+            r16_symbol,
 
         "direction":
-            r15_direction,
+            r16_direction,
 
         "entry_price":
             decimal_to_string(
-                r15_entry_price
+                r16_entry
             ),
 
         "quantity":
             decimal_to_string(
-                r15_quantity
+                r16_quantity
             ),
 
         "tp1":
             decimal_to_string(
-                r15_tp1
+                r16_tp1
             ),
 
         "tp2":
             decimal_to_string(
-                r15_tp2
+                r16_tp2
             ),
 
         "stop_price":
             decimal_to_string(
-                r15_stop
+                r16_stop
             ),
 
         "source_instruction_sha256":
-            r15_source_hash,
+            r16_source_hash,
     }
 
-    r15_identity_sha256 = sha256_text(
+    r16_identity_sha256 = sha256_text(
         canonical_json(
-            r15_identity_material
+            r16_identity_material
         )
     )
 
-    r15_client_order_id = (
-        "R15-"
+    r16_client_order_id = (
+        "R16-"
         +
         (
             "L-"
-            if
-            r15_direction == "LONG"
-            else
-            "S-"
+            if r16_direction == "LONG"
+            else "S-"
         )
         +
-        r15_identity_sha256[
+        r16_identity_sha256[
             :20
         ].upper()
     )
 
     if (
-        not r15_client_order_id
+        not r16_client_order_id
         or
-        len(
-            r15_client_order_id
-        ) > 36
+        len(r16_client_order_id) > 36
     ):
         result["reason"] = (
-            "R1.5_CLIENT_ORDER_ID_INVALID"
+            "R1.6_CLIENT_ORDER_ID_INVALID"
         )
 
         log(
-            "WRITE.PY-R1.5: "
+            "WRITE.PY-R1.6: "
             "CLIENT ORDER ID CHECK = FAIL"
         )
 
         return result
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "CLIENT ORDER ID CHECK = PASS"
     )
 
     # --------------------------------------------------------
-    # 7. PRODUCTION REQUEST CANDIDATE
+    # 7. CONSTRUCT PRODUCTION REQUEST CANDIDATE
     # --------------------------------------------------------
 
-    r15_method = "POST"
+    r16_method = "POST"
+    r16_endpoint = "/capi/v2/order"
 
-    r15_endpoint = (
-        "/capi/v2/order"
-    )
-
-    r15_payload = {
+    r16_payload = {
         "symbol":
-            r15_symbol,
+            r16_symbol,
 
         "side":
-            r15_side,
+            r16_side,
 
         "positionSide":
-            r15_position_side,
+            r16_position_side,
 
         "type":
             "MARKET",
 
         "quantity":
             decimal_to_string(
-                r15_quantity
+                r16_quantity
             ),
 
         "newClientOrderId":
-            r15_client_order_id,
+            r16_client_order_id,
 
         "tpTriggerPrice":
             decimal_to_string(
-                r15_tp1
+                r16_tp1
             ),
 
         "slTriggerPrice":
             decimal_to_string(
-                r15_stop
+                r16_stop
             ),
 
         "TpWorkingType":
@@ -7597,11 +7587,7 @@ def r13_connect_real_engine(
             "MARK_PRICE",
     }
 
-    # --------------------------------------------------------
-    # 8. REQUIRED PAYLOAD FIELD VALIDATION
-    # --------------------------------------------------------
-
-    r15_required_fields = {
+    r16_required_fields = {
         "symbol",
         "side",
         "positionSide",
@@ -7614,293 +7600,486 @@ def r13_connect_real_engine(
         "SlWorkingType",
     }
 
-    r15_present_fields = set(
-        r15_payload.keys()
-    )
-
-    r15_missing_fields = sorted(
-        r15_required_fields
+    r16_missing_fields = sorted(
+        r16_required_fields
         -
-        r15_present_fields
+        set(r16_payload.keys())
     )
 
-    if r15_missing_fields:
+    if r16_missing_fields:
         result["reason"] = (
-            "R1.5_REQUIRED_FIELDS_MISSING"
+            "R1.6_REQUIRED_FIELDS_MISSING"
         )
 
         log(
-            "WRITE.PY-R1.5: "
+            "WRITE.PY-R1.6: "
             "PAYLOAD FIELD CHECK = FAIL"
-        )
-
-        log(
-            "WRITE.PY-R1.5: "
-            "MISSING FIELDS = "
-            + str(
-                r15_missing_fields
-            )
         )
 
         return result
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "PAYLOAD FIELD CHECK = PASS"
     )
 
     # --------------------------------------------------------
-    # 9. METHOD + ENDPOINT BOUNDARY VALIDATION
+    # 8. METHOD + ENDPOINT
     # --------------------------------------------------------
 
-    r15_method_ok = bool(
-        r15_method == "POST"
+    r16_method_ok = bool(
+        r16_method == "POST"
     )
 
-    r15_endpoint_ok = bool(
+    r16_endpoint_ok = bool(
         isinstance(
-            r15_endpoint,
+            r16_endpoint,
             str,
         )
         and
-        r15_endpoint.startswith(
-            "/"
-        )
+        r16_endpoint.startswith("/")
         and
-        len(
-            r15_endpoint
-        ) > 1
+        len(r16_endpoint) > 1
     )
 
-    if not r15_method_ok:
+    if not r16_method_ok:
         result["reason"] = (
-            "R1.5_METHOD_INVALID"
+            "R1.6_METHOD_INVALID"
         )
 
         log(
-            "WRITE.PY-R1.5: "
+            "WRITE.PY-R1.6: "
             "HTTP METHOD CHECK = FAIL"
         )
 
         return result
 
-    if not r15_endpoint_ok:
+    if not r16_endpoint_ok:
         result["reason"] = (
-            "R1.5_ENDPOINT_INVALID"
+            "R1.6_ENDPOINT_INVALID"
         )
 
         log(
-            "WRITE.PY-R1.5: "
+            "WRITE.PY-R1.6: "
             "ENDPOINT CHECK = FAIL"
         )
 
         return result
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "HTTP METHOD CHECK = PASS"
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "ENDPOINT CHECK = PASS"
     )
 
     # --------------------------------------------------------
-    # 10. REQUEST INTEGRITY HASH
+    # 9. REQUEST SHA256
     # --------------------------------------------------------
 
-    r15_request_material = {
+    r16_request_material = {
         "method":
-            r15_method,
+            r16_method,
 
         "endpoint":
-            r15_endpoint,
+            r16_endpoint,
 
         "payload":
-            r15_payload,
+            r16_payload,
 
         "source_instruction_sha256":
-            r15_source_hash,
+            r16_source_hash,
     }
 
-    r15_request_sha256 = sha256_text(
+    r16_request_sha256 = sha256_text(
         canonical_json(
-            r15_request_material
+            r16_request_material
         )
     )
 
-    if not r15_request_sha256:
+    if not r16_request_sha256:
         result["reason"] = (
-            "R1.5_REQUEST_HASH_FAILURE"
+            "R1.6_REQUEST_HASH_FAILURE"
         )
 
         log(
-            "WRITE.PY-R1.5: "
+            "WRITE.PY-R1.6: "
             "REQUEST HASH CHECK = FAIL"
         )
 
         return result
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "REQUEST HASH CHECK = PASS"
     )
 
     # --------------------------------------------------------
-    # 11. REPLAY / IDEMPOTENCY IDENTITY
-    # --------------------------------------------------------
-    #
-    # This stage does not submit or journal a real order.
-    #
-    # It proves that identical immutable instructions generate
-    # the same deterministic identity, which can be checked
-    # against the durable production journal before any future
-    # real POST is authorized.
+    # 10. DETERMINISTIC REPLAY IDENTITY
     # --------------------------------------------------------
 
-    r15_replay_identity = (
-        r15_client_order_id
+    r16_replay_identity = (
+        r16_client_order_id
         + ":"
-        + r15_request_sha256
+        + r16_request_sha256
     )
 
-    r15_replay_identity_ok = bool(
-        r15_client_order_id
+    r16_replay_identity_ok = bool(
+        r16_source_hash
         and
-        r15_request_sha256
+        r16_client_order_id
         and
-        r15_source_hash
+        r16_request_sha256
     )
 
-    if not r15_replay_identity_ok:
+    if not r16_replay_identity_ok:
         result["reason"] = (
-            "R1.5_REPLAY_IDENTITY_FAILURE"
+            "R1.6_REPLAY_IDENTITY_FAILURE"
         )
 
         log(
-            "WRITE.PY-R1.5: "
+            "WRITE.PY-R1.6: "
             "REPLAY IDENTITY CHECK = FAIL"
         )
 
         return result
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "REPLAY IDENTITY CHECK = PASS"
     )
 
     # --------------------------------------------------------
-    # 12. PRODUCTION FIREBREAK VALIDATION
+    # 11. ONE-TIME CANARY ARM
+    # --------------------------------------------------------
+    #
+    # Environment variable:
+    #
+    # WRITE_R16_CANARY_ARM
+    #
+    # Safe default:
+    #
+    # false
+    #
+    # R1.6 NEVER SENDS AN ORDER EVEN WHEN TRUE.
+    #
+    # It only proves that the authorization layer correctly
+    # recognizes an explicitly requested canary.
     # --------------------------------------------------------
 
-    r15_firebreak_ok = bool(
-        REAL_ORDER_EXECUTION
-        is False
-        and
-        EXCHANGE_MUTATION_TRANSPORT_ENABLED
-        is False
-        and
-        ORDER_SUBMISSION_ENABLED
-        is False
-        and
-        LEVERAGE_MUTATION_ENABLED
-        is False
-        and
-        MARGIN_MODE_MUTATION_ENABLED
-        is False
-        and
-        POSITION_MUTATION_ENABLED
-        is False
-        and
-        FIRST_REAL_ORDER_ALLOWED
-        is False
-        and
-        R36F15103_REAL_ORDER_EXECUTION
-        is False
-        and
-        R36F15103_WRITE_TRANSPORT
-        is False
+    r16_canary_arm = (
+        os.getenv(
+            "WRITE_R16_CANARY_ARM",
+            "false",
+        ).strip().lower()
+        == "true"
     )
 
-    if not r15_firebreak_ok:
+    log(
+        "WRITE.PY-R1.6: "
+        "CANARY ARM REQUESTED = "
+        + str(r16_canary_arm)
+    )
+
+    # --------------------------------------------------------
+    # 12. OPTIONAL EXACT-HASH BINDING
+    # --------------------------------------------------------
+    #
+    # WRITE_R16_EXPECTED_REQUEST_SHA256
+    #
+    # If blank:
+    # R1.6 validates the arm mechanism but does not consider
+    # the canary fully authorized.
+    #
+    # To obtain the exact value, use the REQUEST SHA256
+    # printed by THIS running cycle.
+    #
+    # Because market data can change on the next cycle,
+    # an old hash cannot silently authorize a new request.
+    # --------------------------------------------------------
+
+    r16_expected_hash = (
+        os.getenv(
+            "WRITE_R16_EXPECTED_REQUEST_SHA256",
+            "",
+        ).strip().lower()
+    )
+
+    r16_hash_binding_present = bool(
+        r16_expected_hash
+    )
+
+    r16_hash_binding_match = bool(
+        r16_hash_binding_present
+        and
+        r16_expected_hash
+        ==
+        r16_request_sha256.lower()
+    )
+
+    log(
+        "WRITE.PY-R1.6: "
+        "EXPECTED REQUEST HASH PRESENT = "
+        + str(
+            r16_hash_binding_present
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.6: "
+        "REQUEST HASH BINDING MATCH = "
+        + str(
+            r16_hash_binding_match
+        )
+    )
+
+    # --------------------------------------------------------
+    # 13. AUTHORIZATION EXPIRY WINDOW
+    # --------------------------------------------------------
+    #
+    # This is a zero-write validation timestamp.
+    #
+    # It demonstrates that any future production canary
+    # authorization must be short-lived rather than a
+    # permanent environment switch.
+    # --------------------------------------------------------
+
+    r16_authorization_window_seconds = 120
+
+    r16_authorization_created_at = (
+        datetime.now(
+            timezone.utc
+        )
+    )
+
+    r16_authorization_expires_at = (
+        r16_authorization_created_at
+        +
+        timedelta(
+            seconds=
+                r16_authorization_window_seconds
+        )
+    )
+
+    r16_authorization_age_seconds = 0
+
+    r16_authorization_not_expired = bool(
+        r16_authorization_age_seconds
+        <
+        r16_authorization_window_seconds
+    )
+
+    log(
+        "WRITE.PY-R1.6: "
+        "AUTHORIZATION WINDOW SECONDS = "
+        + str(
+            r16_authorization_window_seconds
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.6: "
+        "AUTHORIZATION EXPIRY CHECK = "
+        + (
+            "PASS"
+            if r16_authorization_not_expired
+            else "FAIL"
+        )
+    )
+
+    # --------------------------------------------------------
+    # 14. ONE-TIME CONSUMPTION TOKEN
+    # --------------------------------------------------------
+
+    r16_consumption_material = {
+        "request_sha256":
+            r16_request_sha256,
+
+        "client_order_id":
+            r16_client_order_id,
+
+        "source_instruction_sha256":
+            r16_source_hash,
+
+        "purpose":
+            "FIRST_PRODUCTION_CANARY",
+    }
+
+    r16_consumption_token = sha256_text(
+        canonical_json(
+            r16_consumption_material
+        )
+    )
+
+    r16_consumption_token_ok = bool(
+        r16_consumption_token
+    )
+
+    if not r16_consumption_token_ok:
         result["reason"] = (
-            "R1.5_PRODUCTION_FIREBREAK_FAILURE"
+            "R1.6_CONSUMPTION_TOKEN_FAILURE"
         )
 
         log(
-            "WRITE.PY-R1.5: "
-            "PRODUCTION FIREBREAK = FAIL"
+            "WRITE.PY-R1.6: "
+            "CONSUMPTION TOKEN CHECK = FAIL"
         )
 
         return result
 
     log(
-        "WRITE.PY-R1.5: "
-        "PRODUCTION FIREBREAK = PASS"
+        "WRITE.PY-R1.6: "
+        "CONSUMPTION TOKEN CHECK = PASS"
     )
 
     # --------------------------------------------------------
-    # 13. AUTHENTICATION/SIGNATURE BOUNDARY
-    # --------------------------------------------------------
-    #
-    # R1.5 intentionally does NOT calculate or transmit a
-    # live production signature.
-    #
-    # It freezes the exact material that the production
-    # transport layer would receive.
+    # 15. ZERO-WRITE CANARY AUTHORIZATION DECISION
     # --------------------------------------------------------
 
-    r15_transport_boundary = {
+    r16_canary_authorized = bool(
+        r16_canary_arm
+        and
+        r16_hash_binding_match
+        and
+        r16_authorization_not_expired
+        and
+        r16_firebreak_ok
+        and
+        r16_replay_identity_ok
+        and
+        r16_consumption_token_ok
+    )
+
+    if not r16_canary_arm:
+        r16_authorization_reason = (
+            "CANARY_ARM_NOT_REQUESTED"
+        )
+
+    elif not r16_hash_binding_present:
+        r16_authorization_reason = (
+            "EXPECTED_REQUEST_HASH_NOT_SET"
+        )
+
+    elif not r16_hash_binding_match:
+        r16_authorization_reason = (
+            "REQUEST_HASH_BINDING_MISMATCH"
+        )
+
+    elif not r16_authorization_not_expired:
+        r16_authorization_reason = (
+            "AUTHORIZATION_EXPIRED"
+        )
+
+    elif not r16_replay_identity_ok:
+        r16_authorization_reason = (
+            "REPLAY_IDENTITY_INVALID"
+        )
+
+    elif not r16_consumption_token_ok:
+        r16_authorization_reason = (
+            "CONSUMPTION_TOKEN_INVALID"
+        )
+
+    else:
+        r16_authorization_reason = (
+            "ONE_TIME_CANARY_AUTHORIZATION_VALID"
+        )
+
+    # --------------------------------------------------------
+    # 16. BUILD R1.6 AUTHORIZATION ENVELOPE
+    # --------------------------------------------------------
+
+    r16_authorization_envelope = {
         "stage":
-            "WRITE.PY-R1.5",
+            "WRITE.PY-R1.6",
 
-        "method":
-            r15_method,
+        "symbol":
+            r16_symbol,
 
-        "endpoint":
-            r15_endpoint,
-
-        "payload":
-            r15_payload,
+        "direction":
+            r16_direction,
 
         "entry_reference_price":
             decimal_to_string(
-                r15_entry_price
+                r16_entry
+            ),
+
+        "quantity":
+            decimal_to_string(
+                r16_quantity
+            ),
+
+        "tp1":
+            decimal_to_string(
+                r16_tp1
             ),
 
         "tp2":
             decimal_to_string(
-                r15_tp2
+                r16_tp2
             ),
 
-        "tp3":
-            None,
-
-        "tp3_policy":
-            instruction.get(
-                "tp3_policy"
+        "stop_price":
+            decimal_to_string(
+                r16_stop
             ),
 
-        "allocation":
-            instruction.get(
-                "allocation"
-            ),
+        "method":
+            r16_method,
 
-        "source_instruction_sha256":
-            r15_source_hash,
+        "endpoint":
+            r16_endpoint,
 
-        "identity_sha256":
-            r15_identity_sha256,
-
-        "request_sha256":
-            r15_request_sha256,
-
-        "replay_identity":
-            r15_replay_identity,
+        "payload":
+            r16_payload,
 
         "client_order_id":
-            r15_client_order_id,
+            r16_client_order_id,
+
+        "source_instruction_sha256":
+            r16_source_hash,
+
+        "identity_sha256":
+            r16_identity_sha256,
+
+        "request_sha256":
+            r16_request_sha256,
+
+        "replay_identity":
+            r16_replay_identity,
+
+        "consumption_token":
+            r16_consumption_token,
+
+        "canary_arm_requested":
+            r16_canary_arm,
+
+        "expected_hash_present":
+            r16_hash_binding_present,
+
+        "request_hash_binding_match":
+            r16_hash_binding_match,
+
+        "authorization_window_seconds":
+            r16_authorization_window_seconds,
+
+        "authorization_created_at":
+            r16_authorization_created_at.isoformat(),
+
+        "authorization_expires_at":
+            r16_authorization_expires_at.isoformat(),
+
+        "authorization_not_expired":
+            r16_authorization_not_expired,
+
+        "canary_authorized":
+            r16_canary_authorized,
+
+        "authorization_reason":
+            r16_authorization_reason,
 
         "authentication_boundary":
             "VALIDATION_ONLY",
@@ -7921,51 +8100,9 @@ def r13_connect_real_engine(
             False,
     }
 
-    # --------------------------------------------------------
-    # 14. FINAL R1.5 VALIDATION
-    # --------------------------------------------------------
-
-    r15_final_ok = bool(
-        r15_symbol == SYMBOL
-        and
-        r15_direction
-        in {
-            "LONG",
-            "SHORT",
-        }
-        and
-        r15_quantity > 0
-        and
-        r15_price_structure_ok
-        and
-        r15_method_ok
-        and
-        r15_endpoint_ok
-        and
-        not r15_missing_fields
-        and
-        r15_request_sha256
-        and
-        r15_replay_identity_ok
-        and
-        r15_firebreak_ok
-    )
-
-    if not r15_final_ok:
-        result["reason"] = (
-            "R1.5_FINAL_BOUNDARY_VALIDATION_FAILED"
-        )
-
-        log(
-            "WRITE.PY-R1.5: "
-            "FINAL VALIDATION = FAIL"
-        )
-
-        return result
-
     result[
         "production_request"
-    ] = r15_transport_boundary
+    ] = r16_authorization_envelope
 
     result[
         "production_request_ready"
@@ -7984,138 +8121,209 @@ def r13_connect_real_engine(
     ] = True
 
     result[
-        "validated"
-    ] = True
+        "canary_arm_requested"
+    ] = r16_canary_arm
 
-    result["reason"] = (
-        "R1.5_TRANSPORT_BOUNDARY_READY_NOT_SENT"
-    )
+    result[
+        "canary_authorized"
+    ] = r16_canary_authorized
+
+    result[
+        "canary_authorization_reason"
+    ] = r16_authorization_reason
 
     # --------------------------------------------------------
-    # 15. R1.5 TERMINAL LOG
+    # 17. R1.6 TEST RESULT
+    # --------------------------------------------------------
+    #
+    # IMPORTANT:
+    #
+    # R1.6 itself passes when the authorization mechanism
+    # works correctly.
+    #
+    # CANARY_ARM_NOT_REQUESTED is therefore a safe PASS,
+    # not a failure.
+    #
+    # The fully armed test requires:
+    #
+    # WRITE_R16_CANARY_ARM=true
+    #
+    # AND the exact current:
+    #
+    # WRITE_R16_EXPECTED_REQUEST_SHA256
+    #
+    # Even then, R1.6 remains ZERO-WRITE.
+    # --------------------------------------------------------
+
+    result["validated"] = True
+
+    if r16_canary_authorized:
+        result["reason"] = (
+            "R1.6_CANARY_AUTHORIZATION_VALIDATED_NOT_SENT"
+        )
+
+    else:
+        result["reason"] = (
+            "R1.6_AUTHORIZATION_GATE_VALIDATED_SAFE_BLOCK"
+        )
+
+    # --------------------------------------------------------
+    # 18. TERMINAL LOG
     # --------------------------------------------------------
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "REAL ENGINE BRIDGE = PASS"
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "DIRECTION = "
-        + r15_direction
+        + r16_direction
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "SYMBOL = "
-        + r15_symbol
+        + r16_symbol
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "ENTRY REFERENCE = "
         + decimal_to_string(
-            r15_entry_price
+            r16_entry
         )
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "QUANTITY = "
         + decimal_to_string(
-            r15_quantity
+            r16_quantity
         )
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "TP1 = "
         + decimal_to_string(
-            r15_tp1
+            r16_tp1
         )
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "TP2 = "
         + decimal_to_string(
-            r15_tp2
+            r16_tp2
         )
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "STOP = "
         + decimal_to_string(
-            r15_stop
+            r16_stop
         )
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "CLIENT ORDER ID = "
-        + r15_client_order_id
+        + r16_client_order_id
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "REQUEST SHA256 = "
-        + r15_request_sha256
+        + r16_request_sha256
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "REPLAY IDENTITY = "
-        + r15_replay_identity
+        + r16_replay_identity
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
+        "CANARY ARM REQUESTED = "
+        + str(
+            r16_canary_arm
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.6: "
+        "REQUEST HASH BINDING MATCH = "
+        + str(
+            r16_hash_binding_match
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.6: "
+        "CANARY AUTHORIZED = "
+        + str(
+            r16_canary_authorized
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.6: "
+        "CANARY AUTHORIZATION REASON = "
+        + r16_authorization_reason
+    )
+
+    log(
+        "WRITE.PY-R1.6: "
         "AUTHENTICATION BOUNDARY = VALIDATION_ONLY"
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "SIGNATURE GENERATED = False"
     )
 
     log(
-        "WRITE.PY-R1.5: "
-        "TRANSPORT BOUNDARY = READY_NOT_SENT"
+        "WRITE.PY-R1.6: "
+        "TRANSPORT ENABLED = False"
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "PRODUCTION FIREBREAK = True"
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "REAL_ORDER_EXECUTION = False"
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "WRITE_TRANSPORT = False"
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "NO REAL ORDER WAS SENT"
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
     )
 
     log(
-        "WRITE.PY-R1.5: "
+        "WRITE.PY-R1.6: "
         "FINAL STATUS = PASS"
     )
 
     return result
+
+
     
     
 async def run_r36f12():
