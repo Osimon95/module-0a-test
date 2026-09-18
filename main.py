@@ -7648,51 +7648,7 @@ def r13_connect_real_engine(
     )
 
     return result
-    # --------------------------------------------------------
-    # CRITICAL R1.3 FIREBREAK
-    # --------------------------------------------------------
-    # R1.3 deliberately stops here.
-    #
-    # No production POST.
-    # No production mutation.
-    # No real order.
-    #
-    # The next validation step will hand this immutable
-    # instruction to the already-proven WRITE.PY-R1.1
-    # validator.
-    # --------------------------------------------------------
-
-    result["validated"] = True
-    result["reason"] = (
-        "R1.3_REAL_ENGINE_CAPTURE_PASS"
-    )
-
-    log(
-        "WRITE.PY-R1.3: "
-        "REAL ENGINE BRIDGE = PASS"
-    )
-
-    log(
-        "WRITE.PY-R1.3: "
-        "FINAL STATE = CAPTURED_NOT_SENT"
-    )
-
-    log(
-        "WRITE.PY-R1.3: "
-        "PRODUCTION FIREBREAK = True"
-    )
-
-    log(
-        "WRITE.PY-R1.3: "
-        "NO REAL ORDER WAS SENT"
-    )
-
-    log(
-        "WRITE.PY-R1.3: "
-        "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
-    )
-
-    return result
+    
 async def run_r36f12():
     global TEST_STATUS
     global WEEX_READ_ONLY_OK
