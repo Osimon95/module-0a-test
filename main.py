@@ -6907,7 +6907,278 @@ def r36f15105_build_demo_preview(
 # ============================================================
 # R36F.15.10.5 COMPLETE REEVALUATION
 # ============================================================
+# ============================================================
+# WRITE.PY-R1.3
+# R36F.15.10.5 REAL ENGINE -> ZERO-WRITE WRITER BRIDGE
+# ============================================================
 
+def build_r13_real_engine_instruction(
+    direction,
+    tp_snapshot,
+    balance_readiness,
+    protective_stop_price,
+):
+    if direction not in {"LONG", "SHORT"}:
+        return None
+
+    if not tp_snapshot:
+        return None
+
+    if not tp_snapshot.get(
+        "tp_approval",
+        {},
+    ).get("approved"):
+        return None
+
+    if not balance_readiness:
+        return None
+
+    if protective_stop_price is None:
+        return None
+
+    quantity = quantize_down(
+        D(
+            balance_readiness.get(
+                "planned_entry_quantity",
+                "0",
+            )
+        ),
+        QUANTITY_STEP,
+    )
+
+    if quantity <= 0:
+        return None
+
+    entry_price = quantize_down(
+        D(MARK_PRICE),
+        PRICE_STEP,
+    )
+
+    tp1_price = quantize_down(
+        D(tp_snapshot["tp1"]),
+        PRICE_STEP,
+    )
+
+    tp2_price = quantize_down(
+        D(tp_snapshot["tp2"]),
+        PRICE_STEP,
+    )
+
+    stop_price = quantize_down(
+        D(protective_stop_price),
+        PRICE_STEP,
+    )
+
+    instruction = {
+        "symbol": SYMBOL,
+        "direction": direction,
+        "entry_price":
+            decimal_to_string(entry_price),
+        "quantity":
+            decimal_to_string(quantity),
+        "tp1":
+            decimal_to_string(tp1_price),
+        "tp2":
+            decimal_to_string(tp2_price),
+        "tp3": None,
+        "tp3_policy":
+            "TRAILING_RUNNER",
+        "stop_price":
+            decimal_to_string(stop_price),
+        "allocation": {
+            "tp1_percent":
+                decimal_to_string(
+                    TP1_ALLOCATION_PERCENT
+                ),
+            "tp2_percent":
+                decimal_to_string(
+                    TP2_ALLOCATION_PERCENT
+                ),
+            "tp3_percent":
+                decimal_to_string(
+                    TP3_ALLOCATION_PERCENT
+                ),
+        },
+        "trailing_distance_percent":
+            decimal_to_string(
+                TP3_TRAILING_DISTANCE_PERCENT
+            ),
+        "source_stage":
+            STAGE,
+        "source_mode":
+            "REAL_ENGINE_ZERO_WRITE",
+        "created_at":
+            now_iso(),
+    }
+
+    instruction[
+        "instruction_sha256"
+    ] = sha256_text(
+        canonical_json(instruction)
+    )
+
+    return instruction
+
+
+def r13_connect_real_engine(
+    downstream_ready,
+    direction,
+    tp_snapshot,
+    balance_readiness,
+    protective_stop_price,
+):
+    result = {
+        "connected": False,
+        "validated": False,
+        "instruction": None,
+        "reason":
+            "R1.3_NOT_EVALUATED",
+    }
+
+    if not downstream_ready:
+        result["reason"] = (
+            "R1.3_DOWNSTREAM_NOT_READY"
+        )
+
+        log(
+            "WRITE.PY-R1.3: "
+            "REAL ENGINE NOT DOWNSTREAM READY"
+        )
+
+        return result
+
+    instruction = (
+        build_r13_real_engine_instruction(
+            direction,
+            tp_snapshot,
+            balance_readiness,
+            protective_stop_price,
+        )
+    )
+
+    if not instruction:
+        result["reason"] = (
+            "R1.3_ENGINE_INSTRUCTION_BUILD_FAILED"
+        )
+
+        log(
+            "WRITE.PY-R1.3: "
+            "REAL ENGINE INSTRUCTION BUILD FAILED"
+        )
+
+        return result
+
+    result["connected"] = True
+    result["instruction"] = instruction
+    result["reason"] = (
+        "R1.3_REAL_ENGINE_INSTRUCTION_FROZEN"
+    )
+
+    log(
+        "WRITE.PY-R1.3: "
+        "REAL ENGINE INSTRUCTION RECEIVED"
+    )
+
+    log(
+        "WRITE.PY-R1.3: "
+        "SOURCE = R36F.15.10.5"
+    )
+
+    log(
+        "WRITE.PY-R1.3: DIRECTION = "
+        + str(instruction["direction"])
+    )
+
+    log(
+        "WRITE.PY-R1.3: SYMBOL = "
+        + str(instruction["symbol"])
+    )
+
+    log(
+        "WRITE.PY-R1.3: ENTRY = "
+        + str(instruction["entry_price"])
+    )
+
+    log(
+        "WRITE.PY-R1.3: QUANTITY = "
+        + str(instruction["quantity"])
+    )
+
+    log(
+        "WRITE.PY-R1.3: TP1 = "
+        + str(instruction["tp1"])
+    )
+
+    log(
+        "WRITE.PY-R1.3: TP2 = "
+        + str(instruction["tp2"])
+    )
+
+    log(
+        "WRITE.PY-R1.3: TP3 POLICY = "
+        + str(instruction["tp3_policy"])
+    )
+
+    log(
+        "WRITE.PY-R1.3: STOP = "
+        + str(instruction["stop_price"])
+    )
+
+    log(
+        "WRITE.PY-R1.3: "
+        "INSTRUCTION SHA256 = "
+        + str(
+            instruction[
+                "instruction_sha256"
+            ]
+        )
+    )
+
+    # --------------------------------------------------------
+    # CRITICAL R1.3 FIREBREAK
+    # --------------------------------------------------------
+    # R1.3 deliberately stops here.
+    #
+    # No production POST.
+    # No production mutation.
+    # No real order.
+    #
+    # The next validation step will hand this immutable
+    # instruction to the already-proven WRITE.PY-R1.1
+    # validator.
+    # --------------------------------------------------------
+
+    result["validated"] = True
+    result["reason"] = (
+        "R1.3_REAL_ENGINE_CAPTURE_PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.3: "
+        "REAL ENGINE BRIDGE = PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.3: "
+        "FINAL STATE = CAPTURED_NOT_SENT"
+    )
+
+    log(
+        "WRITE.PY-R1.3: "
+        "PRODUCTION FIREBREAK = True"
+    )
+
+    log(
+        "WRITE.PY-R1.3: "
+        "NO REAL ORDER WAS SENT"
+    )
+
+    log(
+        "WRITE.PY-R1.3: "
+        "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+    )
+
+    return result
 async def run_r36f12():
     global TEST_STATUS
     global WEEX_READ_ONLY_OK
