@@ -1360,5 +1360,332 @@ def main():
     )
 
 
-if __name__ == "__main__":
+# ============================================================
+# WRITE.PY-R1.2
+# ZERO-WRITE MAIN.PY INTERNAL BRIDGE VALIDATION
+# ============================================================
+
+R12_STAGE = "WRITE.PY-R1.2"
+
+R12_INTERNAL_BRIDGE_TEST = (
+    os.getenv(
+        "WRITE_R12_INTERNAL_BRIDGE_TEST",
+        "true",
+    ).strip().lower()
+    == "true"
+)
+
+
+def build_r12_internal_bridge_instruction():
+    """
+    Construct one deterministic MAIN.PY-style instruction.
+
+    IMPORTANT:
+    This is validation material only.
+    It cannot reach an exchange because the R1.1 production
+    firebreak remains hard-disabled.
+    """
+
+    return {
+        "symbol": "BTCUSDT",
+
+        "direction": "LONG",
+
+        "entry_price": "80000.0",
+
+        "quantity": "0.0004",
+
+        "tp1": "80100.0",
+
+        "tp2": "80200.0",
+
+        "tp3": None,
+
+        "tp3_policy": "TRAILING_RUNNER",
+
+        "stop_price": "79600.0",
+
+        "source_stage": "R36F.15.10.5",
+
+        "source_mode": "MAIN.PY_INTERNAL_BRIDGE",
+
+        "created_at": now_iso(),
+    }
+
+
+def validate_r12_internal_bridge():
+    line()
+
+    log(
+        f"{R12_STAGE}: "
+        "ZERO-WRITE INTERNAL BRIDGE VALIDATOR"
+    )
+
+    firebreak_ok = production_firebreak_intact()
+
+    log(
+        f"{R12_STAGE}: "
+        f"PRODUCTION FIREBREAK = {firebreak_ok}"
+    )
+
+    if not firebreak_ok:
+        log(
+            f"{R12_STAGE}: "
+            "INTERNAL BRIDGE = BLOCKED"
+        )
+
+        log(
+            f"{R12_STAGE}: "
+            "REASON = PRODUCTION_FIREBREAK_NOT_INTACT"
+        )
+
+        log(
+            "NO REAL ORDER WAS SENT"
+        )
+
+        log(
+            "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+        )
+
+        line()
+
+        return {
+            "stage": R12_STAGE,
+            "passed": False,
+            "reason": (
+                "PRODUCTION_FIREBREAK_NOT_INTACT"
+            ),
+        }
+
+    if not R12_INTERNAL_BRIDGE_TEST:
+        log(
+            f"{R12_STAGE}: "
+            "INTERNAL BRIDGE TEST DISABLED"
+        )
+
+        log(
+            "NO REAL ORDER WAS SENT"
+        )
+
+        log(
+            "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+        )
+
+        line()
+
+        return {
+            "stage": R12_STAGE,
+            "passed": False,
+            "reason": (
+                "INTERNAL_BRIDGE_TEST_DISABLED"
+            ),
+        }
+
+    instruction = (
+        build_r12_internal_bridge_instruction()
+    )
+
+    log(
+        f"{R12_STAGE}: "
+        "INTERNAL BRIDGE INSTRUCTION CREATED"
+    )
+
+    log(
+        f"{R12_STAGE}: "
+        "INTERNAL BRIDGE SOURCE = MAIN.PY"
+    )
+
+    log(
+        f"{R12_STAGE}: "
+        "CALLING R1.1 IMMUTABLE VALIDATOR"
+    )
+
+    result = validate_instruction(
+        instruction,
+        source="MAIN.PY_INTERNAL_BRIDGE",
+        persist=False,
+    )
+
+    validated = bool(
+        result.get("validated") is True
+    )
+
+    state_ok = bool(
+        result.get("state")
+        == "VALIDATED_NOT_SENT"
+    )
+
+    no_real_attempt = bool(
+        result.get("real_order_attempted")
+        is False
+    )
+
+    no_real_sent = bool(
+        result.get("real_order_sent")
+        is False
+    )
+
+    no_mutation_sent = bool(
+        result.get("production_mutation_sent")
+        is False
+    )
+
+    firebreak_after = (
+        production_firebreak_intact()
+    )
+
+    schema_ok = bool(
+        result.get("symbol") == "BTCUSDT"
+        and result.get("direction") == "LONG"
+        and result.get("quantity") == "0.0004"
+    )
+
+    tp_policy_ok = bool(
+        result.get("tp1") == "80100"
+        and result.get("tp2") == "80200"
+        and result.get("tp3_policy")
+        == "TRAILING_RUNNER"
+        and result.get("allocation")
+        == "25/25/50"
+    )
+
+    stop_ok = bool(
+        result.get("stop_price")
+        == "79600"
+    )
+
+    payload_ok = bool(
+        isinstance(
+            result.get("payload"),
+            dict,
+        )
+        and result.get("payload_checks")
+        and all(
+            result.get(
+                "payload_checks",
+                {},
+            ).values()
+        )
+    )
+
+    hash_ok = bool(
+        result.get("instruction_sha256")
+        and result.get("payload_sha256")
+    )
+
+    blockers_ok = bool(
+        result.get("blockers") == []
+    )
+
+    checks = {
+        "INSTRUCTION_SCHEMA": schema_ok,
+
+        "R1_1_VALIDATION": validated,
+
+        "VALIDATED_NOT_SENT_STATE": state_ok,
+
+        "TP_POLICY": tp_policy_ok,
+
+        "PROTECTIVE_STOP": stop_ok,
+
+        "PAYLOAD_CONSTRUCTION": payload_ok,
+
+        "DETERMINISTIC_HASHES": hash_ok,
+
+        "ZERO_BLOCKERS": blockers_ok,
+
+        "NO_REAL_ORDER_ATTEMPT": (
+            no_real_attempt
+        ),
+
+        "NO_REAL_ORDER_SENT": (
+            no_real_sent
+        ),
+
+        "NO_PRODUCTION_MUTATION_SENT": (
+            no_mutation_sent
+        ),
+
+        "FIREBREAK_REMAINS_INTACT": (
+            firebreak_after
+        ),
+    }
+
+    for name, passed in checks.items():
+        log(
+            f"{R12_STAGE}: "
+            f"{name} = "
+            f"{'PASS' if passed else 'FAIL'}"
+        )
+
+    bridge_pass = all(
+        checks.values()
+    )
+
+    if bridge_pass:
+        log(
+            f"{R12_STAGE}: "
+            "PRODUCTION WRITE BLOCKED BY FIREBREAK"
+        )
+
+        log(
+            f"{R12_STAGE}: "
+            "INTERNAL BRIDGE = PASS"
+        )
+
+    else:
+        log(
+            f"{R12_STAGE}: "
+            "INTERNAL BRIDGE = FAIL"
+        )
+
+        failed = [
+            name
+            for name, passed
+            in checks.items()
+            if not passed
+        ]
+
+        for name in failed:
+            log(
+                f"{R12_STAGE}: "
+                f"FAILED CHECK = {name}"
+            )
+
+    log(
+        f"{R12_STAGE}: "
+        f"FINAL FIREBREAK = "
+        f"{production_firebreak_intact()}"
+    )
+
+    log(
+        "NO REAL ORDER WAS SENT"
+    )
+
+    log(
+        "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+    )
+
+    line()
+
+    return {
+        "stage": R12_STAGE,
+        "passed": bridge_pass,
+        "checks": checks,
+        "validator_result": result,
+    }
+
+
+def r12_main():
+    """
+    Run the existing R1.1 startup diagnostic first,
+    followed by the new R1.2 internal bridge test.
+    """
+
     main()
+
+    validate_r12_internal_bridge()
+
+
+if __name__ == "__main__":
+    r12_main()
