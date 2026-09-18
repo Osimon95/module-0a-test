@@ -7134,6 +7134,520 @@ def r13_connect_real_engine(
         )
     )
 
+        # ========================================================
+    # WRITE.PY-R1.4
+    # ZERO-WRITE WEEX PRODUCTION REQUEST CONSTRUCTION
+    # ========================================================
+    #
+    # R1.4 accepts only the immutable instruction already
+    # produced and validated by the real R36F.15.10.5 engine.
+    #
+    # IMPORTANT:
+    # This stage constructs the production request only.
+    #
+    # It DOES NOT:
+    # - POST the request
+    # - mutate the exchange
+    # - place a real order
+    # - enable production transport
+    #
+    # The existing production firebreak remains authoritative.
+    # ========================================================
+
+    result["validated"] = True
+    result["reason"] = (
+        "R1.4_REAL_ENGINE_CAPTURE_PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "R1.3 IMMUTABLE INSTRUCTION RECEIVED"
+    )
+
+    r14_direction = str(
+        instruction.get("direction") or ""
+    ).strip().upper()
+
+    r14_symbol = str(
+        instruction.get("symbol") or ""
+    ).strip().upper()
+
+    r14_entry_price = D(
+        instruction.get("entry_price") or "0"
+    )
+
+    r14_quantity = quantize_down(
+        D(
+            instruction.get("quantity") or "0"
+        ),
+        QUANTITY_STEP,
+    )
+
+    r14_tp1 = quantize_down(
+        D(
+            instruction.get("tp1") or "0"
+        ),
+        PRICE_STEP,
+    )
+
+    r14_tp2 = quantize_down(
+        D(
+            instruction.get("tp2") or "0"
+        ),
+        PRICE_STEP,
+    )
+
+    r14_stop = quantize_down(
+        D(
+            instruction.get("stop_price") or "0"
+        ),
+        PRICE_STEP,
+    )
+
+    if r14_direction not in {
+        "LONG",
+        "SHORT",
+    }:
+        result["validated"] = False
+        result["reason"] = (
+            "R1.4_INVALID_DIRECTION"
+        )
+
+        log(
+            "WRITE.PY-R1.4: "
+            "PRODUCTION REQUEST = REJECTED"
+        )
+
+        log(
+            "WRITE.PY-R1.4: "
+            "REASON = INVALID_DIRECTION"
+        )
+
+        return result
+
+    if r14_symbol != SYMBOL:
+        result["validated"] = False
+        result["reason"] = (
+            "R1.4_SYMBOL_MISMATCH"
+        )
+
+        log(
+            "WRITE.PY-R1.4: "
+            "PRODUCTION REQUEST = REJECTED"
+        )
+
+        log(
+            "WRITE.PY-R1.4: "
+            "REASON = SYMBOL_MISMATCH"
+        )
+
+        return result
+
+    if r14_quantity <= 0:
+        result["validated"] = False
+        result["reason"] = (
+            "R1.4_INVALID_QUANTITY"
+        )
+
+        log(
+            "WRITE.PY-R1.4: "
+            "PRODUCTION REQUEST = REJECTED"
+        )
+
+        return result
+
+    if (
+        r14_entry_price <= 0
+        or r14_tp1 <= 0
+        or r14_tp2 <= 0
+        or r14_stop <= 0
+    ):
+        result["validated"] = False
+        result["reason"] = (
+            "R1.4_NON_POSITIVE_PRICE"
+        )
+
+        log(
+            "WRITE.PY-R1.4: "
+            "PRODUCTION REQUEST = REJECTED"
+        )
+
+        return result
+
+    if r14_direction == "LONG":
+        r14_side = "BUY"
+        r14_position_side = "LONG"
+
+        r14_price_structure_valid = (
+            r14_stop
+            < r14_entry_price
+            < r14_tp1
+            < r14_tp2
+        )
+
+    else:
+        r14_side = "SELL"
+        r14_position_side = "SHORT"
+
+        r14_price_structure_valid = (
+            r14_tp2
+            < r14_tp1
+            < r14_entry_price
+            < r14_stop
+        )
+
+    if not r14_price_structure_valid:
+        result["validated"] = False
+        result["reason"] = (
+            "R1.4_INVALID_PRICE_STRUCTURE"
+        )
+
+        log(
+            "WRITE.PY-R1.4: "
+            "PRODUCTION REQUEST = REJECTED"
+        )
+
+        log(
+            "WRITE.PY-R1.4: "
+            "REASON = INVALID_PRICE_STRUCTURE"
+        )
+
+        return result
+
+    r14_identity_material = {
+        "symbol":
+            r14_symbol,
+
+        "direction":
+            r14_direction,
+
+        "entry_price":
+            decimal_to_string(
+                r14_entry_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                r14_quantity
+            ),
+
+        "tp1":
+            decimal_to_string(
+                r14_tp1
+            ),
+
+        "tp2":
+            decimal_to_string(
+                r14_tp2
+            ),
+
+        "stop_price":
+            decimal_to_string(
+                r14_stop
+            ),
+
+        "source_instruction_sha256":
+            instruction.get(
+                "instruction_sha256"
+            ),
+    }
+
+    r14_identity_sha256 = sha256_text(
+        canonical_json(
+            r14_identity_material
+        )
+    )
+
+    r14_client_order_id = (
+        "R14-"
+        + (
+            "L-"
+            if r14_direction == "LONG"
+            else "S-"
+        )
+        + r14_identity_sha256[
+            :20
+        ].upper()
+    )
+
+    if len(r14_client_order_id) > 36:
+        result["validated"] = False
+        result["reason"] = (
+            "R1.4_CLIENT_ID_TOO_LONG"
+        )
+
+        log(
+            "WRITE.PY-R1.4: "
+            "PRODUCTION REQUEST = REJECTED"
+        )
+
+        return result
+
+    r14_payload = {
+        "symbol":
+            r14_symbol,
+
+        "side":
+            r14_side,
+
+        "positionSide":
+            r14_position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            decimal_to_string(
+                r14_quantity
+            ),
+
+        "newClientOrderId":
+            r14_client_order_id,
+
+        "tpTriggerPrice":
+            decimal_to_string(
+                r14_tp1
+            ),
+
+        "slTriggerPrice":
+            decimal_to_string(
+                r14_stop
+            ),
+
+        "TpWorkingType":
+            "MARK_PRICE",
+
+        "SlWorkingType":
+            "MARK_PRICE",
+    }
+
+    r14_payload_sha256 = sha256_text(
+        canonical_json(
+            r14_payload
+        )
+    )
+
+    r14_request = {
+        "stage":
+            "WRITE.PY-R1.4",
+
+        "method":
+            "POST",
+
+        "endpoint":
+            "/capi/v2/order",
+
+        "payload":
+            r14_payload,
+
+        "entry_reference_price":
+            decimal_to_string(
+                r14_entry_price
+            ),
+
+        "tp2":
+            decimal_to_string(
+                r14_tp2
+            ),
+
+        "tp3":
+            None,
+
+        "tp3_policy":
+            instruction.get(
+                "tp3_policy"
+            ),
+
+        "allocation":
+            instruction.get(
+                "allocation"
+            ),
+
+        "source_instruction_sha256":
+            instruction.get(
+                "instruction_sha256"
+            ),
+
+        "request_sha256":
+            r14_payload_sha256,
+
+        "production_transport_enabled":
+            False,
+
+        "submitted":
+            False,
+
+        "real_order_sent":
+            False,
+    }
+
+    r14_firebreak_ok = bool(
+        REAL_ORDER_EXECUTION
+        is False
+        and
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        is False
+        and
+        ORDER_SUBMISSION_ENABLED
+        is False
+        and
+        LEVERAGE_MUTATION_ENABLED
+        is False
+        and
+        MARGIN_MODE_MUTATION_ENABLED
+        is False
+        and
+        POSITION_MUTATION_ENABLED
+        is False
+        and
+        FIRST_REAL_ORDER_ALLOWED
+        is False
+        and
+        R36F15103_REAL_ORDER_EXECUTION
+        is False
+        and
+        R36F15103_WRITE_TRANSPORT
+        is False
+    )
+
+    if not r14_firebreak_ok:
+        result["validated"] = False
+        result["reason"] = (
+            "R1.4_PRODUCTION_FIREBREAK_NOT_INTACT"
+        )
+
+        log(
+            "WRITE.PY-R1.4: "
+            "PRODUCTION REQUEST = REJECTED"
+        )
+
+        log(
+            "WRITE.PY-R1.4: "
+            "PRODUCTION FIREBREAK = FAIL"
+        )
+
+        return result
+
+    result[
+        "production_request"
+    ] = r14_request
+
+    result[
+        "production_request_ready"
+    ] = True
+
+    result[
+        "production_request_sent"
+    ] = False
+
+    result[
+        "production_firebreak"
+    ] = True
+
+    result["reason"] = (
+        "R1.4_PRODUCTION_REQUEST_READY_NOT_SENT"
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "REAL ENGINE BRIDGE = PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "DIRECTION = "
+        + r14_direction
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "SYMBOL = "
+        + r14_symbol
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "ENTRY REFERENCE = "
+        + decimal_to_string(
+            r14_entry_price
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "QUANTITY = "
+        + decimal_to_string(
+            r14_quantity
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "TP1 = "
+        + decimal_to_string(
+            r14_tp1
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "TP2 = "
+        + decimal_to_string(
+            r14_tp2
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "STOP = "
+        + decimal_to_string(
+            r14_stop
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "CLIENT ORDER ID = "
+        + r14_client_order_id
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "REQUEST SHA256 = "
+        + r14_payload_sha256
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "PRODUCTION REQUEST = READY_NOT_SENT"
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "PRODUCTION FIREBREAK = True"
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "REAL_ORDER_EXECUTION = False"
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "WRITE_TRANSPORT = False"
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "NO REAL ORDER WAS SENT"
+    )
+
+    log(
+        "WRITE.PY-R1.4: "
+        "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+    )
+
+    return result
     # --------------------------------------------------------
     # CRITICAL R1.3 FIREBREAK
     # --------------------------------------------------------
