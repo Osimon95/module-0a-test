@@ -7811,7 +7811,7 @@ async def run_r36f12():
         and protective_stop_budget.get("all_valid")
     )
 
-        if downstream_ready:
+    if downstream_ready:
         demo_preview = r36f15105_build_demo_preview(
             selected_direction,
             selected_tp_snapshot,
