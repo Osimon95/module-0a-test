@@ -7135,283 +7135,459 @@ def r13_connect_real_engine(
     )
 
         # ========================================================
-    # WRITE.PY-R1.4
-    # ZERO-WRITE WEEX PRODUCTION REQUEST CONSTRUCTION
+    # WRITE.PY-R1.5
+    # FINAL PRODUCTION TRANSPORT-BOUNDARY DRY RUN
     # ========================================================
     #
-    # R1.4 accepts only the immutable instruction already
-    # produced and validated by the real R36F.15.10.5 engine.
+    # R1.5 replaces R1.4.
     #
-    # IMPORTANT:
-    # This stage constructs the production request only.
+    # PURPOSE:
+    # 1. Accept the immutable real-engine instruction.
+    # 2. Revalidate direction, symbol, quantity and prices.
+    # 3. Construct the exact production request candidate.
+    # 4. Validate endpoint/method/payload boundary.
+    # 5. Validate deterministic client-order identity.
+    # 6. Validate instruction/request SHA256 continuity.
+    # 7. Validate replay/idempotency identity.
+    # 8. Validate all production firebreaks.
     #
-    # It DOES NOT:
-    # - POST the request
-    # - mutate the exchange
-    # - place a real order
-    # - enable production transport
+    # CRITICAL:
+    # NO requests.post()
+    # NO requests.request()
+    # NO production POST
+    # NO exchange mutation
+    # NO real order
     #
-    # The existing production firebreak remains authoritative.
+    # Successful terminal state:
+    # TRANSPORT_BOUNDARY_READY_NOT_SENT
     # ========================================================
 
-    result["validated"] = True
+    result["validated"] = False
     result["reason"] = (
-        "R1.4_REAL_ENGINE_CAPTURE_PASS"
+        "R1.5_NOT_YET_VALIDATED"
     )
 
     log(
-        "WRITE.PY-R1.4: "
-        "R1.3 IMMUTABLE INSTRUCTION RECEIVED"
+        "WRITE.PY-R1.5: "
+        "R1.4 PRODUCTION REQUEST CONSTRUCTION START"
     )
 
-    r14_direction = str(
-        instruction.get("direction") or ""
+    # --------------------------------------------------------
+    # 1. IMMUTABLE ENGINE INSTRUCTION
+    # --------------------------------------------------------
+
+    if not isinstance(
+        instruction,
+        dict,
+    ):
+        result["reason"] = (
+            "R1.5_INSTRUCTION_NOT_DICT"
+        )
+
+        log(
+            "WRITE.PY-R1.5: "
+            "TRANSPORT BOUNDARY = REJECTED"
+        )
+
+        log(
+            "WRITE.PY-R1.5: "
+            "REASON = INSTRUCTION_NOT_DICT"
+        )
+
+        return result
+
+    r15_source_hash = (
+        instruction.get(
+            "instruction_sha256"
+        )
+    )
+
+    if not r15_source_hash:
+        result["reason"] = (
+            "R1.5_SOURCE_HASH_MISSING"
+        )
+
+        log(
+            "WRITE.PY-R1.5: "
+            "TRANSPORT BOUNDARY = REJECTED"
+        )
+
+        log(
+            "WRITE.PY-R1.5: "
+            "REASON = SOURCE_HASH_MISSING"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.5: "
+        "IMMUTABLE INSTRUCTION RECEIVED"
+    )
+
+    log(
+        "WRITE.PY-R1.5: "
+        "SOURCE INSTRUCTION SHA256 = "
+        + str(
+            r15_source_hash
+        )
+    )
+
+    # --------------------------------------------------------
+    # 2. NORMALIZE VALUES
+    # --------------------------------------------------------
+
+    r15_direction = str(
+        instruction.get(
+            "direction"
+        )
+        or ""
     ).strip().upper()
 
-    r14_symbol = str(
-        instruction.get("symbol") or ""
+    r15_symbol = str(
+        instruction.get(
+            "symbol"
+        )
+        or ""
     ).strip().upper()
 
-    r14_entry_price = D(
-        instruction.get("entry_price") or "0"
-    )
+    try:
+        r15_entry_price = quantize_down(
+            D(
+                instruction.get(
+                    "entry_price"
+                )
+                or "0"
+            ),
+            PRICE_STEP,
+        )
 
-    r14_quantity = quantize_down(
-        D(
-            instruction.get("quantity") or "0"
-        ),
-        QUANTITY_STEP,
-    )
+        r15_quantity = quantize_down(
+            D(
+                instruction.get(
+                    "quantity"
+                )
+                or "0"
+            ),
+            QUANTITY_STEP,
+        )
 
-    r14_tp1 = quantize_down(
-        D(
-            instruction.get("tp1") or "0"
-        ),
-        PRICE_STEP,
-    )
+        r15_tp1 = quantize_down(
+            D(
+                instruction.get(
+                    "tp1"
+                )
+                or "0"
+            ),
+            PRICE_STEP,
+        )
 
-    r14_tp2 = quantize_down(
-        D(
-            instruction.get("tp2") or "0"
-        ),
-        PRICE_STEP,
-    )
+        r15_tp2 = quantize_down(
+            D(
+                instruction.get(
+                    "tp2"
+                )
+                or "0"
+            ),
+            PRICE_STEP,
+        )
 
-    r14_stop = quantize_down(
-        D(
-            instruction.get("stop_price") or "0"
-        ),
-        PRICE_STEP,
-    )
+        r15_stop = quantize_down(
+            D(
+                instruction.get(
+                    "stop_price"
+                )
+                or "0"
+            ),
+            PRICE_STEP,
+        )
 
-    if r14_direction not in {
+    except Exception as exc:
+        result["reason"] = (
+            "R1.5_NORMALIZATION_FAILED"
+        )
+
+        log(
+            "WRITE.PY-R1.5: "
+            "NORMALIZATION ERROR = "
+            + str(exc)
+        )
+
+        return result
+
+    # --------------------------------------------------------
+    # 3. SYMBOL + DIRECTION JIT VALIDATION
+    # --------------------------------------------------------
+
+    if r15_symbol != SYMBOL:
+        result["reason"] = (
+            "R1.5_SYMBOL_MISMATCH"
+        )
+
+        log(
+            "WRITE.PY-R1.5: "
+            "JIT SYMBOL CHECK = FAIL"
+        )
+
+        return result
+
+    if r15_direction not in {
         "LONG",
         "SHORT",
     }:
-        result["validated"] = False
         result["reason"] = (
-            "R1.4_INVALID_DIRECTION"
+            "R1.5_INVALID_DIRECTION"
         )
 
         log(
-            "WRITE.PY-R1.4: "
-            "PRODUCTION REQUEST = REJECTED"
-        )
-
-        log(
-            "WRITE.PY-R1.4: "
-            "REASON = INVALID_DIRECTION"
+            "WRITE.PY-R1.5: "
+            "JIT DIRECTION CHECK = FAIL"
         )
 
         return result
 
-    if r14_symbol != SYMBOL:
-        result["validated"] = False
+    log(
+        "WRITE.PY-R1.5: "
+        "JIT SYMBOL CHECK = PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.5: "
+        "JIT DIRECTION CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 4. QUANTITY JIT VALIDATION
+    # --------------------------------------------------------
+
+    if r15_quantity <= 0:
         result["reason"] = (
-            "R1.4_SYMBOL_MISMATCH"
+            "R1.5_INVALID_QUANTITY"
         )
 
         log(
-            "WRITE.PY-R1.4: "
-            "PRODUCTION REQUEST = REJECTED"
-        )
-
-        log(
-            "WRITE.PY-R1.4: "
-            "REASON = SYMBOL_MISMATCH"
-        )
-
-        return result
-
-    if r14_quantity <= 0:
-        result["validated"] = False
-        result["reason"] = (
-            "R1.4_INVALID_QUANTITY"
-        )
-
-        log(
-            "WRITE.PY-R1.4: "
-            "PRODUCTION REQUEST = REJECTED"
+            "WRITE.PY-R1.5: "
+            "JIT QUANTITY CHECK = FAIL"
         )
 
         return result
 
     if (
-        r14_entry_price <= 0
-        or r14_tp1 <= 0
-        or r14_tp2 <= 0
-        or r14_stop <= 0
+        r15_quantity
+        !=
+        quantize_down(
+            r15_quantity,
+            QUANTITY_STEP,
+        )
     ):
-        result["validated"] = False
         result["reason"] = (
-            "R1.4_NON_POSITIVE_PRICE"
+            "R1.5_QUANTITY_STEP_FAILURE"
         )
 
         log(
-            "WRITE.PY-R1.4: "
-            "PRODUCTION REQUEST = REJECTED"
+            "WRITE.PY-R1.5: "
+            "JIT QUANTITY STEP = FAIL"
         )
 
         return result
 
-    if r14_direction == "LONG":
-        r14_side = "BUY"
-        r14_position_side = "LONG"
+    log(
+        "WRITE.PY-R1.5: "
+        "JIT QUANTITY CHECK = PASS"
+    )
 
-        r14_price_structure_valid = (
-            r14_stop
-            < r14_entry_price
-            < r14_tp1
-            < r14_tp2
+    # --------------------------------------------------------
+    # 5. PRICE JIT VALIDATION
+    # --------------------------------------------------------
+
+    if (
+        r15_entry_price <= 0
+        or
+        r15_tp1 <= 0
+        or
+        r15_tp2 <= 0
+        or
+        r15_stop <= 0
+    ):
+        result["reason"] = (
+            "R1.5_NON_POSITIVE_PRICE"
+        )
+
+        log(
+            "WRITE.PY-R1.5: "
+            "JIT PRICE CHECK = FAIL"
+        )
+
+        return result
+
+    if r15_direction == "LONG":
+        r15_side = "BUY"
+        r15_position_side = "LONG"
+
+        r15_price_structure_ok = bool(
+            r15_stop
+            <
+            r15_entry_price
+            <
+            r15_tp1
+            <
+            r15_tp2
         )
 
     else:
-        r14_side = "SELL"
-        r14_position_side = "SHORT"
+        r15_side = "SELL"
+        r15_position_side = "SHORT"
 
-        r14_price_structure_valid = (
-            r14_tp2
-            < r14_tp1
-            < r14_entry_price
-            < r14_stop
+        r15_price_structure_ok = bool(
+            r15_tp2
+            <
+            r15_tp1
+            <
+            r15_entry_price
+            <
+            r15_stop
         )
 
-    if not r14_price_structure_valid:
-        result["validated"] = False
+    if not r15_price_structure_ok:
         result["reason"] = (
-            "R1.4_INVALID_PRICE_STRUCTURE"
+            "R1.5_INVALID_PRICE_STRUCTURE"
         )
 
         log(
-            "WRITE.PY-R1.4: "
-            "PRODUCTION REQUEST = REJECTED"
-        )
-
-        log(
-            "WRITE.PY-R1.4: "
-            "REASON = INVALID_PRICE_STRUCTURE"
+            "WRITE.PY-R1.5: "
+            "JIT PRICE STRUCTURE = FAIL"
         )
 
         return result
 
-    r14_identity_material = {
+    log(
+        "WRITE.PY-R1.5: "
+        "JIT PRICE STRUCTURE = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 6. DETERMINISTIC ORDER IDENTITY
+    # --------------------------------------------------------
+
+    r15_identity_material = {
         "symbol":
-            r14_symbol,
+            r15_symbol,
 
         "direction":
-            r14_direction,
+            r15_direction,
 
         "entry_price":
             decimal_to_string(
-                r14_entry_price
+                r15_entry_price
             ),
 
         "quantity":
             decimal_to_string(
-                r14_quantity
+                r15_quantity
             ),
 
         "tp1":
             decimal_to_string(
-                r14_tp1
+                r15_tp1
             ),
 
         "tp2":
             decimal_to_string(
-                r14_tp2
+                r15_tp2
             ),
 
         "stop_price":
             decimal_to_string(
-                r14_stop
+                r15_stop
             ),
 
         "source_instruction_sha256":
-            instruction.get(
-                "instruction_sha256"
-            ),
+            r15_source_hash,
     }
 
-    r14_identity_sha256 = sha256_text(
+    r15_identity_sha256 = sha256_text(
         canonical_json(
-            r14_identity_material
+            r15_identity_material
         )
     )
 
-    r14_client_order_id = (
-        "R14-"
-        + (
+    r15_client_order_id = (
+        "R15-"
+        +
+        (
             "L-"
-            if r14_direction == "LONG"
-            else "S-"
+            if
+            r15_direction == "LONG"
+            else
+            "S-"
         )
-        + r14_identity_sha256[
+        +
+        r15_identity_sha256[
             :20
         ].upper()
     )
 
-    if len(r14_client_order_id) > 36:
-        result["validated"] = False
+    if (
+        not r15_client_order_id
+        or
+        len(
+            r15_client_order_id
+        ) > 36
+    ):
         result["reason"] = (
-            "R1.4_CLIENT_ID_TOO_LONG"
+            "R1.5_CLIENT_ORDER_ID_INVALID"
         )
 
         log(
-            "WRITE.PY-R1.4: "
-            "PRODUCTION REQUEST = REJECTED"
+            "WRITE.PY-R1.5: "
+            "CLIENT ORDER ID CHECK = FAIL"
         )
 
         return result
 
-    r14_payload = {
+    log(
+        "WRITE.PY-R1.5: "
+        "CLIENT ORDER ID CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 7. PRODUCTION REQUEST CANDIDATE
+    # --------------------------------------------------------
+
+    r15_method = "POST"
+
+    r15_endpoint = (
+        "/capi/v2/order"
+    )
+
+    r15_payload = {
         "symbol":
-            r14_symbol,
+            r15_symbol,
 
         "side":
-            r14_side,
+            r15_side,
 
         "positionSide":
-            r14_position_side,
+            r15_position_side,
 
         "type":
             "MARKET",
 
         "quantity":
             decimal_to_string(
-                r14_quantity
+                r15_quantity
             ),
 
         "newClientOrderId":
-            r14_client_order_id,
+            r15_client_order_id,
 
         "tpTriggerPrice":
             decimal_to_string(
-                r14_tp1
+                r15_tp1
             ),
 
         "slTriggerPrice":
             decimal_to_string(
-                r14_stop
+                r15_stop
             ),
 
         "TpWorkingType":
@@ -7421,67 +7597,204 @@ def r13_connect_real_engine(
             "MARK_PRICE",
     }
 
-    r14_payload_sha256 = sha256_text(
+    # --------------------------------------------------------
+    # 8. REQUIRED PAYLOAD FIELD VALIDATION
+    # --------------------------------------------------------
+
+    r15_required_fields = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+        "tpTriggerPrice",
+        "slTriggerPrice",
+        "TpWorkingType",
+        "SlWorkingType",
+    }
+
+    r15_present_fields = set(
+        r15_payload.keys()
+    )
+
+    r15_missing_fields = sorted(
+        r15_required_fields
+        -
+        r15_present_fields
+    )
+
+    if r15_missing_fields:
+        result["reason"] = (
+            "R1.5_REQUIRED_FIELDS_MISSING"
+        )
+
+        log(
+            "WRITE.PY-R1.5: "
+            "PAYLOAD FIELD CHECK = FAIL"
+        )
+
+        log(
+            "WRITE.PY-R1.5: "
+            "MISSING FIELDS = "
+            + str(
+                r15_missing_fields
+            )
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.5: "
+        "PAYLOAD FIELD CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 9. METHOD + ENDPOINT BOUNDARY VALIDATION
+    # --------------------------------------------------------
+
+    r15_method_ok = bool(
+        r15_method == "POST"
+    )
+
+    r15_endpoint_ok = bool(
+        isinstance(
+            r15_endpoint,
+            str,
+        )
+        and
+        r15_endpoint.startswith(
+            "/"
+        )
+        and
+        len(
+            r15_endpoint
+        ) > 1
+    )
+
+    if not r15_method_ok:
+        result["reason"] = (
+            "R1.5_METHOD_INVALID"
+        )
+
+        log(
+            "WRITE.PY-R1.5: "
+            "HTTP METHOD CHECK = FAIL"
+        )
+
+        return result
+
+    if not r15_endpoint_ok:
+        result["reason"] = (
+            "R1.5_ENDPOINT_INVALID"
+        )
+
+        log(
+            "WRITE.PY-R1.5: "
+            "ENDPOINT CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.5: "
+        "HTTP METHOD CHECK = PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.5: "
+        "ENDPOINT CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 10. REQUEST INTEGRITY HASH
+    # --------------------------------------------------------
+
+    r15_request_material = {
+        "method":
+            r15_method,
+
+        "endpoint":
+            r15_endpoint,
+
+        "payload":
+            r15_payload,
+
+        "source_instruction_sha256":
+            r15_source_hash,
+    }
+
+    r15_request_sha256 = sha256_text(
         canonical_json(
-            r14_payload
+            r15_request_material
         )
     )
 
-    r14_request = {
-        "stage":
-            "WRITE.PY-R1.4",
+    if not r15_request_sha256:
+        result["reason"] = (
+            "R1.5_REQUEST_HASH_FAILURE"
+        )
 
-        "method":
-            "POST",
+        log(
+            "WRITE.PY-R1.5: "
+            "REQUEST HASH CHECK = FAIL"
+        )
 
-        "endpoint":
-            "/capi/v2/order",
+        return result
 
-        "payload":
-            r14_payload,
+    log(
+        "WRITE.PY-R1.5: "
+        "REQUEST HASH CHECK = PASS"
+    )
 
-        "entry_reference_price":
-            decimal_to_string(
-                r14_entry_price
-            ),
+    # --------------------------------------------------------
+    # 11. REPLAY / IDEMPOTENCY IDENTITY
+    # --------------------------------------------------------
+    #
+    # This stage does not submit or journal a real order.
+    #
+    # It proves that identical immutable instructions generate
+    # the same deterministic identity, which can be checked
+    # against the durable production journal before any future
+    # real POST is authorized.
+    # --------------------------------------------------------
 
-        "tp2":
-            decimal_to_string(
-                r14_tp2
-            ),
+    r15_replay_identity = (
+        r15_client_order_id
+        + ":"
+        + r15_request_sha256
+    )
 
-        "tp3":
-            None,
+    r15_replay_identity_ok = bool(
+        r15_client_order_id
+        and
+        r15_request_sha256
+        and
+        r15_source_hash
+    )
 
-        "tp3_policy":
-            instruction.get(
-                "tp3_policy"
-            ),
+    if not r15_replay_identity_ok:
+        result["reason"] = (
+            "R1.5_REPLAY_IDENTITY_FAILURE"
+        )
 
-        "allocation":
-            instruction.get(
-                "allocation"
-            ),
+        log(
+            "WRITE.PY-R1.5: "
+            "REPLAY IDENTITY CHECK = FAIL"
+        )
 
-        "source_instruction_sha256":
-            instruction.get(
-                "instruction_sha256"
-            ),
+        return result
 
-        "request_sha256":
-            r14_payload_sha256,
+    log(
+        "WRITE.PY-R1.5: "
+        "REPLAY IDENTITY CHECK = PASS"
+    )
 
-        "production_transport_enabled":
-            False,
+    # --------------------------------------------------------
+    # 12. PRODUCTION FIREBREAK VALIDATION
+    # --------------------------------------------------------
 
-        "submitted":
-            False,
-
-        "real_order_sent":
-            False,
-    }
-
-    r14_firebreak_ok = bool(
+    r15_firebreak_ok = bool(
         REAL_ORDER_EXECUTION
         is False
         and
@@ -7510,27 +7823,149 @@ def r13_connect_real_engine(
         is False
     )
 
-    if not r14_firebreak_ok:
-        result["validated"] = False
+    if not r15_firebreak_ok:
         result["reason"] = (
-            "R1.4_PRODUCTION_FIREBREAK_NOT_INTACT"
+            "R1.5_PRODUCTION_FIREBREAK_FAILURE"
         )
 
         log(
-            "WRITE.PY-R1.4: "
-            "PRODUCTION REQUEST = REJECTED"
-        )
-
-        log(
-            "WRITE.PY-R1.4: "
+            "WRITE.PY-R1.5: "
             "PRODUCTION FIREBREAK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.5: "
+        "PRODUCTION FIREBREAK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 13. AUTHENTICATION/SIGNATURE BOUNDARY
+    # --------------------------------------------------------
+    #
+    # R1.5 intentionally does NOT calculate or transmit a
+    # live production signature.
+    #
+    # It freezes the exact material that the production
+    # transport layer would receive.
+    # --------------------------------------------------------
+
+    r15_transport_boundary = {
+        "stage":
+            "WRITE.PY-R1.5",
+
+        "method":
+            r15_method,
+
+        "endpoint":
+            r15_endpoint,
+
+        "payload":
+            r15_payload,
+
+        "entry_reference_price":
+            decimal_to_string(
+                r15_entry_price
+            ),
+
+        "tp2":
+            decimal_to_string(
+                r15_tp2
+            ),
+
+        "tp3":
+            None,
+
+        "tp3_policy":
+            instruction.get(
+                "tp3_policy"
+            ),
+
+        "allocation":
+            instruction.get(
+                "allocation"
+            ),
+
+        "source_instruction_sha256":
+            r15_source_hash,
+
+        "identity_sha256":
+            r15_identity_sha256,
+
+        "request_sha256":
+            r15_request_sha256,
+
+        "replay_identity":
+            r15_replay_identity,
+
+        "client_order_id":
+            r15_client_order_id,
+
+        "authentication_boundary":
+            "VALIDATION_ONLY",
+
+        "signature_generated":
+            False,
+
+        "transport_enabled":
+            False,
+
+        "submitted":
+            False,
+
+        "real_order_sent":
+            False,
+
+        "production_mutation_sent":
+            False,
+    }
+
+    # --------------------------------------------------------
+    # 14. FINAL R1.5 VALIDATION
+    # --------------------------------------------------------
+
+    r15_final_ok = bool(
+        r15_symbol == SYMBOL
+        and
+        r15_direction
+        in {
+            "LONG",
+            "SHORT",
+        }
+        and
+        r15_quantity > 0
+        and
+        r15_price_structure_ok
+        and
+        r15_method_ok
+        and
+        r15_endpoint_ok
+        and
+        not r15_missing_fields
+        and
+        r15_request_sha256
+        and
+        r15_replay_identity_ok
+        and
+        r15_firebreak_ok
+    )
+
+    if not r15_final_ok:
+        result["reason"] = (
+            "R1.5_FINAL_BOUNDARY_VALIDATION_FAILED"
+        )
+
+        log(
+            "WRITE.PY-R1.5: "
+            "FINAL VALIDATION = FAIL"
         )
 
         return result
 
     result[
         "production_request"
-    ] = r14_request
+    ] = r15_transport_boundary
 
     result[
         "production_request_ready"
@@ -7541,113 +7976,147 @@ def r13_connect_real_engine(
     ] = False
 
     result[
+        "transport_boundary_ready"
+    ] = True
+
+    result[
         "production_firebreak"
     ] = True
 
+    result[
+        "validated"
+    ] = True
+
     result["reason"] = (
-        "R1.4_PRODUCTION_REQUEST_READY_NOT_SENT"
+        "R1.5_TRANSPORT_BOUNDARY_READY_NOT_SENT"
     )
 
+    # --------------------------------------------------------
+    # 15. R1.5 TERMINAL LOG
+    # --------------------------------------------------------
+
     log(
-        "WRITE.PY-R1.4: "
+        "WRITE.PY-R1.5: "
         "REAL ENGINE BRIDGE = PASS"
     )
 
     log(
-        "WRITE.PY-R1.4: "
+        "WRITE.PY-R1.5: "
         "DIRECTION = "
-        + r14_direction
+        + r15_direction
     )
 
     log(
-        "WRITE.PY-R1.4: "
+        "WRITE.PY-R1.5: "
         "SYMBOL = "
-        + r14_symbol
+        + r15_symbol
     )
 
     log(
-        "WRITE.PY-R1.4: "
+        "WRITE.PY-R1.5: "
         "ENTRY REFERENCE = "
         + decimal_to_string(
-            r14_entry_price
+            r15_entry_price
         )
     )
 
     log(
-        "WRITE.PY-R1.4: "
+        "WRITE.PY-R1.5: "
         "QUANTITY = "
         + decimal_to_string(
-            r14_quantity
+            r15_quantity
         )
     )
 
     log(
-        "WRITE.PY-R1.4: "
+        "WRITE.PY-R1.5: "
         "TP1 = "
         + decimal_to_string(
-            r14_tp1
+            r15_tp1
         )
     )
 
     log(
-        "WRITE.PY-R1.4: "
+        "WRITE.PY-R1.5: "
         "TP2 = "
         + decimal_to_string(
-            r14_tp2
+            r15_tp2
         )
     )
 
     log(
-        "WRITE.PY-R1.4: "
+        "WRITE.PY-R1.5: "
         "STOP = "
         + decimal_to_string(
-            r14_stop
+            r15_stop
         )
     )
 
     log(
-        "WRITE.PY-R1.4: "
+        "WRITE.PY-R1.5: "
         "CLIENT ORDER ID = "
-        + r14_client_order_id
+        + r15_client_order_id
     )
 
     log(
-        "WRITE.PY-R1.4: "
+        "WRITE.PY-R1.5: "
         "REQUEST SHA256 = "
-        + r14_payload_sha256
+        + r15_request_sha256
     )
 
     log(
-        "WRITE.PY-R1.4: "
-        "PRODUCTION REQUEST = READY_NOT_SENT"
+        "WRITE.PY-R1.5: "
+        "REPLAY IDENTITY = "
+        + r15_replay_identity
     )
 
     log(
-        "WRITE.PY-R1.4: "
+        "WRITE.PY-R1.5: "
+        "AUTHENTICATION BOUNDARY = VALIDATION_ONLY"
+    )
+
+    log(
+        "WRITE.PY-R1.5: "
+        "SIGNATURE GENERATED = False"
+    )
+
+    log(
+        "WRITE.PY-R1.5: "
+        "TRANSPORT BOUNDARY = READY_NOT_SENT"
+    )
+
+    log(
+        "WRITE.PY-R1.5: "
         "PRODUCTION FIREBREAK = True"
     )
 
     log(
-        "WRITE.PY-R1.4: "
+        "WRITE.PY-R1.5: "
         "REAL_ORDER_EXECUTION = False"
     )
 
     log(
-        "WRITE.PY-R1.4: "
+        "WRITE.PY-R1.5: "
         "WRITE_TRANSPORT = False"
     )
 
     log(
-        "WRITE.PY-R1.4: "
+        "WRITE.PY-R1.5: "
         "NO REAL ORDER WAS SENT"
     )
 
     log(
-        "WRITE.PY-R1.4: "
+        "WRITE.PY-R1.5: "
         "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
     )
 
+    log(
+        "WRITE.PY-R1.5: "
+        "FINAL STATUS = PASS"
+    )
+
     return result
+    
     
 async def run_r36f12():
     global TEST_STATUS
