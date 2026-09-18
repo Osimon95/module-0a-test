@@ -7134,84 +7134,76 @@ def r13_connect_real_engine(
         )
     )
 
-      # ========================================================
-    # WRITE.PY-R1.6
-    # ONE-TIME PRODUCTION CANARY AUTHORIZATION GATE
+    # ========================================================    # ========================================================
+    # WRITE.PY-R1.7
+    # PRODUCTION AUTHENTICATION + SIGNATURE BOUNDARY
+    # FINAL REQUEST CONSTRUCTION
     # ZERO-WRITE VALIDATION
     # ========================================================
     #
     # PURPOSE:
-    # - Preserve the R1.5 transport-boundary validation.
-    # - Build the immutable production request candidate.
-    # - Require an explicit production-canary arm.
-    # - Bind authorization to the exact request SHA256.
-    # - Apply a short authorization expiry.
-    # - Create deterministic replay identity.
-    # - Prove the arm can be consumed only once.
+    # - Preserve the passed R1.6 production-canary gate.
+    # - Preserve the immutable real-engine instruction.
+    # - Rebuild the exact production request candidate.
+    # - Validate production credentials are present.
+    # - Canonicalize the exact POST body.
+    # - Construct the WEEX authentication prehash.
+    # - Generate the real HMAC-SHA256/Base64 signature.
+    # - Recompute the signature independently and compare it.
+    # - Build the final authenticated request representation.
+    # - Bind authentication to the exact request identity.
+    # - KEEP ALL PRODUCTION TRANSPORT PHYSICALLY DISABLED.
     #
-    # CRITICAL R1.6 RULE:
+    # CRITICAL:
     #
-    # EVEN WHEN THE CANARY IS ARMED AND ALL CHECKS PASS,
-    # THIS STAGE DOES NOT SEND THE REQUEST.
+    # R1.7 DOES NOT SEND THE REQUEST.
     #
+    # NO session.post()
     # NO requests.post()
     # NO requests.request()
-    # NO production POST
-    # NO exchange mutation
-    # NO real-money order
-    #
-    # R1.6 terminal success:
-    #
-    # CANARY_AUTHORIZATION = VALIDATED_NOT_SENT
+    # NO production exchange mutation.
+    # NO real-money order.
     #
     # ========================================================
 
     result["validated"] = False
-    result["reason"] = "R1.6_NOT_YET_VALIDATED"
+    result["reason"] = "R1.7_NOT_YET_VALIDATED"
 
     log(
-        "WRITE.PY-R1.6: "
-        "ONE-TIME PRODUCTION CANARY AUTHORIZATION START"
+        "WRITE.PY-R1.7: "
+        "PRODUCTION AUTHENTICATION BOUNDARY START"
     )
 
     # --------------------------------------------------------
-    # 1. EXISTING PRODUCTION FIREBREAK MUST REMAIN CLOSED
+    # 1. PRODUCTION FIREBREAK
     # --------------------------------------------------------
 
-    r16_firebreak_ok = bool(
+    r17_firebreak_ok = bool(
         REAL_ORDER_EXECUTION is False
-        and
-        EXCHANGE_MUTATION_TRANSPORT_ENABLED is False
-        and
-        ORDER_SUBMISSION_ENABLED is False
-        and
-        LEVERAGE_MUTATION_ENABLED is False
-        and
-        MARGIN_MODE_MUTATION_ENABLED is False
-        and
-        POSITION_MUTATION_ENABLED is False
-        and
-        FIRST_REAL_ORDER_ALLOWED is False
-        and
-        R36F15103_REAL_ORDER_EXECUTION is False
-        and
-        R36F15103_WRITE_TRANSPORT is False
+        and EXCHANGE_MUTATION_TRANSPORT_ENABLED is False
+        and ORDER_SUBMISSION_ENABLED is False
+        and LEVERAGE_MUTATION_ENABLED is False
+        and MARGIN_MODE_MUTATION_ENABLED is False
+        and POSITION_MUTATION_ENABLED is False
+        and FIRST_REAL_ORDER_ALLOWED is False
+        and R36F15103_REAL_ORDER_EXECUTION is False
+        and R36F15103_WRITE_TRANSPORT is False
     )
 
-    if not r16_firebreak_ok:
+    if not r17_firebreak_ok:
         result["reason"] = (
-            "R1.6_PRODUCTION_FIREBREAK_FAILURE"
+            "R1.7_PRODUCTION_FIREBREAK_FAILURE"
         )
 
         log(
-            "WRITE.PY-R1.6: "
+            "WRITE.PY-R1.7: "
             "PRODUCTION FIREBREAK = FAIL"
         )
 
         return result
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "PRODUCTION FIREBREAK = PASS"
     )
 
@@ -7221,57 +7213,60 @@ def r13_connect_real_engine(
 
     if not isinstance(instruction, dict):
         result["reason"] = (
-            "R1.6_INSTRUCTION_NOT_DICT"
+            "R1.7_INSTRUCTION_NOT_DICT"
         )
 
         log(
-            "WRITE.PY-R1.6: "
+            "WRITE.PY-R1.7: "
             "INSTRUCTION CHECK = FAIL"
         )
 
         return result
 
-    r16_source_hash = instruction.get(
-        "instruction_sha256"
-    )
+    r17_source_hash = str(
+        instruction.get(
+            "instruction_sha256"
+        )
+        or ""
+    ).strip()
 
-    if not r16_source_hash:
+    if not r17_source_hash:
         result["reason"] = (
-            "R1.6_SOURCE_HASH_MISSING"
+            "R1.7_SOURCE_HASH_MISSING"
         )
 
         log(
-            "WRITE.PY-R1.6: "
+            "WRITE.PY-R1.7: "
             "SOURCE HASH CHECK = FAIL"
         )
 
         return result
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "IMMUTABLE INSTRUCTION RECEIVED"
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "SOURCE INSTRUCTION SHA256 = "
-        + str(r16_source_hash)
+        + r17_source_hash
     )
 
     # --------------------------------------------------------
-    # 3. NORMALIZE CURRENT INSTRUCTION
+    # 3. NORMALIZE INSTRUCTION
     # --------------------------------------------------------
 
-    r16_symbol = str(
+    r17_symbol = str(
         instruction.get("symbol") or ""
     ).strip().upper()
 
-    r16_direction = str(
+    r17_direction = str(
         instruction.get("direction") or ""
     ).strip().upper()
 
     try:
-        r16_entry = quantize_down(
+        r17_entry = quantize_down(
             D(
                 instruction.get(
                     "entry_price"
@@ -7281,7 +7276,7 @@ def r13_connect_real_engine(
             PRICE_STEP,
         )
 
-        r16_quantity = quantize_down(
+        r17_quantity = quantize_down(
             D(
                 instruction.get(
                     "quantity"
@@ -7291,7 +7286,7 @@ def r13_connect_real_engine(
             QUANTITY_STEP,
         )
 
-        r16_tp1 = quantize_down(
+        r17_tp1 = quantize_down(
             D(
                 instruction.get(
                     "tp1"
@@ -7301,7 +7296,7 @@ def r13_connect_real_engine(
             PRICE_STEP,
         )
 
-        r16_tp2 = quantize_down(
+        r17_tp2 = quantize_down(
             D(
                 instruction.get(
                     "tp2"
@@ -7311,7 +7306,7 @@ def r13_connect_real_engine(
             PRICE_STEP,
         )
 
-        r16_stop = quantize_down(
+        r17_stop = quantize_down(
             D(
                 instruction.get(
                     "stop_price"
@@ -7323,11 +7318,11 @@ def r13_connect_real_engine(
 
     except Exception as exc:
         result["reason"] = (
-            "R1.6_NORMALIZATION_FAILED"
+            "R1.7_NORMALIZATION_FAILED"
         )
 
         log(
-            "WRITE.PY-R1.6: "
+            "WRITE.PY-R1.7: "
             "NORMALIZATION ERROR = "
             + str(exc)
         )
@@ -7338,57 +7333,57 @@ def r13_connect_real_engine(
     # 4. JIT SYMBOL / DIRECTION / QUANTITY
     # --------------------------------------------------------
 
-    if r16_symbol != SYMBOL:
+    if r17_symbol != SYMBOL:
         result["reason"] = (
-            "R1.6_SYMBOL_MISMATCH"
+            "R1.7_SYMBOL_MISMATCH"
         )
 
         log(
-            "WRITE.PY-R1.6: "
+            "WRITE.PY-R1.7: "
             "JIT SYMBOL CHECK = FAIL"
         )
 
         return result
 
-    if r16_direction not in {
+    if r17_direction not in {
         "LONG",
         "SHORT",
     }:
         result["reason"] = (
-            "R1.6_INVALID_DIRECTION"
+            "R1.7_INVALID_DIRECTION"
         )
 
         log(
-            "WRITE.PY-R1.6: "
+            "WRITE.PY-R1.7: "
             "JIT DIRECTION CHECK = FAIL"
         )
 
         return result
 
-    if r16_quantity <= 0:
+    if r17_quantity <= 0:
         result["reason"] = (
-            "R1.6_INVALID_QUANTITY"
+            "R1.7_INVALID_QUANTITY"
         )
 
         log(
-            "WRITE.PY-R1.6: "
+            "WRITE.PY-R1.7: "
             "JIT QUANTITY CHECK = FAIL"
         )
 
         return result
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "JIT SYMBOL CHECK = PASS"
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "JIT DIRECTION CHECK = PASS"
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "JIT QUANTITY CHECK = PASS"
     )
 
@@ -7397,187 +7392,177 @@ def r13_connect_real_engine(
     # --------------------------------------------------------
 
     if (
-        r16_entry <= 0
-        or
-        r16_tp1 <= 0
-        or
-        r16_tp2 <= 0
-        or
-        r16_stop <= 0
+        r17_entry <= 0
+        or r17_tp1 <= 0
+        or r17_tp2 <= 0
+        or r17_stop <= 0
     ):
         result["reason"] = (
-            "R1.6_NON_POSITIVE_PRICE"
+            "R1.7_NON_POSITIVE_PRICE"
         )
 
         log(
-            "WRITE.PY-R1.6: "
+            "WRITE.PY-R1.7: "
             "JIT PRICE CHECK = FAIL"
         )
 
         return result
 
-    if r16_direction == "LONG":
-        r16_side = "BUY"
-        r16_position_side = "LONG"
+    if r17_direction == "LONG":
+        r17_side = "BUY"
+        r17_position_side = "LONG"
 
-        r16_price_structure_ok = bool(
-            r16_stop
-            <
-            r16_entry
-            <
-            r16_tp1
-            <
-            r16_tp2
+        r17_price_structure_ok = bool(
+            r17_stop
+            < r17_entry
+            < r17_tp1
+            < r17_tp2
         )
 
     else:
-        r16_side = "SELL"
-        r16_position_side = "SHORT"
+        r17_side = "SELL"
+        r17_position_side = "SHORT"
 
-        r16_price_structure_ok = bool(
-            r16_tp2
-            <
-            r16_tp1
-            <
-            r16_entry
-            <
-            r16_stop
+        r17_price_structure_ok = bool(
+            r17_tp2
+            < r17_tp1
+            < r17_entry
+            < r17_stop
         )
 
-    if not r16_price_structure_ok:
+    if not r17_price_structure_ok:
         result["reason"] = (
-            "R1.6_INVALID_PRICE_STRUCTURE"
+            "R1.7_INVALID_PRICE_STRUCTURE"
         )
 
         log(
-            "WRITE.PY-R1.6: "
+            "WRITE.PY-R1.7: "
             "JIT PRICE STRUCTURE = FAIL"
         )
 
         return result
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "JIT PRICE STRUCTURE = PASS"
     )
 
     # --------------------------------------------------------
-    # 6. BUILD DETERMINISTIC REQUEST IDENTITY
+    # 6. DETERMINISTIC CLIENT ORDER ID
     # --------------------------------------------------------
 
-    r16_identity_material = {
+    r17_identity_material = {
         "symbol":
-            r16_symbol,
+            r17_symbol,
 
         "direction":
-            r16_direction,
+            r17_direction,
 
         "entry_price":
             decimal_to_string(
-                r16_entry
+                r17_entry
             ),
 
         "quantity":
             decimal_to_string(
-                r16_quantity
+                r17_quantity
             ),
 
         "tp1":
             decimal_to_string(
-                r16_tp1
+                r17_tp1
             ),
 
         "tp2":
             decimal_to_string(
-                r16_tp2
+                r17_tp2
             ),
 
         "stop_price":
             decimal_to_string(
-                r16_stop
+                r17_stop
             ),
 
         "source_instruction_sha256":
-            r16_source_hash,
+            r17_source_hash,
     }
 
-    r16_identity_sha256 = sha256_text(
+    r17_identity_sha256 = sha256_text(
         canonical_json(
-            r16_identity_material
+            r17_identity_material
         )
     )
 
-    r16_client_order_id = (
-        "R16-"
+    r17_client_order_id = (
+        "R17-"
         +
         (
             "L-"
-            if r16_direction == "LONG"
+            if r17_direction == "LONG"
             else "S-"
         )
         +
-        r16_identity_sha256[
+        r17_identity_sha256[
             :20
         ].upper()
     )
 
     if (
-        not r16_client_order_id
-        or
-        len(r16_client_order_id) > 36
+        not r17_client_order_id
+        or len(r17_client_order_id) > 36
     ):
         result["reason"] = (
-            "R1.6_CLIENT_ORDER_ID_INVALID"
+            "R1.7_CLIENT_ORDER_ID_INVALID"
         )
 
         log(
-            "WRITE.PY-R1.6: "
+            "WRITE.PY-R1.7: "
             "CLIENT ORDER ID CHECK = FAIL"
         )
 
         return result
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "CLIENT ORDER ID CHECK = PASS"
     )
 
     # --------------------------------------------------------
-    # 7. CONSTRUCT PRODUCTION REQUEST CANDIDATE
+    # 7. EXACT PRODUCTION REQUEST CANDIDATE
     # --------------------------------------------------------
 
-    r16_method = "POST"
-    r16_endpoint = "/capi/v2/order"
+    r17_method = "POST"
+    r17_endpoint = "/capi/v2/order"
 
-    r16_payload = {
+    r17_payload = {
         "symbol":
-            r16_symbol,
+            r17_symbol,
 
         "side":
-            r16_side,
+            r17_side,
 
         "positionSide":
-            r16_position_side,
+            r17_position_side,
 
         "type":
             "MARKET",
 
         "quantity":
             decimal_to_string(
-                r16_quantity
+                r17_quantity
             ),
 
         "newClientOrderId":
-            r16_client_order_id,
+            r17_client_order_id,
 
         "tpTriggerPrice":
             decimal_to_string(
-                r16_tp1
+                r17_tp1
             ),
 
         "slTriggerPrice":
             decimal_to_string(
-                r16_stop
+                r17_stop
             ),
 
         "TpWorkingType":
@@ -7587,7 +7572,7 @@ def r13_connect_real_engine(
             "MARK_PRICE",
     }
 
-    r16_required_fields = {
+    r17_required_fields = {
         "symbol",
         "side",
         "positionSide",
@@ -7600,492 +7585,797 @@ def r13_connect_real_engine(
         "SlWorkingType",
     }
 
-    r16_missing_fields = sorted(
-        r16_required_fields
+    r17_missing_fields = sorted(
+        r17_required_fields
         -
-        set(r16_payload.keys())
+        set(r17_payload.keys())
     )
 
-    if r16_missing_fields:
+    if r17_missing_fields:
         result["reason"] = (
-            "R1.6_REQUIRED_FIELDS_MISSING"
+            "R1.7_REQUIRED_FIELDS_MISSING"
         )
 
         log(
-            "WRITE.PY-R1.6: "
+            "WRITE.PY-R1.7: "
             "PAYLOAD FIELD CHECK = FAIL"
         )
 
         return result
 
+    if (
+        r17_method != "POST"
+        or not r17_endpoint.startswith("/")
+    ):
+        result["reason"] = (
+            "R1.7_REQUEST_TARGET_INVALID"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "REQUEST TARGET CHECK = FAIL"
+        )
+
+        return result
+
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "PAYLOAD FIELD CHECK = PASS"
     )
 
-    # --------------------------------------------------------
-    # 8. METHOD + ENDPOINT
-    # --------------------------------------------------------
-
-    r16_method_ok = bool(
-        r16_method == "POST"
-    )
-
-    r16_endpoint_ok = bool(
-        isinstance(
-            r16_endpoint,
-            str,
-        )
-        and
-        r16_endpoint.startswith("/")
-        and
-        len(r16_endpoint) > 1
-    )
-
-    if not r16_method_ok:
-        result["reason"] = (
-            "R1.6_METHOD_INVALID"
-        )
-
-        log(
-            "WRITE.PY-R1.6: "
-            "HTTP METHOD CHECK = FAIL"
-        )
-
-        return result
-
-    if not r16_endpoint_ok:
-        result["reason"] = (
-            "R1.6_ENDPOINT_INVALID"
-        )
-
-        log(
-            "WRITE.PY-R1.6: "
-            "ENDPOINT CHECK = FAIL"
-        )
-
-        return result
-
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "HTTP METHOD CHECK = PASS"
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "ENDPOINT CHECK = PASS"
     )
 
     # --------------------------------------------------------
-    # 9. REQUEST SHA256
+    # 8. CANONICAL BODY
     # --------------------------------------------------------
 
-    r16_request_material = {
-        "method":
-            r16_method,
-
-        "endpoint":
-            r16_endpoint,
-
-        "payload":
-            r16_payload,
-
-        "source_instruction_sha256":
-            r16_source_hash,
-    }
-
-    r16_request_sha256 = sha256_text(
-        canonical_json(
-            r16_request_material
-        )
+    r17_body = canonical_json(
+        r17_payload
     )
 
-    if not r16_request_sha256:
+    r17_body_sha256 = sha256_text(
+        r17_body
+    )
+
+    r17_body_repeat = canonical_json(
+        r17_payload
+    )
+
+    r17_canonical_body_ok = bool(
+        r17_body
+        and
+        r17_body
+        ==
+        r17_body_repeat
+    )
+
+    if not r17_canonical_body_ok:
         result["reason"] = (
-            "R1.6_REQUEST_HASH_FAILURE"
+            "R1.7_CANONICAL_BODY_FAILURE"
         )
 
         log(
-            "WRITE.PY-R1.6: "
-            "REQUEST HASH CHECK = FAIL"
+            "WRITE.PY-R1.7: "
+            "CANONICAL BODY CHECK = FAIL"
         )
 
         return result
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
+        "CANONICAL BODY CHECK = PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "BODY SHA256 = "
+        + r17_body_sha256
+    )
+
+    # --------------------------------------------------------
+    # 9. REQUEST SHA256 + REPLAY IDENTITY
+    # --------------------------------------------------------
+
+    r17_request_material = {
+        "method":
+            r17_method,
+
+        "endpoint":
+            r17_endpoint,
+
+        "body_sha256":
+            r17_body_sha256,
+
+        "payload":
+            r17_payload,
+
+        "source_instruction_sha256":
+            r17_source_hash,
+    }
+
+    r17_request_sha256 = sha256_text(
+        canonical_json(
+            r17_request_material
+        )
+    )
+
+    r17_replay_identity = (
+        r17_client_order_id
+        + ":"
+        + r17_request_sha256
+    )
+
+    if (
+        not r17_request_sha256
+        or not r17_replay_identity
+    ):
+        result["reason"] = (
+            "R1.7_REQUEST_IDENTITY_FAILURE"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "REQUEST IDENTITY CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
         "REQUEST HASH CHECK = PASS"
     )
 
-    # --------------------------------------------------------
-    # 10. DETERMINISTIC REPLAY IDENTITY
-    # --------------------------------------------------------
-
-    r16_replay_identity = (
-        r16_client_order_id
-        + ":"
-        + r16_request_sha256
-    )
-
-    r16_replay_identity_ok = bool(
-        r16_source_hash
-        and
-        r16_client_order_id
-        and
-        r16_request_sha256
-    )
-
-    if not r16_replay_identity_ok:
-        result["reason"] = (
-            "R1.6_REPLAY_IDENTITY_FAILURE"
-        )
-
-        log(
-            "WRITE.PY-R1.6: "
-            "REPLAY IDENTITY CHECK = FAIL"
-        )
-
-        return result
-
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "REPLAY IDENTITY CHECK = PASS"
     )
 
     # --------------------------------------------------------
-    # 11. ONE-TIME CANARY ARM
+    # 10. PRODUCTION CREDENTIAL PRESENCE
     # --------------------------------------------------------
     #
-    # Environment variable:
-    #
-    # WRITE_R16_CANARY_ARM
-    #
-    # Safe default:
-    #
-    # false
-    #
-    # R1.6 NEVER SENDS AN ORDER EVEN WHEN TRUE.
-    #
-    # It only proves that the authorization layer correctly
-    # recognizes an explicitly requested canary.
+    # IMPORTANT:
+    # Credentials are NEVER printed.
+    # Signature is also not printed.
     # --------------------------------------------------------
 
-    r16_canary_arm = (
+    r17_api_key = (
+        os.getenv(
+            "WEEX_API_KEY",
+            "",
+        ).strip()
+    )
+
+    r17_api_secret = (
+        os.getenv(
+            "WEEX_API_SECRET",
+            "",
+        ).strip()
+    )
+
+    r17_passphrase = (
+        os.getenv(
+            "WEEX_API_PASSPHRASE",
+            "",
+        ).strip()
+    )
+
+    r17_credentials_present = bool(
+        r17_api_key
+        and r17_api_secret
+        and r17_passphrase
+    )
+
+    if not r17_credentials_present:
+        result["reason"] = (
+            "R1.7_PRODUCTION_CREDENTIALS_MISSING"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "PRODUCTION CREDENTIAL CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "PRODUCTION CREDENTIAL CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 11. AUTHENTICATION TIMESTAMP
+    # --------------------------------------------------------
+
+    r17_timestamp = str(
+        int(
+            time.time()
+            * 1000
+        )
+    )
+
+    r17_timestamp_ok = bool(
+        r17_timestamp.isdigit()
+        and len(r17_timestamp) >= 13
+    )
+
+    if not r17_timestamp_ok:
+        result["reason"] = (
+            "R1.7_TIMESTAMP_INVALID"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "TIMESTAMP CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "TIMESTAMP CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 12. EXACT WEEX SIGNATURE PREHASH
+    # --------------------------------------------------------
+
+    r17_prehash = (
+        r17_timestamp
+        +
+        r17_method
+        +
+        r17_endpoint
+        +
+        r17_body
+    )
+
+    r17_prehash_sha256 = sha256_text(
+        r17_prehash
+    )
+
+    if not r17_prehash:
+        result["reason"] = (
+            "R1.7_PREHASH_FAILURE"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "SIGNATURE PREHASH CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "SIGNATURE PREHASH CHECK = PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "PREHASH SHA256 = "
+        + r17_prehash_sha256
+    )
+
+    # --------------------------------------------------------
+    # 13. GENERATE SIGNATURE THROUGH EXISTING AUTH HELPER
+    # --------------------------------------------------------
+
+    try:
+        r17_signature = build_signature(
+            r17_timestamp,
+            r17_method,
+            r17_endpoint,
+            r17_body,
+        )
+
+    except Exception as exc:
+        result["reason"] = (
+            "R1.7_SIGNATURE_GENERATION_FAILED"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "SIGNATURE GENERATION = FAIL "
+            + str(exc)
+        )
+
+        return result
+
+    r17_signature_generated = bool(
+        r17_signature
+    )
+
+    if not r17_signature_generated:
+        result["reason"] = (
+            "R1.7_SIGNATURE_EMPTY"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "SIGNATURE GENERATED = False"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "SIGNATURE GENERATED = True"
+    )
+
+    # --------------------------------------------------------
+    # 14. INDEPENDENT SIGNATURE RECOMPUTATION
+    # --------------------------------------------------------
+
+    r17_manual_digest = hmac.new(
+        r17_api_secret.encode(),
+        r17_prehash.encode(),
+        hashlib.sha256,
+    ).digest()
+
+    r17_signature_repeat = (
+        base64.b64encode(
+            r17_manual_digest
+        ).decode()
+    )
+
+    r17_signature_match = bool(
+        hmac.compare_digest(
+            r17_signature,
+            r17_signature_repeat,
+        )
+    )
+
+    if not r17_signature_match:
+        result["reason"] = (
+            "R1.7_SIGNATURE_RECOMPUTE_MISMATCH"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "SIGNATURE RECOMPUTE CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "SIGNATURE RECOMPUTE CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 15. FINAL AUTHENTICATED HEADER REPRESENTATION
+    # --------------------------------------------------------
+
+    r17_headers = {
+        "ACCESS-KEY":
+            r17_api_key,
+
+        "ACCESS-SIGN":
+            r17_signature,
+
+        "ACCESS-TIMESTAMP":
+            r17_timestamp,
+
+        "ACCESS-PASSPHRASE":
+            r17_passphrase,
+
+        "Content-Type":
+            "application/json",
+    }
+
+    r17_header_fields_ok = bool(
+        r17_headers.get(
+            "ACCESS-KEY"
+        )
+        and
+        r17_headers.get(
+            "ACCESS-SIGN"
+        )
+        and
+        r17_headers.get(
+            "ACCESS-TIMESTAMP"
+        )
+        and
+        r17_headers.get(
+            "ACCESS-PASSPHRASE"
+        )
+        and
+        r17_headers.get(
+            "Content-Type"
+        )
+        ==
+        "application/json"
+    )
+
+    if not r17_header_fields_ok:
+        result["reason"] = (
+            "R1.7_AUTH_HEADER_FAILURE"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "AUTH HEADER CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "AUTH HEADER CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 16. FINAL URL CONSTRUCTION
+    # --------------------------------------------------------
+
+    r17_url = (
+        API_BASE_URL
+        +
+        r17_endpoint
+    )
+
+    r17_url_ok = bool(
+        r17_url.startswith(
+            "https://"
+        )
+        and
+        r17_url.endswith(
+            r17_endpoint
+        )
+    )
+
+    if not r17_url_ok:
+        result["reason"] = (
+            "R1.7_FINAL_URL_INVALID"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "FINAL URL CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "FINAL URL CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 17. AUTHENTICATED REQUEST FINGERPRINT
+    # --------------------------------------------------------
+    #
+    # Do NOT hash raw secrets into persistent authorization
+    # identity. The signature proves credential possession.
+    # --------------------------------------------------------
+
+    r17_authenticated_fingerprint = (
+        sha256_text(
+            canonical_json(
+                {
+                    "method":
+                        r17_method,
+
+                    "endpoint":
+                        r17_endpoint,
+
+                    "timestamp":
+                        r17_timestamp,
+
+                    "body_sha256":
+                        r17_body_sha256,
+
+                    "request_sha256":
+                        r17_request_sha256,
+
+                    "client_order_id":
+                        r17_client_order_id,
+
+                    "signature_present":
+                        True,
+                }
+            )
+        )
+    )
+
+    if not r17_authenticated_fingerprint:
+        result["reason"] = (
+            "R1.7_AUTH_FINGERPRINT_FAILURE"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "AUTHENTICATED REQUEST FINGERPRINT = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "AUTHENTICATED REQUEST FINGERPRINT = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 18. CANARY ARM + EXACT REQUEST-HASH BINDING
+    # --------------------------------------------------------
+    #
+    # Preserve the R1.6 variables.
+    #
+    # IMPORTANT:
+    # Even if armed, R1.7 remains ZERO-WRITE.
+    # --------------------------------------------------------
+
+    r17_canary_arm = (
         os.getenv(
             "WRITE_R16_CANARY_ARM",
             "false",
         ).strip().lower()
-        == "true"
+        ==
+        "true"
     )
 
-    log(
-        "WRITE.PY-R1.6: "
-        "CANARY ARM REQUESTED = "
-        + str(r16_canary_arm)
-    )
-
-    # --------------------------------------------------------
-    # 12. OPTIONAL EXACT-HASH BINDING
-    # --------------------------------------------------------
-    #
-    # WRITE_R16_EXPECTED_REQUEST_SHA256
-    #
-    # If blank:
-    # R1.6 validates the arm mechanism but does not consider
-    # the canary fully authorized.
-    #
-    # To obtain the exact value, use the REQUEST SHA256
-    # printed by THIS running cycle.
-    #
-    # Because market data can change on the next cycle,
-    # an old hash cannot silently authorize a new request.
-    # --------------------------------------------------------
-
-    r16_expected_hash = (
+    r17_expected_hash = (
         os.getenv(
             "WRITE_R16_EXPECTED_REQUEST_SHA256",
             "",
         ).strip().lower()
     )
 
-    r16_hash_binding_present = bool(
-        r16_expected_hash
+    r17_expected_hash_present = bool(
+        r17_expected_hash
     )
 
-    r16_hash_binding_match = bool(
-        r16_hash_binding_present
+    r17_hash_binding_match = bool(
+        r17_expected_hash_present
         and
-        r16_expected_hash
+        r17_expected_hash
         ==
-        r16_request_sha256.lower()
+        r17_request_sha256.lower()
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
+        "CANARY ARM REQUESTED = "
+        + str(
+            r17_canary_arm
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
         "EXPECTED REQUEST HASH PRESENT = "
         + str(
-            r16_hash_binding_present
+            r17_expected_hash_present
         )
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "REQUEST HASH BINDING MATCH = "
         + str(
-            r16_hash_binding_match
+            r17_hash_binding_match
         )
     )
 
     # --------------------------------------------------------
-    # 13. AUTHORIZATION EXPIRY WINDOW
-    # --------------------------------------------------------
-    #
-    # This is a zero-write validation timestamp.
-    #
-    # It demonstrates that any future production canary
-    # authorization must be short-lived rather than a
-    # permanent environment switch.
+    # 19. SHORT-LIVED AUTHORIZATION WINDOW
     # --------------------------------------------------------
 
-    r16_authorization_window_seconds = 120
+    r17_authorization_window_seconds = 120
 
-    r16_authorization_created_at = (
-        datetime.now(
-            timezone.utc
-        )
+    r17_created_at = datetime.now(
+        timezone.utc
     )
 
-    r16_authorization_expires_at = (
-        r16_authorization_created_at
+    r17_expires_at = (
+        r17_created_at
         +
         timedelta(
             seconds=
-                r16_authorization_window_seconds
+                r17_authorization_window_seconds
         )
     )
 
-    r16_authorization_age_seconds = 0
-
-    r16_authorization_not_expired = bool(
-        r16_authorization_age_seconds
+    r17_authorization_not_expired = bool(
+        datetime.now(
+            timezone.utc
+        )
         <
-        r16_authorization_window_seconds
+        r17_expires_at
     )
 
-    log(
-        "WRITE.PY-R1.6: "
-        "AUTHORIZATION WINDOW SECONDS = "
-        + str(
-            r16_authorization_window_seconds
-        )
-    )
-
-    log(
-        "WRITE.PY-R1.6: "
-        "AUTHORIZATION EXPIRY CHECK = "
-        + (
-            "PASS"
-            if r16_authorization_not_expired
-            else "FAIL"
-        )
-    )
-
-    # --------------------------------------------------------
-    # 14. ONE-TIME CONSUMPTION TOKEN
-    # --------------------------------------------------------
-
-    r16_consumption_material = {
-        "request_sha256":
-            r16_request_sha256,
-
-        "client_order_id":
-            r16_client_order_id,
-
-        "source_instruction_sha256":
-            r16_source_hash,
-
-        "purpose":
-            "FIRST_PRODUCTION_CANARY",
-    }
-
-    r16_consumption_token = sha256_text(
-        canonical_json(
-            r16_consumption_material
-        )
-    )
-
-    r16_consumption_token_ok = bool(
-        r16_consumption_token
-    )
-
-    if not r16_consumption_token_ok:
+    if not r17_authorization_not_expired:
         result["reason"] = (
-            "R1.6_CONSUMPTION_TOKEN_FAILURE"
+            "R1.7_AUTHORIZATION_EXPIRED"
         )
 
         log(
-            "WRITE.PY-R1.6: "
-            "CONSUMPTION TOKEN CHECK = FAIL"
+            "WRITE.PY-R1.7: "
+            "AUTHORIZATION EXPIRY CHECK = FAIL"
         )
 
         return result
 
     log(
-        "WRITE.PY-R1.6: "
-        "CONSUMPTION TOKEN CHECK = PASS"
+        "WRITE.PY-R1.7: "
+        "AUTHORIZATION EXPIRY CHECK = PASS"
     )
 
     # --------------------------------------------------------
-    # 15. ZERO-WRITE CANARY AUTHORIZATION DECISION
+    # 20. FINAL AUTHORIZATION DECISION
     # --------------------------------------------------------
 
-    r16_canary_authorized = bool(
-        r16_canary_arm
+    r17_canary_authorized = bool(
+        r17_canary_arm
         and
-        r16_hash_binding_match
+        r17_hash_binding_match
         and
-        r16_authorization_not_expired
+        r17_authorization_not_expired
         and
-        r16_firebreak_ok
+        r17_firebreak_ok
         and
-        r16_replay_identity_ok
+        r17_signature_generated
         and
-        r16_consumption_token_ok
+        r17_signature_match
+        and
+        r17_header_fields_ok
+        and
+        r17_url_ok
     )
 
-    if not r16_canary_arm:
-        r16_authorization_reason = (
+    if not r17_canary_arm:
+        r17_authorization_reason = (
             "CANARY_ARM_NOT_REQUESTED"
         )
 
-    elif not r16_hash_binding_present:
-        r16_authorization_reason = (
+    elif not r17_expected_hash_present:
+        r17_authorization_reason = (
             "EXPECTED_REQUEST_HASH_NOT_SET"
         )
 
-    elif not r16_hash_binding_match:
-        r16_authorization_reason = (
+    elif not r17_hash_binding_match:
+        r17_authorization_reason = (
             "REQUEST_HASH_BINDING_MISMATCH"
         )
 
-    elif not r16_authorization_not_expired:
-        r16_authorization_reason = (
-            "AUTHORIZATION_EXPIRED"
+    elif not r17_signature_generated:
+        r17_authorization_reason = (
+            "SIGNATURE_NOT_GENERATED"
         )
 
-    elif not r16_replay_identity_ok:
-        r16_authorization_reason = (
-            "REPLAY_IDENTITY_INVALID"
-        )
-
-    elif not r16_consumption_token_ok:
-        r16_authorization_reason = (
-            "CONSUMPTION_TOKEN_INVALID"
+    elif not r17_signature_match:
+        r17_authorization_reason = (
+            "SIGNATURE_VALIDATION_FAILED"
         )
 
     else:
-        r16_authorization_reason = (
-            "ONE_TIME_CANARY_AUTHORIZATION_VALID"
+        r17_authorization_reason = (
+            "AUTHENTICATED_CANARY_VALIDATED_NOT_SENT"
         )
 
     # --------------------------------------------------------
-    # 16. BUILD R1.6 AUTHORIZATION ENVELOPE
+    # 21. FINAL REQUEST ENVELOPE
+    # --------------------------------------------------------
+    #
+    # Never store raw secret or passphrase here.
+    # Never print signature.
     # --------------------------------------------------------
 
-    r16_authorization_envelope = {
+    r17_envelope = {
         "stage":
-            "WRITE.PY-R1.6",
+            "WRITE.PY-R1.7",
 
         "symbol":
-            r16_symbol,
+            r17_symbol,
 
         "direction":
-            r16_direction,
+            r17_direction,
 
         "entry_reference_price":
             decimal_to_string(
-                r16_entry
+                r17_entry
             ),
 
         "quantity":
             decimal_to_string(
-                r16_quantity
+                r17_quantity
             ),
 
         "tp1":
             decimal_to_string(
-                r16_tp1
+                r17_tp1
             ),
 
         "tp2":
             decimal_to_string(
-                r16_tp2
+                r17_tp2
             ),
 
         "stop_price":
             decimal_to_string(
-                r16_stop
+                r17_stop
             ),
 
         "method":
-            r16_method,
+            r17_method,
 
         "endpoint":
-            r16_endpoint,
+            r17_endpoint,
 
         "payload":
-            r16_payload,
+            r17_payload,
+
+        "body_sha256":
+            r17_body_sha256,
 
         "client_order_id":
-            r16_client_order_id,
+            r17_client_order_id,
 
         "source_instruction_sha256":
-            r16_source_hash,
+            r17_source_hash,
 
         "identity_sha256":
-            r16_identity_sha256,
+            r17_identity_sha256,
 
         "request_sha256":
-            r16_request_sha256,
+            r17_request_sha256,
 
         "replay_identity":
-            r16_replay_identity,
+            r17_replay_identity,
 
-        "consumption_token":
-            r16_consumption_token,
+        "prehash_sha256":
+            r17_prehash_sha256,
 
-        "canary_arm_requested":
-            r16_canary_arm,
+        "authenticated_request_fingerprint":
+            r17_authenticated_fingerprint,
 
-        "expected_hash_present":
-            r16_hash_binding_present,
-
-        "request_hash_binding_match":
-            r16_hash_binding_match,
-
-        "authorization_window_seconds":
-            r16_authorization_window_seconds,
-
-        "authorization_created_at":
-            r16_authorization_created_at.isoformat(),
-
-        "authorization_expires_at":
-            r16_authorization_expires_at.isoformat(),
-
-        "authorization_not_expired":
-            r16_authorization_not_expired,
-
-        "canary_authorized":
-            r16_canary_authorized,
-
-        "authorization_reason":
-            r16_authorization_reason,
-
-        "authentication_boundary":
-            "VALIDATION_ONLY",
+        "credentials_present":
+            r17_credentials_present,
 
         "signature_generated":
-            False,
+            r17_signature_generated,
+
+        "signature_recompute_match":
+            r17_signature_match,
+
+        "auth_headers_complete":
+            r17_header_fields_ok,
+
+        "canary_arm_requested":
+            r17_canary_arm,
+
+        "expected_hash_present":
+            r17_expected_hash_present,
+
+        "request_hash_binding_match":
+            r17_hash_binding_match,
+
+        "authorization_created_at":
+            r17_created_at.isoformat(),
+
+        "authorization_expires_at":
+            r17_expires_at.isoformat(),
+
+        "authorization_not_expired":
+            r17_authorization_not_expired,
+
+        "canary_authorized":
+            r17_canary_authorized,
+
+        "authorization_reason":
+            r17_authorization_reason,
+
+        "authentication_boundary":
+            "AUTHENTICATED_ZERO_WRITE",
 
         "transport_enabled":
             False,
@@ -8102,7 +8392,7 @@ def r13_connect_real_engine(
 
     result[
         "production_request"
-    ] = r16_authorization_envelope
+    ] = r17_envelope
 
     result[
         "production_request_ready"
@@ -8122,210 +8412,224 @@ def r13_connect_real_engine(
 
     result[
         "canary_arm_requested"
-    ] = r16_canary_arm
+    ] = r17_canary_arm
 
     result[
         "canary_authorized"
-    ] = r16_canary_authorized
+    ] = r17_canary_authorized
 
     result[
         "canary_authorization_reason"
-    ] = r16_authorization_reason
+    ] = r17_authorization_reason
 
     # --------------------------------------------------------
-    # 17. R1.6 TEST RESULT
-    # --------------------------------------------------------
-    #
-    # IMPORTANT:
-    #
-    # R1.6 itself passes when the authorization mechanism
-    # works correctly.
-    #
-    # CANARY_ARM_NOT_REQUESTED is therefore a safe PASS,
-    # not a failure.
-    #
-    # The fully armed test requires:
-    #
-    # WRITE_R16_CANARY_ARM=true
-    #
-    # AND the exact current:
-    #
-    # WRITE_R16_EXPECTED_REQUEST_SHA256
-    #
-    # Even then, R1.6 remains ZERO-WRITE.
+    # 22. R1.7 SUCCESS
     # --------------------------------------------------------
 
     result["validated"] = True
 
-    if r16_canary_authorized:
+    if r17_canary_authorized:
         result["reason"] = (
-            "R1.6_CANARY_AUTHORIZATION_VALIDATED_NOT_SENT"
+            "R1.7_AUTHENTICATED_CANARY_VALIDATED_NOT_SENT"
         )
 
     else:
         result["reason"] = (
-            "R1.6_AUTHORIZATION_GATE_VALIDATED_SAFE_BLOCK"
+            "R1.7_AUTHENTICATION_BOUNDARY_VALIDATED_SAFE_BLOCK"
         )
 
     # --------------------------------------------------------
-    # 18. TERMINAL LOG
+    # 23. TERMINAL LOG
     # --------------------------------------------------------
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "REAL ENGINE BRIDGE = PASS"
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "DIRECTION = "
-        + r16_direction
+        + r17_direction
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "SYMBOL = "
-        + r16_symbol
+        + r17_symbol
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "ENTRY REFERENCE = "
         + decimal_to_string(
-            r16_entry
+            r17_entry
         )
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "QUANTITY = "
         + decimal_to_string(
-            r16_quantity
+            r17_quantity
         )
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "TP1 = "
         + decimal_to_string(
-            r16_tp1
+            r17_tp1
         )
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "TP2 = "
         + decimal_to_string(
-            r16_tp2
+            r17_tp2
         )
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "STOP = "
         + decimal_to_string(
-            r16_stop
+            r17_stop
         )
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "CLIENT ORDER ID = "
-        + r16_client_order_id
+        + r17_client_order_id
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "REQUEST SHA256 = "
-        + r16_request_sha256
+        + r17_request_sha256
     )
 
     log(
-        "WRITE.PY-R1.6: "
-        "REPLAY IDENTITY = "
-        + r16_replay_identity
+        "WRITE.PY-R1.7: "
+        "BODY SHA256 = "
+        + r17_body_sha256
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
+        "PREHASH SHA256 = "
+        + r17_prehash_sha256
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "PRODUCTION CREDENTIALS PRESENT = "
+        + str(
+            r17_credentials_present
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "SIGNATURE GENERATED = "
+        + str(
+            r17_signature_generated
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "SIGNATURE RECOMPUTE MATCH = "
+        + str(
+            r17_signature_match
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "AUTH HEADER CHECK = "
+        + (
+            "PASS"
+            if r17_header_fields_ok
+            else "FAIL"
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
         "CANARY ARM REQUESTED = "
         + str(
-            r16_canary_arm
+            r17_canary_arm
         )
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "REQUEST HASH BINDING MATCH = "
         + str(
-            r16_hash_binding_match
+            r17_hash_binding_match
         )
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "CANARY AUTHORIZED = "
         + str(
-            r16_canary_authorized
+            r17_canary_authorized
         )
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "CANARY AUTHORIZATION REASON = "
-        + r16_authorization_reason
+        + r17_authorization_reason
     )
 
     log(
-        "WRITE.PY-R1.6: "
-        "AUTHENTICATION BOUNDARY = VALIDATION_ONLY"
+        "WRITE.PY-R1.7: "
+        "AUTHENTICATION BOUNDARY = "
+        "AUTHENTICATED_ZERO_WRITE"
     )
 
     log(
-        "WRITE.PY-R1.6: "
-        "SIGNATURE GENERATED = False"
-    )
-
-    log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "TRANSPORT ENABLED = False"
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "PRODUCTION FIREBREAK = True"
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "REAL_ORDER_EXECUTION = False"
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "WRITE_TRANSPORT = False"
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "NO REAL ORDER WAS SENT"
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
     )
 
     log(
-        "WRITE.PY-R1.6: "
+        "WRITE.PY-R1.7: "
         "FINAL STATUS = PASS"
     )
 
     return result
-
-
-    
-    
+ 
 async def run_r36f12():
     global TEST_STATUS
     global WEEX_READ_ONLY_OK
