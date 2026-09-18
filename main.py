@@ -7811,7 +7811,7 @@ async def run_r36f12():
         and protective_stop_budget.get("all_valid")
     )
 
-    if downstream_ready:
+        if downstream_ready:
         demo_preview = r36f15105_build_demo_preview(
             selected_direction,
             selected_tp_snapshot,
@@ -7819,7 +7819,18 @@ async def run_r36f12():
             protective_stop_price,
         )
 
+    r13_engine_bridge = (
+        r13_connect_real_engine(
+            downstream_ready,
+            selected_direction,
+            selected_tp_snapshot,
+            balance_readiness,
+            protective_stop_price,
+        )
+    )
+
     if not R36F15105_AUTO_DEMO_ENABLED:
+
         demo_submission["reason"] = "R36F15105_AUTO_DEMO_DISABLED"
     elif not downstream_ready:
         demo_submission["reason"] = "R36F15105_DOWNSTREAM_GATES_NOT_READY"
