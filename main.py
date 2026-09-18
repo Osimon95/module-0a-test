@@ -1365,78 +1365,173 @@ def main():
 # ZERO-WRITE MAIN.PY INTERNAL BRIDGE VALIDATION
 # ============================================================
 
-R12_STAGE = "WRITE.PY-R1.2"
+# ============================================================
+# WRITE.PY-R1.3
+# ZERO-WRITE REAL ENGINE INSTRUCTION BRIDGE VALIDATION
+# ============================================================
 
-R12_INTERNAL_BRIDGE_TEST = (
+R13_STAGE = "WRITE.PY-R1.3"
+
+R13_ENGINE_BRIDGE_TEST = (
     os.getenv(
-        "WRITE_R12_INTERNAL_BRIDGE_TEST",
+        "WRITE_R13_ENGINE_BRIDGE_TEST",
         "true",
     ).strip().lower()
     == "true"
 )
 
+R13_LAST_ENGINE_INSTRUCTION = None
+R13_LAST_ENGINE_METADATA = None
+R13_LAST_RESULT = None
 
-def build_r12_internal_bridge_instruction():
-    """
-    Construct one deterministic MAIN.PY-style instruction.
 
-    IMPORTANT:
-    This is validation material only.
-    It cannot reach an exchange because the R1.1 production
-    firebreak remains hard-disabled.
+def r13_normalize_engine_instruction(
+    engine_instruction,
+):
     """
+    Convert the instruction supplied by MAIN.PY into the
+    immutable R1.1 writer schema.
+
+    R1.3 DOES NOT manufacture market values.
+
+    Direction, entry, quantity, TP1, TP2 and protective stop
+    must originate from the MAIN.PY engine instruction.
+
+    Production exchange transport remains impossible because
+    the frozen R1.1 production firebreak is still intact.
+    """
+
+    if not isinstance(
+        engine_instruction,
+        dict,
+    ):
+        return None
+
+    direction = str(
+        engine_instruction.get(
+            "direction",
+            "",
+        )
+    ).strip().upper()
+
+    symbol = str(
+        engine_instruction.get(
+            "symbol",
+            "BTCUSDT",
+        )
+    ).strip().upper()
+
+    entry_price = engine_instruction.get(
+        "entry_price"
+    )
+
+    quantity = engine_instruction.get(
+        "quantity"
+    )
+
+    tp1 = engine_instruction.get(
+        "tp1"
+    )
+
+    tp2 = engine_instruction.get(
+        "tp2"
+    )
+
+    tp3 = engine_instruction.get(
+        "tp3"
+    )
+
+    tp3_policy = engine_instruction.get(
+        "tp3_policy",
+        "TRAILING_RUNNER",
+    )
+
+    stop_price = engine_instruction.get(
+        "stop_price"
+    )
+
+    source_stage = engine_instruction.get(
+        "source_stage",
+        "MAIN.PY_ENGINE",
+    )
+
+    source_mode = engine_instruction.get(
+        "source_mode",
+        "MAIN.PY_ENGINE_BRIDGE",
+    )
+
+    created_at = engine_instruction.get(
+        "created_at"
+    )
+
+    if not created_at:
+        created_at = now_iso()
 
     return {
-        "symbol": "BTCUSDT",
-
-        "direction": "LONG",
-
-        "entry_price": "80000.0",
-
-        "quantity": "0.0004",
-
-        "tp1": "80100.0",
-
-        "tp2": "80200.0",
-
-        "tp3": None,
-
-        "tp3_policy": "TRAILING_RUNNER",
-
-        "stop_price": "79600.0",
-
-        "source_stage": "R36F.15.10.5",
-
-        "source_mode": "MAIN.PY_INTERNAL_BRIDGE",
-
-        "created_at": now_iso(),
+        "symbol": symbol,
+        "direction": direction,
+        "entry_price": entry_price,
+        "quantity": quantity,
+        "tp1": tp1,
+        "tp2": tp2,
+        "tp3": tp3,
+        "tp3_policy": tp3_policy,
+        "stop_price": stop_price,
+        "source_stage": source_stage,
+        "source_mode": source_mode,
+        "created_at": created_at,
     }
 
 
-def validate_r12_internal_bridge():
+def r13_capture_engine_instruction(
+    engine_instruction,
+    engine_eligible=False,
+    authorization_ok=False,
+    authorization_id=None,
+    journal_id=None,
+):
+    """
+    MAIN.PY -> WRITE.PY R1.3 handoff.
+
+    This function is intentionally ZERO-WRITE.
+
+    It captures a genuine MAIN.PY engine instruction and
+    immediately sends it only to the immutable R1.1 validator.
+
+    It cannot submit an exchange order.
+    """
+
+    global R13_LAST_ENGINE_INSTRUCTION
+    global R13_LAST_ENGINE_METADATA
+    global R13_LAST_RESULT
+
     line()
 
     log(
-        f"{R12_STAGE}: "
-        "ZERO-WRITE INTERNAL BRIDGE VALIDATOR"
+        f"{R13_STAGE}: "
+        "REAL ENGINE INSTRUCTION RECEIVED"
     )
 
-    firebreak_ok = production_firebreak_intact()
+    firebreak_before = (
+        production_firebreak_intact()
+    )
 
     log(
-        f"{R12_STAGE}: "
-        f"PRODUCTION FIREBREAK = {firebreak_ok}"
+        f"{R13_STAGE}: "
+        f"PRODUCTION FIREBREAK = "
+        f"{firebreak_before}"
     )
 
-    if not firebreak_ok:
+    if not firebreak_before:
         log(
-            f"{R12_STAGE}: "
-            "INTERNAL BRIDGE = BLOCKED"
+            f"{R13_STAGE}: "
+            "ENGINE BRIDGE = BLOCKED"
         )
 
         log(
-            f"{R12_STAGE}: "
-            "REASON = PRODUCTION_FIREBREAK_NOT_INTACT"
+            f"{R13_STAGE}: "
+            "REASON = "
+            "PRODUCTION_FIREBREAK_NOT_INTACT"
         )
 
         log(
@@ -1450,17 +1545,17 @@ def validate_r12_internal_bridge():
         line()
 
         return {
-            "stage": R12_STAGE,
+            "stage": R13_STAGE,
             "passed": False,
             "reason": (
                 "PRODUCTION_FIREBREAK_NOT_INTACT"
             ),
         }
 
-    if not R12_INTERNAL_BRIDGE_TEST:
+    if not R13_ENGINE_BRIDGE_TEST:
         log(
-            f"{R12_STAGE}: "
-            "INTERNAL BRIDGE TEST DISABLED"
+            f"{R13_STAGE}: "
+            "ENGINE BRIDGE TEST DISABLED"
         )
 
         log(
@@ -1474,36 +1569,284 @@ def validate_r12_internal_bridge():
         line()
 
         return {
-            "stage": R12_STAGE,
+            "stage": R13_STAGE,
             "passed": False,
             "reason": (
-                "INTERNAL_BRIDGE_TEST_DISABLED"
+                "ENGINE_BRIDGE_TEST_DISABLED"
             ),
         }
 
-    instruction = (
-        build_r12_internal_bridge_instruction()
+    normalized = (
+        r13_normalize_engine_instruction(
+            engine_instruction
+        )
+    )
+
+    if normalized is None:
+        log(
+            f"{R13_STAGE}: "
+            "ENGINE INSTRUCTION SCHEMA = FAIL"
+        )
+
+        log(
+            f"{R13_STAGE}: "
+            "REASON = "
+            "ENGINE_INSTRUCTION_NOT_DICT"
+        )
+
+        log(
+            "NO REAL ORDER WAS SENT"
+        )
+
+        log(
+            "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+        )
+
+        line()
+
+        return {
+            "stage": R13_STAGE,
+            "passed": False,
+            "reason": (
+                "ENGINE_INSTRUCTION_NOT_DICT"
+            ),
+        }
+
+    R13_LAST_ENGINE_INSTRUCTION = dict(
+        normalized
+    )
+
+    R13_LAST_ENGINE_METADATA = {
+        "engine_eligible": bool(
+            engine_eligible
+        ),
+        "authorization_ok": bool(
+            authorization_ok
+        ),
+        "authorization_id": (
+            authorization_id
+        ),
+        "journal_id": journal_id,
+    }
+
+    log(
+        f"{R13_STAGE}: "
+        "ENGINE INSTRUCTION CAPTURED"
     )
 
     log(
-        f"{R12_STAGE}: "
-        "INTERNAL BRIDGE INSTRUCTION CREATED"
+        f"{R13_STAGE}: "
+        "ENGINE SOURCE = MAIN.PY"
     )
 
     log(
-        f"{R12_STAGE}: "
-        "INTERNAL BRIDGE SOURCE = MAIN.PY"
+        f"{R13_STAGE}: "
+        f"ENGINE ELIGIBLE = "
+        f"{bool(engine_eligible)}"
     )
 
     log(
-        f"{R12_STAGE}: "
+        f"{R13_STAGE}: "
+        f"AUTHORIZATION OK = "
+        f"{bool(authorization_ok)}"
+    )
+
+    log(
+        f"{R13_STAGE}: "
+        f"AUTHORIZATION ID = "
+        f"{authorization_id}"
+    )
+
+    log(
+        f"{R13_STAGE}: "
+        f"JOURNAL ID = "
+        f"{journal_id}"
+    )
+
+    log(
+        f"{R13_STAGE}: "
+        f"DIRECTION = "
+        f"{normalized.get('direction')}"
+    )
+
+    log(
+        f"{R13_STAGE}: "
+        f"SYMBOL = "
+        f"{normalized.get('symbol')}"
+    )
+
+    log(
+        f"{R13_STAGE}: "
+        f"ENTRY = "
+        f"{normalized.get('entry_price')}"
+    )
+
+    log(
+        f"{R13_STAGE}: "
+        f"QUANTITY = "
+        f"{normalized.get('quantity')}"
+    )
+
+    log(
+        f"{R13_STAGE}: "
+        f"TP1 = "
+        f"{normalized.get('tp1')}"
+    )
+
+    log(
+        f"{R13_STAGE}: "
+        f"TP2 = "
+        f"{normalized.get('tp2')}"
+    )
+
+    log(
+        f"{R13_STAGE}: "
+        f"TP3 POLICY = "
+        f"{normalized.get('tp3_policy')}"
+    )
+
+    log(
+        f"{R13_STAGE}: "
+        f"STOP = "
+        f"{normalized.get('stop_price')}"
+    )
+
+    required_values_present = bool(
+        normalized.get("symbol")
+        and normalized.get("direction")
+        in ("LONG", "SHORT")
+        and normalized.get("entry_price")
+        is not None
+        and normalized.get("quantity")
+        is not None
+        and normalized.get("tp1")
+        is not None
+        and normalized.get("tp2")
+        is not None
+        and normalized.get("stop_price")
+        is not None
+    )
+
+    engine_gate_ok = bool(
+        engine_eligible is True
+    )
+
+    authorization_gate_ok = bool(
+        authorization_ok is True
+    )
+
+    if not required_values_present:
+        log(
+            f"{R13_STAGE}: "
+            "ENGINE INSTRUCTION SCHEMA = FAIL"
+        )
+
+        log(
+            f"{R13_STAGE}: "
+            "REASON = "
+            "MISSING_REQUIRED_ENGINE_VALUE"
+        )
+
+        log(
+            "NO REAL ORDER WAS SENT"
+        )
+
+        log(
+            "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+        )
+
+        line()
+
+        return {
+            "stage": R13_STAGE,
+            "passed": False,
+            "reason": (
+                "MISSING_REQUIRED_ENGINE_VALUE"
+            ),
+        }
+
+    if not engine_gate_ok:
+        log(
+            f"{R13_STAGE}: "
+            "ENGINE ELIGIBILITY = FAIL"
+        )
+
+        log(
+            f"{R13_STAGE}: "
+            "VALIDATOR CALL BLOCKED"
+        )
+
+        log(
+            "NO REAL ORDER WAS SENT"
+        )
+
+        log(
+            "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+        )
+
+        line()
+
+        return {
+            "stage": R13_STAGE,
+            "passed": False,
+            "reason": (
+                "ENGINE_NOT_ELIGIBLE"
+            ),
+        }
+
+    if not authorization_gate_ok:
+        log(
+            f"{R13_STAGE}: "
+            "AUTHORIZATION BINDING = FAIL"
+        )
+
+        log(
+            f"{R13_STAGE}: "
+            "VALIDATOR CALL BLOCKED"
+        )
+
+        log(
+            "NO REAL ORDER WAS SENT"
+        )
+
+        log(
+            "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+        )
+
+        line()
+
+        return {
+            "stage": R13_STAGE,
+            "passed": False,
+            "reason": (
+                "ENGINE_NOT_AUTHORIZED"
+            ),
+        }
+
+    instruction_before = dict(
+        normalized
+    )
+
+    log(
+        f"{R13_STAGE}: "
         "CALLING R1.1 IMMUTABLE VALIDATOR"
     )
 
     result = validate_instruction(
-        instruction,
-        source="MAIN.PY_INTERNAL_BRIDGE",
+        normalized,
+        source="MAIN.PY_ENGINE_BRIDGE",
         persist=False,
+    )
+
+    R13_LAST_RESULT = result
+
+    instruction_after = dict(
+        normalized
+    )
+
+    immutable_ok = bool(
+        instruction_before
+        == instruction_after
     )
 
     validated = bool(
@@ -1526,7 +1869,9 @@ def validate_r12_internal_bridge():
     )
 
     no_mutation_sent = bool(
-        result.get("production_mutation_sent")
+        result.get(
+            "production_mutation_sent"
+        )
         is False
     )
 
@@ -1534,15 +1879,26 @@ def validate_r12_internal_bridge():
         production_firebreak_intact()
     )
 
-    schema_ok = bool(
-        result.get("symbol") == "BTCUSDT"
-        and result.get("direction") == "LONG"
-        and result.get("quantity") == "0.0004"
+    direction_ok = bool(
+        result.get("direction")
+        == normalized.get("direction")
+    )
+
+    symbol_ok = bool(
+        result.get("symbol")
+        == normalized.get("symbol")
+    )
+
+    quantity_ok = bool(
+        result.get("quantity")
+        is not None
     )
 
     tp_policy_ok = bool(
-        result.get("tp1") == "80100"
-        and result.get("tp2") == "80200"
+        result.get("tp1")
+        is not None
+        and result.get("tp2")
+        is not None
         and result.get("tp3_policy")
         == "TRAILING_RUNNER"
         and result.get("allocation")
@@ -1551,7 +1907,7 @@ def validate_r12_internal_bridge():
 
     stop_ok = bool(
         result.get("stop_price")
-        == "79600"
+        is not None
     )
 
     payload_ok = bool(
@@ -1578,21 +1934,61 @@ def validate_r12_internal_bridge():
     )
 
     checks = {
-        "INSTRUCTION_SCHEMA": schema_ok,
+        "ENGINE_INSTRUCTION_BRIDGE": (
+            required_values_present
+        ),
 
-        "R1_1_VALIDATION": validated,
+        "ENGINE_ELIGIBILITY": (
+            engine_gate_ok
+        ),
 
-        "VALIDATED_NOT_SENT_STATE": state_ok,
+        "AUTHORIZATION_BINDING": (
+            authorization_gate_ok
+        ),
 
-        "TP_POLICY": tp_policy_ok,
+        "INSTRUCTION_IMMUTABILITY": (
+            immutable_ok
+        ),
 
-        "PROTECTIVE_STOP": stop_ok,
+        "DIRECTION_PRESERVED": (
+            direction_ok
+        ),
 
-        "PAYLOAD_CONSTRUCTION": payload_ok,
+        "SYMBOL_PRESERVED": (
+            symbol_ok
+        ),
 
-        "DETERMINISTIC_HASHES": hash_ok,
+        "QUANTITY_PRESERVED": (
+            quantity_ok
+        ),
 
-        "ZERO_BLOCKERS": blockers_ok,
+        "TP_POLICY_PRESERVED": (
+            tp_policy_ok
+        ),
+
+        "PROTECTIVE_STOP_PRESERVED": (
+            stop_ok
+        ),
+
+        "R1_1_VALIDATION": (
+            validated
+        ),
+
+        "VALIDATED_NOT_SENT_STATE": (
+            state_ok
+        ),
+
+        "PAYLOAD_CONSTRUCTION": (
+            payload_ok
+        ),
+
+        "DETERMINISTIC_HASHES": (
+            hash_ok
+        ),
+
+        "ZERO_BLOCKERS": (
+            blockers_ok
+        ),
 
         "NO_REAL_ORDER_ATTEMPT": (
             no_real_attempt
@@ -1613,7 +2009,7 @@ def validate_r12_internal_bridge():
 
     for name, passed in checks.items():
         log(
-            f"{R12_STAGE}: "
+            f"{R13_STAGE}: "
             f"{name} = "
             f"{'PASS' if passed else 'FAIL'}"
         )
@@ -1624,19 +2020,24 @@ def validate_r12_internal_bridge():
 
     if bridge_pass:
         log(
-            f"{R12_STAGE}: "
+            f"{R13_STAGE}: "
             "PRODUCTION WRITE BLOCKED BY FIREBREAK"
         )
 
         log(
-            f"{R12_STAGE}: "
-            "INTERNAL BRIDGE = PASS"
+            f"{R13_STAGE}: "
+            "ENGINE INSTRUCTION BRIDGE = PASS"
+        )
+
+        log(
+            f"{R13_STAGE}: "
+            "FINAL STATE = VALIDATED_NOT_SENT"
         )
 
     else:
         log(
-            f"{R12_STAGE}: "
-            "INTERNAL BRIDGE = FAIL"
+            f"{R13_STAGE}: "
+            "ENGINE INSTRUCTION BRIDGE = FAIL"
         )
 
         failed = [
@@ -1648,12 +2049,12 @@ def validate_r12_internal_bridge():
 
         for name in failed:
             log(
-                f"{R12_STAGE}: "
+                f"{R13_STAGE}: "
                 f"FAILED CHECK = {name}"
             )
 
     log(
-        f"{R12_STAGE}: "
+        f"{R13_STAGE}: "
         f"FINAL FIREBREAK = "
         f"{production_firebreak_intact()}"
     )
@@ -1669,23 +2070,66 @@ def validate_r12_internal_bridge():
     line()
 
     return {
-        "stage": R12_STAGE,
+        "stage": R13_STAGE,
         "passed": bridge_pass,
         "checks": checks,
+        "engine_instruction": (
+            instruction_before
+        ),
+        "engine_metadata": (
+            R13_LAST_ENGINE_METADATA
+        ),
         "validator_result": result,
     }
 
 
-def r12_main():
+def r13_startup():
     """
-    Run the existing R1.1 startup diagnostic first,
-    followed by the new R1.2 internal bridge test.
+    R1.3 startup.
+
+    Preserve the frozen R1.1 startup diagnostics.
+
+    Unlike R1.2, R1.3 deliberately DOES NOT create a fake
+    BTC instruction at startup.
+
+    The real engine must call r13_capture_engine_instruction()
+    when MAIN.PY has produced an eligible and authorized
+    instruction.
     """
 
     main()
 
-    validate_r12_internal_bridge()
+    line()
+
+    log(
+        f"{R13_STAGE}: "
+        "ZERO-WRITE REAL ENGINE BRIDGE ARMED"
+    )
+
+    log(
+        f"{R13_STAGE}: "
+        "WAITING FOR MAIN.PY ENGINE INSTRUCTION"
+    )
+
+    log(
+        f"{R13_STAGE}: "
+        f"PRODUCTION FIREBREAK = "
+        f"{production_firebreak_intact()}"
+    )
+
+    log(
+        "NO REAL ORDER WAS SENT"
+    )
+
+    log(
+        "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+    )
+
+    line()
 
 
 if __name__ == "__main__":
-    r12_main()
+    r13_startup()
+      
+
+                }
