@@ -5168,7 +5168,7 @@ else:
 # R1.8 TP1 / TP2 MEANINGFUL SEPARATION - END
 # ============================================================
 
-        if eligible_tp1:
+    if eligible_tp1:
             tp1 = eligible_tp1[0]
             tp1_source = (
                 "MARKET_STRUCTURE_ABOVE_FLOOR"
