@@ -7669,7 +7669,7 @@ def r13_connect_real_engine(
 
         return result
 
-    instruction = (
+        instruction = (
         build_r13_real_engine_instruction(
             direction,
             tp_snapshot,
@@ -7678,7 +7678,187 @@ def r13_connect_real_engine(
         )
     )
 
-    if not instruction:
+    # ========================================================
+    # WRITE.PY-R1.8
+    # ADAPTIVE TP -> REAL WRITER BINDING VALIDATION
+    # ZERO WRITE
+    # ========================================================
+
+    if instruction:
+        r18_allocation = (
+            instruction.get(
+                "allocation",
+                {},
+            )
+        )
+
+        r18_tp_policy = str(
+            instruction.get(
+                "tp_policy",
+                "",
+            )
+        ).strip()
+
+        r18_allocation_ok = bool(
+            str(
+                r18_allocation.get(
+                    "tp1_percent",
+                    "",
+                )
+            ) == "25"
+            and
+            str(
+                r18_allocation.get(
+                    "tp2_percent",
+                    "",
+                )
+            ) == "25"
+            and
+            str(
+                r18_allocation.get(
+                    "tp3_percent",
+                    "",
+                )
+            ) == "50"
+        )
+
+        r18_policy_ok = bool(
+            r18_tp_policy
+            ==
+            "NET_ROI_MIN_10_20_ADAPTIVE"
+        )
+
+        r18_tp_prices_ok = bool(
+            D(
+                instruction.get(
+                    "tp1",
+                    "0",
+                )
+            ) > 0
+            and
+            D(
+                instruction.get(
+                    "tp2",
+                    "0",
+                )
+            ) > 0
+        )
+
+        r18_firebreak_ok = bool(
+            REAL_ORDER_EXECUTION is False
+            and
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED is False
+            and
+            ORDER_SUBMISSION_ENABLED is False
+            and
+            FIRST_REAL_ORDER_ALLOWED is False
+            and
+            R36F15103_REAL_ORDER_EXECUTION is False
+            and
+            R36F15103_WRITE_TRANSPORT is False
+        )
+
+        r18_binding_ok = bool(
+            r18_allocation_ok
+            and
+            r18_policy_ok
+            and
+            r18_tp_prices_ok
+            and
+            r18_firebreak_ok
+        )
+
+        log(
+            "WRITE.PY-R1.8: "
+            "ADAPTIVE TP POLICY = "
+            + r18_tp_policy
+        )
+
+        log(
+            "WRITE.PY-R1.8: "
+            "TP ALLOCATION = "
+            + str(
+                r18_allocation.get(
+                    "tp1_percent"
+                )
+            )
+            + "/"
+            + str(
+                r18_allocation.get(
+                    "tp2_percent"
+                )
+            )
+            + "/"
+            + str(
+                r18_allocation.get(
+                    "tp3_percent"
+                )
+            )
+        )
+
+        log(
+            "WRITE.PY-R1.8: "
+            "ALLOCATION BINDING = "
+            + (
+                "PASS"
+                if r18_allocation_ok
+                else "FAIL"
+            )
+        )
+
+        log(
+            "WRITE.PY-R1.8: "
+            "TP PRICE BINDING = "
+            + (
+                "PASS"
+                if r18_tp_prices_ok
+                else "FAIL"
+            )
+        )
+
+        log(
+            "WRITE.PY-R1.8: "
+            "PRODUCTION FIREBREAK = "
+            + str(
+                r18_firebreak_ok
+            )
+        )
+
+        log(
+            "WRITE.PY-R1.8: "
+            "ZERO-WRITE ENGINE BINDING = "
+            + (
+                "PASS"
+                if r18_binding_ok
+                else "FAIL"
+            )
+        )
+
+        if not r18_binding_ok:
+            instruction = None
+
+            log(
+                "WRITE.PY-R1.8: "
+                "REAL ENGINE INSTRUCTION REJECTED"
+            )
+
+        else:
+            log(
+                "WRITE.PY-R1.8: "
+                "REAL ENGINE INSTRUCTION = VALID"
+            )
+
+            log(
+                "WRITE.PY-R1.8: "
+                "NO REAL ORDER WAS SENT"
+            )
+
+            log(
+                "WRITE.PY-R1.8: "
+                "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+            )
+
+    if not instruction: 
         result["reason"] = (
             "R1.3_ENGINE_INSTRUCTION_BUILD_FAILED"
         )
