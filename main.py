@@ -7608,20 +7608,7 @@ def build_r13_real_engine_instruction(
             "TRAILING_RUNNER",
         "stop_price":
             decimal_to_string(stop_price),
-        "allocation": {
-            "tp1_percent":
-                decimal_to_string(
-                    TP1_ALLOCATION_PERCENT
-                ),
-            "tp2_percent":
-                decimal_to_string(
-                    TP2_ALLOCATION_PERCENT
-                ),
-            "tp3_percent":
-                decimal_to_string(
-                    TP3_ALLOCATION_PERCENT
-                ),
-        },
+        
         "trailing_distance_percent":
             decimal_to_string(
                 TP3_TRAILING_DISTANCE_PERCENT
