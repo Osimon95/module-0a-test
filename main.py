@@ -5189,8 +5189,8 @@ else:
                 "MARKET_STRUCTURE_ABOVE_FLOOR"
             )
 
-        if tp2 <= tp1:
-            tp2 = max(
+            if tp2 <= tp1:
+                tp2 = max(
                 tp2_floor,
                 tp1 + PRICE_STEP,
             )
