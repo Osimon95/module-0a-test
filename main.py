@@ -4715,9 +4715,178 @@ def run_tp_engine(
 # TP SNAPSHOT
 # ============================================================
 
-def build_cluster_tp_snapshot(
+# ============================================================
+# PRE-R1.8
+# CLUSTER-FREE NET-ROI TP SNAPSHOT
+# REPLACES build_cluster_tp_snapshot()
+# ============================================================
+
+PRE_R18_TP1_NET_ROI_PERCENT = Decimal("10")
+PRE_R18_TP2_NET_ROI_PERCENT = Decimal("20")
+
+PRE_R18_TP1_ALLOCATION_PERCENT = Decimal("25")
+PRE_R18_TP2_ALLOCATION_PERCENT = Decimal("25")
+PRE_R18_TP3_ALLOCATION_PERCENT = Decimal("50")
+
+# Configurable estimated trading costs.
+# Decimal rate: 0.0008 = 0.08%.
+# These are strategy inputs, not claims about the exchange's current fee.
+PRE_R18_ENTRY_FEE_RATE = Decimal(
+    os.getenv("PRE_R18_ENTRY_FEE_RATE", "0.0008")
+)
+
+PRE_R18_EXIT_FEE_RATE = Decimal(
+    os.getenv("PRE_R18_EXIT_FEE_RATE", "0.0008")
+)
+
+PRE_R18_EXTRA_COST_RATE = Decimal(
+    os.getenv("PRE_R18_EXTRA_COST_RATE", "0")
+)
+
+
+def pre_r18_price_up(value):
+    value = D(value)
+
+    rounded = quantize_down(
+        value,
+        PRICE_STEP,
+    )
+
+    if rounded < value:
+        rounded += PRICE_STEP
+
+    return rounded
+
+
+def pre_r18_target_price(
     entry_price,
-    rows,
+    quantity,
+    leverage,
+    side,
+    net_roi_percent,
+):
+    entry_price = D(entry_price)
+    quantity = D(quantity)
+    leverage = D(leverage)
+    net_roi_percent = D(net_roi_percent)
+
+    if entry_price <= 0:
+        raise ValueError(
+            "PRE_R18_INVALID_ENTRY_PRICE"
+        )
+
+    if quantity <= 0:
+        raise ValueError(
+            "PRE_R18_INVALID_QUANTITY"
+        )
+
+    if leverage <= 0:
+        raise ValueError(
+            "PRE_R18_INVALID_LEVERAGE"
+        )
+
+    if side not in {
+        "LONG",
+        "SHORT",
+    }:
+        raise ValueError(
+            "PRE_R18_INVALID_DIRECTION"
+        )
+
+    notional = (
+        entry_price
+        * quantity
+    )
+
+    # Each separately committed position gets its
+    # own margin basis.
+    committed_margin = (
+        notional
+        / leverage
+    )
+
+    required_net_profit = (
+        committed_margin
+        * net_roi_percent
+        / Decimal("100")
+    )
+
+    estimated_cost = (
+        notional
+        * (
+            PRE_R18_ENTRY_FEE_RATE
+            + PRE_R18_EXIT_FEE_RATE
+            + PRE_R18_EXTRA_COST_RATE
+        )
+    )
+
+    required_gross_profit = (
+        required_net_profit
+        + estimated_cost
+    )
+
+    required_price_move = (
+        required_gross_profit
+        / quantity
+    )
+
+    if side == "LONG":
+        raw_target = (
+            entry_price
+            + required_price_move
+        )
+
+        target_price = (
+            pre_r18_price_up(
+                raw_target
+            )
+        )
+
+    else:
+        raw_target = (
+            entry_price
+            - required_price_move
+        )
+
+        target_price = (
+            quantize_down(
+                raw_target,
+                PRICE_STEP,
+            )
+        )
+
+    if target_price <= 0:
+        raise ValueError(
+            "PRE_R18_NON_POSITIVE_TARGET"
+        )
+
+    return {
+        "target_price":
+            target_price,
+
+        "committed_margin":
+            committed_margin,
+
+        "required_net_profit":
+            required_net_profit,
+
+        "estimated_cost":
+            estimated_cost,
+
+        "required_gross_profit":
+            required_gross_profit,
+
+        "required_price_move":
+            required_price_move,
+
+        "net_roi_percent":
+            net_roi_percent,
+    }
+
+
+def build_net_roi_tp_snapshot(
+    entry_price,
+    quantity,
     side,
     fill_label,
 ):
@@ -4727,61 +4896,87 @@ def build_cluster_tp_snapshot(
         entry_price
     )
 
-    diagnostics = (
-        build_cluster_diagnostics(
-            rows,
+    quantity = D(
+        quantity
+    )
+
+    leverage = D(
+        TARGET_LONG_LEVERAGE
+        if side == "LONG"
+        else TARGET_SHORT_LEVERAGE
+    )
+
+    tp1_result = (
+        pre_r18_target_price(
             entry_price,
+            quantity,
+            leverage,
             side,
+            PRE_R18_TP1_NET_ROI_PERCENT,
         )
     )
 
-    approval = (
-        evaluate_tp_approval(
-            diagnostics
+    tp2_result = (
+        pre_r18_target_price(
+            entry_price,
+            quantity,
+            leverage,
+            side,
+            PRE_R18_TP2_NET_ROI_PERCENT,
         )
     )
+
+    tp1 = D(
+        tp1_result[
+            "target_price"
+        ]
+    )
+
+    tp2 = D(
+        tp2_result[
+            "target_price"
+        ]
+    )
+
+    if side == "LONG":
+        valid_structure = (
+            entry_price
+            < tp1
+            < tp2
+        )
+
+    else:
+        valid_structure = (
+            entry_price
+            > tp1
+            > tp2
+            > 0
+        )
+
+    if not valid_structure:
+        raise RuntimeError(
+            "PRE_R18_INVALID_TP_STRUCTURE"
+        )
+
+    approval = {
+        "status":
+            "APPROVED",
+
+        "approved":
+            True,
+
+        "reason":
+            "NET_ROI_TP_APPROVED",
+
+        "cluster_requirement":
+            False,
+
+        "cluster_logic_used":
+            False,
+    }
 
     LAST_TP_APPROVAL = (
         approval
-    )
-
-    if not approval[
-        "approved"
-    ]:
-        log(
-            f"{side} TP SET REJECTED: "
-            f"{approval['reason']}"
-        )
-
-        raise RuntimeError(
-            f"{side} historical TP set rejected: "
-            f"requires at least "
-            f"{REQUIRED_TP_CLUSTERS} valid clusters; "
-            f"found "
-            f"{approval['available_valid_clusters']}"
-        )
-
-    clusters = valid_clusters(
-        rows,
-        entry_price,
-        side,
-    )
-
-    if (
-        len(clusters)
-        < REQUIRED_TP_CLUSTERS
-    ):
-        raise RuntimeError(
-            "TP approval inconsistency: "
-            "diagnostics approved but independent "
-            "cluster extraction found fewer than "
-            "two valid clusters"
-        )
-
-    prices = calculate_tp_prices(
-        entry_price,
-        clusters,
-        side,
     )
 
     snapshot = {
@@ -4796,20 +4991,49 @@ def build_cluster_tp_snapshot(
                 entry_price
             ),
 
-        "historical_diagnostics":
-            diagnostics,
+        "quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "committed_margin":
+            decimal_to_string(
+                tp1_result[
+                    "committed_margin"
+                ]
+            ),
+
+        # Keep this key because downstream code
+        # expects it. It is deliberately cluster-free.
+        "historical_diagnostics": {
+            "cluster_logic_used":
+                False,
+
+            "strategy":
+                "NET_ROI",
+
+            "tp1_net_roi_percent":
+                decimal_to_string(
+                    PRE_R18_TP1_NET_ROI_PERCENT
+                ),
+
+            "tp2_net_roi_percent":
+                decimal_to_string(
+                    PRE_R18_TP2_NET_ROI_PERCENT
+                ),
+        },
 
         "tp_approval":
             approval,
 
         "tp1":
             decimal_to_string(
-                prices["tp1"]
+                tp1
             ),
 
         "tp2":
             decimal_to_string(
-                prices["tp2"]
+                tp2
             ),
 
         "tp3": {
@@ -4818,7 +5042,7 @@ def build_cluster_tp_snapshot(
 
             "allocation_percent":
                 decimal_to_string(
-                    TP3_ALLOCATION_PERCENT
+                    PRE_R18_TP3_ALLOCATION_PERCENT
                 ),
 
             "trailing_distance_percent":
@@ -4827,47 +5051,108 @@ def build_cluster_tp_snapshot(
                 ),
         },
 
-        "cluster1_average":
+        "tp1_net_roi_percent":
+            "10",
+
+        "tp2_net_roi_percent":
+            "20",
+
+        "tp1_allocation_percent":
+            "25",
+
+        "tp2_allocation_percent":
+            "25",
+
+        "tp3_allocation_percent":
+            "50",
+
+        "tp1_required_net_profit":
             decimal_to_string(
-                prices[
-                    "cluster1_average"
+                tp1_result[
+                    "required_net_profit"
                 ]
             ),
 
-        "cluster2_average":
+        "tp2_required_net_profit":
             decimal_to_string(
-                prices[
-                    "cluster2_average"
+                tp2_result[
+                    "required_net_profit"
                 ]
             ),
+
+        "tp1_estimated_cost":
+            decimal_to_string(
+                tp1_result[
+                    "estimated_cost"
+                ]
+            ),
+
+        "tp2_estimated_cost":
+            decimal_to_string(
+                tp2_result[
+                    "estimated_cost"
+                ]
+            ),
+
+        "cluster_logic_used":
+            False,
 
         "primary_tp_immutable":
+            True,
+
+        "backup_tp_recalculate_on_fill":
             True,
     }
 
     log(
-        f"{side} TP SET APPROVED WITH "
-        f"{len(clusters)} VALID CLUSTERS"
+        "PRE-R1.8 "
+        + side
+        + " NET-ROI TP = APPROVED"
     )
 
     log(
-        f"{side} TP1 = "
-        f"{snapshot['tp1']} "
-        f"(20% adjustable progress)"
+        "PRE-R1.8 "
+        + side
+        + " COMMITTED MARGIN = "
+        + snapshot[
+            "committed_margin"
+        ]
     )
 
     log(
-        f"{side} TP2 = "
-        f"{snapshot['tp2']} "
-        f"(50% adjustable progress)"
+        "PRE-R1.8 "
+        + side
+        + " TP1 = "
+        + snapshot["tp1"]
+        + " NET_ROI=10% CLOSE=25%"
     )
 
     log(
-        f"{side} TP3 = "
-        f"{TP3_ALLOCATION_PERCENT}% trailing runner"
+        "PRE-R1.8 "
+        + side
+        + " TP2 = "
+        + snapshot["tp2"]
+        + " NET_ROI=20% CLOSE=25%"
+    )
+
+    log(
+        "PRE-R1.8 "
+        + side
+        + " TP3 = TRAILING CLOSE=50%"
+    )
+
+    log(
+        "PRE-R1.8 "
+        + side
+        + " CLUSTER LOGIC USED = False"
     )
 
     return snapshot
+
+# ============================================================
+# END PRE-R1.8 NET-ROI TP SNAPSHOT
+# ============================================================
+
 
 # ============================================================
 # SYNTHETIC TP TESTS
