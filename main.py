@@ -4931,10 +4931,10 @@ def pre_r18_optional_market_targets(
         return []
 
     try:
-        extrema = build_side_extrema(
+        extrema = local_extrema_values(
             rows,
             side,
-        )
+        ) 
 
         clusters = cluster_extrema(
             extrema
