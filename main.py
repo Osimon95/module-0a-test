@@ -9479,14 +9479,16 @@ async def run_r36f12():
                     "LONG_ZERO_PLANNED_QUANTITY"
                 )
 
-            real_long_snapshot = (
-                build_net_roi_tp_snapshot(
-                    MARK_PRICE,
-                    long_quantity,
-                    "LONG",
-                    "PRE_R18_LONG",
-                )
-            )
+        real_long_snapshot = (
+    build_net_roi_tp_snapshot(
+        MARK_PRICE,
+        long_quantity,
+        "LONG",
+        "PRE_R18_LONG",
+        historical_rows,
+    )
+)
+    
 
             LONG_DIAGNOSTICS = (
                 real_long_snapshot[
