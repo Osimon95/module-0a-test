@@ -6971,7 +6971,256 @@ R36F15105_AUTO_DEMO_ENABLED = os.getenv("R36F15105_AUTO_DEMO_ENABLED", "false").
 def r36f15105_regime_label(active_mode):
     return "NORMAL" if active_mode == "STRUCTURE" else active_mode
 
+# ============================================================
+# PRE-R1.8
+# CLUSTER-FREE REGIME AUTHORIZATION
+# ============================================================
 
+def r36f15105_direction_snapshot(
+    direction,
+    long_snapshot,
+    short_snapshot,
+):
+    if direction == "LONG":
+        return long_snapshot
+
+    if direction == "SHORT":
+        return short_snapshot
+
+    return None
+
+
+def r36f15105_regime_gate(
+    auto_result,
+    ema_snapshot,
+    long_snapshot,
+    short_snapshot,
+):
+    auto_result = (
+        auto_result
+        if isinstance(
+            auto_result,
+            dict,
+        )
+        else {}
+    )
+
+    ema_snapshot = (
+        ema_snapshot
+        if isinstance(
+            ema_snapshot,
+            dict,
+        )
+        else {}
+    )
+
+    active_mode = str(
+        auto_result.get(
+            "active_mode"
+        )
+        or ""
+    ).upper()
+
+    direction = str(
+        auto_result.get(
+            "direction"
+        )
+        or ""
+    ).upper()
+
+    ema_sep = D(
+        auto_result.get(
+            "ema_separation_percent"
+        )
+        or "0"
+    )
+
+    movement = D(
+        auto_result.get(
+            "short_term_move_percent"
+        )
+        or "0"
+    )
+
+    selected_snapshot = (
+        r36f15105_direction_snapshot(
+            direction,
+            long_snapshot,
+            short_snapshot,
+        )
+    )
+
+    result = {
+        "active_mode":
+            active_mode,
+
+        "regime":
+            r36f15105_regime_label(
+                active_mode
+            ),
+
+        "direction":
+            (
+                direction
+                if direction
+                in {
+                    "LONG",
+                    "SHORT",
+                }
+                else None
+            ),
+
+        "ema_separation_percent":
+            decimal_to_string(
+                ema_sep
+            ),
+
+        "move_percent":
+            decimal_to_string(
+                movement
+            ),
+
+        "approved":
+            False,
+
+        "reason":
+            "REGIME_GATE_NOT_EVALUATED",
+
+        "selected_tp_snapshot":
+            selected_snapshot,
+
+        "cluster_logic_used":
+            False,
+    }
+
+    if (
+        active_mode
+        not in R36F15103_VALID_MODES
+    ):
+        result["reason"] = (
+            "INVALID_ACTIVE_MODE"
+        )
+
+        return result
+
+    if direction not in {
+        "LONG",
+        "SHORT",
+    }:
+        result["reason"] = (
+            "NO_AUTO_DIRECTION"
+        )
+
+        return result
+
+    if not ema_snapshot.get(
+        "ready"
+    ):
+        result["reason"] = (
+            "EMA_ENGINE_NOT_READY"
+        )
+
+        return result
+
+    if (
+        not selected_snapshot
+        or not selected_snapshot.get(
+            "tp_approval",
+            {},
+        ).get(
+            "approved"
+        )
+    ):
+        result["reason"] = (
+            "NET_ROI_TP_NOT_APPROVED"
+        )
+
+        return result
+
+    # ----------------------------------------
+    # SCALP
+    # ----------------------------------------
+
+    if active_mode == "SCALP":
+
+        if (
+            ema_sep
+            <
+            R36F15105_SCALP_MIN_EMA_SEPARATION_PERCENT
+        ):
+            result["reason"] = (
+                "SCALP_EMA_SEPARATION_TOO_SMALL"
+            )
+
+            return result
+
+        result["approved"] = True
+
+        result["reason"] = (
+            "SCALP_NET_ROI_GATE_APPROVED"
+        )
+
+        return result
+
+    # ----------------------------------------
+    # NORMAL / STRUCTURE
+    # ----------------------------------------
+
+    if active_mode == "STRUCTURE":
+
+        if (
+            ema_sep
+            <
+            R36F15105_NORMAL_MIN_EMA_SEPARATION_PERCENT
+        ):
+            result["reason"] = (
+                "NORMAL_EMA_SEPARATION_TOO_SMALL"
+            )
+
+            return result
+
+        result["approved"] = True
+
+        result["reason"] = (
+            "NORMAL_NET_ROI_GATE_APPROVED"
+        )
+
+        return result
+
+    # ----------------------------------------
+    # BREAKOUT
+    # ----------------------------------------
+
+    if active_mode == "BREAKOUT":
+
+        if (
+            movement
+            <
+            R36F15105_BREAKOUT_MIN_MOVE_PERCENT
+        ):
+            result["reason"] = (
+                "BREAKOUT_MOVE_NOT_CONFIRMED"
+            )
+
+            return result
+
+        result["approved"] = True
+
+        result["reason"] = (
+            "BREAKOUT_NET_ROI_GATE_APPROVED"
+        )
+
+        return result
+
+    result["reason"] = (
+        "UNHANDLED_ACTIVE_MODE"
+    )
+
+    return result
+
+# ============================================================
+# END PRE-R1.8 CLUSTER-FREE REGIME AUTHORIZATION
+# ============================================================
 def r36f15105_direction_cluster_count(direction):
     if direction == "LONG":
         return int(LONG_DIAGNOSTICS.get("valid_cluster_count", 0) or 0)
