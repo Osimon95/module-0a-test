@@ -6792,12 +6792,105 @@ def r36f15103_move_percent(
     )
 
 
+
+# ============================================================
+# R1.8 REPLACEMENT
+# CLUSTER-INDEPENDENT AUTO-MODE CLASSIFIER
+# ============================================================
+
 def r36f15103_raw_classifier(
     direction,
     valid_cluster_count,
     ema_separation_percent,
     short_term_move_percent,
 ):
+    """
+    R1.8 auto-mode classifier.
+
+    IMPORTANT:
+    Historical clusters may still be observed diagnostically,
+    but they no longer authorize TP generation and they must
+    not force a strong EMA setup into BREAKOUT mode.
+
+    Mode selection:
+    - STRUCTURE: confirmed strong directional EMA structure.
+    - BREAKOUT: actual short-term movement confirms breakout.
+    - SCALP: neither structure nor breakout is confirmed.
+
+    ZERO-WRITE:
+    This function only classifies market regime.
+    It cannot submit or mutate exchange orders.
+    """
+
+    direction_text = str(
+        direction or ""
+    ).strip().upper()
+
+    ema_sep = abs(
+        float(
+            ema_separation_percent or 0
+        )
+    )
+
+    move = abs(
+        float(
+            short_term_move_percent or 0
+        )
+    )
+
+    strong_direction = (
+        direction_text in ("LONG", "SHORT")
+        and ema_sep
+        >= R36F15103_STRONG_EMA_SEPARATION_PERCENT
+    )
+
+    breakout_confirmed = (
+        direction_text in ("LONG", "SHORT")
+        and move
+        >= R36F15103_BREAKOUT_MOVE_PERCENT
+    )
+
+    # --------------------------------------------------------
+    # R1.8:
+    # Actual breakout movement has priority.
+    # Clusters are NOT an authorization requirement.
+    # --------------------------------------------------------
+
+    if breakout_confirmed:
+        return (
+            "BREAKOUT",
+            "BREAKOUT_MOVE_CONFIRMED",
+        )
+
+    # --------------------------------------------------------
+    # Strong EMA direction is STRUCTURE.
+    #
+    # PRE-R1.8 incorrectly forced BREAKOUT when clusters < 2:
+    #
+    # STRONG_EMA_DIRECTION_BUT_TWO_CLUSTER_STRUCTURE_UNAVAILABLE
+    #
+    # That dependency is removed here.
+    # --------------------------------------------------------
+
+    if strong_direction:
+        return (
+            "STRUCTURE",
+            "STRONG_EMA_DIRECTION_CONFIRMED",
+        )
+
+    # --------------------------------------------------------
+    # Normal small-movement market.
+    # --------------------------------------------------------
+
+    return (
+        "SCALP",
+        "NO_CONFIRMED_STRUCTURE_OR_BREAKOUT_CONDITION",
+    )
+
+
+# ============================================================
+# END R1.8 REPLACEMENT
+# ============================================================
     try:
         clusters = int(
             valid_cluster_count
