@@ -9534,13 +9534,15 @@ async def run_r36f12():
                 )
 
             real_short_snapshot = (
-                build_net_roi_tp_snapshot(
-                    MARK_PRICE,
-                    short_quantity,
-                    "SHORT",
-                    "PRE_R18_SHORT",
-                )
-            )
+    build_net_roi_tp_snapshot(
+        MARK_PRICE,
+        short_quantity,
+        "SHORT",
+        "PRE_R18_SHORT",
+        historical_rows,
+    )
+)
+    
 
             SHORT_DIAGNOSTICS = (
                 real_short_snapshot[
