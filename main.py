@@ -10768,17 +10768,24 @@ async def run_r36f12():
     # READ-ONLY WEEX STATE
     # ========================================================
 
+
+    # ========================================================
+    # READ-ONLY WEEX STATE + FROZEN MARKET DATA PATH
+    # ========================================================
+
+    historical_rows = []
+
     try:
         MARK_PRICE = (
-            await fetch_mark_price()
+            await load_mark_price()
         )
 
         AVAILABLE_BALANCE = (
-            await fetch_available_balance()
+            await load_available_balance()
         )
 
         OPEN_POSITIONS = (
-            await fetch_open_positions()
+            await load_open_positions()
         )
 
         WEEX_READ_ONLY_OK = True
@@ -10802,12 +10809,39 @@ async def run_r36f12():
         OPEN_POSITIONS = []
 
     # ========================================================
-    # EMA SNAPSHOT
+    # HISTORICAL DATA — EXISTING FROZEN LOADER
+    # ========================================================
+
+    try:
+        historical_rows = (
+            await load_historical_klines()
+        )
+
+        diagnostic_check(
+            "R36F15104B_HISTORICAL_DATA",
+            bool(
+                historical_rows
+            ),
+        )
+
+    except Exception as exc:
+        historical_rows = []
+
+        diagnostic_check(
+            "R36F15104B_HISTORICAL_DATA",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # EMA SNAPSHOT — CONSUME SAME HISTORICAL ROWS
     # ========================================================
 
     try:
         EMA_SIGNAL_SNAPSHOT = (
-            await build_ema_signal_snapshot()
+            build_ema_signal_snapshot(
+                historical_rows
+            )
         )
 
         diagnostic_check(
@@ -10824,45 +10858,13 @@ async def run_r36f12():
 
     except Exception as exc:
         EMA_SIGNAL_SNAPSHOT = {
-            "ready":
-                False,
-
-            "reason":
-                str(exc),
-
-            "ideal_direction":
-                None,
+            "ready": False,
+            "reason": str(exc),
+            "ideal_direction": None,
         }
 
         diagnostic_check(
             "R36F15104B_EMA_SIGNAL",
-            False,
-            str(exc),
-        )
-
-    # ========================================================
-    # HISTORICAL DATA
-    # ========================================================
-
-    historical_rows = []
-
-    try:
-        historical_rows = (
-            await fetch_historical_candles()
-        )
-
-        diagnostic_check(
-            "R36F15104B_HISTORICAL_DATA",
-            bool(
-                historical_rows
-            ),
-        )
-
-    except Exception as exc:
-        historical_rows = []
-
-        diagnostic_check(
-            "R36F15104B_HISTORICAL_DATA",
             False,
             str(exc),
         )
