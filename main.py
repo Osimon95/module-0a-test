@@ -7608,7 +7608,19 @@ def build_r13_real_engine_instruction(
             "TRAILING_RUNNER",
         "stop_price":
             decimal_to_string(stop_price),
-        
+                # ====================================================
+        # WRITE.PY-R1.8
+        # ADAPTIVE TP ALLOCATION BINDING
+        # ====================================================
+
+        "allocation": {
+            "tp1_percent": "25",
+            "tp2_percent": "25",
+            "tp3_percent": "50",
+        },
+
+        "tp_policy":
+            "NET_ROI_MIN_10_20_ADAPTIVE",
         "trailing_distance_percent":
             decimal_to_string(
                 TP3_TRAILING_DISTANCE_PERCENT
