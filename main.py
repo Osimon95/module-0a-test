@@ -5051,12 +5051,122 @@ def build_net_roi_tp_snapshot(
     tp1_source = "MIN_NET_ROI_FLOOR"
     tp2_source = "MIN_NET_ROI_FLOOR"
 
-    if side == "LONG":
-        eligible_tp1 = [
-            price
-            for price in market_targets
-            if price >= tp1_floor
-        ]
+    # ============================================================
+# R1.8 TP1 / TP2 MEANINGFUL SEPARATION - START
+# ============================================================
+
+if side == "LONG":
+    eligible_tp1 = [
+        price
+        for price in market_targets
+        if price >= tp1_floor
+    ]
+
+    if eligible_tp1:
+        tp1 = eligible_tp1[0]
+        tp1_source = (
+            "MARKET_STRUCTURE_ABOVE_FLOOR"
+        )
+
+    eligible_tp2 = [
+        price
+        for price in market_targets
+        if (
+            price >= tp2_floor
+            and price > tp1
+        )
+    ]
+
+    if eligible_tp2:
+        tp2 = eligible_tp2[0]
+        tp2_source = (
+            "MARKET_STRUCTURE_ABOVE_FLOOR"
+        )
+
+    # TP2 must retain at least the distance represented
+    # by the 10% -> 20% net-ROI floor progression.
+    minimum_tp_gap = max(
+        PRICE_STEP,
+        tp2_floor - tp1_floor,
+    )
+
+    minimum_tp2 = (
+        tp1 + minimum_tp_gap
+    )
+
+    if tp2 < minimum_tp2:
+        tp2 = max(
+            tp2_floor,
+            minimum_tp2,
+        )
+
+        tp2_source = (
+            "MIN_NET_ROI_FLOOR_SEPARATION"
+        )
+
+    valid_structure = (
+        entry_price
+        < tp1
+        < tp2
+    )
+
+else:
+    eligible_tp1 = [
+        price
+        for price in market_targets
+        if price <= tp1_floor
+    ]
+
+    if eligible_tp1:
+        tp1 = eligible_tp1[0]
+        tp1_source = (
+            "MARKET_STRUCTURE_ABOVE_FLOOR"
+        )
+
+    eligible_tp2 = [
+        price
+        for price in market_targets
+        if (
+            price <= tp2_floor
+            and price < tp1
+        )
+    ]
+
+    if eligible_tp2:
+        tp2 = eligible_tp2[0]
+        tp2_source = (
+            "MARKET_STRUCTURE_ABOVE_FLOOR"
+        )
+
+    # Same principle for SHORT, but downward.
+    minimum_tp_gap = max(
+        PRICE_STEP,
+        tp1_floor - tp2_floor,
+    )
+
+    maximum_tp2 = (
+        tp1 - minimum_tp_gap
+    )
+
+    if tp2 > maximum_tp2:
+        tp2 = min(
+            tp2_floor,
+            maximum_tp2,
+        )
+
+        tp2_source = (
+            "MIN_NET_ROI_FLOOR_SEPARATION"
+        )
+
+    valid_structure = (
+        entry_price
+        > tp1
+        > tp2
+    )
+
+# ============================================================
+# R1.8 TP1 / TP2 MEANINGFUL SEPARATION - END
+# ============================================================
 
         if eligible_tp1:
             tp1 = eligible_tp1[0]
