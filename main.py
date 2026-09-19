@@ -9567,9 +9567,10 @@ async def run_r36f12():
             )
 
     log(
-        "PRE-R1.8 ACTIVE TP POLICY = "
-        "NET_ROI_10_20"
-    )
+    "PRE-R1.8 ACTIVE TP POLICY = "
+    "NET_ROI_MIN_10_20_ADAPTIVE"
+)
+
 
     log(
         "PRE-R1.8 ACTIVE ALLOCATION = "
