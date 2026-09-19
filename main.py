@@ -5183,7 +5183,7 @@ else:
             )
         ]
 
-        if eligible_tp2:
+            if eligible_tp2:
             tp2 = eligible_tp2[0]
             tp2_source = (
                 "MARKET_STRUCTURE_ABOVE_FLOOR"
