@@ -5174,7 +5174,7 @@ else:
                 "MARKET_STRUCTURE_ABOVE_FLOOR"
             )
 
-        eligible_tp2 = [
+            eligible_tp2 = [
             price
             for price in market_targets
             if (
