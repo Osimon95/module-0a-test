@@ -8196,3 +8196,1728 @@ def r36f15103_startup_diagnostic():
 # ============================================================
 # R1.8 CORRECTED MAIN.PY — PART 4 END
 # ============================================================
+# ============================================================
+# R1.8 CORRECTED MAIN.PY — PART 5A START
+# ============================================================
+
+# ============================================================
+# R36F.15.10.5 REGIME -> DEMO EXECUTION ROUTER
+# NORMAL is represented internally by the already-tested
+# STRUCTURE mode.
+# Real-money execution remains hard-disabled.
+# ============================================================
+
+R36F15105_SCALP_MIN_CLUSTERS = int(
+    os.getenv(
+        "R36F15105_SCALP_MIN_CLUSTERS",
+        "1",
+    )
+)
+
+R36F15105_NORMAL_MIN_CLUSTERS = int(
+    os.getenv(
+        "R36F15105_NORMAL_MIN_CLUSTERS",
+        "2",
+    )
+)
+
+R36F15105_BREAKOUT_MIN_CLUSTERS = int(
+    os.getenv(
+        "R36F15105_BREAKOUT_MIN_CLUSTERS",
+        "1",
+    )
+)
+
+R36F15105_SCALP_MIN_EMA_SEPARATION_PERCENT = Decimal(
+    os.getenv(
+        "R36F15105_SCALP_MIN_EMA_SEPARATION_PERCENT",
+        "0.001",
+    )
+)
+
+R36F15105_NORMAL_MIN_EMA_SEPARATION_PERCENT = Decimal(
+    os.getenv(
+        "R36F15105_NORMAL_MIN_EMA_SEPARATION_PERCENT",
+        "0.01",
+    )
+)
+
+R36F15105_BREAKOUT_MIN_MOVE_PERCENT = Decimal(
+    os.getenv(
+        "R36F15105_BREAKOUT_MIN_MOVE_PERCENT",
+        "0.60",
+    )
+)
+
+R36F15105_AUTO_DEMO_ENABLED = (
+    os.getenv(
+        "R36F15105_AUTO_DEMO_ENABLED",
+        "false",
+    ).strip().lower()
+    in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+)
+
+
+def r36f15105_regime_label(
+    active_mode,
+):
+    return (
+        "NORMAL"
+        if active_mode == "STRUCTURE"
+        else active_mode
+    )
+
+
+# ============================================================
+# PRE-R1.8
+# CLUSTER-FREE REGIME AUTHORIZATION
+# ============================================================
+
+def r36f15105_direction_snapshot(
+    direction,
+    long_snapshot,
+    short_snapshot,
+):
+    if direction == "LONG":
+        return long_snapshot
+
+    if direction == "SHORT":
+        return short_snapshot
+
+    return None
+
+
+def r36f15105_regime_gate(
+    auto_result,
+    ema_snapshot,
+    long_snapshot,
+    short_snapshot,
+):
+    auto_result = (
+        auto_result
+        if isinstance(
+            auto_result,
+            dict,
+        )
+        else {}
+    )
+
+    ema_snapshot = (
+        ema_snapshot
+        if isinstance(
+            ema_snapshot,
+            dict,
+        )
+        else {}
+    )
+
+    active_mode = str(
+        auto_result.get(
+            "active_mode"
+        )
+        or ""
+    ).upper()
+
+    direction = str(
+        auto_result.get(
+            "direction"
+        )
+        or ""
+    ).upper()
+
+    ema_sep = D(
+        auto_result.get(
+            "ema_separation_percent"
+        )
+        or "0"
+    )
+
+    movement = D(
+        auto_result.get(
+            "short_term_move_percent"
+        )
+        or "0"
+    )
+
+    selected_snapshot = (
+        r36f15105_direction_snapshot(
+            direction,
+            long_snapshot,
+            short_snapshot,
+        )
+    )
+
+    result = {
+        "active_mode":
+            active_mode,
+
+        "regime":
+            r36f15105_regime_label(
+                active_mode
+            ),
+
+        "direction":
+            (
+                direction
+                if direction
+                in {
+                    "LONG",
+                    "SHORT",
+                }
+                else None
+            ),
+
+        "ema_separation_percent":
+            decimal_to_string(
+                ema_sep
+            ),
+
+        "move_percent":
+            decimal_to_string(
+                movement
+            ),
+
+        "approved":
+            False,
+
+        "reason":
+            "REGIME_GATE_NOT_EVALUATED",
+
+        "selected_tp_snapshot":
+            selected_snapshot,
+
+        "cluster_logic_used":
+            False,
+    }
+
+    if (
+        active_mode
+        not in R36F15103_VALID_MODES
+    ):
+        result["reason"] = (
+            "INVALID_ACTIVE_MODE"
+        )
+
+        return result
+
+    if direction not in {
+        "LONG",
+        "SHORT",
+    }:
+        result["reason"] = (
+            "NO_AUTO_DIRECTION"
+        )
+
+        return result
+
+    if not ema_snapshot.get(
+        "ready"
+    ):
+        result["reason"] = (
+            "EMA_ENGINE_NOT_READY"
+        )
+
+        return result
+
+    if (
+        not selected_snapshot
+        or not selected_snapshot.get(
+            "tp_approval",
+            {},
+        ).get(
+            "approved"
+        )
+    ):
+        result["reason"] = (
+            "NET_ROI_TP_NOT_APPROVED"
+        )
+
+        return result
+
+    # --------------------------------------------------------
+    # SCALP
+    # --------------------------------------------------------
+
+    if active_mode == "SCALP":
+
+        if (
+            ema_sep
+            <
+            R36F15105_SCALP_MIN_EMA_SEPARATION_PERCENT
+        ):
+            result["reason"] = (
+                "SCALP_EMA_SEPARATION_TOO_SMALL"
+            )
+
+            return result
+
+        result["approved"] = True
+
+        result["reason"] = (
+            "SCALP_NET_ROI_GATE_APPROVED"
+        )
+
+        return result
+
+    # --------------------------------------------------------
+    # NORMAL / STRUCTURE
+    # --------------------------------------------------------
+
+    if active_mode == "STRUCTURE":
+
+        if (
+            ema_sep
+            <
+            R36F15105_NORMAL_MIN_EMA_SEPARATION_PERCENT
+        ):
+            result["reason"] = (
+                "NORMAL_EMA_SEPARATION_TOO_SMALL"
+            )
+
+            return result
+
+        result["approved"] = True
+
+        result["reason"] = (
+            "NORMAL_NET_ROI_GATE_APPROVED"
+        )
+
+        return result
+
+    # --------------------------------------------------------
+    # BREAKOUT
+    # --------------------------------------------------------
+
+    if active_mode == "BREAKOUT":
+
+        if (
+            movement
+            <
+            R36F15105_BREAKOUT_MIN_MOVE_PERCENT
+        ):
+            result["reason"] = (
+                "BREAKOUT_MOVE_NOT_CONFIRMED"
+            )
+
+            return result
+
+        result["approved"] = True
+
+        result["reason"] = (
+            "BREAKOUT_NET_ROI_GATE_APPROVED"
+        )
+
+        return result
+
+    result["reason"] = (
+        "UNHANDLED_ACTIVE_MODE"
+    )
+
+    return result
+
+
+# ============================================================
+# END PRE-R1.8 CLUSTER-FREE REGIME AUTHORIZATION
+# ============================================================
+
+
+def r36f15105_build_auto_command_preview(
+    regime_gate,
+):
+    direction = (
+        regime_gate.get(
+            "direction"
+        )
+    )
+
+    approved = bool(
+        regime_gate.get(
+            "approved"
+        )
+    )
+
+    command = (
+        TELEGRAM_BUY_COMMAND
+        if direction == "LONG"
+        else
+        TELEGRAM_SELL_COMMAND
+        if direction == "SHORT"
+        else ""
+    )
+
+    return {
+        "recognized":
+            direction
+            in {
+                "LONG",
+                "SHORT",
+            },
+
+        "command":
+            command,
+
+        "direction":
+            direction,
+
+        "authorized_preview":
+            approved,
+
+        "reason":
+            regime_gate.get(
+                "reason"
+            ),
+
+        "authorization_source":
+            "R36F.15.10.5_AUTO_REGIME",
+
+        "exchange_order_sent":
+            False,
+    }
+
+
+def r36f15105_build_demo_preview(
+    direction,
+    tp_snapshot,
+    balance_readiness,
+    protective_stop_price,
+):
+    # Preserve the previously proven
+    # R36F.14 WEEX demo payload shape.
+
+    if (
+        direction
+        not in {
+            "LONG",
+            "SHORT",
+        }
+        or not tp_snapshot
+        or not tp_snapshot.get(
+            "tp_approval",
+            {},
+        ).get(
+            "approved"
+        )
+        or not balance_readiness
+        or protective_stop_price is None
+    ):
+        return None
+
+    quantity = quantize_down(
+        D(
+            balance_readiness.get(
+                "planned_entry_quantity",
+                "0",
+            )
+        ),
+        QUANTITY_STEP,
+    )
+
+    if quantity <= 0:
+        return None
+
+    tp1_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp1"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    stop_price = quantize_down(
+        D(
+            protective_stop_price
+        ),
+        PRICE_STEP,
+    )
+
+    if direction == "LONG":
+        side = "BUY"
+        position_side = "LONG"
+
+    else:
+        side = "SELL"
+        position_side = "SHORT"
+
+    payload = {
+        "symbol":
+            R36F14_DEMO_SYMBOL,
+
+        "side":
+            side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "newClientOrderId":
+            writer_client_id(
+                direction,
+                "D14",
+            ),
+
+        "tpTriggerPrice":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "slTriggerPrice":
+            decimal_to_string(
+                stop_price
+            ),
+
+        "TpWorkingType":
+            "MARK_PRICE",
+
+        "SlWorkingType":
+            "MARK_PRICE",
+    }
+
+    return {
+        "stage":
+            STAGE,
+
+        "endpoint":
+            R36F14_DEMO_ORDER_ENDPOINT,
+
+        "method":
+            "POST",
+
+        "payload":
+            payload,
+
+        "submitted":
+            False,
+
+        "demo_only":
+            True,
+
+        "real_order_execution":
+            REAL_ORDER_EXECUTION,
+
+        "integrity_sha256":
+            sha256_text(
+                canonical_json(
+                    payload
+                )
+            ),
+    }
+
+
+# ============================================================
+# R36F.15.10.5 COMPLETE REEVALUATION
+# ============================================================
+
+# ============================================================
+# WRITE.PY-R1.3
+# R36F.15.10.5 REAL ENGINE -> ZERO-WRITE WRITER BRIDGE
+# ============================================================
+
+def build_r13_real_engine_instruction(
+    direction,
+    tp_snapshot,
+    balance_readiness,
+    protective_stop_price,
+):
+    if direction not in {
+        "LONG",
+        "SHORT",
+    }:
+        return None
+
+    if not tp_snapshot:
+        return None
+
+    if not tp_snapshot.get(
+        "tp_approval",
+        {},
+    ).get(
+        "approved"
+    ):
+        return None
+
+    if not balance_readiness:
+        return None
+
+    if protective_stop_price is None:
+        return None
+
+    quantity = quantize_down(
+        D(
+            balance_readiness.get(
+                "planned_entry_quantity",
+                "0",
+            )
+        ),
+        QUANTITY_STEP,
+    )
+
+    if quantity <= 0:
+        return None
+
+    entry_price = quantize_down(
+        D(
+            MARK_PRICE
+        ),
+        PRICE_STEP,
+    )
+
+    tp1_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp1"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    tp2_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp2"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    stop_price = quantize_down(
+        D(
+            protective_stop_price
+        ),
+        PRICE_STEP,
+    )
+
+    instruction = {
+        "symbol":
+            SYMBOL,
+
+        "direction":
+            direction,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "tp1":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "tp2":
+            decimal_to_string(
+                tp2_price
+            ),
+
+        "tp3":
+            None,
+
+        "tp3_policy":
+            "TRAILING_RUNNER",
+
+        "stop_price":
+            decimal_to_string(
+                stop_price
+            ),
+
+        # ====================================================
+        # WRITE.PY-R1.8
+        # ADAPTIVE TP ALLOCATION BINDING
+        # ====================================================
+
+        "allocation": {
+            "tp1_percent":
+                "25",
+
+            "tp2_percent":
+                "25",
+
+            "tp3_percent":
+                "50",
+        },
+
+        "tp_policy":
+            "NET_ROI_MIN_10_20_ADAPTIVE",
+
+        "trailing_distance_percent":
+            decimal_to_string(
+                TP3_TRAILING_DISTANCE_PERCENT
+            ),
+
+        "source_stage":
+            STAGE,
+
+        "source_mode":
+            "REAL_ENGINE_ZERO_WRITE",
+
+        "created_at":
+            now_iso(),
+    }
+
+    instruction[
+        "instruction_sha256"
+    ] = sha256_text(
+        canonical_json(
+            instruction
+        )
+    )
+
+    return instruction
+
+
+def r13_connect_real_engine(
+    downstream_ready,
+    direction,
+    tp_snapshot,
+    balance_readiness,
+    protective_stop_price,
+):
+    result = {
+        "connected":
+            False,
+
+        "validated":
+            False,
+
+        "instruction":
+            None,
+
+        "reason":
+            "R1.3_NOT_EVALUATED",
+    }
+
+    if not downstream_ready:
+        result["reason"] = (
+            "R1.3_DOWNSTREAM_NOT_READY"
+        )
+
+        log(
+            "WRITE.PY-R1.3: "
+            "REAL ENGINE NOT DOWNSTREAM READY"
+        )
+
+        return result
+
+    # ========================================================
+    # R1.8 CORRECTION:
+    # This block MUST be outside the preceding IF.
+    # ========================================================
+
+    instruction = (
+        build_r13_real_engine_instruction(
+            direction,
+            tp_snapshot,
+            balance_readiness,
+            protective_stop_price,
+        )
+    )
+
+    # ========================================================
+    # WRITE.PY-R1.8
+    # ADAPTIVE TP -> REAL WRITER BINDING VALIDATION
+    # ZERO WRITE
+    # ========================================================
+
+    if instruction:
+        r18_allocation = (
+            instruction.get(
+                "allocation",
+                {},
+            )
+        )
+
+        r18_tp_policy = str(
+            instruction.get(
+                "tp_policy",
+                "",
+            )
+        ).strip()
+
+        r18_allocation_ok = bool(
+            str(
+                r18_allocation.get(
+                    "tp1_percent",
+                    "",
+                )
+            )
+            == "25"
+            and
+            str(
+                r18_allocation.get(
+                    "tp2_percent",
+                    "",
+                )
+            )
+            == "25"
+            and
+            str(
+                r18_allocation.get(
+                    "tp3_percent",
+                    "",
+                )
+            )
+            == "50"
+        )
+
+        r18_policy_ok = bool(
+            r18_tp_policy
+            ==
+            "NET_ROI_MIN_10_20_ADAPTIVE"
+        )
+
+        r18_tp_prices_ok = bool(
+            D(
+                instruction.get(
+                    "tp1",
+                    "0",
+                )
+            )
+            > 0
+            and
+            D(
+                instruction.get(
+                    "tp2",
+                    "0",
+                )
+            )
+            > 0
+        )
+
+        r18_firebreak_ok = bool(
+            REAL_ORDER_EXECUTION
+            is False
+            and
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED
+            is False
+            and
+            ORDER_SUBMISSION_ENABLED
+            is False
+            and
+            FIRST_REAL_ORDER_ALLOWED
+            is False
+            and
+            R36F15103_REAL_ORDER_EXECUTION
+            is False
+            and
+            R36F15103_WRITE_TRANSPORT
+            is False
+        )
+
+        r18_binding_ok = bool(
+            r18_allocation_ok
+            and
+            r18_policy_ok
+            and
+            r18_tp_prices_ok
+            and
+            r18_firebreak_ok
+        )
+
+        log(
+            "WRITE.PY-R1.8: "
+            "ADAPTIVE TP POLICY = "
+            + r18_tp_policy
+        )
+
+        log(
+            "WRITE.PY-R1.8: "
+            "TP ALLOCATION = "
+            + str(
+                r18_allocation.get(
+                    "tp1_percent"
+                )
+            )
+            + "/"
+            + str(
+                r18_allocation.get(
+                    "tp2_percent"
+                )
+            )
+            + "/"
+            + str(
+                r18_allocation.get(
+                    "tp3_percent"
+                )
+            )
+        )
+
+        log(
+            "WRITE.PY-R1.8: "
+            "ALLOCATION BINDING = "
+            + (
+                "PASS"
+                if r18_allocation_ok
+                else "FAIL"
+            )
+        )
+
+        log(
+            "WRITE.PY-R1.8: "
+            "TP PRICE BINDING = "
+            + (
+                "PASS"
+                if r18_tp_prices_ok
+                else "FAIL"
+            )
+        )
+
+        log(
+            "WRITE.PY-R1.8: "
+            "PRODUCTION FIREBREAK = "
+            + str(
+                r18_firebreak_ok
+            )
+        )
+
+        log(
+            "WRITE.PY-R1.8: "
+            "ZERO-WRITE ENGINE BINDING = "
+            + (
+                "PASS"
+                if r18_binding_ok
+                else "FAIL"
+            )
+        )
+
+        if not r18_binding_ok:
+            instruction = None
+
+            log(
+                "WRITE.PY-R1.8: "
+                "REAL ENGINE INSTRUCTION REJECTED"
+            )
+
+        else:
+            log(
+                "WRITE.PY-R1.8: "
+                "REAL ENGINE INSTRUCTION = VALID"
+            )
+
+            log(
+                "WRITE.PY-R1.8: "
+                "NO REAL ORDER WAS SENT"
+            )
+
+            log(
+                "WRITE.PY-R1.8: "
+                "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+            )
+
+    if not instruction:
+        result["reason"] = (
+            "R1.3_ENGINE_INSTRUCTION_BUILD_FAILED"
+        )
+
+        log(
+            "WRITE.PY-R1.3: "
+            "REAL ENGINE INSTRUCTION BUILD FAILED"
+        )
+
+        return result
+
+    result["connected"] = True
+    result["instruction"] = instruction
+
+    result["reason"] = (
+        "R1.3_REAL_ENGINE_INSTRUCTION_FROZEN"
+    )
+
+    log(
+        "WRITE.PY-R1.3: "
+        "REAL ENGINE INSTRUCTION RECEIVED"
+    )
+
+    log(
+        "WRITE.PY-R1.3: "
+        "SOURCE = R36F.15.10.5"
+    )
+
+    log(
+        "WRITE.PY-R1.3: DIRECTION = "
+        + str(
+            instruction[
+                "direction"
+            ]
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.3: SYMBOL = "
+        + str(
+            instruction[
+                "symbol"
+            ]
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.3: ENTRY = "
+        + str(
+            instruction[
+                "entry_price"
+            ]
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.3: QUANTITY = "
+        + str(
+            instruction[
+                "quantity"
+            ]
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.3: TP1 = "
+        + str(
+            instruction[
+                "tp1"
+            ]
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.3: TP2 = "
+        + str(
+            instruction[
+                "tp2"
+            ]
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.3: TP3 POLICY = "
+        + str(
+            instruction[
+                "tp3_policy"
+            ]
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.3: STOP = "
+        + str(
+            instruction[
+                "stop_price"
+            ]
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.3: "
+        "INSTRUCTION SHA256 = "
+        + str(
+            instruction[
+                "instruction_sha256"
+            ]
+        )
+    )
+
+    # ========================================================
+    # WRITE.PY-R1.7
+    # PRODUCTION AUTHENTICATION + SIGNATURE BOUNDARY
+    # FINAL REQUEST CONSTRUCTION
+    # ZERO-WRITE VALIDATION
+    # ========================================================
+    #
+    # PURPOSE:
+    # - Preserve the passed R1.6 production-canary gate.
+    # - Preserve the immutable real-engine instruction.
+    # - Rebuild the exact production request candidate.
+    # - Validate production credentials are present.
+    # - Canonicalize the exact POST body.
+    # - Construct the WEEX authentication prehash.
+    # - Generate the real HMAC-SHA256/Base64 signature.
+    # - Recompute the signature independently and compare it.
+    # - Build the final authenticated request representation.
+    # - Bind authentication to the exact request identity.
+    # - KEEP ALL PRODUCTION TRANSPORT PHYSICALLY DISABLED.
+    #
+    # CRITICAL:
+    #
+    # R1.7 DOES NOT SEND THE REQUEST.
+    #
+    # NO session.post()
+    # NO requests.post()
+    # NO requests.request()
+    # NO production exchange mutation.
+    # NO real-money order.
+    #
+    # ========================================================
+
+    result["validated"] = False
+
+    result["reason"] = (
+        "R1.7_NOT_YET_VALIDATED"
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "PRODUCTION AUTHENTICATION BOUNDARY START"
+    )
+
+    # --------------------------------------------------------
+    # 1. PRODUCTION FIREBREAK
+    # --------------------------------------------------------
+
+    r17_firebreak_ok = bool(
+        REAL_ORDER_EXECUTION
+        is False
+        and
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        is False
+        and
+        ORDER_SUBMISSION_ENABLED
+        is False
+        and
+        LEVERAGE_MUTATION_ENABLED
+        is False
+        and
+        MARGIN_MODE_MUTATION_ENABLED
+        is False
+        and
+        POSITION_MUTATION_ENABLED
+        is False
+        and
+        FIRST_REAL_ORDER_ALLOWED
+        is False
+        and
+        R36F15103_REAL_ORDER_EXECUTION
+        is False
+        and
+        R36F15103_WRITE_TRANSPORT
+        is False
+    )
+
+    if not r17_firebreak_ok:
+        result["reason"] = (
+            "R1.7_PRODUCTION_FIREBREAK_FAILURE"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "PRODUCTION FIREBREAK CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "PRODUCTION FIREBREAK CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 2. IMMUTABLE SOURCE INSTRUCTION
+    # --------------------------------------------------------
+
+    r17_source_instruction = dict(
+        instruction
+    )
+
+    r17_source_hash = str(
+        r17_source_instruction.get(
+            "instruction_sha256"
+        )
+        or ""
+    ).strip()
+
+    if not r17_source_hash:
+        result["reason"] = (
+            "R1.7_SOURCE_INSTRUCTION_HASH_MISSING"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "SOURCE INSTRUCTION HASH CHECK = FAIL"
+        )
+
+        return result
+
+    r17_rebuilt_instruction = dict(
+        r17_source_instruction
+    )
+
+    r17_rebuilt_instruction.pop(
+        "instruction_sha256",
+        None,
+    )
+
+    r17_rebuilt_hash = sha256_text(
+        canonical_json(
+            r17_rebuilt_instruction
+        )
+    )
+
+    if (
+        r17_rebuilt_hash
+        !=
+        r17_source_hash
+    ):
+        result["reason"] = (
+            "R1.7_SOURCE_INSTRUCTION_HASH_MISMATCH"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "SOURCE INSTRUCTION HASH CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "SOURCE INSTRUCTION HASH CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 3. JIT NORMALIZATION
+    # --------------------------------------------------------
+
+    try:
+        r17_symbol = str(
+            instruction.get(
+                "symbol"
+            )
+            or ""
+        ).strip()
+
+        r17_direction = str(
+            instruction.get(
+                "direction"
+            )
+            or ""
+        ).strip().upper()
+
+        r17_entry = quantize_down(
+            D(
+                instruction.get(
+                    "entry_price"
+                )
+                or "0"
+            ),
+            PRICE_STEP,
+        )
+
+        r17_quantity = quantize_down(
+            D(
+                instruction.get(
+                    "quantity"
+                )
+                or "0"
+            ),
+            QUANTITY_STEP,
+        )
+
+        r17_tp1 = quantize_down(
+            D(
+                instruction.get(
+                    "tp1"
+                )
+                or "0"
+            ),
+            PRICE_STEP,
+        )
+
+        r17_tp2 = quantize_down(
+            D(
+                instruction.get(
+                    "tp2"
+                )
+                or "0"
+            ),
+            PRICE_STEP,
+        )
+
+        r17_stop = quantize_down(
+            D(
+                instruction.get(
+                    "stop_price"
+                )
+                or "0"
+            ),
+            PRICE_STEP,
+        )
+
+    except Exception as exc:
+        result["reason"] = (
+            "R1.7_NORMALIZATION_FAILED"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "NORMALIZATION ERROR = "
+            + str(
+                exc
+            )
+        )
+
+        return result
+
+    # --------------------------------------------------------
+    # 4. JIT SYMBOL / DIRECTION / QUANTITY
+    # --------------------------------------------------------
+
+    if r17_symbol != SYMBOL:
+        result["reason"] = (
+            "R1.7_SYMBOL_MISMATCH"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "JIT SYMBOL CHECK = FAIL"
+        )
+
+        return result
+
+    if r17_direction not in {
+        "LONG",
+        "SHORT",
+    }:
+        result["reason"] = (
+            "R1.7_INVALID_DIRECTION"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "JIT DIRECTION CHECK = FAIL"
+        )
+
+        return result
+
+    if r17_quantity <= 0:
+        result["reason"] = (
+            "R1.7_INVALID_QUANTITY"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "JIT QUANTITY CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "JIT SYMBOL CHECK = PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "JIT DIRECTION CHECK = PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "JIT QUANTITY CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 5. PRICE STRUCTURE
+    # --------------------------------------------------------
+
+    if (
+        r17_entry <= 0
+        or
+        r17_tp1 <= 0
+        or
+        r17_tp2 <= 0
+        or
+        r17_stop <= 0
+    ):
+        result["reason"] = (
+            "R1.7_NON_POSITIVE_PRICE"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "JIT PRICE CHECK = FAIL"
+        )
+
+        return result
+
+    if r17_direction == "LONG":
+        r17_side = "BUY"
+        r17_position_side = "LONG"
+
+        r17_price_structure_ok = bool(
+            r17_stop
+            <
+            r17_entry
+            <
+            r17_tp1
+            <
+            r17_tp2
+        )
+
+    else:
+        r17_side = "SELL"
+        r17_position_side = "SHORT"
+
+        r17_price_structure_ok = bool(
+            r17_tp2
+            <
+            r17_tp1
+            <
+            r17_entry
+            <
+            r17_stop
+        )
+
+    if not r17_price_structure_ok:
+        result["reason"] = (
+            "R1.7_INVALID_PRICE_STRUCTURE"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "JIT PRICE STRUCTURE = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "JIT PRICE STRUCTURE = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 6. DETERMINISTIC CLIENT ORDER ID
+    # --------------------------------------------------------
+
+    r17_identity_material = {
+        "symbol":
+            r17_symbol,
+
+        "direction":
+            r17_direction,
+
+        "entry_price":
+            decimal_to_string(
+                r17_entry
+            ),
+
+        "quantity":
+            decimal_to_string(
+                r17_quantity
+            ),
+
+        "tp1":
+            decimal_to_string(
+                r17_tp1
+            ),
+
+        "tp2":
+            decimal_to_string(
+                r17_tp2
+            ),
+
+        "stop_price":
+            decimal_to_string(
+                r17_stop
+            ),
+
+        "source_instruction_sha256":
+            r17_source_hash,
+    }
+
+    r17_identity_sha256 = (
+        sha256_text(
+            canonical_json(
+                r17_identity_material
+            )
+        )
+    )
+
+    r17_client_order_id = (
+        "R17-"
+        +
+        (
+            "L-"
+            if r17_direction
+            == "LONG"
+            else "S-"
+        )
+        +
+        r17_identity_sha256[
+            :20
+        ].upper()
+    )
+
+    if (
+        not r17_client_order_id
+        or
+        len(
+            r17_client_order_id
+        )
+        > 36
+    ):
+        result["reason"] = (
+            "R1.7_CLIENT_ORDER_ID_INVALID"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "CLIENT ORDER ID CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "CLIENT ORDER ID CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 7. EXACT PRODUCTION REQUEST CANDIDATE
+    # --------------------------------------------------------
+
+    r17_method = "POST"
+
+    r17_endpoint = (
+        "/capi/v2/order"
+    )
+
+    r17_payload = {
+        "symbol":
+            r17_symbol,
+
+        "side":
+            r17_side,
+
+        "positionSide":
+            r17_position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            decimal_to_string(
+                r17_quantity
+            ),
+
+        "newClientOrderId":
+            r17_client_order_id,
+
+        "tpTriggerPrice":
+            decimal_to_string(
+                r17_tp1
+            ),
+
+        "slTriggerPrice":
+            decimal_to_string(
+                r17_stop
+            ),
+
+        "TpWorkingType":
+            "MARK_PRICE",
+
+        "SlWorkingType":
+            "MARK_PRICE",
+    }
+
+    r17_required_fields = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+        "tpTriggerPrice",
+        "slTriggerPrice",
+        "TpWorkingType",
+        "SlWorkingType",
+    }
+
+    r17_missing_fields = sorted(
+        r17_required_fields
+        -
+        set(
+            r17_payload.keys()
+        )
+    )
+
+    if r17_missing_fields:
+        result["reason"] = (
+            "R1.7_REQUIRED_FIELDS_MISSING"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "PAYLOAD FIELD CHECK = FAIL"
+        )
+
+        return result
+
+    if (
+        r17_method != "POST"
+        or
+        not r17_endpoint.startswith(
+            "/"
+        )
+    ):
+        result["reason"] = (
+            "R1.7_REQUEST_TARGET_INVALID"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "REQUEST TARGET CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "PAYLOAD FIELD CHECK = PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "HTTP METHOD CHECK = PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "ENDPOINT CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 8. CANONICAL BODY
+    # --------------------------------------------------------
+
+    r17_body = canonical_json(
+        r17_payload
+    )
+
+    r17_body_sha256 = (
+        sha256_text(
+            r17_body
+        )
+    )
+
+    r17_body_repeat = (
+        canonical_json(
+            r17_payload
+        )
+    )
+
+    r17_canonical_body_ok = bool(
+        r17_body
+        and
+        r17_body
+        ==
+        r17_body_repeat
+    )
+
+    if not r17_canonical_body_ok:
+        result["reason"] = (
+            "R1.7_CANONICAL_BODY_FAILURE"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "CANONICAL BODY CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "CANONICAL BODY CHECK = PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "BODY SHA256 = "
+        + r17_body_sha256
+    )
+
+    # --------------------------------------------------------
+    # 9. REQUEST SHA256 + REPLAY IDENTITY
+    # --------------------------------------------------------
+
+    r17_request_material = {
+        "method":
+            r17_method,
+
+        "endpoint":
+            r17_endpoint,
+
+        "body_sha256":
+            r17_body_sha256,
+
+        "payload":
+            r17_payload,
+
+        "source_instruction_sha256":
+            r17_source_hash,
+    }
+
+    r17_request_sha256 = (
+        sha256_text(
+            canonical_json(
+                r17_request_material
+            )
+        )
+    )
+
+    r17_replay_identity = (
+        r17_client_order_id
+        + ":"
+        + r17_request_sha256
+    )
+
+    if (
+        not r17_request_sha256
+        or
+        not r17_replay_identity
+    ):
+        result["reason"] = (
+            "R1.7_REQUEST_IDENTITY_FAILURE"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "REQUEST IDENTITY CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "REQUEST HASH CHECK = PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "REPLAY IDENTITY CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # R1.8 CORRECTED MAIN.PY — PART 5A JOIN
+    #
+    # Continue Part 5B at R1.7 section:
+    # "10. PRODUCTION CREDENTIAL PRESENCE"
+    #
+    # DO NOT dedent the continuation.
+    # It remains inside r13_connect_real_engine().
+    # --------------------------------------------------------
+
