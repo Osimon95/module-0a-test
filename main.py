@@ -5515,7 +5515,16 @@ def run_tp_engine(
 # CLUSTERS MAY IMPROVE TP BUT NEVER AUTHORIZE A TRADE
 # TP1 / TP2 MUST RETAIN MEANINGFUL SEPARATION
 # ============================================================
+# ============================================================
+# R1.8 ADAPTIVE NET-ROI TP POLICY CONSTANTS
+# ============================================================
 
+R18_TP1_MIN_NET_ROI_PERCENT = D("10")
+R18_TP2_MIN_NET_ROI_PERCENT = D("20")
+
+R18_TP1_CLOSE_PERCENT = D("25")
+R18_TP2_CLOSE_PERCENT = D("25")
+R18_TP3_CLOSE_PERCENT = D("50")
 PRE_R18_TP1_MIN_NET_ROI_PERCENT = Decimal("10")
 PRE_R18_TP2_MIN_NET_ROI_PERCENT = Decimal("20")
 
