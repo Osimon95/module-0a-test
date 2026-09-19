@@ -9921,3 +9921,2315 @@ def r13_connect_real_engine(
     # It remains inside r13_connect_real_engine().
     # --------------------------------------------------------
 
+
+    # --------------------------------------------------------
+    # 10. PRODUCTION CREDENTIAL PRESENCE
+    # --------------------------------------------------------
+    #
+    # IMPORTANT:
+    # Credentials are NEVER printed.
+    # Signature is also not printed.
+    # --------------------------------------------------------
+
+    r17_api_key = (
+        os.getenv(
+            "WEEX_API_KEY",
+            "",
+        ).strip()
+    )
+
+    r17_api_secret = (
+        os.getenv(
+            "WEEX_API_SECRET",
+            "",
+        ).strip()
+    )
+
+    r17_passphrase = (
+        os.getenv(
+            "WEEX_API_PASSPHRASE",
+            "",
+        ).strip()
+    )
+
+    r17_credentials_present = bool(
+        r17_api_key
+        and r17_api_secret
+        and r17_passphrase
+    )
+
+    if not r17_credentials_present:
+        result["reason"] = (
+            "R1.7_PRODUCTION_CREDENTIALS_MISSING"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "PRODUCTION CREDENTIAL CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "PRODUCTION CREDENTIAL CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 11. AUTHENTICATION TIMESTAMP
+    # --------------------------------------------------------
+
+    r17_timestamp = str(
+        int(
+            time.time()
+            * 1000
+        )
+    )
+
+    r17_timestamp_ok = bool(
+        r17_timestamp.isdigit()
+        and len(r17_timestamp) >= 13
+    )
+
+    if not r17_timestamp_ok:
+        result["reason"] = (
+            "R1.7_TIMESTAMP_INVALID"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "TIMESTAMP CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "TIMESTAMP CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 12. EXACT WEEX SIGNATURE PREHASH
+    # --------------------------------------------------------
+
+    r17_prehash = (
+        r17_timestamp
+        +
+        r17_method
+        +
+        r17_endpoint
+        +
+        r17_body
+    )
+
+    r17_prehash_sha256 = (
+        sha256_text(
+            r17_prehash
+        )
+    )
+
+    if not r17_prehash:
+        result["reason"] = (
+            "R1.7_PREHASH_FAILURE"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "SIGNATURE PREHASH CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "SIGNATURE PREHASH CHECK = PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "PREHASH SHA256 = "
+        + r17_prehash_sha256
+    )
+
+    # --------------------------------------------------------
+    # 13. GENERATE SIGNATURE THROUGH EXISTING AUTH HELPER
+    # --------------------------------------------------------
+
+    try:
+        r17_signature = build_signature(
+            r17_timestamp,
+            r17_method,
+            r17_endpoint,
+            r17_body,
+        )
+
+    except Exception as exc:
+        result["reason"] = (
+            "R1.7_SIGNATURE_GENERATION_FAILED"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "SIGNATURE GENERATION = FAIL "
+            + str(exc)
+        )
+
+        return result
+
+    r17_signature_generated = bool(
+        r17_signature
+    )
+
+    if not r17_signature_generated:
+        result["reason"] = (
+            "R1.7_SIGNATURE_EMPTY"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "SIGNATURE GENERATED = False"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "SIGNATURE GENERATED = True"
+    )
+
+    # --------------------------------------------------------
+    # 14. INDEPENDENT SIGNATURE RECOMPUTATION
+    # --------------------------------------------------------
+
+    r17_manual_digest = hmac.new(
+        r17_api_secret.encode(),
+        r17_prehash.encode(),
+        hashlib.sha256,
+    ).digest()
+
+    r17_signature_repeat = (
+        base64.b64encode(
+            r17_manual_digest
+        ).decode()
+    )
+
+    r17_signature_match = bool(
+        hmac.compare_digest(
+            r17_signature,
+            r17_signature_repeat,
+        )
+    )
+
+    if not r17_signature_match:
+        result["reason"] = (
+            "R1.7_SIGNATURE_RECOMPUTE_MISMATCH"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "SIGNATURE RECOMPUTE CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "SIGNATURE RECOMPUTE CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 15. FINAL AUTHENTICATED HEADER REPRESENTATION
+    # --------------------------------------------------------
+
+    r17_headers = {
+        "ACCESS-KEY":
+            r17_api_key,
+
+        "ACCESS-SIGN":
+            r17_signature,
+
+        "ACCESS-TIMESTAMP":
+            r17_timestamp,
+
+        "ACCESS-PASSPHRASE":
+            r17_passphrase,
+
+        "Content-Type":
+            "application/json",
+    }
+
+    r17_header_fields_ok = bool(
+        r17_headers.get(
+            "ACCESS-KEY"
+        )
+        and
+        r17_headers.get(
+            "ACCESS-SIGN"
+        )
+        and
+        r17_headers.get(
+            "ACCESS-TIMESTAMP"
+        )
+        and
+        r17_headers.get(
+            "ACCESS-PASSPHRASE"
+        )
+        and
+        r17_headers.get(
+            "Content-Type"
+        )
+        ==
+        "application/json"
+    )
+
+    if not r17_header_fields_ok:
+        result["reason"] = (
+            "R1.7_AUTH_HEADER_FAILURE"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "AUTH HEADER CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "AUTH HEADER CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 16. FINAL URL CONSTRUCTION
+    # --------------------------------------------------------
+
+    r17_url = (
+        API_BASE_URL
+        +
+        r17_endpoint
+    )
+
+    r17_url_ok = bool(
+        r17_url.startswith(
+            "https://"
+        )
+        and
+        r17_url.endswith(
+            r17_endpoint
+        )
+    )
+
+    if not r17_url_ok:
+        result["reason"] = (
+            "R1.7_FINAL_URL_INVALID"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "FINAL URL CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "FINAL URL CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 17. AUTHENTICATED REQUEST FINGERPRINT
+    # --------------------------------------------------------
+    #
+    # Do NOT hash raw secrets into persistent authorization
+    # identity. The signature proves credential possession.
+    # --------------------------------------------------------
+
+    r17_authenticated_fingerprint = (
+        sha256_text(
+            canonical_json(
+                {
+                    "method":
+                        r17_method,
+
+                    "endpoint":
+                        r17_endpoint,
+
+                    "timestamp":
+                        r17_timestamp,
+
+                    "body_sha256":
+                        r17_body_sha256,
+
+                    "request_sha256":
+                        r17_request_sha256,
+
+                    "client_order_id":
+                        r17_client_order_id,
+
+                    "signature_present":
+                        True,
+                }
+            )
+        )
+    )
+
+    if not r17_authenticated_fingerprint:
+        result["reason"] = (
+            "R1.7_AUTH_FINGERPRINT_FAILURE"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "AUTHENTICATED REQUEST FINGERPRINT = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "AUTHENTICATED REQUEST FINGERPRINT = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 18. CANARY ARM + EXACT REQUEST-HASH BINDING
+    # --------------------------------------------------------
+    #
+    # Preserve the R1.6 variables.
+    #
+    # IMPORTANT:
+    # Even if armed, R1.7 remains ZERO-WRITE.
+    # --------------------------------------------------------
+
+    r17_canary_arm = (
+        os.getenv(
+            "WRITE_R16_CANARY_ARM",
+            "false",
+        ).strip().lower()
+        ==
+        "true"
+    )
+
+    r17_expected_hash = (
+        os.getenv(
+            "WRITE_R16_EXPECTED_REQUEST_SHA256",
+            "",
+        ).strip().lower()
+    )
+
+    r17_expected_hash_present = bool(
+        r17_expected_hash
+    )
+
+    r17_hash_binding_match = bool(
+        r17_expected_hash_present
+        and
+        r17_expected_hash
+        ==
+        r17_request_sha256.lower()
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "CANARY ARM REQUESTED = "
+        + str(
+            r17_canary_arm
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "EXPECTED REQUEST HASH PRESENT = "
+        + str(
+            r17_expected_hash_present
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "REQUEST HASH BINDING MATCH = "
+        + str(
+            r17_hash_binding_match
+        )
+    )
+
+    # --------------------------------------------------------
+    # 19. SHORT-LIVED AUTHORIZATION WINDOW
+    # --------------------------------------------------------
+
+    r17_authorization_window_seconds = 120
+
+    r17_created_at = datetime.now(
+        timezone.utc
+    )
+
+    r17_expires_at = (
+        r17_created_at
+        +
+        timedelta(
+            seconds=
+                r17_authorization_window_seconds
+        )
+    )
+
+    r17_authorization_not_expired = bool(
+        datetime.now(
+            timezone.utc
+        )
+        <
+        r17_expires_at
+    )
+
+    if not r17_authorization_not_expired:
+        result["reason"] = (
+            "R1.7_AUTHORIZATION_EXPIRED"
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "AUTHORIZATION EXPIRY CHECK = FAIL"
+        )
+
+        return result
+
+    log(
+        "WRITE.PY-R1.7: "
+        "AUTHORIZATION EXPIRY CHECK = PASS"
+    )
+
+    # --------------------------------------------------------
+    # 20. FINAL AUTHORIZATION DECISION
+    # --------------------------------------------------------
+
+    r17_canary_authorized = bool(
+        r17_canary_arm
+        and
+        r17_hash_binding_match
+        and
+        r17_authorization_not_expired
+        and
+        r17_firebreak_ok
+        and
+        r17_signature_generated
+        and
+        r17_signature_match
+        and
+        r17_header_fields_ok
+        and
+        r17_url_ok
+    )
+
+    if not r17_canary_arm:
+        r17_authorization_reason = (
+            "CANARY_ARM_NOT_REQUESTED"
+        )
+
+    elif not r17_expected_hash_present:
+        r17_authorization_reason = (
+            "EXPECTED_REQUEST_HASH_NOT_SET"
+        )
+
+    elif not r17_hash_binding_match:
+        r17_authorization_reason = (
+            "REQUEST_HASH_BINDING_MISMATCH"
+        )
+
+    elif not r17_signature_generated:
+        r17_authorization_reason = (
+            "SIGNATURE_NOT_GENERATED"
+        )
+
+    elif not r17_signature_match:
+        r17_authorization_reason = (
+            "SIGNATURE_VALIDATION_FAILED"
+        )
+
+    else:
+        r17_authorization_reason = (
+            "AUTHENTICATED_CANARY_VALIDATED_NOT_SENT"
+        )
+
+    # --------------------------------------------------------
+    # 21. FINAL REQUEST ENVELOPE
+    # --------------------------------------------------------
+    #
+    # Never store raw secret or passphrase here.
+    # Never print signature.
+    # --------------------------------------------------------
+
+    r17_envelope = {
+        "stage":
+            "WRITE.PY-R1.7",
+
+        "symbol":
+            r17_symbol,
+
+        "direction":
+            r17_direction,
+
+        "entry_reference_price":
+            decimal_to_string(
+                r17_entry
+            ),
+
+        "quantity":
+            decimal_to_string(
+                r17_quantity
+            ),
+
+        "tp1":
+            decimal_to_string(
+                r17_tp1
+            ),
+
+        "tp2":
+            decimal_to_string(
+                r17_tp2
+            ),
+
+        "stop_price":
+            decimal_to_string(
+                r17_stop
+            ),
+
+        "method":
+            r17_method,
+
+        "endpoint":
+            r17_endpoint,
+
+        "payload":
+            r17_payload,
+
+        "body_sha256":
+            r17_body_sha256,
+
+        "client_order_id":
+            r17_client_order_id,
+
+        "source_instruction_sha256":
+            r17_source_hash,
+
+        "identity_sha256":
+            r17_identity_sha256,
+
+        "request_sha256":
+            r17_request_sha256,
+
+        "replay_identity":
+            r17_replay_identity,
+
+        "prehash_sha256":
+            r17_prehash_sha256,
+
+        "authenticated_request_fingerprint":
+            r17_authenticated_fingerprint,
+
+        "credentials_present":
+            r17_credentials_present,
+
+        "signature_generated":
+            r17_signature_generated,
+
+        "signature_match":
+            r17_signature_match,
+
+        "authenticated_headers_ready":
+            r17_header_fields_ok,
+
+        "final_url_ready":
+            r17_url_ok,
+
+        "canary_arm_requested":
+            r17_canary_arm,
+
+        "expected_request_hash_present":
+            r17_expected_hash_present,
+
+        "request_hash_binding_match":
+            r17_hash_binding_match,
+
+        "authorization_window_seconds":
+            r17_authorization_window_seconds,
+
+        "authorization_created_at":
+            r17_created_at.isoformat(),
+
+        "authorization_expires_at":
+            r17_expires_at.isoformat(),
+
+        "authorization_not_expired":
+            r17_authorization_not_expired,
+
+        "canary_authorized":
+            r17_canary_authorized,
+
+        "authorization_reason":
+            r17_authorization_reason,
+
+        "transport_attempted":
+            False,
+
+        "transport_sent":
+            False,
+
+        "exchange_mutation_sent":
+            False,
+
+        "real_order_sent":
+            False,
+
+        "zero_write":
+            True,
+    }
+
+    # --------------------------------------------------------
+    # 22. FINAL VALIDATION
+    # --------------------------------------------------------
+
+    r17_validation_ok = bool(
+        r17_firebreak_ok
+        and
+        r17_credentials_present
+        and
+        r17_signature_generated
+        and
+        r17_signature_match
+        and
+        r17_header_fields_ok
+        and
+        r17_url_ok
+        and
+        r17_canonical_body_ok
+        and
+        r17_request_sha256
+        and
+        r17_replay_identity
+        and
+        r17_authenticated_fingerprint
+        and
+        r17_authorization_not_expired
+    )
+
+    if not r17_validation_ok:
+        result["reason"] = (
+            "R1.7_FINAL_VALIDATION_FAILED"
+        )
+
+        result["r17_envelope"] = (
+            r17_envelope
+        )
+
+        log(
+            "WRITE.PY-R1.7: "
+            "FINAL VALIDATION = FAIL"
+        )
+
+        return result
+
+    result["connected"] = True
+    result["validated"] = True
+
+    result["reason"] = (
+        "R1.7_AUTHENTICATED_REQUEST_VALIDATED_NOT_SENT"
+    )
+
+    result["r17_envelope"] = (
+        r17_envelope
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "FINAL VALIDATION = PASS"
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "CANARY AUTHORIZED = "
+        + str(
+            r17_canary_authorized
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "AUTHORIZATION REASON = "
+        + str(
+            r17_authorization_reason
+        )
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "TRANSPORT ATTEMPTED = False"
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "TRANSPORT SENT = False"
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "EXCHANGE MUTATION SENT = False"
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "REAL ORDER SENT = False"
+    )
+
+    log(
+        "WRITE.PY-R1.7: "
+        "ZERO-WRITE AUTHENTICATION VALIDATION COMPLETE"
+    )
+
+    return result
+
+
+# ============================================================
+# END WRITE.PY-R1.3 -> R1.7 REAL ENGINE BRIDGE
+# ============================================================
+
+
+# ============================================================
+# MAIN R36F.15.10.5 CYCLE
+# ============================================================
+
+async def run_r36f12():
+    global TEST_STATUS
+    global WEEX_READ_ONLY_OK
+    global MARK_PRICE
+    global AVAILABLE_BALANCE
+    global OPEN_POSITIONS
+    global EMA_SIGNAL_SNAPSHOT
+    global LONG_DIAGNOSTICS
+    global SHORT_DIAGNOSTICS
+    global REAL_LONG_MARKET_ELIGIBLE
+    global REAL_SHORT_MARKET_ELIGIBLE
+    global TELEGRAM_COMMAND_PREVIEW
+    global R36F15103_REFERENCE_PRICE
+    global R36F15103_LAST_RESULT
+
+    line()
+
+    log(
+        f"{STAGE} START"
+    )
+
+    log(
+        "ACTIVE TP POLICY = "
+        "NET_ROI_MIN_10_20_ADAPTIVE"
+    )
+
+    log(
+        "TP1 MINIMUM NET ROI = "
+        + decimal_to_string(
+            R18_TP1_MIN_NET_ROI_PERCENT
+        )
+        + "%"
+    )
+
+    log(
+        "TP2 MINIMUM NET ROI = "
+        + decimal_to_string(
+            R18_TP2_MIN_NET_ROI_PERCENT
+        )
+        + "%"
+    )
+
+    log(
+        "TP ALLOCATION = "
+        "25% / 25% / 50%"
+    )
+
+    log(
+        "TP3 POLICY = TRAILING_RUNNER"
+    )
+
+    log(
+        "HISTORICAL CLUSTERS = "
+        "DIAGNOSTIC_ONLY"
+    )
+
+    log(
+        "CLUSTER AUTHORIZATION = False"
+    )
+
+    # ========================================================
+    # READ-ONLY WEEX STATE
+    # ========================================================
+
+    try:
+        MARK_PRICE = (
+            await fetch_mark_price()
+        )
+
+        AVAILABLE_BALANCE = (
+            await fetch_available_balance()
+        )
+
+        OPEN_POSITIONS = (
+            await fetch_open_positions()
+        )
+
+        WEEX_READ_ONLY_OK = True
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_STATE",
+            True,
+        )
+
+    except Exception as exc:
+        WEEX_READ_ONLY_OK = False
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_STATE",
+            False,
+            str(exc),
+        )
+
+        MARK_PRICE = None
+        AVAILABLE_BALANCE = None
+        OPEN_POSITIONS = []
+
+    # ========================================================
+    # EMA SNAPSHOT
+    # ========================================================
+
+    try:
+        EMA_SIGNAL_SNAPSHOT = (
+            await build_ema_signal_snapshot()
+        )
+
+        diagnostic_check(
+            "R36F15104B_EMA_SIGNAL",
+            bool(
+                EMA_SIGNAL_SNAPSHOT.get(
+                    "ready"
+                )
+            ),
+            EMA_SIGNAL_SNAPSHOT.get(
+                "reason"
+            ),
+        )
+
+    except Exception as exc:
+        EMA_SIGNAL_SNAPSHOT = {
+            "ready":
+                False,
+
+            "reason":
+                str(exc),
+
+            "ideal_direction":
+                None,
+        }
+
+        diagnostic_check(
+            "R36F15104B_EMA_SIGNAL",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # HISTORICAL DATA
+    # ========================================================
+
+    historical_rows = []
+
+    try:
+        historical_rows = (
+            await fetch_historical_candles()
+        )
+
+        diagnostic_check(
+            "R36F15104B_HISTORICAL_DATA",
+            bool(
+                historical_rows
+            ),
+        )
+
+    except Exception as exc:
+        historical_rows = []
+
+        diagnostic_check(
+            "R36F15104B_HISTORICAL_DATA",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # R1.8 LONG ADAPTIVE NET-ROI TP SNAPSHOT
+    # ========================================================
+
+    real_long_snapshot = None
+    real_short_snapshot = None
+
+    LONG_DIAGNOSTICS = {}
+    SHORT_DIAGNOSTICS = {}
+
+    REAL_LONG_MARKET_ELIGIBLE = False
+    REAL_SHORT_MARKET_ELIGIBLE = False
+
+    if (
+        MARK_PRICE is not None
+        and
+        AVAILABLE_BALANCE is not None
+    ):
+        try:
+            long_readiness = (
+                evaluate_strict_tp_balance_readiness(
+                    AVAILABLE_BALANCE,
+                    MARK_PRICE,
+                    TARGET_LONG_LEVERAGE,
+                )
+            )
+
+            long_quantity = D(
+                long_readiness.get(
+                    "planned_entry_quantity",
+                    "0",
+                )
+            )
+
+            if long_quantity <= 0:
+                raise RuntimeError(
+                    "LONG_ZERO_PLANNED_QUANTITY"
+                )
+
+            real_long_snapshot = (
+                build_net_roi_tp_snapshot(
+                    MARK_PRICE,
+                    long_quantity,
+                    "LONG",
+                    "PRE_R18_LONG",
+                    historical_rows,
+                )
+            )
+
+            LONG_DIAGNOSTICS = (
+                real_long_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_LONG_MARKET_ELIGIBLE = bool(
+                real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+        except Exception as exc:
+            REAL_LONG_MARKET_ELIGIBLE = False
+
+            log(
+                "PRE-R1.8 LONG NET-ROI TP = REJECTED "
+                + str(exc)
+            )
+
+        # ====================================================
+        # R1.8 SHORT ADAPTIVE NET-ROI TP SNAPSHOT
+        # ====================================================
+
+        try:
+            short_readiness = (
+                evaluate_strict_tp_balance_readiness(
+                    AVAILABLE_BALANCE,
+                    MARK_PRICE,
+                    TARGET_SHORT_LEVERAGE,
+                )
+            )
+
+            short_quantity = D(
+                short_readiness.get(
+                    "planned_entry_quantity",
+                    "0",
+                )
+            )
+
+            if short_quantity <= 0:
+                raise RuntimeError(
+                    "SHORT_ZERO_PLANNED_QUANTITY"
+                )
+
+            real_short_snapshot = (
+                build_net_roi_tp_snapshot(
+                    MARK_PRICE,
+                    short_quantity,
+                    "SHORT",
+                    "PRE_R18_SHORT",
+                    historical_rows,
+                )
+            )
+
+            SHORT_DIAGNOSTICS = (
+                real_short_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_SHORT_MARKET_ELIGIBLE = bool(
+                real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+        except Exception as exc:
+            REAL_SHORT_MARKET_ELIGIBLE = False
+
+            log(
+                "PRE-R1.8 SHORT NET-ROI TP = REJECTED "
+                + str(exc)
+            )
+
+    # ========================================================
+    # R1.8 TP SNAPSHOT LOGGING
+    # ========================================================
+
+    if real_long_snapshot:
+        log(
+            "PRE-R1.8 LONG ADAPTIVE NET-ROI TP = "
+            + (
+                "APPROVED"
+                if REAL_LONG_MARKET_ELIGIBLE
+                else "REJECTED"
+            )
+        )
+
+        log(
+            "PRE-R1.8 LONG COMMITTED MARGIN = "
+            + str(
+                real_long_snapshot.get(
+                    "committed_margin"
+                )
+            )
+        )
+
+        log(
+            "PRE-R1.8 LONG TP1 = "
+            + str(
+                real_long_snapshot.get(
+                    "tp1"
+                )
+            )
+            + " MIN_ROI="
+            + str(
+                real_long_snapshot.get(
+                    "tp1_min_net_roi_percent"
+                )
+            )
+            + "% ACTUAL_NET_ROI="
+            + str(
+                real_long_snapshot.get(
+                    "tp1_actual_net_roi_percent"
+                )
+            )
+            + "% SOURCE="
+            + str(
+                real_long_snapshot.get(
+                    "tp1_source"
+                )
+            )
+            + " CLOSE="
+            + str(
+                real_long_snapshot.get(
+                    "tp1_close_percent"
+                )
+            )
+            + "%"
+        )
+
+        log(
+            "PRE-R1.8 LONG TP2 = "
+            + str(
+                real_long_snapshot.get(
+                    "tp2"
+                )
+            )
+            + " MIN_ROI="
+            + str(
+                real_long_snapshot.get(
+                    "tp2_min_net_roi_percent"
+                )
+            )
+            + "% ACTUAL_NET_ROI="
+            + str(
+                real_long_snapshot.get(
+                    "tp2_actual_net_roi_percent"
+                )
+            )
+            + "% SOURCE="
+            + str(
+                real_long_snapshot.get(
+                    "tp2_source"
+                )
+            )
+            + " CLOSE="
+            + str(
+                real_long_snapshot.get(
+                    "tp2_close_percent"
+                )
+            )
+            + "%"
+        )
+
+        log(
+            "PRE-R1.8 LONG TP3 = TRAILING_RUNNER "
+            "CLOSE="
+            + str(
+                real_long_snapshot.get(
+                    "tp3_close_percent"
+                )
+            )
+            + "%"
+        )
+
+        log(
+            "PRE-R1.8 LONG HISTORICAL VALID CLUSTERS = "
+            + str(
+                LONG_DIAGNOSTICS.get(
+                    "valid_cluster_count",
+                    0,
+                )
+            )
+        )
+
+        log(
+            "PRE-R1.8 LONG CLUSTER AUTHORIZATION = False"
+        )
+
+    if real_short_snapshot:
+        log(
+            "PRE-R1.8 SHORT ADAPTIVE NET-ROI TP = "
+            + (
+                "APPROVED"
+                if REAL_SHORT_MARKET_ELIGIBLE
+                else "REJECTED"
+            )
+        )
+
+        log(
+            "PRE-R1.8 SHORT COMMITTED MARGIN = "
+            + str(
+                real_short_snapshot.get(
+                    "committed_margin"
+                )
+            )
+        )
+
+        log(
+            "PRE-R1.8 SHORT TP1 = "
+            + str(
+                real_short_snapshot.get(
+                    "tp1"
+                )
+            )
+            + " MIN_ROI="
+            + str(
+                real_short_snapshot.get(
+                    "tp1_min_net_roi_percent"
+                )
+            )
+            + "% ACTUAL_NET_ROI="
+            + str(
+                real_short_snapshot.get(
+                    "tp1_actual_net_roi_percent"
+                )
+            )
+            + "% SOURCE="
+            + str(
+                real_short_snapshot.get(
+                    "tp1_source"
+                )
+            )
+            + " CLOSE="
+            + str(
+                real_short_snapshot.get(
+                    "tp1_close_percent"
+                )
+            )
+            + "%"
+        )
+
+        log(
+            "PRE-R1.8 SHORT TP2 = "
+            + str(
+                real_short_snapshot.get(
+                    "tp2"
+                )
+            )
+            + " MIN_ROI="
+            + str(
+                real_short_snapshot.get(
+                    "tp2_min_net_roi_percent"
+                )
+            )
+            + "% ACTUAL_NET_ROI="
+            + str(
+                real_short_snapshot.get(
+                    "tp2_actual_net_roi_percent"
+                )
+            )
+            + "% SOURCE="
+            + str(
+                real_short_snapshot.get(
+                    "tp2_source"
+                )
+            )
+            + " CLOSE="
+            + str(
+                real_short_snapshot.get(
+                    "tp2_close_percent"
+                )
+            )
+            + "%"
+        )
+
+        log(
+            "PRE-R1.8 SHORT TP3 = TRAILING_RUNNER "
+            "CLOSE="
+            + str(
+                real_short_snapshot.get(
+                    "tp3_close_percent"
+                )
+            )
+            + "%"
+        )
+
+        log(
+            "PRE-R1.8 SHORT HISTORICAL VALID CLUSTERS = "
+            + str(
+                SHORT_DIAGNOSTICS.get(
+                    "valid_cluster_count",
+                    0,
+                )
+            )
+        )
+
+        log(
+            "PRE-R1.8 SHORT CLUSTER AUTHORIZATION = False"
+        )
+
+    # ========================================================
+    # AUTO-MODE REEVALUATION
+    # ========================================================
+
+    merger_direction = (
+        EMA_SIGNAL_SNAPSHOT.get(
+            "ideal_direction"
+        )
+    )
+
+    merger_current_price = (
+        MARK_PRICE
+    )
+
+    merger_reference_price = (
+        R36F15103_REFERENCE_PRICE
+    )
+
+    if (
+        merger_reference_price
+        is None
+    ):
+        merger_reference_price = (
+            merger_current_price
+        )
+
+    merger_valid_clusters = 0
+
+    if merger_direction == "LONG":
+        merger_valid_clusters = int(
+            LONG_DIAGNOSTICS.get(
+                "valid_cluster_count",
+                0,
+            )
+        )
+
+    elif merger_direction == "SHORT":
+        merger_valid_clusters = int(
+            SHORT_DIAGNOSTICS.get(
+                "valid_cluster_count",
+                0,
+            )
+        )
+
+    try:
+        R36F15103_LAST_RESULT = (
+            r36f15103_merge_cycle(
+                current_price=(
+                    merger_current_price
+                ),
+
+                reference_price=(
+                    merger_reference_price
+                ),
+
+                ema19=(
+                    EMA_SIGNAL_SNAPSHOT.get(
+                        "ema19"
+                    )
+                ),
+
+                ema50=(
+                    EMA_SIGNAL_SNAPSHOT.get(
+                        "ema50"
+                    )
+                ),
+
+                ema200=(
+                    EMA_SIGNAL_SNAPSHOT.get(
+                        "ema200"
+                    )
+                ),
+
+                valid_cluster_count=(
+                    merger_valid_clusters
+                ),
+
+                existing_direction=(
+                    merger_direction
+                ),
+
+                trade_active=bool(
+                    OPEN_POSITIONS
+                ),
+            )
+        )
+
+    except Exception as exc:
+        R36F15103_LAST_RESULT = {
+            "stage":
+                R36F15103_STAGE,
+
+            "error":
+                str(exc),
+
+            "real_execution":
+                False,
+
+            "demo_execution":
+                False,
+
+            "write_transport":
+                False,
+        }
+
+        diagnostic_check(
+            "R36F15104B_AUTO_MODE_REEVALUATION",
+            False,
+            str(exc),
+        )
+
+    if merger_current_price is not None:
+        R36F15103_REFERENCE_PRICE = (
+            merger_current_price
+        )
+
+    # ========================================================
+    # REGIME GATE
+    # ========================================================
+
+    regime_gate = (
+        r36f15105_regime_gate(
+            R36F15103_LAST_RESULT,
+            EMA_SIGNAL_SNAPSHOT,
+            real_long_snapshot,
+            real_short_snapshot,
+        )
+    )
+
+    # ========================================================
+    # TELEGRAM / AUTO COMMAND PREVIEW
+    # ========================================================
+
+    current_command = os.getenv(
+        "R36F12_TELEGRAM_COMMAND_TEXT",
+        "",
+    ).strip()
+
+    if current_command:
+        manual = (
+            parse_telegram_trade_command(
+                current_command
+            )
+        )
+
+        auto_direction = (
+            regime_gate.get(
+                "direction"
+            )
+        )
+
+        manual_ok = bool(
+            manual.get(
+                "recognized"
+            )
+            and
+            regime_gate.get(
+                "approved"
+            )
+            and
+            manual.get(
+                "direction"
+            )
+            ==
+            auto_direction
+        )
+
+        TELEGRAM_COMMAND_PREVIEW = {
+            **manual,
+
+            "authorized_preview":
+                manual_ok,
+
+            "reason":
+                (
+                    "MANUAL_COMMAND_AND_AUTO_REGIME_AGREE"
+                    if manual_ok
+                    else
+                    "MANUAL_COMMAND_DOES_NOT_MATCH_AUTO_REGIME"
+                ),
+
+            "authorization_source":
+                "R36F.15.10.5_MANUAL_PLUS_AUTO_REGIME",
+
+            "exchange_order_sent":
+                False,
+        }
+
+    else:
+        TELEGRAM_COMMAND_PREVIEW = (
+            r36f15105_build_auto_command_preview(
+                regime_gate
+            )
+        )
+
+    # ========================================================
+    # BALANCE / QUANTITY READINESS
+    # ========================================================
+
+    balance_readiness = None
+    quantity_feasibility = None
+
+    selected_direction = (
+        TELEGRAM_COMMAND_PREVIEW.get(
+            "direction"
+        )
+        or
+        merger_direction
+    )
+
+    selected_leverage = (
+        TARGET_SHORT_LEVERAGE
+        if selected_direction == "SHORT"
+        else TARGET_LONG_LEVERAGE
+    )
+
+    if (
+        AVAILABLE_BALANCE is not None
+        and
+        MARK_PRICE is not None
+    ):
+        try:
+            balance_readiness = (
+                evaluate_strict_tp_balance_readiness(
+                    AVAILABLE_BALANCE,
+                    MARK_PRICE,
+                    selected_leverage,
+                )
+            )
+
+            planned_quantity = D(
+                balance_readiness.get(
+                    "planned_entry_quantity",
+                    "0",
+                )
+            )
+
+            quantity_feasibility = (
+                evaluate_writer_quantity_feasibility(
+                    planned_quantity
+                )
+            )
+
+        except Exception as exc:
+            log(
+                "R36F.15.10.4b BALANCE READINESS ERROR = "
+                + str(exc)
+            )
+
+    # ========================================================
+    # SELECT TP SNAPSHOT
+    # ========================================================
+
+    selected_tp_snapshot = (
+        regime_gate.get(
+            "selected_tp_snapshot"
+        )
+    )
+
+    if selected_tp_snapshot is None:
+        if selected_direction == "LONG":
+            selected_tp_snapshot = (
+                real_long_snapshot
+            )
+
+        elif selected_direction == "SHORT":
+            selected_tp_snapshot = (
+                real_short_snapshot
+            )
+
+    # ========================================================
+    # PROTECTIVE STOP
+    # ========================================================
+
+    protective_stop_price = None
+    protective_stop_checks = None
+    protective_stop_envelope = None
+    protective_stop_budget = None
+
+    if (
+        selected_direction
+        in (
+            "LONG",
+            "SHORT",
+        )
+        and
+        selected_tp_snapshot
+        and
+        MARK_PRICE is not None
+    ):
+        try:
+            protective_stop_price = (
+                calculate_r36f13_protective_stop(
+                    selected_direction,
+                    MARK_PRICE,
+                )
+            )
+
+            protective_stop_checks = (
+                validate_r36f13_protective_stop(
+                    selected_direction,
+                    MARK_PRICE,
+                    protective_stop_price,
+                    selected_tp_snapshot[
+                        "tp1"
+                    ],
+                    selected_tp_snapshot[
+                        "tp2"
+                    ],
+                )
+            )
+
+            protective_stop_envelope = (
+                validate_r36f131_stop_risk_envelope(
+                    selected_direction,
+                    MARK_PRICE,
+                    protective_stop_price,
+                    selected_leverage,
+                )
+            )
+
+            if (
+                balance_readiness
+                and
+                D(
+                    balance_readiness.get(
+                        "planned_entry_quantity",
+                        "0",
+                    )
+                )
+                > 0
+            ):
+                protective_stop_budget = (
+                    validate_r36f132_stop_loss_budget(
+                        MARK_PRICE,
+                        protective_stop_price,
+                        D(
+                            balance_readiness[
+                                "planned_entry_quantity"
+                            ]
+                        ),
+                        AVAILABLE_BALANCE,
+                        selected_leverage,
+                    )
+                )
+
+        except Exception as exc:
+            log(
+                "R36F.15.10.4b PROTECTIVE STOP ERROR = "
+                + str(exc)
+            )
+
+    # ========================================================
+    # DOWNSTREAM GATE
+    # ========================================================
+
+    demo_preview = None
+
+    demo_submission = {
+        "attempted":
+            False,
+
+        "sent":
+            False,
+
+        "accepted":
+            False,
+
+        "reason":
+            "AUTO_DEMO_NOT_EVALUATED",
+    }
+
+    downstream_ready = bool(
+        regime_gate.get(
+            "approved"
+        )
+        and
+        TELEGRAM_COMMAND_PREVIEW.get(
+            "authorized_preview"
+        )
+        and
+        balance_readiness
+        and
+        balance_readiness.get(
+            "eligible"
+        )
+        and
+        quantity_feasibility
+        and
+        quantity_feasibility.get(
+            "feasible"
+        )
+        and
+        protective_stop_checks
+        and
+        protective_stop_checks.get(
+            "all_valid"
+        )
+        and
+        protective_stop_envelope
+        and
+        protective_stop_envelope.get(
+            "all_valid"
+        )
+        and
+        protective_stop_budget
+        and
+        protective_stop_budget.get(
+            "all_valid"
+        )
+    )
+
+    # ========================================================
+    # DEMO PREVIEW
+    # ========================================================
+
+    if downstream_ready:
+        demo_preview = (
+            r36f15105_build_demo_preview(
+                selected_direction,
+                selected_tp_snapshot,
+                balance_readiness,
+                protective_stop_price,
+            )
+        )
+
+    # ========================================================
+    # WRITE.PY-R1.3 -> R1.8 ZERO-WRITE REAL ENGINE BRIDGE
+    # ========================================================
+
+    r13_engine_bridge = (
+        r13_connect_real_engine(
+            downstream_ready,
+            selected_direction,
+            selected_tp_snapshot,
+            balance_readiness,
+            protective_stop_price,
+        )
+    )
+
+    # ========================================================
+    # DEMO SUBMISSION GATE
+    # ========================================================
+
+    if not R36F15105_AUTO_DEMO_ENABLED:
+        demo_submission[
+            "reason"
+        ] = (
+            "R36F15105_AUTO_DEMO_DISABLED"
+        )
+
+    elif not downstream_ready:
+        demo_submission[
+            "reason"
+        ] = (
+            "R36F15105_DOWNSTREAM_GATES_NOT_READY"
+        )
+
+    elif not demo_preview:
+        demo_submission[
+            "reason"
+        ] = (
+            "R36F15105_DEMO_PREVIEW_NOT_BUILT"
+        )
+
+    else:
+        demo_submission = (
+            await submit_r36f15_demo_order(
+                demo_preview,
+                TELEGRAM_COMMAND_PREVIEW,
+            )
+        )
+
+    # ========================================================
+    # CYCLE LOGGING
+    # ========================================================
+
+    log(
+        f"{STAGE} "
+        f"REGIME = "
+        f"{regime_gate.get('regime')} "
+        f"DIRECTION = "
+        f"{regime_gate.get('direction')} "
+        f"REGIME_APPROVED = "
+        f"{regime_gate.get('approved')} "
+        f"REASON = "
+        f"{regime_gate.get('reason')}"
+    )
+
+    log(
+        f"{STAGE} "
+        f"AUTO_DEMO_ENABLED = "
+        f"{R36F15105_AUTO_DEMO_ENABLED} "
+        f"SECOND_DEMO_ARM = "
+        f"{R36F159_DEMO_ARM_REQUESTED} "
+        f"DOWNSTREAM_READY = "
+        f"{downstream_ready}"
+    )
+
+    log(
+        f"{STAGE} "
+        f"DEMO ATTEMPTED = "
+        f"{demo_submission.get('attempted', False)} "
+        f"DEMO SENT = "
+        f"{demo_submission.get('sent', False)} "
+        f"DEMO ACCEPTED = "
+        f"{demo_submission.get('accepted', False)} "
+        f"DEMO REASON = "
+        f"{demo_submission.get('reason')}"
+    )
+
+    log(
+        f"{STAGE} "
+        f"R1.8 REAL ENGINE BRIDGE CONNECTED = "
+        f"{r13_engine_bridge.get('connected', False)} "
+        f"VALIDATED = "
+        f"{r13_engine_bridge.get('validated', False)} "
+        f"REASON = "
+        f"{r13_engine_bridge.get('reason')}"
+    )
+
+    # ========================================================
+    # ZERO-WRITE INVARIANT
+    # ========================================================
+
+    ZERO_WRITE_INVARIANT_OK = bool(
+        REAL_ORDER_EXECUTION
+        is False
+        and
+        DEMO_ORDER_EXECUTION
+        is False
+        and
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        is False
+        and
+        ORDER_SUBMISSION_ENABLED
+        is False
+        and
+        FIRST_REAL_ORDER_ALLOWED
+        is False
+        and
+        R36F15103_REAL_ORDER_EXECUTION
+        is False
+        and
+        R36F15103_DEMO_ORDER_EXECUTION
+        is False
+        and
+        R36F15103_WRITE_TRANSPORT
+        is False
+    )
+
+    check(
+        "R36F15104B_ZERO_WRITE_INVARIANT",
+        ZERO_WRITE_INVARIANT_OK,
+    )
+
+    FINAL_GATE_OK = bool(
+        WEEX_READ_ONLY_OK
+        and
+        ZERO_WRITE_INVARIANT_OK
+        and
+        R36F15103_LAST_RESULT.get(
+            "active_mode"
+        )
+        in R36F15103_VALID_MODES
+    )
+
+    if FINAL_GATE_OK:
+        TEST_STATUS = "PASS"
+
+    else:
+        TEST_STATUS = "FAIL"
+
+    # ========================================================
+    # SNAPSHOT
+    # ========================================================
+
+    snapshot = {
+        "stage":
+            STAGE,
+
+        "timestamp":
+            now_iso(),
+
+        "status":
+            TEST_STATUS,
+
+        "final_gate_ok":
+            FINAL_GATE_OK,
+
+        "weex_read_only_ok":
+            WEEX_READ_ONLY_OK,
+
+        "zero_write_invariant_ok":
+            ZERO_WRITE_INVARIANT_OK,
+
+        "mark_price":
+            (
+                decimal_to_string(
+                    MARK_PRICE
+                )
+                if MARK_PRICE is not None
+                else None
+            ),
+
+        "available_balance":
+            (
+                decimal_to_string(
+                    AVAILABLE_BALANCE
+                )
+                if AVAILABLE_BALANCE
+                is not None
+                else None
+            ),
+
+        "open_positions":
+            OPEN_POSITIONS,
+
+        "ema_signal":
+            EMA_SIGNAL_SNAPSHOT,
+
+        "long_diagnostics":
+            LONG_DIAGNOSTICS,
+
+        "short_diagnostics":
+            SHORT_DIAGNOSTICS,
+
+        "real_long_market_eligible":
+            REAL_LONG_MARKET_ELIGIBLE,
+
+        "real_short_market_eligible":
+            REAL_SHORT_MARKET_ELIGIBLE,
+
+        "telegram_command_preview":
+            TELEGRAM_COMMAND_PREVIEW,
+
+        "balance_readiness":
+            balance_readiness,
+
+        "quantity_feasibility":
+            quantity_feasibility,
+
+        "protective_stop": {
+            "direction":
+                selected_direction,
+
+            "price":
+                (
+                    decimal_to_string(
+                        protective_stop_price
+                    )
+                    if protective_stop_price
+                    is not None
+                    else None
+                ),
+
+            "checks":
+                protective_stop_checks,
+
+            "risk_envelope":
+                protective_stop_envelope,
+
+            "loss_budget":
+                protective_stop_budget,
+        },
+
+        "r36f15104b_auto_mode_merger":
+            R36F15103_LAST_RESULT,
+
+        "r36f15105_regime_gate":
+            regime_gate,
+
+        "r36f15105_downstream_ready":
+            downstream_ready,
+
+        "r36f15105_demo_preview":
+            demo_preview,
+
+        "r36f15105_demo_submission":
+            demo_submission,
+
+        "r13_engine_bridge":
+            r13_engine_bridge,
+
+        "execution_firebreak": {
+            "real_order_execution":
+                False,
+
+            "demo_order_execution":
+                False,
+
+            "write_transport":
+                False,
+
+            "exchange_mutation_sent":
+                False,
+
+            "real_order_sent":
+                False,
+
+            "demo_order_sent":
+                False,
+        },
+    }
+
+    write_json_file(
+        R36F_SNAPSHOT_FILE,
+        snapshot,
+    )
+
+    # ========================================================
+    # FINAL CYCLE DIAGNOSTICS
+    # ========================================================
+
+    log(
+        f"{STAGE} FINAL STATUS = "
+        f"{TEST_STATUS}"
+    )
+
+    log(
+        f"{STAGE} AUTO RAW MODE = "
+        f"{R36F15103_LAST_RESULT.get('raw_mode')}"
+    )
+
+    log(
+        f"{STAGE} AUTO ACTIVE MODE = "
+        f"{R36F15103_LAST_RESULT.get('active_mode')}"
+    )
+
+    log(
+        f"{STAGE} AUTO DIRECTION = "
+        f"{R36F15103_LAST_RESULT.get('direction')}"
+    )
+
+    log(
+        f"{STAGE} AUTO MOVE PERCENT = "
+        f"{R36F15103_LAST_RESULT.get('short_term_move_percent')}"
+    )
+
+    log(
+        f"{STAGE} AUTO EMA SEPARATION = "
+        f"{R36F15103_LAST_RESULT.get('ema_separation_percent')}"
+    )
+
+    log(
+        f"{STAGE} AUTO MODE LOCKED = "
+        f"{R36F15103_LAST_RESULT.get('mode_locked')}"
+    )
+
+    log(
+        f"{STAGE} AUTO PENDING MODE = "
+        f"{R36F15103_LAST_RESULT.get('pending_mode')}"
+    )
+
+    log(
+        f"{STAGE} AUTO PENDING COUNT = "
+        f"{R36F15103_LAST_RESULT.get('pending_count')}"
+    )
+
+    log(
+        f"{STAGE} AUTO TRANSITION REASON = "
+        f"{R36F15103_LAST_RESULT.get('reason')}"
+    )
+
+    log(
+        f"{STAGE} LONG VALID CLUSTERS = "
+        f"{LONG_DIAGNOSTICS.get('valid_cluster_count', 0)}"
+    )
+
+    log(
+        f"{STAGE} SHORT VALID CLUSTERS = "
+        f"{SHORT_DIAGNOSTICS.get('valid_cluster_count', 0)}"
+    )
+
+    log(
+        f"{STAGE} REAL_LONG_MARKET_ELIGIBLE = "
+        f"{REAL_LONG_MARKET_ELIGIBLE}"
+    )
+
+    log(
+        f"{STAGE} REAL_SHORT_MARKET_ELIGIBLE = "
+        f"{REAL_SHORT_MARKET_ELIGIBLE}"
+    )
+
+    log(
+        f"{STAGE} TELEGRAM_COMMAND_AUTHORIZED_PREVIEW = "
+        f"{TELEGRAM_COMMAND_PREVIEW.get('authorized_preview', False)}"
+    )
+
+    if balance_readiness:
+        log(
+            f"{STAGE} TRADE_READINESS_STATUS = "
+            f"{balance_readiness.get('status')}"
+        )
+
+        log(
+            f"{STAGE} SELECTED_TP_ALLOCATION = "
+            f"{balance_readiness.get('selected_allocation')}"
+        )
+
+    if protective_stop_price is not None:
+        log(
+            f"{STAGE} PROTECTIVE_STOP_PRICE = "
+            f"{decimal_to_string(protective_stop_price)}"
+        )
+
+        log(
+            f"{STAGE} PROTECTIVE_STOP_VALID = "
+            f"{bool(protective_stop_checks and protective_stop_checks.get('all_valid'))}"
+        )
+
+    log(
+        "NO REAL ORDER WAS SENT"
+    )
+
+    if demo_submission.get(
+        "sent"
+    ):
+        log(
+            "WEEX DEMO ORDER TRANSPORT OCCURRED"
+        )
+
+    else:
+        log(
+            "NO DEMO ORDER WAS SENT"
+        )
+
+    log(
+        "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+    )
+
+    line()
+
+    return snapshot
+
+
+# ============================================================
+# 60-SECOND REEVALUATION
+# ============================================================
+
+async def heartbeat_loop():
+    global HEARTBEAT_COUNT
+    global TEST_STATUS
+
+    while True:
+        HEARTBEAT_COUNT += 1
+
+        log(
+            f"HEARTBEAT "
+            f"stage={STAGE} "
+            f"status={TEST_STATUS} "
+            f"count={HEARTBEAT_COUNT} "
+            f"active_mode={R36F15103_ACTIVE_MODE} "
+            f"pending_mode={R36F15103_PENDING_MODE} "
+            f"pending_count={R36F15103_PENDING_COUNT} "
+            f"mode_locked={R36F15103_MODE_LOCKED} "
+            f"long_valid_clusters="
+            f"{LONG_DIAGNOSTICS.get('valid_cluster_count', 0)} "
+            f"short_valid_clusters="
+            f"{SHORT_DIAGNOSTICS.get('valid_cluster_count', 0)} "
+            f"write_transport=False "
+            f"real_execution=False "
+            f"demo_execution=False "
+            f"reevaluation_seconds="
+            f"{R36F151_REEVALUATION_SECONDS}"
+        )
+
+        await asyncio.sleep(
+            R36F151_REEVALUATION_SECONDS
+        )
+
+        line()
+
+        log(
+            f"{STAGE} "
+            f"RUNTIME REEVALUATION START "
+            f"heartbeat={HEARTBEAT_COUNT}"
+        )
+
+        line()
+
+        try:
+            exposure = (
+                await r36f159_reconcile_current_demo_exposure()
+            )
+
+            log(
+                "R36F.15.10.5 CYCLE "
+                "DUPLICATE BLOCKED = "
+                + str(
+                    exposure.get(
+                        "duplicate_entry_blocked",
+                        True,
+                    )
+                )
+            )
+
+            log(
+                "R36F.15.10.5 CYCLE "
+                "BLOCK REASON = "
+                + str(
+                    exposure.get(
+                        "duplicate_block_reason"
+                    )
+                )
+            )
+
+            await run_r36f12()
+
+            log(
+                f"{STAGE} "
+                f"RUNTIME REEVALUATION COMPLETE "
+                f"heartbeat={HEARTBEAT_COUNT} "
+                f"status={TEST_STATUS} "
+                f"active_mode="
+                f"{R36F15103_ACTIVE_MODE} "
+                f"raw_mode="
+                f"{R36F15103_LAST_RESULT.get('raw_mode')} "
+                f"pending_mode="
+                f"{R36F15103_PENDING_MODE} "
+                f"pending_count="
+                f"{R36F15103_PENDING_COUNT} "
+                f"mode_locked="
+                f"{R36F15103_MODE_LOCKED} "
+                f"long_valid_clusters="
+                f"{LONG_DIAGNOSTICS.get('valid_cluster_count', 0)} "
+                f"short_valid_clusters="
+                f"{SHORT_DIAGNOSTICS.get('valid_cluster_count', 0)}"
+            )
+
+        except Exception as exc:
+            TEST_STATUS = "FAIL"
+
+            line()
+
+            log(
+                f"{STAGE} "
+                f"RUNTIME REEVALUATION ERROR = "
+                f"{exc}"
+            )
+
+            line()
+
+
+# ============================================================
+# STARTUP
+# ============================================================
+
+async def async_main():
+    global TEST_STATUS
+
+    start_health_server()
+
+    r36f15103_startup_diagnostic()
+
+    try:
+        startup_exposure = (
+            await r36f159_reconcile_current_demo_exposure()
+        )
+
+        log(
+            "R36F.15.10.5 STARTUP "
+            "DUPLICATE BLOCKED = "
+            + str(
+                startup_exposure.get(
+                    "duplicate_entry_blocked",
+                    True,
+                )
+            )
+        )
+
+        log(
+            "R36F.15.10.5 STARTUP "
+            "BLOCK REASON = "
+            + str(
+                startup_exposure.get(
+                    "duplicate_block_reason"
+                )
+            )
+        )
+
+    except Exception as exc:
+        log(
+            "R36F.15.10.5 STARTUP "
+            "EXPOSURE RECONCILIATION ERROR = "
+            + str(exc)
+        )
+
+    try:
+        await run_r36f12()
+
+    except Exception as exc:
+        TEST_STATUS = "FAIL"
+
+        line()
+
+        log(
+            f"{STAGE} UNHANDLED ERROR = "
+            f"{exc}"
+        )
+
+        line()
+
+    await heartbeat_loop()
+
+
+def main():
+    asyncio.run(
+        async_main()
+    )
+
+
+if __name__ == "__main__":
+    main()
+
+
+# ============================================================
+# R1.8 CORRECTED MAIN.PY — PART 5B END
+# ============================================================
