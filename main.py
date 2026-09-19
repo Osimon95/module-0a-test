@@ -9213,6 +9213,143 @@ async def run_r36f12():
                 str(exc),
             )
 
+        REAL_LONG_MARKET_ELIGIBLE = False
+    REAL_SHORT_MARKET_ELIGIBLE = False
+
+    LONG_DIAGNOSTICS = {
+        "cluster_logic_used":
+            False
+    }
+
+    SHORT_DIAGNOSTICS = {
+        "cluster_logic_used":
+            False
+    }
+
+    real_long_snapshot = None
+    real_short_snapshot = None
+
+    if (
+        MARK_PRICE is not None
+        and AVAILABLE_BALANCE is not None
+    ):
+        try:
+            long_readiness = (
+                evaluate_strict_tp_balance_readiness(
+                    AVAILABLE_BALANCE,
+                    MARK_PRICE,
+                    TARGET_LONG_LEVERAGE,
+                )
+            )
+
+            long_quantity = D(
+                long_readiness.get(
+                    "planned_entry_quantity",
+                    "0",
+                )
+            )
+
+            if long_quantity <= 0:
+                raise RuntimeError(
+                    "LONG_ZERO_PLANNED_QUANTITY"
+                )
+
+            real_long_snapshot = (
+                build_net_roi_tp_snapshot(
+                    MARK_PRICE,
+                    long_quantity,
+                    "LONG",
+                    "PRE_R18_LONG",
+                )
+            )
+
+            LONG_DIAGNOSTICS = (
+                real_long_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_LONG_MARKET_ELIGIBLE = bool(
+                real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+        except Exception as exc:
+            REAL_LONG_MARKET_ELIGIBLE = False
+
+            log(
+                "PRE-R1.8 LONG NET-ROI TP = REJECTED "
+                + str(exc)
+            )
+
+        try:
+            short_readiness = (
+                evaluate_strict_tp_balance_readiness(
+                    AVAILABLE_BALANCE,
+                    MARK_PRICE,
+                    TARGET_SHORT_LEVERAGE,
+                )
+            )
+
+            short_quantity = D(
+                short_readiness.get(
+                    "planned_entry_quantity",
+                    "0",
+                )
+            )
+
+            if short_quantity <= 0:
+                raise RuntimeError(
+                    "SHORT_ZERO_PLANNED_QUANTITY"
+                )
+
+            real_short_snapshot = (
+                build_net_roi_tp_snapshot(
+                    MARK_PRICE,
+                    short_quantity,
+                    "SHORT",
+                    "PRE_R18_SHORT",
+                )
+            )
+
+            SHORT_DIAGNOSTICS = (
+                real_short_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_SHORT_MARKET_ELIGIBLE = bool(
+                real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+        except Exception as exc:
+            REAL_SHORT_MARKET_ELIGIBLE = False
+
+            log(
+                "PRE-R1.8 SHORT NET-ROI TP = REJECTED "
+                + str(exc)
+            )
+
+    log(
+        "PRE-R1.8 ACTIVE TP POLICY = "
+        "NET_ROI_10_20"
+    )
+
+    log(
+        "PRE-R1.8 ACTIVE ALLOCATION = "
+        "25/25/50"
+    )
+
+    log(
+        "PRE-R1.8 CLUSTER AUTHORIZATION = REMOVED"
+    )
     REAL_LONG_MARKET_ELIGIBLE = False
     REAL_SHORT_MARKET_ELIGIBLE = False
 
