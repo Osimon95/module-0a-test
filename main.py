@@ -5199,7 +5199,7 @@ else:
                 "MIN_NET_ROI_FLOOR_ORDERING"
             )
 
-        valid_structure = (
+            valid_structure = (
             entry_price
             < tp1
             < tp2
