@@ -9612,20 +9612,6 @@ async def run_r36f12():
         real_short_snapshot,
     )
 
-    # SCALP may use one valid nearby cluster; NORMAL/STRUCTURE keeps the frozen
-    # two-cluster TP approval. Build the SCALP TP snapshot only after SCALP gate.
-    if regime_gate.get("approved") and regime_gate.get("active_mode") == "SCALP":
-        scalp_diag = LONG_DIAGNOSTICS if regime_gate.get("direction") == "LONG" else SHORT_DIAGNOSTICS
-        scalp_snapshot = r36f15105_scalp_tp_snapshot(
-            regime_gate.get("direction"),
-            MARK_PRICE,
-            scalp_diag,
-        )
-        if scalp_snapshot is None:
-            regime_gate["approved"] = False
-            regime_gate["reason"] = "SCALP_TP_CONSTRUCTION_FAILED"
-        else:
-            regime_gate["selected_tp_snapshot"] = scalp_snapshot
 
     current_command = os.getenv(
         "R36F12_TELEGRAM_COMMAND_TEXT",
