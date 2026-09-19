@@ -4717,20 +4717,18 @@ def run_tp_engine(
 
 # ============================================================
 # PRE-R1.8
-# CLUSTER-FREE NET-ROI TP SNAPSHOT
-# REPLACES build_cluster_tp_snapshot()
+# ADAPTIVE MINIMUM NET-ROI TP SNAPSHOT
+# 10% / 20% ARE FLOORS, NOT CAPS
+# CLUSTERS MAY IMPROVE TP BUT NEVER AUTHORIZE A TRADE
 # ============================================================
 
-PRE_R18_TP1_NET_ROI_PERCENT = Decimal("10")
-PRE_R18_TP2_NET_ROI_PERCENT = Decimal("20")
+PRE_R18_TP1_MIN_NET_ROI_PERCENT = Decimal("10")
+PRE_R18_TP2_MIN_NET_ROI_PERCENT = Decimal("20")
 
 PRE_R18_TP1_ALLOCATION_PERCENT = Decimal("25")
 PRE_R18_TP2_ALLOCATION_PERCENT = Decimal("25")
 PRE_R18_TP3_ALLOCATION_PERCENT = Decimal("50")
 
-# Configurable estimated trading costs.
-# Decimal rate: 0.0008 = 0.08%.
-# These are strategy inputs, not claims about the exchange's current fee.
 PRE_R18_ENTRY_FEE_RATE = Decimal(
     os.getenv("PRE_R18_ENTRY_FEE_RATE", "0.0008")
 )
@@ -4758,17 +4756,69 @@ def pre_r18_price_up(value):
     return rounded
 
 
-def pre_r18_target_price(
+def pre_r18_net_roi_for_price(
+    entry_price,
+    target_price,
+    quantity,
+    leverage,
+    side,
+):
+    entry_price = D(entry_price)
+    target_price = D(target_price)
+    quantity = D(quantity)
+    leverage = D(leverage)
+
+    notional = entry_price * quantity
+    committed_margin = notional / leverage
+
+    if side == "LONG":
+        gross_profit = (
+            target_price - entry_price
+        ) * quantity
+    else:
+        gross_profit = (
+            entry_price - target_price
+        ) * quantity
+
+    estimated_cost = (
+        notional
+        * (
+            PRE_R18_ENTRY_FEE_RATE
+            + PRE_R18_EXIT_FEE_RATE
+            + PRE_R18_EXTRA_COST_RATE
+        )
+    )
+
+    net_profit = (
+        gross_profit
+        - estimated_cost
+    )
+
+    if committed_margin <= 0:
+        raise ValueError(
+            "PRE_R18_INVALID_COMMITTED_MARGIN"
+        )
+
+    return (
+        net_profit
+        / committed_margin
+        * Decimal("100")
+    )
+
+
+def pre_r18_floor_target(
     entry_price,
     quantity,
     leverage,
     side,
-    net_roi_percent,
+    minimum_net_roi_percent,
 ):
     entry_price = D(entry_price)
     quantity = D(quantity)
     leverage = D(leverage)
-    net_roi_percent = D(net_roi_percent)
+    minimum_net_roi_percent = D(
+        minimum_net_roi_percent
+    )
 
     if entry_price <= 0:
         raise ValueError(
@@ -4798,8 +4848,6 @@ def pre_r18_target_price(
         * quantity
     )
 
-    # Each separately committed position gets its
-    # own margin basis.
     committed_margin = (
         notional
         / leverage
@@ -4807,7 +4855,7 @@ def pre_r18_target_price(
 
     required_net_profit = (
         committed_margin
-        * net_roi_percent
+        * minimum_net_roi_percent
         / Decimal("100")
     )
 
@@ -4836,10 +4884,8 @@ def pre_r18_target_price(
             + required_price_move
         )
 
-        target_price = (
-            pre_r18_price_up(
-                raw_target
-            )
+        target_price = pre_r18_price_up(
+            raw_target
         )
 
     else:
@@ -4848,11 +4894,9 @@ def pre_r18_target_price(
             - required_price_move
         )
 
-        target_price = (
-            quantize_down(
-                raw_target,
-                PRICE_STEP,
-            )
+        target_price = quantize_down(
+            raw_target,
+            PRICE_STEP,
         )
 
     if target_price <= 0:
@@ -4873,15 +4917,74 @@ def pre_r18_target_price(
         "estimated_cost":
             estimated_cost,
 
-        "required_gross_profit":
-            required_gross_profit,
-
-        "required_price_move":
-            required_price_move,
-
-        "net_roi_percent":
-            net_roi_percent,
+        "minimum_net_roi_percent":
+            minimum_net_roi_percent,
     }
+
+
+def pre_r18_optional_market_targets(
+    rows,
+    entry_price,
+    side,
+):
+    if not rows:
+        return []
+
+    try:
+        extrema = build_side_extrema(
+            rows,
+            side,
+        )
+
+        clusters = cluster_extrema(
+            extrema
+        )
+
+        valid_clusters, _ = (
+            validate_clusters(
+                clusters,
+                entry_price,
+                side,
+            )
+        )
+
+        prices = []
+
+        for cluster in valid_clusters:
+            price = D(
+                cluster["average"]
+            )
+
+            if side == "LONG":
+                price = pre_r18_price_up(
+                    price
+                )
+            else:
+                price = quantize_down(
+                    price,
+                    PRICE_STEP,
+                )
+
+            if price > 0:
+                prices.append(price)
+
+        if side == "LONG":
+            return sorted(set(prices))
+
+        return sorted(
+            set(prices),
+            reverse=True,
+        )
+
+    except Exception as exc:
+        log(
+            "PRE-R1.8 "
+            + side
+            + " OPTIONAL MARKET TARGET ERROR = "
+            + str(exc)
+        )
+
+        return []
 
 
 def build_net_roi_tp_snapshot(
@@ -4889,16 +4992,12 @@ def build_net_roi_tp_snapshot(
     quantity,
     side,
     fill_label,
+    historical_rows=None,
 ):
     global LAST_TP_APPROVAL
 
-    entry_price = D(
-        entry_price
-    )
-
-    quantity = D(
-        quantity
-    )
+    entry_price = D(entry_price)
+    quantity = D(quantity)
 
     leverage = D(
         TARGET_LONG_LEVERAGE
@@ -4906,39 +5005,90 @@ def build_net_roi_tp_snapshot(
         else TARGET_SHORT_LEVERAGE
     )
 
-    tp1_result = (
-        pre_r18_target_price(
+    tp1_floor_result = (
+        pre_r18_floor_target(
             entry_price,
             quantity,
             leverage,
             side,
-            PRE_R18_TP1_NET_ROI_PERCENT,
+            PRE_R18_TP1_MIN_NET_ROI_PERCENT,
         )
     )
 
-    tp2_result = (
-        pre_r18_target_price(
+    tp2_floor_result = (
+        pre_r18_floor_target(
             entry_price,
             quantity,
             leverage,
             side,
-            PRE_R18_TP2_NET_ROI_PERCENT,
+            PRE_R18_TP2_MIN_NET_ROI_PERCENT,
         )
     )
 
-    tp1 = D(
-        tp1_result[
+    tp1_floor = D(
+        tp1_floor_result[
             "target_price"
         ]
     )
 
-    tp2 = D(
-        tp2_result[
+    tp2_floor = D(
+        tp2_floor_result[
             "target_price"
         ]
     )
+
+    market_targets = (
+        pre_r18_optional_market_targets(
+            historical_rows,
+            entry_price,
+            side,
+        )
+    )
+
+    tp1 = tp1_floor
+    tp2 = tp2_floor
+
+    tp1_source = "MIN_NET_ROI_FLOOR"
+    tp2_source = "MIN_NET_ROI_FLOOR"
 
     if side == "LONG":
+        eligible_tp1 = [
+            price
+            for price in market_targets
+            if price >= tp1_floor
+        ]
+
+        if eligible_tp1:
+            tp1 = eligible_tp1[0]
+            tp1_source = (
+                "MARKET_STRUCTURE_ABOVE_FLOOR"
+            )
+
+        eligible_tp2 = [
+            price
+            for price in market_targets
+            if (
+                price >= tp2_floor
+                and price > tp1
+            )
+        ]
+
+        if eligible_tp2:
+            tp2 = eligible_tp2[0]
+            tp2_source = (
+                "MARKET_STRUCTURE_ABOVE_FLOOR"
+            )
+
+        if tp2 <= tp1:
+            tp2 = max(
+                tp2_floor,
+                tp1 + PRICE_STEP,
+            )
+
+            tp2_source = (
+                "MIN_NET_ROI_FLOOR_ORDERING"
+            )
+
         valid_structure = (
             entry_price
             < tp1
@@ -4946,6 +5096,43 @@ def build_net_roi_tp_snapshot(
         )
 
     else:
+        eligible_tp1 = [
+            price
+            for price in market_targets
+            if price <= tp1_floor
+        ]
+
+        if eligible_tp1:
+            tp1 = eligible_tp1[0]
+            tp1_source = (
+                "MARKET_STRUCTURE_ABOVE_FLOOR"
+            )
+
+        eligible_tp2 = [
+            price
+            for price in market_targets
+            if (
+                price <= tp2_floor
+                and price < tp1
+            )
+        ]
+
+        if eligible_tp2:
+            tp2 = eligible_tp2[0]
+            tp2_source = (
+                "MARKET_STRUCTURE_ABOVE_FLOOR"
+            )
+
+        if tp2 >= tp1:
+            tp2 = min(
+                tp2_floor,
+                tp1 - PRICE_STEP,
+            )
+
+            tp2_source = (
+                "MIN_NET_ROI_FLOOR_ORDERING"
+            )
+
         valid_structure = (
             entry_price
             > tp1
@@ -4955,7 +5142,43 @@ def build_net_roi_tp_snapshot(
 
     if not valid_structure:
         raise RuntimeError(
-            "PRE_R18_INVALID_TP_STRUCTURE"
+            "PRE_R18_INVALID_ADAPTIVE_TP_STRUCTURE"
+        )
+
+    tp1_actual_roi = (
+        pre_r18_net_roi_for_price(
+            entry_price,
+            tp1,
+            quantity,
+            leverage,
+            side,
+        )
+    )
+
+    tp2_actual_roi = (
+        pre_r18_net_roi_for_price(
+            entry_price,
+            tp2,
+            quantity,
+            leverage,
+            side,
+        )
+    )
+
+    if (
+        tp1_actual_roi
+        < PRE_R18_TP1_MIN_NET_ROI_PERCENT
+    ):
+        raise RuntimeError(
+            "PRE_R18_TP1_BELOW_MINIMUM_NET_ROI"
+        )
+
+    if (
+        tp2_actual_roi
+        < PRE_R18_TP2_MIN_NET_ROI_PERCENT
+    ):
+        raise RuntimeError(
+            "PRE_R18_TP2_BELOW_MINIMUM_NET_ROI"
         )
 
     approval = {
@@ -4966,18 +5189,19 @@ def build_net_roi_tp_snapshot(
             True,
 
         "reason":
-            "NET_ROI_TP_APPROVED",
+            "ADAPTIVE_MIN_NET_ROI_TP_APPROVED",
 
         "cluster_requirement":
             False,
 
-        "cluster_logic_used":
+        "cluster_authorization":
             False,
+
+        "market_structure_optional":
+            True,
     }
 
-    LAST_TP_APPROVAL = (
-        approval
-    )
+    LAST_TP_APPROVAL = approval
 
     snapshot = {
         "fill_label":
@@ -4998,52 +5222,43 @@ def build_net_roi_tp_snapshot(
 
         "committed_margin":
             decimal_to_string(
-                tp1_result[
+                tp1_floor_result[
                     "committed_margin"
                 ]
             ),
 
-        # Keep this key because downstream code
-        # expects it. It is deliberately cluster-free.
         "historical_diagnostics": {
             "cluster_logic_used":
                 False,
 
+            "cluster_authorization":
+                False,
+
+            "market_structure_optional":
+                True,
+
             "strategy":
-                "NET_ROI",
+                "NET_ROI_MIN_10_20_ADAPTIVE",
 
-            "tp1_net_roi_percent":
-                decimal_to_string(
-                    PRE_R18_TP1_NET_ROI_PERCENT
-                ),
-
-            "tp2_net_roi_percent":
-                decimal_to_string(
-                    PRE_R18_TP2_NET_ROI_PERCENT
-                ),
+            "market_target_count":
+                len(market_targets),
         },
 
         "tp_approval":
             approval,
 
         "tp1":
-            decimal_to_string(
-                tp1
-            ),
+            decimal_to_string(tp1),
 
         "tp2":
-            decimal_to_string(
-                tp2
-            ),
+            decimal_to_string(tp2),
 
         "tp3": {
             "type":
                 "TRAILING",
 
             "allocation_percent":
-                decimal_to_string(
-                    PRE_R18_TP3_ALLOCATION_PERCENT
-                ),
+                "50",
 
             "trailing_distance_percent":
                 decimal_to_string(
@@ -5051,11 +5266,27 @@ def build_net_roi_tp_snapshot(
                 ),
         },
 
-        "tp1_net_roi_percent":
+        "tp1_min_net_roi_percent":
             "10",
 
-        "tp2_net_roi_percent":
+        "tp2_min_net_roi_percent":
             "20",
+
+        "tp1_net_roi_percent":
+            decimal_to_string(
+                tp1_actual_roi
+            ),
+
+        "tp2_net_roi_percent":
+            decimal_to_string(
+                tp2_actual_roi
+            ),
+
+        "tp1_source":
+            tp1_source,
+
+        "tp2_source":
+            tp2_source,
 
         "tp1_allocation_percent":
             "25",
@@ -5066,35 +5297,10 @@ def build_net_roi_tp_snapshot(
         "tp3_allocation_percent":
             "50",
 
-        "tp1_required_net_profit":
-            decimal_to_string(
-                tp1_result[
-                    "required_net_profit"
-                ]
-            ),
-
-        "tp2_required_net_profit":
-            decimal_to_string(
-                tp2_result[
-                    "required_net_profit"
-                ]
-            ),
-
-        "tp1_estimated_cost":
-            decimal_to_string(
-                tp1_result[
-                    "estimated_cost"
-                ]
-            ),
-
-        "tp2_estimated_cost":
-            decimal_to_string(
-                tp2_result[
-                    "estimated_cost"
-                ]
-            ),
-
         "cluster_logic_used":
+            False,
+
+        "cluster_authorization":
             False,
 
         "primary_tp_immutable":
@@ -5107,16 +5313,14 @@ def build_net_roi_tp_snapshot(
     log(
         "PRE-R1.8 "
         + side
-        + " NET-ROI TP = APPROVED"
+        + " ADAPTIVE NET-ROI TP = APPROVED"
     )
 
     log(
         "PRE-R1.8 "
         + side
         + " COMMITTED MARGIN = "
-        + snapshot[
-            "committed_margin"
-        ]
+        + snapshot["committed_margin"]
     )
 
     log(
@@ -5124,7 +5328,13 @@ def build_net_roi_tp_snapshot(
         + side
         + " TP1 = "
         + snapshot["tp1"]
-        + " NET_ROI=10% CLOSE=25%"
+        + " MIN_ROI=10%"
+        + " ACTUAL_NET_ROI="
+        + snapshot["tp1_net_roi_percent"]
+        + "%"
+        + " SOURCE="
+        + snapshot["tp1_source"]
+        + " CLOSE=25%"
     )
 
     log(
@@ -5132,7 +5342,13 @@ def build_net_roi_tp_snapshot(
         + side
         + " TP2 = "
         + snapshot["tp2"]
-        + " NET_ROI=20% CLOSE=25%"
+        + " MIN_ROI=20%"
+        + " ACTUAL_NET_ROI="
+        + snapshot["tp2_net_roi_percent"]
+        + "%"
+        + " SOURCE="
+        + snapshot["tp2_source"]
+        + " CLOSE=25%"
     )
 
     log(
@@ -5144,14 +5360,23 @@ def build_net_roi_tp_snapshot(
     log(
         "PRE-R1.8 "
         + side
-        + " CLUSTER LOGIC USED = False"
+        + " MARKET TARGETS AVAILABLE = "
+        + str(len(market_targets))
+    )
+
+    log(
+        "PRE-R1.8 "
+        + side
+        + " CLUSTER AUTHORIZATION = False"
     )
 
     return snapshot
 
+
 # ============================================================
-# END PRE-R1.8 NET-ROI TP SNAPSHOT
+# END PRE-R1.8 ADAPTIVE MINIMUM NET-ROI TP SNAPSHOT
 # ============================================================
+
 
 
 # ============================================================
