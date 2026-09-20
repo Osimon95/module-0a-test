@@ -11855,11 +11855,11 @@ async def run_r36f12():
         + r18_demo_connector_reason
     )
 
-    if demo_preview:
+        if demo_preview:
         log(
             "R1.8D SYMBOL = "
             + str(
-                demo_preview.get(
+                r18_demo_payload.get(
                     "symbol"
                 )
             )
@@ -11868,7 +11868,7 @@ async def run_r36f12():
         log(
             "R1.8D DIRECTION = "
             + str(
-                demo_preview.get(
+                r18_demo_payload.get(
                     "positionSide"
                 )
             )
@@ -11877,7 +11877,7 @@ async def run_r36f12():
         log(
             "R1.8D QUANTITY = "
             + str(
-                demo_preview.get(
+                r18_demo_payload.get(
                     "quantity"
                 )
             )
@@ -11886,7 +11886,7 @@ async def run_r36f12():
         log(
             "R1.8D TP = "
             + str(
-                demo_preview.get(
+                r18_demo_payload.get(
                     "tpTriggerPrice"
                 )
             )
@@ -11895,11 +11895,11 @@ async def run_r36f12():
         log(
             "R1.8D SL = "
             + str(
-                demo_preview.get(
+                r18_demo_payload.get(
                     "slTriggerPrice"
                 )
             )
-        )
+)
     # ========================================================
     # DEMO SUBMISSION GATE
     # ========================================================
