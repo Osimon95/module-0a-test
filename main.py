@@ -11749,35 +11749,42 @@ async def run_r36f12():
         )
 
     else:
-        try:
+                try:
+            r18_demo_payload = (
+                demo_preview.get(
+                    "payload"
+                )
+                or demo_preview
+            )
+
             r18_demo_direction = str(
                 selected_direction
                 or ""
             ).strip().upper()
 
             r18_demo_quantity = D(
-                demo_preview.get(
+                r18_demo_payload.get(
                     "quantity",
                     "0",
                 )
             )
 
             r18_demo_tp = D(
-                demo_preview.get(
+                r18_demo_payload.get(
                     "tpTriggerPrice",
                     "0",
                 )
             )
 
             r18_demo_sl = D(
-                demo_preview.get(
+                r18_demo_payload.get(
                     "slTriggerPrice",
                     "0",
                 )
             )
 
             r18_demo_symbol = str(
-                demo_preview.get(
+                r18_demo_payload.get(
                     "symbol",
                     "",
                 )
@@ -11793,7 +11800,7 @@ async def run_r36f12():
             )
 
             r18_payload_side = str(
-                demo_preview.get(
+                r18_demo_payload.get(
                     "positionSide",
                     "",
                 )
