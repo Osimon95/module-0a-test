@@ -8435,7 +8435,7 @@ def r36f15105_regime_gate(
 
         return result
 
-       ema_engine_ready = bool(
+        ema_engine_ready = bool(
         ema_snapshot.get(
             "price"
         )
