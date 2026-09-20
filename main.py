@@ -11749,7 +11749,7 @@ async def run_r36f12():
         )
 
     else:
-                try:
+        try:
             r18_demo_payload = (
                 demo_preview.get(
                     "payload"
