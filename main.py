@@ -11855,7 +11855,7 @@ async def run_r36f12():
         + r18_demo_connector_reason
     )
 
-        if demo_preview:
+    if demo_preview:
         log(
             "R1.8D SYMBOL = "
             + str(
