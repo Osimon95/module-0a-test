@@ -10844,7 +10844,7 @@ async def run_r36f12():
             )
         )
 
-                diagnostic_check(
+        diagnostic_check(
             "R36F15104B_EMA_SIGNAL",
             bool(
                 EMA_SIGNAL_SNAPSHOT.get(
