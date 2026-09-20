@@ -10844,16 +10844,30 @@ async def run_r36f12():
             )
         )
 
-        diagnostic_check(
+                diagnostic_check(
             "R36F15104B_EMA_SIGNAL",
             bool(
                 EMA_SIGNAL_SNAPSHOT.get(
-                    "ready"
+                    "price"
+                )
+                and
+                EMA_SIGNAL_SNAPSHOT.get(
+                    "ema19"
+                )
+                and
+                EMA_SIGNAL_SNAPSHOT.get(
+                    "ema50"
+                )
+                and
+                EMA_SIGNAL_SNAPSHOT.get(
+                    "ema200"
+                )
+                and
+                EMA_SIGNAL_SNAPSHOT.get(
+                    "structure"
                 )
             ),
-            EMA_SIGNAL_SNAPSHOT.get(
-                "reason"
-            ),
+            "EMA_SNAPSHOT_FIELDS_VALID",
         )
 
     except Exception as exc:
