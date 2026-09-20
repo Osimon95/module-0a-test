@@ -8435,14 +8435,34 @@ def r36f15105_regime_gate(
 
         return result
 
-    if not ema_snapshot.get(
-        "ready"
-    ):
+       ema_engine_ready = bool(
+        ema_snapshot.get(
+            "price"
+        )
+        and
+        ema_snapshot.get(
+            "ema19"
+        )
+        and
+        ema_snapshot.get(
+            "ema50"
+        )
+        and
+        ema_snapshot.get(
+            "ema200"
+        )
+        and
+        ema_snapshot.get(
+            "structure"
+        )
+    )
+
+    if not ema_engine_ready:
         result["reason"] = (
             "EMA_ENGINE_NOT_READY"
         )
 
-        return result
+        return result 
 
     if (
         not selected_snapshot
