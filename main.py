@@ -11729,7 +11729,170 @@ async def run_r36f12():
             protective_stop_price,
         )
     )
+    # ========================================================
+    # R1.8D — WEEX DEMO CONNECTION VALIDATOR
+    # ========================================================
 
+    r18_demo_connector_ok = False
+    r18_demo_connector_reason = (
+        "R18D_NOT_READY"
+    )
+
+    if not downstream_ready:
+        r18_demo_connector_reason = (
+            "R18D_DOWNSTREAM_NOT_READY"
+        )
+
+    elif not demo_preview:
+        r18_demo_connector_reason = (
+            "R18D_DEMO_PREVIEW_MISSING"
+        )
+
+    else:
+        try:
+            r18_demo_direction = str(
+                selected_direction
+                or ""
+            ).strip().upper()
+
+            r18_demo_quantity = D(
+                demo_preview.get(
+                    "quantity",
+                    "0",
+                )
+            )
+
+            r18_demo_tp = D(
+                demo_preview.get(
+                    "tpTriggerPrice",
+                    "0",
+                )
+            )
+
+            r18_demo_sl = D(
+                demo_preview.get(
+                    "slTriggerPrice",
+                    "0",
+                )
+            )
+
+            r18_demo_symbol = str(
+                demo_preview.get(
+                    "symbol",
+                    "",
+                )
+            ).strip().upper()
+
+            r18_expected_side = (
+                "LONG"
+                if r18_demo_direction == "LONG"
+                else
+                "SHORT"
+                if r18_demo_direction == "SHORT"
+                else ""
+            )
+
+            r18_payload_side = str(
+                demo_preview.get(
+                    "positionSide",
+                    "",
+                )
+            ).strip().upper()
+
+            r18_demo_connector_ok = bool(
+                r18_demo_symbol
+                == R36F14_DEMO_SYMBOL
+                and
+                r18_expected_side
+                in {
+                    "LONG",
+                    "SHORT",
+                }
+                and
+                r18_payload_side
+                == r18_expected_side
+                and
+                r18_demo_quantity > 0
+                and
+                r18_demo_tp > 0
+                and
+                r18_demo_sl > 0
+            )
+
+            r18_demo_connector_reason = (
+                "R18D_WEEX_DEMO_CONNECTED"
+                if r18_demo_connector_ok
+                else
+                "R18D_PAYLOAD_BINDING_FAILED"
+            )
+
+        except Exception as exc:
+            r18_demo_connector_ok = False
+
+            r18_demo_connector_reason = (
+                "R18D_VALIDATION_EXCEPTION:"
+                + str(exc)
+            )
+
+    log(
+        "R1.8D WEEX DEMO CONNECTOR = "
+        + (
+            "PASS"
+            if r18_demo_connector_ok
+            else "BLOCKED"
+        )
+    )
+
+    log(
+        "R1.8D WEEX DEMO CONNECTOR REASON = "
+        + r18_demo_connector_reason
+    )
+
+    if demo_preview:
+        log(
+            "R1.8D SYMBOL = "
+            + str(
+                demo_preview.get(
+                    "symbol"
+                )
+            )
+        )
+
+        log(
+            "R1.8D DIRECTION = "
+            + str(
+                demo_preview.get(
+                    "positionSide"
+                )
+            )
+        )
+
+        log(
+            "R1.8D QUANTITY = "
+            + str(
+                demo_preview.get(
+                    "quantity"
+                )
+            )
+        )
+
+        log(
+            "R1.8D TP = "
+            + str(
+                demo_preview.get(
+                    "tpTriggerPrice"
+                )
+            )
+        )
+
+        log(
+            "R1.8D SL = "
+            + str(
+                demo_preview.get(
+                    "slTriggerPrice"
+                )
+            )
+        )
     # ========================================================
     # DEMO SUBMISSION GATE
     # ========================================================
