@@ -3240,12 +3240,11 @@ async def load_available_balance():
         "Unable to determine WEEX available balance"
     )
 
-
 async def load_open_positions():
     global OPEN_POSITIONS
 
     data = await weex_get(
-        "/capi/v3/position/allPosition",
+        R36F14_DEMO_POSITIONS_ENDPOINT,
         authenticated=True,
     )
 
@@ -3254,6 +3253,18 @@ async def load_open_positions():
     )
 
     OPEN_POSITIONS = rows
+
+    log(
+        "OPEN POSITION ROWS = "
+        + str(
+            len(
+                OPEN_POSITIONS
+            )
+        )
+    )
+
+    return OPEN_POSITIONS
+
 
     log(
         "OPEN POSITION ROWS = "
