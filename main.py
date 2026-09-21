@@ -2854,7 +2854,7 @@ async def submit_r36f15_demo_order(
                 ),
             }
 
-               existing_state = str(
+        existing_state = str(
             existing.get(
                 "state",
                 "",
