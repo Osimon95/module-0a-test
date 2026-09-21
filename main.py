@@ -12441,13 +12441,6 @@ async def async_main():
             )
         )
 
-    except Exception as exc:
-        log(
-            "R36F.15.10.5 STARTUP "
-            "EXPOSURE RECONCILIATION ERROR = "
-            + str(exc)
-        )
-
 try:
         except Exception as exc:
         log(
