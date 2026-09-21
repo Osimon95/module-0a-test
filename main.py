@@ -2343,8 +2343,8 @@ async def r36f159_reconcile_current_demo_exposure():
             "history_read_ok"
         ] = True
 
-            result[
-            "history_rows"
+        result[
+        "history_rows"
         ] = len(
             history_rows
         )
