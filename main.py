@@ -2854,13 +2854,26 @@ async def submit_r36f15_demo_order(
                 ),
             }
 
-        return {
-            "attempted": False,
-            "sent": False,
-            "accepted": False,
-            "reason": "R36F159_EXISTING_SECOND_DEMO_JOURNAL_BLOCKS_NEW_TOKEN",
-            "journal": existing,
-        }
+               existing_state = str(
+            existing.get(
+                "state",
+                "",
+            )
+        ).strip().upper()
+
+        if existing_state != "COMPLETED":
+            return {
+                "attempted": False,
+                "sent": False,
+                "accepted": False,
+                "reason": "R36F159_EXISTING_SECOND_DEMO_JOURNAL_BLOCKS_NEW_TOKEN",
+                "journal": existing,
+            }
+
+        log(
+            "R36F.15.9 COMPLETED OLD JOURNAL "
+            "DOES NOT BLOCK NEW COMMAND TOKEN"
+        ) 
 
     exposure = (
         await r36f159_reconcile_current_demo_exposure()
