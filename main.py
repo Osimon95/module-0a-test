@@ -12441,7 +12441,7 @@ async def async_main():
             )
         )
 
-try:
+    try:
         except Exception as exc:
         log(
             "R36F.15.10.5 STARTUP "
