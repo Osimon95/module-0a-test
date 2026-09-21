@@ -12449,19 +12449,20 @@ async def async_main():
         )
 
     try:
-        await run_r36f12()
+    await run_r36f12()
 
-    except Exception as exc:
-        TEST_STATUS = "FAIL"
+except Exception as exc:
+    TEST_STATUS = "FAIL"
 
-        line()
+    line()
 
-        log(
-            f"{STAGE} UNHANDLED ERROR = "
-            f"{exc}"
-        )
+    log(
+        f"{STAGE} UNHANDLED ERROR = "
+        f"{exc}"
+    )
 
-        line()
+    line()
+
 
     await heartbeat_loop()
 
