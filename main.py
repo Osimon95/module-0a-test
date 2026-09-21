@@ -12449,20 +12449,27 @@ async def async_main():
         )
 
 try:
-    await run_r36f12()
+        except Exception as exc:
+        log(
+            "R36F.15.10.5 STARTUP "
+            "EXPOSURE RECONCILIATION ERROR = "
+            + str(exc)
+        )
 
-except Exception as exc:
-    TEST_STATUS = "FAIL"
+    try:
+        await run_r36f12()
 
-    line()
+    except Exception as exc:
+        TEST_STATUS = "FAIL"
 
-    log(
-        f"{STAGE} UNHANDLED ERROR = "
-        f"{exc}"
-    )
+        line()
 
-    line()
+        log(
+            f"{STAGE} UNHANDLED ERROR = "
+            f"{exc}"
+        )
 
+        line()
 
     await heartbeat_loop()
 
