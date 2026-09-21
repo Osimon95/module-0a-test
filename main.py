@@ -12448,7 +12448,7 @@ async def async_main():
             + str(exc)
         )
 
-    try:
+try:
     await run_r36f12()
 
 except Exception as exc:
