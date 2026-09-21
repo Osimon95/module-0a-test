@@ -12408,7 +12408,62 @@ async def heartbeat_loop():
 # STARTUP
 # ============================================================
 
+async def async_main():
+    global TEST_STATUS
 
+    start_health_server()
+
+    r36f15103_startup_diagnostic()
+
+    try:
+        startup_exposure = (
+            await r36f159_reconcile_current_demo_exposure()
+        )
+
+        log(
+            "R36F.15.10.5 STARTUP "
+            "DUPLICATE BLOCKED = "
+            + str(
+                startup_exposure.get(
+                    "duplicate_entry_blocked",
+                    True,
+                )
+            )
+        )
+
+        log(
+            "R36F.15.10.5 STARTUP "
+            "BLOCK REASON = "
+            + str(
+                startup_exposure.get(
+                    "duplicate_block_reason"
+                )
+            )
+        )
+
+    except Exception as exc:
+        log(
+            "R36F.15.10.5 STARTUP "
+            "EXPOSURE RECONCILIATION ERROR = "
+            + str(exc)
+        )
+
+    try:
+        await run_r36f12()
+
+    except Exception as exc:
+        TEST_STATUS = "FAIL"
+
+        line()
+
+        log(
+            f"{STAGE} UNHANDLED ERROR = "
+            f"{exc}"
+        )
+
+        line()
+
+    await heartbeat_loop()
             
 
 
