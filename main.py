@@ -2671,7 +2671,7 @@ async def r36f159_reconcile_current_demo_exposure():
             },
             authenticated=True,
         )
-
+        r182_run_zero_write_tests()
         history_rows = (
             _r36f153_history_rows(
                 history_data
