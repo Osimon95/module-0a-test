@@ -11945,7 +11945,57 @@ async def run_r36f12():
                 TELEGRAM_COMMAND_PREVIEW,
             )
         )
+# ============================================================
+# R36F.15.4.1 — TELEGRAM STATE-CHANGE NOTIFICATION MERGER
+# NOTIFICATION ONLY — DOES NOT SUBMIT WEEX ORDERS
+# ============================================================
 
+    try:
+        telegram_event_result = (
+            await send_r36f1541_state_change_alert(
+                demo_submission,
+                TELEGRAM_COMMAND_PREVIEW,
+                EMA_SIGNAL_SNAPSHOT,
+            )
+        )
+
+        log(
+            "R36F.15.4.1 TELEGRAM EVENT = "
+            + str(
+                telegram_event_result.get(
+                    "event_code"
+                )
+            )
+        )
+
+        log(
+            "R36F.15.4.1 TELEGRAM SENT = "
+            + str(
+                telegram_event_result.get(
+                    "sent",
+                    False,
+                )
+            )
+        )
+
+        log(
+            "R36F.15.4.1 TELEGRAM REASON = "
+            + str(
+                telegram_event_result.get(
+                    "reason"
+                )
+            )
+        )
+
+    except Exception as exc:
+        log(
+            "R36F.15.4.1 TELEGRAM NOTIFICATION ERROR = "
+            + str(exc)
+        )
+
+# ============================================================
+# R36F.15.4.1 — TELEGRAM STATE-CHANGE NOTIFICATION MERGER END
+# ============================================================
     # ========================================================
     # CYCLE LOGGING
     # ========================================================
