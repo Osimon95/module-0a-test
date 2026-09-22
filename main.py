@@ -2903,7 +2903,192 @@ async def submit_r36f15_demo_order(
             command_preview
         )
     )
+    # ============================================================
+    # R1.8.1 READ-ONLY CLIENT ORDER ID DIAGNOSTIC
+    # NO STATE CHANGE / NO JOURNAL CHANGE / NO ORDER SUBMISSION
+    # ============================================================
 
+    r181_existing_client_ids = list(
+        exposure.get(
+            "existing_client_ids",
+            [],
+        )
+        or []
+    )
+
+    r181_candidate_exists = (
+        client_order_id
+        in set(r181_existing_client_ids)
+    )
+
+    r181_old_journal = (
+        read_json_file(
+            R36F159_DEMO_JOURNAL_FILE
+        )
+        or {}
+    )
+
+    r181_old_client_order_id = str(
+        r181_old_journal.get(
+            "client_order_id"
+        )
+        or ""
+    )
+
+    r181_old_command_identity = str(
+        r181_old_journal.get(
+            "command_identity_sha256"
+        )
+        or ""
+    )
+
+    r181_old_command_token = str(
+        r181_old_journal.get(
+            "command_token_sha256"
+        )
+        or ""
+    )
+
+    r181_new_command_token = (
+        sha256_text(
+            R36F159_COMMAND_TOKEN
+        )
+    )
+
+    log(
+        "R1.8.1 DIAGNOSTIC START"
+    )
+
+    log(
+        "R1.8.1 CANDIDATE CLIENT ORDER ID = "
+        + str(client_order_id)
+    )
+
+    log(
+        "R1.8.1 EXISTING CLIENT IDS = "
+        + canonical_json(
+            r181_existing_client_ids
+        )
+    )
+
+    log(
+        "R1.8.1 CANDIDATE EXISTS = "
+        + str(r181_candidate_exists)
+    )
+
+    log(
+        "R1.8.1 OLD JOURNAL STATE = "
+        + str(
+            r181_old_journal.get(
+                "state"
+            )
+        )
+    )
+
+    log(
+        "R1.8.1 OLD DIRECTION = "
+        + str(
+            r181_old_journal.get(
+                "direction"
+            )
+        )
+    )
+
+    log(
+        "R1.8.1 OLD ORDER ID = "
+        + str(
+            r181_old_journal.get(
+                "order_id"
+            )
+            or r181_old_journal.get(
+                "demo_order_id"
+            )
+        )
+    )
+
+    log(
+        "R1.8.1 OLD CLIENT ORDER ID = "
+        + r181_old_client_order_id
+    )
+
+    log(
+        "R1.8.1 SAME CLIENT ORDER ID = "
+        + str(
+            r181_old_client_order_id
+            == str(client_order_id)
+        )
+    )
+
+    log(
+        "R1.8.1 OLD COMMAND IDENTITY = "
+        + r181_old_command_identity
+    )
+
+    log(
+        "R1.8.1 NEW COMMAND IDENTITY = "
+        + str(command_identity)
+    )
+
+    log(
+        "R1.8.1 SAME COMMAND IDENTITY = "
+        + str(
+            r181_old_command_identity
+            == str(command_identity)
+        )
+    )
+
+    log(
+        "R1.8.1 OLD COMMAND TOKEN = "
+        + r181_old_command_token
+    )
+
+    log(
+        "R1.8.1 NEW COMMAND TOKEN = "
+        + r181_new_command_token
+    )
+
+    log(
+        "R1.8.1 SAME COMMAND TOKEN = "
+        + str(
+            r181_old_command_token
+            == r181_new_command_token
+        )
+    )
+
+    log(
+        "R1.8.1 OPEN DEMO ORDERS = "
+        + str(
+            exposure.get(
+                "open_demo_orders",
+                exposure.get(
+                    "open_orders",
+                    "UNKNOWN",
+                ),
+            )
+        )
+    )
+
+    log(
+        "R1.8.1 ACTIVE DEMO POSITIONS = "
+        + str(
+            exposure.get(
+                "active_demo_positions",
+                exposure.get(
+                    "active_positions",
+                    "UNKNOWN",
+                ),
+            )
+        )
+    )
+
+    log(
+        "R1.8.1 DUPLICATE CONDITION RESULT = "
+        + str(r181_candidate_exists)
+    )
+
+    log(
+        "R1.8.1 READ-ONLY DIAGNOSTIC COMPLETE"
+    )
     if client_order_id in set(
         exposure.get(
             "existing_client_ids",
