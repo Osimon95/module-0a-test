@@ -2273,7 +2273,351 @@ def r36f159_client_order_id(
 
     return value
 
+# ============================================================
+# R1.8.2
+# ZERO-WRITE CLIENT-ID LIFECYCLE POLICY VALIDATOR
+#
+# PURPOSE:
+# Prove that historical client IDs and active client IDs
+# must not be treated as the same thing.
+#
+# NO WEEX POST
+# NO JOURNAL WRITE
+# NO STATE CHANGE
+# NO REAL ORDER
+# NO DEMO ORDER
+# ============================================================
 
+R182_STAGE = "R1.8.2"
+
+
+def r182_client_id_lifecycle_decision(
+    *,
+    candidate_client_id,
+    historical_client_ids,
+    active_client_ids,
+    history_read_ok,
+    position_read_ok,
+    active_positions,
+    open_orders,
+):
+    candidate_client_id = str(
+        candidate_client_id
+        or ""
+    ).strip()
+
+    historical_client_ids = set(
+        str(value).strip()
+        for value in (
+            historical_client_ids
+            or []
+        )
+        if str(value).strip()
+    )
+
+    active_client_ids = set(
+        str(value).strip()
+        for value in (
+            active_client_ids
+            or []
+        )
+        if str(value).strip()
+    )
+
+    if not history_read_ok:
+        return {
+            "allow": False,
+            "reason": "HISTORY_READ_FAILED_FAIL_CLOSED",
+        }
+
+    if not position_read_ok:
+        return {
+            "allow": False,
+            "reason": "POSITION_READ_FAILED_FAIL_CLOSED",
+        }
+
+    if int(active_positions) > 0:
+        return {
+            "allow": False,
+            "reason": "ACTIVE_POSITION_BLOCKS",
+        }
+
+    if int(open_orders) > 0:
+        return {
+            "allow": False,
+            "reason": "OPEN_ORDER_BLOCKS",
+        }
+
+    if (
+        candidate_client_id
+        and candidate_client_id
+        in active_client_ids
+    ):
+        return {
+            "allow": False,
+            "reason": "ACTIVE_CLIENT_ID_BLOCKS",
+        }
+
+    if (
+        candidate_client_id
+        and candidate_client_id
+        in historical_client_ids
+    ):
+        return {
+            "allow": True,
+            "reason": (
+                "HISTORICAL_TERMINAL_ID_DOES_NOT_BLOCK_FLAT_ACCOUNT"
+            ),
+        }
+
+    return {
+        "allow": True,
+        "reason": "NEW_CLIENT_ID_AND_FLAT_ACCOUNT",
+    }
+
+
+def r182_run_zero_write_tests():
+    log(
+        "R1.8.2 ZERO-WRITE LIFECYCLE TEST START"
+    )
+
+    historical_id = (
+        "R36F159-S-A2420AFD38532D66"
+    )
+
+    # --------------------------------------------------------
+    # TEST 1
+    # Historical completed ID + flat account
+    # Expected: ALLOW
+    # --------------------------------------------------------
+
+    test1 = (
+        r182_client_id_lifecycle_decision(
+            candidate_client_id=historical_id,
+            historical_client_ids=[
+                historical_id,
+            ],
+            active_client_ids=[],
+            history_read_ok=True,
+            position_read_ok=True,
+            active_positions=0,
+            open_orders=0,
+        )
+    )
+
+    test1_pass = (
+        test1.get("allow") is True
+        and test1.get("reason")
+        == "HISTORICAL_TERMINAL_ID_DOES_NOT_BLOCK_FLAT_ACCOUNT"
+    )
+
+    log(
+        "R1.8.2 TEST 1 "
+        "HISTORICAL ID + FLAT = "
+        + (
+            "PASS"
+            if test1_pass
+            else "FAIL"
+        )
+        + " RESULT="
+        + str(test1)
+    )
+
+    # --------------------------------------------------------
+    # TEST 2
+    # Same client ID is ACTIVE
+    # Expected: BLOCK
+    # --------------------------------------------------------
+
+    test2 = (
+        r182_client_id_lifecycle_decision(
+            candidate_client_id=historical_id,
+            historical_client_ids=[
+                historical_id,
+            ],
+            active_client_ids=[
+                historical_id,
+            ],
+            history_read_ok=True,
+            position_read_ok=True,
+            active_positions=0,
+            open_orders=1,
+        )
+    )
+
+    test2_pass = (
+        test2.get("allow") is False
+        and test2.get("reason")
+        in {
+            "OPEN_ORDER_BLOCKS",
+            "ACTIVE_CLIENT_ID_BLOCKS",
+        }
+    )
+
+    log(
+        "R1.8.2 TEST 2 "
+        "ACTIVE ID = "
+        + (
+            "PASS"
+            if test2_pass
+            else "FAIL"
+        )
+        + " RESULT="
+        + str(test2)
+    )
+
+    # --------------------------------------------------------
+    # TEST 3
+    # Active position exists
+    # Expected: BLOCK
+    # --------------------------------------------------------
+
+    test3 = (
+        r182_client_id_lifecycle_decision(
+            candidate_client_id=(
+                "R36F159-S-NEWOPPORTUNITY"
+            ),
+            historical_client_ids=[],
+            active_client_ids=[],
+            history_read_ok=True,
+            position_read_ok=True,
+            active_positions=1,
+            open_orders=0,
+        )
+    )
+
+    test3_pass = (
+        test3.get("allow") is False
+        and test3.get("reason")
+        == "ACTIVE_POSITION_BLOCKS"
+    )
+
+    log(
+        "R1.8.2 TEST 3 "
+        "ACTIVE POSITION = "
+        + (
+            "PASS"
+            if test3_pass
+            else "FAIL"
+        )
+        + " RESULT="
+        + str(test3)
+    )
+
+    # --------------------------------------------------------
+    # TEST 4
+    # Exposure read failure
+    # Expected: BLOCK / FAIL CLOSED
+    # --------------------------------------------------------
+
+    test4 = (
+        r182_client_id_lifecycle_decision(
+            candidate_client_id=historical_id,
+            historical_client_ids=[
+                historical_id,
+            ],
+            active_client_ids=[],
+            history_read_ok=False,
+            position_read_ok=True,
+            active_positions=0,
+            open_orders=0,
+        )
+    )
+
+    test4_pass = (
+        test4.get("allow") is False
+        and test4.get("reason")
+        == "HISTORY_READ_FAILED_FAIL_CLOSED"
+    )
+
+    log(
+        "R1.8.2 TEST 4 "
+        "READ FAILURE FAIL-CLOSED = "
+        + (
+            "PASS"
+            if test4_pass
+            else "FAIL"
+        )
+        + " RESULT="
+        + str(test4)
+    )
+
+    # --------------------------------------------------------
+    # TEST 5
+    # Completely new ID + flat account
+    # Expected: ALLOW
+    # --------------------------------------------------------
+
+    test5 = (
+        r182_client_id_lifecycle_decision(
+            candidate_client_id=(
+                "R36F159-S-NEWOPPORTUNITY"
+            ),
+            historical_client_ids=[
+                historical_id,
+            ],
+            active_client_ids=[],
+            history_read_ok=True,
+            position_read_ok=True,
+            active_positions=0,
+            open_orders=0,
+        )
+    )
+
+    test5_pass = (
+        test5.get("allow") is True
+        and test5.get("reason")
+        == "NEW_CLIENT_ID_AND_FLAT_ACCOUNT"
+    )
+
+    log(
+        "R1.8.2 TEST 5 "
+        "NEW ID + FLAT = "
+        + (
+            "PASS"
+            if test5_pass
+            else "FAIL"
+        )
+        + " RESULT="
+        + str(test5)
+    )
+
+    overall_pass = all(
+        [
+            test1_pass,
+            test2_pass,
+            test3_pass,
+            test4_pass,
+            test5_pass,
+        ]
+    )
+
+    log(
+        "R1.8.2 ZERO-WRITE LIFECYCLE TEST = "
+        + (
+            "PASS"
+            if overall_pass
+            else "FAIL"
+        )
+    )
+
+    log(
+        "R1.8.2 WEEX POST = False"
+    )
+
+    log(
+        "R1.8.2 JOURNAL WRITE = False"
+    )
+
+    log(
+        "R1.8.2 REAL ORDER = False"
+    )
+
+    log(
+        "R1.8.2 DEMO ORDER = False"
+    )
+
+    return overall_pass
 def r36f159_is_open_order_status(
     status,
 ):
