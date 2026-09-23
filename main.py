@@ -2751,7 +2751,7 @@ async def r36f159_reconcile_current_demo_exposure():
                     )
 
                 if status == "FILLED":
-                filled_orders += 1
+                    filled_orders += 1
                 result[
             "existing_client_ids"
         ] = sorted(
