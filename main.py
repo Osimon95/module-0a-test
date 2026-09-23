@@ -2649,8 +2649,9 @@ async def r36f159_reconcile_current_demo_exposure():
         "active_symbol_positions": 0,
         "open_symbol_orders": 0,
         "historical_filled_orders": 0,
-        "existing_client_ids": [],
-        "duplicate_entry_blocked": True,
+        "existing_client and the        
+        "active_client_ids": [],
+        "duplicate_entry_blocked": True, 
         "duplicate_block_reason": "UNRESOLVED_CURRENT_DEMO_EXPOSURE",
         "safe_to_consider_new_entry": False,
     }
