@@ -2750,7 +2750,7 @@ async def r36f159_reconcile_current_demo_exposure():
                         client_id
                     )
 
-            if status == "FILLED":
+                if status == "FILLED":
                 filled_orders += 1
                 result[
             "existing_client_ids"
