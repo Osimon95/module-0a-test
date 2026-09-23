@@ -2694,6 +2694,7 @@ async def r36f159_reconcile_current_demo_exposure():
         )
 
         client_ids = []
+        active_client_ids = []
         open_orders = 0
         filled_orders = 0
 
