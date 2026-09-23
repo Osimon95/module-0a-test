@@ -3029,6 +3029,19 @@ async def r36f159_reconcile_second_demo_journal(
         or ""
     ).strip()
 
+        if client_order_id in set(
+        exposure.get(
+            "active_client_ids",
+            [],
+        )
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "R36F159_ACTIVE_CLIENT_ORDER_ID_ALREADY_EXISTS",
+            "client_order_id": client_order_id,
+        }
     if not client_order_id:
         return {
             "resolved": False,
