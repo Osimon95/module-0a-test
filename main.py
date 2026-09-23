@@ -2752,8 +2752,7 @@ async def r36f159_reconcile_current_demo_exposure():
 
             if status == "FILLED":
                 filled_orders += 1
-
-        result[
+                result[
             "existing_client_ids"
         ] = sorted(
             set(
@@ -2762,8 +2761,17 @@ async def r36f159_reconcile_current_demo_exposure():
         )
 
         result[
+            "active_client_ids"
+        ] = sorted(
+            set(
+                active_client_ids
+            )
+        )
+
+        result[
             "open_symbol_orders"
         ] = open_orders
+        
 
         result[
             "historical_filled_orders"
