@@ -2740,8 +2740,7 @@ async def r36f159_reconcile_current_demo_exposure():
                 )
                 or ""
             ).strip().upper()
-
-                if r36f159_is_open_order_status(
+        if r36f159_is_open_order_status(
                 status
             ):
                 open_orders += 1
