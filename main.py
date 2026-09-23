@@ -3029,7 +3029,7 @@ async def r36f159_reconcile_second_demo_journal(
         or ""
     ).strip()
 
-        if client_order_id in set(
+    if client_order_id in set(
         exposure.get(
             "active_client_ids",
             [],
