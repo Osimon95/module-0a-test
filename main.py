@@ -3042,21 +3042,7 @@ async def r36f159_reconcile_second_demo_journal(
             "reason": "R36F159_ACTIVE_CLIENT_ORDER_ID_ALREADY_EXISTS",
             "client_order_id": client_order_id,
         }
-    if not client_order_id:
-        return {
-            "resolved": False,
-            "retry_allowed": False,
-            "reason": "MISSING_SECOND_DEMO_CLIENT_ID",
-            "journal": journal,
-            "changed": False,
-        }
-
-    lookup = (
-        await r36f153_lookup_demo_order_by_client_id(
-            client_order_id
-        )
-    )
-
+    
     lookup_status = (
         lookup.get(
             "status"
