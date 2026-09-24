@@ -2807,29 +2807,29 @@ async def r36f159_reconcile_current_demo_exposure():
             position_rows
         )
 
-active_positions = 0
-active_position_row = None
+    active_positions = 0
+    active_position_row = None
 
-for row in position_rows:
-    if not isinstance(row, dict):
-        continue
+    for row in position_rows:
+        if not isinstance(row, dict):
+            continue
 
-    symbol = str(row.get("symbol") or "").strip().upper()
-    if symbol and symbol != R36F14_DEMO_SYMBOL:
-        continue
+        symbol = str(row.get("symbol") or "").strip().upper()
+        if symbol and symbol != R36F14_DEMO_SYMBOL:
+            continue
 
-    position_size = r36f155_position_size(row)
+        position_size = r36f155_position_size(row)
 
-    if position_size != 0:
-        active_positions += 1
+        if position_size != 0:
+            active_positions += 1
 
-        # Preserve the actual WEEX position row for the
-        # backup lifecycle. No exchange write occurs here.
-        if active_position_row is None:
-            active_position_row = dict(row)
+            # Preserve the actual WEEX position row for the
+            # backup lifecycle. No exchange write occurs here.
+            if active_position_row is None:
+                active_position_row = dict(row)
 
-result["active_symbol_positions"] = active_positions
-result["active_position_row"] = active_position_row
+    result["active_symbol_positions"] = active_positions
+    result["active_position_row"] = active_position_row
         
 
     except Exception as exc:
