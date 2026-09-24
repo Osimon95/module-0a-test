@@ -2829,7 +2829,36 @@ async def r36f159_reconcile_current_demo_exposure():
         result["active_symbol_positions"] = active_positions
         result["active_position_row"] = active_position_row
     
-        
+        # ====================================================
+        # NB3 RECONCILIATION DISCOVERY
+        # ZERO WEEX WRITES
+        # ====================================================
+
+        if active_position_row is None:
+
+            print(
+                "NB3 RECONCILIATION: NO ACTIVE POSITION"
+            )
+
+        else:
+
+            print(
+                "NB3 RECONCILIATION: ACTIVE POSITION FOUND"
+            )
+
+            print(
+                "NB3 POSITION ROW KEYS =",
+                sorted(active_position_row.keys())
+            )
+
+            print(
+                "NB3 POSITION SIZE =",
+                r36f155_position_size(
+                    active_position_row
+                )
+            )
+
+        print("NB3 ZERO WEEX WRITES")   
 
     except Exception as exc:
         result[
