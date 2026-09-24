@@ -2830,35 +2830,49 @@ async def r36f159_reconcile_current_demo_exposure():
         result["active_position_row"] = active_position_row
     
         # ====================================================
-        # NB3 RECONCILIATION DISCOVERY
+        # NB3 FRESH BACKUP RECONCILIATION BRIDGE
         # ZERO WEEX WRITES
         # ====================================================
 
+        nb3_result = {
+            "status": "IDLE",
+            "reason": "NO_ACTIVE_POSITION",
+            "position_row": None,
+        }
+
         if active_position_row is None:
 
-            print(
-                "NB3 RECONCILIATION: NO ACTIVE POSITION"
-            )
+            print("NB3 STATUS = IDLE")
+            print("NB3 REASON = NO_ACTIVE_POSITION")
 
         else:
 
-            print(
-                "NB3 RECONCILIATION: ACTIVE POSITION FOUND"
+            nb3_position_row = dict(active_position_row)
+            nb3_position_size = r36f155_position_size(
+                nb3_position_row
             )
 
-            print(
-                "NB3 POSITION ROW KEYS =",
-                sorted(active_position_row.keys())
-            )
+            nb3_result = {
+                "status": "POSITION_DETECTED",
+                "reason": "ACTIVE_POSITION_RECONCILED",
+                "position_row": nb3_position_row,
+                "position_size": nb3_position_size,
+            }
 
+            print("NB3 STATUS = POSITION_DETECTED")
             print(
                 "NB3 POSITION SIZE =",
-                r36f155_position_size(
-                    active_position_row
-                )
+                nb3_position_size
+            )
+            print(
+                "NB3 POSITION ROW KEYS =",
+                sorted(nb3_position_row.keys())
             )
 
-        print("NB3 ZERO WEEX WRITES")   
+        result["nb3"] = nb3_result
+
+        print("NB3 ORDER WRITE = DISABLED")
+           
 
     except Exception as exc:
         result[
