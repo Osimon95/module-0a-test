@@ -2807,7 +2807,7 @@ async def r36f159_reconcile_current_demo_exposure():
             position_rows
         )
 
-        active_positions = 0
+active_positions = 0
 active_position_row = None
 
 for row in position_rows:
