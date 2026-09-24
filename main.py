@@ -413,11 +413,14 @@ assert liq_after_b2 != liq_after_b1
 
 assert liq_after_b3 != liq_after_b2
 
-assert qty_after_b1 == 0.0005
+# ============================================================
+# QTY ASSERTIONS
+# FLOAT-SAFE
+# ============================================================
 
-assert qty_after_b2 == 0.0006
-
-assert qty_after_b3 == 0.0007
+assert abs(qty_after_b1 - 0.0005) < 1e-12
+assert abs(qty_after_b2 - 0.0006) < 1e-12
+assert abs(qty_after_b3 - 0.0007) < 1e-12
 
 
 # ============================================================
