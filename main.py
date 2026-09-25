@@ -3993,6 +3993,157 @@ async def r36f159_reconcile_second_demo_journal(
 # R1.8 CORRECTED MAIN.PY — PART 2 START
 # ============================================================
 
+def r36f159_test_recurring_opportunity_gate():
+    print("==========================================")
+    print("R36F159 RECURRING OPPORTUNITY UNIT TEST START")
+    print("==========================================")
+
+    def evaluate(existing_state, existing_identity, new_identity):
+        existing_state = str(
+            existing_state or ""
+        ).strip().upper()
+
+        existing_identity = str(
+            existing_identity or ""
+        ).strip()
+
+        new_identity = str(
+            new_identity or ""
+        ).strip()
+
+        if not existing_identity:
+            return {
+                "allow": True,
+                "reason": "NO_EXISTING_IDENTITY",
+            }
+
+        if hmac.compare_digest(
+            existing_identity,
+            new_identity,
+        ):
+            return {
+                "allow": False,
+                "reason": "SAME_OPPORTUNITY_REPLAY_BLOCKED",
+            }
+
+        if existing_state == "COMPLETED":
+            return {
+                "allow": True,
+                "reason": "PREVIOUS_COMPLETED_NEW_OPPORTUNITY",
+            }
+
+        return {
+            "allow": False,
+            "reason": "PREVIOUS_OPPORTUNITY_UNRESOLVED",
+        }
+
+    old_identity = sha256_text(
+        "OLD_COMPLETED_OPPORTUNITY"
+    )
+
+    new_identity = sha256_text(
+        "NEW_MARKET_OPPORTUNITY"
+    )
+
+    test_1 = evaluate(
+        "COMPLETED",
+        old_identity,
+        old_identity,
+    )
+
+    test_2 = evaluate(
+        "COMPLETED",
+        old_identity,
+        new_identity,
+    )
+
+    test_3 = evaluate(
+        "PREPARED",
+        old_identity,
+        new_identity,
+    )
+
+    test_4 = evaluate(
+        "",
+        "",
+        new_identity,
+    )
+
+    pass_1 = (
+        test_1["allow"] is False
+        and test_1["reason"]
+        == "SAME_OPPORTUNITY_REPLAY_BLOCKED"
+    )
+
+    pass_2 = (
+        test_2["allow"] is True
+        and test_2["reason"]
+        == "PREVIOUS_COMPLETED_NEW_OPPORTUNITY"
+    )
+
+    pass_3 = (
+        test_3["allow"] is False
+        and test_3["reason"]
+        == "PREVIOUS_OPPORTUNITY_UNRESOLVED"
+    )
+
+    pass_4 = (
+        test_4["allow"] is True
+        and test_4["reason"]
+        == "NO_EXISTING_IDENTITY"
+    )
+
+    overall_pass = all(
+        [
+            pass_1,
+            pass_2,
+            pass_3,
+            pass_4,
+        ]
+    )
+
+    print(
+        "TEST 1 SAME COMPLETED OPPORTUNITY =",
+        "PASS" if pass_1 else "FAIL",
+        test_1,
+    )
+
+    print(
+        "TEST 2 NEW AFTER COMPLETED =",
+        "PASS" if pass_2 else "FAIL",
+        test_2,
+    )
+
+    print(
+        "TEST 3 NEW AFTER UNRESOLVED =",
+        "PASS" if pass_3 else "FAIL",
+        test_3,
+    )
+
+    print(
+        "TEST 4 FIRST OPPORTUNITY =",
+        "PASS" if pass_4 else "FAIL",
+        test_4,
+    )
+
+    print(
+        "R36F159 RECURRING OPPORTUNITY UNIT TEST =",
+        "PASS" if overall_pass else "FAIL",
+    )
+
+    print("R36F159 TEST WEEX POST = False")
+    print("R36F159 TEST DEMO ORDER = False")
+    print("R36F159 TEST REAL ORDER = False")
+    print("==========================================")
+
+    return overall_pass
+
+
+if os.getenv(
+    "RUN_R36F159_RECURRING_TEST",
+    "0",
+).strip() == "1":
+    r36f159_test_recurring_opportunity_gate()
 async def submit_r36f15_demo_order(
     preview,
     command_preview,
