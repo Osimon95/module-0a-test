@@ -2944,7 +2944,410 @@ def r36f_evaluate_backup_path(
         "real_order": False,
     }
 
+def r36f_build_backup_demo_order_preview(
+    *,
+    side,
+    backup_number,
+    quantity,
+    position_quantity_before,
+    liquidation_price,
+    trigger_price,
+):
+    """
+    R36F Backup 1-3 WEEX demo order preview.
 
+    ZERO-WRITE ONLY.
+    Builds and validates the candidate position-add payload.
+    Does NOT submit anything to WEEX.
+    """
+
+    result = {
+        "valid": False,
+        "reason": None,
+        "backup_number": None,
+        "side": None,
+        "quantity": None,
+        "position_quantity_before": None,
+        "liquidation_price": None,
+        "trigger_price": None,
+        "client_order_id": None,
+        "payload": None,
+        "weex_post": False,
+        "demo_order_sent": False,
+        "real_order_sent": False,
+    }
+
+    try:
+        backup_number = int(
+            backup_number
+        )
+
+        if backup_number not in {
+            1,
+            2,
+            3,
+        }:
+            result["reason"] = (
+                "INVALID_BACKUP_NUMBER"
+            )
+            return result
+
+        side = str(
+            side or ""
+        ).strip().upper()
+
+        if side not in {
+            "LONG",
+            "SHORT",
+        }:
+            result["reason"] = (
+                "INVALID_BACKUP_SIDE"
+            )
+            return result
+
+        quantity = D(
+            quantity
+        )
+
+        position_quantity_before = D(
+            position_quantity_before
+        )
+
+        liquidation_price = D(
+            liquidation_price
+        )
+
+        trigger_price = D(
+            trigger_price
+        )
+
+        if quantity <= 0:
+            result["reason"] = (
+                "INVALID_BACKUP_QUANTITY"
+            )
+            return result
+
+        if position_quantity_before <= 0:
+            result["reason"] = (
+                "NO_ACTIVE_POSITION_QUANTITY"
+            )
+            return result
+
+        if liquidation_price <= 0:
+            result["reason"] = (
+                "INVALID_LIQUIDATION_PRICE"
+            )
+            return result
+
+        if trigger_price <= 0:
+            result["reason"] = (
+                "INVALID_TRIGGER_PRICE"
+            )
+            return result
+
+        identity_material = {
+            "stage": "R36F_BACKUP_DEMO",
+            "symbol": R36F14_DEMO_SYMBOL,
+            "side": side,
+            "backup_number": backup_number,
+            "position_quantity_before":
+                decimal_to_string(
+                    position_quantity_before
+                ),
+            "liquidation_price":
+                decimal_to_string(
+                    liquidation_price
+                ),
+            "trigger_price":
+                decimal_to_string(
+                    trigger_price
+                ),
+        }
+
+        identity_sha256 = sha256_text(
+            canonical_json(
+                identity_material
+            )
+        )
+
+        client_order_id = (
+            "R36FB"
+            + str(backup_number)
+            + "-"
+            + (
+                "L-"
+                if side == "LONG"
+                else "S-"
+            )
+            + identity_sha256[
+                :16
+            ].upper()
+        )
+
+        payload = {
+            "symbol":
+                R36F14_DEMO_SYMBOL,
+
+            "side":
+                "BUY"
+                if side == "LONG"
+                else "SELL",
+
+            "positionSide":
+                side,
+
+            "type":
+                "MARKET",
+
+            "quantity":
+                decimal_to_string(
+                    quantity
+                ),
+
+            "newClientOrderId":
+                client_order_id,
+        }
+
+        result.update(
+            {
+                "valid": True,
+                "reason":
+                    "BACKUP_DEMO_PAYLOAD_VALID",
+
+                "backup_number":
+                    backup_number,
+
+                "side":
+                    side,
+
+                "quantity":
+                    decimal_to_string(
+                        quantity
+                    ),
+
+                "position_quantity_before":
+                    decimal_to_string(
+                        position_quantity_before
+                    ),
+
+                "liquidation_price":
+                    decimal_to_string(
+                        liquidation_price
+                    ),
+
+                "trigger_price":
+                    decimal_to_string(
+                        trigger_price
+                    ),
+
+                "client_order_id":
+                    client_order_id,
+
+                "payload":
+                    payload,
+            }
+        )
+
+        return result
+
+    except Exception as exc:
+        result["reason"] = (
+            "BACKUP_DEMO_PAYLOAD_BUILD_FAILED"
+        )
+
+        result["error"] = str(
+            exc
+        )
+
+        return result
+
+
+def r36f_run_backup_demo_payload_test():
+    """
+    Synthetic ZERO-WRITE test only.
+    """
+
+    log(
+        "=========================================="
+    )
+
+    log(
+        "R36F BACKUP DEMO PAYLOAD TEST START"
+    )
+
+    preview = (
+        r36f_build_backup_demo_order_preview(
+            side="SHORT",
+            backup_number=1,
+            quantity=D("0.0001"),
+            position_quantity_before=D(
+                "0.0004"
+            ),
+            liquidation_price=D(
+                "90000"
+            ),
+            trigger_price=D(
+                "89730"
+            ),
+        )
+    )
+
+    log(
+        "BACKUP PAYLOAD VALID = "
+        + str(
+            preview.get(
+                "valid"
+            )
+        )
+    )
+
+    log(
+        "BACKUP NUMBER = "
+        + str(
+            preview.get(
+                "backup_number"
+            )
+        )
+    )
+
+    log(
+        "BACKUP SIDE = "
+        + str(
+            preview.get(
+                "side"
+            )
+        )
+    )
+
+    log(
+        "BACKUP QUANTITY = "
+        + str(
+            preview.get(
+                "quantity"
+            )
+        )
+    )
+
+    log(
+        "BACKUP POSITION QTY BEFORE = "
+        + str(
+            preview.get(
+                "position_quantity_before"
+            )
+        )
+    )
+
+    log(
+        "BACKUP LIQUIDATION = "
+        + str(
+            preview.get(
+                "liquidation_price"
+            )
+        )
+    )
+
+    log(
+        "BACKUP TRIGGER = "
+        + str(
+            preview.get(
+                "trigger_price"
+            )
+        )
+    )
+
+    log(
+        "BACKUP CLIENT ORDER ID = "
+        + str(
+            preview.get(
+                "client_order_id"
+            )
+        )
+    )
+
+    log(
+        "BACKUP PAYLOAD = "
+        + canonical_json(
+            preview.get(
+                "payload"
+            )
+            or {}
+        )
+    )
+
+    log(
+        "BACKUP WEEX POST = "
+        + str(
+            preview.get(
+                "weex_post"
+            )
+        )
+    )
+
+    log(
+        "BACKUP DEMO ORDER SENT = "
+        + str(
+            preview.get(
+                "demo_order_sent"
+            )
+        )
+    )
+
+    log(
+        "BACKUP REAL ORDER SENT = "
+        + str(
+            preview.get(
+                "real_order_sent"
+            )
+        )
+    )
+
+    test_pass = bool(
+        preview.get(
+            "valid"
+        )
+        and
+        preview.get(
+            "backup_number"
+        ) == 1
+        and
+        preview.get(
+            "side"
+        ) == "SHORT"
+        and
+        preview.get(
+            "weex_post"
+        ) is False
+        and
+        preview.get(
+            "demo_order_sent"
+        ) is False
+        and
+        preview.get(
+            "real_order_sent"
+        ) is False
+    )
+
+    log(
+        "R36F BACKUP DEMO PAYLOAD TEST = "
+        + (
+            "PASS"
+            if test_pass
+            else "FAIL"
+        )
+    )
+
+    log(
+        "=========================================="
+    )
+
+    return test_pass
+
+
+if os.getenv(
+    "RUN_BACKUP_DEMO_PAYLOAD_TEST",
+    "0",
+).strip() == "1":
+    r36f_run_backup_demo_payload_test()
 def r36f_run_backup_zero_write_tests():
     log(
         "R36F BACKUP 1-3 ZERO-WRITE TEST START"
