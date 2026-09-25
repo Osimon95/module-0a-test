@@ -1998,4 +1998,2003 @@ async def r36f155_reconcile_existing_demo_exposure():
 
         if size <= 0:
             continue
+        if (
+            expected_symbol
+            and symbol
+            != expected_symbol
+        ):
+            continue
+
+        if (
+            expected_direction
+            and direction
+            and direction
+            != expected_direction
+        ):
+            continue
+
+        matching.append(
+            row
+        )
+
+    result[
+        "matching_position_found"
+    ] = bool(
+        matching
+    )
+
+    result[
+        "matching_position_count"
+    ] = len(
+        matching
+    )
+
+    if matching:
+        result[
+            "duplicate_entry_blocked"
+        ] = True
+
+        result[
+            "duplicate_block_reason"
+        ] = (
+            "POSITION_ALREADY_EXISTS"
+        )
+
+        result[
+            "safe_to_consider_new_entry"
+        ] = False
+
+    elif result[
+        "target_order_found"
+    ]:
+        status = result[
+            "target_order_status"
+        ]
+
+        if status in {
+            "NEW",
+            "OPEN",
+            "PENDING",
+            "LIVE",
+            "ACCEPTED",
+            "CREATED",
+            "PARTIALLY_FILLED",
+            "PARTIAL_FILLED",
+            "PARTIALLYFILLED",
+        }:
+            result[
+                "duplicate_entry_blocked"
+            ] = True
+
+            result[
+                "duplicate_block_reason"
+            ] = (
+                "OPEN_ENTRY_ORDER_ALREADY_EXISTS"
+            )
+
+        elif status == "FILLED":
+            result[
+                "duplicate_entry_blocked"
+            ] = True
+
+            result[
+                "duplicate_block_reason"
+            ] = (
+                "FILLED_ORDER_FOUND_POSITION_REQUIRES_CONSERVATIVE_RECONCILIATION"
+            )
+
+        elif status == "UNKNOWN":
+            result[
+                "duplicate_entry_blocked"
+            ] = True
+
+            result[
+                "duplicate_block_reason"
+            ] = (
+                "UNKNOWN_ORDER_STATUS_FAIL_CLOSED"
+            )
+
+        else:
+            result[
+                "duplicate_entry_blocked"
+            ] = False
+
+            result[
+                "duplicate_block_reason"
+            ] = (
+                "TARGET_ORDER_TERMINAL_AND_NO_MATCHING_POSITION_FOUND"
+            )
+
+            result[
+                "safe_to_consider_new_entry"
+            ] = True
+
+    else:
+        active_demo_position = any(
+            isinstance(
+                row,
+                dict,
+            )
+            and str(
+                row.get(
+                    "symbol"
+                )
+                or ""
+            ).strip().upper()
+            == R36F14_DEMO_SYMBOL
+            and r36f155_position_size(
+                row
+            )
+            > 0
+            for row in position_rows
+        )
+
+        if active_demo_position:
+            result[
+                "duplicate_entry_blocked"
+            ] = True
+
+            result[
+                "duplicate_block_reason"
+            ] = (
+                "UNTRACKED_ACTIVE_DEMO_POSITION_EXISTS"
+            )
+
+        else:
+            result[
+                "duplicate_entry_blocked"
+            ] = False
+
+            result[
+                "duplicate_block_reason"
+            ] = (
+                "NO_TARGET_ORDER_OR_ACTIVE_DEMO_POSITION"
+            )
+
+            result[
+                "safe_to_consider_new_entry"
+            ] = True
+
+    log(
+        "R36F.15.5 DUPLICATE ENTRY BLOCKED = "
+        + str(
+            result[
+                "duplicate_entry_blocked"
+            ]
+        )
+    )
+
+    log(
+        "R36F.15.5 DUPLICATE BLOCK REASON = "
+        + str(
+            result[
+                "duplicate_block_reason"
+            ]
+        )
+    )
+
+    log(
+        "R36F.15.5 SAFE TO CONSIDER NEW ENTRY = "
+        + str(
+            result[
+                "safe_to_consider_new_entry"
+            ]
+        )
+    )
+
+    log(
+        "R36F.15.5 REAL MONEY EXECUTION = "
+        + str(
+            REAL_ORDER_EXECUTION
+        )
+    )
+
+    R36F155_LAST_RECONCILIATION = (
+        result
+    )
+
+    line()
+
+    return result
+
+
+R36F159_LAST_EXPOSURE_CHECK = {}
+
+
+def r36f159_command_identity(
+    command_preview,
+):
+    command = str(
+        command_preview.get(
+            "command"
+        )
+        or ""
+    ).strip().upper()
+
+    direction = str(
+        command_preview.get(
+            "direction"
+        )
+        or ""
+    ).strip().upper()
+
+    token = str(
+        R36F159_COMMAND_TOKEN
+        or ""
+    ).strip()
+
+    material = {
+        "command": command,
+        "direction": direction,
+        "symbol": R36F14_DEMO_SYMBOL,
+        "token": token,
+        "stage": "R36F.15.9",
+    }
+
+    return sha256_text(
+        canonical_json(
+            material
+        )
+    )
+
+
+def r36f159_client_order_id(
+    command_preview,
+):
+    direction = str(
+        command_preview.get(
+            "direction"
+        )
+        or ""
+    ).strip().upper()
+
+    prefix = (
+        "L"
+        if direction == "LONG"
+        else "S"
+        if direction == "SHORT"
+        else "X"
+    )
+
+    digest = (
+        r36f159_command_identity(
+            command_preview
+        )[:16].upper()
+    )
+
+    value = (
+        f"R36F159-{prefix}-{digest}"
+    )
+
+    if len(value) > 36:
+        raise ValueError(
+            "R36F.15.9 client id exceeds WEEX limit"
+        )
+
+    return value
+
+# ============================================================
+# R1.8.2
+# ZERO-WRITE CLIENT-ID LIFECYCLE POLICY VALIDATOR
+#
+# PURPOSE:
+# Prove that historical client IDs and active client IDs
+# must not be treated as the same thing.
+#
+# NO WEEX POST
+# NO JOURNAL WRITE
+# NO STATE CHANGE
+# NO REAL ORDER
+# NO DEMO ORDER
+# ============================================================
+
+R182_STAGE = "R1.8.2"
+
+
+def r182_client_id_lifecycle_decision(
+    *,
+    candidate_client_id,
+    historical_client_ids,
+    active_client_ids,
+    history_read_ok,
+    position_read_ok,
+    active_positions,
+    open_orders,
+):
+    candidate_client_id = str(
+        candidate_client_id
+        or ""
+    ).strip()
+
+    historical_client_ids = set(
+        str(value).strip()
+        for value in (
+            historical_client_ids
+            or []
+        )
+        if str(value).strip()
+    )
+
+    active_client_ids = set(
+        str(value).strip()
+        for value in (
+            active_client_ids
+            or []
+        )
+        if str(value).strip()
+    )
+
+    if not history_read_ok:
+        return {
+            "allow": False,
+            "reason": "HISTORY_READ_FAILED_FAIL_CLOSED",
+        }
+
+    if not position_read_ok:
+        return {
+            "allow": False,
+            "reason": "POSITION_READ_FAILED_FAIL_CLOSED",
+        }
+
+    if int(active_positions) > 0:
+        return {
+            "allow": False,
+            "reason": "ACTIVE_POSITION_BLOCKS",
+        }
+
+    if int(open_orders) > 0:
+        return {
+            "allow": False,
+            "reason": "OPEN_ORDER_BLOCKS",
+        }
+
+    if (
+        candidate_client_id
+        and candidate_client_id
+        in active_client_ids
+    ):
+        return {
+            "allow": False,
+            "reason": "ACTIVE_CLIENT_ID_BLOCKS",
+        }
+
+    if (
+        candidate_client_id
+        and candidate_client_id
+        in historical_client_ids
+    ):
+        return {
+            "allow": True,
+            "reason": (
+                "HISTORICAL_TERMINAL_ID_DOES_NOT_BLOCK_FLAT_ACCOUNT"
+            ),
+        }
+
+    return {
+        "allow": True,
+        "reason": "NEW_CLIENT_ID_AND_FLAT_ACCOUNT",
+    }
+
+
+def r182_run_zero_write_tests():
+    log(
+        "R1.8.2 ZERO-WRITE LIFECYCLE TEST START"
+    )
+
+    historical_id = (
+        "R36F159-S-A2420AFD38532D66"
+    )
+
+    # --------------------------------------------------------
+    # TEST 1
+    # Historical completed ID + flat account
+    # Expected: ALLOW
+    # --------------------------------------------------------
+
+    test1 = (
+        r182_client_id_lifecycle_decision(
+            candidate_client_id=historical_id,
+            historical_client_ids=[
+                historical_id,
+            ],
+            active_client_ids=[],
+            history_read_ok=True,
+            position_read_ok=True,
+            active_positions=0,
+            open_orders=0,
+        )
+    )
+
+    test1_pass = (
+        test1.get("allow") is True
+        and test1.get("reason")
+        == "HISTORICAL_TERMINAL_ID_DOES_NOT_BLOCK_FLAT_ACCOUNT"
+    )
+
+    log(
+        "R1.8.2 TEST 1 "
+        "HISTORICAL ID + FLAT = "
+        + (
+            "PASS"
+            if test1_pass
+            else "FAIL"
+        )
+        + " RESULT="
+        + str(test1)
+    )
+
+    # --------------------------------------------------------
+    # TEST 2
+    # Same client ID is ACTIVE
+    # Expected: BLOCK
+    # --------------------------------------------------------
+
+    test2 = (
+        r182_client_id_lifecycle_decision(
+            candidate_client_id=historical_id,
+            historical_client_ids=[
+                historical_id,
+            ],
+            active_client_ids=[
+                historical_id,
+            ],
+            history_read_ok=True,
+            position_read_ok=True,
+            active_positions=0,
+            open_orders=1,
+        )
+    )
+
+    test2_pass = (
+        test2.get("allow") is False
+        and test2.get("reason")
+        in {
+            "OPEN_ORDER_BLOCKS",
+            "ACTIVE_CLIENT_ID_BLOCKS",
+        }
+    )
+
+    log(
+        "R1.8.2 TEST 2 "
+        "ACTIVE ID = "
+        + (
+            "PASS"
+            if test2_pass
+            else "FAIL"
+        )
+        + " RESULT="
+        + str(test2)
+    )
+
+    # --------------------------------------------------------
+    # TEST 3
+    # Active position exists
+    # Expected: BLOCK
+    # --------------------------------------------------------
+
+    test3 = (
+        r182_client_id_lifecycle_decision(
+            candidate_client_id=(
+                "R36F159-S-NEWOPPORTUNITY"
+            ),
+            historical_client_ids=[],
+            active_client_ids=[],
+            history_read_ok=True,
+            position_read_ok=True,
+            active_positions=1,
+            open_orders=0,
+        )
+    )
+
+    test3_pass = (
+        test3.get("allow") is False
+        and test3.get("reason")
+        == "ACTIVE_POSITION_BLOCKS"
+    )
+
+    log(
+        "R1.8.2 TEST 3 "
+        "ACTIVE POSITION = "
+        + (
+            "PASS"
+            if test3_pass
+            else "FAIL"
+        )
+        + " RESULT="
+        + str(test3)
+    )
+
+    # --------------------------------------------------------
+    # TEST 4
+    # Exposure read failure
+    # Expected: BLOCK / FAIL CLOSED
+    # --------------------------------------------------------
+
+    test4 = (
+        r182_client_id_lifecycle_decision(
+            candidate_client_id=historical_id,
+            historical_client_ids=[
+                historical_id,
+            ],
+            active_client_ids=[],
+            history_read_ok=False,
+            position_read_ok=True,
+            active_positions=0,
+            open_orders=0,
+        )
+    )
+
+    test4_pass = (
+        test4.get("allow") is False
+        and test4.get("reason")
+        == "HISTORY_READ_FAILED_FAIL_CLOSED"
+    )
+
+    log(
+        "R1.8.2 TEST 4 "
+        "READ FAILURE FAIL-CLOSED = "
+        + (
+            "PASS"
+            if test4_pass
+            else "FAIL"
+        )
+        + " RESULT="
+        + str(test4)
+    )
+
+    # --------------------------------------------------------
+    # TEST 5
+    # Completely new ID + flat account
+    # Expected: ALLOW
+    # --------------------------------------------------------
+
+    test5 = (
+        r182_client_id_lifecycle_decision(
+            candidate_client_id=(
+                "R36F159-S-NEWOPPORTUNITY"
+            ),
+            historical_client_ids=[
+                historical_id,
+            ],
+            active_client_ids=[],
+            history_read_ok=True,
+            position_read_ok=True,
+            active_positions=0,
+            open_orders=0,
+        )
+    )
+
+    test5_pass = (
+        test5.get("allow") is True
+        and test5.get("reason")
+        == "NEW_CLIENT_ID_AND_FLAT_ACCOUNT"
+    )
+
+    log(
+        "R1.8.2 TEST 5 "
+        "NEW ID + FLAT = "
+        + (
+            "PASS"
+            if test5_pass
+            else "FAIL"
+        )
+        + " RESULT="
+        + str(test5)
+    )
+
+    overall_pass = all(
+        [
+            test1_pass,
+            test2_pass,
+            test3_pass,
+            test4_pass,
+            test5_pass,
+        ]
+    )
+
+    log(
+        "R1.8.2 ZERO-WRITE LIFECYCLE TEST = "
+        + (
+            "PASS"
+            if overall_pass
+            else "FAIL"
+        )
+    )
+
+    log(
+        "R1.8.2 WEEX POST = False"
+    )
+
+    log(
+        "R1.8.2 JOURNAL WRITE = False"
+    )
+
+    log(
+        "R1.8.2 REAL ORDER = False"
+    )
+
+    log(
+        "R1.8.2 DEMO ORDER = False"
+    )
+
+    return overall_pass
+def r36f159_is_open_order_status(
+    status,
+):
+    value = str(
+        status
+        or ""
+    ).strip().upper()
+
+    return value in {
+        "NEW",
+        "PENDING",
+        "OPEN",
+        "CREATED",
+        "PARTIALLY_FILLED",
+        "PARTIAL_FILLED",
+        "PARTIALLYFILLED",
+        "PART_FILLED",
+    }
+
+
+async def r36f159_reconcile_current_demo_exposure():
+    global R36F159_LAST_EXPOSURE_CHECK
+
+    result = {
+        "history_read_ok": False,
+        "position_read_ok": False,
+        "history_rows": 0,
+        "position_rows": 0,
+        "active_symbol_positions": 0,
+        "open_symbol_orders": 0,
+        "historical_filled_orders": 0,
+        "existing_client_ids": [],        
+        "active_client_ids": [],
+        "duplicate_entry_blocked": True, 
+        "duplicate_block_reason": "UNRESOLVED_CURRENT_DEMO_EXPOSURE",
+        "safe_to_consider_new_entry": False,
+    }
+
+    line()
+
+    log(
+        "R36F.15.9 CURRENT DEMO EXPOSURE RECONCILIATION START"
+    )
+
+    try:
+        history_data = await weex_get(
+            R36F14_DEMO_ORDER_HISTORY_ENDPOINT,
+            params={
+                "symbol": R36F14_DEMO_SYMBOL,
+                "limit": 1000,
+                "page": 0,
+            },
+            authenticated=True,
+        )
+        r182_run_zero_write_tests()
+        history_rows = (
+            _r36f153_history_rows(
+                history_data
+            )
+        )
+
+        if history_rows is None:
+            raise RuntimeError(
+                "DEMO_HISTORY_RESPONSE_UNRECOGNIZED"
+            )
+
+        result[
+            "history_read_ok"
+        ] = True
+
+        result[
+            "history_rows"
+        ] = len(
+            history_rows
+        )
+
+        client_ids = []
+        active_client_ids = []
+        open_orders = 0
+        filled_orders = 0
+
+        for row in history_rows:
+            if not isinstance(
+                row,
+                dict,
+            ):
+                continue
+
+            symbol = str(
+                row.get(
+                    "symbol"
+                )
+                or ""
+            ).strip().upper()
+
+            if (
+                symbol
+                != R36F14_DEMO_SYMBOL
+            ):
+                continue
+
+            client_id = str(
+                row.get(
+                    "clientOrderId"
+                )
+                or row.get(
+                    "newClientOrderId"
+                )
+                or ""
+            ).strip()
+
+            if client_id:
+                client_ids.append(
+                    client_id
+                )
+
+            status = str(
+                row.get(
+                    "status"
+                )
+                or ""
+            ).strip().upper()
+        if r36f159_is_open_order_status(
+                status
+            ):
+                open_orders += 1
+
+                if client_id:
+                    active_client_ids.append(
+                        client_id
+                    )
+
+                if status == "FILLED":
+                    filled_orders += 1
+                result[
+            "existing_client_ids"
+        ] = sorted(
+            set(
+                client_ids
+            )
+        )
+
+        result[
+            "active_client_ids"
+        ] = sorted(
+            set(
+                active_client_ids
+            )
+        )
+
+        result[
+            "open_symbol_orders"
+        ] = open_orders
+        
+
+        result[
+            "historical_filled_orders"
+        ] = filled_orders
+
+    except Exception as exc:
+        result[
+            "history_error"
+        ] = str(
+            exc
+        )
+
+    try:
+        positions_data = await weex_get(
+            R36F14_DEMO_POSITIONS_ENDPOINT,
+            authenticated=True,
+        )
+
+        position_rows = (
+            r36f155_normalize_rows(
+                positions_data
+            )
+        )
+
+        result[
+            "position_read_ok"
+        ] = True
+
+        result[
+            "position_rows"
+        ] = len(
+            position_rows
+        )
+
+        active_positions = 0
+        active_position_row = None
+
+        for row in position_rows:
+            if not isinstance(row, dict):
+                continue
+
+            symbol = str(row.get("symbol") or "").strip().upper()
+            if symbol and symbol != R36F14_DEMO_SYMBOL:
+                continue
+
+            position_size = r36f155_position_size(row)
+
+            if position_size != 0:
+                active_positions += 1
+
+            if active_position_row is None:
+                active_position_row = dict(row)
+
+        result["active_symbol_positions"] = active_positions
+        result["active_position_row"] = active_position_row
+    
+        # ====================================================
+        # NB3 FRESH BACKUP RECONCILIATION BRIDGE
+        # ZERO WEEX WRITES
+        # ====================================================
+
+        nb3_result = {
+            "status": "IDLE",
+            "reason": "NO_ACTIVE_POSITION",
+            "position_row": None,
+        }
+
+        if active_position_row is None:
+
+            print("NB3 STATUS = IDLE")
+            print("NB3 REASON = NO_ACTIVE_POSITION")
+
+        else:
+
+            nb3_position_row = dict(active_position_row)
+            nb3_position_size = r36f155_position_size(
+                nb3_position_row
+            )
+
+            nb3_result = {
+                "status": "POSITION_DETECTED",
+                "reason": "ACTIVE_POSITION_RECONCILED",
+                "position_row": nb3_position_row,
+                "position_size": nb3_position_size,
+            }
+
+            print("NB3 STATUS = POSITION_DETECTED")
+            print(
+                "NB3 POSITION SIZE =",
+                nb3_position_size
+            )
+            print(
+                "NB3 POSITION ROW KEYS =",
+                sorted(nb3_position_row.keys())
+            )
+
+        result["nb3"] = nb3_result
+
+        print("NB3 ORDER WRITE = DISABLED")
+           
+
+    except Exception as exc:
+        result[
+            "position_error"
+        ] = str(
+            exc
+        )
+
+    if (
+        not result[
+            "history_read_ok"
+        ]
+        or not result[
+            "position_read_ok"
+        ]
+    ):
+        result[
+            "duplicate_entry_blocked"
+        ] = True
+
+        result[
+            "duplicate_block_reason"
+        ] = (
+            "CURRENT_EXPOSURE_READ_FAILED"
+        )
+
+    elif (
+        result[
+            "active_symbol_positions"
+        ]
+        > 0
+    ):
+        result[
+            "duplicate_entry_blocked"
+        ] = True
+
+        result[
+            "duplicate_block_reason"
+        ] = (
+            "ACTIVE_DEMO_POSITION_ALREADY_EXISTS"
+        )
+
+    elif (
+        result[
+            "open_symbol_orders"
+        ]
+        > 0
+    ):
+        result[
+            "duplicate_entry_blocked"
+        ] = True
+
+        result[
+            "duplicate_block_reason"
+        ] = (
+            "OPEN_DEMO_ORDER_ALREADY_EXISTS"
+        )
+
+    else:
+        result[
+            "duplicate_entry_blocked"
+        ] = False
+
+        result[
+            "duplicate_block_reason"
+        ] = (
+            "NO_CURRENT_DEMO_EXPOSURE"
+        )
+
+        result[
+            "safe_to_consider_new_entry"
+        ] = True
+
+    log(
+        "R36F.15.9 HISTORY READ OK = "
+        + str(
+            result[
+                "history_read_ok"
+            ]
+        )
+    )
+
+    log(
+        "R36F.15.9 POSITION READ OK = "
+        + str(
+            result[
+                "position_read_ok"
+            ]
+        )
+    )
+
+    log(
+        "R36F.15.9 OPEN DEMO ORDERS = "
+        + str(
+            result[
+                "open_symbol_orders"
+            ]
+        )
+    )
+
+    log(
+        "R36F.15.9 ACTIVE DEMO POSITIONS = "
+        + str(
+            result[
+                "active_symbol_positions"
+            ]
+        )
+    )
+
+    log(
+        "R36F.15.9 DUPLICATE ENTRY BLOCKED = "
+        + str(
+            result[
+                "duplicate_entry_blocked"
+            ]
+        )
+    )
+
+    R36F159_LAST_EXPOSURE_CHECK = (
+        result
+    )
+
+    line()
+
+    return result
+
+
+async def r36f159_reconcile_second_demo_journal(
+    journal,
+):
+    if (
+        not isinstance(
+            journal,
+            dict,
+        )
+        or not journal
+    ):
+        return {
+            "resolved": True,
+            "retry_allowed": True,
+            "reason": "NO_SECOND_DEMO_JOURNAL",
+            "journal": {},
+            "changed": False,
+        }
+
+    state = str(
+        journal.get(
+            "state"
+        )
+        or ""
+    ).strip().upper()
+
+    if state == "COMPLETED":
+        return {
+            "resolved": True,
+            "retry_allowed": False,
+            "reason": "SECOND_DEMO_ALREADY_COMPLETED",
+            "journal": journal,
+            "changed": False,
+        }
+
+    if state == "REJECTED":
+        return {
+            "resolved": True,
+            "retry_allowed": False,
+            "reason": "SECOND_DEMO_TOKEN_ALREADY_CONSUMED_REQUIRES_NEW_STAGE",
+            "journal": journal,
+            "changed": False,
+        }
+
+    if state not in {
+        "PREPARED",
+        "SENT_AMBIGUOUS",
+    }:
+        return {
+            "resolved": False,
+            "retry_allowed": False,
+            "reason": "UNKNOWN_SECOND_DEMO_JOURNAL_STATE",
+            "journal": journal,
+            "changed": False,
+        }
+
+    client_order_id = str(
+        journal.get(
+            "client_order_id"
+        )
+        or ""
+    ).strip()
+
+    if client_order_id in set(
+        exposure.get(
+            "active_client_ids",
+            [],
+        )
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "R36F159_ACTIVE_CLIENT_ORDER_ID_ALREADY_EXISTS",
+            "client_order_id": client_order_id,
+        }
+    
+    lookup_status = (
+        lookup.get(
+            "status"
+        )
+    )
+
+    if lookup_status == "FOUND":
+        order = (
+            lookup.get(
+                "order"
+            )
+            if isinstance(
+                lookup.get(
+                    "order"
+                ),
+                dict,
+            )
+            else {}
+        )
+
+        reconciled = {
+            **journal,
+            "state": "COMPLETED",
+            "updated_at": now_iso(),
+            "success": True,
+            "reconciliation_status": "FOUND",
+            "reconciliation_reason": lookup.get(
+                "reason"
+            ),
+            "order_id": str(
+                order.get(
+                    "orderId",
+                    journal.get(
+                        "order_id",
+                        "",
+                    ),
+                )
+            ),
+            "client_order_id_response": str(
+                order.get(
+                    "clientOrderId",
+                    client_order_id,
+                )
+            ),
+            "reconciled_order": order,
+        }
+
+        write_json_file(
+            R36F159_DEMO_JOURNAL_FILE,
+            reconciled,
+        )
+
+        return {
+            "resolved": True,
+            "retry_allowed": False,
+            "reason": "SECOND_DEMO_FOUND_MARKED_COMPLETED",
+            "journal": reconciled,
+            "changed": True,
+        }
+
+    if lookup_status == "NOT_FOUND":
+        return {
+            "resolved": True,
+            "retry_allowed": False,
+            "reason": "SECOND_DEMO_PREPARED_NOT_FOUND_TOKEN_REPLAY_BLOCKED",
+            "journal": journal,
+            "changed": False,
+        }
+
+    return {
+        "resolved": False,
+        "retry_allowed": False,
+        "reason": lookup.get(
+            "reason",
+            "SECOND_DEMO_RECONCILIATION_UNKNOWN",
+        ),
+        "journal": journal,
+        "lookup": lookup,
+        "changed": False,
+    }
+
+
+# ============================================================
+# R1.8 CORRECTED MAIN.PY — PART 1 END
+# ============================================================# ============================================================
+# R1.8 CORRECTED MAIN.PY — PART 2 START
+# ============================================================
+
+async def submit_r36f15_demo_order(
+    preview,
+    command_preview,
+):
+    if not R36F159_DEMO_ARM_REQUESTED:
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "SECOND_DEMO_ARM_NOT_REQUESTED",
+        }
+
+    if not command_preview.get(
+        "authorized_preview"
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "TELEGRAM_COMMAND_NOT_AUTHORIZED",
+        }
+
+    if (
+        not preview
+        or not preview.get("payload")
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "DEMO_PREVIEW_MISSING",
+        }
+
+    if not R36F159_COMMAND_TOKEN:
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "SECOND_DEMO_COMMAND_TOKEN_MISSING",
+        }
+
+    existing = read_json_file(
+        R36F159_DEMO_JOURNAL_FILE,
+        default={},
+    )
+
+    command_identity = (
+        r36f159_command_identity(
+            command_preview
+        )
+    )
+
+    if isinstance(existing, dict) and existing:
+        existing_identity = str(
+            existing.get(
+                "command_identity_sha256"
+            ) or ""
+        ).strip()
+
+        if (
+            existing_identity
+            and hmac.compare_digest(
+                existing_identity,
+                command_identity,
+            )
+        ):
+            reconciliation = (
+                await r36f159_reconcile_second_demo_journal(
+                    existing
+                )
+            )
+
+            return {
+                "attempted": False,
+                "sent": False,
+                "accepted": False,
+                "reason": "R36F159_COMMAND_REPLAY_BLOCKED",
+                "reconciliation": reconciliation,
+                "journal": reconciliation.get(
+                    "journal",
+                    existing,
+                ),
+            }
+
+        existing_state = str(
+            existing.get(
+                "state",
+                "",
+            )
+        ).strip().upper()
+
+        if existing_state != "COMPLETED":
+            return {
+                "attempted": False,
+                "sent": False,
+                "accepted": False,
+                "reason": "R36F159_EXISTING_SECOND_DEMO_JOURNAL_BLOCKS_NEW_TOKEN",
+                "journal": existing,
+            }
+
+        log(
+            "R36F.15.9 COMPLETED OLD JOURNAL "
+            "DOES NOT BLOCK NEW COMMAND TOKEN"
+        ) 
+
+    exposure = (
+        await r36f159_reconcile_current_demo_exposure()
+    )
+
+    if exposure.get(
+        "duplicate_entry_blocked",
+        True,
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "R36F159_CURRENT_EXPOSURE_BLOCKED",
+            "duplicate_block_reason": exposure.get(
+                "duplicate_block_reason"
+            ),
+            "exposure": exposure,
+        }
+
+    payload = dict(
+        preview["payload"]
+    )
+
+    client_order_id = (
+        r36f159_client_order_id(
+            command_preview
+        )
+    )
+    # ============================================================
+    # R1.8.1 READ-ONLY CLIENT ORDER ID DIAGNOSTIC
+    # NO STATE CHANGE / NO JOURNAL CHANGE / NO ORDER SUBMISSION
+    # ============================================================
+
+    r181_existing_client_ids = list(
+        exposure.get(
+            "existing_client_ids",
+            [],
+        )
+        or []
+    )
+
+    r181_candidate_exists = (
+        client_order_id
+        in set(r181_existing_client_ids)
+    )
+
+    r181_old_journal = (
+        read_json_file(
+            R36F159_DEMO_JOURNAL_FILE
+        )
+        or {}
+    )
+
+    r181_old_client_order_id = str(
+        r181_old_journal.get(
+            "client_order_id"
+        )
+        or ""
+    )
+
+    r181_old_command_identity = str(
+        r181_old_journal.get(
+            "command_identity_sha256"
+        )
+        or ""
+    )
+
+    r181_old_command_token = str(
+        r181_old_journal.get(
+            "command_token_sha256"
+        )
+        or ""
+    )
+
+    r181_new_command_token = (
+        sha256_text(
+            R36F159_COMMAND_TOKEN
+        )
+    )
+
+    log(
+        "R1.8.1 DIAGNOSTIC START"
+    )
+
+    log(
+        "R1.8.1 CANDIDATE CLIENT ORDER ID = "
+        + str(client_order_id)
+    )
+
+    log(
+        "R1.8.1 EXISTING CLIENT IDS = "
+        + canonical_json(
+            r181_existing_client_ids
+        )
+    )
+
+    log(
+        "R1.8.1 CANDIDATE EXISTS = "
+        + str(r181_candidate_exists)
+    )
+
+    log(
+        "R1.8.1 OLD JOURNAL STATE = "
+        + str(
+            r181_old_journal.get(
+                "state"
+            )
+        )
+    )
+
+    log(
+        "R1.8.1 OLD DIRECTION = "
+        + str(
+            r181_old_journal.get(
+                "direction"
+            )
+        )
+    )
+
+    log(
+        "R1.8.1 OLD ORDER ID = "
+        + str(
+            r181_old_journal.get(
+                "order_id"
+            )
+            or r181_old_journal.get(
+                "demo_order_id"
+            )
+        )
+    )
+
+    log(
+        "R1.8.1 OLD CLIENT ORDER ID = "
+        + r181_old_client_order_id
+    )
+
+    log(
+        "R1.8.1 SAME CLIENT ORDER ID = "
+        + str(
+            r181_old_client_order_id
+            == str(client_order_id)
+        )
+    )
+
+    log(
+        "R1.8.1 OLD COMMAND IDENTITY = "
+        + r181_old_command_identity
+    )
+
+    log(
+        "R1.8.1 NEW COMMAND IDENTITY = "
+        + str(command_identity)
+    )
+
+    log(
+        "R1.8.1 SAME COMMAND IDENTITY = "
+        + str(
+            r181_old_command_identity
+            == str(command_identity)
+        )
+    )
+
+    log(
+        "R1.8.1 OLD COMMAND TOKEN = "
+        + r181_old_command_token
+    )
+
+    log(
+        "R1.8.1 NEW COMMAND TOKEN = "
+        + r181_new_command_token
+    )
+
+    log(
+        "R1.8.1 SAME COMMAND TOKEN = "
+        + str(
+            r181_old_command_token
+            == r181_new_command_token
+        )
+    )
+
+    log(
+        "R1.8.1 OPEN DEMO ORDERS = "
+        + str(
+            exposure.get(
+                "open_demo_orders",
+                exposure.get(
+                    "open_orders",
+                    "UNKNOWN",
+                ),
+            )
+        )
+    )
+
+    log(
+        "R1.8.1 ACTIVE DEMO POSITIONS = "
+        + str(
+            exposure.get(
+                "active_demo_positions",
+                exposure.get(
+                    "active_positions",
+                    "UNKNOWN",
+                ),
+            )
+        )
+    )
+
+    log(
+        "R1.8.1 DUPLICATE CONDITION RESULT = "
+        + str(r181_candidate_exists)
+    )
+
+    log(
+        "R1.8.1 READ-ONLY DIAGNOSTIC COMPLETE"
+    )
+    if client_order_id in set(
+        exposure.get(
+            "existing_client_ids",
+            [],
+        )
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "R36F159_CLIENT_ORDER_ID_ALREADY_EXISTS",
+            "client_order_id": client_order_id,
+        }
+
+    payload[
+        "newClientOrderId"
+    ] = client_order_id
+
+    jit_validation = (
+        await r36f154_validate_fresh_demo_triggers(
+            payload
+        )
+    )
+
+    log(
+        "R36F.15.9 JIT DEMO TRIGGER VALIDATION = "
+        + canonical_json(
+            jit_validation
+        )
+    )
+
+    if not jit_validation.get("valid"):
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "JIT_DEMO_TRIGGER_VALIDATION_BLOCKED",
+            "jit_validation": jit_validation,
+        }
+
+    payload_hash = sha256_text(
+        canonical_json(payload)
+    )
+
+    prepared = {
+        "stage": STAGE,
+        "state": "PREPARED",
+        "created_at": now_iso(),
+        "endpoint": R36F14_DEMO_ORDER_ENDPOINT,
+        "command": str(
+            command_preview.get("command")
+            or ""
+        ),
+        "direction": str(
+            command_preview.get("direction")
+            or ""
+        ),
+        "command_token_sha256": sha256_text(
+            R36F159_COMMAND_TOKEN
+        ),
+        "command_identity_sha256": (
+            command_identity
+        ),
+        "client_order_id": client_order_id,
+        "payload_sha256": payload_hash,
+        "payload": payload,
+        "pre_post_journal_verified": True,
+        "real_order_execution": (
+            REAL_ORDER_EXECUTION
+        ),
+        "demo_only": True,
+    }
+
+    write_json_file(
+        R36F159_DEMO_JOURNAL_FILE,
+        prepared,
+    )
+
+    reloaded = read_json_file(
+        R36F159_DEMO_JOURNAL_FILE,
+        default={},
+    )
+
+    reload_payload_hash = sha256_text(
+        canonical_json(
+            reloaded.get(
+                "payload",
+                {},
+            )
+        )
+    )
+
+    pre_post_reload_match = bool(
+        reloaded.get("client_order_id")
+        == client_order_id
+        and reloaded.get(
+            "command_identity_sha256"
+        )
+        == command_identity
+        and reloaded.get(
+            "payload_sha256"
+        )
+        == payload_hash
+        and hmac.compare_digest(
+            reload_payload_hash,
+            payload_hash,
+        )
+    )
+
+    log(
+        "R36F.15.9 PRE_POST_JOURNAL_WRITTEN = True"
+    )
+    log(
+        "R36F.15.9 PRE_POST_JOURNAL_RELOAD_MATCH = "
+        + str(pre_post_reload_match)
+    )
+    log(
+        "R36F.15.9 CLIENT ORDER ID = "
+        + client_order_id
+    )
+
+    if not pre_post_reload_match:
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "R36F159_PRE_POST_JOURNAL_VERIFICATION_FAILED",
+            "journal": reloaded,
+        }
+
+    try:
+        transport = await weex_demo_post(
+            R36F14_DEMO_ORDER_ENDPOINT,
+            payload,
+        )
+
+    except Exception as exc:
+        ambiguous = {
+            **prepared,
+            "state": "SENT_AMBIGUOUS",
+            "updated_at": now_iso(),
+            "error": str(exc),
+        }
+
+        write_json_file(
+            R36F159_DEMO_JOURNAL_FILE,
+            ambiguous,
+        )
+
+        return {
+            "attempted": True,
+            "sent": False,
+            "accepted": False,
+            "reason": "SECOND_DEMO_POST_EXCEPTION_JOURNALED_AMBIGUOUS",
+            "error": str(exc),
+            "journal": ambiguous,
+        }
+
+    response = (
+        transport.get("response")
+        if isinstance(transport, dict)
+        else {}
+    )
+
+    if not isinstance(response, dict):
+        response = {}
+
+    success = bool(
+        response.get("success")
+    )
+
+    completed = {
+        **prepared,
+        "state": (
+            "COMPLETED"
+            if success
+            else "REJECTED"
+        ),
+        "updated_at": now_iso(),
+        "http_status": transport.get(
+            "http_status"
+        ),
+        "response": response,
+        "success": success,
+        "order_id": str(
+            response.get("orderId", "")
+        ),
+        "client_order_id_response": str(
+            response.get(
+                "clientOrderId",
+                "",
+            )
+        ),
+        "error_code": str(
+            response.get(
+                "errorCode",
+                "",
+            )
+        ),
+        "error_message": str(
+            response.get(
+                "errorMessage",
+                "",
+            )
+        ),
+    }
+
+    write_json_file(
+        R36F159_DEMO_JOURNAL_FILE,
+        completed,
+    )
+
+    return {
+        "attempted": True,
+        "sent": True,
+        "accepted": success,
+        "transport": transport,
+        "journal": completed,
+    }
+
+
+async def load_mark_price():
+    global MARK_PRICE
+
+    data = await weex_get(
+        "/capi/v3/market/symbolPrice",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=False,
+    )
+
+    candidates = []
+
+    if isinstance(data, dict):
+        for key in (
+            "price",
+            "markPrice",
+            "lastPrice",
+        ):
+            if key in data:
+                candidates.append(
+                    data[key]
+                )
+
+        nested = data.get("data")
+
+        if isinstance(nested, dict):
+            for key in (
+                "price",
+                "markPrice",
+                "lastPrice",
+            ):
+                if key in nested:
+                    candidates.append(
+                        nested[key]
+                    )
+
+    elif isinstance(data, list):
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+
+            for key in (
+                "price",
+                "markPrice",
+                "lastPrice",
+            ):
+                if key in item:
+                    candidates.append(
+                        item[key]
+                    )
+
+    for candidate in candidates:
+        try:
+            MARK_PRICE = D(candidate)
+
+            if MARK_PRICE > 0:
+                log(
+                    "MARK PRICE = "
+                    + decimal_to_string(
+                        MARK_PRICE
+                    )
+                )
+                return MARK_PRICE
+
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Unable to determine WEEX mark price"
+    )
+
+
+async def load_available_balance():
+    global AVAILABLE_BALANCE
+
+    data = await weex_get(
+        "/capi/v3/account/balance",
+        authenticated=True,
+    )
+
+    candidates = []
+
+    def collect(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                key_lower = key.lower()
+
+                if key_lower in (
+                    "availablebalance",
+                    "available_balance",
+                    "available",
+                    "free",
+                    "usdtavailable",
+                ):
+                    candidates.append(item)
+
+                collect(item)
+
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    collect(data)
+
+    for candidate in candidates:
+        try:
+            value = D(candidate)
+
+            if value >= 0:
+                AVAILABLE_BALANCE = value
+
+                log(
+                    "AVAILABLE BALANCE = "
+                    + decimal_to_string(
+                        AVAILABLE_BALANCE
+                    )
+                )
+
+                return AVAILABLE_BALANCE
+
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Unable to determine WEEX available balance"
+    )
+
+async def load_open_positions():
+    global OPEN_POSITIONS
+
+    data = await weex_get(
+        R36F14_DEMO_POSITIONS_ENDPOINT,
+        authenticated=True,
+    )
+
+    rows = r36f155_normalize_rows(
+        data
+    )
+
+    OPEN_POSITIONS = rows
+
+    log(
+        "OPEN POSITION ROWS = "
+        + str(
+            len(
+                OPEN_POSITIONS
+            )
+        )
+    )
+
+    return OPEN_POSITIONS
+
+
+    log(
+        "OPEN POSITION ROWS = "
+        + str(
+            len(
+                OPEN_POSITIONS
+            )
+        )
+    )
+
+    return OPEN_POSITIONS
+
+
+async def load_exchange_config():
+    global WEEX_CONFIG
+
+    WEEX_CONFIG = {
+        "symbol": SYMBOL,
+        "margin_mode": MARGIN_MODE,
+        "target_long_leverage": decimal_to_string(
+            LEVERAGE_LONG
+        ),
+        "target_short_leverage": decimal_to_string(
+            LEVERAGE_SHORT
+        ),
+        "price_step": decimal_to_string(
+            PRICE_STEP
+        ),
+        "quantity_step": decimal_to_string(
+            QUANTITY_STEP
+        ),
+        "min_quantity": decimal_to_string(
+            MIN_QUANTITY
+        ),
+    }
+
+    return WEEX_CONFIG
+
+
+async def reconcile_weex():
+    global WEEX_READ_ONLY_OK
+
+    try:
+        await load_mark_price()
+        await load_available_balance()
+        await load_open_positions()
+        await load_exchange_config()
+
+        WEEX_READ_ONLY_OK = True
+
+        log(
+            "WEEX READ-ONLY RECONCILIATION = PASS"
+        )
+
+        return True
+
+    except Exception as exc:
+        WEEX_READ_ONLY_OK = False
+
+        log(
+            "WEEX READ-ONLY RECONCILIATION = FAIL "
+            + str(exc)
+        )
+
+        return False
+
+
+async def load_historical_klines():
+    rows = []
+
+    for page in range(
+        MAX_HISTORICAL_PAGES
+    ):
+        data = await weex_get(
+            "/capi/v2/market/candles",
+            params={
+                "symbol": PUBLIC_TICKER_SYMBOL,
+                "granularity": KLINE_INTERVAL,
+                "limit": HISTORICAL_LIMIT,
+                "page": page,
+            },
+            authenticated=False,
+        )
+
+        page_rows = []
+
+        if isinstance(data, list):
+            page_rows = data
+
+        elif isinstance(data, dict):
+            for key in (
+                "data",
+                "rows",
+                "list",
+            ):
+                value = data.get(key)
+
+                if isinstance(value, list):
+                    page_rows = value
+                    break
+
+        if not page_rows:
+            break
+
+        rows.extend(
+            page_rows
+        )
+
+        if len(page_rows) < HISTORICAL_LIMIT:
+            break
+
+    if not rows:
+        raise RuntimeError(
+            "No historical klines returned"
+        )
+
+    log(
+        "HISTORICAL KLINES = "
+        + str(len(rows))
+    )
+
+    return rows
+
+
+def candle_high(row):
+    if isinstance(row, dict):
+        for key in (
+            "high",
+            "h",
+        ):
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(row, (list, tuple)):
+        if len(row) >= 3:
+            return D(
+                row[2]
+            )
+
+    raise ValueError(
+        "Unable to read candle high"
+    )
+
 
