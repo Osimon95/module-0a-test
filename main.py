@@ -5994,7 +5994,7 @@ def calculate_tp_prices(
             cluster1,
 
         "cluster2_average":
-            cluster2,```python
+            cluster2,
             (
                 average
                 - entry_price
