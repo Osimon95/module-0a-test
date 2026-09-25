@@ -3900,28 +3900,38 @@ async def r36f159_reconcile_current_demo_exposure():
                     "liquidation_price"
                 ] = decimal_to_string(
                     nb3_liquidation
-                )
-
+                )                
                 # --------------------------------------------
                 # Read current mark using the existing
                 # read-only market-price function.
                 # --------------------------------------------
 
-try:
-    current_mark = await load_mark_price()
-    current_mark = D(current_mark)
+                try:
+                    nb3_mark = await load_mark_price()
+                    nb3_mark = D(
+                        nb3_mark
+                    )
 
-    if current_mark <= 0:
-        raise ValueError(
-            "non-positive mark price"
-        )
+                    if nb3_mark <= 0:
+                        raise ValueError(
+                            "non-positive mark price"
+                        )
 
-except Exception as exc:
-    current_mark = None
-    log(
-        "NB3 BACKUP MARK READ ERROR = "
-        + str(exc)
-    )
+                except Exception as exc:
+                    nb3_mark = None
+
+                    log(
+                        "NB3 BACKUP MARK READ ERROR = "
+                        + str(exc)
+                    )
+
+                    nb3_backup[
+                        "mark_error"
+                    ] = str(
+                        exc
+                    )
+
+            
 
                     nb3_backup[
                         "mark_error"
