@@ -5994,7 +5994,1790 @@ def calculate_tp_prices(
             cluster1,
 
         "cluster2_average":
+            cluster2,```python
+            (
+                average
+                - entry_price
+            )
+            / entry_price
+            * Decimal("100")
+        )
+
+    if side == "SHORT":
+        return (
+            (
+                entry_price
+                - average
+            )
+            / entry_price
+            * Decimal("100")
+        )
+
+    return None
+
+
+def r36f15101_cluster_span_percent(
+    cluster,
+):
+    average = D(
+        cluster["average"]
+    )
+
+    if average <= 0:
+        return None
+
+    return (
+        (
+            D(cluster["maximum"])
+            - D(cluster["minimum"])
+        )
+        / average
+        * Decimal("100")
+    )
+
+
+def r36f15101_tolerance_sweep(
+    extrema,
+    entry_price,
+    side,
+):
+    results = []
+
+    for tolerance_percent in (
+        R36F15101_TOLERANCE_GRID
+    ):
+        clusters = (
+            cluster_extrema_at_tolerance(
+                extrema,
+                tolerance_percent,
+            )
+        )
+
+        valid, invalid = (
+            validate_clusters(
+                clusters,
+                entry_price,
+                side,
+            )
+        )
+
+        results.append(
+            {
+                "tolerance_percent":
+                    tolerance_percent,
+
+                "cluster_count":
+                    len(clusters),
+
+                "valid_cluster_count":
+                    len(valid),
+
+                "invalid_cluster_count":
+                    len(invalid),
+
+                "approved_if_used":
+                    (
+                        len(valid)
+                        >= REQUIRED_TP_CLUSTERS
+                    ),
+            }
+        )
+
+    return results
+
+
+def build_cluster_diagnostics(
+    rows,
+    entry_price,
+    side,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    if side == "LONG":
+        values = historical_highs(
+            rows
+        )
+
+    elif side == "SHORT":
+        values = historical_lows(
+            rows
+        )
+
+    else:
+        raise ValueError(
+            f"Unsupported side={side}"
+        )
+
+    extrema = build_extrema(
+        values
+    )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    valid, invalid = (
+        validate_clusters(
+            clusters,
+            entry_price,
+            side,
+        )
+    )
+
+    diagnostics = {
+        "side":
+            side,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "historical_row_count":
+            len(rows),
+
+        "extrema_count":
+            len(extrema),
+
+        "cluster_count":
+            len(clusters),
+
+        "valid_cluster_count":
+            len(valid),
+
+        "invalid_cluster_count":
+            len(invalid),
+
+        "required_valid_clusters":
+            REQUIRED_TP_CLUSTERS,
+
+        "valid_clusters":
+            valid,
+
+        "invalid_clusters":
+            invalid,
+    }
+
+    if (
+        len(valid)
+        >= REQUIRED_TP_CLUSTERS
+    ):
+        diagnostics[
+            "failure_reason"
+        ] = None
+
+    elif len(valid) == 1:
+        diagnostics[
+            "failure_reason"
+        ] = (
+            "ONLY_ONE_VALID_CLUSTER"
+        )
+
+    elif extrema:
+        diagnostics[
+            "failure_reason"
+        ] = (
+            "EXTREMA_EXIST_BUT_CLUSTER_REQUIREMENTS_NOT_MET"
+        )
+
+    else:
+        diagnostics[
+            "failure_reason"
+        ] = (
+            "NO_LOCAL_EXTREMA"
+        )
+
+    diagnostics[
+        "tolerance_sweep"
+    ] = r36f15101_tolerance_sweep(
+        extrema,
+        entry_price,
+        side,
+    )
+
+    diagnostics[
+        "valid_cluster_distances_percent"
+    ] = [
+        decimal_to_string(
+            r36f15101_side_distance_percent(
+                entry_price,
+                item["average"],
+                side,
+            )
+        )
+        for item in valid
+    ]
+
+    diagnostics[
+        "valid_cluster_spans_percent"
+    ] = [
+        decimal_to_string(
+            r36f15101_cluster_span_percent(
+                item
+            )
+        )
+        for item in valid
+    ]
+
+    return diagnostics
+
+
+# ============================================================
+# R1.8 CORRECTED MAIN.PY — PART 2 END
+# ============================================================# ============================================================
+# R1.8 CORRECTED MAIN.PY — PART 3 START
+# ============================================================
+
+# ============================================================
+# TP APPROVAL
+# ============================================================
+
+def evaluate_tp_approval(
+    diagnostics,
+):
+    valid_count = int(
+        diagnostics.get(
+            "valid_cluster_count",
+            0,
+        )
+    )
+
+    if (
+        valid_count
+        >= REQUIRED_TP_CLUSTERS
+    ):
+        approval = {
+            "status":
+                "APPROVED",
+
+            "approved":
+                True,
+
+            "required_valid_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "available_valid_clusters":
+                valid_count,
+
+            "reason":
+                "TWO_OR_MORE_VALID_HISTORICAL_CLUSTERS",
+        }
+
+    else:
+        failure_reason = (
+            diagnostics.get(
+                "failure_reason"
+            )
+            or
+            "INSUFFICIENT_VALID_HISTORICAL_CLUSTERS"
+        )
+
+        approval = {
+            "status":
+                "REJECTED",
+
+            "approved":
+                False,
+
+            "required_valid_clusters":
+                REQUIRED_TP_CLUSTERS,
+
+            "available_valid_clusters":
+                valid_count,
+
+            "reason":
+                failure_reason,
+        }
+
+    log(
+        f"{STAGE}_TP_APPROVAL = "
+        f"{approval['status']}"
+    )
+
+    log(
+        f"{STAGE}_TP_APPROVAL_REASON = "
+        f"{approval['reason']}"
+    )
+
+    log(
+        f"{STAGE}_TP_REQUIRED_CLUSTERS = "
+        f"{REQUIRED_TP_CLUSTERS}"
+    )
+
+    log(
+        f"{STAGE}_TP_AVAILABLE_CLUSTERS = "
+        f"{valid_count}"
+    )
+
+    return approval
+
+
+# ============================================================
+# VALID CLUSTERS
+# ============================================================
+
+def valid_clusters(
+    rows,
+    entry_price,
+    side,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    extrema = local_extrema_values(
+        rows,
+        side,
+    )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    valid = []
+
+    for cluster in clusters:
+        if (
+            cluster["touches"]
+            < MIN_CLUSTER_TOUCHES
+        ):
+            continue
+
+        average = cluster[
+            "average"
+        ]
+
+        if side == "LONG":
+            if average <= entry_price:
+                continue
+
+        elif side == "SHORT":
+            if average >= entry_price:
+                continue
+
+        else:
+            raise ValueError(
+                f"Unsupported side={side}"
+            )
+
+        valid.append(
+            cluster
+        )
+
+    if side == "LONG":
+        valid.sort(
+            key=lambda c:
+                c["average"]
+        )
+
+    else:
+        valid.sort(
+            key=lambda c:
+                c["average"],
+            reverse=True,
+        )
+
+    return valid
+
+
+# ============================================================
+# TP PRICE CALCULATION
+# ============================================================
+
+def calculate_tp_prices(
+    entry_price,
+    valid_cluster_list,
+    direction,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    if (
+        len(valid_cluster_list)
+        < REQUIRED_TP_CLUSTERS
+    ):
+        raise RuntimeError(
+            "Cannot calculate complete TP set: "
+            "fewer than two valid historical clusters"
+        )
+
+    cluster1 = D(
+        valid_cluster_list[
+            0
+        ]["average"]
+    )
+
+    cluster2 = D(
+        valid_cluster_list[
+            1
+        ]["average"]
+    )
+
+    progress1 = (
+        TP1_PROFIT_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    progress2 = (
+        TP2_PROFIT_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    if direction == "LONG":
+        tp1 = (
+            entry_price
+            + (
+                cluster1
+                - entry_price
+            )
+            * progress1
+        )
+
+        tp2 = (
+            entry_price
+            + (
+                cluster2
+                - entry_price
+            )
+            * progress2
+        )
+
+    elif direction == "SHORT":
+        tp1 = (
+            entry_price
+            - (
+                entry_price
+                - cluster1
+            )
+            * progress1
+        )
+
+        tp2 = (
+            entry_price
+            - (
+                entry_price
+                - cluster2
+            )
+            * progress2
+        )
+
+    else:
+        raise RuntimeError(
+            "Invalid TP direction"
+        )
+
+    return {
+        "tp1":
+            quantize_down(
+                tp1,
+                PRICE_STEP,
+            ),
+
+        "tp2":
+            quantize_down(
+                tp2,
+                PRICE_STEP,
+            ),
+
+        "tp3": {
+            "type":
+                "TRAILING",
+
+            "allocation_percent":
+                TP3_ALLOCATION_PERCENT,
+
+            "trailing_distance_percent":
+                TP3_TRAILING_DISTANCE_PERCENT,
+        },
+
+        "cluster1_average":
+            cluster1,
+
+        "cluster2_average":
             cluster2,
+    }
+
+
+# ============================================================
+# TP ENGINE
+# ============================================================
+
+def run_tp_engine(
+    rows,
+    entry_price,
+    direction,
+):
+    if direction == "LONG":
+        values = historical_highs(
+            rows
+        )
+
+        extrema = build_extrema(
+            values
+        )
+
+    elif direction == "SHORT":
+        values = historical_lows(
+            rows
+        )
+
+        extrema = build_extrema(
+            values
+        )
+
+    else:
+        raise RuntimeError(
+            "Invalid direction"
+        )
+
+    clusters = cluster_extrema(
+        extrema
+    )
+
+    valid, invalid = validate_clusters(
+        clusters,
+        entry_price,
+        direction,
+    )
+
+    diagnostics = {
+        "direction":
+            direction,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "extrema_count":
+            len(extrema),
+
+        "cluster_count":
+            len(clusters),
+
+        "valid_cluster_count":
+            len(valid),
+
+        "invalid_cluster_count":
+            len(invalid),
+
+        "required_valid_clusters":
+            REQUIRED_TP_CLUSTERS,
+
+        "valid_clusters":
+            valid,
+
+        "invalid_clusters":
+            invalid,
+    }
+
+    approval = evaluate_tp_approval(
+        diagnostics
+    )
+
+    result = {
+        "diagnostics":
+            diagnostics,
+
+        "tp_approval":
+            approval,
+
+        "tp_prices":
+            None,
+    }
+
+    if approval["approved"]:
+        result[
+            "tp_prices"
+        ] = calculate_tp_prices(
+            entry_price,
+            valid,
+            direction,
+        )
+
+    return result
+
+
+# ============================================================
+# R1.8 NET-ROI ADAPTIVE TP ENGINE
+# ============================================================
+
+def r18_net_roi_percent(
+    entry_price,
+    target_price,
+    direction,
+    leverage,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    target_price = D(
+        target_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    if entry_price <= 0:
+        raise ValueError(
+            "entry_price must be positive"
+        )
+
+    if leverage <= 0:
+        raise ValueError(
+            "leverage must be positive"
+        )
+
+    if direction == "LONG":
+        move_fraction = (
+            target_price
+            - entry_price
+        ) / entry_price
+
+    elif direction == "SHORT":
+        move_fraction = (
+            entry_price
+            - target_price
+        ) / entry_price
+
+    else:
+        raise ValueError(
+            f"Unsupported direction={direction}"
+        )
+
+    return (
+        move_fraction
+        * leverage
+        * Decimal("100")
+    )
+
+
+def r18_target_price_for_net_roi(
+    entry_price,
+    net_roi_percent,
+    direction,
+    leverage,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    net_roi_percent = D(
+        net_roi_percent
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    if (
+        entry_price <= 0
+        or leverage <= 0
+    ):
+        return None
+
+    move_fraction = (
+        net_roi_percent
+        / Decimal("100")
+        / leverage
+    )
+
+    if direction == "LONG":
+        target = (
+            entry_price
+            * (
+                Decimal("1")
+                + move_fraction
+            )
+        )
+
+    elif direction == "SHORT":
+        target = (
+            entry_price
+            * (
+                Decimal("1")
+                - move_fraction
+            )
+        )
+
+    else:
+        return None
+
+    return quantize_down(
+        target,
+        PRICE_STEP,
+    )
+
+
+def r18_select_adaptive_target(
+    entry_price,
+    historical_cluster_price,
+    minimum_net_roi_percent,
+    direction,
+    leverage,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    historical_cluster_price = (
+        D(
+            historical_cluster_price
+        )
+        if historical_cluster_price
+        is not None
+        else None
+    )
+
+    minimum_target = (
+        r18_target_price_for_net_roi(
+            entry_price,
+            minimum_net_roi_percent,
+            direction,
+            leverage,
+        )
+    )
+
+    if minimum_target is None:
+        return None
+
+    if historical_cluster_price is None:
+        return minimum_target
+
+    historical_cluster_price = (
+        quantize_down(
+            historical_cluster_price,
+            PRICE_STEP,
+        )
+    )
+
+    historical_roi = (
+        r18_net_roi_percent(
+            entry_price,
+            historical_cluster_price,
+            direction,
+            leverage,
+        )
+    )
+
+    if (
+        historical_roi
+        >= D(
+            minimum_net_roi_percent
+        )
+    ):
+        return (
+            historical_cluster_price
+        )
+
+    return minimum_target
+
+
+def r18_build_adaptive_tp_snapshot(
+    entry_price,
+    direction,
+    valid_cluster_list,
+    leverage,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    valid_cluster_list = (
+        valid_cluster_list
+        if isinstance(
+            valid_cluster_list,
+            list,
+        )
+        else []
+    )
+
+    cluster1 = (
+        D(
+            valid_cluster_list[
+                0
+            ][
+                "average"
+            ]
+        )
+        if len(
+            valid_cluster_list
+        ) >= 1
+        else None
+    )
+
+    cluster2 = (
+        D(
+            valid_cluster_list[
+                1
+            ][
+                "average"
+            ]
+        )
+        if len(
+            valid_cluster_list
+        ) >= 2
+        else None
+    )
+
+    tp1 = (
+        r18_select_adaptive_target(
+            entry_price,
+            cluster1,
+            R18_TP1_MIN_NET_ROI_PERCENT,
+            direction,
+            leverage,
+        )
+    )
+
+    tp2 = (
+        r18_select_adaptive_target(
+            entry_price,
+            cluster2,
+            R18_TP2_MIN_NET_ROI_PERCENT,
+            direction,
+            leverage,
+        )
+    )
+
+    if (
+        tp1 is None
+        or tp2 is None
+    ):
+        return {
+            "direction":
+                direction,
+
+            "entry_price":
+                decimal_to_string(
+                    entry_price
+                ),
+
+            "leverage":
+                decimal_to_string(
+                    leverage
+                ),
+
+            "tp_approval": {
+                "status":
+                    "REJECTED",
+
+                "approved":
+                    False,
+
+                "reason":
+                    "R1.8_ADAPTIVE_TP_BUILD_FAILED",
+            },
+
+            "tp1":
+                None,
+
+            "tp2":
+                None,
+
+            "tp3": {
+                "type":
+                    "TRAILING",
+
+                "allocation_percent":
+                    R18_TP3_ALLOCATION_PERCENT,
+
+                "trailing_distance_percent":
+                    TP3_TRAILING_DISTANCE_PERCENT,
+            },
+        }
+
+    tp1_roi = (
+        r18_net_roi_percent(
+            entry_price,
+            tp1,
+            direction,
+            leverage,
+        )
+    )
+
+    tp2_roi = (
+        r18_net_roi_percent(
+            entry_price,
+            tp2,
+            direction,
+            leverage,
+        )
+    )
+
+    approved = bool(
+        tp1_roi
+        >= R18_TP1_MIN_NET_ROI_PERCENT
+        and
+        tp2_roi
+        >= R18_TP2_MIN_NET_ROI_PERCENT
+    )
+
+    return {
+        "direction":
+            direction,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "leverage":
+            decimal_to_string(
+                leverage
+            ),
+
+        "tp_approval": {
+            "status":
+                (
+                    "APPROVED"
+                    if approved
+                    else "REJECTED"
+                ),
+
+            "approved":
+                approved,
+
+            "reason":
+                (
+                    "R1.8_NET_ROI_TARGETS_APPROVED"
+                    if approved
+                    else
+                    "R1.8_NET_ROI_TARGETS_REJECTED"
+                ),
+        },
+
+        "tp1":
+            decimal_to_string(
+                tp1
+            ),
+
+        "tp2":
+            decimal_to_string(
+                tp2
+            ),
+
+        "tp1_net_roi_percent":
+            decimal_to_string(
+                tp1_roi
+            ),
+
+        "tp2_net_roi_percent":
+            decimal_to_string(
+                tp2_roi
+            ),
+
+        "tp1_minimum_net_roi_percent":
+            decimal_to_string(
+                R18_TP1_MIN_NET_ROI_PERCENT
+            ),
+
+        "tp2_minimum_net_roi_percent":
+            decimal_to_string(
+                R18_TP2_MIN_NET_ROI_PERCENT
+            ),
+
+        "cluster1_average":
+            (
+                decimal_to_string(
+                    cluster1
+                )
+                if cluster1
+                is not None
+                else None
+            ),
+
+        "cluster2_average":
+            (
+                decimal_to_string(
+                    cluster2
+                )
+                if cluster2
+                is not None
+                else None
+            ),
+
+        "tp3": {
+            "type":
+                "TRAILING",
+
+            "allocation_percent":
+                R18_TP3_ALLOCATION_PERCENT,
+
+            "trailing_distance_percent":
+                TP3_TRAILING_DISTANCE_PERCENT,
+        },
+
+        "allocation": {
+            "tp1_percent":
+                R18_TP1_ALLOCATION_PERCENT,
+
+            "tp2_percent":
+                R18_TP2_ALLOCATION_PERCENT,
+
+            "tp3_percent":
+                R18_TP3_ALLOCATION_PERCENT,
+        },
+
+        "primary_tp_immutable":
+            R18_PRIMARY_TP_IMMUTABLE,
+
+        "backup_tp_recalculate_on_fill":
+            R18_BACKUP_TP_RECALCULATE_ON_FILL,
+    }
+
+
+# ============================================================
+# R1.8 ADAPTIVE TP TESTS
+# ============================================================
+
+def r18_run_adaptive_tp_tests():
+    long_snapshot = (
+        r18_build_adaptive_tp_snapshot(
+            entry_price=Decimal(
+                "80000"
+            ),
+            direction="LONG",
+            valid_cluster_list=[
+                {
+                    "average":
+                        Decimal(
+                            "80100"
+                        )
+                },
+                {
+                    "average":
+                        Decimal(
+                            "80200"
+                        )
+                },
+            ],
+            leverage=Decimal(
+                "100"
+            ),
+        )
+    )
+
+    check(
+        "R1.8_LONG_TP_APPROVED",
+        long_snapshot[
+            "tp_approval"
+        ][
+            "approved"
+        ]
+        is True,
+    )
+
+    check(
+        "R1.8_LONG_TP1_NET_ROI_MINIMUM",
+        D(
+            long_snapshot[
+                "tp1_net_roi_percent"
+            ]
+        )
+        >=
+        R18_TP1_MIN_NET_ROI_PERCENT,
+    )
+
+    check(
+        "R1.8_LONG_TP2_NET_ROI_MINIMUM",
+        D(
+            long_snapshot[
+                "tp2_net_roi_percent"
+            ]
+        )
+        >=
+        R18_TP2_MIN_NET_ROI_PERCENT,
+    )
+
+    check(
+        "R1.8_LONG_ALLOCATION_25_25_50",
+        (
+            D(
+                long_snapshot[
+                    "allocation"
+                ][
+                    "tp1_percent"
+                ]
+            )
+            ==
+            Decimal(
+                "25"
+            )
+            and
+            D(
+                long_snapshot[
+                    "allocation"
+                ][
+                    "tp2_percent"
+                ]
+            )
+            ==
+            Decimal(
+                "25"
+            )
+            and
+            D(
+                long_snapshot[
+                    "allocation"
+                ][
+                    "tp3_percent"
+                ]
+            )
+            ==
+            Decimal(
+                "50"
+            )
+        ),
+    )
+
+    short_snapshot = (
+        r18_build_adaptive_tp_snapshot(
+            entry_price=Decimal(
+                "80000"
+            ),
+            direction="SHORT",
+            valid_cluster_list=[
+                {
+                    "average":
+                        Decimal(
+                            "79900"
+                        )
+                },
+                {
+                    "average":
+                        Decimal(
+                            "79800"
+                        )
+                },
+            ],
+            leverage=Decimal(
+                "100"
+            ),
+        )
+    )
+
+    check(
+        "R1.8_SHORT_TP_APPROVED",
+        short_snapshot[
+            "tp_approval"
+        ][
+            "approved"
+        ]
+        is True,
+    )
+
+    check(
+        "R1.8_SHORT_TP1_NET_ROI_MINIMUM",
+        D(
+            short_snapshot[
+                "tp1_net_roi_percent"
+            ]
+        )
+        >=
+        R18_TP1_MIN_NET_ROI_PERCENT,
+    )
+
+    check(
+        "R1.8_SHORT_TP2_NET_ROI_MINIMUM",
+        D(
+            short_snapshot[
+                "tp2_net_roi_percent"
+            ]
+        )
+        >=
+        R18_TP2_MIN_NET_ROI_PERCENT,
+    )
+
+    check(
+        "R1.8_SHORT_PRIMARY_TP_IMMUTABLE",
+        short_snapshot[
+            "primary_tp_immutable"
+        ]
+        is True,
+    )
+
+    check(
+        "R1.8_SHORT_BACKUP_TP_RECALCULATE_ON_FILL",
+        short_snapshot[
+            "backup_tp_recalculate_on_fill"
+        ]
+        is True,
+    )
+
+    return {
+        "long":
+            long_snapshot,
+
+        "short":
+            short_snapshot,
+    }
+
+
+# ============================================================
+# SYNTHETIC TESTS
+# ============================================================
+
+def synthetic_cluster_tests():
+    long_rows = [
+        [1, "100000", "100800", "99500", "100200", "1"],
+        [2, "100200", "101000", "99700", "100500", "1"],
+        [3, "100500", "100900", "99800", "100300", "1"],
+        [4, "100300", "101100", "99900", "100700", "1"],
+        [5, "100700", "101000", "100000", "100600", "1"],
+        [6, "100600", "101200", "99950", "100900", "1"],
+        [7, "100900", "101100", "100100", "100800", "1"],
+        [8, "100800", "101300", "100200", "101000", "1"],
+    ]
+
+    short_rows = [
+        [1, "81000", "81500", "80500", "80800", "1"],
+        [2, "80800", "81400", "80000", "80500", "1"],
+        [3, "80500", "81300", "80100", "80700", "1"],
+        [4, "80500", "81300", "79900", "80300", "1"],
+        [5, "80300", "81200", "80000", "80500", "1"],
+        [6, "80500", "81400", "79800", "80400", "1"],
+        [7, "80400", "81300", "80100", "80600", "1"],
+        [8, "80600", "81500", "79950", "80800", "1"],
+    ]
+
+    long_diagnostics = (
+        build_cluster_diagnostics(
+            long_rows,
+            Decimal("99000"),
+            "LONG",
+        )
+    )
+
+    long_approval = (
+        evaluate_tp_approval(
+            long_diagnostics
+        )
+    )
+
+    check(
+        "SYNTHETIC_LONG_TWO_CLUSTER_APPROVAL",
+        long_approval[
+            "approved"
+        ] is True,
+    )
+
+    short_diagnostics = (
+        build_cluster_diagnostics(
+            short_rows,
+            Decimal("82000"),
+            "SHORT",
+        )
+    )
+
+    short_approval = (
+        evaluate_tp_approval(
+            short_diagnostics
+        )
+    )
+
+    check(
+        "SYNTHETIC_SHORT_TWO_CLUSTER_APPROVAL",
+        short_approval[
+            "approved"
+        ] is True,
+    )
+
+    return (
+        long_approval,
+        short_approval,
+    )
+
+
+def synthetic_tp_rejection_test():
+    rows = [
+        [1, "99000", "100000", "99500", "99500", "1"],
+        [2, "99500", "100100", "99600", "99800", "1"],
+        [3, "99600", "100000", "99500", "99700", "1"],
+        [4, "99500", "100100", "99800", "99900", "1"],
+    ]
+
+    entry = Decimal(
+        "99500"
+    )
+
+    diagnostics = (
+        build_cluster_diagnostics(
+            rows,
+            entry,
+            "LONG",
+        )
+    )
+
+    approval = (
+        evaluate_tp_approval(
+            diagnostics
+        )
+    )
+
+    check(
+        "ONE_CLUSTER_TP_REJECTED",
+        approval[
+            "approved"
+        ] is False,
+    )
+
+    check(
+        "ONE_CLUSTER_APPROVAL_STATUS_REJECTED",
+        approval[
+            "status"
+        ] == "REJECTED",
+    )
+
+    check(
+        "ONE_CLUSTER_DOES_NOT_APPROVE_TP_SET",
+        (
+            approval[
+                "available_valid_clusters"
+            ]
+            < REQUIRED_TP_CLUSTERS
+        ),
+    )
+
+    return approval
+
+
+# ============================================================
+# CANARY PREVIEW
+# ============================================================
+
+def build_canary_preview():
+    return {
+        "stage":
+            STAGE,
+
+        "symbol":
+            SYMBOL,
+
+        "real_order_execution":
+            REAL_ORDER_EXECUTION,
+
+        "demo_order_execution":
+            DEMO_ORDER_EXECUTION,
+
+        "exchange_mutation_transport_enabled":
+            EXCHANGE_MUTATION_TRANSPORT_ENABLED,
+
+        "order_submission_enabled":
+            ORDER_SUBMISSION_ENABLED,
+
+        "first_real_order_allowed":
+            FIRST_REAL_ORDER_ALLOWED,
+
+        "submitted":
+            False,
+
+        "exchange_request_sent":
+            False,
+    }
+
+
+# ============================================================
+# WRITER HELPERS
+# ============================================================
+
+WRITER_ENDPOINT_ENTRY = (
+    "/capi/v3/order"
+)
+
+WRITER_ENDPOINT_TPSL = (
+    "/capi/v3/placeTpSlOrder"
+)
+
+WRITER_ENDPOINT_TRAILING = (
+    "/capi/v3/algoOrder"
+)
+
+
+def writer_entry_side(
+    direction,
+):
+    if direction == "LONG":
+        return (
+            "BUY",
+            "LONG",
+        )
+
+    if direction == "SHORT":
+        return (
+            "SELL",
+            "SHORT",
+        )
+
+    raise ValueError(
+        f"Unsupported direction={direction}"
+    )
+
+
+def writer_close_side(
+    direction,
+):
+    if direction == "LONG":
+        return (
+            "SELL",
+            "LONG",
+        )
+
+    if direction == "SHORT":
+        return (
+            "BUY",
+            "SHORT",
+        )
+
+    raise ValueError(
+        f"Unsupported direction={direction}"
+    )
+
+
+def writer_client_id(
+    direction,
+    leg,
+):
+    value = (
+        f"R36F8-{direction}-{leg}-0001"
+    )
+
+    if len(value) > 36:
+        raise ValueError(
+            "writer client id exceeds WEEX limit"
+        )
+
+    return value
+
+
+# ============================================================
+# WRITER QUANTITY ALLOCATION
+# ============================================================
+
+def writer_allocate_tp_quantities(
+    total_quantity,
+):
+    total_quantity = quantize_down(
+        total_quantity,
+        QUANTITY_STEP,
+    )
+
+    if total_quantity < MIN_QUANTITY:
+        raise ValueError(
+            "Writer quantity below minimum"
+        )
+
+    tp1_quantity = quantize_down(
+        total_quantity
+        * TP1_ALLOCATION_PERCENT
+        / Decimal("100"),
+        QUANTITY_STEP,
+    )
+
+    tp2_quantity = quantize_down(
+        total_quantity
+        * TP2_ALLOCATION_PERCENT
+        / Decimal("100"),
+        QUANTITY_STEP,
+    )
+
+    tp3_quantity = (
+        total_quantity
+        - tp1_quantity
+        - tp2_quantity
+    )
+
+    tp3_quantity = quantize_down(
+        tp3_quantity,
+        QUANTITY_STEP,
+    )
+
+    if tp3_quantity < 0:
+        raise ValueError(
+            "Writer TP3 quantity became negative"
+        )
+
+    return {
+        "total":
+            total_quantity,
+
+        "tp1":
+            tp1_quantity,
+
+        "tp2":
+            tp2_quantity,
+
+        "tp3":
+            tp3_quantity,
+
+        "sum":
+            (
+                tp1_quantity
+                + tp2_quantity
+                + tp3_quantity
+            ),
+    }
+
+
+# ============================================================
+# R36F.15.10.4b — BALANCE READINESS + PROTECTIVE STOP
+# ============================================================
+
+try:
+    TARGET_LONG_LEVERAGE
+except NameError:
+    TARGET_LONG_LEVERAGE = 100
+
+try:
+    TARGET_SHORT_LEVERAGE
+except NameError:
+    TARGET_SHORT_LEVERAGE = 100
+
+
+ADJUSTED_TP1_ALLOCATION_PERCENT = Decimal("25")
+ADJUSTED_TP2_ALLOCATION_PERCENT = Decimal("25")
+ADJUSTED_TP3_ALLOCATION_PERCENT = Decimal("50")
+
+
+def allocation_exactly_representable(
+    entry_quantity,
+    tp1_percent,
+    tp2_percent,
+    tp3_percent,
+):
+    entry_quantity = quantize_down(
+        D(entry_quantity),
+        QUANTITY_STEP,
+    )
+
+    percentages = (
+        D(tp1_percent),
+        D(tp2_percent),
+        D(tp3_percent),
+    )
+
+    if sum(percentages) != Decimal("100"):
+        return False
+
+    quantities = [
+        entry_quantity
+        * percent
+        / Decimal("100")
+        for percent in percentages
+    ]
+
+    return bool(
+        entry_quantity >= MIN_QUANTITY
+        and all(
+            quantity >= MIN_QUANTITY
+            for quantity in quantities
+        )
+        and all(
+            quantize_down(
+                quantity,
+                QUANTITY_STEP,
+            ) == quantity
+            for quantity in quantities
+        )
+        and sum(quantities)
+        == entry_quantity
+    )
+
+
+def select_tp_allocation(
+    entry_quantity,
+):
+    entry_quantity = quantize_down(
+        D(entry_quantity),
+        QUANTITY_STEP,
+    )
+
+    preferred = (
+        TP1_ALLOCATION_PERCENT,
+        TP2_ALLOCATION_PERCENT,
+        TP3_ALLOCATION_PERCENT,
+    )
+
+    adjusted = (
+        ADJUSTED_TP1_ALLOCATION_PERCENT,
+        ADJUSTED_TP2_ALLOCATION_PERCENT,
+        ADJUSTED_TP3_ALLOCATION_PERCENT,
+    )
+
+    if allocation_exactly_representable(
+        entry_quantity,
+        *preferred,
+    ):
+        return {
+            "tp1_percent":
+                preferred[0],
+
+            "tp2_percent":
+                preferred[1],
+
+            "tp3_percent":
+                preferred[2],
+
+            "adjusted":
+                False,
+
+            "label":
+                "20/20/60",
+        }
+
+    if allocation_exactly_representable(
+        entry_quantity,
+        *adjusted,
+    ):
+        return {
+            "tp1_percent":
+                adjusted[0],
+
+            "tp2_percent":
+                adjusted[1],
+
+            "tp3_percent":
+                adjusted[2],
+
+            "adjusted":
+                True,
+
+            "label":
+                "25/25/50",
+        }
+
+    return None
+
+
+def writer_quantities(
+    entry_quantity,
+):
+    entry_quantity = quantize_down(
+        D(entry_quantity),
+        QUANTITY_STEP,
+    )
+
+    allocation = select_tp_allocation(
+        entry_quantity
+    )
+
+    if allocation is None:
+        return (
+            entry_quantity,
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0"),
+        )
+
+    tp1 = (
+        entry_quantity
+        * allocation[
+            "tp1_percent"
+        ]
+        / Decimal("100")
+    )
+
+    tp2 = (
+        entry_quantity
+        * allocation[
+            "tp2_percent"
+        ]
+        / Decimal("100")
+    )
+
+    tp3 = (
+        entry_quantity
+        * allocation[
+            "tp3_percent"
+        ]
+        / Decimal("100")
+    )
+
+    return (
+        entry_quantity,
+        tp1,
+        tp2,
+        tp3,
+    )
+
+
+def validate_writer_quantities(
+    entry_quantity,
+    tp1,
+    tp2,
+    tp3,
+):
+    allocation = select_tp_allocation(
+        entry_quantity
+    )
+
+    if allocation is None:
+        return {
+            "allocation_selected":
+                False,
+
+            "all_valid":
+                False,
+        }
+
+    exact_tp1 = (
+        entry_quantity
+        * allocation[
+            "tp1_percent"
+        ]
+        / Decimal("100")
+    )
+
+    exact_tp2 = (
+        entry_quantity
+        * allocation[
+            "tp2_percent"
+        ]
+        / Decimal("100")
+    )
+
+    exact_tp3 = (
+        entry_quantity
+        * allocation[
+            "tp3_percent"
+        ]
+        / Decimal("100")
+    )
+
+    checks = {
+        "allocation_selected":
+            True,
+
+        "entry_on_step":
+            quantize_down(
+                entry_quantity,
+                QUANTITY_STEP,
+            ) == entry_quantity,
+
+        "tp1_on_step":
+            quantize_down(
+                tp1,
+                QUANTITY_STEP,
+            ) == tp1,
+
+        "tp2_on_step":
+            quantize_down(
+                tp2,
+                QUANTITY_STEP,
+            ) == tp2,
+
+        "tp3_on_step":
+            quantize_down(
+
 
 
 
