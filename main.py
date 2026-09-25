@@ -7777,6 +7777,1990 @@ def validate_writer_quantities(
 
         "tp3_on_step":
             quantize_down(
+                tp3,
+                QUANTITY_STEP,
+            ) == tp3,
+
+        "entry_minimum":
+            entry_quantity
+            >= MIN_QUANTITY,
+
+        "tp1_minimum":
+            tp1
+            >= MIN_QUANTITY,
+
+        "tp2_minimum":
+            tp2
+            >= MIN_QUANTITY,
+
+        "tp3_minimum":
+            tp3
+            >= MIN_QUANTITY,
+
+        "allocation_sum_exact":
+            (
+                tp1
+                + tp2
+                + tp3
+            )
+            == entry_quantity,
+
+        "tp1_selected_percent_exact":
+            tp1 == exact_tp1,
+
+        "tp2_selected_percent_exact":
+            tp2 == exact_tp2,
+
+        "tp3_selected_percent_exact":
+            tp3 == exact_tp3,
+
+        "tp3_non_negative":
+            tp3 >= Decimal("0"),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+def minimum_adjustable_tp_entry_quantity():
+    candidate = QUANTITY_STEP
+
+    for _ in range(100000):
+        (
+            quantity,
+            tp1,
+            tp2,
+            tp3,
+        ) = writer_quantities(
+            candidate
+        )
+
+        checks = (
+            validate_writer_quantities(
+                quantity,
+                tp1,
+                tp2,
+                tp3,
+            )
+        )
+
+        if checks.get(
+            "all_valid"
+        ):
+            return quantity
+
+        candidate += QUANTITY_STEP
+
+    raise RuntimeError(
+        "Unable to find adjustable TP minimum quantity"
+    )
+
+
+def minimum_strict_tp_entry_quantity():
+    return (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+
+def evaluate_writer_quantity_feasibility(
+    entry_quantity,
+):
+    (
+        quantity,
+        tp1,
+        tp2,
+        tp3,
+    ) = writer_quantities(
+        entry_quantity
+    )
+
+    allocation = select_tp_allocation(
+        quantity
+    )
+
+    checks = (
+        validate_writer_quantities(
+            quantity,
+            tp1,
+            tp2,
+            tp3,
+        )
+    )
+
+    minimum_required = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    feasible = bool(
+        checks.get(
+            "all_valid"
+        )
+    )
+
+    return {
+        "feasible":
+            feasible,
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_ALLOCATION_REPRESENTABLE"
+                if feasible
+                else
+                "POSITION_TOO_SMALL_OR_NOT_REPRESENTABLE"
+            ),
+
+        "entry_quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "tp1_quantity":
+            decimal_to_string(
+                tp1
+            ),
+
+        "tp2_quantity":
+            decimal_to_string(
+                tp2
+            ),
+
+        "tp3_quantity":
+            decimal_to_string(
+                tp3
+            ),
+
+        "requested_allocation":
+            "20/20/60",
+
+        "selected_allocation":
+            (
+                allocation[
+                    "label"
+                ]
+                if allocation
+                else None
+            ),
+
+        "allocation_adjusted":
+            bool(
+                allocation
+                and allocation[
+                    "adjusted"
+                ]
+            ),
+
+        "minimum_required_entry_quantity":
+            decimal_to_string(
+                minimum_required
+            ),
+
+        "checks":
+            checks,
+    }
+
+
+def evaluate_strict_tp_balance_readiness(
+    available_balance,
+    mark_price,
+    leverage,
+):
+    available_balance = D(
+        available_balance
+    )
+
+    mark_price = D(
+        mark_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    if available_balance < 0:
+        raise ValueError(
+            "available_balance must be non-negative"
+        )
+
+    if mark_price <= 0:
+        raise ValueError(
+            "mark_price must be positive"
+        )
+
+    if leverage <= 0:
+        raise ValueError(
+            "leverage must be positive"
+        )
+
+    entry_fraction = (
+        ENTRY_MARGIN_PERCENT
+        / Decimal("100")
+    )
+
+    raw_entry_quantity = (
+        available_balance
+        * entry_fraction
+        * leverage
+        / mark_price
+    )
+
+    planned_entry_quantity = (
+        quantize_down(
+            raw_entry_quantity,
+            QUANTITY_STEP,
+        )
+    )
+
+    feasibility = (
+        evaluate_writer_quantity_feasibility(
+            planned_entry_quantity
+        )
+    )
+
+    minimum_quantity = (
+        minimum_adjustable_tp_entry_quantity()
+    )
+
+    required_entry_margin = (
+        minimum_quantity
+        * mark_price
+        / leverage
+    )
+
+    required_available_balance = (
+        required_entry_margin
+        / entry_fraction
+    )
+
+    shortfall = max(
+        Decimal("0"),
+        required_available_balance
+        - available_balance,
+    )
+
+    eligible = bool(
+        feasibility[
+            "feasible"
+        ]
+        and
+        available_balance
+        >= required_available_balance
+    )
+
+    return {
+        "eligible":
+            eligible,
+
+        "status":
+            (
+                "ELIGIBLE"
+                if eligible
+                else
+                "TRADE_NOT_ELIGIBLE"
+            ),
+
+        "reason":
+            (
+                "ADJUSTABLE_TP_BALANCE_AND_QUANTITY_READY"
+                if eligible
+                else
+                "INSUFFICIENT_BALANCE_FOR_APPROVED_TP_ALLOCATION"
+            ),
+
+        "available_balance":
+            decimal_to_string(
+                available_balance
+            ),
+
+        "mark_price":
+            decimal_to_string(
+                mark_price
+            ),
+
+        "leverage":
+            decimal_to_string(
+                leverage
+            ),
+
+        "planned_entry_quantity":
+            decimal_to_string(
+                planned_entry_quantity
+            ),
+
+        "minimum_required_entry_quantity":
+            decimal_to_string(
+                minimum_quantity
+            ),
+
+        "required_available_balance":
+            decimal_to_string(
+                required_available_balance
+            ),
+
+        "available_balance_shortfall":
+            decimal_to_string(
+                shortfall
+            ),
+
+        "quantity_feasible":
+            feasibility[
+                "feasible"
+            ],
+
+        "selected_allocation":
+            feasibility[
+                "selected_allocation"
+            ],
+
+        "allocation_adjusted":
+            feasibility[
+                "allocation_adjusted"
+            ],
+
+        "tp1_quantity":
+            feasibility[
+                "tp1_quantity"
+            ],
+
+        "tp2_quantity":
+            feasibility[
+                "tp2_quantity"
+            ],
+
+        "tp3_quantity":
+            feasibility[
+                "tp3_quantity"
+            ],
+    }
+
+
+# ============================================================
+# PROTECTIVE STOP
+# ============================================================
+
+def calculate_r36f13_protective_stop(
+    direction,
+    entry_price,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    distance = (
+        R36F13_PROTECTIVE_STOP_DISTANCE_PERCENT
+        / Decimal("100")
+    )
+
+    if direction == "LONG":
+        raw_stop = (
+            entry_price
+            * (
+                Decimal("1")
+                - distance
+            )
+        )
+
+        return quantize_down(
+            raw_stop,
+            PRICE_STEP,
+        )
+
+    if direction == "SHORT":
+        raw_stop = (
+            entry_price
+            * (
+                Decimal("1")
+                + distance
+            )
+        )
+
+        stop_price = quantize_down(
+            raw_stop,
+            PRICE_STEP,
+        )
+
+        if stop_price <= entry_price:
+            stop_price = (
+                quantize_down(
+                    entry_price,
+                    PRICE_STEP,
+                )
+                + PRICE_STEP
+            )
+
+        return stop_price
+
+    raise ValueError(
+        "Invalid protective-stop direction"
+    )
+
+
+def validate_r36f13_protective_stop(
+    direction,
+    entry_price,
+    stop_price,
+    tp1_price,
+    tp2_price,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    tp1_price = D(
+        tp1_price
+    )
+
+    tp2_price = D(
+        tp2_price
+    )
+
+    if direction == "LONG":
+        correct_side = (
+            stop_price
+            < entry_price
+        )
+
+        separated = (
+            stop_price
+            < entry_price
+            < tp1_price
+            < tp2_price
+        )
+
+    elif direction == "SHORT":
+        correct_side = (
+            stop_price
+            > entry_price
+        )
+
+        separated = (
+            stop_price
+            > entry_price
+            > tp1_price
+            > tp2_price
+        )
+
+    else:
+        correct_side = False
+        separated = False
+
+    checks = {
+        "configured_or_calculated":
+            True,
+
+        "positive":
+            stop_price > 0,
+
+        "correct_side_of_entry":
+            correct_side,
+
+        "price_step_normalized":
+            (
+                stop_price
+                % PRICE_STEP
+            ) == 0,
+
+        "does_not_cross_entry_or_tp":
+            separated,
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return checks
+
+
+def validate_r36f131_stop_risk_envelope(
+    direction,
+    entry_price,
+    stop_price,
+    leverage,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    distance_percent = (
+        abs(
+            stop_price
+            - entry_price
+        )
+        / entry_price
+        * Decimal("100")
+    )
+
+    leverage_reference = (
+        Decimal("100")
+        / leverage
+    )
+
+    checks = {
+        "direction_valid":
+            direction
+            in {
+                "LONG",
+                "SHORT",
+            },
+
+        "distance_positive":
+            distance_percent > 0,
+
+        "at_least_one_price_step":
+            abs(
+                stop_price
+                - entry_price
+            )
+            >= PRICE_STEP,
+
+        "within_configured_maximum":
+            (
+                distance_percent
+                <=
+                R36F131_MAX_PROTECTIVE_STOP_DISTANCE_PERCENT
+            ),
+
+        "inside_leverage_reference":
+            (
+                distance_percent
+                <
+                leverage_reference
+            ),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return {
+        "distance_percent":
+            decimal_to_string(
+                distance_percent
+            ),
+
+        "leverage_reference_percent":
+            decimal_to_string(
+                leverage_reference
+            ),
+
+        "checks":
+            checks,
+
+        "all_valid":
+            checks[
+                "all_valid"
+            ],
+    }
+
+
+def validate_r36f132_stop_loss_budget(
+    entry_price,
+    stop_price,
+    entry_quantity,
+    available_balance,
+    leverage,
+):
+    entry_price = D(
+        entry_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    entry_quantity = D(
+        entry_quantity
+    )
+
+    available_balance = D(
+        available_balance
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    price_distance = abs(
+        entry_price
+        - stop_price
+    )
+
+    expected_loss = (
+        price_distance
+        * entry_quantity
+    )
+
+    expected_loss_percent = (
+        expected_loss
+        / available_balance
+        * Decimal("100")
+        if available_balance > 0
+        else Decimal("999")
+    )
+
+    account_loss_budget = (
+        available_balance
+        * R36F132_MAX_ACCOUNT_LOSS_PERCENT
+        / Decimal("100")
+    )
+
+    isolated_entry_margin = (
+        entry_price
+        * entry_quantity
+        / leverage
+    )
+
+    checks = {
+        "price_distance_positive":
+            price_distance > 0,
+
+        "expected_loss_positive":
+            expected_loss > 0,
+
+        "within_account_loss_budget":
+            (
+                expected_loss
+                <= account_loss_budget
+            ),
+
+        "within_isolated_entry_margin_budget":
+            (
+                expected_loss
+                <= isolated_entry_margin
+            ),
+    }
+
+    checks[
+        "all_valid"
+    ] = all(
+        checks.values()
+    )
+
+    return {
+        "expected_loss_usdt":
+            decimal_to_string(
+                expected_loss
+            ),
+
+        "expected_loss_percent_of_available_balance":
+            decimal_to_string(
+                expected_loss_percent
+            ),
+
+        "configured_max_account_loss_percent":
+            decimal_to_string(
+                R36F132_MAX_ACCOUNT_LOSS_PERCENT
+            ),
+
+        "isolated_entry_margin_usdt":
+            decimal_to_string(
+                isolated_entry_margin
+            ),
+
+        "checks":
+            checks,
+
+        "all_valid":
+            checks[
+                "all_valid"
+            ],
+    }
+
+
+# ============================================================
+# R36F.15.10.4b AUTO MODE MERGER
+# ============================================================
+
+R36F15103_STAGE = (
+    "R36F.15.10.4b"
+)
+
+R36F15103_REAL_ORDER_EXECUTION = False
+R36F15103_DEMO_ORDER_EXECUTION = False
+R36F15103_WRITE_TRANSPORT = False
+
+R36F15103_MODE_CONFIRMATIONS_REQUIRED = 3
+
+R36F15103_BREAKOUT_MOVE_PERCENT = 0.60
+
+R36F15103_STRONG_EMA_SEPARATION_PERCENT = 0.05
+
+R36F15103_VALID_MODES = (
+    "SCALP",
+    "STRUCTURE",
+    "BREAKOUT",
+)
+
+R36F15103_EXCLUSIVE_MODE = True
+R36F15103_ACTIVE_TRADE_MODE_LOCK = True
+
+R36F15103_ACTIVE_MODE = None
+R36F15103_PENDING_MODE = None
+R36F15103_PENDING_COUNT = 0
+R36F15103_MODE_LOCKED = False
+R36F15103_LAST_DIRECTION = None
+R36F15103_LAST_REASON = None
+R36F15103_CYCLE = 0
+
+R36F15103_REFERENCE_PRICE = None
+
+R36F15103_LAST_RESULT = {}
+
+
+def r36f15103_safe_float(
+    value,
+    default=None,
+):
+    try:
+        if value is None:
+            return default
+
+        return float(
+            value
+        )
+
+    except Exception:
+        return default
+
+
+def r36f15103_direction_from_ema(
+    ema19,
+    ema50,
+    ema200,
+):
+    e19 = r36f15103_safe_float(
+        ema19
+    )
+
+    e50 = r36f15103_safe_float(
+        ema50
+    )
+
+    e200 = r36f15103_safe_float(
+        ema200
+    )
+
+    if (
+        e19 is None
+        or e50 is None
+        or e200 is None
+    ):
+        return None
+
+    if (
+        e19
+        > e50
+        > e200
+    ):
+        return "LONG"
+
+    if (
+        e19
+        < e50
+        < e200
+    ):
+        return "SHORT"
+
+    return None
+
+
+def r36f15103_ema_separation_percent(
+    ema19,
+    ema50,
+):
+    e19 = r36f15103_safe_float(
+        ema19
+    )
+
+    e50 = r36f15103_safe_float(
+        ema50
+    )
+
+    if (
+        e19 is None
+        or e50 in (
+            None,
+            0,
+        )
+    ):
+        return 0.0
+
+    return (
+        abs(
+            e19
+            - e50
+        )
+        / abs(e50)
+        * 100.0
+    )
+
+
+def r36f15103_move_percent(
+    current_price,
+    reference_price,
+):
+    current = r36f15103_safe_float(
+        current_price
+    )
+
+    reference = r36f15103_safe_float(
+        reference_price
+    )
+
+    if (
+        current is None
+        or reference in (
+            None,
+            0,
+        )
+    ):
+        return 0.0
+
+    return (
+        abs(
+            current
+            - reference
+        )
+        / abs(reference)
+        * 100.0
+    )
+
+
+# ============================================================
+# R1.8 CLUSTER-INDEPENDENT AUTO-MODE CLASSIFIER
+# ============================================================
+
+def r36f15103_raw_classifier(
+    direction,
+    valid_cluster_count,
+    ema_separation_percent,
+    short_term_move_percent,
+):
+    """
+    R1.8 auto-mode classifier.
+
+    Historical clusters remain diagnostic only.
+    They do not authorize TP generation and do not determine
+    whether a strong EMA setup is STRUCTURE or BREAKOUT.
+
+    BREAKOUT:
+        confirmed short-term move.
+
+    STRUCTURE:
+        confirmed strong directional EMA structure.
+
+    SCALP:
+        neither breakout nor structure is confirmed.
+
+    ZERO-WRITE:
+        classification only.
+    """
+
+    direction_text = str(
+        direction or ""
+    ).strip().upper()
+
+    ema_sep = abs(
+        float(
+            ema_separation_percent
+            or 0
+        )
+    )
+
+    movement = abs(
+        float(
+            short_term_move_percent
+            or 0
+        )
+    )
+
+    strong_direction = (
+        direction_text
+        in (
+            "LONG",
+            "SHORT",
+        )
+        and
+        ema_sep
+        >=
+        R36F15103_STRONG_EMA_SEPARATION_PERCENT
+    )
+
+    breakout_confirmed = (
+        direction_text
+        in (
+            "LONG",
+            "SHORT",
+        )
+        and
+        movement
+        >=
+        R36F15103_BREAKOUT_MOVE_PERCENT
+    )
+
+    if breakout_confirmed:
+        return (
+            "BREAKOUT",
+            "BREAKOUT_MOVE_CONFIRMED",
+        )
+
+    if strong_direction:
+        return (
+            "STRUCTURE",
+            "STRONG_EMA_DIRECTION_CONFIRMED",
+        )
+
+    return (
+        "SCALP",
+        "NO_CONFIRMED_STRUCTURE_OR_BREAKOUT_CONDITION",
+    )
+
+
+def r36f15103_update_mode(
+    raw_mode,
+    reason,
+    trade_active=False,
+):
+    global R36F15103_ACTIVE_MODE
+    global R36F15103_PENDING_MODE
+    global R36F15103_PENDING_COUNT
+    global R36F15103_MODE_LOCKED
+    global R36F15103_LAST_REASON
+
+    raw_mode = str(
+        raw_mode or ""
+    ).strip().upper()
+
+    if (
+        raw_mode
+        not in R36F15103_VALID_MODES
+    ):
+        R36F15103_LAST_REASON = (
+            "INVALID_MODE_REJECTED"
+        )
+
+        return (
+            R36F15103_ACTIVE_MODE
+        )
+
+    if (
+        trade_active
+        and
+        R36F15103_ACTIVE_TRADE_MODE_LOCK
+    ):
+        R36F15103_MODE_LOCKED = True
+
+        if (
+            R36F15103_ACTIVE_MODE
+            is None
+        ):
+            R36F15103_ACTIVE_MODE = (
+                raw_mode
+            )
+
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+
+        R36F15103_LAST_REASON = (
+            "ACTIVE_TRADE_MODE_LOCK"
+        )
+
+        return (
+            R36F15103_ACTIVE_MODE
+        )
+
+    R36F15103_MODE_LOCKED = False
+
+    if R36F15103_ACTIVE_MODE is None:
+        R36F15103_ACTIVE_MODE = (
+            raw_mode
+        )
+
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+
+        R36F15103_LAST_REASON = (
+            "INITIAL_MODE_SELECTED:"
+            + str(reason)
+        )
+
+        return (
+            R36F15103_ACTIVE_MODE
+        )
+
+    if (
+        raw_mode
+        == R36F15103_ACTIVE_MODE
+    ):
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+
+        R36F15103_LAST_REASON = (
+            "ACTIVE_MODE_CONFIRMED:"
+            + str(reason)
+        )
+
+        return (
+            R36F15103_ACTIVE_MODE
+        )
+
+    if (
+        R36F15103_PENDING_MODE
+        != raw_mode
+    ):
+        R36F15103_PENDING_MODE = (
+            raw_mode
+        )
+
+        R36F15103_PENDING_COUNT = 1
+
+        R36F15103_LAST_REASON = (
+            "NEW_MODE_PENDING:"
+            + str(reason)
+        )
+
+        return (
+            R36F15103_ACTIVE_MODE
+        )
+
+    R36F15103_PENDING_COUNT += 1
+
+    if (
+        R36F15103_PENDING_COUNT
+        >=
+        R36F15103_MODE_CONFIRMATIONS_REQUIRED
+    ):
+        previous_mode = (
+            R36F15103_ACTIVE_MODE
+        )
+
+        R36F15103_ACTIVE_MODE = (
+            raw_mode
+        )
+
+        R36F15103_PENDING_MODE = None
+        R36F15103_PENDING_COUNT = 0
+
+        R36F15103_LAST_REASON = (
+            "THREE_CONFIRMATION_TRANSITION:"
+            + str(previous_mode)
+            + "_TO_"
+            + str(raw_mode)
+        )
+
+        return (
+            R36F15103_ACTIVE_MODE
+        )
+
+    R36F15103_LAST_REASON = (
+        "MODE_CONFIRMATION_PENDING:"
+        + str(reason)
+    )
+
+    return (
+        R36F15103_ACTIVE_MODE
+    )
+
+
+def r36f15103_merge_cycle(
+    current_price=None,
+    reference_price=None,
+    ema19=None,
+    ema50=None,
+    ema200=None,
+    valid_cluster_count=0,
+    existing_direction=None,
+    trade_active=False,
+):
+    global R36F15103_CYCLE
+    global R36F15103_LAST_DIRECTION
+
+    R36F15103_CYCLE += 1
+
+    calculated_direction = (
+        r36f15103_direction_from_ema(
+            ema19,
+            ema50,
+            ema200,
+        )
+    )
+
+    if existing_direction in (
+        "LONG",
+        "SHORT",
+    ):
+        direction = (
+            existing_direction
+        )
+
+    else:
+        direction = (
+            calculated_direction
+        )
+
+    R36F15103_LAST_DIRECTION = (
+        direction
+    )
+
+    ema_sep = (
+        r36f15103_ema_separation_percent(
+            ema19,
+            ema50,
+        )
+    )
+
+    movement = (
+        r36f15103_move_percent(
+            current_price,
+            reference_price,
+        )
+    )
+
+    (
+        raw_mode,
+        classifier_reason,
+    ) = r36f15103_raw_classifier(
+        direction=direction,
+        valid_cluster_count=(
+            valid_cluster_count
+        ),
+        ema_separation_percent=(
+            ema_sep
+        ),
+        short_term_move_percent=(
+            movement
+        ),
+    )
+
+    active_mode = (
+        r36f15103_update_mode(
+            raw_mode=raw_mode,
+            reason=classifier_reason,
+            trade_active=bool(
+                trade_active
+            ),
+        )
+    )
+
+    if (
+        active_mode
+        not in R36F15103_VALID_MODES
+    ):
+        raise RuntimeError(
+            "R36F.15.10.4b EXCLUSIVE MODE FAILURE"
+        )
+
+    result = {
+        "stage":
+            R36F15103_STAGE,
+
+        "cycle":
+            R36F15103_CYCLE,
+
+        "raw_mode":
+            raw_mode,
+
+        "active_mode":
+            active_mode,
+
+        "direction":
+            direction,
+
+        "valid_cluster_count":
+            int(
+                valid_cluster_count
+                or 0
+            ),
+
+        "ema_separation_percent":
+            ema_sep,
+
+        "short_term_move_percent":
+            movement,
+
+        "pending_mode":
+            R36F15103_PENDING_MODE,
+
+        "pending_count":
+            R36F15103_PENDING_COUNT,
+
+        "mode_locked":
+            R36F15103_MODE_LOCKED,
+
+        "reason":
+            R36F15103_LAST_REASON,
+
+        "real_execution":
+            False,
+
+        "demo_execution":
+            False,
+
+        "write_transport":
+            False,
+    }
+
+    log(
+        f"{R36F15103_STAGE} "
+        f"CYCLE={result['cycle']} "
+        f"raw_mode={result['raw_mode']} "
+        f"active_mode={result['active_mode']} "
+        f"direction={result['direction']} "
+        f"clusters={result['valid_cluster_count']} "
+        f"ema_sep={result['ema_separation_percent']:.6f}% "
+        f"move={result['short_term_move_percent']:.6f}% "
+        f"pending_mode={result['pending_mode']} "
+        f"pending_count={result['pending_count']} "
+        f"locked={result['mode_locked']} "
+        f"reason={result['reason']}"
+    )
+
+    log(
+        f"{R36F15103_STAGE} "
+        "REAL_ORDER_EXECUTION=False "
+        "DEMO_ORDER_EXECUTION=False "
+        "WRITE_TRANSPORT=False"
+    )
+
+    return result
+
+
+def r36f15103_startup_diagnostic():
+    line()
+
+    log(
+        "R36F.15.10.4b AUTO-MODE MERGER INTERFACE LOADED"
+    )
+
+    log(
+        "R36F.15.10.4b MODES=SCALP|STRUCTURE|BREAKOUT"
+    )
+
+    log(
+        "R36F.15.10.4b EXCLUSIVE_MODE=True"
+    )
+
+    log(
+        "R36F.15.10.4b MODE_CHANGE_CONFIRMATIONS=3"
+    )
+
+    log(
+        "R36F.15.10.4b ACTIVE_TRADE_MODE_LOCK=True"
+    )
+
+    log(
+        "R36F.15.10.4b REAL_ORDER_EXECUTION=False"
+    )
+
+    log(
+        "R36F.15.10.4b DEMO_ORDER_EXECUTION=False"
+    )
+
+    log(
+        "R36F.15.10.4b WRITE_TRANSPORT=False"
+    )
+
+    line()
+
+
+# ============================================================
+# R1.8 CORRECTED MAIN.PY — PART 4 END
+# ============================================================
+# ============================================================
+# R1.8 CORRECTED MAIN.PY — PART 5A START
+# ============================================================
+
+# ============================================================
+# R36F.15.10.5 REGIME -> DEMO EXECUTION ROUTER
+# NORMAL is represented internally by the already-tested
+# STRUCTURE mode.
+# Real-money execution remains hard-disabled.
+# ============================================================
+
+R36F15105_SCALP_MIN_CLUSTERS = int(
+    os.getenv(
+        "R36F15105_SCALP_MIN_CLUSTERS",
+        "1",
+    )
+)
+
+R36F15105_NORMAL_MIN_CLUSTERS = int(
+    os.getenv(
+        "R36F15105_NORMAL_MIN_CLUSTERS",
+        "2",
+    )
+)
+
+R36F15105_BREAKOUT_MIN_CLUSTERS = int(
+    os.getenv(
+        "R36F15105_BREAKOUT_MIN_CLUSTERS",
+        "1",
+    )
+)
+
+R36F15105_SCALP_MIN_EMA_SEPARATION_PERCENT = Decimal(
+    os.getenv(
+        "R36F15105_SCALP_MIN_EMA_SEPARATION_PERCENT",
+        "0.001",
+    )
+)
+
+R36F15105_NORMAL_MIN_EMA_SEPARATION_PERCENT = Decimal(
+    os.getenv(
+        "R36F15105_NORMAL_MIN_EMA_SEPARATION_PERCENT",
+        "0.01",
+    )
+)
+
+R36F15105_BREAKOUT_MIN_MOVE_PERCENT = Decimal(
+    os.getenv(
+        "R36F15105_BREAKOUT_MIN_MOVE_PERCENT",
+        "0.60",
+    )
+)
+
+R36F15105_AUTO_DEMO_ENABLED = (
+    os.getenv(
+        "R36F15105_AUTO_DEMO_ENABLED",
+        "false",
+    ).strip().lower()
+    in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+)
+
+
+def r36f15105_regime_label(
+    active_mode,
+):
+    return (
+        "NORMAL"
+        if active_mode == "STRUCTURE"
+        else active_mode
+    )
+
+
+# ============================================================
+# PRE-R1.8
+# CLUSTER-FREE REGIME AUTHORIZATION
+# ============================================================
+
+def r36f15105_direction_snapshot(
+    direction,
+    long_snapshot,
+    short_snapshot,
+):
+    if direction == "LONG":
+        return long_snapshot
+
+    if direction == "SHORT":
+        return short_snapshot
+
+    return None
+
+
+def r36f15105_regime_gate(
+    auto_result,
+    ema_snapshot,
+    long_snapshot,
+    short_snapshot,
+):
+    auto_result = (
+        auto_result
+        if isinstance(
+            auto_result,
+            dict,
+        )
+        else {}
+    )
+
+    ema_snapshot = (
+        ema_snapshot
+        if isinstance(
+            ema_snapshot,
+            dict,
+        )
+        else {}
+    )
+
+    active_mode = str(
+        auto_result.get(
+            "active_mode"
+        )
+        or ""
+    ).upper()
+
+    direction = str(
+        auto_result.get(
+            "direction"
+        )
+        or ""
+    ).upper()
+
+    ema_sep = D(
+        auto_result.get(
+            "ema_separation_percent"
+        )
+        or "0"
+    )
+
+    movement = D(
+        auto_result.get(
+            "short_term_move_percent"
+        )
+        or "0"
+    )
+
+    selected_snapshot = (
+        r36f15105_direction_snapshot(
+            direction,
+            long_snapshot,
+            short_snapshot,
+        )
+    )
+
+    result = {
+        "active_mode":
+            active_mode,
+
+        "regime":
+            r36f15105_regime_label(
+                active_mode
+            ),
+
+        "direction":
+            (
+                direction
+                if direction
+                in {
+                    "LONG",
+                    "SHORT",
+                }
+                else None
+            ),
+
+        "ema_separation_percent":
+            decimal_to_string(
+                ema_sep
+            ),
+
+        "move_percent":
+            decimal_to_string(
+                movement
+            ),
+
+        "approved":
+            False,
+
+        "reason":
+            "REGIME_GATE_NOT_EVALUATED",
+
+        "selected_tp_snapshot":
+            selected_snapshot,
+
+        "cluster_logic_used":
+            False,
+    }
+
+    if (
+        active_mode
+        not in R36F15103_VALID_MODES
+    ):
+        result["reason"] = (
+            "INVALID_ACTIVE_MODE"
+        )
+
+        return result
+
+    if direction not in {
+        "LONG",
+        "SHORT",
+    }:
+        result["reason"] = (
+            "NO_AUTO_DIRECTION"
+        )
+
+        return result
+
+        ema_engine_ready = bool(
+        ema_snapshot.get(
+            "price"
+        )
+        and
+        ema_snapshot.get(
+            "ema19"
+        )
+        and
+        ema_snapshot.get(
+            "ema50"
+        )
+        and
+        ema_snapshot.get(
+            "ema200"
+        )
+        and
+        ema_snapshot.get(
+            "structure"
+        )
+    )
+
+    
+    if not (
+        ema_snapshot.get(
+            "price"
+        )
+        and
+        ema_snapshot.get(
+            "ema19"
+        )
+        and
+        ema_snapshot.get(
+            "ema50"
+        )
+        and
+        ema_snapshot.get(
+            "ema200"
+        )
+        and
+        ema_snapshot.get(
+            "structure"
+        )
+    ):
+        result["reason"] = (
+            "EMA_ENGINE_NOT_READY"
+        )
+
+        return result
+
+    if (
+        not selected_snapshot
+        or not selected_snapshot.get(
+            "tp_approval",
+            {},
+        ).get(
+            "approved"
+        )
+    ):
+        result["reason"] = (
+            "NET_ROI_TP_NOT_APPROVED"
+        )
+
+        return result
+
+    if active_mode == "SCALP":
+
+        if (
+            ema_sep
+            <
+            R36F15105_SCALP_MIN_EMA_SEPARATION_PERCENT
+        ):
+            result["reason"] = (
+                "SCALP_EMA_SEPARATION_TOO_SMALL"
+            )
+
+            return result
+
+        result["approved"] = True
+
+        result["reason"] = (
+            "SCALP_NET_ROI_GATE_APPROVED"
+        )
+
+        return result
+
+    if active_mode == "STRUCTURE":
+
+        if (
+            ema_sep
+            <
+            R36F15105_NORMAL_MIN_EMA_SEPARATION_PERCENT
+        ):
+            result["reason"] = (
+                "NORMAL_EMA_SEPARATION_TOO_SMALL"
+            )
+
+            return result
+
+        result["approved"] = True
+
+        result["reason"] = (
+            "NORMAL_NET_ROI_GATE_APPROVED"
+        )
+
+        return result
+
+    if active_mode == "BREAKOUT":
+
+        if (
+            movement
+            <
+            R36F15105_BREAKOUT_MIN_MOVE_PERCENT
+        ):
+            result["reason"] = (
+                "BREAKOUT_MOVE_NOT_CONFIRMED"
+            )
+
+            return result
+
+        result["approved"] = True
+
+        result["reason"] = (
+            "BREAKOUT_NET_ROI_GATE_APPROVED"
+        )
+
+        return result
+
+    result["reason"] = (
+        "UNHANDLED_ACTIVE_MODE"
+    )
+
+    return result
+
+
+# ============================================================
+# END PRE-R1.8 CLUSTER-FREE REGIME AUTHORIZATION
+# ============================================================
+
+
+def r36f15105_build_auto_command_preview(
+    regime_gate,
+):
+    direction = (
+        regime_gate.get(
+            "direction"
+        )
+    )
+
+    approved = bool(
+        regime_gate.get(
+            "approved"
+        )
+    )
+
+    command = (
+        TELEGRAM_BUY_COMMAND
+        if direction == "LONG"
+        else
+        TELEGRAM_SELL_COMMAND
+        if direction == "SHORT"
+        else ""
+    )
+
+    return {
+        "recognized":
+            direction
+            in {
+                "LONG",
+                "SHORT",
+            },
+
+        "command":
+            command,
+
+        "direction":
+            direction,
+
+        "authorized_preview":
+            approved,
+
+        "reason":
+            regime_gate.get(
+                "reason"
+            ),
+
+        "authorization_source":
+            "R36F.15.10.5_AUTO_REGIME",
+
+        "exchange_order_sent":
+            False,
+    }
+
+
+def r36f15105_build_demo_preview(
+    direction,
+    tp_snapshot,
+    balance_readiness,
+    protective_stop_price,
+):
+    # Preserve the previously proven
+    # R36F.14 WEEX demo payload shape.
+
+    if (
+        direction
+        not in {
+            "LONG",
+            "SHORT",
+        }
+        or not tp_snapshot
+        or not tp_snapshot.get(
+            "tp_approval",
+            {},
+        ).get(
+            "approved"
+        )
+        or not balance_readiness
+        or protective_stop_price is None
+    ):
+        return None
+
+    quantity = quantize_down(
+        D(
+            balance_readiness.get(
+                "planned_entry_quantity",
+                "0",
+            )
+        ),
+        QUANTITY_STEP,
+    )
+
+    if quantity <= 0:
+        return None
+
+    tp1_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp1"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    stop_price = quantize_down(
+        D(
+            protective_stop_price
+        ),
+        PRICE_STEP,
+    )
+
+    if direction == "LONG":
+        side = "BUY"
+        position_side = "LONG"
+
+    else:
+        side = "SELL"
+        position_side = "SHORT"
+
+    payload = {
+        "symbol":
+            R36F14_DEMO_SYMBOL,
+
+        "side":
+            side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "newClientOrderId":
+            writer_client_id(
+                direction,
+                "D14",
+            ),
+
+        "tpTriggerPrice":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "slTriggerPrice":
+            decimal_to_string(
+                stop_price
+            ),
+
+        "TpWorkingType":
+            "MARK_PRICE",
+
+        "SlWorkingType":
+            "MARK_PRICE",
+    }
+
+    return {
+        "stage":
+            STAGE,
+
+        "endpoint":
+            R36F14_DEMO_ORDER_ENDPOINT,
+
+        "method":
+            "POST",
+
+        "payload":
+            payload,
+
+        "submitted":
+            False,
+
+        "demo_only":
+            True,
+
+        "real_order_execution":
+            REAL_ORDER_EXECUTION,
+
+        "integrity_sha256":
+            sha256_text(
+                canonical_json(
+                    payload
+                )
+            ),
+    }
+
+
+# ============================================================
+# R36F.15.10.5 COMPLETE REEVALUATION
+# ============================================================
+
+# ============================================================
+# WRITE.PY-R1.3
+# R36F.15.10.5 REAL ENGINE -> ZERO-WRITE WRITER BRIDGE
+# ============================================================
+
+def build_r13_real_engine_instruction(
+    direction,
+    tp_snapshot,
+    balance_readiness,
+    protective_stop_price,
+):
+    if direction not in {
+        "LONG",
+        "SHORT",
+    }:
+        return None
+
+    if not tp_snapshot:
+        return None
+
+    if not tp_snapshot.get(
+        "tp_approval",
+        {},
+    ).get(
+        "approved"
+    ):
+        return None
+
+    if not balance_readiness:
+        return None
+
+    if protective_stop_price is None:
+        return None
+
+    quantity = quantize_down(
+        D(
+            balance_readiness.get(
+                "planned_entry_quantity",
+                "0",
+            )
+        ),
+        QUANTITY_STEP,
+    )
+
+    if quantity <= 0:
+        return None
+
+    entry_price = quantize_down(
+        D(
+            MARK_PRICE
+        ),
+        PRICE_STEP,
+    )
+
+    tp1_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp1"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    tp2_price = quantize_down(
+        D(
+            tp_snapshot[
+                "tp2"
+            ]
+        ),
+        PRICE_STEP,
+    )
+
+    stop_price = quantize_down(
+        D(
+            protective_stop_price
+        ),
+        PRICE_STEP,
+    )
+
+    instruction = {
+        "symbol":
+            SYMBOL,
+
+        "direction":
+            direction,
+
+        "entry_price":
+            decimal_to_string(
+                entry_price
+            ),
+
+        "quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "tp1":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "tp2":
+            decimal_to_string(
+                tp2_price
+            ),
+
+        "tp3":
+            None,
+
+        "tp3_policy":
+            "TRAILING_RUNNER",
+
+        "stop_price":
+            decimal_to_string(
+                stop_price
+            ),
+
+        "allocation": {
+            "tp1_percent":
+                "25",
+
+            "tp2_percent":
 
 
 
