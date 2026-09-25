@@ -3358,7 +3358,319 @@ async def r36f159_reconcile_current_demo_exposure():
                 active_position_row = dict(row)
 
         result["active_symbol_positions"] = active_positions
-        result["active_position_row"] = active_position_row
+        result["active_position_row"] = active_position_row        
+        # ====================================================
+        # NB3 BACKUP 1-3 ACTIVE-POSITION BRIDGE
+        # ZERO WEEX WRITES
+        #
+        # PURPOSE:
+        # Feed the actual reconciled demo position into the
+        # already validated Backup 1-3 trigger engine.
+        #
+        # THIS UNIT:
+        #   - does not submit an order
+        #   - does not change position quantity
+        #   - does not advance completed_backups
+        #   - does not simulate liquidation
+        #   - does not bypass the primary-entry duplicate gate
+        # ====================================================
+
+        nb3_backup = {
+            "status": "IDLE",
+            "reason": "NO_ACTIVE_POSITION",
+            "side": None,
+            "position_size": None,
+            "liquidation_price": None,
+            "mark_price": None,
+            "completed_backups": 0,
+            "decision": None,
+            "weex_post": False,
+            "demo_order": False,
+            "real_order": False,
+        }
+
+        if (
+            active_position_row is not None
+            and r36f155_position_size(
+                active_position_row
+            ) > 0
+        ):
+            nb3_backup[
+                "status"
+            ] = "POSITION_DETECTED"
+
+            nb3_backup[
+                "position_size"
+            ] = decimal_to_string(
+                r36f155_position_size(
+                    active_position_row
+                )
+            )
+
+            nb3_side = (
+                r36f155_position_direction(
+                    active_position_row
+                )
+            )
+
+            nb3_backup[
+                "side"
+            ] = nb3_side
+
+            # ------------------------------------------------
+            # Use only liquidation returned by the actual
+            # reconciled WEEX demo position.
+            #
+            # Do NOT calculate or simulate liquidation here.
+            # ------------------------------------------------
+
+            nb3_liquidation_raw = None
+            nb3_liquidation_field = None
+
+            for nb3_key in (
+                "liquidatePrice",
+                "liquidationPrice",
+                "liquidation_price",
+                "liqPrice",
+            ):
+                if nb3_key in active_position_row:
+                    nb3_candidate = (
+                        active_position_row.get(
+                            nb3_key
+                        )
+                    )
+
+                    try:
+                        if (
+                            nb3_candidate is not None
+                            and D(
+                                nb3_candidate
+                            ) > 0
+                        ):
+                            nb3_liquidation_raw = (
+                                nb3_candidate
+                            )
+
+                            nb3_liquidation_field = (
+                                nb3_key
+                            )
+
+                            break
+
+                    except Exception:
+                        continue
+
+            nb3_backup[
+                "liquidation_field"
+            ] = nb3_liquidation_field
+
+            if (
+                nb3_side
+                not in {
+                    "LONG",
+                    "SHORT",
+                }
+            ):
+                nb3_backup[
+                    "status"
+                ] = "BLOCKED"
+
+                nb3_backup[
+                    "reason"
+                ] = "POSITION_SIDE_UNRESOLVED"
+
+            elif nb3_liquidation_raw is None:
+                nb3_backup[
+                    "status"
+                ] = "BLOCKED"
+
+                nb3_backup[
+                    "reason"
+                ] = "CURRENT_LIQUIDATION_UNAVAILABLE"
+
+            else:
+                nb3_liquidation = D(
+                    nb3_liquidation_raw
+                )
+
+                nb3_backup[
+                    "liquidation_price"
+                ] = decimal_to_string(
+                    nb3_liquidation
+                )
+
+                # --------------------------------------------
+                # Read current mark using the existing
+                # read-only market-price function.
+                # --------------------------------------------
+
+                try:
+                    nb3_mark = await get_mark_price()
+
+                    nb3_mark = D(
+                        nb3_mark
+                    )
+
+                except Exception as exc:
+                    nb3_mark = None
+
+                    nb3_backup[
+                        "mark_error"
+                    ] = str(
+                        exc
+                    )
+
+                if (
+                    nb3_mark is None
+                    or nb3_mark <= 0
+                ):
+                    nb3_backup[
+                        "status"
+                    ] = "BLOCKED"
+
+                    nb3_backup[
+                        "reason"
+                    ] = "CURRENT_MARK_UNAVAILABLE"
+
+                else:
+                    nb3_backup[
+                        "mark_price"
+                    ] = decimal_to_string(
+                        nb3_mark
+                    )
+
+                    # ----------------------------------------
+                    # completed_backups deliberately remains
+                    # zero in this observational bridge.
+                    #
+                    # It MUST NOT advance until a later unit
+                    # proves an actual reconciled quantity
+                    # increase after a backup fill.
+                    # ----------------------------------------
+
+                    nb3_completed_backups = 0
+
+                    nb3_decision = (
+                        r36f_evaluate_backup_path(
+                            side=nb3_side,
+                            mark_price=nb3_mark,
+                            liquidation_price=(
+                                nb3_liquidation
+                            ),
+                            completed_backups=(
+                                nb3_completed_backups
+                            ),
+                        )
+                    )
+
+                    nb3_backup[
+                        "completed_backups"
+                    ] = nb3_completed_backups
+
+                    nb3_backup[
+                        "decision"
+                    ] = nb3_decision
+
+                    nb3_backup[
+                        "status"
+                    ] = "EVALUATED"
+
+                    nb3_backup[
+                        "reason"
+                    ] = nb3_decision.get(
+                        "reason"
+                    )
+
+        result[
+            "nb3_backup"
+        ] = nb3_backup
+
+        print(
+            "NB3 BACKUP STATUS =",
+            nb3_backup.get(
+                "status"
+            )
+        )
+
+        print(
+            "NB3 BACKUP REASON =",
+            nb3_backup.get(
+                "reason"
+            )
+        )
+
+        print(
+            "NB3 BACKUP SIDE =",
+            nb3_backup.get(
+                "side"
+            )
+        )
+
+        print(
+            "NB3 BACKUP POSITION SIZE =",
+            nb3_backup.get(
+                "position_size"
+            )
+        )
+
+        print(
+            "NB3 BACKUP CURRENT LIQUIDATION =",
+            nb3_backup.get(
+                "liquidation_price"
+            )
+        )
+
+        print(
+            "NB3 BACKUP CURRENT MARK =",
+            nb3_backup.get(
+                "mark_price"
+            )
+        )
+
+        if isinstance(
+            nb3_backup.get(
+                "decision"
+            ),
+            dict,
+        ):
+            print(
+                "NB3 BACKUP NUMBER =",
+                nb3_backup[
+                    "decision"
+                ].get(
+                    "backup_number"
+                )
+            )
+
+            print(
+                "NB3 BACKUP TRIGGER =",
+                nb3_backup[
+                    "decision"
+                ].get(
+                    "trigger_price"
+                )
+            )
+
+            print(
+                "NB3 BACKUP TRIGGER REACHED =",
+                nb3_backup[
+                    "decision"
+                ].get(
+                    "allow"
+                )
+            )
+
+        print(
+            "NB3 BACKUP WEEX POST = False"
+        )
+
+        print(
+            "NB3 BACKUP DEMO ORDER = False"
+        )
+
+        print(
+            "NB3 BACKUP REAL ORDER = False"
+        )
     
         # ====================================================
         # NB3 RECONCILIATION DISCOVERY
