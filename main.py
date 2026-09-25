@@ -2619,6 +2619,537 @@ def r182_run_zero_write_tests():
     )
 
     return overall_pass
+# ============================================================
+# R36F BACKUP 1-3 ZERO-WRITE COMPATIBILITY LAYER
+#
+# FROZEN POLICY:
+#   MAX_BACKUPS = 3
+#   BACKUP_MARGIN_PERCENT = 5
+#   BACKUP_BUFFER_PERCENT = 0.3
+#
+# LONG:
+#   trigger = current liquidation * 1.003
+#   reached when mark <= trigger
+#
+# SHORT:
+#   trigger = current liquidation * 0.997
+#   reached when mark >= trigger
+#
+# IMPORTANT:
+#   - Backup 4 is never permitted.
+#   - completed_backups advances only after a confirmed fill /
+#     confirmed position quantity increase.
+#   - This layer performs NO WEEX POST.
+#   - This layer performs NO demo order submission.
+#   - This layer performs NO real order submission.
+# ============================================================
+
+
+def r36f_backup_trigger_price(
+    side,
+    liquidation_price,
+):
+    side = str(
+        side
+        or ""
+    ).strip().upper()
+
+    liquidation_price = D(
+        liquidation_price
+    )
+
+    if liquidation_price <= 0:
+        raise ValueError(
+            "BACKUP_LIQUIDATION_PRICE_MUST_BE_POSITIVE"
+        )
+
+    buffer_fraction = (
+        D(BACKUP_BUFFER_PERCENT)
+        / D("100")
+    )
+
+    if side == "LONG":
+        raw_trigger = (
+            liquidation_price
+            * (
+                D("1")
+                + buffer_fraction
+            )
+        )
+
+    elif side == "SHORT":
+        raw_trigger = (
+            liquidation_price
+            * (
+                D("1")
+                - buffer_fraction
+            )
+        )
+
+    else:
+        raise ValueError(
+            "BACKUP_SIDE_MUST_BE_LONG_OR_SHORT"
+        )
+
+    return quantize_down(
+        raw_trigger,
+        PRICE_STEP,
+    )
+
+
+def r36f_backup_trigger_reached(
+    side,
+    mark_price,
+    trigger_price,
+):
+    side = str(
+        side
+        or ""
+    ).strip().upper()
+
+    mark_price = D(
+        mark_price
+    )
+
+    trigger_price = D(
+        trigger_price
+    )
+
+    if (
+        mark_price <= 0
+        or trigger_price <= 0
+    ):
+        return False
+
+    if side == "LONG":
+        return (
+            mark_price
+            <= trigger_price
+        )
+
+    if side == "SHORT":
+        return (
+            mark_price
+            >= trigger_price
+        )
+
+    return False
+
+
+def r36f_evaluate_backup_path(
+    *,
+    side,
+    mark_price,
+    liquidation_price,
+    completed_backups,
+):
+    side = str(
+        side
+        or ""
+    ).strip().upper()
+
+    try:
+        completed_backups = int(
+            completed_backups
+        )
+
+    except Exception:
+        return {
+            "allow": False,
+            "reason": "INVALID_COMPLETED_BACKUPS",
+            "backup_number": None,
+            "position_management_only": True,
+            "weex_post": False,
+            "demo_order": False,
+            "real_order": False,
+        }
+
+    if completed_backups < 0:
+        return {
+            "allow": False,
+            "reason": "INVALID_COMPLETED_BACKUPS",
+            "backup_number": None,
+            "position_management_only": True,
+            "weex_post": False,
+            "demo_order": False,
+            "real_order": False,
+        }
+
+    if completed_backups >= int(
+        MAX_BACKUPS
+    ):
+        return {
+            "allow": False,
+            "reason": "MAX_BACKUPS_REACHED",
+            "backup_number": None,
+            "completed_backups": completed_backups,
+            "max_backups": int(
+                MAX_BACKUPS
+            ),
+            "backup_4_enabled": False,
+            "position_management_only": True,
+            "weex_post": False,
+            "demo_order": False,
+            "real_order": False,
+        }
+
+    try:
+        liquidation_price = D(
+            liquidation_price
+        )
+
+    except Exception:
+        return {
+            "allow": False,
+            "reason": "LIQUIDATION_PRICE_UNAVAILABLE",
+            "backup_number": (
+                completed_backups
+                + 1
+            ),
+            "position_management_only": True,
+            "weex_post": False,
+            "demo_order": False,
+            "real_order": False,
+        }
+
+    if liquidation_price <= 0:
+        return {
+            "allow": False,
+            "reason": "LIQUIDATION_PRICE_UNAVAILABLE",
+            "backup_number": (
+                completed_backups
+                + 1
+            ),
+            "position_management_only": True,
+            "weex_post": False,
+            "demo_order": False,
+            "real_order": False,
+        }
+
+    try:
+        mark_price = D(
+            mark_price
+        )
+
+    except Exception:
+        return {
+            "allow": False,
+            "reason": "MARK_PRICE_UNAVAILABLE",
+            "backup_number": (
+                completed_backups
+                + 1
+            ),
+            "position_management_only": True,
+            "weex_post": False,
+            "demo_order": False,
+            "real_order": False,
+        }
+
+    if mark_price <= 0:
+        return {
+            "allow": False,
+            "reason": "MARK_PRICE_UNAVAILABLE",
+            "backup_number": (
+                completed_backups
+                + 1
+            ),
+            "position_management_only": True,
+            "weex_post": False,
+            "demo_order": False,
+            "real_order": False,
+        }
+
+    try:
+        trigger_price = (
+            r36f_backup_trigger_price(
+                side,
+                liquidation_price,
+            )
+        )
+
+    except Exception as exc:
+        return {
+            "allow": False,
+            "reason": "BACKUP_TRIGGER_CALCULATION_FAILED",
+            "error": str(
+                exc
+            ),
+            "backup_number": (
+                completed_backups
+                + 1
+            ),
+            "position_management_only": True,
+            "weex_post": False,
+            "demo_order": False,
+            "real_order": False,
+        }
+
+    backup_number = (
+        completed_backups
+        + 1
+    )
+
+    reached = (
+        r36f_backup_trigger_reached(
+            side,
+            mark_price,
+            trigger_price,
+        )
+    )
+
+    return {
+        "allow": bool(
+            reached
+        ),
+        "reason": (
+            "BACKUP_TRIGGER_REACHED"
+            if reached
+            else "BACKUP_TRIGGER_NOT_REACHED"
+        ),
+        "side": side,
+        "backup_number": backup_number,
+        "completed_backups": completed_backups,
+        "max_backups": int(
+            MAX_BACKUPS
+        ),
+        "backup_margin_percent": (
+            decimal_to_string(
+                BACKUP_MARGIN_PERCENT
+            )
+        ),
+        "backup_buffer_percent": (
+            decimal_to_string(
+                BACKUP_BUFFER_PERCENT
+            )
+        ),
+        "liquidation_price": (
+            decimal_to_string(
+                liquidation_price
+            )
+        ),
+        "mark_price": (
+            decimal_to_string(
+                mark_price
+            )
+        ),
+        "trigger_price": (
+            decimal_to_string(
+                trigger_price
+            )
+        ),
+        "backup_4_enabled": False,
+        "position_management_only": True,
+        "weex_post": False,
+        "demo_order": False,
+        "real_order": False,
+    }
+
+
+def r36f_run_backup_zero_write_tests():
+    log(
+        "R36F BACKUP 1-3 ZERO-WRITE TEST START"
+    )
+
+    # --------------------------------------------------------
+    # LONG BACKUP 1
+    # Current liquidation = 80000
+    # 0.3% buffer => 80240
+    # --------------------------------------------------------
+
+    backup1 = (
+        r36f_evaluate_backup_path(
+            side="LONG",
+            mark_price=D("80240"),
+            liquidation_price=D("80000"),
+            completed_backups=0,
+        )
+    )
+
+    backup1_pass = (
+        backup1.get(
+            "allow"
+        )
+        is True
+        and backup1.get(
+            "backup_number"
+        )
+        == 1
+        and D(
+            backup1.get(
+                "trigger_price"
+            )
+        )
+        == D("80240.0")
+    )
+
+    log(
+        "BACKUP 1 ENABLED = "
+        + str(
+            backup1_pass
+        )
+    )
+
+    log(
+        "BACKUP 1 TRIGGER = "
+        + str(
+            backup1.get(
+                "trigger_price"
+            )
+        )
+    )
+
+    # --------------------------------------------------------
+    # LONG BACKUP 2
+    #
+    # This synthetic test assumes Backup 1 has ALREADY been
+    # confirmed and the refreshed current liquidation is 79952.
+    #
+    # 79952 * 1.003 = 80191.856
+    # PRICE_STEP 0.1 => 80191.8
+    # --------------------------------------------------------
+
+    backup2 = (
+        r36f_evaluate_backup_path(
+            side="LONG",
+            mark_price=D("80191.8"),
+            liquidation_price=D("79952"),
+            completed_backups=1,
+        )
+    )
+
+    backup2_pass = (
+        backup2.get(
+            "allow"
+        )
+        is True
+        and backup2.get(
+            "backup_number"
+        )
+        == 2
+        and D(
+            backup2.get(
+                "trigger_price"
+            )
+        )
+        == D("80191.8")
+    )
+
+    log(
+        "BACKUP 2 ENABLED = "
+        + str(
+            backup2_pass
+        )
+    )
+
+    log(
+        "BACKUP 2 TRIGGER = "
+        + str(
+            backup2.get(
+                "trigger_price"
+            )
+        )
+    )
+
+    # --------------------------------------------------------
+    # BACKUP 3
+    # Prove that completed_backups=2 exposes Backup 3.
+    # --------------------------------------------------------
+
+    backup3 = (
+        r36f_evaluate_backup_path(
+            side="LONG",
+            mark_price=D("79900"),
+            liquidation_price=D("79700"),
+            completed_backups=2,
+        )
+    )
+
+    backup3_pass = (
+        backup3.get(
+            "backup_number"
+        )
+        == 3
+    )
+
+    log(
+        "BACKUP 3 ENABLED = "
+        + str(
+            backup3_pass
+        )
+    )
+
+    # --------------------------------------------------------
+    # BACKUP 4 MUST NEVER EXIST
+    # --------------------------------------------------------
+
+    backup4 = (
+        r36f_evaluate_backup_path(
+            side="LONG",
+            mark_price=D("79000"),
+            liquidation_price=D("79000"),
+            completed_backups=3,
+        )
+    )
+
+    backup4_pass = (
+        backup4.get(
+            "allow"
+        )
+        is False
+        and backup4.get(
+            "reason"
+        )
+        == "MAX_BACKUPS_REACHED"
+        and backup4.get(
+            "backup_4_enabled"
+        )
+        is False
+    )
+
+    log(
+        "BACKUP 4 ENABLED = False"
+    )
+
+    overall_pass = all(
+        [
+            backup1_pass,
+            backup2_pass,
+            backup3_pass,
+            backup4_pass,
+        ]
+    )
+
+    log(
+        "R36F BACKUP 1-3 ZERO-WRITE TEST = "
+        + (
+            "PASS"
+            if overall_pass
+            else "FAIL"
+        )
+    )
+
+    log(
+        "R36F BACKUP WEEX POST = False"
+    )
+
+    log(
+        "R36F BACKUP DEMO ORDER = False"
+    )
+
+    log(
+        "R36F BACKUP REAL ORDER = False"
+    )
+
+    return overall_pass
+
+
+if os.getenv(
+    "RUN_BACKUP_ZERO_WRITE_TEST",
+    "0",
+).strip() == "1":
+    r36f_run_backup_zero_write_tests()
+
+
 def r36f159_is_open_order_status(
     status,
 ):
