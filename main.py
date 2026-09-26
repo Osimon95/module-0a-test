@@ -2552,3 +2552,2604 @@ def r182_run_zero_write_tests():
 # END OF PART 1/6
 # NEXT: PART 2 CONTINUES DIRECTLY FROM HERE
 # ============================================================
+
+# ============================================================
+# R1.8 CORRECTED MAIN.PY — PART 2 START
+# ============================================================
+
+def r36f159_test_recurring_opportunity_gate():
+    print("==========================================")
+    print("R36F159 RECURRING OPPORTUNITY UNIT TEST START")
+    print("==========================================")
+
+    def evaluate(existing_state, existing_identity, new_identity):
+        existing_state = str(
+            existing_state or ""
+        ).strip().upper()
+
+        existing_identity = str(
+            existing_identity or ""
+        ).strip()
+
+        new_identity = str(
+            new_identity or ""
+        ).strip()
+
+        if not existing_identity:
+            return {
+                "allow": True,
+                "reason": "NO_EXISTING_IDENTITY",
+            }
+
+        if hmac.compare_digest(
+            existing_identity,
+            new_identity,
+        ):
+            return {
+                "allow": False,
+                "reason": "SAME_OPPORTUNITY_REPLAY_BLOCKED",
+            }
+
+        if existing_state == "COMPLETED":
+            return {
+                "allow": True,
+                "reason": "PREVIOUS_COMPLETED_NEW_OPPORTUNITY",
+            }
+
+        return {
+            "allow": False,
+            "reason": "PREVIOUS_OPPORTUNITY_UNRESOLVED",
+        }
+
+    old_identity = sha256_text(
+        "OLD_COMPLETED_OPPORTUNITY"
+    )
+
+    new_identity = sha256_text(
+        "NEW_MARKET_OPPORTUNITY"
+    )
+
+    test_1 = evaluate(
+        "COMPLETED",
+        old_identity,
+        old_identity,
+    )
+
+    test_2 = evaluate(
+        "COMPLETED",
+        old_identity,
+        new_identity,
+    )
+
+    test_3 = evaluate(
+        "PREPARED",
+        old_identity,
+        new_identity,
+    )
+
+    test_4 = evaluate(
+        "",
+        "",
+        new_identity,
+    )
+
+    pass_1 = (
+        test_1["allow"] is False
+        and test_1["reason"]
+        == "SAME_OPPORTUNITY_REPLAY_BLOCKED"
+    )
+
+    pass_2 = (
+        test_2["allow"] is True
+        and test_2["reason"]
+        == "PREVIOUS_COMPLETED_NEW_OPPORTUNITY"
+    )
+
+    pass_3 = (
+        test_3["allow"] is False
+        and test_3["reason"]
+        == "PREVIOUS_OPPORTUNITY_UNRESOLVED"
+    )
+
+    pass_4 = (
+        test_4["allow"] is True
+        and test_4["reason"]
+        == "NO_EXISTING_IDENTITY"
+    )
+
+    overall_pass = all(
+        [
+            pass_1,
+            pass_2,
+            pass_3,
+            pass_4,
+        ]
+    )
+
+    print(
+        "TEST 1 SAME COMPLETED OPPORTUNITY =",
+        "PASS" if pass_1 else "FAIL",
+        test_1,
+    )
+
+    print(
+        "TEST 2 NEW AFTER COMPLETED =",
+        "PASS" if pass_2 else "FAIL",
+        test_2,
+    )
+
+    print(
+        "TEST 3 NEW AFTER UNRESOLVED =",
+        "PASS" if pass_3 else "FAIL",
+        test_3,
+    )
+
+    print(
+        "TEST 4 FIRST OPPORTUNITY =",
+        "PASS" if pass_4 else "FAIL",
+        test_4,
+    )
+
+    print(
+        "R36F159 RECURRING OPPORTUNITY UNIT TEST =",
+        "PASS" if overall_pass else "FAIL",
+    )
+
+    print("R36F159 TEST WEEX POST = False")
+    print("R36F159 TEST DEMO ORDER = False")
+    print("R36F159 TEST REAL ORDER = False")
+    print("==========================================")
+
+    return overall_pass
+
+
+if os.getenv(
+    "RUN_R36F159_RECURRING_TEST",
+    "0",
+).strip() == "1":
+    r36f159_test_recurring_opportunity_gate()
+
+
+async def submit_r36f15_demo_order(
+    preview,
+    command_preview,
+):
+    if not R36F159_DEMO_ARM_REQUESTED:
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "SECOND_DEMO_ARM_NOT_REQUESTED",
+        }
+
+    if not command_preview.get(
+        "authorized_preview"
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "TELEGRAM_COMMAND_NOT_AUTHORIZED",
+        }
+
+    if (
+        not preview
+        or not preview.get("payload")
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "DEMO_PREVIEW_MISSING",
+        }
+
+    if not R36F159_COMMAND_TOKEN:
+        return {
+            "attempted": False,
+            "sent": False,
+            "reason": "SECOND_DEMO_COMMAND_TOKEN_MISSING",
+        }
+
+    existing = read_json_file(
+        R36F159_DEMO_JOURNAL_FILE,
+        default={},
+    )
+
+    command_identity = (
+        r36f159_command_identity(
+            command_preview
+        )
+    )
+
+    if isinstance(existing, dict) and existing:
+        existing_identity = str(
+            existing.get(
+                "command_identity_sha256"
+            ) or ""
+        ).strip()
+
+        if (
+            existing_identity
+            and hmac.compare_digest(
+                existing_identity,
+                command_identity,
+            )
+        ):
+            reconciliation = (
+                await r36f159_reconcile_second_demo_journal(
+                    existing
+                )
+            )
+
+            return {
+                "attempted": False,
+                "sent": False,
+                "accepted": False,
+                "reason": "R36F159_COMMAND_REPLAY_BLOCKED",
+                "reconciliation": reconciliation,
+                "journal": reconciliation.get(
+                    "journal",
+                    existing,
+                ),
+            }
+
+        existing_state = str(
+            existing.get(
+                "state",
+                "",
+            )
+        ).strip().upper()
+
+        if existing_state != "COMPLETED":
+            return {
+                "attempted": False,
+                "sent": False,
+                "accepted": False,
+                "reason": "R36F159_EXISTING_SECOND_DEMO_JOURNAL_BLOCKS_NEW_TOKEN",
+                "journal": existing,
+            }
+
+        log(
+            "R36F.15.9 COMPLETED OLD JOURNAL "
+            "DOES NOT BLOCK NEW COMMAND TOKEN"
+        )
+
+    exposure = (
+        await r36f159_reconcile_current_demo_exposure()
+    )
+
+    if exposure.get(
+        "duplicate_entry_blocked",
+        True,
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "R36F159_CURRENT_EXPOSURE_BLOCKED",
+            "duplicate_block_reason": exposure.get(
+                "duplicate_block_reason"
+            ),
+            "exposure": exposure,
+        }
+
+    payload = dict(
+        preview["payload"]
+    )
+
+    client_order_id = (
+        r36f159_client_order_id(
+            command_preview
+        )
+    )
+
+    # ============================================================
+    # R1.8.1 READ-ONLY CLIENT ORDER ID DIAGNOSTIC
+    # NO STATE CHANGE / NO JOURNAL CHANGE / NO ORDER SUBMISSION
+    # ============================================================
+
+    r181_existing_client_ids = list(
+        exposure.get(
+            "existing_client_ids",
+            [],
+        )
+        or []
+    )
+
+    r181_candidate_exists = (
+        client_order_id
+        in set(r181_existing_client_ids)
+    )
+
+    r181_old_journal = (
+        read_json_file(
+            R36F159_DEMO_JOURNAL_FILE
+        )
+        or {}
+    )
+
+    r181_old_client_order_id = str(
+        r181_old_journal.get(
+            "client_order_id"
+        )
+        or ""
+    )
+
+    r181_old_command_identity = str(
+        r181_old_journal.get(
+            "command_identity_sha256"
+        )
+        or ""
+    )
+
+    r181_old_command_token = str(
+        r181_old_journal.get(
+            "command_token_sha256"
+        )
+        or ""
+    )
+
+    r181_new_command_token = (
+        sha256_text(
+            R36F159_COMMAND_TOKEN
+        )
+    )
+
+    log(
+        "R1.8.1 DIAGNOSTIC START"
+    )
+
+    log(
+        "R1.8.1 CANDIDATE CLIENT ORDER ID = "
+        + str(client_order_id)
+    )
+
+    log(
+        "R1.8.1 EXISTING CLIENT IDS = "
+        + canonical_json(
+            r181_existing_client_ids
+        )
+    )
+
+    log(
+        "R1.8.1 CANDIDATE EXISTS = "
+        + str(r181_candidate_exists)
+    )
+
+    log(
+        "R1.8.1 OLD JOURNAL STATE = "
+        + str(
+            r181_old_journal.get(
+                "state"
+            )
+        )
+    )
+
+    log(
+        "R1.8.1 OLD DIRECTION = "
+        + str(
+            r181_old_journal.get(
+                "direction"
+            )
+        )
+    )
+
+    log(
+        "R1.8.1 OLD ORDER ID = "
+        + str(
+            r181_old_journal.get(
+                "order_id"
+            )
+            or r181_old_journal.get(
+                "demo_order_id"
+            )
+        )
+    )
+
+    log(
+        "R1.8.1 OLD CLIENT ORDER ID = "
+        + r181_old_client_order_id
+    )
+
+    log(
+        "R1.8.1 SAME CLIENT ORDER ID = "
+        + str(
+            r181_old_client_order_id
+            == str(client_order_id)
+        )
+    )
+
+    log(
+        "R1.8.1 OLD COMMAND IDENTITY = "
+        + r181_old_command_identity
+    )
+
+    log(
+        "R1.8.1 NEW COMMAND IDENTITY = "
+        + str(command_identity)
+    )
+
+    log(
+        "R1.8.1 SAME COMMAND IDENTITY = "
+        + str(
+            r181_old_command_identity
+            == str(command_identity)
+        )
+    )
+
+    log(
+        "R1.8.1 OLD COMMAND TOKEN = "
+        + r181_old_command_token
+    )
+
+    log(
+        "R1.8.1 NEW COMMAND TOKEN = "
+        + r181_new_command_token
+    )
+
+    log(
+        "R1.8.1 SAME COMMAND TOKEN = "
+        + str(
+            r181_old_command_token
+            == r181_new_command_token
+        )
+    )
+
+    log(
+        "R1.8.1 DIAGNOSTIC END"
+    )
+
+    payload[
+        "clientOrderId"
+    ] = client_order_id
+
+    payload[
+        "newClientOrderId"
+    ] = client_order_id
+
+    payload_hash = sha256_text(
+        canonical_json(
+            payload
+        )
+    )
+
+    jit = (
+        await r36f154_validate_fresh_demo_triggers(
+            payload
+        )
+    )
+
+    if not jit.get(
+        "valid"
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "R36F154_JIT_TRIGGER_VALIDATION_FAILED",
+            "jit": jit,
+        }
+
+    prepared = {
+        "stage": STAGE,
+        "state": "PREPARED",
+        "prepared_at": now_iso(),
+        "updated_at": now_iso(),
+        "success": False,
+        "direction": command_preview.get(
+            "direction"
+        ),
+        "command": command_preview.get(
+            "command"
+        ),
+        "command_identity_sha256": command_identity,
+        "command_token_sha256": sha256_text(
+            R36F159_COMMAND_TOKEN
+        ),
+        "client_order_id": client_order_id,
+        "payload_sha256": payload_hash,
+        "payload": payload,
+        "jit_validation": jit,
+    }
+
+    write_json_file(
+        R36F159_DEMO_JOURNAL_FILE,
+        prepared,
+    )
+
+    try:
+        response = await weex_demo_post(
+            R36F14_DEMO_ORDER_ENDPOINT,
+            payload,
+        )
+
+    except Exception as exc:
+        ambiguous = {
+            **prepared,
+            "state": "SENT_AMBIGUOUS",
+            "updated_at": now_iso(),
+            "success": False,
+            "error": str(exc),
+        }
+
+        write_json_file(
+            R36F159_DEMO_JOURNAL_FILE,
+            ambiguous,
+        )
+
+        return {
+            "attempted": True,
+            "sent": True,
+            "accepted": False,
+            "reason": "R36F159_DEMO_POST_AMBIGUOUS",
+            "error": str(exc),
+            "journal": ambiguous,
+        }
+
+    response_data = (
+        response.get(
+            "response"
+        )
+        if isinstance(
+            response,
+            dict,
+        )
+        else {}
+    )
+
+    if not isinstance(
+        response_data,
+        dict,
+    ):
+        response_data = {}
+
+    response_code = str(
+        response_data.get(
+            "code"
+        )
+        or ""
+    ).strip()
+
+    response_message = str(
+        response_data.get(
+            "msg"
+        )
+        or response_data.get(
+            "message"
+        )
+        or ""
+    ).strip()
+
+    response_data_body = (
+        response_data.get(
+            "data"
+        )
+        if isinstance(
+            response_data.get(
+                "data"
+            ),
+            dict,
+        )
+        else {}
+    )
+
+    response_order_id = str(
+        response_data_body.get(
+            "orderId"
+        )
+        or response_data.get(
+            "orderId"
+        )
+        or ""
+    ).strip()
+
+    response_client_id = str(
+        response_data_body.get(
+            "clientOrderId"
+        )
+        or response_data.get(
+            "clientOrderId"
+        )
+        or client_order_id
+    ).strip()
+
+    accepted = bool(
+        response_order_id
+        or response_code
+        in {
+            "0",
+            "00000",
+            "200",
+        }
+    )
+
+    if accepted:
+        completed = {
+            **prepared,
+            "state": "COMPLETED",
+            "updated_at": now_iso(),
+            "success": True,
+            "order_id": response_order_id,
+            "client_order_id_response": response_client_id,
+            "response_code": response_code,
+            "response_message": response_message,
+            "response": response_data,
+        }
+
+        write_json_file(
+            R36F159_DEMO_JOURNAL_FILE,
+            completed,
+        )
+
+        return {
+            "attempted": True,
+            "sent": True,
+            "accepted": True,
+            "reason": "R36F159_SECOND_DEMO_ACCEPTED",
+            "order_id": response_order_id,
+            "client_order_id": response_client_id,
+            "journal": completed,
+            "response": response,
+        }
+
+    rejected = {
+        **prepared,
+        "state": "REJECTED",
+        "updated_at": now_iso(),
+        "success": False,
+        "response_code": response_code,
+        "response_message": response_message,
+        "response": response_data,
+    }
+
+    write_json_file(
+        R36F159_DEMO_JOURNAL_FILE,
+        rejected,
+    )
+
+    return {
+        "attempted": True,
+        "sent": True,
+        "accepted": False,
+        "reason": "R36F159_SECOND_DEMO_REJECTED",
+        "journal": rejected,
+        "response": response,
+    }
+
+
+def ema_series(
+    values,
+    period,
+):
+    values = [
+        D(value)
+        for value in values
+    ]
+
+    if not values:
+        return []
+
+    alpha = (
+        D("2")
+        / D(
+            period + 1
+        )
+    )
+
+    result = [
+        values[0]
+    ]
+
+    for value in values[1:]:
+        previous = result[-1]
+
+        current = (
+            (
+                value
+                * alpha
+            )
+            + (
+                previous
+                * (
+                    D("1")
+                    - alpha
+                )
+            )
+        )
+
+        result.append(
+            current
+        )
+
+    return result
+
+
+def calculate_ema_signal(
+    candles,
+):
+    if not candles:
+        return {
+            "valid": False,
+            "reason": "NO_CANDLES",
+            "direction": None,
+        }
+
+    closes = []
+
+    for candle in candles:
+        try:
+            closes.append(
+                D(
+                    candle[
+                        "close"
+                    ]
+                )
+            )
+
+        except Exception:
+            continue
+
+    if len(closes) < EMA_SLOW:
+        return {
+            "valid": False,
+            "reason": "INSUFFICIENT_EMA_HISTORY",
+            "direction": None,
+            "candle_count": len(
+                closes
+            ),
+        }
+
+    fast_series = ema_series(
+        closes,
+        EMA_FAST,
+    )
+
+    mid_series = ema_series(
+        closes,
+        EMA_MID,
+    )
+
+    slow_series = ema_series(
+        closes,
+        EMA_SLOW,
+    )
+
+    ema_fast = fast_series[-1]
+    ema_mid = mid_series[-1]
+    ema_slow = slow_series[-1]
+
+    separation = D("0")
+
+    if ema_mid > 0:
+        separation = (
+            abs(
+                ema_fast
+                - ema_mid
+            )
+            / ema_mid
+            * D("100")
+        )
+
+    direction = None
+
+    if (
+        ema_fast
+        > ema_mid
+        > ema_slow
+        and separation
+        >= MIN_EMA_19_50_SEPARATION_PERCENT
+    ):
+        direction = "LONG"
+
+    elif (
+        ema_fast
+        < ema_mid
+        < ema_slow
+        and separation
+        >= MIN_EMA_19_50_SEPARATION_PERCENT
+    ):
+        direction = "SHORT"
+
+    return {
+        "valid": True,
+        "reason": (
+            "EMA_DIRECTION_AVAILABLE"
+            if direction
+            else "EMA_DIRECTION_NOT_CONFIRMED"
+        ),
+        "direction": direction,
+        "ema19": decimal_to_string(
+            ema_fast
+        ),
+        "ema50": decimal_to_string(
+            ema_mid
+        ),
+        "ema200": decimal_to_string(
+            ema_slow
+        ),
+        "ema19_50_separation_percent":
+            decimal_to_string(
+                separation
+            ),
+        "candle_count": len(
+            closes
+        ),
+    }
+
+
+def build_telegram_command_preview(
+    ema_snapshot,
+    long_diagnostics,
+    short_diagnostics,
+):
+    direction = (
+        ema_snapshot.get(
+            "direction"
+        )
+        if isinstance(
+            ema_snapshot,
+            dict,
+        )
+        else None
+    )
+
+    if direction == "LONG":
+        command = TELEGRAM_BUY_COMMAND
+        diagnostics = (
+            long_diagnostics
+            if isinstance(
+                long_diagnostics,
+                dict,
+            )
+            else {}
+        )
+
+    elif direction == "SHORT":
+        command = TELEGRAM_SELL_COMMAND
+        diagnostics = (
+            short_diagnostics
+            if isinstance(
+                short_diagnostics,
+                dict,
+            )
+            else {}
+        )
+
+    else:
+        return {
+            "authorized_preview": False,
+            "reason": "EMA_DIRECTION_NOT_AVAILABLE",
+            "direction": None,
+            "command": None,
+        }
+
+    market_eligible = bool(
+        diagnostics.get(
+            "market_eligible",
+            False,
+        )
+    )
+
+    return {
+        "authorized_preview":
+            market_eligible,
+        "reason": (
+            "EMA_AND_TP_MARKET_ELIGIBLE"
+            if market_eligible
+            else "TP_MARKET_NOT_ELIGIBLE"
+        ),
+        "direction": direction,
+        "command": command,
+    }
+
+
+def normalize_candle_row(
+    row,
+):
+    if isinstance(
+        row,
+        dict,
+    ):
+        timestamp = (
+            row.get("timestamp")
+            or row.get("time")
+            or row.get("ts")
+            or row.get("openTime")
+        )
+
+        open_price = (
+            row.get("open")
+            or row.get("o")
+        )
+
+        high_price = (
+            row.get("high")
+            or row.get("h")
+        )
+
+        low_price = (
+            row.get("low")
+            or row.get("l")
+        )
+
+        close_price = (
+            row.get("close")
+            or row.get("c")
+        )
+
+    elif (
+        isinstance(
+            row,
+            (list, tuple),
+        )
+        and len(row) >= 5
+    ):
+        timestamp = row[0]
+        open_price = row[1]
+        high_price = row[2]
+        low_price = row[3]
+        close_price = row[4]
+
+    else:
+        return None
+
+    try:
+        timestamp = int(
+            D(timestamp)
+        )
+
+        return {
+            "timestamp": timestamp,
+            "open": D(
+                open_price
+            ),
+            "high": D(
+                high_price
+            ),
+            "low": D(
+                low_price
+            ),
+            "close": D(
+                close_price
+            ),
+        }
+
+    except Exception:
+        return None
+
+
+def extract_candle_rows(
+    data,
+):
+    if isinstance(
+        data,
+        list,
+    ):
+        return data
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+        return []
+
+    for key in (
+        "data",
+        "list",
+        "rows",
+        "candles",
+        "result",
+    ):
+        value = data.get(
+            key
+        )
+
+        if isinstance(
+            value,
+            list,
+        ):
+            return value
+
+        if isinstance(
+            value,
+            dict,
+        ):
+            for nested_key in (
+                "data",
+                "list",
+                "rows",
+                "candles",
+            ):
+                nested = value.get(
+                    nested_key
+                )
+
+                if isinstance(
+                    nested,
+                    list,
+                ):
+                    return nested
+
+    return []
+
+
+async def load_historical_candles():
+    all_rows = []
+
+    end_time = None
+
+    for page in range(
+        MAX_HISTORICAL_PAGES
+    ):
+        params = {
+            "symbol":
+                PUBLIC_TICKER_SYMBOL,
+            "interval":
+                KLINE_INTERVAL,
+            "limit":
+                HISTORICAL_LIMIT,
+        }
+
+        if end_time is not None:
+            params[
+                "endTime"
+            ] = end_time
+
+        data = await weex_get(
+            "/capi/v2/market/candles",
+            params=params,
+            authenticated=False,
+        )
+
+        rows = extract_candle_rows(
+            data
+        )
+
+        if not rows:
+            break
+
+        normalized = []
+
+        for row in rows:
+            candle = (
+                normalize_candle_row(
+                    row
+                )
+            )
+
+            if candle is not None:
+                normalized.append(
+                    candle
+                )
+
+        if not normalized:
+            break
+
+        all_rows.extend(
+            normalized
+        )
+
+        oldest_timestamp = min(
+            candle[
+                "timestamp"
+            ]
+            for candle in normalized
+        )
+
+        end_time = (
+            oldest_timestamp
+            - 1
+        )
+
+        if len(
+            normalized
+        ) < HISTORICAL_LIMIT:
+            break
+
+    unique = {}
+
+    for candle in all_rows:
+        unique[
+            candle["timestamp"]
+        ] = candle
+
+    candles = sorted(
+        unique.values(),
+        key=lambda item:
+            item["timestamp"],
+    )
+
+    return candles
+
+
+async def load_mark_price():
+    data = await weex_get(
+        "/capi/v2/market/ticker",
+        params={
+            "symbol":
+                PUBLIC_TICKER_SYMBOL,
+        },
+        authenticated=False,
+    )
+
+    candidates = []
+
+    if isinstance(
+        data,
+        dict,
+    ):
+        candidates.append(
+            data
+        )
+
+        nested = data.get(
+            "data"
+        )
+
+        if isinstance(
+            nested,
+            dict,
+        ):
+            candidates.append(
+                nested
+            )
+
+        elif isinstance(
+            nested,
+            list,
+        ):
+            candidates.extend(
+                item
+                for item in nested
+                if isinstance(
+                    item,
+                    dict,
+                )
+            )
+
+    elif isinstance(
+        data,
+        list,
+    ):
+        candidates.extend(
+            item
+            for item in data
+            if isinstance(
+                item,
+                dict,
+            )
+        )
+
+    for item in candidates:
+        for key in (
+            "markPrice",
+            "mark_price",
+            "last",
+            "lastPrice",
+            "close",
+        ):
+            value = item.get(
+                key
+            )
+
+            if value is None:
+                continue
+
+            try:
+                price = D(
+                    value
+                )
+
+                if price > 0:
+                    return price
+
+            except Exception:
+                continue
+
+    raise RuntimeError(
+        "Unable to extract WEEX mark price"
+    )
+
+
+def cluster_prices(
+    prices,
+):
+    values = sorted(
+        D(value)
+        for value in prices
+        if D(value) > 0
+    )
+
+    if not values:
+        return []
+
+    tolerance_fraction = (
+        CLUSTER_TOLERANCE_PERCENT
+        / D("100")
+    )
+
+    clusters = []
+
+    for price in values:
+        placed = False
+
+        for cluster in clusters:
+            average = (
+                sum(
+                    cluster
+                )
+                / D(
+                    len(cluster)
+                )
+            )
+
+            if average <= 0:
+                continue
+
+            difference = (
+                abs(
+                    price
+                    - average
+                )
+                / average
+            )
+
+            if (
+                difference
+                <= tolerance_fraction
+            ):
+                cluster.append(
+                    price
+                )
+
+                placed = True
+                break
+
+        if not placed:
+            clusters.append(
+                [price]
+            )
+
+    results = []
+
+    for cluster in clusters:
+        average = (
+            sum(
+                cluster
+            )
+            / D(
+                len(cluster)
+            )
+        )
+
+        results.append(
+            {
+                "average": average,
+                "touches": len(
+                    cluster
+                ),
+                "minimum": min(
+                    cluster
+                ),
+                "maximum": max(
+                    cluster
+                ),
+            }
+        )
+
+    return results
+
+
+def calculate_tp_diagnostics(
+    direction,
+    mark_price,
+    candles,
+):
+    direction = str(
+        direction
+        or ""
+    ).strip().upper()
+
+    mark_price = D(
+        mark_price
+    )
+
+    if direction not in {
+        "LONG",
+        "SHORT",
+    }:
+        return {
+            "market_eligible": False,
+            "reason": "INVALID_DIRECTION",
+            "valid_clusters": [],
+        }
+
+    if mark_price <= 0:
+        return {
+            "market_eligible": False,
+            "reason": "INVALID_MARK_PRICE",
+            "valid_clusters": [],
+        }
+
+    candidate_prices = []
+
+    for candle in candles:
+        try:
+            if direction == "LONG":
+                candidate = D(
+                    candle[
+                        "high"
+                    ]
+                )
+
+                if candidate > mark_price:
+                    candidate_prices.append(
+                        candidate
+                    )
+
+            else:
+                candidate = D(
+                    candle[
+                        "low"
+                    ]
+                )
+
+                if candidate < mark_price:
+                    candidate_prices.append(
+                        candidate
+                    )
+
+        except Exception:
+            continue
+
+    clusters = cluster_prices(
+        candidate_prices
+    )
+
+    valid_clusters = [
+        cluster
+        for cluster in clusters
+        if cluster[
+            "touches"
+        ] >= MIN_CLUSTER_TOUCHES
+    ]
+
+    if direction == "LONG":
+        valid_clusters = sorted(
+            valid_clusters,
+            key=lambda item:
+                item["average"],
+        )
+
+    else:
+        valid_clusters = sorted(
+            valid_clusters,
+            key=lambda item:
+                item["average"],
+            reverse=True,
+        )
+
+    market_eligible = (
+        len(
+            valid_clusters
+        )
+        >= REQUIRED_TP_CLUSTERS
+    )
+
+    return {
+        "market_eligible":
+            market_eligible,
+        "reason": (
+            "ENOUGH_VALID_CLUSTERS"
+            if market_eligible
+            else "ONLY_"
+            + str(
+                len(
+                    valid_clusters
+                )
+            )
+            + "_VALID_CLUSTER"
+        ),
+        "valid_clusters":
+            valid_clusters,
+        "valid_cluster_count":
+            len(
+                valid_clusters
+            ),
+    }
+
+
+def select_tp_snapshot(
+    direction,
+    diagnostics,
+):
+    diagnostics = (
+        diagnostics
+        if isinstance(
+            diagnostics,
+            dict,
+        )
+        else {}
+    )
+
+    valid_clusters = (
+        diagnostics.get(
+            "valid_clusters"
+        )
+        or []
+    )
+
+    if len(
+        valid_clusters
+    ) < 2:
+        return {
+            "valid": False,
+            "reason":
+                "INSUFFICIENT_VALID_CLUSTERS",
+            "direction":
+                direction,
+        }
+
+    tp1 = quantize_down(
+        valid_clusters[0][
+            "average"
+        ],
+        PRICE_STEP,
+    )
+
+    tp2 = quantize_down(
+        valid_clusters[1][
+            "average"
+        ],
+        PRICE_STEP,
+    )
+
+    return {
+        "valid": True,
+        "reason":
+            "TWO_CLUSTER_TP_SELECTED",
+        "direction":
+            direction,
+        "tp1": tp1,
+        "tp2": tp2,
+        "tp3_mode":
+            "TRAILING_RUNNER",
+        "tp3_trailing_distance_percent":
+            TP3_TRAILING_DISTANCE_PERCENT,
+    }
+
+
+def calculate_entry_quantity(
+    available_balance,
+    mark_price,
+    leverage,
+):
+    available_balance = D(
+        available_balance
+    )
+
+    mark_price = D(
+        mark_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    if (
+        available_balance <= 0
+        or mark_price <= 0
+        or leverage <= 0
+    ):
+        return D("0")
+
+    margin = (
+        available_balance
+        * ENTRY_MARGIN_PERCENT
+        / D("100")
+    )
+
+    notional = (
+        margin
+        * leverage
+    )
+
+    raw_quantity = (
+        notional
+        / mark_price
+    )
+
+    return quantize_down(
+        raw_quantity,
+        QUANTITY_STEP,
+    )
+
+
+def calculate_protective_stop(
+    direction,
+    mark_price,
+):
+    direction = str(
+        direction
+        or ""
+    ).strip().upper()
+
+    mark_price = D(
+        mark_price
+    )
+
+    distance_fraction = (
+        R36F13_PROTECTIVE_STOP_DISTANCE_PERCENT
+        / D("100")
+    )
+
+    if direction == "LONG":
+        raw_stop = (
+            mark_price
+            * (
+                D("1")
+                - distance_fraction
+            )
+        )
+
+    elif direction == "SHORT":
+        raw_stop = (
+            mark_price
+            * (
+                D("1")
+                + distance_fraction
+            )
+        )
+
+    else:
+        raise ValueError(
+            "Invalid protective stop direction"
+        )
+
+    return quantize_down(
+        raw_stop,
+        PRICE_STEP,
+    )
+
+
+def calculate_stop_distance_percent(
+    direction,
+    mark_price,
+    stop_price,
+):
+    direction = str(
+        direction
+        or ""
+    ).strip().upper()
+
+    mark_price = D(
+        mark_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    if mark_price <= 0:
+        return D("0")
+
+    if direction == "LONG":
+        distance = (
+            mark_price
+            - stop_price
+        )
+
+    elif direction == "SHORT":
+        distance = (
+            stop_price
+            - mark_price
+        )
+
+    else:
+        return D("0")
+
+    if distance < 0:
+        return D("0")
+
+    return (
+        distance
+        / mark_price
+        * D("100")
+    )
+
+
+def build_stop_risk_preview(
+    direction,
+    mark_price,
+    stop_price,
+):
+    distance_percent = (
+        calculate_stop_distance_percent(
+            direction,
+            mark_price,
+            stop_price,
+        )
+    )
+
+    within_envelope = (
+        distance_percent
+        > 0
+        and distance_percent
+        <= R36F131_MAX_PROTECTIVE_STOP_DISTANCE_PERCENT
+    )
+
+    return {
+        "valid":
+            within_envelope,
+        "reason": (
+            "STOP_WITHIN_RISK_ENVELOPE"
+            if within_envelope
+            else "STOP_OUTSIDE_RISK_ENVELOPE"
+        ),
+        "distance_percent":
+            distance_percent,
+        "maximum_distance_percent":
+            R36F131_MAX_PROTECTIVE_STOP_DISTANCE_PERCENT,
+    }
+
+
+def build_stop_loss_budget_preview(
+    available_balance,
+    quantity,
+    mark_price,
+    stop_price,
+):
+    available_balance = D(
+        available_balance
+    )
+
+    quantity = D(
+        quantity
+    )
+
+    mark_price = D(
+        mark_price
+    )
+
+    stop_price = D(
+        stop_price
+    )
+
+    loss_per_unit = abs(
+        mark_price
+        - stop_price
+    )
+
+    estimated_loss = (
+        loss_per_unit
+        * quantity
+    )
+
+    maximum_loss = (
+        available_balance
+        * R36F132_MAX_ACCOUNT_LOSS_PERCENT
+        / D("100")
+    )
+
+    valid = (
+        estimated_loss
+        > 0
+        and maximum_loss
+        > 0
+        and estimated_loss
+        <= maximum_loss
+    )
+
+    return {
+        "valid": valid,
+        "reason": (
+            "STOP_LOSS_WITHIN_ACCOUNT_BUDGET"
+            if valid
+            else "STOP_LOSS_EXCEEDS_ACCOUNT_BUDGET"
+        ),
+        "estimated_loss":
+            estimated_loss,
+        "maximum_loss":
+            maximum_loss,
+    }
+
+
+def allocate_tp_quantities(
+    total_quantity,
+):
+    total_quantity = D(
+        total_quantity
+    )
+
+    if total_quantity <= 0:
+        return {
+            "valid": False,
+            "reason":
+                "NON_POSITIVE_TOTAL_QUANTITY",
+        }
+
+    tp1_quantity = quantize_down(
+        total_quantity
+        * TP1_ALLOCATION_PERCENT
+        / D("100"),
+        QUANTITY_STEP,
+    )
+
+    tp2_quantity = quantize_down(
+        total_quantity
+        * TP2_ALLOCATION_PERCENT
+        / D("100"),
+        QUANTITY_STEP,
+    )
+
+    tp3_quantity = (
+        total_quantity
+        - tp1_quantity
+        - tp2_quantity
+    )
+
+    tp3_quantity = quantize_down(
+        tp3_quantity,
+        QUANTITY_STEP,
+    )
+
+    valid = all(
+        quantity >= MIN_QUANTITY
+        for quantity in (
+            tp1_quantity,
+            tp2_quantity,
+            tp3_quantity,
+        )
+    )
+
+    return {
+        "valid": valid,
+        "reason": (
+            "TP_QUANTITIES_REPRESENTABLE"
+            if valid
+            else "TP_QUANTITIES_BELOW_EXCHANGE_MINIMUM"
+        ),
+        "tp1_quantity":
+            tp1_quantity,
+        "tp2_quantity":
+            tp2_quantity,
+        "tp3_quantity":
+            tp3_quantity,
+    }
+
+
+async def load_available_demo_balance():
+    data = await weex_get(
+        R36F14_DEMO_BALANCE_ENDPOINT,
+        authenticated=True,
+    )
+
+    rows = []
+
+    if isinstance(
+        data,
+        list,
+    ):
+        rows = data
+
+    elif isinstance(
+        data,
+        dict,
+    ):
+        nested = data.get(
+            "data"
+        )
+
+        if isinstance(
+            nested,
+            list,
+        ):
+            rows = nested
+
+        elif isinstance(
+            nested,
+            dict,
+        ):
+            rows = [
+                nested
+            ]
+
+        else:
+            rows = [
+                data
+            ]
+
+    for row in rows:
+        if not isinstance(
+            row,
+            dict,
+        ):
+            continue
+
+        asset = str(
+            row.get(
+                "asset"
+            )
+            or row.get(
+                "marginCoin"
+            )
+            or row.get(
+                "coin"
+            )
+            or ""
+        ).strip().upper()
+
+        if (
+            asset
+            and asset
+            != R36F14_DEMO_ASSET
+        ):
+            continue
+
+        for key in (
+            "availableBalance",
+            "available",
+            "availableMargin",
+            "balance",
+        ):
+            value = row.get(
+                key
+            )
+
+            if value is None:
+                continue
+
+            try:
+                balance = D(
+                    value
+                )
+
+                if balance >= 0:
+                    return balance
+
+            except Exception:
+                continue
+
+    raise RuntimeError(
+        "Unable to extract WEEX demo available balance"
+    )
+
+
+def build_market_snapshot(
+    mark_price,
+    candles,
+):
+    ema_snapshot = (
+        calculate_ema_signal(
+            candles
+        )
+    )
+
+    long_diagnostics = (
+        calculate_tp_diagnostics(
+            "LONG",
+            mark_price,
+            candles,
+        )
+    )
+
+    short_diagnostics = (
+        calculate_tp_diagnostics(
+            "SHORT",
+            mark_price,
+            candles,
+        )
+    )
+
+    command_preview = (
+        build_telegram_command_preview(
+            ema_snapshot,
+            long_diagnostics,
+            short_diagnostics,
+        )
+    )
+
+    return {
+        "mark_price":
+            mark_price,
+        "ema_snapshot":
+            ema_snapshot,
+        "long_diagnostics":
+            long_diagnostics,
+        "short_diagnostics":
+            short_diagnostics,
+        "command_preview":
+            command_preview,
+    }
+
+
+def select_direction_snapshot(
+    direction,
+    long_diagnostics,
+    short_diagnostics,
+):
+    direction = str(
+        direction
+        or ""
+    ).strip().upper()
+
+    if direction == "LONG":
+        diagnostics = (
+            long_diagnostics
+        )
+
+    elif direction == "SHORT":
+        diagnostics = (
+            short_diagnostics
+        )
+
+    else:
+        return {
+            "valid": False,
+            "reason":
+                "INVALID_SELECTED_DIRECTION",
+            "direction":
+                direction,
+        }
+
+    return select_tp_snapshot(
+        direction,
+        diagnostics,
+    )
+
+
+def build_entry_authorization_preview(
+    direction,
+    available_balance,
+    mark_price,
+    selected_snapshot,
+):
+    direction = str(
+        direction
+        or ""
+    ).strip().upper()
+
+    leverage = (
+        LEVERAGE_LONG
+        if direction == "LONG"
+        else LEVERAGE_SHORT
+    )
+
+    quantity = (
+        calculate_entry_quantity(
+            available_balance,
+            mark_price,
+            leverage,
+        )
+    )
+
+    if quantity < MIN_QUANTITY:
+        return {
+            "valid": False,
+            "reason":
+                "ENTRY_QUANTITY_BELOW_MINIMUM",
+            "direction":
+                direction,
+            "quantity":
+                quantity,
+        }
+
+    allocation = (
+        allocate_tp_quantities(
+            quantity
+        )
+    )
+
+    if not allocation.get(
+        "valid"
+    ):
+        return {
+            "valid": False,
+            "reason":
+                allocation.get(
+                    "reason"
+                ),
+            "direction":
+                direction,
+            "quantity":
+                quantity,
+            "allocation":
+                allocation,
+        }
+
+    stop_price = (
+        calculate_protective_stop(
+            direction,
+            mark_price,
+        )
+    )
+
+    risk_preview = (
+        build_stop_risk_preview(
+            direction,
+            mark_price,
+            stop_price,
+        )
+    )
+
+    if not risk_preview.get(
+        "valid"
+    ):
+        return {
+            "valid": False,
+            "reason":
+                risk_preview.get(
+                    "reason"
+                ),
+            "direction":
+                direction,
+            "quantity":
+                quantity,
+            "stop_price":
+                stop_price,
+            "risk_preview":
+                risk_preview,
+        }
+
+    budget_preview = (
+        build_stop_loss_budget_preview(
+            available_balance,
+            quantity,
+            mark_price,
+            stop_price,
+        )
+    )
+
+    if not budget_preview.get(
+        "valid"
+    ):
+        return {
+            "valid": False,
+            "reason":
+                budget_preview.get(
+                    "reason"
+                ),
+            "direction":
+                direction,
+            "quantity":
+                quantity,
+            "stop_price":
+                stop_price,
+            "risk_preview":
+                risk_preview,
+            "budget_preview":
+                budget_preview,
+        }
+
+    if not (
+        isinstance(
+            selected_snapshot,
+            dict,
+        )
+        and selected_snapshot.get(
+            "valid"
+        )
+    ):
+        return {
+            "valid": False,
+            "reason":
+                "SELECTED_TP_SNAPSHOT_INVALID",
+            "direction":
+                direction,
+            "quantity":
+                quantity,
+        }
+
+    return {
+        "valid": True,
+        "reason":
+            "ENTRY_AUTHORIZATION_PREVIEW_VALID",
+        "direction":
+            direction,
+        "quantity":
+            quantity,
+        "mark_price":
+            mark_price,
+        "leverage":
+            leverage,
+        "stop_price":
+            stop_price,
+        "tp1":
+            selected_snapshot.get(
+                "tp1"
+            ),
+        "tp2":
+            selected_snapshot.get(
+                "tp2"
+            ),
+        "tp3_mode":
+            selected_snapshot.get(
+                "tp3_mode"
+            ),
+        "allocation":
+            allocation,
+        "risk_preview":
+            risk_preview,
+        "budget_preview":
+            budget_preview,
+    }
+
+
+def build_demo_payload(
+    authorization_preview,
+):
+    preview = (
+        authorization_preview
+        if isinstance(
+            authorization_preview,
+            dict,
+        )
+        else {}
+    )
+
+    if not preview.get(
+        "valid"
+    ):
+        return {
+            "valid": False,
+            "reason":
+                "AUTHORIZATION_PREVIEW_INVALID",
+            "payload": None,
+        }
+
+    direction = str(
+        preview.get(
+            "direction"
+        )
+        or ""
+    ).strip().upper()
+
+    side = (
+        "BUY"
+        if direction == "LONG"
+        else "SELL"
+        if direction == "SHORT"
+        else ""
+    )
+
+    if not side:
+        return {
+            "valid": False,
+            "reason":
+                "INVALID_DIRECTION",
+            "payload": None,
+        }
+
+    payload = {
+        "symbol":
+            R36F14_DEMO_SYMBOL,
+        "side":
+            side,
+        "positionSide":
+            direction,
+        "type":
+            "MARKET",
+        "quantity":
+            decimal_to_string(
+                preview.get(
+                    "quantity"
+                )
+            ),
+        "tpTriggerPrice":
+            decimal_to_string(
+                preview.get(
+                    "tp1"
+                )
+            ),
+        "slTriggerPrice":
+            decimal_to_string(
+                preview.get(
+                    "stop_price"
+                )
+            ),
+        "TpWorkingType":
+            "MARK_PRICE",
+        "SlWorkingType":
+            "MARK_PRICE",
+    }
+
+    return {
+        "valid": True,
+        "reason":
+            "DEMO_PAYLOAD_BUILT",
+        "payload":
+            payload,
+    }
+
+
+async def build_fresh_demo_preview():
+    mark_price = (
+        await load_mark_price()
+    )
+
+    candles = (
+        await load_historical_candles()
+    )
+
+    available_balance = (
+        await load_available_demo_balance()
+    )
+
+    market_snapshot = (
+        build_market_snapshot(
+            mark_price,
+            candles,
+        )
+    )
+
+    command_preview = (
+        market_snapshot.get(
+            "command_preview"
+        )
+        or {}
+    )
+
+    direction = (
+        command_preview.get(
+            "direction"
+        )
+    )
+
+    if not command_preview.get(
+        "authorized_preview"
+    ):
+        return {
+            "valid": False,
+            "reason":
+                command_preview.get(
+                    "reason",
+                    "COMMAND_NOT_AUTHORIZED",
+                ),
+            "market_snapshot":
+                market_snapshot,
+            "command_preview":
+                command_preview,
+        }
+
+    selected_snapshot = (
+        select_direction_snapshot(
+            direction,
+            market_snapshot.get(
+                "long_diagnostics",
+                {},
+            ),
+            market_snapshot.get(
+                "short_diagnostics",
+                {},
+            ),
+        )
+    )
+
+    authorization_preview = (
+        build_entry_authorization_preview(
+            direction,
+            available_balance,
+            mark_price,
+            selected_snapshot,
+        )
+    )
+
+    if not authorization_preview.get(
+        "valid"
+    ):
+        return {
+            "valid": False,
+            "reason":
+                authorization_preview.get(
+                    "reason"
+                ),
+            "market_snapshot":
+                market_snapshot,
+            "command_preview":
+                command_preview,
+            "selected_snapshot":
+                selected_snapshot,
+            "authorization_preview":
+                authorization_preview,
+        }
+
+    demo_preview = (
+        build_demo_payload(
+            authorization_preview
+        )
+    )
+
+    return {
+        "valid":
+            bool(
+                demo_preview.get(
+                    "valid"
+                )
+            ),
+        "reason":
+            demo_preview.get(
+                "reason"
+            ),
+        "market_snapshot":
+            market_snapshot,
+        "command_preview":
+            command_preview,
+        "selected_snapshot":
+            selected_snapshot,
+        "authorization_preview":
+            authorization_preview,
+        "payload":
+            demo_preview.get(
+                "payload"
+            ),
+    }
+
+
+async def r36f151_runtime_cycle():
+    global MARK_PRICE
+    global AVAILABLE_BALANCE
+    global LONG_DIAGNOSTICS
+    global SHORT_DIAGNOSTICS
+    global EMA_SIGNAL_SNAPSHOT
+    global TELEGRAM_COMMAND_PREVIEW
+
+    line()
+
+    log(
+        "R36F.15.1 FRESH MARKET REEVALUATION START"
+    )
+
+    try:
+        MARK_PRICE = (
+            await load_mark_price()
+        )
+
+        candles = (
+            await load_historical_candles()
+        )
+
+        AVAILABLE_BALANCE = (
+            await load_available_demo_balance()
+        )
+
+    except Exception as exc:
+        log(
+            "R36F.15.1 MARKET/ACCOUNT REFRESH FAILED = "
+            + str(exc)
+        )
+
+        return {
+            "valid": False,
+            "reason":
+                "MARKET_ACCOUNT_REFRESH_FAILED",
+            "error":
+                str(exc),
+        }
+
+    market_snapshot = (
+        build_market_snapshot(
+            MARK_PRICE,
+            candles,
+        )
+    )
+
+    EMA_SIGNAL_SNAPSHOT = (
+        market_snapshot.get(
+            "ema_snapshot"
+        )
+        or {}
+    )
+
+    LONG_DIAGNOSTICS = (
+        market_snapshot.get(
+            "long_diagnostics"
+        )
+        or {}
+    )
+
+    SHORT_DIAGNOSTICS = (
+        market_snapshot.get(
+            "short_diagnostics"
+        )
+        or {}
+    )
+
+    TELEGRAM_COMMAND_PREVIEW = (
+        market_snapshot.get(
+            "command_preview"
+        )
+        or {}
+    )
+
+    log(
+        "R36F.15.1 MARK PRICE = "
+        + decimal_to_string(
+            MARK_PRICE
+        )
+    )
+
+    log(
+        "R36F.15.1 AVAILABLE BALANCE = "
+        + decimal_to_string(
+            AVAILABLE_BALANCE
+        )
+    )
+
+    log(
+        "R36F.15.1 EMA SNAPSHOT = "
+        + canonical_json(
+            EMA_SIGNAL_SNAPSHOT
+        )
+    )
+
+    log(
+        "R36F.15.1 LONG VALID CLUSTERS = "
+        + str(
+            LONG_DIAGNOSTICS.get(
+                "valid_cluster_count",
+                0,
+            )
+        )
+    )
+
+    log(
+        "R36F.15.1 SHORT VALID CLUSTERS = "
+        + str(
+            SHORT_DIAGNOSTICS.get(
+                "valid_cluster_count",
+                0,
+            )
+        )
+    )
+
+    log(
+        "R36F.15.1 TELEGRAM COMMAND PREVIEW = "
+        + canonical_json(
+            TELEGRAM_COMMAND_PREVIEW
+        )
+    )
+
+    direction = (
+        TELEGRAM_COMMAND_PREVIEW.get(
+            "direction"
+        )
+    )
+
+    if not TELEGRAM_COMMAND_PREVIEW.get(
+        "authorized_preview"
+    ):
+        log(
+            "R36F.15.1 TRADE NOT ELIGIBLE = "
+            + str(
+                TELEGRAM_COMMAND_PREVIEW.get(
+                    "reason"
+                )
+            )
+        )
+
+        return {
+            "valid": False,
+            "reason":
+                "TRADE_NOT_ELIGIBLE",
+            "market_snapshot":
+                market_snapshot,
+        }
+
+    selected_snapshot = (
+        select_direction_snapshot(
+            direction,
+            LONG_DIAGNOSTICS,
+            SHORT_DIAGNOSTICS,
+        )
+    )
+
+    if not selected_snapshot.get(
+        "valid"
+    ):
+        log(
+            "R36F.15.1 SELECTED TP SNAPSHOT INVALID"
+        )
+
+        return {
+            "valid": False,
+            "reason":
+                "SELECTED_TP_SNAPSHOT_INVALID",
+            "selected_snapshot":
+                selected_snapshot,
+        }
+
+    authorization_preview = (
+        build_entry_authorization_preview(
+            direction,
+            AVAILABLE_BALANCE,
+            MARK_PRICE,
+            selected_snapshot,
+        )
+    )
+
+    if not authorization_preview.get(
+        "valid"
+    ):
+        log(
+            "R36F.15.1 ENTRY AUTHORIZATION NOT ELIGIBLE = "
+            + str(
+                authorization_preview.get(
+                    "reason"
+                )
+            )
+        )
+
+        return {
+            "valid": False,
+            "reason":
+                "TRADE_NOT_ELIGIBLE",
+            "authorization_preview":
+                authorization_preview,
+        }
+
+    demo_preview = (
+        build_demo_payload(
+            authorization_preview
+        )
+    )
+
+    if not demo_preview.get(
+        "valid"
+    ):
+        log(
+            "R36F.15.1 DEMO PREVIEW BUILD FAILED"
+        )
+
+        return {
+            "valid": False,
+            "reason":
+                "DEMO_PREVIEW_BUILD_FAILED",
+            "demo_preview":
+                demo_preview,
+        }
+
+    result = (
+        await submit_r36f15_demo_order(
+            demo_preview,
+            TELEGRAM_COMMAND_PREVIEW,
+        )
+    )
+
+    log(
+        "R36F.15.1 DEMO RESULT = "
+        + canonical_json(
+            result
+        )
+    )
+
+    return {
+        "valid": True,
+        "reason":
+            "RUNTIME_CYCLE_COMPLETED",
+        "result":
+            result,
+        "selected_snapshot":
+            selected_snapshot,
+        "authorization_preview":
+            authorization_preview,
+        "demo_preview":
+            demo_preview,
+    }
+
+
+async def r36f151_runtime_loop():
+    while True:
+        try:
+            await r36f151_runtime_cycle()
+
+        except Exception as exc:
+            log(
+                "R36F.15.1 RUNTIME LOOP ERROR = "
+                + str(exc)
+            )
+
+        await asyncio.sleep(
+            R36F151_REEVALUATION_SECONDS
+        )
+
+
+# ============================================================
+# R1.8 CORRECTED MAIN.PY — PART 2 END
+# ============================================================
