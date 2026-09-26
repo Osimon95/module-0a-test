@@ -5153,3 +5153,1003 @@ async def r36f151_runtime_loop():
 # ============================================================
 # R1.8 CORRECTED MAIN.PY — PART 2 END
 # ============================================================
++ str(
+            r181_old_command_token
+            == r181_new_command_token
+        )
+    )
+
+    log(
+        "R1.8.1 OPEN DEMO ORDERS = "
+        + str(
+            exposure.get(
+                "open_demo_orders",
+                exposure.get(
+                    "open_orders",
+                    "UNKNOWN",
+                ),
+            )
+        )
+    )
+
+    log(
+        "R1.8.1 ACTIVE DEMO POSITIONS = "
+        + str(
+            exposure.get(
+                "active_demo_positions",
+                exposure.get(
+                    "active_positions",
+                    "UNKNOWN",
+                ),
+            )
+        )
+    )
+
+    log(
+        "R1.8.1 DUPLICATE CONDITION RESULT = "
+        + str(r181_candidate_exists)
+    )
+
+    log(
+        "R1.8.1 READ-ONLY DIAGNOSTIC COMPLETE"
+    )
+    if client_order_id in set(
+        exposure.get(
+            "existing_client_ids",
+            [],
+        )
+    ):
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "R36F159_CLIENT_ORDER_ID_ALREADY_EXISTS",
+            "client_order_id": client_order_id,
+        }
+
+    payload[
+        "newClientOrderId"
+    ] = client_order_id
+
+    jit_validation = (
+        await r36f154_validate_fresh_demo_triggers(
+            payload
+        )
+    )
+
+    log(
+        "R36F.15.9 JIT DEMO TRIGGER VALIDATION = "
+        + canonical_json(
+            jit_validation
+        )
+    )
+
+    if not jit_validation.get("valid"):
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "JIT_DEMO_TRIGGER_VALIDATION_BLOCKED",
+            "jit_validation": jit_validation,
+        }
+
+    payload_hash = sha256_text(
+        canonical_json(payload)
+    )
+
+    prepared = {
+        "stage": STAGE,
+        "state": "PREPARED",
+        "created_at": now_iso(),
+        "endpoint": R36F14_DEMO_ORDER_ENDPOINT,
+        "command": str(
+            command_preview.get("command")
+            or ""
+        ),
+        "direction": str(
+            command_preview.get("direction")
+            or ""
+        ),
+        "command_token_sha256": sha256_text(
+            R36F159_COMMAND_TOKEN
+        ),
+        "command_identity_sha256": (
+            command_identity
+        ),
+        "client_order_id": client_order_id,
+        "payload_sha256": payload_hash,
+        "payload": payload,
+        "pre_post_journal_verified": True,
+        "real_order_execution": (
+            REAL_ORDER_EXECUTION
+        ),
+        "demo_only": True,
+    }
+
+    write_json_file(
+        R36F159_DEMO_JOURNAL_FILE,
+        prepared,
+    )
+
+    reloaded = read_json_file(
+        R36F159_DEMO_JOURNAL_FILE,
+        default={},
+    )
+
+    reload_payload_hash = sha256_text(
+        canonical_json(
+            reloaded.get(
+                "payload",
+                {},
+            )
+        )
+    )
+
+    pre_post_reload_match = bool(
+        reloaded.get("client_order_id")
+        == client_order_id
+        and reloaded.get(
+            "command_identity_sha256"
+        )
+        == command_identity
+        and reloaded.get(
+            "payload_sha256"
+        )
+        == payload_hash
+        and hmac.compare_digest(
+            reload_payload_hash,
+            payload_hash,
+        )
+    )
+
+    log(
+        "R36F.15.9 PRE_POST_JOURNAL_WRITTEN = True"
+    )
+    log(
+        "R36F.15.9 PRE_POST_JOURNAL_RELOAD_MATCH = "
+        + str(pre_post_reload_match)
+    )
+    log(
+        "R36F.15.9 CLIENT ORDER ID = "
+        + client_order_id
+    )
+
+    if not pre_post_reload_match:
+        return {
+            "attempted": False,
+            "sent": False,
+            "accepted": False,
+            "reason": "R36F159_PRE_POST_JOURNAL_VERIFICATION_FAILED",
+            "journal": reloaded,
+        }
+
+    try:
+        transport = await weex_demo_post(
+            R36F14_DEMO_ORDER_ENDPOINT,
+            payload,
+        )
+
+    except Exception as exc:
+        ambiguous = {
+            **prepared,
+            "state": "SENT_AMBIGUOUS",
+            "updated_at": now_iso(),
+            "error": str(exc),
+        }
+
+        write_json_file(
+            R36F159_DEMO_JOURNAL_FILE,
+            ambiguous,
+        )
+
+        return {
+            "attempted": True,
+            "sent": False,
+            "accepted": False,
+            "reason": "SECOND_DEMO_POST_EXCEPTION_JOURNALED_AMBIGUOUS",
+            "error": str(exc),
+            "journal": ambiguous,
+        }
+
+    response = (
+        transport.get("response")
+        if isinstance(transport, dict)
+        else {}
+    )
+
+    if not isinstance(response, dict):
+        response = {}
+
+    success = bool(
+        response.get("success")
+    )
+
+    completed = {
+        **prepared,
+        "state": (
+            "COMPLETED"
+            if success
+            else "REJECTED"
+        ),
+        "updated_at": now_iso(),
+        "http_status": transport.get(
+            "http_status"
+        ),
+        "response": response,
+        "success": success,
+        "order_id": str(
+            response.get("orderId", "")
+        ),
+        "client_order_id_response": str(
+            response.get(
+                "clientOrderId",
+                "",
+            )
+        ),
+        "error_code": str(
+            response.get(
+                "errorCode",
+                "",
+            )
+        ),
+        "error_message": str(
+            response.get(
+                "errorMessage",
+                "",
+            )
+        ),
+    }
+
+    write_json_file(
+        R36F159_DEMO_JOURNAL_FILE,
+        completed,
+    )
+
+    return {
+        "attempted": True,
+        "sent": True,
+        "accepted": success,
+        "transport": transport,
+        "journal": completed,
+    }
+
+
+async def load_mark_price():
+    global MARK_PRICE
+
+    data = await weex_get(
+        "/capi/v3/market/symbolPrice",
+        params={
+            "symbol": SYMBOL
+        },
+        authenticated=False,
+    )
+
+    candidates = []
+
+    if isinstance(data, dict):
+        for key in (
+            "price",
+            "markPrice",
+            "lastPrice",
+        ):
+            if key in data:
+                candidates.append(
+                    data[key]
+                )
+
+        nested = data.get("data")
+
+        if isinstance(nested, dict):
+            for key in (
+                "price",
+                "markPrice",
+                "lastPrice",
+            ):
+                if key in nested:
+                    candidates.append(
+                        nested[key]
+                    )
+
+    elif isinstance(data, list):
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+
+            for key in (
+                "price",
+                "markPrice",
+                "lastPrice",
+            ):
+                if key in item:
+                    candidates.append(
+                        item[key]
+                    )
+
+    for candidate in candidates:
+        try:
+            MARK_PRICE = D(candidate)
+
+            if MARK_PRICE > 0:
+                log(
+                    "MARK PRICE = "
+                    + decimal_to_string(
+                        MARK_PRICE
+                    )
+                )
+                return MARK_PRICE
+
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Unable to determine WEEX mark price"
+    )
+
+
+async def load_available_balance():
+    global AVAILABLE_BALANCE
+
+    data = await weex_get(
+        "/capi/v3/account/balance",
+        authenticated=True,
+    )
+
+    candidates = []
+
+    def collect(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                key_lower = key.lower()
+
+                if key_lower in (
+                    "availablebalance",
+                    "available_balance",
+                    "available",
+                    "free",
+                    "usdtavailable",
+                ):
+                    candidates.append(item)
+
+                collect(item)
+
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    collect(data)
+
+    for candidate in candidates:
+        try:
+            value = D(candidate)
+
+            if value >= 0:
+                AVAILABLE_BALANCE = value
+
+                log(
+                    "AVAILABLE BALANCE = "
+                    + decimal_to_string(
+                        AVAILABLE_BALANCE
+                    )
+                )
+
+                return AVAILABLE_BALANCE
+
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Unable to determine WEEX available balance"
+    )
+
+async def load_open_positions():
+    global OPEN_POSITIONS
+
+    data = await weex_get(
+        R36F14_DEMO_POSITIONS_ENDPOINT,
+        authenticated=True,
+    )
+
+    rows = r36f155_normalize_rows(
+        data
+    )
+
+    OPEN_POSITIONS = rows
+
+    log(
+        "OPEN POSITION ROWS = "
+        + str(
+            len(
+                OPEN_POSITIONS
+            )
+        )
+    )
+
+    return OPEN_POSITIONS
+
+
+    log(
+        "OPEN POSITION ROWS = "
+        + str(
+            len(
+                OPEN_POSITIONS
+            )
+        )
+    )
+
+    return OPEN_POSITIONS
+
+
+async def load_exchange_config():
+    global WEEX_CONFIG
+
+    WEEX_CONFIG = {
+        "symbol": SYMBOL,
+        "margin_mode": MARGIN_MODE,
+        "target_long_leverage": decimal_to_string(
+            LEVERAGE_LONG
+        ),
+        "target_short_leverage": decimal_to_string(
+            LEVERAGE_SHORT
+        ),
+        "price_step": decimal_to_string(
+            PRICE_STEP
+        ),
+        "quantity_step": decimal_to_string(
+            QUANTITY_STEP
+        ),
+        "min_quantity": decimal_to_string(
+            MIN_QUANTITY
+        ),
+    }
+
+    return WEEX_CONFIG
+
+
+async def reconcile_weex():
+    global WEEX_READ_ONLY_OK
+
+    try:
+        await load_mark_price()
+        await load_available_balance()
+        await load_open_positions()
+        await load_exchange_config()
+
+        WEEX_READ_ONLY_OK = True
+
+        log(
+            "WEEX READ-ONLY RECONCILIATION = PASS"
+        )
+
+        return True
+
+    except Exception as exc:
+        WEEX_READ_ONLY_OK = False
+
+        log(
+            "WEEX READ-ONLY RECONCILIATION = FAIL "
+            + str(exc)
+        )
+
+        return False
+
+
+async def load_historical_klines():
+    rows = []
+
+    for page in range(
+        MAX_HISTORICAL_PAGES
+    ):
+        data = await weex_get(
+            "/capi/v2/market/candles",
+            params={
+                "symbol": PUBLIC_TICKER_SYMBOL,
+                "granularity": KLINE_INTERVAL,
+                "limit": HISTORICAL_LIMIT,
+                "page": page,
+            },
+            authenticated=False,
+        )
+
+        page_rows = []
+
+        if isinstance(data, list):
+            page_rows = data
+
+        elif isinstance(data, dict):
+            for key in (
+                "data",
+                "rows",
+                "list",
+            ):
+                value = data.get(key)
+
+                if isinstance(value, list):
+                    page_rows = value
+                    break
+
+        if not page_rows:
+            break
+
+        rows.extend(
+            page_rows
+        )
+
+        if len(page_rows) < HISTORICAL_LIMIT:
+            break
+
+    if not rows:
+        raise RuntimeError(
+            "No historical klines returned"
+        )
+
+    log(
+        "HISTORICAL KLINES = "
+        + str(len(rows))
+    )
+
+    return rows
+
+
+def candle_high(row):
+    if isinstance(row, dict):
+        for key in (
+            "high",
+            "h",
+        ):
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(row, (list, tuple)):
+        if len(row) >= 3:
+            return D(
+                row[2]
+            )
+
+    raise ValueError(
+        "Unable to read candle high"
+    )
+
+
+def candle_low(row):
+    if isinstance(row, dict):
+        for key in (
+            "low",
+            "l",
+        ):
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(row, (list, tuple)):
+        if len(row) >= 4:
+            return D(
+                row[3]
+            )
+
+    raise ValueError(
+        "Unable to read candle low"
+    )
+
+
+def historical_highs(rows):
+    return [
+        candle_high(row)
+        for row in rows
+    ]
+
+
+def historical_lows(rows):
+    return [
+        candle_low(row)
+        for row in rows
+    ]
+
+
+def candle_close(row):
+    if isinstance(row, dict):
+        for key in (
+            "close",
+            "c",
+        ):
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(row, (list, tuple)):
+        if len(row) >= 5:
+            return D(
+                row[4]
+            )
+
+    raise ValueError(
+        "Unable to read candle close"
+    )
+
+
+def candle_timestamp(row):
+    if isinstance(row, dict):
+        for key in (
+            "timestamp",
+            "time",
+            "ts",
+            "openTime",
+        ):
+            if key in row:
+                return D(
+                    row[key]
+                )
+
+    if isinstance(row, (list, tuple)):
+        if len(row) >= 1:
+            return D(
+                row[0]
+            )
+
+    raise ValueError(
+        "Unable to read candle timestamp"
+    )
+
+
+def chronological_rows(rows):
+    parsed = []
+
+    for row in rows:
+        try:
+            timestamp = candle_timestamp(
+                row
+            )
+
+            close = candle_close(
+                row
+            )
+
+            parsed.append(
+                (
+                    timestamp,
+                    close,
+                    row,
+                )
+            )
+
+        except Exception:
+            continue
+
+    if not parsed:
+        raise RuntimeError(
+            "No usable historical candles"
+        )
+
+    parsed.sort(
+        key=lambda item: item[0]
+    )
+
+    deduped = {}
+
+    for timestamp, close, row in parsed:
+        deduped[timestamp] = (
+            close,
+            row,
+        )
+
+    return [
+        (
+            timestamp,
+            deduped[timestamp][0],
+            deduped[timestamp][1],
+        )
+        for timestamp in sorted(
+            deduped
+        )
+    ]
+
+
+def ema_series(
+    values,
+    period,
+):
+    values = [
+        D(value)
+        for value in values
+    ]
+
+    if not values:
+        raise ValueError(
+            "EMA values missing"
+        )
+
+    multiplier = (
+        Decimal("2")
+        / Decimal(
+            period + 1
+        )
+    )
+
+    current = values[0]
+    result = [current]
+
+    for value in values[1:]:
+        current = (
+            (
+                value - current
+            )
+            * multiplier
+            + current
+        )
+
+        result.append(
+            current
+        )
+
+    return result
+
+
+def calculate_emas(closes):
+    if len(closes) < EMA_SLOW:
+        raise ValueError(
+            "Not enough candles for EMA200"
+        )
+
+    ema19 = ema_series(
+        closes,
+        EMA_FAST,
+    )
+
+    ema50 = ema_series(
+        closes,
+        EMA_MID,
+    )
+
+    ema200 = ema_series(
+        closes,
+        EMA_SLOW,
+    )
+
+    return (
+        ema19,
+        ema50,
+        ema200,
+    )
+
+
+def ema_structure(
+    price,
+    ema19,
+    ema50,
+    ema200,
+):
+    price = D(price)
+    ema19 = D(ema19)
+    ema50 = D(ema50)
+    ema200 = D(ema200)
+
+    if (
+        price > ema19
+        and ema19 > ema50
+        and ema50 > ema200
+    ):
+        return "STRONG_BULLISH"
+
+    if (
+        price < ema19
+        and ema19 < ema50
+        and ema50 < ema200
+    ):
+        return "STRONG_BEARISH"
+
+    if (
+        ema19 > ema50
+        and ema50 > ema200
+    ):
+        return "EARLY_BULLISH"
+
+    if (
+        ema19 < ema50
+        and ema50 < ema200
+    ):
+        return "EARLY_BEARISH"
+
+    return "MIXED"
+
+
+def ema_direction(structure):
+    if structure == "STRONG_BULLISH":
+        return "LONG"
+
+    if structure == "STRONG_BEARISH":
+        return "SHORT"
+
+    return None
+
+
+def ema_separation_percent(
+    ema19,
+    ema50,
+):
+    ema19 = D(ema19)
+    ema50 = D(ema50)
+
+    if ema50 == 0:
+        return Decimal("0")
+
+    return (
+        abs(
+            ema19 - ema50
+        )
+        / ema50
+        * Decimal("100")
+    )
+
+
+def detect_ema19_50_crossover(
+    ema19_series,
+    ema50_series,
+):
+    if (
+        len(ema19_series) < 2
+        or len(ema50_series) < 2
+    ):
+        return None
+
+    previous_fast = ema19_series[-2]
+    previous_mid = ema50_series[-2]
+    current_fast = ema19_series[-1]
+    current_mid = ema50_series[-1]
+
+    if (
+        previous_fast <= previous_mid
+        and current_fast > current_mid
+    ):
+        return "BULLISH_CROSS"
+
+    if (
+        previous_fast >= previous_mid
+        and current_fast < current_mid
+    ):
+        return "BEARISH_CROSS"
+
+    return None
+
+
+def build_ema_signal_snapshot(rows):
+    ordered = chronological_rows(
+        rows
+    )
+
+    closes = [
+        item[1]
+        for item in ordered
+    ]
+
+    (
+        ema19_series,
+        ema50_series,
+        ema200_series,
+    ) = calculate_emas(
+        closes
+    )
+
+    price = closes[-1]
+    ema19 = ema19_series[-1]
+    ema50 = ema50_series[-1]
+    ema200 = ema200_series[-1]
+
+    structure = ema_structure(
+        price,
+        ema19,
+        ema50,
+        ema200,
+    )
+
+    direction = ema_direction(
+        structure
+    )
+
+    separation = ema_separation_percent(
+        ema19,
+        ema50,
+    )
+
+    crossover = detect_ema19_50_crossover(
+        ema19_series,
+        ema50_series,
+    )
+
+    strong_enough = (
+        separation
+        >= MIN_EMA_19_50_SEPARATION_PERCENT
+    )
+
+    if (
+        direction is not None
+        and not strong_enough
+    ):
+        direction = None
+
+    snapshot = {
+        "price": decimal_to_string(
+            price
+        ),
+        "ema19": decimal_to_string(
+            ema19
+        ),
+        "ema50": decimal_to_string(
+            ema50
+        ),
+        "ema200": decimal_to_string(
+            ema200
+        ),
+        "structure": structure,
+        "ideal_direction": direction,
+        "ema19_50_separation_percent": decimal_to_string(
+            separation
+        ),
+        "minimum_required_separation_percent": decimal_to_string(
+            MIN_EMA_19_50_SEPARATION_PERCENT
+        ),
+        "crossover": crossover,
+        "candle_count": len(
+            closes
+        ),
+    }
+
+    return snapshot
+
+
+def normalize_telegram_command(text):
+    return " ".join(
+        str(
+            text
+            or ""
+        )
+        .strip()
+        .upper()
+        .split()
+    )
+
+
+def parse_telegram_trade_command(text):
+    normalized = normalize_telegram_command(
+        text
+    )
+
+    if normalized == TELEGRAM_BUY_COMMAND:
+        return {
+            "valid": True,
+            "command": normalized,
+            "direction": "LONG",
+        }
+
+    if normalized == TELEGRAM_SELL_COMMAND:
+        return {
+            "valid": True,
+            "command": normalized,
+            "direction": "SHORT",
+        }
+
+    return {
+        "valid": False,
+        "command": normalized,
+        "direction": None,
+    }
+
+
+def validate_telegram_command_against_signal(
+    command_text,
+    signal_snapshot,
+    long_market_eligible,
+    short_market_eligible,
+):
+    parsed = parse_telegram_trade_command(
+        command_text
+    )
+
+    result = {
+        **parsed,
+        "authorized_preview": False,
+        "reason": None,
+    }
