@@ -782,3 +782,559 @@ def r36f_sl_disabled_payload_test_unit_3():
 
 if __name__ == "__main__":
     r36f_sl_disabled_payload_test_unit_3()
+# ============================================================
+# R36F SL DISABLING TESTABLE UNIT 4
+# DEMO SUBMISSION ADAPTER - ZERO WRITE
+#
+# PURPOSE:
+# Build the bridge between the proven SL-removal transformer
+# and the future WEEX demo submission function.
+#
+# FLOW:
+#
+# candidate payload
+#       ↓
+# demo submission adapter
+#       ↓
+# r36f_sl_disable_transform()
+#       ↓
+# validation
+#       ↓
+# final demo payload
+#       ↓
+# NETWORK BOUNDARY
+#       X
+# STOP HERE
+#
+# NO WEEX POST
+# NO DEMO ORDER
+# NO REAL ORDER
+# NO STATE CHANGE
+# ============================================================
+
+
+def r36f_prepare_sl_disabled_demo_submission(
+    payload
+):
+
+    # --------------------------------------------------------
+    # INPUT VALIDATION
+    # --------------------------------------------------------
+
+    if not isinstance(payload, dict):
+        return {
+            "ready": False,
+            "reason": "PAYLOAD_NOT_DICT",
+            "payload": None,
+            "weex_post": False,
+        }
+
+    # --------------------------------------------------------
+    # PRESERVE CALLER PAYLOAD
+    # --------------------------------------------------------
+
+    original_payload = dict(payload)
+
+    # --------------------------------------------------------
+    # APPLY PROVEN UNIT-2 TRANSFORMER
+    # --------------------------------------------------------
+
+    try:
+
+        final_payload = (
+            r36f_sl_disable_transform(
+                original_payload
+            )
+        )
+
+    except Exception as exc:
+
+        return {
+            "ready": False,
+            "reason":
+                "SL_TRANSFORM_ERROR: "
+                + str(exc),
+            "payload": None,
+            "weex_post": False,
+        }
+
+    # --------------------------------------------------------
+    # REQUIRED ENTRY FIELDS
+    # --------------------------------------------------------
+
+    required_fields = (
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+    )
+
+    missing_fields = [
+        field
+        for field
+        in required_fields
+        if field not in final_payload
+    ]
+
+    if missing_fields:
+
+        return {
+            "ready": False,
+            "reason":
+                "MISSING_ENTRY_FIELDS",
+            "missing_fields":
+                missing_fields,
+            "payload":
+                final_payload,
+            "weex_post":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # SL MUST NOT EXIST AFTER TRANSFORMATION
+    # --------------------------------------------------------
+
+    forbidden_sl_fields = [
+        field
+        for field
+        in (
+            "slTriggerPrice",
+            "SlWorkingType",
+        )
+        if field in final_payload
+    ]
+
+    if forbidden_sl_fields:
+
+        return {
+            "ready": False,
+            "reason":
+                "SL_FIELDS_STILL_PRESENT",
+            "sl_fields":
+                forbidden_sl_fields,
+            "payload":
+                final_payload,
+            "weex_post":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # TP PRESERVATION
+    #
+    # If TP existed in the incoming payload, its value must
+    # remain exactly unchanged.
+    # --------------------------------------------------------
+
+    tp_fields = (
+        "tpTriggerPrice",
+        "TpWorkingType",
+    )
+
+    changed_tp_fields = []
+
+    for field in tp_fields:
+
+        if field in original_payload:
+
+            if (
+                final_payload.get(field)
+                !=
+                original_payload.get(field)
+            ):
+                changed_tp_fields.append(
+                    field
+                )
+
+    if changed_tp_fields:
+
+        return {
+            "ready": False,
+            "reason":
+                "TP_CHANGED",
+            "changed_tp_fields":
+                changed_tp_fields,
+            "payload":
+                final_payload,
+            "weex_post":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # VERIFY ALL NON-SL FIELDS ARE UNCHANGED
+    # --------------------------------------------------------
+
+    changed_non_sl_fields = []
+
+    for field, value in (
+        original_payload.items()
+    ):
+
+        if field in (
+            "slTriggerPrice",
+            "SlWorkingType",
+        ):
+            continue
+
+        if (
+            final_payload.get(field)
+            != value
+        ):
+            changed_non_sl_fields.append(
+                field
+            )
+
+    if changed_non_sl_fields:
+
+        return {
+            "ready": False,
+            "reason":
+                "NON_SL_FIELD_CHANGED",
+            "changed_fields":
+                changed_non_sl_fields,
+            "payload":
+                final_payload,
+            "weex_post":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # VERIFY NO NEW FIELDS WERE CREATED
+    # --------------------------------------------------------
+
+    added_fields = sorted(
+        set(final_payload.keys())
+        -
+        set(original_payload.keys())
+    )
+
+    if added_fields:
+
+        return {
+            "ready": False,
+            "reason":
+                "UNEXPECTED_FIELDS_ADDED",
+            "added_fields":
+                added_fields,
+            "payload":
+                final_payload,
+            "weex_post":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # SUCCESS
+    #
+    # IMPORTANT:
+    #
+    # ready=True means:
+    #
+    #     LOCAL PAYLOAD VALIDATION PASSED
+    #
+    # It DOES NOT mean an order was sent.
+    # --------------------------------------------------------
+
+    return {
+        "ready": True,
+        "reason":
+            "READY_AT_NETWORK_BOUNDARY",
+        "payload":
+            final_payload,
+
+        # HARD ZERO-WRITE MARKER
+        "weex_post":
+            False,
+    }
+
+
+# ============================================================
+# UNIT 4 TEST
+# ============================================================
+
+
+def r36f_sl_disabled_payload_test_unit_4():
+
+    print(
+        "R36F SL-DISABLE TEST UNIT 4 START"
+    )
+
+    # --------------------------------------------------------
+    # Candidate demo entry.
+    #
+    # Contains SL deliberately.
+    # --------------------------------------------------------
+
+    candidate_payload = {
+        "symbol":
+            "BTCSUSDT",
+
+        "side":
+            "BUY",
+
+        "positionSide":
+            "LONG",
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            "0.0001",
+
+        "newClientOrderId":
+            "SL-DISABLE-TEST-004",
+
+        "tpTriggerPrice":
+            "99999.9",
+
+        "TpWorkingType":
+            "MARK_PRICE",
+
+        "slTriggerPrice":
+            "1.0",
+
+        "SlWorkingType":
+            "MARK_PRICE",
+    }
+
+    # --------------------------------------------------------
+    # Save candidate before adapter call.
+    # --------------------------------------------------------
+
+    candidate_before = dict(
+        candidate_payload
+    )
+
+    # --------------------------------------------------------
+    # PASS THROUGH DEMO SUBMISSION ADAPTER
+    # --------------------------------------------------------
+
+    result = (
+        r36f_prepare_sl_disabled_demo_submission(
+            candidate_payload
+        )
+    )
+
+    # --------------------------------------------------------
+    # RESULT
+    # --------------------------------------------------------
+
+    print(
+        "R36F SL-DISABLE TEST4 "
+        "ADAPTER_READY =",
+        result.get(
+            "ready"
+        ),
+    )
+
+    print(
+        "R36F SL-DISABLE TEST4 "
+        "ADAPTER_REASON =",
+        result.get(
+            "reason"
+        ),
+    )
+
+    final_payload = result.get(
+        "payload"
+    )
+
+    # --------------------------------------------------------
+    # Verify caller payload was not mutated.
+    # --------------------------------------------------------
+
+    caller_payload_preserved = (
+        candidate_payload
+        ==
+        candidate_before
+    )
+
+    print(
+        "R36F SL-DISABLE TEST4 "
+        "CALLER_PAYLOAD_PRESERVED =",
+        caller_payload_preserved,
+    )
+
+    # --------------------------------------------------------
+    # Final payload must exist.
+    # --------------------------------------------------------
+
+    final_payload_exists = (
+        isinstance(
+            final_payload,
+            dict,
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST4 "
+        "FINAL_PAYLOAD_EXISTS =",
+        final_payload_exists,
+    )
+
+    # --------------------------------------------------------
+    # Check SL state.
+    # --------------------------------------------------------
+
+    if final_payload_exists:
+
+        final_sl_trigger_present = (
+            "slTriggerPrice"
+            in final_payload
+        )
+
+        final_sl_working_type_present = (
+            "SlWorkingType"
+            in final_payload
+        )
+
+    else:
+
+        final_sl_trigger_present = True
+        final_sl_working_type_present = True
+
+    print(
+        "R36F SL-DISABLE TEST4 "
+        "FINAL_SL_TRIGGER_PRESENT =",
+        final_sl_trigger_present,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST4 "
+        "FINAL_SL_WORKING_TYPE_PRESENT =",
+        final_sl_working_type_present,
+    )
+
+    # --------------------------------------------------------
+    # Check TP.
+    # --------------------------------------------------------
+
+    if final_payload_exists:
+
+        tp_preserved = (
+            final_payload.get(
+                "tpTriggerPrice"
+            )
+            ==
+            candidate_before.get(
+                "tpTriggerPrice"
+            )
+            and
+            final_payload.get(
+                "TpWorkingType"
+            )
+            ==
+            candidate_before.get(
+                "TpWorkingType"
+            )
+        )
+
+    else:
+
+        tp_preserved = False
+
+    print(
+        "R36F SL-DISABLE TEST4 "
+        "TP_PRESERVED =",
+        tp_preserved,
+    )
+
+    # --------------------------------------------------------
+    # Network boundary MUST remain closed.
+    # --------------------------------------------------------
+
+    weex_post = result.get(
+        "weex_post",
+        True,
+    )
+
+    demo_order = False
+    real_order = False
+
+    print(
+        "R36F SL-DISABLE TEST4 "
+        "WEEX_POST =",
+        weex_post,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST4 "
+        "DEMO_ORDER =",
+        demo_order,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST4 "
+        "REAL_ORDER =",
+        real_order,
+    )
+
+    # --------------------------------------------------------
+    # FINAL PASS
+    # --------------------------------------------------------
+
+    passed = (
+        result.get(
+            "ready"
+        )
+        is True
+        and
+        result.get(
+            "reason"
+        )
+        ==
+        "READY_AT_NETWORK_BOUNDARY"
+        and
+        caller_payload_preserved
+        is True
+        and
+        final_payload_exists
+        is True
+        and
+        final_sl_trigger_present
+        is False
+        and
+        final_sl_working_type_present
+        is False
+        and
+        tp_preserved
+        is True
+        and
+        weex_post
+        is False
+        and
+        demo_order
+        is False
+        and
+        real_order
+        is False
+    )
+
+    print(
+        "R36F SL-DISABLE TEST4 RESULT =",
+        "PASS"
+        if passed
+        else "FAIL",
+    )
+
+    print(
+        "R36F SL-DISABLE TEST4 "
+        "INPUT PAYLOAD =",
+        candidate_before,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST4 "
+        "NETWORK-BOUNDARY PAYLOAD =",
+        final_payload,
+    )
+
+    return passed
+
+
+# ============================================================
+# EXECUTE TEST UNIT 4
+# ============================================================
+
+if __name__ == "__main__":
+    r36f_sl_disabled_payload_test_unit_4()
