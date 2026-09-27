@@ -10627,7 +10627,148 @@ def r36f15105_build_auto_command_preview(
     }
 
 
-def r36f15105_build_demo_preview(
+
+    # ============================================================
+# SL DISABLING TESTABLE UNIT 1
+# ZERO-WRITE PAYLOAD SHAPE TEST
+#
+# PURPOSE:
+# Prove that the demo entry payload can be constructed without
+# slTriggerPrice / SlWorkingType before changing live runtime.
+#
+# NO WEEX POST
+# NO DEMO ORDER
+# NO REAL ORDER
+# NO STATE CHANGE
+# ============================================================
+
+def r36f_sl_disabled_payload_test():
+    log(
+        "R36F SL-DISABLE TEST UNIT 1 START"
+    )
+
+    test_payload = {
+        "symbol":
+            R36F14_DEMO_SYMBOL,
+
+        "side":
+            "BUY",
+
+        "positionSide":
+            "LONG",
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            "0.0001",
+
+        "newClientOrderId":
+            "SL-DISABLE-TEST-001",
+
+        "tpTriggerPrice":
+            "99999.9",
+
+        "TpWorkingType":
+            "MARK_PRICE",
+    }
+
+    sl_trigger_present = (
+        "slTriggerPrice"
+        in test_payload
+    )
+
+    sl_working_type_present = (
+        "SlWorkingType"
+        in test_payload
+    )
+
+    required_entry_fields = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+        "tpTriggerPrice",
+        "TpWorkingType",
+    }
+
+    missing_fields = sorted(
+        required_entry_fields
+        -
+        set(
+            test_payload.keys()
+        )
+    )
+
+    passed = bool(
+        not sl_trigger_present
+        and
+        not sl_working_type_present
+        and
+        not missing_fields
+    )
+
+    log(
+        "R36F SL-DISABLE TEST "
+        "SL_TRIGGER_PRESENT = "
+        + str(
+            sl_trigger_present
+        )
+    )
+
+    log(
+        "R36F SL-DISABLE TEST "
+        "SL_WORKING_TYPE_PRESENT = "
+        + str(
+            sl_working_type_present
+        )
+    )
+
+    log(
+        "R36F SL-DISABLE TEST "
+        "MISSING_ENTRY_FIELDS = "
+        + str(
+            missing_fields
+        )
+    )
+
+    log(
+        "R36F SL-DISABLE TEST "
+        "WEEX_POST = False"
+    )
+
+    log(
+        "R36F SL-DISABLE TEST "
+        "RESULT = "
+        + (
+            "PASS"
+            if passed
+            else "FAIL"
+        )
+    )
+
+    return {
+        "passed":
+            passed,
+
+        "sl_trigger_present":
+            sl_trigger_present,
+
+        "sl_working_type_present":
+            sl_working_type_present,
+
+        "missing_fields":
+            missing_fields,
+
+        "payload":
+            test_payload,
+
+        "weex_post":
+            False,
+    }
+    def r36f15105_build_demo_preview(
     direction,
     tp_snapshot,
     balance_readiness,
