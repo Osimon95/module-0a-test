@@ -10777,7 +10777,7 @@ def r36f_sl_disabled_payload_test():
     # Preserve the previously proven
     # R36F.14 WEEX demo payload shape.
 
-    if (
+        if (
         direction
         not in {
             "LONG",
