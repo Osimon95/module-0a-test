@@ -2058,4 +2058,1480 @@ def start_health_server():
         )
     )
 
-    return server
+    return server 
+
+def build_signature(
+    timestamp,
+    method,
+    request_path,
+    body="",
+):
+    api_secret = os.getenv(
+        "WEEX_API_SECRET"
+    )
+
+    if not api_secret:
+        raise RuntimeError(
+            "WEEX_API_SECRET missing"
+        )
+
+    prehash = (
+        str(timestamp)
+        + method.upper()
+        + request_path
+        + body
+    )
+
+    digest = hmac.new(
+        api_secret.encode(),
+        prehash.encode(),
+        hashlib.sha256,
+    ).digest()
+
+    return base64.b64encode(
+        digest
+    ).decode()
+
+
+async def weex_get(
+    path,
+    params=None,
+    authenticated=False,
+):
+    params = (
+        params
+        or {}
+    )
+
+    from urllib.parse import urlencode
+
+    query_string = urlencode(
+        params,
+        doseq=True,
+    )
+
+    request_target = path
+
+    if query_string:
+        request_target += (
+            "?" + query_string
+        )
+
+    url = (
+        API_BASE_URL
+        + request_target
+    )
+
+    headers = {}
+
+    if authenticated:
+        api_key = os.getenv(
+            "WEEX_API_KEY"
+        )
+
+        passphrase = os.getenv(
+            "WEEX_API_PASSPHRASE"
+        )
+
+        if not api_key:
+            raise RuntimeError(
+                "WEEX_API_KEY missing"
+            )
+
+        if not passphrase:
+            raise RuntimeError(
+                "WEEX_API_PASSPHRASE missing"
+            )
+
+        timestamp = str(
+            int(
+                time.time()
+                * 1000
+            )
+        )
+
+        signature = build_signature(
+            timestamp,
+            "GET",
+            request_target,
+            "",
+        )
+
+        headers = {
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": passphrase,
+            "Content-Type": "application/json",
+        }
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+
+        async with session.get(
+            url,
+            headers=headers,
+        ) as response:
+
+            text = (
+                await response.text()
+            )
+
+            if response.status >= 400:
+                raise RuntimeError(
+                    f"WEEX GET HTTP {response.status}: {text}"
+                )
+
+            try:
+                return json.loads(
+                    text
+                )
+
+            except Exception:
+                return {
+                    "raw": text
+                }
+
+
+async def weex_demo_post(
+    path,
+    payload,
+):
+    if (
+        path
+        != R36F14_DEMO_ORDER_ENDPOINT
+    ):
+        raise RuntimeError(
+            "R36F.15 demo transport refused non-demo endpoint"
+        )
+
+    if not (
+        R36F15_DEMO_POST_TRANSPORT_ENABLED
+        and R36F15_DEMO_ORDER_SUBMISSION_ENABLED
+        and R36F15_FIRST_DEMO_ORDER_ALLOWED
+    ):
+        raise RuntimeError(
+            "R36F.15 demo transport is disabled"
+        )
+
+    if not (
+        REAL_ORDER_EXECUTION is False
+        and EXCHANGE_MUTATION_TRANSPORT_ENABLED is False
+        and ORDER_SUBMISSION_ENABLED is False
+        and LEVERAGE_MUTATION_ENABLED is False
+        and MARGIN_MODE_MUTATION_ENABLED is False
+        and POSITION_MUTATION_ENABLED is False
+        and FIRST_REAL_ORDER_ALLOWED is False
+    ):
+        raise RuntimeError(
+            "R36F.15 production firebreak is not intact"
+        )
+
+    api_key = os.getenv(
+        "WEEX_API_KEY"
+    )
+
+    passphrase = os.getenv(
+        "WEEX_API_PASSPHRASE"
+    )
+
+    if not api_key:
+        raise RuntimeError(
+            "WEEX_API_KEY missing"
+        )
+
+    if not passphrase:
+        raise RuntimeError(
+            "WEEX_API_PASSPHRASE missing"
+        )
+
+    body = canonical_json(
+        payload
+    )
+
+    timestamp = str(
+        int(
+            time.time()
+            * 1000
+        )
+    )
+
+    signature = build_signature(
+        timestamp,
+        "POST",
+        path,
+        body,
+    )
+
+    headers = {
+        "ACCESS-KEY": api_key,
+        "ACCESS-SIGN": signature,
+        "ACCESS-TIMESTAMP": timestamp,
+        "ACCESS-PASSPHRASE": passphrase,
+        "Content-Type": "application/json",
+    }
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    url = (
+        API_BASE_URL
+        + path
+    )
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+
+        async with session.post(
+            url,
+            headers=headers,
+            data=body,
+        ) as response:
+
+            text = (
+                await response.text()
+            )
+
+            try:
+                data = json.loads(
+                    text
+                )
+
+            except Exception:
+                data = {
+                    "raw": text
+                }
+
+            result = {
+                "http_status": response.status,
+                "response": data,
+                "raw_text": text,
+            }
+
+            if response.status >= 400:
+                raise RuntimeError(
+                    f"WEEX DEMO POST HTTP {response.status}: {text}"
+                )
+
+            return result
+
+
+def r36f15_demo_journal_unresolved(
+    journal,
+):
+    if (
+        not isinstance(
+            journal,
+            dict,
+        )
+        or not journal
+    ):
+        return False
+
+    return journal.get(
+        "state"
+    ) in {
+        "PREPARED",
+        "SENT_AMBIGUOUS",
+    }
+
+
+def r36f15_demo_journal_completed(
+    journal,
+):
+    return bool(
+        isinstance(
+            journal,
+            dict,
+        )
+        and journal.get(
+            "state"
+        )
+        == "COMPLETED"
+        and journal.get(
+            "success"
+        )
+        is True
+    )
+
+
+def _r36f153_history_rows(data):
+    if isinstance(
+        data,
+        list,
+    ):
+        return data
+
+    if isinstance(
+        data,
+        dict,
+    ):
+        for key in (
+            "data",
+            "list",
+            "rows",
+            "orders",
+        ):
+            value = data.get(
+                key
+            )
+
+            if isinstance(
+                value,
+                list,
+            ):
+                return value
+
+    return None
+
+
+async def r36f153_lookup_demo_order_by_client_id(
+    client_order_id,
+):
+    client_order_id = str(
+        client_order_id
+        or ""
+    ).strip()
+
+    if not client_order_id:
+        return {
+            "status": "UNKNOWN",
+            "reason": "MISSING_CLIENT_ORDER_ID",
+            "order": None,
+        }
+
+    try:
+        data = await weex_get(
+            R36F14_DEMO_ORDER_HISTORY_ENDPOINT,
+            params={
+                "symbol": R36F14_DEMO_SYMBOL,
+                "limit": 1000,
+                "page": 0,
+            },
+            authenticated=True,
+        )
+
+    except Exception as exc:
+        return {
+            "status": "UNKNOWN",
+            "reason": "DEMO_HISTORY_LOOKUP_FAILED",
+            "error": str(exc),
+            "order": None,
+        }
+
+    rows = _r36f153_history_rows(
+        data
+    )
+
+    if rows is None:
+        return {
+            "status": "UNKNOWN",
+            "reason": "DEMO_HISTORY_RESPONSE_UNRECOGNIZED",
+            "order": None,
+        }
+
+    for row in rows:
+        if not isinstance(
+            row,
+            dict,
+        ):
+            continue
+
+        row_client_id = str(
+            row.get(
+                "clientOrderId"
+            )
+            or row.get(
+                "newClientOrderId"
+            )
+            or ""
+        ).strip()
+
+        if (
+            row_client_id
+            == client_order_id
+        ):
+            return {
+                "status": "FOUND",
+                "reason": "CLIENT_ORDER_ID_FOUND_IN_DEMO_HISTORY",
+                "order": row,
+            }
+
+    return {
+        "status": "NOT_FOUND",
+        "reason": "CLIENT_ORDER_ID_NOT_FOUND_IN_DEMO_HISTORY",
+        "order": None,
+    }
+
+
+async def r36f153_reconcile_demo_journal(
+    journal,
+):
+    if (
+        not isinstance(
+            journal,
+            dict,
+        )
+        or not journal
+    ):
+        return {
+            "resolved": True,
+            "retry_allowed": True,
+            "reason": "NO_JOURNAL",
+            "journal": {},
+            "changed": False,
+        }
+
+    state = str(
+        journal.get(
+            "state"
+        )
+        or ""
+    ).strip().upper()
+
+    if state == "COMPLETED":
+        return {
+            "resolved": True,
+            "retry_allowed": False,
+            "reason": "COMPLETED_REMAINS_TERMINAL",
+            "journal": journal,
+            "changed": False,
+        }
+
+    if state == "REJECTED":
+        return {
+            "resolved": True,
+            "retry_allowed": True,
+            "reason": "REJECTED_PERMITS_FRESH_RETRY",
+            "journal": journal,
+            "changed": False,
+        }
+
+    if state not in {
+        "PREPARED",
+        "SENT_AMBIGUOUS",
+    }:
+        return {
+            "resolved": False,
+            "retry_allowed": False,
+            "reason": "UNKNOWN_JOURNAL_STATE_BLOCKS_RETRY",
+            "journal": journal,
+            "changed": False,
+        }
+
+    client_order_id = str(
+        journal.get(
+            "client_order_id"
+        )
+        or ""
+    ).strip()
+
+    if not client_order_id:
+        return {
+            "resolved": False,
+            "retry_allowed": False,
+            "reason": "MISSING_CLIENT_ID_BLOCKS_RETRY",
+            "journal": journal,
+            "changed": False,
+        }
+
+    lookup = (
+        await r36f153_lookup_demo_order_by_client_id(
+            client_order_id
+        )
+    )
+
+    lookup_status = lookup.get(
+        "status"
+    )
+
+    if lookup_status == "FOUND":
+        order = (
+            lookup.get(
+                "order"
+            )
+            if isinstance(
+                lookup.get(
+                    "order"
+                ),
+                dict,
+            )
+            else {}
+        )
+
+        reconciled = {
+            **journal,
+            "state": "COMPLETED",
+            "updated_at": now_iso(),
+            "success": True,
+            "reconciliation_status": "FOUND",
+            "reconciliation_reason": lookup.get(
+                "reason"
+            ),
+            "order_id": str(
+                order.get(
+                    "orderId",
+                    journal.get(
+                        "order_id",
+                        "",
+                    ),
+                )
+            ),
+            "client_order_id_response": str(
+                order.get(
+                    "clientOrderId",
+                    client_order_id,
+                )
+            ),
+            "reconciled_order": order,
+        }
+
+        write_json_file(
+            R36F15_DEMO_JOURNAL_FILE,
+            reconciled,
+        )
+
+        return {
+            "resolved": True,
+            "retry_allowed": False,
+            "reason": "AMBIGUOUS_FOUND_MARKED_COMPLETED",
+            "journal": reconciled,
+            "changed": True,
+        }
+
+    if lookup_status == "NOT_FOUND":
+        reconciled = {
+            **journal,
+            "state": "REJECTED",
+            "updated_at": now_iso(),
+            "success": False,
+            "reconciliation_status": "NOT_FOUND",
+            "reconciliation_reason": lookup.get(
+                "reason"
+            ),
+        }
+
+        write_json_file(
+            R36F15_DEMO_JOURNAL_FILE,
+            reconciled,
+        )
+
+        return {
+            "resolved": True,
+            "retry_allowed": True,
+            "reason": "AMBIGUOUS_NOT_FOUND_MARKED_REJECTED",
+            "journal": reconciled,
+            "changed": True,
+        }
+
+    return {
+        "resolved": False,
+        "retry_allowed": False,
+        "reason": lookup.get(
+            "reason",
+            "AMBIGUOUS_UNKNOWN_BLOCKS_RETRY",
+        ),
+        "journal": journal,
+        "lookup": lookup,
+        "changed": False,
+    }
+
+
+def r36f153_response_payload(
+    post_result,
+):
+    if not isinstance(
+        post_result,
+        dict,
+    ):
+        return {}
+
+    response = post_result.get(
+        "response"
+    )
+
+    if isinstance(
+        response,
+        dict,
+    ):
+        return response
+
+    return {}
+
+
+def r36f153_response_code(
+    post_result,
+):
+    response = r36f153_response_payload(
+        post_result
+    )
+
+    value = response.get(
+        "code"
+    )
+
+    if value is None:
+        return ""
+
+    return str(
+        value
+    ).strip()
+
+
+def r36f153_response_message(
+    post_result,
+):
+    response = r36f153_response_payload(
+        post_result
+    )
+
+    return str(
+        response.get(
+            "msg"
+        )
+        or response.get(
+            "message"
+        )
+        or ""
+    ).strip()
+
+
+def r36f153_response_data(
+    post_result,
+):
+    response = r36f153_response_payload(
+        post_result
+    )
+
+    data = response.get(
+        "data"
+    )
+
+    if isinstance(
+        data,
+        dict,
+    ):
+        return data
+
+    return {}
+
+
+def r36f153_response_order_id(
+    post_result,
+):
+    data = r36f153_response_data(
+        post_result
+    )
+
+    value = (
+        data.get(
+            "orderId"
+        )
+        or data.get(
+            "order_id"
+        )
+        or ""
+    )
+
+    return str(
+        value
+    ).strip()
+
+
+def r36f153_response_client_order_id(
+    post_result,
+):
+    data = r36f153_response_data(
+        post_result
+    )
+
+    value = (
+        data.get(
+            "clientOrderId"
+        )
+        or data.get(
+            "client_order_id"
+        )
+        or ""
+    )
+
+    return str(
+        value
+    ).strip()
+
+
+def r36f153_demo_response_accepted(
+    post_result,
+):
+    if not isinstance(
+        post_result,
+        dict,
+    ):
+        return False
+
+    http_status = post_result.get(
+        "http_status"
+    )
+
+    if (
+        http_status is None
+        or int(
+            http_status
+        ) < 200
+        or int(
+            http_status
+        ) >= 300
+    ):
+        return False
+
+    code = r36f153_response_code(
+        post_result
+    )
+
+    order_id = r36f153_response_order_id(
+        post_result
+    )
+
+    if order_id:
+        return True
+
+    return code in {
+        "0",
+        "00000",
+        "200",
+    }
+
+
+def r36f153_build_completed_journal(
+    prepared_journal,
+    post_result,
+):
+    return {
+        **prepared_journal,
+        "state": "COMPLETED",
+        "updated_at": now_iso(),
+        "success": True,
+        "http_status": post_result.get(
+            "http_status"
+        ),
+        "response": post_result.get(
+            "response"
+        ),
+        "order_id": r36f153_response_order_id(
+            post_result
+        ),
+        "client_order_id_response":
+            r36f153_response_client_order_id(
+                post_result
+            ),
+        "response_code":
+            r36f153_response_code(
+                post_result
+            ),
+        "response_message":
+            r36f153_response_message(
+                post_result
+            ),
+    }
+
+
+def r36f153_build_rejected_journal(
+    prepared_journal,
+    post_result,
+):
+    return {
+        **prepared_journal,
+        "state": "REJECTED",
+        "updated_at": now_iso(),
+        "success": False,
+        "http_status": post_result.get(
+            "http_status"
+        )
+        if isinstance(
+            post_result,
+            dict,
+        )
+        else None,
+        "response": post_result.get(
+            "response"
+        )
+        if isinstance(
+            post_result,
+            dict,
+        )
+        else None,
+        "response_code":
+            r36f153_response_code(
+                post_result
+            )
+            if isinstance(
+                post_result,
+                dict,
+            )
+            else "",
+        "response_message":
+            r36f153_response_message(
+                post_result
+            )
+            if isinstance(
+                post_result,
+                dict,
+            )
+            else "",
+    }
+
+
+def r36f153_build_ambiguous_journal(
+    prepared_journal,
+    error_text,
+):
+    return {
+        **prepared_journal,
+        "state": "SENT_AMBIGUOUS",
+        "updated_at": now_iso(),
+        "success": False,
+        "error": str(
+            error_text
+        ),
+    }
+
+
+def r36f153_build_prepared_journal(
+    preview,
+    command_preview,
+):
+    payload = dict(
+        preview.get(
+            "payload"
+        )
+        or {}
+    )
+
+    client_order_id = str(
+        payload.get(
+            "newClientOrderId"
+        )
+        or payload.get(
+            "clientOrderId"
+        )
+        or ""
+    ).strip()
+
+    return {
+        "stage": STAGE,
+        "state": "PREPARED",
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+        "success": False,
+        "demo_only": True,
+        "real_order_execution": False,
+        "endpoint":
+            R36F14_DEMO_ORDER_ENDPOINT,
+        "client_order_id":
+            client_order_id,
+        "payload":
+            payload,
+        "payload_sha256":
+            sha256_text(
+                canonical_json(
+                    payload
+                )
+            ),
+        "command":
+            command_preview.get(
+                "command"
+            )
+            if isinstance(
+                command_preview,
+                dict,
+            )
+            else None,
+        "command_direction":
+            command_preview.get(
+                "direction"
+            )
+            if isinstance(
+                command_preview,
+                dict,
+            )
+            else None,
+        "command_authorized":
+            bool(
+                command_preview.get(
+                    "authorized"
+                )
+            )
+            if isinstance(
+                command_preview,
+                dict,
+            )
+            else False,
+    }
+
+
+def r36f153_demo_submission_gate(
+    preview,
+    command_preview,
+):
+    if REAL_ORDER_EXECUTION:
+        return {
+            "allow": False,
+            "reason":
+                "REAL_ORDER_EXECUTION_MUST_REMAIN_FALSE",
+        }
+
+    if EXCHANGE_MUTATION_TRANSPORT_ENABLED:
+        return {
+            "allow": False,
+            "reason":
+                "REAL_EXCHANGE_MUTATION_TRANSPORT_MUST_REMAIN_FALSE",
+        }
+
+    if ORDER_SUBMISSION_ENABLED:
+        return {
+            "allow": False,
+            "reason":
+                "REAL_ORDER_SUBMISSION_MUST_REMAIN_FALSE",
+        }
+
+    if LEVERAGE_MUTATION_ENABLED:
+        return {
+            "allow": False,
+            "reason":
+                "REAL_LEVERAGE_MUTATION_MUST_REMAIN_FALSE",
+        }
+
+    if MARGIN_MODE_MUTATION_ENABLED:
+        return {
+            "allow": False,
+            "reason":
+                "REAL_MARGIN_MODE_MUTATION_MUST_REMAIN_FALSE",
+        }
+
+    if POSITION_MUTATION_ENABLED:
+        return {
+            "allow": False,
+            "reason":
+                "REAL_POSITION_MUTATION_MUST_REMAIN_FALSE",
+        }
+
+    if FIRST_REAL_ORDER_ALLOWED:
+        return {
+            "allow": False,
+            "reason":
+                "FIRST_REAL_ORDER_MUST_REMAIN_FALSE",
+        }
+
+    if not R36F159_DEMO_ARM_REQUESTED:
+        return {
+            "allow": False,
+            "reason":
+                "SECOND_DEMO_ARM_NOT_REQUESTED",
+        }
+
+    if not R36F15_DEMO_POST_TRANSPORT_ENABLED:
+        return {
+            "allow": False,
+            "reason":
+                "DEMO_POST_TRANSPORT_DISABLED",
+        }
+
+    if not R36F15_DEMO_ORDER_SUBMISSION_ENABLED:
+        return {
+            "allow": False,
+            "reason":
+                "DEMO_ORDER_SUBMISSION_DISABLED",
+        }
+
+    if not R36F15_FIRST_DEMO_ORDER_ALLOWED:
+        return {
+            "allow": False,
+            "reason":
+                "DEMO_ORDER_NOT_ALLOWED",
+        }
+
+    if not isinstance(
+        preview,
+        dict,
+    ):
+        return {
+            "allow": False,
+            "reason":
+                "DEMO_PREVIEW_MISSING",
+        }
+
+    if not preview.get(
+        "valid"
+    ):
+        return {
+            "allow": False,
+            "reason":
+                preview.get(
+                    "reason"
+                )
+                or "DEMO_PREVIEW_INVALID",
+        }
+
+    if not isinstance(
+        command_preview,
+        dict,
+    ):
+        return {
+            "allow": False,
+            "reason":
+                "COMMAND_PREVIEW_MISSING",
+        }
+
+    if not command_preview.get(
+        "authorized"
+    ):
+        return {
+            "allow": False,
+            "reason":
+                command_preview.get(
+                    "reason"
+                )
+                or "COMMAND_NOT_AUTHORIZED",
+        }
+
+    payload = preview.get(
+        "payload"
+    )
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+        return {
+            "allow": False,
+            "reason":
+                "DEMO_PAYLOAD_MISSING",
+        }
+
+    if (
+        str(
+            payload.get(
+                "symbol"
+            )
+            or ""
+        ).strip().upper()
+        != R36F14_DEMO_SYMBOL
+    ):
+        return {
+            "allow": False,
+            "reason":
+                "DEMO_SYMBOL_MISMATCH",
+        }
+
+    if (
+        str(
+            payload.get(
+                "type"
+            )
+            or ""
+        ).strip().upper()
+        != "MARKET"
+    ):
+        return {
+            "allow": False,
+            "reason":
+                "DEMO_ORDER_TYPE_MUST_BE_MARKET",
+        }
+
+    client_order_id = str(
+        payload.get(
+            "newClientOrderId"
+        )
+        or payload.get(
+            "clientOrderId"
+        )
+        or ""
+    ).strip()
+
+    if not client_order_id:
+        return {
+            "allow": False,
+            "reason":
+                "CLIENT_ORDER_ID_MISSING",
+        }
+
+    return {
+        "allow": True,
+        "reason":
+            "DEMO_SUBMISSION_GATE_APPROVED",
+        "client_order_id":
+            client_order_id,
+    }
+
+
+async def r36f153_prepare_demo_submission(
+    preview,
+    command_preview,
+):
+    gate = (
+        r36f153_demo_submission_gate(
+            preview,
+            command_preview,
+        )
+    )
+
+    if not gate.get(
+        "allow"
+    ):
+        return {
+            "allow": False,
+            "reason":
+                gate.get(
+                    "reason"
+                ),
+            "gate":
+                gate,
+            "journal":
+                read_json_file(
+                    R36F15_DEMO_JOURNAL_FILE,
+                    default={},
+                ),
+        }
+
+    existing_journal = read_json_file(
+        R36F15_DEMO_JOURNAL_FILE,
+        default={},
+    )
+
+    reconciliation = (
+        await r36f153_reconcile_demo_journal(
+            existing_journal
+        )
+    )
+
+    if not reconciliation.get(
+        "resolved"
+    ):
+        return {
+            "allow": False,
+            "reason":
+                reconciliation.get(
+                    "reason"
+                )
+                or "DEMO_JOURNAL_UNRESOLVED",
+            "gate":
+                gate,
+            "reconciliation":
+                reconciliation,
+            "journal":
+                reconciliation.get(
+                    "journal",
+                    existing_journal,
+                ),
+        }
+
+    reconciled_journal = (
+        reconciliation.get(
+            "journal"
+        )
+        if isinstance(
+            reconciliation.get(
+                "journal"
+            ),
+            dict,
+        )
+        else {}
+    )
+
+    if r36f15_demo_journal_completed(
+        reconciled_journal
+    ):
+        return {
+            "allow": False,
+            "reason":
+                "DEMO_JOURNAL_ALREADY_COMPLETED",
+            "gate":
+                gate,
+            "reconciliation":
+                reconciliation,
+            "journal":
+                reconciled_journal,
+        }
+
+    if not reconciliation.get(
+        "retry_allowed",
+        True,
+    ):
+        return {
+            "allow": False,
+            "reason":
+                reconciliation.get(
+                    "reason"
+                )
+                or "DEMO_RETRY_NOT_ALLOWED",
+            "gate":
+                gate,
+            "reconciliation":
+                reconciliation,
+            "journal":
+                reconciled_journal,
+        }
+
+    prepared = (
+        r36f153_build_prepared_journal(
+            preview,
+            command_preview,
+        )
+    )
+
+    write_json_file(
+        R36F15_DEMO_JOURNAL_FILE,
+        prepared,
+    )
+
+    return {
+        "allow": True,
+        "reason":
+            "DEMO_SUBMISSION_PREPARED",
+        "gate":
+            gate,
+        "reconciliation":
+            reconciliation,
+        "journal":
+            prepared,
+    }
+
+
+async def submit_r36f15_demo_order(
+    preview,
+    command_preview,
+):
+    preparation = (
+        await r36f153_prepare_demo_submission(
+            preview,
+            command_preview,
+        )
+    )
+
+    if not preparation.get(
+        "allow"
+    ):
+        return {
+            "submitted": False,
+            "accepted": False,
+            "reason":
+                preparation.get(
+                    "reason"
+                ),
+            "preparation":
+                preparation,
+            "demo_order_sent":
+                False,
+            "real_order_sent":
+                False,
+        }
+
+    prepared_journal = (
+        preparation.get(
+            "journal"
+        )
+        or {}
+    )
+
+    payload = dict(
+        prepared_journal.get(
+            "payload"
+        )
+        or {}
+    )
+
+    try:
+        post_result = (
+            await weex_demo_post(
+                R36F14_DEMO_ORDER_ENDPOINT,
+                payload,
+            )
+        )
+
+    except Exception as exc:
+        ambiguous = (
+            r36f153_build_ambiguous_journal(
+                prepared_journal,
+                str(
+                    exc
+                ),
+            )
+        )
+
+        write_json_file(
+            R36F15_DEMO_JOURNAL_FILE,
+            ambiguous,
+        )
+
+        return {
+            "submitted": True,
+            "accepted": False,
+            "reason":
+                "DEMO_POST_AMBIGUOUS_RECONCILIATION_REQUIRED",
+            "error":
+                str(
+                    exc
+                ),
+            "journal":
+                ambiguous,
+            "demo_order_sent":
+                True,
+            "real_order_sent":
+                False,
+        }
+
+    if r36f153_demo_response_accepted(
+        post_result
+    ):
+        completed = (
+            r36f153_build_completed_journal(
+                prepared_journal,
+                post_result,
+            )
+        )
+
+        write_json_file(
+            R36F15_DEMO_JOURNAL_FILE,
+            completed,
+        )
+
+        return {
+            "submitted": True,
+            "accepted": True,
+            "reason":
+                "DEMO_ORDER_ACCEPTED",
+            "post_result":
+                post_result,
+            "journal":
+                completed,
+            "demo_order_sent":
+                True,
+            "real_order_sent":
+                False,
+        }
+
+    rejected = (
+        r36f153_build_rejected_journal(
+            prepared_journal,
+            post_result,
+        )
+    )
+
+    write_json_file(
+        R36F15_DEMO_JOURNAL_FILE,
+        rejected,
+    )
+
+    return {
+        "submitted": True,
+        "accepted": False,
+        "reason":
+            "DEMO_ORDER_REJECTED",
+        "post_result":
+            post_result,
+        "journal":
+            rejected,
+        "demo_order_sent":
+            True,
+        "real_order_sent":
+            False,
+    }
+
+
+def r36f153_demo_submission_summary(
+    result,
+):
+    if not isinstance(
+        result,
+        dict,
+    ):
+        return {
+            "submitted": False,
+            "accepted": False,
+            "reason":
+                "INVALID_DEMO_SUBMISSION_RESULT",
+        }
+
+    return {
+        "submitted":
+            bool(
+                result.get(
+                    "submitted"
+                )
+            ),
+        "accepted":
+            bool(
+                result.get(
+                    "accepted"
+                )
+            ),
+        "reason":
+            result.get(
+                "reason"
+            ),
+        "demo_order_sent":
+            bool(
+                result.get(
+                    "demo_order_sent"
+                )
+            ),
+        "real_order_sent":
+            bool(
+                result.get(
+                    "real_order_sent"
+                )
+            ),
+    }
+
+
+def r36f153_log_demo_submission(
+    result,
+):
+    summary = (
+        r36f153_demo_submission_summary(
+            result
+        )
+    )
+
+    log(
+        "R36F.15.3 DEMO SUBMITTED = "
+        + str(
+            summary.get(
+                "submitted"
+            )
+        )
+    )
+
+    log(
+        "R36F.15.3 DEMO ACCEPTED = "
+        + str(
+            summary.get(
+                "accepted"
+            )
+        )
+    )
+
+    log(
+        "R36F.15.3 DEMO REASON = "
+        + str(
+            summary.get(
+                "reason"
+            )
+        )
+    )
+
+    log(
+        "R36F.15.3 REAL ORDER SENT = "
+        + str(
+            summary.get(
+                "real_order_sent"
+            )
+        )
+    )
