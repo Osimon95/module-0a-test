@@ -1,4 +1,3 @@
-
 # ============================================================
 # R1.8 CORRECTED MAIN.PY — PART 1 START
 # ============================================================
@@ -982,3 +981,1081 @@ def normalize_rows(
                 return nested
 
     return []
+def extract_order_id(
+    payload,
+):
+    if not isinstance(
+        payload,
+        dict,
+    ):
+        return None
+
+    for key in (
+        "orderId",
+        "order_id",
+        "id",
+    ):
+        value = payload.get(
+            key
+        )
+
+        if value:
+            return str(
+                value
+            )
+
+    data = payload.get(
+        "data"
+    )
+
+    if isinstance(
+        data,
+        dict,
+    ):
+        return extract_order_id(
+            data
+        )
+
+    return None
+
+
+def extract_client_order_id(
+    row,
+):
+    if not isinstance(
+        row,
+        dict,
+    ):
+        return ""
+
+    return str(
+        row.get(
+            "clientOrderId"
+        )
+        or row.get(
+            "newClientOrderId"
+        )
+        or row.get(
+            "clientOid"
+        )
+        or ""
+    ).strip()
+
+
+def r36f_is_backup_client_order_id(
+    value,
+):
+    value = str(
+        value or ""
+    ).strip().upper()
+
+    return (
+        value.startswith(
+            "R36FB1-"
+        )
+        or value.startswith(
+            "R36FB2-"
+        )
+        or value.startswith(
+            "R36FB3-"
+        )
+    )
+
+
+def r36f_backup_number_from_client_id(
+    value,
+):
+    value = str(
+        value or ""
+    ).strip().upper()
+
+    for backup_number in (
+        1,
+        2,
+        3,
+    ):
+        prefix = (
+            "R36FB"
+            + str(
+                backup_number
+            )
+            + "-"
+        )
+
+        if value.startswith(
+            prefix
+        ):
+            return backup_number
+
+    return None
+
+
+def r36f_filled_backup_numbers_from_history(
+    history_rows,
+):
+    completed = set()
+
+    for row in (
+        history_rows
+        or []
+    ):
+        if not isinstance(
+            row,
+            dict,
+        ):
+            continue
+
+        symbol = normalize_symbol(
+            row.get(
+                "symbol"
+            )
+        )
+
+        if (
+            symbol
+            and symbol
+            != R36F14_DEMO_SYMBOL
+        ):
+            continue
+
+        status = normalize_status(
+            row.get(
+                "status"
+            )
+        )
+
+        if status != "FILLED":
+            continue
+
+        client_order_id = (
+            extract_client_order_id(
+                row
+            )
+        )
+
+        backup_number = (
+            r36f_backup_number_from_client_id(
+                client_order_id
+            )
+        )
+
+        if backup_number in {
+            1,
+            2,
+            3,
+        }:
+            completed.add(
+                backup_number
+            )
+
+    consecutive = 0
+
+    for backup_number in (
+        1,
+        2,
+        3,
+    ):
+        if backup_number not in completed:
+            break
+
+        consecutive = backup_number
+
+    return consecutive
+
+
+def r36f_backup_history_ids(
+    history_rows,
+):
+    ids = []
+
+    for row in (
+        history_rows
+        or []
+    ):
+        if not isinstance(
+            row,
+            dict,
+        ):
+            continue
+
+        client_order_id = (
+            extract_client_order_id(
+                row
+            )
+        )
+
+        if r36f_is_backup_client_order_id(
+            client_order_id
+        ):
+            ids.append(
+                client_order_id
+            )
+
+    return sorted(
+        set(
+            ids
+        )
+    )
+
+
+def r36f_backup_order_is_open(
+    history_rows,
+    client_order_id,
+):
+    client_order_id = str(
+        client_order_id
+        or ""
+    ).strip()
+
+    if not client_order_id:
+        return False
+
+    for row in (
+        history_rows
+        or []
+    ):
+        if not isinstance(
+            row,
+            dict,
+        ):
+            continue
+
+        if (
+            extract_client_order_id(
+                row
+            )
+            != client_order_id
+        ):
+            continue
+
+        status = normalize_status(
+            row.get(
+                "status"
+            )
+        )
+
+        if status in {
+            "NEW",
+            "PENDING",
+            "OPEN",
+            "CREATED",
+            "PARTIALLY_FILLED",
+            "PARTIAL_FILLED",
+            "PARTIALLYFILLED",
+            "PART_FILLED",
+        }:
+            return True
+
+    return False
+
+
+def r36f_backup_order_is_filled(
+    history_rows,
+    client_order_id,
+):
+    client_order_id = str(
+        client_order_id
+        or ""
+    ).strip()
+
+    if not client_order_id:
+        return False
+
+    for row in (
+        history_rows
+        or []
+    ):
+        if not isinstance(
+            row,
+            dict,
+        ):
+            continue
+
+        if (
+            extract_client_order_id(
+                row
+            )
+            != client_order_id
+        ):
+            continue
+
+        if (
+            normalize_status(
+                row.get(
+                    "status"
+                )
+            )
+            == "FILLED"
+        ):
+            return True
+
+    return False
+
+
+def r36f_backup_order_exists(
+    history_rows,
+    client_order_id,
+):
+    client_order_id = str(
+        client_order_id
+        or ""
+    ).strip()
+
+    if not client_order_id:
+        return False
+
+    for row in (
+        history_rows
+        or []
+    ):
+        if not isinstance(
+            row,
+            dict,
+        ):
+            continue
+
+        if (
+            extract_client_order_id(
+                row
+            )
+            == client_order_id
+        ):
+            return True
+
+    return False
+
+
+def r36f_position_quantity(
+    row,
+):
+    if not isinstance(
+        row,
+        dict,
+    ):
+        return D("0")
+
+    for key in (
+        "positionAmt",
+        "positionAmount",
+        "position_size",
+        "positionSize",
+        "size",
+        "quantity",
+        "qty",
+        "holdVol",
+        "available",
+        "total",
+    ):
+        value = row.get(
+            key
+        )
+
+        if value is None:
+            continue
+
+        try:
+            quantity = abs(
+                D(value)
+            )
+
+            if quantity > 0:
+                return quantity
+
+        except Exception:
+            continue
+
+    return D("0")
+
+
+def r36f_position_direction(
+    row,
+):
+    if not isinstance(
+        row,
+        dict,
+    ):
+        return None
+
+    for key in (
+        "positionSide",
+        "side",
+        "holdSide",
+        "direction",
+    ):
+        direction = normalize_side(
+            row.get(
+                key
+            )
+        )
+
+        if direction:
+            return direction
+
+    for key in (
+        "positionAmt",
+        "positionAmount",
+        "position_size",
+        "positionSize",
+        "size",
+    ):
+        value = row.get(
+            key
+        )
+
+        if value is None:
+            continue
+
+        try:
+            quantity = D(
+                value
+            )
+
+            if quantity > 0:
+                return "LONG"
+
+            if quantity < 0:
+                return "SHORT"
+
+        except Exception:
+            continue
+
+    return None
+
+
+def r36f_position_liquidation_price(
+    row,
+):
+    if not isinstance(
+        row,
+        dict,
+    ):
+        return None
+
+    for key in (
+        "liquidatePrice",
+        "liquidationPrice",
+        "liquidation_price",
+        "liqPrice",
+    ):
+        value = row.get(
+            key
+        )
+
+        if value is None:
+            continue
+
+        try:
+            price = D(
+                value
+            )
+
+            if price > 0:
+                return price
+
+        except Exception:
+            continue
+
+    return None
+
+
+def r36f_active_demo_position(
+    position_rows,
+):
+    for row in (
+        position_rows
+        or []
+    ):
+        if not isinstance(
+            row,
+            dict,
+        ):
+            continue
+
+        symbol = normalize_symbol(
+            row.get(
+                "symbol"
+            )
+        )
+
+        if (
+            symbol
+            and symbol
+            != R36F14_DEMO_SYMBOL
+        ):
+            continue
+
+        if (
+            r36f_position_quantity(
+                row
+            )
+            > 0
+        ):
+            return dict(
+                row
+            )
+
+    return None
+
+
+def r36f_backup_quantity_from_balance(
+    available_balance,
+    mark_price,
+    leverage,
+):
+    available_balance = D(
+        available_balance
+    )
+
+    mark_price = D(
+        mark_price
+    )
+
+    leverage = D(
+        leverage
+    )
+
+    if (
+        available_balance <= 0
+        or mark_price <= 0
+        or leverage <= 0
+    ):
+        return D("0")
+
+    backup_margin = (
+        available_balance
+        * BACKUP_MARGIN_PERCENT
+        / D("100")
+    )
+
+    notional = (
+        backup_margin
+        * leverage
+    )
+
+    raw_quantity = (
+        notional
+        / mark_price
+    )
+
+    quantity = quantize_down(
+        raw_quantity,
+        QUANTITY_STEP,
+    )
+
+    if (
+        quantity
+        < MIN_QUANTITY
+    ):
+        return D("0")
+
+    return quantity
+
+
+def r36f_backup_journal_file():
+    return os.path.join(
+        R36F_STATE_DIR,
+        "r36f_backup_demo_dispatch_journal.json",
+    )
+
+
+def r36f_backup_journal_read():
+    return read_json_file(
+        r36f_backup_journal_file(),
+        default={},
+    )
+
+
+def r36f_backup_journal_write(
+    value,
+):
+    write_json_file(
+        r36f_backup_journal_file(),
+        value,
+    )
+
+
+def r36f_backup_journal_matches(
+    journal,
+    client_order_id,
+):
+    if not isinstance(
+        journal,
+        dict,
+    ):
+        return False
+
+    return (
+        str(
+            journal.get(
+                "client_order_id"
+            )
+            or ""
+        ).strip()
+        == str(
+            client_order_id
+            or ""
+        ).strip()
+    )
+
+
+def r36f_backup_journal_terminal(
+    journal,
+):
+    if not isinstance(
+        journal,
+        dict,
+    ):
+        return True
+
+    state = normalize_status(
+        journal.get(
+            "state"
+        )
+    )
+
+    return state in {
+        "",
+        "COMPLETED",
+        "FILLED",
+        "REJECTED",
+        "FAILED",
+        "CANCELLED",
+        "CANCELED",
+    }
+
+
+def r36f_backup_journal_blocks(
+    journal,
+    client_order_id,
+):
+    if not isinstance(
+        journal,
+        dict,
+    ):
+        return False
+
+    if not journal:
+        return False
+
+    if r36f_backup_journal_matches(
+        journal,
+        client_order_id,
+    ):
+        return not r36f_backup_journal_terminal(
+            journal
+        )
+
+    return not r36f_backup_journal_terminal(
+        journal
+    )
+
+
+def r36f_backup_prepared_journal(
+    *,
+    preview,
+    position_quantity_before,
+    completed_backups,
+):
+    payload = dict(
+        preview.get(
+            "payload"
+        )
+        or {}
+    )
+
+    client_order_id = str(
+        preview.get(
+            "client_order_id"
+        )
+        or payload.get(
+            "newClientOrderId"
+        )
+        or ""
+    ).strip()
+
+    return {
+        "stage": STAGE,
+        "state": "PREPARED",
+        "created_at": now_iso(),
+        "endpoint":
+            R36F14_DEMO_ORDER_ENDPOINT,
+        "demo_only": True,
+        "real_order_execution": False,
+        "backup_number":
+            preview.get(
+                "backup_number"
+            ),
+        "direction":
+            preview.get(
+                "side"
+            ),
+        "client_order_id":
+            client_order_id,
+        "position_quantity_before":
+            decimal_to_string(
+                position_quantity_before
+            ),
+        "completed_backups_before":
+            int(
+                completed_backups
+            ),
+        "payload":
+            payload,
+        "payload_sha256":
+            sha256_text(
+                canonical_json(
+                    payload
+                )
+            ),
+    }
+
+
+def r36f_backup_mark_journal(
+    journal,
+    *,
+    state,
+    **extra,
+):
+    updated = dict(
+        journal
+        or {}
+    )
+
+    updated[
+        "state"
+    ] = str(
+        state
+    )
+
+    updated[
+        "updated_at"
+    ] = now_iso()
+
+    for key, value in (
+        extra.items()
+    ):
+        updated[
+            key
+        ] = value
+
+    r36f_backup_journal_write(
+        updated
+    )
+
+    return updated
+
+
+def r36f_backup_demo_transport_enabled():
+    return bool(
+        R36F159_DEMO_ARM_REQUESTED
+        and R36F15_DEMO_POST_TRANSPORT_ENABLED
+        and R36F15_DEMO_ORDER_SUBMISSION_ENABLED
+        and R36F15_FIRST_DEMO_ORDER_ALLOWED
+        and not REAL_ORDER_EXECUTION
+        and not EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        and not ORDER_SUBMISSION_ENABLED
+        and not POSITION_MUTATION_ENABLED
+    )
+
+
+def r36f_backup_runtime_gate():
+    if REAL_ORDER_EXECUTION:
+        return {
+            "allow": False,
+            "reason":
+                "REAL_ORDER_EXECUTION_MUST_REMAIN_FALSE",
+        }
+
+    if EXCHANGE_MUTATION_TRANSPORT_ENABLED:
+        return {
+            "allow": False,
+            "reason":
+                "REAL_EXCHANGE_MUTATION_TRANSPORT_MUST_REMAIN_FALSE",
+        }
+
+    if ORDER_SUBMISSION_ENABLED:
+        return {
+            "allow": False,
+            "reason":
+                "REAL_ORDER_SUBMISSION_MUST_REMAIN_FALSE",
+        }
+
+    if POSITION_MUTATION_ENABLED:
+        return {
+            "allow": False,
+            "reason":
+                "REAL_POSITION_MUTATION_MUST_REMAIN_FALSE",
+        }
+
+    if not R36F159_DEMO_ARM_REQUESTED:
+        return {
+            "allow": False,
+            "reason":
+                "SECOND_DEMO_ARM_NOT_REQUESTED",
+        }
+
+    if not R36F15_DEMO_POST_TRANSPORT_ENABLED:
+        return {
+            "allow": False,
+            "reason":
+                "DEMO_POST_TRANSPORT_DISABLED",
+        }
+
+    if not R36F15_DEMO_ORDER_SUBMISSION_ENABLED:
+        return {
+            "allow": False,
+            "reason":
+                "DEMO_ORDER_SUBMISSION_DISABLED",
+        }
+
+    return {
+        "allow": True,
+        "reason":
+            "BACKUP_DEMO_RUNTIME_GATE_APPROVED",
+    }
+
+
+def r36f_backup_reconciliation_summary(
+    *,
+    history_rows,
+    position_rows,
+):
+    active_position = (
+        r36f_active_demo_position(
+            position_rows
+        )
+    )
+
+    completed_backups = (
+        r36f_filled_backup_numbers_from_history(
+            history_rows
+        )
+    )
+
+    return {
+        "active_position":
+            active_position,
+        "active_position_quantity":
+            decimal_to_string(
+                r36f_position_quantity(
+                    active_position
+                )
+            )
+            if active_position
+            else "0",
+        "active_position_direction":
+            r36f_position_direction(
+                active_position
+            )
+            if active_position
+            else None,
+        "completed_backups":
+            completed_backups,
+        "backup_history_ids":
+            r36f_backup_history_ids(
+                history_rows
+            ),
+    }
+
+
+def r36f_backup_expected_next_number(
+    completed_backups,
+):
+    completed_backups = safe_int(
+        completed_backups,
+        0,
+    )
+
+    if completed_backups < 0:
+        completed_backups = 0
+
+    if (
+        completed_backups
+        >= MAX_BACKUPS
+    ):
+        return None
+
+    return (
+        completed_backups
+        + 1
+    )
+
+
+def r36f_backup_progression_valid(
+    completed_backups,
+):
+    completed_backups = safe_int(
+        completed_backups,
+        0,
+    )
+
+    return (
+        0
+        <= completed_backups
+        <= MAX_BACKUPS
+    )
+
+
+def r36f_backup_position_after_fill_increased(
+    before_quantity,
+    after_quantity,
+):
+    try:
+        return (
+            D(after_quantity)
+            > D(before_quantity)
+        )
+
+    except Exception:
+        return False
+
+
+def r36f_backup_log_summary(
+    result,
+):
+    if not isinstance(
+        result,
+        dict,
+    ):
+        log(
+            "R36F BACKUP BRIDGE RESULT = INVALID"
+        )
+        return
+
+    log(
+        "R36F BACKUP BRIDGE STATUS = "
+        + str(
+            result.get(
+                "status"
+            )
+        )
+    )
+
+    log(
+        "R36F BACKUP BRIDGE REASON = "
+        + str(
+            result.get(
+                "reason"
+            )
+        )
+    )
+
+    log(
+        "R36F BACKUP COMPLETED = "
+        + str(
+            result.get(
+                "completed_backups"
+            )
+        )
+    )
+
+    log(
+        "R36F BACKUP NEXT = "
+        + str(
+            result.get(
+                "backup_number"
+            )
+        )
+    )
+
+    log(
+        "R36F BACKUP ORDER SENT = "
+        + str(
+            result.get(
+                "sent",
+                False,
+            )
+        )
+    )
+
+    log(
+        "R36F BACKUP REAL ORDER = False"
+    )
+
+
+class HealthHandler(
+    BaseHTTPRequestHandler
+):
+    def do_GET(
+        self,
+    ):
+        body = json.dumps(
+            {
+                "stage": STAGE,
+                "status":
+                    TEST_STATUS,
+                "heartbeat_count":
+                    HEARTBEAT_COUNT,
+                "real_order_execution":
+                    REAL_ORDER_EXECUTION,
+                "demo_arm":
+                    R36F159_DEMO_ARM_REQUESTED,
+            }
+        ).encode(
+            "utf-8"
+        )
+
+        self.send_response(
+            200
+        )
+
+        self.send_header(
+            "Content-Type",
+            "application/json",
+        )
+
+        self.send_header(
+            "Content-Length",
+            str(
+                len(
+                    body
+                )
+            ),
+        )
+
+        self.end_headers()
+
+        self.wfile.write(
+            body
+        )
+
+    def log_message(
+        self,
+        format,
+        *args,
+    ):
+        return
+
+
+def start_health_server():
+    port = int(
+        os.getenv(
+            "PORT",
+            "10000",
+        )
+    )
+
+    server = HTTPServer(
+        (
+            "0.0.0.0",
+            port,
+        ),
+        HealthHandler,
+    )
+
+    thread = Thread(
+        target=server.serve_forever,
+        daemon=True,
+    )
+
+    thread.start()
+
+    log(
+        STAGE
+        + ": HEALTH SERVER STARTED ON PORT "
+        + str(
+            port
+        )
+    )
+
+    return server
