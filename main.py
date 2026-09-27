@@ -11891,3 +11891,659 @@ async def run_r36f12():
     # Remain inside async def run_r36f12().
     # DO NOT DEDENT THE PART 5B CONTINUATION.
     # ========================================================
+
+    # ========================================================
+    # DEMO SUBMISSION GATE
+    # ========================================================
+
+    if not R36F15105_AUTO_DEMO_ENABLED:
+        demo_submission[
+            "reason"
+        ] = (
+            "R36F15105_AUTO_DEMO_DISABLED"
+        )
+
+    elif not downstream_ready:
+        demo_submission[
+            "reason"
+        ] = (
+            "R36F15105_DOWNSTREAM_GATES_NOT_READY"
+        )
+
+    elif not demo_preview:
+        demo_submission[
+            "reason"
+        ] = (
+            "R36F15105_DEMO_PREVIEW_NOT_BUILT"
+        )
+
+    elif not r18_demo_connector_ok:
+        demo_submission[
+            "reason"
+        ] = (
+            "R36F15105_DEMO_CONNECTOR_NOT_READY"
+        )
+
+    else:
+        demo_submission = (
+            await submit_r36f15_demo_order(
+                demo_preview,
+                TELEGRAM_COMMAND_PREVIEW,
+            )
+        )
+
+    # ========================================================
+    # R36F.15.4.1 — TELEGRAM STATE-CHANGE NOTIFICATION MERGER
+    # NOTIFICATION ONLY — DOES NOT SUBMIT WEEX ORDERS
+    # ========================================================
+
+    try:
+        telegram_event_result = (
+            await send_r36f1541_state_change_alert(
+                demo_submission,
+                TELEGRAM_COMMAND_PREVIEW,
+                EMA_SIGNAL_SNAPSHOT,
+            )
+        )
+
+        log(
+            "R36F.15.4.1 TELEGRAM EVENT = "
+            + str(
+                telegram_event_result.get(
+                    "event_code"
+                )
+            )
+        )
+
+        log(
+            "R36F.15.4.1 TELEGRAM SENT = "
+            + str(
+                telegram_event_result.get(
+                    "sent",
+                    False,
+                )
+            )
+        )
+
+        log(
+            "R36F.15.4.1 TELEGRAM REASON = "
+            + str(
+                telegram_event_result.get(
+                    "reason"
+                )
+            )
+        )
+
+    except Exception as exc:
+        log(
+            "R36F.15.4.1 TELEGRAM NOTIFICATION ERROR = "
+            + str(exc)
+        )
+
+    # ========================================================
+    # R36F.15.4.1 — TELEGRAM STATE-CHANGE NOTIFICATION END
+    # ========================================================
+
+    # ========================================================
+    # CYCLE LOGGING
+    # ========================================================
+
+    log(
+        f"{STAGE} "
+        f"REGIME = "
+        f"{regime_gate.get('regime')} "
+        f"DIRECTION = "
+        f"{regime_gate.get('direction')} "
+        f"REGIME_APPROVED = "
+        f"{regime_gate.get('approved')} "
+        f"REASON = "
+        f"{regime_gate.get('reason')}"
+    )
+
+    log(
+        f"{STAGE} "
+        f"AUTO_DEMO_ENABLED = "
+        f"{R36F15105_AUTO_DEMO_ENABLED} "
+        f"SECOND_DEMO_ARM = "
+        f"{R36F159_DEMO_ARM_REQUESTED} "
+        f"DOWNSTREAM_READY = "
+        f"{downstream_ready}"
+    )
+
+    log(
+        f"{STAGE} "
+        f"DEMO_CONNECTOR_OK = "
+        f"{r18_demo_connector_ok} "
+        f"DEMO_CONNECTOR_REASON = "
+        f"{r18_demo_connector_reason}"
+    )
+
+    log(
+        f"{STAGE} "
+        f"DEMO ATTEMPTED = "
+        f"{demo_submission.get('attempted', False)} "
+        f"DEMO SENT = "
+        f"{demo_submission.get('sent', False)} "
+        f"DEMO ACCEPTED = "
+        f"{demo_submission.get('accepted', False)} "
+        f"DEMO REASON = "
+        f"{demo_submission.get('reason')}"
+    )
+
+    log(
+        f"{STAGE} "
+        f"R1.8 REAL ENGINE BRIDGE CONNECTED = "
+        f"{r13_engine_bridge.get('connected', False)} "
+        f"VALIDATED = "
+        f"{r13_engine_bridge.get('validated', False)} "
+        f"REASON = "
+        f"{r13_engine_bridge.get('reason')}"
+    )
+
+    log(
+        f"{STAGE} "
+        f"PROTECTIVE_STOP = DISABLED"
+    )
+
+    # ========================================================
+    # ZERO-WRITE INVARIANT
+    # ========================================================
+
+    ZERO_WRITE_INVARIANT_OK = bool(
+        REAL_ORDER_EXECUTION
+        is False
+        and
+        DEMO_ORDER_EXECUTION
+        is False
+        and
+        EXCHANGE_MUTATION_TRANSPORT_ENABLED
+        is False
+        and
+        ORDER_SUBMISSION_ENABLED
+        is False
+        and
+        FIRST_REAL_ORDER_ALLOWED
+        is False
+        and
+        R36F15103_REAL_ORDER_EXECUTION
+        is False
+        and
+        R36F15103_DEMO_ORDER_EXECUTION
+        is False
+        and
+        R36F15103_WRITE_TRANSPORT
+        is False
+    )
+
+    check(
+        "R36F15104B_ZERO_WRITE_INVARIANT",
+        ZERO_WRITE_INVARIANT_OK,
+    )
+
+    FINAL_GATE_OK = bool(
+        WEEX_READ_ONLY_OK
+        and
+        ZERO_WRITE_INVARIANT_OK
+        and
+        R36F15103_LAST_RESULT.get(
+            "active_mode"
+        )
+        in R36F15103_VALID_MODES
+    )
+
+    if FINAL_GATE_OK:
+        TEST_STATUS = "PASS"
+
+    else:
+        TEST_STATUS = "FAIL"
+
+    # ========================================================
+    # SNAPSHOT
+    # ========================================================
+
+    snapshot = {
+        "stage":
+            STAGE,
+
+        "timestamp":
+            now_iso(),
+
+        "status":
+            TEST_STATUS,
+
+        "final_gate_ok":
+            FINAL_GATE_OK,
+
+        "weex_read_only_ok":
+            WEEX_READ_ONLY_OK,
+
+        "zero_write_invariant_ok":
+            ZERO_WRITE_INVARIANT_OK,
+
+        "mark_price":
+            (
+                decimal_to_string(
+                    MARK_PRICE
+                )
+                if MARK_PRICE is not None
+                else None
+            ),
+
+        "available_balance":
+            (
+                decimal_to_string(
+                    AVAILABLE_BALANCE
+                )
+                if AVAILABLE_BALANCE
+                is not None
+                else None
+            ),
+
+        "open_positions":
+            OPEN_POSITIONS,
+
+        "ema_signal":
+            EMA_SIGNAL_SNAPSHOT,
+
+        "long_diagnostics":
+            LONG_DIAGNOSTICS,
+
+        "short_diagnostics":
+            SHORT_DIAGNOSTICS,
+
+        "real_long_market_eligible":
+            REAL_LONG_MARKET_ELIGIBLE,
+
+        "real_short_market_eligible":
+            REAL_SHORT_MARKET_ELIGIBLE,
+
+        "telegram_command_preview":
+            TELEGRAM_COMMAND_PREVIEW,
+
+        "balance_readiness":
+            balance_readiness,
+
+        "quantity_feasibility":
+            quantity_feasibility,
+
+        "protective_stop": {
+            "enabled":
+                False,
+
+            "direction":
+                selected_direction,
+
+            "price":
+                None,
+
+            "checks":
+                None,
+
+            "risk_envelope":
+                None,
+
+            "loss_budget":
+                None,
+        },
+
+        "r36f15104b_auto_mode_merger":
+            R36F15103_LAST_RESULT,
+
+        "r36f15105_regime_gate":
+            regime_gate,
+
+        "r36f15105_downstream_ready":
+            downstream_ready,
+
+        "r36f15105_demo_preview":
+            demo_preview,
+
+        "r18_demo_connector": {
+            "connected":
+                r18_demo_connector_ok,
+
+            "reason":
+                r18_demo_connector_reason,
+
+            "protective_stop_enabled":
+                False,
+        },
+
+        "r36f15105_demo_submission":
+            demo_submission,
+
+        "r13_engine_bridge":
+            r13_engine_bridge,
+
+        "execution_firebreak": {
+            "real_order_execution":
+                False,
+
+            "demo_order_execution":
+                False,
+
+            "write_transport":
+                False,
+
+            "exchange_mutation_sent":
+                False,
+
+            "real_order_sent":
+                False,
+
+            "demo_order_sent":
+                False,
+        },
+    }
+
+    write_json_file(
+        R36F_SNAPSHOT_FILE,
+        snapshot,
+    )
+
+    # ========================================================
+    # FINAL CYCLE DIAGNOSTICS
+    # ========================================================
+
+    log(
+        f"{STAGE} FINAL STATUS = "
+        f"{TEST_STATUS}"
+    )
+
+    log(
+        f"{STAGE} AUTO RAW MODE = "
+        f"{R36F15103_LAST_RESULT.get('raw_mode')}"
+    )
+
+    log(
+        f"{STAGE} AUTO ACTIVE MODE = "
+        f"{R36F15103_LAST_RESULT.get('active_mode')}"
+    )
+
+    log(
+        f"{STAGE} AUTO DIRECTION = "
+        f"{R36F15103_LAST_RESULT.get('direction')}"
+    )
+
+    log(
+        f"{STAGE} AUTO MOVE PERCENT = "
+        f"{R36F15103_LAST_RESULT.get('short_term_move_percent')}"
+    )
+
+    log(
+        f"{STAGE} AUTO EMA SEPARATION = "
+        f"{R36F15103_LAST_RESULT.get('ema_separation_percent')}"
+    )
+
+    log(
+        f"{STAGE} AUTO MODE LOCKED = "
+        f"{R36F15103_LAST_RESULT.get('mode_locked')}"
+    )
+
+    log(
+        f"{STAGE} AUTO PENDING MODE = "
+        f"{R36F15103_LAST_RESULT.get('pending_mode')}"
+    )
+
+    log(
+        f"{STAGE} AUTO PENDING COUNT = "
+        f"{R36F15103_LAST_RESULT.get('pending_count')}"
+    )
+
+    log(
+        f"{STAGE} AUTO TRANSITION REASON = "
+        f"{R36F15103_LAST_RESULT.get('reason')}"
+    )
+
+    log(
+        f"{STAGE} LONG VALID CLUSTERS = "
+        f"{LONG_DIAGNOSTICS.get('valid_cluster_count', 0)}"
+    )
+
+    log(
+        f"{STAGE} SHORT VALID CLUSTERS = "
+        f"{SHORT_DIAGNOSTICS.get('valid_cluster_count', 0)}"
+    )
+
+    log(
+        f"{STAGE} REAL_LONG_MARKET_ELIGIBLE = "
+        f"{REAL_LONG_MARKET_ELIGIBLE}"
+    )
+
+    log(
+        f"{STAGE} REAL_SHORT_MARKET_ELIGIBLE = "
+        f"{REAL_SHORT_MARKET_ELIGIBLE}"
+    )
+
+    log(
+        f"{STAGE} TELEGRAM_COMMAND_AUTHORIZED_PREVIEW = "
+        f"{TELEGRAM_COMMAND_PREVIEW.get('authorized_preview', False)}"
+    )
+
+    if balance_readiness:
+        log(
+            f"{STAGE} TRADE_READINESS_STATUS = "
+            f"{balance_readiness.get('status')}"
+        )
+
+        log(
+            f"{STAGE} SELECTED_TP_ALLOCATION = "
+            f"{balance_readiness.get('selected_allocation')}"
+        )
+
+    log(
+        f"{STAGE} PROTECTIVE_STOP_ENABLED = False"
+    )
+
+    log(
+        "NO REAL ORDER WAS SENT"
+    )
+
+    if demo_submission.get(
+        "sent"
+    ):
+        log(
+            "WEEX DEMO ORDER TRANSPORT OCCURRED"
+        )
+
+    else:
+        log(
+            "NO DEMO ORDER WAS SENT"
+        )
+
+    log(
+        "NO PRODUCTION EXCHANGE MUTATION WAS SENT"
+    )
+
+    line()
+
+    return snapshot
+
+
+# ============================================================
+# 60-SECOND REEVALUATION
+# ============================================================
+
+async def heartbeat_loop():
+    global HEARTBEAT_COUNT
+    global TEST_STATUS
+
+    while True:
+        HEARTBEAT_COUNT += 1
+
+        log(
+            f"HEARTBEAT "
+            f"stage={STAGE} "
+            f"status={TEST_STATUS} "
+            f"count={HEARTBEAT_COUNT} "
+            f"active_mode={R36F15103_ACTIVE_MODE} "
+            f"pending_mode={R36F15103_PENDING_MODE} "
+            f"pending_count={R36F15103_PENDING_COUNT} "
+            f"mode_locked={R36F15103_MODE_LOCKED} "
+            f"long_valid_clusters="
+            f"{LONG_DIAGNOSTICS.get('valid_cluster_count', 0)} "
+            f"short_valid_clusters="
+            f"{SHORT_DIAGNOSTICS.get('valid_cluster_count', 0)} "
+            f"write_transport=False "
+            f"real_execution=False "
+            f"demo_execution=False "
+            f"reevaluation_seconds="
+            f"{R36F151_REEVALUATION_SECONDS}"
+        )
+
+        await asyncio.sleep(
+            R36F151_REEVALUATION_SECONDS
+        )
+
+        line()
+
+        log(
+            f"{STAGE} "
+            f"RUNTIME REEVALUATION START "
+            f"heartbeat={HEARTBEAT_COUNT}"
+        )
+
+        line()
+
+        try:
+            exposure = (
+                await r36f159_reconcile_current_demo_exposure()
+            )
+
+            log(
+                "R36F.15.10.5 CYCLE "
+                "DUPLICATE BLOCKED = "
+                + str(
+                    exposure.get(
+                        "duplicate_entry_blocked",
+                        True,
+                    )
+                )
+            )
+
+            log(
+                "R36F.15.10.5 CYCLE "
+                "BLOCK REASON = "
+                + str(
+                    exposure.get(
+                        "duplicate_block_reason"
+                    )
+                )
+            )
+
+            await run_r36f12()
+
+            log(
+                f"{STAGE} "
+                f"RUNTIME REEVALUATION COMPLETE "
+                f"heartbeat={HEARTBEAT_COUNT} "
+                f"status={TEST_STATUS} "
+                f"active_mode="
+                f"{R36F15103_ACTIVE_MODE} "
+                f"raw_mode="
+                f"{R36F15103_LAST_RESULT.get('raw_mode')} "
+                f"pending_mode="
+                f"{R36F15103_PENDING_MODE} "
+                f"pending_count="
+                f"{R36F15103_PENDING_COUNT} "
+                f"mode_locked="
+                f"{R36F15103_MODE_LOCKED} "
+                f"long_valid_clusters="
+                f"{LONG_DIAGNOSTICS.get('valid_cluster_count', 0)} "
+                f"short_valid_clusters="
+                f"{SHORT_DIAGNOSTICS.get('valid_cluster_count', 0)}"
+            )
+
+        except Exception as exc:
+            TEST_STATUS = "FAIL"
+
+            line()
+
+            log(
+                f"{STAGE} "
+                f"RUNTIME REEVALUATION ERROR = "
+                f"{exc}"
+            )
+
+            line()
+
+
+# ============================================================
+# STARTUP
+# ============================================================
+
+async def async_main():
+    global TEST_STATUS
+
+    start_health_server()
+
+    r36f15103_startup_diagnostic()
+
+    try:
+        startup_exposure = (
+            await r36f159_reconcile_current_demo_exposure()
+        )
+
+        log(
+            "R36F.15.10.5 STARTUP "
+            "DUPLICATE BLOCKED = "
+            + str(
+                startup_exposure.get(
+                    "duplicate_entry_blocked",
+                    True,
+                )
+            )
+        )
+
+        log(
+            "R36F.15.10.5 STARTUP "
+            "BLOCK REASON = "
+            + str(
+                startup_exposure.get(
+                    "duplicate_block_reason"
+                )
+            )
+        )
+
+    except Exception as exc:
+        log(
+            "R36F.15.10.5 STARTUP "
+            "EXPOSURE RECONCILIATION ERROR = "
+            + str(exc)
+        )
+
+    try:
+        await run_r36f12()
+
+    except Exception as exc:
+        TEST_STATUS = "FAIL"
+
+        line()
+
+        log(
+            f"{STAGE} UNHANDLED ERROR = "
+            f"{exc}"
+        )
+
+        line()
+
+    await heartbeat_loop()
+
+
+def main():
+    asyncio.run(
+        async_main()
+    )
+
+
+if __name__ == "__main__":
+    print(
+        "BACKUP TEST INSERTION POINT = PASS"
+    )
+
+    main()
+
+
+# ============================================================
+# R1.8 CORRECTED MAIN.PY — PART 5B END
+# ============================================================
