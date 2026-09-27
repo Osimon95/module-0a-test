@@ -10808,3 +10808,1086 @@ def r13_connect_real_engine(
 # ============================================================  
     
     
+# ============================================================
+# R1.8 CORRECTED MAIN.PY — PART 5A START
+# ============================================================
+
+# ============================================================
+# MAIN R36F.15.10.5 CYCLE
+# ============================================================
+
+async def run_r36f12():
+    global TEST_STATUS
+    global WEEX_READ_ONLY_OK
+    global MARK_PRICE
+    global AVAILABLE_BALANCE
+    global OPEN_POSITIONS
+    global EMA_SIGNAL_SNAPSHOT
+    global LONG_DIAGNOSTICS
+    global SHORT_DIAGNOSTICS
+    global REAL_LONG_MARKET_ELIGIBLE
+    global REAL_SHORT_MARKET_ELIGIBLE
+    global TELEGRAM_COMMAND_PREVIEW
+    global R36F15103_REFERENCE_PRICE
+    global R36F15103_LAST_RESULT
+
+    line()
+
+    log(
+        f"{STAGE} START"
+    )
+
+    log(
+        "ACTIVE TP POLICY = "
+        "NET_ROI_MIN_10_20_ADAPTIVE"
+    )
+
+    log(
+        "TP1 MINIMUM NET ROI = "
+        + decimal_to_string(
+            R18_TP1_MIN_NET_ROI_PERCENT
+        )
+        + "%"
+    )
+
+    log(
+        "TP2 MINIMUM NET ROI = "
+        + decimal_to_string(
+            R18_TP2_MIN_NET_ROI_PERCENT
+        )
+        + "%"
+    )
+
+    log(
+        "TP ALLOCATION = "
+        "25% / 25% / 50%"
+    )
+
+    log(
+        "TP3 POLICY = TRAILING_RUNNER"
+    )
+
+    log(
+        "HISTORICAL CLUSTERS = "
+        "DIAGNOSTIC_ONLY"
+    )
+
+    log(
+        "CLUSTER AUTHORIZATION = False"
+    )
+
+    # ========================================================
+    # READ-ONLY WEEX STATE
+    # ========================================================
+
+    # ========================================================
+    # READ-ONLY WEEX STATE + FROZEN MARKET DATA PATH
+    # ========================================================
+
+    historical_rows = []
+
+    try:
+        MARK_PRICE = (
+            await load_mark_price()
+        )
+
+        AVAILABLE_BALANCE = (
+            await load_available_balance()
+        )
+
+        OPEN_POSITIONS = (
+            await load_open_positions()
+        )
+
+        WEEX_READ_ONLY_OK = True
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_STATE",
+            True,
+        )
+
+    except Exception as exc:
+        WEEX_READ_ONLY_OK = False
+
+        diagnostic_check(
+            "WEEX_READ_ONLY_STATE",
+            False,
+            str(exc),
+        )
+
+        MARK_PRICE = None
+        AVAILABLE_BALANCE = None
+        OPEN_POSITIONS = []
+
+    # ========================================================
+    # HISTORICAL DATA — EXISTING FROZEN LOADER
+    # ========================================================
+
+    try:
+        historical_rows = (
+            await load_historical_klines()
+        )
+
+        diagnostic_check(
+            "R36F15104B_HISTORICAL_DATA",
+            bool(
+                historical_rows
+            ),
+        )
+
+    except Exception as exc:
+        historical_rows = []
+
+        diagnostic_check(
+            "R36F15104B_HISTORICAL_DATA",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # EMA SNAPSHOT — CONSUME SAME HISTORICAL ROWS
+    # ========================================================
+
+    try:
+        EMA_SIGNAL_SNAPSHOT = (
+            build_ema_signal_snapshot(
+                historical_rows
+            )
+        )
+
+        diagnostic_check(
+            "R36F15104B_EMA_SIGNAL",
+            bool(
+                EMA_SIGNAL_SNAPSHOT.get(
+                    "price"
+                )
+                and
+                EMA_SIGNAL_SNAPSHOT.get(
+                    "ema19"
+                )
+                and
+                EMA_SIGNAL_SNAPSHOT.get(
+                    "ema50"
+                )
+                and
+                EMA_SIGNAL_SNAPSHOT.get(
+                    "ema200"
+                )
+                and
+                EMA_SIGNAL_SNAPSHOT.get(
+                    "structure"
+                )
+            ),
+            "EMA_SNAPSHOT_FIELDS_VALID",
+        )
+
+    except Exception as exc:
+        EMA_SIGNAL_SNAPSHOT = {
+            "ready": False,
+            "reason": str(exc),
+            "ideal_direction": None,
+        }
+
+        diagnostic_check(
+            "R36F15104B_EMA_SIGNAL",
+            False,
+            str(exc),
+        )
+
+    # ========================================================
+    # R1.8 LONG ADAPTIVE NET-ROI TP SNAPSHOT
+    # ========================================================
+
+    real_long_snapshot = None
+    real_short_snapshot = None
+
+    LONG_DIAGNOSTICS = {}
+    SHORT_DIAGNOSTICS = {}
+
+    REAL_LONG_MARKET_ELIGIBLE = False
+    REAL_SHORT_MARKET_ELIGIBLE = False
+
+    if (
+        MARK_PRICE is not None
+        and
+        AVAILABLE_BALANCE is not None
+    ):
+        try:
+            long_readiness = (
+                evaluate_strict_tp_balance_readiness(
+                    AVAILABLE_BALANCE,
+                    MARK_PRICE,
+                    TARGET_LONG_LEVERAGE,
+                )
+            )
+
+            long_quantity = D(
+                long_readiness.get(
+                    "planned_entry_quantity",
+                    "0",
+                )
+            )
+
+            if long_quantity <= 0:
+                raise RuntimeError(
+                    "LONG_ZERO_PLANNED_QUANTITY"
+                )
+
+            real_long_snapshot = (
+                build_net_roi_tp_snapshot(
+                    MARK_PRICE,
+                    long_quantity,
+                    "LONG",
+                    "PRE_R18_LONG",
+                    historical_rows,
+                )
+            )
+
+            LONG_DIAGNOSTICS = (
+                real_long_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_LONG_MARKET_ELIGIBLE = bool(
+                real_long_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+        except Exception as exc:
+            REAL_LONG_MARKET_ELIGIBLE = False
+
+            log(
+                "PRE-R1.8 LONG NET-ROI TP = REJECTED "
+                + str(exc)
+            )
+
+        # ====================================================
+        # R1.8 SHORT ADAPTIVE NET-ROI TP SNAPSHOT
+        # ====================================================
+
+        try:
+            short_readiness = (
+                evaluate_strict_tp_balance_readiness(
+                    AVAILABLE_BALANCE,
+                    MARK_PRICE,
+                    TARGET_SHORT_LEVERAGE,
+                )
+            )
+
+            short_quantity = D(
+                short_readiness.get(
+                    "planned_entry_quantity",
+                    "0",
+                )
+            )
+
+            if short_quantity <= 0:
+                raise RuntimeError(
+                    "SHORT_ZERO_PLANNED_QUANTITY"
+                )
+
+            real_short_snapshot = (
+                build_net_roi_tp_snapshot(
+                    MARK_PRICE,
+                    short_quantity,
+                    "SHORT",
+                    "PRE_R18_SHORT",
+                    historical_rows,
+                )
+            )
+
+            SHORT_DIAGNOSTICS = (
+                real_short_snapshot[
+                    "historical_diagnostics"
+                ]
+            )
+
+            REAL_SHORT_MARKET_ELIGIBLE = bool(
+                real_short_snapshot[
+                    "tp_approval"
+                ][
+                    "approved"
+                ]
+            )
+
+        except Exception as exc:
+            REAL_SHORT_MARKET_ELIGIBLE = False
+
+            log(
+                "PRE-R1.8 SHORT NET-ROI TP = REJECTED "
+                + str(exc)
+            )
+
+    # ========================================================
+    # R1.8 TP SNAPSHOT LOGGING
+    # ========================================================
+
+    if real_long_snapshot:
+        log(
+            "PRE-R1.8 LONG ADAPTIVE NET-ROI TP = "
+            + (
+                "APPROVED"
+                if REAL_LONG_MARKET_ELIGIBLE
+                else "REJECTED"
+            )
+        )
+
+        log(
+            "PRE-R1.8 LONG COMMITTED MARGIN = "
+            + str(
+                real_long_snapshot.get(
+                    "committed_margin"
+                )
+            )
+        )
+
+        log(
+            "PRE-R1.8 LONG TP1 = "
+            + str(
+                real_long_snapshot.get(
+                    "tp1"
+                )
+            )
+            + " MIN_ROI="
+            + str(
+                real_long_snapshot.get(
+                    "tp1_min_net_roi_percent"
+                )
+            )
+            + "% ACTUAL_NET_ROI="
+            + str(
+                real_long_snapshot.get(
+                    "tp1_actual_net_roi_percent"
+                )
+            )
+            + "% SOURCE="
+            + str(
+                real_long_snapshot.get(
+                    "tp1_source"
+                )
+            )
+            + " CLOSE="
+            + str(
+                real_long_snapshot.get(
+                    "tp1_close_percent"
+                )
+            )
+            + "%"
+        )
+
+        log(
+            "PRE-R1.8 LONG TP2 = "
+            + str(
+                real_long_snapshot.get(
+                    "tp2"
+                )
+            )
+            + " MIN_ROI="
+            + str(
+                real_long_snapshot.get(
+                    "tp2_min_net_roi_percent"
+                )
+            )
+            + "% ACTUAL_NET_ROI="
+            + str(
+                real_long_snapshot.get(
+                    "tp2_actual_net_roi_percent"
+                )
+            )
+            + "% SOURCE="
+            + str(
+                real_long_snapshot.get(
+                    "tp2_source"
+                )
+            )
+            + " CLOSE="
+            + str(
+                real_long_snapshot.get(
+                    "tp2_close_percent"
+                )
+            )
+            + "%"
+        )
+
+        log(
+            "PRE-R1.8 LONG TP3 = TRAILING_RUNNER "
+            "CLOSE="
+            + str(
+                real_long_snapshot.get(
+                    "tp3_close_percent"
+                )
+            )
+            + "%"
+        )
+
+        log(
+            "PRE-R1.8 LONG HISTORICAL VALID CLUSTERS = "
+            + str(
+                LONG_DIAGNOSTICS.get(
+                    "valid_cluster_count",
+                    0,
+                )
+            )
+        )
+
+        log(
+            "PRE-R1.8 LONG CLUSTER AUTHORIZATION = False"
+        )
+
+    if real_short_snapshot:
+        log(
+            "PRE-R1.8 SHORT ADAPTIVE NET-ROI TP = "
+            + (
+                "APPROVED"
+                if REAL_SHORT_MARKET_ELIGIBLE
+                else "REJECTED"
+            )
+        )
+
+        log(
+            "PRE-R1.8 SHORT COMMITTED MARGIN = "
+            + str(
+                real_short_snapshot.get(
+                    "committed_margin"
+                )
+            )
+        )
+
+        log(
+            "PRE-R1.8 SHORT TP1 = "
+            + str(
+                real_short_snapshot.get(
+                    "tp1"
+                )
+            )
+            + " MIN_ROI="
+            + str(
+                real_short_snapshot.get(
+                    "tp1_min_net_roi_percent"
+                )
+            )
+            + "% ACTUAL_NET_ROI="
+            + str(
+                real_short_snapshot.get(
+                    "tp1_actual_net_roi_percent"
+                )
+            )
+            + "% SOURCE="
+            + str(
+                real_short_snapshot.get(
+                    "tp1_source"
+                )
+            )
+            + " CLOSE="
+            + str(
+                real_short_snapshot.get(
+                    "tp1_close_percent"
+                )
+            )
+            + "%"
+        )
+
+        log(
+            "PRE-R1.8 SHORT TP2 = "
+            + str(
+                real_short_snapshot.get(
+                    "tp2"
+                )
+            )
+            + " MIN_ROI="
+            + str(
+                real_short_snapshot.get(
+                    "tp2_min_net_roi_percent"
+                )
+            )
+            + "% ACTUAL_NET_ROI="
+            + str(
+                real_short_snapshot.get(
+                    "tp2_actual_net_roi_percent"
+                )
+            )
+            + "% SOURCE="
+            + str(
+                real_short_snapshot.get(
+                    "tp2_source"
+                )
+            )
+            + " CLOSE="
+            + str(
+                real_short_snapshot.get(
+                    "tp2_close_percent"
+                )
+            )
+            + "%"
+        )
+
+        log(
+            "PRE-R1.8 SHORT TP3 = TRAILING_RUNNER "
+            "CLOSE="
+            + str(
+                real_short_snapshot.get(
+                    "tp3_close_percent"
+                )
+            )
+            + "%"
+        )
+
+        log(
+            "PRE-R1.8 SHORT HISTORICAL VALID CLUSTERS = "
+            + str(
+                SHORT_DIAGNOSTICS.get(
+                    "valid_cluster_count",
+                    0,
+                )
+            )
+        )
+
+        log(
+            "PRE-R1.8 SHORT CLUSTER AUTHORIZATION = False"
+        )
+
+    # ========================================================
+    # AUTO-MODE REEVALUATION
+    # ========================================================
+
+    merger_direction = (
+        EMA_SIGNAL_SNAPSHOT.get(
+            "ideal_direction"
+        )
+    )
+
+    merger_current_price = (
+        MARK_PRICE
+    )
+
+    merger_reference_price = (
+        R36F15103_REFERENCE_PRICE
+    )
+
+    if (
+        merger_reference_price
+        is None
+    ):
+        merger_reference_price = (
+            merger_current_price
+        )
+
+    merger_valid_clusters = 0
+
+    if merger_direction == "LONG":
+        merger_valid_clusters = int(
+            LONG_DIAGNOSTICS.get(
+                "valid_cluster_count",
+                0,
+            )
+        )
+
+    elif merger_direction == "SHORT":
+        merger_valid_clusters = int(
+            SHORT_DIAGNOSTICS.get(
+                "valid_cluster_count",
+                0,
+            )
+        )
+
+    try:
+        R36F15103_LAST_RESULT = (
+            r36f15103_merge_cycle(
+                current_price=(
+                    merger_current_price
+                ),
+
+                reference_price=(
+                    merger_reference_price
+                ),
+
+                ema19=(
+                    EMA_SIGNAL_SNAPSHOT.get(
+                        "ema19"
+                    )
+                ),
+
+                ema50=(
+                    EMA_SIGNAL_SNAPSHOT.get(
+                        "ema50"
+                    )
+                ),
+
+                ema200=(
+                    EMA_SIGNAL_SNAPSHOT.get(
+                        "ema200"
+                    )
+                ),
+
+                valid_cluster_count=(
+                    merger_valid_clusters
+                ),
+
+                existing_direction=(
+                    merger_direction
+                ),
+
+                trade_active=bool(
+                    OPEN_POSITIONS
+                ),
+            )
+        )
+
+    except Exception as exc:
+        R36F15103_LAST_RESULT = {
+            "stage":
+                R36F15103_STAGE,
+
+            "error":
+                str(exc),
+
+            "real_execution":
+                False,
+
+            "demo_execution":
+                False,
+
+            "write_transport":
+                False,
+        }
+
+        diagnostic_check(
+            "R36F15104B_AUTO_MODE_REEVALUATION",
+            False,
+            str(exc),
+        )
+
+    if merger_current_price is not None:
+        R36F15103_REFERENCE_PRICE = (
+            merger_current_price
+        )
+
+    # ========================================================
+    # REGIME GATE
+    # ========================================================
+
+    regime_gate = (
+        r36f15105_regime_gate(
+            R36F15103_LAST_RESULT,
+            EMA_SIGNAL_SNAPSHOT,
+            real_long_snapshot,
+            real_short_snapshot,
+        )
+    )
+
+    # ========================================================
+    # TELEGRAM / AUTO COMMAND PREVIEW
+    # ========================================================
+
+    current_command = os.getenv(
+        "R36F12_TELEGRAM_COMMAND_TEXT",
+        "",
+    ).strip()
+
+    if current_command:
+        manual = (
+            parse_telegram_trade_command(
+                current_command
+            )
+        )
+
+        auto_direction = (
+            regime_gate.get(
+                "direction"
+            )
+        )
+
+        manual_ok = bool(
+            manual.get(
+                "recognized"
+            )
+            and
+            regime_gate.get(
+                "approved"
+            )
+            and
+            manual.get(
+                "direction"
+            )
+            ==
+            auto_direction
+        )
+
+        TELEGRAM_COMMAND_PREVIEW = {
+            **manual,
+
+            "authorized_preview":
+                manual_ok,
+
+            "reason":
+                (
+                    "MANUAL_COMMAND_AND_AUTO_REGIME_AGREE"
+                    if manual_ok
+                    else
+                    "MANUAL_COMMAND_DOES_NOT_MATCH_AUTO_REGIME"
+                ),
+
+            "authorization_source":
+                "R36F.15.10.5_MANUAL_PLUS_AUTO_REGIME",
+
+            "exchange_order_sent":
+                False,
+        }
+
+    else:
+        TELEGRAM_COMMAND_PREVIEW = (
+            r36f15105_build_auto_command_preview(
+                regime_gate
+            )
+        )
+
+    # ========================================================
+    # BALANCE / QUANTITY READINESS
+    # ========================================================
+
+    balance_readiness = None
+    quantity_feasibility = None
+
+    selected_direction = (
+        TELEGRAM_COMMAND_PREVIEW.get(
+            "direction"
+        )
+        or
+        merger_direction
+    )
+
+    selected_leverage = (
+        TARGET_SHORT_LEVERAGE
+        if selected_direction == "SHORT"
+        else TARGET_LONG_LEVERAGE
+    )
+
+    if (
+        AVAILABLE_BALANCE is not None
+        and
+        MARK_PRICE is not None
+    ):
+        try:
+            balance_readiness = (
+                evaluate_strict_tp_balance_readiness(
+                    AVAILABLE_BALANCE,
+                    MARK_PRICE,
+                    selected_leverage,
+                )
+            )
+
+            planned_quantity = D(
+                balance_readiness.get(
+                    "planned_entry_quantity",
+                    "0",
+                )
+            )
+
+            quantity_feasibility = (
+                evaluate_writer_quantity_feasibility(
+                    planned_quantity
+                )
+            )
+
+        except Exception as exc:
+            log(
+                "R36F.15.10.4b BALANCE READINESS ERROR = "
+                + str(exc)
+            )
+
+    # ========================================================
+    # SELECT TP SNAPSHOT
+    # ========================================================
+
+    selected_tp_snapshot = (
+        regime_gate.get(
+            "selected_tp_snapshot"
+        )
+    )
+
+    if selected_tp_snapshot is None:
+        if selected_direction == "LONG":
+            selected_tp_snapshot = (
+                real_long_snapshot
+            )
+
+        elif selected_direction == "SHORT":
+            selected_tp_snapshot = (
+                real_short_snapshot
+            )
+
+    # ========================================================
+    # PROTECTIVE STOP — DISABLED
+    # ========================================================
+    #
+    # R1.8 correction:
+    #
+    # Stop-loss calculation and stop-loss validation are no
+    # longer authorization requirements for this build.
+    #
+    # Compatibility variables remain defined so downstream
+    # diagnostics cannot fail with NameError.
+    # ========================================================
+
+    protective_stop_price = None
+    protective_stop_checks = None
+    protective_stop_envelope = None
+    protective_stop_budget = None
+
+    log(
+        "R36F.15.10.5 PROTECTIVE STOP = DISABLED"
+    )
+
+    # ========================================================
+    # DOWNSTREAM GATE — SL DISABLED
+    # ========================================================
+
+    demo_preview = None
+
+    demo_submission = {
+        "attempted":
+            False,
+
+        "sent":
+            False,
+
+        "accepted":
+            False,
+
+        "reason":
+            "AUTO_DEMO_NOT_EVALUATED",
+    }
+
+    downstream_ready = bool(
+        regime_gate.get(
+            "approved"
+        )
+        and
+        TELEGRAM_COMMAND_PREVIEW.get(
+            "authorized_preview"
+        )
+        and
+        balance_readiness
+        and
+        balance_readiness.get(
+            "eligible"
+        )
+        and
+        quantity_feasibility
+        and
+        quantity_feasibility.get(
+            "feasible"
+        )
+    )
+
+    # ========================================================
+    # DEMO PREVIEW — SL DISABLED
+    # ========================================================
+
+    if downstream_ready:
+        demo_preview = (
+            r36f15105_build_demo_preview(
+                selected_direction,
+                selected_tp_snapshot,
+                balance_readiness,
+                None,
+            )
+        )
+
+    # ========================================================
+    # WRITE.PY-R1.3 -> R1.8 ZERO-WRITE REAL ENGINE BRIDGE
+    # ========================================================
+
+    r13_engine_bridge = (
+        r13_connect_real_engine(
+            downstream_ready,
+            selected_direction,
+            selected_tp_snapshot,
+            balance_readiness,
+            None,
+        )
+    )
+
+    # ========================================================
+    # R1.8D — WEEX DEMO CONNECTION VALIDATOR
+    # SL DISABLED
+    # ========================================================
+
+    r18_demo_connector_ok = False
+
+    r18_demo_connector_reason = (
+        "R18D_NOT_READY"
+    )
+
+    r18_demo_payload = None
+
+    if not downstream_ready:
+        r18_demo_connector_reason = (
+            "R18D_DOWNSTREAM_NOT_READY"
+        )
+
+    elif not demo_preview:
+        r18_demo_connector_reason = (
+            "R18D_DEMO_PREVIEW_MISSING"
+        )
+
+    else:
+        try:
+            r18_demo_payload = (
+                demo_preview.get(
+                    "payload"
+                )
+                or demo_preview
+            )
+
+            r18_demo_direction = str(
+                selected_direction
+                or ""
+            ).strip().upper()
+
+            r18_demo_quantity = D(
+                r18_demo_payload.get(
+                    "quantity",
+                    "0",
+                )
+            )
+
+            r18_demo_tp = D(
+                r18_demo_payload.get(
+                    "tpTriggerPrice",
+                    "0",
+                )
+            )
+
+            r18_demo_symbol = str(
+                r18_demo_payload.get(
+                    "symbol",
+                    "",
+                )
+            ).strip().upper()
+
+            r18_expected_side = (
+                "LONG"
+                if r18_demo_direction == "LONG"
+                else
+                "SHORT"
+                if r18_demo_direction == "SHORT"
+                else ""
+            )
+
+            r18_payload_side = str(
+                r18_demo_payload.get(
+                    "positionSide",
+                    "",
+                )
+            ).strip().upper()
+
+            r18_sl_fields_absent = bool(
+                "slTriggerPrice"
+                not in r18_demo_payload
+                and
+                "SlWorkingType"
+                not in r18_demo_payload
+            )
+
+            r18_demo_connector_ok = bool(
+                r18_demo_symbol
+                == R36F14_DEMO_SYMBOL
+                and
+                r18_expected_side
+                in {
+                    "LONG",
+                    "SHORT",
+                }
+                and
+                r18_payload_side
+                == r18_expected_side
+                and
+                r18_demo_quantity > 0
+                and
+                r18_demo_tp > 0
+                and
+                r18_sl_fields_absent
+            )
+
+            r18_demo_connector_reason = (
+                "R18D_WEEX_DEMO_CONNECTED_SL_DISABLED"
+                if r18_demo_connector_ok
+                else
+                "R18D_PAYLOAD_BINDING_FAILED"
+            )
+
+        except Exception as exc:
+            r18_demo_connector_ok = False
+
+            r18_demo_connector_reason = (
+                "R18D_VALIDATION_EXCEPTION:"
+                + str(exc)
+            )
+
+    log(
+        "R1.8D WEEX DEMO CONNECTOR = "
+        + (
+            "PASS"
+            if r18_demo_connector_ok
+            else "BLOCKED"
+        )
+    )
+
+    log(
+        "R1.8D WEEX DEMO CONNECTOR REASON = "
+        + r18_demo_connector_reason
+    )
+
+    if demo_preview and r18_demo_payload:
+        log(
+            "R1.8D SYMBOL = "
+            + str(
+                r18_demo_payload.get(
+                    "symbol"
+                )
+            )
+        )
+
+        log(
+            "R1.8D DIRECTION = "
+            + str(
+                r18_demo_payload.get(
+                    "positionSide"
+                )
+            )
+        )
+
+        log(
+            "R1.8D QUANTITY = "
+            + str(
+                r18_demo_payload.get(
+                    "quantity"
+                )
+            )
+        )
+
+        log(
+            "R1.8D TP = "
+            + str(
+                r18_demo_payload.get(
+                    "tpTriggerPrice"
+                )
+            )
+        )
+
+        log(
+            "R1.8D SL = DISABLED"
+        )
+
+    # ========================================================
+    # R1.8 CORRECTED MAIN.PY — PART 5A JOIN
+    #
+    # Continue Part 5B immediately below.
+    # Remain inside async def run_r36f12().
+    # DO NOT DEDENT THE PART 5B CONTINUATION.
+    # ========================================================
