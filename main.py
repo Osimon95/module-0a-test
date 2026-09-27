@@ -10793,7 +10793,7 @@ def r36f_sl_disabled_payload_test():
         or not balance_readiness
         or protective_stop_price is None
     ):
-        return None
+            return None
 
     quantity = quantize_down(
         D(
