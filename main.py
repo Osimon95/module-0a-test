@@ -426,3 +426,4 @@ def r36f_sl_disabled_payload_test_unit_2():
 # RUN TEST UNIT 2
 # ============================================================
 
+r36f_sl_disabled_payload_test_unit_2()
