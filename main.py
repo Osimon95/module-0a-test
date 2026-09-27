@@ -10768,6 +10768,8 @@ def r36f_sl_disabled_payload_test():
         "weex_post":
             False,
     }
+
+    r36f_sl_disabled_payload_test()
     def r36f15105_build_demo_preview(
     direction,
     tp_snapshot,
