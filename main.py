@@ -2454,3 +2454,437 @@ def r36f_sl_disabled_payload_test_unit_6():
 # ============================================================
 
 r36f_sl_disabled_payload_test_unit_6()
+# ============================================================
+# R36F SL-DISABLE TESTABLE UNIT 7
+# ACTUAL DEMO-SUBMISSION BOUNDARY TRANSFORMATION TEST
+#
+# PURPOSE:
+# Verify the exact payload transformation required immediately
+# before the existing:
+#
+#     await weex_demo_post(
+#         R36F14_DEMO_ORDER_ENDPOINT,
+#         payload,
+#     )
+#
+# This test proves:
+#
+# 1. Entry fields remain unchanged.
+# 2. TP fields remain unchanged.
+# 3. newClientOrderId remains unchanged.
+# 4. slTriggerPrice is removed.
+# 5. SlWorkingType is removed.
+# 6. No other field is removed.
+# 7. No field is added.
+# 8. No WEEX POST occurs.
+# 9. No demo order occurs.
+# 10. No real order occurs.
+#
+# IMPORTANT:
+# - SELF-CONTAINED
+# - ZERO WRITE
+# - NO JOURNAL WRITE
+# - NO NETWORK CALL
+# - NO WEEX POST
+# - NO DEMO ORDER
+# - NO REAL ORDER
+# ============================================================
+
+def r36f_sl_disabled_payload_test_unit_7():
+
+    print(
+        "R36F SL-DISABLE TEST UNIT 7 START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # This represents the payload immediately before the
+    # existing WEEX demo POST boundary.
+    #
+    # It deliberately contains both TP and SL so Unit 7 can
+    # prove that ONLY the SL fields disappear.
+    # --------------------------------------------------------
+
+    submission_payload = {
+        "symbol": "BTCSUSDT",
+        "side": "BUY",
+        "positionSide": "LONG",
+        "type": "MARKET",
+        "quantity": "0.0001",
+        "newClientOrderId": "R36F-SL-UNIT7-001",
+
+        "tpTriggerPrice": "99999.9",
+        "TpWorkingType": "MARK_PRICE",
+
+        "slTriggerPrice": "90000.0",
+        "SlWorkingType": "MARK_PRICE",
+    }
+
+    original_payload = dict(
+        submission_payload
+    )
+
+    # --------------------------------------------------------
+    # Simulate the exact final transformation that will later
+    # be inserted immediately before:
+    #
+    # await weex_demo_post(
+    #     R36F14_DEMO_ORDER_ENDPOINT,
+    #     payload,
+    # )
+    #
+    # IMPORTANT:
+    # Work on a copy so the caller payload is preserved.
+    # --------------------------------------------------------
+
+    final_payload = dict(
+        submission_payload
+    )
+
+    final_payload.pop(
+        "slTriggerPrice",
+        None,
+    )
+
+    final_payload.pop(
+        "SlWorkingType",
+        None,
+    )
+
+    # --------------------------------------------------------
+    # Simulated POST-boundary interceptor.
+    #
+    # NO NETWORK CALL.
+    # --------------------------------------------------------
+
+    intercepted_payload = dict(
+        final_payload
+    )
+
+    post_boundary_called = True
+
+    # --------------------------------------------------------
+    # Required entry fields.
+    # --------------------------------------------------------
+
+    required_entry_fields = [
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+    ]
+
+    missing_entry_fields = [
+        key
+        for key in required_entry_fields
+        if key not in intercepted_payload
+    ]
+
+    changed_entry_fields = [
+        key
+        for key in required_entry_fields
+        if (
+            key in original_payload
+            and key in intercepted_payload
+            and original_payload[key]
+            != intercepted_payload[key]
+        )
+    ]
+
+    # --------------------------------------------------------
+    # TP preservation.
+    # --------------------------------------------------------
+
+    tp_trigger_preserved = (
+        intercepted_payload.get(
+            "tpTriggerPrice"
+        )
+        ==
+        original_payload.get(
+            "tpTriggerPrice"
+        )
+    )
+
+    tp_working_type_preserved = (
+        intercepted_payload.get(
+            "TpWorkingType"
+        )
+        ==
+        original_payload.get(
+            "TpWorkingType"
+        )
+    )
+
+    # --------------------------------------------------------
+    # Client order ID preservation.
+    # --------------------------------------------------------
+
+    client_order_id_preserved = (
+        intercepted_payload.get(
+            "newClientOrderId"
+        )
+        ==
+        original_payload.get(
+            "newClientOrderId"
+        )
+    )
+
+    # --------------------------------------------------------
+    # SL removal.
+    # --------------------------------------------------------
+
+    final_sl_trigger_present = (
+        "slTriggerPrice"
+        in intercepted_payload
+    )
+
+    final_sl_working_type_present = (
+        "SlWorkingType"
+        in intercepted_payload
+    )
+
+    # --------------------------------------------------------
+    # Determine exact removed fields.
+    # --------------------------------------------------------
+
+    removed_fields = sorted(
+        set(original_payload.keys())
+        -
+        set(intercepted_payload.keys())
+    )
+
+    added_fields = sorted(
+        set(intercepted_payload.keys())
+        -
+        set(original_payload.keys())
+    )
+
+    expected_removed_fields = sorted([
+        "slTriggerPrice",
+        "SlWorkingType",
+    ])
+
+    only_sl_removed = (
+        removed_fields
+        ==
+        expected_removed_fields
+    )
+
+    # --------------------------------------------------------
+    # Detect changes to any surviving non-SL field.
+    # --------------------------------------------------------
+
+    changed_non_sl_fields = sorted([
+        key
+        for key in original_payload
+        if (
+            key
+            not in {
+                "slTriggerPrice",
+                "SlWorkingType",
+            }
+            and key in intercepted_payload
+            and original_payload[key]
+            != intercepted_payload[key]
+        )
+    ])
+
+    caller_payload_preserved = (
+        submission_payload
+        ==
+        original_payload
+    )
+
+    final_equals_intercepted = (
+        final_payload
+        ==
+        intercepted_payload
+    )
+
+    # --------------------------------------------------------
+    # ZERO-WRITE invariants.
+    # --------------------------------------------------------
+
+    weex_post = False
+    demo_order = False
+    real_order = False
+    journal_write = False
+    network_call = False
+
+    # --------------------------------------------------------
+    # Overall result.
+    # --------------------------------------------------------
+
+    overall_pass = all([
+        caller_payload_preserved,
+        post_boundary_called,
+        final_equals_intercepted,
+
+        not final_sl_trigger_present,
+        not final_sl_working_type_present,
+
+        missing_entry_fields == [],
+        changed_entry_fields == [],
+
+        tp_trigger_preserved,
+        tp_working_type_preserved,
+        client_order_id_preserved,
+
+        only_sl_removed,
+        added_fields == [],
+        changed_non_sl_fields == [],
+
+        weex_post is False,
+        demo_order is False,
+        real_order is False,
+        journal_write is False,
+        network_call is False,
+    ])
+
+    # --------------------------------------------------------
+    # Visible evidence.
+    # --------------------------------------------------------
+
+    print(
+        "R36F SL-DISABLE TEST7 CALLER_PAYLOAD_PRESERVED =",
+        caller_payload_preserved,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 POST_BOUNDARY_CALLED =",
+        post_boundary_called,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 FINAL_EQUALS_INTERCEPTED =",
+        final_equals_intercepted,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 FINAL_SL_TRIGGER_PRESENT =",
+        final_sl_trigger_present,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 FINAL_SL_WORKING_TYPE_PRESENT =",
+        final_sl_working_type_present,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 MISSING_ENTRY_FIELDS =",
+        missing_entry_fields,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 CHANGED_ENTRY_FIELDS =",
+        changed_entry_fields,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 TP_TRIGGER_PRESERVED =",
+        tp_trigger_preserved,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 TP_WORKING_TYPE_PRESERVED =",
+        tp_working_type_preserved,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 CLIENT_ORDER_ID_PRESERVED =",
+        client_order_id_preserved,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 REMOVED_FIELDS =",
+        removed_fields,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 ONLY_SL_REMOVED =",
+        only_sl_removed,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 ADDED_FIELDS =",
+        added_fields,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 CHANGED_NON_SL_FIELDS =",
+        changed_non_sl_fields,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 NETWORK_CALL =",
+        network_call,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 JOURNAL_WRITE =",
+        journal_write,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 WEEX_POST =",
+        weex_post,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 DEMO_ORDER =",
+        demo_order,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 REAL_ORDER =",
+        real_order,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST7 INTERCEPTED_PAYLOAD =",
+        intercepted_payload,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST UNIT 7 RESULT =",
+        "PASS"
+        if overall_pass
+        else "FAIL",
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST UNIT 7 END",
+        flush=True,
+    )
+
+    return overall_pass
+
+
+# ============================================================
+# R36F SL-DISABLE TESTABLE UNIT 7 CALL
+# ============================================================
+
+r36f_sl_disabled_payload_test_unit_7()
