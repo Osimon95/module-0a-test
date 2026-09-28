@@ -5082,7 +5082,7 @@ async def submit_r36f15_demo_order(
     )
 
     completed = {}
-        **prepared,
+    **prepared,
         "state": (
             "COMPLETED"
             if success
