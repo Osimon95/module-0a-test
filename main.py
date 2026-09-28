@@ -4993,60 +4993,90 @@ async def submit_r36f15_demo_order(
         }
 
     
-# ============================================================
-# R36F SL-DISABLE
-# FINAL WEEX DEMO SUBMISSION BOUNDARY
-#
-# PURPOSE:
-# Remove SL only from the payload actually sent to WEEX demo.
-#
-# Everything before this point remains unchanged and under
-# observation.
-#
-# REAL ORDER PATH IS NOT CHANGED.
-# ============================================================
+    try:
+        # ====================================================
+        # R36F SL-DISABLE
+        # FINAL WEEX DEMO SUBMISSION BOUNDARY
+        #
+        # Remove SL only from the payload actually sent
+        # to WEEX demo.
+        #
+        # Everything before this point remains unchanged.
+        # REAL ORDER PATH IS NOT CHANGED.
+        # ====================================================
 
-demo_submission_payload = dict(
-    payload
-)
+        demo_submission_payload = dict(
+            payload
+        )
 
-demo_submission_payload.pop(
-    "slTriggerPrice",
-    None,
-)
+        demo_submission_payload.pop(
+            "slTriggerPrice",
+            None,
+        )
 
-demo_submission_payload.pop(
-    "SlWorkingType",
-    None,
-)
+        demo_submission_payload.pop(
+            "SlWorkingType",
+            None,
+        )
 
-log(
-    "R36F SL-DISABLE FINAL SL_TRIGGER_PRESENT = "
-    + str(
-        "slTriggerPrice"
-        in demo_submission_payload
+        log(
+            "R36F SL-DISABLE FINAL SL_TRIGGER_PRESENT = "
+            + str(
+                "slTriggerPrice"
+                in demo_submission_payload
+            )
+        )
+
+        log(
+            "R36F SL-DISABLE FINAL SL_WORKING_TYPE_PRESENT = "
+            + str(
+                "SlWorkingType"
+                in demo_submission_payload
+            )
+        )
+
+        log(
+            "R36F SL-DISABLE FINAL DEMO PAYLOAD = "
+            + canonical_json(
+                demo_submission_payload
+            )
+        )
+
+        transport = await weex_demo_post(
+            R36F14_DEMO_ORDER_ENDPOINT,
+            demo_submission_payload,
+        )
+
+    except Exception as exc:
+        ambiguous = {
+            **prepared,
+            "state": "SENT_AMBIGUOUS",
+            "updated_at": now_iso(),
+            "error": str(exc),
+        }
+
+        write_json_file(
+            R36F159_DEMO_JOURNAL_FILE,
+            ambiguous,
+        )
+
+        return {
+            "attempted": True,
+            "sent": False,
+            "accepted": False,
+            "reason": "SECOND_DEMO_POST_EXCEPTION_JOURNALED_AMBIGUOUS",
+            "error": str(exc),
+            "journal": ambiguous,
+        }
+
+    response = (
+        transport.get("response")
+        if isinstance(transport, dict)
+        else {}
     )
-)
 
-log(
-    "R36F SL-DISABLE FINAL SL_WORKING_TYPE_PRESENT = "
-    + str(
-        "SlWorkingType"
-        in demo_submission_payload
-    )
-)
-
-log(
-    "R36F SL-DISABLE FINAL DEMO PAYLOAD = "
-    + canonical_json(
-        demo_submission_payload
-    )
-)
-
-transport = await weex_demo_post(
-    R36F14_DEMO_ORDER_ENDPOINT,
-    demo_submission_payload,
-)
+    if not isinstance(response, dict):
+        response = {}
 
 except Exception as exc:
         ambiguous = {
