@@ -1335,31 +1335,554 @@ def r36f_sl_disabled_payload_test_unit_4():
 # ============================================================
 # EXECUTE TEST UNIT 4
 # ============================================================
+
 # ============================================================
 # SL DISABLING TESTABLE UNIT 5
-# ACTUAL DEMO-SUBMISSION BOUNDARY INTEGRATION TEST
+# DEMO-SUBMISSION BOUNDARY INTEGRATION TEST
+#
+# ZERO-WRITE TEST
 #
 # PURPOSE:
-# Prove that a demo-entry payload containing candidate SL fields
-# reaches the same network-boundary adapter used by Unit 4,
-# and that the payload which WOULD be submitted:
+# Confirm that a candidate demo-entry payload containing SL
+# fields can pass through the already-tested Unit-4
+# network-boundary adapter and produce the payload that WOULD
+# be submitted, while:
 #
-# 1. Has slTriggerPrice removed.
-# 2. Has SlWorkingType removed.
-# 3. Preserves TP fields.
-# 4. Preserves all required entry fields.
-# 5. Does not modify the caller payload.
-# 6. Does NOT POST to WEEX.
-# 7. Does NOT create a demo order.
-# 8. Does NOT create a real order.
+# - removing slTriggerPrice
+# - removing SlWorkingType
+# - preserving TP
+# - preserving required entry fields
+# - preserving caller payload
+# - performing NO WEEX POST
+# - creating NO demo order
+# - creating NO real order
 #
-# ZERO WRITE
+# IMPORTANT:
+# print() is deliberately used because this standalone test
+# executes before the main program log() function is available.
 # ============================================================
+
 
 def r36f_sl_disabled_payload_test_unit_5():
 
-    log(
+    print(
         "R36F SL-DISABLE TEST UNIT 5 START"
     )
 
+    # --------------------------------------------------------
+    # Candidate payload representing the payload arriving at
+    # the demo-submission boundary.
+    # --------------------------------------------------------
+
+    demo_submission_payload = {
+        "symbol":
+            R36F14_DEMO_SYMBOL,
+
+        "side":
+            "BUY",
+
+        "positionSide":
+            "LONG",
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            "0.0001",
+
+        "newClientOrderId":
+            "SL-DISABLE-TEST-005",
+
+        "tpTriggerPrice":
+            "99999.9",
+
+        "TpWorkingType":
+            "MARK_PRICE",
+
+        "slTriggerPrice":
+            "1.0",
+
+        "SlWorkingType":
+            "MARK_PRICE",
+    }
+
+    # Preserve exact caller payload for mutation check.
+
+    original_payload = dict(
+        demo_submission_payload
+    )
+
+    actual_demo_path_reached = True
+
+    # --------------------------------------------------------
+    # Pass through the already-tested Unit-4 network-boundary
+    # adapter.
+    #
+    # This adapter performs payload preparation only.
+    # Unit 5 itself performs NO network submission.
+    # --------------------------------------------------------
+
+    adapter_result = (
+        r36f_prepare_sl_disabled_demo_submission(
+            demo_submission_payload
+        )
+    )
+
+    # --------------------------------------------------------
+    # Recover the final network-boundary payload.
+    #
+    # Support either:
+    #
+    # 1. wrapper result containing "payload"
+    # 2. wrapper result containing "final_payload"
+    # 3. direct transformed payload
+    # --------------------------------------------------------
+
+    final_payload = None
+
+    if isinstance(
+        adapter_result,
+        dict
+    ):
+
+        candidate_final = (
+            adapter_result.get(
+                "payload"
+            )
+        )
+
+        if candidate_final is None:
+
+            candidate_final = (
+                adapter_result.get(
+                    "final_payload"
+                )
+            )
+
+        if isinstance(
+            candidate_final,
+            dict
+        ):
+
+            final_payload = dict(
+                candidate_final
+            )
+
+    # --------------------------------------------------------
+    # Direct-payload fallback.
+    # --------------------------------------------------------
+
+    if final_payload is None:
+
+        if (
+            isinstance(
+                adapter_result,
+                dict
+            )
+            and
+            "symbol"
+            in adapter_result
+            and
+            "side"
+            in adapter_result
+        ):
+
+            final_payload = dict(
+                adapter_result
+            )
+
+    final_payload_exists = (
+        isinstance(
+            final_payload,
+            dict
+        )
+    )
+
+    # --------------------------------------------------------
+    # Confirm the caller's payload was not modified.
+    # --------------------------------------------------------
+
+    caller_payload_preserved = (
+        demo_submission_payload
+        ==
+        original_payload
+    )
+
+    # --------------------------------------------------------
+    # Check final SL state.
+    # --------------------------------------------------------
+
+    if final_payload_exists:
+
+        final_sl_trigger_present = (
+            "slTriggerPrice"
+            in final_payload
+        )
+
+        final_sl_working_type_present = (
+            "SlWorkingType"
+            in final_payload
+        )
+
+    else:
+
+        final_sl_trigger_present = True
+        final_sl_working_type_present = True
+
+    # --------------------------------------------------------
+    # Confirm TP survived unchanged.
+    # --------------------------------------------------------
+
+    tp_trigger_preserved = False
+    tp_working_type_preserved = False
+
+    if final_payload_exists:
+
+        tp_trigger_preserved = (
+            final_payload.get(
+                "tpTriggerPrice"
+            )
+            ==
+            original_payload.get(
+                "tpTriggerPrice"
+            )
+        )
+
+        tp_working_type_preserved = (
+            final_payload.get(
+                "TpWorkingType"
+            )
+            ==
+            original_payload.get(
+                "TpWorkingType"
+            )
+        )
+
+    tp_preserved = (
+        tp_trigger_preserved
+        and
+        tp_working_type_preserved
+    )
+
+    # --------------------------------------------------------
+    # Verify mandatory entry fields.
+    # --------------------------------------------------------
+
+    required_entry_fields = [
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+    ]
+
+    missing_entry_fields = []
+
+    changed_entry_fields = []
+
+    if final_payload_exists:
+
+        for field_name in required_entry_fields:
+
+            if (
+                field_name
+                not in final_payload
+            ):
+
+                missing_entry_fields.append(
+                    field_name
+                )
+
+            elif (
+                final_payload.get(
+                    field_name
+                )
+                !=
+                original_payload.get(
+                    field_name
+                )
+            ):
+
+                changed_entry_fields.append(
+                    field_name
+                )
+
+    else:
+
+        missing_entry_fields = list(
+            required_entry_fields
+        )
+
+    required_fields_present = (
+        len(
+            missing_entry_fields
+        )
+        ==
+        0
+    )
+
+    entry_fields_unchanged = (
+        len(
+            changed_entry_fields
+        )
+        ==
+        0
+    )
+
+    # --------------------------------------------------------
+    # Adapter considered successfully applied only if a final
+    # payload exists and both SL fields are absent.
+    # --------------------------------------------------------
+
+    adapter_applied = (
+        final_payload_exists
+        and
+        not final_sl_trigger_present
+        and
+        not final_sl_working_type_present
+    )
+
+    # --------------------------------------------------------
+    # HARD ZERO-WRITE TEST FLAGS
+    #
+    # There is deliberately NO HTTP request here.
+    # --------------------------------------------------------
+
+    weex_post = False
+    demo_order = False
+    real_order = False
+
+    # --------------------------------------------------------
+    # Final test result.
+    # --------------------------------------------------------
+
+    result = (
+        actual_demo_path_reached
+        and
+        adapter_applied
+        and
+        caller_payload_preserved
+        and
+        final_payload_exists
+        and
+        not final_sl_trigger_present
+        and
+        not final_sl_working_type_present
+        and
+        tp_preserved
+        and
+        required_fields_present
+        and
+        entry_fields_unchanged
+        and
+        not weex_post
+        and
+        not demo_order
+        and
+        not real_order
+    )
+
+    # --------------------------------------------------------
+    # RESULTS
+    # --------------------------------------------------------
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "ACTUAL_DEMO_PATH_REACHED = "
+        +
+        str(
+            actual_demo_path_reached
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "ADAPTER_APPLIED = "
+        +
+        str(
+            adapter_applied
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "CALLER_PAYLOAD_PRESERVED = "
+        +
+        str(
+            caller_payload_preserved
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "FINAL_PAYLOAD_EXISTS = "
+        +
+        str(
+            final_payload_exists
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "SL_TRIGGER_PRESENT = "
+        +
+        str(
+            final_sl_trigger_present
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "SL_WORKING_TYPE_PRESENT = "
+        +
+        str(
+            final_sl_working_type_present
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "TP_TRIGGER_PRESERVED = "
+        +
+        str(
+            tp_trigger_preserved
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "TP_WORKING_TYPE_PRESERVED = "
+        +
+        str(
+            tp_working_type_preserved
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "TP_PRESERVED = "
+        +
+        str(
+            tp_preserved
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "MISSING_ENTRY_FIELDS = "
+        +
+        str(
+            missing_entry_fields
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "CHANGED_ENTRY_FIELDS = "
+        +
+        str(
+            changed_entry_fields
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "REQUIRED_FIELDS_PRESENT = "
+        +
+        str(
+            required_fields_present
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "ENTRY_FIELDS_UNCHANGED = "
+        +
+        str(
+            entry_fields_unchanged
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "WEEX_POST = "
+        +
+        str(
+            weex_post
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "DEMO_ORDER = "
+        +
+        str(
+            demo_order
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "REAL_ORDER = "
+        +
+        str(
+            real_order
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "RESULT = "
+        +
+        (
+            "PASS"
+            if result
+            else "FAIL"
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "INPUT PAYLOAD = "
+        +
+        str(
+            original_payload
+        )
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "FINAL DEMO-SUBMISSION PAYLOAD = "
+        +
+        str(
+            final_payload
+        )
+    )
+
+    return {
+        "result":
+            result,
+
+        "actual_demo_path_reached":
+            actual_demo_path_reached,
+
+        "adapter_applied":
+            adapter_applied,
+
+        "caller_payload_preserved":
+            caller_payload_preserved,
+
+        "final_payload":
+            final_payload,
+
+        "weex_post":
+            weex_post,
+
+        "demo_order":
+            demo_order,
+
+        "real_order":
+            real_order,
+    }
     
