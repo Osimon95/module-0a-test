@@ -4993,10 +4993,60 @@ async def submit_r36f15_demo_order(
         }
 
     try:
-        transport = await weex_demo_post(
-            R36F14_DEMO_ORDER_ENDPOINT,
-            payload,
-        )
+        # ============================================================
+# R36F SL-DISABLE
+# FINAL WEEX DEMO SUBMISSION BOUNDARY
+#
+# PURPOSE:
+# Remove SL only from the payload actually sent to WEEX demo.
+#
+# Everything before this point remains unchanged and under
+# observation.
+#
+# REAL ORDER PATH IS NOT CHANGED.
+# ============================================================
+
+demo_submission_payload = dict(
+    payload
+)
+
+demo_submission_payload.pop(
+    "slTriggerPrice",
+    None,
+)
+
+demo_submission_payload.pop(
+    "SlWorkingType",
+    None,
+)
+
+log(
+    "R36F SL-DISABLE FINAL SL_TRIGGER_PRESENT = "
+    + str(
+        "slTriggerPrice"
+        in demo_submission_payload
+    )
+)
+
+log(
+    "R36F SL-DISABLE FINAL SL_WORKING_TYPE_PRESENT = "
+    + str(
+        "SlWorkingType"
+        in demo_submission_payload
+    )
+)
+
+log(
+    "R36F SL-DISABLE FINAL DEMO PAYLOAD = "
+    + canonical_json(
+        demo_submission_payload
+    )
+)
+
+transport = await weex_demo_post(
+    R36F14_DEMO_ORDER_ENDPOINT,
+    demo_submission_payload,
+)
 
     except Exception as exc:
         ambiguous = {
