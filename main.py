@@ -13749,14 +13749,29 @@ async def run_r36f12():
             protective_stop_price,
         )
     )
-    # ========================================================
+    
+    
+        # ========================================================
     # R1.8D — WEEX DEMO CONNECTION VALIDATOR
+    # SL-DISABLED VERSION
+    #
+    # PURPOSE:
+    # Validate the final demo payload before it reaches the
+    # demo submission gate.
+    #
+    # IMPORTANT:
+    # - Entry fields must remain valid.
+    # - TP must remain present and valid.
+    # - SL must NOT be present.
+    # - This block performs NO WEEX POST itself.
     # ========================================================
 
     r18_demo_connector_ok = False
     r18_demo_connector_reason = (
         "R18D_NOT_READY"
     )
+
+    r18_demo_payload = {}
 
     if not downstream_ready:
         r18_demo_connector_reason = (
@@ -13796,13 +13811,6 @@ async def run_r36f12():
                 )
             )
 
-            r18_demo_sl = D(
-                r18_demo_payload.get(
-                    "slTriggerPrice",
-                    "0",
-                )
-            )
-
             r18_demo_symbol = str(
                 r18_demo_payload.get(
                     "symbol",
@@ -13826,6 +13834,33 @@ async def run_r36f12():
                 )
             ).strip().upper()
 
+            # ------------------------------------------------
+            # SL-DISABLED VALIDATION
+            #
+            # Both SL fields must be absent from the final
+            # payload reaching this boundary.
+            # ------------------------------------------------
+
+            r18_sl_trigger_present = (
+                "slTriggerPrice"
+                in r18_demo_payload
+            )
+
+            r18_sl_working_type_present = (
+                "SlWorkingType"
+                in r18_demo_payload
+            )
+
+            r18_sl_disabled_ok = (
+                not r18_sl_trigger_present
+                and
+                not r18_sl_working_type_present
+            )
+
+            # ------------------------------------------------
+            # FINAL R1.8D CONNECTOR VALIDATION
+            # ------------------------------------------------
+
             r18_demo_connector_ok = bool(
                 r18_demo_symbol
                 == R36F14_DEMO_SYMBOL
@@ -13843,15 +13878,23 @@ async def run_r36f12():
                 and
                 r18_demo_tp > 0
                 and
-                r18_demo_sl > 0
+                r18_sl_disabled_ok
             )
 
-            r18_demo_connector_reason = (
-                "R18D_WEEX_DEMO_CONNECTED"
-                if r18_demo_connector_ok
-                else
-                "R18D_PAYLOAD_BINDING_FAILED"
-            )
+            if r18_demo_connector_ok:
+                r18_demo_connector_reason = (
+                    "R18D_WEEX_DEMO_CONNECTED_SL_DISABLED"
+                )
+
+            elif not r18_sl_disabled_ok:
+                r18_demo_connector_reason = (
+                    "R18D_SL_FIELDS_STILL_PRESENT"
+                )
+
+            else:
+                r18_demo_connector_reason = (
+                    "R18D_PAYLOAD_BINDING_FAILED"
+                )
 
         except Exception as exc:
             r18_demo_connector_ok = False
@@ -13860,6 +13903,10 @@ async def run_r36f12():
                 "R18D_VALIDATION_EXCEPTION:"
                 + str(exc)
             )
+
+    # ========================================================
+    # R1.8D DIAGNOSTIC LOGGING
+    # ========================================================
 
     log(
         "R1.8D WEEX DEMO CONNECTOR = "
@@ -13913,16 +13960,40 @@ async def run_r36f12():
         )
 
         log(
-            "R1.8D SL = "
+            "R1.8D SL TRIGGER PRESENT = "
             + str(
-                r18_demo_payload.get(
-                    "slTriggerPrice"
-                )
+                "slTriggerPrice"
+                in r18_demo_payload
             )
-)
+        )
+
+        log(
+            "R1.8D SL WORKING TYPE PRESENT = "
+            + str(
+                "SlWorkingType"
+                in r18_demo_payload
+            )
+        )
+
+        log(
+            "R1.8D SL DISABLED CHECK = "
+            + (
+                "PASS"
+                if (
+                    "slTriggerPrice"
+                    not in r18_demo_payload
+                    and
+                    "SlWorkingType"
+                    not in r18_demo_payload
+                )
+                else "FAIL"
+            )
+        )
+
     # ========================================================
     # DEMO SUBMISSION GATE
     # ========================================================
+    
 
     if not R36F15105_AUTO_DEMO_ENABLED:
         demo_submission[
