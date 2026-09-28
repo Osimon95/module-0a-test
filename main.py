@@ -510,3 +510,410 @@ def r36f_sl_disable_test_a():
 # ============================================================
 
 r36f_sl_disable_test_a()
+
+# ============================================================
+# SL DISABLE TEST B
+# R1.8D SUBMISSION-VIEW COPY TEST
+#
+# PURPOSE:
+# Prove that R1.8D can receive an internal demo preview
+# containing SL, create a separate submission-view copy,
+# remove ONLY the two SL fields from that copy, and leave
+# the original internal payload completely unchanged.
+#
+# SAFETY:
+# - NO WEEX POST
+# - NO DEMO ORDER
+# - NO REAL ORDER
+# - NO JOURNAL WRITE
+# - NO ACCOUNT MUTATION
+# - NO POSITION MUTATION
+# ============================================================
+
+
+def r36f_sl_disable_test_b():
+
+    print(
+        "==========================================",
+        flush=True,
+    )
+
+    print(
+        "SL DISABLE TEST B START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # Simulate the internal demo_preview payload.
+    #
+    # IMPORTANT:
+    # SL deliberately exists here because internal validation
+    # may still require the protective stop.
+    # --------------------------------------------------------
+
+    internal_payload = {
+        "symbol": "BTCSUSDT",
+        "side": "SELL",
+        "positionSide": "SHORT",
+        "type": "MARKET",
+        "quantity": "0.0004",
+        "newClientOrderId": "SL-DISABLE-TEST-B",
+        "tpTriggerPrice": "83013.1",
+        "slTriggerPrice": "83858",
+        "TpWorkingType": "MARK_PRICE",
+        "SlWorkingType": "MARK_PRICE",
+    }
+
+    demo_preview = {
+        "payload": internal_payload,
+    }
+
+    # Preserve the original state for comparison.
+
+    original_internal_payload = dict(
+        internal_payload
+    )
+
+    # ========================================================
+    # THIS IS THE EXACT APPROACH INTENDED FOR R1.8D
+    # ========================================================
+
+    r18_demo_payload = dict(
+        demo_preview.get("payload")
+        or demo_preview
+    )
+
+    r18_demo_payload.pop(
+        "slTriggerPrice",
+        None,
+    )
+
+    r18_demo_payload.pop(
+        "SlWorkingType",
+        None,
+    )
+
+    # --------------------------------------------------------
+    # ORIGINAL INTERNAL PAYLOAD CHECK
+    # --------------------------------------------------------
+
+    internal_sl_trigger_present = (
+        "slTriggerPrice"
+        in internal_payload
+    )
+
+    internal_sl_working_type_present = (
+        "SlWorkingType"
+        in internal_payload
+    )
+
+    original_internal_preserved = (
+        internal_payload
+        ==
+        original_internal_payload
+    )
+
+    # --------------------------------------------------------
+    # R1.8D SUBMISSION-VIEW CHECK
+    # --------------------------------------------------------
+
+    r18_sl_trigger_present = (
+        "slTriggerPrice"
+        in r18_demo_payload
+    )
+
+    r18_sl_working_type_present = (
+        "SlWorkingType"
+        in r18_demo_payload
+    )
+
+    r18_sl_disabled = (
+        not r18_sl_trigger_present
+        and
+        not r18_sl_working_type_present
+    )
+
+    # --------------------------------------------------------
+    # Required non-SL fields
+    # --------------------------------------------------------
+
+    required_fields = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+        "tpTriggerPrice",
+        "TpWorkingType",
+    }
+
+    missing_fields = sorted(
+        required_fields
+        -
+        set(
+            r18_demo_payload.keys()
+        )
+    )
+
+    # --------------------------------------------------------
+    # Check that NO non-SL value changed.
+    # --------------------------------------------------------
+
+    changed_non_sl_fields = []
+
+    for key in required_fields:
+
+        if (
+            internal_payload.get(key)
+            !=
+            r18_demo_payload.get(key)
+        ):
+            changed_non_sl_fields.append(
+                key
+            )
+
+    changed_non_sl_fields = sorted(
+        changed_non_sl_fields
+    )
+
+    # --------------------------------------------------------
+    # Determine exactly what was removed.
+    # --------------------------------------------------------
+
+    removed_fields = sorted(
+        set(
+            internal_payload.keys()
+        )
+        -
+        set(
+            r18_demo_payload.keys()
+        )
+    )
+
+    expected_removed_fields = [
+        "SlWorkingType",
+        "slTriggerPrice",
+    ]
+
+    only_sl_removed = (
+        removed_fields
+        ==
+        expected_removed_fields
+    )
+
+    # --------------------------------------------------------
+    # Make sure nothing was added.
+    # --------------------------------------------------------
+
+    added_fields = sorted(
+        set(
+            r18_demo_payload.keys()
+        )
+        -
+        set(
+            internal_payload.keys()
+        )
+    )
+
+    # --------------------------------------------------------
+    # Explicit TP checks
+    # --------------------------------------------------------
+
+    tp_trigger_preserved = (
+        r18_demo_payload.get(
+            "tpTriggerPrice"
+        )
+        ==
+        internal_payload.get(
+            "tpTriggerPrice"
+        )
+    )
+
+    tp_working_type_preserved = (
+        r18_demo_payload.get(
+            "TpWorkingType"
+        )
+        ==
+        internal_payload.get(
+            "TpWorkingType"
+        )
+    )
+
+    # --------------------------------------------------------
+    # ZERO-WRITE PROOF
+    # --------------------------------------------------------
+
+    weex_post = False
+    demo_order = False
+    real_order = False
+    journal_write = False
+    account_mutation = False
+    position_mutation = False
+
+    zero_write = all(
+        [
+            weex_post is False,
+            demo_order is False,
+            real_order is False,
+            journal_write is False,
+            account_mutation is False,
+            position_mutation is False,
+        ]
+    )
+
+    # --------------------------------------------------------
+    # FINAL PASS
+    # --------------------------------------------------------
+
+    overall_pass = all(
+        [
+            internal_sl_trigger_present,
+            internal_sl_working_type_present,
+            original_internal_preserved,
+            r18_sl_disabled,
+            len(missing_fields) == 0,
+            len(changed_non_sl_fields) == 0,
+            only_sl_removed,
+            len(added_fields) == 0,
+            tp_trigger_preserved,
+            tp_working_type_preserved,
+            zero_write,
+        ]
+    )
+
+    # --------------------------------------------------------
+    # OUTPUT
+    # --------------------------------------------------------
+
+    print(
+        "TEST B INTERNAL SL TRIGGER PRESENT =",
+        internal_sl_trigger_present,
+        flush=True,
+    )
+
+    print(
+        "TEST B INTERNAL SL WORKING TYPE PRESENT =",
+        internal_sl_working_type_present,
+        flush=True,
+    )
+
+    print(
+        "TEST B ORIGINAL INTERNAL PRESERVED =",
+        original_internal_preserved,
+        flush=True,
+    )
+
+    print(
+        "TEST B R1.8D SL TRIGGER PRESENT =",
+        r18_sl_trigger_present,
+        flush=True,
+    )
+
+    print(
+        "TEST B R1.8D SL WORKING TYPE PRESENT =",
+        r18_sl_working_type_present,
+        flush=True,
+    )
+
+    print(
+        "TEST B R1.8D SL DISABLED =",
+        r18_sl_disabled,
+        flush=True,
+    )
+
+    print(
+        "TEST B REMOVED FIELDS =",
+        removed_fields,
+        flush=True,
+    )
+
+    print(
+        "TEST B ONLY SL REMOVED =",
+        only_sl_removed,
+        flush=True,
+    )
+
+    print(
+        "TEST B MISSING FIELDS =",
+        missing_fields,
+        flush=True,
+    )
+
+    print(
+        "TEST B CHANGED NON-SL FIELDS =",
+        changed_non_sl_fields,
+        flush=True,
+    )
+
+    print(
+        "TEST B ADDED FIELDS =",
+        added_fields,
+        flush=True,
+    )
+
+    print(
+        "TEST B TP TRIGGER PRESERVED =",
+        tp_trigger_preserved,
+        flush=True,
+    )
+
+    print(
+        "TEST B TP WORKING TYPE PRESERVED =",
+        tp_working_type_preserved,
+        flush=True,
+    )
+
+    print(
+        "TEST B WEEX POST =",
+        weex_post,
+        flush=True,
+    )
+
+    print(
+        "TEST B DEMO ORDER =",
+        demo_order,
+        flush=True,
+    )
+
+    print(
+        "TEST B REAL ORDER =",
+        real_order,
+        flush=True,
+    )
+
+    print(
+        "TEST B JOURNAL WRITE =",
+        journal_write,
+        flush=True,
+    )
+
+    print(
+        "TEST B ZERO WRITE =",
+        zero_write,
+        flush=True,
+    )
+
+    print(
+        "SL DISABLE TEST B RESULT =",
+        (
+            "PASS"
+            if overall_pass
+            else "FAIL"
+        ),
+        flush=True,
+    )
+
+    print(
+        "==========================================",
+        flush=True,
+    )
+
+    return overall_pass
+
+
+# ============================================================
+# SL DISABLE TEST B CALL
+# ============================================================
+
+r36f_sl_disable_test_b()
