@@ -4992,143 +4992,6 @@ async def submit_r36f15_demo_order(
             "journal": reloaded,
         }
 
-        try:
-        # ====================================================
-        # R36F SL-DISABLE
-        # FINAL WEEX DEMO SUBMISSION BOUNDARY
-        #
-        # Remove SL only from the payload actually sent
-        # to WEEX demo.
-        #
-        # Everything before this point remains unchanged.
-        # REAL ORDER PATH IS NOT CHANGED.
-        # ====================================================
-
-        demo_submission_payload = dict(
-            payload
-        )
-
-        demo_submission_payload.pop(
-            "slTriggerPrice",
-            None,
-        )
-
-        demo_submission_payload.pop(
-            "SlWorkingType",
-            None,
-        )
-
-        log(
-            "R36F SL-DISABLE FINAL SL_TRIGGER_PRESENT = "
-            + str(
-                "slTriggerPrice"
-                in demo_submission_payload
-            )
-        )
-
-        log(
-            "R36F SL-DISABLE FINAL SL_WORKING_TYPE_PRESENT = "
-            + str(
-                "SlWorkingType"
-                in demo_submission_payload
-            )
-        )
-
-        log(
-            "R36F SL-DISABLE FINAL DEMO PAYLOAD = "
-            + canonical_json(
-                demo_submission_payload
-            )
-        )
-
-        transport = await weex_demo_post(
-            R36F14_DEMO_ORDER_ENDPOINT,
-            demo_submission_payload,
-        )
-
-    except Exception as exc:
-        ambiguous = {
-            **prepared,
-            "state": "SENT_AMBIGUOUS",
-            "updated_at": now_iso(),
-            "error": str(exc),
-        }
-
-        write_json_file(
-            R36F159_DEMO_JOURNAL_FILE,
-            ambiguous,
-        )
-
-        return {
-            "attempted": True,
-            "sent": False,
-            "accepted": False,
-            "reason": "SECOND_DEMO_POST_EXCEPTION_JOURNALED_AMBIGUOUS",
-            "error": str(exc),
-            "journal": ambiguous,
-        }
-
-    response = (
-        transport.get("response")
-        if isinstance(transport, dict)
-        else {}
-    )
-
-    if not isinstance(response, dict):
-        response = {}
-
-    success = bool(
-        response.get("success")
-    )
-
-    completed = {
-        **prepared,
-        "state": (
-            "COMPLETED"
-            if success
-            else "REJECTED"
-        ),
-        "updated_at": now_iso(),
-        "http_status": transport.get(
-            "http_status"
-        ),
-        "response": response,
-        "success": success,
-        "order_id": str(
-            response.get("orderId", "")
-        ),
-        "client_order_id_response": str(
-            response.get(
-                "clientOrderId",
-                "",
-            )
-        ),
-        "error_code": str(
-            response.get(
-                "errorCode",
-                "",
-            )
-        ),
-        "error_message": str(
-            response.get(
-                "errorMessage",
-                "",
-            )
-        ),
-    }
-
-    write_json_file(
-        R36F159_DEMO_JOURNAL_FILE,
-        completed,
-    )
-
-    return {
-        "attempted": True,
-        "sent": True,
-        "accepted": success,
-        "transport": transport,
-        "journal": completed,
-    }
     try:
         # ====================================================
         # R36F SL-DISABLE
@@ -5218,57 +5081,6 @@ async def submit_r36f15_demo_order(
         response.get("success")
     )
 
-completed = {
-        **prepared,
-        "state": (
-            "COMPLETED"
-            if success
-            else "REJECTED"
-        ),
-        "updated_at": now_iso(),
-        "http_status": transport.get(
-            "http_status"
-        ),
-        "response": response,
-        "success": success,
-    }
-    
-
-except Exception as exc:
-        ambiguous = {
-            **prepared,
-            "state": "SENT_AMBIGUOUS",
-            "updated_at": now_iso(),
-            "error": str(exc),
-        }
-
-        write_json_file(
-            R36F159_DEMO_JOURNAL_FILE,
-            ambiguous,
-        )
-
-        return {
-            "attempted": True,
-            "sent": False,
-            "accepted": False,
-            "reason": "SECOND_DEMO_POST_EXCEPTION_JOURNALED_AMBIGUOUS",
-            "error": str(exc),
-            "journal": ambiguous,
-        }
-
-    response = (
-        transport.get("response")
-        if isinstance(transport, dict)
-        else {}
-    )
-
-    if not isinstance(response, dict):
-        response = {}
-
-    success = bool(
-        response.get("success")
-    )
-
     completed = {
         **prepared,
         "state": (
@@ -5317,6 +5129,7 @@ except Exception as exc:
         "transport": transport,
         "journal": completed,
     }
+    
 
 
 async def load_mark_price():
