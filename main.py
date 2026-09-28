@@ -1336,3 +1336,5 @@ def r36f_sl_disabled_payload_test_unit_4():
 # EXECUTE TEST UNIT 4
 # ============================================================
 
+if __name__ == "__main__":
+    r36f_sl_disabled_payload_test_unit_4()
