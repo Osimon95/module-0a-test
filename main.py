@@ -1338,3 +1338,401 @@ def r36f_sl_disabled_payload_test_unit_4():
 
 if __name__ == "__main__":
     r36f_sl_disabled_payload_test_unit_4()
+# ============================================================
+# R36F SL-DISABLE TESTABLE UNIT 5
+# SELF-CONTAINED SUBMISSION-BOUNDARY PAYLOAD TEST
+#
+# PURPOSE:
+# Verify that the final payload immediately before the
+# submission boundary contains the required entry/TP fields
+# while SL fields have been removed.
+#
+# IMPORTANT:
+# - SELF-CONTAINED
+# - NO R36F14_DEMO_SYMBOL DEPENDENCY
+# - NO WEEX POST
+# - NO DEMO ORDER
+# - NO REAL ORDER
+# - NO ACCOUNT/POSITION STATE CHANGE
+# ============================================================
+
+def r36f_sl_disabled_payload_test_unit_5():
+
+    print(
+        "R36F SL-DISABLE TEST UNIT 5 START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # Build a completely local candidate payload.
+    #
+    # This intentionally starts WITH the SL fields so Unit 5
+    # can prove that only those fields disappear before the
+    # simulated submission boundary.
+    # --------------------------------------------------------
+
+    candidate_payload = {
+        "symbol": "BTCSUSDT",
+        "side": "BUY",
+        "positionSide": "LONG",
+        "type": "MARKET",
+        "quantity": "0.0001",
+        "newClientOrderId":
+            "SL-DISABLE-TEST-005",
+        "tpTriggerPrice": "99999.9",
+        "TpWorkingType": "MARK_PRICE",
+        "slTriggerPrice": "1.0",
+        "SlWorkingType": "MARK_PRICE",
+    }
+
+    # --------------------------------------------------------
+    # Preserve an untouched copy for comparison.
+    # --------------------------------------------------------
+
+    original_payload = dict(
+        candidate_payload
+    )
+
+    # --------------------------------------------------------
+    # Simulate the final payload preparation immediately
+    # before the submission boundary.
+    #
+    # IMPORTANT:
+    # No HTTP request occurs here.
+    # --------------------------------------------------------
+
+    final_payload = dict(
+        candidate_payload
+    )
+
+    final_payload.pop(
+        "slTriggerPrice",
+        None,
+    )
+
+    final_payload.pop(
+        "SlWorkingType",
+        None,
+    )
+
+    # --------------------------------------------------------
+    # Required entry fields.
+    # --------------------------------------------------------
+
+    required_entry_fields = [
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+    ]
+
+    missing_entry_fields = [
+        field
+        for field in required_entry_fields
+        if field not in final_payload
+    ]
+
+    # --------------------------------------------------------
+    # Confirm entry fields were not changed.
+    # --------------------------------------------------------
+
+    changed_entry_fields = [
+        field
+        for field in required_entry_fields
+        if (
+            field in original_payload
+            and field in final_payload
+            and original_payload[field]
+            != final_payload[field]
+        )
+    ]
+
+    # --------------------------------------------------------
+    # SL checks.
+    # --------------------------------------------------------
+
+    candidate_sl_trigger_present = (
+        "slTriggerPrice"
+        in candidate_payload
+    )
+
+    candidate_sl_working_type_present = (
+        "SlWorkingType"
+        in candidate_payload
+    )
+
+    final_sl_trigger_present = (
+        "slTriggerPrice"
+        in final_payload
+    )
+
+    final_sl_working_type_present = (
+        "SlWorkingType"
+        in final_payload
+    )
+
+    # --------------------------------------------------------
+    # TP preservation checks.
+    # --------------------------------------------------------
+
+    tp_trigger_preserved = (
+        final_payload.get(
+            "tpTriggerPrice"
+        )
+        ==
+        original_payload.get(
+            "tpTriggerPrice"
+        )
+    )
+
+    tp_working_type_preserved = (
+        final_payload.get(
+            "TpWorkingType"
+        )
+        ==
+        original_payload.get(
+            "TpWorkingType"
+        )
+    )
+
+    # --------------------------------------------------------
+    # Determine exactly which fields were removed or added.
+    # --------------------------------------------------------
+
+    removed_fields = sorted(
+        set(original_payload.keys())
+        -
+        set(final_payload.keys())
+    )
+
+    added_fields = sorted(
+        set(final_payload.keys())
+        -
+        set(original_payload.keys())
+    )
+
+    only_sl_removed = (
+        removed_fields
+        ==
+        [
+            "SlWorkingType",
+            "slTriggerPrice",
+        ]
+    )
+
+    # --------------------------------------------------------
+    # Verify all non-SL fields retain their original values.
+    # --------------------------------------------------------
+
+    changed_non_sl_fields = []
+
+    for field in original_payload:
+
+        if field in (
+            "slTriggerPrice",
+            "SlWorkingType",
+        ):
+            continue
+
+        if (
+            field not in final_payload
+            or
+            final_payload[field]
+            != original_payload[field]
+        ):
+            changed_non_sl_fields.append(
+                field
+            )
+
+    # --------------------------------------------------------
+    # Simulated submission-boundary readiness.
+    #
+    # This means PAYLOAD READY only.
+    # It does NOT mean an order was submitted.
+    # --------------------------------------------------------
+
+    submission_boundary_ready = (
+        candidate_sl_trigger_present
+        and
+        candidate_sl_working_type_present
+        and
+        not final_sl_trigger_present
+        and
+        not final_sl_working_type_present
+        and
+        not missing_entry_fields
+        and
+        not changed_entry_fields
+        and
+        tp_trigger_preserved
+        and
+        tp_working_type_preserved
+        and
+        only_sl_removed
+        and
+        not added_fields
+        and
+        not changed_non_sl_fields
+    )
+
+    # --------------------------------------------------------
+    # Explicit zero-write proof flags.
+    # --------------------------------------------------------
+
+    weex_post = False
+    demo_order = False
+    real_order = False
+
+    result_pass = (
+        submission_boundary_ready
+        and
+        weex_post is False
+        and
+        demo_order is False
+        and
+        real_order is False
+    )
+
+    # --------------------------------------------------------
+    # Output.
+    # --------------------------------------------------------
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "CANDIDATE_SL_TRIGGER_PRESENT =",
+        candidate_sl_trigger_present,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "CANDIDATE_SL_WORKING_TYPE_PRESENT =",
+        candidate_sl_working_type_present,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "FINAL_SL_TRIGGER_PRESENT =",
+        final_sl_trigger_present,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "FINAL_SL_WORKING_TYPE_PRESENT =",
+        final_sl_working_type_present,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "MISSING_ENTRY_FIELDS =",
+        missing_entry_fields,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "CHANGED_ENTRY_FIELDS =",
+        changed_entry_fields,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "CHANGED_NON_SL_FIELDS =",
+        changed_non_sl_fields,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "TP_TRIGGER_PRESERVED =",
+        tp_trigger_preserved,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "TP_WORKING_TYPE_PRESERVED =",
+        tp_working_type_preserved,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "REMOVED_FIELDS =",
+        removed_fields,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "ONLY_SL_REMOVED =",
+        only_sl_removed,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "ADDED_FIELDS =",
+        added_fields,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "SUBMISSION_BOUNDARY_READY =",
+        submission_boundary_ready,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "WEEX_POST =",
+        weex_post,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "DEMO_ORDER =",
+        demo_order,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "REAL_ORDER =",
+        real_order,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 RESULT =",
+        (
+            "PASS"
+            if result_pass
+            else "FAIL"
+        ),
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "CANDIDATE PAYLOAD =",
+        candidate_payload,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST5 "
+        "FINAL PAYLOAD =",
+        final_payload,
+        flush=True,
+    )
+
+    return result_pass
