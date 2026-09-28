@@ -4992,8 +4992,7 @@ async def submit_r36f15_demo_order(
             "journal": reloaded,
         }
 
-    
-    try:
+        try:
         # ====================================================
         # R36F SL-DISABLE
         # FINAL WEEX DEMO SUBMISSION BOUNDARY
@@ -5077,6 +5076,25 @@ async def submit_r36f15_demo_order(
 
     if not isinstance(response, dict):
         response = {}
+
+    success = bool(
+        response.get("success")
+    )
+
+    completed = {
+        **prepared,
+        "state": (
+            "COMPLETED"
+            if success
+            else "REJECTED"
+        ),
+        "updated_at": now_iso(),
+        "http_status": transport.get(
+            "http_status"
+        ),
+        "response": response,
+        "success": success,
+    
 
 except Exception as exc:
         ambiguous = {
