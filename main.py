@@ -4997,7 +4997,7 @@ async def submit_r36f15_demo_order(
 # R36F SL-DISABLE
 # FINAL WEEX DEMO SUBMISSION BOUNDARY
 #
-# PURPOSE:
+        # PURPOSE:
 # Remove SL only from the payload actually sent to WEEX demo.
 #
 # Everything before this point remains unchanged and under
