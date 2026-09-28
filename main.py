@@ -4992,7 +4992,7 @@ async def submit_r36f15_demo_order(
             "journal": reloaded,
         }
 
-        try:
+    try:
         # ====================================================
         # R36F SL-DISABLE
         # FINAL WEEX DEMO SUBMISSION BOUNDARY
