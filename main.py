@@ -5081,7 +5081,7 @@ async def submit_r36f15_demo_order(
         response.get("success")
     )
 
-    completed = {
+completed = {
         **prepared,
         "state": (
             "COMPLETED"
