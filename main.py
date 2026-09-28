@@ -10724,46 +10724,18 @@ def r36f15105_build_demo_preview(
         side = "SELL"
         position_side = "SHORT"
 
+    
     payload = {
-        "symbol":
-            R36F14_DEMO_SYMBOL,
+    "symbol": R36F14_DEMO_SYMBOL,
+    "side": side,
+    "positionSide": position_side,
+    "type": "MARKET",
+    "quantity": decimal_to_string(quantity),
+    "newClientOrderId": writer_client_id(direction, "D14"),
+    "tpTriggerPrice": decimal_to_string(tp1_price),
+    "TpWorkingType": "MARK_PRICE",
+}
 
-        "side":
-            side,
-
-        "positionSide":
-            position_side,
-
-        "type":
-            "MARKET",
-
-        "quantity":
-            decimal_to_string(
-                quantity
-            ),
-
-        "newClientOrderId":
-            writer_client_id(
-                direction,
-                "D14",
-            ),
-
-        "tpTriggerPrice":
-            decimal_to_string(
-                tp1_price
-            ),
-
-        "slTriggerPrice":
-            decimal_to_string(
-                stop_price
-            ),
-
-        "TpWorkingType":
-            "MARK_PRICE",
-
-        "SlWorkingType":
-            "MARK_PRICE",
-    }
 
     return {
         "stage":
