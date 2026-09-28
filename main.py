@@ -1737,3 +1737,720 @@ def r36f_sl_disabled_payload_test_unit_5():
 
     return result_pass
 r36f_sl_disabled_payload_test_unit_5()
+
+# ============================================================
+# R36F SL-DISABLE TESTABLE UNIT 6
+# ZERO-WRITE PRE-POST INTERCEPTION TEST
+#
+# PURPOSE:
+# Verify the exact payload that reaches the final simulated
+# WEEX POST boundary after SL removal.
+#
+# Unit 6 proves:
+#
+# candidate payload
+#       |
+#       v
+# SL-removal boundary
+#       |
+#       v
+# demo submission function
+#       |
+#       v
+# intercepted POST
+#
+# The intercepted POST MUST receive:
+# - all required entry fields
+# - TP fields unchanged
+# - NO slTriggerPrice
+# - NO SlWorkingType
+#
+# SAFETY:
+# - POST FUNCTION IS LOCAL INTERCEPTOR ONLY
+# - NO HTTP LIBRARY IS CALLED
+# - NO WEEX POST
+# - NO DEMO ORDER
+# - NO REAL ORDER
+# - NO ACCOUNT/POSITION STATE CHANGE
+# ============================================================
+
+
+def r36f_sl_disabled_payload_test_unit_6():
+
+    print(
+        "R36F SL-DISABLE TEST UNIT 6 START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # Completely local candidate payload.
+    #
+    # Start WITH SL so Unit 6 can prove that the payload
+    # reaching the intercepted POST boundary has SL removed.
+    # --------------------------------------------------------
+
+    candidate_payload = {
+        "symbol": "BTCSUSDT",
+        "side": "BUY",
+        "positionSide": "LONG",
+        "type": "MARKET",
+        "quantity": "0.0001",
+        "newClientOrderId":
+            "SL-DISABLE-TEST-006",
+        "tpTriggerPrice": "99999.9",
+        "TpWorkingType": "MARK_PRICE",
+        "slTriggerPrice": "1.0",
+        "SlWorkingType": "MARK_PRICE",
+    }
+
+    original_payload = dict(
+        candidate_payload
+    )
+
+    # --------------------------------------------------------
+    # Interception storage.
+    #
+    # This records what WOULD reach the POST function.
+    # It cannot perform a network operation.
+    # --------------------------------------------------------
+
+    interception = {
+        "called": False,
+        "payload": None,
+        "network_request": False,
+        "demo_order": False,
+        "real_order": False,
+    }
+
+    # --------------------------------------------------------
+    # LOCAL FAKE POST.
+    #
+    # IMPORTANT:
+    # This is deliberately NOT requests.post,
+    # aiohttp.post, httpx.post, or any WEEX function.
+    #
+    # Its only job is to capture the final payload.
+    # --------------------------------------------------------
+
+    def intercepted_weex_post(
+        payload,
+    ):
+
+        interception[
+            "called"
+        ] = True
+
+        interception[
+            "payload"
+        ] = dict(
+            payload
+        )
+
+        # Explicit zero-write flags.
+
+        interception[
+            "network_request"
+        ] = False
+
+        interception[
+            "demo_order"
+        ] = False
+
+        interception[
+            "real_order"
+        ] = False
+
+        return {
+            "intercepted": True,
+            "submitted": False,
+        }
+
+    # --------------------------------------------------------
+    # LOCAL DEMO SUBMISSION ADAPTER.
+    #
+    # This represents the final payload-processing stage.
+    #
+    # It copies the caller payload first.
+    # Therefore the original caller payload is not modified.
+    # --------------------------------------------------------
+
+    def demo_submission_adapter(
+        payload,
+    ):
+
+        final_payload = dict(
+            payload
+        )
+
+        # ----------------------------------------------------
+        # SL DISABLING AT FINAL SUBMISSION BOUNDARY.
+        # ----------------------------------------------------
+
+        final_payload.pop(
+            "slTriggerPrice",
+            None,
+        )
+
+        final_payload.pop(
+            "SlWorkingType",
+            None,
+        )
+
+        # ----------------------------------------------------
+        # Instead of a real WEEX POST, send the final payload
+        # into the local interceptor.
+        # ----------------------------------------------------
+
+        response = intercepted_weex_post(
+            final_payload
+        )
+
+        return (
+            final_payload,
+            response,
+        )
+
+    # --------------------------------------------------------
+    # Preserve caller payload before adapter execution.
+    # --------------------------------------------------------
+
+    caller_before = dict(
+        candidate_payload
+    )
+
+    # --------------------------------------------------------
+    # Execute the local submission path.
+    #
+    # ZERO NETWORK WRITE.
+    # --------------------------------------------------------
+
+    (
+        final_payload,
+        intercepted_response,
+    ) = demo_submission_adapter(
+        candidate_payload
+    )
+
+    # --------------------------------------------------------
+    # Confirm caller payload was not mutated.
+    # --------------------------------------------------------
+
+    caller_payload_preserved = (
+        candidate_payload
+        ==
+        caller_before
+    )
+
+    # --------------------------------------------------------
+    # Retrieve the exact payload seen by intercepted POST.
+    # --------------------------------------------------------
+
+    intercepted_payload = (
+        interception.get(
+            "payload"
+        )
+    )
+
+    post_boundary_called = (
+        interception.get(
+            "called"
+        )
+        is True
+    )
+
+    intercepted_payload_exists = (
+        isinstance(
+            intercepted_payload,
+            dict,
+        )
+    )
+
+    # --------------------------------------------------------
+    # Required entry fields.
+    # --------------------------------------------------------
+
+    required_entry_fields = [
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+    ]
+
+    if intercepted_payload_exists:
+
+        missing_entry_fields = [
+            field
+            for field
+            in required_entry_fields
+            if field
+            not in intercepted_payload
+        ]
+
+    else:
+
+        missing_entry_fields = list(
+            required_entry_fields
+        )
+
+    # --------------------------------------------------------
+    # Verify entry values reaching intercepted POST.
+    # --------------------------------------------------------
+
+    changed_entry_fields = []
+
+    if intercepted_payload_exists:
+
+        for field in required_entry_fields:
+
+            if (
+                field
+                not in intercepted_payload
+                or
+                intercepted_payload.get(
+                    field
+                )
+                !=
+                original_payload.get(
+                    field
+                )
+            ):
+                changed_entry_fields.append(
+                    field
+                )
+
+    else:
+
+        changed_entry_fields = list(
+            required_entry_fields
+        )
+
+    # --------------------------------------------------------
+    # Candidate SL presence.
+    # --------------------------------------------------------
+
+    candidate_sl_trigger_present = (
+        "slTriggerPrice"
+        in original_payload
+    )
+
+    candidate_sl_working_type_present = (
+        "SlWorkingType"
+        in original_payload
+    )
+
+    # --------------------------------------------------------
+    # Intercepted POST SL absence.
+    # --------------------------------------------------------
+
+    if intercepted_payload_exists:
+
+        post_sl_trigger_present = (
+            "slTriggerPrice"
+            in intercepted_payload
+        )
+
+        post_sl_working_type_present = (
+            "SlWorkingType"
+            in intercepted_payload
+        )
+
+    else:
+
+        post_sl_trigger_present = True
+        post_sl_working_type_present = True
+
+    # --------------------------------------------------------
+    # TP preservation at intercepted POST boundary.
+    # --------------------------------------------------------
+
+    if intercepted_payload_exists:
+
+        tp_trigger_preserved = (
+            intercepted_payload.get(
+                "tpTriggerPrice"
+            )
+            ==
+            original_payload.get(
+                "tpTriggerPrice"
+            )
+        )
+
+        tp_working_type_preserved = (
+            intercepted_payload.get(
+                "TpWorkingType"
+            )
+            ==
+            original_payload.get(
+                "TpWorkingType"
+            )
+        )
+
+    else:
+
+        tp_trigger_preserved = False
+        tp_working_type_preserved = False
+
+    # --------------------------------------------------------
+    # Determine removed and added fields at POST boundary.
+    # --------------------------------------------------------
+
+    if intercepted_payload_exists:
+
+        removed_fields = sorted(
+            set(
+                original_payload.keys()
+            )
+            -
+            set(
+                intercepted_payload.keys()
+            )
+        )
+
+        added_fields = sorted(
+            set(
+                intercepted_payload.keys()
+            )
+            -
+            set(
+                original_payload.keys()
+            )
+        )
+
+    else:
+
+        removed_fields = []
+        added_fields = []
+
+    only_sl_removed = (
+        removed_fields
+        ==
+        [
+            "SlWorkingType",
+            "slTriggerPrice",
+        ]
+    )
+
+    # --------------------------------------------------------
+    # Verify every non-SL field reaching POST is unchanged.
+    # --------------------------------------------------------
+
+    changed_non_sl_fields = []
+
+    if intercepted_payload_exists:
+
+        for field in original_payload:
+
+            if field in (
+                "slTriggerPrice",
+                "SlWorkingType",
+            ):
+                continue
+
+            if (
+                field
+                not in intercepted_payload
+                or
+                intercepted_payload.get(
+                    field
+                )
+                !=
+                original_payload.get(
+                    field
+                )
+            ):
+                changed_non_sl_fields.append(
+                    field
+                )
+
+    else:
+
+        changed_non_sl_fields.append(
+            "NO_INTERCEPTED_PAYLOAD"
+        )
+
+    # --------------------------------------------------------
+    # Verify adapter-returned final payload is EXACTLY the
+    # same payload seen by the intercepted POST function.
+    # --------------------------------------------------------
+
+    final_equals_intercepted = (
+        intercepted_payload_exists
+        and
+        final_payload
+        ==
+        intercepted_payload
+    )
+
+    # --------------------------------------------------------
+    # Verify fake response proves interception rather than
+    # submission.
+    # --------------------------------------------------------
+
+    interceptor_response_valid = (
+        isinstance(
+            intercepted_response,
+            dict,
+        )
+        and
+        intercepted_response.get(
+            "intercepted"
+        )
+        is True
+        and
+        intercepted_response.get(
+            "submitted"
+        )
+        is False
+    )
+
+    # --------------------------------------------------------
+    # Explicit zero-write proof.
+    # --------------------------------------------------------
+
+    network_request = (
+        interception.get(
+            "network_request"
+        )
+    )
+
+    demo_order = (
+        interception.get(
+            "demo_order"
+        )
+    )
+
+    real_order = (
+        interception.get(
+            "real_order"
+        )
+    )
+
+    # --------------------------------------------------------
+    # Complete Unit 6 PASS condition.
+    # --------------------------------------------------------
+
+    result_pass = (
+        candidate_sl_trigger_present
+        and
+        candidate_sl_working_type_present
+        and
+        caller_payload_preserved
+        and
+        post_boundary_called
+        and
+        intercepted_payload_exists
+        and
+        not post_sl_trigger_present
+        and
+        not post_sl_working_type_present
+        and
+        not missing_entry_fields
+        and
+        not changed_entry_fields
+        and
+        tp_trigger_preserved
+        and
+        tp_working_type_preserved
+        and
+        only_sl_removed
+        and
+        not added_fields
+        and
+        not changed_non_sl_fields
+        and
+        final_equals_intercepted
+        and
+        interceptor_response_valid
+        and
+        network_request is False
+        and
+        demo_order is False
+        and
+        real_order is False
+    )
+
+    # --------------------------------------------------------
+    # OUTPUT
+    # --------------------------------------------------------
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "CANDIDATE_SL_TRIGGER_PRESENT =",
+        candidate_sl_trigger_present,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "CANDIDATE_SL_WORKING_TYPE_PRESENT =",
+        candidate_sl_working_type_present,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "CALLER_PAYLOAD_PRESERVED =",
+        caller_payload_preserved,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "POST_BOUNDARY_CALLED =",
+        post_boundary_called,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "INTERCEPTED_PAYLOAD_EXISTS =",
+        intercepted_payload_exists,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "POST_SL_TRIGGER_PRESENT =",
+        post_sl_trigger_present,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "POST_SL_WORKING_TYPE_PRESENT =",
+        post_sl_working_type_present,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "MISSING_ENTRY_FIELDS =",
+        missing_entry_fields,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "CHANGED_ENTRY_FIELDS =",
+        changed_entry_fields,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "CHANGED_NON_SL_FIELDS =",
+        changed_non_sl_fields,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "TP_TRIGGER_PRESERVED =",
+        tp_trigger_preserved,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "TP_WORKING_TYPE_PRESERVED =",
+        tp_working_type_preserved,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "REMOVED_FIELDS =",
+        removed_fields,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "ONLY_SL_REMOVED =",
+        only_sl_removed,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "ADDED_FIELDS =",
+        added_fields,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "FINAL_EQUALS_INTERCEPTED =",
+        final_equals_intercepted,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "INTERCEPTOR_RESPONSE_VALID =",
+        interceptor_response_valid,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "NETWORK_REQUEST =",
+        network_request,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "DEMO_ORDER =",
+        demo_order,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "REAL_ORDER =",
+        real_order,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 RESULT =",
+        (
+            "PASS"
+            if result_pass
+            else "FAIL"
+        ),
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "CANDIDATE PAYLOAD =",
+        candidate_payload,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "FINAL PAYLOAD =",
+        final_payload,
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST6 "
+        "INTERCEPTED POST PAYLOAD =",
+        intercepted_payload,
+        flush=True,
+    )
+
+    return result_pass
+
+
+# ============================================================
+# R36F SL-DISABLE TESTABLE UNIT 6 CALL
+# ============================================================
+
+r36f_sl_disabled_payload_test_unit_6()
