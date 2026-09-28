@@ -5081,8 +5081,8 @@ async def submit_r36f15_demo_order(
         response.get("success")
     )
 
-    completed = {}
-    **prepared,
+        completed = {
+        **prepared,
         "state": (
             "COMPLETED"
             if success
@@ -5094,6 +5094,7 @@ async def submit_r36f15_demo_order(
         ),
         "response": response,
         "success": success,
+    }
     
 
 except Exception as exc:
