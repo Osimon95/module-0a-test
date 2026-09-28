@@ -13757,12 +13757,33 @@ async def run_r36f12():
 
     else:
         try:
-            r18_demo_payload = (
+            # ================================================
+            # R1.8D SL-DISABLED SUBMISSION VIEW
+            #
+            # Keep the original internal demo_preview intact
+            # because internal/JIT validation may still need
+            # the protective-stop values.
+            #
+            # R1.8D validates a COPY representing the payload
+            # shape intended for WEEX demo submission.
+            # ================================================
+
+            r18_demo_payload = dict(
                 demo_preview.get(
                     "payload"
                 )
                 or demo_preview
             )
+
+            r18_demo_payload.pop(
+                "slTriggerPrice",
+                None,
+            )
+
+            r18_demo_payload.pop(
+                "SlWorkingType",
+                None,
+)
 
             r18_demo_direction = str(
                 selected_direction
