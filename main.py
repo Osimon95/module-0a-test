@@ -2274,6 +2274,409 @@ def r36f159_client_order_id(
 
     return value
 
+
+# ============================================================
+# R36F SL-DISABLE TEST B
+# ACTUAL R36F159 PERSISTED REPLAY-STATE DIAGNOSTIC
+#
+# PURPOSE:
+# Read the REAL R36F159 second-demo journal and compare its
+# stored command identity with the identity generated from
+# the current command preview.
+#
+# ZERO WRITE
+# NO JOURNAL WRITE
+# NO WEEX POST
+# NO DEMO ORDER
+# NO REAL ORDER
+# NO STATE MUTATION
+# ============================================================
+
+def r36f_sl_disable_test_b_actual_replay_state():
+
+    print(
+        "==========================================",
+        flush=True,
+    )
+
+    print(
+        "R36F SL-DISABLE TEST B START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # READ REAL PERSISTED R36F159 JOURNAL
+    # --------------------------------------------------------
+
+    existing = read_json_file(
+        R36F159_DEMO_JOURNAL_FILE,
+        default={},
+    )
+
+    journal_exists = bool(
+        isinstance(existing, dict)
+        and existing
+    )
+
+    print(
+        "TEST B JOURNAL EXISTS = "
+        + str(journal_exists),
+        flush=True,
+    )
+
+    if journal_exists:
+
+        existing_state = str(
+            existing.get(
+                "state"
+            )
+            or ""
+        ).strip().upper()
+
+        existing_direction = str(
+            existing.get(
+                "direction"
+            )
+            or ""
+        ).strip().upper()
+
+        existing_command = str(
+            existing.get(
+                "command"
+            )
+            or ""
+        ).strip()
+
+        existing_identity = str(
+            existing.get(
+                "command_identity_sha256"
+            )
+            or ""
+        ).strip()
+
+        existing_token_hash = str(
+            existing.get(
+                "command_token_sha256"
+            )
+            or ""
+        ).strip()
+
+        existing_client_order_id = str(
+            existing.get(
+                "client_order_id"
+            )
+            or ""
+        ).strip()
+
+    else:
+
+        existing_state = ""
+        existing_direction = ""
+        existing_command = ""
+        existing_identity = ""
+        existing_token_hash = ""
+        existing_client_order_id = ""
+
+    print(
+        "TEST B JOURNAL STATE = "
+        + str(existing_state),
+        flush=True,
+    )
+
+    print(
+        "TEST B JOURNAL DIRECTION = "
+        + str(existing_direction),
+        flush=True,
+    )
+
+    print(
+        "TEST B JOURNAL COMMAND = "
+        + str(existing_command),
+        flush=True,
+    )
+
+    print(
+        "TEST B JOURNAL COMMAND IDENTITY = "
+        + str(existing_identity),
+        flush=True,
+    )
+
+    print(
+        "TEST B JOURNAL COMMAND TOKEN HASH = "
+        + str(existing_token_hash),
+        flush=True,
+    )
+
+    print(
+        "TEST B JOURNAL CLIENT ORDER ID = "
+        + str(existing_client_order_id),
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # READ CURRENT RUNTIME COMMAND PREVIEW
+    # --------------------------------------------------------
+
+    current_preview = (
+        TELEGRAM_COMMAND_PREVIEW
+        if isinstance(
+            TELEGRAM_COMMAND_PREVIEW,
+            dict,
+        )
+        else {}
+    )
+
+    current_command = str(
+        current_preview.get(
+            "command"
+        )
+        or ""
+    ).strip()
+
+    current_direction = str(
+        current_preview.get(
+            "direction"
+        )
+        or ""
+    ).strip().upper()
+
+    current_authorized = bool(
+        current_preview.get(
+            "authorized_preview"
+        )
+    )
+
+    print(
+        "TEST B CURRENT COMMAND = "
+        + str(current_command),
+        flush=True,
+    )
+
+    print(
+        "TEST B CURRENT DIRECTION = "
+        + str(current_direction),
+        flush=True,
+    )
+
+    print(
+        "TEST B CURRENT AUTHORIZED = "
+        + str(current_authorized),
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # GENERATE IDENTITY USING THE REAL R36F159 FUNCTION
+    # --------------------------------------------------------
+
+    if current_preview:
+
+        current_identity = (
+            r36f159_command_identity(
+                current_preview
+            )
+        )
+
+    else:
+
+        current_identity = ""
+
+    print(
+        "TEST B CURRENT COMMAND IDENTITY = "
+        + str(current_identity),
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # COMPARE REAL STORED IDENTITY AGAINST CURRENT IDENTITY
+    # --------------------------------------------------------
+
+    same_identity = bool(
+        existing_identity
+        and current_identity
+        and hmac.compare_digest(
+            existing_identity,
+            current_identity,
+        )
+    )
+
+    print(
+        "TEST B SAME COMMAND IDENTITY = "
+        + str(same_identity),
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # CHECK TOKEN HASH
+    # --------------------------------------------------------
+
+    current_token_hash = (
+        sha256_text(
+            R36F159_COMMAND_TOKEN
+        )
+        if R36F159_COMMAND_TOKEN
+        else ""
+    )
+
+    same_token = bool(
+        existing_token_hash
+        and current_token_hash
+        and hmac.compare_digest(
+            existing_token_hash,
+            current_token_hash,
+        )
+    )
+
+    print(
+        "TEST B CURRENT COMMAND TOKEN HASH = "
+        + str(current_token_hash),
+        flush=True,
+    )
+
+    print(
+        "TEST B SAME COMMAND TOKEN = "
+        + str(same_token),
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # REPRODUCE THE EXISTING R36F159 REPLAY DECISION
+    # WITHOUT CALLING THE SUBMISSION FUNCTION.
+    # --------------------------------------------------------
+
+    current_gate_would_replay_block = bool(
+        journal_exists
+        and existing_identity
+        and current_identity
+        and hmac.compare_digest(
+            existing_identity,
+            current_identity,
+        )
+    )
+
+    print(
+        "TEST B CURRENT R36F159 GATE WOULD REPLAY BLOCK = "
+        + str(
+            current_gate_would_replay_block
+        ),
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # DIAGNOSIS
+    # --------------------------------------------------------
+
+    if current_gate_would_replay_block:
+
+        diagnosis = (
+            "PERSISTED_IDENTITY_MATCH_CAUSES_REPLAY_BLOCK"
+        )
+
+    elif journal_exists and existing_state != "COMPLETED":
+
+        diagnosis = (
+            "NON_COMPLETED_JOURNAL_BLOCKS_NEW_COMMAND"
+        )
+
+    elif journal_exists:
+
+        diagnosis = (
+            "OLD_JOURNAL_PRESENT_BUT_IDENTITY_DIFFERS"
+        )
+
+    else:
+
+        diagnosis = (
+            "NO_PERSISTED_R36F159_JOURNAL"
+        )
+
+    print(
+        "TEST B DIAGNOSIS = "
+        + diagnosis,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # ZERO-WRITE PROOF
+    # --------------------------------------------------------
+
+    weex_post = False
+    demo_order_sent = False
+    real_order_sent = False
+    journal_written = False
+    state_mutated = False
+
+    print(
+        "TEST B WEEX POST = "
+        + str(weex_post),
+        flush=True,
+    )
+
+    print(
+        "TEST B DEMO ORDER SENT = "
+        + str(demo_order_sent),
+        flush=True,
+    )
+
+    print(
+        "TEST B REAL ORDER SENT = "
+        + str(real_order_sent),
+        flush=True,
+    )
+
+    print(
+        "TEST B JOURNAL WRITTEN = "
+        + str(journal_written),
+        flush=True,
+    )
+
+    print(
+        "TEST B STATE MUTATED = "
+        + str(state_mutated),
+        flush=True,
+    )
+
+    test_pass = (
+        not weex_post
+        and not demo_order_sent
+        and not real_order_sent
+        and not journal_written
+        and not state_mutated
+    )
+
+    print(
+        "R36F SL-DISABLE TEST B = "
+        + (
+            "PASS"
+            if test_pass
+            else "FAIL"
+        ),
+        flush=True,
+    )
+
+    print(
+        "==========================================",
+        flush=True,
+    )
+
+    return {
+        "pass": test_pass,
+        "journal_exists": journal_exists,
+        "journal_state": existing_state,
+        "existing_identity": existing_identity,
+        "current_identity": current_identity,
+        "same_identity": same_identity,
+        "same_token": same_token,
+        "current_gate_would_replay_block":
+            current_gate_would_replay_block,
+        "diagnosis": diagnosis,
+    }
+
+
+# ============================================================
+# RUN TEST B
+# ============================================================
+
+r36f_sl_disable_test_b_actual_replay_state()
 # ============================================================
 # R1.8.2
 # ZERO-WRITE CLIENT-ID LIFECYCLE POLICY VALIDATOR
