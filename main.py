@@ -5048,7 +5048,7 @@ transport = await weex_demo_post(
     demo_submission_payload,
 )
 
-    except Exception as exc:
+except Exception as exc:
         ambiguous = {
             **prepared,
             "state": "SENT_AMBIGUOUS",
