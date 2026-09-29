@@ -898,3 +898,925 @@ def parse_candle_row(
     except Exception:
 
         return None
+# ============================================================
+# EXTRACT CANDLE ROWS
+# ============================================================
+
+def extract_candle_rows(
+    payload: Any,
+) -> list:
+
+    if isinstance(
+        payload,
+        list,
+    ):
+
+        return payload
+
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+
+        return []
+
+
+    for key in (
+
+        "data",
+        "list",
+        "rows",
+        "result",
+
+    ):
+
+        value = payload.get(
+            key
+        )
+
+
+        if isinstance(
+            value,
+            list,
+        ):
+
+            return value
+
+
+        if isinstance(
+            value,
+            dict,
+        ):
+
+            nested = extract_candle_rows(
+                value
+            )
+
+
+            if nested:
+
+                return nested
+
+
+    return []
+
+
+# ============================================================
+# NORMALIZE CANDLES
+# ============================================================
+
+def normalize_candles(
+    payload: Any,
+) -> list[Candle]:
+
+    rows = extract_candle_rows(
+        payload
+    )
+
+
+    candles = []
+
+
+    for row in rows:
+
+        candle = parse_candle_row(
+            row
+        )
+
+
+        if candle is not None:
+
+            candles.append(
+                candle
+            )
+
+
+    # --------------------------------------------------------
+    # Deduplicate by timestamp.
+    # --------------------------------------------------------
+
+    unique = {
+
+        candle.timestamp:
+            candle
+
+        for candle in candles
+
+    }
+
+
+    candles = list(
+        unique.values()
+    )
+
+
+    # --------------------------------------------------------
+    # WEEX may return newest-first.
+    #
+    # Internal representation is ALWAYS oldest -> newest.
+    # --------------------------------------------------------
+
+    candles.sort(
+        key=lambda item:
+            item.timestamp
+    )
+
+
+    return candles
+
+
+# ============================================================
+# CANDLE SERIES VALIDATION
+# ============================================================
+
+def validate_candle_series(
+    candles: list[Candle],
+    *,
+    minimum_count: int,
+) -> None:
+
+    if len(candles) < minimum_count:
+
+        raise ValueError(
+
+            "Insufficient candle history: "
+            f"need={minimum_count} "
+            f"received={len(candles)}"
+
+        )
+
+
+    previous_timestamp = None
+
+
+    for candle in candles:
+
+        validate_candle(
+            candle
+        )
+
+
+        if previous_timestamp is not None:
+
+            if (
+                candle.timestamp
+                <= previous_timestamp
+            ):
+
+                raise ValueError(
+                    "Candles are not strictly chronological."
+                )
+
+
+        previous_timestamp = (
+            candle.timestamp
+        )
+
+
+# ============================================================
+# EMA
+# ============================================================
+
+def calculate_ema_series(
+    values: list[Decimal],
+    period: int,
+) -> list[Decimal]:
+
+    """
+    Standard EMA calculation.
+
+    Seed:
+        SMA of first `period` values.
+
+    Thereafter:
+        EMA =
+            price * multiplier
+            + previous_ema * (1 - multiplier)
+
+    multiplier:
+        2 / (period + 1)
+    """
+
+
+    if period <= 0:
+
+        raise ValueError(
+            "EMA period must be positive."
+        )
+
+
+    if len(values) < period:
+
+        raise ValueError(
+
+            "Insufficient values for EMA "
+            f"period={period} "
+            f"values={len(values)}"
+
+        )
+
+
+    decimal_period = Decimal(
+        period
+    )
+
+
+    seed = (
+
+        sum(
+            values[:period],
+            Decimal("0"),
+        )
+
+        / decimal_period
+
+    )
+
+
+    multiplier = (
+
+        Decimal("2")
+
+        / Decimal(
+            period + 1
+        )
+
+    )
+
+
+    result = [
+        seed
+    ]
+
+
+    previous = seed
+
+
+    for price in values[
+        period:
+    ]:
+
+        current = (
+
+            (
+                price
+                * multiplier
+            )
+
+            +
+
+            (
+                previous
+                * (
+                    Decimal("1")
+                    - multiplier
+                )
+            )
+
+        )
+
+
+        result.append(
+            current
+        )
+
+
+        previous = current
+
+
+    return result
+
+
+def calculate_latest_ema(
+    values: list[Decimal],
+    period: int,
+) -> Decimal:
+
+    series = calculate_ema_series(
+        values,
+        period,
+    )
+
+
+    return series[
+        -1
+    ]
+
+
+# ============================================================
+# EMA SNAPSHOT
+# ============================================================
+
+@dataclass(
+    frozen=True
+)
+class EMASnapshot:
+
+    candle_timestamp: int
+
+    close_price: Decimal
+
+    ema_fast: Decimal
+
+    ema_medium: Decimal
+
+    ema_slow: Decimal
+
+    fast_medium_separation_percent: Decimal
+
+    medium_slow_separation_percent: Decimal
+
+    fast_slow_separation_percent: Decimal
+
+    alignment: str
+
+
+# ============================================================
+# PERCENTAGE DISTANCE
+# ============================================================
+
+def percentage_distance(
+    first: Decimal,
+    second: Decimal,
+) -> Decimal:
+
+    if second == 0:
+
+        raise ValueError(
+            "Cannot calculate percentage distance from zero."
+        )
+
+
+    return (
+
+        abs(
+            first - second
+        )
+
+        / abs(
+            second
+        )
+
+        * Decimal("100")
+
+    )
+
+
+# ============================================================
+# EMA ALIGNMENT
+# ============================================================
+
+def determine_ema_alignment(
+    fast: Decimal,
+    medium: Decimal,
+    slow: Decimal,
+) -> str:
+
+    if (
+        fast
+        > medium
+        > slow
+    ):
+
+        return "BULLISH"
+
+
+    if (
+        fast
+        < medium
+        < slow
+    ):
+
+        return "BEARISH"
+
+
+    return "MIXED"
+
+
+# ============================================================
+# BUILD EMA SNAPSHOT
+# ============================================================
+
+def build_ema_snapshot(
+    candles: list[Candle],
+    config: EMAConfig,
+) -> EMASnapshot:
+
+    validate_candle_series(
+
+        candles,
+
+        minimum_count=config.slow_period,
+
+    )
+
+
+    closes = [
+
+        candle.close
+
+        for candle in candles
+
+    ]
+
+
+    fast = calculate_latest_ema(
+
+        closes,
+
+        config.fast_period,
+
+    )
+
+
+    medium = calculate_latest_ema(
+
+        closes,
+
+        config.medium_period,
+
+    )
+
+
+    slow = calculate_latest_ema(
+
+        closes,
+
+        config.slow_period,
+
+    )
+
+
+    fast_medium = percentage_distance(
+        fast,
+        medium,
+    )
+
+
+    medium_slow = percentage_distance(
+        medium,
+        slow,
+    )
+
+
+    fast_slow = percentage_distance(
+        fast,
+        slow,
+    )
+
+
+    alignment = determine_ema_alignment(
+        fast,
+        medium,
+        slow,
+    )
+
+
+    latest = candles[
+        -1
+    ]
+
+
+    return EMASnapshot(
+
+        candle_timestamp=
+            latest.timestamp,
+
+        close_price=
+            latest.close,
+
+        ema_fast=
+            fast,
+
+        ema_medium=
+            medium,
+
+        ema_slow=
+            slow,
+
+        fast_medium_separation_percent=
+            fast_medium,
+
+        medium_slow_separation_percent=
+            medium_slow,
+
+        fast_slow_separation_percent=
+            fast_slow,
+
+        alignment=
+            alignment,
+
+    )
+
+
+# ============================================================
+# DETERMINISTIC SYNTHETIC CANDLES
+# ============================================================
+
+def build_synthetic_candles(
+    *,
+    count: int,
+    starting_price: Decimal,
+    increment: Decimal,
+) -> list[Candle]:
+
+    if count <= 0:
+
+        raise ValueError(
+            "Synthetic count must be positive."
+        )
+
+
+    candles = []
+
+
+    timestamp = 1_700_000_000_000
+
+
+    price = starting_price
+
+
+    for index in range(
+        count
+    ):
+
+        close = (
+
+            price
+
+            + (
+                increment
+                * Decimal(index)
+            )
+
+        )
+
+
+        open_price = (
+            close
+            - Decimal("0.5")
+        )
+
+
+        high = (
+            max(
+                open_price,
+                close,
+            )
+            + Decimal("1")
+        )
+
+
+        low = (
+            min(
+                open_price,
+                close,
+            )
+            - Decimal("1")
+        )
+
+
+        candles.append(
+
+            Candle(
+
+                timestamp=(
+                    timestamp
+                    + (
+                        index
+                        * 60_000
+                    )
+                ),
+
+                open=open_price,
+
+                high=high,
+
+                low=low,
+
+                close=close,
+
+                volume=Decimal("10"),
+
+            )
+
+        )
+
+
+    return candles
+
+
+# ============================================================
+# LOCAL EMA TESTS
+# ============================================================
+
+def run_local_ema_tests(
+    config: EMAConfig,
+) -> None:
+
+    separator()
+
+    log(
+        "UNIT 3 LOCAL EMA TESTS START"
+    )
+
+
+    # --------------------------------------------------------
+    # TEST 1:
+    # Constant price must produce identical EMA values.
+    # --------------------------------------------------------
+
+    constant_candles = (
+        build_synthetic_candles(
+
+            count=250,
+
+            starting_price=
+                Decimal("100"),
+
+            increment=
+                Decimal("0"),
+
+        )
+    )
+
+
+    constant_snapshot = (
+        build_ema_snapshot(
+
+            constant_candles,
+
+            config,
+
+        )
+    )
+
+
+    if (
+        constant_snapshot.ema_fast
+        != Decimal("100")
+    ):
+
+        raise RuntimeError(
+            "Constant EMA19 test failed."
+        )
+
+
+    if (
+        constant_snapshot.ema_medium
+        != Decimal("100")
+    ):
+
+        raise RuntimeError(
+            "Constant EMA50 test failed."
+        )
+
+
+    if (
+        constant_snapshot.ema_slow
+        != Decimal("100")
+    ):
+
+        raise RuntimeError(
+            "Constant EMA200 test failed."
+        )
+
+
+    if (
+        constant_snapshot.alignment
+        != "MIXED"
+    ):
+
+        raise RuntimeError(
+            "Constant alignment test failed."
+        )
+
+
+    log(
+        "PASS: CONSTANT PRICE EMA TEST"
+    )
+
+
+    # --------------------------------------------------------
+    # TEST 2:
+    # Rising market should produce:
+    # EMA19 > EMA50 > EMA200
+    # --------------------------------------------------------
+
+    rising_candles = (
+        build_synthetic_candles(
+
+            count=250,
+
+            starting_price=
+                Decimal("100"),
+
+            increment=
+                Decimal("1"),
+
+        )
+    )
+
+
+    rising_snapshot = (
+        build_ema_snapshot(
+
+            rising_candles,
+
+            config,
+
+        )
+    )
+
+
+    if not (
+
+        rising_snapshot.ema_fast
+
+        >
+
+        rising_snapshot.ema_medium
+
+        >
+
+        rising_snapshot.ema_slow
+
+    ):
+
+        raise RuntimeError(
+            "Rising EMA ordering failed."
+        )
+
+
+    if (
+        rising_snapshot.alignment
+        != "BULLISH"
+    ):
+
+        raise RuntimeError(
+            "Rising alignment failed."
+        )
+
+
+    log(
+        "PASS: RISING MARKET EMA TEST"
+    )
+
+
+    # --------------------------------------------------------
+    # TEST 3:
+    # Falling market should produce:
+    # EMA19 < EMA50 < EMA200
+    # --------------------------------------------------------
+
+    falling_candles = (
+        build_synthetic_candles(
+
+            count=250,
+
+            starting_price=
+                Decimal("500"),
+
+            increment=
+                Decimal("-1"),
+
+        )
+    )
+
+
+    falling_snapshot = (
+        build_ema_snapshot(
+
+            falling_candles,
+
+            config,
+
+        )
+    )
+
+
+    if not (
+
+        falling_snapshot.ema_fast
+
+        <
+
+        falling_snapshot.ema_medium
+
+        <
+
+        falling_snapshot.ema_slow
+
+    ):
+
+        raise RuntimeError(
+            "Falling EMA ordering failed."
+        )
+
+
+    if (
+        falling_snapshot.alignment
+        != "BEARISH"
+    ):
+
+        raise RuntimeError(
+            "Falling alignment failed."
+        )
+
+
+    log(
+        "PASS: FALLING MARKET EMA TEST"
+    )
+
+
+    # --------------------------------------------------------
+    # TEST 4:
+    # Insufficient history MUST fail.
+    # --------------------------------------------------------
+
+    rejected = False
+
+
+    try:
+
+        build_ema_snapshot(
+
+            rising_candles[:100],
+
+            config,
+
+        )
+
+
+    except ValueError:
+
+        rejected = True
+
+
+    if not rejected:
+
+        raise RuntimeError(
+            "Insufficient-history rejection failed."
+        )
+
+
+    log(
+        "PASS: INSUFFICIENT HISTORY REJECTED"
+    )
+
+
+    # --------------------------------------------------------
+    # TEST 5:
+    # Malformed candle MUST fail validation.
+    # --------------------------------------------------------
+
+    malformed = Candle(
+
+        timestamp=1,
+
+        open=Decimal("100"),
+
+        high=Decimal("90"),
+
+        low=Decimal("80"),
+
+        close=Decimal("100"),
+
+        volume=Decimal("1"),
+
+    )
+
+
+    rejected = False
+
+
+    try:
+
+        validate_candle(
+            malformed
+        )
+
+
+    except ValueError:
+
+        rejected = True
+
+
+    if not rejected:
+
+        raise RuntimeError(
+            "Malformed candle rejection failed."
+        )
+
+
+    log(
+        "PASS: MALFORMED CANDLE REJECTED"
+    )
+
+
+    separator()
+
+    log(
+        "UNIT 3 LOCAL EMA TESTS = PASS"
+    )
