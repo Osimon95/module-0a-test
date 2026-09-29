@@ -1393,3 +1393,1313 @@ def build_ema_snapshot(
 # PART 2 STARTS WITH:
 # DETERMINISTIC SYNTHETIC CANDLES
 # ============================================================
+# DETERMINISTIC SYNTHETIC CANDLES
+# ============================================================
+
+def build_synthetic_candles(
+    *,
+    count: int,
+    starting_price: Decimal,
+    increment: Decimal,
+) -> list[Candle]:
+
+    if count <= 0:
+
+        raise ValueError(
+            "Synthetic count must be positive."
+        )
+
+
+    candles = []
+
+
+    timestamp = 1_700_000_000_000
+
+
+    price = starting_price
+
+
+    for index in range(
+        count
+    ):
+
+        close = (
+
+            price
+
+            + (
+                increment
+                * Decimal(index)
+            )
+
+        )
+
+
+        open_price = (
+            close
+            - Decimal("0.5")
+        )
+
+
+        high = (
+            max(
+                open_price,
+                close,
+            )
+            + Decimal("1")
+        )
+
+
+        low = (
+            min(
+                open_price,
+                close,
+            )
+            - Decimal("1")
+        )
+
+
+        candles.append(
+
+            Candle(
+
+                timestamp=(
+                    timestamp
+                    + (
+                        index
+                        * 60_000
+                    )
+                ),
+
+                open=open_price,
+
+                high=high,
+
+                low=low,
+
+                close=close,
+
+                volume=Decimal("10"),
+
+            )
+
+        )
+
+
+    return candles
+
+
+# ============================================================
+# LOCAL EMA TESTS
+# ============================================================
+
+def run_local_ema_tests(
+    config: EMAConfig,
+) -> None:
+
+    separator()
+
+    log(
+        "UNIT 3 LOCAL EMA TESTS START"
+    )
+
+
+    # --------------------------------------------------------
+    # TEST 1:
+    # Constant price must produce identical EMA values.
+    # --------------------------------------------------------
+
+    constant_candles = (
+        build_synthetic_candles(
+
+            count=250,
+
+            starting_price=
+                Decimal("100"),
+
+            increment=
+                Decimal("0"),
+
+        )
+    )
+
+
+    constant_snapshot = (
+        build_ema_snapshot(
+
+            constant_candles,
+
+            config,
+
+        )
+    )
+
+
+    if (
+        constant_snapshot.ema_fast
+        != Decimal("100")
+    ):
+
+        raise RuntimeError(
+            "Constant EMA19 test failed."
+        )
+
+
+    if (
+        constant_snapshot.ema_medium
+        != Decimal("100")
+    ):
+
+        raise RuntimeError(
+            "Constant EMA50 test failed."
+        )
+
+
+    if (
+        constant_snapshot.ema_slow
+        != Decimal("100")
+    ):
+
+        raise RuntimeError(
+            "Constant EMA200 test failed."
+        )
+
+
+    if (
+        constant_snapshot.alignment
+        != "MIXED"
+    ):
+
+        raise RuntimeError(
+            "Constant alignment test failed."
+        )
+
+
+    log(
+        "PASS: CONSTANT PRICE EMA TEST"
+    )
+
+
+    # --------------------------------------------------------
+    # TEST 2:
+    # Rising market should produce:
+    # EMA19 > EMA50 > EMA200
+    # --------------------------------------------------------
+
+    rising_candles = (
+        build_synthetic_candles(
+
+            count=250,
+
+            starting_price=
+                Decimal("100"),
+
+            increment=
+                Decimal("1"),
+
+        )
+    )
+
+
+    rising_snapshot = (
+        build_ema_snapshot(
+
+            rising_candles,
+
+            config,
+
+        )
+    )
+
+
+    if not (
+
+        rising_snapshot.ema_fast
+
+        >
+
+        rising_snapshot.ema_medium
+
+        >
+
+        rising_snapshot.ema_slow
+
+    ):
+
+        raise RuntimeError(
+            "Rising EMA ordering failed."
+        )
+
+
+    if (
+        rising_snapshot.alignment
+        != "BULLISH"
+    ):
+
+        raise RuntimeError(
+            "Rising alignment failed."
+        )
+
+
+    log(
+        "PASS: RISING MARKET EMA TEST"
+    )
+
+
+    # --------------------------------------------------------
+    # TEST 3:
+    # Falling market should produce:
+    # EMA19 < EMA50 < EMA200
+    # --------------------------------------------------------
+
+    falling_candles = (
+        build_synthetic_candles(
+
+            count=250,
+
+            starting_price=
+                Decimal("500"),
+
+            increment=
+                Decimal("-1"),
+
+        )
+    )
+
+
+    falling_snapshot = (
+        build_ema_snapshot(
+
+            falling_candles,
+
+            config,
+
+        )
+    )
+
+
+    if not (
+
+        falling_snapshot.ema_fast
+
+        <
+
+        falling_snapshot.ema_medium
+
+        <
+
+        falling_snapshot.ema_slow
+
+    ):
+
+        raise RuntimeError(
+            "Falling EMA ordering failed."
+        )
+
+
+    if (
+        falling_snapshot.alignment
+        != "BEARISH"
+    ):
+
+        raise RuntimeError(
+            "Falling alignment failed."
+        )
+
+
+    log(
+        "PASS: FALLING MARKET EMA TEST"
+    )
+
+
+    # --------------------------------------------------------
+    # TEST 4:
+    # Insufficient history MUST fail.
+    # --------------------------------------------------------
+
+    rejected = False
+
+
+    try:
+
+        build_ema_snapshot(
+
+            rising_candles[:100],
+
+            config,
+
+        )
+
+
+    except ValueError:
+
+        rejected = True
+
+
+    if not rejected:
+
+        raise RuntimeError(
+            "Insufficient-history rejection failed."
+        )
+
+
+    log(
+        "PASS: INSUFFICIENT HISTORY REJECTED"
+    )
+
+
+    # --------------------------------------------------------
+    # TEST 5:
+    # Malformed candle MUST fail validation.
+    # --------------------------------------------------------
+
+    malformed = Candle(
+
+        timestamp=1,
+
+        open=Decimal("100"),
+
+        high=Decimal("90"),
+
+        low=Decimal("80"),
+
+        close=Decimal("100"),
+
+        volume=Decimal("1"),
+
+    )
+
+
+    rejected = False
+
+
+    try:
+
+        validate_candle(
+            malformed
+        )
+
+
+    except ValueError:
+
+        rejected = True
+
+
+    if not rejected:
+
+        raise RuntimeError(
+            "Malformed candle rejection failed."
+        )
+
+
+    log(
+        "PASS: MALFORMED CANDLE REJECTED"
+    )
+
+
+    separator()
+
+    log(
+        "UNIT 3 LOCAL EMA TESTS = PASS"
+    )
+
+
+# ============================================================
+# PUBLIC TICKER PRICE
+# ============================================================
+
+def find_price(
+    payload: Any,
+) -> Decimal | None:
+
+    price_keys = (
+
+        "markPrice",
+        "last",
+        "lastPrice",
+        "close",
+        "price",
+
+    )
+
+
+    if isinstance(
+        payload,
+        dict,
+    ):
+
+        for key in price_keys:
+
+            raw = payload.get(
+                key
+            )
+
+
+            if raw not in (
+                None,
+                "",
+            ):
+
+                try:
+
+                    price = D(
+                        raw
+                    )
+
+
+                    if price > 0:
+
+                        return price
+
+
+                except Exception:
+
+                    pass
+
+
+        for value in payload.values():
+
+            if isinstance(
+                value,
+                (dict, list),
+            ):
+
+                result = find_price(
+                    value
+                )
+
+
+                if result is not None:
+
+                    return result
+
+
+    elif isinstance(
+        payload,
+        list,
+    ):
+
+        for value in payload:
+
+            result = find_price(
+                value
+            )
+
+
+            if result is not None:
+
+                return result
+
+
+    return None
+
+
+async def load_public_price(
+    client: ReadOnlyWeexClient,
+) -> Decimal:
+
+    payload = await client.get(
+
+        "/capi/v2/market/ticker",
+
+        params={
+
+            "symbol":
+                PUBLIC_TICKER_SYMBOL,
+
+        },
+
+    )
+
+
+    price = find_price(
+        payload
+    )
+
+
+    if (
+        price is None
+        or price <= 0
+    ):
+
+        raise RuntimeError(
+            "Unable to extract public BTC price."
+        )
+
+
+    return price
+
+
+# ============================================================
+# KLINE REQUEST CANDIDATES
+# ============================================================
+
+async def load_live_candles(
+    client: ReadOnlyWeexClient,
+) -> tuple[list[Candle], str]:
+
+    """
+    Keep endpoint compatibility isolated here.
+
+    The first successful response producing >= EMA200 candles
+    is selected.
+
+    No strategy code knows or cares which exchange adapter
+    endpoint produced them.
+    """
+
+
+    candidate_requests = (
+
+        (
+            "/capi/v2/market/candles",
+            {
+
+                "symbol":
+                    KLINE_SYMBOL,
+
+                "granularity":
+                    KLINE_INTERVAL,
+
+                "limit":
+                    str(
+                        HISTORICAL_LIMIT
+                    ),
+
+            },
+        ),
+
+        (
+            "/capi/v2/market/kline",
+            {
+
+                "symbol":
+                    KLINE_SYMBOL,
+
+                "interval":
+                    KLINE_INTERVAL,
+
+                "limit":
+                    str(
+                        HISTORICAL_LIMIT
+                    ),
+
+            },
+        ),
+
+        (
+            "/capi/v2/market/klines",
+            {
+
+                "symbol":
+                    KLINE_SYMBOL,
+
+                "interval":
+                    KLINE_INTERVAL,
+
+                "limit":
+                    str(
+                        HISTORICAL_LIMIT
+                    ),
+
+            },
+        ),
+
+    )
+
+
+    failures = []
+
+
+    for (
+        path,
+        params,
+    ) in candidate_requests:
+
+        try:
+
+            payload = await client.get(
+
+                path,
+
+                params=params,
+
+            )
+
+
+            candles = normalize_candles(
+                payload
+            )
+
+
+            if len(candles) >= 200:
+
+                return (
+                    candles,
+                    path,
+                )
+
+
+            failures.append(
+
+                f"{path}: "
+                f"only {len(candles)} valid candles"
+
+            )
+
+
+        except Exception as exc:
+
+            failures.append(
+
+                f"{path}: "
+                f"{type(exc).__name__}: "
+                f"{exc}"
+
+            )
+
+
+    raise RuntimeError(
+
+        "NO VALID WEEX KLINE SOURCE: "
+        + " | ".join(
+            failures
+        )
+
+    )
+
+
+# ============================================================
+# UNIT 4 — REGIME + DIRECTION ENGINE
+# ============================================================
+
+REGIME_STRONG_EMA_SEPARATION_PERCENT = Decimal("0.05")
+
+REGIME_BREAKOUT_MOVE_PERCENT = Decimal("0.60")
+
+REGIME_MODE_CONFIRMATIONS_REQUIRED = 3
+
+REGIME_VALID_MODES = (
+    "SCALP",
+    "STRUCTURE",
+    "BREAKOUT",
+)
+
+
+@dataclass(
+    frozen=True
+)
+class RegimeResult:
+
+    raw_mode: str
+
+    active_mode: str
+
+    direction: str | None
+
+    ema_separation_percent: Decimal
+
+    short_term_move_percent: Decimal
+
+    pending_mode: str | None
+
+    pending_count: int
+
+    mode_locked: bool
+
+    reason: str
+
+
+class RegimeEngine:
+
+    def __init__(
+        self,
+    ) -> None:
+
+        self.active_mode: str | None = None
+
+        self.pending_mode: str | None = None
+
+        self.pending_count = 0
+
+        self.mode_locked = False
+
+        self.reference_price: Decimal | None = None
+
+        self.last_reason = "NOT_EVALUATED"
+
+
+    @staticmethod
+    def direction_from_ema(
+        snapshot: EMASnapshot,
+    ) -> str | None:
+
+        if (
+            snapshot.ema_fast
+            >
+            snapshot.ema_medium
+            >
+            snapshot.ema_slow
+        ):
+
+            return "LONG"
+
+
+        if (
+            snapshot.ema_fast
+            <
+            snapshot.ema_medium
+            <
+            snapshot.ema_slow
+        ):
+
+            return "SHORT"
+
+
+        return None
+
+
+    @staticmethod
+    def move_percent(
+        current: Decimal,
+        reference: Decimal | None,
+    ) -> Decimal:
+
+        if (
+            reference is None
+            or
+            reference == 0
+        ):
+
+            return Decimal("0")
+
+
+        return (
+
+            abs(
+                current
+                - reference
+            )
+
+            / abs(
+                reference
+            )
+
+            * Decimal("100")
+
+        )
+
+
+    @staticmethod
+    def classify(
+        direction: str | None,
+        ema_sep: Decimal,
+        movement: Decimal,
+    ) -> tuple[str, str]:
+
+        if (
+            direction
+            in (
+                "LONG",
+                "SHORT",
+            )
+            and
+            movement
+            >=
+            REGIME_BREAKOUT_MOVE_PERCENT
+        ):
+
+            return (
+                "BREAKOUT",
+                "BREAKOUT_MOVE_CONFIRMED",
+            )
+
+
+        if (
+            direction
+            in (
+                "LONG",
+                "SHORT",
+            )
+            and
+            ema_sep
+            >=
+            REGIME_STRONG_EMA_SEPARATION_PERCENT
+        ):
+
+            return (
+                "STRUCTURE",
+                "STRONG_EMA_DIRECTION_CONFIRMED",
+            )
+
+
+        return (
+            "SCALP",
+            "NO_CONFIRMED_STRUCTURE_OR_BREAKOUT_CONDITION",
+        )
+
+
+    def update_mode(
+        self,
+        raw_mode: str,
+        reason: str,
+        trade_active: bool = False,
+    ) -> str:
+
+        if raw_mode not in REGIME_VALID_MODES:
+
+            raise ValueError(
+                "Invalid regime mode: "
+                + str(
+                    raw_mode
+                )
+            )
+
+
+        if trade_active:
+
+            self.mode_locked = True
+
+
+            if self.active_mode is None:
+
+                self.active_mode = (
+                    raw_mode
+                )
+
+
+            self.pending_mode = None
+
+            self.pending_count = 0
+
+            self.last_reason = (
+                "ACTIVE_TRADE_MODE_LOCK"
+            )
+
+
+            return self.active_mode
+
+
+        self.mode_locked = False
+
+
+        if self.active_mode is None:
+
+            self.active_mode = (
+                raw_mode
+            )
+
+            self.pending_mode = None
+
+            self.pending_count = 0
+
+            self.last_reason = (
+                "INITIAL_MODE_SELECTED:"
+                + reason
+            )
+
+
+            return self.active_mode
+
+
+        if (
+            raw_mode
+            ==
+            self.active_mode
+        ):
+
+            self.pending_mode = None
+
+            self.pending_count = 0
+
+            self.last_reason = (
+                "ACTIVE_MODE_CONFIRMED:"
+                + reason
+            )
+
+
+            return self.active_mode
+
+
+        if (
+            self.pending_mode
+            !=
+            raw_mode
+        ):
+
+            self.pending_mode = (
+                raw_mode
+            )
+
+            self.pending_count = 1
+
+            self.last_reason = (
+                "NEW_MODE_PENDING:"
+                + reason
+            )
+
+
+            return self.active_mode
+
+
+        self.pending_count += 1
+
+
+        if (
+            self.pending_count
+            >=
+            REGIME_MODE_CONFIRMATIONS_REQUIRED
+        ):
+
+            previous = (
+                self.active_mode
+            )
+
+            self.active_mode = (
+                raw_mode
+            )
+
+            self.pending_mode = None
+
+            self.pending_count = 0
+
+            self.last_reason = (
+
+                "THREE_CONFIRMATION_TRANSITION:"
+                + str(
+                    previous
+                )
+                + "_TO_"
+                + raw_mode
+
+            )
+
+
+            return self.active_mode
+
+
+        self.last_reason = (
+            "MODE_CONFIRMATION_PENDING:"
+            + reason
+        )
+
+
+        return self.active_mode
+
+
+    def evaluate(
+        self,
+        snapshot: EMASnapshot,
+        *,
+        trade_active: bool = False,
+    ) -> RegimeResult:
+
+        direction = (
+            self.direction_from_ema(
+                snapshot
+            )
+        )
+
+
+        ema_sep = (
+            snapshot
+            .fast_medium_separation_percent
+        )
+
+
+        movement = (
+            self.move_percent(
+
+                snapshot.close_price,
+
+                self.reference_price,
+
+            )
+        )
+
+
+        (
+            raw_mode,
+            classifier_reason,
+        ) = self.classify(
+
+            direction,
+
+            ema_sep,
+
+            movement,
+
+        )
+
+
+        active_mode = (
+            self.update_mode(
+
+                raw_mode,
+
+                classifier_reason,
+
+                trade_active,
+
+            )
+        )
+
+
+        self.reference_price = (
+            snapshot.close_price
+        )
+
+
+        return RegimeResult(
+
+            raw_mode,
+
+            active_mode,
+
+            direction,
+
+            ema_sep,
+
+            movement,
+
+            self.pending_mode,
+
+            self.pending_count,
+
+            self.mode_locked,
+
+            self.last_reason,
+
+        )
+
+
+def make_regime_snapshot(
+    *,
+    close: str,
+    fast: str,
+    medium: str,
+    slow: str,
+) -> EMASnapshot:
+
+    f = D(
+        fast
+    )
+
+    m = D(
+        medium
+    )
+
+    sl = D(
+        slow
+    )
+
+    c = D(
+        close
+    )
+
+
+    return EMASnapshot(
+
+        1,
+
+        c,
+
+        f,
+
+        m,
+
+        sl,
+
+        percentage_distance(
+            f,
+            m,
+        ),
+
+        percentage_distance(
+            m,
+            sl,
+        ),
+
+        percentage_distance(
+            f,
+            sl,
+        ),
+
+        determine_ema_alignment(
+            f,
+            m,
+            sl,
+        ),
+
+    )
+
+
+def run_unit_4_local_tests() -> None:
+
+    separator()
+
+    log(
+        "UNIT 4 LOCAL REGIME TESTS START"
+    )
+
+
+    # --------------------------------------------------------
+    # DIRECTION TESTS
+    # --------------------------------------------------------
+
+    bull = make_regime_snapshot(
+
+        close="101",
+
+        fast="100.10",
+
+        medium="100",
+
+        slow="99",
+
+    )
+
+
+    bear = make_regime_snapshot(
+
+        close="99",
+
+        fast="99.90",
+
+        medium="100",
+
+        slow="101",
+
+    )
+
+
+    mixed = make_regime_snapshot(
+
+        close="100",
+
+        fast="100.10",
+
+        medium="99.90",
+
+        slow="100.20",
+
+    )
+
+
+    if (
+        RegimeEngine
+        .direction_from_ema(
+            bull
+        )
+        !=
+        "LONG"
+    ):
+
+        raise RuntimeError(
+            "Unit 4 LONG direction test failed"
+        )
+
+
+    if (
+        RegimeEngine
+        .direction_from_ema(
+            bear
+        )
+        !=
+        "SHORT"
+    ):
+
+        raise RuntimeError(
+            "Unit 4 SHORT direction test failed"
+        )
+
+
+    if (
+        RegimeEngine
+        .direction_from_ema(
+            mixed
+        )
+        is not None
+    ):
+
+        raise RuntimeError(
+            "Unit 4 NONE direction test failed"
+        )
+
+
+    log(
+        "PASS: UNIT 4 DIRECTION TESTS"
+    )
+
+
+    # --------------------------------------------------------
+    # CLASSIFIER BOUNDARY TESTS
+    # --------------------------------------------------------
+
+    if (
+        RegimeEngine.classify(
+
+            "LONG",
+
+            D(
+                "0.0499"
+            ),
+
+            D(
+                "0.10"
+            ),
+
+        )[0]
+        !=
+        "SCALP"
+    ):
+
+        raise RuntimeError(
+            "SCALP boundary failed"
+        )
+
+
+    if (
+        RegimeEngine.classify(
+
+            "LONG",
+
+            D(
+                "0.05"
+            ),
+
+            D(
+                "0.10"
+            ),
+
+        )[0]
+        !=
+        "STRUCTURE"
+    ):
+
+        raise RuntimeError(
+            "STRUCTURE boundary failed"
+        )
+
+
+    if (
+        RegimeEngine.classify(
+
+            "LONG",
+
+            D(
+                "0.01"
+            ),
+
+            D(
+                "0.60"
+            ),
+
+        )[0]
+        !=
+        "BREAKOUT"
+    ):
+
+        raise RuntimeError(
+            "BREAKOUT boundary failed"
+  
