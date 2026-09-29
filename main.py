@@ -2703,3 +2703,583 @@ def run_unit_4_local_tests() -> None:
         raise RuntimeError(
             "BREAKOUT boundary failed"
   
+def build_live_regime_result(
+    candles: list[Candle],
+    ema_config: EMAConfig,
+) -> RegimeResult:
+
+    if (
+        len(candles)
+        <
+        ema_config.slow_period + 1
+    ):
+
+        raise ValueError(
+            "Need at least EMA200 + one prior cycle candle for Unit 4"
+        )
+
+
+    engine = RegimeEngine()
+
+
+    # Replay the last two observations so the final movement
+    # compares the current candle close with the prior close.
+
+    previous_snapshot = (
+        build_ema_snapshot(
+            candles[:-1],
+            ema_config,
+        )
+    )
+
+
+    engine.evaluate(
+        previous_snapshot,
+        trade_active=False,
+    )
+
+
+    current_snapshot = (
+        build_ema_snapshot(
+            candles,
+            ema_config,
+        )
+    )
+
+
+    return engine.evaluate(
+        current_snapshot,
+        trade_active=False,
+    )
+
+
+# ============================================================
+# UNIT 3 LIVE TEST
+# ============================================================
+
+async def run_unit_3_test() -> bool:
+
+    separator()
+
+    log(
+        "RECONSTRUCTION UNIT 3 TEST START"
+    )
+
+    separator()
+
+
+    config = build_config()
+
+
+    # --------------------------------------------------------
+    # UNIT 1 FOUNDATION
+    # --------------------------------------------------------
+
+    validate_config(
+        config
+    )
+
+
+    log(
+        "PASS: UNIT 1 FOUNDATION"
+    )
+
+
+    # --------------------------------------------------------
+    # UNIT 2 STRUCTURAL SAFETY
+    # --------------------------------------------------------
+
+    forbidden = (
+
+        "post",
+        "put",
+        "patch",
+        "delete",
+
+    )
+
+
+    for method in forbidden:
+
+        if hasattr(
+            ReadOnlyWeexClient,
+            method,
+        ):
+
+            raise RuntimeError(
+
+                "FORBIDDEN HTTP METHOD FOUND: "
+                + method
+
+            )
+
+
+    log(
+        "PASS: UNIT 2 READ-ONLY TRANSPORT"
+    )
+
+
+    # --------------------------------------------------------
+    # LOCAL MATHEMATICAL TESTS FIRST
+    # --------------------------------------------------------
+
+    run_local_ema_tests(
+        config.ema
+    )
+
+
+    run_unit_4_local_tests()
+
+
+    # --------------------------------------------------------
+    # LIVE WEEX
+    # --------------------------------------------------------
+
+    client = ReadOnlyWeexClient()
+
+
+    separator()
+
+    log(
+        "UNIT 3 LIVE WEEX MARKET TEST START"
+    )
+
+
+    live_price = await load_public_price(
+        client
+    )
+
+
+    log(
+        "PASS: LIVE BTC PRICE READ"
+    )
+
+
+    log(
+        "LIVE BTC PRICE = "
+        + decimal_to_string(
+            live_price
+        )
+    )
+
+
+    # --------------------------------------------------------
+    # LIVE CANDLES
+    # --------------------------------------------------------
+
+    separator()
+
+    log(
+        "UNIT 3 LIVE CANDLE READ START"
+    )
+
+
+    (
+        candles,
+        source,
+    ) = await load_live_candles(
+        client
+    )
+
+
+    validate_candle_series(
+
+        candles,
+
+        minimum_count=
+            config.ema.slow_period,
+
+    )
+
+
+    log(
+        "PASS: LIVE CANDLE READ"
+    )
+
+
+    log(
+        "CANDLE SOURCE = "
+        + source
+    )
+
+
+    log(
+        "VALID CANDLE COUNT = "
+        + str(
+            len(candles)
+        )
+    )
+
+
+    first_candle = candles[
+        0
+    ]
+
+
+    latest_candle = candles[
+        -1
+    ]
+
+
+    log(
+        "FIRST CANDLE TIMESTAMP = "
+        + str(
+            first_candle.timestamp
+        )
+    )
+
+
+    log(
+        "LATEST CANDLE TIMESTAMP = "
+        + str(
+            latest_candle.timestamp
+        )
+    )
+
+
+    log(
+        "LATEST CANDLE CLOSE = "
+        + decimal_to_string(
+            latest_candle.close
+        )
+    )
+
+
+    # --------------------------------------------------------
+    # EMA SNAPSHOT
+    # --------------------------------------------------------
+
+    separator()
+
+    log(
+        "UNIT 3 LIVE EMA CALCULATION START"
+    )
+
+
+    snapshot = build_ema_snapshot(
+
+        candles,
+
+        config.ema,
+
+    )
+
+
+    log(
+        "PASS: LIVE EMA CALCULATION"
+    )
+
+
+    log(
+        "EMA19 = "
+        + decimal_to_string(
+            snapshot.ema_fast
+        )
+    )
+
+
+    log(
+        "EMA50 = "
+        + decimal_to_string(
+            snapshot.ema_medium
+        )
+    )
+
+
+    log(
+        "EMA200 = "
+        + decimal_to_string(
+            snapshot.ema_slow
+        )
+    )
+
+
+    log(
+        "EMA19/50 SEPARATION % = "
+        + decimal_to_string(
+            snapshot.fast_medium_separation_percent
+        )
+    )
+
+
+    log(
+        "EMA50/200 SEPARATION % = "
+        + decimal_to_string(
+            snapshot.medium_slow_separation_percent
+        )
+    )
+
+
+    log(
+        "EMA19/200 SEPARATION % = "
+        + decimal_to_string(
+            snapshot.fast_slow_separation_percent
+        )
+    )
+
+
+    log(
+        "EMA ALIGNMENT = "
+        + snapshot.alignment
+    )
+
+
+    # --------------------------------------------------------
+    # MINIMUM SEPARATION OBSERVATION
+    # --------------------------------------------------------
+
+    separation_ok = (
+
+        snapshot.fast_medium_separation_percent
+
+        >=
+
+        config.ema.minimum_fast_medium_separation_percent
+
+    )
+
+
+    log(
+        "EMA19/50 MINIMUM SEPARATION MET = "
+        + str(
+            separation_ok
+        )
+    )
+
+
+    # --------------------------------------------------------
+    # PRICE/CANDLE SANITY
+    # --------------------------------------------------------
+
+    price_difference_percent = (
+
+        abs(
+            live_price
+            - snapshot.close_price
+        )
+
+        / live_price
+
+        * Decimal("100")
+
+    )
+
+
+    log(
+        "LIVE PRICE VS LATEST CANDLE CLOSE DIFFERENCE % = "
+        + decimal_to_string(
+            price_difference_percent
+        )
+    )
+
+
+    # --------------------------------------------------------
+    # UNIT 4 LIVE REGIME + DIRECTION
+    # --------------------------------------------------------
+
+    separator()
+
+    log(
+        "UNIT 4 LIVE REGIME TEST START"
+    )
+
+
+    regime = (
+        build_live_regime_result(
+            candles,
+            config.ema,
+        )
+    )
+
+
+    log(
+        "PASS: LIVE REGIME CLASSIFICATION"
+    )
+
+
+    log(
+        "UNIT 4 RAW MODE = "
+        + regime.raw_mode
+    )
+
+
+    log(
+        "UNIT 4 ACTIVE MODE = "
+        + regime.active_mode
+    )
+
+
+    log(
+        "UNIT 4 DIRECTION = "
+        + str(
+            regime.direction
+        )
+    )
+
+
+    log(
+        "UNIT 4 EMA19/50 SEPARATION % = "
+        + decimal_to_string(
+            regime.ema_separation_percent
+        )
+    )
+
+
+    log(
+        "UNIT 4 SHORT-TERM MOVE % = "
+        + decimal_to_string(
+            regime.short_term_move_percent
+        )
+    )
+
+
+    log(
+        "UNIT 4 PENDING MODE = "
+        + str(
+            regime.pending_mode
+        )
+    )
+
+
+    log(
+        "UNIT 4 PENDING COUNT = "
+        + str(
+            regime.pending_count
+        )
+    )
+
+
+    log(
+        "UNIT 4 MODE LOCKED = "
+        + str(
+            regime.mode_locked
+        )
+    )
+
+
+    log(
+        "UNIT 4 REASON = "
+        + regime.reason
+    )
+
+
+    log(
+        "NO ORDER PAYLOAD GENERATED = TRUE"
+    )
+
+
+    # --------------------------------------------------------
+    # FINAL SAFETY CHECK
+    # --------------------------------------------------------
+
+    validate_config(
+        config
+    )
+
+
+    separator()
+
+    log(
+        "PASS: FINAL EXECUTION FIREBREAK"
+    )
+
+
+    log(
+        "ZERO WEEX POST = TRUE"
+    )
+
+
+    log(
+        "ZERO DEMO ORDER = TRUE"
+    )
+
+
+    log(
+        "ZERO REAL ORDER = TRUE"
+    )
+
+
+    log(
+        "ZERO EXCHANGE MUTATION = TRUE"
+    )
+
+
+    log(
+        "NO EXCHANGE ORDER DECISION GENERATED = TRUE"
+    )
+
+
+    separator()
+
+    log(
+        "RECONSTRUCTION UNIT 4 RESULT = PASS"
+    )
+
+    separator()
+
+
+    return True
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+async def main() -> None:
+
+    log(
+        f"{APP_NAME} {APP_VERSION}"
+    )
+
+
+    log(
+        f"STARTING {RECONSTRUCTION_UNIT}"
+    )
+
+
+    try:
+
+        result = await run_unit_3_test()
+
+
+    except Exception as exc:
+
+        separator()
+
+        log(
+            "RECONSTRUCTION UNIT 4 RESULT = FAIL"
+        )
+
+
+        log(
+            "ERROR TYPE = "
+            + type(
+                exc
+            ).__name__
+        )
+
+
+        log(
+            "ERROR = "
+            + repr(
+                exc
+            )
+        )
+
+        separator()
+
+        raise
+
+
+    if not result:
+
+        raise RuntimeError(
+            "Unit 4 did not pass."
+        )
+
+
+if __name__ == "__main__":
+
+    asyncio.run(
+        main()
+    )
