@@ -1820,3 +1820,878 @@ def run_local_ema_tests(
     log(
         "UNIT 3 LOCAL EMA TESTS = PASS"
     )
+# ============================================================
+# PUBLIC TICKER PRICE
+# ============================================================
+
+def find_price(
+    payload: Any,
+) -> Decimal | None:
+
+    price_keys = (
+
+        "markPrice",
+        "last",
+        "lastPrice",
+        "close",
+        "price",
+
+    )
+
+
+    if isinstance(
+        payload,
+        dict,
+    ):
+
+        for key in price_keys:
+
+            raw = payload.get(
+                key
+            )
+
+
+            if raw not in (
+                None,
+                "",
+            ):
+
+                try:
+
+                    price = D(
+                        raw
+                    )
+
+
+                    if price > 0:
+
+                        return price
+
+
+                except Exception:
+
+                    pass
+
+
+        for value in payload.values():
+
+            if isinstance(
+                value,
+                (dict, list),
+            ):
+
+                result = find_price(
+                    value
+                )
+
+
+                if result is not None:
+
+                    return result
+
+
+    elif isinstance(
+        payload,
+        list,
+    ):
+
+        for value in payload:
+
+            result = find_price(
+                value
+            )
+
+
+            if result is not None:
+
+                return result
+
+
+    return None
+
+
+async def load_public_price(
+    client: ReadOnlyWeexClient,
+) -> Decimal:
+
+    payload = await client.get(
+
+        "/capi/v2/market/ticker",
+
+        params={
+
+            "symbol":
+                PUBLIC_TICKER_SYMBOL,
+
+        },
+
+    )
+
+
+    price = find_price(
+        payload
+    )
+
+
+    if (
+        price is None
+        or price <= 0
+    ):
+
+        raise RuntimeError(
+            "Unable to extract public BTC price."
+        )
+
+
+    return price
+
+
+# ============================================================
+# KLINE REQUEST CANDIDATES
+# ============================================================
+
+async def load_live_candles(
+    client: ReadOnlyWeexClient,
+) -> tuple[list[Candle], str]:
+
+    """
+    Keep endpoint compatibility isolated here.
+
+    The first successful response producing >= EMA200 candles
+    is selected.
+
+    No strategy code knows or cares which exchange adapter
+    endpoint produced them.
+    """
+
+
+    candidate_requests = (
+
+        (
+            "/capi/v2/market/candles",
+            {
+
+                "symbol":
+                    KLINE_SYMBOL,
+
+                "granularity":
+                    KLINE_INTERVAL,
+
+                "limit":
+                    str(
+                        HISTORICAL_LIMIT
+                    ),
+
+            },
+        ),
+
+        (
+            "/capi/v2/market/kline",
+            {
+
+                "symbol":
+                    KLINE_SYMBOL,
+
+                "interval":
+                    KLINE_INTERVAL,
+
+                "limit":
+                    str(
+                        HISTORICAL_LIMIT
+                    ),
+
+            },
+        ),
+
+        (
+            "/capi/v2/market/klines",
+            {
+
+                "symbol":
+                    KLINE_SYMBOL,
+
+                "interval":
+                    KLINE_INTERVAL,
+
+                "limit":
+                    str(
+                        HISTORICAL_LIMIT
+                    ),
+
+            },
+        ),
+
+    )
+
+
+    failures = []
+
+
+    for (
+        path,
+        params,
+    ) in candidate_requests:
+
+        try:
+
+            payload = await client.get(
+
+                path,
+
+                params=params,
+
+            )
+
+
+            candles = normalize_candles(
+                payload
+            )
+
+
+            if len(candles) >= 200:
+
+                return (
+                    candles,
+                    path,
+                )
+
+
+            failures.append(
+
+                f"{path}: "
+                f"only {len(candles)} valid candles"
+
+            )
+
+
+        except Exception as exc:
+
+            failures.append(
+
+                f"{path}: "
+                f"{type(exc).__name__}: "
+                f"{exc}"
+
+            )
+
+
+    raise RuntimeError(
+
+        "NO VALID WEEX KLINE SOURCE: "
+        + " | ".join(
+            failures
+        )
+
+    )
+
+
+
+
+# ============================================================
+# UNIT 4 — REGIME + DIRECTION ENGINE
+# ============================================================
+
+REGIME_STRONG_EMA_SEPARATION_PERCENT = Decimal("0.05")
+REGIME_BREAKOUT_MOVE_PERCENT = Decimal("0.60")
+REGIME_MODE_CONFIRMATIONS_REQUIRED = 3
+REGIME_VALID_MODES = ("SCALP", "STRUCTURE", "BREAKOUT")
+
+@dataclass(frozen=True)
+class RegimeResult:
+    raw_mode: str
+    active_mode: str
+    direction: str | None
+    ema_separation_percent: Decimal
+    short_term_move_percent: Decimal
+    pending_mode: str | None
+    pending_count: int
+    mode_locked: bool
+    reason: str
+
+class RegimeEngine:
+    def __init__(self) -> None:
+        self.active_mode: str | None = None
+        self.pending_mode: str | None = None
+        self.pending_count = 0
+        self.mode_locked = False
+        self.reference_price: Decimal | None = None
+        self.last_reason = "NOT_EVALUATED"
+
+    @staticmethod
+    def direction_from_ema(snapshot: EMASnapshot) -> str | None:
+        if snapshot.ema_fast > snapshot.ema_medium > snapshot.ema_slow:
+            return "LONG"
+        if snapshot.ema_fast < snapshot.ema_medium < snapshot.ema_slow:
+            return "SHORT"
+        return None
+
+    @staticmethod
+    def move_percent(current: Decimal, reference: Decimal | None) -> Decimal:
+        if reference is None or reference == 0:
+            return Decimal("0")
+        return abs(current - reference) / abs(reference) * Decimal("100")
+
+    @staticmethod
+    def classify(direction: str | None, ema_sep: Decimal, movement: Decimal) -> tuple[str, str]:
+        if direction in ("LONG", "SHORT") and movement >= REGIME_BREAKOUT_MOVE_PERCENT:
+            return "BREAKOUT", "BREAKOUT_MOVE_CONFIRMED"
+        if direction in ("LONG", "SHORT") and ema_sep >= REGIME_STRONG_EMA_SEPARATION_PERCENT:
+            return "STRUCTURE", "STRONG_EMA_DIRECTION_CONFIRMED"
+        return "SCALP", "NO_CONFIRMED_STRUCTURE_OR_BREAKOUT_CONDITION"
+
+    def update_mode(self, raw_mode: str, reason: str, trade_active: bool = False) -> str:
+        if raw_mode not in REGIME_VALID_MODES:
+            raise ValueError("Invalid regime mode: " + str(raw_mode))
+        if trade_active:
+            self.mode_locked = True
+            if self.active_mode is None:
+                self.active_mode = raw_mode
+            self.pending_mode = None
+            self.pending_count = 0
+            self.last_reason = "ACTIVE_TRADE_MODE_LOCK"
+            return self.active_mode
+        self.mode_locked = False
+        if self.active_mode is None:
+            self.active_mode = raw_mode
+            self.pending_mode = None
+            self.pending_count = 0
+            self.last_reason = "INITIAL_MODE_SELECTED:" + reason
+            return self.active_mode
+        if raw_mode == self.active_mode:
+            self.pending_mode = None
+            self.pending_count = 0
+            self.last_reason = "ACTIVE_MODE_CONFIRMED:" + reason
+            return self.active_mode
+        if self.pending_mode != raw_mode:
+            self.pending_mode = raw_mode
+            self.pending_count = 1
+            self.last_reason = "NEW_MODE_PENDING:" + reason
+            return self.active_mode
+        self.pending_count += 1
+        if self.pending_count >= REGIME_MODE_CONFIRMATIONS_REQUIRED:
+            previous = self.active_mode
+            self.active_mode = raw_mode
+            self.pending_mode = None
+            self.pending_count = 0
+            self.last_reason = "THREE_CONFIRMATION_TRANSITION:" + str(previous) + "_TO_" + raw_mode
+            return self.active_mode
+        self.last_reason = "MODE_CONFIRMATION_PENDING:" + reason
+        return self.active_mode
+
+    def evaluate(self, snapshot: EMASnapshot, *, trade_active: bool = False) -> RegimeResult:
+        direction = self.direction_from_ema(snapshot)
+        ema_sep = snapshot.fast_medium_separation_percent
+        movement = self.move_percent(snapshot.close_price, self.reference_price)
+        raw_mode, classifier_reason = self.classify(direction, ema_sep, movement)
+        active_mode = self.update_mode(raw_mode, classifier_reason, trade_active)
+        self.reference_price = snapshot.close_price
+        return RegimeResult(raw_mode, active_mode, direction, ema_sep, movement, self.pending_mode, self.pending_count, self.mode_locked, self.last_reason)
+
+def make_regime_snapshot(*, close: str, fast: str, medium: str, slow: str) -> EMASnapshot:
+    f, m, sl, c = D(fast), D(medium), D(slow), D(close)
+    return EMASnapshot(1, c, f, m, sl, percentage_distance(f, m), percentage_distance(m, sl), percentage_distance(f, sl), determine_ema_alignment(f, m, sl))
+
+def run_unit_4_local_tests() -> None:
+    separator(); log("UNIT 4 LOCAL REGIME TESTS START")
+    # Direction tests.
+    bull = make_regime_snapshot(close="101", fast="100.10", medium="100", slow="99")
+    bear = make_regime_snapshot(close="99", fast="99.90", medium="100", slow="101")
+    mixed = make_regime_snapshot(close="100", fast="100.10", medium="99.90", slow="100.20")
+    if RegimeEngine.direction_from_ema(bull) != "LONG": raise RuntimeError("Unit 4 LONG direction test failed")
+    if RegimeEngine.direction_from_ema(bear) != "SHORT": raise RuntimeError("Unit 4 SHORT direction test failed")
+    if RegimeEngine.direction_from_ema(mixed) is not None: raise RuntimeError("Unit 4 NONE direction test failed")
+    log("PASS: UNIT 4 DIRECTION TESTS")
+    # Classifier boundary tests.
+    if RegimeEngine.classify("LONG", D("0.0499"), D("0.10"))[0] != "SCALP": raise RuntimeError("SCALP boundary failed")
+    if RegimeEngine.classify("LONG", D("0.05"), D("0.10"))[0] != "STRUCTURE": raise RuntimeError("STRUCTURE boundary failed")
+    if RegimeEngine.classify("LONG", D("0.01"), D("0.60"))[0] != "BREAKOUT": raise RuntimeError("BREAKOUT boundary failed")
+    log("PASS: UNIT 4 CLASSIFIER BOUNDARIES")
+    # Three-confirmation transition.
+    engine = RegimeEngine()
+    engine.reference_price = D("100")
+    r1 = engine.evaluate(bull)
+    if r1.active_mode != "BREAKOUT": raise RuntimeError("Initial mode selection failed")
+    stable = make_regime_snapshot(close="101.01", fast="100.10", medium="100", slow="99")
+    r2 = engine.evaluate(stable); r3 = engine.evaluate(stable)
+    if r2.active_mode != "BREAKOUT" or r2.pending_count != 1: raise RuntimeError("Transition confirmation 1 failed")
+    if r3.active_mode != "BREAKOUT" or r3.pending_count != 2: raise RuntimeError("Transition confirmation 2 failed")
+    r4 = engine.evaluate(stable)
+    if r4.active_mode != "STRUCTURE" or r4.pending_count != 0: raise RuntimeError("Transition confirmation 3 failed")
+    log("PASS: UNIT 4 THREE-CONFIRMATION TRANSITION")
+    # Active trade lock.
+    locked = RegimeEngine(); locked.evaluate(stable); before = locked.active_mode
+    locked.reference_price = D("100")
+    lr = locked.evaluate(bull, trade_active=True)
+    if lr.active_mode != before or not lr.mode_locked: raise RuntimeError("Active trade mode lock failed")
+    log("PASS: UNIT 4 ACTIVE-TRADE MODE LOCK")
+    separator(); log("UNIT 4 LOCAL REGIME TESTS = PASS")
+
+def build_live_regime_result(candles: list[Candle], ema_config: EMAConfig) -> RegimeResult:
+    if len(candles) < ema_config.slow_period + 1:
+        raise ValueError("Need at least EMA200 + one prior cycle candle for Unit 4")
+    engine = RegimeEngine()
+    # Replay the last two closed observations so the final move is current vs previous cycle price, matching frozen behavior.
+    previous_snapshot = build_ema_snapshot(candles[:-1], ema_config)
+    engine.evaluate(previous_snapshot, trade_active=False)
+    current_snapshot = build_ema_snapshot(candles, ema_config)
+    return engine.evaluate(current_snapshot, trade_active=False)
+
+
+# ============================================================
+# UNIT 3 LIVE TEST
+# ============================================================
+
+async def run_unit_3_test() -> bool:
+
+    separator()
+
+    log(
+        "RECONSTRUCTION UNIT 3 TEST START"
+    )
+
+    separator()
+
+
+    config = build_config()
+
+
+    # --------------------------------------------------------
+    # UNIT 1 FOUNDATION
+    # --------------------------------------------------------
+
+    validate_config(
+        config
+    )
+
+
+    log(
+        "PASS: UNIT 1 FOUNDATION"
+    )
+
+
+    # --------------------------------------------------------
+    # UNIT 2 STRUCTURAL SAFETY
+    # --------------------------------------------------------
+
+    forbidden = (
+
+        "post",
+        "put",
+        "patch",
+        "delete",
+
+    )
+
+
+    for method in forbidden:
+
+        if hasattr(
+            ReadOnlyWeexClient,
+            method,
+        ):
+
+            raise RuntimeError(
+
+                "FORBIDDEN HTTP METHOD FOUND: "
+                + method
+
+            )
+
+
+    log(
+        "PASS: UNIT 2 READ-ONLY TRANSPORT"
+    )
+
+
+    # --------------------------------------------------------
+    # LOCAL MATHEMATICAL TESTS FIRST
+    # --------------------------------------------------------
+
+    run_local_ema_tests(
+        config.ema
+    )
+
+
+    run_unit_4_local_tests()
+
+
+    # --------------------------------------------------------
+    # LIVE WEEX
+    # --------------------------------------------------------
+
+    client = ReadOnlyWeexClient()
+
+
+    separator()
+
+    log(
+        "UNIT 3 LIVE WEEX MARKET TEST START"
+    )
+
+
+    live_price = await load_public_price(
+        client
+    )
+
+
+    log(
+        "PASS: LIVE BTC PRICE READ"
+    )
+
+
+    log(
+        "LIVE BTC PRICE = "
+        + decimal_to_string(
+            live_price
+        )
+    )
+
+
+    # --------------------------------------------------------
+    # LIVE CANDLES
+    # --------------------------------------------------------
+
+    separator()
+
+    log(
+        "UNIT 3 LIVE CANDLE READ START"
+    )
+
+
+    (
+        candles,
+        source,
+    ) = await load_live_candles(
+        client
+    )
+
+
+    validate_candle_series(
+
+        candles,
+
+        minimum_count=
+            config.ema.slow_period,
+
+    )
+
+
+    log(
+        "PASS: LIVE CANDLE READ"
+    )
+
+
+    log(
+        "CANDLE SOURCE = "
+        + source
+    )
+
+
+    log(
+        "VALID CANDLE COUNT = "
+        + str(
+            len(candles)
+        )
+    )
+
+
+    first_candle = candles[
+        0
+    ]
+
+
+    latest_candle = candles[
+        -1
+    ]
+
+
+    log(
+        "FIRST CANDLE TIMESTAMP = "
+        + str(
+            first_candle.timestamp
+        )
+    )
+
+
+    log(
+        "LATEST CANDLE TIMESTAMP = "
+        + str(
+            latest_candle.timestamp
+        )
+    )
+
+
+    log(
+        "LATEST CANDLE CLOSE = "
+        + decimal_to_string(
+            latest_candle.close
+        )
+    )
+
+
+    # --------------------------------------------------------
+    # EMA SNAPSHOT
+    # --------------------------------------------------------
+
+    separator()
+
+    log(
+        "UNIT 3 LIVE EMA CALCULATION START"
+    )
+
+
+    snapshot = build_ema_snapshot(
+
+        candles,
+
+        config.ema,
+
+    )
+
+
+    log(
+        "PASS: LIVE EMA CALCULATION"
+    )
+
+
+    log(
+        "EMA19 = "
+        + decimal_to_string(
+            snapshot.ema_fast
+        )
+    )
+
+
+    log(
+        "EMA50 = "
+        + decimal_to_string(
+            snapshot.ema_medium
+        )
+    )
+
+
+    log(
+        "EMA200 = "
+        + decimal_to_string(
+            snapshot.ema_slow
+        )
+    )
+
+
+    log(
+        "EMA19/50 SEPARATION % = "
+        + decimal_to_string(
+            snapshot.fast_medium_separation_percent
+        )
+    )
+
+
+    log(
+        "EMA50/200 SEPARATION % = "
+        + decimal_to_string(
+            snapshot.medium_slow_separation_percent
+        )
+    )
+
+
+    log(
+        "EMA19/200 SEPARATION % = "
+        + decimal_to_string(
+            snapshot.fast_slow_separation_percent
+        )
+    )
+
+
+    log(
+        "EMA ALIGNMENT = "
+        + snapshot.alignment
+    )
+
+
+    # --------------------------------------------------------
+    # MINIMUM SEPARATION OBSERVATION
+    #
+    # Important:
+    # We REPORT this.
+    # We do NOT turn it into a trading decision in Unit 3.
+    # --------------------------------------------------------
+
+    separation_ok = (
+
+        snapshot.fast_medium_separation_percent
+
+        >=
+
+        config.ema.minimum_fast_medium_separation_percent
+
+    )
+
+
+    log(
+        "EMA19/50 MINIMUM SEPARATION MET = "
+        + str(
+            separation_ok
+        )
+    )
+
+
+    # --------------------------------------------------------
+    # PRICE/CANDLE SANITY
+    # --------------------------------------------------------
+
+    price_difference_percent = (
+
+        abs(
+            live_price
+            - snapshot.close_price
+        )
+
+        / live_price
+
+        * Decimal("100")
+
+    )
+
+
+    log(
+        "LIVE PRICE VS LATEST CANDLE CLOSE DIFFERENCE % = "
+        + decimal_to_string(
+            price_difference_percent
+        )
+    )
+
+
+    # --------------------------------------------------------
+    # UNIT 4 LIVE REGIME + DIRECTION
+    # --------------------------------------------------------
+    separator()
+    log("UNIT 4 LIVE REGIME TEST START")
+    regime = build_live_regime_result(candles, config.ema)
+    log("PASS: LIVE REGIME CLASSIFICATION")
+    log("UNIT 4 RAW MODE = " + regime.raw_mode)
+    log("UNIT 4 ACTIVE MODE = " + regime.active_mode)
+    log("UNIT 4 DIRECTION = " + str(regime.direction))
+    log("UNIT 4 EMA19/50 SEPARATION % = " + decimal_to_string(regime.ema_separation_percent))
+    log("UNIT 4 SHORT-TERM MOVE % = " + decimal_to_string(regime.short_term_move_percent))
+    log("UNIT 4 PENDING MODE = " + str(regime.pending_mode))
+    log("UNIT 4 PENDING COUNT = " + str(regime.pending_count))
+    log("UNIT 4 MODE LOCKED = " + str(regime.mode_locked))
+    log("UNIT 4 REASON = " + regime.reason)
+    log("NO ORDER PAYLOAD GENERATED = TRUE")
+
+
+    # --------------------------------------------------------
+    # FINAL SAFETY CHECK
+    # --------------------------------------------------------
+
+    validate_config(
+        config
+    )
+
+
+    separator()
+
+    log(
+        "PASS: FINAL EXECUTION FIREBREAK"
+    )
+
+
+    log(
+        "ZERO WEEX POST = TRUE"
+    )
+
+
+    log(
+        "ZERO DEMO ORDER = TRUE"
+    )
+
+
+    log(
+        "ZERO REAL ORDER = TRUE"
+    )
+
+
+    log(
+        "ZERO EXCHANGE MUTATION = TRUE"
+    )
+
+
+    log(
+        "NO EXCHANGE ORDER DECISION GENERATED = TRUE"
+    )
+
+
+    separator()
+
+    log(
+        "RECONSTRUCTION UNIT 4 RESULT = PASS"
+    )
+
+    separator()
+
+
+    return True
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+async def main() -> None:
+
+    log(
+        f"{APP_NAME} {APP_VERSION}"
+    )
+
+
+    log(
+        f"STARTING {RECONSTRUCTION_UNIT}"
+    )
+
+
+    try:
+
+        result = await run_unit_3_test()
+
+
+    except Exception as exc:
+
+        separator()
+
+        log(
+            "RECONSTRUCTION UNIT 4 RESULT = FAIL"
+        )
+
+
+        log(
+            "ERROR TYPE = "
+            + type(
+                exc
+            ).__name__
+        )
+
+
+        log(
+            "ERROR = "
+            + repr(
+                exc
+            )
+        )
+
+        separator()
+
+        raise
+
+
+    if not result:
+
+        raise RuntimeError(
+            "Unit 4 did not pass."
+        )
+
+
+if __name__ == "__main__":
+
+    asyncio.run(
+        main()
+ )
