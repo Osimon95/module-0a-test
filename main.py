@@ -3860,24 +3860,354 @@ def run_unit_6c_live_test() -> bool:
 
 
 # ============================================================
-# MAIN
+# UNIT 7B
+# LIVE UNIT 6C -> UNIT 7 ZERO-WRITE INTEGRATION TEST
+#
+# PURPOSE:
+# Run the existing LIVE Unit 5B -> Unit 6C path and feed the
+# resulting Unit 6B instruction directly into the already
+# tested Unit 7 payload builder.
+#
+# IMPORTANT:
+# - ZERO WEEX POST
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - NO SL
+# - NO BACKUP EXECUTION
 # ============================================================
 
-def main() -> None:
+
+def run_unit_7b_live_integration_test():
+
+    separator()
 
     log(
-        f"{APP_NAME} UNIT_6C"
+        "RECONSTRUCTION UNIT 7B "
+        "LIVE INTEGRATION TEST START"
+    )
+
+    separator()
+
+    # --------------------------------------------------------
+    # STEP 1
+    # RUN EXISTING LIVE UNIT 5B PATH
+    # --------------------------------------------------------
+
+    unit_5b_result = (
+        run_unit_5b_live_test()
+    )
+
+    require(
+        isinstance(
+            unit_5b_result,
+            dict,
+        ),
+        "UNIT 7B invalid Unit 5B result.",
     )
 
     log(
-        "STARTING "
-        "UNIT_6C_LIVE_UNIT5B_TO_UNIT6B_INTEGRATION"
+        "PASS: UNIT 7B RECEIVED "
+        "LIVE UNIT 5B RESULT"
+    )
+
+    log(
+        "UNIT 7B UNIT 5B QUALIFIED = "
+        + str(
+            unit_5b_result.get(
+                "qualified"
+            )
+        )
+    )
+
+    log(
+        "UNIT 7B LIVE DIRECTION = "
+        + str(
+            unit_5b_result.get(
+                "direction"
+            )
+        )
+    )
+
+    # --------------------------------------------------------
+    # STEP 2
+    # FEED LIVE RESULT INTO EXISTING UNIT 6C BRIDGE
+    # --------------------------------------------------------
+
+    unit_6b_result = (
+        reconstruction_unit_6c_live_bridge(
+            unit_5b_result=unit_5b_result
+        )
+    )
+
+    require(
+        isinstance(
+            unit_6b_result,
+            dict,
+        ),
+        "UNIT 7B invalid Unit 6B result.",
+    )
+
+    log(
+        "PASS: UNIT 7B RECEIVED "
+        "UNIT 6C / UNIT 6B RESULT"
+    )
+
+    log(
+        "UNIT 7B UNIT 6B VALID = "
+        + str(
+            unit_6b_result.get(
+                "valid"
+            )
+        )
+    )
+
+    # --------------------------------------------------------
+    # STEP 3
+    # FEED UNIT 6B DIRECTLY INTO TESTED UNIT 7 BUILDER
+    # --------------------------------------------------------
+
+    unit_7_result = (
+        reconstruction_unit_7_build_payload_preview(
+            unit_6b_result=unit_6b_result
+        )
+    )
+
+    require(
+        isinstance(
+            unit_7_result,
+            dict,
+        ),
+        "UNIT 7B invalid Unit 7 result.",
+    )
+
+    # --------------------------------------------------------
+    # QUALIFIED LIVE PATH
+    # --------------------------------------------------------
+
+    if unit_6b_result.get(
+        "valid",
+        False,
+    ):
+
+        require(
+            unit_7_result.get(
+                "valid"
+            )
+            is True,
+            (
+                "UNIT 7B valid Unit 6B result "
+                "did not reach valid Unit 7."
+            ),
+        )
+
+        require(
+            unit_7_result.get(
+                "candidate_payload_generated"
+            )
+            is True,
+            (
+                "UNIT 7B qualified path did "
+                "not generate payload preview."
+            ),
+        )
+
+        require(
+            isinstance(
+                unit_7_result.get(
+                    "payload"
+                ),
+                dict,
+            ),
+            (
+                "UNIT 7B qualified path "
+                "missing payload."
+            ),
+        )
+
+        log(
+            "UNIT 7B LIVE PATH = "
+            "QUALIFIED"
+        )
+
+        log(
+            "UNIT 7B LIVE CANDIDATE "
+            "PAYLOAD = "
+            + repr(
+                unit_7_result.get(
+                    "payload"
+                )
+            )
+        )
+
+    # --------------------------------------------------------
+    # NON-QUALIFIED LIVE PATH
+    # --------------------------------------------------------
+
+    else:
+
+        require(
+            unit_7_result.get(
+                "valid"
+            )
+            is False,
+            (
+                "UNIT 7B blocked Unit 6B "
+                "unexpectedly produced "
+                "valid Unit 7 result."
+            ),
+        )
+
+        require(
+            unit_7_result.get(
+                "payload"
+            )
+            is None,
+            (
+                "UNIT 7B blocked path "
+                "generated payload."
+            ),
+        )
+
+        log(
+            "UNIT 7B LIVE PATH = "
+            "BLOCKED BY EXISTING "
+            "QUALIFICATION GATE"
+        )
+
+        log(
+            "PASS: UNIT 7B GENERATED "
+            "NO PAYLOAD ON BLOCKED PATH"
+        )
+
+    # --------------------------------------------------------
+    # UNIT 7 RESULT FIREBREAK
+    # --------------------------------------------------------
+
+    for key in (
+        "weex_post",
+        "demo_order",
+        "real_order",
+        "exchange_mutation",
+        "tp_generated",
+        "sl_generated",
+        "backup_execution",
+    ):
+
+        require(
+            unit_7_result.get(
+                key,
+                False,
+            )
+            is False,
+            (
+                "UNIT 7B result firebreak "
+                "failed: "
+                + key
+            ),
+        )
+
+    # --------------------------------------------------------
+    # GLOBAL FIREBREAK
+    # --------------------------------------------------------
+
+    require(
+        ALLOW_HTTP_POST is False,
+        "UNIT 7B HTTP POST firebreak failed.",
+    )
+
+    require(
+        ALLOW_DEMO_ORDER is False,
+        "UNIT 7B demo order firebreak failed.",
+    )
+
+    require(
+        ALLOW_REAL_ORDER is False,
+        "UNIT 7B real order firebreak failed.",
+    )
+
+    require(
+        ALLOW_EXCHANGE_MUTATION is False,
+        "UNIT 7B mutation firebreak failed.",
+    )
+
+    require(
+        ALLOW_SL_GENERATION is False,
+        "UNIT 7B SL firebreak failed.",
+    )
+
+    require(
+        ALLOW_BACKUP_EXECUTION is False,
+        "UNIT 7B backup firebreak failed.",
+    )
+
+    separator()
+
+    log(
+        "PASS: UNIT 7B EXECUTION FIREBREAK"
+    )
+
+    log(
+        "ZERO WEEX POST = TRUE"
+    )
+
+    log(
+        "ZERO DEMO ORDER = TRUE"
+    )
+
+    log(
+        "ZERO REAL ORDER = TRUE"
+    )
+
+    log(
+        "ZERO EXCHANGE MUTATION = TRUE"
+    )
+
+    log(
+        "NO SL GENERATED = TRUE"
+    )
+
+    log(
+        "NO BACKUP EXECUTION = TRUE"
+    )
+
+    separator()
+
+    log(
+        "UNIT 7B LIVE INTEGRATION "
+        "TESTS = PASS"
+    )
+
+    log(
+        "RECONSTRUCTION UNIT 7B "
+        "RESULT = PASS"
+    )
+
+    separator()
+
+    return True
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    log(
+        f"{APP_NAME} UNIT_7B_LIVE_INTEGRATION"
+    )
+
+    log(
+        "STARTING LIVE "
+        "UNIT_6C_TO_UNIT_7 "
+        "ZERO_WRITE_INTEGRATION"
     )
 
     try:
 
         result = (
-            run_unit_6c_live_test()
+            run_unit_7b_live_integration_test()
         )
 
     except Exception as exc:
@@ -3885,21 +4215,18 @@ def main() -> None:
         separator()
 
         log(
-            "RECONSTRUCTION UNIT 6C RESULT = FAIL"
+            "RECONSTRUCTION UNIT 7B "
+            "RESULT = FAIL"
         )
 
         log(
             "ERROR TYPE = "
-            + type(
-                exc
-            ).__name__
+            + type(exc).__name__
         )
 
         log(
             "ERROR = "
-            + repr(
-                exc
-            )
+            + repr(exc)
         )
 
         separator()
@@ -3909,11 +4236,12 @@ def main() -> None:
     if not result:
 
         raise RuntimeError(
-            "Unit 6C live integration "
+            "Unit 7B live integration "
             "test did not pass."
         )
 
 
 if __name__ == "__main__":
-
     main()
+
+
