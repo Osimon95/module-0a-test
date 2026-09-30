@@ -9098,3 +9098,790 @@ if __name__ == "__main__":
     asyncio.run(
         reconstruction_unit_10_live_demo_execution()
     )
+
+# ============================================================
+# RECONSTRUCTION UNIT 10B
+# PERSISTENT LIVE-QUALIFIED ONE-SHOT DEMO MONITOR
+#
+# PURPOSE:
+# Repeatedly run the already-tested Unit 10 live execution
+# until ONE genuine live-qualified WEEX DEMO order is accepted.
+#
+# IMPORTANT:
+# - USE EXISTING UNIT 10 WITHOUT CHANGING ITS STRATEGY
+# - NO FORCED DIRECTION
+# - NO FORCED QUALIFICATION
+# - NO SYNTHETIC SIGNAL
+# - NO REAL ORDER PATH
+# - ONE ACCEPTED DEMO SUBMISSION MAXIMUM PER RUNTIME
+# - STOP AFTER FIRST ACCEPTED DEMO ORDER
+# ============================================================
+
+import asyncio
+from datetime import datetime, timezone
+
+
+# ------------------------------------------------------------
+# UNIT 10B SETTINGS
+# ------------------------------------------------------------
+
+UNIT_10B_ENABLED = True
+
+# Re-evaluate once per minute.
+# This matches the current 1-minute live candle progression
+# while avoiding unnecessary rapid repeated checks.
+UNIT_10B_CHECK_INTERVAL_SECONDS = 60
+
+# Absolute runtime one-shot lock.
+# Once an accepted demo order occurs, this remains True
+# for the life of this Python process.
+UNIT_10B_DEMO_SUBMISSION_LOCKED = False
+
+# Store the accepted result for inspection/logging.
+UNIT_10B_ACCEPTED_RESULT = None
+
+# Count monitoring cycles.
+UNIT_10B_CYCLE_COUNT = 0
+
+
+def reconstruction_unit_10b_log(message):
+    timestamp = datetime.now(
+        timezone.utc
+    ).isoformat()
+
+    print(
+        f"{timestamp} {message}",
+        flush=True,
+    )
+
+
+def reconstruction_unit_10b_validate_result(
+    result,
+):
+    """
+    Validate the object returned by Unit 10.
+
+    This function does NOT create or alter a trading signal.
+    It only validates Unit 10's returned state.
+    """
+
+    if not isinstance(
+        result,
+        dict,
+    ):
+        return {
+            "valid": False,
+            "reason": (
+                "UNIT_10B_UNIT_10_RESULT_NOT_DICT"
+            ),
+        }
+
+    required_keys = {
+        "valid",
+        "qualified",
+        "submitted",
+        "accepted",
+        "reason",
+    }
+
+    missing_keys = (
+        required_keys
+        - set(
+            result.keys()
+        )
+    )
+
+    if missing_keys:
+        return {
+            "valid": False,
+            "reason": (
+                "UNIT_10B_MISSING_UNIT_10_FIELDS"
+            ),
+            "missing_keys": sorted(
+                missing_keys
+            ),
+        }
+
+    return {
+        "valid": True,
+        "reason": (
+            "UNIT_10B_UNIT_10_RESULT_VALID"
+        ),
+    }
+
+
+async def reconstruction_unit_10b_monitor():
+    """
+    Persistent live monitoring wrapper around Unit 10.
+
+    Unit 10 remains responsible for:
+
+        LIVE Unit 5B qualification
+            ->
+        Unit 6C / Unit 6B sizing bridge
+            ->
+        Unit 7 payload
+            ->
+        Unit 8 submission boundary
+            ->
+        Unit 9 WEEX demo submission
+
+    Unit 10B adds ONLY:
+
+        repeated monitoring
+        +
+        one-shot accepted-order lock
+        +
+        controlled termination
+
+    Unit 10B does NOT manufacture a signal.
+    """
+
+    global UNIT_10B_DEMO_SUBMISSION_LOCKED
+    global UNIT_10B_ACCEPTED_RESULT
+    global UNIT_10B_CYCLE_COUNT
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    reconstruction_unit_10b_log(
+        "RECONSTRUCTION UNIT 10B "
+        "PERSISTENT LIVE DEMO MONITOR START"
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # MASTER ENABLE GUARD
+    # --------------------------------------------------------
+
+    if not UNIT_10B_ENABLED:
+
+        reconstruction_unit_10b_log(
+            "UNIT 10B ENABLED = FALSE"
+        )
+
+        reconstruction_unit_10b_log(
+            "UNIT 10B MONITOR = BLOCKED"
+        )
+
+        reconstruction_unit_10b_log(
+            "ZERO UNIT 10B DEMO ORDER = TRUE"
+        )
+
+        reconstruction_unit_10b_log(
+            "ZERO REAL ORDER = TRUE"
+        )
+
+        return {
+            "valid": True,
+            "monitor_started": False,
+            "submitted": False,
+            "accepted": False,
+            "reason": (
+                "UNIT_10B_DISABLED"
+            ),
+            "real_order": False,
+        }
+
+    reconstruction_unit_10b_log(
+        "UNIT 10B ENABLED = TRUE"
+    )
+
+    # --------------------------------------------------------
+    # EXISTING RUNTIME LOCK GUARD
+    # --------------------------------------------------------
+
+    if UNIT_10B_DEMO_SUBMISSION_LOCKED:
+
+        reconstruction_unit_10b_log(
+            "UNIT 10B ONE-SHOT LOCK = ACTIVE"
+        )
+
+        reconstruction_unit_10b_log(
+            "UNIT 10B NEW SUBMISSION = BLOCKED"
+        )
+
+        reconstruction_unit_10b_log(
+            "ZERO REAL ORDER = TRUE"
+        )
+
+        return {
+            "valid": True,
+            "monitor_started": False,
+            "submitted": False,
+            "accepted": False,
+            "reason": (
+                "UNIT_10B_ALREADY_COMPLETED"
+            ),
+            "accepted_result": (
+                UNIT_10B_ACCEPTED_RESULT
+            ),
+            "real_order": False,
+        }
+
+    reconstruction_unit_10b_log(
+        "UNIT 10B ONE-SHOT LOCK = OPEN"
+    )
+
+    reconstruction_unit_10b_log(
+        "UNIT 10B CHECK INTERVAL SECONDS = "
+        f"{UNIT_10B_CHECK_INTERVAL_SECONDS}"
+    )
+
+    reconstruction_unit_10b_log(
+        "UNIT 10B WAITING FOR "
+        "GENUINE LIVE QUALIFICATION"
+    )
+
+    # --------------------------------------------------------
+    # PERSISTENT MONITOR LOOP
+    # --------------------------------------------------------
+
+    while True:
+
+        # ----------------------------------------------------
+        # HARD ONE-SHOT CHECK BEFORE EVERY CYCLE
+        # ----------------------------------------------------
+
+        if UNIT_10B_DEMO_SUBMISSION_LOCKED:
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B ONE-SHOT LOCK "
+                "ACTIVATED"
+            )
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B MONITOR STOPPING"
+            )
+
+            break
+
+        UNIT_10B_CYCLE_COUNT += 1
+
+        print(
+            "-" * 80,
+            flush=True,
+        )
+
+        reconstruction_unit_10b_log(
+            "UNIT 10B MONITOR CYCLE = "
+            f"{UNIT_10B_CYCLE_COUNT}"
+        )
+
+        reconstruction_unit_10b_log(
+            "UNIT 10B CALLING VERIFIED UNIT 10"
+        )
+
+        # ----------------------------------------------------
+        # CALL THE ALREADY-TESTED UNIT 10
+        # ----------------------------------------------------
+
+        try:
+
+            unit_10_result = (
+                await
+                reconstruction_unit_10_live_demo_execution()
+            )
+
+        except Exception as exc:
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B UNIT 10 EXCEPTION = "
+                f"{repr(exc)}"
+            )
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B SUBMISSION STATE "
+                "= UNKNOWN/NOT ACCEPTED"
+            )
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B WILL NOT FORCE "
+                "A RETRY SUBMISSION"
+            )
+
+            reconstruction_unit_10b_log(
+                "ZERO REAL ORDER = TRUE"
+            )
+
+            return {
+                "valid": False,
+                "monitor_started": True,
+                "submitted": False,
+                "accepted": False,
+                "reason": (
+                    "UNIT_10B_UNIT_10_EXCEPTION"
+                ),
+                "error": repr(
+                    exc
+                ),
+                "cycle_count": (
+                    UNIT_10B_CYCLE_COUNT
+                ),
+                "real_order": False,
+            }
+
+        # ----------------------------------------------------
+        # VALIDATE UNIT 10 RETURN OBJECT
+        # ----------------------------------------------------
+
+        validation = (
+            reconstruction_unit_10b_validate_result(
+                unit_10_result
+            )
+        )
+
+        if not validation["valid"]:
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B UNIT 10 RESULT "
+                "VALIDATION = FAIL"
+            )
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B VALIDATION REASON = "
+                f"{validation['reason']}"
+            )
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B MONITOR STOPPING"
+            )
+
+            reconstruction_unit_10b_log(
+                "ZERO REAL ORDER = TRUE"
+            )
+
+            return {
+                "valid": False,
+                "monitor_started": True,
+                "submitted": False,
+                "accepted": False,
+                "reason": (
+                    validation["reason"]
+                ),
+                "validation": validation,
+                "unit_10_result": (
+                    unit_10_result
+                ),
+                "cycle_count": (
+                    UNIT_10B_CYCLE_COUNT
+                ),
+                "real_order": False,
+            }
+
+        reconstruction_unit_10b_log(
+            "PASS: UNIT 10B RECEIVED "
+            "VALID UNIT 10 RESULT"
+        )
+
+        # ----------------------------------------------------
+        # EXTRACT VERIFIED UNIT 10 STATE
+        # ----------------------------------------------------
+
+        qualified = bool(
+            unit_10_result.get(
+                "qualified",
+                False,
+            )
+        )
+
+        submitted = bool(
+            unit_10_result.get(
+                "submitted",
+                False,
+            )
+        )
+
+        accepted = bool(
+            unit_10_result.get(
+                "accepted",
+                False,
+            )
+        )
+
+        reason = (
+            unit_10_result.get(
+                "reason"
+            )
+        )
+
+        reconstruction_unit_10b_log(
+            "UNIT 10B LIVE QUALIFIED = "
+            f"{qualified}"
+        )
+
+        reconstruction_unit_10b_log(
+            "UNIT 10B DEMO SUBMITTED = "
+            f"{submitted}"
+        )
+
+        reconstruction_unit_10b_log(
+            "UNIT 10B DEMO ACCEPTED = "
+            f"{accepted}"
+        )
+
+        reconstruction_unit_10b_log(
+            "UNIT 10B UNIT 10 REASON = "
+            f"{reason}"
+        )
+
+        # ----------------------------------------------------
+        # IMPOSSIBLE/UNSAFE STATE GUARDS
+        # ----------------------------------------------------
+
+        if accepted and not submitted:
+
+            reconstruction_unit_10b_log(
+                "FAIL: UNIT 10B ACCEPTED "
+                "WITHOUT SUBMITTED"
+            )
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B MONITOR STOPPING"
+            )
+
+            return {
+                "valid": False,
+                "monitor_started": True,
+                "submitted": False,
+                "accepted": False,
+                "reason": (
+                    "UNIT_10B_INVALID_"
+                    "ACCEPTED_STATE"
+                ),
+                "unit_10_result": (
+                    unit_10_result
+                ),
+                "cycle_count": (
+                    UNIT_10B_CYCLE_COUNT
+                ),
+                "real_order": False,
+            }
+
+        if submitted and not qualified:
+
+            reconstruction_unit_10b_log(
+                "FAIL: UNIT 10B SUBMISSION "
+                "WITHOUT QUALIFICATION"
+            )
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B MONITOR STOPPING"
+            )
+
+            return {
+                "valid": False,
+                "monitor_started": True,
+                "submitted": submitted,
+                "accepted": accepted,
+                "reason": (
+                    "UNIT_10B_SUBMISSION_"
+                    "WITHOUT_QUALIFICATION"
+                ),
+                "unit_10_result": (
+                    unit_10_result
+                ),
+                "cycle_count": (
+                    UNIT_10B_CYCLE_COUNT
+                ),
+                "real_order": False,
+            }
+
+        # ----------------------------------------------------
+        # SUCCESS:
+        # ONE DEMO ORDER WAS ACCEPTED
+        # ----------------------------------------------------
+
+        if (
+            qualified
+            and submitted
+            and accepted
+        ):
+
+            # Lock FIRST before any further processing.
+            UNIT_10B_DEMO_SUBMISSION_LOCKED = True
+
+            UNIT_10B_ACCEPTED_RESULT = (
+                unit_10_result
+            )
+
+            print(
+                "=" * 80,
+                flush=True,
+            )
+
+            reconstruction_unit_10b_log(
+                "PASS: UNIT 10B LIVE SIGNAL "
+                "QUALIFIED"
+            )
+
+            reconstruction_unit_10b_log(
+                "PASS: UNIT 10B DEMO ORDER "
+                "SUBMITTED"
+            )
+
+            reconstruction_unit_10b_log(
+                "PASS: UNIT 10B WEEX DEMO "
+                "ORDER ACCEPTED"
+            )
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B ONE-SHOT LOCK = ACTIVE"
+            )
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B FURTHER DEMO "
+                "SUBMISSIONS = BLOCKED"
+            )
+
+            reconstruction_unit_10b_log(
+                "REAL ORDER SENT = FALSE"
+            )
+
+            reconstruction_unit_10b_log(
+                "RECONSTRUCTION UNIT 10B "
+                "RESULT = PASS"
+            )
+
+            print(
+                "=" * 80,
+                flush=True,
+            )
+
+            return {
+                "valid": True,
+                "monitor_started": True,
+                "qualified": True,
+                "submitted": True,
+                "accepted": True,
+                "reason": (
+                    "UNIT_10B_FIRST_LIVE_"
+                    "DEMO_ACCEPTED"
+                ),
+                "cycle_count": (
+                    UNIT_10B_CYCLE_COUNT
+                ),
+                "unit_10_result": (
+                    unit_10_result
+                ),
+                "one_shot_locked": True,
+                "real_order": False,
+            }
+
+        # ----------------------------------------------------
+        # QUALIFIED + SUBMITTED BUT REJECTED
+        #
+        # DO NOT AUTOMATICALLY RE-SUBMIT.
+        # A rejected/uncertain exchange submission must be
+        # inspected before another order is attempted.
+        # ----------------------------------------------------
+
+        if (
+            qualified
+            and submitted
+            and not accepted
+        ):
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B DEMO SUBMISSION "
+                "= NOT ACCEPTED"
+            )
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B AUTOMATIC "
+                "RESUBMISSION = BLOCKED"
+            )
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B MONITOR STOPPING "
+                "FOR INSPECTION"
+            )
+
+            reconstruction_unit_10b_log(
+                "REAL ORDER SENT = FALSE"
+            )
+
+            return {
+                "valid": True,
+                "monitor_started": True,
+                "qualified": True,
+                "submitted": True,
+                "accepted": False,
+                "reason": (
+                    "UNIT_10B_DEMO_SUBMISSION_"
+                    "NOT_ACCEPTED"
+                ),
+                "cycle_count": (
+                    UNIT_10B_CYCLE_COUNT
+                ),
+                "unit_10_result": (
+                    unit_10_result
+                ),
+                "one_shot_locked": False,
+                "real_order": False,
+            }
+
+        # ----------------------------------------------------
+        # QUALIFIED BUT UNIT 10 BLOCKED BEFORE SUBMISSION
+        #
+        # Stop rather than bypass Unit 10's safety chain.
+        # ----------------------------------------------------
+
+        if (
+            qualified
+            and not submitted
+        ):
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B LIVE SIGNAL "
+                "= QUALIFIED"
+            )
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B DEMO SUBMISSION "
+                "= BLOCKED BY UNIT 10"
+            )
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B WILL NOT BYPASS "
+                "UNIT 10"
+            )
+
+            reconstruction_unit_10b_log(
+                "UNIT 10B MONITOR STOPPING "
+                "FOR INSPECTION"
+            )
+
+            return {
+                "valid": True,
+                "monitor_started": True,
+                "qualified": True,
+                "submitted": False,
+                "accepted": False,
+                "reason": (
+                    "UNIT_10B_QUALIFIED_"
+                    "BUT_NOT_SUBMITTED"
+                ),
+                "cycle_count": (
+                    UNIT_10B_CYCLE_COUNT
+                ),
+                "unit_10_result": (
+                    unit_10_result
+                ),
+                "one_shot_locked": False,
+                "real_order": False,
+            }
+
+        # ----------------------------------------------------
+        # NORMAL WAITING STATE:
+        # NO QUALIFIED SIGNAL YET
+        # ----------------------------------------------------
+
+        reconstruction_unit_10b_log(
+            "UNIT 10B LIVE ENTRY "
+            "= NOT QUALIFIED"
+        )
+
+        reconstruction_unit_10b_log(
+            "UNIT 10B DEMO SUBMISSION "
+            "= NONE"
+        )
+
+        reconstruction_unit_10b_log(
+            "UNIT 10B WAITING FOR "
+            "NEXT LIVE CHECK"
+        )
+
+        reconstruction_unit_10b_log(
+            "ZERO REAL ORDER = TRUE"
+        )
+
+        # ----------------------------------------------------
+        # WAIT BEFORE NEXT LIVE MARKET RE-EVALUATION
+        # ----------------------------------------------------
+
+        await asyncio.sleep(
+            UNIT_10B_CHECK_INTERVAL_SECONDS
+        )
+
+    # --------------------------------------------------------
+    # FALLBACK TERMINATION
+    # --------------------------------------------------------
+
+    return {
+        "valid": True,
+        "monitor_started": True,
+        "submitted": bool(
+            UNIT_10B_ACCEPTED_RESULT
+        ),
+        "accepted": bool(
+            UNIT_10B_ACCEPTED_RESULT
+        ),
+        "reason": (
+            "UNIT_10B_MONITOR_COMPLETE"
+        ),
+        "cycle_count": (
+            UNIT_10B_CYCLE_COUNT
+        ),
+        "one_shot_locked": (
+            UNIT_10B_DEMO_SUBMISSION_LOCKED
+        ),
+        "real_order": False,
+    }
+
+
+async def run_reconstruction_unit_10b():
+    """
+    Explicit Unit 10B runner.
+    """
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "WEEX_PARALLEL_BOT "
+        "UNIT_10B_PERSISTENT_LIVE_DEMO_MONITOR",
+        flush=True,
+    )
+
+    print(
+        "STARTING UNIT 10B "
+        "ONE-SHOT LIVE DEMO MONITOR",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    result = (
+        await
+        reconstruction_unit_10b_monitor()
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 10B FINAL RESULT =",
+        result,
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return result
