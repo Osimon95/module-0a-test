@@ -5742,27 +5742,25 @@ if __name__ == "__main__":
 # DIRECT-CONNECTED ZERO-WRITE INTEGRATION TEST
 #
 # PURPOSE:
-# Prove that a genuine Unit 6B qualified instruction can:
+# Prove the exact tested connection:
 #
-#   UNIT 6B INSTRUCTION
+#   VALID UNIT 6B RESULT
 #           |
 #           v
 #       UNIT 7
-#   candidate payload
+#   ZERO-WRITE CANDIDATE PAYLOAD
 #           |
 #           v
 #       UNIT 8
-#   submission boundary
-#
-# WITHOUT manually rebuilding the Unit 7 payload between
-# Unit 7 and Unit 8.
+#   DEMO SUBMISSION BOUNDARY
 #
 # IMPORTANT:
+# - USES ACTUAL UNIT 7 INTERFACE
+# - USES ACTUAL UNIT 8 INTERFACE
 # - ZERO WEEX POST
 # - ZERO DEMO ORDER
 # - ZERO REAL ORDER
 # - ZERO EXCHANGE MUTATION
-# - NO API REQUEST
 # - NO TP GENERATED
 # - NO SL GENERATED
 # - NO BACKUP EXECUTION
@@ -5771,225 +5769,325 @@ if __name__ == "__main__":
 
 def reconstruction_unit_8b_direct_connected_bridge(
     *,
-    unit_6b_instruction,
+    unit_6b_result,
 ):
-    print(
-        "-" * 80,
-        flush=True,
-    )
 
-    print(
-        "RECONSTRUCTION UNIT 8B DIRECT-CONNECTED BRIDGE START",
-        flush=True,
+    separator()
+
+    log(
+        "RECONSTRUCTION UNIT 8B "
+        "DIRECT-CONNECTED BRIDGE START"
     )
 
     # --------------------------------------------------------
     # STEP 1
-    # Validate that Unit 8B received a Unit 6B instruction.
+    # VALIDATE UNIT 6B RESULT
     # --------------------------------------------------------
 
-    if not isinstance(
-        unit_6b_instruction,
-        dict,
-    ):
-        raise RuntimeError(
-            "UNIT 8B INVALID UNIT 6B INSTRUCTION TYPE"
+    require(
+        isinstance(
+            unit_6b_result,
+            dict,
+        ),
+        "UNIT 8B invalid Unit 6B result.",
+    )
+
+    require(
+        unit_6b_result.get(
+            "valid"
         )
-
-    print(
-        "PASS: UNIT 8B RECEIVED UNIT 6B INSTRUCTION",
-        flush=True,
+        is True,
+        "UNIT 8B Unit 6B result not valid.",
     )
 
-    # Preserve the original instruction.
-    unit_6b_original = dict(
-        unit_6b_instruction
+    unit_6_result = (
+        unit_6b_result.get(
+            "unit_6_result"
+        )
     )
+
+    require(
+        isinstance(
+            unit_6_result,
+            dict,
+        ),
+        "UNIT 8B missing Unit 6 result.",
+    )
+
+    require(
+        unit_6_result.get(
+            "valid"
+        )
+        is True,
+        "UNIT 8B invalid Unit 6 result.",
+    )
+
+    direction = str(
+        unit_6_result.get(
+            "direction"
+        )
+    ).upper()
+
+    require(
+        direction
+        in {
+            "LONG",
+            "SHORT",
+        },
+        "UNIT 8B invalid Unit 6 direction.",
+    )
+
+    quantity = D(
+        unit_6_result.get(
+            "quantity"
+        )
+    )
+
+    require(
+        quantity > 0,
+        "UNIT 8B invalid Unit 6 quantity.",
+    )
+
+    log(
+        "PASS: UNIT 8B RECEIVED "
+        "VALID UNIT 6B RESULT"
+    )
+
+    log(
+        "UNIT 8B UNIT 6 DIRECTION = "
+        + direction
+    )
+
+    log(
+        "UNIT 8B UNIT 6 QUANTITY = "
+        + decimal_to_string(
+            quantity
+        )
+    )
+
+    # --------------------------------------------------------
+    # Preserve Unit 6B input so mutation can be detected.
+    # --------------------------------------------------------
+
+    original_unit_6b_result = {
+        key: (
+            dict(value)
+            if isinstance(
+                value,
+                dict,
+            )
+            else value
+        )
+        for key, value
+        in unit_6b_result.items()
+    }
 
     # --------------------------------------------------------
     # STEP 2
-    # Send the REAL Unit 6B instruction into the already
-    # tested Unit 7 direct bridge.
+    # ACTUAL UNIT 6B -> UNIT 7 CONNECTION
+    #
+    # This is the real Unit 7 function already present in
+    # main.py.
     # --------------------------------------------------------
 
     unit_7_result = (
-        reconstruction_unit_7_direct_bridge(
-            unit_6b_instruction=
-                unit_6b_instruction,
+        reconstruction_unit_7_build_payload_preview(
+            unit_6b_result=(
+                unit_6b_result
+            )
         )
     )
 
-    if not isinstance(
-        unit_7_result,
-        dict,
-    ):
-        raise RuntimeError(
-            "UNIT 8B UNIT 7 RESULT IS NOT A DICT"
-        )
+    require(
+        isinstance(
+            unit_7_result,
+            dict,
+        ),
+        "UNIT 8B Unit 7 result is not dict.",
+    )
 
-    print(
-        "PASS: UNIT 8B RECEIVED UNIT 7 RESULT",
-        flush=True,
+    require(
+        unit_7_result.get(
+            "valid"
+        )
+        is True,
+        "UNIT 8B Unit 7 result not valid.",
+    )
+
+    require(
+        unit_7_result.get(
+            "candidate_payload_generated"
+        )
+        is True,
+        (
+            "UNIT 8B Unit 7 candidate "
+            "payload not generated."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 8B "
+        "UNIT 6B -> UNIT 7 CONNECTION"
     )
 
     # --------------------------------------------------------
     # STEP 3
-    # Confirm Unit 7 approved/built its candidate payload.
-    #
-    # Unit 7 versions may return the payload under slightly
-    # different result keys during reconstruction.
-    #
-    # We DO NOT reconstruct the payload here.
-    # We only retrieve the payload actually produced by Unit 7.
+    # TAKE THE ACTUAL PAYLOAD PRODUCED BY UNIT 7
     # --------------------------------------------------------
 
-    unit_7_payload = None
-    unit_7_payload_key = None
-
-    possible_payload_keys = (
-        "payload",
-        "candidate_payload",
-        "demo_payload",
-        "order_payload",
+    unit_7_payload = (
+        unit_7_result.get(
+            "payload"
+        )
     )
 
-    for key in possible_payload_keys:
-
-        candidate = unit_7_result.get(
-            key
-        )
-
-        if isinstance(
-            candidate,
+    require(
+        isinstance(
+            unit_7_payload,
             dict,
-        ):
-            unit_7_payload = candidate
-            unit_7_payload_key = key
-            break
-
-    if unit_7_payload is None:
-        raise RuntimeError(
-            "UNIT 8B COULD NOT FIND UNIT 7 CANDIDATE PAYLOAD"
-        )
-
-    print(
-        "PASS: UNIT 8B FOUND ACTUAL UNIT 7 PAYLOAD",
-        flush=True,
+        ),
+        "UNIT 8B Unit 7 payload missing.",
     )
 
-    print(
-        "UNIT 8B UNIT 7 PAYLOAD KEY = "
-        + str(unit_7_payload_key),
-        flush=True,
+    log(
+        "PASS: UNIT 8B RECEIVED "
+        "ACTUAL UNIT 7 PAYLOAD"
     )
 
-    print(
+    log(
         "UNIT 8B UNIT 7 PAYLOAD = "
-        + str(unit_7_payload),
-        flush=True,
+        + str(
+            unit_7_payload
+        )
     )
 
-    # Preserve Unit 7 payload before Unit 8 receives it.
-    unit_7_payload_original = dict(
+    # Preserve the exact Unit 7 payload before Unit 8.
+    original_unit_7_payload = dict(
         unit_7_payload
     )
 
     # --------------------------------------------------------
     # STEP 4
-    # Feed the ACTUAL Unit 7 payload directly into the already
-    # tested Unit 8 submission-boundary validator.
+    # ACTUAL UNIT 7 -> UNIT 8 CONNECTION
     # --------------------------------------------------------
 
     unit_8_result = (
         reconstruction_unit_8_build_demo_submission_boundary(
-            candidate_payload=
-                unit_7_payload,
+            candidate_payload=(
+                unit_7_payload
+            )
         )
     )
 
-    if not isinstance(
-        unit_8_result,
-        dict,
-    ):
-        raise RuntimeError(
-            "UNIT 8B UNIT 8 RESULT IS NOT A DICT"
-        )
+    require(
+        isinstance(
+            unit_8_result,
+            dict,
+        ),
+        "UNIT 8B Unit 8 result is not dict.",
+    )
 
-    if not unit_8_result.get(
-        "valid",
-        False,
-    ):
-        raise RuntimeError(
-            "UNIT 8B UNIT 8 BOUNDARY VALIDATION FAILED"
+    require(
+        unit_8_result.get(
+            "valid"
         )
+        is True,
+        "UNIT 8B Unit 8 result not valid.",
+    )
 
-    print(
-        "PASS: UNIT 8B UNIT 7 -> UNIT 8 CONNECTION",
-        flush=True,
+    log(
+        "PASS: UNIT 8B "
+        "UNIT 7 -> UNIT 8 CONNECTION"
     )
 
     # --------------------------------------------------------
     # STEP 5
-    # Retrieve Unit 8 final boundary payload.
+    # GET FINAL UNIT 8 BOUNDARY PAYLOAD
     # --------------------------------------------------------
 
-    final_payload = unit_8_result.get(
-        "payload"
+    final_payload = (
+        unit_8_result.get(
+            "payload"
+        )
     )
 
-    if not isinstance(
-        final_payload,
-        dict,
-    ):
-        raise RuntimeError(
-            "UNIT 8B UNIT 8 FINAL PAYLOAD MISSING"
-        )
+    require(
+        isinstance(
+            final_payload,
+            dict,
+        ),
+        "UNIT 8B final payload missing.",
+    )
 
-    print(
+    log(
         "UNIT 8B FINAL BOUNDARY PAYLOAD = "
-        + str(final_payload),
-        flush=True,
+        + str(
+            final_payload
+        )
     )
 
     # --------------------------------------------------------
     # STEP 6
-    # Verify Unit 8 did not mutate Unit 7's payload.
+    # PAYLOAD CONTINUITY
+    #
+    # Unit 8 is allowed to copy the dictionary but must not
+    # change any of the five approved fields.
     # --------------------------------------------------------
 
-    if (
-        unit_7_payload
-        != unit_7_payload_original
-    ):
-        raise RuntimeError(
-            "UNIT 8B UNIT 7 PAYLOAD MUTATED BY UNIT 8"
-        )
+    require(
+        final_payload
+        == original_unit_7_payload,
+        (
+            "UNIT 8B Unit 7 -> Unit 8 "
+            "payload continuity failure."
+        ),
+    )
 
-    print(
-        "PASS: UNIT 8B UNIT 7 PAYLOAD PRESERVED",
-        flush=True,
+    log(
+        "PASS: UNIT 8B PAYLOAD CONTINUITY"
     )
 
     # --------------------------------------------------------
     # STEP 7
-    # Verify Unit 7 did not mutate Unit 6B instruction.
+    # UNIT 7 PAYLOAD MUTATION CHECK
     # --------------------------------------------------------
 
-    if (
-        unit_6b_instruction
-        != unit_6b_original
-    ):
-        raise RuntimeError(
-            "UNIT 8B UNIT 6B INSTRUCTION MUTATED"
-        )
+    require(
+        unit_7_payload
+        == original_unit_7_payload,
+        (
+            "UNIT 8B Unit 7 payload "
+            "was mutated."
+        ),
+    )
 
-    print(
-        "PASS: UNIT 8B UNIT 6B INSTRUCTION PRESERVED",
-        flush=True,
+    log(
+        "PASS: UNIT 8B "
+        "UNIT 7 PAYLOAD PRESERVED"
     )
 
     # --------------------------------------------------------
     # STEP 8
-    # Validate final payload relationship.
+    # UNIT 6B MUTATION CHECK
+    # --------------------------------------------------------
+
+    require(
+        unit_6b_result
+        == original_unit_6b_result,
+        (
+            "UNIT 8B Unit 6B result "
+            "was mutated."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 8B "
+        "UNIT 6B RESULT PRESERVED"
+    )
+
+    # --------------------------------------------------------
+    # STEP 9
+    # REQUIRED FINAL FIELDS
     # --------------------------------------------------------
 
     required_fields = (
@@ -6006,51 +6104,156 @@ def reconstruction_unit_8b_direct_connected_bridge(
         if field not in final_payload
     ]
 
-    if missing_fields:
-        raise RuntimeError(
-            "UNIT 8B FINAL PAYLOAD MISSING FIELDS: "
-            + str(missing_fields)
-        )
-
-    print(
-        "PASS: UNIT 8B FINAL PAYLOAD REQUIRED FIELDS",
-        flush=True,
+    require(
+        not missing_fields,
+        (
+            "UNIT 8B final payload "
+            "missing fields: "
+            + str(
+                missing_fields
+            )
+        ),
     )
 
-    # --------------------------------------------------------
-    # STEP 9
-    # Direction consistency.
-    # --------------------------------------------------------
-
-    side = str(
-        final_payload["side"]
-    ).strip().upper()
-
-    position_side = str(
-        final_payload["positionSide"]
-    ).strip().upper()
-
-    valid_pairs = {
-        ("BUY", "LONG"),
-        ("SELL", "SHORT"),
-    }
-
-    if (
-        side,
-        position_side,
-    ) not in valid_pairs:
-        raise RuntimeError(
-            "UNIT 8B FINAL DIRECTION MISMATCH"
-        )
-
-    print(
-        "PASS: UNIT 8B FINAL DIRECTION CONSISTENCY",
-        flush=True,
+    log(
+        "PASS: UNIT 8B "
+        "FINAL REQUIRED FIELDS"
     )
 
     # --------------------------------------------------------
     # STEP 10
-    # SL-disable protection.
+    # SYMBOL
+    # --------------------------------------------------------
+
+    require(
+        final_payload.get(
+            "symbol"
+        )
+        == UNIT_7_DEMO_SYMBOL,
+        "UNIT 8B final symbol mismatch.",
+    )
+
+    log(
+        "PASS: UNIT 8B SYMBOL = "
+        + UNIT_7_DEMO_SYMBOL
+    )
+
+    # --------------------------------------------------------
+    # STEP 11
+    # ORDER TYPE
+    # --------------------------------------------------------
+
+    require(
+        final_payload.get(
+            "type"
+        )
+        == "MARKET",
+        "UNIT 8B final order type mismatch.",
+    )
+
+    log(
+        "PASS: UNIT 8B ORDER TYPE = MARKET"
+    )
+
+    # --------------------------------------------------------
+    # STEP 12
+    # DIRECTION CONSISTENCY
+    # --------------------------------------------------------
+
+    side = str(
+        final_payload.get(
+            "side"
+        )
+    ).upper()
+
+    position_side = str(
+        final_payload.get(
+            "positionSide"
+        )
+    ).upper()
+
+    if direction == "LONG":
+
+        require(
+            side == "BUY",
+            "UNIT 8B LONG side mismatch.",
+        )
+
+        require(
+            position_side == "LONG",
+            (
+                "UNIT 8B LONG "
+                "positionSide mismatch."
+            ),
+        )
+
+    else:
+
+        require(
+            side == "SELL",
+            "UNIT 8B SHORT side mismatch.",
+        )
+
+        require(
+            position_side == "SHORT",
+            (
+                "UNIT 8B SHORT "
+                "positionSide mismatch."
+            ),
+        )
+
+    log(
+        "PASS: UNIT 8B "
+        "DIRECTION CONSISTENCY"
+    )
+
+    # --------------------------------------------------------
+    # STEP 13
+    # QUANTITY CONTINUITY
+    # --------------------------------------------------------
+
+    final_quantity = D(
+        final_payload.get(
+            "quantity"
+        )
+    )
+
+    require(
+        final_quantity
+        == quantity,
+        (
+            "UNIT 8B quantity changed "
+            "between Unit 6 and Unit 8."
+        ),
+    )
+
+    require(
+        final_quantity
+        >= UNIT_6C_MINIMUM_QUANTITY,
+        (
+            "UNIT 8B final quantity "
+            "below minimum."
+        ),
+    )
+
+    require(
+        final_quantity
+        % UNIT_6C_QUANTITY_STEP
+        == 0,
+        (
+            "UNIT 8B final quantity "
+            "not aligned to step."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 8B "
+        "QUANTITY CONTINUITY"
+    )
+
+    # --------------------------------------------------------
+    # STEP 14
+    # SL-DISABLE GUARD
     # --------------------------------------------------------
 
     forbidden_sl_fields = (
@@ -6066,60 +6269,178 @@ def reconstruction_unit_8b_direct_connected_bridge(
         if field in final_payload
     ]
 
-    if present_sl_fields:
-        raise RuntimeError(
-            "UNIT 8B FINAL PAYLOAD CONTAINS SL FIELD: "
-            + str(present_sl_fields)
-        )
+    require(
+        not present_sl_fields,
+        (
+            "UNIT 8B forbidden SL fields: "
+            + str(
+                present_sl_fields
+            )
+        ),
+    )
 
-    print(
-        "PASS: UNIT 8B SL-DISABLE GUARD",
-        flush=True,
+    log(
+        "PASS: UNIT 8B SL-DISABLE GUARD"
     )
 
     # --------------------------------------------------------
-    # STEP 11
-    # EXECUTION FIREBREAK.
-    #
-    # Unit 8 already returns these flags False.
-    # Unit 8B independently verifies them.
+    # STEP 15
+    # EXACT FIELD WHITELIST
     # --------------------------------------------------------
 
-    if unit_8_result.get(
-        "weex_post",
-        True,
-    ):
-        raise RuntimeError(
-            "UNIT 8B WEEX POST FIREBREAK FAILURE"
-        )
+    allowed_fields = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+    }
 
-    if unit_8_result.get(
-        "demo_order_sent",
-        True,
-    ):
-        raise RuntimeError(
-            "UNIT 8B DEMO ORDER FIREBREAK FAILURE"
+    unexpected_fields = (
+        set(
+            final_payload.keys()
         )
+        - allowed_fields
+    )
 
-    if unit_8_result.get(
-        "real_order_sent",
-        True,
-    ):
-        raise RuntimeError(
-            "UNIT 8B REAL ORDER FIREBREAK FAILURE"
+    require(
+        not unexpected_fields,
+        (
+            "UNIT 8B unexpected final "
+            "payload fields: "
+            + str(
+                sorted(
+                    unexpected_fields
+                )
+            )
+        ),
+    )
+
+    log(
+        "PASS: UNIT 8B "
+        "FINAL FIELD WHITELIST"
+    )
+
+    # --------------------------------------------------------
+    # STEP 16
+    # UNIT 7 FIREBREAK
+    # --------------------------------------------------------
+
+    require(
+        unit_7_result.get(
+            "weex_post"
         )
+        is False,
+        "UNIT 8B Unit 7 WEEX POST failure.",
+    )
 
-    if unit_8_result.get(
-        "exchange_mutation",
-        True,
-    ):
-        raise RuntimeError(
-            "UNIT 8B EXCHANGE MUTATION FIREBREAK FAILURE"
+    require(
+        unit_7_result.get(
+            "demo_order"
         )
+        is False,
+        "UNIT 8B Unit 7 demo-order failure.",
+    )
 
-    print(
-        "PASS: UNIT 8B EXECUTION FIREBREAK",
-        flush=True,
+    require(
+        unit_7_result.get(
+            "real_order"
+        )
+        is False,
+        "UNIT 8B Unit 7 real-order failure.",
+    )
+
+    require(
+        unit_7_result.get(
+            "exchange_mutation"
+        )
+        is False,
+        (
+            "UNIT 8B Unit 7 exchange "
+            "mutation failure."
+        ),
+    )
+
+    require(
+        unit_7_result.get(
+            "tp_generated"
+        )
+        is False,
+        "UNIT 8B Unit 7 TP failure.",
+    )
+
+    require(
+        unit_7_result.get(
+            "sl_generated"
+        )
+        is False,
+        "UNIT 8B Unit 7 SL failure.",
+    )
+
+    require(
+        unit_7_result.get(
+            "backup_execution"
+        )
+        is False,
+        "UNIT 8B Unit 7 backup failure.",
+    )
+
+    log(
+        "PASS: UNIT 8B UNIT 7 FIREBREAK"
+    )
+
+    # --------------------------------------------------------
+    # STEP 17
+    # UNIT 8 FIREBREAK
+    # --------------------------------------------------------
+
+    require(
+        unit_8_result.get(
+            "weex_post"
+        )
+        is False,
+        "UNIT 8B Unit 8 WEEX POST failure.",
+    )
+
+    require(
+        unit_8_result.get(
+            "demo_order_sent"
+        )
+        is False,
+        (
+            "UNIT 8B Unit 8 demo-order "
+            "firebreak failure."
+        ),
+    )
+
+    require(
+        unit_8_result.get(
+            "real_order_sent"
+        )
+        is False,
+        (
+            "UNIT 8B Unit 8 real-order "
+            "firebreak failure."
+        ),
+    )
+
+    require(
+        unit_8_result.get(
+            "exchange_mutation"
+        )
+        is False,
+        (
+            "UNIT 8B Unit 8 exchange "
+            "mutation firebreak failure."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 8B UNIT 8 FIREBREAK"
+    )
+
+    log(
+        "PASS: UNIT 8B EXECUTION FIREBREAK"
     )
 
     # --------------------------------------------------------
@@ -6133,14 +6454,21 @@ def reconstruction_unit_8b_direct_connected_bridge(
         "reason":
             "UNIT_8B_DIRECT_CONNECTED_VALID",
 
-        "unit_6b_instruction":
-            dict(unit_6b_instruction),
+        "direction":
+            direction,
+
+        "quantity":
+            quantity,
 
         "unit_7_payload":
-            dict(unit_7_payload),
+            dict(
+                unit_7_payload
+            ),
 
         "final_payload":
-            dict(final_payload),
+            dict(
+                final_payload
+            ),
 
         "weex_post":
             False,
@@ -6153,221 +6481,260 @@ def reconstruction_unit_8b_direct_connected_bridge(
 
         "exchange_mutation":
             False,
+
+        "tp_generated":
+            False,
+
+        "sl_generated":
+            False,
+
+        "backup_execution":
+            False,
     }
 
 
 # ============================================================
-# UNIT 8B QUALIFIED-PATH TEST
+# UNIT 8B DIRECT-CONNECTED QUALIFIED-PATH TEST
 # ============================================================
 
 
 def reconstruction_unit_8b_qualified_path_test():
 
-    print(
-        "-" * 80,
-        flush=True,
-    )
+    separator()
 
-    print(
-        "RECONSTRUCTION UNIT 8B QUALIFIED-PATH TEST START",
-        flush=True,
+    log(
+        "RECONSTRUCTION UNIT 8B "
+        "QUALIFIED-PATH TEST START"
     )
 
     # ========================================================
-    # LONG PATH
+    # TEST 1
+    # VALID UNIT 6B LONG
     # ========================================================
 
-    print(
-        "-" * 80,
-        flush=True,
+    separator()
+
+    log(
+        "UNIT 8B LONG TEST START"
     )
 
-    print(
-        "UNIT 8B LONG TEST START",
-        flush=True,
-    )
-
-    # --------------------------------------------------------
-    # This is a Unit 6B qualified instruction.
-    #
-    # IMPORTANT:
-    # We are NOT constructing an order payload here.
-    # Unit 7 must do that.
-    # --------------------------------------------------------
-
-    long_unit_6b_instruction = {
+    simulated_long_unit_6b_result = {
         "valid":
             True,
 
-        "qualified":
-            True,
+        "reason":
+            "UNIT_8B_SIMULATED_QUALIFIED_LONG",
 
-        "direction":
-            "LONG",
+        "unit_6_result": {
+            "valid":
+                True,
 
-        "quantity":
-            "0.0004",
+            "direction":
+                "LONG",
+
+            "quantity":
+                D("0.0004"),
+
+            "entry_price":
+                D("85000.0"),
+        },
     }
 
     long_result = (
         reconstruction_unit_8b_direct_connected_bridge(
-            unit_6b_instruction=
-                long_unit_6b_instruction,
+            unit_6b_result=(
+                simulated_long_unit_6b_result
+            )
         )
     )
 
-    if not long_result.get(
-        "valid",
-        False,
-    ):
-        raise RuntimeError(
-            "UNIT 8B LONG PATH INVALID"
-        )
+    require(
+        isinstance(
+            long_result,
+            dict,
+        ),
+        "UNIT 8B LONG result not dict.",
+    )
 
-    long_final_payload = (
-        long_result[
+    require(
+        long_result.get(
+            "valid"
+        )
+        is True,
+        "UNIT 8B LONG result not valid.",
+    )
+
+    long_payload = (
+        long_result.get(
             "final_payload"
-        ]
+        )
     )
 
-    if (
-        long_final_payload.get(
+    require(
+        isinstance(
+            long_payload,
+            dict,
+        ),
+        "UNIT 8B LONG final payload missing.",
+    )
+
+    require(
+        long_payload.get(
             "side"
         )
-        != "BUY"
-    ):
-        raise RuntimeError(
-            "UNIT 8B LONG SIDE FAILURE"
-        )
+        == "BUY",
+        "UNIT 8B LONG side mismatch.",
+    )
 
-    if (
-        long_final_payload.get(
+    require(
+        long_payload.get(
             "positionSide"
         )
-        != "LONG"
-    ):
-        raise RuntimeError(
-            "UNIT 8B LONG POSITION SIDE FAILURE"
-        )
+        == "LONG",
+        (
+            "UNIT 8B LONG "
+            "positionSide mismatch."
+        ),
+    )
 
-    if (
-        long_final_payload.get(
+    require(
+        long_payload.get(
             "quantity"
         )
-        != "0.0004"
-    ):
-        raise RuntimeError(
-            "UNIT 8B LONG QUANTITY FAILURE"
-        )
+        == "0.0004",
+        "UNIT 8B LONG quantity mismatch.",
+    )
 
-    print(
-        "PASS: UNIT 8B QUALIFIED LONG PATH",
-        flush=True,
+    log(
+        "PASS: UNIT 8B "
+        "LONG UNIT 6B -> UNIT 7 -> UNIT 8"
     )
 
     # ========================================================
-    # SHORT PATH
+    # TEST 2
+    # VALID UNIT 6B SHORT
     # ========================================================
 
-    print(
-        "-" * 80,
-        flush=True,
+    separator()
+
+    log(
+        "UNIT 8B SHORT TEST START"
     )
 
-    print(
-        "UNIT 8B SHORT TEST START",
-        flush=True,
-    )
-
-    short_unit_6b_instruction = {
+    simulated_short_unit_6b_result = {
         "valid":
             True,
 
-        "qualified":
-            True,
+        "reason":
+            "UNIT_8B_SIMULATED_QUALIFIED_SHORT",
 
-        "direction":
-            "SHORT",
+        "unit_6_result": {
+            "valid":
+                True,
 
-        "quantity":
-            "0.0004",
+            "direction":
+                "SHORT",
+
+            "quantity":
+                D("0.0004"),
+
+            "entry_price":
+                D("85000.0"),
+        },
     }
 
     short_result = (
         reconstruction_unit_8b_direct_connected_bridge(
-            unit_6b_instruction=
-                short_unit_6b_instruction,
+            unit_6b_result=(
+                simulated_short_unit_6b_result
+            )
         )
     )
 
-    if not short_result.get(
-        "valid",
-        False,
-    ):
-        raise RuntimeError(
-            "UNIT 8B SHORT PATH INVALID"
-        )
+    require(
+        isinstance(
+            short_result,
+            dict,
+        ),
+        "UNIT 8B SHORT result not dict.",
+    )
 
-    short_final_payload = (
-        short_result[
+    require(
+        short_result.get(
+            "valid"
+        )
+        is True,
+        "UNIT 8B SHORT result not valid.",
+    )
+
+    short_payload = (
+        short_result.get(
             "final_payload"
-        ]
+        )
     )
 
-    if (
-        short_final_payload.get(
+    require(
+        isinstance(
+            short_payload,
+            dict,
+        ),
+        "UNIT 8B SHORT final payload missing.",
+    )
+
+    require(
+        short_payload.get(
             "side"
         )
-        != "SELL"
-    ):
-        raise RuntimeError(
-            "UNIT 8B SHORT SIDE FAILURE"
-        )
+        == "SELL",
+        "UNIT 8B SHORT side mismatch.",
+    )
 
-    if (
-        short_final_payload.get(
+    require(
+        short_payload.get(
             "positionSide"
         )
-        != "SHORT"
-    ):
-        raise RuntimeError(
-            "UNIT 8B SHORT POSITION SIDE FAILURE"
-        )
+        == "SHORT",
+        (
+            "UNIT 8B SHORT "
+            "positionSide mismatch."
+        ),
+    )
 
-    if (
-        short_final_payload.get(
+    require(
+        short_payload.get(
             "quantity"
         )
-        != "0.0004"
-    ):
-        raise RuntimeError(
-            "UNIT 8B SHORT QUANTITY FAILURE"
-        )
+        == "0.0004",
+        "UNIT 8B SHORT quantity mismatch.",
+    )
 
-    print(
-        "PASS: UNIT 8B QUALIFIED SHORT PATH",
-        flush=True,
+    log(
+        "PASS: UNIT 8B "
+        "SHORT UNIT 6B -> UNIT 7 -> UNIT 8"
     )
 
     # ========================================================
-    # CROSS-PATH VALIDATION
+    # TEST 3
+    # LONG / SHORT SEPARATION
     # ========================================================
 
-    if (
-        long_final_payload
-        == short_final_payload
-    ):
-        raise RuntimeError(
-            "UNIT 8B LONG/SHORT PAYLOAD COLLISION"
-        )
+    require(
+        long_payload
+        != short_payload,
+        (
+            "UNIT 8B LONG/SHORT "
+            "payload collision."
+        ),
+    )
 
-    print(
-        "PASS: UNIT 8B LONG/SHORT PAYLOAD SEPARATION",
-        flush=True,
+    log(
+        "PASS: UNIT 8B "
+        "LONG/SHORT PAYLOAD SEPARATION"
     )
 
     # ========================================================
-    # ZERO-WRITE SAFETY CHECK
+    # TEST 4
+    # FINAL ZERO-WRITE FIREBREAK
     # ========================================================
 
     for result in (
@@ -6375,136 +6742,174 @@ def reconstruction_unit_8b_qualified_path_test():
         short_result,
     ):
 
-        if result.get(
-            "weex_post",
-            True,
-        ):
-            raise RuntimeError(
-                "UNIT 8B WEEX POST SAFETY FAILURE"
+        require(
+            result.get(
+                "weex_post"
             )
+            is False,
+            "UNIT 8B WEEX POST safety failure.",
+        )
 
-        if result.get(
-            "demo_order_sent",
-            True,
-        ):
-            raise RuntimeError(
-                "UNIT 8B DEMO ORDER SAFETY FAILURE"
+        require(
+            result.get(
+                "demo_order_sent"
             )
+            is False,
+            (
+                "UNIT 8B demo-order "
+                "safety failure."
+            ),
+        )
 
-        if result.get(
-            "real_order_sent",
-            True,
-        ):
-            raise RuntimeError(
-                "UNIT 8B REAL ORDER SAFETY FAILURE"
+        require(
+            result.get(
+                "real_order_sent"
             )
+            is False,
+            (
+                "UNIT 8B real-order "
+                "safety failure."
+            ),
+        )
 
-        if result.get(
-            "exchange_mutation",
-            True,
-        ):
-            raise RuntimeError(
-                "UNIT 8B EXCHANGE MUTATION SAFETY FAILURE"
+        require(
+            result.get(
+                "exchange_mutation"
             )
+            is False,
+            (
+                "UNIT 8B exchange-mutation "
+                "safety failure."
+            ),
+        )
+
+        require(
+            result.get(
+                "tp_generated"
+            )
+            is False,
+            "UNIT 8B TP safety failure.",
+        )
+
+        require(
+            result.get(
+                "sl_generated"
+            )
+            is False,
+            "UNIT 8B SL safety failure.",
+        )
+
+        require(
+            result.get(
+                "backup_execution"
+            )
+            is False,
+            (
+                "UNIT 8B backup-execution "
+                "safety failure."
+            ),
+        )
 
     # ========================================================
-    # FINAL RESULTS
+    # FINAL PASS REPORT
     # ========================================================
 
-    print(
-        "-" * 80,
-        flush=True,
+    separator()
+
+    log(
+        "PASS: UNIT 8B "
+        "UNIT 6B -> UNIT 7 CONNECTION"
     )
 
-    print(
-        "PASS: UNIT 8B UNIT 6B -> UNIT 7 CONNECTION",
-        flush=True,
+    log(
+        "PASS: UNIT 8B "
+        "UNIT 7 -> UNIT 8 CONNECTION"
     )
 
-    print(
-        "PASS: UNIT 8B UNIT 7 -> UNIT 8 CONNECTION",
-        flush=True,
+    log(
+        "PASS: UNIT 8B QUALIFIED LONG PATH"
     )
 
-    print(
-        "PASS: UNIT 8B QUALIFIED LONG PATH",
-        flush=True,
+    log(
+        "PASS: UNIT 8B QUALIFIED SHORT PATH"
     )
 
-    print(
-        "PASS: UNIT 8B QUALIFIED SHORT PATH",
-        flush=True,
+    log(
+        "PASS: UNIT 8B PAYLOAD CONTINUITY"
     )
 
-    print(
-        "PASS: UNIT 8B PAYLOAD PRESERVATION",
-        flush=True,
+    log(
+        "PASS: UNIT 8B "
+        "UNIT 6B RESULT PRESERVATION"
     )
 
-    print(
-        "PASS: UNIT 8B SL-DISABLE GUARD",
-        flush=True,
+    log(
+        "PASS: UNIT 8B "
+        "UNIT 7 PAYLOAD PRESERVATION"
     )
 
-    print(
-        "PASS: UNIT 8B EXECUTION FIREBREAK",
-        flush=True,
+    log(
+        "PASS: UNIT 8B "
+        "DIRECTION CONSISTENCY GUARD"
     )
 
-    print(
-        "ZERO WEEX POST = TRUE",
-        flush=True,
+    log(
+        "PASS: UNIT 8B "
+        "QUANTITY CONTINUITY GUARD"
     )
 
-    print(
-        "ZERO DEMO ORDER = TRUE",
-        flush=True,
+    log(
+        "PASS: UNIT 8B SL-DISABLE GUARD"
     )
 
-    print(
-        "ZERO REAL ORDER = TRUE",
-        flush=True,
+    log(
+        "PASS: UNIT 8B "
+        "FINAL FIELD WHITELIST"
     )
 
-    print(
-        "ZERO EXCHANGE MUTATION = TRUE",
-        flush=True,
+    log(
+        "PASS: UNIT 8B EXECUTION FIREBREAK"
     )
 
-    print(
-        "NO TP GENERATED = TRUE",
-        flush=True,
+    log(
+        "ZERO WEEX POST = TRUE"
     )
 
-    print(
-        "NO SL GENERATED = TRUE",
-        flush=True,
+    log(
+        "ZERO DEMO ORDER = TRUE"
     )
 
-    print(
-        "NO BACKUP EXECUTION = TRUE",
-        flush=True,
+    log(
+        "ZERO REAL ORDER = TRUE"
     )
 
-    print(
-        "-" * 80,
-        flush=True,
+    log(
+        "ZERO EXCHANGE MUTATION = TRUE"
     )
 
-    print(
-        "UNIT 8B DIRECT-CONNECTED TESTS = PASS",
-        flush=True,
+    log(
+        "NO TP GENERATED = TRUE"
     )
 
-    print(
-        "RECONSTRUCTION UNIT 8B RESULT = PASS",
-        flush=True,
+    log(
+        "NO SL GENERATED = TRUE"
     )
 
-    print(
-        "-" * 80,
-        flush=True,
+    log(
+        "NO BACKUP EXECUTION = TRUE"
     )
+
+    separator()
+
+    log(
+        "UNIT 8B DIRECT-CONNECTED TESTS = PASS"
+    )
+
+    log(
+        "RECONSTRUCTION UNIT 8B RESULT = PASS"
+    )
+
+    separator()
 
     return True
 
@@ -6513,10 +6918,12 @@ def reconstruction_unit_8b_qualified_path_test():
 # UNIT 8B TEST ENTRY POINT
 # ============================================================
 
+
 if __name__ == "__main__":
 
     print(
-        "WEEX_PARALLEL_BOT UNIT_8B_DIRECT_CONNECTED_TEST",
+        "WEEX_PARALLEL_BOT "
+        "UNIT_8B_DIRECT_CONNECTED_TEST",
         flush=True,
     )
 
