@@ -4189,6 +4189,259 @@ def run_unit_7b_live_integration_test():
 
 
 # ============================================================
+# UNIT 7
+# DIRECT UNIT 6C / UNIT 6B -> ZERO-WRITE DEMO PAYLOAD PREVIEW
+# ============================================================
+
+UNIT_7_DEMO_SYMBOL = "BTCSUSDT"
+
+
+def reconstruction_unit_7_build_payload_preview(
+    *,
+    unit_6b_result,
+):
+    separator()
+
+    log(
+        "RECONSTRUCTION UNIT 7 DIRECT BRIDGE START"
+    )
+
+    result = {
+        "valid": False,
+        "reason": None,
+        "payload": None,
+        "candidate_payload_generated": False,
+        "weex_post": False,
+        "demo_order": False,
+        "real_order": False,
+        "exchange_mutation": False,
+        "tp_generated": False,
+        "sl_generated": False,
+        "backup_execution": False,
+    }
+
+    require(
+        isinstance(
+            unit_6b_result,
+            dict,
+        ),
+        "UNIT 7 invalid Unit 6B result.",
+    )
+
+    # --------------------------------------------------------
+    # UNIT 6B MUST BE VALID BEFORE ANY PAYLOAD CAN EXIST
+    # --------------------------------------------------------
+
+    if not unit_6b_result.get(
+        "valid",
+        False,
+    ):
+        result["reason"] = (
+            "UNIT_6B_NOT_READY"
+        )
+
+        log(
+            "UNIT 7 PAYLOAD PREVIEW ATTEMPTED = FALSE"
+        )
+
+        log(
+            "UNIT 7 BLOCKED: UNIT 6B NOT READY"
+        )
+
+        return result
+
+    # --------------------------------------------------------
+    # RECOVER VERIFIED UNIT 6 INSTRUCTION
+    # --------------------------------------------------------
+
+    unit_6_result = (
+        unit_6b_result.get(
+            "unit_6_result"
+        )
+    )
+
+    require(
+        isinstance(
+            unit_6_result,
+            dict,
+        ),
+        "UNIT 7 missing Unit 6 result.",
+    )
+
+    require(
+        unit_6_result.get(
+            "valid"
+        )
+        is True,
+        "UNIT 7 received invalid Unit 6 result.",
+    )
+
+    # --------------------------------------------------------
+    # DIRECTION
+    # --------------------------------------------------------
+
+    direction = str(
+        unit_6_result.get(
+            "direction"
+        )
+    ).upper()
+
+    require(
+        direction
+        in {
+            "LONG",
+            "SHORT",
+        },
+        "UNIT 7 invalid direction.",
+    )
+
+    # --------------------------------------------------------
+    # QUANTITY
+    # --------------------------------------------------------
+
+    quantity = D(
+        unit_6_result.get(
+            "quantity"
+        )
+    )
+
+    require(
+        quantity
+        >= UNIT_6C_MINIMUM_QUANTITY,
+        "UNIT 7 quantity below minimum.",
+    )
+
+    require(
+        quantity
+        % UNIT_6C_QUANTITY_STEP
+        == 0,
+        "UNIT 7 quantity not aligned to step.",
+    )
+
+    # --------------------------------------------------------
+    # MAP INTERNAL DIRECTION TO DEMO PAYLOAD
+    # --------------------------------------------------------
+
+    if direction == "LONG":
+        side = "BUY"
+        position_side = "LONG"
+
+    else:
+        side = "SELL"
+        position_side = "SHORT"
+
+    # --------------------------------------------------------
+    # BUILD ZERO-WRITE CANDIDATE PAYLOAD
+    #
+    # IMPORTANT:
+    # THIS IS ONLY A PYTHON DICTIONARY.
+    # NOTHING IS SENT TO WEEX.
+    # --------------------------------------------------------
+
+    payload = {
+        "symbol":
+            UNIT_7_DEMO_SYMBOL,
+
+        "side":
+            side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            decimal_to_string(
+                quantity
+            ),
+    }
+
+    # --------------------------------------------------------
+    # SL-DISABLE GUARD
+    # --------------------------------------------------------
+
+    forbidden_sl_fields = (
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopPrice",
+    )
+
+    for field in forbidden_sl_fields:
+
+        require(
+            field
+            not in payload,
+            (
+                "UNIT 7 forbidden SL field present: "
+                + field
+            ),
+        )
+
+    # --------------------------------------------------------
+    # RESULT
+    # --------------------------------------------------------
+
+    result["valid"] = True
+
+    result["reason"] = (
+        "UNIT_7_PAYLOAD_PREVIEW_READY"
+    )
+
+    result["payload"] = payload
+
+    result[
+        "candidate_payload_generated"
+    ] = True
+
+    # --------------------------------------------------------
+    # DIAGNOSTICS
+    # --------------------------------------------------------
+
+    log(
+        "PASS: UNIT 7 RECEIVED VALID UNIT 6B INSTRUCTION"
+    )
+
+    log(
+        "UNIT 7 DIRECTION = "
+        + direction
+    )
+
+    log(
+        "UNIT 7 SIDE = "
+        + side
+    )
+
+    log(
+        "UNIT 7 POSITION SIDE = "
+        + position_side
+    )
+
+    log(
+        "UNIT 7 QUANTITY = "
+        + decimal_to_string(
+            quantity
+        )
+    )
+
+    log(
+        "UNIT 7 CANDIDATE PAYLOAD = "
+        + repr(
+            payload
+        )
+    )
+
+    log(
+        "PASS: UNIT 7 SL-DISABLED PAYLOAD GUARD"
+    )
+
+    log(
+        "UNIT 7 PAYLOAD PREVIEW ATTEMPTED = TRUE"
+    )
+
+    return result
+# ============================================================
 # UNIT 7B
 # LIVE UNIT 6C -> UNIT 7 ZERO-WRITE INTEGRATION TEST
 # ============================================================
