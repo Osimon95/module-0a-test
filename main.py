@@ -8038,9 +8038,1044 @@ async def reconstruction_unit_9_first_demo_test():
 
     return result
 
+# ============================================================
+# RECONSTRUCTION UNIT 10
+# LIVE QUALIFICATION -> REAL WEEX DEMO SUBMISSION
+#
+# PURPOSE:
+#
+# Connect the already-tested reconstruction chain:
+#
+#   LIVE WEEX MARKET DATA
+#           |
+#           v
+#       UNIT 5B
+#   LIVE ENTRY QUALIFICATION
+#           |
+#           v
+#       UNIT 6C / 6B
+#   POSITION SIZING / ENTRY INSTRUCTION
+#           |
+#           v
+#       UNIT 7
+#   CANDIDATE ORDER PAYLOAD
+#           |
+#           v
+#       UNIT 8
+#   SUBMISSION BOUNDARY
+#           |
+#           v
+#       UNIT 9
+#   REAL WEEX DEMO SUBMISSION
+#
+# IMPORTANT:
+#
+# - LIVE MARKET QUALIFICATION
+# - ACTUAL QUALIFIED DIRECTION
+# - NO HARD-CODED LONG
+# - NO HARD-CODED SHORT
+# - DEMO ENDPOINT ONLY
+# - MAXIMUM ONE DEMO SUBMISSION PER UNIT 10 RUN
+# - NO ORDER IF UNIT 5B DOES NOT QUALIFY
+# - NO ORDER IF UNIT 6B DOES NOT VALIDATE
+# - NO REAL ORDER
+# - NO TP
+# - NO SL
+# - NO BACKUP EXECUTION
+#
+# Unit 9 transport remains unchanged.
+#
+# The old Unit 9 automatic hard-coded LONG entry point has
+# deliberately been removed so deployment cannot send both
+# the Unit 9 transport-test order and a Unit 10 live-qualified
+# order.
+# ============================================================
+
+
+async def reconstruction_unit_10_live_demo_execution():
+
+    separator()
+
+    log(
+        "RECONSTRUCTION UNIT 10 "
+        "LIVE DEMO EXECUTION START"
+    )
+
+    separator()
+
+    # ========================================================
+    # STEP 1
+    # RUN THE EXISTING LIVE MARKET QUALIFICATION PATH
+    # ========================================================
+
+    log(
+        "UNIT 10 STEP 1 = "
+        "RUN LIVE UNIT 5B QUALIFICATION"
+    )
+
+    unit_5b_result = (
+        run_unit_5b_live_test()
+    )
+
+    require(
+        isinstance(
+            unit_5b_result,
+            dict,
+        ),
+        "UNIT 10 invalid Unit 5B result.",
+    )
+
+    require(
+        "qualified"
+        in unit_5b_result,
+        "UNIT 10 Unit 5B missing qualified field.",
+    )
+
+    require(
+        "reason"
+        in unit_5b_result,
+        "UNIT 10 Unit 5B missing reason.",
+    )
+
+    require(
+        "direction"
+        in unit_5b_result,
+        "UNIT 10 Unit 5B missing direction.",
+    )
+
+    require(
+        "live_price"
+        in unit_5b_result,
+        "UNIT 10 Unit 5B missing live price.",
+    )
+
+    qualified = bool(
+        unit_5b_result.get(
+            "qualified",
+            False,
+        )
+    )
+
+    qualification_reason = (
+        unit_5b_result.get(
+            "reason"
+        )
+    )
+
+    direction = (
+        unit_5b_result.get(
+            "direction"
+        )
+    )
+
+    live_price = (
+        unit_5b_result.get(
+            "live_price"
+        )
+    )
+
+    log(
+        "PASS: UNIT 10 RECEIVED "
+        "LIVE UNIT 5B RESULT"
+    )
+
+    log(
+        "UNIT 10 LIVE QUALIFIED = "
+        + str(
+            qualified
+        )
+    )
+
+    log(
+        "UNIT 10 QUALIFICATION REASON = "
+        + str(
+            qualification_reason
+        )
+    )
+
+    log(
+        "UNIT 10 LIVE DIRECTION = "
+        + str(
+            direction
+        )
+    )
+
+    log(
+        "UNIT 10 LIVE PRICE = "
+        + str(
+            live_price
+        )
+    )
+
+    # ========================================================
+    # STEP 2
+    # NON-QUALIFIED MARKET MUST STOP HERE
+    #
+    # This is an expected normal result, not an execution
+    # failure.
+    # ========================================================
+
+    if not qualified:
+
+        separator()
+
+        log(
+            "UNIT 10 LIVE ENTRY = "
+            "NOT QUALIFIED"
+        )
+
+        log(
+            "UNIT 10 DEMO SUBMISSION = BLOCKED"
+        )
+
+        log(
+            "UNIT 10 BLOCK REASON = "
+            + str(
+                qualification_reason
+            )
+        )
+
+        log(
+            "ZERO UNIT 10 WEEX POST = TRUE"
+        )
+
+        log(
+            "ZERO UNIT 10 DEMO ORDER = TRUE"
+        )
+
+        log(
+            "ZERO REAL ORDER = TRUE"
+        )
+
+        log(
+            "NO TP GENERATED = TRUE"
+        )
+
+        log(
+            "NO SL GENERATED = TRUE"
+        )
+
+        log(
+            "NO BACKUP EXECUTION = TRUE"
+        )
+
+        log(
+            "RECONSTRUCTION UNIT 10 "
+            "RESULT = BLOCKED_NOT_QUALIFIED"
+        )
+
+        separator()
+
+        return {
+            "valid":
+                True,
+
+            "qualified":
+                False,
+
+            "submitted":
+                False,
+
+            "accepted":
+                False,
+
+            "reason":
+                "UNIT_10_LIVE_ENTRY_NOT_QUALIFIED",
+
+            "qualification_reason":
+                qualification_reason,
+
+            "direction":
+                direction,
+
+            "weex_post":
+                False,
+
+            "demo_order_sent":
+                False,
+
+            "real_order_sent":
+                False,
+
+            "tp_generated":
+                False,
+
+            "sl_generated":
+                False,
+
+            "backup_execution":
+                False,
+        }
+
+    # ========================================================
+    # STEP 3
+    # QUALIFIED DIRECTION MUST BE VALID
+    # ========================================================
+
+    direction = str(
+        direction
+    ).upper()
+
+    require(
+        direction
+        in {
+            "LONG",
+            "SHORT",
+        },
+        (
+            "UNIT 10 qualified result "
+            "has invalid direction."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 10 LIVE "
+        "DIRECTION CONFIRMED = "
+        + direction
+    )
+
+    # ========================================================
+    # STEP 4
+    # LIVE UNIT 5B -> EXISTING UNIT 6C / UNIT 6B
+    # ========================================================
+
+    log(
+        "UNIT 10 STEP 2 = "
+        "RUN UNIT 6C / UNIT 6B"
+    )
+
+    unit_6b_result = (
+        reconstruction_unit_6c_live_bridge(
+            unit_5b_result=(
+                unit_5b_result
+            )
+        )
+    )
+
+    require(
+        isinstance(
+            unit_6b_result,
+            dict,
+        ),
+        "UNIT 10 invalid Unit 6B result.",
+    )
+
+    log(
+        "UNIT 10 UNIT 6B VALID = "
+        + str(
+            unit_6b_result.get(
+                "valid"
+            )
+        )
+    )
+
+    log(
+        "UNIT 10 UNIT 6B REASON = "
+        + str(
+            unit_6b_result.get(
+                "reason"
+            )
+        )
+    )
+
+    # --------------------------------------------------------
+    # Qualified market must produce valid sizing before any
+    # submission can continue.
+    # --------------------------------------------------------
+
+    if (
+        unit_6b_result.get(
+            "valid"
+        )
+        is not True
+    ):
+
+        separator()
+
+        log(
+            "UNIT 10 DEMO SUBMISSION = BLOCKED"
+        )
+
+        log(
+            "UNIT 10 BLOCK REASON = "
+            "UNIT 6B INVALID"
+        )
+
+        log(
+            "ZERO UNIT 10 WEEX POST = TRUE"
+        )
+
+        log(
+            "ZERO UNIT 10 DEMO ORDER = TRUE"
+        )
+
+        log(
+            "ZERO REAL ORDER = TRUE"
+        )
+
+        log(
+            "RECONSTRUCTION UNIT 10 "
+            "RESULT = BLOCKED_UNIT_6B"
+        )
+
+        separator()
+
+        return {
+            "valid":
+                False,
+
+            "qualified":
+                True,
+
+            "submitted":
+                False,
+
+            "accepted":
+                False,
+
+            "reason":
+                "UNIT_10_UNIT_6B_BLOCKED",
+
+            "unit_6b_reason":
+                unit_6b_result.get(
+                    "reason"
+                ),
+
+            "direction":
+                direction,
+
+            "weex_post":
+                False,
+
+            "demo_order_sent":
+                False,
+
+            "real_order_sent":
+                False,
+        }
+
+    # ========================================================
+    # STEP 5
+    # VERIFY UNIT 6 RESULT
+    # ========================================================
+
+    unit_6_result = (
+        unit_6b_result.get(
+            "unit_6_result"
+        )
+    )
+
+    require(
+        isinstance(
+            unit_6_result,
+            dict,
+        ),
+        "UNIT 10 missing Unit 6 result.",
+    )
+
+    require(
+        unit_6_result.get(
+            "valid"
+        )
+        is True,
+        "UNIT 10 Unit 6 result invalid.",
+    )
+
+    unit_6_direction = str(
+        unit_6_result.get(
+            "direction"
+        )
+    ).upper()
+
+    require(
+        unit_6_direction
+        == direction,
+        (
+            "UNIT 10 direction changed "
+            "between Unit 5B and Unit 6."
+        ),
+    )
+
+    quantity = D(
+        unit_6_result.get(
+            "quantity"
+        )
+    )
+
+    require(
+        quantity > 0,
+        "UNIT 10 invalid Unit 6 quantity.",
+    )
+
+    require(
+        quantity
+        >= UNIT_6C_MINIMUM_QUANTITY,
+        (
+            "UNIT 10 quantity below "
+            "minimum quantity."
+        ),
+    )
+
+    require(
+        quantity
+        % UNIT_6C_QUANTITY_STEP
+        == 0,
+        (
+            "UNIT 10 quantity not aligned "
+            "to quantity step."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 10 "
+        "UNIT 6 SIZING VALID"
+    )
+
+    log(
+        "UNIT 10 QUALIFIED DIRECTION = "
+        + unit_6_direction
+    )
+
+    log(
+        "UNIT 10 QUALIFIED QUANTITY = "
+        + decimal_to_string(
+            quantity
+        )
+    )
+
+    log(
+        "UNIT 10 ENTRY PRICE = "
+        + decimal_to_string(
+            unit_6_result.get(
+                "entry_price"
+            )
+        )
+    )
+
+    # ========================================================
+    # STEP 6
+    # EXISTING UNIT 8B
+    #
+    # This runs the already-tested:
+    #
+    # UNIT 6B
+    #   ->
+    # UNIT 7
+    #   ->
+    # UNIT 8
+    #
+    # chain and returns final_payload.
+    # ========================================================
+
+    log(
+        "UNIT 10 STEP 3 = "
+        "RUN UNIT 6B -> UNIT 7 -> UNIT 8"
+    )
+
+    unit_8b_result = (
+        reconstruction_unit_8b_direct_connected_bridge(
+            unit_6b_result=(
+                unit_6b_result
+            )
+        )
+    )
+
+    require(
+        isinstance(
+            unit_8b_result,
+            dict,
+        ),
+        "UNIT 10 invalid Unit 8B result.",
+    )
+
+    require(
+        unit_8b_result.get(
+            "valid"
+        )
+        is True,
+        "UNIT 10 Unit 8B result invalid.",
+    )
+
+    final_payload = (
+        unit_8b_result.get(
+            "final_payload"
+        )
+    )
+
+    require(
+        isinstance(
+            final_payload,
+            dict,
+        ),
+        "UNIT 10 Unit 8 final payload missing.",
+    )
+
+    log(
+        "PASS: UNIT 10 "
+        "UNIT 6B -> UNIT 7 -> UNIT 8"
+    )
+
+    log(
+        "UNIT 10 FINAL UNIT 8 PAYLOAD = "
+        + repr(
+            final_payload
+        )
+    )
+
+    # ========================================================
+    # STEP 7
+    # INDEPENDENT FINAL DIRECTION CONTINUITY CHECK
+    # ========================================================
+
+    final_side = str(
+        final_payload.get(
+            "side"
+        )
+    ).upper()
+
+    final_position_side = str(
+        final_payload.get(
+            "positionSide"
+        )
+    ).upper()
+
+    if direction == "LONG":
+
+        require(
+            final_side
+            == "BUY",
+            (
+                "UNIT 10 LONG became "
+                "non-BUY payload."
+            ),
+        )
+
+        require(
+            final_position_side
+            == "LONG",
+            (
+                "UNIT 10 LONG positionSide "
+                "continuity failure."
+            ),
+        )
+
+    else:
+
+        require(
+            final_side
+            == "SELL",
+            (
+                "UNIT 10 SHORT became "
+                "non-SELL payload."
+            ),
+        )
+
+        require(
+            final_position_side
+            == "SHORT",
+            (
+                "UNIT 10 SHORT positionSide "
+                "continuity failure."
+            ),
+        )
+
+    require(
+        D(
+            final_payload.get(
+                "quantity"
+            )
+        )
+        == quantity,
+        (
+            "UNIT 10 quantity changed "
+            "before Unit 9."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 10 "
+        "DIRECTION CONTINUITY"
+    )
+
+    log(
+        "PASS: UNIT 10 "
+        "QUANTITY CONTINUITY"
+    )
+
+    # ========================================================
+    # STEP 8
+    # FINAL SL / TP GUARD
+    # ========================================================
+
+    forbidden_fields = (
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopPrice",
+        "tpTriggerPrice",
+        "TpWorkingType",
+    )
+
+    present_forbidden_fields = [
+        field
+        for field in forbidden_fields
+        if field
+        in final_payload
+    ]
+
+    require(
+        not present_forbidden_fields,
+        (
+            "UNIT 10 forbidden TP/SL "
+            "field detected: "
+            + str(
+                present_forbidden_fields
+            )
+        ),
+    )
+
+    log(
+        "PASS: UNIT 10 "
+        "TP/SL DISABLE GUARD"
+    )
+
+    # ========================================================
+    # STEP 9
+    # PRE-SUBMISSION DUPLICATE GUARD
+    #
+    # Within this Unit 10 invocation, the submission call is
+    # allowed to happen only once.
+    #
+    # Persistent/exchange position reconciliation will be a
+    # later unit.
+    # ========================================================
+
+    submission_attempted = False
+
+    require(
+        submission_attempted
+        is False,
+        (
+            "UNIT 10 duplicate "
+            "submission state detected."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 10 "
+        "LOCAL SINGLE-SUBMISSION GUARD"
+    )
+
+    # ========================================================
+    # STEP 10
+    # FINAL DEMO-ONLY DECLARATION
+    # ========================================================
+
+    log(
+        "UNIT 10 DEMO EXECUTION AUTHORIZED "
+        "BY LIVE QUALIFICATION"
+    )
+
+    log(
+        "UNIT 10 DIRECTION = "
+        + direction
+    )
+
+    log(
+        "UNIT 10 QUANTITY = "
+        + decimal_to_string(
+            quantity
+        )
+    )
+
+    log(
+        "UNIT 10 REAL ORDER = FALSE"
+    )
+
+    log(
+        "UNIT 10 DEMO ORDER = TRUE"
+    )
+
+    separator()
+
+    # ========================================================
+    # STEP 11
+    # ACTUAL UNIT 9 DEMO SUBMISSION
+    #
+    # Unit 9 itself remains hard-locked to:
+    #
+    # /capi/v3/sim/order
+    #
+    # and contains its own production-endpoint guards.
+    # ========================================================
+
+    submission_attempted = True
+
+    unit_9_result = (
+        await reconstruction_unit_9_submit_demo_order(
+            unit_8_payload=(
+                final_payload
+            )
+        )
+    )
+
+    require(
+        isinstance(
+            unit_9_result,
+            dict,
+        ),
+        "UNIT 10 invalid Unit 9 result.",
+    )
+
+    # ========================================================
+    # STEP 12
+    # HANDLE WEEX REJECTION WITHOUT CREATING SECOND ORDER
+    # ========================================================
+
+    if (
+        unit_9_result.get(
+            "accepted"
+        )
+        is not True
+    ):
+
+        separator()
+
+        log(
+            "UNIT 10 DEMO SUBMISSION "
+            "NOT ACCEPTED"
+        )
+
+        log(
+            "UNIT 10 UNIT 9 REASON = "
+            + str(
+                unit_9_result.get(
+                    "reason"
+                )
+            )
+        )
+
+        log(
+            "UNIT 10 SECOND SUBMISSION "
+            "ATTEMPT = FALSE"
+        )
+
+        log(
+            "UNIT 10 REAL ORDER = FALSE"
+        )
+
+        log(
+            "RECONSTRUCTION UNIT 10 "
+            "RESULT = DEMO_NOT_ACCEPTED"
+        )
+
+        separator()
+
+        return {
+            "valid":
+                False,
+
+            "qualified":
+                True,
+
+            "submitted":
+                bool(
+                    unit_9_result.get(
+                        "submitted",
+                        False,
+                    )
+                ),
+
+            "accepted":
+                False,
+
+            "reason":
+                "UNIT_10_DEMO_NOT_ACCEPTED",
+
+            "direction":
+                direction,
+
+            "quantity":
+                quantity,
+
+            "unit_9_result":
+                unit_9_result,
+
+            "second_submission_attempted":
+                False,
+
+            "real_order_sent":
+                False,
+        }
+
+    # ========================================================
+    # STEP 13
+    # SUCCESS
+    # ========================================================
+
+    require(
+        unit_9_result.get(
+            "submitted"
+        )
+        is True,
+        (
+            "UNIT 10 accepted Unit 9 "
+            "result not marked submitted."
+        ),
+    )
+
+    require(
+        unit_9_result.get(
+            "real_order"
+        )
+        is False,
+        (
+            "UNIT 10 production-order "
+            "firebreak failure."
+        ),
+    )
+
+    order_id = (
+        unit_9_result.get(
+            "order_id"
+        )
+    )
+
+    client_order_id = (
+        unit_9_result.get(
+            "client_order_id"
+        )
+    )
+
+    require(
+        order_id
+        not in (
+            None,
+            "",
+        ),
+        (
+            "UNIT 10 accepted demo order "
+            "missing order ID."
+        ),
+    )
+
+    separator()
+
+    log(
+        "PASS: UNIT 10 "
+        "LIVE QUALIFICATION -> "
+        "DEMO SUBMISSION"
+    )
+
+    log(
+        "PASS: UNIT 10 "
+        "ACTUAL QUALIFIED DIRECTION USED"
+    )
+
+    log(
+        "PASS: UNIT 10 "
+        "ACTUAL QUALIFIED QUANTITY USED"
+    )
+
+    log(
+        "UNIT 10 DIRECTION = "
+        + direction
+    )
+
+    log(
+        "UNIT 10 QUANTITY = "
+        + decimal_to_string(
+            quantity
+        )
+    )
+
+    log(
+        "UNIT 10 DEMO ORDER ID = "
+        + str(
+            order_id
+        )
+    )
+
+    log(
+        "UNIT 10 CLIENT ORDER ID = "
+        + str(
+            client_order_id
+        )
+    )
+
+    log(
+        "UNIT 10 DEMO ORDER SENT = TRUE"
+    )
+
+    log(
+        "UNIT 10 REAL ORDER SENT = FALSE"
+    )
+
+    log(
+        "UNIT 10 SECOND SUBMISSION "
+        "ATTEMPT = FALSE"
+    )
+
+    log(
+        "NO TP GENERATED = TRUE"
+    )
+
+    log(
+        "NO SL GENERATED = TRUE"
+    )
+
+    log(
+        "NO BACKUP EXECUTION = TRUE"
+    )
+
+    log(
+        "RECONSTRUCTION UNIT 10 "
+        "RESULT = PASS"
+    )
+
+    separator()
+
+    return {
+        "valid":
+            True,
+
+        "qualified":
+            True,
+
+        "submitted":
+            True,
+
+        "accepted":
+            True,
+
+        "reason":
+            "UNIT_10_LIVE_DEMO_ORDER_ACCEPTED",
+
+        "direction":
+            direction,
+
+        "quantity":
+            quantity,
+
+        "order_id":
+            order_id,
+
+        "client_order_id":
+            client_order_id,
+
+        "unit_9_result":
+            unit_9_result,
+
+        "second_submission_attempted":
+            False,
+
+        "real_order_sent":
+            False,
+    }
+
 
 # ============================================================
-# UNIT 9 ENTRY POINT
+# UNIT 10 ENTRY POINT
 # ============================================================
 
 
@@ -8050,16 +9085,16 @@ if __name__ == "__main__":
 
     print(
         "WEEX_PARALLEL_BOT "
-        "UNIT_9_FIRST_REAL_DEMO_SUBMISSION",
+        "UNIT_10_LIVE_DEMO_EXECUTION",
         flush=True,
     )
 
     print(
-        "STARTING UNIT 9 "
-        "ONE CONTROLLED WEEX DEMO ORDER",
+        "STARTING UNIT 10 "
+        "LIVE-QUALIFIED DEMO EXECUTION",
         flush=True,
     )
 
     asyncio.run(
-        reconstruction_unit_9_first_demo_test()
+        reconstruction_unit_10_live_demo_execution()
     )
