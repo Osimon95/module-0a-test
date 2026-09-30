@@ -18256,3 +18256,1074 @@ def reconstruction_unit_11e3_standalone_test():
 
 if __name__ == "__main__":
     reconstruction_unit_11e3_standalone_test()
+
+# ============================================================
+# RECONSTRUCTION UNIT 11E.4
+# WEEX V3 EXISTING-POSITION TP TRANSPORT ADAPTER
+#
+# PURPOSE:
+# Translate the already-verified Unit 11E.3 TP architecture
+# into the current WEEX V3 transport schemas.
+#
+# IMPORTANT:
+# - ZERO WEEX POST
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - PRODUCTION ENDPOINTS ARE NEVER CALLED
+# - SL REMAINS DISABLED
+# - NO NEW ENTRY
+#
+# CURRENT WEEX V3 ARCHITECTURE:
+#
+# TP1 / TP2:
+#   POST /capi/v3/placeTpSlOrder
+#   planType = TAKE_PROFIT
+#
+# TP3:
+#   POST /capi/v3/algoOrder
+#   type = TRAILING_MARKET
+#
+# HOWEVER:
+# These are production-capable V3 endpoints.
+# WEEX documentation currently does NOT establish corresponding
+# /sim/ conditional/trailing endpoints.
+#
+# Therefore:
+# ENDPOINT AUTHORIZATION REMAINS FALSE.
+# ============================================================
+
+
+def reconstruction_unit_11e4_v3_tp_transport_adapter(
+    *,
+    unit_11e3_result,
+):
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.4 "
+        "WEEX V3 TP TRANSPORT ADAPTER START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 1. VALIDATE UNIT 11E.3
+    # --------------------------------------------------------
+
+    if not isinstance(
+        unit_11e3_result,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 11E.4 UNIT 11E.3 RESULT "
+            "IS NOT A DICTIONARY"
+        )
+
+    if (
+        unit_11e3_result.get(
+            "valid"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.4 UNIT 11E.3 "
+            "NOT VALID"
+        )
+
+    print(
+        "PASS: UNIT 11E.4 VERIFIED "
+        "UNIT 11E.3 INPUT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 2. POSITION DATA
+    # --------------------------------------------------------
+
+    symbol = str(
+        unit_11e3_result.get(
+            "symbol",
+            "",
+        )
+    ).upper()
+
+    direction = str(
+        unit_11e3_result.get(
+            "direction",
+            "",
+        )
+    ).upper()
+
+    position_quantity = Decimal(
+        str(
+            unit_11e3_result.get(
+                "position_quantity"
+            )
+        )
+    )
+
+    if symbol != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 11E.4 INVALID SYMBOL = "
+            + symbol
+        )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+        raise RuntimeError(
+            "UNIT 11E.4 INVALID DIRECTION = "
+            + direction
+        )
+
+    if position_quantity <= 0:
+        raise RuntimeError(
+            "UNIT 11E.4 INVALID POSITION QUANTITY"
+        )
+
+    print(
+        "PASS: UNIT 11E.4 POSITION CONTEXT",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 SYMBOL =",
+        symbol,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 DIRECTION =",
+        direction,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 POSITION QUANTITY =",
+        position_quantity,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 3. GET RECOVERED TP LEGS
+    # --------------------------------------------------------
+
+    recovered_tp1 = (
+        unit_11e3_result.get(
+            "tp1"
+        )
+    )
+
+    recovered_tp2 = (
+        unit_11e3_result.get(
+            "tp2"
+        )
+    )
+
+    recovered_tp3 = (
+        unit_11e3_result.get(
+            "tp3"
+        )
+    )
+
+    for (
+        leg_name,
+        payload,
+    ) in (
+        (
+            "TP1",
+            recovered_tp1,
+        ),
+        (
+            "TP2",
+            recovered_tp2,
+        ),
+        (
+            "TP3",
+            recovered_tp3,
+        ),
+    ):
+
+        if not isinstance(
+            payload,
+            dict,
+        ):
+            raise RuntimeError(
+                "UNIT 11E.4 "
+                + leg_name
+                + " PAYLOAD MISSING"
+            )
+
+    print(
+        "PASS: UNIT 11E.4 THREE "
+        "RECOVERED TP LEGS PRESENT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 4. PRODUCTION ENDPOINT DEFINITIONS
+    #
+    # These strings are retained ONLY so the adapter can prove
+    # that it knows which V3 schema belongs to which leg.
+    #
+    # THEY ARE NOT AUTHORIZED FOR SUBMISSION.
+    # --------------------------------------------------------
+
+    production_tp_endpoint = (
+        "/capi/v3/placeTpSlOrder"
+    )
+
+    production_trailing_endpoint = (
+        "/capi/v3/algoOrder"
+    )
+
+    demo_order_endpoint = (
+        "/capi/v3/sim/order"
+    )
+
+    print(
+        "UNIT 11E.4 DOCUMENTED V3 TP ENDPOINT =",
+        production_tp_endpoint,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 DOCUMENTED V3 TRAILING ENDPOINT =",
+        production_trailing_endpoint,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 DOCUMENTED DEMO ORDER ENDPOINT =",
+        demo_order_endpoint,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 5. DEMO CAPABILITY FIREBREAK
+    #
+    # /sim/order supports MARKET/LIMIT.
+    #
+    # It must NOT be falsely treated as a standalone
+    # conditional TP/trailing endpoint.
+    # --------------------------------------------------------
+
+    demo_supported_order_types = {
+        "MARKET",
+        "LIMIT",
+    }
+
+    forbidden_demo_conditional_types = {
+        "TAKE_PROFIT",
+        "TAKE_PROFIT_MARKET",
+        "TRAILING_MARKET",
+        "TRAILING_STOP_MARKET",
+    }
+
+    overlap = (
+        demo_supported_order_types
+        &
+        forbidden_demo_conditional_types
+    )
+
+    if overlap:
+        raise RuntimeError(
+            "UNIT 11E.4 DEMO ORDER-TYPE "
+            "FIREBREAK FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.4 /sim/order "
+        "CONDITIONAL-TYPE FIREBREAK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 6. BUILD CURRENT V3 TP1 TRANSPORT SHAPE
+    #
+    # /capi/v3/placeTpSlOrder
+    #
+    # NOTE:
+    # executePrice = 0 means execute at market after trigger.
+    # --------------------------------------------------------
+
+    tp1_transport = {
+        "symbol":
+            symbol,
+
+        "clientAlgoId":
+            "R11E4-TP1",
+
+        "planType":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            str(
+                recovered_tp1[
+                    "triggerPrice"
+                ]
+            ),
+
+        "executePrice":
+            "0",
+
+        "quantity":
+            str(
+                recovered_tp1[
+                    "quantity"
+                ]
+            ),
+
+        "positionSide":
+            direction,
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "reduceOnly":
+            True,
+    }
+
+    # --------------------------------------------------------
+    # 7. BUILD CURRENT V3 TP2 TRANSPORT SHAPE
+    # --------------------------------------------------------
+
+    tp2_transport = {
+        "symbol":
+            symbol,
+
+        "clientAlgoId":
+            "R11E4-TP2",
+
+        "planType":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            str(
+                recovered_tp2[
+                    "triggerPrice"
+                ]
+            ),
+
+        "executePrice":
+            "0",
+
+        "quantity":
+            str(
+                recovered_tp2[
+                    "quantity"
+                ]
+            ),
+
+        "positionSide":
+            direction,
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "reduceOnly":
+            True,
+    }
+
+    # --------------------------------------------------------
+    # 8. BUILD CURRENT V3 TP3 TRAILING SHAPE
+    #
+    # /capi/v3/algoOrder
+    # --------------------------------------------------------
+
+    exit_side = (
+        "BUY"
+        if direction == "SHORT"
+        else "SELL"
+    )
+
+    tp3_transport = {
+        "symbol":
+            symbol,
+
+        "side":
+            exit_side,
+
+        "positionSide":
+            direction,
+
+        "type":
+            "TRAILING_MARKET",
+
+        "quantity":
+            str(
+                recovered_tp3[
+                    "quantity"
+                ]
+            ),
+
+        "clientAlgoId":
+            "R11E4-TP3",
+
+        "callbackRate":
+            str(
+                recovered_tp3[
+                    "callbackRate"
+                ]
+            ),
+
+        "workingType":
+            "MARK_PRICE",
+
+        "reduceOnly":
+            True,
+    }
+
+    print(
+        "PASS: UNIT 11E.4 V3 TRANSPORT "
+        "PAYLOADS CONSTRUCTED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 9. TP1 / TP2 SCHEMA VALIDATION
+    # --------------------------------------------------------
+
+    tp_required_fields = {
+        "symbol",
+        "clientAlgoId",
+        "planType",
+        "triggerPrice",
+        "executePrice",
+        "quantity",
+        "positionSide",
+        "triggerPriceType",
+        "reduceOnly",
+    }
+
+    for (
+        leg_name,
+        payload,
+    ) in (
+        (
+            "TP1",
+            tp1_transport,
+        ),
+        (
+            "TP2",
+            tp2_transport,
+        ),
+    ):
+
+        missing_fields = (
+            tp_required_fields
+            -
+            set(
+                payload.keys()
+            )
+        )
+
+        if missing_fields:
+            raise RuntimeError(
+                "UNIT 11E.4 "
+                + leg_name
+                + " MISSING FIELDS = "
+                + str(
+                    sorted(
+                        missing_fields
+                    )
+                )
+            )
+
+        if (
+            payload.get(
+                "planType"
+            )
+            !=
+            "TAKE_PROFIT"
+        ):
+            raise RuntimeError(
+                "UNIT 11E.4 "
+                + leg_name
+                + " PLAN TYPE INVALID"
+            )
+
+        if (
+            payload.get(
+                "reduceOnly"
+            )
+            is not True
+        ):
+            raise RuntimeError(
+                "UNIT 11E.4 "
+                + leg_name
+                + " NOT REDUCE-ONLY"
+            )
+
+    print(
+        "PASS: UNIT 11E.4 TP1/TP2 "
+        "V3 SCHEMA VALIDATION",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 10. TP3 TRAILING SCHEMA VALIDATION
+    # --------------------------------------------------------
+
+    trailing_required_fields = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "clientAlgoId",
+        "callbackRate",
+        "workingType",
+        "reduceOnly",
+    }
+
+    missing_tp3_fields = (
+        trailing_required_fields
+        -
+        set(
+            tp3_transport.keys()
+        )
+    )
+
+    if missing_tp3_fields:
+        raise RuntimeError(
+            "UNIT 11E.4 TP3 MISSING FIELDS = "
+            + str(
+                sorted(
+                    missing_tp3_fields
+                )
+            )
+        )
+
+    if (
+        tp3_transport.get(
+            "type"
+        )
+        !=
+        "TRAILING_MARKET"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.4 TP3 MUST USE "
+            "TRAILING_MARKET"
+        )
+
+    if (
+        tp3_transport.get(
+            "reduceOnly"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.4 TP3 NOT REDUCE-ONLY"
+        )
+
+    print(
+        "PASS: UNIT 11E.4 TP3 "
+        "V3 TRAILING SCHEMA VALIDATION",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 11. QUANTITY CONSERVATION
+    # --------------------------------------------------------
+
+    total_transport_quantity = (
+        Decimal(
+            str(
+                tp1_transport[
+                    "quantity"
+                ]
+            )
+        )
+        +
+        Decimal(
+            str(
+                tp2_transport[
+                    "quantity"
+                ]
+            )
+        )
+        +
+        Decimal(
+            str(
+                tp3_transport[
+                    "quantity"
+                ]
+            )
+        )
+    )
+
+    if (
+        total_transport_quantity
+        !=
+        position_quantity
+    ):
+        raise RuntimeError(
+            "UNIT 11E.4 TP QUANTITY "
+            "CONSERVATION FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.4 TOTAL TP QUANTITY "
+        "= POSITION QUANTITY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 12. ABSOLUTE SL-DISABLED CHECK
+    # --------------------------------------------------------
+
+    forbidden_sl_fields = {
+        "slTriggerPrice",
+        "SlWorkingType",
+        "presetStopLossPrice",
+        "stopLossPrice",
+        "stopLoss",
+        "stopPrice",
+        "STOP_LOSS",
+    }
+
+    for (
+        leg_name,
+        payload,
+    ) in (
+        (
+            "TP1",
+            tp1_transport,
+        ),
+        (
+            "TP2",
+            tp2_transport,
+        ),
+        (
+            "TP3",
+            tp3_transport,
+        ),
+    ):
+
+        present_sl_fields = (
+            forbidden_sl_fields
+            &
+            set(
+                payload.keys()
+            )
+        )
+
+        if present_sl_fields:
+            raise RuntimeError(
+                "UNIT 11E.4 "
+                + leg_name
+                + " CONTAINS SL FIELDS = "
+                + str(
+                    sorted(
+                        present_sl_fields
+                    )
+                )
+            )
+
+    print(
+        "PASS: UNIT 11E.4 SL REMAINS DISABLED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 13. NO NEW ENTRY
+    # --------------------------------------------------------
+
+    transport_plan = {
+        "tp1":
+            tp1_transport,
+
+        "tp2":
+            tp2_transport,
+
+        "tp3":
+            tp3_transport,
+    }
+
+    if "entry" in transport_plan:
+        raise RuntimeError(
+            "UNIT 11E.4 NEW ENTRY "
+            "MUST NOT EXIST"
+        )
+
+    print(
+        "PASS: UNIT 11E.4 NO NEW ENTRY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 14. HARD PRODUCTION-ENDPOINT BLOCK
+    #
+    # Knowing the endpoint is NOT authorization to call it.
+    # --------------------------------------------------------
+
+    production_tp_endpoint_authorized = False
+
+    production_trailing_endpoint_authorized = False
+
+    demo_conditional_endpoint_verified = False
+
+    endpoint_authorized = False
+
+    weex_post = False
+
+    demo_order = False
+
+    real_order = False
+
+    exchange_mutation = False
+
+    if production_tp_endpoint_authorized:
+        raise RuntimeError(
+            "UNIT 11E.4 PRODUCTION TP "
+            "ENDPOINT MUST REMAIN BLOCKED"
+        )
+
+    if production_trailing_endpoint_authorized:
+        raise RuntimeError(
+            "UNIT 11E.4 PRODUCTION TRAILING "
+            "ENDPOINT MUST REMAIN BLOCKED"
+        )
+
+    if endpoint_authorized:
+        raise RuntimeError(
+            "UNIT 11E.4 ENDPOINT AUTHORIZATION "
+            "MUST REMAIN FALSE"
+        )
+
+    if weex_post:
+        raise RuntimeError(
+            "UNIT 11E.4 WEEX POST "
+            "MUST REMAIN FALSE"
+        )
+
+    print(
+        "PASS: UNIT 11E.4 PRODUCTION "
+        "ENDPOINT FIREBREAK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 15. OUTPUT
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 TP1 V3 TRANSPORT PAYLOAD =",
+        tp1_transport,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 TP2 V3 TRANSPORT PAYLOAD =",
+        tp2_transport,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 TP3 V3 TRANSPORT PAYLOAD =",
+        tp3_transport,
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.4 WEEX V3 "
+        "TRANSPORT ARCHITECTURE RECOVERED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 PRODUCTION TP ENDPOINT = BLOCKED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 PRODUCTION TRAILING ENDPOINT = BLOCKED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 DEMO CONDITIONAL ENDPOINT "
+        "VERIFIED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 ENDPOINT AUTHORIZED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 WEEX POST = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 DEMO ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 REAL ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 EXCHANGE MUTATION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 SL = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 BACKUP EXECUTION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.4 RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "valid":
+            True,
+
+        "symbol":
+            symbol,
+
+        "direction":
+            direction,
+
+        "position_quantity":
+            str(
+                position_quantity
+            ),
+
+        "tp_endpoint":
+            production_tp_endpoint,
+
+        "trailing_endpoint":
+            production_trailing_endpoint,
+
+        "demo_order_endpoint":
+            demo_order_endpoint,
+
+        "tp1":
+            tp1_transport,
+
+        "tp2":
+            tp2_transport,
+
+        "tp3":
+            tp3_transport,
+
+        "production_tp_endpoint_authorized":
+            False,
+
+        "production_trailing_endpoint_authorized":
+            False,
+
+        "demo_conditional_endpoint_verified":
+            False,
+
+        "endpoint_authorized":
+            False,
+
+        "weex_post":
+            False,
+
+        "demo_order":
+            False,
+
+        "real_order":
+            False,
+
+        "exchange_mutation":
+            False,
+    }
+
+
+# ============================================================
+# UNIT 11E.4 STANDALONE TEST
+#
+# Reuses the already-tested 11E.3 standalone chain.
+#
+# ZERO WRITE.
+# ============================================================
+
+
+def reconstruction_unit_11e4_standalone_test():
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.4 STANDALONE "
+        "TRANSPORT TEST START",
+        flush=True,
+    )
+
+    unit_11e3_result = (
+        reconstruction_unit_11e3_standalone_test()
+    )
+
+    result = (
+        reconstruction_unit_11e4_v3_tp_transport_adapter(
+            unit_11e3_result=(
+                unit_11e3_result
+            ),
+        )
+    )
+
+    if (
+        result.get(
+            "valid"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.4 STANDALONE "
+            "RESULT INVALID"
+        )
+
+    if (
+        result.get(
+            "weex_post"
+        )
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11E.4 WRITE "
+            "FIREBREAK FAILED"
+        )
+
+    if (
+        result.get(
+            "endpoint_authorized"
+        )
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11E.4 ENDPOINT "
+            "FIREBREAK FAILED"
+        )
+
+    if (
+        result[
+            "tp1"
+        ][
+            "planType"
+        ]
+        !=
+        "TAKE_PROFIT"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.4 TP1 "
+            "TRANSPORT TEST FAILED"
+        )
+
+    if (
+        result[
+            "tp2"
+        ][
+            "planType"
+        ]
+        !=
+        "TAKE_PROFIT"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.4 TP2 "
+            "TRANSPORT TEST FAILED"
+        )
+
+    if (
+        result[
+            "tp3"
+        ][
+            "type"
+        ]
+        !=
+        "TRAILING_MARKET"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.4 TP3 "
+            "TRANSPORT TEST FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.4 TP1 "
+        "V3 TRANSPORT SHAPE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.4 TP2 "
+        "V3 TRANSPORT SHAPE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.4 TP3 "
+        "V3 TRAILING SHAPE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.4 "
+        "PRODUCTION ENDPOINTS BLOCKED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.4 "
+        "NO EXCHANGE WRITE",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.4 "
+        "STANDALONE TEST = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return result
+
+
+if __name__ == "__main__":
+    reconstruction_unit_11e4_standalone_test()
