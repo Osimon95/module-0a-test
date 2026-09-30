@@ -4445,6 +4445,472 @@ def reconstruction_unit_7_build_payload_preview(
 # UNIT 7B
 # LIVE UNIT 6C -> UNIT 7 ZERO-WRITE INTEGRATION TEST
 # ============================================================
+
+# ============================================================
+# RECONSTRUCTION UNIT 7C
+# DETERMINISTIC QUALIFIED-PATH PAYLOAD TEST
+#
+# PURPOSE:
+# Prove that the already-tested Unit 7 payload builder
+# correctly converts a VALID Unit 6B instruction into the
+# expected WEEX demo candidate payload.
+#
+# THIS TEST DOES NOT BYPASS OR MODIFY UNIT 5B.
+# THIS TEST DOES NOT CHANGE LIVE MARKET QUALIFICATION.
+#
+# IMPORTANT:
+# - DETERMINISTIC INPUT ONLY
+# - ZERO WEEX POST
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - NO TP
+# - NO SL
+# - NO BACKUP EXECUTION
+# ============================================================
+
+
+def run_unit_7c_qualified_path_test():
+
+    separator()
+
+    log(
+        "RECONSTRUCTION UNIT 7C "
+        "QUALIFIED-PATH TEST START"
+    )
+
+    separator()
+
+    # ========================================================
+    # TEST CASE 1
+    # QUALIFIED LONG
+    # ========================================================
+
+    log(
+        "UNIT 7C LONG TEST START"
+    )
+
+    simulated_long_unit_6b_result = {
+        "valid": True,
+        "reason": "UNIT_7C_SIMULATED_QUALIFIED_LONG",
+        "unit_6_result": {
+            "valid": True,
+            "direction": "LONG",
+            "quantity": D("0.0004"),
+            "entry_price": D("85000.0"),
+        },
+    }
+
+    long_result = (
+        reconstruction_unit_7_build_payload_preview(
+            unit_6b_result=(
+                simulated_long_unit_6b_result
+            )
+        )
+    )
+
+    require(
+        isinstance(
+            long_result,
+            dict,
+        ),
+        "UNIT 7C LONG result is not dict.",
+    )
+
+    require(
+        long_result.get(
+            "valid"
+        )
+        is True,
+        "UNIT 7C LONG result not valid.",
+    )
+
+    require(
+        long_result.get(
+            "candidate_payload_generated"
+        )
+        is True,
+        (
+            "UNIT 7C LONG candidate "
+            "payload not generated."
+        ),
+    )
+
+    long_payload = (
+        long_result.get(
+            "payload"
+        )
+    )
+
+    require(
+        isinstance(
+            long_payload,
+            dict,
+        ),
+        "UNIT 7C LONG payload missing.",
+    )
+
+    require(
+        long_payload.get(
+            "symbol"
+        )
+        == UNIT_7_DEMO_SYMBOL,
+        "UNIT 7C LONG symbol mismatch.",
+    )
+
+    require(
+        long_payload.get(
+            "side"
+        )
+        == "BUY",
+        "UNIT 7C LONG side mismatch.",
+    )
+
+    require(
+        long_payload.get(
+            "positionSide"
+        )
+        == "LONG",
+        (
+            "UNIT 7C LONG "
+            "positionSide mismatch."
+        ),
+    )
+
+    require(
+        long_payload.get(
+            "type"
+        )
+        == "MARKET",
+        "UNIT 7C LONG type mismatch.",
+    )
+
+    require(
+        long_payload.get(
+            "quantity"
+        )
+        == "0.0004",
+        "UNIT 7C LONG quantity mismatch.",
+    )
+
+    # --------------------------------------------------------
+    # LONG SL-DISABLE CHECK
+    # --------------------------------------------------------
+
+    for field in (
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopPrice",
+    ):
+
+        require(
+            field
+            not in long_payload,
+            (
+                "UNIT 7C LONG forbidden "
+                "SL field present: "
+                + field
+            ),
+        )
+
+    log(
+        "PASS: UNIT 7C LONG PAYLOAD"
+    )
+
+    log(
+        "UNIT 7C LONG PAYLOAD = "
+        + repr(
+            long_payload
+        )
+    )
+
+    # ========================================================
+    # TEST CASE 2
+    # QUALIFIED SHORT
+    # ========================================================
+
+    separator()
+
+    log(
+        "UNIT 7C SHORT TEST START"
+    )
+
+    simulated_short_unit_6b_result = {
+        "valid": True,
+        "reason": "UNIT_7C_SIMULATED_QUALIFIED_SHORT",
+        "unit_6_result": {
+            "valid": True,
+            "direction": "SHORT",
+            "quantity": D("0.0004"),
+            "entry_price": D("85000.0"),
+        },
+    }
+
+    short_result = (
+        reconstruction_unit_7_build_payload_preview(
+            unit_6b_result=(
+                simulated_short_unit_6b_result
+            )
+        )
+    )
+
+    require(
+        isinstance(
+            short_result,
+            dict,
+        ),
+        "UNIT 7C SHORT result is not dict.",
+    )
+
+    require(
+        short_result.get(
+            "valid"
+        )
+        is True,
+        "UNIT 7C SHORT result not valid.",
+    )
+
+    require(
+        short_result.get(
+            "candidate_payload_generated"
+        )
+        is True,
+        (
+            "UNIT 7C SHORT candidate "
+            "payload not generated."
+        ),
+    )
+
+    short_payload = (
+        short_result.get(
+            "payload"
+        )
+    )
+
+    require(
+        isinstance(
+            short_payload,
+            dict,
+        ),
+        "UNIT 7C SHORT payload missing.",
+    )
+
+    require(
+        short_payload.get(
+            "symbol"
+        )
+        == UNIT_7_DEMO_SYMBOL,
+        "UNIT 7C SHORT symbol mismatch.",
+    )
+
+    require(
+        short_payload.get(
+            "side"
+        )
+        == "SELL",
+        "UNIT 7C SHORT side mismatch.",
+    )
+
+    require(
+        short_payload.get(
+            "positionSide"
+        )
+        == "SHORT",
+        (
+            "UNIT 7C SHORT "
+            "positionSide mismatch."
+        ),
+    )
+
+    require(
+        short_payload.get(
+            "type"
+        )
+        == "MARKET",
+        "UNIT 7C SHORT type mismatch.",
+    )
+
+    require(
+        short_payload.get(
+            "quantity"
+        )
+        == "0.0004",
+        "UNIT 7C SHORT quantity mismatch.",
+    )
+
+    # --------------------------------------------------------
+    # SHORT SL-DISABLE CHECK
+    # --------------------------------------------------------
+
+    for field in (
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopPrice",
+    ):
+
+        require(
+            field
+            not in short_payload,
+            (
+                "UNIT 7C SHORT forbidden "
+                "SL field present: "
+                + field
+            ),
+        )
+
+    log(
+        "PASS: UNIT 7C SHORT PAYLOAD"
+    )
+
+    log(
+        "UNIT 7C SHORT PAYLOAD = "
+        + repr(
+            short_payload
+        )
+    )
+
+    # ========================================================
+    # RESULT-LEVEL FIREBREAK CHECK
+    # ========================================================
+
+    for result_name, result in (
+        (
+            "LONG",
+            long_result,
+        ),
+        (
+            "SHORT",
+            short_result,
+        ),
+    ):
+
+        for key in (
+            "weex_post",
+            "demo_order",
+            "real_order",
+            "exchange_mutation",
+            "tp_generated",
+            "sl_generated",
+            "backup_execution",
+        ):
+
+            require(
+                result.get(
+                    key,
+                    False,
+                )
+                is False,
+                (
+                    "UNIT 7C "
+                    + result_name
+                    + " firebreak failed: "
+                    + key
+                ),
+            )
+
+    # ========================================================
+    # GLOBAL EXECUTION FIREBREAK
+    # ========================================================
+
+    require(
+        ALLOW_HTTP_POST is False,
+        "UNIT 7C HTTP POST firebreak failed.",
+    )
+
+    require(
+        ALLOW_DEMO_ORDER is False,
+        "UNIT 7C demo order firebreak failed.",
+    )
+
+    require(
+        ALLOW_REAL_ORDER is False,
+        "UNIT 7C real order firebreak failed.",
+    )
+
+    require(
+        ALLOW_EXCHANGE_MUTATION is False,
+        (
+            "UNIT 7C exchange mutation "
+            "firebreak failed."
+        ),
+    )
+
+    require(
+        ALLOW_SL_GENERATION is False,
+        "UNIT 7C SL firebreak failed.",
+    )
+
+    require(
+        ALLOW_BACKUP_EXECUTION is False,
+        "UNIT 7C backup firebreak failed.",
+    )
+
+    separator()
+
+    log(
+        "PASS: UNIT 7C QUALIFIED "
+        "LONG PATH"
+    )
+
+    log(
+        "PASS: UNIT 7C QUALIFIED "
+        "SHORT PATH"
+    )
+
+    log(
+        "PASS: UNIT 7C SL-DISABLE GUARD"
+    )
+
+    log(
+        "PASS: UNIT 7C EXECUTION FIREBREAK"
+    )
+
+    log(
+        "ZERO WEEX POST = TRUE"
+    )
+
+    log(
+        "ZERO DEMO ORDER = TRUE"
+    )
+
+    log(
+        "ZERO REAL ORDER = TRUE"
+    )
+
+    log(
+        "ZERO EXCHANGE MUTATION = TRUE"
+    )
+
+    log(
+        "NO TP GENERATED = TRUE"
+    )
+
+    log(
+        "NO SL GENERATED = TRUE"
+    )
+
+    log(
+        "NO BACKUP EXECUTION = TRUE"
+    )
+
+    separator()
+
+    log(
+        "UNIT 7C QUALIFIED-PATH "
+        "TESTS = PASS"
+    )
+
+    log(
+        "RECONSTRUCTION UNIT 7C "
+        "RESULT = PASS"
+    )
+
+    separator()
+
+    return True
+
 # MAIN
 # ============================================================
 
