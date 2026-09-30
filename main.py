@@ -17236,3 +17236,1023 @@ def reconstruction_unit_11e2_current_position_test():
 
 if __name__ == "__main__":
     reconstruction_unit_11e2_current_position_test()
+
+# ============================================================
+# RECONSTRUCTION UNIT 11E.3
+# EXISTING-POSITION TP RECOVERY
+#
+# PURPOSE:
+# Recover the frozen-model POST-ENTRY TP architecture for an
+# ALREADY-OPEN position.
+#
+# IMPORTANT:
+# - THIS DOES NOT CREATE A NEW ENTRY
+# - THIS DOES NOT CALL /capi/v3/sim/order
+# - ZERO WEEX POST
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - SL REMAINS DISABLED
+# - BACKUPS NOT EXECUTED
+#
+# RECOVERED FROZEN ARCHITECTURE:
+#
+# TP1 / TP2:
+#   conditional TAKE_PROFIT legs
+#   triggerPrice
+#   executePrice
+#   triggerPriceType = MARK_PRICE
+#   reduceOnly = True
+#
+# TP3:
+#   TRAILING_MARKET
+#   callbackRate
+#   workingType = MARK_PRICE
+#   reduceOnly = True
+#
+# CRITICAL:
+# Endpoint submission is intentionally NOT enabled here.
+# We first prove the existing-position payload architecture.
+# ============================================================
+
+
+def reconstruction_unit_11e3_existing_position_tp_recovery(
+    *,
+    unit_11e2_result,
+):
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.3 "
+        "EXISTING-POSITION TP RECOVERY START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # VALIDATE UNIT 11E.2
+    # --------------------------------------------------------
+
+    if not isinstance(
+        unit_11e2_result,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 11E.3 UNIT 11E.2 RESULT "
+            "IS NOT A DICTIONARY"
+        )
+
+    if (
+        unit_11e2_result.get(
+            "valid"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.3 UNIT 11E.2 "
+            "NOT VALID"
+        )
+
+    symbol = str(
+        unit_11e2_result.get(
+            "symbol",
+            "",
+        )
+    ).upper()
+
+    direction = str(
+        unit_11e2_result.get(
+            "direction",
+            "",
+        )
+    ).upper()
+
+    entry_price = Decimal(
+        str(
+            unit_11e2_result.get(
+                "entry_price"
+            )
+        )
+    )
+
+    position_quantity = Decimal(
+        str(
+            unit_11e2_result.get(
+                "position_quantity"
+            )
+        )
+    )
+
+    tp_plan = (
+        unit_11e2_result.get(
+            "preserved_tp_plan"
+        )
+    )
+
+    if symbol != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 11E.3 INVALID SYMBOL = "
+            + symbol
+        )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+        raise RuntimeError(
+            "UNIT 11E.3 INVALID DIRECTION = "
+            + direction
+        )
+
+    if entry_price <= 0:
+        raise RuntimeError(
+            "UNIT 11E.3 INVALID ENTRY PRICE"
+        )
+
+    if position_quantity <= 0:
+        raise RuntimeError(
+            "UNIT 11E.3 INVALID POSITION QUANTITY"
+        )
+
+    if not isinstance(
+        tp_plan,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 11E.3 TP PLAN MISSING"
+        )
+
+    print(
+        "PASS: UNIT 11E.3 EXISTING POSITION VALIDATED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 SYMBOL =",
+        symbol,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 DIRECTION =",
+        direction,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 ENTRY PRICE =",
+        entry_price,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 POSITION QUANTITY =",
+        position_quantity,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # EXIT DIRECTION
+    # --------------------------------------------------------
+
+    if direction == "SHORT":
+
+        exit_side = "BUY"
+        position_side = "SHORT"
+
+    else:
+
+        exit_side = "SELL"
+        position_side = "LONG"
+
+    print(
+        "PASS: UNIT 11E.3 EXIT DIRECTION RECOVERED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 EXIT SIDE =",
+        exit_side,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 POSITION SIDE =",
+        position_side,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # EXTRACT VERIFIED TP PLAN
+    # --------------------------------------------------------
+
+    tp1_price = Decimal(
+        str(
+            tp_plan[
+                "tp1"
+            ][
+                "price"
+            ]
+        )
+    )
+
+    tp1_quantity = Decimal(
+        str(
+            tp_plan[
+                "tp1"
+            ][
+                "quantity"
+            ]
+        )
+    )
+
+    tp2_price = Decimal(
+        str(
+            tp_plan[
+                "tp2"
+            ][
+                "price"
+            ]
+        )
+    )
+
+    tp2_quantity = Decimal(
+        str(
+            tp_plan[
+                "tp2"
+            ][
+                "quantity"
+            ]
+        )
+    )
+
+    tp3_quantity = Decimal(
+        str(
+            tp_plan[
+                "tp3"
+            ][
+                "quantity"
+            ]
+        )
+    )
+
+    tp3_callback_rate = Decimal(
+        str(
+            tp_plan[
+                "tp3"
+            ][
+                "callbackRate"
+            ]
+        )
+    )
+
+    # --------------------------------------------------------
+    # QUANTITY SAFETY
+    # --------------------------------------------------------
+
+    total_exit_quantity = (
+        tp1_quantity
+        + tp2_quantity
+        + tp3_quantity
+    )
+
+    if (
+        total_exit_quantity
+        !=
+        position_quantity
+    ):
+        raise RuntimeError(
+            "UNIT 11E.3 TOTAL EXIT QUANTITY "
+            "DOES NOT MATCH POSITION"
+        )
+
+    print(
+        "PASS: UNIT 11E.3 TOTAL TP QUANTITY "
+        "= POSITION QUANTITY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TP PRICE DIRECTION SAFETY
+    # --------------------------------------------------------
+
+    if direction == "SHORT":
+
+        if not (
+            tp1_price < entry_price
+            and
+            tp2_price < tp1_price
+        ):
+            raise RuntimeError(
+                "UNIT 11E.3 SHORT TP "
+                "PRICE ORDERING FAILED"
+            )
+
+    else:
+
+        if not (
+            tp1_price > entry_price
+            and
+            tp2_price > tp1_price
+        ):
+            raise RuntimeError(
+                "UNIT 11E.3 LONG TP "
+                "PRICE ORDERING FAILED"
+            )
+
+    print(
+        "PASS: UNIT 11E.3 TP PRICE DIRECTION",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # RECOVER FROZEN TP1 POST-ENTRY SHAPE
+    #
+    # NOTE:
+    # No endpoint is authorized here.
+    # This is payload recovery only.
+    # --------------------------------------------------------
+
+    tp1_payload = {
+        "symbol":
+            symbol,
+
+        "side":
+            exit_side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            str(
+                tp1_price
+            ),
+
+        "executePrice":
+            str(
+                tp1_price
+            ),
+
+        "quantity":
+            str(
+                tp1_quantity
+            ),
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            "R11E3-TP1",
+
+        "reduceOnly":
+            True,
+    }
+
+    # --------------------------------------------------------
+    # RECOVER FROZEN TP2 POST-ENTRY SHAPE
+    # --------------------------------------------------------
+
+    tp2_payload = {
+        "symbol":
+            symbol,
+
+        "side":
+            exit_side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "TAKE_PROFIT",
+
+        "triggerPrice":
+            str(
+                tp2_price
+            ),
+
+        "executePrice":
+            str(
+                tp2_price
+            ),
+
+        "quantity":
+            str(
+                tp2_quantity
+            ),
+
+        "triggerPriceType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            "R11E3-TP2",
+
+        "reduceOnly":
+            True,
+    }
+
+    # --------------------------------------------------------
+    # RECOVER FROZEN TP3 TRAILING SHAPE
+    # --------------------------------------------------------
+
+    tp3_payload = {
+        "symbol":
+            symbol,
+
+        "side":
+            exit_side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "TRAILING_MARKET",
+
+        "quantity":
+            str(
+                tp3_quantity
+            ),
+
+        "callbackRate":
+            str(
+                tp3_callback_rate
+            ),
+
+        "workingType":
+            "MARK_PRICE",
+
+        "clientAlgoId":
+            "R11E3-TP3",
+
+        "reduceOnly":
+            True,
+    }
+
+    # --------------------------------------------------------
+    # REQUIRED FIELD VALIDATION
+    # --------------------------------------------------------
+
+    tp_required = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "triggerPrice",
+        "executePrice",
+        "quantity",
+        "triggerPriceType",
+        "clientAlgoId",
+        "reduceOnly",
+    }
+
+    trailing_required = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "callbackRate",
+        "workingType",
+        "clientAlgoId",
+        "reduceOnly",
+    }
+
+    missing_tp1 = (
+        tp_required
+        -
+        set(
+            tp1_payload.keys()
+        )
+    )
+
+    missing_tp2 = (
+        tp_required
+        -
+        set(
+            tp2_payload.keys()
+        )
+    )
+
+    missing_tp3 = (
+        trailing_required
+        -
+        set(
+            tp3_payload.keys()
+        )
+    )
+
+    if missing_tp1:
+        raise RuntimeError(
+            "UNIT 11E.3 TP1 MISSING FIELDS = "
+            + str(
+                sorted(
+                    missing_tp1
+                )
+            )
+        )
+
+    if missing_tp2:
+        raise RuntimeError(
+            "UNIT 11E.3 TP2 MISSING FIELDS = "
+            + str(
+                sorted(
+                    missing_tp2
+                )
+            )
+        )
+
+    if missing_tp3:
+        raise RuntimeError(
+            "UNIT 11E.3 TP3 MISSING FIELDS = "
+            + str(
+                sorted(
+                    missing_tp3
+                )
+            )
+        )
+
+    print(
+        "PASS: UNIT 11E.3 REQUIRED FIELDS",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # EXACT RECOVERED TYPE VALIDATION
+    # --------------------------------------------------------
+
+    if (
+        tp1_payload[
+            "type"
+        ]
+        !=
+        "TAKE_PROFIT"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.3 TP1 TYPE INVALID"
+        )
+
+    if (
+        tp2_payload[
+            "type"
+        ]
+        !=
+        "TAKE_PROFIT"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.3 TP2 TYPE INVALID"
+        )
+
+    if (
+        tp3_payload[
+            "type"
+        ]
+        !=
+        "TRAILING_MARKET"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.3 TP3 TYPE INVALID"
+        )
+
+    print(
+        "PASS: UNIT 11E.3 FROZEN TP TYPES RECOVERED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # REDUCE-ONLY SAFETY
+    # --------------------------------------------------------
+
+    for (
+        leg_name,
+        payload,
+    ) in (
+        (
+            "TP1",
+            tp1_payload,
+        ),
+        (
+            "TP2",
+            tp2_payload,
+        ),
+        (
+            "TP3",
+            tp3_payload,
+        ),
+    ):
+
+        if (
+            payload.get(
+                "reduceOnly"
+            )
+            is not True
+        ):
+            raise RuntimeError(
+                "UNIT 11E.3 "
+                + leg_name
+                + " IS NOT REDUCE-ONLY"
+            )
+
+    print(
+        "PASS: UNIT 11E.3 ALL TP LEGS REDUCE-ONLY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # ABSOLUTE SL-DISABLED CHECK
+    # --------------------------------------------------------
+
+    forbidden_sl_fields = {
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopLoss",
+        "stopPrice",
+        "stop_loss",
+        "STOP_LOSS",
+    }
+
+    for (
+        leg_name,
+        payload,
+    ) in (
+        (
+            "TP1",
+            tp1_payload,
+        ),
+        (
+            "TP2",
+            tp2_payload,
+        ),
+        (
+            "TP3",
+            tp3_payload,
+        ),
+    ):
+
+        present_sl_fields = (
+            forbidden_sl_fields
+            &
+            set(
+                payload.keys()
+            )
+        )
+
+        if present_sl_fields:
+            raise RuntimeError(
+                "UNIT 11E.3 "
+                + leg_name
+                + " FORBIDDEN SL FIELDS = "
+                + str(
+                    sorted(
+                        present_sl_fields
+                    )
+                )
+            )
+
+    print(
+        "PASS: UNIT 11E.3 NO SL FIELDS",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # CRITICAL EXISTING-POSITION GUARD
+    #
+    # This recovery unit MUST NOT contain an ENTRY leg.
+    # --------------------------------------------------------
+
+    recovered_plan = {
+        "tp1":
+            tp1_payload,
+
+        "tp2":
+            tp2_payload,
+
+        "tp3":
+            tp3_payload,
+    }
+
+    if "entry" in recovered_plan:
+        raise RuntimeError(
+            "UNIT 11E.3 ENTRY LEG "
+            "MUST NOT EXIST"
+        )
+
+    print(
+        "PASS: UNIT 11E.3 NO NEW ENTRY LEG",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # DEMO SUBMISSION REMAINS LOCKED
+    #
+    # The frozen code establishes the TP payload architecture,
+    # but this unit does NOT assume a demo-safe conditional
+    # endpoint.
+    # --------------------------------------------------------
+
+    endpoint_authorized = False
+
+    weex_post = False
+    demo_order = False
+    real_order = False
+    exchange_mutation = False
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 TP1 RECOVERED PAYLOAD =",
+        tp1_payload,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 TP2 RECOVERED PAYLOAD =",
+        tp2_payload,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 TP3 RECOVERED PAYLOAD =",
+        tp3_payload,
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.3 EXISTING-POSITION "
+        "TP ARCHITECTURE RECOVERED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 ENDPOINT AUTHORIZED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 WEEX POST = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 DEMO ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 REAL ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 EXCHANGE MUTATION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 SL = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 BACKUP EXECUTION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.3 RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "valid":
+            True,
+
+        "symbol":
+            symbol,
+
+        "direction":
+            direction,
+
+        "entry_price":
+            str(
+                entry_price
+            ),
+
+        "position_quantity":
+            str(
+                position_quantity
+            ),
+
+        "tp1":
+            tp1_payload,
+
+        "tp2":
+            tp2_payload,
+
+        "tp3":
+            tp3_payload,
+
+        "endpoint_authorized":
+            endpoint_authorized,
+
+        "weex_post":
+            weex_post,
+
+        "demo_order":
+            demo_order,
+
+        "real_order":
+            real_order,
+
+        "exchange_mutation":
+            exchange_mutation,
+    }
+
+
+# ============================================================
+# UNIT 11E.3 STANDALONE CONNECTION TEST
+#
+# Uses Unit 11E.2 first, then feeds its verified result
+# directly into Unit 11E.3.
+#
+# ZERO WRITE.
+# ============================================================
+
+
+def reconstruction_unit_11e3_standalone_test():
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.3 STANDALONE "
+        "EXISTING-POSITION TEST START",
+        flush=True,
+    )
+
+    actual_position = {
+        "symbol":
+            "BTCSUSDT",
+
+        "direction":
+            "SHORT",
+
+        "entry_price":
+            "83595.9",
+
+        "quantity":
+            "0.0004",
+    }
+
+    unit_11e2_result = (
+        reconstruction_unit_11e2_actual_position_tp_bridge(
+            actual_position=actual_position,
+        )
+    )
+
+    result = (
+        reconstruction_unit_11e3_existing_position_tp_recovery(
+            unit_11e2_result=(
+                unit_11e2_result
+            ),
+        )
+    )
+
+    if (
+        result.get(
+            "valid"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.3 STANDALONE TEST FAILED"
+        )
+
+    if (
+        result.get(
+            "endpoint_authorized"
+        )
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11E.3 ENDPOINT FIREBREAK FAILED"
+        )
+
+    if (
+        result.get(
+            "weex_post"
+        )
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11E.3 WRITE FIREBREAK FAILED"
+        )
+
+    if (
+        result[
+            "tp1"
+        ][
+            "type"
+        ]
+        !=
+        "TAKE_PROFIT"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.3 TP1 TYPE TEST FAILED"
+        )
+
+    if (
+        result[
+            "tp2"
+        ][
+            "type"
+        ]
+        !=
+        "TAKE_PROFIT"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.3 TP2 TYPE TEST FAILED"
+        )
+
+    if (
+        result[
+            "tp3"
+        ][
+            "type"
+        ]
+        !=
+        "TRAILING_MARKET"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.3 TP3 TYPE TEST FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.3 EXISTING-POSITION "
+        "TP1 RECOVERED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.3 EXISTING-POSITION "
+        "TP2 RECOVERED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.3 EXISTING-POSITION "
+        "TP3 TRAILING RECOVERED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.3 NO NEW ENTRY",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.3 NO EXCHANGE WRITE",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.3 "
+        "STANDALONE TEST = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return result
+
+
+if __name__ == "__main__":
+    reconstruction_unit_11e3_standalone_test()
