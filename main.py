@@ -20440,3 +20440,1184 @@ async def reconstruction_unit_11e5_activate_tp(
     separator()
 
     return result
+
+# ============================================================
+# RECONSTRUCTION UNIT 11E.5
+# DEMO ENTRY + ATTACHED TP1 TRANSPORT VERIFICATION
+#
+# PURPOSE:
+# Prove that the recovered TP1 can be attached to a normal
+# WEEX V3 DEMO MARKET-entry payload while:
+#
+# - preserving the official Unit 9 demo endpoint
+# - preserving MARKET as the entry order type
+# - preserving TP2 for later position management
+# - preserving TP3 trailing for later position management
+# - keeping SL completely disabled
+# - performing ZERO exchange writes
+#
+# IMPORTANT:
+# THIS UNIT DOES NOT CALL:
+#   reconstruction_unit_9_submit_demo_order()
+#
+# THEREFORE:
+# - ZERO WEEX POST
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - ZERO PRODUCTION ENDPOINT
+# - ZERO BACKUP EXECUTION
+# ============================================================
+
+
+def reconstruction_unit_11e5_demo_attached_tp1_adapter(
+    *,
+    unit_11e3_result,
+):
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.5 "
+        "DEMO ATTACHED TP1 ADAPTER START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 1. VALIDATE VERIFIED UNIT 11E.3 INPUT
+    # --------------------------------------------------------
+
+    if not isinstance(
+        unit_11e3_result,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 UNIT 11E.3 RESULT "
+            "IS NOT A DICTIONARY"
+        )
+
+    if (
+        unit_11e3_result.get(
+            "valid"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 UNIT 11E.3 "
+            "NOT VALID"
+        )
+
+    if (
+        unit_11e3_result.get(
+            "weex_post"
+        )
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 UPSTREAM WRITE "
+            "FIREBREAK FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.5 VERIFIED "
+        "UNIT 11E.3 INPUT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 2. POSITION CONTEXT
+    # --------------------------------------------------------
+
+    symbol = str(
+        unit_11e3_result.get(
+            "symbol",
+            "",
+        )
+    ).upper()
+
+    direction = str(
+        unit_11e3_result.get(
+            "direction",
+            "",
+        )
+    ).upper()
+
+    position_quantity = Decimal(
+        str(
+            unit_11e3_result.get(
+                "position_quantity"
+            )
+        )
+    )
+
+    if symbol != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 11E.5 INVALID SYMBOL = "
+            + symbol
+        )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 INVALID DIRECTION = "
+            + direction
+        )
+
+    if position_quantity <= 0:
+        raise RuntimeError(
+            "UNIT 11E.5 INVALID POSITION QUANTITY"
+        )
+
+    print(
+        "PASS: UNIT 11E.5 POSITION CONTEXT",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 SYMBOL =",
+        symbol,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 DIRECTION =",
+        direction,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 POSITION QUANTITY =",
+        position_quantity,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 3. RECOVER THREE VERIFIED TP LEGS
+    # --------------------------------------------------------
+
+    tp1 = unit_11e3_result.get(
+        "tp1"
+    )
+
+    tp2 = unit_11e3_result.get(
+        "tp2"
+    )
+
+    tp3 = unit_11e3_result.get(
+        "tp3"
+    )
+
+    for (
+        leg_name,
+        payload,
+    ) in (
+        (
+            "TP1",
+            tp1,
+        ),
+        (
+            "TP2",
+            tp2,
+        ),
+        (
+            "TP3",
+            tp3,
+        ),
+    ):
+
+        if not isinstance(
+            payload,
+            dict,
+        ):
+            raise RuntimeError(
+                "UNIT 11E.5 "
+                + leg_name
+                + " PAYLOAD MISSING"
+            )
+
+    print(
+        "PASS: UNIT 11E.5 THREE "
+        "RECOVERED TP LEGS PRESENT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 4. VALIDATE FROZEN 25 / 25 / 50 TP ARCHITECTURE
+    # --------------------------------------------------------
+
+    tp1_quantity = Decimal(
+        str(
+            tp1.get(
+                "quantity"
+            )
+        )
+    )
+
+    tp2_quantity = Decimal(
+        str(
+            tp2.get(
+                "quantity"
+            )
+        )
+    )
+
+    tp3_quantity = Decimal(
+        str(
+            tp3.get(
+                "quantity"
+            )
+        )
+    )
+
+    total_tp_quantity = (
+        tp1_quantity
+        +
+        tp2_quantity
+        +
+        tp3_quantity
+    )
+
+    if (
+        total_tp_quantity
+        !=
+        position_quantity
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 TP QUANTITY "
+            "CONSERVATION FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.5 TOTAL TP "
+        "QUANTITY = POSITION QUANTITY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 5. DETERMINE NORMAL ENTRY DIRECTION
+    #
+    # This is an ENTRY payload shape.
+    #
+    # LONG  -> BUY / LONG
+    # SHORT -> SELL / SHORT
+    #
+    # It is intentionally NOT the BUY exit direction from
+    # Unit 11E.3's existing SHORT position.
+    # --------------------------------------------------------
+
+    if direction == "LONG":
+
+        entry_side = "BUY"
+
+    else:
+
+        entry_side = "SELL"
+
+    position_side = direction
+
+    print(
+        "UNIT 11E.5 ENTRY SIDE =",
+        entry_side,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 POSITION SIDE =",
+        position_side,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 6. LOCK TO THE EXISTING UNIT 9 DEMO TRANSPORT
+    # --------------------------------------------------------
+
+    demo_request_path = (
+        "/capi/v3/sim/order"
+    )
+
+    production_request_path = (
+        "/capi/v3/order"
+    )
+
+    if (
+        demo_request_path
+        ==
+        production_request_path
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 DEMO/PRODUCTION "
+            "ENDPOINT COLLISION"
+        )
+
+    if (
+        "/sim/"
+        not in
+        demo_request_path
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 DEMO ENDPOINT "
+            "SAFETY FAILURE"
+        )
+
+    print(
+        "PASS: UNIT 11E.5 UNIT 9 "
+        "DEMO ENDPOINT LOCK",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 DEMO ENDPOINT =",
+        demo_request_path,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 7. BUILD ZERO-WRITE DEMO ENTRY PAYLOAD
+    #
+    # IMPORTANT:
+    # TP1 is attached to the MARKET entry using the already
+    # recovered frozen TP1 trigger.
+    #
+    # TP2 and TP3 are NOT discarded.
+    # They remain preserved separately for later management.
+    # --------------------------------------------------------
+
+    demo_entry_payload = {
+        "symbol":
+            symbol,
+
+        "side":
+            entry_side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            str(
+                position_quantity
+            ),
+
+        "newClientOrderId":
+            "R11E5-DEMO-TP1-TEST",
+
+        "tpTriggerPrice":
+            str(
+                tp1.get(
+                    "triggerPrice"
+                )
+            ),
+
+        "TpWorkingType":
+            "MARK_PRICE",
+    }
+
+    # --------------------------------------------------------
+    # 8. REQUIRED ENTRY FIELDS
+    # --------------------------------------------------------
+
+    required_entry_fields = (
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+        "tpTriggerPrice",
+        "TpWorkingType",
+    )
+
+    missing_fields = [
+        field
+        for field in required_entry_fields
+        if field
+        not in demo_entry_payload
+    ]
+
+    if missing_fields:
+        raise RuntimeError(
+            "UNIT 11E.5 REQUIRED FIELD "
+            "FAILURE = "
+            + str(
+                missing_fields
+            )
+        )
+
+    print(
+        "PASS: UNIT 11E.5 REQUIRED "
+        "ENTRY + TP1 FIELDS",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 9. MARKET ENTRY TYPE MUST REMAIN MARKET
+    # --------------------------------------------------------
+
+    if (
+        demo_entry_payload.get(
+            "type"
+        )
+        !=
+        "MARKET"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 ENTRY TYPE "
+            "IS NOT MARKET"
+        )
+
+    print(
+        "PASS: UNIT 11E.5 MARKET "
+        "ENTRY TYPE PRESERVED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 10. TP1 CONTINUITY
+    # --------------------------------------------------------
+
+    if (
+        str(
+            demo_entry_payload.get(
+                "tpTriggerPrice"
+            )
+        )
+        !=
+        str(
+            tp1.get(
+                "triggerPrice"
+            )
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 TP1 TRIGGER "
+            "CONTINUITY FAILED"
+        )
+
+    if (
+        demo_entry_payload.get(
+            "TpWorkingType"
+        )
+        !=
+        "MARK_PRICE"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 TP1 WORKING "
+            "TYPE FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.5 TP1 "
+        "ATTACHMENT CONTINUITY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 11. TP PRICE DIRECTION
+    # --------------------------------------------------------
+
+    entry_price = Decimal(
+        str(
+            unit_11e3_result.get(
+                "entry_price"
+            )
+        )
+    )
+
+    tp1_price = Decimal(
+        str(
+            demo_entry_payload.get(
+                "tpTriggerPrice"
+            )
+        )
+    )
+
+    if direction == "LONG":
+
+        if not (
+            tp1_price
+            >
+            entry_price
+        ):
+            raise RuntimeError(
+                "UNIT 11E.5 LONG TP1 "
+                "PRICE DIRECTION FAILED"
+            )
+
+    else:
+
+        if not (
+            tp1_price
+            <
+            entry_price
+        ):
+            raise RuntimeError(
+                "UNIT 11E.5 SHORT TP1 "
+                "PRICE DIRECTION FAILED"
+            )
+
+    print(
+        "PASS: UNIT 11E.5 TP1 "
+        "PRICE DIRECTION",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 12. ABSOLUTE SL-DISABLE FIREBREAK
+    # --------------------------------------------------------
+
+    forbidden_sl_fields = {
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopPrice",
+        "slPrice",
+    }
+
+    present_sl_fields = (
+        forbidden_sl_fields
+        &
+        set(
+            demo_entry_payload.keys()
+        )
+    )
+
+    if present_sl_fields:
+        raise RuntimeError(
+            "UNIT 11E.5 SL FIELD "
+            "REJECTION FAILED = "
+            + str(
+                sorted(
+                    present_sl_fields
+                )
+            )
+        )
+
+    print(
+        "PASS: UNIT 11E.5 SL "
+        "REMAINS DISABLED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 13. PREVENT CONDITIONAL ORDER-TYPE MISUSE
+    #
+    # /sim/order remains a MARKET entry transport here.
+    # We are NOT changing type to TAKE_PROFIT or
+    # TRAILING_MARKET.
+    # --------------------------------------------------------
+
+    forbidden_entry_types = {
+        "TAKE_PROFIT",
+        "TAKE_PROFIT_MARKET",
+        "TRAILING_MARKET",
+        "TRAILING_STOP_MARKET",
+    }
+
+    if (
+        demo_entry_payload.get(
+            "type"
+        )
+        in
+        forbidden_entry_types
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 CONDITIONAL TYPE "
+            "MISUSE DETECTED"
+        )
+
+    print(
+        "PASS: UNIT 11E.5 /sim/order "
+        "CONDITIONAL-TYPE FIREBREAK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 14. PRESERVE TP2
+    # --------------------------------------------------------
+
+    preserved_tp2 = {
+        "price":
+            str(
+                tp2.get(
+                    "triggerPrice"
+                )
+            ),
+
+        "quantity":
+            str(
+                tp2.get(
+                    "quantity"
+                )
+            ),
+
+        "type":
+            str(
+                tp2.get(
+                    "type"
+                )
+            ),
+
+        "workingType":
+            str(
+                tp2.get(
+                    "triggerPriceType"
+                )
+            ),
+    }
+
+    if (
+        preserved_tp2[
+            "type"
+        ]
+        !=
+        "TAKE_PROFIT"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 TP2 "
+            "PRESERVATION FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.5 TP2 "
+        "PRESERVED FOR LATER MANAGEMENT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 15. PRESERVE TP3 TRAILING
+    # --------------------------------------------------------
+
+    preserved_tp3 = {
+        "callbackRate":
+            str(
+                tp3.get(
+                    "callbackRate"
+                )
+            ),
+
+        "quantity":
+            str(
+                tp3.get(
+                    "quantity"
+                )
+            ),
+
+        "type":
+            str(
+                tp3.get(
+                    "type"
+                )
+            ),
+
+        "workingType":
+            str(
+                tp3.get(
+                    "workingType"
+                )
+            ),
+    }
+
+    if (
+        preserved_tp3[
+            "type"
+        ]
+        !=
+        "TRAILING_MARKET"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 TP3 "
+            "PRESERVATION FAILED"
+        )
+
+    if (
+        Decimal(
+            preserved_tp3[
+                "callbackRate"
+            ]
+        )
+        !=
+        Decimal(
+            "0.2"
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 TP3 CALLBACK "
+            "RATE CHANGED"
+        )
+
+    print(
+        "PASS: UNIT 11E.5 TP3 "
+        "TRAILING PRESERVED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 16. FINAL FIELD WHITELIST
+    # --------------------------------------------------------
+
+    allowed_fields = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+        "tpTriggerPrice",
+        "TpWorkingType",
+    }
+
+    unexpected_fields = (
+        set(
+            demo_entry_payload.keys()
+        )
+        -
+        allowed_fields
+    )
+
+    if unexpected_fields:
+        raise RuntimeError(
+            "UNIT 11E.5 UNEXPECTED "
+            "PAYLOAD FIELDS = "
+            + str(
+                sorted(
+                    unexpected_fields
+                )
+            )
+        )
+
+    print(
+        "PASS: UNIT 11E.5 FINAL "
+        "FIELD WHITELIST",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 17. ZERO-WRITE FIREBREAK
+    #
+    # No submission function is called.
+    # --------------------------------------------------------
+
+    endpoint_authorized = False
+
+    weex_post = False
+
+    demo_order = False
+
+    real_order = False
+
+    exchange_mutation = False
+
+    backup_execution = False
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 VERIFIED DEMO ENTRY PAYLOAD =",
+        demo_entry_payload,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 PRESERVED TP2 =",
+        preserved_tp2,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 PRESERVED TP3 =",
+        preserved_tp3,
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.5 DEMO ENTRY "
+        "+ ATTACHED TP1 ARCHITECTURE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 ENDPOINT AUTHORIZED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 WEEX POST = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 DEMO ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 REAL ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 EXCHANGE MUTATION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 SL = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 BACKUP EXECUTION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.5 RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "valid":
+            True,
+
+        "symbol":
+            symbol,
+
+        "direction":
+            direction,
+
+        "entry_price":
+            str(
+                entry_price
+            ),
+
+        "position_quantity":
+            str(
+                position_quantity
+            ),
+
+        "demo_endpoint":
+            demo_request_path,
+
+        "demo_entry_payload":
+            demo_entry_payload,
+
+        "tp1_attached":
+            True,
+
+        "tp2_preserved":
+            preserved_tp2,
+
+        "tp3_preserved":
+            preserved_tp3,
+
+        "endpoint_authorized":
+            endpoint_authorized,
+
+        "weex_post":
+            weex_post,
+
+        "demo_order":
+            demo_order,
+
+        "real_order":
+            real_order,
+
+        "exchange_mutation":
+            exchange_mutation,
+
+        "sl_enabled":
+            False,
+
+        "backup_execution":
+            backup_execution,
+    }
+
+
+# ============================================================
+# UNIT 11E.5 STANDALONE TEST
+#
+# Uses the already-passing Unit 11E.3 chain.
+#
+# IMPORTANT:
+# Unit 11E.4 remains untouched.
+# Unit 9 remains untouched.
+# No submission function is called.
+# ============================================================
+
+
+def reconstruction_unit_11e5_standalone_test():
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.5 STANDALONE "
+        "DEMO TP1 ATTACHMENT TEST START",
+        flush=True,
+    )
+
+    unit_11e3_result = (
+        reconstruction_unit_11e3_standalone_test()
+    )
+
+    result = (
+        reconstruction_unit_11e5_demo_attached_tp1_adapter(
+            unit_11e3_result=(
+                unit_11e3_result
+            ),
+        )
+    )
+
+    if (
+        result.get(
+            "valid"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 RESULT INVALID"
+        )
+
+    if (
+        result.get(
+            "demo_endpoint"
+        )
+        !=
+        "/capi/v3/sim/order"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 DEMO ENDPOINT "
+            "TEST FAILED"
+        )
+
+    if (
+        result.get(
+            "tp1_attached"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 TP1 ATTACHMENT "
+            "TEST FAILED"
+        )
+
+    if (
+        result.get(
+            "endpoint_authorized"
+        )
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 ENDPOINT "
+            "FIREBREAK FAILED"
+        )
+
+    if (
+        result.get(
+            "weex_post"
+        )
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 WEEX POST "
+            "FIREBREAK FAILED"
+        )
+
+    if (
+        result.get(
+            "demo_order"
+        )
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 DEMO ORDER "
+            "FIREBREAK FAILED"
+        )
+
+    if (
+        result.get(
+            "real_order"
+        )
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 REAL ORDER "
+            "FIREBREAK FAILED"
+        )
+
+    if (
+        result.get(
+            "exchange_mutation"
+        )
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 EXCHANGE MUTATION "
+            "FIREBREAK FAILED"
+        )
+
+    if (
+        result.get(
+            "sl_enabled"
+        )
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 SL-DISABLE "
+            "TEST FAILED"
+        )
+
+    if (
+        result.get(
+            "backup_execution"
+        )
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 BACKUP "
+            "FIREBREAK FAILED"
+        )
+
+    payload = result[
+        "demo_entry_payload"
+    ]
+
+    if (
+        payload.get(
+            "type"
+        )
+        !=
+        "MARKET"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 MARKET "
+            "PAYLOAD TEST FAILED"
+        )
+
+    if (
+        "tpTriggerPrice"
+        not in payload
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 TP1 TRIGGER "
+            "MISSING"
+        )
+
+    if (
+        payload.get(
+            "TpWorkingType"
+        )
+        !=
+        "MARK_PRICE"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 TP1 WORKING "
+            "TYPE TEST FAILED"
+        )
+
+    forbidden_sl_fields = {
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopPrice",
+        "slPrice",
+    }
+
+    if (
+        forbidden_sl_fields
+        &
+        set(
+            payload.keys()
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 11E.5 SL FIELD "
+            "REJECTION TEST FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.5 UNIT 11E.3 "
+        "-> DEMO TP1 ATTACHMENT",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.5 MARKET "
+        "ENTRY PRESERVED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.5 TP1 "
+        "ATTACHED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.5 TP2 "
+        "PRESERVED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.5 TP3 "
+        "TRAILING PRESERVED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.5 SL "
+        "REMAINS DISABLED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.5 "
+        "NO EXCHANGE WRITE",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.5 "
+        "STANDALONE TEST = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return result
+
+
+if __name__ == "__main__":
+
+    reconstruction_unit_11e5_standalone_test()
