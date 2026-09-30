@@ -21621,3 +21621,1207 @@ def reconstruction_unit_11e5_standalone_test():
 if __name__ == "__main__":
 
     reconstruction_unit_11e5_standalone_test()
+
+# ============================================================
+# RECONSTRUCTION UNIT 11E.6
+# ONE-SHOT REAL WEEX DEMO ENTRY + ATTACHED TP1
+#
+# PURPOSE:
+# Take the already-verified Unit 11E.5 payload and submit
+# exactly ONE controlled order through the already-tested
+# Unit 9 WEEX DEMO transport.
+#
+# PIPELINE:
+#
+#   Unit 11E.3
+#       ->
+#   Unit 11E.5
+#       ->
+#   verified MARKET entry + attached TP1
+#       ->
+#   Unit 9
+#       ->
+#   POST /capi/v3/sim/order
+#
+# IMPORTANT:
+# - REAL WEEX DEMO POST = YES
+# - PRODUCTION ORDER = NEVER
+# - EXACTLY ONE SUBMISSION ATTEMPT
+# - NO AUTOMATIC RETRY
+# - TP1 ATTACHED TO ENTRY
+# - TP2 PRESERVED ONLY
+# - TP3 PRESERVED ONLY
+# - SL REMAINS DISABLED
+# - BACKUP EXECUTION REMAINS DISABLED
+#
+# THIS UNIT MUST NOT BE PLACED IN A REPEATING MONITOR LOOP.
+# ============================================================
+
+
+UNIT_11E6_SUBMISSION_ATTEMPTED = False
+
+UNIT_11E6_ACCEPTED_RESULT = None
+
+
+async def reconstruction_unit_11e6_submit_once():
+
+    global UNIT_11E6_SUBMISSION_ATTEMPTED
+    global UNIT_11E6_ACCEPTED_RESULT
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.6 "
+        "ONE-SHOT REAL DEMO SUBMISSION START",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 1. ABSOLUTE RUNTIME ONE-SHOT GUARD
+    # --------------------------------------------------------
+
+    if UNIT_11E6_SUBMISSION_ATTEMPTED:
+
+        print(
+            "UNIT 11E.6 SUBMISSION "
+            "ATTEMPTED = TRUE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.6 SECOND "
+            "SUBMISSION = BLOCKED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.6 REAL ORDER = FALSE",
+            flush=True,
+        )
+
+        print(
+            "RECONSTRUCTION UNIT 11E.6 "
+            "RESULT = ALREADY_ATTEMPTED",
+            flush=True,
+        )
+
+        print(
+            "=" * 80,
+            flush=True,
+        )
+
+        return {
+            "valid":
+                True,
+
+            "submitted":
+                False,
+
+            "accepted":
+                False,
+
+            "reason":
+                "UNIT_11E6_ALREADY_ATTEMPTED",
+
+            "second_submission_attempted":
+                False,
+
+            "real_order":
+                False,
+        }
+
+    print(
+        "PASS: UNIT 11E.6 "
+        "ONE-SHOT GUARD CLEAR",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 2. REBUILD VERIFIED 11E.3 STATE
+    # --------------------------------------------------------
+
+    unit_11e3_result = (
+        reconstruction_unit_11e3_standalone_test()
+    )
+
+    if not isinstance(
+        unit_11e3_result,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 11E.6 UNIT 11E.3 "
+            "RESULT INVALID"
+        )
+
+    if (
+        unit_11e3_result.get(
+            "valid"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.6 UNIT 11E.3 "
+            "NOT VALID"
+        )
+
+    print(
+        "PASS: UNIT 11E.6 "
+        "UNIT 11E.3 VERIFIED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 3. BUILD VERIFIED UNIT 11E.5 PAYLOAD
+    #
+    # Unit 11E.5 performs ZERO exchange writes.
+    # --------------------------------------------------------
+
+    unit_11e5_result = (
+        reconstruction_unit_11e5_demo_attached_tp1_adapter(
+            unit_11e3_result=(
+                unit_11e3_result
+            ),
+        )
+    )
+
+    if not isinstance(
+        unit_11e5_result,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 11E.6 UNIT 11E.5 "
+            "RESULT INVALID"
+        )
+
+    if (
+        unit_11e5_result.get(
+            "valid"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.6 UNIT 11E.5 "
+            "NOT VALID"
+        )
+
+    print(
+        "PASS: UNIT 11E.6 "
+        "UNIT 11E.5 VERIFIED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 4. GET EXACT VERIFIED DEMO PAYLOAD
+    # --------------------------------------------------------
+
+    demo_payload = (
+        unit_11e5_result.get(
+            "demo_entry_payload"
+        )
+    )
+
+    if not isinstance(
+        demo_payload,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 11E.6 DEMO "
+            "PAYLOAD MISSING"
+        )
+
+    # Copy before submission so Unit 11E.6 owns its local
+    # transport object.
+    final_payload = dict(
+        demo_payload
+    )
+
+    # --------------------------------------------------------
+    # 5. REQUIRED ENTRY + TP1 FIELDS
+    # --------------------------------------------------------
+
+    required_fields = (
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+        "tpTriggerPrice",
+        "TpWorkingType",
+    )
+
+    missing_fields = [
+        field
+        for field in required_fields
+        if field
+        not in final_payload
+    ]
+
+    if missing_fields:
+
+        raise RuntimeError(
+            "UNIT 11E.6 REQUIRED "
+            "FIELDS MISSING = "
+            + str(
+                missing_fields
+            )
+        )
+
+    print(
+        "PASS: UNIT 11E.6 REQUIRED "
+        "ENTRY + TP1 FIELDS",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 6. SYMBOL SAFETY
+    # --------------------------------------------------------
+
+    if (
+        final_payload.get(
+            "symbol"
+        )
+        !=
+        "BTCSUSDT"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E.6 INVALID SYMBOL"
+        )
+
+    print(
+        "PASS: UNIT 11E.6 SYMBOL LOCK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 7. MARKET ENTRY SAFETY
+    # --------------------------------------------------------
+
+    if (
+        final_payload.get(
+            "type"
+        )
+        !=
+        "MARKET"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E.6 ORDER TYPE "
+            "MUST BE MARKET"
+        )
+
+    print(
+        "PASS: UNIT 11E.6 MARKET "
+        "ENTRY LOCK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 8. DIRECTION SAFETY
+    # --------------------------------------------------------
+
+    direction = str(
+        unit_11e5_result.get(
+            "direction",
+            "",
+        )
+    ).upper()
+
+    if direction == "SHORT":
+
+        expected_side = "SELL"
+
+        expected_position_side = "SHORT"
+
+    elif direction == "LONG":
+
+        expected_side = "BUY"
+
+        expected_position_side = "LONG"
+
+    else:
+
+        raise RuntimeError(
+            "UNIT 11E.6 INVALID DIRECTION"
+        )
+
+    if (
+        final_payload.get(
+            "side"
+        )
+        !=
+        expected_side
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E.6 ENTRY SIDE "
+            "MISMATCH"
+        )
+
+    if (
+        final_payload.get(
+            "positionSide"
+        )
+        !=
+        expected_position_side
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E.6 POSITION SIDE "
+            "MISMATCH"
+        )
+
+    print(
+        "PASS: UNIT 11E.6 DIRECTION LOCK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 9. QUANTITY SAFETY
+    # --------------------------------------------------------
+
+    expected_quantity = Decimal(
+        str(
+            unit_11e5_result.get(
+                "position_quantity"
+            )
+        )
+    )
+
+    payload_quantity = Decimal(
+        str(
+            final_payload.get(
+                "quantity"
+            )
+        )
+    )
+
+    if (
+        payload_quantity
+        !=
+        expected_quantity
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E.6 QUANTITY "
+            "MISMATCH"
+        )
+
+    if payload_quantity <= 0:
+
+        raise RuntimeError(
+            "UNIT 11E.6 INVALID "
+            "QUANTITY"
+        )
+
+    print(
+        "PASS: UNIT 11E.6 QUANTITY LOCK",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 QUANTITY =",
+        payload_quantity,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 10. TP1 SAFETY
+    # --------------------------------------------------------
+
+    tp1_trigger = Decimal(
+        str(
+            final_payload.get(
+                "tpTriggerPrice"
+            )
+        )
+    )
+
+    entry_price = Decimal(
+        str(
+            unit_11e5_result.get(
+                "entry_price"
+            )
+        )
+    )
+
+    if direction == "SHORT":
+
+        if not (
+            tp1_trigger
+            <
+            entry_price
+        ):
+
+            raise RuntimeError(
+                "UNIT 11E.6 SHORT TP1 "
+                "DIRECTION FAILED"
+            )
+
+    else:
+
+        if not (
+            tp1_trigger
+            >
+            entry_price
+        ):
+
+            raise RuntimeError(
+                "UNIT 11E.6 LONG TP1 "
+                "DIRECTION FAILED"
+            )
+
+    if (
+        final_payload.get(
+            "TpWorkingType"
+        )
+        !=
+        "MARK_PRICE"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E.6 TP1 "
+            "WORKING TYPE FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.6 TP1 LOCK",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 TP1 =",
+        tp1_trigger,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 11. SL MUST REMAIN ABSENT
+    # --------------------------------------------------------
+
+    forbidden_sl_fields = {
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopPrice",
+        "slPrice",
+    }
+
+    present_sl_fields = (
+        forbidden_sl_fields
+        &
+        set(
+            final_payload.keys()
+        )
+    )
+
+    if present_sl_fields:
+
+        raise RuntimeError(
+            "UNIT 11E.6 SL FIELD "
+            "DETECTED = "
+            + str(
+                sorted(
+                    present_sl_fields
+                )
+            )
+        )
+
+    print(
+        "PASS: UNIT 11E.6 SL "
+        "REMAINS DISABLED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 12. TP2 / TP3 MUST REMAIN PRESERVED BUT UNSUBMITTED
+    # --------------------------------------------------------
+
+    tp2_preserved = (
+        unit_11e5_result.get(
+            "tp2_preserved"
+        )
+    )
+
+    tp3_preserved = (
+        unit_11e5_result.get(
+            "tp3_preserved"
+        )
+    )
+
+    if not isinstance(
+        tp2_preserved,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E.6 TP2 "
+            "PRESERVATION FAILED"
+        )
+
+    if not isinstance(
+        tp3_preserved,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E.6 TP3 "
+            "PRESERVATION FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.6 TP2 "
+        "PRESERVED / UNSUBMITTED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.6 TP3 "
+        "PRESERVED / UNSUBMITTED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 13. FINAL FIELD WHITELIST
+    # --------------------------------------------------------
+
+    allowed_fields = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+        "tpTriggerPrice",
+        "TpWorkingType",
+    }
+
+    unexpected_fields = (
+        set(
+            final_payload.keys()
+        )
+        -
+        allowed_fields
+    )
+
+    if unexpected_fields:
+
+        raise RuntimeError(
+            "UNIT 11E.6 UNEXPECTED "
+            "PAYLOAD FIELDS = "
+            + str(
+                sorted(
+                    unexpected_fields
+                )
+            )
+        )
+
+    print(
+        "PASS: UNIT 11E.6 FINAL "
+        "FIELD WHITELIST",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 14. FINAL PRE-SUBMISSION REPORT
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 FINAL DEMO PAYLOAD =",
+        final_payload,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 TP2 PRESERVED =",
+        tp2_preserved,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 TP3 PRESERVED =",
+        tp3_preserved,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 DEMO ENDPOINT = "
+        "/capi/v3/sim/order",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 PRODUCTION ORDER = BLOCKED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 SECOND SUBMISSION = BLOCKED",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 15. LOCK BEFORE NETWORK CALL
+    #
+    # This is deliberately set BEFORE calling Unit 9.
+    #
+    # If the network times out or WEEX returns an uncertain
+    # response, this runtime will NOT automatically retry.
+    # --------------------------------------------------------
+
+    UNIT_11E6_SUBMISSION_ATTEMPTED = True
+
+    print(
+        "UNIT 11E.6 ONE-SHOT LOCK = ACTIVE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 CALLING EXISTING "
+        "UNIT 9 DEMO TRANSPORT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 16. EXACTLY ONE REAL DEMO SUBMISSION
+    #
+    # Unit 9 itself contains:
+    #
+    # - /sim/order endpoint lock
+    # - production endpoint firebreak
+    # - authentication/signing
+    # - WEEX POST
+    # - response parsing
+    #
+    # DO NOT add another POST implementation here.
+    # --------------------------------------------------------
+
+    try:
+
+        unit_9_result = (
+            await reconstruction_unit_9_submit_demo_order(
+                unit_8_payload=(
+                    final_payload
+                )
+            )
+        )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 11E.6 UNIT 9 "
+            "SUBMISSION EXCEPTION =",
+            repr(
+                exc
+            ),
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.6 AUTOMATIC RETRY = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.6 SECOND "
+            "SUBMISSION = BLOCKED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.6 REAL ORDER = FALSE",
+            flush=True,
+        )
+
+        print(
+            "RECONSTRUCTION UNIT 11E.6 "
+            "RESULT = SUBMISSION_EXCEPTION",
+            flush=True,
+        )
+
+        print(
+            "=" * 80,
+            flush=True,
+        )
+
+        return {
+            "valid":
+                False,
+
+            "submitted":
+                False,
+
+            "accepted":
+                False,
+
+            "reason":
+                "UNIT_11E6_SUBMISSION_EXCEPTION",
+
+            "exception":
+                repr(
+                    exc
+                ),
+
+            "second_submission_attempted":
+                False,
+
+            "real_order":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # 17. VALIDATE UNIT 9 RESPONSE
+    # --------------------------------------------------------
+
+    if not isinstance(
+        unit_9_result,
+        dict,
+    ):
+
+        print(
+            "UNIT 11E.6 INVALID "
+            "UNIT 9 RESULT",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.6 AUTOMATIC RETRY = FALSE",
+            flush=True,
+        )
+
+        print(
+            "RECONSTRUCTION UNIT 11E.6 "
+            "RESULT = INVALID_UNIT_9_RESULT",
+            flush=True,
+        )
+
+        print(
+            "=" * 80,
+            flush=True,
+        )
+
+        return {
+            "valid":
+                False,
+
+            "submitted":
+                False,
+
+            "accepted":
+                False,
+
+            "reason":
+                "UNIT_11E6_INVALID_UNIT_9_RESULT",
+
+            "unit_9_result":
+                unit_9_result,
+
+            "second_submission_attempted":
+                False,
+
+            "real_order":
+                False,
+        }
+
+    submitted = bool(
+        unit_9_result.get(
+            "submitted",
+            False,
+        )
+    )
+
+    accepted = bool(
+        unit_9_result.get(
+            "accepted",
+            False,
+        )
+    )
+
+    real_order = bool(
+        unit_9_result.get(
+            "real_order",
+            False,
+        )
+    )
+
+    # --------------------------------------------------------
+    # 18. PRODUCTION FIREBREAK
+    # --------------------------------------------------------
+
+    if real_order:
+
+        raise RuntimeError(
+            "UNIT 11E.6 PRODUCTION "
+            "ORDER FIREBREAK FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.6 "
+        "REAL ORDER = FALSE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 19. HANDLE NOT-ACCEPTED RESPONSE
+    #
+    # IMPORTANT:
+    # NO SECOND ATTEMPT.
+    # --------------------------------------------------------
+
+    if not accepted:
+
+        print(
+            "-" * 80,
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.6 DEMO SUBMITTED =",
+            submitted,
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.6 DEMO ACCEPTED = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.6 UNIT 9 REASON =",
+            unit_9_result.get(
+                "reason"
+            ),
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.6 AUTOMATIC RETRY = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.6 SECOND "
+            "SUBMISSION ATTEMPT = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.6 REAL ORDER = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.6 SL = DISABLED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.6 TP2 SUBMITTED = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.6 TP3 SUBMITTED = FALSE",
+            flush=True,
+        )
+
+        print(
+            "RECONSTRUCTION UNIT 11E.6 "
+            "RESULT = DEMO_NOT_ACCEPTED",
+            flush=True,
+        )
+
+        print(
+            "=" * 80,
+            flush=True,
+        )
+
+        return {
+            "valid":
+                False,
+
+            "submitted":
+                submitted,
+
+            "accepted":
+                False,
+
+            "reason":
+                "UNIT_11E6_DEMO_NOT_ACCEPTED",
+
+            "unit_9_result":
+                unit_9_result,
+
+            "tp2_preserved":
+                tp2_preserved,
+
+            "tp3_preserved":
+                tp3_preserved,
+
+            "second_submission_attempted":
+                False,
+
+            "real_order":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # 20. ACCEPTED RESPONSE SAFETY
+    # --------------------------------------------------------
+
+    if not submitted:
+
+        raise RuntimeError(
+            "UNIT 11E.6 ACCEPTED ORDER "
+            "NOT MARKED SUBMITTED"
+        )
+
+    order_id = (
+        unit_9_result.get(
+            "order_id"
+        )
+    )
+
+    client_order_id = (
+        unit_9_result.get(
+            "client_order_id"
+        )
+    )
+
+    if order_id in (
+        None,
+        "",
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E.6 ACCEPTED DEMO "
+            "ORDER MISSING ORDER ID"
+        )
+
+    # --------------------------------------------------------
+    # 21. FREEZE ACCEPTED RESULT
+    # --------------------------------------------------------
+
+    UNIT_11E6_ACCEPTED_RESULT = {
+        "order_id":
+            order_id,
+
+        "client_order_id":
+            client_order_id,
+
+        "direction":
+            direction,
+
+        "quantity":
+            str(
+                payload_quantity
+            ),
+
+        "tp1":
+            str(
+                tp1_trigger
+            ),
+
+        "tp2_preserved":
+            tp2_preserved,
+
+        "tp3_preserved":
+            tp3_preserved,
+    }
+
+    # --------------------------------------------------------
+    # 22. SUCCESS REPORT
+    # --------------------------------------------------------
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.6 "
+        "REAL WEEX DEMO SUBMISSION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.6 "
+        "DEMO ORDER ACCEPTED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.6 "
+        "TP1 ATTACHED TO DEMO ENTRY",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 DIRECTION =",
+        direction,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 QUANTITY =",
+        payload_quantity,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 TP1 =",
+        tp1_trigger,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 DEMO ORDER ID =",
+        order_id,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 CLIENT ORDER ID =",
+        client_order_id,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 TP2 SUBMITTED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 TP3 SUBMITTED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 TP2 PRESERVED = TRUE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 TP3 PRESERVED = TRUE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 SL = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 BACKUP EXECUTION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 ONE-SHOT LOCK = ACTIVE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 FURTHER "
+        "SUBMISSIONS = BLOCKED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.6 REAL ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.6 "
+        "RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "valid":
+            True,
+
+        "submitted":
+            True,
+
+        "accepted":
+            True,
+
+        "reason":
+            "UNIT_11E6_DEMO_ENTRY_WITH_TP1_ACCEPTED",
+
+        "direction":
+            direction,
+
+        "quantity":
+            payload_quantity,
+
+        "tp1":
+            tp1_trigger,
+
+        "order_id":
+            order_id,
+
+        "client_order_id":
+            client_order_id,
+
+        "unit_9_result":
+            unit_9_result,
+
+        "tp2_preserved":
+            tp2_preserved,
+
+        "tp3_preserved":
+            tp3_preserved,
+
+        "second_submission_attempted":
+            False,
+
+        "one_shot_locked":
+            True,
+
+        "real_order":
+            False,
+    }
+
+
+# ============================================================
+# UNIT 11E.6 ONE-SHOT EXECUTION ENTRY POINT
+#
+# WARNING:
+# Unlike Unit 11E.5, this performs ONE REAL WEEX DEMO POST.
+# ============================================================
+
+
+if __name__ == "__main__":
+
+    import asyncio
+
+    asyncio.run(
+        reconstruction_unit_11e6_submit_once()
+    )
