@@ -9073,32 +9073,6 @@ async def reconstruction_unit_10_live_demo_execution():
             False,
     }
 
-
-# ============================================================
-# UNIT 10 ENTRY POINT
-# ============================================================
-
-
-if __name__ == "__main__":
-
-    import asyncio
-
-    print(
-        "WEEX_PARALLEL_BOT "
-        "UNIT_10_LIVE_DEMO_EXECUTION",
-        flush=True,
-    )
-
-    print(
-        "STARTING UNIT 10 "
-        "LIVE-QUALIFIED DEMO EXECUTION",
-        flush=True,
-    )
-
-    asyncio.run(
-        reconstruction_unit_10_live_demo_execution()
-    )
-
 # ============================================================
 # RECONSTRUCTION UNIT 10B
 # PERSISTENT LIVE-QUALIFIED ONE-SHOT DEMO MONITOR
@@ -9885,3 +9859,16 @@ async def run_reconstruction_unit_10b():
     )
 
     return result
+
+
+# ============================================================
+# UNIT 10B ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+
+    import asyncio
+
+    asyncio.run(
+        run_reconstruction_unit_10b()
+    )
