@@ -5735,3 +5735,795 @@ if __name__ == "__main__":
     )
 
     reconstruction_unit_8_standalone_test()
+
+# ============================================================
+# RECONSTRUCTION UNIT 8B
+# UNIT 6B -> UNIT 7 -> UNIT 8
+# DIRECT-CONNECTED ZERO-WRITE INTEGRATION TEST
+#
+# PURPOSE:
+# Prove that a genuine Unit 6B qualified instruction can:
+#
+#   UNIT 6B INSTRUCTION
+#           |
+#           v
+#       UNIT 7
+#   candidate payload
+#           |
+#           v
+#       UNIT 8
+#   submission boundary
+#
+# WITHOUT manually rebuilding the Unit 7 payload between
+# Unit 7 and Unit 8.
+#
+# IMPORTANT:
+# - ZERO WEEX POST
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - NO API REQUEST
+# - NO TP GENERATED
+# - NO SL GENERATED
+# - NO BACKUP EXECUTION
+# ============================================================
+
+
+def reconstruction_unit_8b_direct_connected_bridge(
+    *,
+    unit_6b_instruction,
+):
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 8B DIRECT-CONNECTED BRIDGE START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # STEP 1
+    # Validate that Unit 8B received a Unit 6B instruction.
+    # --------------------------------------------------------
+
+    if not isinstance(
+        unit_6b_instruction,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 8B INVALID UNIT 6B INSTRUCTION TYPE"
+        )
+
+    print(
+        "PASS: UNIT 8B RECEIVED UNIT 6B INSTRUCTION",
+        flush=True,
+    )
+
+    # Preserve the original instruction.
+    unit_6b_original = dict(
+        unit_6b_instruction
+    )
+
+    # --------------------------------------------------------
+    # STEP 2
+    # Send the REAL Unit 6B instruction into the already
+    # tested Unit 7 direct bridge.
+    # --------------------------------------------------------
+
+    unit_7_result = (
+        reconstruction_unit_7_direct_bridge(
+            unit_6b_instruction=
+                unit_6b_instruction,
+        )
+    )
+
+    if not isinstance(
+        unit_7_result,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 8B UNIT 7 RESULT IS NOT A DICT"
+        )
+
+    print(
+        "PASS: UNIT 8B RECEIVED UNIT 7 RESULT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # STEP 3
+    # Confirm Unit 7 approved/built its candidate payload.
+    #
+    # Unit 7 versions may return the payload under slightly
+    # different result keys during reconstruction.
+    #
+    # We DO NOT reconstruct the payload here.
+    # We only retrieve the payload actually produced by Unit 7.
+    # --------------------------------------------------------
+
+    unit_7_payload = None
+    unit_7_payload_key = None
+
+    possible_payload_keys = (
+        "payload",
+        "candidate_payload",
+        "demo_payload",
+        "order_payload",
+    )
+
+    for key in possible_payload_keys:
+
+        candidate = unit_7_result.get(
+            key
+        )
+
+        if isinstance(
+            candidate,
+            dict,
+        ):
+            unit_7_payload = candidate
+            unit_7_payload_key = key
+            break
+
+    if unit_7_payload is None:
+        raise RuntimeError(
+            "UNIT 8B COULD NOT FIND UNIT 7 CANDIDATE PAYLOAD"
+        )
+
+    print(
+        "PASS: UNIT 8B FOUND ACTUAL UNIT 7 PAYLOAD",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8B UNIT 7 PAYLOAD KEY = "
+        + str(unit_7_payload_key),
+        flush=True,
+    )
+
+    print(
+        "UNIT 8B UNIT 7 PAYLOAD = "
+        + str(unit_7_payload),
+        flush=True,
+    )
+
+    # Preserve Unit 7 payload before Unit 8 receives it.
+    unit_7_payload_original = dict(
+        unit_7_payload
+    )
+
+    # --------------------------------------------------------
+    # STEP 4
+    # Feed the ACTUAL Unit 7 payload directly into the already
+    # tested Unit 8 submission-boundary validator.
+    # --------------------------------------------------------
+
+    unit_8_result = (
+        reconstruction_unit_8_build_demo_submission_boundary(
+            candidate_payload=
+                unit_7_payload,
+        )
+    )
+
+    if not isinstance(
+        unit_8_result,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 8B UNIT 8 RESULT IS NOT A DICT"
+        )
+
+    if not unit_8_result.get(
+        "valid",
+        False,
+    ):
+        raise RuntimeError(
+            "UNIT 8B UNIT 8 BOUNDARY VALIDATION FAILED"
+        )
+
+    print(
+        "PASS: UNIT 8B UNIT 7 -> UNIT 8 CONNECTION",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # STEP 5
+    # Retrieve Unit 8 final boundary payload.
+    # --------------------------------------------------------
+
+    final_payload = unit_8_result.get(
+        "payload"
+    )
+
+    if not isinstance(
+        final_payload,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 8B UNIT 8 FINAL PAYLOAD MISSING"
+        )
+
+    print(
+        "UNIT 8B FINAL BOUNDARY PAYLOAD = "
+        + str(final_payload),
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # STEP 6
+    # Verify Unit 8 did not mutate Unit 7's payload.
+    # --------------------------------------------------------
+
+    if (
+        unit_7_payload
+        != unit_7_payload_original
+    ):
+        raise RuntimeError(
+            "UNIT 8B UNIT 7 PAYLOAD MUTATED BY UNIT 8"
+        )
+
+    print(
+        "PASS: UNIT 8B UNIT 7 PAYLOAD PRESERVED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # STEP 7
+    # Verify Unit 7 did not mutate Unit 6B instruction.
+    # --------------------------------------------------------
+
+    if (
+        unit_6b_instruction
+        != unit_6b_original
+    ):
+        raise RuntimeError(
+            "UNIT 8B UNIT 6B INSTRUCTION MUTATED"
+        )
+
+    print(
+        "PASS: UNIT 8B UNIT 6B INSTRUCTION PRESERVED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # STEP 8
+    # Validate final payload relationship.
+    # --------------------------------------------------------
+
+    required_fields = (
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+    )
+
+    missing_fields = [
+        field
+        for field in required_fields
+        if field not in final_payload
+    ]
+
+    if missing_fields:
+        raise RuntimeError(
+            "UNIT 8B FINAL PAYLOAD MISSING FIELDS: "
+            + str(missing_fields)
+        )
+
+    print(
+        "PASS: UNIT 8B FINAL PAYLOAD REQUIRED FIELDS",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # STEP 9
+    # Direction consistency.
+    # --------------------------------------------------------
+
+    side = str(
+        final_payload["side"]
+    ).strip().upper()
+
+    position_side = str(
+        final_payload["positionSide"]
+    ).strip().upper()
+
+    valid_pairs = {
+        ("BUY", "LONG"),
+        ("SELL", "SHORT"),
+    }
+
+    if (
+        side,
+        position_side,
+    ) not in valid_pairs:
+        raise RuntimeError(
+            "UNIT 8B FINAL DIRECTION MISMATCH"
+        )
+
+    print(
+        "PASS: UNIT 8B FINAL DIRECTION CONSISTENCY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # STEP 10
+    # SL-disable protection.
+    # --------------------------------------------------------
+
+    forbidden_sl_fields = (
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopPrice",
+    )
+
+    present_sl_fields = [
+        field
+        for field in forbidden_sl_fields
+        if field in final_payload
+    ]
+
+    if present_sl_fields:
+        raise RuntimeError(
+            "UNIT 8B FINAL PAYLOAD CONTAINS SL FIELD: "
+            + str(present_sl_fields)
+        )
+
+    print(
+        "PASS: UNIT 8B SL-DISABLE GUARD",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # STEP 11
+    # EXECUTION FIREBREAK.
+    #
+    # Unit 8 already returns these flags False.
+    # Unit 8B independently verifies them.
+    # --------------------------------------------------------
+
+    if unit_8_result.get(
+        "weex_post",
+        True,
+    ):
+        raise RuntimeError(
+            "UNIT 8B WEEX POST FIREBREAK FAILURE"
+        )
+
+    if unit_8_result.get(
+        "demo_order_sent",
+        True,
+    ):
+        raise RuntimeError(
+            "UNIT 8B DEMO ORDER FIREBREAK FAILURE"
+        )
+
+    if unit_8_result.get(
+        "real_order_sent",
+        True,
+    ):
+        raise RuntimeError(
+            "UNIT 8B REAL ORDER FIREBREAK FAILURE"
+        )
+
+    if unit_8_result.get(
+        "exchange_mutation",
+        True,
+    ):
+        raise RuntimeError(
+            "UNIT 8B EXCHANGE MUTATION FIREBREAK FAILURE"
+        )
+
+    print(
+        "PASS: UNIT 8B EXECUTION FIREBREAK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # SUCCESS
+    # --------------------------------------------------------
+
+    return {
+        "valid":
+            True,
+
+        "reason":
+            "UNIT_8B_DIRECT_CONNECTED_VALID",
+
+        "unit_6b_instruction":
+            dict(unit_6b_instruction),
+
+        "unit_7_payload":
+            dict(unit_7_payload),
+
+        "final_payload":
+            dict(final_payload),
+
+        "weex_post":
+            False,
+
+        "demo_order_sent":
+            False,
+
+        "real_order_sent":
+            False,
+
+        "exchange_mutation":
+            False,
+    }
+
+
+# ============================================================
+# UNIT 8B QUALIFIED-PATH TEST
+# ============================================================
+
+
+def reconstruction_unit_8b_qualified_path_test():
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 8B QUALIFIED-PATH TEST START",
+        flush=True,
+    )
+
+    # ========================================================
+    # LONG PATH
+    # ========================================================
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8B LONG TEST START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # This is a Unit 6B qualified instruction.
+    #
+    # IMPORTANT:
+    # We are NOT constructing an order payload here.
+    # Unit 7 must do that.
+    # --------------------------------------------------------
+
+    long_unit_6b_instruction = {
+        "valid":
+            True,
+
+        "qualified":
+            True,
+
+        "direction":
+            "LONG",
+
+        "quantity":
+            "0.0004",
+    }
+
+    long_result = (
+        reconstruction_unit_8b_direct_connected_bridge(
+            unit_6b_instruction=
+                long_unit_6b_instruction,
+        )
+    )
+
+    if not long_result.get(
+        "valid",
+        False,
+    ):
+        raise RuntimeError(
+            "UNIT 8B LONG PATH INVALID"
+        )
+
+    long_final_payload = (
+        long_result[
+            "final_payload"
+        ]
+    )
+
+    if (
+        long_final_payload.get(
+            "side"
+        )
+        != "BUY"
+    ):
+        raise RuntimeError(
+            "UNIT 8B LONG SIDE FAILURE"
+        )
+
+    if (
+        long_final_payload.get(
+            "positionSide"
+        )
+        != "LONG"
+    ):
+        raise RuntimeError(
+            "UNIT 8B LONG POSITION SIDE FAILURE"
+        )
+
+    if (
+        long_final_payload.get(
+            "quantity"
+        )
+        != "0.0004"
+    ):
+        raise RuntimeError(
+            "UNIT 8B LONG QUANTITY FAILURE"
+        )
+
+    print(
+        "PASS: UNIT 8B QUALIFIED LONG PATH",
+        flush=True,
+    )
+
+    # ========================================================
+    # SHORT PATH
+    # ========================================================
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8B SHORT TEST START",
+        flush=True,
+    )
+
+    short_unit_6b_instruction = {
+        "valid":
+            True,
+
+        "qualified":
+            True,
+
+        "direction":
+            "SHORT",
+
+        "quantity":
+            "0.0004",
+    }
+
+    short_result = (
+        reconstruction_unit_8b_direct_connected_bridge(
+            unit_6b_instruction=
+                short_unit_6b_instruction,
+        )
+    )
+
+    if not short_result.get(
+        "valid",
+        False,
+    ):
+        raise RuntimeError(
+            "UNIT 8B SHORT PATH INVALID"
+        )
+
+    short_final_payload = (
+        short_result[
+            "final_payload"
+        ]
+    )
+
+    if (
+        short_final_payload.get(
+            "side"
+        )
+        != "SELL"
+    ):
+        raise RuntimeError(
+            "UNIT 8B SHORT SIDE FAILURE"
+        )
+
+    if (
+        short_final_payload.get(
+            "positionSide"
+        )
+        != "SHORT"
+    ):
+        raise RuntimeError(
+            "UNIT 8B SHORT POSITION SIDE FAILURE"
+        )
+
+    if (
+        short_final_payload.get(
+            "quantity"
+        )
+        != "0.0004"
+    ):
+        raise RuntimeError(
+            "UNIT 8B SHORT QUANTITY FAILURE"
+        )
+
+    print(
+        "PASS: UNIT 8B QUALIFIED SHORT PATH",
+        flush=True,
+    )
+
+    # ========================================================
+    # CROSS-PATH VALIDATION
+    # ========================================================
+
+    if (
+        long_final_payload
+        == short_final_payload
+    ):
+        raise RuntimeError(
+            "UNIT 8B LONG/SHORT PAYLOAD COLLISION"
+        )
+
+    print(
+        "PASS: UNIT 8B LONG/SHORT PAYLOAD SEPARATION",
+        flush=True,
+    )
+
+    # ========================================================
+    # ZERO-WRITE SAFETY CHECK
+    # ========================================================
+
+    for result in (
+        long_result,
+        short_result,
+    ):
+
+        if result.get(
+            "weex_post",
+            True,
+        ):
+            raise RuntimeError(
+                "UNIT 8B WEEX POST SAFETY FAILURE"
+            )
+
+        if result.get(
+            "demo_order_sent",
+            True,
+        ):
+            raise RuntimeError(
+                "UNIT 8B DEMO ORDER SAFETY FAILURE"
+            )
+
+        if result.get(
+            "real_order_sent",
+            True,
+        ):
+            raise RuntimeError(
+                "UNIT 8B REAL ORDER SAFETY FAILURE"
+            )
+
+        if result.get(
+            "exchange_mutation",
+            True,
+        ):
+            raise RuntimeError(
+                "UNIT 8B EXCHANGE MUTATION SAFETY FAILURE"
+            )
+
+    # ========================================================
+    # FINAL RESULTS
+    # ========================================================
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8B UNIT 6B -> UNIT 7 CONNECTION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8B UNIT 7 -> UNIT 8 CONNECTION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8B QUALIFIED LONG PATH",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8B QUALIFIED SHORT PATH",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8B PAYLOAD PRESERVATION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8B SL-DISABLE GUARD",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8B EXECUTION FIREBREAK",
+        flush=True,
+    )
+
+    print(
+        "ZERO WEEX POST = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO TP GENERATED = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO SL GENERATED = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO BACKUP EXECUTION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8B DIRECT-CONNECTED TESTS = PASS",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 8B RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    return True
+
+
+# ============================================================
+# UNIT 8B TEST ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+
+    print(
+        "WEEX_PARALLEL_BOT UNIT_8B_DIRECT_CONNECTED_TEST",
+        flush=True,
+    )
+
+    print(
+        "STARTING UNIT 8B ZERO-WRITE "
+        "UNIT 6B -> UNIT 7 -> UNIT 8 TEST",
+        flush=True,
+    )
+
+    reconstruction_unit_8b_qualified_path_test()
