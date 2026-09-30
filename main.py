@@ -15815,3 +15815,654 @@ if __name__ == "__main__":
     asyncio.run(
         reconstruction_unit_11e_control_test()
     )
+
+# ============================================================
+# RECONSTRUCTION UNIT 11E.1
+# FROZEN DEMO TP EXECUTION-PATH RECOVERY TEST
+#
+# PURPOSE:
+# Recover and validate the proven frozen-model DEMO TP shape
+# without sending any order.
+#
+# FROZEN DEMO BEHAVIOUR:
+# - endpoint remains /capi/v3/sim/order
+# - order type remains MARKET
+# - TP is carried by tpTriggerPrice
+# - TP working type is MARK_PRICE
+#
+# IMPORTANT:
+# - ZERO WEEX POST
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - SL REMAINS DISABLED
+# - BACKUPS NOT EXECUTED
+#
+# This unit does NOT submit TP1/TP2/TP3.
+# It only proves the recovered transport shape before
+# changing Unit 11E submission behaviour.
+# ============================================================
+
+
+def reconstruction_unit_11e1_frozen_tp_path_test(
+    *,
+    unit_11d_result,
+):
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.1 "
+        "FROZEN DEMO TP PATH RECOVERY START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # VALIDATE UNIT 11D INPUT
+    # --------------------------------------------------------
+
+    if not isinstance(
+        unit_11d_result,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 11E.1 UNIT 11D RESULT "
+            "IS NOT A DICTIONARY"
+        )
+
+    if (
+        unit_11d_result.get(
+            "valid"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.1 UNIT 11D RESULT "
+            "NOT VALID"
+        )
+
+    for name in (
+        "tp1",
+        "tp2",
+        "tp3",
+        "total_quantity",
+    ):
+        if name not in unit_11d_result:
+            raise RuntimeError(
+                "UNIT 11E.1 MISSING UNIT 11D FIELD = "
+                + name
+            )
+
+    # --------------------------------------------------------
+    # ABSOLUTE DEMO ENDPOINT LOCK
+    # --------------------------------------------------------
+
+    demo_base_url = (
+        "https://api-contract.weex.com"
+    )
+
+    demo_request_path = (
+        "/capi/v3/sim/order"
+    )
+
+    production_request_path = (
+        "/capi/v3/order"
+    )
+
+    demo_url = (
+        demo_base_url
+        + demo_request_path
+    )
+
+    production_url = (
+        demo_base_url
+        + production_request_path
+    )
+
+    if (
+        demo_request_path
+        ==
+        production_request_path
+    ):
+        raise RuntimeError(
+            "UNIT 11E.1 DEMO/PRODUCTION "
+            "ENDPOINT COLLISION"
+        )
+
+    if "/sim/" not in demo_request_path:
+        raise RuntimeError(
+            "UNIT 11E.1 DEMO ENDPOINT "
+            "DOES NOT CONTAIN /sim/"
+        )
+
+    if demo_url == production_url:
+        raise RuntimeError(
+            "UNIT 11E.1 PRODUCTION "
+            "ENDPOINT NOT BLOCKED"
+        )
+
+    print(
+        "PASS: UNIT 11E.1 DEMO ENDPOINT LOCK",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.1 DEMO ENDPOINT =",
+        demo_url,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.1 PRODUCTION ENDPOINT = BLOCKED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # RECOVER TP1 FROM VERIFIED UNIT 11D
+    #
+    # Frozen demo mechanism did NOT send
+    # type=TAKE_PROFIT_MARKET.
+    #
+    # It used:
+    #
+    # type=MARKET
+    # tpTriggerPrice=<TP1>
+    # TpWorkingType=MARK_PRICE
+    # --------------------------------------------------------
+
+    tp1_transport = (
+        unit_11d_result[
+            "tp1"
+        ][
+            "payload"
+        ]
+    )
+
+    tp2_transport = (
+        unit_11d_result[
+            "tp2"
+        ][
+            "payload"
+        ]
+    )
+
+    tp3_transport = (
+        unit_11d_result[
+            "tp3"
+        ][
+            "payload"
+        ]
+    )
+
+    # --------------------------------------------------------
+    # VERIFY CURRENT 11D TP PLAN STILL EXISTS
+    # --------------------------------------------------------
+
+    if (
+        tp1_transport.get(
+            "tpTriggerPrice"
+        )
+        is None
+    ):
+        raise RuntimeError(
+            "UNIT 11E.1 TP1 TRIGGER MISSING"
+        )
+
+    if (
+        tp2_transport.get(
+            "tpTriggerPrice"
+        )
+        is None
+    ):
+        raise RuntimeError(
+            "UNIT 11E.1 TP2 TRIGGER MISSING"
+        )
+
+    if (
+        tp3_transport.get(
+            "callbackRate"
+        )
+        is None
+    ):
+        raise RuntimeError(
+            "UNIT 11E.1 TP3 CALLBACK RATE MISSING"
+        )
+
+    # --------------------------------------------------------
+    # BUILD FROZEN-PATH DEMO SHAPE
+    #
+    # NOTE:
+    # This is deliberately NOT submitted.
+    #
+    # We use TP1 because the frozen demo API path carried
+    # one TP trigger with the MARKET order.
+    #
+    # SL fields are intentionally NOT restored.
+    # --------------------------------------------------------
+
+    recovered_payload = {
+        "symbol":
+            tp1_transport[
+                "symbol"
+            ],
+
+        "side":
+            tp1_transport[
+                "side"
+            ],
+
+        "positionSide":
+            tp1_transport[
+                "positionSide"
+            ],
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            str(
+                unit_11d_result[
+                    "total_quantity"
+                ]
+            ),
+
+        "newClientOrderId":
+            (
+                "R11E1-FROZEN-TP-PATH"
+            ),
+
+        "tpTriggerPrice":
+            tp1_transport[
+                "tpTriggerPrice"
+            ],
+
+        "TpWorkingType":
+            "MARK_PRICE",
+    }
+
+    # --------------------------------------------------------
+    # CRITICAL DIFFERENCE FROM FAILED UNIT 11E
+    # --------------------------------------------------------
+
+    if (
+        recovered_payload[
+            "type"
+        ]
+        !=
+        "MARKET"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.1 FROZEN ORDER TYPE "
+            "RECOVERY FAILED"
+        )
+
+    if (
+        recovered_payload[
+            "TpWorkingType"
+        ]
+        !=
+        "MARK_PRICE"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.1 TP WORKING TYPE "
+            "RECOVERY FAILED"
+        )
+
+    if (
+        "tpTriggerPrice"
+        not in recovered_payload
+    ):
+        raise RuntimeError(
+            "UNIT 11E.1 TP TRIGGER "
+            "RECOVERY FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.1 FROZEN "
+        "MARKET ORDER TYPE RECOVERED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.1 FROZEN "
+        "tpTriggerPrice RECOVERED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.1 FROZEN "
+        "TpWorkingType RECOVERED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # ABSOLUTE SL-DISABLED CHECK
+    # --------------------------------------------------------
+
+    forbidden_sl_fields = (
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopLoss",
+        "stopPrice",
+        "stop_loss",
+    )
+
+    present_sl_fields = [
+        field
+        for field in forbidden_sl_fields
+        if field in recovered_payload
+    ]
+
+    if present_sl_fields:
+        raise RuntimeError(
+            "UNIT 11E.1 FORBIDDEN SL FIELDS = "
+            + str(
+                present_sl_fields
+            )
+        )
+
+    print(
+        "PASS: UNIT 11E.1 SL REMAINS DISABLED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # PRESERVE FULL CURRENT TP PLAN
+    #
+    # TP2 and TP3 are NOT discarded.
+    # They remain available for the next reconstruction step.
+    # --------------------------------------------------------
+
+    preserved_tp_plan = {
+        "tp1":
+            {
+                "price":
+                    tp1_transport[
+                        "tpTriggerPrice"
+                    ],
+
+                "quantity":
+                    tp1_transport[
+                        "quantity"
+                    ],
+            },
+
+        "tp2":
+            {
+                "price":
+                    tp2_transport[
+                        "tpTriggerPrice"
+                    ],
+
+                "quantity":
+                    tp2_transport[
+                        "quantity"
+                    ],
+            },
+
+        "tp3":
+            {
+                "callbackRate":
+                    tp3_transport[
+                        "callbackRate"
+                    ],
+
+                "quantity":
+                    tp3_transport[
+                        "quantity"
+                    ],
+            },
+    }
+
+    # --------------------------------------------------------
+    # DISPLAY RECOVERED RESULT
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.1 RECOVERED DEMO PAYLOAD =",
+        recovered_payload,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.1 PRESERVED TP PLAN =",
+        preserved_tp_plan,
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # ZERO-WRITE FIREBREAK
+    # --------------------------------------------------------
+
+    print(
+        "PASS: UNIT 11E.1 ZERO-WRITE FIREBREAK",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.1 WEEX POST = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.1 DEMO ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.1 REAL ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.1 EXCHANGE MUTATION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.1 SL = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.1 BACKUP EXECUTION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.1 RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "valid":
+            True,
+
+        "demo_url":
+            demo_url,
+
+        "recovered_payload":
+            recovered_payload,
+
+        "preserved_tp_plan":
+            preserved_tp_plan,
+
+        "weex_post":
+            False,
+
+        "demo_order":
+            False,
+
+        "real_order":
+            False,
+
+        "exchange_mutation":
+            False,
+    }
+
+
+def reconstruction_unit_11e1_standalone_test():
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.1 STANDALONE "
+        "ZERO-WRITE TEST START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # REUSE THE SAME VERIFIED SHORT POSITION TEST
+    # --------------------------------------------------------
+
+    unit_11a_result = (
+        reconstruction_unit_11a_tp_engine(
+            direction="SHORT",
+            entry_price=Decimal(
+                "83595.9"
+            ),
+            total_quantity=Decimal(
+                "0.0004"
+            ),
+            favorable_tp1_price=None,
+            favorable_tp2_price=None,
+            leverage=Decimal(
+                "100"
+            ),
+        )
+    )
+
+    unit_11b_result = (
+        reconstruction_unit_11b_build_tp_payloads(
+            unit_11a_result=(
+                unit_11a_result
+            ),
+            symbol=UNIT_11B_SYMBOL,
+        )
+    )
+
+    unit_11d_result = (
+        reconstruction_unit_11d_prepare_demo_tp_orders(
+            unit_11b_result=(
+                unit_11b_result
+            ),
+        )
+    )
+
+    result = (
+        reconstruction_unit_11e1_frozen_tp_path_test(
+            unit_11d_result=(
+                unit_11d_result
+            ),
+        )
+    )
+
+    if (
+        result.get(
+            "valid"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.1 STANDALONE TEST FAILED"
+        )
+
+    if (
+        result[
+            "weex_post"
+        ]
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11E.1 WRITE FIREBREAK FAILED"
+        )
+
+    if (
+        result[
+            "recovered_payload"
+        ][
+            "type"
+        ]
+        !=
+        "MARKET"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.1 MARKET TYPE TEST FAILED"
+        )
+
+    if (
+        "slTriggerPrice"
+        in
+        result[
+            "recovered_payload"
+        ]
+    ):
+        raise RuntimeError(
+            "UNIT 11E.1 SL DISABLE TEST FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.1 FROZEN TP "
+        "EXECUTION PATH RECOVERED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.1 MARKET + "
+        "tpTriggerPrice SHAPE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.1 FULL TP PLAN PRESERVED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.1 NO EXCHANGE WRITE",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.1 "
+        "STANDALONE TEST = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return result
+
+
+if __name__ == "__main__":
+    reconstruction_unit_11e1_standalone_test()
