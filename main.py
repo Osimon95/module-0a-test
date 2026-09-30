@@ -4911,25 +4911,22 @@ def run_unit_7c_qualified_path_test():
 
     return True
 
-# MAIN
-# ============================================================
 
 def main():
 
     log(
-        f"{APP_NAME} UNIT_7B_LIVE_INTEGRATION"
+        f"{APP_NAME} UNIT_7C_QUALIFIED_PATH_TEST"
     )
 
     log(
-        "STARTING LIVE "
-        "UNIT_6C_TO_UNIT_7 "
-        "ZERO_WRITE_INTEGRATION"
+        "STARTING UNIT 7C "
+        "ZERO-WRITE QUALIFIED-PATH TEST"
     )
 
     try:
 
         result = (
-            run_unit_7b_live_integration_test()
+            run_unit_7c_qualified_path_test()
         )
 
     except Exception as exc:
@@ -4937,7 +4934,7 @@ def main():
         separator()
 
         log(
-            "RECONSTRUCTION UNIT 7B "
+            "RECONSTRUCTION UNIT 7C "
             "RESULT = FAIL"
         )
 
@@ -4958,12 +4955,10 @@ def main():
     if not result:
 
         raise RuntimeError(
-            "Unit 7B live integration "
+            "Unit 7C qualified-path "
             "test did not pass."
         )
 
 
 if __name__ == "__main__":
     main()
-
-
