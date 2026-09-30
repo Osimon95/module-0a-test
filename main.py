@@ -10925,3 +10925,1390 @@ def reconstruction_unit_11a_standalone_test():
 if __name__ == "__main__":
 
     reconstruction_unit_11a_standalone_test()
+
+# ============================================================
+# RECONSTRUCTION UNIT 11B
+# TP DEMO SUBMISSION-BOUNDARY PAYLOAD TEST
+#
+# PURPOSE:
+# Convert the already-tested Unit 11A TP plan into exact
+# candidate demo TP submission instructions and validate them
+# before any WEEX POST is permitted.
+#
+# IMPORTANT:
+# - CONSUMES UNIT 11A OUTPUT DIRECTLY
+# - ZERO WEEX POST
+# - ZERO DEMO TP ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - NO SL
+# - NO BACKUP EXECUTION
+#
+# TP MODEL:
+# TP1 = 25%
+# TP2 = 25%
+# TP3 = 50% trailing runner
+#
+# SAFETY:
+# - Exit direction MUST oppose position direction
+# - Every exit MUST be reduce-only
+# - TP1 + TP2 + TP3 MUST equal position quantity
+# - No SL fields may exist
+# - No exit quantity may exceed position quantity
+# ============================================================
+
+
+UNIT_11B_SYMBOL = "BTCSUSDT"
+
+UNIT_11B_FORBIDDEN_SL_FIELDS = {
+    "slTriggerPrice",
+    "SlWorkingType",
+    "stopLossPrice",
+    "stopLoss",
+    "stopPrice",
+}
+
+
+def unit_11b_decimal(
+    value,
+):
+
+    return Decimal(
+        str(value)
+    )
+
+
+def unit_11b_decimal_string(
+    value,
+):
+
+    value = unit_11b_decimal(
+        value
+    )
+
+    text = format(
+        value,
+        "f",
+    )
+
+    if "." in text:
+
+        text = (
+            text
+            .rstrip("0")
+            .rstrip(".")
+        )
+
+    return text
+
+
+def unit_11b_exit_side(
+    direction,
+):
+
+    direction = str(
+        direction
+    ).upper()
+
+    if direction == "LONG":
+
+        return "SELL"
+
+    if direction == "SHORT":
+
+        return "BUY"
+
+    raise RuntimeError(
+        "UNIT 11B INVALID POSITION DIRECTION"
+    )
+
+
+def unit_11b_position_side(
+    direction,
+):
+
+    direction = str(
+        direction
+    ).upper()
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B INVALID POSITION SIDE"
+        )
+
+    return direction
+
+
+def unit_11b_assert_no_sl_fields(
+    payload,
+):
+
+    present_sl_fields = [
+        field
+        for field
+        in UNIT_11B_FORBIDDEN_SL_FIELDS
+        if field in payload
+    ]
+
+    if present_sl_fields:
+
+        raise RuntimeError(
+            "UNIT 11B FORBIDDEN SL FIELDS PRESENT: "
+            + str(
+                present_sl_fields
+            )
+        )
+
+    return True
+
+
+def unit_11b_build_fixed_tp_payload(
+    *,
+    symbol,
+    direction,
+    quantity,
+    trigger_price,
+    tp_name,
+):
+
+    direction = str(
+        direction
+    ).upper()
+
+    quantity = unit_11b_decimal(
+        quantity
+    )
+
+    trigger_price = unit_11b_decimal(
+        trigger_price
+    )
+
+    if quantity <= 0:
+
+        raise RuntimeError(
+            "UNIT 11B "
+            + str(tp_name)
+            + " QUANTITY INVALID"
+        )
+
+    if trigger_price <= 0:
+
+        raise RuntimeError(
+            "UNIT 11B "
+            + str(tp_name)
+            + " TRIGGER PRICE INVALID"
+        )
+
+    payload = {
+
+        "symbol":
+            str(symbol),
+
+        "side":
+            unit_11b_exit_side(
+                direction
+            ),
+
+        "positionSide":
+            unit_11b_position_side(
+                direction
+            ),
+
+        "type":
+            "TAKE_PROFIT_MARKET",
+
+        "quantity":
+            unit_11b_decimal_string(
+                quantity
+            ),
+
+        "tpTriggerPrice":
+            unit_11b_decimal_string(
+                trigger_price
+            ),
+
+        "TpWorkingType":
+            "MARK_PRICE",
+
+        "reduceOnly":
+            True,
+
+        "closePosition":
+            False,
+
+        "tpName":
+            str(tp_name),
+    }
+
+    unit_11b_assert_no_sl_fields(
+        payload
+    )
+
+    return payload
+
+
+def unit_11b_build_trailing_tp_payload(
+    *,
+    symbol,
+    direction,
+    quantity,
+    trailing_distance_percent,
+):
+
+    direction = str(
+        direction
+    ).upper()
+
+    quantity = unit_11b_decimal(
+        quantity
+    )
+
+    trailing_distance_percent = (
+        unit_11b_decimal(
+            trailing_distance_percent
+        )
+    )
+
+    if quantity <= 0:
+
+        raise RuntimeError(
+            "UNIT 11B TP3 QUANTITY INVALID"
+        )
+
+    if (
+        trailing_distance_percent
+        <= 0
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B TP3 TRAILING "
+            "DISTANCE INVALID"
+        )
+
+    payload = {
+
+        "symbol":
+            str(symbol),
+
+        "side":
+            unit_11b_exit_side(
+                direction
+            ),
+
+        "positionSide":
+            unit_11b_position_side(
+                direction
+            ),
+
+        "type":
+            "TRAILING_STOP_MARKET",
+
+        "quantity":
+            unit_11b_decimal_string(
+                quantity
+            ),
+
+        "callbackRate":
+            unit_11b_decimal_string(
+                trailing_distance_percent
+            ),
+
+        "workingType":
+            "MARK_PRICE",
+
+        "reduceOnly":
+            True,
+
+        "closePosition":
+            False,
+
+        "tpName":
+            "TP3_TRAILING_RUNNER",
+    }
+
+    unit_11b_assert_no_sl_fields(
+        payload
+    )
+
+    return payload
+
+
+def reconstruction_unit_11b_build_tp_payloads(
+    *,
+    unit_11a_result,
+    symbol=UNIT_11B_SYMBOL,
+):
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11B "
+        "TP SUBMISSION-BOUNDARY START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # UNIT 11A CONTRACT VALIDATION
+    # --------------------------------------------------------
+
+    if not isinstance(
+        unit_11a_result,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B UNIT 11A RESULT "
+            "IS NOT A DICTIONARY"
+        )
+
+    if (
+        unit_11a_result.get(
+            "valid"
+        )
+        is not True
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B UNIT 11A "
+            "RESULT NOT VALID"
+        )
+
+    direction = str(
+        unit_11a_result[
+            "direction"
+        ]
+    ).upper()
+
+    entry_price = (
+        unit_11b_decimal(
+            unit_11a_result[
+                "entry_price"
+            ]
+        )
+    )
+
+    total_quantity = (
+        unit_11b_decimal(
+            unit_11a_result[
+                "total_quantity"
+            ]
+        )
+    )
+
+    tp1 = (
+        unit_11a_result[
+            "tp1"
+        ]
+    )
+
+    tp2 = (
+        unit_11a_result[
+            "tp2"
+        ]
+    )
+
+    tp3 = (
+        unit_11a_result[
+            "tp3"
+        ]
+    )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B INVALID DIRECTION"
+        )
+
+    if entry_price <= 0:
+
+        raise RuntimeError(
+            "UNIT 11B INVALID ENTRY PRICE"
+        )
+
+    if total_quantity <= 0:
+
+        raise RuntimeError(
+            "UNIT 11B INVALID TOTAL QUANTITY"
+        )
+
+    # --------------------------------------------------------
+    # READ UNIT 11A VALUES
+    # --------------------------------------------------------
+
+    tp1_price = (
+        unit_11b_decimal(
+            tp1[
+                "price"
+            ]
+        )
+    )
+
+    tp2_price = (
+        unit_11b_decimal(
+            tp2[
+                "price"
+            ]
+        )
+    )
+
+    tp1_quantity = (
+        unit_11b_decimal(
+            tp1[
+                "quantity"
+            ]
+        )
+    )
+
+    tp2_quantity = (
+        unit_11b_decimal(
+            tp2[
+                "quantity"
+            ]
+        )
+    )
+
+    tp3_quantity = (
+        unit_11b_decimal(
+            tp3[
+                "quantity"
+            ]
+        )
+    )
+
+    trailing_distance_percent = (
+        unit_11b_decimal(
+            tp3[
+                "trailing_distance_percent"
+            ]
+        )
+    )
+
+    # --------------------------------------------------------
+    # QUANTITY SAFETY
+    # --------------------------------------------------------
+
+    if tp1_quantity <= 0:
+
+        raise RuntimeError(
+            "UNIT 11B TP1 QUANTITY INVALID"
+        )
+
+    if tp2_quantity <= 0:
+
+        raise RuntimeError(
+            "UNIT 11B TP2 QUANTITY INVALID"
+        )
+
+    if tp3_quantity <= 0:
+
+        raise RuntimeError(
+            "UNIT 11B TP3 QUANTITY INVALID"
+        )
+
+    allocated_quantity = (
+        tp1_quantity
+        +
+        tp2_quantity
+        +
+        tp3_quantity
+    )
+
+    if (
+        allocated_quantity
+        !=
+        total_quantity
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B TP QUANTITY "
+            "ALLOCATION MISMATCH"
+        )
+
+    if (
+        tp1_quantity
+        >
+        total_quantity
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B TP1 EXCEEDS POSITION"
+        )
+
+    if (
+        tp2_quantity
+        >
+        total_quantity
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B TP2 EXCEEDS POSITION"
+        )
+
+    if (
+        tp3_quantity
+        >
+        total_quantity
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B TP3 EXCEEDS POSITION"
+        )
+
+    print(
+        "PASS: UNIT 11B "
+        "QUANTITY SAFETY",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11B POSITION QUANTITY =",
+        total_quantity,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11B ALLOCATED QUANTITY =",
+        allocated_quantity,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # DIRECTION / PRICE SAFETY
+    # --------------------------------------------------------
+
+    if direction == "LONG":
+
+        if not (
+            tp1_price
+            >
+            entry_price
+        ):
+
+            raise RuntimeError(
+                "UNIT 11B LONG TP1 "
+                "NOT ABOVE ENTRY"
+            )
+
+        if not (
+            tp2_price
+            >
+            tp1_price
+        ):
+
+            raise RuntimeError(
+                "UNIT 11B LONG TP2 "
+                "NOT ABOVE TP1"
+            )
+
+    else:
+
+        if not (
+            tp1_price
+            <
+            entry_price
+        ):
+
+            raise RuntimeError(
+                "UNIT 11B SHORT TP1 "
+                "NOT BELOW ENTRY"
+            )
+
+        if not (
+            tp2_price
+            <
+            tp1_price
+        ):
+
+            raise RuntimeError(
+                "UNIT 11B SHORT TP2 "
+                "NOT BELOW TP1"
+            )
+
+    exit_side = (
+        unit_11b_exit_side(
+            direction
+        )
+    )
+
+    print(
+        "PASS: UNIT 11B "
+        "EXIT DIRECTION SAFETY",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11B POSITION DIRECTION =",
+        direction,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11B EXIT SIDE =",
+        exit_side,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # BUILD TP1 CANDIDATE PAYLOAD
+    # --------------------------------------------------------
+
+    tp1_payload = (
+        unit_11b_build_fixed_tp_payload(
+            symbol=symbol,
+            direction=direction,
+            quantity=tp1_quantity,
+            trigger_price=tp1_price,
+            tp_name="TP1",
+        )
+    )
+
+    # --------------------------------------------------------
+    # BUILD TP2 CANDIDATE PAYLOAD
+    # --------------------------------------------------------
+
+    tp2_payload = (
+        unit_11b_build_fixed_tp_payload(
+            symbol=symbol,
+            direction=direction,
+            quantity=tp2_quantity,
+            trigger_price=tp2_price,
+            tp_name="TP2",
+        )
+    )
+
+    # --------------------------------------------------------
+    # BUILD TP3 TRAILING CANDIDATE PAYLOAD
+    # --------------------------------------------------------
+
+    tp3_payload = (
+        unit_11b_build_trailing_tp_payload(
+            symbol=symbol,
+            direction=direction,
+            quantity=tp3_quantity,
+            trailing_distance_percent=(
+                trailing_distance_percent
+            ),
+        )
+    )
+
+    payloads = [
+        tp1_payload,
+        tp2_payload,
+        tp3_payload,
+    ]
+
+    # --------------------------------------------------------
+    # SUBMISSION-BOUNDARY VALIDATION
+    # --------------------------------------------------------
+
+    for payload in payloads:
+
+        if (
+            payload[
+                "symbol"
+            ]
+            !=
+            symbol
+        ):
+
+            raise RuntimeError(
+                "UNIT 11B SYMBOL CHANGED"
+            )
+
+        if (
+            payload[
+                "side"
+            ]
+            !=
+            exit_side
+        ):
+
+            raise RuntimeError(
+                "UNIT 11B EXIT SIDE CHANGED"
+            )
+
+        if (
+            payload[
+                "positionSide"
+            ]
+            !=
+            direction
+        ):
+
+            raise RuntimeError(
+                "UNIT 11B POSITION SIDE CHANGED"
+            )
+
+        if (
+            payload[
+                "reduceOnly"
+            ]
+            is not True
+        ):
+
+            raise RuntimeError(
+                "UNIT 11B REDUCE-ONLY "
+                "PROTECTION MISSING"
+            )
+
+        if (
+            payload[
+                "closePosition"
+            ]
+            is not False
+        ):
+
+            raise RuntimeError(
+                "UNIT 11B CLOSE-POSITION "
+                "FLAG INVALID"
+            )
+
+        unit_11b_assert_no_sl_fields(
+            payload
+        )
+
+    # --------------------------------------------------------
+    # TP1 EXACT CHECK
+    # --------------------------------------------------------
+
+    if (
+        unit_11b_decimal(
+            tp1_payload[
+                "quantity"
+            ]
+        )
+        !=
+        tp1_quantity
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B TP1 QUANTITY CHANGED"
+        )
+
+    if (
+        unit_11b_decimal(
+            tp1_payload[
+                "tpTriggerPrice"
+            ]
+        )
+        !=
+        tp1_price
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B TP1 PRICE CHANGED"
+        )
+
+    # --------------------------------------------------------
+    # TP2 EXACT CHECK
+    # --------------------------------------------------------
+
+    if (
+        unit_11b_decimal(
+            tp2_payload[
+                "quantity"
+            ]
+        )
+        !=
+        tp2_quantity
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B TP2 QUANTITY CHANGED"
+        )
+
+    if (
+        unit_11b_decimal(
+            tp2_payload[
+                "tpTriggerPrice"
+            ]
+        )
+        !=
+        tp2_price
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B TP2 PRICE CHANGED"
+        )
+
+    # --------------------------------------------------------
+    # TP3 EXACT CHECK
+    # --------------------------------------------------------
+
+    if (
+        unit_11b_decimal(
+            tp3_payload[
+                "quantity"
+            ]
+        )
+        !=
+        tp3_quantity
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B TP3 QUANTITY CHANGED"
+        )
+
+    if (
+        unit_11b_decimal(
+            tp3_payload[
+                "callbackRate"
+            ]
+        )
+        !=
+        trailing_distance_percent
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B TP3 TRAILING "
+            "DISTANCE CHANGED"
+        )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11B "
+        "TP1 PAYLOAD",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11B TP1 PAYLOAD =",
+        tp1_payload,
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11B "
+        "TP2 PAYLOAD",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11B TP2 PAYLOAD =",
+        tp2_payload,
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11B "
+        "TP3 TRAILING PAYLOAD",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11B TP3 PAYLOAD =",
+        tp3_payload,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # FIREBREAK
+    #
+    # Payloads exist locally, but absolutely no network write
+    # occurs in Unit 11B.
+    # --------------------------------------------------------
+
+    weex_post = False
+    demo_tp_order = False
+    real_order = False
+    exchange_mutation = False
+    sl_generated = False
+    backup_execution = False
+
+    if weex_post:
+
+        raise RuntimeError(
+            "UNIT 11B WEEX POST FIREBREAK FAILED"
+        )
+
+    if demo_tp_order:
+
+        raise RuntimeError(
+            "UNIT 11B DEMO TP FIREBREAK FAILED"
+        )
+
+    if real_order:
+
+        raise RuntimeError(
+            "UNIT 11B REAL ORDER FIREBREAK FAILED"
+        )
+
+    if exchange_mutation:
+
+        raise RuntimeError(
+            "UNIT 11B EXCHANGE MUTATION "
+            "FIREBREAK FAILED"
+        )
+
+    if sl_generated:
+
+        raise RuntimeError(
+            "UNIT 11B SL FIREBREAK FAILED"
+        )
+
+    if backup_execution:
+
+        raise RuntimeError(
+            "UNIT 11B BACKUP FIREBREAK FAILED"
+        )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11B "
+        "SUBMISSION-BOUNDARY VALIDATION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11B "
+        "ALL EXIT ORDERS REDUCE-ONLY",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11B "
+        "NO SL FIELDS",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11B "
+        "TOTAL EXIT QUANTITY = "
+        "POSITION QUANTITY",
+        flush=True,
+    )
+
+    print(
+        "ZERO WEEX POST = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO TP ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO SL GENERATED = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO BACKUP EXECUTION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11B "
+        "RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+
+        "valid":
+            True,
+
+        "direction":
+            direction,
+
+        "entry_price":
+            entry_price,
+
+        "total_quantity":
+            total_quantity,
+
+        "exit_side":
+            exit_side,
+
+        "tp1_payload":
+            tp1_payload,
+
+        "tp2_payload":
+            tp2_payload,
+
+        "tp3_payload":
+            tp3_payload,
+
+        "allocated_quantity":
+            allocated_quantity,
+
+        "weex_post":
+            False,
+
+        "demo_tp_order":
+            False,
+
+        "real_order":
+            False,
+
+        "exchange_mutation":
+            False,
+
+        "sl_generated":
+            False,
+
+        "backup_execution":
+            False,
+    }
+
+
+def reconstruction_unit_11b_standalone_test():
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11B STANDALONE "
+        "ZERO-WRITE TEST START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TEST 1 — LONG
+    # Generate Unit 11A result first, then feed that exact
+    # result into Unit 11B.
+    # --------------------------------------------------------
+
+    long_11a = (
+        reconstruction_unit_11a_tp_engine(
+            direction="LONG",
+            entry_price=Decimal("80000"),
+            total_quantity=Decimal("0.0004"),
+            favorable_tp1_price=None,
+            favorable_tp2_price=None,
+            leverage=Decimal("100"),
+        )
+    )
+
+    long_11b = (
+        reconstruction_unit_11b_build_tp_payloads(
+            unit_11a_result=long_11a,
+            symbol=UNIT_11B_SYMBOL,
+        )
+    )
+
+    if (
+        long_11b[
+            "exit_side"
+        ]
+        !=
+        "SELL"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B LONG EXIT SIDE TEST FAILED"
+        )
+
+    if (
+        long_11b[
+            "tp1_payload"
+        ][
+            "quantity"
+        ]
+        !=
+        "0.0001"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B LONG TP1 "
+            "QUANTITY TEST FAILED"
+        )
+
+    if (
+        long_11b[
+            "tp2_payload"
+        ][
+            "quantity"
+        ]
+        !=
+        "0.0001"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B LONG TP2 "
+            "QUANTITY TEST FAILED"
+        )
+
+    if (
+        long_11b[
+            "tp3_payload"
+        ][
+            "quantity"
+        ]
+        !=
+        "0.0002"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B LONG TP3 "
+            "QUANTITY TEST FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11B LONG "
+        "EXIT PAYLOAD TEST",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TEST 2 — SHORT
+    # This matches the direction of the currently accepted
+    # Unit 10B demo position.
+    # --------------------------------------------------------
+
+    short_11a = (
+        reconstruction_unit_11a_tp_engine(
+            direction="SHORT",
+            entry_price=Decimal("80000"),
+            total_quantity=Decimal("0.0004"),
+            favorable_tp1_price=(
+                Decimal("79880")
+            ),
+            favorable_tp2_price=(
+                Decimal("79760")
+            ),
+            leverage=Decimal("100"),
+        )
+    )
+
+    short_11b = (
+        reconstruction_unit_11b_build_tp_payloads(
+            unit_11a_result=short_11a,
+            symbol=UNIT_11B_SYMBOL,
+        )
+    )
+
+    if (
+        short_11b[
+            "exit_side"
+        ]
+        !=
+        "BUY"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B SHORT EXIT SIDE TEST FAILED"
+        )
+
+    if (
+        short_11b[
+            "tp1_payload"
+        ][
+            "quantity"
+        ]
+        !=
+        "0.0001"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B SHORT TP1 "
+            "QUANTITY TEST FAILED"
+        )
+
+    if (
+        short_11b[
+            "tp2_payload"
+        ][
+            "quantity"
+        ]
+        !=
+        "0.0001"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B SHORT TP2 "
+            "QUANTITY TEST FAILED"
+        )
+
+    if (
+        short_11b[
+            "tp3_payload"
+        ][
+            "quantity"
+        ]
+        !=
+        "0.0002"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11B SHORT TP3 "
+            "QUANTITY TEST FAILED"
+        )
+
+    # --------------------------------------------------------
+    # PROVE ALL THREE SHORT EXIT ORDERS ARE REDUCE-ONLY
+    # --------------------------------------------------------
+
+    for key in (
+        "tp1_payload",
+        "tp2_payload",
+        "tp3_payload",
+    ):
+
+        payload = (
+            short_11b[
+                key
+            ]
+        )
+
+        if (
+            payload[
+                "reduceOnly"
+            ]
+            is not True
+        ):
+
+            raise RuntimeError(
+                "UNIT 11B SHORT "
+                "REDUCE-ONLY TEST FAILED"
+            )
+
+        unit_11b_assert_no_sl_fields(
+            payload
+        )
+
+    print(
+        "PASS: UNIT 11B SHORT "
+        "EXIT PAYLOAD TEST",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11B "
+        "0.0004 QUANTITY SPLIT "
+        "= 0.0001 / 0.0001 / 0.0002",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11B "
+        "OPPOSITE EXIT SIDE TEST",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11B "
+        "REDUCE-ONLY TEST",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11B "
+        "NO SL FIELD TEST",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11B WEEX POST = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11B DEMO TP ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11B REAL ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11B EXCHANGE MUTATION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11B "
+        "STANDALONE TEST = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+
+        "valid":
+            True,
+
+        "long_test":
+            long_11b,
+
+        "short_test":
+            short_11b,
+
+        "weex_post":
+            False,
+
+        "demo_tp_order":
+            False,
+
+        "real_order":
+            False,
+
+        "exchange_mutation":
+            False,
+    }
+
+
+# ============================================================
+# UNIT 11B TEMPORARY STANDALONE TEST ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+
+    reconstruction_unit_11b_standalone_test()
