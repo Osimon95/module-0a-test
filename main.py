@@ -6934,3 +6934,1132 @@ if __name__ == "__main__":
     )
 
     reconstruction_unit_8b_qualified_path_test()
+
+# ============================================================
+# RECONSTRUCTION UNIT 9
+# FIRST REAL WEEX DEMO SUBMISSION
+#
+# PURPOSE:
+# Submit exactly ONE controlled MARKET order to the official
+# WEEX V3 DEMO / PAPER-TRADING endpoint.
+#
+# IMPORTANT:
+# - DEMO ENDPOINT ONLY
+# - PRODUCTION ENDPOINT IS NOT USED
+# - EXACTLY ONE CONTROLLED DEMO ORDER
+# - NO TP
+# - NO SL
+# - NO BACKUP EXECUTION
+# - NO REAL ORDER
+#
+# OFFICIAL WEEX DEMO ENDPOINT:
+# POST /capi/v3/sim/order
+# ============================================================
+
+
+def reconstruction_unit_9_build_client_order_id():
+
+    import time
+
+    timestamp_ms = str(
+        int(
+            time.time() * 1000
+        )
+    )
+
+    client_order_id = (
+        "R9-DEMO-"
+        + timestamp_ms
+    )
+
+    require(
+        len(
+            client_order_id
+        )
+        <= 36,
+        "UNIT 9 client order ID too long.",
+    )
+
+    return client_order_id
+
+
+# ============================================================
+# UNIT 9 DEMO-ONLY SIGNATURE
+# ============================================================
+
+
+def reconstruction_unit_9_build_signature(
+    *,
+    timestamp,
+    request_path,
+    body,
+):
+
+    import os
+    import hmac
+    import hashlib
+    import base64
+
+    api_secret = os.getenv(
+        "WEEX_API_SECRET"
+    )
+
+    require(
+        bool(
+            api_secret
+        ),
+        "UNIT 9 WEEX_API_SECRET missing.",
+    )
+
+    prehash = (
+        str(
+            timestamp
+        )
+        + "POST"
+        + request_path
+        + body
+    )
+
+    digest = hmac.new(
+        api_secret.encode(
+            "utf-8"
+        ),
+        prehash.encode(
+            "utf-8"
+        ),
+        hashlib.sha256,
+    ).digest()
+
+    signature = base64.b64encode(
+        digest
+    ).decode(
+        "utf-8"
+    )
+
+    require(
+        bool(
+            signature
+        ),
+        "UNIT 9 signature generation failed.",
+    )
+
+    return signature
+
+
+# ============================================================
+# UNIT 9 DEMO SUBMISSION
+# ============================================================
+
+
+async def reconstruction_unit_9_submit_demo_order(
+    *,
+    unit_8_payload,
+):
+
+    import os
+    import json
+    import time
+    import aiohttp
+
+    separator()
+
+    log(
+        "RECONSTRUCTION UNIT 9 "
+        "REAL DEMO SUBMISSION START"
+    )
+
+    # --------------------------------------------------------
+    # HARD-CODED DEMO SAFETY BOUNDARY
+    # --------------------------------------------------------
+
+    demo_base_url = (
+        "https://api-contract.weex.com"
+    )
+
+    demo_request_path = (
+        "/capi/v3/sim/order"
+    )
+
+    production_request_path = (
+        "/capi/v3/order"
+    )
+
+    # --------------------------------------------------------
+    # PRODUCTION ENDPOINT MUST NEVER BE USED BY UNIT 9
+    # --------------------------------------------------------
+
+    require(
+        demo_request_path
+        != production_request_path,
+        (
+            "UNIT 9 demo/production "
+            "endpoint collision."
+        ),
+    )
+
+    require(
+        "/sim/"
+        in demo_request_path,
+        (
+            "UNIT 9 DEMO ENDPOINT "
+            "SAFETY FAILURE."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 9 DEMO ENDPOINT LOCK"
+    )
+
+    log(
+        "UNIT 9 ENDPOINT = "
+        + demo_request_path
+    )
+
+    # --------------------------------------------------------
+    # RECEIVE UNIT 8 PAYLOAD
+    # --------------------------------------------------------
+
+    require(
+        isinstance(
+            unit_8_payload,
+            dict,
+        ),
+        "UNIT 9 invalid Unit 8 payload.",
+    )
+
+    original_payload = dict(
+        unit_8_payload
+    )
+
+    required_unit_8_fields = (
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+    )
+
+    missing_fields = [
+        field
+        for field in required_unit_8_fields
+        if field
+        not in unit_8_payload
+    ]
+
+    require(
+        not missing_fields,
+        (
+            "UNIT 9 Unit 8 payload "
+            "missing fields: "
+            + str(
+                missing_fields
+            )
+        ),
+    )
+
+    log(
+        "PASS: UNIT 9 RECEIVED "
+        "VALID UNIT 8 PAYLOAD"
+    )
+
+    # --------------------------------------------------------
+    # SYMBOL LOCK
+    # --------------------------------------------------------
+
+    require(
+        unit_8_payload.get(
+            "symbol"
+        )
+        == "BTCSUSDT",
+        "UNIT 9 symbol must be BTCSUSDT.",
+    )
+
+    # --------------------------------------------------------
+    # MARKET ORDER LOCK
+    # --------------------------------------------------------
+
+    require(
+        unit_8_payload.get(
+            "type"
+        )
+        == "MARKET",
+        "UNIT 9 only MARKET demo order allowed.",
+    )
+
+    # --------------------------------------------------------
+    # DIRECTION CONSISTENCY
+    # --------------------------------------------------------
+
+    side = str(
+        unit_8_payload.get(
+            "side"
+        )
+    ).upper()
+
+    position_side = str(
+        unit_8_payload.get(
+            "positionSide"
+        )
+    ).upper()
+
+    valid_direction_pairs = {
+        (
+            "BUY",
+            "LONG",
+        ),
+        (
+            "SELL",
+            "SHORT",
+        ),
+    }
+
+    require(
+        (
+            side,
+            position_side,
+        )
+        in valid_direction_pairs,
+        (
+            "UNIT 9 invalid "
+            "side/positionSide pair."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 9 "
+        "DIRECTION CONSISTENCY"
+    )
+
+    # --------------------------------------------------------
+    # QUANTITY SAFETY
+    # --------------------------------------------------------
+
+    quantity = D(
+        unit_8_payload.get(
+            "quantity"
+        )
+    )
+
+    require(
+        quantity
+        == D("0.0004"),
+        (
+            "UNIT 9 FIRST DEMO TEST "
+            "QUANTITY MUST BE 0.0004."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 9 "
+        "CONTROLLED QUANTITY = 0.0004"
+    )
+
+    # --------------------------------------------------------
+    # SL MUST REMAIN DISABLED
+    # --------------------------------------------------------
+
+    forbidden_sl_fields = (
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopPrice",
+    )
+
+    for field in forbidden_sl_fields:
+
+        require(
+            field
+            not in unit_8_payload,
+            (
+                "UNIT 9 forbidden SL field: "
+                + field
+            ),
+        )
+
+    log(
+        "PASS: UNIT 9 SL-DISABLE GUARD"
+    )
+
+    # --------------------------------------------------------
+    # TP IS ALSO EXCLUDED FROM FIRST DEMO ENTRY
+    # --------------------------------------------------------
+
+    forbidden_tp_fields = (
+        "tpTriggerPrice",
+        "TpWorkingType",
+    )
+
+    for field in forbidden_tp_fields:
+
+        require(
+            field
+            not in unit_8_payload,
+            (
+                "UNIT 9 unexpected TP field: "
+                + field
+            ),
+        )
+
+    log(
+        "PASS: UNIT 9 NO TP IN FIRST ENTRY"
+    )
+
+    # --------------------------------------------------------
+    # BUILD OFFICIAL WEEX V3 DEMO PAYLOAD
+    #
+    # Unit 8 deliberately ended with only the five strategy
+    # fields.
+    #
+    # WEEX V3 requires newClientOrderId for demo submission,
+    # therefore Unit 9 adds ONLY that transport-level field.
+    # --------------------------------------------------------
+
+    client_order_id = (
+        reconstruction_unit_9_build_client_order_id()
+    )
+
+    demo_payload = {
+        "symbol":
+            unit_8_payload[
+                "symbol"
+            ],
+
+        "side":
+            side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "newClientOrderId":
+            client_order_id,
+    }
+
+    # --------------------------------------------------------
+    # VERIFY EXACT PAYLOAD FIELD SET
+    # --------------------------------------------------------
+
+    allowed_demo_fields = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+    }
+
+    require(
+        set(
+            demo_payload.keys()
+        )
+        == allowed_demo_fields,
+        (
+            "UNIT 9 unexpected "
+            "demo payload fields."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 9 "
+        "DEMO PAYLOAD FIELD WHITELIST"
+    )
+
+    log(
+        "UNIT 9 CLIENT ORDER ID = "
+        + client_order_id
+    )
+
+    log(
+        "UNIT 9 DEMO PAYLOAD = "
+        + str(
+            demo_payload
+        )
+    )
+
+    # --------------------------------------------------------
+    # UNIT 8 INPUT MUST NOT HAVE BEEN MUTATED
+    # --------------------------------------------------------
+
+    require(
+        unit_8_payload
+        == original_payload,
+        (
+            "UNIT 9 mutated "
+            "Unit 8 payload."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 9 "
+        "UNIT 8 PAYLOAD PRESERVED"
+    )
+
+    # --------------------------------------------------------
+    # CREDENTIALS
+    # --------------------------------------------------------
+
+    api_key = os.getenv(
+        "WEEX_API_KEY"
+    )
+
+    api_secret = os.getenv(
+        "WEEX_API_SECRET"
+    )
+
+    passphrase = os.getenv(
+        "WEEX_API_PASSPHRASE"
+    )
+
+    require(
+        bool(
+            api_key
+        ),
+        "UNIT 9 WEEX_API_KEY missing.",
+    )
+
+    require(
+        bool(
+            api_secret
+        ),
+        "UNIT 9 WEEX_API_SECRET missing.",
+    )
+
+    require(
+        bool(
+            passphrase
+        ),
+        "UNIT 9 WEEX_API_PASSPHRASE missing.",
+    )
+
+    log(
+        "PASS: UNIT 9 "
+        "WEEX CREDENTIALS PRESENT"
+    )
+
+    # --------------------------------------------------------
+    # EXACT JSON BODY
+    #
+    # IMPORTANT:
+    # The exact body signed below is the exact body sent.
+    # --------------------------------------------------------
+
+    body = json.dumps(
+        demo_payload,
+        separators=(
+            ",",
+            ":",
+        ),
+        ensure_ascii=False,
+    )
+
+    timestamp = str(
+        int(
+            time.time() * 1000
+        )
+    )
+
+    signature = (
+        reconstruction_unit_9_build_signature(
+            timestamp=timestamp,
+            request_path=demo_request_path,
+            body=body,
+        )
+    )
+
+    headers = {
+        "ACCESS-KEY":
+            api_key,
+
+        "ACCESS-SIGN":
+            signature,
+
+        "ACCESS-TIMESTAMP":
+            timestamp,
+
+        "ACCESS-PASSPHRASE":
+            passphrase,
+
+        "Content-Type":
+            "application/json",
+    }
+
+    url = (
+        demo_base_url
+        + demo_request_path
+    )
+
+    # --------------------------------------------------------
+    # FINAL SAFETY ASSERTIONS BEFORE NETWORK WRITE
+    # --------------------------------------------------------
+
+    require(
+        url
+        == (
+            "https://api-contract.weex.com"
+            "/capi/v3/sim/order"
+        ),
+        (
+            "UNIT 9 final URL "
+            "safety failure."
+        ),
+    )
+
+    require(
+        "/sim/order"
+        in url,
+        (
+            "UNIT 9 attempted "
+            "non-demo endpoint."
+        ),
+    )
+
+    require(
+        "/capi/v3/order"
+        not in url,
+        (
+            "UNIT 9 production endpoint "
+            "detected."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 9 "
+        "FINAL DEMO-ONLY SAFETY GATE"
+    )
+
+    separator()
+
+    log(
+        "UNIT 9 SENDING ONE "
+        "REAL WEEX DEMO ORDER"
+    )
+
+    log(
+        "UNIT 9 REAL ORDER = FALSE"
+    )
+
+    log(
+        "UNIT 9 DEMO ORDER = TRUE"
+    )
+
+    separator()
+
+    # --------------------------------------------------------
+    # ACTUAL DEMO POST
+    # --------------------------------------------------------
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    try:
+
+        async with aiohttp.ClientSession(
+            timeout=timeout
+        ) as session:
+
+            async with session.post(
+                url,
+                headers=headers,
+                data=body,
+            ) as response:
+
+                http_status = (
+                    response.status
+                )
+
+                response_text = (
+                    await response.text()
+                )
+
+    except Exception as exc:
+
+        log(
+            "UNIT 9 DEMO NETWORK ERROR = "
+            + repr(
+                exc
+            )
+        )
+
+        return {
+            "valid":
+                False,
+
+            "submitted":
+                False,
+
+            "accepted":
+                False,
+
+            "reason":
+                "UNIT_9_NETWORK_ERROR",
+
+            "error":
+                repr(
+                    exc
+                ),
+
+            "client_order_id":
+                client_order_id,
+
+            "real_order":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # LOG HTTP RESULT
+    # --------------------------------------------------------
+
+    log(
+        "UNIT 9 HTTP STATUS = "
+        + str(
+            http_status
+        )
+    )
+
+    log(
+        "UNIT 9 RAW RESPONSE = "
+        + response_text
+    )
+
+    # --------------------------------------------------------
+    # PARSE RESPONSE
+    # --------------------------------------------------------
+
+    try:
+
+        response_data = json.loads(
+            response_text
+        )
+
+    except Exception:
+
+        response_data = {
+            "raw":
+                response_text
+        }
+
+    # --------------------------------------------------------
+    # HTTP FAILURE
+    # --------------------------------------------------------
+
+    if (
+        http_status
+        < 200
+        or
+        http_status
+        >= 300
+    ):
+
+        log(
+            "UNIT 9 DEMO SUBMISSION "
+            "HTTP FAILURE"
+        )
+
+        return {
+            "valid":
+                False,
+
+            "submitted":
+                True,
+
+            "accepted":
+                False,
+
+            "reason":
+                "UNIT_9_HTTP_FAILURE",
+
+            "http_status":
+                http_status,
+
+            "response":
+                response_data,
+
+            "client_order_id":
+                client_order_id,
+
+            "real_order":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # WEEX V3 DEMO RESPONSE VALIDATION
+    # --------------------------------------------------------
+
+    require(
+        isinstance(
+            response_data,
+            dict,
+        ),
+        (
+            "UNIT 9 unexpected "
+            "WEEX response type."
+        ),
+    )
+
+    success = (
+        response_data.get(
+            "success"
+        )
+        is True
+    )
+
+    order_id = (
+        response_data.get(
+            "orderId"
+        )
+    )
+
+    returned_client_order_id = (
+        response_data.get(
+            "clientOrderId"
+        )
+    )
+
+    error_code = (
+        response_data.get(
+            "errorCode"
+        )
+    )
+
+    error_message = (
+        response_data.get(
+            "errorMessage"
+        )
+    )
+
+    log(
+        "UNIT 9 WEEX SUCCESS = "
+        + str(
+            success
+        )
+    )
+
+    log(
+        "UNIT 9 ORDER ID = "
+        + str(
+            order_id
+        )
+    )
+
+    log(
+        "UNIT 9 RETURNED CLIENT ORDER ID = "
+        + str(
+            returned_client_order_id
+        )
+    )
+
+    log(
+        "UNIT 9 ERROR CODE = "
+        + str(
+            error_code
+        )
+    )
+
+    log(
+        "UNIT 9 ERROR MESSAGE = "
+        + str(
+            error_message
+        )
+    )
+
+    # --------------------------------------------------------
+    # WEEX REJECTED ORDER
+    # --------------------------------------------------------
+
+    if not success:
+
+        log(
+            "UNIT 9 WEEX DEMO ORDER "
+            "NOT ACCEPTED"
+        )
+
+        return {
+            "valid":
+                False,
+
+            "submitted":
+                True,
+
+            "accepted":
+                False,
+
+            "reason":
+                "UNIT_9_WEEX_REJECTED",
+
+            "http_status":
+                http_status,
+
+            "response":
+                response_data,
+
+            "client_order_id":
+                client_order_id,
+
+            "real_order":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # ACCEPTANCE REQUIREMENTS
+    # --------------------------------------------------------
+
+    require(
+        order_id
+        not in (
+            None,
+            "",
+        ),
+        (
+            "UNIT 9 success response "
+            "missing orderId."
+        ),
+    )
+
+    require(
+        returned_client_order_id
+        == client_order_id,
+        (
+            "UNIT 9 client order ID "
+            "response mismatch."
+        ),
+    )
+
+    # --------------------------------------------------------
+    # SUCCESS
+    # --------------------------------------------------------
+
+    separator()
+
+    log(
+        "PASS: UNIT 9 "
+        "WEEX DEMO ORDER ACCEPTED"
+    )
+
+    log(
+        "UNIT 9 DEMO ORDER ID = "
+        + str(
+            order_id
+        )
+    )
+
+    log(
+        "UNIT 9 CLIENT ORDER ID = "
+        + client_order_id
+    )
+
+    log(
+        "REAL ORDER SENT = FALSE"
+    )
+
+    log(
+        "DEMO ORDER SENT = TRUE"
+    )
+
+    log(
+        "RECONSTRUCTION UNIT 9 RESULT = PASS"
+    )
+
+    separator()
+
+    return {
+        "valid":
+            True,
+
+        "submitted":
+            True,
+
+        "accepted":
+            True,
+
+        "reason":
+            "UNIT_9_DEMO_ORDER_ACCEPTED",
+
+        "order_id":
+            order_id,
+
+        "client_order_id":
+            client_order_id,
+
+        "http_status":
+            http_status,
+
+        "response":
+            response_data,
+
+        "real_order":
+            False,
+    }
+
+
+# ============================================================
+# UNIT 9 FIRST CONTROLLED DEMO SUBMISSION TEST
+#
+# IMPORTANT:
+# Exactly ONE demo order is submitted.
+#
+# We deliberately use LONG only for this first transport test.
+# SHORT was already validated through Unit 8B and does not
+# need a second demo position simply to test HTTP transport.
+# ============================================================
+
+
+async def reconstruction_unit_9_first_demo_test():
+
+    separator()
+
+    log(
+        "RECONSTRUCTION UNIT 9 "
+        "FIRST DEMO TEST START"
+    )
+
+    # --------------------------------------------------------
+    # Recreate the same validated five-field boundary shape
+    # produced by Unit 8.
+    #
+    # This first Unit 9 test isolates transport/authentication.
+    # Runtime signal integration comes after transport PASS.
+    # --------------------------------------------------------
+
+    candidate_payload = {
+        "symbol":
+            "BTCSUSDT",
+
+        "side":
+            "BUY",
+
+        "positionSide":
+            "LONG",
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            "0.0004",
+    }
+
+    # --------------------------------------------------------
+    # Pass through the already-tested Unit 8 boundary first.
+    # --------------------------------------------------------
+
+    unit_8_result = (
+        reconstruction_unit_8_build_demo_submission_boundary(
+            candidate_payload=(
+                candidate_payload
+            )
+        )
+    )
+
+    require(
+        isinstance(
+            unit_8_result,
+            dict,
+        ),
+        "UNIT 9 Unit 8 result not dict.",
+    )
+
+    require(
+        unit_8_result.get(
+            "valid"
+        )
+        is True,
+        (
+            "UNIT 9 Unit 8 boundary "
+            "validation failed."
+        ),
+    )
+
+    final_payload = (
+        unit_8_result.get(
+            "payload"
+        )
+    )
+
+    require(
+        isinstance(
+            final_payload,
+            dict,
+        ),
+        "UNIT 9 Unit 8 payload missing.",
+    )
+
+    log(
+        "PASS: UNIT 9 "
+        "UNIT 8 -> UNIT 9 CONNECTION"
+    )
+
+    # --------------------------------------------------------
+    # THIS CALL PERFORMS THE REAL DEMO POST
+    # --------------------------------------------------------
+
+    result = (
+        await reconstruction_unit_9_submit_demo_order(
+            unit_8_payload=(
+                final_payload
+            )
+        )
+    )
+
+    separator()
+
+    if result.get(
+        "accepted"
+    ) is True:
+
+        log(
+            "UNIT 9 FIRST "
+            "DEMO SUBMISSION = PASS"
+        )
+
+    else:
+
+        log(
+            "UNIT 9 FIRST "
+            "DEMO SUBMISSION = NOT ACCEPTED"
+        )
+
+        log(
+            "UNIT 9 FAILURE REASON = "
+            + str(
+                result.get(
+                    "reason"
+                )
+            )
+        )
+
+    separator()
+
+    return result
+
+
+# ============================================================
+# UNIT 9 ENTRY POINT
+# ============================================================
+
+
+if __name__ == "__main__":
+
+    import asyncio
+
+    print(
+        "WEEX_PARALLEL_BOT "
+        "UNIT_9_FIRST_REAL_DEMO_SUBMISSION",
+        flush=True,
+    )
+
+    print(
+        "STARTING UNIT 9 "
+        "ONE CONTROLLED WEEX DEMO ORDER",
+        flush=True,
+    )
+
+    asyncio.run(
+        reconstruction_unit_9_first_demo_test()
+    )
