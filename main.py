@@ -23422,3 +23422,791 @@ except Exception as exc:
     )
 
     raise
+
+# ============================================================
+# RECONSTRUCTION UNIT 11E.8
+# UNIT 9 ACTUAL VALIDATION-BOUNDARY COMPATIBILITY
+#
+# PURPOSE:
+# Integrate the verified Unit 11E.7 TP1 compatibility rule
+# into a Unit-9-equivalent validation boundary.
+#
+# EXACTLY TWO attached-TP1 fields are newly authorized:
+#
+#     tpTriggerPrice
+#     TpWorkingType
+#
+# IMPORTANT:
+# - ZERO WEEX POST
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - ZERO AUTOMATIC RETRY
+# - SL REMAINS DISABLED
+# - TP2 REMAINS UNSUBMITTED
+# - TP3 REMAINS UNSUBMITTED
+#
+# THIS UNIT DOES NOT CALL THE UNIT 9 HTTP TRANSPORT.
+# It proves the corrected Unit 9 validation boundary first.
+# ============================================================
+
+
+def reconstruction_unit_11e8_unit9_validation_boundary(
+    payload,
+):
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.8 "
+        "UNIT 9 VALIDATION-BOUNDARY START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # DEFENSIVE INPUT COPY
+    # --------------------------------------------------------
+
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            "UNIT 11E.8 payload must be dict"
+        )
+
+    candidate = dict(payload)
+
+    print(
+        "PASS: UNIT 11E.8 PAYLOAD TYPE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # EXACT UNIT 9 ENTRY CONTRACT
+    #
+    # These are the original entry fields plus ONLY the two
+    # verified attached-TP1 fields.
+    # --------------------------------------------------------
+
+    base_entry_fields = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+    }
+
+    attached_tp1_fields = {
+        "tpTriggerPrice",
+        "TpWorkingType",
+    }
+
+    allowed_fields = (
+        base_entry_fields
+        | attached_tp1_fields
+    )
+
+    # --------------------------------------------------------
+    # REQUIRED ENTRY FIELDS
+    # --------------------------------------------------------
+
+    missing_entry_fields = sorted(
+        base_entry_fields
+        - set(candidate.keys())
+    )
+
+    if missing_entry_fields:
+        raise RuntimeError(
+            "UNIT 11E.8 missing required entry field(s): "
+            + repr(missing_entry_fields)
+        )
+
+    print(
+        "PASS: UNIT 11E.8 REQUIRED ENTRY FIELDS",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # REQUIRED ATTACHED TP1 FIELDS
+    # --------------------------------------------------------
+
+    missing_tp1_fields = sorted(
+        attached_tp1_fields
+        - set(candidate.keys())
+    )
+
+    if missing_tp1_fields:
+        raise RuntimeError(
+            "UNIT 11E.8 missing attached TP1 field(s): "
+            + repr(missing_tp1_fields)
+        )
+
+    print(
+        "PASS: UNIT 11E.8 REQUIRED TP1 FIELDS",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # EXACT FIELD WHITELIST
+    #
+    # This is the compatibility change that Unit 9 needs.
+    # --------------------------------------------------------
+
+    unexpected_fields = sorted(
+        set(candidate.keys())
+        - allowed_fields
+    )
+
+    if unexpected_fields:
+        raise RuntimeError(
+            "UNIT 11E.8 unexpected field(s): "
+            + repr(unexpected_fields)
+        )
+
+    print(
+        "PASS: UNIT 11E.8 EXACT FIELD WHITELIST",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # PROVE FIELD EXPANSION IS EXACTLY TWO FIELDS
+    # --------------------------------------------------------
+
+    compatibility_fields = sorted(
+        allowed_fields
+        - base_entry_fields
+    )
+
+    expected_compatibility_fields = sorted(
+        [
+            "tpTriggerPrice",
+            "TpWorkingType",
+        ]
+    )
+
+    if (
+        compatibility_fields
+        != expected_compatibility_fields
+    ):
+        raise RuntimeError(
+            "UNIT 11E.8 compatibility-field mismatch: "
+            + repr(compatibility_fields)
+        )
+
+    print(
+        "PASS: UNIT 11E.8 EXACTLY TWO TP1 FIELDS AUTHORIZED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.8 AUTHORIZED TP1 FIELDS = "
+        + repr(compatibility_fields),
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # SYMBOL LOCK
+    # --------------------------------------------------------
+
+    if candidate["symbol"] != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 11E.8 symbol lock failed: "
+            + repr(candidate["symbol"])
+        )
+
+    print(
+        "PASS: UNIT 11E.8 SYMBOL LOCK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # MARKET ENTRY LOCK
+    # --------------------------------------------------------
+
+    if candidate["type"] != "MARKET":
+        raise RuntimeError(
+            "UNIT 11E.8 order type must remain MARKET"
+        )
+
+    print(
+        "PASS: UNIT 11E.8 MARKET ENTRY LOCK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # DIRECTION CONSISTENCY
+    # --------------------------------------------------------
+
+    position_side = str(
+        candidate["positionSide"]
+    ).upper()
+
+    entry_side = str(
+        candidate["side"]
+    ).upper()
+
+    if position_side == "SHORT":
+
+        expected_entry_side = "SELL"
+
+    elif position_side == "LONG":
+
+        expected_entry_side = "BUY"
+
+    else:
+
+        raise RuntimeError(
+            "UNIT 11E.8 invalid positionSide: "
+            + repr(position_side)
+        )
+
+    if entry_side != expected_entry_side:
+        raise RuntimeError(
+            "UNIT 11E.8 direction mismatch: "
+            + repr(
+                {
+                    "positionSide": position_side,
+                    "side": entry_side,
+                    "expectedSide": expected_entry_side,
+                }
+            )
+        )
+
+    print(
+        "PASS: UNIT 11E.8 DIRECTION CONSISTENCY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # CONTROLLED QUANTITY
+    # --------------------------------------------------------
+
+    try:
+
+        quantity_value = float(
+            candidate["quantity"]
+        )
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            "UNIT 11E.8 invalid quantity"
+        ) from exc
+
+    if quantity_value <= 0:
+        raise RuntimeError(
+            "UNIT 11E.8 quantity must be positive"
+        )
+
+    if candidate["quantity"] != "0.0004":
+        raise RuntimeError(
+            "UNIT 11E.8 controlled quantity changed: "
+            + repr(candidate["quantity"])
+        )
+
+    print(
+        "PASS: UNIT 11E.8 CONTROLLED QUANTITY = "
+        + candidate["quantity"],
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # SL-DISABLE GUARD
+    # --------------------------------------------------------
+
+    forbidden_sl_fields = {
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopPrice",
+        "slPrice",
+    }
+
+    detected_sl_fields = sorted(
+        forbidden_sl_fields
+        & set(candidate.keys())
+    )
+
+    if detected_sl_fields:
+        raise RuntimeError(
+            "UNIT 11E.8 forbidden SL field(s): "
+            + repr(detected_sl_fields)
+        )
+
+    print(
+        "PASS: UNIT 11E.8 SL-DISABLE GUARD",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TP1 TRIGGER VALIDATION
+    # --------------------------------------------------------
+
+    try:
+
+        tp1_value = float(
+            candidate["tpTriggerPrice"]
+        )
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            "UNIT 11E.8 invalid tpTriggerPrice"
+        ) from exc
+
+    if tp1_value <= 0:
+        raise RuntimeError(
+            "UNIT 11E.8 tpTriggerPrice must be positive"
+        )
+
+    if candidate["tpTriggerPrice"] != "83512.3":
+        raise RuntimeError(
+            "UNIT 11E.8 TP1 trigger changed: "
+            + repr(candidate["tpTriggerPrice"])
+        )
+
+    print(
+        "PASS: UNIT 11E.8 TP1 TRIGGER LOCK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TP1 WORKING TYPE VALIDATION
+    # --------------------------------------------------------
+
+    if (
+        candidate["TpWorkingType"]
+        != "MARK_PRICE"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.8 unsupported TpWorkingType: "
+            + repr(candidate["TpWorkingType"])
+        )
+
+    print(
+        "PASS: UNIT 11E.8 TP1 WORKING-TYPE LOCK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TP DIRECTION VALIDATION
+    #
+    # Current verified SHORT position:
+    # TP must be below entry.
+    #
+    # Existing verified entry = 83595.9
+    # Existing verified TP1   = 83512.3
+    # --------------------------------------------------------
+
+    verified_entry_price = 83595.9
+
+    if position_side == "SHORT":
+
+        if not (
+            tp1_value
+            < verified_entry_price
+        ):
+            raise RuntimeError(
+                "UNIT 11E.8 SHORT TP1 direction invalid"
+            )
+
+    else:
+
+        if not (
+            tp1_value
+            > verified_entry_price
+        ):
+            raise RuntimeError(
+                "UNIT 11E.8 LONG TP1 direction invalid"
+            )
+
+    print(
+        "PASS: UNIT 11E.8 TP1 PRICE DIRECTION",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TP2 / TP3 FIREBREAK
+    #
+    # Unit 9 entry transport receives attached TP1 only.
+    # --------------------------------------------------------
+
+    forbidden_later_tp_fields = {
+        "tp2",
+        "tp3",
+        "tp2TriggerPrice",
+        "tp3TriggerPrice",
+        "callbackRate",
+        "trailingCallbackRate",
+        "workingType",
+        "reduceOnly",
+        "closePosition",
+        "tpName",
+    }
+
+    leaked_later_tp_fields = sorted(
+        forbidden_later_tp_fields
+        & set(candidate.keys())
+    )
+
+    if leaked_later_tp_fields:
+        raise RuntimeError(
+            "UNIT 11E.8 TP2/TP3 field leak: "
+            + repr(leaked_later_tp_fields)
+        )
+
+    print(
+        "PASS: UNIT 11E.8 TP2 UNSUBMITTED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.8 TP3 UNSUBMITTED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # CONDITIONAL-TYPE FIREBREAK
+    # --------------------------------------------------------
+
+    forbidden_order_types = {
+        "TAKE_PROFIT",
+        "TAKE_PROFIT_MARKET",
+        "TRAILING_MARKET",
+        "TRAILING_STOP_MARKET",
+        "STOP",
+        "STOP_MARKET",
+    }
+
+    if candidate["type"] in forbidden_order_types:
+        raise RuntimeError(
+            "UNIT 11E.8 conditional order type reached "
+            "entry boundary"
+        )
+
+    print(
+        "PASS: UNIT 11E.8 CONDITIONAL-TYPE FIREBREAK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # NEGATIVE TEST:
+    # PROVE AN SL FIELD WOULD STILL FAIL THE NEW CONTRACT.
+    # --------------------------------------------------------
+
+    sl_probe = dict(candidate)
+
+    sl_probe[
+        "slTriggerPrice"
+    ] = "84000.0"
+
+    sl_probe_unexpected = sorted(
+        set(sl_probe.keys())
+        - allowed_fields
+    )
+
+    if "slTriggerPrice" not in sl_probe_unexpected:
+        raise RuntimeError(
+            "UNIT 11E.8 SL rejection probe failed"
+        )
+
+    print(
+        "PASS: UNIT 11E.8 SL FIELD STILL REJECTED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # NEGATIVE TEST:
+    # PROVE AN UNKNOWN FIELD STILL FAILS.
+    # --------------------------------------------------------
+
+    unknown_probe = dict(candidate)
+
+    unknown_probe[
+        "unexpectedField"
+    ] = "BLOCK"
+
+    unknown_probe_unexpected = sorted(
+        set(unknown_probe.keys())
+        - allowed_fields
+    )
+
+    if (
+        "unexpectedField"
+        not in unknown_probe_unexpected
+    ):
+        raise RuntimeError(
+            "UNIT 11E.8 unknown-field probe failed"
+        )
+
+    print(
+        "PASS: UNIT 11E.8 UNKNOWN FIELD STILL REJECTED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # FINAL TRANSPORT-READY PAYLOAD
+    #
+    # IMPORTANT:
+    # "TRANSPORT-READY" DOES NOT MEAN SUBMITTED.
+    # --------------------------------------------------------
+
+    transport_ready_payload = {
+        key: candidate[key]
+        for key in (
+            "symbol",
+            "side",
+            "positionSide",
+            "type",
+            "quantity",
+            "newClientOrderId",
+            "tpTriggerPrice",
+            "TpWorkingType",
+        )
+    }
+
+    if (
+        transport_ready_payload
+        != candidate
+    ):
+        raise RuntimeError(
+            "UNIT 11E.8 final payload changed unexpectedly"
+        )
+
+    print(
+        "PASS: UNIT 11E.8 FINAL PAYLOAD IDENTITY",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.8 TRANSPORT-READY PAYLOAD = "
+        + repr(transport_ready_payload),
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.8 UNIT 9 VALIDATION CONTRACT = "
+        + repr(sorted(allowed_fields)),
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # ZERO-WRITE FIREBREAK
+    # --------------------------------------------------------
+
+    print(
+        "UNIT 11E.8 UNIT 9 HTTP TRANSPORT CALLED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.8 ENDPOINT AUTHORIZED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.8 WEEX POST = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.8 DEMO ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.8 REAL ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.8 EXCHANGE MUTATION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.8 AUTOMATIC RETRY = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.8 SL = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.8 BACKUP EXECUTION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.8 RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "verified": True,
+        "payload": transport_ready_payload,
+        "allowed_fields": sorted(
+            allowed_fields
+        ),
+        "unit9_http_transport_called": False,
+        "weex_post": False,
+        "demo_order": False,
+        "real_order": False,
+        "exchange_mutation": False,
+        "automatic_retry": False,
+        "sl_disabled": True,
+    }
+
+
+# ============================================================
+# UNIT 11E.8 STANDALONE TEST
+# ============================================================
+
+
+def reconstruction_unit_11e8_standalone_test():
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.8 STANDALONE TEST START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # EXACT VERIFIED UNIT 11E.6 PAYLOAD
+    # --------------------------------------------------------
+
+    verified_11e6_payload = {
+        "symbol": "BTCSUSDT",
+        "side": "SELL",
+        "positionSide": "SHORT",
+        "type": "MARKET",
+        "quantity": "0.0004",
+        "newClientOrderId": "R11E5-DEMO-TP1-TEST",
+        "tpTriggerPrice": "83512.3",
+        "TpWorkingType": "MARK_PRICE",
+    }
+
+    result = (
+        reconstruction_unit_11e8_unit9_validation_boundary(
+            verified_11e6_payload
+        )
+    )
+
+    if not result.get(
+        "verified"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.8 validation did not verify"
+        )
+
+    if result.get(
+        "unit9_http_transport_called"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.8 transport firebreak failed"
+        )
+
+    if result.get(
+        "weex_post"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.8 WEEX POST firebreak failed"
+        )
+
+    if result.get(
+        "demo_order"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.8 demo-order firebreak failed"
+        )
+
+    if result.get(
+        "real_order"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.8 real-order firebreak failed"
+        )
+
+    print(
+        "PASS: UNIT 11E.8 CORRECTED UNIT 9 "
+        "VALIDATION BOUNDARY",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.8 TP1 FIELDS NOW ACCEPTED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.8 ZERO EXCHANGE WRITE",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.8 "
+        "STANDALONE TEST = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# EXECUTE UNIT 11E.8
+# ============================================================
+
+try:
+
+    _unit_11e8_result = (
+        reconstruction_unit_11e8_standalone_test()
+    )
+
+except Exception as exc:
+
+    print(
+        "RECONSTRUCTION UNIT 11E.8 "
+        "STANDALONE TEST = FAIL",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.8 ERROR = "
+        + repr(exc),
+        flush=True,
+    )
+
+    raise
