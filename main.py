@@ -19327,3 +19327,1116 @@ def reconstruction_unit_11e4_standalone_test():
 
 if __name__ == "__main__":
     reconstruction_unit_11e4_standalone_test()
+
+# ============================================================
+# RECONSTRUCTION UNIT 11E.5
+# REAL WEEX DEMO ENTRY + NATIVE TP1 ACTIVATION
+#
+# PURPOSE:
+#
+# Open the NEXT qualified WEEX DEMO position with TP1 already
+# attached to the entry order.
+#
+# IMPORTANT:
+# - REAL WEEX DEMO POST = ENABLED
+# - PRODUCTION POST = IMPOSSIBLE
+# - ONE DEMO ENTRY MAXIMUM PER PROCESS
+# - TP1 ATTACHED AT ENTRY
+# - TP2 / TP3 PLAN PRESERVED
+# - SL DISABLED
+# - NO BACKUP EXECUTION
+# - NO PRODUCTION ORDER
+#
+# DEMO ENDPOINT:
+# POST /capi/v3/sim/order
+#
+# WEEX DEMO SUPPORTS:
+# - MARKET
+# - tpTriggerPrice
+# - TpWorkingType
+#
+# ============================================================
+
+
+UNIT_11E5_DEMO_BASE_URL = (
+    "https://api-contract.weex.com"
+)
+
+UNIT_11E5_DEMO_REQUEST_PATH = (
+    "/capi/v3/sim/order"
+)
+
+UNIT_11E5_PRODUCTION_REQUEST_PATH = (
+    "/capi/v3/order"
+)
+
+UNIT_11E5_SUBMISSION_LOCKED = False
+
+UNIT_11E5_ACCEPTED_RESULT = None
+
+
+def reconstruction_unit_11e5_client_order_id():
+
+    import time
+
+    timestamp_ms = str(
+        int(
+            time.time() * 1000
+        )
+    )
+
+    client_order_id = (
+        "R11E5-TP-"
+        + timestamp_ms
+    )
+
+    require(
+        len(
+            client_order_id
+        )
+        <= 36,
+        "UNIT 11E.5 client order ID too long.",
+    )
+
+    return client_order_id
+
+
+async def reconstruction_unit_11e5_activate_tp(
+    *,
+    direction,
+    quantity,
+    tp1_price,
+    tp2_price,
+    tp3_callback_rate="0.2",
+):
+
+    global UNIT_11E5_SUBMISSION_LOCKED
+    global UNIT_11E5_ACCEPTED_RESULT
+
+    import os
+    import json
+    import time
+    import aiohttp
+
+    separator()
+
+    log(
+        "RECONSTRUCTION UNIT 11E.5 "
+        "TP ACTIVATION START"
+    )
+
+    # ========================================================
+    # ONE-SHOT LOCK
+    # ========================================================
+
+    if UNIT_11E5_SUBMISSION_LOCKED:
+
+        log(
+            "UNIT 11E.5 SUBMISSION BLOCKED: "
+            "ONE-SHOT LOCK ACTIVE"
+        )
+
+        return {
+            "valid": True,
+            "submitted": False,
+            "accepted": True,
+            "reason": (
+                "UNIT_11E5_ALREADY_ACCEPTED"
+            ),
+            "previous_result": (
+                UNIT_11E5_ACCEPTED_RESULT
+            ),
+            "real_order": False,
+        }
+
+    # ========================================================
+    # DEMO ENDPOINT HARD LOCK
+    # ========================================================
+
+    require(
+        UNIT_11E5_DEMO_REQUEST_PATH
+        ==
+        "/capi/v3/sim/order",
+        "UNIT 11E.5 invalid demo endpoint.",
+    )
+
+    require(
+        "/sim/"
+        in UNIT_11E5_DEMO_REQUEST_PATH,
+        (
+            "UNIT 11E.5 DEMO "
+            "ENDPOINT SAFETY FAILURE."
+        ),
+    )
+
+    require(
+        UNIT_11E5_DEMO_REQUEST_PATH
+        !=
+        UNIT_11E5_PRODUCTION_REQUEST_PATH,
+        (
+            "UNIT 11E.5 DEMO/PRODUCTION "
+            "ENDPOINT COLLISION."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 11E.5 "
+        "DEMO ENDPOINT LOCK"
+    )
+
+    log(
+        "UNIT 11E.5 ENDPOINT = "
+        + UNIT_11E5_DEMO_REQUEST_PATH
+    )
+
+    # ========================================================
+    # NORMALIZE DIRECTION
+    # ========================================================
+
+    direction = str(
+        direction
+    ).upper()
+
+    require(
+        direction
+        in {
+            "LONG",
+            "SHORT",
+        },
+        "UNIT 11E.5 invalid direction.",
+    )
+
+    if direction == "LONG":
+
+        side = "BUY"
+
+    else:
+
+        side = "SELL"
+
+    position_side = direction
+
+    # ========================================================
+    # NORMALIZE NUMBERS
+    # ========================================================
+
+    quantity = D(
+        quantity
+    )
+
+    tp1_price = D(
+        tp1_price
+    )
+
+    tp2_price = D(
+        tp2_price
+    )
+
+    tp3_callback_rate = D(
+        tp3_callback_rate
+    )
+
+    require(
+        quantity > 0,
+        "UNIT 11E.5 quantity must be positive.",
+    )
+
+    require(
+        tp1_price > 0,
+        "UNIT 11E.5 TP1 must be positive.",
+    )
+
+    require(
+        tp2_price > 0,
+        "UNIT 11E.5 TP2 must be positive.",
+    )
+
+    require(
+        tp3_callback_rate > 0,
+        (
+            "UNIT 11E.5 TP3 callback "
+            "must be positive."
+        ),
+    )
+
+    # ========================================================
+    # TP DIRECTION GUARD
+    #
+    # LONG:
+    # TP2 should be farther ABOVE entry than TP1.
+    #
+    # SHORT:
+    # TP2 should be farther BELOW entry than TP1.
+    #
+    # We do not know the final fill price before MARKET entry,
+    # therefore this unit validates TP1 vs TP2 ordering here.
+    # ========================================================
+
+    if direction == "LONG":
+
+        require(
+            tp2_price
+            >
+            tp1_price,
+            (
+                "UNIT 11E.5 invalid "
+                "LONG TP ordering."
+            ),
+        )
+
+    else:
+
+        require(
+            tp2_price
+            <
+            tp1_price,
+            (
+                "UNIT 11E.5 invalid "
+                "SHORT TP ordering."
+            ),
+        )
+
+    log(
+        "PASS: UNIT 11E.5 "
+        "TP PRICE ORDERING"
+    )
+
+    # ========================================================
+    # CREATE UNIQUE CLIENT ORDER ID
+    # ========================================================
+
+    client_order_id = (
+        reconstruction_unit_11e5_client_order_id()
+    )
+
+    # ========================================================
+    # BUILD REAL DEMO ENTRY PAYLOAD
+    #
+    # THIS IS THE CRITICAL 11E.5 CHANGE.
+    #
+    # TP1 IS NOW ATTACHED DIRECTLY TO THE NEW DEMO ENTRY.
+    #
+    # SL FIELDS ARE INTENTIONALLY ABSENT.
+    # ========================================================
+
+    demo_payload = {
+
+        "symbol":
+            "BTCSUSDT",
+
+        "side":
+            side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            decimal_to_string(
+                quantity
+            ),
+
+        "newClientOrderId":
+            client_order_id,
+
+        "tpTriggerPrice":
+            decimal_to_string(
+                tp1_price
+            ),
+
+        "TpWorkingType":
+            "MARK_PRICE",
+    }
+
+    # ========================================================
+    # EXACT FIELD WHITELIST
+    # ========================================================
+
+    allowed_fields = {
+
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+        "tpTriggerPrice",
+        "TpWorkingType",
+    }
+
+    require(
+        set(
+            demo_payload.keys()
+        )
+        ==
+        allowed_fields,
+        (
+            "UNIT 11E.5 unexpected "
+            "payload fields."
+        ),
+    )
+
+    # ========================================================
+    # SL MUST REMAIN COMPLETELY ABSENT
+    # ========================================================
+
+    forbidden_sl_fields = {
+
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopLoss",
+        "stopPrice",
+        "stop_loss",
+    }
+
+    present_sl_fields = [
+
+        field
+
+        for field
+        in forbidden_sl_fields
+
+        if field
+        in demo_payload
+    ]
+
+    require(
+        not present_sl_fields,
+        (
+            "UNIT 11E.5 forbidden "
+            "SL fields present: "
+            + str(
+                present_sl_fields
+            )
+        ),
+    )
+
+    log(
+        "PASS: UNIT 11E.5 "
+        "SL DISABLED"
+    )
+
+    # ========================================================
+    # TP PLAN PRESERVATION
+    #
+    # TP1 is exchange-native immediately.
+    #
+    # TP2 and TP3 remain preserved for the next management
+    # stage after WEEX accepts the position.
+    # ========================================================
+
+    tp_plan = {
+
+        "tp1": {
+
+            "price":
+                decimal_to_string(
+                    tp1_price
+                ),
+
+            "status":
+                "ATTACHED_TO_ENTRY",
+        },
+
+        "tp2": {
+
+            "price":
+                decimal_to_string(
+                    tp2_price
+                ),
+
+            "status":
+                "PRESERVED_FOR_MANAGEMENT",
+        },
+
+        "tp3": {
+
+            "callbackRate":
+                decimal_to_string(
+                    tp3_callback_rate
+                ),
+
+            "status":
+                "PRESERVED_FOR_TRAILING",
+        },
+    }
+
+    log(
+        "PASS: UNIT 11E.5 "
+        "TP1 ATTACHED TO DEMO ENTRY"
+    )
+
+    log(
+        "PASS: UNIT 11E.5 "
+        "TP2/TP3 PLAN PRESERVED"
+    )
+
+    log(
+        "UNIT 11E.5 DIRECTION = "
+        + direction
+    )
+
+    log(
+        "UNIT 11E.5 QUANTITY = "
+        + decimal_to_string(
+            quantity
+        )
+    )
+
+    log(
+        "UNIT 11E.5 TP1 = "
+        + decimal_to_string(
+            tp1_price
+        )
+    )
+
+    log(
+        "UNIT 11E.5 TP2 = "
+        + decimal_to_string(
+            tp2_price
+        )
+    )
+
+    log(
+        "UNIT 11E.5 TP3 CALLBACK % = "
+        + decimal_to_string(
+            tp3_callback_rate
+        )
+    )
+
+    log(
+        "UNIT 11E.5 DEMO PAYLOAD = "
+        + str(
+            demo_payload
+        )
+    )
+
+    # ========================================================
+    # CREDENTIALS
+    # ========================================================
+
+    api_key = os.getenv(
+        "WEEX_API_KEY"
+    )
+
+    api_secret = os.getenv(
+        "WEEX_API_SECRET"
+    )
+
+    passphrase = os.getenv(
+        "WEEX_API_PASSPHRASE"
+    )
+
+    require(
+        bool(
+            api_key
+        ),
+        "UNIT 11E.5 WEEX_API_KEY missing.",
+    )
+
+    require(
+        bool(
+            api_secret
+        ),
+        "UNIT 11E.5 WEEX_API_SECRET missing.",
+    )
+
+    require(
+        bool(
+            passphrase
+        ),
+        (
+            "UNIT 11E.5 "
+            "WEEX_API_PASSPHRASE missing."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 11E.5 "
+        "WEEX CREDENTIALS PRESENT"
+    )
+
+    # ========================================================
+    # EXACT BODY
+    # ========================================================
+
+    body = json.dumps(
+        demo_payload,
+        separators=(
+            ",",
+            ":",
+        ),
+        ensure_ascii=False,
+    )
+
+    timestamp = str(
+        int(
+            time.time() * 1000
+        )
+    )
+
+    # ========================================================
+    # REUSE THE VERIFIED UNIT 9 SIGNER
+    # ========================================================
+
+    signature = (
+        reconstruction_unit_9_build_signature(
+            timestamp=timestamp,
+            request_path=(
+                UNIT_11E5_DEMO_REQUEST_PATH
+            ),
+            body=body,
+        )
+    )
+
+    headers = {
+
+        "ACCESS-KEY":
+            api_key,
+
+        "ACCESS-SIGN":
+            signature,
+
+        "ACCESS-TIMESTAMP":
+            timestamp,
+
+        "ACCESS-PASSPHRASE":
+            passphrase,
+
+        "Content-Type":
+            "application/json",
+    }
+
+    url = (
+        UNIT_11E5_DEMO_BASE_URL
+        +
+        UNIT_11E5_DEMO_REQUEST_PATH
+    )
+
+    # ========================================================
+    # FINAL PRODUCTION FIREBREAK
+    # ========================================================
+
+    require(
+        url
+        ==
+        (
+            "https://api-contract.weex.com"
+            "/capi/v3/sim/order"
+        ),
+        (
+            "UNIT 11E.5 FINAL URL "
+            "SAFETY FAILURE."
+        ),
+    )
+
+    require(
+        "/sim/order"
+        in url,
+        (
+            "UNIT 11E.5 NON-DEMO "
+            "ENDPOINT DETECTED."
+        ),
+    )
+
+    require(
+        url
+        !=
+        (
+            "https://api-contract.weex.com"
+            "/capi/v3/order"
+        ),
+        (
+            "UNIT 11E.5 PRODUCTION "
+            "ORDER ENDPOINT DETECTED."
+        ),
+    )
+
+    require(
+        "/placeTpSlOrder"
+        not in url,
+        (
+            "UNIT 11E.5 PRODUCTION "
+            "TP ENDPOINT DETECTED."
+        ),
+    )
+
+    require(
+        "/algoOrder"
+        not in url,
+        (
+            "UNIT 11E.5 PRODUCTION "
+            "ALGO ENDPOINT DETECTED."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 11E.5 "
+        "FINAL DEMO-ONLY SAFETY GATE"
+    )
+
+    separator()
+
+    log(
+        "UNIT 11E.5 SENDING ONE "
+        "REAL WEEX DEMO ENTRY WITH TP1"
+    )
+
+    log(
+        "UNIT 11E.5 DEMO ORDER = TRUE"
+    )
+
+    log(
+        "UNIT 11E.5 REAL ORDER = FALSE"
+    )
+
+    log(
+        "UNIT 11E.5 SL ENABLED = FALSE"
+    )
+
+    log(
+        "UNIT 11E.5 BACKUP EXECUTION = FALSE"
+    )
+
+    separator()
+
+    # ========================================================
+    # ACTUAL WEEX DEMO POST
+    # ========================================================
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    try:
+
+        async with aiohttp.ClientSession(
+            timeout=timeout
+        ) as session:
+
+            async with session.post(
+                url,
+                headers=headers,
+                data=body,
+            ) as response:
+
+                http_status = (
+                    response.status
+                )
+
+                response_text = (
+                    await response.text()
+                )
+
+    except Exception as exc:
+
+        log(
+            "UNIT 11E.5 DEMO NETWORK ERROR = "
+            + repr(
+                exc
+            )
+        )
+
+        return {
+
+            "valid":
+                False,
+
+            "submitted":
+                False,
+
+            "accepted":
+                False,
+
+            "reason":
+                "UNIT_11E5_NETWORK_ERROR",
+
+            "error":
+                repr(
+                    exc
+                ),
+
+            "client_order_id":
+                client_order_id,
+
+            "tp_plan":
+                tp_plan,
+
+            "real_order":
+                False,
+        }
+
+    # ========================================================
+    # LOG RAW EXCHANGE RESULT
+    # ========================================================
+
+    separator()
+
+    log(
+        "UNIT 11E.5 HTTP STATUS = "
+        + str(
+            http_status
+        )
+    )
+
+    log(
+        "UNIT 11E.5 RAW RESPONSE = "
+        + response_text
+    )
+
+    # ========================================================
+    # PARSE RESPONSE
+    # ========================================================
+
+    try:
+
+        response_data = json.loads(
+            response_text
+        )
+
+    except Exception:
+
+        response_data = {
+
+            "raw":
+                response_text
+        }
+
+    # ========================================================
+    # HTTP FAILURE
+    # ========================================================
+
+    if (
+        http_status < 200
+        or
+        http_status >= 300
+    ):
+
+        log(
+            "UNIT 11E.5 DEMO SUBMISSION "
+            "HTTP FAILURE"
+        )
+
+        log(
+            "UNIT 11E.5 SECOND "
+            "SUBMISSION = BLOCKED"
+        )
+
+        separator()
+
+        return {
+
+            "valid":
+                False,
+
+            "submitted":
+                True,
+
+            "accepted":
+                False,
+
+            "reason":
+                "UNIT_11E5_HTTP_FAILURE",
+
+            "http_status":
+                http_status,
+
+            "response":
+                response_data,
+
+            "client_order_id":
+                client_order_id,
+
+            "tp_plan":
+                tp_plan,
+
+            "real_order":
+                False,
+        }
+
+    # ========================================================
+    # EXCHANGE SUCCESS FIELD
+    # ========================================================
+
+    exchange_success = (
+        response_data.get(
+            "success"
+        )
+    )
+
+    order_id = (
+        response_data.get(
+            "orderId"
+        )
+    )
+
+    returned_client_order_id = (
+        response_data.get(
+            "clientOrderId"
+        )
+    )
+
+    error_code = (
+        response_data.get(
+            "errorCode"
+        )
+    )
+
+    error_message = (
+        response_data.get(
+            "errorMessage"
+        )
+    )
+
+    log(
+        "UNIT 11E.5 EXCHANGE SUCCESS = "
+        + str(
+            exchange_success
+        )
+    )
+
+    log(
+        "UNIT 11E.5 ORDER ID = "
+        + str(
+            order_id
+        )
+    )
+
+    log(
+        "UNIT 11E.5 RETURNED CLIENT ID = "
+        + str(
+            returned_client_order_id
+        )
+    )
+
+    if error_code not in (
+        None,
+        "",
+    ):
+
+        log(
+            "UNIT 11E.5 ERROR CODE = "
+            + str(
+                error_code
+            )
+        )
+
+    if error_message not in (
+        None,
+        "",
+    ):
+
+        log(
+            "UNIT 11E.5 ERROR MESSAGE = "
+            + str(
+                error_message
+            )
+        )
+
+    # ========================================================
+    # EXCHANGE REJECTION
+    #
+    # NO AUTOMATIC RETRY.
+    # ========================================================
+
+    if exchange_success is not True:
+
+        log(
+            "UNIT 11E.5 DEMO ORDER "
+            "NOT ACCEPTED"
+        )
+
+        log(
+            "UNIT 11E.5 AUTOMATIC "
+            "RESUBMISSION = BLOCKED"
+        )
+
+        log(
+            "UNIT 11E.5 REAL ORDER = FALSE"
+        )
+
+        separator()
+
+        return {
+
+            "valid":
+                False,
+
+            "submitted":
+                True,
+
+            "accepted":
+                False,
+
+            "reason":
+                "UNIT_11E5_EXCHANGE_REJECTED",
+
+            "http_status":
+                http_status,
+
+            "response":
+                response_data,
+
+            "order_id":
+                order_id,
+
+            "client_order_id":
+                client_order_id,
+
+            "tp_plan":
+                tp_plan,
+
+            "real_order":
+                False,
+        }
+
+    # ========================================================
+    # ACCEPTANCE VALIDATION
+    # ========================================================
+
+    require(
+        order_id
+        not in (
+            None,
+            "",
+        ),
+        (
+            "UNIT 11E.5 accepted response "
+            "missing orderId."
+        ),
+    )
+
+    require(
+        returned_client_order_id
+        ==
+        client_order_id,
+        (
+            "UNIT 11E.5 client order ID "
+            "response mismatch."
+        ),
+    )
+
+    # ========================================================
+    # LOCK IMMEDIATELY AFTER ACCEPTANCE
+    # ========================================================
+
+    UNIT_11E5_SUBMISSION_LOCKED = True
+
+    result = {
+
+        "valid":
+            True,
+
+        "submitted":
+            True,
+
+        "accepted":
+            True,
+
+        "tp1_activated":
+            True,
+
+        "reason":
+            "UNIT_11E5_DEMO_ENTRY_WITH_TP_ACCEPTED",
+
+        "direction":
+            direction,
+
+        "quantity":
+            quantity,
+
+        "order_id":
+            order_id,
+
+        "client_order_id":
+            client_order_id,
+
+        "http_status":
+            http_status,
+
+        "response":
+            response_data,
+
+        "entry_payload":
+            demo_payload,
+
+        "tp_plan":
+            tp_plan,
+
+        "sl_enabled":
+            False,
+
+        "backup_execution":
+            False,
+
+        "real_order":
+            False,
+    }
+
+    UNIT_11E5_ACCEPTED_RESULT = result
+
+    # ========================================================
+    # FINAL PASS
+    # ========================================================
+
+    separator()
+
+    log(
+        "PASS: UNIT 11E.5 "
+        "WEEX DEMO ENTRY ACCEPTED"
+    )
+
+    log(
+        "PASS: UNIT 11E.5 "
+        "TP1 ACTIVATION ACCEPTED"
+    )
+
+    log(
+        "UNIT 11E.5 TP1 ACTIVE = TRUE"
+    )
+
+    log(
+        "UNIT 11E.5 TP2 PRESERVED = TRUE"
+    )
+
+    log(
+        "UNIT 11E.5 TP3 TRAILING "
+        "PRESERVED = TRUE"
+    )
+
+    log(
+        "UNIT 11E.5 SL ENABLED = FALSE"
+    )
+
+    log(
+        "UNIT 11E.5 BACKUP EXECUTION = FALSE"
+    )
+
+    log(
+        "UNIT 11E.5 ONE-SHOT LOCK = ACTIVE"
+    )
+
+    log(
+        "UNIT 11E.5 FURTHER ENTRY "
+        "SUBMISSIONS = BLOCKED"
+    )
+
+    log(
+        "REAL ORDER SENT = FALSE"
+    )
+
+    log(
+        "DEMO ORDER SENT = TRUE"
+    )
+
+    log(
+        "RECONSTRUCTION UNIT 11E.5 "
+        "RESULT = PASS"
+    )
+
+    separator()
+
+    return result
