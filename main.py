@@ -1,4 +1,4 @@
-what time are # ============================================================
+# ============================================================
 # RECONSTRUCTION UNIT 6
 # STANDALONE POSITION SIZING + ENTRY INSTRUCTION TEST
 #
