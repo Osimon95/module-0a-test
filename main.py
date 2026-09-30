@@ -9863,15 +9863,18 @@ async def run_reconstruction_unit_10b():
 
 # ============================================================
 # UNIT 10B ENTRY POINT
+# TEMPORARILY DISABLED FOR UNIT 11C STANDALONE TEST
 # ============================================================
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
+#
+#     import asyncio
+#
+#     asyncio.run(
+#         run_reconstruction_unit_10b()
+#     )
 
-    import asyncio
 
-    asyncio.run(
-        run_reconstruction_unit_10b()
-    )
 
 # ============================================================
 # RECONSTRUCTION UNIT 11A
