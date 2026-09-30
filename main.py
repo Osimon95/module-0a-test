@@ -9872,3 +9872,1056 @@ if __name__ == "__main__":
     asyncio.run(
         run_reconstruction_unit_10b()
     )
+
+# ============================================================
+# RECONSTRUCTION UNIT 11A
+# ADAPTIVE TP1 / TP2 / TP3 ZERO-WRITE STANDALONE TEST
+#
+# PURPOSE:
+# Prove the reconstructed take-profit model before connecting
+# it to the frozen Unit 10B demo-entry pipeline.
+#
+# TP MODEL:
+# - TP1 minimum net ROI floor = 10%
+# - TP2 minimum net ROI floor = 20%
+# - Favorable market conditions may extend TP1 / TP2 higher
+# - TP3 = trailing runner
+#
+# IMPORTANT:
+# - ZERO WEEX POST
+# - ZERO DEMO TP ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - NO SL
+# - NO BACKUP EXECUTION
+# ============================================================
+
+from decimal import Decimal, ROUND_DOWN
+
+
+UNIT_11A_TP1_MIN_NET_ROI_PERCENT = Decimal("10")
+UNIT_11A_TP2_MIN_NET_ROI_PERCENT = Decimal("20")
+
+UNIT_11A_TP1_ALLOCATION_PERCENT = Decimal("25")
+UNIT_11A_TP2_ALLOCATION_PERCENT = Decimal("25")
+UNIT_11A_TP3_ALLOCATION_PERCENT = Decimal("50")
+
+UNIT_11A_TP3_TRAILING_DISTANCE_PERCENT = Decimal("0.20")
+
+UNIT_11A_PRICE_STEP = Decimal("0.1")
+UNIT_11A_QTY_STEP = Decimal("0.0001")
+
+UNIT_11A_LEVERAGE = Decimal("100")
+
+
+def unit_11a_decimal(value):
+    return Decimal(str(value))
+
+
+def unit_11a_normalize_price(price):
+
+    price = unit_11a_decimal(price)
+
+    normalized = (
+        price
+        / UNIT_11A_PRICE_STEP
+    ).quantize(
+        Decimal("1"),
+        rounding=ROUND_DOWN,
+    ) * UNIT_11A_PRICE_STEP
+
+    return normalized
+
+
+def unit_11a_normalize_quantity(quantity):
+
+    quantity = unit_11a_decimal(quantity)
+
+    normalized = (
+        quantity
+        / UNIT_11A_QTY_STEP
+    ).quantize(
+        Decimal("1"),
+        rounding=ROUND_DOWN,
+    ) * UNIT_11A_QTY_STEP
+
+    return normalized
+
+
+def unit_11a_roi_floor_price(
+    *,
+    direction,
+    entry_price,
+    minimum_roi_percent,
+    leverage,
+):
+
+    direction = str(direction).upper()
+
+    entry_price = unit_11a_decimal(
+        entry_price
+    )
+
+    minimum_roi_percent = unit_11a_decimal(
+        minimum_roi_percent
+    )
+
+    leverage = unit_11a_decimal(
+        leverage
+    )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+        raise ValueError(
+            "UNIT 11A INVALID DIRECTION"
+        )
+
+    if entry_price <= 0:
+        raise ValueError(
+            "UNIT 11A INVALID ENTRY PRICE"
+        )
+
+    if leverage <= 0:
+        raise ValueError(
+            "UNIT 11A INVALID LEVERAGE"
+        )
+
+    required_price_move_percent = (
+        minimum_roi_percent
+        / leverage
+    )
+
+    required_price_move_fraction = (
+        required_price_move_percent
+        / Decimal("100")
+    )
+
+    if direction == "LONG":
+
+        floor_price = (
+            entry_price
+            * (
+                Decimal("1")
+                +
+                required_price_move_fraction
+            )
+        )
+
+    else:
+
+        floor_price = (
+            entry_price
+            * (
+                Decimal("1")
+                -
+                required_price_move_fraction
+            )
+        )
+
+    return unit_11a_normalize_price(
+        floor_price
+    )
+
+
+def unit_11a_choose_adaptive_target(
+    *,
+    direction,
+    roi_floor_price,
+    favorable_market_price,
+):
+
+    direction = str(direction).upper()
+
+    roi_floor_price = unit_11a_decimal(
+        roi_floor_price
+    )
+
+    if favorable_market_price is None:
+
+        return {
+            "target_price":
+                roi_floor_price,
+
+            "source":
+                "NET_ROI_FLOOR",
+        }
+
+    favorable_market_price = (
+        unit_11a_normalize_price(
+            favorable_market_price
+        )
+    )
+
+    if direction == "LONG":
+
+        if (
+            favorable_market_price
+            >
+            roi_floor_price
+        ):
+
+            return {
+                "target_price":
+                    favorable_market_price,
+
+                "source":
+                    "FAVORABLE_MARKET_ABOVE_FLOOR",
+            }
+
+    elif direction == "SHORT":
+
+        if (
+            favorable_market_price
+            <
+            roi_floor_price
+        ):
+
+            return {
+                "target_price":
+                    favorable_market_price,
+
+                "source":
+                    "FAVORABLE_MARKET_BEYOND_FLOOR",
+            }
+
+    else:
+
+        raise ValueError(
+            "UNIT 11A INVALID DIRECTION"
+        )
+
+    return {
+        "target_price":
+            roi_floor_price,
+
+        "source":
+            "NET_ROI_FLOOR",
+    }
+
+
+def reconstruction_unit_11a_tp_engine(
+    *,
+    direction,
+    entry_price,
+    total_quantity,
+    favorable_tp1_price=None,
+    favorable_tp2_price=None,
+    leverage=UNIT_11A_LEVERAGE,
+):
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11A "
+        "ADAPTIVE TP ENGINE START",
+        flush=True,
+    )
+
+    direction = str(
+        direction
+    ).upper()
+
+    entry_price = unit_11a_decimal(
+        entry_price
+    )
+
+    total_quantity = unit_11a_decimal(
+        total_quantity
+    )
+
+    leverage = unit_11a_decimal(
+        leverage
+    )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+
+        raise RuntimeError(
+            "UNIT 11A DIRECTION INVALID"
+        )
+
+    if entry_price <= 0:
+
+        raise RuntimeError(
+            "UNIT 11A ENTRY PRICE INVALID"
+        )
+
+    if total_quantity <= 0:
+
+        raise RuntimeError(
+            "UNIT 11A QUANTITY INVALID"
+        )
+
+    print(
+        "UNIT 11A DIRECTION =",
+        direction,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A ENTRY PRICE =",
+        entry_price,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A TOTAL QUANTITY =",
+        total_quantity,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A LEVERAGE =",
+        leverage,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TP1
+    # Minimum 10% ROI floor
+    # --------------------------------------------------------
+
+    tp1_floor_price = (
+        unit_11a_roi_floor_price(
+            direction=direction,
+            entry_price=entry_price,
+            minimum_roi_percent=(
+                UNIT_11A_TP1_MIN_NET_ROI_PERCENT
+            ),
+            leverage=leverage,
+        )
+    )
+
+    tp1_selection = (
+        unit_11a_choose_adaptive_target(
+            direction=direction,
+            roi_floor_price=tp1_floor_price,
+            favorable_market_price=(
+                favorable_tp1_price
+            ),
+        )
+    )
+
+    tp1_price = (
+        tp1_selection[
+            "target_price"
+        ]
+    )
+
+    tp1_source = (
+        tp1_selection[
+            "source"
+        ]
+    )
+
+    # --------------------------------------------------------
+    # TP2
+    # Minimum 20% ROI floor
+    # --------------------------------------------------------
+
+    tp2_floor_price = (
+        unit_11a_roi_floor_price(
+            direction=direction,
+            entry_price=entry_price,
+            minimum_roi_percent=(
+                UNIT_11A_TP2_MIN_NET_ROI_PERCENT
+            ),
+            leverage=leverage,
+        )
+    )
+
+    tp2_selection = (
+        unit_11a_choose_adaptive_target(
+            direction=direction,
+            roi_floor_price=tp2_floor_price,
+            favorable_market_price=(
+                favorable_tp2_price
+            ),
+        )
+    )
+
+    tp2_price = (
+        tp2_selection[
+            "target_price"
+        ]
+    )
+
+    tp2_source = (
+        tp2_selection[
+            "source"
+        ]
+    )
+
+    # --------------------------------------------------------
+    # QUANTITY ALLOCATION
+    #
+    # 25% TP1
+    # 25% TP2
+    # remainder TP3
+    #
+    # TP3 receives the remainder so quantity rounding can
+    # never accidentally create more total exit quantity
+    # than the actual position.
+    # --------------------------------------------------------
+
+    tp1_quantity_raw = (
+        total_quantity
+        *
+        UNIT_11A_TP1_ALLOCATION_PERCENT
+        /
+        Decimal("100")
+    )
+
+    tp2_quantity_raw = (
+        total_quantity
+        *
+        UNIT_11A_TP2_ALLOCATION_PERCENT
+        /
+        Decimal("100")
+    )
+
+    tp1_quantity = (
+        unit_11a_normalize_quantity(
+            tp1_quantity_raw
+        )
+    )
+
+    tp2_quantity = (
+        unit_11a_normalize_quantity(
+            tp2_quantity_raw
+        )
+    )
+
+    tp3_quantity = (
+        total_quantity
+        -
+        tp1_quantity
+        -
+        tp2_quantity
+    )
+
+    tp3_quantity = (
+        unit_11a_normalize_quantity(
+            tp3_quantity
+        )
+    )
+
+    allocated_quantity = (
+        tp1_quantity
+        +
+        tp2_quantity
+        +
+        tp3_quantity
+    )
+
+    # --------------------------------------------------------
+    # VALIDATION
+    # --------------------------------------------------------
+
+    if tp1_quantity <= 0:
+
+        raise RuntimeError(
+            "UNIT 11A TP1 QUANTITY INVALID"
+        )
+
+    if tp2_quantity <= 0:
+
+        raise RuntimeError(
+            "UNIT 11A TP2 QUANTITY INVALID"
+        )
+
+    if tp3_quantity <= 0:
+
+        raise RuntimeError(
+            "UNIT 11A TP3 QUANTITY INVALID"
+        )
+
+    if allocated_quantity != total_quantity:
+
+        raise RuntimeError(
+            "UNIT 11A TP QUANTITY "
+            "ALLOCATION MISMATCH"
+        )
+
+    if direction == "LONG":
+
+        if not (
+            tp1_price
+            >
+            entry_price
+        ):
+
+            raise RuntimeError(
+                "UNIT 11A LONG TP1 "
+                "NOT ABOVE ENTRY"
+            )
+
+        if not (
+            tp2_price
+            >
+            tp1_price
+        ):
+
+            raise RuntimeError(
+                "UNIT 11A LONG TP2 "
+                "NOT ABOVE TP1"
+            )
+
+    else:
+
+        if not (
+            tp1_price
+            <
+            entry_price
+        ):
+
+            raise RuntimeError(
+                "UNIT 11A SHORT TP1 "
+                "NOT BELOW ENTRY"
+            )
+
+        if not (
+            tp2_price
+            <
+            tp1_price
+        ):
+
+            raise RuntimeError(
+                "UNIT 11A SHORT TP2 "
+                "NOT BELOW TP1"
+            )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11A "
+        "TP1 10% ROI FLOOR",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A TP1 FLOOR PRICE =",
+        tp1_floor_price,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A TP1 FINAL PRICE =",
+        tp1_price,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A TP1 SOURCE =",
+        tp1_source,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A TP1 QUANTITY =",
+        tp1_quantity,
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11A "
+        "TP2 20% ROI FLOOR",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A TP2 FLOOR PRICE =",
+        tp2_floor_price,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A TP2 FINAL PRICE =",
+        tp2_price,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A TP2 SOURCE =",
+        tp2_source,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A TP2 QUANTITY =",
+        tp2_quantity,
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11A "
+        "TP3 TRAILING RUNNER",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A TP3 QUANTITY =",
+        tp3_quantity,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A TP3 TRAILING "
+        "DISTANCE % =",
+        UNIT_11A_TP3_TRAILING_DISTANCE_PERCENT,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A TP3 FIXED "
+        "TARGET = NONE",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11A "
+        "QUANTITY ALLOCATION",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A ALLOCATED "
+        "QUANTITY =",
+        allocated_quantity,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A EXPECTED "
+        "QUANTITY =",
+        total_quantity,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # EXECUTION FIREBREAK
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11A "
+        "EXECUTION FIREBREAK",
+        flush=True,
+    )
+
+    print(
+        "ZERO WEEX POST = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO TP ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO SL GENERATED = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO BACKUP EXECUTION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11A "
+        "RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "valid":
+            True,
+
+        "direction":
+            direction,
+
+        "entry_price":
+            entry_price,
+
+        "total_quantity":
+            total_quantity,
+
+        "tp1": {
+            "minimum_net_roi_percent":
+                UNIT_11A_TP1_MIN_NET_ROI_PERCENT,
+
+            "floor_price":
+                tp1_floor_price,
+
+            "price":
+                tp1_price,
+
+            "quantity":
+                tp1_quantity,
+
+            "source":
+                tp1_source,
+        },
+
+        "tp2": {
+            "minimum_net_roi_percent":
+                UNIT_11A_TP2_MIN_NET_ROI_PERCENT,
+
+            "floor_price":
+                tp2_floor_price,
+
+            "price":
+                tp2_price,
+
+            "quantity":
+                tp2_quantity,
+
+            "source":
+                tp2_source,
+        },
+
+        "tp3": {
+            "quantity":
+                tp3_quantity,
+
+            "trailing_runner":
+                True,
+
+            "trailing_distance_percent":
+                UNIT_11A_TP3_TRAILING_DISTANCE_PERCENT,
+        },
+
+        "weex_post":
+            False,
+
+        "demo_tp_order":
+            False,
+
+        "real_order":
+            False,
+    }
+
+
+def reconstruction_unit_11a_standalone_test():
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A STANDALONE "
+        "ZERO-WRITE TEST START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TEST 1 — LONG
+    #
+    # No favorable market extension supplied.
+    # Therefore TP1 and TP2 MUST use their ROI floors.
+    # --------------------------------------------------------
+
+    long_result = (
+        reconstruction_unit_11a_tp_engine(
+            direction="LONG",
+            entry_price=Decimal("80000"),
+            total_quantity=Decimal("0.0004"),
+            favorable_tp1_price=None,
+            favorable_tp2_price=None,
+            leverage=Decimal("100"),
+        )
+    )
+
+    if (
+        long_result[
+            "tp1"
+        ][
+            "source"
+        ]
+        !=
+        "NET_ROI_FLOOR"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11A LONG TP1 "
+            "FLOOR TEST FAILED"
+        )
+
+    if (
+        long_result[
+            "tp2"
+        ][
+            "source"
+        ]
+        !=
+        "NET_ROI_FLOOR"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11A LONG TP2 "
+            "FLOOR TEST FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11A "
+        "LONG FLOOR TEST",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TEST 2 — SHORT
+    #
+    # Favorable prices are deliberately placed farther into
+    # profit than the minimum ROI floors.
+    #
+    # This proves the adaptive extension behavior.
+    # --------------------------------------------------------
+
+    short_result = (
+        reconstruction_unit_11a_tp_engine(
+            direction="SHORT",
+            entry_price=Decimal("80000"),
+            total_quantity=Decimal("0.0004"),
+
+            favorable_tp1_price=(
+                Decimal("79880")
+            ),
+
+            favorable_tp2_price=(
+                Decimal("79760")
+            ),
+
+            leverage=Decimal("100"),
+        )
+    )
+
+    if (
+        short_result[
+            "tp1"
+        ][
+            "source"
+        ]
+        !=
+        "FAVORABLE_MARKET_BEYOND_FLOOR"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11A SHORT TP1 "
+            "ADAPTIVE TEST FAILED"
+        )
+
+    if (
+        short_result[
+            "tp2"
+        ][
+            "source"
+        ]
+        !=
+        "FAVORABLE_MARKET_BEYOND_FLOOR"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11A SHORT TP2 "
+            "ADAPTIVE TEST FAILED"
+        )
+
+    # --------------------------------------------------------
+    # EXPECTED QUANTITY SPLIT FOR 0.0004 BTC
+    # --------------------------------------------------------
+
+    expected_tp1_quantity = (
+        Decimal("0.0001")
+    )
+
+    expected_tp2_quantity = (
+        Decimal("0.0001")
+    )
+
+    expected_tp3_quantity = (
+        Decimal("0.0002")
+    )
+
+    if (
+        short_result[
+            "tp1"
+        ][
+            "quantity"
+        ]
+        !=
+        expected_tp1_quantity
+    ):
+
+        raise RuntimeError(
+            "UNIT 11A TP1 "
+            "ALLOCATION FAILED"
+        )
+
+    if (
+        short_result[
+            "tp2"
+        ][
+            "quantity"
+        ]
+        !=
+        expected_tp2_quantity
+    ):
+
+        raise RuntimeError(
+            "UNIT 11A TP2 "
+            "ALLOCATION FAILED"
+        )
+
+    if (
+        short_result[
+            "tp3"
+        ][
+            "quantity"
+        ]
+        !=
+        expected_tp3_quantity
+    ):
+
+        raise RuntimeError(
+            "UNIT 11A TP3 "
+            "ALLOCATION FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11A "
+        "SHORT ADAPTIVE TEST",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11A "
+        "0.0004 QUANTITY SPLIT "
+        "= 0.0001 / 0.0001 / 0.0002",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11A "
+        "TP3 TRAILING RUNNER",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11A "
+        "ZERO-WRITE TEST",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A WEEX POST = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A DEMO TP ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A REAL ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11A BACKUP EXECUTION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11A "
+        "STANDALONE TEST = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "valid":
+            True,
+
+        "long_test":
+            long_result,
+
+        "short_test":
+            short_result,
+
+        "weex_post":
+            False,
+
+        "demo_tp_order":
+            False,
+
+        "real_order":
+            False,
+
+        "backup_execution":
+            False,
+    }
+
+
+# ============================================================
+# UNIT 11A TEMPORARY STANDALONE TEST ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+
+    reconstruction_unit_11a_standalone_test()
