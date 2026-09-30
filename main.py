@@ -12312,3 +12312,929 @@ def reconstruction_unit_11b_standalone_test():
 if __name__ == "__main__":
 
     reconstruction_unit_11b_standalone_test()
+
+# ============================================================
+# RECONSTRUCTION UNIT 11C
+# LIVE DEMO POSITION -> UNIT 11A -> UNIT 11B BRIDGE
+#
+# PURPOSE:
+# Read the currently open WEEX demo position and use its
+# ACTUAL direction, entry price and quantity to generate
+# the Unit 11A adaptive TP plan and Unit 11B validated
+# TP submission-boundary payloads.
+#
+# IMPORTANT:
+# - READ-ONLY POSITION RECONCILIATION
+# - ZERO WEEX POST
+# - ZERO DEMO TP ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - NO SL
+# - NO BACKUP EXECUTION
+#
+# UNIT 11C DOES NOT PLACE TP ORDERS.
+# ============================================================
+
+
+UNIT_11C_SYMBOL = "BTCSUSDT"
+
+
+def unit_11c_decimal(value):
+
+    if value is None:
+
+        return Decimal("0")
+
+    try:
+
+        return Decimal(
+            str(value)
+        )
+
+    except Exception:
+
+        return Decimal("0")
+
+
+def unit_11c_first_value(
+    data,
+    names,
+):
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+
+        return None
+
+    for name in names:
+
+        if name in data:
+
+            value = data.get(
+                name
+            )
+
+            if value not in (
+                None,
+                "",
+            ):
+
+                return value
+
+    return None
+
+
+def unit_11c_extract_position_list(
+    response_json,
+):
+
+    if isinstance(
+        response_json,
+        list,
+    ):
+
+        return response_json
+
+    if not isinstance(
+        response_json,
+        dict,
+    ):
+
+        return []
+
+    # --------------------------------------------------------
+    # Common direct containers
+    # --------------------------------------------------------
+
+    for key in (
+        "data",
+        "result",
+        "positions",
+        "list",
+        "rows",
+    ):
+
+        value = response_json.get(
+            key
+        )
+
+        if isinstance(
+            value,
+            list,
+        ):
+
+            return value
+
+        if isinstance(
+            value,
+            dict,
+        ):
+
+            for nested_key in (
+                "positions",
+                "list",
+                "rows",
+                "data",
+            ):
+
+                nested_value = (
+                    value.get(
+                        nested_key
+                    )
+                )
+
+                if isinstance(
+                    nested_value,
+                    list,
+                ):
+
+                    return nested_value
+
+    return []
+
+
+def unit_11c_normalize_direction(
+    position,
+):
+
+    raw_direction = (
+        unit_11c_first_value(
+            position,
+            (
+                "positionSide",
+                "position_side",
+                "holdSide",
+                "hold_side",
+                "direction",
+                "side",
+            ),
+        )
+    )
+
+    if raw_direction is None:
+
+        return None
+
+    raw_direction = str(
+        raw_direction
+    ).upper()
+
+    if raw_direction in (
+        "LONG",
+        "BUY",
+    ):
+
+        return "LONG"
+
+    if raw_direction in (
+        "SHORT",
+        "SELL",
+    ):
+
+        return "SHORT"
+
+    return None
+
+
+def unit_11c_position_quantity(
+    position,
+):
+
+    raw_quantity = (
+        unit_11c_first_value(
+            position,
+            (
+                "quantity",
+                "positionAmt",
+                "positionAmount",
+                "position_amount",
+                "size",
+                "total",
+                "holdVol",
+                "holdVolume",
+                "available",
+            ),
+        )
+    )
+
+    quantity = (
+        unit_11c_decimal(
+            raw_quantity
+        )
+    )
+
+    if quantity < 0:
+
+        quantity = abs(
+            quantity
+        )
+
+    return quantity
+
+
+def unit_11c_entry_price(
+    position,
+):
+
+    raw_entry = (
+        unit_11c_first_value(
+            position,
+            (
+                "entryPrice",
+                "entry_price",
+                "avgPrice",
+                "averagePrice",
+                "averageOpenPrice",
+                "openPriceAvg",
+                "openAvgPrice",
+            ),
+        )
+    )
+
+    return unit_11c_decimal(
+        raw_entry
+    )
+
+
+def unit_11c_symbol(
+    position,
+):
+
+    raw_symbol = (
+        unit_11c_first_value(
+            position,
+            (
+                "symbol",
+                "contract",
+                "contractCode",
+            ),
+        )
+    )
+
+    if raw_symbol is None:
+
+        return None
+
+    return str(
+        raw_symbol
+    ).upper()
+
+
+def unit_11c_normalize_position(
+    position,
+):
+
+    if not isinstance(
+        position,
+        dict,
+    ):
+
+        return None
+
+    direction = (
+        unit_11c_normalize_direction(
+            position
+        )
+    )
+
+    quantity = (
+        unit_11c_position_quantity(
+            position
+        )
+    )
+
+    entry_price = (
+        unit_11c_entry_price(
+            position
+        )
+    )
+
+    symbol = (
+        unit_11c_symbol(
+            position
+        )
+    )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+
+        return None
+
+    if quantity <= 0:
+
+        return None
+
+    if entry_price <= 0:
+
+        return None
+
+    return {
+
+        "symbol":
+            symbol,
+
+        "direction":
+            direction,
+
+        "quantity":
+            quantity,
+
+        "entry_price":
+            entry_price,
+
+        "raw":
+            position,
+    }
+
+
+def unit_11c_find_open_positions(
+    response_json,
+    symbol=UNIT_11C_SYMBOL,
+):
+
+    raw_positions = (
+        unit_11c_extract_position_list(
+            response_json
+        )
+    )
+
+    normalized_positions = []
+
+    requested_symbol = str(
+        symbol
+    ).upper()
+
+    for raw_position in raw_positions:
+
+        normalized = (
+            unit_11c_normalize_position(
+                raw_position
+            )
+        )
+
+        if normalized is None:
+
+            continue
+
+        position_symbol = (
+            normalized.get(
+                "symbol"
+            )
+        )
+
+        if (
+            position_symbol
+            is not None
+            and
+            position_symbol
+            !=
+            requested_symbol
+        ):
+
+            continue
+
+        normalized_positions.append(
+            normalized
+        )
+
+    return normalized_positions
+
+
+def unit_11c_build_from_position(
+    *,
+    position,
+    favorable_tp1_price=None,
+    favorable_tp2_price=None,
+):
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11C "
+        "LIVE POSITION BRIDGE START",
+        flush=True,
+    )
+
+    if not isinstance(
+        position,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 11C POSITION INVALID"
+        )
+
+    direction = (
+        position[
+            "direction"
+        ]
+    )
+
+    entry_price = (
+        unit_11c_decimal(
+            position[
+                "entry_price"
+            ]
+        )
+    )
+
+    quantity = (
+        unit_11c_decimal(
+            position[
+                "quantity"
+            ]
+        )
+    )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+
+        raise RuntimeError(
+            "UNIT 11C DIRECTION INVALID"
+        )
+
+    if entry_price <= 0:
+
+        raise RuntimeError(
+            "UNIT 11C ENTRY PRICE INVALID"
+        )
+
+    if quantity <= 0:
+
+        raise RuntimeError(
+            "UNIT 11C POSITION QUANTITY INVALID"
+        )
+
+    print(
+        "PASS: UNIT 11C "
+        "OPEN POSITION VALIDATED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11C SYMBOL =",
+        position.get(
+            "symbol"
+        ),
+        flush=True,
+    )
+
+    print(
+        "UNIT 11C DIRECTION =",
+        direction,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11C ACTUAL ENTRY PRICE =",
+        entry_price,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11C ACTUAL POSITION QUANTITY =",
+        quantity,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # IMPORTANT
+    #
+    # Unit 11C intentionally does NOT invent favorable
+    # structure targets.
+    #
+    # Unless real structure targets are supplied by a later
+    # verified bridge, Unit 11A uses its minimum ROI floors.
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11C CALLING VERIFIED UNIT 11A",
+        flush=True,
+    )
+
+    unit_11a_result = (
+        reconstruction_unit_11a_tp_engine(
+            direction=direction,
+            entry_price=entry_price,
+            total_quantity=quantity,
+            favorable_tp1_price=(
+                favorable_tp1_price
+            ),
+            favorable_tp2_price=(
+                favorable_tp2_price
+            ),
+            leverage=Decimal(
+                "100"
+            ),
+        )
+    )
+
+    if (
+        not isinstance(
+            unit_11a_result,
+            dict,
+        )
+        or
+        unit_11a_result.get(
+            "valid"
+        )
+        is not True
+    ):
+
+        raise RuntimeError(
+            "UNIT 11C UNIT 11A FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11C "
+        "UNIT 11A TP PLAN",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # FEED EXACT UNIT 11A RESULT INTO VERIFIED UNIT 11B
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11C CALLING VERIFIED UNIT 11B",
+        flush=True,
+    )
+
+    unit_11b_result = (
+        reconstruction_unit_11b_build_tp_payloads(
+            unit_11a_result=(
+                unit_11a_result
+            ),
+            symbol=UNIT_11C_SYMBOL,
+        )
+    )
+
+    if (
+        not isinstance(
+            unit_11b_result,
+            dict,
+        )
+        or
+        unit_11b_result.get(
+            "valid"
+        )
+        is not True
+    ):
+
+        raise RuntimeError(
+            "UNIT 11C UNIT 11B FAILED"
+        )
+
+    # --------------------------------------------------------
+    # CROSS-CHECK 11A/11B AGAINST ACTUAL POSITION
+    # --------------------------------------------------------
+
+    if (
+        unit_11b_decimal(
+            unit_11b_result[
+                "total_quantity"
+            ]
+        )
+        !=
+        quantity
+    ):
+
+        raise RuntimeError(
+            "UNIT 11C POSITION QUANTITY "
+            "CHANGED THROUGH TP PIPELINE"
+        )
+
+    if (
+        unit_11b_result[
+            "direction"
+        ]
+        !=
+        direction
+    ):
+
+        raise RuntimeError(
+            "UNIT 11C POSITION DIRECTION "
+            "CHANGED THROUGH TP PIPELINE"
+        )
+
+    allocated_quantity = (
+        unit_11b_decimal(
+            unit_11b_result[
+                "allocated_quantity"
+            ]
+        )
+    )
+
+    if (
+        allocated_quantity
+        !=
+        quantity
+    ):
+
+        raise RuntimeError(
+            "UNIT 11C EXIT QUANTITY "
+            "DOES NOT MATCH POSITION"
+        )
+
+    print(
+        "PASS: UNIT 11C "
+        "ACTUAL POSITION -> 11A -> 11B",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11C "
+        "EXIT QUANTITY MATCHES "
+        "ACTUAL POSITION",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # FINAL FIREBREAK
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11C EXECUTION FIREBREAK",
+        flush=True,
+    )
+
+    print(
+        "ZERO WEEX POST = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO TP ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO SL GENERATED = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO BACKUP EXECUTION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11C "
+        "RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+
+        "valid":
+            True,
+
+        "position":
+            position,
+
+        "unit_11a_result":
+            unit_11a_result,
+
+        "unit_11b_result":
+            unit_11b_result,
+
+        "weex_post":
+            False,
+
+        "demo_tp_order":
+            False,
+
+        "real_order":
+            False,
+
+        "exchange_mutation":
+            False,
+    }
+
+
+def reconstruction_unit_11c_standalone_test():
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11C STANDALONE "
+        "ZERO-WRITE TEST START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # LOCAL SIMULATED WEEX POSITION RESPONSE
+    #
+    # This proves reconciliation logic first.
+    # It deliberately performs NO network request.
+    # --------------------------------------------------------
+
+    simulated_response = {
+
+        "data": [
+
+            {
+                "symbol":
+                    "BTCSUSDT",
+
+                "positionSide":
+                    "SHORT",
+
+                "quantity":
+                    "0.0004",
+
+                "entryPrice":
+                    "83595.9",
+            },
+
+        ],
+    }
+
+    positions = (
+        unit_11c_find_open_positions(
+            simulated_response,
+            symbol=UNIT_11C_SYMBOL,
+        )
+    )
+
+    if len(
+        positions
+    ) != 1:
+
+        raise RuntimeError(
+            "UNIT 11C POSITION "
+            "DISCOVERY TEST FAILED"
+        )
+
+    position = positions[
+        0
+    ]
+
+    if (
+        position[
+            "direction"
+        ]
+        !=
+        "SHORT"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11C SHORT "
+            "DIRECTION TEST FAILED"
+        )
+
+    if (
+        position[
+            "quantity"
+        ]
+        !=
+        Decimal(
+            "0.0004"
+        )
+    ):
+
+        raise RuntimeError(
+            "UNIT 11C QUANTITY "
+            "TEST FAILED"
+        )
+
+    if (
+        position[
+            "entry_price"
+        ]
+        !=
+        Decimal(
+            "83595.9"
+        )
+    ):
+
+        raise RuntimeError(
+            "UNIT 11C ENTRY PRICE "
+            "TEST FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11C "
+        "POSITION RESPONSE PARSER",
+        flush=True,
+    )
+
+    result = (
+        unit_11c_build_from_position(
+            position=position,
+            favorable_tp1_price=None,
+            favorable_tp2_price=None,
+        )
+    )
+
+    if (
+        result.get(
+            "valid"
+        )
+        is not True
+    ):
+
+        raise RuntimeError(
+            "UNIT 11C PIPELINE TEST FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11C "
+        "SIMULATED SHORT POSITION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11C "
+        "ACTUAL-ENTRY-PRICE PIPELINE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11C WEEX POST = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11C DEMO TP ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11C REAL ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11C EXCHANGE MUTATION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11C "
+        "STANDALONE TEST = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# UNIT 11C TEMPORARY STANDALONE TEST ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+
+    reconstruction_unit_11c_standalone_test()
