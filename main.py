@@ -4962,3 +4962,776 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# ============================================================
+# RECONSTRUCTION UNIT 8
+# DEMO SUBMISSION-BOUNDARY STANDALONE ZERO-WRITE TEST
+#
+# PURPOSE:
+# Take the already validated Unit 7 candidate payload and
+# validate the final demo-order submission envelope immediately
+# before the future WEEX network-write boundary.
+#
+# IMPORTANT:
+# - STANDALONE TEST
+# - ZERO WEEX POST
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - NO API REQUEST IS SENT
+# - NO TP GENERATED
+# - NO SL GENERATED
+# - NO BACKUP EXECUTION
+#
+# UNIT 8 DOES NOT ENABLE EXECUTION.
+# ============================================================
+
+
+def reconstruction_unit_8_build_demo_submission_boundary(
+    *,
+    candidate_payload,
+):
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 8 DEMO SUBMISSION BOUNDARY START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # BASIC INPUT VALIDATION
+    # --------------------------------------------------------
+
+    if not isinstance(candidate_payload, dict):
+        raise RuntimeError(
+            "UNIT 8 INVALID CANDIDATE PAYLOAD TYPE"
+        )
+
+    # Work only with a copy.
+    # Unit 8 must never mutate the Unit 7 payload.
+    payload = dict(candidate_payload)
+
+    # --------------------------------------------------------
+    # REQUIRED ENTRY FIELDS
+    # --------------------------------------------------------
+
+    required_fields = (
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+    )
+
+    missing_fields = [
+        field
+        for field in required_fields
+        if field not in payload
+    ]
+
+    if missing_fields:
+        raise RuntimeError(
+            "UNIT 8 MISSING REQUIRED FIELDS: "
+            + str(missing_fields)
+        )
+
+    print(
+        "PASS: UNIT 8 REQUIRED ENTRY FIELDS PRESENT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # SYMBOL VALIDATION
+    # --------------------------------------------------------
+
+    symbol = str(
+        payload["symbol"]
+    ).strip().upper()
+
+    if symbol != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 8 INVALID SYMBOL: "
+            + symbol
+        )
+
+    print(
+        "PASS: UNIT 8 SYMBOL = BTCSUSDT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # SIDE / POSITION-SIDE CONSISTENCY
+    # --------------------------------------------------------
+
+    side = str(
+        payload["side"]
+    ).strip().upper()
+
+    position_side = str(
+        payload["positionSide"]
+    ).strip().upper()
+
+    valid_direction_pairs = {
+        ("BUY", "LONG"),
+        ("SELL", "SHORT"),
+    }
+
+    if (
+        side,
+        position_side,
+    ) not in valid_direction_pairs:
+        raise RuntimeError(
+            "UNIT 8 INVALID SIDE/POSITION PAIR: "
+            + str(
+                (
+                    side,
+                    position_side,
+                )
+            )
+        )
+
+    print(
+        "PASS: UNIT 8 SIDE/POSITION CONSISTENCY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # ORDER TYPE
+    # --------------------------------------------------------
+
+    order_type = str(
+        payload["type"]
+    ).strip().upper()
+
+    if order_type != "MARKET":
+        raise RuntimeError(
+            "UNIT 8 INVALID ORDER TYPE: "
+            + order_type
+        )
+
+    print(
+        "PASS: UNIT 8 ORDER TYPE = MARKET",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # QUANTITY VALIDATION
+    # --------------------------------------------------------
+
+    try:
+        quantity = float(
+            payload["quantity"]
+        )
+
+    except Exception as exc:
+        raise RuntimeError(
+            "UNIT 8 INVALID QUANTITY"
+        ) from exc
+
+    if quantity <= 0:
+        raise RuntimeError(
+            "UNIT 8 QUANTITY MUST BE POSITIVE"
+        )
+
+    print(
+        "PASS: UNIT 8 QUANTITY > 0",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # SL-DISABLED GUARD
+    #
+    # No stop-loss field is allowed to cross this boundary.
+    # --------------------------------------------------------
+
+    forbidden_sl_fields = (
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopPrice",
+    )
+
+    present_sl_fields = [
+        field
+        for field in forbidden_sl_fields
+        if field in payload
+    ]
+
+    if present_sl_fields:
+        raise RuntimeError(
+            "UNIT 8 SL FIELD PRESENT: "
+            + str(present_sl_fields)
+        )
+
+    print(
+        "PASS: UNIT 8 SL-DISABLED PAYLOAD GUARD",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # UNIT 8 ALLOWED PAYLOAD SHAPE
+    #
+    # For this reconstruction stage we intentionally accept
+    # only the five fields already proven by Unit 7C.
+    # --------------------------------------------------------
+
+    allowed_fields = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+    }
+
+    unexpected_fields = sorted(
+        set(payload.keys())
+        - allowed_fields
+    )
+
+    if unexpected_fields:
+        raise RuntimeError(
+            "UNIT 8 UNEXPECTED PAYLOAD FIELDS: "
+            + str(unexpected_fields)
+        )
+
+    print(
+        "PASS: UNIT 8 PAYLOAD FIELD WHITELIST",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # NORMALIZE FINAL BOUNDARY PAYLOAD
+    # --------------------------------------------------------
+
+    final_payload = {
+        "symbol":
+            symbol,
+
+        "side":
+            side,
+
+        "positionSide":
+            position_side,
+
+        "type":
+            order_type,
+
+        "quantity":
+            str(
+                payload["quantity"]
+            ),
+    }
+
+    # --------------------------------------------------------
+    # VERIFY INPUT WAS NOT MUTATED
+    # --------------------------------------------------------
+
+    if payload != candidate_payload:
+        raise RuntimeError(
+            "UNIT 8 INPUT PAYLOAD MUTATION DETECTED"
+        )
+
+    print(
+        "PASS: UNIT 8 INPUT PAYLOAD PRESERVED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # EXECUTION FIREBREAK
+    #
+    # These values are deliberately hard-coded False.
+    # Unit 8 contains no network-write function.
+    # --------------------------------------------------------
+
+    weex_post = False
+    demo_order_sent = False
+    real_order_sent = False
+    exchange_mutation = False
+
+    if weex_post:
+        raise RuntimeError(
+            "UNIT 8 EXECUTION FIREBREAK FAILURE: WEEX POST"
+        )
+
+    if demo_order_sent:
+        raise RuntimeError(
+            "UNIT 8 EXECUTION FIREBREAK FAILURE: DEMO ORDER"
+        )
+
+    if real_order_sent:
+        raise RuntimeError(
+            "UNIT 8 EXECUTION FIREBREAK FAILURE: REAL ORDER"
+        )
+
+    if exchange_mutation:
+        raise RuntimeError(
+            "UNIT 8 EXECUTION FIREBREAK FAILURE: EXCHANGE MUTATION"
+        )
+
+    print(
+        "PASS: UNIT 8 EXECUTION FIREBREAK",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 FINAL DEMO BOUNDARY PAYLOAD = "
+        + str(final_payload),
+        flush=True,
+    )
+
+    print(
+        "ZERO WEEX POST = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    return {
+        "valid": True,
+        "reason":
+            "UNIT_8_DEMO_SUBMISSION_BOUNDARY_VALID",
+
+        "payload":
+            final_payload,
+
+        "weex_post":
+            False,
+
+        "demo_order_sent":
+            False,
+
+        "real_order_sent":
+            False,
+
+        "exchange_mutation":
+            False,
+    }
+
+
+# ============================================================
+# UNIT 8 STANDALONE TEST
+# ============================================================
+
+
+def reconstruction_unit_8_standalone_test():
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 8 STANDALONE TEST START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # LONG TEST
+    #
+    # This reproduces the exact payload shape proven by
+    # Unit 7C.
+    # --------------------------------------------------------
+
+    long_candidate = {
+        "symbol":
+            "BTCSUSDT",
+
+        "side":
+            "BUY",
+
+        "positionSide":
+            "LONG",
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            "0.0004",
+    }
+
+    long_original = dict(
+        long_candidate
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 LONG TEST START",
+        flush=True,
+    )
+
+    long_result = (
+        reconstruction_unit_8_build_demo_submission_boundary(
+            candidate_payload=
+                long_candidate,
+        )
+    )
+
+    if not long_result["valid"]:
+        raise RuntimeError(
+            "UNIT 8 LONG RESULT INVALID"
+        )
+
+    if (
+        long_result["payload"]["side"]
+        != "BUY"
+    ):
+        raise RuntimeError(
+            "UNIT 8 LONG SIDE FAILURE"
+        )
+
+    if (
+        long_result["payload"]["positionSide"]
+        != "LONG"
+    ):
+        raise RuntimeError(
+            "UNIT 8 LONG POSITION SIDE FAILURE"
+        )
+
+    if (
+        long_candidate
+        != long_original
+    ):
+        raise RuntimeError(
+            "UNIT 8 LONG INPUT MUTATED"
+        )
+
+    print(
+        "PASS: UNIT 8 LONG DEMO SUBMISSION BOUNDARY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # SHORT TEST
+    # --------------------------------------------------------
+
+    short_candidate = {
+        "symbol":
+            "BTCSUSDT",
+
+        "side":
+            "SELL",
+
+        "positionSide":
+            "SHORT",
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            "0.0004",
+    }
+
+    short_original = dict(
+        short_candidate
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 SHORT TEST START",
+        flush=True,
+    )
+
+    short_result = (
+        reconstruction_unit_8_build_demo_submission_boundary(
+            candidate_payload=
+                short_candidate,
+        )
+    )
+
+    if not short_result["valid"]:
+        raise RuntimeError(
+            "UNIT 8 SHORT RESULT INVALID"
+        )
+
+    if (
+        short_result["payload"]["side"]
+        != "SELL"
+    ):
+        raise RuntimeError(
+            "UNIT 8 SHORT SIDE FAILURE"
+        )
+
+    if (
+        short_result["payload"]["positionSide"]
+        != "SHORT"
+    ):
+        raise RuntimeError(
+            "UNIT 8 SHORT POSITION SIDE FAILURE"
+        )
+
+    if (
+        short_candidate
+        != short_original
+    ):
+        raise RuntimeError(
+            "UNIT 8 SHORT INPUT MUTATED"
+        )
+
+    print(
+        "PASS: UNIT 8 SHORT DEMO SUBMISSION BOUNDARY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # SL REJECTION TEST
+    #
+    # Deliberately inject an SL field.
+    # Unit 8 MUST reject it.
+    # --------------------------------------------------------
+
+    sl_rejection_pass = False
+
+    bad_sl_candidate = {
+        "symbol":
+            "BTCSUSDT",
+
+        "side":
+            "BUY",
+
+        "positionSide":
+            "LONG",
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            "0.0004",
+
+        "slTriggerPrice":
+            "80000.0",
+    }
+
+    try:
+
+        reconstruction_unit_8_build_demo_submission_boundary(
+            candidate_payload=
+                bad_sl_candidate,
+        )
+
+    except RuntimeError as exc:
+
+        if (
+            "SL FIELD PRESENT"
+            in str(exc)
+        ):
+            sl_rejection_pass = True
+
+    if not sl_rejection_pass:
+        raise RuntimeError(
+            "UNIT 8 FAILED TO REJECT SL FIELD"
+        )
+
+    print(
+        "PASS: UNIT 8 SL FIELD REJECTION TEST",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # INVALID DIRECTION TEST
+    #
+    # BUY/SHORT must never cross the boundary.
+    # --------------------------------------------------------
+
+    direction_rejection_pass = False
+
+    bad_direction_candidate = {
+        "symbol":
+            "BTCSUSDT",
+
+        "side":
+            "BUY",
+
+        "positionSide":
+            "SHORT",
+
+        "type":
+            "MARKET",
+
+        "quantity":
+            "0.0004",
+    }
+
+    try:
+
+        reconstruction_unit_8_build_demo_submission_boundary(
+            candidate_payload=
+                bad_direction_candidate,
+        )
+
+    except RuntimeError as exc:
+
+        if (
+            "INVALID SIDE/POSITION PAIR"
+            in str(exc)
+        ):
+            direction_rejection_pass = True
+
+    if not direction_rejection_pass:
+        raise RuntimeError(
+            "UNIT 8 FAILED INVALID DIRECTION TEST"
+        )
+
+    print(
+        "PASS: UNIT 8 INVALID DIRECTION REJECTION",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # FINAL SAFETY ASSERTIONS
+    # --------------------------------------------------------
+
+    for result in (
+        long_result,
+        short_result,
+    ):
+
+        if result["weex_post"]:
+            raise RuntimeError(
+                "UNIT 8 WEEX POST SAFETY FAILURE"
+            )
+
+        if result["demo_order_sent"]:
+            raise RuntimeError(
+                "UNIT 8 DEMO ORDER SAFETY FAILURE"
+            )
+
+        if result["real_order_sent"]:
+            raise RuntimeError(
+                "UNIT 8 REAL ORDER SAFETY FAILURE"
+            )
+
+        if result["exchange_mutation"]:
+            raise RuntimeError(
+                "UNIT 8 EXCHANGE MUTATION SAFETY FAILURE"
+            )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 LONG PATH",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 SHORT PATH",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 SL-DISABLE GUARD",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 DIRECTION CONSISTENCY GUARD",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 EXECUTION FIREBREAK",
+        flush=True,
+    )
+
+    print(
+        "ZERO WEEX POST = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO TP GENERATED = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO SL GENERATED = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO BACKUP EXECUTION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 STANDALONE TESTS = PASS",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 8 RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    return True
+
+
+# ============================================================
+# UNIT 8 TEST ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+
+    print(
+        "WEEX_PARALLEL_BOT UNIT_8_STANDALONE_TEST",
+        flush=True,
+    )
+
+    print(
+        "STARTING UNIT 8 ZERO-WRITE "
+        "DEMO SUBMISSION-BOUNDARY TEST",
+        flush=True,
+    )
+
+    reconstruction_unit_8_standalone_test()
