@@ -13243,3 +13243,1231 @@ if __name__ == "__main__":
     reconstruction_unit_11c_standalone_test()
 
 # reconstruction_unit_10b_monitor()
+
+
+# ============================================================
+# RECONSTRUCTION UNIT 11D
+# DEMO TP TRANSPORT-BOUNDARY STANDALONE TEST
+#
+# PURPOSE:
+# Prepare the already-validated Unit 11B TP1 / TP2 / TP3
+# payloads for the WEEX V3 DEMO transport boundary.
+#
+# THIS FIRST 11D TEST IS ZERO-WRITE.
+#
+# IT PROVES:
+# - EXACTLY THREE TP instructions received
+# - TP1 / TP2 / TP3 remain reduce-only
+# - NO SL fields survive
+# - position direction is preserved
+# - exit side is preserved
+# - quantities are preserved
+# - TP1 / TP2 trigger prices are preserved
+# - TP3 trailing callback is preserved
+# - internal tpName metadata is removed before transport
+# - each order receives a unique client order ID
+# - DEMO endpoint only
+# - PRODUCTION endpoint impossible
+#
+# IMPORTANT:
+# - ZERO WEEX POST
+# - ZERO DEMO TP ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - NO SL
+# - NO BACKUP EXECUTION
+# ============================================================
+
+
+UNIT_11D_DEMO_BASE_URL = (
+    "https://api-contract.weex.com"
+)
+
+UNIT_11D_DEMO_REQUEST_PATH = (
+    "/capi/v3/sim/order"
+)
+
+UNIT_11D_PRODUCTION_REQUEST_PATH = (
+    "/capi/v3/order"
+)
+
+
+def unit_11d_build_client_order_id(
+    *,
+    tp_name,
+    sequence,
+):
+
+    import time
+
+    tp_name = str(
+        tp_name
+    ).upper()
+
+    sequence = int(
+        sequence
+    )
+
+    if tp_name not in (
+        "TP1",
+        "TP2",
+        "TP3_TRAILING_RUNNER",
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D INVALID TP NAME"
+        )
+
+    if sequence not in (
+        1,
+        2,
+        3,
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D INVALID SEQUENCE"
+        )
+
+    timestamp_ms = str(
+        int(
+            time.time() * 1000
+        )
+    )
+
+    short_name = {
+        "TP1":
+            "TP1",
+
+        "TP2":
+            "TP2",
+
+        "TP3_TRAILING_RUNNER":
+            "TP3",
+
+    }[
+        tp_name
+    ]
+
+    client_order_id = (
+        "R11D-"
+        + short_name
+        + "-"
+        + str(
+            sequence
+        )
+        + "-"
+        + timestamp_ms
+    )
+
+    if (
+        len(
+            client_order_id
+        )
+        > 36
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D CLIENT ORDER ID TOO LONG"
+        )
+
+    return client_order_id
+
+
+def unit_11d_assert_no_sl_fields(
+    payload,
+):
+
+    forbidden_sl_fields = (
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopPrice",
+        "stop_loss",
+        "stopLoss",
+    )
+
+    for field in forbidden_sl_fields:
+
+        if field in payload:
+
+            raise RuntimeError(
+                "UNIT 11D FORBIDDEN SL FIELD = "
+                + str(
+                    field
+                )
+            )
+
+
+def unit_11d_validate_demo_endpoint():
+
+    if (
+        UNIT_11D_DEMO_REQUEST_PATH
+        ==
+        UNIT_11D_PRODUCTION_REQUEST_PATH
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D DEMO/PRODUCTION "
+            "ENDPOINT COLLISION"
+        )
+
+    if (
+        "/sim/"
+        not in
+        UNIT_11D_DEMO_REQUEST_PATH
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D DEMO ENDPOINT "
+            "SAFETY FAILURE"
+        )
+
+    demo_url = (
+        UNIT_11D_DEMO_BASE_URL
+        +
+        UNIT_11D_DEMO_REQUEST_PATH
+    )
+
+    expected_demo_url = (
+        "https://api-contract.weex.com"
+        "/capi/v3/sim/order"
+    )
+
+    if (
+        demo_url
+        !=
+        expected_demo_url
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D FINAL DEMO URL "
+            "SAFETY FAILURE"
+        )
+
+    if (
+        "/capi/v3/order"
+        in
+        demo_url
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D PRODUCTION ENDPOINT "
+            "DETECTED"
+        )
+
+    return demo_url
+
+
+def unit_11d_prepare_transport_payload(
+    *,
+    source_payload,
+    sequence,
+):
+
+    if not isinstance(
+        source_payload,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D SOURCE PAYLOAD "
+            "IS NOT A DICTIONARY"
+        )
+
+    original_payload = dict(
+        source_payload
+    )
+
+    required_fields = (
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "reduceOnly",
+        "closePosition",
+        "tpName",
+    )
+
+    missing_fields = [
+        field
+        for field in required_fields
+        if field
+        not in source_payload
+    ]
+
+    if missing_fields:
+
+        raise RuntimeError(
+            "UNIT 11D SOURCE PAYLOAD "
+            "MISSING FIELDS = "
+            + str(
+                missing_fields
+            )
+        )
+
+    symbol = str(
+        source_payload[
+            "symbol"
+        ]
+    )
+
+    side = str(
+        source_payload[
+            "side"
+        ]
+    ).upper()
+
+    position_side = str(
+        source_payload[
+            "positionSide"
+        ]
+    ).upper()
+
+    order_type = str(
+        source_payload[
+            "type"
+        ]
+    ).upper()
+
+    quantity = unit_11b_decimal(
+        source_payload[
+            "quantity"
+        ]
+    )
+
+    reduce_only = (
+        source_payload[
+            "reduceOnly"
+        ]
+    )
+
+    close_position = (
+        source_payload[
+            "closePosition"
+        ]
+    )
+
+    tp_name = str(
+        source_payload[
+            "tpName"
+        ]
+    ).upper()
+
+    # --------------------------------------------------------
+    # SYMBOL SAFETY
+    # --------------------------------------------------------
+
+    if symbol != "BTCSUSDT":
+
+        raise RuntimeError(
+            "UNIT 11D SYMBOL MUST BE BTCSUSDT"
+        )
+
+    # --------------------------------------------------------
+    # EXIT DIRECTION SAFETY
+    # --------------------------------------------------------
+
+    valid_exit_pairs = {
+        (
+            "SELL",
+            "LONG",
+        ),
+        (
+            "BUY",
+            "SHORT",
+        ),
+    }
+
+    if (
+        side,
+        position_side,
+    ) not in valid_exit_pairs:
+
+        raise RuntimeError(
+            "UNIT 11D INVALID "
+            "EXIT SIDE/POSITION PAIR"
+        )
+
+    # --------------------------------------------------------
+    # QUANTITY SAFETY
+    # --------------------------------------------------------
+
+    if quantity <= 0:
+
+        raise RuntimeError(
+            "UNIT 11D INVALID QUANTITY"
+        )
+
+    # --------------------------------------------------------
+    # REDUCE-ONLY SAFETY
+    # --------------------------------------------------------
+
+    if reduce_only is not True:
+
+        raise RuntimeError(
+            "UNIT 11D REDUCE-ONLY "
+            "PROTECTION MISSING"
+        )
+
+    if close_position is not False:
+
+        raise RuntimeError(
+            "UNIT 11D CLOSE-POSITION "
+            "FLAG INVALID"
+        )
+
+    # --------------------------------------------------------
+    # SL MUST REMAIN ABSENT
+    # --------------------------------------------------------
+
+    unit_11d_assert_no_sl_fields(
+        source_payload
+    )
+
+    # --------------------------------------------------------
+    # ORDER TYPE SAFETY
+    # --------------------------------------------------------
+
+    if tp_name in (
+        "TP1",
+        "TP2",
+    ):
+
+        if (
+            order_type
+            !=
+            "TAKE_PROFIT_MARKET"
+        ):
+
+            raise RuntimeError(
+                "UNIT 11D FIXED TP "
+                "ORDER TYPE INVALID"
+            )
+
+        if (
+            "tpTriggerPrice"
+            not in
+            source_payload
+        ):
+
+            raise RuntimeError(
+                "UNIT 11D FIXED TP "
+                "TRIGGER PRICE MISSING"
+            )
+
+        trigger_price = (
+            unit_11b_decimal(
+                source_payload[
+                    "tpTriggerPrice"
+                ]
+            )
+        )
+
+        if trigger_price <= 0:
+
+            raise RuntimeError(
+                "UNIT 11D FIXED TP "
+                "TRIGGER PRICE INVALID"
+            )
+
+        if (
+            source_payload.get(
+                "TpWorkingType"
+            )
+            !=
+            "MARK_PRICE"
+        ):
+
+            raise RuntimeError(
+                "UNIT 11D FIXED TP "
+                "WORKING TYPE INVALID"
+            )
+
+    elif (
+        tp_name
+        ==
+        "TP3_TRAILING_RUNNER"
+    ):
+
+        if (
+            order_type
+            !=
+            "TRAILING_STOP_MARKET"
+        ):
+
+            raise RuntimeError(
+                "UNIT 11D TP3 "
+                "ORDER TYPE INVALID"
+            )
+
+        if (
+            "callbackRate"
+            not in
+            source_payload
+        ):
+
+            raise RuntimeError(
+                "UNIT 11D TP3 "
+                "CALLBACK RATE MISSING"
+            )
+
+        callback_rate = (
+            unit_11b_decimal(
+                source_payload[
+                    "callbackRate"
+                ]
+            )
+        )
+
+        if callback_rate <= 0:
+
+            raise RuntimeError(
+                "UNIT 11D TP3 "
+                "CALLBACK RATE INVALID"
+            )
+
+        if (
+            source_payload.get(
+                "workingType"
+            )
+            !=
+            "MARK_PRICE"
+        ):
+
+            raise RuntimeError(
+                "UNIT 11D TP3 "
+                "WORKING TYPE INVALID"
+            )
+
+    else:
+
+        raise RuntimeError(
+            "UNIT 11D UNKNOWN TP NAME"
+        )
+
+    # --------------------------------------------------------
+    # GENERATE TRANSPORT CLIENT ORDER ID
+    # --------------------------------------------------------
+
+    client_order_id = (
+        unit_11d_build_client_order_id(
+            tp_name=tp_name,
+            sequence=sequence,
+        )
+    )
+
+    # --------------------------------------------------------
+    # BUILD TRANSPORT PAYLOAD
+    #
+    # IMPORTANT:
+    # tpName is internal metadata only.
+    # It must NOT cross the WEEX transport boundary.
+    # --------------------------------------------------------
+
+    if tp_name in (
+        "TP1",
+        "TP2",
+    ):
+
+        transport_payload = {
+
+            "symbol":
+                symbol,
+
+            "side":
+                side,
+
+            "positionSide":
+                position_side,
+
+            "type":
+                order_type,
+
+            "quantity":
+                unit_11b_decimal_string(
+                    quantity
+                ),
+
+            "tpTriggerPrice":
+                unit_11b_decimal_string(
+                    trigger_price
+                ),
+
+            "TpWorkingType":
+                "MARK_PRICE",
+
+            "reduceOnly":
+                True,
+
+            "closePosition":
+                False,
+
+            "newClientOrderId":
+                client_order_id,
+        }
+
+    else:
+
+        transport_payload = {
+
+            "symbol":
+                symbol,
+
+            "side":
+                side,
+
+            "positionSide":
+                position_side,
+
+            "type":
+                order_type,
+
+            "quantity":
+                unit_11b_decimal_string(
+                    quantity
+                ),
+
+            "callbackRate":
+                unit_11b_decimal_string(
+                    callback_rate
+                ),
+
+            "workingType":
+                "MARK_PRICE",
+
+            "reduceOnly":
+                True,
+
+            "closePosition":
+                False,
+
+            "newClientOrderId":
+                client_order_id,
+        }
+
+    # --------------------------------------------------------
+    # FINAL TRANSPORT FIREBREAK VALIDATION
+    # --------------------------------------------------------
+
+    if "tpName" in transport_payload:
+
+        raise RuntimeError(
+            "UNIT 11D INTERNAL TPNAME "
+            "LEAKED INTO TRANSPORT PAYLOAD"
+        )
+
+    unit_11d_assert_no_sl_fields(
+        transport_payload
+    )
+
+    if (
+        transport_payload[
+            "reduceOnly"
+        ]
+        is not True
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D FINAL REDUCE-ONLY "
+            "CHECK FAILED"
+        )
+
+    if (
+        transport_payload[
+            "closePosition"
+        ]
+        is not False
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D FINAL CLOSE-POSITION "
+            "CHECK FAILED"
+        )
+
+    if (
+        source_payload
+        !=
+        original_payload
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D MUTATED "
+            "UNIT 11B SOURCE PAYLOAD"
+        )
+
+    return {
+        "valid":
+            True,
+
+        "tp_name":
+            tp_name,
+
+        "client_order_id":
+            client_order_id,
+
+        "payload":
+            transport_payload,
+
+        "source_payload_preserved":
+            True,
+
+        "weex_post":
+            False,
+
+        "demo_tp_order":
+            False,
+
+        "real_order":
+            False,
+
+        "exchange_mutation":
+            False,
+    }
+
+
+def reconstruction_unit_11d_prepare_demo_tp_orders(
+    *,
+    unit_11b_result,
+):
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11D "
+        "DEMO TP TRANSPORT-BOUNDARY START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # VALIDATE UNIT 11B CONTRACT
+    # --------------------------------------------------------
+
+    if not isinstance(
+        unit_11b_result,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D UNIT 11B RESULT "
+            "IS NOT A DICTIONARY"
+        )
+
+    if (
+        unit_11b_result.get(
+            "valid"
+        )
+        is not True
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D UNIT 11B RESULT "
+            "NOT VALID"
+        )
+
+    required_result_fields = (
+        "direction",
+        "total_quantity",
+        "tp1_payload",
+        "tp2_payload",
+        "tp3_payload",
+        "allocated_quantity",
+    )
+
+    missing_result_fields = [
+        field
+        for field in required_result_fields
+        if field
+        not in unit_11b_result
+    ]
+
+    if missing_result_fields:
+
+        raise RuntimeError(
+            "UNIT 11D UNIT 11B RESULT "
+            "MISSING FIELDS = "
+            + str(
+                missing_result_fields
+            )
+        )
+
+    # --------------------------------------------------------
+    # DEMO ENDPOINT LOCK
+    # --------------------------------------------------------
+
+    demo_url = (
+        unit_11d_validate_demo_endpoint()
+    )
+
+    print(
+        "PASS: UNIT 11D DEMO ENDPOINT LOCK",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11D DEMO ENDPOINT =",
+        demo_url,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # PREPARE EXACTLY THREE TRANSPORT PAYLOADS
+    # --------------------------------------------------------
+
+    tp1_result = (
+        unit_11d_prepare_transport_payload(
+            source_payload=(
+                unit_11b_result[
+                    "tp1_payload"
+                ]
+            ),
+            sequence=1,
+        )
+    )
+
+    tp2_result = (
+        unit_11d_prepare_transport_payload(
+            source_payload=(
+                unit_11b_result[
+                    "tp2_payload"
+                ]
+            ),
+            sequence=2,
+        )
+    )
+
+    tp3_result = (
+        unit_11d_prepare_transport_payload(
+            source_payload=(
+                unit_11b_result[
+                    "tp3_payload"
+                ]
+            ),
+            sequence=3,
+        )
+    )
+
+    prepared = [
+        tp1_result,
+        tp2_result,
+        tp3_result,
+    ]
+
+    if len(
+        prepared
+    ) != 3:
+
+        raise RuntimeError(
+            "UNIT 11D EXPECTED "
+            "EXACTLY THREE TP ORDERS"
+        )
+
+    # --------------------------------------------------------
+    # UNIQUE CLIENT ORDER ID SAFETY
+    # --------------------------------------------------------
+
+    client_order_ids = [
+        item[
+            "client_order_id"
+        ]
+        for item in prepared
+    ]
+
+    if (
+        len(
+            set(
+                client_order_ids
+            )
+        )
+        != 3
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D DUPLICATE "
+            "CLIENT ORDER ID"
+        )
+
+    print(
+        "PASS: UNIT 11D THREE UNIQUE "
+        "CLIENT ORDER IDS",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # QUANTITY CONSERVATION
+    # --------------------------------------------------------
+
+    prepared_quantity = sum(
+        (
+            unit_11b_decimal(
+                item[
+                    "payload"
+                ][
+                    "quantity"
+                ]
+            )
+            for item in prepared
+        ),
+        Decimal("0"),
+    )
+
+    expected_quantity = (
+        unit_11b_decimal(
+            unit_11b_result[
+                "total_quantity"
+            ]
+        )
+    )
+
+    if (
+        prepared_quantity
+        !=
+        expected_quantity
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D TOTAL TP QUANTITY "
+            "DOES NOT MATCH POSITION"
+        )
+
+    print(
+        "PASS: UNIT 11D TOTAL TP QUANTITY "
+        "= POSITION QUANTITY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # ALL THREE MUST REMAIN REDUCE-ONLY
+    # --------------------------------------------------------
+
+    for item in prepared:
+
+        payload = item[
+            "payload"
+        ]
+
+        if (
+            payload[
+                "reduceOnly"
+            ]
+            is not True
+        ):
+
+            raise RuntimeError(
+                "UNIT 11D REDUCE-ONLY "
+                "FINAL CHECK FAILED"
+            )
+
+        unit_11d_assert_no_sl_fields(
+            payload
+        )
+
+    print(
+        "PASS: UNIT 11D ALL TP ORDERS "
+        "REDUCE-ONLY",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11D NO SL FIELDS",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # DISPLAY PREPARED PAYLOADS
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11D TP1 TRANSPORT PAYLOAD =",
+        tp1_result[
+            "payload"
+        ],
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11D TP2 TRANSPORT PAYLOAD =",
+        tp2_result[
+            "payload"
+        ],
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11D TP3 TRANSPORT PAYLOAD =",
+        tp3_result[
+            "payload"
+        ],
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # ZERO-WRITE FIREBREAK
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11D ZERO-WRITE FIREBREAK",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11D WEEX POST = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11D DEMO TP ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11D REAL ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11D EXCHANGE MUTATION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11D PRODUCTION ENDPOINT = BLOCKED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11D SL = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11D BACKUP EXECUTION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11D "
+        "RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "valid":
+            True,
+
+        "demo_url":
+            demo_url,
+
+        "tp1":
+            tp1_result,
+
+        "tp2":
+            tp2_result,
+
+        "tp3":
+            tp3_result,
+
+        "total_quantity":
+            prepared_quantity,
+
+        "weex_post":
+            False,
+
+        "demo_tp_order":
+            False,
+
+        "real_order":
+            False,
+
+        "exchange_mutation":
+            False,
+    }
+
+
+def reconstruction_unit_11d_standalone_test():
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11D STANDALONE "
+        "ZERO-WRITE TEST START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # REUSE VERIFIED 11A -> 11B PIPELINE
+    #
+    # Same SHORT position values already proven by Unit 11C:
+    # entry = 83595.9
+    # quantity = 0.0004
+    # --------------------------------------------------------
+
+    unit_11a_result = (
+        reconstruction_unit_11a_tp_engine(
+            direction="SHORT",
+            entry_price=Decimal(
+                "83595.9"
+            ),
+            total_quantity=Decimal(
+                "0.0004"
+            ),
+            favorable_tp1_price=None,
+            favorable_tp2_price=None,
+            leverage=Decimal(
+                "100"
+            ),
+        )
+    )
+
+    unit_11b_result = (
+        reconstruction_unit_11b_build_tp_payloads(
+            unit_11a_result=(
+                unit_11a_result
+            ),
+            symbol=UNIT_11B_SYMBOL,
+        )
+    )
+
+    result = (
+        reconstruction_unit_11d_prepare_demo_tp_orders(
+            unit_11b_result=(
+                unit_11b_result
+            )
+        )
+    )
+
+    if (
+        result.get(
+            "valid"
+        )
+        is not True
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D STANDALONE "
+            "PIPELINE FAILED"
+        )
+
+    if (
+        result.get(
+            "weex_post"
+        )
+        is not False
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D ZERO-WRITE "
+            "TEST FAILED"
+        )
+
+    if (
+        result.get(
+            "demo_tp_order"
+        )
+        is not False
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D DEMO TP "
+            "FIREBREAK FAILED"
+        )
+
+    if (
+        result.get(
+            "real_order"
+        )
+        is not False
+    ):
+
+        raise RuntimeError(
+            "UNIT 11D REAL ORDER "
+            "FIREBREAK FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11D "
+        "11A -> 11B -> 11D PIPELINE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11D "
+        "TRANSPORT PAYLOAD TEST",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11D "
+        "DEMO-ONLY ENDPOINT TEST",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11D "
+        "REDUCE-ONLY TEST",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11D "
+        "NO-SL TEST",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11D "
+        "STANDALONE TEST = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# UNIT 11D TEMPORARY STANDALONE TEST ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+
+    reconstruction_unit_11d_standalone_test()
