@@ -7064,13 +7064,33 @@ async def reconstruction_unit_9_submit_demo_order(
     separator()
 
     log(
-        "RECONSTRUCTION UNIT 9 "
-        "REAL DEMO SUBMISSION START"
+        "RECONSTRUCTION UNIT 11E.9 "
+        "TP1-CAPABLE DEMO SUBMISSION START"
     )
 
-    # --------------------------------------------------------
-    # HARD-CODED DEMO SAFETY BOUNDARY
-    # --------------------------------------------------------
+    # ========================================================
+    # PERMANENT EXECUTION-BOUNDARY DESIGN
+    #
+    # This function is no longer a temporary "bare entry only"
+    # transport.
+    #
+    # Supported now:
+    # - MARKET entry
+    # - optional attached TP1
+    #
+    # Preserved for later management:
+    # - TP2
+    # - TP3 trailing runner
+    # - Backup 1-3
+    #
+    # Still forbidden:
+    # - SL fields
+    # - production order endpoint
+    #
+    # IMPORTANT:
+    # Supporting TP1 here does NOT force every caller to use it.
+    # A caller may still submit a validated entry without TP1.
+    # ========================================================
 
     demo_base_url = (
         "https://api-contract.weex.com"
@@ -7084,15 +7104,15 @@ async def reconstruction_unit_9_submit_demo_order(
         "/capi/v3/order"
     )
 
-    # --------------------------------------------------------
-    # PRODUCTION ENDPOINT MUST NEVER BE USED BY UNIT 9
-    # --------------------------------------------------------
+    # ========================================================
+    # DEMO-ONLY ENDPOINT FIREBREAK
+    # ========================================================
 
     require(
         demo_request_path
         != production_request_path,
         (
-            "UNIT 9 demo/production "
+            "UNIT 11E.9 demo/production "
             "endpoint collision."
         ),
     )
@@ -7101,37 +7121,47 @@ async def reconstruction_unit_9_submit_demo_order(
         "/sim/"
         in demo_request_path,
         (
-            "UNIT 9 DEMO ENDPOINT "
+            "UNIT 11E.9 DEMO ENDPOINT "
             "SAFETY FAILURE."
         ),
     )
 
-    log(
-        "PASS: UNIT 9 DEMO ENDPOINT LOCK"
+    require(
+        demo_request_path
+        == "/capi/v3/sim/order",
+        (
+            "UNIT 11E.9 unexpected "
+            "demo request path."
+        ),
     )
 
     log(
-        "UNIT 9 ENDPOINT = "
+        "PASS: UNIT 11E.9 "
+        "DEMO ENDPOINT LOCK"
+    )
+
+    log(
+        "UNIT 11E.9 ENDPOINT = "
         + demo_request_path
     )
 
-    # --------------------------------------------------------
-    # RECEIVE UNIT 8 PAYLOAD
-    # --------------------------------------------------------
+    # ========================================================
+    # INPUT VALIDATION
+    # ========================================================
 
     require(
         isinstance(
             unit_8_payload,
             dict,
         ),
-        "UNIT 9 invalid Unit 8 payload.",
+        "UNIT 11E.9 invalid submission payload.",
     )
 
     original_payload = dict(
         unit_8_payload
     )
 
-    required_unit_8_fields = (
+    required_fields = (
         "symbol",
         "side",
         "positionSide",
@@ -7141,7 +7171,7 @@ async def reconstruction_unit_9_submit_demo_order(
 
     missing_fields = [
         field
-        for field in required_unit_8_fields
+        for field in required_fields
         if field
         not in unit_8_payload
     ]
@@ -7149,7 +7179,7 @@ async def reconstruction_unit_9_submit_demo_order(
     require(
         not missing_fields,
         (
-            "UNIT 9 Unit 8 payload "
+            "UNIT 11E.9 payload "
             "missing fields: "
             + str(
                 missing_fields
@@ -7157,38 +7187,97 @@ async def reconstruction_unit_9_submit_demo_order(
         ),
     )
 
-    log(
-        "PASS: UNIT 9 RECEIVED "
-        "VALID UNIT 8 PAYLOAD"
+    # ========================================================
+    # INPUT FIELD CONTRACT
+    #
+    # TP1 is now a SUPPORTED capability.
+    #
+    # newClientOrderId may be supplied by a higher execution
+    # layer. If absent, Unit 9 generates one.
+    #
+    # This design prevents us from having to rebuild Unit 9
+    # again when Backup 1 is connected.
+    # ========================================================
+
+    supported_input_fields = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+        "tpTriggerPrice",
+        "TpWorkingType",
+    }
+
+    unknown_fields = (
+        set(
+            unit_8_payload.keys()
+        )
+        -
+        supported_input_fields
     )
 
-    # --------------------------------------------------------
+    require(
+        not unknown_fields,
+        (
+            "UNIT 11E.9 unsupported "
+            "submission fields: "
+            + str(
+                sorted(
+                    unknown_fields
+                )
+            )
+        ),
+    )
+
+    log(
+        "PASS: UNIT 11E.9 "
+        "SUPPORTED FIELD CONTRACT"
+    )
+
+    # ========================================================
     # SYMBOL LOCK
-    # --------------------------------------------------------
+    # ========================================================
 
     require(
         unit_8_payload.get(
             "symbol"
         )
         == "BTCSUSDT",
-        "UNIT 9 symbol must be BTCSUSDT.",
+        (
+            "UNIT 11E.9 symbol "
+            "must be BTCSUSDT."
+        ),
     )
 
-    # --------------------------------------------------------
+    log(
+        "PASS: UNIT 11E.9 SYMBOL LOCK"
+    )
+
+    # ========================================================
     # MARKET ORDER LOCK
-    # --------------------------------------------------------
+    # ========================================================
 
     require(
         unit_8_payload.get(
             "type"
         )
         == "MARKET",
-        "UNIT 9 only MARKET demo order allowed.",
+        (
+            "UNIT 11E.9 only MARKET "
+            "demo entry allowed."
+        ),
     )
 
-    # --------------------------------------------------------
+    log(
+        "PASS: UNIT 11E.9 "
+        "MARKET ENTRY LOCK"
+    )
+
+    # ========================================================
     # DIRECTION CONSISTENCY
-    # --------------------------------------------------------
+    # ========================================================
 
     side = str(
         unit_8_payload.get(
@@ -7220,19 +7309,24 @@ async def reconstruction_unit_9_submit_demo_order(
         )
         in valid_direction_pairs,
         (
-            "UNIT 9 invalid "
+            "UNIT 11E.9 invalid "
             "side/positionSide pair."
         ),
     )
 
     log(
-        "PASS: UNIT 9 "
+        "PASS: UNIT 11E.9 "
         "DIRECTION CONSISTENCY"
     )
 
-    # --------------------------------------------------------
-    # QUANTITY SAFETY
-    # --------------------------------------------------------
+    # ========================================================
+    # CONTROLLED QUANTITY
+    #
+    # Keep the currently verified 0.0004 entry boundary.
+    #
+    # Backup quantities will be validated by the Backup
+    # execution layer rather than weakening this entry test.
+    # ========================================================
 
     quantity = D(
         unit_8_payload.get(
@@ -7244,19 +7338,19 @@ async def reconstruction_unit_9_submit_demo_order(
         quantity
         == D("0.0004"),
         (
-            "UNIT 9 FIRST DEMO TEST "
-            "QUANTITY MUST BE 0.0004."
+            "UNIT 11E.9 CONTROLLED "
+            "ENTRY QUANTITY MUST BE 0.0004."
         ),
     )
 
     log(
-        "PASS: UNIT 9 "
+        "PASS: UNIT 11E.9 "
         "CONTROLLED QUANTITY = 0.0004"
     )
 
-    # --------------------------------------------------------
-    # SL MUST REMAIN DISABLED
-    # --------------------------------------------------------
+    # ========================================================
+    # SL REMAINS DISABLED
+    # ========================================================
 
     forbidden_sl_fields = (
         "slTriggerPrice",
@@ -7271,52 +7365,170 @@ async def reconstruction_unit_9_submit_demo_order(
             field
             not in unit_8_payload,
             (
-                "UNIT 9 forbidden SL field: "
+                "UNIT 11E.9 forbidden "
+                "SL field: "
                 + field
             ),
         )
 
     log(
-        "PASS: UNIT 9 SL-DISABLE GUARD"
+        "PASS: UNIT 11E.9 "
+        "SL-DISABLE GUARD"
     )
 
-    # --------------------------------------------------------
-    # TP IS ALSO EXCLUDED FROM FIRST DEMO ENTRY
-    # --------------------------------------------------------
+    # ========================================================
+    # TP1 CAPABILITY
+    #
+    # TP1 is OPTIONAL at the generic submission boundary.
+    #
+    # But if TP1 is requested, BOTH fields are mandatory:
+    #
+    # tpTriggerPrice
+    # TpWorkingType
+    #
+    # This means we never permit a half-formed TP instruction.
+    # ========================================================
 
-    forbidden_tp_fields = (
-        "tpTriggerPrice",
-        "TpWorkingType",
+    tp_trigger_present = (
+        "tpTriggerPrice"
+        in unit_8_payload
     )
 
-    for field in forbidden_tp_fields:
+    tp_working_type_present = (
+        "TpWorkingType"
+        in unit_8_payload
+    )
+
+    require(
+        tp_trigger_present
+        ==
+        tp_working_type_present,
+        (
+            "UNIT 11E.9 incomplete TP1 "
+            "field pair."
+        ),
+    )
+
+    tp1_enabled = (
+        tp_trigger_present
+        and
+        tp_working_type_present
+    )
+
+    tp_trigger_price = None
+    tp_working_type = None
+
+    if tp1_enabled:
+
+        tp_trigger_price = D(
+            unit_8_payload.get(
+                "tpTriggerPrice"
+            )
+        )
 
         require(
-            field
-            not in unit_8_payload,
+            tp_trigger_price
+            > D("0"),
             (
-                "UNIT 9 unexpected TP field: "
-                + field
+                "UNIT 11E.9 TP1 trigger "
+                "must be positive."
+            ),
+        )
+
+        tp_working_type = str(
+            unit_8_payload.get(
+                "TpWorkingType"
+            )
+        ).upper()
+
+        require(
+            tp_working_type
+            == "MARK_PRICE",
+            (
+                "UNIT 11E.9 TP1 working "
+                "type must be MARK_PRICE."
+            ),
+        )
+
+        log(
+            "PASS: UNIT 11E.9 "
+            "TP1 CAPABILITY ENABLED"
+        )
+
+        log(
+            "UNIT 11E.9 TP1 TRIGGER = "
+            + decimal_to_string(
+                tp_trigger_price
+            )
+        )
+
+        log(
+            "UNIT 11E.9 TP1 WORKING TYPE = "
+            + tp_working_type
+        )
+
+    else:
+
+        log(
+            "UNIT 11E.9 TP1 CAPABILITY "
+            "SUPPORTED BUT NOT REQUESTED"
+        )
+
+    # ========================================================
+    # CLIENT ORDER ID
+    #
+    # Accept a validated upstream ID when supplied.
+    # Otherwise retain original Unit 9 behaviour and generate
+    # a fresh transport ID.
+    # ========================================================
+
+    supplied_client_order_id = (
+        unit_8_payload.get(
+            "newClientOrderId"
+        )
+    )
+
+    if supplied_client_order_id is None:
+
+        client_order_id = (
+            reconstruction_unit_9_build_client_order_id()
+        )
+
+    else:
+
+        client_order_id = str(
+            supplied_client_order_id
+        ).strip()
+
+        require(
+            bool(
+                client_order_id
+            ),
+            (
+                "UNIT 11E.9 empty "
+                "client order ID."
+            ),
+        )
+
+        require(
+            len(
+                client_order_id
+            )
+            <= 36,
+            (
+                "UNIT 11E.9 client "
+                "order ID too long."
             ),
         )
 
     log(
-        "PASS: UNIT 9 NO TP IN FIRST ENTRY"
+        "PASS: UNIT 11E.9 "
+        "CLIENT ORDER ID READY"
     )
 
-    # --------------------------------------------------------
-    # BUILD OFFICIAL WEEX V3 DEMO PAYLOAD
-    #
-    # Unit 8 deliberately ended with only the five strategy
-    # fields.
-    #
-    # WEEX V3 requires newClientOrderId for demo submission,
-    # therefore Unit 9 adds ONLY that transport-level field.
-    # --------------------------------------------------------
-
-    client_order_id = (
-        reconstruction_unit_9_build_client_order_id()
-    )
+    # ========================================================
+    # BUILD FINAL WEEX DEMO PAYLOAD
+    # ========================================================
 
     demo_payload = {
         "symbol":
@@ -7342,11 +7554,27 @@ async def reconstruction_unit_9_submit_demo_order(
             client_order_id,
     }
 
-    # --------------------------------------------------------
-    # VERIFY EXACT PAYLOAD FIELD SET
-    # --------------------------------------------------------
+    # ========================================================
+    # ATTACH TP1 ONLY WHEN REQUESTED
+    # ========================================================
 
-    allowed_demo_fields = {
+    if tp1_enabled:
+
+        demo_payload[
+            "tpTriggerPrice"
+        ] = decimal_to_string(
+            tp_trigger_price
+        )
+
+        demo_payload[
+            "TpWorkingType"
+        ] = tp_working_type
+
+    # ========================================================
+    # FINAL OUTPUT FIELD CONTRACT
+    # ========================================================
+
+    base_demo_fields = {
         "symbol",
         "side",
         "positionSide",
@@ -7355,55 +7583,129 @@ async def reconstruction_unit_9_submit_demo_order(
         "newClientOrderId",
     }
 
+    if tp1_enabled:
+
+        expected_demo_fields = (
+            base_demo_fields
+            |
+            {
+                "tpTriggerPrice",
+                "TpWorkingType",
+            }
+        )
+
+    else:
+
+        expected_demo_fields = (
+            base_demo_fields
+        )
+
     require(
         set(
             demo_payload.keys()
         )
-        == allowed_demo_fields,
+        == expected_demo_fields,
         (
-            "UNIT 9 unexpected "
-            "demo payload fields."
+            "UNIT 11E.9 unexpected "
+            "final demo payload fields."
         ),
     )
 
+    # ========================================================
+    # TP1 MUST SURVIVE INTO FINAL TRANSPORT PAYLOAD
+    # ========================================================
+
+    if tp1_enabled:
+
+        require(
+            demo_payload.get(
+                "tpTriggerPrice"
+            )
+            ==
+            decimal_to_string(
+                tp_trigger_price
+            ),
+            (
+                "UNIT 11E.9 TP1 trigger "
+                "lost before transport."
+            ),
+        )
+
+        require(
+            demo_payload.get(
+                "TpWorkingType"
+            )
+            == "MARK_PRICE",
+            (
+                "UNIT 11E.9 TP1 working "
+                "type lost before transport."
+            ),
+        )
+
+        log(
+            "PASS: UNIT 11E.9 "
+            "TP1 PRESERVED TO TRANSPORT"
+        )
+
+    # ========================================================
+    # SL MUST ALSO BE ABSENT FROM FINAL PAYLOAD
+    # ========================================================
+
+    for field in forbidden_sl_fields:
+
+        require(
+            field
+            not in demo_payload,
+            (
+                "UNIT 11E.9 SL field "
+                "reappeared in transport: "
+                + field
+            ),
+        )
+
     log(
-        "PASS: UNIT 9 "
-        "DEMO PAYLOAD FIELD WHITELIST"
+        "PASS: UNIT 11E.9 "
+        "FINAL SL FIREBREAK"
     )
 
     log(
-        "UNIT 9 CLIENT ORDER ID = "
+        "PASS: UNIT 11E.9 "
+        "FINAL DEMO PAYLOAD WHITELIST"
+    )
+
+    log(
+        "UNIT 11E.9 CLIENT ORDER ID = "
         + client_order_id
     )
 
     log(
-        "UNIT 9 DEMO PAYLOAD = "
+        "UNIT 11E.9 DEMO PAYLOAD = "
         + str(
             demo_payload
         )
     )
 
-    # --------------------------------------------------------
-    # UNIT 8 INPUT MUST NOT HAVE BEEN MUTATED
-    # --------------------------------------------------------
+    # ========================================================
+    # ORIGINAL INPUT IMMUTABILITY
+    # ========================================================
 
     require(
         unit_8_payload
         == original_payload,
         (
-            "UNIT 9 mutated "
-            "Unit 8 payload."
+            "UNIT 11E.9 mutated "
+            "input payload."
         ),
     )
 
     log(
-        "PASS: UNIT 9 "
-        "UNIT 8 PAYLOAD PRESERVED"
+        "PASS: UNIT 11E.9 "
+        "INPUT PAYLOAD PRESERVED"
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # CREDENTIALS
-    # --------------------------------------------------------
+    # ========================================================
 
     api_key = os.getenv(
         "WEEX_API_KEY"
@@ -7421,34 +7723,42 @@ async def reconstruction_unit_9_submit_demo_order(
         bool(
             api_key
         ),
-        "UNIT 9 WEEX_API_KEY missing.",
+        (
+            "UNIT 11E.9 "
+            "WEEX_API_KEY missing."
+        ),
     )
 
     require(
         bool(
             api_secret
         ),
-        "UNIT 9 WEEX_API_SECRET missing.",
+        (
+            "UNIT 11E.9 "
+            "WEEX_API_SECRET missing."
+        ),
     )
 
     require(
         bool(
             passphrase
         ),
-        "UNIT 9 WEEX_API_PASSPHRASE missing.",
+        (
+            "UNIT 11E.9 "
+            "WEEX_API_PASSPHRASE missing."
+        ),
     )
 
     log(
-        "PASS: UNIT 9 "
+        "PASS: UNIT 11E.9 "
         "WEEX CREDENTIALS PRESENT"
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # EXACT JSON BODY
     #
-    # IMPORTANT:
-    # The exact body signed below is the exact body sent.
-    # --------------------------------------------------------
+    # The exact body signed here is the exact body sent.
+    # ========================================================
 
     body = json.dumps(
         demo_payload,
@@ -7473,6 +7783,21 @@ async def reconstruction_unit_9_submit_demo_order(
         )
     )
 
+    require(
+        bool(
+            signature
+        ),
+        (
+            "UNIT 11E.9 signature "
+            "generation failed."
+        ),
+    )
+
+    log(
+        "PASS: UNIT 11E.9 "
+        "REQUEST SIGNED"
+    )
+
     headers = {
         "ACCESS-KEY":
             api_key,
@@ -7495,18 +7820,19 @@ async def reconstruction_unit_9_submit_demo_order(
         + demo_request_path
     )
 
-    # --------------------------------------------------------
-    # FINAL SAFETY ASSERTIONS BEFORE NETWORK WRITE
-    # --------------------------------------------------------
+    # ========================================================
+    # FINAL NETWORK SAFETY GATE
+    # ========================================================
 
     require(
         url
-        == (
+        ==
+        (
             "https://api-contract.weex.com"
             "/capi/v3/sim/order"
         ),
         (
-            "UNIT 9 final URL "
+            "UNIT 11E.9 final URL "
             "safety failure."
         ),
     )
@@ -7515,7 +7841,7 @@ async def reconstruction_unit_9_submit_demo_order(
         "/sim/order"
         in url,
         (
-            "UNIT 9 attempted "
+            "UNIT 11E.9 attempted "
             "non-demo endpoint."
         ),
     )
@@ -7524,36 +7850,58 @@ async def reconstruction_unit_9_submit_demo_order(
         "/capi/v3/order"
         not in url,
         (
-            "UNIT 9 production endpoint "
-            "detected."
+            "UNIT 11E.9 production "
+            "endpoint detected."
         ),
     )
 
     log(
-        "PASS: UNIT 9 "
+        "PASS: UNIT 11E.9 "
         "FINAL DEMO-ONLY SAFETY GATE"
     )
 
     separator()
 
     log(
-        "UNIT 9 SENDING ONE "
-        "REAL WEEX DEMO ORDER"
+        "UNIT 11E.9 SENDING ONE "
+        "WEEX DEMO ORDER"
     )
 
     log(
-        "UNIT 9 REAL ORDER = FALSE"
+        "UNIT 11E.9 TP1 ATTACHED = "
+        + str(
+            tp1_enabled
+        )
     )
 
     log(
-        "UNIT 9 DEMO ORDER = TRUE"
+        "UNIT 11E.9 SL = DISABLED"
+    )
+
+    log(
+        "UNIT 11E.9 BACKUP EXECUTION = FALSE"
+    )
+
+    log(
+        "UNIT 11E.9 AUTOMATIC RETRY = FALSE"
+    )
+
+    log(
+        "UNIT 11E.9 REAL ORDER = FALSE"
+    )
+
+    log(
+        "UNIT 11E.9 DEMO ORDER = TRUE"
     )
 
     separator()
 
-    # --------------------------------------------------------
-    # ACTUAL DEMO POST
-    # --------------------------------------------------------
+    # ========================================================
+    # EXACTLY ONE DEMO POST
+    #
+    # No retry loop exists here.
+    # Network uncertainty returns immediately.
+    # ========================================================
 
     timeout = aiohttp.ClientTimeout(
         total=20
@@ -7582,10 +7930,14 @@ async def reconstruction_unit_9_submit_demo_order(
     except Exception as exc:
 
         log(
-            "UNIT 9 DEMO NETWORK ERROR = "
+            "UNIT 11E.9 DEMO NETWORK ERROR = "
             + repr(
                 exc
             )
+        )
+
+        log(
+            "UNIT 11E.9 AUTOMATIC RETRY = FALSE"
         )
 
         return {
@@ -7599,7 +7951,7 @@ async def reconstruction_unit_9_submit_demo_order(
                 False,
 
             "reason":
-                "UNIT_9_NETWORK_ERROR",
+                "UNIT_11E9_NETWORK_ERROR",
 
             "error":
                 repr(
@@ -7609,29 +7961,32 @@ async def reconstruction_unit_9_submit_demo_order(
             "client_order_id":
                 client_order_id,
 
+            "tp1_attached":
+                tp1_enabled,
+
             "real_order":
                 False,
         }
 
-    # --------------------------------------------------------
-    # LOG HTTP RESULT
-    # --------------------------------------------------------
+    # ========================================================
+    # HTTP RESULT
+    # ========================================================
 
     log(
-        "UNIT 9 HTTP STATUS = "
+        "UNIT 11E.9 HTTP STATUS = "
         + str(
             http_status
         )
     )
 
     log(
-        "UNIT 9 RAW RESPONSE = "
+        "UNIT 11E.9 RAW RESPONSE = "
         + response_text
     )
 
-    # --------------------------------------------------------
-    # PARSE RESPONSE
-    # --------------------------------------------------------
+    # ========================================================
+    # RESPONSE PARSING
+    # ========================================================
 
     try:
 
@@ -7646,9 +8001,9 @@ async def reconstruction_unit_9_submit_demo_order(
                 response_text
         }
 
-    # --------------------------------------------------------
+    # ========================================================
     # HTTP FAILURE
-    # --------------------------------------------------------
+    # ========================================================
 
     if (
         http_status
@@ -7659,8 +8014,12 @@ async def reconstruction_unit_9_submit_demo_order(
     ):
 
         log(
-            "UNIT 9 DEMO SUBMISSION "
+            "UNIT 11E.9 DEMO SUBMISSION "
             "HTTP FAILURE"
+        )
+
+        log(
+            "UNIT 11E.9 AUTOMATIC RETRY = FALSE"
         )
 
         return {
@@ -7674,7 +8033,7 @@ async def reconstruction_unit_9_submit_demo_order(
                 False,
 
             "reason":
-                "UNIT_9_HTTP_FAILURE",
+                "UNIT_11E9_HTTP_FAILURE",
 
             "http_status":
                 http_status,
@@ -7685,13 +8044,18 @@ async def reconstruction_unit_9_submit_demo_order(
             "client_order_id":
                 client_order_id,
 
+            "tp1_attached":
+                tp1_enabled,
+
             "real_order":
                 False,
         }
 
-    # --------------------------------------------------------
-    # WEEX V3 DEMO RESPONSE VALIDATION
-    # --------------------------------------------------------
+    # ========================================================
+    # WEEX RESPONSE CONTRACT
+    #
+    # Preserve the already-working Unit 9 interpretation.
+    # ========================================================
 
     require(
         isinstance(
@@ -7699,7 +8063,7 @@ async def reconstruction_unit_9_submit_demo_order(
             dict,
         ),
         (
-            "UNIT 9 unexpected "
+            "UNIT 11E.9 unexpected "
             "WEEX response type."
         ),
     )
@@ -7736,49 +8100,53 @@ async def reconstruction_unit_9_submit_demo_order(
     )
 
     log(
-        "UNIT 9 WEEX SUCCESS = "
+        "UNIT 11E.9 WEEX SUCCESS = "
         + str(
             success
         )
     )
 
     log(
-        "UNIT 9 ORDER ID = "
+        "UNIT 11E.9 ORDER ID = "
         + str(
             order_id
         )
     )
 
     log(
-        "UNIT 9 RETURNED CLIENT ORDER ID = "
+        "UNIT 11E.9 RETURNED CLIENT ORDER ID = "
         + str(
             returned_client_order_id
         )
     )
 
     log(
-        "UNIT 9 ERROR CODE = "
+        "UNIT 11E.9 ERROR CODE = "
         + str(
             error_code
         )
     )
 
     log(
-        "UNIT 9 ERROR MESSAGE = "
+        "UNIT 11E.9 ERROR MESSAGE = "
         + str(
             error_message
         )
     )
 
-    # --------------------------------------------------------
-    # WEEX REJECTED ORDER
-    # --------------------------------------------------------
+    # ========================================================
+    # WEEX REJECTION
+    # ========================================================
 
     if not success:
 
         log(
-            "UNIT 9 WEEX DEMO ORDER "
+            "UNIT 11E.9 WEEX DEMO ORDER "
             "NOT ACCEPTED"
+        )
+
+        log(
+            "UNIT 11E.9 AUTOMATIC RETRY = FALSE"
         )
 
         return {
@@ -7792,7 +8160,7 @@ async def reconstruction_unit_9_submit_demo_order(
                 False,
 
             "reason":
-                "UNIT_9_WEEX_REJECTED",
+                "UNIT_11E9_WEEX_REJECTED",
 
             "http_status":
                 http_status,
@@ -7803,13 +8171,16 @@ async def reconstruction_unit_9_submit_demo_order(
             "client_order_id":
                 client_order_id,
 
+            "tp1_attached":
+                tp1_enabled,
+
             "real_order":
                 False,
         }
 
-    # --------------------------------------------------------
+    # ========================================================
     # ACCEPTANCE REQUIREMENTS
-    # --------------------------------------------------------
+    # ========================================================
 
     require(
         order_id
@@ -7818,7 +8189,7 @@ async def reconstruction_unit_9_submit_demo_order(
             "",
         ),
         (
-            "UNIT 9 success response "
+            "UNIT 11E.9 success response "
             "missing orderId."
         ),
     )
@@ -7827,32 +8198,51 @@ async def reconstruction_unit_9_submit_demo_order(
         returned_client_order_id
         == client_order_id,
         (
-            "UNIT 9 client order ID "
+            "UNIT 11E.9 client order ID "
             "response mismatch."
         ),
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # SUCCESS
-    # --------------------------------------------------------
+    # ========================================================
 
     separator()
 
     log(
-        "PASS: UNIT 9 "
+        "PASS: UNIT 11E.9 "
         "WEEX DEMO ORDER ACCEPTED"
     )
 
     log(
-        "UNIT 9 DEMO ORDER ID = "
+        "UNIT 11E.9 DEMO ORDER ID = "
         + str(
             order_id
         )
     )
 
     log(
-        "UNIT 9 CLIENT ORDER ID = "
+        "UNIT 11E.9 CLIENT ORDER ID = "
         + client_order_id
+    )
+
+    log(
+        "UNIT 11E.9 TP1 ATTACHED = "
+        + str(
+            tp1_enabled
+        )
+    )
+
+    log(
+        "UNIT 11E.9 SL = DISABLED"
+    )
+
+    log(
+        "UNIT 11E.9 BACKUP EXECUTION = FALSE"
+    )
+
+    log(
+        "UNIT 11E.9 AUTOMATIC RETRY = FALSE"
     )
 
     log(
@@ -7864,7 +8254,8 @@ async def reconstruction_unit_9_submit_demo_order(
     )
 
     log(
-        "RECONSTRUCTION UNIT 9 RESULT = PASS"
+        "RECONSTRUCTION UNIT 11E.9 "
+        "RESULT = PASS"
     )
 
     separator()
@@ -7880,7 +8271,7 @@ async def reconstruction_unit_9_submit_demo_order(
             True,
 
         "reason":
-            "UNIT_9_DEMO_ORDER_ACCEPTED",
+            "UNIT_11E9_DEMO_ORDER_ACCEPTED",
 
         "order_id":
             order_id,
@@ -7894,9 +8285,29 @@ async def reconstruction_unit_9_submit_demo_order(
         "response":
             response_data,
 
+        "tp1_attached":
+            tp1_enabled,
+
+        "tp_trigger_price":
+            (
+                decimal_to_string(
+                    tp_trigger_price
+                )
+                if tp1_enabled
+                else None
+            ),
+
+        "tp_working_type":
+            (
+                tp_working_type
+                if tp1_enabled
+                else None
+            ),
+
         "real_order":
             False,
     }
+    
 
 
 # ============================================================
