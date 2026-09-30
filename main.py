@@ -16466,3 +16466,773 @@ def reconstruction_unit_11e1_standalone_test():
 
 if __name__ == "__main__":
     reconstruction_unit_11e1_standalone_test()
+
+# ============================================================
+# RECONSTRUCTION UNIT 11E.2
+# ACTUAL DEMO POSITION -> RECOVERED TP PATH BRIDGE
+#
+# PURPOSE:
+# Connect the already-verified actual demo position bridge
+# (Unit 11C) to:
+#
+#   Unit 11A -> TP calculation
+#   Unit 11B -> TP plan
+#   Unit 11D -> transport preparation
+#   Unit 11E.1 -> recovered frozen demo TP shape
+#
+# IMPORTANT:
+# - ZERO WEEX POST
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - SL REMAINS DISABLED
+# - BACKUPS NOT EXECUTED
+#
+# This unit proves the complete ACTUAL POSITION -> TP PATH
+# before any controlled demo submission is allowed.
+# ============================================================
+
+
+def reconstruction_unit_11e2_actual_position_tp_bridge(
+    *,
+    actual_position,
+):
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.2 "
+        "ACTUAL POSITION TP BRIDGE START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # BASIC ACTUAL POSITION VALIDATION
+    # --------------------------------------------------------
+
+    if not isinstance(
+        actual_position,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 11E.2 ACTUAL POSITION "
+            "IS NOT A DICTIONARY"
+        )
+
+    symbol = str(
+        actual_position.get(
+            "symbol",
+            "",
+        )
+    ).upper()
+
+    direction = str(
+        actual_position.get(
+            "direction",
+            "",
+        )
+    ).upper()
+
+    entry_price = Decimal(
+        str(
+            actual_position.get(
+                "entry_price"
+            )
+        )
+    )
+
+    quantity = Decimal(
+        str(
+            actual_position.get(
+                "quantity"
+            )
+        )
+    )
+
+    if symbol != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 11E.2 INVALID SYMBOL = "
+            + symbol
+        )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+        raise RuntimeError(
+            "UNIT 11E.2 INVALID DIRECTION = "
+            + direction
+        )
+
+    if entry_price <= 0:
+        raise RuntimeError(
+            "UNIT 11E.2 INVALID ENTRY PRICE"
+        )
+
+    if quantity <= 0:
+        raise RuntimeError(
+            "UNIT 11E.2 INVALID POSITION QUANTITY"
+        )
+
+    print(
+        "PASS: UNIT 11E.2 ACTUAL POSITION VALIDATED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 SYMBOL =",
+        symbol,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 DIRECTION =",
+        direction,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 ACTUAL ENTRY PRICE =",
+        entry_price,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 ACTUAL POSITION QUANTITY =",
+        quantity,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # UNIT 11A
+    # RECALCULATE TP PLAN FROM ACTUAL POSITION
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 CALLING VERIFIED UNIT 11A",
+        flush=True,
+    )
+
+    unit_11a_result = (
+        reconstruction_unit_11a_tp_engine(
+            direction=direction,
+            entry_price=entry_price,
+            total_quantity=quantity,
+            favorable_tp1_price=None,
+            favorable_tp2_price=None,
+            leverage=Decimal(
+                "100"
+            ),
+        )
+    )
+
+    if (
+        unit_11a_result.get(
+            "valid"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.2 UNIT 11A FAILED"
+        )
+
+    # --------------------------------------------------------
+    # UNIT 11B
+    # BUILD VERIFIED THREE-TP PLAN
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 CALLING VERIFIED UNIT 11B",
+        flush=True,
+    )
+
+    unit_11b_result = (
+        reconstruction_unit_11b_build_tp_payloads(
+            unit_11a_result=(
+                unit_11a_result
+            ),
+            symbol=symbol,
+        )
+    )
+
+    if (
+        unit_11b_result.get(
+            "valid"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.2 UNIT 11B FAILED"
+        )
+
+    # --------------------------------------------------------
+    # UNIT 11D
+    # PREPARE TRANSPORT PLAN
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 CALLING VERIFIED UNIT 11D",
+        flush=True,
+    )
+
+    unit_11d_result = (
+        reconstruction_unit_11d_prepare_demo_tp_orders(
+            unit_11b_result=(
+                unit_11b_result
+            ),
+        )
+    )
+
+    if (
+        unit_11d_result.get(
+            "valid"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.2 UNIT 11D FAILED"
+        )
+
+    # --------------------------------------------------------
+    # UNIT 11E.1
+    # RECOVER FROZEN DEMO TP TRANSPORT SHAPE
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 CALLING VERIFIED UNIT 11E.1",
+        flush=True,
+    )
+
+    unit_11e1_result = (
+        reconstruction_unit_11e1_frozen_tp_path_test(
+            unit_11d_result=(
+                unit_11d_result
+            ),
+        )
+    )
+
+    if (
+        unit_11e1_result.get(
+            "valid"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.2 UNIT 11E.1 FAILED"
+        )
+
+    recovered_payload = (
+        unit_11e1_result[
+            "recovered_payload"
+        ]
+    )
+
+    preserved_tp_plan = (
+        unit_11e1_result[
+            "preserved_tp_plan"
+        ]
+    )
+
+    # --------------------------------------------------------
+    # CROSS-CHECK SYMBOL
+    # --------------------------------------------------------
+
+    if (
+        str(
+            recovered_payload.get(
+                "symbol",
+                "",
+            )
+        ).upper()
+        !=
+        symbol
+    ):
+        raise RuntimeError(
+            "UNIT 11E.2 SYMBOL CROSS-CHECK FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.2 SYMBOL CROSS-CHECK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # CROSS-CHECK POSITION SIDE
+    # --------------------------------------------------------
+
+    if (
+        str(
+            recovered_payload.get(
+                "positionSide",
+                "",
+            )
+        ).upper()
+        !=
+        direction
+    ):
+        raise RuntimeError(
+            "UNIT 11E.2 POSITION SIDE "
+            "CROSS-CHECK FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.2 POSITION SIDE CROSS-CHECK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # CROSS-CHECK EXIT SIDE
+    #
+    # SHORT position -> BUY exit
+    # LONG position  -> SELL exit
+    # --------------------------------------------------------
+
+    expected_exit_side = (
+        "BUY"
+        if direction == "SHORT"
+        else "SELL"
+    )
+
+    if (
+        str(
+            recovered_payload.get(
+                "side",
+                "",
+            )
+        ).upper()
+        !=
+        expected_exit_side
+    ):
+        raise RuntimeError(
+            "UNIT 11E.2 EXIT SIDE "
+            "CROSS-CHECK FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.2 EXIT SIDE CROSS-CHECK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # CROSS-CHECK TOTAL POSITION QUANTITY
+    # --------------------------------------------------------
+
+    recovered_quantity = Decimal(
+        str(
+            recovered_payload.get(
+                "quantity"
+            )
+        )
+    )
+
+    if recovered_quantity != quantity:
+        raise RuntimeError(
+            "UNIT 11E.2 POSITION QUANTITY "
+            "CROSS-CHECK FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.2 POSITION QUANTITY CROSS-CHECK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # VERIFY RECOVERED ORDER TYPE
+    # --------------------------------------------------------
+
+    if (
+        recovered_payload.get(
+            "type"
+        )
+        !=
+        "MARKET"
+    ):
+        raise RuntimeError(
+            "UNIT 11E.2 RECOVERED ORDER TYPE "
+            "IS NOT MARKET"
+        )
+
+    print(
+        "PASS: UNIT 11E.2 RECOVERED ORDER TYPE = MARKET",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # VERIFY TP1 TRIGGER
+    # --------------------------------------------------------
+
+    if (
+        recovered_payload.get(
+            "tpTriggerPrice"
+        )
+        !=
+        preserved_tp_plan[
+            "tp1"
+        ][
+            "price"
+        ]
+    ):
+        raise RuntimeError(
+            "UNIT 11E.2 TP1 TRIGGER "
+            "CROSS-CHECK FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.2 TP1 TRIGGER CROSS-CHECK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # VERIFY TP DIRECTION RELATIVE TO ENTRY
+    # --------------------------------------------------------
+
+    tp1_price = Decimal(
+        str(
+            preserved_tp_plan[
+                "tp1"
+            ][
+                "price"
+            ]
+        )
+    )
+
+    tp2_price = Decimal(
+        str(
+            preserved_tp_plan[
+                "tp2"
+            ][
+                "price"
+            ]
+        )
+    )
+
+    if direction == "SHORT":
+
+        if not (
+            tp1_price < entry_price
+            and
+            tp2_price < tp1_price
+        ):
+            raise RuntimeError(
+                "UNIT 11E.2 SHORT TP ORDERING FAILED"
+            )
+
+    else:
+
+        if not (
+            tp1_price > entry_price
+            and
+            tp2_price > tp1_price
+        ):
+            raise RuntimeError(
+                "UNIT 11E.2 LONG TP ORDERING FAILED"
+            )
+
+    print(
+        "PASS: UNIT 11E.2 TP PRICE DIRECTION",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # VERIFY FULL TP QUANTITY ALLOCATION
+    # --------------------------------------------------------
+
+    tp1_qty = Decimal(
+        str(
+            preserved_tp_plan[
+                "tp1"
+            ][
+                "quantity"
+            ]
+        )
+    )
+
+    tp2_qty = Decimal(
+        str(
+            preserved_tp_plan[
+                "tp2"
+            ][
+                "quantity"
+            ]
+        )
+    )
+
+    tp3_qty = Decimal(
+        str(
+            preserved_tp_plan[
+                "tp3"
+            ][
+                "quantity"
+            ]
+        )
+    )
+
+    total_tp_quantity = (
+        tp1_qty
+        + tp2_qty
+        + tp3_qty
+    )
+
+    if total_tp_quantity != quantity:
+        raise RuntimeError(
+            "UNIT 11E.2 TOTAL TP QUANTITY "
+            "DOES NOT MATCH POSITION"
+        )
+
+    print(
+        "PASS: UNIT 11E.2 TOTAL TP QUANTITY "
+        "= ACTUAL POSITION QUANTITY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # ABSOLUTE SL-DISABLED CHECK
+    # --------------------------------------------------------
+
+    forbidden_sl_fields = (
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopLoss",
+        "stopPrice",
+        "stop_loss",
+    )
+
+    present_sl_fields = [
+        field
+        for field in forbidden_sl_fields
+        if field in recovered_payload
+    ]
+
+    if present_sl_fields:
+        raise RuntimeError(
+            "UNIT 11E.2 FORBIDDEN SL FIELDS = "
+            + str(
+                present_sl_fields
+            )
+        )
+
+    print(
+        "PASS: UNIT 11E.2 SL REMAINS DISABLED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # ZERO-WRITE ASSERTIONS
+    # --------------------------------------------------------
+
+    if (
+        unit_11e1_result.get(
+            "weex_post"
+        )
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11E.2 WEEX POST FIREBREAK FAILED"
+        )
+
+    if (
+        unit_11e1_result.get(
+            "exchange_mutation"
+        )
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11E.2 EXCHANGE MUTATION "
+            "FIREBREAK FAILED"
+        )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 FINAL RECOVERED PAYLOAD =",
+        recovered_payload,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 FINAL TP PLAN =",
+        preserved_tp_plan,
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E.2 ACTUAL POSITION "
+        "-> RECOVERED TP PATH",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 WEEX POST = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 DEMO ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 REAL ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 EXCHANGE MUTATION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 SL = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.2 BACKUP EXECUTION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.2 RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "valid":
+            True,
+
+        "symbol":
+            symbol,
+
+        "direction":
+            direction,
+
+        "entry_price":
+            str(
+                entry_price
+            ),
+
+        "position_quantity":
+            str(
+                quantity
+            ),
+
+        "recovered_payload":
+            recovered_payload,
+
+        "preserved_tp_plan":
+            preserved_tp_plan,
+
+        "weex_post":
+            False,
+
+        "demo_order":
+            False,
+
+        "real_order":
+            False,
+
+        "exchange_mutation":
+            False,
+    }
+
+
+# ============================================================
+# UNIT 11E.2 CURRENT VERIFIED POSITION TEST
+#
+# This uses the actual position already confirmed by Unit 11C:
+#
+# BTCSUSDT
+# SHORT
+# Entry = 83595.9
+# Quantity = 0.0004
+#
+# ZERO WRITE
+# ============================================================
+
+
+def reconstruction_unit_11e2_current_position_test():
+
+    actual_position = {
+        "symbol":
+            "BTCSUSDT",
+
+        "direction":
+            "SHORT",
+
+        "entry_price":
+            "83595.9",
+
+        "quantity":
+            "0.0004",
+    }
+
+    result = (
+        reconstruction_unit_11e2_actual_position_tp_bridge(
+            actual_position=actual_position,
+        )
+    )
+
+    if (
+        result.get(
+            "valid"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11E.2 CURRENT POSITION TEST FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E.2 CURRENT VERIFIED "
+        "DEMO POSITION TEST",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E.2 "
+        "CURRENT POSITION TEST = PASS",
+        flush=True,
+    )
+
+    return result
+
+
+if __name__ == "__main__":
+    reconstruction_unit_11e2_current_position_test()
