@@ -14471,3 +14471,1347 @@ def reconstruction_unit_11d_standalone_test():
 if __name__ == "__main__":
 
     reconstruction_unit_11d_standalone_test()
+
+# ============================================================
+# RECONSTRUCTION UNIT 11E
+# CONTROLLED THREE-TP WEEX DEMO SUBMISSION
+#
+# PURPOSE:
+# Submit the THREE already-validated Unit 11D transport
+# payloads to the WEEX V3 DEMO endpoint:
+#
+#   TP1 -> TP2 -> TP3 TRAILING
+#
+# IMPORTANT:
+# - DEMO ENDPOINT ONLY
+# - EXACTLY THREE TP SUBMISSION ATTEMPTS MAXIMUM
+# - FAIL CLOSED ON FIRST REJECTION / NETWORK FAILURE
+# - ALL ORDERS MUST BE REDUCE-ONLY
+# - NO SL
+# - NO BACKUP EXECUTION
+# - NO PRODUCTION ORDER
+# ============================================================
+
+
+UNIT_11E_DEMO_BASE_URL = (
+    "https://api-contract.weex.com"
+)
+
+UNIT_11E_DEMO_REQUEST_PATH = (
+    "/capi/v3/sim/order"
+)
+
+UNIT_11E_PRODUCTION_REQUEST_PATH = (
+    "/capi/v3/order"
+)
+
+
+def unit_11e_assert_demo_only():
+
+    if (
+        UNIT_11E_DEMO_REQUEST_PATH
+        ==
+        UNIT_11E_PRODUCTION_REQUEST_PATH
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E DEMO/PRODUCTION ENDPOINT COLLISION"
+        )
+
+    if (
+        "/sim/"
+        not in
+        UNIT_11E_DEMO_REQUEST_PATH
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E DEMO ENDPOINT SAFETY FAILURE"
+        )
+
+    demo_url = (
+        UNIT_11E_DEMO_BASE_URL
+        +
+        UNIT_11E_DEMO_REQUEST_PATH
+    )
+
+    expected_url = (
+        "https://api-contract.weex.com"
+        "/capi/v3/sim/order"
+    )
+
+    if demo_url != expected_url:
+
+        raise RuntimeError(
+            "UNIT 11E FINAL DEMO URL SAFETY FAILURE"
+        )
+
+    if (
+        "/capi/v3/order"
+        in demo_url
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E PRODUCTION ENDPOINT DETECTED"
+        )
+
+    return demo_url
+
+
+def unit_11e_validate_payload(
+    *,
+    payload,
+    tp_name,
+):
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E PAYLOAD IS NOT DICTIONARY"
+        )
+
+    required_common = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "reduceOnly",
+        "closePosition",
+        "newClientOrderId",
+    }
+
+    missing = (
+        required_common
+        -
+        set(
+            payload.keys()
+        )
+    )
+
+    if missing:
+
+        raise RuntimeError(
+            "UNIT 11E MISSING FIELDS = "
+            + str(
+                sorted(
+                    missing
+                )
+            )
+        )
+
+    if (
+        payload.get(
+            "symbol"
+        )
+        !=
+        "BTCSUSDT"
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E SYMBOL SAFETY FAILURE"
+        )
+
+    side = str(
+        payload.get(
+            "side"
+        )
+    ).upper()
+
+    position_side = str(
+        payload.get(
+            "positionSide"
+        )
+    ).upper()
+
+    if (
+        side,
+        position_side,
+    ) not in {
+        (
+            "SELL",
+            "LONG",
+        ),
+        (
+            "BUY",
+            "SHORT",
+        ),
+    }:
+
+        raise RuntimeError(
+            "UNIT 11E EXIT SIDE/POSITION SAFETY FAILURE"
+        )
+
+    if (
+        payload.get(
+            "reduceOnly"
+        )
+        is not True
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E REDUCE-ONLY PROTECTION MISSING"
+        )
+
+    if (
+        payload.get(
+            "closePosition"
+        )
+        is not False
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E CLOSE-POSITION FLAG INVALID"
+        )
+
+    quantity = unit_11b_decimal(
+        payload.get(
+            "quantity"
+        )
+    )
+
+    if quantity <= 0:
+
+        raise RuntimeError(
+            "UNIT 11E INVALID QUANTITY"
+        )
+
+    unit_11d_assert_no_sl_fields(
+        payload
+    )
+
+    tp_name = str(
+        tp_name
+    ).upper()
+
+    if tp_name in (
+        "TP1",
+        "TP2",
+    ):
+
+        if (
+            payload.get(
+                "type"
+            )
+            !=
+            "TAKE_PROFIT_MARKET"
+        ):
+
+            raise RuntimeError(
+                "UNIT 11E FIXED TP TYPE INVALID"
+            )
+
+        if (
+            "tpTriggerPrice"
+            not in
+            payload
+        ):
+
+            raise RuntimeError(
+                "UNIT 11E TP TRIGGER PRICE MISSING"
+            )
+
+        trigger_price = (
+            unit_11b_decimal(
+                payload[
+                    "tpTriggerPrice"
+                ]
+            )
+        )
+
+        if trigger_price <= 0:
+
+            raise RuntimeError(
+                "UNIT 11E TP TRIGGER PRICE INVALID"
+            )
+
+        if (
+            payload.get(
+                "TpWorkingType"
+            )
+            !=
+            "MARK_PRICE"
+        ):
+
+            raise RuntimeError(
+                "UNIT 11E TP WORKING TYPE INVALID"
+            )
+
+    elif (
+        tp_name
+        ==
+        "TP3_TRAILING_RUNNER"
+    ):
+
+        if (
+            payload.get(
+                "type"
+            )
+            !=
+            "TRAILING_STOP_MARKET"
+        ):
+
+            raise RuntimeError(
+                "UNIT 11E TP3 TYPE INVALID"
+            )
+
+        if (
+            "callbackRate"
+            not in
+            payload
+        ):
+
+            raise RuntimeError(
+                "UNIT 11E TP3 CALLBACK RATE MISSING"
+            )
+
+        callback_rate = (
+            unit_11b_decimal(
+                payload[
+                    "callbackRate"
+                ]
+            )
+        )
+
+        if callback_rate <= 0:
+
+            raise RuntimeError(
+                "UNIT 11E TP3 CALLBACK RATE INVALID"
+            )
+
+        if (
+            payload.get(
+                "workingType"
+            )
+            !=
+            "MARK_PRICE"
+        ):
+
+            raise RuntimeError(
+                "UNIT 11E TP3 WORKING TYPE INVALID"
+            )
+
+    else:
+
+        raise RuntimeError(
+            "UNIT 11E UNKNOWN TP NAME"
+        )
+
+    return True
+
+
+async def unit_11e_submit_one_demo_tp(
+    *,
+    payload,
+    tp_name,
+):
+
+    import os
+    import json
+    import time
+    import aiohttp
+
+    unit_11e_validate_payload(
+        payload=payload,
+        tp_name=tp_name,
+    )
+
+    demo_url = (
+        unit_11e_assert_demo_only()
+    )
+
+    # --------------------------------------------------------
+    # CREDENTIALS
+    # --------------------------------------------------------
+
+    api_key = os.getenv(
+        "WEEX_API_KEY"
+    )
+
+    api_secret = os.getenv(
+        "WEEX_API_SECRET"
+    )
+
+    passphrase = os.getenv(
+        "WEEX_API_PASSPHRASE"
+    )
+
+    require(
+        bool(
+            api_key
+        ),
+        "UNIT 11E WEEX_API_KEY missing.",
+    )
+
+    require(
+        bool(
+            api_secret
+        ),
+        "UNIT 11E WEEX_API_SECRET missing.",
+    )
+
+    require(
+        bool(
+            passphrase
+        ),
+        "UNIT 11E WEEX_API_PASSPHRASE missing.",
+    )
+
+    # --------------------------------------------------------
+    # PRESERVE EXACT UNIT 11D TRANSPORT PAYLOAD
+    # --------------------------------------------------------
+
+    original_payload = dict(
+        payload
+    )
+
+    body = json.dumps(
+        payload,
+        separators=(
+            ",",
+            ":",
+        ),
+        ensure_ascii=False,
+    )
+
+    timestamp = str(
+        int(
+            time.time()
+            * 1000
+        )
+    )
+
+    # Reuse already-proven Unit 9 authentication formula.
+    signature = (
+        reconstruction_unit_9_build_signature(
+            timestamp=timestamp,
+            request_path=(
+                UNIT_11E_DEMO_REQUEST_PATH
+            ),
+            body=body,
+        )
+    )
+
+    headers = {
+        "ACCESS-KEY":
+            api_key,
+
+        "ACCESS-SIGN":
+            signature,
+
+        "ACCESS-TIMESTAMP":
+            timestamp,
+
+        "ACCESS-PASSPHRASE":
+            passphrase,
+
+        "Content-Type":
+            "application/json",
+    }
+
+    # --------------------------------------------------------
+    # LAST-MOMENT PRODUCTION FIREBREAK
+    # --------------------------------------------------------
+
+    if (
+        demo_url
+        !=
+        (
+            "https://api-contract.weex.com"
+            "/capi/v3/sim/order"
+        )
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E FINAL URL CHANGED"
+        )
+
+    if (
+        "/sim/order"
+        not in
+        demo_url
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E NON-DEMO URL BLOCKED"
+        )
+
+    if (
+        "/capi/v3/order"
+        in
+        demo_url
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E PRODUCTION WRITE BLOCKED"
+        )
+
+    if (
+        payload
+        !=
+        original_payload
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E PAYLOAD MUTATION DETECTED"
+        )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E SUBMITTING",
+        tp_name,
+        "TO WEEX DEMO",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E DEMO URL =",
+        demo_url,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E CLIENT ORDER ID =",
+        payload[
+            "newClientOrderId"
+        ],
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E PAYLOAD =",
+        payload,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E REAL ORDER = FALSE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # ACTUAL DEMO POST
+    # --------------------------------------------------------
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    try:
+
+        async with aiohttp.ClientSession(
+            timeout=timeout
+        ) as session:
+
+            async with session.post(
+                demo_url,
+                headers=headers,
+                data=body,
+            ) as response:
+
+                http_status = (
+                    response.status
+                )
+
+                response_text = (
+                    await response.text()
+                )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 11E",
+            tp_name,
+            "NETWORK ERROR =",
+            repr(
+                exc
+            ),
+            flush=True,
+        )
+
+        return {
+            "valid":
+                False,
+
+            "submitted":
+                False,
+
+            "accepted":
+                False,
+
+            "tp_name":
+                tp_name,
+
+            "reason":
+                "UNIT_11E_NETWORK_ERROR",
+
+            "error":
+                repr(
+                    exc
+                ),
+
+            "real_order":
+                False,
+        }
+
+    print(
+        "UNIT 11E",
+        tp_name,
+        "HTTP STATUS =",
+        http_status,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E",
+        tp_name,
+        "RAW RESPONSE =",
+        response_text,
+        flush=True,
+    )
+
+    try:
+
+        response_data = json.loads(
+            response_text
+        )
+
+    except Exception:
+
+        response_data = {
+            "raw":
+                response_text
+        }
+
+    if (
+        http_status < 200
+        or
+        http_status >= 300
+    ):
+
+        return {
+            "valid":
+                False,
+
+            "submitted":
+                True,
+
+            "accepted":
+                False,
+
+            "tp_name":
+                tp_name,
+
+            "reason":
+                "UNIT_11E_HTTP_FAILURE",
+
+            "http_status":
+                http_status,
+
+            "response":
+                response_data,
+
+            "real_order":
+                False,
+        }
+
+    if not isinstance(
+        response_data,
+        dict,
+    ):
+
+        return {
+            "valid":
+                False,
+
+            "submitted":
+                True,
+
+            "accepted":
+                False,
+
+            "tp_name":
+                tp_name,
+
+            "reason":
+                "UNIT_11E_RESPONSE_NOT_DICT",
+
+            "http_status":
+                http_status,
+
+            "response":
+                response_data,
+
+            "real_order":
+                False,
+        }
+
+    success = (
+        response_data.get(
+            "success"
+        )
+        is True
+    )
+
+    order_id = (
+        response_data.get(
+            "orderId"
+        )
+    )
+
+    returned_client_order_id = (
+        response_data.get(
+            "clientOrderId"
+        )
+    )
+
+    expected_client_order_id = (
+        payload[
+            "newClientOrderId"
+        ]
+    )
+
+    if not success:
+
+        return {
+            "valid":
+                False,
+
+            "submitted":
+                True,
+
+            "accepted":
+                False,
+
+            "tp_name":
+                tp_name,
+
+            "reason":
+                "UNIT_11E_WEEX_REJECTED",
+
+            "http_status":
+                http_status,
+
+            "response":
+                response_data,
+
+            "real_order":
+                False,
+        }
+
+    require(
+        order_id
+        not in (
+            None,
+            "",
+        ),
+        (
+            "UNIT 11E "
+            + tp_name
+            + " ACCEPTED WITHOUT ORDER ID"
+        ),
+    )
+
+    require(
+        returned_client_order_id
+        ==
+        expected_client_order_id,
+        (
+            "UNIT 11E "
+            + tp_name
+            + " CLIENT ORDER ID MISMATCH"
+        ),
+    )
+
+    print(
+        "PASS: UNIT 11E",
+        tp_name,
+        "DEMO ORDER ACCEPTED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E",
+        tp_name,
+        "ORDER ID =",
+        order_id,
+        flush=True,
+    )
+
+    return {
+        "valid":
+            True,
+
+        "submitted":
+            True,
+
+        "accepted":
+            True,
+
+        "tp_name":
+            tp_name,
+
+        "reason":
+            "UNIT_11E_DEMO_TP_ACCEPTED",
+
+        "order_id":
+            order_id,
+
+        "client_order_id":
+            returned_client_order_id,
+
+        "http_status":
+            http_status,
+
+        "response":
+            response_data,
+
+        "real_order":
+            False,
+    }
+
+
+async def reconstruction_unit_11e_control_submission(
+    *,
+    unit_11d_result,
+):
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E "
+        "THREE-TP CONTROL SUBMISSION START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # UNIT 11D CONTRACT
+    # --------------------------------------------------------
+
+    if not isinstance(
+        unit_11d_result,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E UNIT 11D RESULT NOT DICT"
+        )
+
+    if (
+        unit_11d_result.get(
+            "valid"
+        )
+        is not True
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E UNIT 11D RESULT NOT VALID"
+        )
+
+    for key in (
+        "tp1",
+        "tp2",
+        "tp3",
+    ):
+
+        if key not in unit_11d_result:
+
+            raise RuntimeError(
+                "UNIT 11E MISSING "
+                + key.upper()
+            )
+
+    # --------------------------------------------------------
+    # DEMO ENDPOINT LOCK
+    # --------------------------------------------------------
+
+    demo_url = (
+        unit_11e_assert_demo_only()
+    )
+
+    print(
+        "PASS: UNIT 11E DEMO ENDPOINT LOCK",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E DEMO ENDPOINT =",
+        demo_url,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E PRODUCTION ENDPOINT = BLOCKED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # EXTRACT EXACT UNIT 11D TRANSPORT PAYLOADS
+    # --------------------------------------------------------
+
+    tp1_payload = (
+        unit_11d_result[
+            "tp1"
+        ][
+            "payload"
+        ]
+    )
+
+    tp2_payload = (
+        unit_11d_result[
+            "tp2"
+        ][
+            "payload"
+        ]
+    )
+
+    tp3_payload = (
+        unit_11d_result[
+            "tp3"
+        ][
+            "payload"
+        ]
+    )
+
+    # --------------------------------------------------------
+    # PRE-FLIGHT ALL THREE BEFORE FIRST WRITE
+    # --------------------------------------------------------
+
+    unit_11e_validate_payload(
+        payload=tp1_payload,
+        tp_name="TP1",
+    )
+
+    unit_11e_validate_payload(
+        payload=tp2_payload,
+        tp_name="TP2",
+    )
+
+    unit_11e_validate_payload(
+        payload=tp3_payload,
+        tp_name="TP3_TRAILING_RUNNER",
+    )
+
+    client_ids = {
+        tp1_payload[
+            "newClientOrderId"
+        ],
+        tp2_payload[
+            "newClientOrderId"
+        ],
+        tp3_payload[
+            "newClientOrderId"
+        ],
+    }
+
+    if len(
+        client_ids
+    ) != 3:
+
+        raise RuntimeError(
+            "UNIT 11E CLIENT ORDER IDS NOT UNIQUE"
+        )
+
+    total_quantity = sum(
+        (
+            unit_11b_decimal(
+                payload[
+                    "quantity"
+                ]
+            )
+            for payload in (
+                tp1_payload,
+                tp2_payload,
+                tp3_payload,
+            )
+        ),
+        Decimal(
+            "0"
+        ),
+    )
+
+    expected_quantity = (
+        unit_11b_decimal(
+            unit_11d_result[
+                "total_quantity"
+            ]
+        )
+    )
+
+    if (
+        total_quantity
+        !=
+        expected_quantity
+    ):
+
+        raise RuntimeError(
+            "UNIT 11E TP QUANTITY CONSERVATION FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11E THREE-TP PREFLIGHT",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E TOTAL TP QUANTITY "
+        "= POSITION QUANTITY",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E NO SL FIELDS",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TP1
+    # --------------------------------------------------------
+
+    tp1_result = (
+        await unit_11e_submit_one_demo_tp(
+            payload=tp1_payload,
+            tp_name="TP1",
+        )
+    )
+
+    if (
+        tp1_result.get(
+            "accepted"
+        )
+        is not True
+    ):
+
+        print(
+            "UNIT 11E STOPPED AFTER TP1 FAILURE",
+            flush=True,
+        )
+
+        return {
+            "valid":
+                False,
+
+            "submitted_count":
+                int(
+                    bool(
+                        tp1_result.get(
+                            "submitted"
+                        )
+                    )
+                ),
+
+            "accepted_count":
+                0,
+
+            "tp1":
+                tp1_result,
+
+            "tp2":
+                None,
+
+            "tp3":
+                None,
+
+            "reason":
+                "UNIT_11E_TP1_NOT_ACCEPTED",
+
+            "real_order":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # TP2
+    # --------------------------------------------------------
+
+    tp2_result = (
+        await unit_11e_submit_one_demo_tp(
+            payload=tp2_payload,
+            tp_name="TP2",
+        )
+    )
+
+    if (
+        tp2_result.get(
+            "accepted"
+        )
+        is not True
+    ):
+
+        print(
+            "UNIT 11E STOPPED AFTER TP2 FAILURE",
+            flush=True,
+        )
+
+        return {
+            "valid":
+                False,
+
+            "submitted_count":
+                (
+                    1
+                    +
+                    int(
+                        bool(
+                            tp2_result.get(
+                                "submitted"
+                            )
+                        )
+                    )
+                ),
+
+            "accepted_count":
+                1,
+
+            "tp1":
+                tp1_result,
+
+            "tp2":
+                tp2_result,
+
+            "tp3":
+                None,
+
+            "reason":
+                "UNIT_11E_TP2_NOT_ACCEPTED",
+
+            "real_order":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # TP3 TRAILING RUNNER
+    # --------------------------------------------------------
+
+    tp3_result = (
+        await unit_11e_submit_one_demo_tp(
+            payload=tp3_payload,
+            tp_name="TP3_TRAILING_RUNNER",
+        )
+    )
+
+    if (
+        tp3_result.get(
+            "accepted"
+        )
+        is not True
+    ):
+
+        print(
+            "UNIT 11E TP3 TRAILING NOT ACCEPTED",
+            flush=True,
+        )
+
+        return {
+            "valid":
+                False,
+
+            "submitted_count":
+                (
+                    2
+                    +
+                    int(
+                        bool(
+                            tp3_result.get(
+                                "submitted"
+                            )
+                        )
+                    )
+                ),
+
+            "accepted_count":
+                2,
+
+            "tp1":
+                tp1_result,
+
+            "tp2":
+                tp2_result,
+
+            "tp3":
+                tp3_result,
+
+            "reason":
+                "UNIT_11E_TP3_NOT_ACCEPTED",
+
+            "real_order":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # COMPLETE SUCCESS
+    # --------------------------------------------------------
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E TP1 DEMO ORDER ACCEPTED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E TP2 DEMO ORDER ACCEPTED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11E TP3 TRAILING "
+        "DEMO ORDER ACCEPTED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E TP ORDERS REQUESTED = 3",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E TP ORDERS SUBMITTED = 3",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E TP ORDERS ACCEPTED = 3",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E SL = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E BACKUP EXECUTION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E PRODUCTION ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11E "
+        "CONTROL SUBMISSION = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "valid":
+            True,
+
+        "submitted_count":
+            3,
+
+        "accepted_count":
+            3,
+
+        "tp1":
+            tp1_result,
+
+        "tp2":
+            tp2_result,
+
+        "tp3":
+            tp3_result,
+
+        "reason":
+            "UNIT_11E_ALL_THREE_TPS_ACCEPTED",
+
+        "real_order":
+            False,
+    }
+
+
+async def reconstruction_unit_11e_control_test():
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E CONTROL TEST START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # REUSE THE ALREADY-PROVEN 11A -> 11B -> 11D PIPELINE.
+    #
+    # Same SHORT demo position used by the current Unit 11D:
+    # entry    = 83595.9
+    # quantity = 0.0004
+    # --------------------------------------------------------
+
+    unit_11a_result = (
+        reconstruction_unit_11a_tp_engine(
+            direction="SHORT",
+            entry_price=Decimal(
+                "83595.9"
+            ),
+            total_quantity=Decimal(
+                "0.0004"
+            ),
+            favorable_tp1_price=None,
+            favorable_tp2_price=None,
+            leverage=Decimal(
+                "100"
+            ),
+        )
+    )
+
+    unit_11b_result = (
+        reconstruction_unit_11b_build_tp_payloads(
+            unit_11a_result=(
+                unit_11a_result
+            ),
+            symbol=UNIT_11B_SYMBOL,
+        )
+    )
+
+    unit_11d_result = (
+        reconstruction_unit_11d_prepare_demo_tp_orders(
+            unit_11b_result=(
+                unit_11b_result
+            )
+        )
+    )
+
+    result = (
+        await reconstruction_unit_11e_control_submission(
+            unit_11d_result=(
+                unit_11d_result
+            )
+        )
+    )
+
+    return result
+
+
+# ============================================================
+# UNIT 11E TEMPORARY CONTROL-SUBMISSION ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+
+    import asyncio
+
+    asyncio.run(
+        reconstruction_unit_11e_control_test()
+    )
