@@ -3911,3 +3911,13 @@ def fresh_reconstruction_unit_6(
 
     return execution_candidate
     
+# ============================================================
+# RUN UNIT 6
+# ============================================================
+
+FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
+    fresh_reconstruction_unit_6(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE,
+    )
+)
