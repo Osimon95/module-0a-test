@@ -625,22 +625,19 @@ FRESH_RECONSTRUCTION_CONFIG = (
     fresh_reconstruction_unit_2()
     )
 
+
 # ============================================================
 # FRESH RECONSTRUCTION UNIT 3
-# READ-ONLY PUBLIC MARKET-DATA FOUNDATION
+# WEEX V3 READ-ONLY MARKET DATA
 #
 # PURPOSE:
-# Prove that the fresh reconstruction can perform controlled
-# HTTP GET requests and obtain usable BTC market data without
-# introducing the external "requests" package.
+# Establish verified public WEEX V3 market-data connectivity.
 #
 # IMPORTANT:
-# - PYTHON STANDARD LIBRARY ONLY
-# - PUBLIC MARKET DATA ONLY
-# - HTTP GET ONLY
-# - NO API KEY
-# - NO SECRET
-# - NO SIGNATURE
+# - STANDARD LIBRARY ONLY
+# - WEEX V3
+# - PUBLIC GET ONLY
+# - NO AUTHENTICATION
 # - NO ACCOUNT ACCESS
 # - NO POSITION ACCESS
 # - ZERO DEMO ORDER
@@ -671,7 +668,7 @@ def fresh_reconstruction_unit_3():
     )
 
     # --------------------------------------------------------
-    # 1. REQUIRE VALIDATED UNIT 2 CONFIGURATION
+    # 1. REQUIRE UNIT 2
     # --------------------------------------------------------
 
     config = FRESH_RECONSTRUCTION_CONFIG
@@ -684,28 +681,51 @@ def fresh_reconstruction_unit_3():
             "UNIT 3 BLOCKED: UNIT 2 CONFIGURATION MISSING"
         )
 
-    symbol = config.get(
-        "symbol"
-    )
-
-    if symbol != "BTCSUSDT":
-        raise RuntimeError(
-            "UNIT 3 BLOCKED: INVALID SYMBOL"
-        )
-
     print(
         "PASS: UNIT 3 RECEIVED UNIT 2 CONFIGURATION",
         flush=True,
     )
 
+    # --------------------------------------------------------
+    # 2. SYMBOL NORMALIZATION
+    #
+    # Unit 2 currently carries the historical/demo reference:
+    #
+    #     BTCSUSDT
+    #
+    # WEEX V3 public contract APIs use:
+    #
+    #     BTCUSDT
+    #
+    # Unit 3 creates the exchange-facing V3 symbol explicitly.
+    # --------------------------------------------------------
+
+    strategy_symbol = config.get(
+        "symbol"
+    )
+
+    if strategy_symbol != "BTCSUSDT":
+
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: UNEXPECTED UNIT 2 SYMBOL"
+        )
+
+    exchange_symbol = "BTCUSDT"
+
     print(
-        "PASS: UNIT 3 SYMBOL =",
-        symbol,
+        "PASS: UNIT 3 STRATEGY SYMBOL =",
+        strategy_symbol,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 WEEX V3 SYMBOL =",
+        exchange_symbol,
         flush=True,
     )
 
     # --------------------------------------------------------
-    # 2. HARD READ-ONLY CONTRACT
+    # 3. HARD READ-ONLY CONTRACT
     # --------------------------------------------------------
 
     http_method = "GET"
@@ -721,33 +741,39 @@ def fresh_reconstruction_unit_3():
     exchange_write = False
 
     if http_method != "GET":
+
         raise RuntimeError(
             "UNIT 3 BLOCKED: NON-GET METHOD"
         )
 
     if authenticated_request:
+
         raise RuntimeError(
-            "UNIT 3 BLOCKED: AUTHENTICATED REQUEST"
+            "UNIT 3 BLOCKED: AUTHENTICATION ENABLED"
         )
 
     if account_access:
+
         raise RuntimeError(
-            "UNIT 3 BLOCKED: ACCOUNT ACCESS"
+            "UNIT 3 BLOCKED: ACCOUNT ACCESS ENABLED"
         )
 
     if position_access:
+
         raise RuntimeError(
-            "UNIT 3 BLOCKED: POSITION ACCESS"
+            "UNIT 3 BLOCKED: POSITION ACCESS ENABLED"
         )
 
     if order_access:
+
         raise RuntimeError(
-            "UNIT 3 BLOCKED: ORDER ACCESS"
+            "UNIT 3 BLOCKED: ORDER ACCESS ENABLED"
         )
 
     if exchange_write:
+
         raise RuntimeError(
-            "UNIT 3 BLOCKED: EXCHANGE WRITE"
+            "UNIT 3 BLOCKED: EXCHANGE WRITE ENABLED"
         )
 
     print(
@@ -756,11 +782,11 @@ def fresh_reconstruction_unit_3():
     )
 
     # --------------------------------------------------------
-    # 3. PUBLIC WEEX MARKET-DATA ENDPOINT
+    # 4. VERIFIED WEEX V3 PUBLIC ENDPOINT
     #
-    # Unit 3 intentionally isolates the endpoint so later
-    # exchange-interface changes do not spread through the
-    # strategy code.
+    # GET /capi/v3/market/symbolPrice
+    #
+    # priceType=MARK gives us the contract mark price.
     # --------------------------------------------------------
 
     base_url = (
@@ -768,12 +794,16 @@ def fresh_reconstruction_unit_3():
     )
 
     endpoint = (
-        "/capi/v2/market/ticker"
+        "/capi/v3/market/symbolPrice"
     )
 
     query = urllib.parse.urlencode(
         {
-            "symbol": symbol,
+            "symbol":
+                exchange_symbol,
+
+            "priceType":
+                "MARK",
         }
     )
 
@@ -788,12 +818,7 @@ def fresh_reconstruction_unit_3():
     )
 
     # --------------------------------------------------------
-    # 4. REQUEST CONSTRUCTION
-    #
-    # Explicit GET.
-    # No authentication headers.
-    # No API credentials.
-    # No body.
+    # 5. BUILD PUBLIC GET REQUEST
     # --------------------------------------------------------
 
     request = urllib.request.Request(
@@ -804,8 +829,13 @@ def fresh_reconstruction_unit_3():
                 "application/json",
 
             "User-Agent":
-                "Fresh-Reconstruction/Unit3",
+                "Fresh-Reconstruction-Unit3",
         },
+    )
+
+    print(
+        "PASS: UNIT 3 ENDPOINT = WEEX V3 SYMBOL PRICE",
+        flush=True,
     )
 
     print(
@@ -819,12 +849,12 @@ def fresh_reconstruction_unit_3():
     )
 
     print(
-        "PASS: UNIT 3 REQUEST BODY = NONE",
+        "PASS: UNIT 3 PRICE TYPE = MARK",
         flush=True,
     )
 
     # --------------------------------------------------------
-    # 5. EXECUTE READ-ONLY REQUEST
+    # 6. EXECUTE PUBLIC READ
     # --------------------------------------------------------
 
     try:
@@ -851,6 +881,7 @@ def fresh_reconstruction_unit_3():
         error_body = ""
 
         try:
+
             error_body = (
                 exc
                 .read()
@@ -858,7 +889,9 @@ def fresh_reconstruction_unit_3():
                     "utf-8"
                 )
             )
+
         except Exception:
+
             pass
 
         print(
@@ -869,12 +902,12 @@ def fresh_reconstruction_unit_3():
 
         print(
             "UNIT 3 HTTP ERROR BODY =",
-            error_body[:500],
+            error_body[:1000],
             flush=True,
         )
 
         raise RuntimeError(
-            "UNIT 3 MARKET DATA HTTP ERROR"
+            "UNIT 3 WEEX V3 MARKET DATA HTTP ERROR"
         ) from exc
 
     except urllib.error.URLError as exc:
@@ -888,23 +921,11 @@ def fresh_reconstruction_unit_3():
         )
 
         raise RuntimeError(
-            "UNIT 3 MARKET DATA CONNECTION FAILED"
+            "UNIT 3 WEEX V3 CONNECTION FAILED"
         ) from exc
 
-    except Exception as exc:
-
-        print(
-            "UNIT 3 UNEXPECTED CONNECTION ERROR =",
-            repr(
-                exc
-            ),
-            flush=True,
-        )
-
-        raise
-
     # --------------------------------------------------------
-    # 6. HTTP RESPONSE VALIDATION
+    # 7. HTTP VALIDATION
     # --------------------------------------------------------
 
     print(
@@ -914,22 +935,24 @@ def fresh_reconstruction_unit_3():
     )
 
     if status_code != 200:
+
         raise RuntimeError(
             "UNIT 3 INVALID HTTP STATUS"
         )
 
     if not raw_body:
+
         raise RuntimeError(
             "UNIT 3 EMPTY RESPONSE"
         )
 
     print(
-        "PASS: UNIT 3 HTTP RESPONSE RECEIVED",
+        "PASS: UNIT 3 WEEX V3 RESPONSE RECEIVED",
         flush=True,
     )
 
     # --------------------------------------------------------
-    # 7. JSON VALIDATION
+    # 8. JSON VALIDATION
     # --------------------------------------------------------
 
     try:
@@ -942,7 +965,7 @@ def fresh_reconstruction_unit_3():
 
         print(
             "UNIT 3 RAW RESPONSE =",
-            raw_body[:500],
+            raw_body[:1000],
             flush=True,
         )
 
@@ -950,185 +973,142 @@ def fresh_reconstruction_unit_3():
             "UNIT 3 INVALID JSON RESPONSE"
         ) from exc
 
+    if not isinstance(
+        payload,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 INVALID RESPONSE TYPE"
+        )
+
     print(
         "PASS: UNIT 3 VALID JSON RESPONSE",
         flush=True,
     )
 
     # --------------------------------------------------------
-    # 8. GENERIC PRICE EXTRACTION
+    # 9. STRICT V3 RESPONSE VALIDATION
     #
-    # We intentionally tolerate several harmless response
-    # wrappers here. Unit 3's job is market-data transport,
-    # not to bind the entire bot to one response shape.
+    # Expected shape:
+    #
+    # {
+    #     "symbol": "BTCUSDT",
+    #     "price": "...",
+    #     "time": ...
+    # }
+    #
+    # Unlike the previous version, we do NOT recursively
+    # search arbitrary fields for something that looks like
+    # a price.
     # --------------------------------------------------------
 
-    def find_price(
-        value,
-    ):
-
-        candidate_keys = (
-            "last",
-            "lastPrice",
-            "lastPr",
-            "close",
-            "price",
-            "markPrice",
-        )
-
-        if isinstance(
-            value,
-            dict,
-        ):
-
-            for key in candidate_keys:
-
-                if key in value:
-
-                    candidate = (
-                        value.get(
-                            key
-                        )
-                    )
-
-                    try:
-
-                        numeric = float(
-                            candidate
-                        )
-
-                        if numeric > 0:
-                            return numeric
-
-                    except (
-                        TypeError,
-                        ValueError,
-                    ):
-                        pass
-
-            preferred_wrappers = (
-                "data",
-                "result",
-                "ticker",
-            )
-
-            for key in preferred_wrappers:
-
-                if key in value:
-
-                    result = find_price(
-                        value[key]
-                    )
-
-                    if result is not None:
-                        return result
-
-            for nested_value in value.values():
-
-                result = find_price(
-                    nested_value
-                )
-
-                if result is not None:
-                    return result
-
-        elif isinstance(
-            value,
-            list,
-        ):
-
-            for item in value:
-
-                result = find_price(
-                    item
-                )
-
-                if result is not None:
-                    return result
-
-        return None
-
-    live_price = find_price(
-        payload
+    response_symbol = payload.get(
+        "symbol"
     )
 
-    # --------------------------------------------------------
-    # 9. MARKET-DATA VALIDATION
-    # --------------------------------------------------------
+    response_price = payload.get(
+        "price"
+    )
 
-    if live_price is None:
+    response_time = payload.get(
+        "time"
+    )
+
+    if response_symbol != exchange_symbol:
 
         print(
-            "UNIT 3 RESPONSE PREVIEW =",
-            raw_body[:1000],
+            "UNIT 3 RESPONSE SYMBOL =",
+            response_symbol,
             flush=True,
         )
 
         raise RuntimeError(
-            "UNIT 3 COULD NOT EXTRACT MARKET PRICE"
+            "UNIT 3 RESPONSE SYMBOL MISMATCH"
         )
 
-    if live_price <= 0:
+    try:
+
+        live_price = float(
+            response_price
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ) as exc:
+
         raise RuntimeError(
-            "UNIT 3 INVALID MARKET PRICE"
+            "UNIT 3 INVALID PRICE"
+        ) from exc
+
+    if live_price <= 0:
+
+        raise RuntimeError(
+            "UNIT 3 NON-POSITIVE PRICE"
+        )
+
+    if response_time is None:
+
+        raise RuntimeError(
+            "UNIT 3 RESPONSE TIME MISSING"
         )
 
     print(
-        "PASS: UNIT 3 LIVE BTC PRICE =",
+        "PASS: UNIT 3 RESPONSE SYMBOL =",
+        response_symbol,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 LIVE BTC MARK PRICE =",
         live_price,
         flush=True,
     )
 
-    # --------------------------------------------------------
-    # 10. NORMALIZED MARKET SNAPSHOT
-    #
-    # Later units consume this object instead of parsing
-    # exchange responses themselves.
-    # --------------------------------------------------------
-
-    market_snapshot = {
-
-        "symbol":
-            symbol,
-
-        "price":
-            live_price,
-
-        "source":
-            "WEEX_PUBLIC_MARKET_DATA",
-
-        "read_only":
-            True,
-
-        "http_method":
-            "GET",
-    }
-
-    if (
-        market_snapshot["symbol"]
-        !=
-        config["symbol"]
-    ):
-        raise RuntimeError(
-            "UNIT 3 SYMBOL CONSISTENCY FAILURE"
-        )
-
-    if (
-        market_snapshot["read_only"]
-        is not True
-    ):
-        raise RuntimeError(
-            "UNIT 3 READ-ONLY FAILURE"
-        )
-
     print(
-        "PASS: UNIT 3 NORMALIZED MARKET SNAPSHOT",
+        "PASS: UNIT 3 MARKET TIMESTAMP =",
+        response_time,
         flush=True,
     )
 
     # --------------------------------------------------------
+    # 10. NORMALIZED INTERNAL MARKET SNAPSHOT
+    # --------------------------------------------------------
+
+    market_snapshot = {
+
+        "strategy_symbol":
+            strategy_symbol,
+
+        "exchange_symbol":
+            exchange_symbol,
+
+        "price":
+            live_price,
+
+        "price_type":
+            "MARK",
+
+        "exchange_time":
+            response_time,
+
+        "source":
+            "WEEX_V3_PUBLIC_MARKET_DATA",
+
+        "read_only":
+            True,
+    }
+
+    # --------------------------------------------------------
     # 11. FINAL SAFETY ASSERTIONS
     # --------------------------------------------------------
+
+    if market_snapshot["read_only"] is not True:
+
+        raise RuntimeError(
+            "UNIT 3 READ-ONLY ASSERTION FAILED"
+        )
 
     print(
         "-" * 80,
@@ -1136,7 +1116,12 @@ def fresh_reconstruction_unit_3():
     )
 
     print(
-        "PASS: PUBLIC MARKET DATA READ COMPLETED",
+        "PASS: UNIT 3 NORMALIZED MARKET SNAPSHOT",
+        flush=True,
+    )
+
+    print(
+        "PASS: WEEX V3 PUBLIC MARKET READ COMPLETED",
         flush=True,
     )
 
@@ -1203,4 +1188,4 @@ def fresh_reconstruction_unit_3():
 
 FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
     fresh_reconstruction_unit_3()
-    )
+)
