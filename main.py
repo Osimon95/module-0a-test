@@ -3536,7 +3536,7 @@ def fresh_reconstruction_unit_5(
 # RUN UNIT 5
 # ============================================================
 
-FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
+FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = ()
     fresh_reconstruction_unit_5(
     unit_2_config,
     unit_4_snapshot,
