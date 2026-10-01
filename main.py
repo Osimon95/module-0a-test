@@ -3922,3 +3922,726 @@ FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
         FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE,
     )
 )
+
+
+# ============================================================
+# FRESH RECONSTRUCTION UNIT 7
+# EXECUTION PLAN / POSITION-SIZING PREPARATION
+#
+# PURPOSE:
+# - Consume verified Unit 2 configuration
+# - Consume verified Unit 6 execution candidate
+# - Require a properly admitted Unit 6 signal
+# - Prepare the parameters required for position sizing
+# - Preserve the configured initial-margin percentage
+# - Preserve the configured leverage target
+# - Preserve market quantity precision
+#
+# IMPORTANT:
+# - NO ACCOUNT BALANCE IS INVENTED
+# - NO POSITION QUANTITY IS INVENTED
+# - ZERO AUTHENTICATED API ACCESS
+# - ZERO ACCOUNT ACCESS
+# - ZERO POSITION ACCESS
+# - ZERO ORDER ENDPOINT ACCESS
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE WRITE
+# - ZERO LEVERAGE MUTATION
+# - ZERO MARGIN MODE MUTATION
+# - ZERO POSITION MODE MUTATION
+# - NO ORDER PAYLOAD
+# - NO TP / SL
+# - NO BACKUP EXECUTION
+#
+# ACTUAL QUANTITY CALCULATION MUST WAIT UNTIL A VERIFIED
+# ACCOUNT-BALANCE INPUT EXISTS.
+# ============================================================
+
+
+def fresh_reconstruction_unit_7(
+    unit_2_config,
+    unit_6_candidate,
+):
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 7 START",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    # ========================================================
+    # 1. INPUT VALIDATION
+    # ========================================================
+
+    if not isinstance(
+        unit_2_config,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 7 FAILED: INVALID UNIT 2 CONFIGURATION"
+        )
+
+    print(
+        "PASS: UNIT 7 RECEIVED UNIT 2 CONFIGURATION",
+        flush=True,
+    )
+
+    if not isinstance(
+        unit_6_candidate,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 7 FAILED: INVALID UNIT 6 EXECUTION CANDIDATE"
+        )
+
+    print(
+        "PASS: UNIT 7 RECEIVED UNIT 6 EXECUTION CANDIDATE",
+        flush=True,
+    )
+
+    # ========================================================
+    # 2. READ UNIT 2 CONFIGURATION
+    # ========================================================
+
+    strategy = unit_2_config.get(
+        "strategy"
+    )
+
+    market_precision = unit_2_config.get(
+        "market_precision"
+    )
+
+    safety = unit_2_config.get(
+        "safety"
+    )
+
+    exchange = unit_2_config.get(
+        "exchange"
+    )
+
+    if not isinstance(
+        strategy,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 7 FAILED: STRATEGY CONFIGURATION MISSING"
+        )
+
+    if not isinstance(
+        market_precision,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 7 FAILED: MARKET PRECISION MISSING"
+        )
+
+    if not isinstance(
+        safety,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 7 FAILED: SAFETY CONFIGURATION MISSING"
+        )
+
+    if not isinstance(
+        exchange,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 7 FAILED: EXCHANGE CONFIGURATION MISSING"
+        )
+
+    print(
+        "PASS: UNIT 7 CONFIGURATION SECTIONS PRESENT",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3. READ UNIT 6 EXECUTION CANDIDATE
+    # ========================================================
+
+    required_unit_6_fields = (
+        "execution_intent",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "unit_5_reason",
+        "admission_reason",
+    )
+
+    missing_unit_6_fields = [
+        field
+        for field in required_unit_6_fields
+        if field not in unit_6_candidate
+    ]
+
+    if missing_unit_6_fields:
+        raise RuntimeError(
+            "UNIT 7 FAILED: UNIT 6 CANDIDATE MISSING FIELDS = "
+            +
+            str(
+                missing_unit_6_fields
+            )
+        )
+
+    execution_intent = unit_6_candidate[
+        "execution_intent"
+    ]
+
+    signal_qualified = unit_6_candidate[
+        "signal_qualified"
+    ]
+
+    active_mode = unit_6_candidate[
+        "active_mode"
+    ]
+
+    direction = unit_6_candidate[
+        "direction"
+    ]
+
+    admission_reason = unit_6_candidate[
+        "admission_reason"
+    ]
+
+    # ========================================================
+    # 4. STRICT UNIT 6 CONTRACT VALIDATION
+    # ========================================================
+
+    if not isinstance(
+        execution_intent,
+        bool,
+    ):
+        raise RuntimeError(
+            "UNIT 7 FAILED: EXECUTION INTENT IS NOT BOOLEAN"
+        )
+
+    if not isinstance(
+        signal_qualified,
+        bool,
+    ):
+        raise RuntimeError(
+            "UNIT 7 FAILED: SIGNAL QUALIFIED IS NOT BOOLEAN"
+        )
+
+    if execution_intent is not True:
+
+        raise RuntimeError(
+            "UNIT 7 BLOCKED: UNIT 6 EXECUTION INTENT IS FALSE"
+        )
+
+    if signal_qualified is not True:
+
+        raise RuntimeError(
+            "UNIT 7 BLOCKED: UNIT 6 SIGNAL IS NOT QUALIFIED"
+        )
+
+    if admission_reason != "QUALIFIED_SIGNAL_ADMITTED":
+
+        raise RuntimeError(
+            "UNIT 7 BLOCKED: UNIT 6 SIGNAL NOT ADMITTED"
+        )
+
+    valid_modes = {
+        "SCALP",
+        "STRUCTURE",
+        "BREAKOUT",
+    }
+
+    if active_mode not in valid_modes:
+
+        raise RuntimeError(
+            "UNIT 7 BLOCKED: INVALID ACTIVE TRADE MODE"
+        )
+
+    valid_directions = {
+        "LONG",
+        "SHORT",
+    }
+
+    if direction not in valid_directions:
+
+        raise RuntimeError(
+            "UNIT 7 BLOCKED: INVALID TRADE DIRECTION"
+        )
+
+    print(
+        "PASS: UNIT 7 UNIT 6 EXECUTION INTENT = TRUE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 UNIT 6 SIGNAL QUALIFIED = TRUE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 UNIT 6 SIGNAL ADMITTED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 ACTIVE MODE =",
+        active_mode,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 DIRECTION =",
+        direction,
+        flush=True,
+    )
+
+    # ========================================================
+    # 5. READ POSITION-SIZING PARAMETERS
+    # ========================================================
+
+    initial_margin_percent = float(
+        strategy.get(
+            "initial_margin_percent",
+            0.0,
+        )
+    )
+
+    leverage_target = int(
+        strategy.get(
+            "leverage_target",
+            0,
+        )
+    )
+
+    quantity_step = float(
+        market_precision.get(
+            "quantity_step",
+            0.0,
+        )
+    )
+
+    minimum_quantity = float(
+        market_precision.get(
+            "minimum_quantity",
+            0.0,
+        )
+    )
+
+    price_step = float(
+        market_precision.get(
+            "price_step",
+            0.0,
+        )
+    )
+
+    if initial_margin_percent <= 0:
+
+        raise RuntimeError(
+            "UNIT 7 FAILED: INVALID INITIAL MARGIN PERCENT"
+        )
+
+    if leverage_target <= 0:
+
+        raise RuntimeError(
+            "UNIT 7 FAILED: INVALID LEVERAGE TARGET"
+        )
+
+    if quantity_step <= 0:
+
+        raise RuntimeError(
+            "UNIT 7 FAILED: INVALID QUANTITY STEP"
+        )
+
+    if minimum_quantity <= 0:
+
+        raise RuntimeError(
+            "UNIT 7 FAILED: INVALID MINIMUM QUANTITY"
+        )
+
+    if price_step <= 0:
+
+        raise RuntimeError(
+            "UNIT 7 FAILED: INVALID PRICE STEP"
+        )
+
+    print(
+        "PASS: UNIT 7 INITIAL MARGIN % =",
+        initial_margin_percent,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 LEVERAGE TARGET =",
+        leverage_target,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 QUANTITY STEP =",
+        quantity_step,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 MINIMUM QUANTITY =",
+        minimum_quantity,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 PRICE STEP =",
+        price_step,
+        flush=True,
+    )
+
+    # ========================================================
+    # 6. READ-ONLY SAFETY CONTRACT
+    # ========================================================
+
+    forbidden_capabilities = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for capability in forbidden_capabilities:
+
+        if safety.get(
+            capability
+        ) is not False:
+
+            raise RuntimeError(
+                "UNIT 7 BLOCKED: UNSAFE CAPABILITY ENABLED: "
+                +
+                capability
+            )
+
+    print(
+        "PASS: UNIT 7 READ-ONLY SAFETY GATE",
+        flush=True,
+    )
+
+    # ========================================================
+    # 7. NORMALIZED SIZING-PREPARATION CANDIDATE
+    #
+    # IMPORTANT:
+    #
+    # We intentionally do NOT calculate quantity here.
+    #
+    # Correct quantity requires:
+    #
+    # available_balance
+    #     x initial_margin_percent
+    #     x leverage
+    #     / execution_price
+    #
+    # Unit 7 currently has no verified account balance.
+    # ========================================================
+
+    sizing_candidate = {
+
+        "symbol":
+            exchange.get(
+                "market_symbol"
+            ),
+
+        "demo_order_symbol":
+            exchange.get(
+                "demo_order_symbol"
+            ),
+
+        "active_mode":
+            active_mode,
+
+        "direction":
+            direction,
+
+        "execution_intent":
+            True,
+
+        "signal_qualified":
+            True,
+
+        "initial_margin_percent":
+            initial_margin_percent,
+
+        "leverage_target":
+            leverage_target,
+
+        "quantity_step":
+            quantity_step,
+
+        "minimum_quantity":
+            minimum_quantity,
+
+        "price_step":
+            price_step,
+
+        "account_balance_required":
+            True,
+
+        "quantity_calculated":
+            False,
+
+        "proposed_quantity":
+            None,
+
+        "order_payload_created":
+            False,
+
+        "read_only":
+            True,
+    }
+
+    # ========================================================
+    # 8. OUTPUT CONTRACT VALIDATION
+    # ========================================================
+
+    if sizing_candidate[
+        "execution_intent"
+    ] is not True:
+
+        raise RuntimeError(
+            "UNIT 7 OUTPUT CONTRACT FAILURE: EXECUTION INTENT"
+        )
+
+    if sizing_candidate[
+        "signal_qualified"
+    ] is not True:
+
+        raise RuntimeError(
+            "UNIT 7 OUTPUT CONTRACT FAILURE: SIGNAL QUALIFICATION"
+        )
+
+    if sizing_candidate[
+        "account_balance_required"
+    ] is not True:
+
+        raise RuntimeError(
+            "UNIT 7 OUTPUT CONTRACT FAILURE: BALANCE REQUIREMENT"
+        )
+
+    if sizing_candidate[
+        "quantity_calculated"
+    ] is not False:
+
+        raise RuntimeError(
+            "UNIT 7 OUTPUT CONTRACT FAILURE: QUANTITY STATE"
+        )
+
+    if sizing_candidate[
+        "proposed_quantity"
+    ] is not None:
+
+        raise RuntimeError(
+            "UNIT 7 OUTPUT CONTRACT FAILURE: QUANTITY INVENTED"
+        )
+
+    if sizing_candidate[
+        "order_payload_created"
+    ] is not False:
+
+        raise RuntimeError(
+            "UNIT 7 OUTPUT CONTRACT FAILURE: ORDER PAYLOAD STATE"
+        )
+
+    if sizing_candidate[
+        "read_only"
+    ] is not True:
+
+        raise RuntimeError(
+            "UNIT 7 OUTPUT CONTRACT FAILURE: READ-ONLY STATE"
+        )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 ACTIVE MODE =",
+        active_mode,
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 DIRECTION =",
+        direction,
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 EXECUTION INTENT = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 INITIAL MARGIN % =",
+        initial_margin_percent,
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 LEVERAGE TARGET =",
+        leverage_target,
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 ACCOUNT BALANCE REQUIRED = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 QUANTITY CALCULATED = False",
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 PROPOSED QUANTITY = None",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    # ========================================================
+    # 9. FINAL SAFETY REPORT
+    # ========================================================
+
+    print(
+        "PASS: UNIT 7 NORMALIZED SIZING PREPARATION CANDIDATE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 POSITION-SIZING PARAMETERS VALIDATED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 NO ACCOUNT BALANCE INVENTED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 NO POSITION QUANTITY INVENTED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 NO NETWORK REQUEST",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 NO ORDER PAYLOAD GENERATED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 NO TP / SL",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 NO BACKUP EXECUTION",
+        flush=True,
+    )
+
+    print(
+        "ZERO AUTHENTICATED API ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ACCOUNT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ORDER ENDPOINT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE WRITE = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO LEVERAGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO MARGIN MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 7 RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return sizing_candidate
+
+
+# ============================================================
+# RUN UNIT 7
+# ============================================================
+
+FRESH_RECONSTRUCTION_SIZING_CANDIDATE = (
+    fresh_reconstruction_unit_7(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE,
+    )
+)
