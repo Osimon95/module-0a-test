@@ -3532,3 +3532,10 @@ def fresh_reconstruction_unit_5(
     )
 
     return signal_candidate
+# ============================================================
+# RUN UNIT 5
+# ============================================================
+
+FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
+    fresh_reconstruction_unit_5()
+    )
