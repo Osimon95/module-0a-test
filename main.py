@@ -27547,3 +27547,741 @@ def reconstruction_unit_11f1_actual_position_bridge(
         "unit_11e9_called":
             False,
     }
+
+# ============================================================
+# RECONSTRUCTION UNIT 11F.2
+# HARD ANTI-DUPLICATE SUBMISSION BOUNDARY
+#
+# PURPOSE:
+# Place the verified LIVE Unit 11F position decision directly
+# in front of Unit 11E.9.
+#
+# BEHAVIOR:
+#
+# LIVE POSITION > 0
+#     -> BLOCK
+#     -> UNIT 11E.9 NOT CALLED
+#
+# LIVE POSITION == 0
+# + QUALIFIED SIGNAL
+#     -> ALLOW
+#     -> UNIT 11E.9 MAY BE CALLED
+#
+# UNKNOWN / INVALID POSITION STATE
+#     -> FAIL CLOSED
+#     -> UNIT 11E.9 NOT CALLED
+#
+# IMPORTANT:
+# - DEMO ONLY
+# - REAL ORDER REMAINS BLOCKED
+# - BACKUPS DO NOT USE THIS GATE
+# - SL REMAINS DISABLED
+# - TP LOGIC UNCHANGED
+# ============================================================
+
+
+_UNIT_11F2_SUBMISSION_IN_FLIGHT = False
+
+
+def reconstruction_unit_11f2_submission_boundary(
+    *,
+    live_position_result,
+    signal_qualified,
+    direction,
+    authorize_demo_submission=False,
+):
+
+    global _UNIT_11F2_SUBMISSION_IN_FLIGHT
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11F.2 "
+        "HARD ANTI-DUPLICATE SUBMISSION BOUNDARY START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # FIREBREAK 1
+    # REQUIRE A LIVE POSITION RESULT
+    # --------------------------------------------------------
+
+    if live_position_result is None:
+
+        print(
+            "PASS: UNIT 11F.2 FAIL-CLOSED "
+            "NO LIVE POSITION RESULT",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F.2 ENTRY ALLOWED = False",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F.2 BLOCK REASON = "
+            "NO_LIVE_POSITION_RESULT",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.9 CALLED = FALSE",
+            flush=True,
+        )
+
+        return {
+            "valid": False,
+            "entry_allowed": False,
+            "submission_attempted": False,
+            "unit_11e9_called": False,
+            "reason": "NO_LIVE_POSITION_RESULT",
+        }
+
+    # --------------------------------------------------------
+    # FIREBREAK 2
+    # REQUIRE DICTIONARY RESULT
+    # --------------------------------------------------------
+
+    if not isinstance(
+        live_position_result,
+        dict,
+    ):
+
+        print(
+            "PASS: UNIT 11F.2 FAIL-CLOSED "
+            "INVALID LIVE POSITION RESULT TYPE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.9 CALLED = FALSE",
+            flush=True,
+        )
+
+        return {
+            "valid": False,
+            "entry_allowed": False,
+            "submission_attempted": False,
+            "unit_11e9_called": False,
+            "reason":
+                "INVALID_LIVE_POSITION_RESULT",
+        }
+
+    # --------------------------------------------------------
+    # READ THE VERIFIED LIVE UNIT 11F DECISION
+    #
+    # IMPORTANT:
+    # Missing entry_allowed NEVER means True.
+    # --------------------------------------------------------
+
+    live_entry_allowed = (
+        live_position_result.get(
+            "entry_allowed"
+        )
+    )
+
+    live_reason = (
+        live_position_result.get(
+            "reason",
+            "UNKNOWN",
+        )
+    )
+
+    position_state = (
+        live_position_result.get(
+            "position_state",
+            live_position_result.get(
+                "state",
+                "UNKNOWN",
+            ),
+        )
+    )
+
+    position_size = (
+        live_position_result.get(
+            "total_position_size",
+            live_position_result.get(
+                "position_size",
+                live_position_result.get(
+                    "size",
+                    None,
+                ),
+            ),
+        )
+    )
+
+    print(
+        "UNIT 11F.2 LIVE POSITION STATE =",
+        position_state,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F.2 LIVE POSITION SIZE =",
+        position_size,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F.2 LIVE ENTRY ALLOWED =",
+        live_entry_allowed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F.2 LIVE GATE REASON =",
+        live_reason,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F.2 SIGNAL QUALIFIED =",
+        bool(signal_qualified),
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F.2 DIRECTION =",
+        str(direction).upper()
+        if direction is not None
+        else None,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # FIREBREAK 3
+    #
+    # ONLY EXPLICIT BOOLEAN TRUE MAY PROCEED.
+    #
+    # False / None / missing / malformed all block.
+    # --------------------------------------------------------
+
+    if live_entry_allowed is not True:
+
+        print(
+            "PASS: UNIT 11F.2 LIVE POSITION "
+            "GATE BLOCK ENFORCED",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 11F.2 "
+            "UNIT 11E.9 UNREACHABLE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F.2 ENTRY ALLOWED = False",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F.2 SUBMISSION ATTEMPTED = False",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.9 CALLED = FALSE",
+            flush=True,
+        )
+
+        print(
+            "ZERO DEMO ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO REAL ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO EXCHANGE MUTATION = TRUE",
+            flush=True,
+        )
+
+        print(
+            "RECONSTRUCTION UNIT 11F.2 "
+            "RESULT = PASS",
+            flush=True,
+        )
+
+        print(
+            "=" * 80,
+            flush=True,
+        )
+
+        return {
+            "valid": True,
+            "entry_allowed": False,
+            "submission_attempted": False,
+            "unit_11e9_called": False,
+            "reason":
+                "LIVE_POSITION_GATE_BLOCK",
+            "live_gate_reason":
+                live_reason,
+            "position_state":
+                position_state,
+            "position_size":
+                position_size,
+        }
+
+    # --------------------------------------------------------
+    # FIREBREAK 4
+    # POSITION GATE ALLOWED, BUT SIGNAL MUST STILL BE VALID.
+    # --------------------------------------------------------
+
+    if not bool(
+        signal_qualified
+    ):
+
+        print(
+            "PASS: UNIT 11F.2 "
+            "UNQUALIFIED SIGNAL BLOCKED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.9 CALLED = FALSE",
+            flush=True,
+        )
+
+        print(
+            "ZERO DEMO ORDER = TRUE",
+            flush=True,
+        )
+
+        return {
+            "valid": True,
+            "entry_allowed": False,
+            "submission_attempted": False,
+            "unit_11e9_called": False,
+            "reason":
+                "SIGNAL_NOT_QUALIFIED",
+        }
+
+    # --------------------------------------------------------
+    # FIREBREAK 5
+    # DIRECTION MUST BE VALID.
+    # --------------------------------------------------------
+
+    normalized_direction = (
+        str(direction).strip().upper()
+        if direction is not None
+        else None
+    )
+
+    if normalized_direction not in (
+        "LONG",
+        "SHORT",
+    ):
+
+        print(
+            "PASS: UNIT 11F.2 "
+            "INVALID DIRECTION BLOCKED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.9 CALLED = FALSE",
+            flush=True,
+        )
+
+        return {
+            "valid": False,
+            "entry_allowed": False,
+            "submission_attempted": False,
+            "unit_11e9_called": False,
+            "reason":
+                "INVALID_DIRECTION",
+        }
+
+    # --------------------------------------------------------
+    # FIREBREAK 6
+    # SAME-PROCESS IN-FLIGHT PROTECTION
+    #
+    # This is NOT the primary duplicate protection.
+    #
+    # WEEX live position is the primary source of truth.
+    #
+    # This protects against two execution paths entering the
+    # submission boundary during the short interval before
+    # WEEX position reconciliation reflects the first order.
+    # --------------------------------------------------------
+
+    if _UNIT_11F2_SUBMISSION_IN_FLIGHT:
+
+        print(
+            "PASS: UNIT 11F.2 "
+            "IN-FLIGHT DUPLICATE BLOCKED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.9 CALLED = FALSE",
+            flush=True,
+        )
+
+        return {
+            "valid": True,
+            "entry_allowed": False,
+            "submission_attempted": False,
+            "unit_11e9_called": False,
+            "reason":
+                "SUBMISSION_ALREADY_IN_FLIGHT",
+        }
+
+    # --------------------------------------------------------
+    # AT THIS POINT:
+    #
+    # 1. LIVE WEEX POSITION GATE explicitly allowed entry.
+    # 2. SIGNAL is qualified.
+    # 3. DIRECTION is valid.
+    # 4. No submission is already in flight.
+    #
+    # This is the ONLY route toward Unit 11E.9.
+    # --------------------------------------------------------
+
+    print(
+        "PASS: UNIT 11F.2 "
+        "LIVE ZERO-POSITION ADMISSION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11F.2 "
+        "QUALIFIED SIGNAL ADMISSION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11F.2 "
+        "SUBMISSION BOUNDARY REACHED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TEST MODE
+    #
+    # Default is False.
+    #
+    # This lets us prove the complete gate first without
+    # submitting another demo order.
+    # --------------------------------------------------------
+
+    if authorize_demo_submission is not True:
+
+        print(
+            "PASS: UNIT 11F.2 "
+            "DEMO SUBMISSION FIREBREAK ACTIVE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F.2 ENTRY ALLOWED = True",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F.2 SUBMISSION AUTHORIZED = False",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.9 CALLED = FALSE",
+            flush=True,
+        )
+
+        print(
+            "ZERO DEMO ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO REAL ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO EXCHANGE MUTATION = TRUE",
+            flush=True,
+        )
+
+        print(
+            "RECONSTRUCTION UNIT 11F.2 "
+            "RESULT = PASS",
+            flush=True,
+        )
+
+        print(
+            "=" * 80,
+            flush=True,
+        )
+
+        return {
+            "valid": True,
+            "entry_allowed": True,
+            "submission_authorized": False,
+            "submission_attempted": False,
+            "unit_11e9_called": False,
+            "reason":
+                "ZERO_POSITION_VALID_SIGNAL_"
+                "SUBMISSION_FIREBREAK",
+        }
+
+    # --------------------------------------------------------
+    # ACTUAL DEMO SUBMISSION PATH
+    #
+    # REAL ORDER EXECUTION IS NOT ENABLED HERE.
+    #
+    # Unit 11E.9 retains its own demo endpoint and safety
+    # controls.
+    # --------------------------------------------------------
+
+    _UNIT_11F2_SUBMISSION_IN_FLIGHT = True
+
+    try:
+
+        print(
+            "UNIT 11F.2 "
+            "CALLING VERIFIED UNIT 11E.9",
+            flush=True,
+        )
+
+        submission_result = (
+            reconstruction_unit_11e9_run_once()
+        )
+
+        print(
+            "UNIT 11F.2 "
+            "UNIT 11E.9 RETURNED",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 11F.2 "
+            "CONTROLLED 11E.9 CALL COMPLETED",
+            flush=True,
+        )
+
+        return {
+            "valid": True,
+            "entry_allowed": True,
+            "submission_authorized": True,
+            "submission_attempted": True,
+            "unit_11e9_called": True,
+            "reason":
+                "CONTROLLED_DEMO_SUBMISSION",
+            "submission_result":
+                submission_result,
+        }
+
+    except Exception as exc:
+
+        print(
+            "UNIT 11F.2 "
+            "11E.9 SUBMISSION ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+        return {
+            "valid": False,
+            "entry_allowed": True,
+            "submission_authorized": True,
+            "submission_attempted": True,
+            "unit_11e9_called": True,
+            "reason":
+                "UNIT_11E9_SUBMISSION_ERROR",
+            "error":
+                repr(exc),
+        }
+
+    finally:
+
+        _UNIT_11F2_SUBMISSION_IN_FLIGHT = False
+
+        print(
+            "UNIT 11F.2 "
+            "IN-FLIGHT GUARD RELEASED",
+            flush=True,
+        )
+
+        print(
+            "REAL ORDER EXECUTION ENABLED "
+            "BY UNIT 11F.2 = FALSE",
+            flush=True,
+        )
+
+        print(
+            "=" * 80,
+            flush=True,
+        )
+
+
+# ============================================================
+# UNIT 11F.2 ZERO-WRITE BLOCKING TEST
+#
+# PURPOSE:
+# Reproduce the CURRENT LIVE CONDITION:
+#
+# POSITION_OPEN
+# 0.0060 SHORT
+#
+# and prove that Unit 11E.9 is unreachable.
+#
+# THIS TEST DOES NOT SUBMIT AN ORDER.
+# ============================================================
+
+
+def reconstruction_unit_11f2_blocking_test():
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F.2 CURRENT-POSITION "
+        "BLOCKING TEST START",
+        flush=True,
+    )
+
+    # This mirrors the live Unit 11F decision currently
+    # returned for the open WEEX demo position.
+    #
+    # It does NOT pretend to be another WEEX GET.
+    # The actual live GET has already independently passed.
+
+    live_position_result = {
+        "position_state":
+            "POSITION_OPEN",
+
+        "total_position_size":
+            0.0060,
+
+        "entry_allowed":
+            False,
+
+        "reason":
+            "NON_ZERO_POSITION_BLOCK",
+    }
+
+    result = (
+        reconstruction_unit_11f2_submission_boundary(
+            live_position_result=
+                live_position_result,
+
+            signal_qualified=True,
+
+            direction="SHORT",
+
+            # CRITICAL:
+            # Even though this is False, the test also proves
+            # that the position gate blocks BEFORE reaching
+            # the submission authorization branch.
+            authorize_demo_submission=False,
+        )
+    )
+
+    assert isinstance(
+        result,
+        dict,
+    )
+
+    assert (
+        result[
+            "entry_allowed"
+        ]
+        is False
+    )
+
+    assert (
+        result[
+            "submission_attempted"
+        ]
+        is False
+    )
+
+    assert (
+        result[
+            "unit_11e9_called"
+        ]
+        is False
+    )
+
+    assert (
+        result[
+            "reason"
+        ]
+        ==
+        "LIVE_POSITION_GATE_BLOCK"
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11F.2 "
+        "NON-ZERO POSITION BLOCK",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11F.2 "
+        "QUALIFIED SIGNAL CANNOT BYPASS POSITION GATE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11F.2 "
+        "UNIT 11E.9 NOT CALLED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11F.2 "
+        "NO DUPLICATE INITIAL ENTRY",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11F.2 "
+        "BLOCKING TEST = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# RUN UNIT 11F.2 BLOCKING TEST
+# ============================================================
+
+reconstruction_unit_11f2_blocking_test()
