@@ -3617,11 +3617,12 @@ def fresh_reconstruction_unit_6(
     # --------------------------------------------------------
 
     signal_qualified = bool(
-        unit_5_candidate.get(
-            "signal_qualified",
-            False,
-        )
+    unit_5_candidate.get(
+        "qualified",
+        False,
     )
+)
+
 
     active_mode = unit_5_candidate.get(
         "active_mode",
