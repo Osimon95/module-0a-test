@@ -3521,7 +3521,7 @@ def fresh_reconstruction_unit_5(
     )
 
     print(
-        f"{fresh_utc_timestamp()} "
+        f"{datetime.now(timezone.utc).isoformat()} "
         "FRESH RECONSTRUCTION UNIT 5 RESULT = PASS",
         flush=True,
     )
