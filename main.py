@@ -4167,6 +4167,7 @@ def fresh_reconstruction_unit_7(
             "proposed_quantity": None,
             "order_payload_created": False,
             "read_only": True,
+            "skip_reason": admission_reason,
         }
 
         print(
