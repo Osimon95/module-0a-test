@@ -624,3 +624,583 @@ def fresh_reconstruction_unit_2():
 FRESH_RECONSTRUCTION_CONFIG = (
     fresh_reconstruction_unit_2()
     )
+
+# ============================================================
+# FRESH RECONSTRUCTION UNIT 3
+# READ-ONLY PUBLIC MARKET-DATA FOUNDATION
+#
+# PURPOSE:
+# Prove that the fresh reconstruction can perform controlled
+# HTTP GET requests and obtain usable BTC market data without
+# introducing the external "requests" package.
+#
+# IMPORTANT:
+# - PYTHON STANDARD LIBRARY ONLY
+# - PUBLIC MARKET DATA ONLY
+# - HTTP GET ONLY
+# - NO API KEY
+# - NO SECRET
+# - NO SIGNATURE
+# - NO ACCOUNT ACCESS
+# - NO POSITION ACCESS
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE WRITE
+# ============================================================
+
+
+def fresh_reconstruction_unit_3():
+
+    import json
+    import urllib.parse
+    import urllib.request
+    import urllib.error
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 3 START"
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 1. REQUIRE VALIDATED UNIT 2 CONFIGURATION
+    # --------------------------------------------------------
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    if not isinstance(
+        config,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: UNIT 2 CONFIGURATION MISSING"
+        )
+
+    symbol = config.get(
+        "symbol"
+    )
+
+    if symbol != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID SYMBOL"
+        )
+
+    print(
+        "PASS: UNIT 3 RECEIVED UNIT 2 CONFIGURATION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 SYMBOL =",
+        symbol,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 2. HARD READ-ONLY CONTRACT
+    # --------------------------------------------------------
+
+    http_method = "GET"
+
+    authenticated_request = False
+
+    account_access = False
+
+    position_access = False
+
+    order_access = False
+
+    exchange_write = False
+
+    if http_method != "GET":
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: NON-GET METHOD"
+        )
+
+    if authenticated_request:
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: AUTHENTICATED REQUEST"
+        )
+
+    if account_access:
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: ACCOUNT ACCESS"
+        )
+
+    if position_access:
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: POSITION ACCESS"
+        )
+
+    if order_access:
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: ORDER ACCESS"
+        )
+
+    if exchange_write:
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: EXCHANGE WRITE"
+        )
+
+    print(
+        "PASS: UNIT 3 READ-ONLY CONTRACT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 3. PUBLIC WEEX MARKET-DATA ENDPOINT
+    #
+    # Unit 3 intentionally isolates the endpoint so later
+    # exchange-interface changes do not spread through the
+    # strategy code.
+    # --------------------------------------------------------
+
+    base_url = (
+        "https://api-contract.weex.com"
+    )
+
+    endpoint = (
+        "/capi/v2/market/ticker"
+    )
+
+    query = urllib.parse.urlencode(
+        {
+            "symbol": symbol,
+        }
+    )
+
+    url = (
+        base_url
+        +
+        endpoint
+        +
+        "?"
+        +
+        query
+    )
+
+    # --------------------------------------------------------
+    # 4. REQUEST CONSTRUCTION
+    #
+    # Explicit GET.
+    # No authentication headers.
+    # No API credentials.
+    # No body.
+    # --------------------------------------------------------
+
+    request = urllib.request.Request(
+        url=url,
+        method="GET",
+        headers={
+            "Accept":
+                "application/json",
+
+            "User-Agent":
+                "Fresh-Reconstruction/Unit3",
+        },
+    )
+
+    print(
+        "PASS: UNIT 3 HTTP METHOD = GET",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 AUTHENTICATION = NONE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 REQUEST BODY = NONE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 5. EXECUTE READ-ONLY REQUEST
+    # --------------------------------------------------------
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            status_code = (
+                response.getcode()
+            )
+
+            raw_body = (
+                response
+                .read()
+                .decode(
+                    "utf-8"
+                )
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        error_body = ""
+
+        try:
+            error_body = (
+                exc
+                .read()
+                .decode(
+                    "utf-8"
+                )
+            )
+        except Exception:
+            pass
+
+        print(
+            "UNIT 3 HTTP ERROR CODE =",
+            exc.code,
+            flush=True,
+        )
+
+        print(
+            "UNIT 3 HTTP ERROR BODY =",
+            error_body[:500],
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 3 MARKET DATA HTTP ERROR"
+        ) from exc
+
+    except urllib.error.URLError as exc:
+
+        print(
+            "UNIT 3 URL ERROR =",
+            repr(
+                exc.reason
+            ),
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 3 MARKET DATA CONNECTION FAILED"
+        ) from exc
+
+    except Exception as exc:
+
+        print(
+            "UNIT 3 UNEXPECTED CONNECTION ERROR =",
+            repr(
+                exc
+            ),
+            flush=True,
+        )
+
+        raise
+
+    # --------------------------------------------------------
+    # 6. HTTP RESPONSE VALIDATION
+    # --------------------------------------------------------
+
+    print(
+        "UNIT 3 HTTP STATUS =",
+        status_code,
+        flush=True,
+    )
+
+    if status_code != 200:
+        raise RuntimeError(
+            "UNIT 3 INVALID HTTP STATUS"
+        )
+
+    if not raw_body:
+        raise RuntimeError(
+            "UNIT 3 EMPTY RESPONSE"
+        )
+
+    print(
+        "PASS: UNIT 3 HTTP RESPONSE RECEIVED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 7. JSON VALIDATION
+    # --------------------------------------------------------
+
+    try:
+
+        payload = json.loads(
+            raw_body
+        )
+
+    except json.JSONDecodeError as exc:
+
+        print(
+            "UNIT 3 RAW RESPONSE =",
+            raw_body[:500],
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 3 INVALID JSON RESPONSE"
+        ) from exc
+
+    print(
+        "PASS: UNIT 3 VALID JSON RESPONSE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 8. GENERIC PRICE EXTRACTION
+    #
+    # We intentionally tolerate several harmless response
+    # wrappers here. Unit 3's job is market-data transport,
+    # not to bind the entire bot to one response shape.
+    # --------------------------------------------------------
+
+    def find_price(
+        value,
+    ):
+
+        candidate_keys = (
+            "last",
+            "lastPrice",
+            "lastPr",
+            "close",
+            "price",
+            "markPrice",
+        )
+
+        if isinstance(
+            value,
+            dict,
+        ):
+
+            for key in candidate_keys:
+
+                if key in value:
+
+                    candidate = (
+                        value.get(
+                            key
+                        )
+                    )
+
+                    try:
+
+                        numeric = float(
+                            candidate
+                        )
+
+                        if numeric > 0:
+                            return numeric
+
+                    except (
+                        TypeError,
+                        ValueError,
+                    ):
+                        pass
+
+            preferred_wrappers = (
+                "data",
+                "result",
+                "ticker",
+            )
+
+            for key in preferred_wrappers:
+
+                if key in value:
+
+                    result = find_price(
+                        value[key]
+                    )
+
+                    if result is not None:
+                        return result
+
+            for nested_value in value.values():
+
+                result = find_price(
+                    nested_value
+                )
+
+                if result is not None:
+                    return result
+
+        elif isinstance(
+            value,
+            list,
+        ):
+
+            for item in value:
+
+                result = find_price(
+                    item
+                )
+
+                if result is not None:
+                    return result
+
+        return None
+
+    live_price = find_price(
+        payload
+    )
+
+    # --------------------------------------------------------
+    # 9. MARKET-DATA VALIDATION
+    # --------------------------------------------------------
+
+    if live_price is None:
+
+        print(
+            "UNIT 3 RESPONSE PREVIEW =",
+            raw_body[:1000],
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 3 COULD NOT EXTRACT MARKET PRICE"
+        )
+
+    if live_price <= 0:
+        raise RuntimeError(
+            "UNIT 3 INVALID MARKET PRICE"
+        )
+
+    print(
+        "PASS: UNIT 3 LIVE BTC PRICE =",
+        live_price,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 10. NORMALIZED MARKET SNAPSHOT
+    #
+    # Later units consume this object instead of parsing
+    # exchange responses themselves.
+    # --------------------------------------------------------
+
+    market_snapshot = {
+
+        "symbol":
+            symbol,
+
+        "price":
+            live_price,
+
+        "source":
+            "WEEX_PUBLIC_MARKET_DATA",
+
+        "read_only":
+            True,
+
+        "http_method":
+            "GET",
+    }
+
+    if (
+        market_snapshot["symbol"]
+        !=
+        config["symbol"]
+    ):
+        raise RuntimeError(
+            "UNIT 3 SYMBOL CONSISTENCY FAILURE"
+        )
+
+    if (
+        market_snapshot["read_only"]
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 3 READ-ONLY FAILURE"
+        )
+
+    print(
+        "PASS: UNIT 3 NORMALIZED MARKET SNAPSHOT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 11. FINAL SAFETY ASSERTIONS
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: PUBLIC MARKET DATA READ COMPLETED",
+        flush=True,
+    )
+
+    print(
+        "PASS: STANDARD LIBRARY HTTP CLIENT",
+        flush=True,
+    )
+
+    print(
+        "PASS: NO REQUESTS PACKAGE REQUIRED",
+        flush=True,
+    )
+
+    print(
+        "ZERO AUTHENTICATED REQUEST = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ACCOUNT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ORDER ENDPOINT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE WRITE = TRUE",
+        flush=True,
+    )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 3 RESULT = PASS"
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return market_snapshot
+
+
+# ============================================================
+# RUN FRESH RECONSTRUCTION UNIT 3
+# ============================================================
+
+FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
+    fresh_reconstruction_unit_3()
+    )
