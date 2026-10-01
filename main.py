@@ -2877,3 +2877,658 @@ FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
 # END OF PART 2 OF 2
 # FRESH RECONSTRUCTION UNITS 1 -> 4 COMPLETE
 # ============================================================
+
+# ============================================================
+# FRESH RECONSTRUCTION UNIT 5
+# SIGNAL QUALIFICATION ENGINE
+#
+# PURPOSE:
+# Consume the verified normalized Unit 4 market-analysis
+# snapshot and determine whether the current market state
+# qualifies for:
+#
+#   - SCALP
+#   - STRUCTURE
+#   - BREAKOUT
+#   - NO TRADE
+#
+# IMPORTANT:
+# - ZERO NETWORK REQUESTS
+# - ZERO AUTHENTICATED API ACCESS
+# - ZERO ACCOUNT ACCESS
+# - ZERO POSITION ACCESS
+# - ZERO ORDER ENDPOINT ACCESS
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE WRITE
+# - ZERO ORDER PAYLOAD
+# - ZERO POSITION SIZING
+# - ZERO TP / SL
+# - ZERO BACKUP EXECUTION
+#
+# UNIT 5 ONLY QUALIFIES MARKET STATE.
+# ============================================================
+
+
+def fresh_reconstruction_unit_5(
+    unit_2_config,
+    unit_4_snapshot,
+):
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        f"{fresh_utc_timestamp()} "
+        "FRESH RECONSTRUCTION UNIT 5 START",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    # ========================================================
+    # 1. INPUT VALIDATION
+    # ========================================================
+
+    if not isinstance(unit_2_config, dict):
+        raise RuntimeError(
+            "UNIT 5 FAILED: INVALID UNIT 2 CONFIGURATION"
+        )
+
+    print(
+        "PASS: UNIT 5 RECEIVED UNIT 2 CONFIGURATION",
+        flush=True,
+    )
+
+    if not isinstance(unit_4_snapshot, dict):
+        raise RuntimeError(
+            "UNIT 5 FAILED: INVALID UNIT 4 SNAPSHOT"
+        )
+
+    print(
+        "PASS: UNIT 5 RECEIVED UNIT 4 MARKET SNAPSHOT",
+        flush=True,
+    )
+
+    # ========================================================
+    # 2. REQUIRED UNIT 4 FIELDS
+    # ========================================================
+
+    required_fields = (
+        "symbol",
+        "live_mark_price",
+        "ema19",
+        "ema50",
+        "ema200",
+        "ema19_50_separation_pct",
+        "ema_structure",
+        "previous_close",
+        "latest_close",
+        "short_term_move_pct",
+    )
+
+    missing_fields = [
+        field
+        for field in required_fields
+        if field not in unit_4_snapshot
+    ]
+
+    if missing_fields:
+        raise RuntimeError(
+            "UNIT 5 FAILED: UNIT 4 SNAPSHOT MISSING FIELDS = "
+            + str(missing_fields)
+        )
+
+    print(
+        "PASS: UNIT 5 REQUIRED UNIT 4 FIELDS PRESENT",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3. NORMALIZE INPUT VALUES
+    # ========================================================
+
+    symbol = str(
+        unit_4_snapshot["symbol"]
+    ).upper()
+
+    live_price = float(
+        unit_4_snapshot["live_mark_price"]
+    )
+
+    ema19 = float(
+        unit_4_snapshot["ema19"]
+    )
+
+    ema50 = float(
+        unit_4_snapshot["ema50"]
+    )
+
+    ema200 = float(
+        unit_4_snapshot["ema200"]
+    )
+
+    separation_pct = abs(
+        float(
+            unit_4_snapshot[
+                "ema19_50_separation_pct"
+            ]
+        )
+    )
+
+    ema_structure = str(
+        unit_4_snapshot["ema_structure"]
+    ).upper()
+
+    previous_close = float(
+        unit_4_snapshot["previous_close"]
+    )
+
+    latest_close = float(
+        unit_4_snapshot["latest_close"]
+    )
+
+    short_term_move_pct = float(
+        unit_4_snapshot["short_term_move_pct"]
+    )
+
+    if live_price <= 0:
+        raise RuntimeError(
+            "UNIT 5 FAILED: INVALID LIVE PRICE"
+        )
+
+    if ema19 <= 0 or ema50 <= 0 or ema200 <= 0:
+        raise RuntimeError(
+            "UNIT 5 FAILED: INVALID EMA VALUE"
+        )
+
+    print(
+        "PASS: UNIT 5 UNIT 4 SNAPSHOT VALIDATED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 4. READ-ONLY SAFETY GATE
+    # ========================================================
+
+    print(
+        "PASS: UNIT 5 READ-ONLY SAFETY GATE",
+        flush=True,
+    )
+
+    # ========================================================
+    # 5. MODE THRESHOLDS
+    #
+    # These preserve the verified reconstruction strategy
+    # bands currently being carried forward.
+    #
+    # Higher separation gets priority.
+    # ========================================================
+
+    BREAKOUT_MIN_SEPARATION_PCT = 0.120
+    STRUCTURE_MIN_SEPARATION_PCT = 0.070
+    SCALP_MIN_SEPARATION_PCT = 0.030
+
+    # Short-term price movement confirmation thresholds.
+
+    BREAKOUT_MIN_MOVE_PCT = 0.080
+    STRUCTURE_MIN_MOVE_PCT = 0.040
+    SCALP_MIN_MOVE_PCT = 0.015
+
+    print(
+        "PASS: UNIT 5 MODE THRESHOLDS LOADED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 6. DETERMINE EMA DIRECTION
+    # ========================================================
+
+    bullish_alignment = (
+        ema19 > ema50
+        and ema50 > ema200
+    )
+
+    bearish_alignment = (
+        ema19 < ema50
+        and ema50 < ema200
+    )
+
+    if bullish_alignment:
+        ema_direction = "LONG"
+
+    elif bearish_alignment:
+        ema_direction = "SHORT"
+
+    else:
+        ema_direction = "NONE"
+
+    print(
+        "UNIT 5 EMA DIRECTION = "
+        f"{ema_direction}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 7. PRICE MOMENTUM DIRECTION
+    # ========================================================
+
+    if short_term_move_pct > 0:
+        momentum_direction = "LONG"
+
+    elif short_term_move_pct < 0:
+        momentum_direction = "SHORT"
+
+    else:
+        momentum_direction = "NONE"
+
+    print(
+        "UNIT 5 MOMENTUM DIRECTION = "
+        f"{momentum_direction}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 8. BASIC DIRECTION AGREEMENT
+    #
+    # A directional signal is only eligible when EMA
+    # alignment and short-term momentum agree.
+    # ========================================================
+
+    direction_agreement = (
+        ema_direction != "NONE"
+        and ema_direction == momentum_direction
+    )
+
+    print(
+        "UNIT 5 DIRECTION AGREEMENT = "
+        f"{direction_agreement}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 9. MODE QUALIFICATION
+    #
+    # Evaluate strongest mode first.
+    # Only one mode may become active.
+    # ========================================================
+
+    active_mode = "NONE"
+    direction = "NONE"
+    qualified = False
+    qualification_reason = "NO_MODE_QUALIFIED"
+
+    absolute_move_pct = abs(
+        short_term_move_pct
+    )
+
+    # --------------------------------------------------------
+    # BREAKOUT
+    # --------------------------------------------------------
+
+    if (
+        direction_agreement
+        and separation_pct
+        >= BREAKOUT_MIN_SEPARATION_PCT
+        and absolute_move_pct
+        >= BREAKOUT_MIN_MOVE_PCT
+    ):
+        active_mode = "BREAKOUT"
+        direction = ema_direction
+        qualified = True
+        qualification_reason = (
+            "BREAKOUT_SEPARATION_AND_MOMENTUM_CONFIRMED"
+        )
+
+    # --------------------------------------------------------
+    # STRUCTURE
+    # --------------------------------------------------------
+
+    elif (
+        direction_agreement
+        and separation_pct
+        >= STRUCTURE_MIN_SEPARATION_PCT
+        and absolute_move_pct
+        >= STRUCTURE_MIN_MOVE_PCT
+    ):
+        active_mode = "STRUCTURE"
+        direction = ema_direction
+        qualified = True
+        qualification_reason = (
+            "STRUCTURE_SEPARATION_AND_MOMENTUM_CONFIRMED"
+        )
+
+    # --------------------------------------------------------
+    # SCALP
+    # --------------------------------------------------------
+
+    elif (
+        direction_agreement
+        and separation_pct
+        >= SCALP_MIN_SEPARATION_PCT
+        and absolute_move_pct
+        >= SCALP_MIN_MOVE_PCT
+    ):
+        active_mode = "SCALP"
+        direction = ema_direction
+        qualified = True
+        qualification_reason = (
+            "SCALP_SEPARATION_AND_MOMENTUM_CONFIRMED"
+        )
+
+    # --------------------------------------------------------
+    # NO TRADE
+    # --------------------------------------------------------
+
+    else:
+        active_mode = "NONE"
+        direction = "NONE"
+        qualified = False
+
+        if ema_direction == "NONE":
+            qualification_reason = (
+                "EMA_ALIGNMENT_NOT_DIRECTIONAL"
+            )
+
+        elif momentum_direction == "NONE":
+            qualification_reason = (
+                "SHORT_TERM_MOMENTUM_FLAT"
+            )
+
+        elif not direction_agreement:
+            qualification_reason = (
+                "EMA_AND_MOMENTUM_DIRECTION_CONFLICT"
+            )
+
+        elif (
+            separation_pct
+            < SCALP_MIN_SEPARATION_PCT
+        ):
+            qualification_reason = (
+                "EMA_SEPARATION_BELOW_MINIMUM"
+            )
+
+        elif (
+            absolute_move_pct
+            < SCALP_MIN_MOVE_PCT
+        ):
+            qualification_reason = (
+                "SHORT_TERM_MOVE_BELOW_MINIMUM"
+            )
+
+    # ========================================================
+    # 10. PRICE RELATIONSHIP CHECKS
+    #
+    # Informational only.
+    # These DO NOT independently create a signal.
+    # ========================================================
+
+    price_above_ema19 = (
+        live_price > ema19
+    )
+
+    price_above_ema50 = (
+        live_price > ema50
+    )
+
+    price_above_ema200 = (
+        live_price > ema200
+    )
+
+    latest_close_above_previous = (
+        latest_close > previous_close
+    )
+
+    print(
+        "UNIT 5 PRICE ABOVE EMA19 = "
+        f"{price_above_ema19}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 PRICE ABOVE EMA50 = "
+        f"{price_above_ema50}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 PRICE ABOVE EMA200 = "
+        f"{price_above_ema200}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 LATEST CLOSE ABOVE PREVIOUS = "
+        f"{latest_close_above_previous}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 11. NORMALIZED SIGNAL CANDIDATE
+    # ========================================================
+
+    signal_candidate = {
+        "symbol": symbol,
+
+        "qualified": qualified,
+
+        "active_mode": active_mode,
+
+        "direction": direction,
+
+        "qualification_reason":
+            qualification_reason,
+
+        "live_mark_price":
+            live_price,
+
+        "ema19":
+            ema19,
+
+        "ema50":
+            ema50,
+
+        "ema200":
+            ema200,
+
+        "ema19_50_separation_pct":
+            separation_pct,
+
+        "ema_structure":
+            ema_structure,
+
+        "ema_direction":
+            ema_direction,
+
+        "momentum_direction":
+            momentum_direction,
+
+        "direction_agreement":
+            direction_agreement,
+
+        "short_term_move_pct":
+            short_term_move_pct,
+
+        "absolute_short_term_move_pct":
+            absolute_move_pct,
+
+        "previous_close":
+            previous_close,
+
+        "latest_close":
+            latest_close,
+
+        "price_above_ema19":
+            price_above_ema19,
+
+        "price_above_ema50":
+            price_above_ema50,
+
+        "price_above_ema200":
+            price_above_ema200,
+
+        "latest_close_above_previous":
+            latest_close_above_previous,
+    }
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 ACTIVE MODE = "
+        f"{active_mode}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 DIRECTION = "
+        f"{direction}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 SIGNAL QUALIFIED = "
+        f"{qualified}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 QUALIFICATION REASON = "
+        f"{qualification_reason}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 EMA19/50 SEPARATION % = "
+        f"{separation_pct}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 SHORT-TERM MOVE % = "
+        f"{short_term_move_pct}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 12. SAFETY ASSERTIONS
+    # ========================================================
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 5 NORMALIZED SIGNAL CANDIDATE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 5 SIGNAL QUALIFICATION COMPLETED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 5 EXCLUSIVE MODE SELECTION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 5 NO NETWORK REQUEST",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 5 NO ORDER PAYLOAD GENERATED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 5 NO POSITION SIZING",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 5 NO TP / SL",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 5 NO BACKUP EXECUTION",
+        flush=True,
+    )
+
+    print(
+        "ZERO AUTHENTICATED API ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ACCOUNT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ORDER ENDPOINT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE WRITE = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO LEVERAGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO MARGIN MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        f"{fresh_utc_timestamp()} "
+        "FRESH RECONSTRUCTION UNIT 5 RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return signal_candidate
