@@ -5257,3 +5257,9 @@ def fresh_reconstruction_unit_8(
     print("=" * 80, flush=True)
 
     return unit_8_result
+FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
+    fresh_reconstruction_unit_8(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_7_RESULT,
+    )
+)
