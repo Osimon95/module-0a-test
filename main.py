@@ -3536,6 +3536,373 @@ def fresh_reconstruction_unit_5(
 # RUN UNIT 5
 # ============================================================
 
+# ============================================================
+# FRESH RECONSTRUCTION UNIT 6
+# SIGNAL ADMISSION / EXECUTION-INTENT GATE
+#
+# PURPOSE:
+# Validate the normalized Unit 5 signal candidate before any
+# account, position-sizing, TP, backup, or order layer exists.
+#
+# IMPORTANT:
+# - UNIT 1-5 REMAIN FROZEN
+# - ZERO AUTHENTICATED API ACCESS
+# - ZERO ACCOUNT ACCESS
+# - ZERO POSITION ACCESS
+# - ZERO ORDER ENDPOINT ACCESS
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE WRITE
+# - NO POSITION SIZING
+# - NO TP / SL
+# - NO BACKUP EXECUTION
+# ============================================================
+
+
+def fresh_reconstruction_unit_6(
+    unit_2_config,
+    unit_5_candidate,
+):
+    from datetime import datetime, timezone
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 6 START",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # INPUT VALIDATION
+    # --------------------------------------------------------
+
+    if not isinstance(unit_2_config, dict):
+        raise TypeError(
+            "UNIT 6 EXPECTED UNIT 2 CONFIGURATION DICT"
+        )
+
+    print(
+        "PASS: UNIT 6 RECEIVED UNIT 2 CONFIGURATION",
+        flush=True,
+    )
+
+    if not isinstance(unit_5_candidate, dict):
+        raise TypeError(
+            "UNIT 6 EXPECTED UNIT 5 SIGNAL CANDIDATE DICT"
+        )
+
+    print(
+        "PASS: UNIT 6 RECEIVED UNIT 5 SIGNAL CANDIDATE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # READ UNIT 5 NORMALIZED VALUES
+    # --------------------------------------------------------
+
+    signal_qualified = bool(
+        unit_5_candidate.get(
+            "signal_qualified",
+            False,
+        )
+    )
+
+    active_mode = unit_5_candidate.get(
+        "active_mode",
+        "NONE",
+    )
+
+    direction = unit_5_candidate.get(
+        "direction",
+        "NONE",
+    )
+
+    qualification_reason = unit_5_candidate.get(
+        "qualification_reason",
+        "UNKNOWN",
+    )
+
+    print(
+        "PASS: UNIT 6 UNIT 5 SIGNAL CANDIDATE READ",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # SAFETY CONFIGURATION
+    # --------------------------------------------------------
+
+    anti_duplicate_orders = bool(
+        unit_2_config.get(
+            "anti_duplicate_orders",
+            True,
+        )
+    )
+
+    one_direction_only = bool(
+        unit_2_config.get(
+            "one_direction_only",
+            True,
+        )
+    )
+
+    if not anti_duplicate_orders:
+        raise RuntimeError(
+            "UNIT 6 SAFETY FAILURE: "
+            "ANTI-DUPLICATE ORDERS DISABLED"
+        )
+
+    if not one_direction_only:
+        raise RuntimeError(
+            "UNIT 6 SAFETY FAILURE: "
+            "ONE DIRECTION ONLY DISABLED"
+        )
+
+    print(
+        "PASS: UNIT 6 ANTI-DUPLICATE REQUIREMENT ENABLED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 ONE-DIRECTION REQUIREMENT ENABLED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 READ-ONLY SAFETY GATE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # SIGNAL CONSISTENCY VALIDATION
+    # --------------------------------------------------------
+
+    valid_modes = {
+        "SCALP",
+        "STRUCTURE",
+        "BREAKOUT",
+        "NONE",
+    }
+
+    valid_directions = {
+        "LONG",
+        "SHORT",
+        "NONE",
+    }
+
+    if active_mode not in valid_modes:
+        raise RuntimeError(
+            f"UNIT 6 INVALID ACTIVE MODE = {active_mode}"
+        )
+
+    if direction not in valid_directions:
+        raise RuntimeError(
+            f"UNIT 6 INVALID DIRECTION = {direction}"
+        )
+
+    print(
+        "PASS: UNIT 6 ACTIVE MODE VALIDATED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 DIRECTION VALIDATED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # ADMISSION DECISION
+    # --------------------------------------------------------
+
+    execution_intent = False
+    admission_reason = "NO_QUALIFIED_SIGNAL"
+
+    if signal_qualified:
+
+        if active_mode == "NONE":
+            admission_reason = (
+                "BLOCKED_QUALIFIED_SIGNAL_WITHOUT_MODE"
+            )
+
+        elif direction == "NONE":
+            admission_reason = (
+                "BLOCKED_QUALIFIED_SIGNAL_WITHOUT_DIRECTION"
+            )
+
+        else:
+            execution_intent = True
+            admission_reason = (
+                "QUALIFIED_SIGNAL_ADMITTED"
+            )
+
+    else:
+        execution_intent = False
+        admission_reason = (
+            f"UNIT_5_NOT_QUALIFIED:"
+            f"{qualification_reason}"
+        )
+
+    # --------------------------------------------------------
+    # NORMALIZED UNIT 6 OUTPUT
+    # --------------------------------------------------------
+
+    execution_candidate = {
+        "execution_intent": execution_intent,
+        "active_mode": active_mode,
+        "direction": direction,
+        "signal_qualified": signal_qualified,
+        "unit_5_reason": qualification_reason,
+        "admission_reason": admission_reason,
+    }
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        f"UNIT 6 ACTIVE MODE = {active_mode}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 6 DIRECTION = {direction}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 6 SIGNAL QUALIFIED = "
+        f"{signal_qualified}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 6 EXECUTION INTENT = "
+        f"{execution_intent}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 6 ADMISSION REASON = "
+        f"{admission_reason}",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 NORMALIZED EXECUTION CANDIDATE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 SIGNAL ADMISSION COMPLETED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 NO NETWORK REQUEST",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 NO ORDER PAYLOAD GENERATED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 NO POSITION SIZING",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 NO TP / SL",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 NO BACKUP EXECUTION",
+        flush=True,
+    )
+
+    print(
+        "ZERO AUTHENTICATED API ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ACCOUNT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ORDER ENDPOINT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE WRITE = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO LEVERAGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO MARGIN MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 6 RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return execution_candidate
 FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
     fresh_reconstruction_unit_5(
         FRESH_RECONSTRUCTION_CONFIG,
