@@ -27110,3 +27110,440 @@ def reconstruction_unit_11f_standalone_test():
 # ============================================================
 
 reconstruction_unit_11f_standalone_test()
+
+# ============================================================
+# RECONSTRUCTION UNIT 11F.1
+# ACTUAL WEEX DEMO POSITION -> UNIT 11F BRIDGE
+#
+# PURPOSE:
+# Feed an ACTUAL reconciled WEEX demo position into the
+# already-tested Unit 11F anti-duplicate gate.
+#
+# IMPORTANT:
+# - ZERO WEEX POST
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - UNIT 11E.9 IS NOT CALLED
+# - NO TP CHANGE
+# - NO SL CHANGE
+# - NO BACKUP EXECUTION
+#
+# This unit does NOT guess how the existing reconciliation
+# function is named. It accepts its already-reconciled result.
+# ============================================================
+
+
+def reconstruction_unit_11f1_actual_position_bridge(
+    *,
+    reconciled_position,
+    signal_qualified,
+    direction,
+):
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11F.1 "
+        "ACTUAL DEMO POSITION BRIDGE START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # REQUIRE A REAL RECONCILIATION RESULT
+    # --------------------------------------------------------
+
+    if reconciled_position is None:
+
+        print(
+            "FAIL: UNIT 11F.1 "
+            "NO RECONCILED POSITION RESULT",
+            flush=True,
+        )
+
+        return {
+            "valid": False,
+            "entry_allowed": False,
+            "reason":
+                "NO_RECONCILED_POSITION_RESULT",
+            "unit_11e9_called": False,
+        }
+
+    # --------------------------------------------------------
+    # ACCEPT COMMON POSITION RESULT SHAPES
+    #
+    # We are NOT calling WEEX here.
+    # We are consuming the result already obtained by the
+    # existing position-reconciliation layer.
+    # --------------------------------------------------------
+
+    position_size = None
+
+    if isinstance(
+        reconciled_position,
+        dict,
+    ):
+
+        possible_size_keys = (
+            "size",
+            "position_size",
+            "positionSize",
+            "quantity",
+            "qty",
+            "positionAmt",
+            "position_quantity",
+        )
+
+        for key in possible_size_keys:
+
+            if key in reconciled_position:
+
+                value = reconciled_position.get(
+                    key
+                )
+
+                if value is not None:
+
+                    position_size = value
+                    break
+
+    else:
+
+        # Allow the bridge to receive a direct numeric size
+        # if the reconciliation layer already returns only
+        # the final position quantity.
+
+        position_size = reconciled_position
+
+    # --------------------------------------------------------
+    # FAIL CLOSED IF POSITION SIZE CANNOT BE PROVEN
+    #
+    # CRITICAL SAFETY RULE:
+    #
+    # UNKNOWN POSITION MUST NEVER BE INTERPRETED AS ZERO.
+    # --------------------------------------------------------
+
+    if position_size is None:
+
+        print(
+            "PASS: UNIT 11F.1 "
+            "UNKNOWN POSITION FAIL-CLOSED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F.1 ENTRY ALLOWED = False",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F.1 BLOCK REASON = "
+            "POSITION_SIZE_NOT_RESOLVED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.9 CALLED = FALSE",
+            flush=True,
+        )
+
+        print(
+            "ZERO WEEX POST = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO DEMO ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO REAL ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO EXCHANGE MUTATION = TRUE",
+            flush=True,
+        )
+
+        return {
+            "valid": False,
+            "entry_allowed": False,
+            "reason":
+                "POSITION_SIZE_NOT_RESOLVED",
+            "unit_11e9_called": False,
+        }
+
+    # --------------------------------------------------------
+    # NORMALIZE ACTUAL POSITION SIZE
+    # --------------------------------------------------------
+
+    try:
+
+        actual_position_size = abs(
+            float(position_size)
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+
+        print(
+            "PASS: UNIT 11F.1 "
+            "INVALID POSITION SIZE FAIL-CLOSED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F.1 ENTRY ALLOWED = False",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11E.9 CALLED = FALSE",
+            flush=True,
+        )
+
+        return {
+            "valid": False,
+            "entry_allowed": False,
+            "reason":
+                "INVALID_RECONCILED_POSITION_SIZE",
+            "unit_11e9_called": False,
+        }
+
+    print(
+        "UNIT 11F.1 LIVE DEMO POSITION SIZE =",
+        actual_position_size,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F.1 POSITION EXISTS =",
+        actual_position_size > 0.0,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # CALL THE ALREADY-PASSED UNIT 11F GATE
+    # --------------------------------------------------------
+
+    print(
+        "UNIT 11F.1 CALLING VERIFIED UNIT 11F",
+        flush=True,
+    )
+
+    gate_result = (
+        reconstruction_unit_11f_position_gate(
+            position_size=
+                actual_position_size,
+
+            signal_qualified=
+                signal_qualified,
+
+            direction=
+                direction,
+        )
+    )
+
+    # --------------------------------------------------------
+    # VALIDATE UNIT 11F RESULT
+    # --------------------------------------------------------
+
+    if not isinstance(
+        gate_result,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 11F.1: "
+            "UNIT 11F RETURNED INVALID RESULT"
+        )
+
+    if (
+        "entry_allowed"
+        not in gate_result
+    ):
+
+        raise RuntimeError(
+            "UNIT 11F.1: "
+            "UNIT 11F RESULT MISSING "
+            "entry_allowed"
+        )
+
+    entry_allowed = bool(
+        gate_result[
+            "entry_allowed"
+        ]
+    )
+
+    gate_reason = gate_result.get(
+        "reason"
+    )
+
+    # --------------------------------------------------------
+    # ACTIVE POSITION ASSERTION
+    # --------------------------------------------------------
+
+    if actual_position_size > 0.0:
+
+        if entry_allowed:
+
+            raise RuntimeError(
+                "UNIT 11F.1 SAFETY FAILURE: "
+                "ACTIVE POSITION WAS ALLOWED "
+                "TO CREATE NEW INITIAL ENTRY"
+            )
+
+        print(
+            "PASS: UNIT 11F.1 "
+            "ACTIVE POSITION BLOCKS "
+            "NEW INITIAL ENTRY",
+            flush=True,
+        )
+
+    # --------------------------------------------------------
+    # ZERO POSITION ASSERTION
+    # --------------------------------------------------------
+
+    else:
+
+        print(
+            "PASS: UNIT 11F.1 "
+            "ZERO DEMO POSITION CONFIRMED",
+            flush=True,
+        )
+
+        if bool(
+            signal_qualified
+        ):
+
+            if not entry_allowed:
+
+                raise RuntimeError(
+                    "UNIT 11F.1: "
+                    "ZERO POSITION + QUALIFIED "
+                    "SIGNAL WAS NOT ADMITTED"
+                )
+
+            print(
+                "PASS: UNIT 11F.1 "
+                "ZERO POSITION + QUALIFIED "
+                "SIGNAL ADMITTED",
+                flush=True,
+            )
+
+        else:
+
+            if entry_allowed:
+
+                raise RuntimeError(
+                    "UNIT 11F.1: "
+                    "UNQUALIFIED SIGNAL "
+                    "WAS ADMITTED"
+                )
+
+            print(
+                "PASS: UNIT 11F.1 "
+                "ZERO POSITION + UNQUALIFIED "
+                "SIGNAL BLOCKED",
+                flush=True,
+            )
+
+    # --------------------------------------------------------
+    # CRITICAL FIREBREAK
+    #
+    # EVEN IF ENTRY_ALLOWED == TRUE,
+    # UNIT 11F.1 DOES NOT CALL 11E.9 YET.
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F.1 ENTRY ALLOWED =",
+        entry_allowed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F.1 GATE REASON =",
+        gate_reason,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11E.9 CALLED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F.1 BACKUP EXECUTION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F.1 TP CHANGE = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F.1 SL CHANGE = FALSE",
+        flush=True,
+    )
+
+    print(
+        "ZERO WEEX POST = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11F.1 "
+        "RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "valid": True,
+        "entry_allowed":
+            entry_allowed,
+        "reason":
+            gate_reason,
+        "actual_position_size":
+            actual_position_size,
+        "position_exists":
+            actual_position_size > 0.0,
+        "signal_qualified":
+            bool(signal_qualified),
+        "direction":
+            str(direction).upper(),
+        "unit_11e9_called":
+            False,
+    }
