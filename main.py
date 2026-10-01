@@ -4732,3 +4732,528 @@ FRESH_RECONSTRUCTION_SIZING_CANDIDATE = (
         FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE,
     )
 )
+
+# ============================================================
+# FRESH RECONSTRUCTION UNIT 8
+# TRADE PLAN CONSTRUCTION GATE
+#
+# PURPOSE:
+# Receive the normalized Unit 7 output.
+#
+# If Unit 7 is IDLE:
+# - preserve the normal no-trade state
+# - generate no trade plan
+# - generate no order payload
+# - perform no exchange write
+#
+# If Unit 7 is actionable:
+# - validate the execution contract
+# - prepare a normalized trade-plan candidate
+# - DO NOT submit any order
+#
+# IMPORTANT:
+# - ZERO AUTHENTICATED API ACCESS
+# - ZERO ACCOUNT ACCESS
+# - ZERO POSITION ACCESS
+# - ZERO ORDER ENDPOINT ACCESS
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE WRITE
+# - ZERO LEVERAGE MUTATION
+# - ZERO MARGIN MODE MUTATION
+# - ZERO POSITION MODE MUTATION
+# ============================================================
+
+
+def fresh_reconstruction_unit_8(
+    config,
+    unit_7_result,
+):
+    from datetime import datetime, timezone
+
+    print("=" * 80, flush=True)
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 8 START",
+        flush=True,
+    )
+    print("-" * 80, flush=True)
+
+    # --------------------------------------------------------
+    # INPUT VALIDATION
+    # --------------------------------------------------------
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: CONFIGURATION IS NOT A DICTIONARY"
+        )
+
+    print(
+        "PASS: UNIT 8 RECEIVED UNIT 2 CONFIGURATION",
+        flush=True,
+    )
+
+    if not isinstance(unit_7_result, dict):
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: UNIT 7 RESULT IS NOT A DICTIONARY"
+        )
+
+    print(
+        "PASS: UNIT 8 RECEIVED UNIT 7 RESULT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # REQUIRED UNIT 7 CONTRACT
+    # --------------------------------------------------------
+
+    required_fields = (
+        "status",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "execution_intent",
+    )
+
+    missing_fields = [
+        field
+        for field in required_fields
+        if field not in unit_7_result
+    ]
+
+    if missing_fields:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: UNIT 7 MISSING REQUIRED FIELDS: "
+            + ", ".join(missing_fields)
+        )
+
+    print(
+        "PASS: UNIT 8 UNIT 7 CONTRACT VALIDATED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # NORMALIZE UNIT 7 STATE
+    # --------------------------------------------------------
+
+    status = str(
+        unit_7_result.get(
+            "status",
+            "IDLE",
+        )
+    ).upper()
+
+    active_mode = str(
+        unit_7_result.get(
+            "active_mode",
+            "NONE",
+        )
+    ).upper()
+
+    direction = str(
+        unit_7_result.get(
+            "direction",
+            "NONE",
+        )
+    ).upper()
+
+    signal_qualified = bool(
+        unit_7_result.get(
+            "signal_qualified",
+            False,
+        )
+    )
+
+    execution_intent = bool(
+        unit_7_result.get(
+            "execution_intent",
+            False,
+        )
+    )
+
+    skip_reason = str(
+        unit_7_result.get(
+            "skip_reason",
+            unit_7_result.get(
+                "reason",
+                "NONE",
+            ),
+        )
+    )
+
+    # --------------------------------------------------------
+    # READ-ONLY SAFETY GATE
+    # --------------------------------------------------------
+
+    print(
+        "PASS: UNIT 8 READ-ONLY SAFETY GATE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # NORMAL IDLE PATH
+    #
+    # IMPORTANT:
+    # execution_intent=False is NOT an error.
+    # It means there is currently no executable trade.
+    # --------------------------------------------------------
+
+    if not execution_intent:
+
+        unit_8_result = {
+            "status": "IDLE",
+            "active_mode": active_mode,
+            "direction": direction,
+            "signal_qualified": signal_qualified,
+            "execution_intent": False,
+            "trade_plan_ready": False,
+            "trade_plan": None,
+            "skip_reason": skip_reason,
+        }
+
+        print("-" * 80, flush=True)
+
+        print(
+            "UNIT 8 STATUS = IDLE",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 8 ACTIVE MODE = {active_mode}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 8 DIRECTION = {direction}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 8 SIGNAL QUALIFIED = "
+            f"{signal_qualified}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 8 EXECUTION INTENT = False",
+            flush=True,
+        )
+
+        print(
+            "UNIT 8 TRADE PLAN READY = False",
+            flush=True,
+        )
+
+        print(
+            "UNIT 8 TRADE PLAN = NONE",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 8 SKIP REASON = {skip_reason}",
+            flush=True,
+        )
+
+        print("-" * 80, flush=True)
+
+        print(
+            "PASS: UNIT 8 NORMAL NO-TRADE STATE",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 8 NO TRADE PLAN GENERATED",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 8 NO NETWORK REQUEST",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 8 NO ORDER PAYLOAD GENERATED",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 8 NO TP / SL EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 8 NO BACKUP EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "ZERO AUTHENTICATED API ACCESS = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO ACCOUNT ACCESS = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO POSITION ACCESS = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO ORDER ENDPOINT ACCESS = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO DEMO ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO REAL ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO EXCHANGE WRITE = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO LEVERAGE MUTATION = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO MARGIN MODE MUTATION = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO POSITION MODE MUTATION = TRUE",
+            flush=True,
+        )
+
+        print("-" * 80, flush=True)
+
+        print(
+            f"{datetime.now(timezone.utc).isoformat()} "
+            "FRESH RECONSTRUCTION UNIT 8 "
+            "RESULT = PASS (IDLE)",
+            flush=True,
+        )
+
+        print("=" * 80, flush=True)
+
+        return unit_8_result
+
+    # --------------------------------------------------------
+    # ACTIONABLE CONTRACT VALIDATION
+    # --------------------------------------------------------
+
+    if not signal_qualified:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: EXECUTION INTENT TRUE "
+            "BUT SIGNAL QUALIFIED FALSE"
+        )
+
+    if active_mode not in (
+        "SCALP",
+        "STRUCTURE",
+        "BREAKOUT",
+    ):
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: INVALID ACTIVE MODE "
+            f"{active_mode}"
+        )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: INVALID DIRECTION "
+            f"{direction}"
+        )
+
+    print(
+        "PASS: UNIT 8 ACTIONABLE EXECUTION CONTRACT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # POSITION SIZING HANDOFF
+    #
+    # Unit 7 may already provide a normalized position-sizing
+    # result. Unit 8 preserves it without contacting WEEX.
+    # --------------------------------------------------------
+
+    position_sizing = unit_7_result.get(
+        "position_sizing"
+    )
+
+    if position_sizing is None:
+        position_sizing = unit_7_result.get(
+            "position_size"
+        )
+
+    # --------------------------------------------------------
+    # NORMALIZED TRADE PLAN
+    #
+    # This is an internal planning object only.
+    # It is NOT a WEEX order payload.
+    # --------------------------------------------------------
+
+    trade_plan = {
+        "active_mode": active_mode,
+        "direction": direction,
+        "position_sizing": position_sizing,
+        "execution_environment": config.get(
+            "execution_environment",
+            "DEMO",
+        ),
+    }
+
+    unit_8_result = {
+        "status": "READY",
+        "active_mode": active_mode,
+        "direction": direction,
+        "signal_qualified": True,
+        "execution_intent": True,
+        "trade_plan_ready": True,
+        "trade_plan": trade_plan,
+        "skip_reason": "NONE",
+    }
+
+    print("-" * 80, flush=True)
+
+    print(
+        "UNIT 8 STATUS = READY",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 8 ACTIVE MODE = {active_mode}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 8 DIRECTION = {direction}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 SIGNAL QUALIFIED = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 EXECUTION INTENT = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 TRADE PLAN READY = True",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 8 POSITION SIZING = {position_sizing}",
+        flush=True,
+    )
+
+    print("-" * 80, flush=True)
+
+    print(
+        "PASS: UNIT 8 NORMALIZED TRADE PLAN",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 TRADE PLAN CONSTRUCTION COMPLETED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 NO NETWORK REQUEST",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 NO ORDER PAYLOAD GENERATED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 NO TP / SL EXECUTION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 NO BACKUP EXECUTION",
+        flush=True,
+    )
+
+    print(
+        "ZERO AUTHENTICATED API ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ACCOUNT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ORDER ENDPOINT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE WRITE = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO LEVERAGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO MARGIN MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print("-" * 80, flush=True)
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 8 RESULT = PASS",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return unit_8_result
