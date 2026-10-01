@@ -26528,3 +26528,585 @@ def reconstruction_unit_11f_run_once():
 if __name__ == "__main__":
 
     reconstruction_unit_11f_run_once()
+
+# ============================================================
+# RECONSTRUCTION UNIT 11F
+# POSITION-AWARE ANTI-DUPLICATE ENTRY GATE
+#
+# PURPOSE:
+# Prevent repeated entry orders while a WEEX demo position
+# already exists, while automatically allowing a future valid
+# entry after WEEX confirms that the position is zero.
+#
+# IMPORTANT:
+# - ZERO WEEX POST
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - DOES NOT CALL UNIT 11E.9
+# - DOES NOT CREATE AN ORDER PAYLOAD
+# - DOES NOT MODIFY TP
+# - DOES NOT MODIFY SL
+# - DOES NOT EXECUTE BACKUPS
+#
+# UNIT 11F IS AN ADMISSION GATE ONLY.
+# ============================================================
+
+
+def reconstruction_unit_11f_position_gate(
+    *,
+    position_size,
+    signal_qualified,
+    direction,
+):
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11F POSITION-AWARE "
+        "ANTI-DUPLICATE GATE START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # NORMALIZE POSITION SIZE
+    # --------------------------------------------------------
+
+    try:
+        normalized_position_size = abs(
+            float(position_size)
+        )
+
+    except (TypeError, ValueError):
+
+        print(
+            "FAIL: UNIT 11F INVALID POSITION SIZE",
+            flush=True,
+        )
+
+        return {
+            "valid": False,
+            "entry_allowed": False,
+            "reason": "INVALID_POSITION_SIZE",
+            "position_size": position_size,
+            "signal_qualified": bool(
+                signal_qualified
+            ),
+            "direction": direction,
+        }
+
+    # --------------------------------------------------------
+    # NORMALIZE DIRECTION
+    # --------------------------------------------------------
+
+    normalized_direction = (
+        str(direction).strip().upper()
+        if direction is not None
+        else None
+    )
+
+    if normalized_direction not in (
+        "LONG",
+        "SHORT",
+    ):
+
+        print(
+            "FAIL: UNIT 11F INVALID DIRECTION",
+            flush=True,
+        )
+
+        return {
+            "valid": False,
+            "entry_allowed": False,
+            "reason": "INVALID_DIRECTION",
+            "position_size":
+                normalized_position_size,
+            "signal_qualified": bool(
+                signal_qualified
+            ),
+            "direction":
+                normalized_direction,
+        }
+
+    # --------------------------------------------------------
+    # POSITION STATE
+    #
+    # ANY NON-ZERO POSITION MEANS:
+    #
+    # DO NOT ALLOW ANOTHER INITIAL ENTRY.
+    #
+    # Backup orders will later have their own explicitly
+    # authorized execution path and must NOT use this initial
+    # entry gate.
+    # --------------------------------------------------------
+
+    position_exists = (
+        normalized_position_size > 0.0
+    )
+
+    print(
+        "UNIT 11F POSITION SIZE =",
+        normalized_position_size,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F POSITION EXISTS =",
+        position_exists,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F SIGNAL QUALIFIED =",
+        bool(signal_qualified),
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F DIRECTION =",
+        normalized_direction,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # RULE 1
+    # EXISTING POSITION ALWAYS BLOCKS NEW INITIAL ENTRY
+    # --------------------------------------------------------
+
+    if position_exists:
+
+        print(
+            "PASS: UNIT 11F EXISTING POSITION DETECTED",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 11F DUPLICATE INITIAL ENTRY BLOCKED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F ENTRY ALLOWED = False",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F BLOCK REASON = "
+            "ACTIVE_DEMO_POSITION_EXISTS",
+            flush=True,
+        )
+
+        print(
+            "ZERO WEEX POST = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO DEMO ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO REAL ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO EXCHANGE MUTATION = TRUE",
+            flush=True,
+        )
+
+        print(
+            "RECONSTRUCTION UNIT 11F RESULT = PASS",
+            flush=True,
+        )
+
+        print(
+            "=" * 80,
+            flush=True,
+        )
+
+        return {
+            "valid": True,
+            "entry_allowed": False,
+            "reason":
+                "ACTIVE_DEMO_POSITION_EXISTS",
+            "position_size":
+                normalized_position_size,
+            "position_exists": True,
+            "signal_qualified":
+                bool(signal_qualified),
+            "direction":
+                normalized_direction,
+        }
+
+    # --------------------------------------------------------
+    # RULE 2
+    # ZERO POSITION ALONE DOES NOT CREATE A TRADE.
+    #
+    # SIGNAL MUST ALSO BE QUALIFIED.
+    # --------------------------------------------------------
+
+    if not bool(signal_qualified):
+
+        print(
+            "PASS: UNIT 11F ZERO POSITION CONFIRMED",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 11F UNQUALIFIED SIGNAL BLOCKED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F ENTRY ALLOWED = False",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F BLOCK REASON = "
+            "SIGNAL_NOT_QUALIFIED",
+            flush=True,
+        )
+
+        print(
+            "ZERO WEEX POST = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO DEMO ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO REAL ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO EXCHANGE MUTATION = TRUE",
+            flush=True,
+        )
+
+        print(
+            "RECONSTRUCTION UNIT 11F RESULT = PASS",
+            flush=True,
+        )
+
+        print(
+            "=" * 80,
+            flush=True,
+        )
+
+        return {
+            "valid": True,
+            "entry_allowed": False,
+            "reason":
+                "SIGNAL_NOT_QUALIFIED",
+            "position_size": 0.0,
+            "position_exists": False,
+            "signal_qualified": False,
+            "direction":
+                normalized_direction,
+        }
+
+    # --------------------------------------------------------
+    # RULE 3
+    # ZERO POSITION + QUALIFIED SIGNAL
+    #
+    # This is the ONLY state in which Unit 11F authorizes
+    # progression toward Unit 11E.9.
+    #
+    # Unit 11F itself STILL DOES NOT submit anything.
+    # --------------------------------------------------------
+
+    print(
+        "PASS: UNIT 11F ZERO POSITION CONFIRMED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11F QUALIFIED SIGNAL CONFIRMED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11F NEW ENTRY ADMISSION AUTHORIZED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F ENTRY ALLOWED = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F REASON = "
+        "ZERO_POSITION_QUALIFIED_SIGNAL",
+        flush=True,
+    )
+
+    print(
+        "ZERO WEEX POST = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11F RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "valid": True,
+        "entry_allowed": True,
+        "reason":
+            "ZERO_POSITION_QUALIFIED_SIGNAL",
+        "position_size": 0.0,
+        "position_exists": False,
+        "signal_qualified": True,
+        "direction":
+            normalized_direction,
+    }
+
+
+# ============================================================
+# UNIT 11F STANDALONE ZERO-WRITE TEST
+#
+# THREE REQUIRED CASES:
+#
+# A. EXISTING POSITION + VALID SIGNAL -> BLOCK
+# B. ZERO POSITION + INVALID SIGNAL   -> BLOCK
+# C. ZERO POSITION + VALID SIGNAL     -> ALLOW
+#
+# NONE OF THESE TESTS SUBMIT AN ORDER.
+# ============================================================
+
+
+def reconstruction_unit_11f_standalone_test():
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F STANDALONE ZERO-WRITE TEST START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TEST A
+    # Simulates the current 0.0004 active demo position.
+    # Even a valid signal MUST NOT create another initial order.
+    # --------------------------------------------------------
+
+    test_a = reconstruction_unit_11f_position_gate(
+        position_size=0.0004,
+        signal_qualified=True,
+        direction="SHORT",
+    )
+
+    assert (
+        test_a["valid"] is True
+    )
+
+    assert (
+        test_a["entry_allowed"] is False
+    )
+
+    assert (
+        test_a["reason"]
+        == "ACTIVE_DEMO_POSITION_EXISTS"
+    )
+
+    print(
+        "PASS: UNIT 11F TEST A "
+        "ACTIVE POSITION BLOCKS DUPLICATE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TEST B
+    # Position is zero but signal is not qualified.
+    # No order should be admitted.
+    # --------------------------------------------------------
+
+    test_b = reconstruction_unit_11f_position_gate(
+        position_size=0.0,
+        signal_qualified=False,
+        direction="SHORT",
+    )
+
+    assert (
+        test_b["valid"] is True
+    )
+
+    assert (
+        test_b["entry_allowed"] is False
+    )
+
+    assert (
+        test_b["reason"]
+        == "SIGNAL_NOT_QUALIFIED"
+    )
+
+    print(
+        "PASS: UNIT 11F TEST B "
+        "ZERO POSITION ALONE DOES NOT TRADE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # TEST C
+    # Position is zero AND signal is qualified.
+    # Entry progression is allowed.
+    #
+    # IMPORTANT:
+    # This test DOES NOT call Unit 11E.9.
+    # --------------------------------------------------------
+
+    test_c = reconstruction_unit_11f_position_gate(
+        position_size=0.0,
+        signal_qualified=True,
+        direction="LONG",
+    )
+
+    assert (
+        test_c["valid"] is True
+    )
+
+    assert (
+        test_c["entry_allowed"] is True
+    )
+
+    assert (
+        test_c["reason"]
+        == "ZERO_POSITION_QUALIFIED_SIGNAL"
+    )
+
+    print(
+        "PASS: UNIT 11F TEST C "
+        "ZERO POSITION ALLOWS VALID NEW ENTRY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # FINAL ZERO-WRITE CONFIRMATION
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11F ACTIVE POSITION "
+        "ANTI-DUPLICATE RULE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11F ZERO-POSITION "
+        "RE-ENTRY RULE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11F SIGNAL QUALIFICATION RULE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F CALLS UNIT 11E.9 = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F BACKUP EXECUTION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F SL CHANGE = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F TP CHANGE = FALSE",
+        flush=True,
+    )
+
+    print(
+        "ZERO WEEX POST = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11F "
+        "STANDALONE TEST = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "valid": True,
+        "test_a": test_a,
+        "test_b": test_b,
+        "test_c": test_c,
+        "result": "PASS",
+    }
+
+
+# ============================================================
+# RUN UNIT 11F STANDALONE TEST
+# ============================================================
+
+reconstruction_unit_11f_standalone_test()
