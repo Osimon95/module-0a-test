@@ -25349,3 +25349,1182 @@ def reconstruction_unit_11e9_run_once():
 if __name__ == "__main__":
 
     reconstruction_unit_11e9_run_once()
+
+# ============================================================
+# RECONSTRUCTION UNIT 11F
+# LIVE WEEX DEMO ZERO-POSITION ENTRY GATE
+#
+# PURPOSE:
+# Read the ACTUAL WEEX DEMO position state and determine
+# whether a NEW entry is allowed.
+#
+# CORE RULE:
+#
+#   POSITION SIZE > 0
+#       -> BLOCK NEW ENTRY
+#
+#   POSITION SIZE = 0
+#       -> ALLOW NEW ENTRY
+#
+#   POSITION STATE UNKNOWN / GET FAILURE
+#       -> BLOCK NEW ENTRY
+#
+# IMPORTANT:
+# - ACTUAL WEEX DEMO POSITION GET
+# - ZERO WEEX POST
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE MUTATION
+# - NO UNIT 9 CALL
+# - NO TP SUBMISSION
+# - NO SL
+# - NO BACKUP EXECUTION
+#
+# OFFICIAL WEEX DEMO POSITION ENDPOINT:
+#
+# GET /capi/v3/sim/position/allPosition
+#
+# This first Unit 11F proves the gate only.
+# It does NOT yet authorize a submission.
+# ============================================================
+
+
+UNIT_11F_SYMBOL = "BTCSUSDT"
+
+UNIT_11F_BASE_URL = (
+    "https://api-contract.weex.com"
+)
+
+UNIT_11F_POSITION_PATH = (
+    "/capi/v3/sim/position/allPosition"
+)
+
+
+def unit_11f_build_get_signature(
+    *,
+    timestamp,
+    request_path,
+):
+
+    import os
+    import hmac
+    import hashlib
+    import base64
+
+    api_secret = os.getenv(
+        "WEEX_API_SECRET"
+    )
+
+    if not api_secret:
+
+        raise RuntimeError(
+            "UNIT 11F WEEX_API_SECRET MISSING"
+        )
+
+    # --------------------------------------------------------
+    # WEEX GET SIGNATURE
+    #
+    # No query string.
+    # No request body.
+    #
+    # timestamp + GET + request_path
+    # --------------------------------------------------------
+
+    prehash = (
+        str(timestamp)
+        + "GET"
+        + str(request_path)
+    )
+
+    digest = hmac.new(
+        api_secret.encode(
+            "utf-8"
+        ),
+        prehash.encode(
+            "utf-8"
+        ),
+        hashlib.sha256,
+    ).digest()
+
+    signature = base64.b64encode(
+        digest
+    ).decode(
+        "utf-8"
+    )
+
+    if not signature:
+
+        raise RuntimeError(
+            "UNIT 11F SIGNATURE GENERATION FAILED"
+        )
+
+    return signature
+
+
+async def reconstruction_unit_11f_get_demo_positions():
+
+    import os
+    import time
+    import aiohttp
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11F "
+        "LIVE DEMO POSITION GET START",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 1. CREDENTIALS
+    # --------------------------------------------------------
+
+    api_key = os.getenv(
+        "WEEX_API_KEY"
+    )
+
+    api_secret = os.getenv(
+        "WEEX_API_SECRET"
+    )
+
+    passphrase = os.getenv(
+        "WEEX_API_PASSPHRASE"
+    )
+
+    if not api_key:
+
+        raise RuntimeError(
+            "UNIT 11F WEEX_API_KEY MISSING"
+        )
+
+    if not api_secret:
+
+        raise RuntimeError(
+            "UNIT 11F WEEX_API_SECRET MISSING"
+        )
+
+    if not passphrase:
+
+        raise RuntimeError(
+            "UNIT 11F WEEX_API_PASSPHRASE MISSING"
+        )
+
+    print(
+        "PASS: UNIT 11F CREDENTIALS PRESENT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 2. HARD-LOCK READ-ONLY DEMO ENDPOINT
+    # --------------------------------------------------------
+
+    request_path = (
+        UNIT_11F_POSITION_PATH
+    )
+
+    expected_path = (
+        "/capi/v3/sim/position/allPosition"
+    )
+
+    if request_path != expected_path:
+
+        raise RuntimeError(
+            "UNIT 11F POSITION ENDPOINT "
+            "SAFETY FAILURE"
+        )
+
+    if "/sim/" not in request_path:
+
+        raise RuntimeError(
+            "UNIT 11F NON-DEMO ENDPOINT DETECTED"
+        )
+
+    url = (
+        UNIT_11F_BASE_URL
+        + request_path
+    )
+
+    expected_url = (
+        "https://api-contract.weex.com"
+        "/capi/v3/sim/position/allPosition"
+    )
+
+    if url != expected_url:
+
+        raise RuntimeError(
+            "UNIT 11F FINAL URL "
+            "SAFETY FAILURE"
+        )
+
+    print(
+        "PASS: UNIT 11F "
+        "DEMO POSITION ENDPOINT LOCK",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F REQUEST METHOD = GET",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F POSITION ENDPOINT = "
+        + request_path,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 3. BUILD AUTHENTICATED GET
+    # --------------------------------------------------------
+
+    timestamp = str(
+        int(
+            time.time() * 1000
+        )
+    )
+
+    signature = (
+        unit_11f_build_get_signature(
+            timestamp=timestamp,
+            request_path=request_path,
+        )
+    )
+
+    headers = {
+        "ACCESS-KEY":
+            api_key,
+
+        "ACCESS-SIGN":
+            signature,
+
+        "ACCESS-TIMESTAMP":
+            timestamp,
+
+        "ACCESS-PASSPHRASE":
+            passphrase,
+
+        "Content-Type":
+            "application/json",
+
+        "User-Agent":
+            "WEEX-PARALLEL-BOT-UNIT-11F",
+    }
+
+    print(
+        "PASS: UNIT 11F "
+        "AUTHENTICATED GET READY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 4. ACTUAL READ-ONLY WEEX GET
+    #
+    # CRITICAL:
+    # session.get ONLY.
+    # No POST method exists in Unit 11F.
+    # --------------------------------------------------------
+
+    timeout = aiohttp.ClientTimeout(
+        total=20
+    )
+
+    try:
+
+        async with aiohttp.ClientSession(
+            timeout=timeout
+        ) as session:
+
+            async with session.get(
+                url,
+                headers=headers,
+            ) as response:
+
+                http_status = (
+                    response.status
+                )
+
+                response_text = (
+                    await response.text()
+                )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 11F POSITION GET "
+            "EXCEPTION = "
+            + repr(exc),
+            flush=True,
+        )
+
+        return {
+            "valid":
+                False,
+
+            "state":
+                "UNKNOWN",
+
+            "entry_allowed":
+                False,
+
+            "reason":
+                "POSITION_GET_EXCEPTION",
+
+            "error":
+                repr(exc),
+
+            "weex_post":
+                False,
+
+            "demo_order":
+                False,
+
+            "real_order":
+                False,
+
+            "exchange_mutation":
+                False,
+        }
+
+    print(
+        "UNIT 11F HTTP STATUS = "
+        + str(http_status),
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 5. FAIL CLOSED ON HTTP ERROR
+    # --------------------------------------------------------
+
+    if (
+        http_status
+        < 200
+        or
+        http_status
+        >= 300
+    ):
+
+        print(
+            "UNIT 11F POSITION STATE = UNKNOWN",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F NEW ENTRY = BLOCKED",
+            flush=True,
+        )
+
+        return {
+            "valid":
+                False,
+
+            "state":
+                "UNKNOWN",
+
+            "entry_allowed":
+                False,
+
+            "reason":
+                "POSITION_GET_HTTP_ERROR",
+
+            "http_status":
+                http_status,
+
+            "response_text":
+                response_text,
+
+            "weex_post":
+                False,
+
+            "demo_order":
+                False,
+
+            "real_order":
+                False,
+
+            "exchange_mutation":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # 6. JSON PARSE
+    # --------------------------------------------------------
+
+    try:
+
+        import json
+
+        response_data = (
+            json.loads(
+                response_text
+            )
+        )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 11F POSITION RESPONSE "
+            "JSON ERROR = "
+            + repr(exc),
+            flush=True,
+        )
+
+        return {
+            "valid":
+                False,
+
+            "state":
+                "UNKNOWN",
+
+            "entry_allowed":
+                False,
+
+            "reason":
+                "POSITION_RESPONSE_JSON_ERROR",
+
+            "weex_post":
+                False,
+
+            "demo_order":
+                False,
+
+            "real_order":
+                False,
+
+            "exchange_mutation":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # 7. RESPONSE SHAPE
+    #
+    # Official demo endpoint returns a list.
+    #
+    # Fail closed if WEEX gives an unexpected structure.
+    # --------------------------------------------------------
+
+    if not isinstance(
+        response_data,
+        list,
+    ):
+
+        print(
+            "UNIT 11F POSITION RESPONSE "
+            "TYPE = "
+            + type(
+                response_data
+            ).__name__,
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F POSITION STATE = UNKNOWN",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F NEW ENTRY = BLOCKED",
+            flush=True,
+        )
+
+        return {
+            "valid":
+                False,
+
+            "state":
+                "UNKNOWN",
+
+            "entry_allowed":
+                False,
+
+            "reason":
+                "UNEXPECTED_POSITION_RESPONSE",
+
+            "response":
+                response_data,
+
+            "weex_post":
+                False,
+
+            "demo_order":
+                False,
+
+            "real_order":
+                False,
+
+            "exchange_mutation":
+                False,
+        }
+
+    return {
+        "valid":
+            True,
+
+        "state":
+            "RETRIEVED",
+
+        "positions":
+            response_data,
+
+        "http_status":
+            http_status,
+
+        "weex_post":
+            False,
+
+        "demo_order":
+            False,
+
+        "real_order":
+            False,
+
+        "exchange_mutation":
+            False,
+    }
+
+
+def unit_11f_evaluate_zero_position(
+    *,
+    positions,
+):
+
+    from decimal import Decimal
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F ZERO-POSITION "
+        "EVALUATION START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # Fail closed if caller gives anything except a list.
+    # --------------------------------------------------------
+
+    if not isinstance(
+        positions,
+        list,
+    ):
+
+        return {
+            "valid":
+                False,
+
+            "state":
+                "UNKNOWN",
+
+            "entry_allowed":
+                False,
+
+            "reason":
+                "INVALID_POSITION_LIST",
+        }
+
+    matching_positions = []
+
+    total_position_size = (
+        Decimal("0")
+    )
+
+    # --------------------------------------------------------
+    # Inspect only BTCSUSDT.
+    #
+    # WEEX official V3 demo position response uses:
+    #
+    # symbol
+    # side
+    # size
+    # --------------------------------------------------------
+
+    for raw_position in positions:
+
+        if not isinstance(
+            raw_position,
+            dict,
+        ):
+
+            return {
+                "valid":
+                    False,
+
+                "state":
+                    "UNKNOWN",
+
+                "entry_allowed":
+                    False,
+
+                "reason":
+                    "INVALID_POSITION_OBJECT",
+            }
+
+        symbol = str(
+            raw_position.get(
+                "symbol",
+                "",
+            )
+        ).upper()
+
+        if (
+            symbol
+            !=
+            UNIT_11F_SYMBOL
+        ):
+
+            continue
+
+        # ----------------------------------------------------
+        # A matching BTCSUSDT record MUST contain size.
+        #
+        # Missing/unparseable size must NEVER be treated
+        # as zero.
+        # ----------------------------------------------------
+
+        if (
+            "size"
+            not in raw_position
+        ):
+
+            return {
+                "valid":
+                    False,
+
+                "state":
+                    "UNKNOWN",
+
+                "entry_allowed":
+                    False,
+
+                "reason":
+                    "POSITION_SIZE_MISSING",
+            }
+
+        try:
+
+            size = Decimal(
+                str(
+                    raw_position.get(
+                        "size"
+                    )
+                )
+            )
+
+        except Exception:
+
+            return {
+                "valid":
+                    False,
+
+                "state":
+                    "UNKNOWN",
+
+                "entry_allowed":
+                    False,
+
+                "reason":
+                    "POSITION_SIZE_INVALID",
+            }
+
+        if size < 0:
+
+            return {
+                "valid":
+                    False,
+
+                "state":
+                    "UNKNOWN",
+
+                "entry_allowed":
+                    False,
+
+                "reason":
+                    "NEGATIVE_POSITION_SIZE",
+            }
+
+        side = str(
+            raw_position.get(
+                "side",
+                "",
+            )
+        ).upper()
+
+        matching_positions.append(
+            {
+                "symbol":
+                    symbol,
+
+                "side":
+                    side,
+
+                "size":
+                    size,
+
+                "raw":
+                    raw_position,
+            }
+        )
+
+        total_position_size += size
+
+    # --------------------------------------------------------
+    # POSITION EXISTS
+    # --------------------------------------------------------
+
+    if (
+        total_position_size
+        > Decimal("0")
+    ):
+
+        active_positions = [
+
+            position
+
+            for position
+            in matching_positions
+
+            if (
+                position[
+                    "size"
+                ]
+                > Decimal("0")
+            )
+        ]
+
+        print(
+            "UNIT 11F EXISTING POSITION = TRUE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F TOTAL POSITION SIZE = "
+            + str(
+                total_position_size
+            ),
+            flush=True,
+        )
+
+        for position in active_positions:
+
+            print(
+                "UNIT 11F ACTIVE POSITION = "
+                + str(
+                    position[
+                        "side"
+                    ]
+                )
+                + " SIZE="
+                + str(
+                    position[
+                        "size"
+                    ]
+                ),
+                flush=True,
+            )
+
+        print(
+            "UNIT 11F NEW ENTRY SUBMISSION = BLOCKED",
+            flush=True,
+        )
+
+        return {
+            "valid":
+                True,
+
+            "state":
+                "POSITION_OPEN",
+
+            "entry_allowed":
+                False,
+
+            "existing_position":
+                True,
+
+            "total_position_size":
+                total_position_size,
+
+            "active_positions":
+                active_positions,
+
+            "reason":
+                "NON_ZERO_POSITION_BLOCK",
+        }
+
+    # --------------------------------------------------------
+    # ZERO POSITION
+    #
+    # Empty list OR BTCSUSDT records whose size is zero
+    # means no current BTCSUSDT exposure.
+    # --------------------------------------------------------
+
+    print(
+        "UNIT 11F EXISTING POSITION = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F TOTAL POSITION SIZE = 0",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F ZERO POSITION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F NEW ENTRY ELIGIBILITY = ALLOWED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F IMPORTANT: "
+        "NO ORDER IS SUBMITTED BY THIS TEST",
+        flush=True,
+    )
+
+    return {
+        "valid":
+            True,
+
+        "state":
+            "ZERO_POSITION",
+
+        "entry_allowed":
+            True,
+
+        "existing_position":
+            False,
+
+        "total_position_size":
+            Decimal("0"),
+
+        "active_positions":
+            [],
+
+        "reason":
+            "ZERO_POSITION_ENTRY_ELIGIBLE",
+    }
+
+
+async def reconstruction_unit_11f_live_zero_position_gate():
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11F "
+        "LIVE ZERO-POSITION GATE START",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 1. READ ACTUAL DEMO POSITION STATE
+    # --------------------------------------------------------
+
+    get_result = (
+        await reconstruction_unit_11f_get_demo_positions()
+    )
+
+    if not isinstance(
+        get_result,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 11F INVALID GET RESULT"
+        )
+
+    # --------------------------------------------------------
+    # 2. FAIL CLOSED
+    # --------------------------------------------------------
+
+    if (
+        get_result.get(
+            "valid"
+        )
+        is not True
+    ):
+
+        print(
+            "-" * 80,
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F POSITION STATE = UNKNOWN",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F NEW ENTRY SUBMISSION = BLOCKED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11F REASON = "
+            + str(
+                get_result.get(
+                    "reason"
+                )
+            ),
+            flush=True,
+        )
+
+        print(
+            "ZERO WEEX POST = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO DEMO ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO REAL ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO EXCHANGE MUTATION = TRUE",
+            flush=True,
+        )
+
+        print(
+            "RECONSTRUCTION UNIT 11F "
+            "RESULT = FAIL-CLOSED PASS",
+            flush=True,
+        )
+
+        print(
+            "=" * 80,
+            flush=True,
+        )
+
+        return {
+            "valid":
+                True,
+
+            "position_state":
+                "UNKNOWN",
+
+            "entry_allowed":
+                False,
+
+            "reason":
+                get_result.get(
+                    "reason"
+                ),
+
+            "weex_post":
+                False,
+
+            "demo_order":
+                False,
+
+            "real_order":
+                False,
+
+            "exchange_mutation":
+                False,
+        }
+
+    # --------------------------------------------------------
+    # 3. EVALUATE ACTUAL POSITION STATE
+    # --------------------------------------------------------
+
+    gate_result = (
+        unit_11f_evaluate_zero_position(
+            positions=(
+                get_result.get(
+                    "positions"
+                )
+            ),
+        )
+    )
+
+    if not isinstance(
+        gate_result,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 11F INVALID GATE RESULT"
+        )
+
+    # --------------------------------------------------------
+    # 4. FINAL ZERO-WRITE FIREBREAK
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F POSITION STATE = "
+        + str(
+            gate_result.get(
+                "state"
+            )
+        ),
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F ENTRY ALLOWED = "
+        + str(
+            gate_result.get(
+                "entry_allowed"
+            )
+        ),
+        flush=True,
+    )
+
+    print(
+        "UNIT 11F REASON = "
+        + str(
+            gate_result.get(
+                "reason"
+            )
+        ),
+        flush=True,
+    )
+
+    print(
+        "ZERO WEEX POST = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO UNIT 9 CALL = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO TP SUBMISSION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO SL = TRUE",
+        flush=True,
+    )
+
+    print(
+        "NO BACKUP EXECUTION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "RECONSTRUCTION UNIT 11F "
+        "RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "valid":
+            True,
+
+        "position_state":
+            gate_result.get(
+                "state"
+            ),
+
+        "entry_allowed":
+            (
+                gate_result.get(
+                    "entry_allowed"
+                )
+                is True
+            ),
+
+        "existing_position":
+            gate_result.get(
+                "existing_position"
+            ),
+
+        "total_position_size":
+            gate_result.get(
+                "total_position_size"
+            ),
+
+        "reason":
+            gate_result.get(
+                "reason"
+            ),
+
+        "weex_post":
+            False,
+
+        "demo_order":
+            False,
+
+        "real_order":
+            False,
+
+        "exchange_mutation":
+            False,
+    }
+
+
+def reconstruction_unit_11f_run_once():
+
+    import asyncio
+
+    return asyncio.run(
+        reconstruction_unit_11f_live_zero_position_gate()
+    )
+
+
+# ============================================================
+# UNIT 11F STANDALONE ENTRY POINT
+#
+# IMPORTANT:
+# Before enabling this block, the previous write-capable
+# Unit 11E.6 and Unit 11E.9 __main__ blocks must remain
+# disabled.
+#
+# UNIT 11F ITSELF IS READ-ONLY.
+# ============================================================
+
+if __name__ == "__main__":
+
+    reconstruction_unit_11f_run_once()
