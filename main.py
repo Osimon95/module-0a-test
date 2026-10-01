@@ -4135,17 +4135,164 @@ def fresh_reconstruction_unit_7(
             "UNIT 7 FAILED: SIGNAL QUALIFIED IS NOT BOOLEAN"
         )
 
-    if execution_intent is not True:
+    
+    # ========================================================
+# NORMAL NO-TRADE STATE
+#
+# A non-qualified market condition is expected during
+# normal operation. It must NOT crash the application.
+# ========================================================
 
+if execution_intent is False:
+
+    if signal_qualified is not False:
         raise RuntimeError(
-            "UNIT 7 BLOCKED: UNIT 6 EXECUTION INTENT IS FALSE"
+            "UNIT 7 FAILED: EXECUTION INTENT FALSE "
+            "BUT SIGNAL QUALIFIED IS NOT FALSE"
         )
 
-    if signal_qualified is not True:
+    print(
+        "PASS: UNIT 7 NO EXECUTION INTENT",
+        flush=True,
+    )
 
-        raise RuntimeError(
-            "UNIT 7 BLOCKED: UNIT 6 SIGNAL IS NOT QUALIFIED"
-        )
+    print(
+        "UNIT 7 STATUS = IDLE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 ACTIVE MODE =",
+        active_mode,
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 DIRECTION =",
+        direction,
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 EXECUTION INTENT = False",
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 POSITION SIZING = SKIPPED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 SKIP REASON =",
+        admission_reason,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 NORMAL NO-TRADE STATE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 NO NETWORK REQUEST",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 7 NO ORDER PAYLOAD GENERATED",
+        flush=True,
+    )
+
+    print(
+        "ZERO AUTHENTICATED API ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ACCOUNT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ORDER ENDPOINT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE WRITE = TRUE",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 7 RESULT = PASS (IDLE)",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return {
+        "status": "IDLE",
+        "execution_intent": False,
+        "signal_qualified": False,
+        "active_mode": active_mode,
+        "direction": direction,
+        "position_sizing_performed": False,
+        "proposed_quantity": None,
+        "order_payload_created": False,
+        "read_only": True,
+        "reason": admission_reason,
+    }
+
+
+# ========================================================
+# ADMITTED-TRADE STATE
+# ========================================================
+
+if execution_intent is not True:
+
+    raise RuntimeError(
+        "UNIT 7 FAILED: INVALID EXECUTION INTENT STATE"
+    )
+
+if signal_qualified is not True:
+
+    raise RuntimeError(
+        "UNIT 7 FAILED: EXECUTION INTENT TRUE "
+        "BUT SIGNAL QUALIFIED IS FALSE"
+    )
+
+if admission_reason != "QUALIFIED_SIGNAL_ADMITTED":
+
+    raise RuntimeError(
+        "UNIT 7 FAILED: EXECUTION INTENT TRUE "
+        "WITHOUT QUALIFIED SIGNAL ADMISSION"
+    )
+
 
     if admission_reason != "QUALIFIED_SIGNAL_ADMITTED":
 
