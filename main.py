@@ -3392,7 +3392,7 @@ def fresh_reconstruction_unit_5(
             "STRUCTURE_SEPARATION_AND_MOMENTUM_CONFIRMED"
         )
 
-        elif (
+    elif (
         scalp_direction != "NONE"
         and separation_pct
         >= SCALP_MIN_SEPARATION_PCT
