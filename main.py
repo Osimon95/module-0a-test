@@ -5959,7 +5959,7 @@ def fresh_reconstruction_unit_8(
         else 0,
     )
 
-    normalized_quantity = round(
+        normalized_quantity = round(
         normalized_quantity,
         quantity_decimals,
     )
@@ -5972,6 +5972,45 @@ def fresh_reconstruction_unit_8(
     if normalized_quantity <= 0:
         raise RuntimeError(
             "UNIT 8 BLOCKED: CALCULATED QUANTITY NON-POSITIVE"
+        )
+
+    # ========================================================
+    # INITIAL ENTRY SAFETY CAP
+    #
+    # The theoretical position-sizing calculation remains
+    # visible for diagnostics, but the executable INITIAL
+    # ENTRY quantity must never exceed 0.0004 BTC.
+    #
+    # This cap applies to the initial entry only.
+    # It must NOT later be used as a blanket cap for:
+    #   - TP1
+    #   - TP2
+    #   - TP3 trailing
+    #   - Backup 1
+    #   - Backup 2
+    #   - Backup 3
+    # ========================================================
+
+    initial_entry_max_quantity = 0.0004
+
+    executable_quantity = min(
+        normalized_quantity,
+        initial_entry_max_quantity,
+    )
+
+    executable_quantity = round(
+        executable_quantity,
+        quantity_decimals,
+    )
+
+    if executable_quantity < minimum_quantity:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: CAPPED INITIAL ENTRY QUANTITY BELOW MINIMUM"
+        )
+
+    if executable_quantity <= 0:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: CAPPED INITIAL ENTRY QUANTITY NON-POSITIVE"
         )
 
     print(
@@ -5993,10 +6032,24 @@ def fresh_reconstruction_unit_8(
     )
 
     print(
-        "PASS: UNIT 8 NORMALIZED BTC QUANTITY =",
+        "PASS: UNIT 8 THEORETICAL BTC QUANTITY =",
         normalized_quantity,
         flush=True,
     )
+
+    print(
+        "PASS: UNIT 8 INITIAL ENTRY MAX BTC QUANTITY =",
+        initial_entry_max_quantity,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 EXECUTABLE INITIAL ENTRY BTC QUANTITY =",
+        executable_quantity,
+        flush=True,
+    )
+
+    normalized_quantity = executable_quantity
 
     # --------------------------------------------------------
     # 17. NORMALIZED POSITION-SIZING OBJECT
