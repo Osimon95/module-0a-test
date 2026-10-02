@@ -3347,16 +3347,14 @@ def fresh_reconstruction_unit_5(
     # ========================================================
 
     scalp_long_context = (
-        ema19 > ema50
-        and momentum_direction == "LONG"
-        and live_price > ema19
-    )
+    ema19 > ema50
+    and momentum_direction == "LONG"
+)
 
-    scalp_short_context = (
-        ema19 < ema50
-        and momentum_direction == "SHORT"
-        and live_price < ema19
-    )
+scalp_short_context = (
+    ema19 < ema50
+    and momentum_direction == "SHORT"
+)
 
     if scalp_long_context:
         scalp_direction = "LONG"
