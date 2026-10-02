@@ -2607,6 +2607,74 @@ def fresh_reconstruction_unit_4():
         flush=True,
     )
 
+    # ========================================================
+    # BREAKOUT WINDOW DIAGNOSTIC
+    #
+    # READ-ONLY / INFORMATIONAL ONLY.
+    # DOES NOT CHANGE SIGNAL QUALIFICATION.
+    # ========================================================
+
+    diagnostic_windows = (
+        1,
+        5,
+        15,
+        30,
+        60,
+        120,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 4 BREAKOUT WINDOW DIAGNOSTIC",
+        flush=True,
+    )
+
+    for window_minutes in diagnostic_windows:
+
+        if len(close_prices) <= window_minutes:
+            continue
+
+        reference_close = float(
+            close_prices[
+                -(window_minutes + 1)
+            ]
+        )
+
+        if reference_close <= 0:
+            continue
+
+        window_move_pct = (
+            (
+                latest_close
+                -
+                reference_close
+            )
+            /
+            reference_close
+            *
+            100.0
+        )
+
+        print(
+            f"UNIT 4 {window_minutes}M MOVE % = "
+            f"{round(window_move_pct, 6)}",
+            flush=True,
+        )
+
+    print(
+        "UNIT 4 SIGNAL MOVE SOURCE = "
+        "LATEST 1M CLOSE VS PREVIOUS 1M CLOSE",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
     # --------------------------------------------------------
     # UNIT 3 LIVE MARK PRICE
     # --------------------------------------------------------
