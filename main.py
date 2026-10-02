@@ -4910,6 +4910,7 @@ def fresh_reconstruction_unit_8(
             "trade_plan_ready": False,
             "trade_plan": None,
             "skip_reason": skip_reason,
+            "read_only": True,
         }
 
         print("-" * 80, flush=True)
@@ -5126,6 +5127,7 @@ def fresh_reconstruction_unit_8(
         "trade_plan_ready": True,
         "trade_plan": trade_plan,
         "skip_reason": "NONE",
+        "read_only": True,
     }
 
     print("-" * 80, flush=True)
