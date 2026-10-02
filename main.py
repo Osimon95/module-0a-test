@@ -3359,7 +3359,7 @@ scalp_short_context = (
 if scalp_long_context:
         scalp_direction = "LONG"
 
-    elif scalp_short_context:
+        elif scalp_short_context:
         scalp_direction = "SHORT"
 
     else:
