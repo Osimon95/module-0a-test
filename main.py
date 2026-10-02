@@ -3351,7 +3351,7 @@ def fresh_reconstruction_unit_5(
     and momentum_direction == "LONG"
 )
 
-scalp_short_context = (
+    scalp_short_context = (
     ema19 < ema50
     and momentum_direction == "SHORT"
 )
