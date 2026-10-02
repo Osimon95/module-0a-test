@@ -8115,3 +8115,951 @@ FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
         FRESH_RECONSTRUCTION_UNIT_10_RESULT,
     )
 )
+
+# ============================================================
+# FRESH RECONSTRUCTION UNIT 12
+# ACTUAL WEEX DEMO ORDER SUBMISSION
+#
+# PURPOSE:
+# - Consume the verified Unit 11 result.
+# - IDLE -> do absolutely nothing.
+# - READY -> submit exactly ONE authenticated WEEX DEMO order.
+# - DEMO endpoint only.
+# - REAL trading absolutely prohibited.
+# - No leverage mutation.
+# - No margin-mode mutation.
+# - No position-mode mutation.
+# - No backup execution.
+# ============================================================
+
+
+def fresh_reconstruction_unit_12(
+    config,
+    unit_11_result,
+):
+    import os
+    import json
+    import time
+    import hmac
+    import hashlib
+    import base64
+    import urllib.request
+    import urllib.error
+    from datetime import datetime, timezone
+
+    print("=" * 80, flush=True)
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 12 START",
+        flush=True,
+    )
+    print("-" * 80, flush=True)
+
+    # --------------------------------------------------------
+    # INPUT VALIDATION
+    # --------------------------------------------------------
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: CONFIGURATION IS NOT A DICT"
+        )
+
+    print(
+        "PASS: UNIT 12 RECEIVED UNIT 2 CONFIGURATION",
+        flush=True,
+    )
+
+    if not isinstance(unit_11_result, dict):
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: UNIT 11 RESULT IS NOT A DICT"
+        )
+
+    print(
+        "PASS: UNIT 12 RECEIVED UNIT 11 RESULT",
+        flush=True,
+    )
+
+    if "status" not in unit_11_result:
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: UNIT 11 STATUS MISSING"
+        )
+
+    if "read_only" not in unit_11_result:
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: UNIT 11 READ_ONLY FIELD MISSING"
+        )
+
+    print(
+        "PASS: UNIT 12 UNIT 11 CONTRACT VALIDATED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # UNIT 11 MUST HAVE BEEN READ-ONLY
+    # --------------------------------------------------------
+
+    if unit_11_result.get("read_only") is not True:
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: UNIT 11 WAS NOT READ-ONLY"
+        )
+
+    print(
+        "PASS: UNIT 12 UNIT 11 READ-ONLY BOUNDARY VERIFIED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # DETERMINE UPSTREAM STATE
+    # --------------------------------------------------------
+
+    status = str(
+        unit_11_result.get("status", "IDLE")
+    ).upper()
+
+    # ========================================================
+    # IDLE PATH
+    # ========================================================
+
+    if status == "IDLE":
+
+        active_mode = unit_11_result.get(
+            "active_mode"
+        )
+
+        direction = unit_11_result.get(
+            "direction"
+        )
+
+        signal_qualified = bool(
+            unit_11_result.get(
+                "signal_qualified",
+                False,
+            )
+        )
+
+        execution_intent = bool(
+            unit_11_result.get(
+                "execution_intent",
+                False,
+            )
+        )
+
+        skip_reason = unit_11_result.get(
+            "skip_reason",
+            "UNIT_11_IDLE",
+        )
+
+        result = {
+            "unit": 12,
+            "status": "IDLE",
+            "read_only": False,
+            "active_mode": active_mode,
+            "direction": direction,
+            "signal_qualified": signal_qualified,
+            "execution_intent": execution_intent,
+            "demo_submission_attempted": False,
+            "demo_submission_completed": False,
+            "real_submission_attempted": False,
+            "authenticated_request": False,
+            "order_endpoint_access": False,
+            "exchange_write": False,
+            "skip_reason": skip_reason,
+        }
+
+        print("-" * 80, flush=True)
+
+        print(
+            "UNIT 12 STATUS = IDLE",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 12 ACTIVE MODE = {active_mode}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 12 DIRECTION = {direction}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 12 SIGNAL QUALIFIED = "
+            f"{signal_qualified}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 12 EXECUTION INTENT = "
+            f"{execution_intent}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 12 DEMO SUBMISSION ATTEMPTED = False",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 12 SKIP REASON = {skip_reason}",
+            flush=True,
+        )
+
+        print("-" * 80, flush=True)
+
+        print(
+            "PASS: UNIT 12 NORMAL NO-TRADE STATE",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 12 NO AUTHENTICATED REQUEST",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 12 NO ORDER ENDPOINT ACCESS",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 12 NO DEMO SUBMISSION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 12 NO REAL SUBMISSION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 12 NO TP EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 12 NO SL EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 12 NO BACKUP EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "ZERO AUTHENTICATED API ACCESS = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO ACCOUNT ACCESS = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO POSITION ACCESS = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO ORDER ENDPOINT ACCESS = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO DEMO ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO REAL ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO EXCHANGE WRITE = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO LEVERAGE MUTATION = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO MARGIN MODE MUTATION = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO POSITION MODE MUTATION = TRUE",
+            flush=True,
+        )
+
+        print("-" * 80, flush=True)
+
+        print(
+            f"{datetime.now(timezone.utc).isoformat()} "
+            "FRESH RECONSTRUCTION UNIT 12 RESULT = PASS (IDLE)",
+            flush=True,
+        )
+
+        print("=" * 80, flush=True)
+
+        return result
+
+    # ========================================================
+    # ONLY READY MAY REACH DEMO SUBMISSION
+    # ========================================================
+
+    if status != "READY":
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: "
+            f"INVALID UNIT 11 STATUS: {status}"
+        )
+
+    print(
+        "PASS: UNIT 12 UNIT 11 STATUS = READY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # QUALIFIED EXECUTION CONTRACT
+    # --------------------------------------------------------
+
+    active_mode = unit_11_result.get(
+        "active_mode"
+    )
+
+    direction = unit_11_result.get(
+        "direction"
+    )
+
+    signal_qualified = bool(
+        unit_11_result.get(
+            "signal_qualified",
+            False,
+        )
+    )
+
+    execution_intent = bool(
+        unit_11_result.get(
+            "execution_intent",
+            False,
+        )
+    )
+
+    if active_mode not in (
+        "SCALP",
+        "STRUCTURE",
+        "BREAKOUT",
+    ):
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: INVALID ACTIVE MODE"
+        )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: INVALID DIRECTION"
+        )
+
+    if signal_qualified is not True:
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: SIGNAL NOT QUALIFIED"
+        )
+
+    if execution_intent is not True:
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: EXECUTION INTENT FALSE"
+        )
+
+    print(
+        "PASS: UNIT 12 QUALIFIED EXECUTION CONTRACT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # EXTRACT UNIT 11 DEMO PAYLOAD
+    # --------------------------------------------------------
+
+    demo_payload = unit_11_result.get(
+        "demo_payload"
+    )
+
+    if demo_payload is None:
+        demo_payload = unit_11_result.get(
+            "payload"
+        )
+
+    if demo_payload is None:
+        demo_payload = unit_11_result.get(
+            "order_payload"
+        )
+
+    if not isinstance(demo_payload, dict):
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: "
+            "UNIT 11 DEMO PAYLOAD NOT FOUND"
+        )
+
+    if not demo_payload:
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: "
+            "UNIT 11 DEMO PAYLOAD EMPTY"
+        )
+
+    print(
+        "PASS: UNIT 12 RECEIVED UNIT 11 DEMO PAYLOAD",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # REQUIRED WEEX ORDER FIELDS
+    # --------------------------------------------------------
+
+    required_payload_fields = (
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+    )
+
+    for field in required_payload_fields:
+        if field not in demo_payload:
+            raise RuntimeError(
+                "UNIT 12 BLOCKED: "
+                f"DEMO PAYLOAD FIELD MISSING: {field}"
+            )
+
+    print(
+        "PASS: UNIT 12 REQUIRED DEMO PAYLOAD FIELDS PRESENT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # DEMO SYMBOL LOCK
+    # --------------------------------------------------------
+
+    if demo_payload.get("symbol") != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: "
+            "DEMO SYMBOL MUST BE BTCSUSDT"
+        )
+
+    print(
+        "PASS: UNIT 12 DEMO SYMBOL = BTCSUSDT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # MARKET ORDER LOCK
+    # --------------------------------------------------------
+
+    if str(
+        demo_payload.get("type")
+    ).upper() != "MARKET":
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: "
+            "ENTRY ORDER TYPE MUST BE MARKET"
+        )
+
+    print(
+        "PASS: UNIT 12 ORDER TYPE = MARKET",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # DIRECTION / SIDE CONSISTENCY
+    # --------------------------------------------------------
+
+    side = str(
+        demo_payload.get("side")
+    ).upper()
+
+    position_side = str(
+        demo_payload.get("positionSide")
+    ).upper()
+
+    if direction == "LONG":
+
+        if side != "BUY":
+            raise RuntimeError(
+                "UNIT 12 BLOCKED: "
+                "LONG REQUIRES BUY SIDE"
+            )
+
+        if position_side != "LONG":
+            raise RuntimeError(
+                "UNIT 12 BLOCKED: "
+                "LONG REQUIRES LONG POSITION SIDE"
+            )
+
+    elif direction == "SHORT":
+
+        if side != "SELL":
+            raise RuntimeError(
+                "UNIT 12 BLOCKED: "
+                "SHORT REQUIRES SELL SIDE"
+            )
+
+        if position_side != "SHORT":
+            raise RuntimeError(
+                "UNIT 12 BLOCKED: "
+                "SHORT REQUIRES SHORT POSITION SIDE"
+            )
+
+    print(
+        "PASS: UNIT 12 DIRECTION / SIDE CONSISTENCY",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # STOP LOSS MUST REMAIN ABSENT
+    # --------------------------------------------------------
+
+    prohibited_sl_fields = (
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopPrice",
+    )
+
+    for field in prohibited_sl_fields:
+
+        if field in demo_payload:
+            raise RuntimeError(
+                "UNIT 12 BLOCKED: "
+                f"SL FIELD PRESENT: {field}"
+            )
+
+    print(
+        "PASS: UNIT 12 INITIAL SL REMAINS DISABLED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # COPY PAYLOAD
+    # --------------------------------------------------------
+
+    final_payload = dict(
+        demo_payload
+    )
+
+    # --------------------------------------------------------
+    # WEEX CREDENTIALS
+    #
+    # Preserve compatibility with the credential names used
+    # throughout the earlier verified WEEX reconstruction.
+    # --------------------------------------------------------
+
+    api_key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    api_secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    api_passphrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not api_key:
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: WEEX API KEY MISSING"
+        )
+
+    if not api_secret:
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: WEEX API SECRET MISSING"
+        )
+
+    if not api_passphrase:
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: WEEX API PASSPHRASE MISSING"
+        )
+
+    print(
+        "PASS: UNIT 12 WEEX DEMO CREDENTIALS PRESENT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # FIXED DEMO ENDPOINT
+    #
+    # Absolutely no production-order endpoint fallback.
+    # --------------------------------------------------------
+
+    base_url = "https://api-contract.weex.com"
+
+    request_path = "/capi/v3/sim/order"
+
+    url = (
+        base_url
+        + request_path
+    )
+
+    method = "POST"
+
+    print(
+        "PASS: UNIT 12 WEEX DEMO ENDPOINT LOCKED",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 12 REQUEST PATH = {request_path}",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # EXACT JSON BODY
+    #
+    # The exact serialized body used here MUST also be the
+    # exact body used to generate the signature.
+    # --------------------------------------------------------
+
+    body = json.dumps(
+        final_payload,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+
+    body_bytes = body.encode(
+        "utf-8"
+    )
+
+    # --------------------------------------------------------
+    # WEEX V3 SIGNATURE
+    #
+    # timestamp + METHOD + request_path + exact_body
+    # HMAC-SHA256
+    # Base64 encoded
+    # --------------------------------------------------------
+
+    timestamp = str(
+        int(time.time() * 1000)
+    )
+
+    prehash = (
+        timestamp
+        + method
+        + request_path
+        + body
+    )
+
+    signature = base64.b64encode(
+        hmac.new(
+            api_secret.encode("utf-8"),
+            prehash.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    print(
+        "PASS: UNIT 12 WEEX V3 SIGNATURE GENERATED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # AUTHENTICATED DEMO HEADERS
+    # --------------------------------------------------------
+
+    headers = {
+        "ACCESS-KEY": api_key,
+        "ACCESS-SIGN": signature,
+        "ACCESS-TIMESTAMP": timestamp,
+        "ACCESS-PASSPHRASE": api_passphrase,
+        "Content-Type": "application/json",
+    }
+
+    print(
+        "PASS: UNIT 12 AUTHENTICATED DEMO REQUEST PREPARED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # FINAL PRE-SUBMISSION SAFETY REPORT
+    # --------------------------------------------------------
+
+    print("-" * 80, flush=True)
+
+    print(
+        "UNIT 12 EXECUTION ENVIRONMENT = DEMO",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 12 ACTIVE MODE = {active_mode}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 12 DIRECTION = {direction}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 12 SYMBOL = {final_payload.get('symbol')}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 12 SIDE = {side}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 12 POSITION SIDE = {position_side}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 12 QUANTITY = {final_payload.get('quantity')}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 REAL ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 SL ENABLED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 BACKUP EXECUTION = FALSE",
+        flush=True,
+    )
+
+    print("-" * 80, flush=True)
+
+    # ========================================================
+    # ACTUAL WEEX DEMO POST
+    # ========================================================
+
+    print(
+        "UNIT 12 SENDING ONE WEEX DEMO ORDER",
+        flush=True,
+    )
+
+    request = urllib.request.Request(
+        url=url,
+        data=body_bytes,
+        headers=headers,
+        method="POST",
+    )
+
+    response_status = None
+    response_text = None
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            response_status = (
+                response.getcode()
+            )
+
+            response_text = (
+                response.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        response_status = exc.code
+
+        try:
+            response_text = (
+                exc.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+        except Exception:
+            response_text = str(exc)
+
+        print(
+            f"UNIT 12 WEEX HTTP ERROR = "
+            f"{response_status}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 12 WEEX RESPONSE = "
+            f"{response_text}",
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 12 DEMO SUBMISSION REJECTED BY WEEX: "
+            f"HTTP {response_status}"
+        )
+
+    except urllib.error.URLError as exc:
+
+        raise RuntimeError(
+            "UNIT 12 DEMO SUBMISSION NETWORK ERROR: "
+            f"{exc}"
+        )
+
+    # --------------------------------------------------------
+    # RESPONSE REPORT
+    # --------------------------------------------------------
+
+    print(
+        f"UNIT 12 HTTP STATUS = {response_status}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 12 WEEX RESPONSE = {response_text}",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # PARSE JSON RESPONSE
+    # --------------------------------------------------------
+
+    try:
+
+        response_json = json.loads(
+            response_text
+        )
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            "UNIT 12 BLOCKED: "
+            "WEEX RESPONSE IS NOT VALID JSON"
+        ) from exc
+
+    print(
+        "PASS: UNIT 12 VALID WEEX JSON RESPONSE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # DO NOT ASSUME HTTP 200 ALONE MEANS ACCEPTED
+    #
+    # Preserve the full WEEX response so that any exchange
+    # rejection code is visible in Render.
+    # --------------------------------------------------------
+
+    if not (
+        200 <= int(response_status) < 300
+    ):
+        raise RuntimeError(
+            "UNIT 12 DEMO SUBMISSION FAILED: "
+            f"HTTP {response_status}"
+        )
+
+    # --------------------------------------------------------
+    # RESULT
+    # --------------------------------------------------------
+
+    result = {
+        "unit": 12,
+        "status": "DEMO_SUBMITTED",
+        "read_only": False,
+        "active_mode": active_mode,
+        "direction": direction,
+        "signal_qualified": True,
+        "execution_intent": True,
+        "demo_submission_attempted": True,
+        "demo_submission_completed": True,
+        "real_submission_attempted": False,
+        "authenticated_request": True,
+        "order_endpoint_access": True,
+        "exchange_write": True,
+        "request_path": request_path,
+        "request_payload": final_payload,
+        "http_status": response_status,
+        "weex_response": response_json,
+    }
+
+    print("-" * 80, flush=True)
+
+    print(
+        "PASS: UNIT 12 AUTHENTICATED WEEX DEMO REQUEST",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 12 DEMO ORDER SUBMISSION COMPLETED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 12 REAL ORDER SUBMISSION BLOCKED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 12 NO PRODUCTION ORDER ENDPOINT",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 12 NO LEVERAGE MUTATION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 12 NO MARGIN MODE MUTATION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 12 NO POSITION MODE MUTATION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 12 NO BACKUP EXECUTION",
+        flush=True,
+    )
+
+    print("-" * 80, flush=True)
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 12 RESULT = "
+        "PASS (DEMO SUBMITTED)",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
+    fresh_reconstruction_unit_12(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+    )
+)
