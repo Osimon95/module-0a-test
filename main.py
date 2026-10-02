@@ -3152,8 +3152,14 @@ def fresh_reconstruction_unit_5(
         flush=True,
     )
 
-    # ========================================================
+        # ========================================================
     # 6. DETERMINE EMA DIRECTION
+    #
+    # STRUCTURE / SCALP continue to use the mature
+    # EMA19 / EMA50 / EMA200 directional stack.
+    #
+    # BREAKOUT gets a separate emerging-direction path so
+    # it does not have to wait for EMA50 / EMA200 crossover.
     # ========================================================
 
     bullish_alignment = (
@@ -3201,10 +3207,10 @@ def fresh_reconstruction_unit_5(
     )
 
     # ========================================================
-    # 8. BASIC DIRECTION AGREEMENT
+    # 8. DIRECTION AGREEMENT
     #
-    # A directional signal is only eligible when EMA
-    # alignment and short-term momentum agree.
+    # Mature direction agreement remains unchanged for
+    # STRUCTURE and SCALP.
     # ========================================================
 
     direction_agreement = (
@@ -3219,10 +3225,76 @@ def fresh_reconstruction_unit_5(
     )
 
     # ========================================================
+    # 8A. EMERGING BREAKOUT DIRECTION
+    #
+    # BREAKOUT must not require EMA50 to have already crossed
+    # EMA200.
+    #
+    # LONG breakout:
+    # - EMA19 above EMA50
+    # - positive momentum
+    # - price above EMA19
+    # - price above EMA200
+    #
+    # SHORT breakout:
+    # - EMA19 below EMA50
+    # - negative momentum
+    # - price below EMA19
+    # - price below EMA200
+    #
+    # EMA200 remains a directional context filter.
+    # ========================================================
+
+    breakout_long_context = (
+        ema19 > ema50
+        and momentum_direction == "LONG"
+        and live_price > ema19
+        and live_price > ema200
+    )
+
+    breakout_short_context = (
+        ema19 < ema50
+        and momentum_direction == "SHORT"
+        and live_price < ema19
+        and live_price < ema200
+    )
+
+    if breakout_long_context:
+        breakout_direction = "LONG"
+
+    elif breakout_short_context:
+        breakout_direction = "SHORT"
+
+    else:
+        breakout_direction = "NONE"
+
+    print(
+        "UNIT 5 BREAKOUT DIRECTION = "
+        f"{breakout_direction}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 BREAKOUT LONG CONTEXT = "
+        f"{breakout_long_context}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 BREAKOUT SHORT CONTEXT = "
+        f"{breakout_short_context}",
+        flush=True,
+    )
+
+    # ========================================================
     # 9. MODE QUALIFICATION
     #
-    # Evaluate strongest mode first.
-    # Only one mode may become active.
+    # Priority remains:
+    #
+    # BREAKOUT -> STRUCTURE -> SCALP
+    #
+    # BREAKOUT uses emerging EMA direction.
+    # STRUCTURE / SCALP retain mature EMA alignment.
     # ========================================================
 
     active_mode = "NONE"
@@ -3239,17 +3311,17 @@ def fresh_reconstruction_unit_5(
     # --------------------------------------------------------
 
     if (
-        direction_agreement
+        breakout_direction != "NONE"
         and separation_pct
         >= BREAKOUT_MIN_SEPARATION_PCT
         and absolute_move_pct
         >= BREAKOUT_MIN_MOVE_PCT
     ):
         active_mode = "BREAKOUT"
-        direction = ema_direction
+        direction = breakout_direction
         qualified = True
         qualification_reason = (
-            "BREAKOUT_SEPARATION_AND_MOMENTUM_CONFIRMED"
+            "BREAKOUT_EMERGING_DIRECTION_AND_MOMENTUM_CONFIRMED"
         )
 
     # --------------------------------------------------------
@@ -3289,27 +3361,17 @@ def fresh_reconstruction_unit_5(
         )
 
     # --------------------------------------------------------
-    # NO TRADE
+    # NO QUALIFIED MODE
     # --------------------------------------------------------
 
     else:
-        active_mode = "NONE"
-        direction = "NONE"
-        qualified = False
 
-        if ema_direction == "NONE":
+        if (
+            ema_direction == "NONE"
+            and breakout_direction == "NONE"
+        ):
             qualification_reason = (
-                "EMA_ALIGNMENT_NOT_DIRECTIONAL"
-            )
-
-        elif momentum_direction == "NONE":
-            qualification_reason = (
-                "SHORT_TERM_MOMENTUM_FLAT"
-            )
-
-        elif not direction_agreement:
-            qualification_reason = (
-                "EMA_AND_MOMENTUM_DIRECTION_CONFLICT"
+                "NO_DIRECTIONAL_EMA_OR_BREAKOUT_CONTEXT"
             )
 
         elif (
@@ -3327,6 +3389,12 @@ def fresh_reconstruction_unit_5(
             qualification_reason = (
                 "SHORT_TERM_MOVE_BELOW_MINIMUM"
             )
+
+        else:
+            qualification_reason = (
+                "NO_MODE_THRESHOLDS_CONFIRMED"
+            )
+    
 
     # ========================================================
     # 10. PRICE RELATIONSHIP CHECKS
