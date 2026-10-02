@@ -5959,7 +5959,7 @@ def fresh_reconstruction_unit_8(
         else 0,
     )
 
-        normalized_quantity = round(
+    normalized_quantity = round(
         normalized_quantity,
         quantity_decimals,
     )
