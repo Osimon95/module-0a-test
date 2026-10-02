@@ -3284,6 +3284,56 @@ def fresh_reconstruction_unit_5(
         "UNIT 5 BREAKOUT SHORT CONTEXT = "
         f"{breakout_short_context}",
         flush=True,
+    )    
+    
+    # ========================================================
+    # 8B. SCALP DIRECTION
+    #
+    # SCALP is intentionally short-term.
+    #
+    # It uses EMA19 / EMA50 direction together with immediate
+    # momentum and price location.
+    #
+    # EMA200 is NOT required for SCALP qualification.
+    # ========================================================
+
+    scalp_long_context = (
+        ema19 > ema50
+        and momentum_direction == "LONG"
+        and live_price > ema19
+    )
+
+    scalp_short_context = (
+        ema19 < ema50
+        and momentum_direction == "SHORT"
+        and live_price < ema19
+    )
+
+    if scalp_long_context:
+        scalp_direction = "LONG"
+
+    elif scalp_short_context:
+        scalp_direction = "SHORT"
+
+    else:
+        scalp_direction = "NONE"
+
+    print(
+        "UNIT 5 SCALP DIRECTION = "
+        f"{scalp_direction}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 SCALP LONG CONTEXT = "
+        f"{scalp_long_context}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 SCALP SHORT CONTEXT = "
+        f"{scalp_short_context}",
+        flush=True,
     )
 
     # ========================================================
