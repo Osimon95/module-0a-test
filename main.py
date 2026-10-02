@@ -3356,7 +3356,7 @@ scalp_short_context = (
     and momentum_direction == "SHORT"
 )
 
-    if scalp_long_context:
+if scalp_long_context:
         scalp_direction = "LONG"
 
     elif scalp_short_context:
