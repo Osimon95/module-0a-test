@@ -240,6 +240,8 @@ def fresh_reconstruction_unit_2():
         "public_market_data_read_enabled":
             True,
 
+        "demo_account_balance_read_enabled":
+            True,
         "authenticated_api_enabled":
             False,
 
