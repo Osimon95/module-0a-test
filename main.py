@@ -3392,22 +3392,18 @@ def fresh_reconstruction_unit_5(
             "STRUCTURE_SEPARATION_AND_MOMENTUM_CONFIRMED"
         )
 
-    # --------------------------------------------------------
-    # SCALP
-    # --------------------------------------------------------
-
-    elif (
-        direction_agreement
+        elif (
+        scalp_direction != "NONE"
         and separation_pct
         >= SCALP_MIN_SEPARATION_PCT
         and absolute_move_pct
         >= SCALP_MIN_MOVE_PCT
     ):
         active_mode = "SCALP"
-        direction = ema_direction
+        direction = scalp_direction
         qualified = True
         qualification_reason = (
-            "SCALP_SEPARATION_AND_MOMENTUM_CONFIRMED"
+            "SCALP_SHORT_TERM_DIRECTION_AND_MOMENTUM_CONFIRMED"
         )
 
     # --------------------------------------------------------
