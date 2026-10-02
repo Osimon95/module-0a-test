@@ -2302,25 +2302,103 @@ def fresh_reconstruction_unit_4():
         flush=True,
     )
 
+        # --------------------------------------------------------
+    # SELECT FULLY CLOSED CANDLES ONLY
+    #
+    # Unit 3 provides the current WEEX exchange timestamp.
+    #
+    # A kline is eligible for signal analysis only when its
+    # close time is not later than the exchange timestamp.
+    #
+    # This prevents an unfinished 1-minute candle from
+    # changing EMA / momentum qualification during the minute.
+    #
+    # LIVE mark price remains real-time and is handled
+    # separately below.
     # --------------------------------------------------------
-    # EXTRACT CLOSE PRICES
+
+    exchange_time_ms = int(
+        market_snapshot[
+            "exchange_time_ms"
+        ]
+    )
+
+    closed_klines = [
+        candle
+        for candle in normalized_klines
+        if candle[
+            "close_time_ms"
+        ] <= exchange_time_ms
+    ]
+
+    if len(closed_klines) < 200:
+
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INSUFFICIENT CLOSED KLINES"
+        )
+
+    newest_returned_candle = (
+        normalized_klines[-1]
+    )
+
+    newest_returned_is_closed = (
+        newest_returned_candle[
+            "close_time_ms"
+        ]
+        <=
+        exchange_time_ms
+    )
+
+    print(
+        "PASS: UNIT 4 EXCHANGE TIME =",
+        exchange_time_ms,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 RETURNED KLINES =",
+        len(
+            normalized_klines
+        ),
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 CLOSED KLINES =",
+        len(
+            closed_klines
+        ),
+        flush=True,
+    )
+
+    print(
+        "UNIT 4 NEWEST RETURNED CANDLE CLOSED =",
+        newest_returned_is_closed,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # EXTRACT CLOSED-CANDLE CLOSE PRICES
+    #
+    # EMA19 / EMA50 / EMA200 and momentum calculations below
+    # now consume only fully closed candles.
     # --------------------------------------------------------
 
     close_prices = [
         candle[
             "close"
         ]
-        for candle in normalized_klines
+        for candle in closed_klines
     ]
 
     if len(close_prices) < 200:
 
         raise RuntimeError(
-            "UNIT 4 BLOCKED: INSUFFICIENT CLOSE PRICES"
+            "UNIT 4 BLOCKED: INSUFFICIENT CLOSED CLOSE PRICES"
         )
 
     print(
-        "PASS: UNIT 4 CLOSE PRICE SERIES READY",
+        "PASS: UNIT 4 CLOSED-CANDLE PRICE SERIES READY",
         flush=True,
     )
 
