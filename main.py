@@ -8677,6 +8677,7 @@ def fresh_reconstruction_unit_11(
     # produced by the preceding verified units.
     # ========================================================
 
+    
     quantity = execution_candidate.get(
         "quantity"
     )
@@ -8692,9 +8693,47 @@ def fresh_reconstruction_unit_11(
         )
 
     if quantity is None:
+
+        nested_trade_plan = execution_candidate.get(
+            "trade_plan"
+        )
+
+        if isinstance(
+            nested_trade_plan,
+            dict,
+        ):
+            quantity = nested_trade_plan.get(
+                "quantity"
+            )
+
+            if quantity is None:
+
+                nested_position_sizing = (
+                    nested_trade_plan.get(
+                        "position_sizing"
+                    )
+                )
+
+                if isinstance(
+                    nested_position_sizing,
+                    dict,
+                ):
+                    quantity = (
+                        nested_position_sizing.get(
+                            "quantity"
+                        )
+                    )
+
+    if quantity is None:
         raise RuntimeError(
             "UNIT 11 BLOCKED: EXECUTION QUANTITY MISSING"
         )
+
+    print(
+        "PASS: UNIT 11 VERIFIED EXECUTION QUANTITY RECEIVED =",
+        quantity,
+        flush=True,
+    )
 
     try:
         quantity_value = float(
