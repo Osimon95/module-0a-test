@@ -2599,11 +2599,11 @@ def fresh_reconstruction_unit_4():
     # --------------------------------------------------------
 
     latest_candle = (
-        normalized_klines[-1]
+        closed_klines[-1]
     )
 
     previous_candle = (
-        normalized_klines[-2]
+        closed_klines[-2]
     )
 
     latest_close = (
