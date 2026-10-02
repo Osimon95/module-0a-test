@@ -3412,10 +3412,13 @@ def fresh_reconstruction_unit_5(
 
     else:
 
+        
         if (
             ema_direction == "NONE"
             and breakout_direction == "NONE"
+            and scalp_direction == "NONE"
         ):
+        
             qualification_reason = (
                 "NO_DIRECTIONAL_EMA_OR_BREAKOUT_CONTEXT"
             )
