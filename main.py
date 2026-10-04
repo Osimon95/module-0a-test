@@ -9424,6 +9424,22 @@ def fresh_reconstruction_unit_11(
         if field not in order_payload
     ]
 
+    if not str(
+        order_payload.get(
+            "newClientOrderId",
+            ""
+        )
+    ).strip():
+        raise RuntimeError(
+            "UNIT 11 BLOCKED: "
+            "NEW CLIENT ORDER ID BLANK"
+        )
+
+    print(
+        "PASS: UNIT 11 NEW CLIENT ORDER ID VALIDATED",
+        flush=True,
+    )
+
     if missing_payload_fields:
         raise RuntimeError(
             "UNIT 11 BLOCKED: PAYLOAD MISSING FIELDS = "
