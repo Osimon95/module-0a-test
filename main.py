@@ -9338,16 +9338,42 @@ def fresh_reconstruction_unit_11(
             "UNIT 11 BLOCKED: EMPTY QUANTITY"
         )
 
-    # ========================================================
+        # ========================================================
     # 15. BUILD IN-MEMORY DEMO ENTRY PAYLOAD
     #
     # IMPORTANT:
-    # This dictionary is NOT transmitted.
+    # This dictionary is NOT transmitted by Unit 11.
+    #
+    # WEEX V3 DEMO requires a nonblank newClientOrderId.
+    # Generate it here so Unit 12 receives the complete
+    # validated entry payload.
     #
     # No TP is attached here.
     # No SL is attached here.
     # TP and SL remain separate later capabilities.
     # ========================================================
+
+    client_order_timestamp = int(
+        datetime.now(
+            timezone.utc
+        ).timestamp()
+        * 1000000
+    )
+
+    new_client_order_id = (
+        "FR11-"
+        + direction
+        + "-"
+        + str(
+            client_order_timestamp
+        )
+    )
+
+    if not new_client_order_id.strip():
+        raise RuntimeError(
+            "UNIT 11 BLOCKED: "
+            "NEW CLIENT ORDER ID EMPTY"
+        )
 
     order_payload = {
         "symbol":
@@ -9366,7 +9392,17 @@ def fresh_reconstruction_unit_11(
 
         "quantity":
             quantity_text,
+
+        "newClientOrderId":
+            new_client_order_id,
     }
+
+    print(
+        "PASS: UNIT 11 NEW CLIENT ORDER ID GENERATED = "
+        f"{new_client_order_id}",
+        flush=True,
+    )
+
 
     # ========================================================
     # 16. STRICT PAYLOAD VALIDATION
