@@ -9408,7 +9408,7 @@ def fresh_reconstruction_unit_11(
     # 16. STRICT PAYLOAD VALIDATION
     # ========================================================
 
-        required_payload_fields = (
+    required_payload_fields = (
         "symbol",
         "side",
         "positionSide",
