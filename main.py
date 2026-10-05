@@ -14938,7 +14938,7 @@ def fresh_tp3_runtime(
                 )
 
             if not active_records:
-            return None
+                return None
 
         # ONE-DIRECTION-ONLY CONTRACT.
 
