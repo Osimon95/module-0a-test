@@ -6655,3 +6655,751 @@ def fresh_reconstruction_unit_8(
         os.getenv("WEEX_API_PASSPHRASE")
         or os.getenv("API_PASSPHRASE")
     )
+
+# ============================================================
+# PART 6B
+# CONTINUATION OF FRESH RECONSTRUCTION UNIT 8
+#
+# CONTINUES DIRECTLY AFTER:
+#
+#     api_passphrase = (
+#         os.getenv("WEEX_API_PASSPHRASE")
+#         or os.getenv("API_PASSPHRASE")
+#     )
+#
+# IMPORTANT:
+# - THE CODE BELOW IS STILL INSIDE fresh_reconstruction_unit_8
+#   UNTIL THE FUNCTION'S return unit_8_result
+# - THE FINAL UNIT 8 CALL IS ZERO INDENTATION
+# - STOP BEFORE UNIT 9
+# ============================================================
+
+    if not api_key:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: WEEX API KEY MISSING"
+        )
+
+    if not api_secret:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: WEEX API SECRET MISSING"
+        )
+
+    if not api_passphrase:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: WEEX API PASSPHRASE MISSING"
+        )
+
+    print(
+        "PASS: UNIT 8 WEEX DEMO CREDENTIALS PRESENT",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 11. FIXED WEEX DEMO BALANCE ENDPOINT
+    # --------------------------------------------------------
+
+    base_url = (
+        exchange.get(
+            "contract_base_url"
+        )
+    )
+
+    request_path = (
+        "/capi/v3/sim/balance"
+    )
+
+    url = (
+        base_url
+        + request_path
+    )
+
+    method = "GET"
+
+    print(
+        "PASS: UNIT 8 DEMO BALANCE ENDPOINT LOCKED",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 8 REQUEST PATH = {request_path}",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 12. WEEX V3 GET SIGNATURE
+    #
+    # No query string.
+    # No request body.
+    #
+    # timestamp + GET + request_path
+    # --------------------------------------------------------
+
+    timestamp = str(
+        int(
+            time.time()
+            * 1000
+        )
+    )
+
+    prehash = (
+        timestamp
+        + method
+        + request_path
+    )
+
+    signature = base64.b64encode(
+        hmac.new(
+            api_secret.encode(
+                "utf-8"
+            ),
+            prehash.encode(
+                "utf-8"
+            ),
+            hashlib.sha256,
+        ).digest()
+    ).decode(
+        "utf-8"
+    )
+
+    headers = {
+        "ACCESS-KEY":
+            api_key,
+
+        "ACCESS-SIGN":
+            signature,
+
+        "ACCESS-TIMESTAMP":
+            timestamp,
+
+        "ACCESS-PASSPHRASE":
+            api_passphrase,
+
+        "Content-Type":
+            "application/json",
+
+        "Accept":
+            "application/json",
+
+        "User-Agent":
+            "Fresh-WEEX-Reconstruction/Unit8",
+    }
+
+    print(
+        "PASS: UNIT 8 WEEX V3 DEMO BALANCE SIGNATURE GENERATED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 13. BUILD STRICT READ-ONLY GET
+    # --------------------------------------------------------
+
+    request = urllib.request.Request(
+        url=url,
+        headers=headers,
+        method="GET",
+    )
+
+    if request.get_method() != "GET":
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: DEMO BALANCE REQUEST NOT GET"
+        )
+
+    if request.data is not None:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: DEMO BALANCE REQUEST HAS BODY"
+        )
+
+    # --------------------------------------------------------
+    # 14. EXECUTE ONE AUTHENTICATED DEMO BALANCE READ
+    # --------------------------------------------------------
+
+    print(
+        "UNIT 8 READING WEEX DEMO ACCOUNT BALANCE",
+        flush=True,
+    )
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            response_status = (
+                response.getcode()
+            )
+
+            response_text = (
+                response
+                .read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        error_body = ""
+
+        try:
+            error_body = (
+                exc.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+        except Exception:
+            pass
+
+        raise RuntimeError(
+            "UNIT 8 DEMO BALANCE HTTP ERROR "
+            f"{exc.code}: {error_body}"
+        ) from exc
+
+    except urllib.error.URLError as exc:
+
+        raise RuntimeError(
+            "UNIT 8 DEMO BALANCE NETWORK ERROR: "
+            f"{exc}"
+        ) from exc
+
+    if response_status != 200:
+        raise RuntimeError(
+            "UNIT 8 DEMO BALANCE NON-200 RESPONSE: "
+            f"{response_status}"
+        )
+
+    print(
+        "PASS: UNIT 8 AUTHENTICATED DEMO BALANCE GET COMPLETED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 15. PARSE DEMO BALANCE RESPONSE
+    # --------------------------------------------------------
+
+    try:
+        balance_payload = json.loads(
+            response_text
+        )
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: INVALID DEMO BALANCE JSON"
+        ) from exc
+
+    if not isinstance(
+        balance_payload,
+        list,
+    ):
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: DEMO BALANCE RESPONSE NOT A LIST"
+        )
+
+    susdt_balance = None
+
+    for balance_item in balance_payload:
+
+        if not isinstance(
+            balance_item,
+            dict,
+        ):
+            continue
+
+        asset = str(
+            balance_item.get(
+                "asset",
+                "",
+            )
+        ).upper()
+
+        if asset == "SUSDT":
+            susdt_balance = balance_item
+            break
+
+    if susdt_balance is None:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: SUSDT DEMO BALANCE NOT FOUND"
+        )
+
+    try:
+        available_balance = float(
+            susdt_balance.get(
+                "availableBalance"
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: INVALID SUSDT AVAILABLE BALANCE"
+        ) from exc
+
+    if available_balance <= 0:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: NON-POSITIVE SUSDT AVAILABLE BALANCE"
+        )
+
+    print(
+        "PASS: UNIT 8 DEMO ASSET = SUSDT",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 VERIFIED AVAILABLE SUSDT =",
+        available_balance,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 16. POSITION SIZE CALCULATION
+    #
+    # margin allocation =
+    # available balance * initial margin %
+    #
+    # notional =
+    # margin allocation * leverage
+    #
+    # raw BTC quantity =
+    # notional / live BTC mark price
+    #
+    # Final quantity is always rounded DOWN to quantity_step.
+    # --------------------------------------------------------
+
+    margin_allocation = (
+        available_balance
+        * (
+            initial_margin_percent
+            / 100.0
+        )
+    )
+
+    notional_value = (
+        margin_allocation
+        * leverage_target
+    )
+
+    raw_quantity = (
+        notional_value
+        / live_price
+    )
+
+    quantity_steps = math.floor(
+        (
+            raw_quantity
+            + 1e-12
+        )
+        / quantity_step
+    )
+
+    normalized_quantity = (
+        quantity_steps
+        * quantity_step
+    )
+
+    quantity_decimals = max(
+        0,
+        len(
+            str(
+                quantity_step
+            ).rstrip(
+                "0"
+            ).split(
+                "."
+            )[-1]
+        )
+        if "." in str(
+            quantity_step
+        )
+        else 0,
+    )
+
+    normalized_quantity = round(
+        normalized_quantity,
+        quantity_decimals,
+    )
+
+    if normalized_quantity < minimum_quantity:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: CALCULATED QUANTITY BELOW MINIMUM"
+        )
+
+    if normalized_quantity <= 0:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: CALCULATED QUANTITY NON-POSITIVE"
+        )
+
+    # ========================================================
+    # INITIAL ENTRY SAFETY CAP
+    #
+    # The theoretical position-sizing calculation remains
+    # visible for diagnostics, but the executable INITIAL
+    # ENTRY quantity must never exceed 0.0004 BTC.
+    #
+    # This cap applies to the initial entry only.
+    # It must NOT later be used as a blanket cap for:
+    #   - TP1
+    #   - TP2
+    #   - TP3 trailing
+    #   - Backup 1
+    #   - Backup 2
+    #   - Backup 3
+    # ========================================================
+
+    initial_entry_max_quantity = 0.0004
+
+    executable_quantity = min(
+        normalized_quantity,
+        initial_entry_max_quantity,
+    )
+
+    executable_quantity = round(
+        executable_quantity,
+        quantity_decimals,
+    )
+
+    if executable_quantity < minimum_quantity:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: CAPPED INITIAL ENTRY QUANTITY BELOW MINIMUM"
+        )
+
+    if executable_quantity <= 0:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: CAPPED INITIAL ENTRY QUANTITY NON-POSITIVE"
+        )
+
+    print(
+        "PASS: UNIT 8 MARGIN ALLOCATION SUSDT =",
+        margin_allocation,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 LEVERAGED NOTIONAL SUSDT =",
+        notional_value,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 RAW BTC QUANTITY =",
+        raw_quantity,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 THEORETICAL BTC QUANTITY =",
+        normalized_quantity,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 INITIAL ENTRY MAX BTC QUANTITY =",
+        initial_entry_max_quantity,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 EXECUTABLE INITIAL ENTRY BTC QUANTITY =",
+        executable_quantity,
+        flush=True,
+    )
+
+    normalized_quantity = executable_quantity
+
+    # --------------------------------------------------------
+    # 17. NORMALIZED POSITION-SIZING OBJECT
+    # --------------------------------------------------------
+
+    position_sizing = {
+        "asset":
+            "SUSDT",
+
+        "available_balance":
+            available_balance,
+
+        "initial_margin_percent":
+            initial_margin_percent,
+
+        "margin_allocation":
+            margin_allocation,
+
+        "leverage_target":
+            leverage_target,
+
+        "live_mark_price":
+            live_price,
+
+        "raw_quantity":
+            raw_quantity,
+
+        "quantity_step":
+            quantity_step,
+
+        "minimum_quantity":
+            minimum_quantity,
+
+        "quantity":
+            normalized_quantity,
+
+        "position_sizing_performed":
+            True,
+
+        "quantity_calculated":
+            True,
+
+        "source":
+            "WEEX_V3_DEMO_BALANCE",
+
+        "read_only":
+            True,
+    }
+
+    # --------------------------------------------------------
+    # 18. NORMALIZED TRADE PLAN
+    #
+    # Internal planning object only.
+    # NOT a WEEX order payload.
+    # --------------------------------------------------------
+
+    trade_plan = {
+        "active_mode":
+            active_mode,
+
+        "direction":
+            direction,
+
+        "quantity":
+            normalized_quantity,
+
+        "position_sizing":
+            position_sizing,
+
+        "execution_environment":
+            "DEMO",
+    }
+
+    unit_8_result = {
+        "status":
+            "READY",
+
+        "active_mode":
+            active_mode,
+
+        "direction":
+            direction,
+
+        "signal_qualified":
+            True,
+
+        "execution_intent":
+            True,
+
+        "trade_plan_ready":
+            True,
+
+        "trade_plan":
+            trade_plan,
+
+        "skip_reason":
+            "NONE",
+
+        "read_only":
+            True,
+    }
+
+    # --------------------------------------------------------
+    # 19. OUTPUT CONTRACT
+    # --------------------------------------------------------
+
+    if (
+        trade_plan.get(
+            "quantity"
+        )
+        is None
+    ):
+        raise RuntimeError(
+            "UNIT 8 OUTPUT CONTRACT FAILURE: QUANTITY MISSING"
+        )
+
+    if (
+        position_sizing.get(
+            "quantity_calculated"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 8 OUTPUT CONTRACT FAILURE: QUANTITY NOT CALCULATED"
+        )
+
+    if (
+        position_sizing.get(
+            "position_sizing_performed"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 8 OUTPUT CONTRACT FAILURE: SIZING NOT PERFORMED"
+        )
+
+    # --------------------------------------------------------
+    # 20. ACTIVE OUTPUT
+    # --------------------------------------------------------
+
+    print("-" * 80, flush=True)
+
+    print(
+        "UNIT 8 STATUS = READY",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 8 ACTIVE MODE = {active_mode}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 8 DIRECTION = {direction}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 SIGNAL QUALIFIED = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 EXECUTION INTENT = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 TRADE PLAN READY = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 QUANTITY CALCULATED = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 EXECUTION QUANTITY =",
+        normalized_quantity,
+        flush=True,
+    )
+
+    print("-" * 80, flush=True)
+
+    # --------------------------------------------------------
+    # 21. FINAL SAFETY REPORT
+    # --------------------------------------------------------
+
+    print(
+        "PASS: UNIT 8 VERIFIED DEMO ACCOUNT BALANCE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 VERIFIED POSITION SIZING",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 NORMALIZED TRADE PLAN",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 AUTHENTICATED ACCESS = DEMO BALANCE GET ONLY",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 ORDER PAYLOAD GENERATED = False",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 TP / SL EXECUTION = False",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 8 BACKUP EXECUTION = False",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ORDER ENDPOINT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE WRITE = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO LEVERAGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO MARGIN MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print("-" * 80, flush=True)
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 8 RESULT = PASS",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return unit_8_result
+
+
+# ============================================================
+# ZERO INDENTATION FROM HERE
+# UNIT 8 FUNCTION IS FULLY CLOSED
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
+    fresh_reconstruction_unit_8(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_SIZING_CANDIDATE,
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT,
+    )
+)
+
+# ============================================================
+# END OF PART 6B
+#
+# UNIT 8 IS FULLY CLOSED AND CALLED.
+# NEXT EXISTING CODE IS UNIT 9.
+# ============================================================
