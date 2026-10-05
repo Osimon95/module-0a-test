@@ -14952,7 +14952,7 @@ def fresh_tp3_runtime(
             for item in active_records
         }
 
-        directions.discard("")
+            directions.discard("")
 
         if len(directions) > 1:
             raise RuntimeError(
