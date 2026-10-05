@@ -15907,3 +15907,825 @@ def fresh_tp3_runtime(
 # CONTINUE DIRECTLY WITH PART 11E
 # ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
 # ============================================================
+                 flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # ALL THREE BACKUPS ALREADY FILLED
+        # ====================================================
+
+        if completed_backups >= max_backups:
+            print(
+                f"UNIT 14 BACKUP STATUS = "
+                f"B{completed_backups} FILLED",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 NEXT BACKUP = NONE",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 B4 = DISABLED",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 FINAL LIQUIDATION BOUNDARY = "
+                f"{liquidation_price}",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        next_backup_stage = (
+            completed_backups
+            +
+            1
+        )
+
+        # Absolute B4 protection.
+
+        if next_backup_stage > 3:
+            print(
+                "UNIT 14 BACKUP STOP = NO B4",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12A. CURRENT LIQUIDATION MUST COME FROM WEEX
+        # ====================================================
+
+        if liquidation_price <= 0:
+            print(
+                f"UNIT 14 B{next_backup_stage} BLOCKED: "
+                "WEEX LIQUIDATION PRICE NOT AVAILABLE",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12B. CALCULATE BACKUP TRIGGER
+        #
+        # LONG:
+        # Bn = Ln * (1 + buffer)
+        #
+        # SHORT:
+        # Bn = Ln * (1 - buffer)
+        # ====================================================
+
+        if position_side == "LONG":
+            backup_trigger = (
+                liquidation_price
+                *
+                (
+                    Decimal("1")
+                    +
+                    backup_buffer_fraction
+                )
+            )
+
+            backup_reached = (
+                current_mark
+                <=
+                backup_trigger
+            )
+
+        else:
+            backup_trigger = (
+                liquidation_price
+                *
+                (
+                    Decimal("1")
+                    -
+                    backup_buffer_fraction
+                )
+            )
+
+            backup_reached = (
+                current_mark
+                >=
+                backup_trigger
+            )
+
+        print(
+            f"UNIT 14 B{next_backup_stage} | "
+            f"L{next_backup_stage} = {liquidation_price} | "
+            f"BUFFER = {backup_buffer_percent}% | "
+            f"TRIGGER = {backup_trigger} | "
+            f"MARK = {current_mark} | "
+            f"REACHED = {backup_reached}",
+            flush=True,
+        )
+
+        if not backup_reached:
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12C. ANTI-DUPLICATE
+        # ====================================================
+
+        next_client_id = backup_client_id(
+            next_backup_stage,
+            trade_key,
+        )
+
+        if (
+            next_backup_stage
+            in
+            existing_backup_stages
+        ):
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                "ORDER ALREADY EXISTS",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 DUPLICATE BACKUP BLOCKED",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12D. EXPOSURE CAP
+        #
+        # Configured capital allocation:
+        #
+        # initial margin %
+        # +
+        # completed backups * backup margin %
+        # +
+        # proposed next backup margin %
+        #
+        # This deliberately does NOT use the 0.0004 initial
+        # entry cap for backups.
+        # ====================================================
+
+        current_configured_exposure = (
+            initial_margin_percent
+            +
+            (
+                Decimal(
+                    completed_backups
+                )
+                *
+                backup_margin_percent
+            )
+        )
+
+        projected_exposure = (
+            current_configured_exposure
+            +
+            backup_margin_percent
+        )
+
+        print(
+            f"UNIT 14 CURRENT CONFIGURED EXPOSURE % = "
+            f"{current_configured_exposure}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 PROJECTED EXPOSURE % = "
+            f"{projected_exposure}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 EXPOSURE CAP % = "
+            f"{exposure_cap_percent}",
+            flush=True,
+        )
+
+        if (
+            projected_exposure
+            >
+            exposure_cap_percent
+        ):
+            print(
+                f"UNIT 14 B{next_backup_stage} BLOCKED: "
+                "EXPOSURE CAP",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12E. DEMO BALANCE
+        # ====================================================
+
+        try:
+            balance_item = get_demo_balance()
+
+            available_balance = Decimal(
+                str(
+                    balance_item.get(
+                        "availableBalance",
+                        "0",
+                    )
+                )
+            )
+
+        except Exception as exc:
+            print(
+                f"UNIT 14 BALANCE READ ERROR = {repr(exc)}",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        if available_balance <= 0:
+            print(
+                f"UNIT 14 B{next_backup_stage} BLOCKED: "
+                "NO AVAILABLE DEMO BALANCE",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12F. BACKUP QUANTITY
+        #
+        # margin = available balance * backup %
+        # notional = margin * leverage
+        # qty = notional / mark
+        #
+        # No 0.0004 initial-entry cap is applied.
+        # ====================================================
+
+        backup_margin_amount = (
+            available_balance
+            *
+            (
+                backup_margin_percent
+                /
+                Decimal("100")
+            )
+        )
+
+        backup_notional = (
+            backup_margin_amount
+            *
+            leverage_target
+        )
+
+        raw_backup_quantity = (
+            backup_notional
+            /
+            current_mark
+        )
+
+        backup_quantity = floor_quantity(
+            raw_backup_quantity
+        )
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"AVAILABLE SUSDT = {available_balance}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"MARGIN ALLOCATION = {backup_margin_amount}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"RAW QUANTITY = {raw_backup_quantity}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"NORMALIZED QUANTITY = {backup_quantity}",
+            flush=True,
+        )
+
+        if (
+            backup_quantity
+            <
+            minimum_quantity
+        ):
+            print(
+                f"UNIT 14 B{next_backup_stage} BLOCKED: "
+                "QUANTITY BELOW MINIMUM",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12G. FINAL POSITION RECONCILIATION
+        #
+        # Re-read actual position immediately before submission.
+        # This prevents a stale trigger from submitting against
+        # a position that has already changed or closed.
+        # ====================================================
+
+        try:
+            final_position = get_active_position()
+
+        except Exception as exc:
+            print(
+                f"UNIT 14 FINAL POSITION CHECK ERROR = "
+                f"{repr(exc)}",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        if final_position is None:
+            print(
+                f"UNIT 14 B{next_backup_stage} BLOCKED: "
+                "POSITION CLOSED BEFORE SUBMISSION",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        final_side = str(
+            final_position.get(
+                "side",
+                "",
+            )
+        ).upper()
+
+        if final_side != position_side:
+            raise RuntimeError(
+                "UNIT 14 BLOCKED: "
+                "POSITION DIRECTION CHANGED"
+            )
+
+        final_trade_key = get_trade_key(
+            final_position
+        )
+
+        if final_trade_key != trade_key:
+            print(
+                f"UNIT 14 B{next_backup_stage} BLOCKED: "
+                "POSITION IDENTITY CHANGED",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        try:
+            final_liquidation = Decimal(
+                str(
+                    final_position.get(
+                        "liquidatePrice",
+                        "0",
+                    )
+                )
+            )
+
+        except Exception:
+            final_liquidation = Decimal("0")
+
+        # If WEEX has already recalculated liquidation between
+        # trigger evaluation and submission, restart the cycle
+        # and calculate from the new liquidation.
+
+        if (
+            final_liquidation
+            !=
+            liquidation_price
+        ):
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                "LIQUIDATION CHANGED BEFORE SUBMISSION",
+                flush=True,
+            )
+
+            print(
+                f"OLD LIQUIDATION = {liquidation_price}",
+                flush=True,
+            )
+
+            print(
+                f"NEW LIQUIDATION = {final_liquidation}",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 RECALCULATING BACKUP TRIGGER",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12H. ORDER-RATE GUARD
+        # ====================================================
+
+        elapsed = (
+            time.time()
+            -
+            last_runtime_order_time
+        )
+
+        if (
+            last_runtime_order_time > 0
+            and
+            elapsed < 60
+        ):
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                "WAITING FOR DEMO ORDER RATE WINDOW",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12I. BACKUP ORDER
+        #
+        # Same position direction:
+        #
+        # LONG backup  = BUY / LONG
+        # SHORT backup = SELL / SHORT
+        # ====================================================
+
+        if position_side == "LONG":
+            backup_order_side = "BUY"
+        else:
+            backup_order_side = "SELL"
+
+        backup_payload = {
+            "symbol":
+                demo_symbol,
+
+            "side":
+                backup_order_side,
+
+            "positionSide":
+                position_side,
+
+            "type":
+                "MARKET",
+
+            "quantity":
+                quantity_text(
+                    backup_quantity
+                ),
+
+            "newClientOrderId":
+                next_client_id,
+        }
+
+        # ABSOLUTE SL PROHIBITION.
+
+        for prohibited in (
+            "slTriggerPrice",
+            "SlWorkingType",
+            "stopLossPrice",
+            "stopPrice",
+        ):
+            if prohibited in backup_payload:
+                raise RuntimeError(
+                    "UNIT 14 BLOCKED: SL FIELD DETECTED"
+                )
+
+        print("-" * 80, flush=True)
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            "TRIGGER REACHED = TRUE",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"LIQUIDATION REFERENCE = "
+            f"{liquidation_price}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"TRIGGER PRICE = "
+            f"{backup_trigger}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"CURRENT MARK = "
+            f"{current_mark}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"ORDER SIDE = "
+            f"{backup_order_side}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"QUANTITY = "
+            f"{backup_quantity}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"CLIENT ORDER ID = "
+            f"{next_client_id}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 DEMO ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 REAL ORDER = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 SL ENABLED = FALSE",
+            flush=True,
+        )
+
+        # ====================================================
+        # 13. SUBMIT EXACTLY ONE DEMO BACKUP
+        # ====================================================
+
+        try:
+            backup_result = authenticated_post(
+                "/capi/v3/sim/order",
+                backup_payload,
+            )
+
+            last_runtime_order_time = (
+                time.time()
+            )
+
+        except urllib.error.HTTPError as exc:
+            try:
+                error_text = (
+                    exc.read()
+                    .decode(
+                        "utf-8",
+                        errors="replace",
+                    )
+                )
+            except Exception:
+                error_text = str(exc)
+
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                f"HTTP ERROR = {exc.code}",
+                flush=True,
+            )
+
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                f"ERROR RESPONSE = {error_text}",
+                flush=True,
+            )
+
+            # Outcome may be uncertain.
+            # Re-read history before any retry.
+
+            last_runtime_order_time = (
+                time.time()
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        except urllib.error.URLError as exc:
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                f"NETWORK ERROR = {exc}",
+                flush=True,
+            )
+
+            # Do not blindly resubmit.
+            # Order history is checked first.
+
+            last_runtime_order_time = (
+                time.time()
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        except Exception as exc:
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                f"SUBMISSION ERROR = {repr(exc)}",
+                flush=True,
+            )
+
+            last_runtime_order_time = (
+                time.time()
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        if (
+            backup_result.get(
+                "success"
+            )
+            is not True
+        ):
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                f"NOT ACCEPTED = {backup_result}",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        backup_order_id = (
+            backup_result.get(
+                "orderId"
+            )
+        )
+
+        if not backup_order_id:
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                "ACCEPTED WITHOUT ORDER ID",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        print("-" * 80, flush=True)
+
+        print(
+            f"PASS: UNIT 14 B{next_backup_stage} "
+            "DEMO ORDER ACCEPTED",
+            flush=True,
+        )
+
+        print(
+            f"PASS: UNIT 14 B{next_backup_stage} "
+            f"ORDER ID = {backup_order_id}",
+            flush=True,
+        )
+
+        print(
+            f"PASS: UNIT 14 B{next_backup_stage} "
+            "WAITING FOR EXCHANGE-CONFIRMED FILL",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 14 BACKUP STAGE NOT "
+            "ADVANCED BY TRIGGER ALONE",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 14 NEXT LIQUIDATION WILL "
+            "BE READ FROM WEEX AFTER FILL",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 14 REAL ORDER = FALSE",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 14 SL REMAINS DISABLED",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 14 NO LEVERAGE MUTATION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 14 NO MARGIN MODE MUTATION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 14 NO POSITION MODE MUTATION",
+            flush=True,
+        )
+
+        print("=" * 80, flush=True)
+
+        # ====================================================
+        # IMPORTANT:
+        #
+        # DO NOT calculate B2/B3 here.
+        #
+        # The next loop:
+        # 1. reads order history
+        # 2. confirms Bn FILLED
+        # 3. reads changed position
+        # 4. reads WEEX's new liquidatePrice
+        # 5. only then calculates B(n+1)
+        # ====================================================
+
+        time.sleep(
+            poll_seconds
+        )
+
+
+# ============================================================
+# END PART 11E
+# PART 11 / UNIT 13 + UNIT 14 RUNTIME BODY CONTINUATION COMPLETE
+# NEXT = FINAL UNIT 14 CALL
+# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
+# ============================================================
