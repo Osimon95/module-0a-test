@@ -2328,3 +2328,717 @@ def fresh_reconstruction_unit_4():
 # - DO NOT ADD EXECUTABLE CODE BETWEEN 2B-1 AND 2B-2
 # - PASTE PART 2B-2 DIRECTLY BELOW THIS LINE
 # ============================================================
+
+    # ========================================================
+    # 12. CLOSED-CANDLE CLOSE PRICE SERIES
+    # ========================================================
+
+    close_prices = [
+        candle[
+            "close"
+        ]
+        for candle in closed_klines
+    ]
+
+    if len(close_prices) < 200:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INSUFFICIENT CLOSED CLOSE PRICES"
+        )
+
+    print(
+        "PASS: UNIT 4 CLOSED-CANDLE PRICE SERIES READY",
+        flush=True,
+    )
+
+    # ========================================================
+    # 13. EMA CALCULATION
+    # ========================================================
+
+    def calculate_ema(
+        prices,
+        period,
+    ):
+
+        if len(prices) < period:
+            raise RuntimeError(
+                "INSUFFICIENT DATA FOR EMA"
+                + str(period)
+            )
+
+        seed_prices = (
+            prices[
+                :period
+            ]
+        )
+
+        ema_value = (
+            sum(seed_prices)
+            /
+            period
+        )
+
+        multiplier = (
+            2.0
+            /
+            (
+                period
+                + 1.0
+            )
+        )
+
+        for price in prices[period:]:
+
+            ema_value = (
+                price
+                * multiplier
+                +
+                ema_value
+                * (
+                    1.0
+                    -
+                    multiplier
+                )
+            )
+
+        return float(
+            ema_value
+        )
+
+    ema19 = calculate_ema(
+        close_prices,
+        19,
+    )
+
+    ema50 = calculate_ema(
+        close_prices,
+        50,
+    )
+
+    ema200 = calculate_ema(
+        close_prices,
+        200,
+    )
+
+    if (
+        ema19 <= 0
+        or ema50 <= 0
+        or ema200 <= 0
+    ):
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INVALID EMA VALUE"
+        )
+
+    print(
+        "PASS: UNIT 4 EMA19 =",
+        round(
+            ema19,
+            6,
+        ),
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 EMA50 =",
+        round(
+            ema50,
+            6,
+        ),
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 EMA200 =",
+        round(
+            ema200,
+            6,
+        ),
+        flush=True,
+    )
+
+    # ========================================================
+    # 14. EMA19 / EMA50 SEPARATION
+    # ========================================================
+
+    if ema50 == 0:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: EMA50 IS ZERO"
+        )
+
+    ema19_50_separation_pct = (
+        abs(
+            ema19
+            -
+            ema50
+        )
+        /
+        ema50
+        *
+        100.0
+    )
+
+    print(
+        "PASS: UNIT 4 EMA19/50 SEPARATION % =",
+        round(
+            ema19_50_separation_pct,
+            6,
+        ),
+        flush=True,
+    )
+
+    # ========================================================
+    # 15. EMA STRUCTURE
+    # ========================================================
+
+    if (
+        ema19 > ema50
+        and ema50 > ema200
+    ):
+        ema_structure = (
+            "BULLISH"
+        )
+
+    elif (
+        ema19 < ema50
+        and ema50 < ema200
+    ):
+        ema_structure = (
+            "BEARISH"
+        )
+
+    else:
+        ema_structure = (
+            "MIXED"
+        )
+
+    print(
+        "PASS: UNIT 4 EMA STRUCTURE =",
+        ema_structure,
+        flush=True,
+    )
+
+    # ========================================================
+    # 16. LATEST TWO FULLY CLOSED CANDLES
+    # ========================================================
+
+    latest_candle = (
+        closed_klines[-1]
+    )
+
+    previous_candle = (
+        closed_klines[-2]
+    )
+
+    latest_close = float(
+        latest_candle[
+            "close"
+        ]
+    )
+
+    previous_close = float(
+        previous_candle[
+            "close"
+        ]
+    )
+
+    latest_open_time_ms = int(
+        latest_candle[
+            "open_time_ms"
+        ]
+    )
+
+    latest_close_time_ms = int(
+        latest_candle[
+            "close_time_ms"
+        ]
+    )
+
+    print(
+        "PASS: UNIT 4 PREVIOUS KLINE CLOSE =",
+        previous_close,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 LATEST KLINE CLOSE =",
+        latest_close,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 LATEST KLINE OPEN TIME =",
+        latest_open_time_ms,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 LATEST KLINE CLOSE TIME =",
+        latest_close_time_ms,
+        flush=True,
+    )
+
+    # ========================================================
+    # 17. CLOSED 1-MINUTE MOVE
+    # ========================================================
+
+    if previous_close <= 0:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: PREVIOUS CLOSE IS ZERO"
+        )
+
+    short_term_move_pct = (
+        (
+            latest_close
+            -
+            previous_close
+        )
+        /
+        previous_close
+        *
+        100.0
+    )
+
+    print(
+        "PASS: UNIT 4 SHORT-TERM MOVE % =",
+        round(
+            short_term_move_pct,
+            6,
+        ),
+        flush=True,
+    )
+
+    # ========================================================
+    # 18. CLOSED-CANDLE MULTI-WINDOW MOMENTUM
+    #
+    # These values are stored in the Unit 4 snapshot.
+    #
+    # Unit 4 itself still does NOT qualify entries.
+    # ========================================================
+
+    diagnostic_windows = (
+        1,
+        5,
+        15,
+        30,
+        60,
+        120,
+    )
+
+    window_moves_pct = {}
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 4 BREAKOUT WINDOW DIAGNOSTIC",
+        flush=True,
+    )
+
+    for window_minutes in diagnostic_windows:
+
+        if (
+            len(close_prices)
+            <= window_minutes
+        ):
+            raise RuntimeError(
+                "UNIT 4 BLOCKED: INSUFFICIENT DATA FOR "
+                + str(window_minutes)
+                + "M MOVE"
+            )
+
+        reference_close = float(
+            close_prices[
+                -(window_minutes + 1)
+            ]
+        )
+
+        if reference_close <= 0:
+            raise RuntimeError(
+                "UNIT 4 BLOCKED: INVALID "
+                + str(window_minutes)
+                + "M REFERENCE CLOSE"
+            )
+
+        window_move_pct = (
+            (
+                latest_close
+                -
+                reference_close
+            )
+            /
+            reference_close
+            *
+            100.0
+        )
+
+        window_moves_pct[
+            window_minutes
+        ] = float(
+            window_move_pct
+        )
+
+        print(
+            f"UNIT 4 {window_minutes}M MOVE % = "
+            f"{round(window_move_pct, 6)}",
+            flush=True,
+        )
+
+    print(
+        "UNIT 4 SIGNAL MOVE SOURCE = "
+        "FULLY CLOSED 1M CANDLE VS PREVIOUS FULLY CLOSED 1M CANDLE",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    # ========================================================
+    # 19. UNIT 3 REAL-TIME MARK PRICE
+    #
+    # Signal candles are closed candles.
+    # Execution/context mark price remains real-time.
+    # ========================================================
+
+    live_mark_price = float(
+        market_snapshot[
+            "price"
+        ]
+    )
+
+    if live_mark_price <= 0:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INVALID LIVE MARK PRICE"
+        )
+
+    print(
+        "PASS: UNIT 4 LIVE MARK PRICE =",
+        live_mark_price,
+        flush=True,
+    )
+
+    # ========================================================
+    # 20. NORMALIZED ANALYSIS SNAPSHOT
+    # ========================================================
+
+    analysis_snapshot = {
+        "exchange":
+            "WEEX",
+
+        "api_version":
+            "V3",
+
+        "symbol":
+            market_symbol,
+
+        "interval":
+            interval,
+
+        "price_type":
+            "MARK",
+
+        "live_mark_price":
+            live_mark_price,
+
+        "previous_close":
+            previous_close,
+
+        "latest_close":
+            latest_close,
+
+        "latest_open_time_ms":
+            latest_open_time_ms,
+
+        "latest_close_time_ms":
+            latest_close_time_ms,
+
+        "exchange_time_ms":
+            exchange_time_ms,
+
+        "ema19":
+            ema19,
+
+        "ema50":
+            ema50,
+
+        "ema200":
+            ema200,
+
+        "ema19_50_separation_pct":
+            ema19_50_separation_pct,
+
+        "short_term_move_pct":
+            short_term_move_pct,
+
+        "move_1m_pct":
+            window_moves_pct[1],
+
+        "move_5m_pct":
+            window_moves_pct[5],
+
+        "move_15m_pct":
+            window_moves_pct[15],
+
+        "move_30m_pct":
+            window_moves_pct[30],
+
+        "move_60m_pct":
+            window_moves_pct[60],
+
+        "move_120m_pct":
+            window_moves_pct[120],
+
+        "ema_structure":
+            ema_structure,
+
+        # Recent fully closed 1-minute OHLC candles are exposed
+        # for downstream read-only SCALP quality analysis.
+        "recent_closed_klines": [
+            dict(candle)
+            for candle in closed_klines[-60:]
+        ],
+
+        "candle_count":
+            len(
+                normalized_klines
+            ),
+
+        "closed_candle_count":
+            len(
+                closed_klines
+            ),
+
+        "newest_returned_candle_closed":
+            newest_returned_is_closed,
+
+        "source":
+            "WEEX_V3_PUBLIC_MARK_PRICE_KLINES",
+
+        "read_only":
+            True,
+    }
+
+    # ========================================================
+    # 21. FINAL SNAPSHOT VALIDATION
+    # ========================================================
+
+    required_analysis_fields = (
+        "exchange",
+        "api_version",
+        "symbol",
+        "interval",
+        "price_type",
+        "live_mark_price",
+        "previous_close",
+        "latest_close",
+        "latest_open_time_ms",
+        "latest_close_time_ms",
+        "exchange_time_ms",
+        "ema19",
+        "ema50",
+        "ema200",
+        "ema19_50_separation_pct",
+        "short_term_move_pct",
+        "move_1m_pct",
+        "move_5m_pct",
+        "move_15m_pct",
+        "move_30m_pct",
+        "move_60m_pct",
+        "move_120m_pct",
+        "ema_structure",
+        "recent_closed_klines",
+        "candle_count",
+        "closed_candle_count",
+        "newest_returned_candle_closed",
+        "source",
+        "read_only",
+    )
+
+    missing_analysis_fields = [
+        field
+        for field in required_analysis_fields
+        if field not in analysis_snapshot
+    ]
+
+    if missing_analysis_fields:
+        raise RuntimeError(
+            "UNIT 4 ANALYSIS SNAPSHOT MISSING FIELDS = "
+            + str(missing_analysis_fields)
+        )
+
+    if (
+        analysis_snapshot[
+            "read_only"
+        ]
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 4 ANALYSIS SNAPSHOT READ-ONLY FAILURE"
+        )
+
+    if (
+        analysis_snapshot[
+            "latest_close_time_ms"
+        ]
+        >
+        analysis_snapshot[
+            "exchange_time_ms"
+        ]
+    ):
+        raise RuntimeError(
+            "UNIT 4 CLOSED-CANDLE SAFETY FAILURE"
+        )
+
+    if (
+        abs(
+            analysis_snapshot[
+                "move_1m_pct"
+            ]
+            -
+            analysis_snapshot[
+                "short_term_move_pct"
+            ]
+        )
+        >
+        0.000000001
+    ):
+        raise RuntimeError(
+            "UNIT 4 1M MOVE CONSISTENCY FAILURE"
+        )
+
+    # ========================================================
+    # 22. FINAL SAFETY REPORT
+    # ========================================================
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 NORMALIZED MARKET ANALYSIS SNAPSHOT",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 CLOSED-CANDLE SIGNAL SOURCE VERIFIED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 MULTI-WINDOW MOMENTUM SNAPSHOT READY",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 PUBLIC MARKET ANALYSIS COMPLETED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 EMA19 / EMA50 / EMA200 COMPLETED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 NO ENTRY SIGNAL GENERATED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 NO ORDER PAYLOAD GENERATED",
+        flush=True,
+    )
+
+    print(
+        "ZERO AUTHENTICATED REQUEST = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ACCOUNT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ORDER ENDPOINT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE WRITE = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO LEVERAGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO MARGIN MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 4 RESULT = PASS"
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return analysis_snapshot
+
+
+# ============================================================
+# RUN UNIT 4
+# ============================================================
+
+FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
+    fresh_reconstruction_unit_4()
+)
+
+
+# ============================================================
+# END OF TRANSMISSION PART 2B-2
+# ZERO INDENTATION DEMARCATION
+#
+# UNIT 4 IS FULLY CLOSED
+# UNIT 4 HAS BEEN CALLED
+# NO OPEN FUNCTION
+# NO OPEN IF
+# NO OPEN TRY
+# NO OPEN DICTIONARY
+# NO INDENTATION CONTINUES INTO THE NEXT PART
+#
+# PASTE THE NEXT PART DIRECTLY BELOW THIS LINE
+# ============================================================
