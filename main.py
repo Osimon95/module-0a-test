@@ -8066,3 +8066,927 @@ FRESH_RECONSTRUCTION_UNIT_9_RESULT = (
 # UNIT 9 FULLY CLOSED AND CALLED
 # NEXT = PART 8 / UNIT 10
 # ============================================================
+
+# ============================================================
+# FRESH RECONSTRUCTION UNIT 10
+# DEMO EXECUTION BOUNDARY PREPARATION
+#
+# PURPOSE:
+# - Consume verified Unit 2 configuration
+# - Consume verified Unit 9 execution candidate
+# - Preserve normal IDLE state when no trade is qualified
+# - Prepare a normalized demo-submission instruction when READY
+# - Validate the execution boundary before payload construction
+#
+# IMPORTANT:
+# - ZERO AUTHENTICATED API ACCESS
+# - ZERO ACCOUNT ACCESS
+# - ZERO POSITION ACCESS
+# - ZERO ORDER ENDPOINT ACCESS
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE WRITE
+# - ZERO LEVERAGE MUTATION
+# - ZERO MARGIN MODE MUTATION
+# - ZERO POSITION MODE MUTATION
+#
+# UNIT 10 DOES NOT:
+# - CREATE A WEEX ORDER PAYLOAD
+# - SUBMIT A DEMO ORDER
+# - SUBMIT A REAL ORDER
+# - EXECUTE TP
+# - EXECUTE SL
+# - EXECUTE BACKUPS
+#
+# UNIT 10 IS THE FINAL INTERNAL BOUNDARY PREPARATION
+# BEFORE UNIT 11 BUILDS AND VALIDATES THE DEMO PAYLOAD.
+# ============================================================
+
+
+def fresh_reconstruction_unit_10(
+    config,
+    unit_9_result,
+):
+    from datetime import datetime, timezone
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 10 START",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    # ========================================================
+    # 1. INPUT VALIDATION
+    # ========================================================
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: INVALID UNIT 2 CONFIGURATION"
+        )
+
+    print(
+        "PASS: UNIT 10 RECEIVED UNIT 2 CONFIGURATION",
+        flush=True,
+    )
+
+    if not isinstance(unit_9_result, dict):
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: INVALID UNIT 9 RESULT"
+        )
+
+    print(
+        "PASS: UNIT 10 RECEIVED UNIT 9 RESULT",
+        flush=True,
+    )
+
+    # ========================================================
+    # 2. CONFIGURATION SECTIONS
+    # ========================================================
+
+    exchange = config.get(
+        "exchange"
+    )
+
+    safety = config.get(
+        "safety"
+    )
+
+    strategy = config.get(
+        "strategy"
+    )
+
+    market_precision = config.get(
+        "market_precision"
+    )
+
+    if not isinstance(exchange, dict):
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: EXCHANGE CONFIGURATION MISSING"
+        )
+
+    if not isinstance(safety, dict):
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: SAFETY CONFIGURATION MISSING"
+        )
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: STRATEGY CONFIGURATION MISSING"
+        )
+
+    if not isinstance(market_precision, dict):
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: MARKET PRECISION MISSING"
+        )
+
+    print(
+        "PASS: UNIT 10 CONFIGURATION SECTIONS PRESENT",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3. STRICT UNIT 9 CONTRACT
+    # ========================================================
+
+    required_unit_9_fields = (
+        "status",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "trade_plan",
+        "execution_ready",
+        "execution_candidate",
+        "skip_reason",
+        "order_payload_created",
+        "tp_execution_requested",
+        "sl_execution_requested",
+        "read_only",
+    )
+
+    missing_unit_9_fields = [
+        field
+        for field in required_unit_9_fields
+        if field not in unit_9_result
+    ]
+
+    if missing_unit_9_fields:
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: UNIT 9 MISSING FIELDS = "
+            + str(
+                missing_unit_9_fields
+            )
+        )
+
+    print(
+        "PASS: UNIT 10 UNIT 9 CONTRACT VALIDATED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 4. UNIT 9 READ-ONLY CONTRACT
+    # ========================================================
+
+    if unit_9_result.get(
+        "read_only"
+    ) is not True:
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: UNIT 9 RESULT NOT READ ONLY"
+        )
+
+    if unit_9_result.get(
+        "order_payload_created"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: UNIT 9 CREATED ORDER PAYLOAD"
+        )
+
+    if unit_9_result.get(
+        "tp_execution_requested"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: UNIT 9 REQUESTED TP EXECUTION"
+        )
+
+    if unit_9_result.get(
+        "sl_execution_requested"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: UNIT 9 REQUESTED SL EXECUTION"
+        )
+
+    print(
+        "PASS: UNIT 10 UNIT 9 READ-ONLY CONTRACT",
+        flush=True,
+    )
+
+    # ========================================================
+    # 5. GLOBAL SAFETY GATE
+    # ========================================================
+
+    forbidden_capabilities = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for capability in forbidden_capabilities:
+
+        if safety.get(
+            capability
+        ) is not False:
+
+            raise RuntimeError(
+                "UNIT 10 BLOCKED: UNSAFE CAPABILITY ENABLED: "
+                + capability
+            )
+
+    print(
+        "PASS: UNIT 10 READ-ONLY SAFETY GATE",
+        flush=True,
+    )
+
+    # ========================================================
+    # 6. EXCHANGE CONTRACT
+    # ========================================================
+
+    if exchange.get(
+        "name"
+    ) != "WEEX":
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: INVALID EXCHANGE"
+        )
+
+    if exchange.get(
+        "api_version"
+    ) != "V3":
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: INVALID API VERSION"
+        )
+
+    if exchange.get(
+        "market_symbol"
+    ) != "BTCUSDT":
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: INVALID MARKET SYMBOL"
+        )
+
+    if exchange.get(
+        "demo_order_symbol"
+    ) != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: INVALID DEMO SYMBOL"
+        )
+
+    if config.get(
+        "execution_environment"
+    ) != "DEMO":
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: EXECUTION ENVIRONMENT NOT DEMO"
+        )
+
+    print(
+        "PASS: UNIT 10 WEEX DEMO ENVIRONMENT CONTRACT",
+        flush=True,
+    )
+
+    # ========================================================
+    # 7. STRATEGY SAFETY CONTRACT
+    # ========================================================
+
+    if strategy.get(
+        "anti_duplicate_orders"
+    ) is not True:
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: ANTI-DUPLICATE ORDERS DISABLED"
+        )
+
+    if strategy.get(
+        "one_direction_only"
+    ) is not True:
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: ONE-DIRECTION-ONLY DISABLED"
+        )
+
+    if strategy.get(
+        "active_trade_mode_lock"
+    ) is not True:
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: ACTIVE TRADE MODE LOCK DISABLED"
+        )
+
+    print(
+        "PASS: UNIT 10 STRATEGY SAFETY CONTRACT",
+        flush=True,
+    )
+
+    # ========================================================
+    # 8. NORMALIZE UNIT 9 STATE
+    # ========================================================
+
+    status = str(
+        unit_9_result.get(
+            "status",
+            "IDLE",
+        )
+    ).upper()
+
+    active_mode = unit_9_result.get(
+        "active_mode"
+    )
+
+    direction = unit_9_result.get(
+        "direction"
+    )
+
+    signal_qualified = bool(
+        unit_9_result.get(
+            "signal_qualified",
+            False,
+        )
+    )
+
+    execution_intent = bool(
+        unit_9_result.get(
+            "execution_intent",
+            False,
+        )
+    )
+
+    trade_plan_ready = bool(
+        unit_9_result.get(
+            "trade_plan_ready",
+            False,
+        )
+    )
+
+    execution_ready = bool(
+        unit_9_result.get(
+            "execution_ready",
+            False,
+        )
+    )
+
+    trade_plan = unit_9_result.get(
+        "trade_plan"
+    )
+
+    execution_candidate = unit_9_result.get(
+        "execution_candidate"
+    )
+
+    skip_reason = str(
+        unit_9_result.get(
+            "skip_reason",
+            "NONE",
+        )
+    )
+
+    # ========================================================
+    # 9. NORMAL IDLE PATH
+    # ========================================================
+
+    if (
+        status == "IDLE"
+        or not signal_qualified
+        or not execution_intent
+        or not trade_plan_ready
+        or not execution_ready
+    ):
+
+        unit_10_result = {
+            "status": "IDLE",
+            "active_mode": active_mode,
+            "direction": direction,
+            "signal_qualified": signal_qualified,
+            "execution_intent": False,
+            "trade_plan_ready": False,
+            "trade_plan": None,
+            "execution_ready": False,
+            "execution_candidate": None,
+            "demo_boundary_ready": False,
+            "demo_submission_instruction": None,
+            "skip_reason": skip_reason,
+            "order_payload_created": False,
+            "demo_submission_requested": False,
+            "real_submission_requested": False,
+            "tp_execution_requested": False,
+            "sl_execution_requested": False,
+            "backup_execution_requested": False,
+            "read_only": True,
+        }
+
+        print(
+            "-" * 80,
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 STATUS = IDLE",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 10 ACTIVE MODE = {active_mode}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 10 DIRECTION = {direction}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 10 SIGNAL QUALIFIED = "
+            f"{signal_qualified}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 EXECUTION INTENT = False",
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 EXECUTION READY = False",
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 DEMO BOUNDARY READY = False",
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 DEMO SUBMISSION INSTRUCTION = NONE",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 10 SKIP REASON = {skip_reason}",
+            flush=True,
+        )
+
+        print(
+            "-" * 80,
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 10 NORMAL NO-TRADE STATE",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 10 NO DEMO BOUNDARY GENERATED",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 10 NO NETWORK REQUEST",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 10 NO ORDER PAYLOAD GENERATED",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 10 NO DEMO SUBMISSION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 10 NO REAL SUBMISSION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 10 NO TP EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 10 NO SL EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 10 NO BACKUP EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "ZERO AUTHENTICATED API ACCESS = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO ACCOUNT ACCESS = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO POSITION ACCESS = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO ORDER ENDPOINT ACCESS = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO DEMO ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO REAL ORDER = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO EXCHANGE WRITE = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO LEVERAGE MUTATION = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO MARGIN MODE MUTATION = TRUE",
+            flush=True,
+        )
+
+        print(
+            "ZERO POSITION MODE MUTATION = TRUE",
+            flush=True,
+        )
+
+        print(
+            "-" * 80,
+            flush=True,
+        )
+
+        print(
+            f"{datetime.now(timezone.utc).isoformat()} "
+            "FRESH RECONSTRUCTION UNIT 10 "
+            "RESULT = PASS (IDLE)",
+            flush=True,
+        )
+
+        print(
+            "=" * 80,
+            flush=True,
+        )
+
+        return unit_10_result
+
+    # ========================================================
+    # 10. ACTIONABLE UNIT 9 CONTRACT
+    # ========================================================
+
+    if status != "READY":
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: ACTIONABLE UNIT 9 STATUS NOT READY"
+        )
+
+    if active_mode not in (
+        "SCALP",
+        "STRUCTURE",
+        "BREAKOUT",
+    ):
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: INVALID ACTIVE MODE"
+        )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: INVALID DIRECTION"
+        )
+
+    if not isinstance(
+        trade_plan,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: TRADE PLAN MISSING"
+        )
+
+    if not isinstance(
+        execution_candidate,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: EXECUTION CANDIDATE MISSING"
+        )
+
+    print(
+        "PASS: UNIT 10 ACTIONABLE UNIT 9 CONTRACT",
+        flush=True,
+    )
+
+    # ========================================================
+    # 11. DEMO BOUNDARY INSTRUCTION
+    #
+    # INTERNAL ONLY.
+    #
+    # This is deliberately NOT the WEEX HTTP order payload.
+    # Unit 11 will convert this instruction into a payload and
+    # validate it without submission.
+    # ========================================================
+
+    demo_submission_instruction = {
+        "exchange": "WEEX",
+        "api_version": "V3",
+        "execution_environment": "DEMO",
+        "market_symbol": exchange.get(
+            "market_symbol"
+        ),
+        "demo_order_symbol": exchange.get(
+            "demo_order_symbol"
+        ),
+        "active_mode": active_mode,
+        "direction": direction,
+        "trade_plan": trade_plan,
+        "execution_candidate": execution_candidate,
+        "anti_duplicate_required": True,
+        "one_direction_only_required": True,
+        "active_trade_mode_lock_required": True,
+        "payload_creation_allowed": False,
+        "submission_allowed": False,
+        "read_only": True,
+    }
+
+    # ========================================================
+    # 12. FINAL BOUNDARY VALIDATION
+    # ========================================================
+
+    if (
+        demo_submission_instruction[
+            "execution_environment"
+        ]
+        != "DEMO"
+    ):
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: INVALID DEMO ENVIRONMENT"
+        )
+
+    if (
+        demo_submission_instruction[
+            "demo_order_symbol"
+        ]
+        != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: INVALID DEMO ORDER SYMBOL"
+        )
+
+    if (
+        demo_submission_instruction[
+            "payload_creation_allowed"
+        ]
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: PAYLOAD CREATION ENABLED"
+        )
+
+    if (
+        demo_submission_instruction[
+            "submission_allowed"
+        ]
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: SUBMISSION ENABLED"
+        )
+
+    if (
+        demo_submission_instruction[
+            "read_only"
+        ]
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 10 BLOCKED: BOUNDARY NOT READ ONLY"
+        )
+
+    print(
+        "PASS: UNIT 10 DEMO BOUNDARY CONTRACT VALIDATED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 13. FINAL NORMALIZED RESULT
+    # ========================================================
+
+    unit_10_result = {
+        "status": "READY",
+        "active_mode": active_mode,
+        "direction": direction,
+        "signal_qualified": True,
+        "execution_intent": True,
+        "trade_plan_ready": True,
+        "trade_plan": trade_plan,
+        "execution_ready": True,
+        "execution_candidate": execution_candidate,
+        "demo_boundary_ready": True,
+        "demo_submission_instruction":
+            demo_submission_instruction,
+        "skip_reason": "NONE",
+        "order_payload_created": False,
+        "demo_submission_requested": False,
+        "real_submission_requested": False,
+        "tp_execution_requested": False,
+        "sl_execution_requested": False,
+        "backup_execution_requested": False,
+        "read_only": True,
+    }
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 STATUS = READY",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 10 ACTIVE MODE = {active_mode}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 10 DIRECTION = {direction}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 SIGNAL QUALIFIED = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 EXECUTION INTENT = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 EXECUTION READY = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 DEMO BOUNDARY READY = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 ORDER PAYLOAD CREATED = False",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 DEMO SUBMISSION REQUESTED = False",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 10 DEMO EXECUTION BOUNDARY PREPARED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 10 NO NETWORK REQUEST",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 10 NO ORDER PAYLOAD GENERATED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 10 NO DEMO SUBMISSION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 10 NO REAL SUBMISSION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 10 NO TP EXECUTION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 10 NO SL EXECUTION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 10 NO BACKUP EXECUTION",
+        flush=True,
+    )
+
+    print(
+        "ZERO AUTHENTICATED API ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ACCOUNT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ORDER ENDPOINT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE WRITE = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO LEVERAGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO MARGIN MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 10 RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return unit_10_result
+
+
+# ============================================================
+# RUN UNIT 10
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_10_RESULT = (
+    fresh_reconstruction_unit_10(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_9_RESULT,
+    )
+)
+
+# ============================================================
+# END PART 8
+# UNIT 10 FULLY CLOSED AND CALLED
+# NEXT = PART 9 / UNIT 11
+# ============================================================
