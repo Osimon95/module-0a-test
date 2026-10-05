@@ -11278,3 +11278,1652 @@ FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
         FRESH_RECONSTRUCTION_UNIT_11_RESULT,
     )
 )
+
+# ============================================================
+# FRESH RECONSTRUCTION UNIT 13
+# WEEX DEMO TAKE-PROFIT MANAGEMENT
+#
+# PURPOSE:
+# - Consume Unit 12 result.
+# - NEVER create a new initial entry.
+# - Re-read current WEEX DEMO BTCSUSDT position.
+# - Derive average entry from current position data.
+# - TP1 = 25% allocation.
+# - TP2 = 25% allocation.
+# - TP3 = 50% trailing runner allocation.
+# - TP3 trailing distance = 0.20%.
+# - SL REMAINS COMPLETELY DISABLED.
+# - DEMO ONLY.
+# - REAL trading prohibited.
+#
+# IMPORTANT:
+# - Unit 13 performs ONE management cycle per invocation.
+# - TP1/TP2 may execute only when their target is reached.
+# - TP3 is ARMED here but is NOT falsely simulated as a
+#   trailing order because the current program has no
+#   persistent management loop yet.
+# - Backup execution remains outside Unit 13.
+# ============================================================
+
+
+def fresh_reconstruction_unit_13(
+    config,
+    unit_12_result,
+):
+    import os
+    import json
+    import time
+    import hmac
+    import hashlib
+    import base64
+    import urllib.request
+    import urllib.error
+    import urllib.parse
+    from decimal import Decimal, ROUND_DOWN
+    from datetime import datetime, timezone
+
+    print("=" * 80, flush=True)
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 13 START",
+        flush=True,
+    )
+
+    print("-" * 80, flush=True)
+
+    # ========================================================
+    # 1. INPUT VALIDATION
+    # ========================================================
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: CONFIGURATION IS NOT A DICT"
+        )
+
+    print(
+        "PASS: UNIT 13 RECEIVED UNIT 2 CONFIGURATION",
+        flush=True,
+    )
+
+    if not isinstance(unit_12_result, dict):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: UNIT 12 RESULT IS NOT A DICT"
+        )
+
+    print(
+        "PASS: UNIT 13 RECEIVED UNIT 12 RESULT",
+        flush=True,
+    )
+
+    unit_12_status = str(
+        unit_12_result.get(
+            "status",
+            "IDLE",
+        )
+    ).upper()
+
+    # ========================================================
+    # 2. NORMAL IDLE PATH
+    # ========================================================
+
+    if unit_12_status == "IDLE":
+
+        result = {
+            "unit": 13,
+            "status": "IDLE",
+            "read_only": False,
+            "position_check_attempted": False,
+            "active_position_exists": False,
+            "tp_management_permitted": False,
+            "tp1_status": "IDLE",
+            "tp2_status": "IDLE",
+            "tp3_status": "IDLE",
+            "tp_execution_attempted": False,
+            "tp_execution_completed": False,
+            "sl_execution_attempted": False,
+            "backup_execution_attempted": False,
+            "real_submission_attempted": False,
+            "exchange_write": False,
+            "skip_reason": unit_12_result.get(
+                "skip_reason",
+                "UNIT_12_IDLE",
+            ),
+        }
+
+        print(
+            "UNIT 13 STATUS = IDLE",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 13 NO POSITION MANAGEMENT REQUIRED",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 13 NO TP EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 13 NO SL EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 13 NO BACKUP EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "ZERO EXCHANGE WRITE = TRUE",
+            flush=True,
+        )
+
+        print(
+            f"{datetime.now(timezone.utc).isoformat()} "
+            "FRESH RECONSTRUCTION UNIT 13 RESULT = PASS (IDLE)",
+            flush=True,
+        )
+
+        print("=" * 80, flush=True)
+
+        return result
+
+    # ========================================================
+    # 3. ACCEPT ONLY VALID POST-ENTRY MANAGEMENT STATES
+    # ========================================================
+
+    allowed_unit_12_statuses = (
+        "DEMO_SUBMITTED",
+        "ACTIVE_POSITION_BLOCK",
+    )
+
+    if unit_12_status not in allowed_unit_12_statuses:
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: INVALID UNIT 12 STATUS = "
+            f"{unit_12_status}"
+        )
+
+    if (
+        unit_12_result.get(
+            "management_path_permitted"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: MANAGEMENT PATH NOT PERMITTED"
+        )
+
+    if (
+        unit_12_result.get(
+            "tp_management_permitted"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: TP MANAGEMENT NOT PERMITTED"
+        )
+
+    print(
+        "PASS: UNIT 13 MANAGEMENT PATH PERMITTED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 TP MANAGEMENT PERMITTED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 4. STRATEGY CONTRACT
+    # ========================================================
+
+    strategy = config.get(
+        "strategy"
+    )
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: STRATEGY CONFIGURATION MISSING"
+        )
+
+    tp1_allocation_percent = Decimal(
+        str(
+            strategy.get(
+                "tp1_allocation_percent",
+                25.0,
+            )
+        )
+    )
+
+    tp2_allocation_percent = Decimal(
+        str(
+            strategy.get(
+                "tp2_allocation_percent",
+                25.0,
+            )
+        )
+    )
+
+    tp3_allocation_percent = Decimal(
+        str(
+            strategy.get(
+                "tp3_allocation_percent",
+                50.0,
+            )
+        )
+    )
+
+    tp3_trailing_percent = Decimal(
+        str(
+            strategy.get(
+                "tp3_trailing_percent",
+                0.20,
+            )
+        )
+    )
+
+    if (
+        tp1_allocation_percent
+        + tp2_allocation_percent
+        + tp3_allocation_percent
+        != Decimal("100")
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: TP ALLOCATION DOES NOT TOTAL 100%"
+        )
+
+    if tp3_trailing_percent <= 0:
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: INVALID TP3 TRAILING PERCENT"
+        )
+
+    print(
+        "PASS: UNIT 13 TP ALLOCATION = 25 / 25 / 50",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 TP3 TRAILING DISTANCE = "
+        f"{tp3_trailing_percent}%",
+        flush=True,
+    )
+
+    # ========================================================
+    # 5. TP PROFIT TARGET CONTRACT
+    #
+    # At 100x leverage:
+    #
+    # TP1 = 10% ROI -> approximately 0.10% price movement.
+    # TP2 = 20% ROI -> approximately 0.20% price movement.
+    #
+    # TP3 begins after TP2 and becomes the trailing runner.
+    # ========================================================
+
+    leverage_target = Decimal(
+        str(
+            strategy.get(
+                "leverage_target",
+                config.get(
+                    "leverage_target",
+                    100,
+                ),
+            )
+        )
+    )
+
+    if leverage_target <= 0:
+        leverage_target = Decimal("100")
+
+    tp1_roi_percent = Decimal("10")
+    tp2_roi_percent = Decimal("20")
+
+    tp1_price_move_percent = (
+        tp1_roi_percent
+        / leverage_target
+    )
+
+    tp2_price_move_percent = (
+        tp2_roi_percent
+        / leverage_target
+    )
+
+    print(
+        "UNIT 13 TP1 ROI TARGET = 10%",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP2 ROI TARGET = 20%",
+        flush=True,
+    )
+
+    # ========================================================
+    # 6. DEMO ENVIRONMENT LOCK
+    # ========================================================
+
+    exchange = config.get(
+        "exchange"
+    )
+
+    if not isinstance(exchange, dict):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: EXCHANGE CONFIGURATION MISSING"
+        )
+
+    demo_symbol = exchange.get(
+        "demo_order_symbol"
+    )
+
+    if demo_symbol != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: DEMO SYMBOL MUST BE BTCSUSDT"
+        )
+
+    base_url = str(
+        exchange.get(
+            "base_url",
+            "https://api-contract.weex.com",
+        )
+    ).rstrip("/")
+
+    if base_url != "https://api-contract.weex.com":
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: UNEXPECTED CONTRACT BASE URL"
+        )
+
+    print(
+        "PASS: UNIT 13 DEMO SYMBOL LOCK = BTCSUSDT",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 REAL TRADING PROHIBITED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 7. API CREDENTIALS
+    # ========================================================
+
+    api_key = (
+        os.environ.get("WEEX_API_KEY")
+        or
+        os.environ.get("API_KEY")
+    )
+
+    api_secret = (
+        os.environ.get("WEEX_API_SECRET")
+        or
+        os.environ.get("API_SECRET")
+    )
+
+    api_passphrase = (
+        os.environ.get("WEEX_API_PASSPHRASE")
+        or
+        os.environ.get("API_PASSPHRASE")
+    )
+
+    if not api_key:
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: WEEX API KEY MISSING"
+        )
+
+    if not api_secret:
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: WEEX API SECRET MISSING"
+        )
+
+    if not api_passphrase:
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: WEEX API PASSPHRASE MISSING"
+        )
+
+    print(
+        "PASS: UNIT 13 DEMO AUTHENTICATION AVAILABLE",
+        flush=True,
+    )
+
+    # ========================================================
+    # 8. AUTHENTICATED DEMO POSITION READ
+    # ========================================================
+
+    position_request_path = (
+        "/capi/v3/sim/position/allPosition"
+    )
+
+    position_method = "GET"
+
+    position_timestamp = str(
+        int(time.time() * 1000)
+    )
+
+    position_prehash = (
+        position_timestamp
+        + position_method
+        + position_request_path
+    )
+
+    position_signature = base64.b64encode(
+        hmac.new(
+            api_secret.encode("utf-8"),
+            position_prehash.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    position_headers = {
+        "ACCESS-KEY": api_key,
+        "ACCESS-SIGN": position_signature,
+        "ACCESS-TIMESTAMP": position_timestamp,
+        "ACCESS-PASSPHRASE": api_passphrase,
+        "Content-Type": "application/json",
+    }
+
+    position_request = urllib.request.Request(
+        url=base_url + position_request_path,
+        headers=position_headers,
+        method="GET",
+    )
+
+    try:
+
+        with urllib.request.urlopen(
+            position_request,
+            timeout=15,
+        ) as response:
+
+            position_http_status = (
+                response.getcode()
+            )
+
+            position_response_text = (
+                response.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            "UNIT 13 POSITION READ FAILED: "
+            f"{exc}"
+        ) from exc
+
+    if not (
+        200 <= int(position_http_status) < 300
+    ):
+        raise RuntimeError(
+            "UNIT 13 POSITION READ NON-SUCCESS HTTP STATUS"
+        )
+
+    try:
+
+        position_records = json.loads(
+            position_response_text
+        )
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            "UNIT 13 POSITION RESPONSE INVALID JSON"
+        ) from exc
+
+    if not isinstance(
+        position_records,
+        list,
+    ):
+        raise RuntimeError(
+            "UNIT 13 POSITION RESPONSE IS NOT A LIST"
+        )
+
+    print(
+        "PASS: UNIT 13 DEMO POSITION READ COMPLETED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 9. FIND ACTIVE BTCSUSDT POSITION
+    # ========================================================
+
+    active_positions = []
+
+    for record in position_records:
+
+        if not isinstance(record, dict):
+            continue
+
+        if str(
+            record.get(
+                "symbol",
+                "",
+            )
+        ).upper() != "BTCSUSDT":
+            continue
+
+        try:
+
+            position_size = Decimal(
+                str(
+                    record.get(
+                        "size",
+                        "0",
+                    )
+                )
+            )
+
+        except Exception:
+            continue
+
+        if position_size > 0:
+
+            active_positions.append(
+                record
+            )
+
+    if len(active_positions) == 0:
+
+        result = {
+            "unit": 13,
+            "status": "IDLE_NO_POSITION",
+            "read_only": False,
+            "position_check_attempted": True,
+            "active_position_exists": False,
+            "tp_management_permitted": True,
+            "tp_execution_attempted": False,
+            "tp_execution_completed": False,
+            "sl_execution_attempted": False,
+            "backup_execution_attempted": False,
+            "real_submission_attempted": False,
+            "exchange_write": False,
+            "skip_reason": "NO_ACTIVE_BTCSUSDT_POSITION",
+        }
+
+        print(
+            "UNIT 13 ACTIVE POSITION EXISTS = False",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 13 NO TP ORDER REQUIRED",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 13 NO SL EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 13 NO BACKUP EXECUTION",
+            flush=True,
+        )
+
+        print(
+            f"{datetime.now(timezone.utc).isoformat()} "
+            "FRESH RECONSTRUCTION UNIT 13 RESULT = "
+            "PASS (NO POSITION)",
+            flush=True,
+        )
+
+        print("=" * 80, flush=True)
+
+        return result
+
+    if len(active_positions) != 1:
+
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: MULTIPLE ACTIVE "
+            "BTCSUSDT POSITIONS DETECTED"
+        )
+
+    position = active_positions[0]
+
+    position_side = str(
+        position.get(
+            "side",
+            "",
+        )
+    ).upper()
+
+    if position_side not in (
+        "LONG",
+        "SHORT",
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: INVALID POSITION SIDE"
+        )
+
+    position_size = Decimal(
+        str(
+            position.get(
+                "size"
+            )
+        )
+    )
+
+    if position_size <= 0:
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: INVALID POSITION SIZE"
+        )
+
+    print(
+        "UNIT 13 ACTIVE POSITION EXISTS = True",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 13 POSITION SIDE = {position_side}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 13 CURRENT POSITION SIZE = {position_size}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 10. DERIVE CURRENT AVERAGE ENTRY
+    # ========================================================
+
+    open_value = Decimal(
+        str(
+            position.get(
+                "openValue",
+                "0",
+            )
+        )
+    )
+
+    if open_value <= 0:
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: POSITION OPEN VALUE INVALID"
+        )
+
+    average_entry_price = (
+        open_value
+        / position_size
+    )
+
+    if average_entry_price <= 0:
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: AVERAGE ENTRY PRICE INVALID"
+        )
+
+    print(
+        "UNIT 13 AVERAGE ENTRY PRICE = "
+        f"{average_entry_price}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 11. CUMULATIVE POSITION INFORMATION
+    # ========================================================
+
+    try:
+
+        cumulative_open_size = Decimal(
+            str(
+                position.get(
+                    "cumOpenSize",
+                    position_size,
+                )
+            )
+        )
+
+    except Exception:
+
+        cumulative_open_size = (
+            position_size
+        )
+
+    try:
+
+        cumulative_close_size = Decimal(
+            str(
+                position.get(
+                    "cumCloseSize",
+                    "0",
+                )
+            )
+        )
+
+    except Exception:
+
+        cumulative_close_size = Decimal("0")
+
+    if cumulative_open_size <= 0:
+        cumulative_open_size = position_size
+
+    print(
+        "UNIT 13 CUMULATIVE OPEN SIZE = "
+        f"{cumulative_open_size}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 CUMULATIVE CLOSE SIZE = "
+        f"{cumulative_close_size}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 12. QUANTITY STEP
+    # ========================================================
+
+    quantity_step = Decimal("0.0001")
+
+    market_precision = config.get(
+        "market_precision"
+    )
+
+    if isinstance(
+        market_precision,
+        dict,
+    ):
+
+        configured_step = market_precision.get(
+            "quantity_step"
+        )
+
+        if configured_step is not None:
+
+            try:
+
+                configured_step_decimal = Decimal(
+                    str(
+                        configured_step
+                    )
+                )
+
+                if configured_step_decimal > 0:
+                    quantity_step = (
+                        configured_step_decimal
+                    )
+
+            except Exception:
+                pass
+
+    def round_quantity_down(
+        value,
+    ):
+
+        if value <= 0:
+            return Decimal("0")
+
+        steps = (
+            value
+            / quantity_step
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        )
+
+        return (
+            steps
+            * quantity_step
+        )
+
+    tp1_quantity = round_quantity_down(
+        cumulative_open_size
+        * tp1_allocation_percent
+        / Decimal("100")
+    )
+
+    tp2_quantity = round_quantity_down(
+        cumulative_open_size
+        * tp2_allocation_percent
+        / Decimal("100")
+    )
+
+    tp3_quantity = (
+        cumulative_open_size
+        - tp1_quantity
+        - tp2_quantity
+    )
+
+    if tp3_quantity < 0:
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: INVALID TP QUANTITY ALLOCATION"
+        )
+
+    print(
+        f"UNIT 13 TP1 QUANTITY = {tp1_quantity}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 13 TP2 QUANTITY = {tp2_quantity}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 13 TP3 RUNNER QUANTITY = {tp3_quantity}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 13. CALCULATE TP TARGET PRICES
+    # ========================================================
+
+    tp1_fraction = (
+        tp1_price_move_percent
+        / Decimal("100")
+    )
+
+    tp2_fraction = (
+        tp2_price_move_percent
+        / Decimal("100")
+    )
+
+    if position_side == "LONG":
+
+        tp1_target = (
+            average_entry_price
+            * (
+                Decimal("1")
+                + tp1_fraction
+            )
+        )
+
+        tp2_target = (
+            average_entry_price
+            * (
+                Decimal("1")
+                + tp2_fraction
+            )
+        )
+
+    else:
+
+        tp1_target = (
+            average_entry_price
+            * (
+                Decimal("1")
+                - tp1_fraction
+            )
+        )
+
+        tp2_target = (
+            average_entry_price
+            * (
+                Decimal("1")
+                - tp2_fraction
+            )
+        )
+
+    # BTC price precision used by the current reconstruction.
+    price_step = Decimal("0.1")
+
+    def round_price(
+        value,
+    ):
+
+        steps = (
+            value
+            / price_step
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        )
+
+        return (
+            steps
+            * price_step
+        )
+
+    tp1_target = round_price(
+        tp1_target
+    )
+
+    tp2_target = round_price(
+        tp2_target
+    )
+
+    print(
+        f"UNIT 13 TP1 TARGET PRICE = {tp1_target}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 13 TP2 TARGET PRICE = {tp2_target}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 14. PUBLIC MARK PRICE READ
+    #
+    # Public market symbol remains BTCUSDT.
+    # Demo order symbol remains BTCSUSDT.
+    # ========================================================
+
+    mark_request_path = (
+        "/capi/v3/market/symbolPrice"
+    )
+
+    mark_query = urllib.parse.urlencode(
+        {
+            "symbol": "BTCUSDT",
+            "priceType": "MARK",
+        }
+    )
+
+    mark_url = (
+        base_url
+        + mark_request_path
+        + "?"
+        + mark_query
+    )
+
+    mark_request = urllib.request.Request(
+        url=mark_url,
+        method="GET",
+    )
+
+    try:
+
+        with urllib.request.urlopen(
+            mark_request,
+            timeout=15,
+        ) as response:
+
+            mark_http_status = (
+                response.getcode()
+            )
+
+            mark_response_text = (
+                response.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            "UNIT 13 MARK PRICE READ FAILED: "
+            f"{exc}"
+        ) from exc
+
+    if not (
+        200 <= int(mark_http_status) < 300
+    ):
+        raise RuntimeError(
+            "UNIT 13 MARK PRICE READ NON-SUCCESS STATUS"
+        )
+
+    try:
+
+        mark_json = json.loads(
+            mark_response_text
+        )
+
+        mark_price = Decimal(
+            str(
+                mark_json.get(
+                    "price"
+                )
+            )
+        )
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            "UNIT 13 INVALID MARK PRICE RESPONSE"
+        ) from exc
+
+    if mark_price <= 0:
+        raise RuntimeError(
+            "UNIT 13 INVALID MARK PRICE"
+        )
+
+    print(
+        f"UNIT 13 CURRENT MARK PRICE = {mark_price}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 15. DETERMINE ALREADY-COMPLETED TP ALLOCATION
+    # ========================================================
+
+    tp1_already_completed = (
+        cumulative_close_size
+        >= tp1_quantity
+        and
+        tp1_quantity > 0
+    )
+
+    tp2_already_completed = (
+        cumulative_close_size
+        >= (
+            tp1_quantity
+            + tp2_quantity
+        )
+        and
+        tp2_quantity > 0
+    )
+
+    print(
+        "UNIT 13 TP1 ALREADY COMPLETED = "
+        f"{tp1_already_completed}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP2 ALREADY COMPLETED = "
+        f"{tp2_already_completed}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 16. TARGET HIT TEST
+    # ========================================================
+
+    if position_side == "LONG":
+
+        tp1_reached = (
+            mark_price
+            >= tp1_target
+        )
+
+        tp2_reached = (
+            mark_price
+            >= tp2_target
+        )
+
+        closing_side = "SELL"
+
+    else:
+
+        tp1_reached = (
+            mark_price
+            <= tp1_target
+        )
+
+        tp2_reached = (
+            mark_price
+            <= tp2_target
+        )
+
+        closing_side = "BUY"
+
+    print(
+        f"UNIT 13 TP1 REACHED = {tp1_reached}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 13 TP2 REACHED = {tp2_reached}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 17. CHOOSE EXACTLY ONE TP ACTION THIS CYCLE
+    #
+    # Priority:
+    # - If TP2 is reached and TP1 was never taken, close
+    #   TP1 + TP2 allocation together.
+    # - Otherwise close only the next outstanding allocation.
+    #
+    # This prevents two demo order submissions in one cycle.
+    # ========================================================
+
+    close_quantity = Decimal("0")
+    tp_action = "NONE"
+
+    if (
+        tp2_reached
+        and
+        not tp2_already_completed
+    ):
+
+        required_total_closed = (
+            tp1_quantity
+            + tp2_quantity
+        )
+
+        outstanding = (
+            required_total_closed
+            - cumulative_close_size
+        )
+
+        close_quantity = round_quantity_down(
+            outstanding
+        )
+
+        if close_quantity > position_size:
+            close_quantity = round_quantity_down(
+                position_size
+            )
+
+        if close_quantity > 0:
+            tp_action = "TP2"
+
+    elif (
+        tp1_reached
+        and
+        not tp1_already_completed
+    ):
+
+        outstanding = (
+            tp1_quantity
+            - cumulative_close_size
+        )
+
+        close_quantity = round_quantity_down(
+            outstanding
+        )
+
+        if close_quantity > position_size:
+            close_quantity = round_quantity_down(
+                position_size
+            )
+
+        if close_quantity > 0:
+            tp_action = "TP1"
+
+    # ========================================================
+    # 18. NO TP1 / TP2 EXECUTION REQUIRED
+    # ========================================================
+
+    if tp_action == "NONE":
+
+        tp3_armed = (
+            tp1_already_completed
+            and
+            tp2_already_completed
+            and
+            position_size > 0
+        )
+
+        result = {
+            "unit": 13,
+            "status":
+                "TP3_ARMED"
+                if tp3_armed
+                else "MONITORING",
+            "read_only": False,
+            "position_check_attempted": True,
+            "active_position_exists": True,
+            "position_side": position_side,
+            "position_size": float(
+                position_size
+            ),
+            "average_entry_price": float(
+                average_entry_price
+            ),
+            "mark_price": float(
+                mark_price
+            ),
+            "tp1_target": float(
+                tp1_target
+            ),
+            "tp2_target": float(
+                tp2_target
+            ),
+            "tp1_quantity": float(
+                tp1_quantity
+            ),
+            "tp2_quantity": float(
+                tp2_quantity
+            ),
+            "tp3_quantity": float(
+                tp3_quantity
+            ),
+            "tp1_completed":
+                tp1_already_completed,
+            "tp2_completed":
+                tp2_already_completed,
+            "tp3_armed":
+                tp3_armed,
+            "tp3_trailing_percent":
+                float(
+                    tp3_trailing_percent
+                ),
+            "tp_execution_attempted": False,
+            "tp_execution_completed": False,
+            "sl_execution_attempted": False,
+            "backup_execution_attempted": False,
+            "real_submission_attempted": False,
+            "exchange_write": False,
+            "skip_reason":
+                "TP3_REQUIRES_PERSISTENT_RUNTIME"
+                if tp3_armed
+                else "TP_TARGET_NOT_REACHED",
+        }
+
+        print("-" * 80, flush=True)
+
+        print(
+            f"UNIT 13 STATUS = {result['status']}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 13 TP EXECUTION ATTEMPTED = False",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 13 TP3 ARMED = {tp3_armed}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 13 SL EXECUTION = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 13 BACKUP EXECUTION = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 13 REAL ORDER = FALSE",
+            flush=True,
+        )
+
+        print(
+            "ZERO EXCHANGE WRITE = TRUE",
+            flush=True,
+        )
+
+        print("-" * 80, flush=True)
+
+        print(
+            f"{datetime.now(timezone.utc).isoformat()} "
+            "FRESH RECONSTRUCTION UNIT 13 RESULT = "
+            f"PASS ({result['status']})",
+            flush=True,
+        )
+
+        print("=" * 80, flush=True)
+
+        return result
+
+    # ========================================================
+    # 19. BUILD DEMO TP MARKET-CLOSE ORDER
+    # ========================================================
+
+    if close_quantity <= 0:
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: TP CLOSE QUANTITY INVALID"
+        )
+
+    quantity_text = (
+        f"{close_quantity:.8f}"
+        .rstrip("0")
+        .rstrip(".")
+    )
+
+    client_timestamp = int(
+        datetime.now(
+            timezone.utc
+        ).timestamp()
+        * 1000000
+    )
+
+    new_client_order_id = (
+        "FR13-"
+        + tp_action
+        + "-"
+        + str(client_timestamp)
+    )
+
+    if len(new_client_order_id) > 36:
+        new_client_order_id = (
+            new_client_order_id[:36]
+        )
+
+    tp_payload = {
+        "symbol": "BTCSUSDT",
+        "side": closing_side,
+        "positionSide": position_side,
+        "type": "MARKET",
+        "quantity": quantity_text,
+        "newClientOrderId":
+            new_client_order_id,
+    }
+
+    # SL fields are deliberately absent.
+
+    prohibited_fields = (
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopPrice",
+    )
+
+    for field in prohibited_fields:
+
+        if field in tp_payload:
+            raise RuntimeError(
+                "UNIT 13 BLOCKED: SL FIELD DETECTED"
+            )
+
+    print(
+        "PASS: UNIT 13 TP MARKET-CLOSE PAYLOAD VALIDATED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 SL REMAINS DISABLED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 20. DEMO ORDER ENDPOINT ONLY
+    # ========================================================
+
+    request_path = (
+        "/capi/v3/sim/order"
+    )
+
+    method = "POST"
+
+    body = json.dumps(
+        tp_payload,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+
+    timestamp = str(
+        int(time.time() * 1000)
+    )
+
+    prehash = (
+        timestamp
+        + method
+        + request_path
+        + body
+    )
+
+    signature = base64.b64encode(
+        hmac.new(
+            api_secret.encode("utf-8"),
+            prehash.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    headers = {
+        "ACCESS-KEY": api_key,
+        "ACCESS-SIGN": signature,
+        "ACCESS-TIMESTAMP": timestamp,
+        "ACCESS-PASSPHRASE": api_passphrase,
+        "Content-Type": "application/json",
+    }
+
+    print("-" * 80, flush=True)
+
+    print(
+        f"UNIT 13 TP ACTION = {tp_action}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 13 TP CLOSE SIDE = {closing_side}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 13 TP CLOSE QUANTITY = {quantity_text}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 EXECUTION ENVIRONMENT = DEMO",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 REAL ORDER = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 SL ENABLED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 BACKUP EXECUTION = FALSE",
+        flush=True,
+    )
+
+    print("-" * 80, flush=True)
+
+    # ========================================================
+    # 21. SUBMIT EXACTLY ONE DEMO TP CLOSE
+    # ========================================================
+
+    request = urllib.request.Request(
+        url=base_url + request_path,
+        data=body.encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            response_status = (
+                response.getcode()
+            )
+
+            response_text = (
+                response.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        try:
+
+            error_text = (
+                exc.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+        except Exception:
+
+            error_text = str(exc)
+
+        print(
+            "UNIT 13 TP HTTP ERROR = "
+            f"{exc.code}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 13 TP ERROR RESPONSE = "
+            f"{error_text}",
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 13 DEMO TP ORDER REJECTED"
+        ) from exc
+
+    except urllib.error.URLError as exc:
+
+        raise RuntimeError(
+            "UNIT 13 DEMO TP NETWORK ERROR: "
+            f"{exc}"
+        ) from exc
+
+    print(
+        f"UNIT 13 TP HTTP STATUS = {response_status}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 13 TP WEEX RESPONSE = {response_text}",
+        flush=True,
+    )
+
+    try:
+
+        response_json = json.loads(
+            response_text
+        )
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            "UNIT 13 TP RESPONSE INVALID JSON"
+        ) from exc
+
+    if not (
+        200 <= int(response_status) < 300
+    ):
+        raise RuntimeError(
+            "UNIT 13 TP ORDER FAILED: "
+            f"HTTP {response_status}"
+        )
+
+    if response_json.get(
+        "success"
+    ) is not True:
+
+        raise RuntimeError(
+            "UNIT 13 TP ORDER NOT ACCEPTED: "
+            f"{response_json}"
+        )
+
+    tp_order_id = response_json.get(
+        "orderId"
+    )
+
+    if not tp_order_id:
+        raise RuntimeError(
+            "UNIT 13 TP ACCEPTED WITHOUT ORDER ID"
+        )
+
+    # ========================================================
+    # 22. FINAL RESULT
+    # ========================================================
+
+    result = {
+        "unit": 13,
+        "status": "TP_EXECUTED",
+        "read_only": False,
+        "position_check_attempted": True,
+        "active_position_exists": True,
+        "position_side": position_side,
+        "position_size_before":
+            float(position_size),
+        "average_entry_price":
+            float(average_entry_price),
+        "mark_price":
+            float(mark_price),
+        "tp_action": tp_action,
+        "tp_close_quantity":
+            float(close_quantity),
+        "tp1_target":
+            float(tp1_target),
+        "tp2_target":
+            float(tp2_target),
+        "tp1_quantity":
+            float(tp1_quantity),
+        "tp2_quantity":
+            float(tp2_quantity),
+        "tp3_quantity":
+            float(tp3_quantity),
+        "tp3_trailing_percent":
+            float(tp3_trailing_percent),
+        "tp_execution_attempted": True,
+        "tp_execution_completed": True,
+        "sl_execution_attempted": False,
+        "backup_execution_attempted": False,
+        "real_submission_attempted": False,
+        "authenticated_request": True,
+        "order_endpoint_access": True,
+        "exchange_write": True,
+        "request_path": request_path,
+        "request_payload": tp_payload,
+        "http_status": response_status,
+        "weex_response": response_json,
+        "order_id": tp_order_id,
+    }
+
+    print("-" * 80, flush=True)
+
+    print(
+        f"PASS: UNIT 13 {tp_action} DEMO EXECUTED",
+        flush=True,
+    )
+
+    print(
+        f"PASS: UNIT 13 TP ORDER ID = {tp_order_id}",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 REAL ORDER PROHIBITED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 SL REMAINS DISABLED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 NO LEVERAGE MUTATION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 NO MARGIN MODE MUTATION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 NO POSITION MODE MUTATION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 NO BACKUP EXECUTION",
+        flush=True,
+    )
+
+    print("-" * 80, flush=True)
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 13 RESULT = "
+        "PASS (TP EXECUTED)",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# RUN UNIT 13
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
+    fresh_reconstruction_unit_13(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_12_RESULT,
+    )
+)
