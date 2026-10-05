@@ -14908,7 +14908,7 @@ def fresh_tp3_runtime(
             if not isinstance(record, dict):
                 continue
 
-            if (
+        if (
                 str(
                     record.get(
                         "symbol",
@@ -14920,7 +14920,7 @@ def fresh_tp3_runtime(
             ):
                 continue
 
-            try:
+        try:
                 size = Decimal(
                     str(
                         record.get(
@@ -14932,12 +14932,12 @@ def fresh_tp3_runtime(
             except Exception:
                 continue
 
-            if size > 0:
+        if size > 0:
                 active_records.append(
                     record
                 )
 
-            if not active_records:
+        if not active_records:
                 return None
 
         # ONE-DIRECTION-ONLY CONTRACT.
