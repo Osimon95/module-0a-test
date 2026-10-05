@@ -14904,7 +14904,7 @@ def fresh_tp3_runtime(
 # ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
 # ============================================================
 
-         for record in records:
+    for record in records:
             if not isinstance(record, dict):
                 continue
 
