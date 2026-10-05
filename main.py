@@ -13640,157 +13640,175 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 # - IT CLOSES ONLY THE EXISTING TP3 RUNNER.
 # ============================================================
 
-
 def fresh_tp3_runtime(
     config,
     unit_13_result,
 ):
+    # ============================================================
+    # FRESH RECONSTRUCTION UNIT 14
+    # COMBINED TP3 + LIQUIDATION BACKUP RUNTIME
+    #
+    # FIXED SEQUENCE:
+    #
+    # ENTRY -> B1 -> L1 -> B2 -> L2 -> B3 -> L3 -> STOP
+    #
+    # IMPORTANT:
+    # - B1 uses CURRENT WEEX liquidation price L1.
+    # - AFTER B1 FILLS, WEEX position is re-read.
+    # - B2 uses the NEW liquidation price L2.
+    # - AFTER B2 FILLS, WEEX position is re-read.
+    # - B3 uses the NEW liquidation price L3.
+    # - NO B4.
+    #
+    # LONG:
+    #   backup trigger = liquidation * (1 + buffer)
+    #
+    # SHORT:
+    #   backup trigger = liquidation * (1 - buffer)
+    #
+    # DEFAULT CONFIG:
+    #   backup margin = 5%
+    #   backup buffer = 0.30%
+    #   max backups = 3
+    #   exposure cap = 35%
+    #
+    # ALL ABOVE VALUES ARE READ FROM CONFIG.
+    #
+    # SAFETY:
+    # - DEMO BTCSUSDT ONLY
+    # - REAL ORDERS PROHIBITED
+    # - SL DISABLED
+    # - ONE DIRECTION ONLY
+    # - ANTI-DUPLICATE
+    # - NO LEVERAGE MUTATION
+    # - NO MARGIN MODE MUTATION
+    # - NO POSITION MODE MUTATION
+    # ============================================================
 
     import os
     import json
     import time
     import hmac
+    import math
     import hashlib
     import base64
     import urllib.request
     import urllib.error
+    import urllib.parse
 
-    from decimal import Decimal
+    from decimal import Decimal, ROUND_DOWN
     from datetime import datetime, timezone
 
-    print(
-        "=" * 80,
-        flush=True,
-    )
+    print("=" * 80, flush=True)
 
     print(
         f"{datetime.now(timezone.utc).isoformat()} "
-        "TP3 TRAILING RUNTIME START",
+        "FRESH RECONSTRUCTION UNIT 14 START",
         flush=True,
     )
 
-    print(
-        "-" * 80,
-        flush=True,
-    )
+    print("-" * 80, flush=True)
 
     # ========================================================
     # 1. CONFIGURATION CONTRACT
     # ========================================================
 
-    if not isinstance(
-        config,
-        dict,
-    ):
+    if not isinstance(config, dict):
         raise RuntimeError(
-            "TP3 RUNTIME BLOCKED: "
-            "CONFIGURATION MISSING"
+            "UNIT 14 BLOCKED: CONFIGURATION MISSING"
         )
 
-    if not isinstance(
-        unit_13_result,
-        dict,
-    ):
+    if not isinstance(unit_13_result, dict):
         raise RuntimeError(
-            "TP3 RUNTIME BLOCKED: "
-            "UNIT 13 RESULT MISSING"
+            "UNIT 14 BLOCKED: UNIT 13 RESULT MISSING"
         )
 
-    strategy = config.get(
-        "strategy",
-        {},
-    )
+    strategy = config.get("strategy", {})
+    exchange = config.get("exchange", {})
 
-    exchange = config.get(
-        "exchange",
-        {},
-    )
-
-    if not isinstance(
-        strategy,
-        dict,
-    ):
+    if not isinstance(strategy, dict):
         raise RuntimeError(
-            "TP3 RUNTIME BLOCKED: "
-            "STRATEGY CONFIGURATION MISSING"
+            "UNIT 14 BLOCKED: STRATEGY CONFIGURATION MISSING"
         )
 
-    if not isinstance(
-        exchange,
-        dict,
-    ):
+    if not isinstance(exchange, dict):
         raise RuntimeError(
-            "TP3 RUNTIME BLOCKED: "
-            "EXCHANGE CONFIGURATION MISSING"
+            "UNIT 14 BLOCKED: EXCHANGE CONFIGURATION MISSING"
         )
 
     execution_environment = str(
-        config.get(
-            "execution_environment",
-            "",
-        )
+        config.get("execution_environment", "")
     ).upper()
 
-    if (
-        execution_environment
-        !=
-        "DEMO"
-    ):
+    if execution_environment != "DEMO":
         raise RuntimeError(
-            "TP3 RUNTIME BLOCKED: "
-            "EXECUTION ENVIRONMENT IS NOT DEMO"
+            "UNIT 14 BLOCKED: EXECUTION ENVIRONMENT NOT DEMO"
         )
 
     market_symbol = str(
-        exchange.get(
-            "market_symbol",
-            "",
-        )
+        exchange.get("market_symbol", "")
     ).upper()
 
     demo_symbol = str(
-        exchange.get(
-            "demo_order_symbol",
-            "",
-        )
+        exchange.get("demo_order_symbol", "")
     ).upper()
 
     base_url = str(
-        exchange.get(
-            "contract_base_url",
-            "",
-        )
+        exchange.get("contract_base_url", "")
     ).rstrip("/")
 
-    if (
-        market_symbol
-        !=
-        "BTCUSDT"
-    ):
+    if market_symbol != "BTCUSDT":
         raise RuntimeError(
-            "TP3 RUNTIME BLOCKED: "
-            "MARKET SYMBOL MUST BE BTCUSDT"
+            "UNIT 14 BLOCKED: MARKET SYMBOL MUST BE BTCUSDT"
         )
 
-    if (
-        demo_symbol
-        !=
-        "BTCSUSDT"
-    ):
+    if demo_symbol != "BTCSUSDT":
         raise RuntimeError(
-            "TP3 RUNTIME BLOCKED: "
-            "DEMO SYMBOL MUST BE BTCSUSDT"
+            "UNIT 14 BLOCKED: DEMO SYMBOL MUST BE BTCSUSDT"
         )
 
-    if (
-        base_url
-        !=
-        "https://api-contract.weex.com"
-    ):
+    if base_url != "https://api-contract.weex.com":
         raise RuntimeError(
-            "TP3 RUNTIME BLOCKED: "
-            "INVALID CONTRACT BASE URL"
+            "UNIT 14 BLOCKED: INVALID CONTRACT BASE URL"
         )
+
+    # ========================================================
+    # 2. ADJUSTABLE STRATEGY VALUES
+    # ========================================================
+
+    backup_margin_percent = Decimal(
+        str(
+            strategy.get(
+                "backup_margin_percent",
+                5.0,
+            )
+        )
+    )
+
+    backup_buffer_percent = Decimal(
+        str(
+            strategy.get(
+                "backup_buffer_percent",
+                0.30,
+            )
+        )
+    )
+
+    max_backups = int(
+        strategy.get(
+            "max_backups",
+            3,
+        )
+    )
+
+    exposure_cap_percent = Decimal(
+        str(
+            strategy.get(
+                "exposure_cap_percent",
+                35.0,
+            )
+        )
+    )
 
     trailing_percent = Decimal(
         str(
@@ -13801,15 +13819,68 @@ def fresh_tp3_runtime(
         )
     )
 
-    if (
-        trailing_percent
-        !=
-        Decimal("0.20")
-    ):
-        raise RuntimeError(
-            "TP3 RUNTIME BLOCKED: "
-            "TRAILING DISTANCE MUST BE 0.20%"
+    leverage_target = Decimal(
+        str(
+            strategy.get(
+                "leverage_target",
+                100,
+            )
         )
+    )
+
+    initial_margin_percent = Decimal(
+        str(
+            strategy.get(
+                "initial_margin_percent",
+                5.0,
+            )
+        )
+    )
+
+    if backup_margin_percent <= 0:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID BACKUP MARGIN"
+        )
+
+    if backup_buffer_percent <= 0:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID BACKUP BUFFER"
+        )
+
+    if max_backups < 0:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID MAX BACKUPS"
+        )
+
+    # ABSOLUTE ARCHITECTURE CAP.
+    # Configuration may reduce backups below 3,
+    # but may never create B4.
+
+    max_backups = min(
+        max_backups,
+        3,
+    )
+
+    if exposure_cap_percent <= 0:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID EXPOSURE CAP"
+        )
+
+    if trailing_percent <= 0:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID TP3 TRAILING PERCENT"
+        )
+
+    if leverage_target <= 0:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID LEVERAGE"
+        )
+
+    backup_buffer_fraction = (
+        backup_buffer_percent
+        /
+        Decimal("100")
+    )
 
     trailing_fraction = (
         trailing_percent
@@ -13818,42 +13889,720 @@ def fresh_tp3_runtime(
     )
 
     print(
-        "PASS: TP3 EXECUTION ENVIRONMENT = DEMO",
+        "PASS: UNIT 14 EXECUTION ENVIRONMENT = DEMO",
         flush=True,
     )
 
     print(
-        "PASS: TP3 MARKET SYMBOL = BTCUSDT",
+        f"PASS: UNIT 14 BACKUP MARGIN % = "
+        f"{backup_margin_percent}",
         flush=True,
     )
 
     print(
-        "PASS: TP3 DEMO SYMBOL = BTCSUSDT",
+        f"PASS: UNIT 14 BACKUP BUFFER % = "
+        f"{backup_buffer_percent}",
         flush=True,
     )
 
     print(
-        "PASS: TP3 TRAILING CALLBACK = 0.20%",
+        f"PASS: UNIT 14 MAX BACKUPS = "
+        f"{max_backups}",
         flush=True,
     )
 
     print(
-        "PASS: TP3 NEW QUALIFIED SIGNAL REQUIRED = FALSE",
+        f"PASS: UNIT 14 EXPOSURE CAP % = "
+        f"{exposure_cap_percent}",
         flush=True,
     )
 
     print(
-        "PASS: TP3 SL REMAINS DISABLED",
+        f"PASS: UNIT 14 TP3 TRAILING % = "
+        f"{trailing_percent}",
         flush=True,
     )
 
     print(
-        "PASS: TP3 REAL TRADING PROHIBITED",
+        "PASS: UNIT 14 BACKUP SEQUENCE = "
+        "ENTRY -> B1 -> L1 -> B2 -> L2 -> B3 -> L3 -> STOP",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 14 BACKUP 4 = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 14 SL = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 14 REAL TRADING = PROHIBITED",
         flush=True,
     )
 
     # ========================================================
-    # 2. UNIT 13 MUST HAVE ARMED TP3
+    # 3. QUANTITY CONFIGURATION
+    # ========================================================
+
+    quantity_step = Decimal("0.0001")
+    minimum_quantity = Decimal("0.0001")
+
+    try:
+        quantity_step = Decimal(
+            str(
+                exchange.get(
+                    "quantity_step",
+                    "0.0001",
+                )
+            )
+        )
+    except Exception:
+        quantity_step = Decimal("0.0001")
+
+    try:
+        minimum_quantity = Decimal(
+            str(
+                exchange.get(
+                    "minimum_quantity",
+                    "0.0001",
+                )
+            )
+        )
+    except Exception:
+        minimum_quantity = Decimal("0.0001")
+
+    if quantity_step <= 0:
+        quantity_step = Decimal("0.0001")
+
+    if minimum_quantity <= 0:
+        minimum_quantity = Decimal("0.0001")
+
+    # ========================================================
+    # 4. AUTHENTICATION
+    # ========================================================
+
+    api_key = (
+        os.environ.get("WEEX_API_KEY")
+        or
+        os.environ.get("API_KEY")
+    )
+
+    api_secret = (
+        os.environ.get("WEEX_API_SECRET")
+        or
+        os.environ.get("API_SECRET")
+    )
+
+    api_passphrase = (
+        os.environ.get("WEEX_API_PASSPHRASE")
+        or
+        os.environ.get("API_PASSPHRASE")
+    )
+
+    if not api_key:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: WEEX API KEY MISSING"
+        )
+
+    if not api_secret:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: WEEX API SECRET MISSING"
+        )
+
+    if not api_passphrase:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: WEEX API PASSPHRASE MISSING"
+        )
+
+    print(
+        "PASS: UNIT 14 DEMO AUTHENTICATION AVAILABLE",
+        flush=True,
+    )
+
+    # ========================================================
+    # 5. HELPERS
+    # ========================================================
+
+    def quantity_text(value):
+        text_value = (
+            f"{value:.8f}"
+            .rstrip("0")
+            .rstrip(".")
+        )
+
+        return text_value
+
+    def floor_quantity(value):
+        if value <= 0:
+            return Decimal("0")
+
+        steps = (
+            value
+            /
+            quantity_step
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        )
+
+        return (
+            steps
+            *
+            quantity_step
+        )
+
+    def make_signature(
+        timestamp,
+        method,
+        path,
+        query_string="",
+        body="",
+    ):
+        method = method.upper()
+
+        message = (
+            timestamp
+            +
+            method
+            +
+            path
+        )
+
+        if query_string:
+            message += (
+                "?"
+                +
+                query_string
+            )
+
+        if body:
+            message += body
+
+        return (
+            base64.b64encode(
+                hmac.new(
+                    api_secret.encode("utf-8"),
+                    message.encode("utf-8"),
+                    hashlib.sha256,
+                ).digest()
+            ).decode("utf-8")
+        )
+
+    def authenticated_get(
+        path,
+        query_string="",
+    ):
+        timestamp = str(
+            int(
+                time.time()
+                *
+                1000
+            )
+        )
+
+        signature = make_signature(
+            timestamp,
+            "GET",
+            path,
+            query_string,
+            "",
+        )
+
+        headers = {
+            "ACCESS-KEY":
+                api_key,
+
+            "ACCESS-SIGN":
+                signature,
+
+            "ACCESS-TIMESTAMP":
+                timestamp,
+
+            "ACCESS-PASSPHRASE":
+                api_passphrase,
+
+            "Content-Type":
+                "application/json",
+        }
+
+        url = (
+            base_url
+            +
+            path
+        )
+
+        if query_string:
+            url += (
+                "?"
+                +
+                query_string
+            )
+
+        request = urllib.request.Request(
+            url=url,
+            headers=headers,
+            method="GET",
+        )
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+            status = response.getcode()
+
+            text = (
+                response.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+        if not (
+            200
+            <=
+            int(status)
+            <
+            300
+        ):
+            raise RuntimeError(
+                f"AUTHENTICATED GET FAILED: HTTP {status}"
+            )
+
+        return json.loads(text)
+
+    def authenticated_post(
+        path,
+        payload,
+    ):
+        # DEMO ENDPOINT ONLY.
+
+        if "/sim/" not in path:
+            raise RuntimeError(
+                "UNIT 14 BLOCKED: NON-DEMO WRITE ENDPOINT"
+            )
+
+        body = json.dumps(
+            payload,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+
+        timestamp = str(
+            int(
+                time.time()
+                *
+                1000
+            )
+        )
+
+        signature = make_signature(
+            timestamp,
+            "POST",
+            path,
+            "",
+            body,
+        )
+
+        headers = {
+            "ACCESS-KEY":
+                api_key,
+
+            "ACCESS-SIGN":
+                signature,
+
+            "ACCESS-TIMESTAMP":
+                timestamp,
+
+            "ACCESS-PASSPHRASE":
+                api_passphrase,
+
+            "Content-Type":
+                "application/json",
+        }
+
+        request = urllib.request.Request(
+            url=(
+                base_url
+                +
+                path
+            ),
+            data=body.encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+            status = response.getcode()
+
+            text = (
+                response.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+        print(
+            f"UNIT 14 DEMO ORDER HTTP STATUS = {status}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 DEMO ORDER RESPONSE = {text}",
+            flush=True,
+        )
+
+        if not (
+            200
+            <=
+            int(status)
+            <
+            300
+        ):
+            raise RuntimeError(
+                f"UNIT 14 DEMO ORDER FAILED: HTTP {status}"
+            )
+
+        return json.loads(text)
+
+    def get_active_position():
+        records = authenticated_get(
+            "/capi/v3/sim/position/allPosition"
+        )
+
+        if not isinstance(records, list):
+            return None
+
+        active_records = []
+
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+
+            if (
+                str(
+                    record.get(
+                        "symbol",
+                        "",
+                    )
+                ).upper()
+                !=
+                demo_symbol
+            ):
+                continue
+
+            try:
+                size = Decimal(
+                    str(
+                        record.get(
+                            "size",
+                            "0",
+                        )
+                    )
+                )
+            except Exception:
+                continue
+
+            if size > 0:
+                active_records.append(
+                    record
+                )
+
+        if not active_records:
+            return None
+
+        # ONE-DIRECTION-ONLY CONTRACT.
+
+        directions = {
+            str(
+                item.get(
+                    "side",
+                    "",
+                )
+            ).upper()
+            for item in active_records
+        }
+
+        directions.discard("")
+
+        if len(directions) > 1:
+            raise RuntimeError(
+                "UNIT 14 BLOCKED: "
+                "OPPOSING ACTIVE POSITIONS DETECTED"
+            )
+
+        return active_records[0]
+
+    def get_demo_balance():
+        balances = authenticated_get(
+            "/capi/v3/sim/balance"
+        )
+
+        if not isinstance(balances, list):
+            raise RuntimeError(
+                "UNIT 14 BLOCKED: INVALID DEMO BALANCE RESPONSE"
+            )
+
+        for item in balances:
+            if not isinstance(item, dict):
+                continue
+
+            if (
+                str(
+                    item.get(
+                        "asset",
+                        "",
+                    )
+                ).upper()
+                ==
+                "SUSDT"
+            ):
+                return item
+
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: SUSDT DEMO BALANCE NOT FOUND"
+        )
+
+    def get_mark_price():
+        mark_path = (
+            "/capi/v3/market/symbolPrice"
+        )
+
+        query_string = (
+            "symbol=BTCUSDT"
+            "&priceType=MARK"
+        )
+
+        request = urllib.request.Request(
+            url=(
+                base_url
+                +
+                mark_path
+                +
+                "?"
+                +
+                query_string
+            ),
+            method="GET",
+            headers={
+                "Accept":
+                    "application/json",
+            },
+        )
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+            status = response.getcode()
+
+            text = (
+                response.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+        if not (
+            200
+            <=
+            int(status)
+            <
+            300
+        ):
+            raise RuntimeError(
+                f"UNIT 14 MARK READ FAILED: HTTP {status}"
+            )
+
+        payload = json.loads(text)
+
+        price = Decimal(
+            str(
+                payload.get(
+                    "price",
+                    "0",
+                )
+            )
+        )
+
+        if price <= 0:
+            raise RuntimeError(
+                "UNIT 14 INVALID MARK PRICE"
+            )
+
+        return price
+
+    def get_order_history():
+        query_string = (
+            "symbol=BTCSUSDT"
+            "&limit=1000"
+            "&page=0"
+        )
+
+        history = authenticated_get(
+            "/capi/v3/sim/order/history",
+            query_string,
+        )
+
+        if not isinstance(history, list):
+            return []
+
+        return history
+
+    # ========================================================
+    # 6. BACKUP TRADE ID
+    #
+    # Position createdTime ties B1/B2/B3 to THIS position.
+    # Old backup orders from an earlier trade cannot advance
+    # the current trade's backup stage.
+    # ========================================================
+
+    def get_trade_key(position):
+        raw_created = str(
+            position.get(
+                "createdTime",
+                "",
+            )
+        )
+
+        if raw_created.isdigit():
+            return raw_created[-12:]
+
+        # Fallback only if WEEX omitted createdTime.
+        position_id = str(
+            position.get(
+                "id",
+                "",
+            )
+        )
+
+        if position_id:
+            return position_id[-12:]
+
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: "
+            "POSITION TRADE ID UNAVAILABLE"
+        )
+
+    def backup_client_id(
+        stage,
+        trade_key,
+    ):
+        return (
+            f"FR-B{stage}-{trade_key}"
+        )[:36]
+
+    # ========================================================
+    # 7. EXCHANGE-CONFIRMED BACKUP STAGE
+    #
+    # Stage advances ONLY when the corresponding backup order
+    # is reported FILLED with executedQty > 0.
+    #
+    # Accepted/open/unknown orders BLOCK another submission
+    # for the same stage but DO NOT advance to the next stage.
+    # ========================================================
+
+    def determine_backup_stage(
+        history,
+        trade_key,
+    ):
+        filled_stages = set()
+        existing_stages = set()
+
+        for stage in range(
+            1,
+            max_backups + 1,
+        ):
+            target_id = backup_client_id(
+                stage,
+                trade_key,
+            )
+
+            for order in history:
+                if not isinstance(order, dict):
+                    continue
+
+                client_id = str(
+                    order.get(
+                        "clientOrderId",
+                        "",
+                    )
+                )
+
+                if client_id != target_id:
+                    continue
+
+                existing_stages.add(
+                    stage
+                )
+
+                status = str(
+                    order.get(
+                        "status",
+                        "",
+                    )
+                ).upper()
+
+                try:
+                    executed_qty = Decimal(
+                        str(
+                            order.get(
+                                "executedQty",
+                                "0",
+                            )
+                        )
+                    )
+                except Exception:
+                    executed_qty = Decimal("0")
+
+                if (
+                    status
+                    ==
+                    "FILLED"
+                    and
+                    executed_qty
+                    >
+                    0
+                ):
+                    filled_stages.add(
+                        stage
+                    )
+
+        # Sequential integrity.
+
+        completed = 0
+
+        for stage in range(
+            1,
+            max_backups + 1,
+        ):
+            if stage in filled_stages:
+                if stage != completed + 1:
+                    raise RuntimeError(
+                        "UNIT 14 BLOCKED: "
+                        "NON-SEQUENTIAL BACKUP HISTORY"
+                    )
+
+                completed = stage
+            else:
+                break
+
+        return (
+            completed,
+            existing_stages,
+            filled_stages,
+        )
+
+    # ========================================================
+    # 8. TP3 STATE
     # ========================================================
 
     unit_13_status = str(
@@ -13868,296 +14617,81 @@ def fresh_tp3_runtime(
             "tp3_armed"
         )
         is True
+        and
+        unit_13_status
+        ==
+        "TP3_ARMED"
     )
 
-    if (
-        unit_13_status
-        !=
-        "TP3_ARMED"
-        or
-        not tp3_armed
-    ):
-
-        print(
-            "TP3 RUNTIME STATUS = NOT_ARMED",
-            flush=True,
-        )
-
-        print(
-            f"TP3 RECEIVED UNIT 13 STATUS = "
-            f"{unit_13_status}",
-            flush=True,
-        )
-
-        print(
-            "TP3 TRAILING LOOP STARTED = FALSE",
-            flush=True,
-        )
-
-        print(
-            "ZERO EXCHANGE WRITE = TRUE",
-            flush=True,
-        )
-
-        print(
-            "=" * 80,
-            flush=True,
-        )
-
-        return {
-            "status":
-                "NOT_ARMED",
-
-            "exchange_write":
-                False,
-        }
-
-    position_side = str(
+    position_side_from_unit_13 = str(
         unit_13_result.get(
             "position_side",
             "",
         )
     ).upper()
 
-    if position_side not in (
-        "LONG",
-        "SHORT",
-    ):
-        raise RuntimeError(
-            "TP3 RUNTIME BLOCKED: "
-            "INVALID POSITION SIDE"
-        )
-
-    tp3_quantity = Decimal(
-        str(
-            unit_13_result.get(
-                "tp3_quantity",
-                "0",
+    try:
+        original_tp3_quantity = Decimal(
+            str(
+                unit_13_result.get(
+                    "tp3_quantity",
+                    "0",
+                )
             )
         )
-    )
-
-    if (
-        tp3_quantity
-        <=
-        Decimal("0")
-    ):
-        raise RuntimeError(
-            "TP3 RUNTIME BLOCKED: "
-            "INVALID TP3 QUANTITY"
-        )
-
-    print(
-        "PASS: TP3 ARMED BY UNIT 13",
-        flush=True,
-    )
-
-    print(
-        f"TP3 POSITION SIDE = "
-        f"{position_side}",
-        flush=True,
-    )
-
-    print(
-        f"TP3 ALLOCATED QUANTITY = "
-        f"{tp3_quantity}",
-        flush=True,
-    )
-
-    # ========================================================
-    # 3. DEMO AUTHENTICATION
-    # ========================================================
-
-    api_key = (
-        os.environ.get(
-            "WEEX_API_KEY"
-        )
-        or
-        os.environ.get(
-            "API_KEY"
-        )
-    )
-
-    api_secret = (
-        os.environ.get(
-            "WEEX_API_SECRET"
-        )
-        or
-        os.environ.get(
-            "API_SECRET"
-        )
-    )
-
-    api_passphrase = (
-        os.environ.get(
-            "WEEX_API_PASSPHRASE"
-        )
-        or
-        os.environ.get(
-            "API_PASSPHRASE"
-        )
-    )
-
-    if not api_key:
-        raise RuntimeError(
-            "TP3 RUNTIME BLOCKED: "
-            "WEEX API KEY MISSING"
-        )
-
-    if not api_secret:
-        raise RuntimeError(
-            "TP3 RUNTIME BLOCKED: "
-            "WEEX API SECRET MISSING"
-        )
-
-    if not api_passphrase:
-        raise RuntimeError(
-            "TP3 RUNTIME BLOCKED: "
-            "WEEX API PASSPHRASE MISSING"
-        )
-
-    print(
-        "PASS: TP3 DEMO AUTHENTICATION AVAILABLE",
-        flush=True,
-    )
-
-    # ========================================================
-    # 4. STATE
-    #
-    # best_mark:
-    #
-    # LONG  -> highest mark observed
-    # SHORT -> lowest mark observed
-    # ========================================================
+    except Exception:
+        original_tp3_quantity = Decimal("0")
 
     best_mark = None
+
+    # When a backup fills while TP3 is armed,
+    # TP1/TP2 have already completed for the original position.
+    # The added backup quantity becomes part of the remaining
+    # managed runner rather than being ignored.
+
+    last_confirmed_backup_stage = None
 
     runtime_cycle = 0
 
     poll_seconds = 5
 
+    # Prevent this controller itself from submitting two
+    # different orders too close together.
+
+    last_runtime_order_time = 0.0
+
     print(
-        f"TP3 RUNTIME POLL INTERVAL = "
+        f"UNIT 14 RUNTIME POLL INTERVAL = "
         f"{poll_seconds} SECONDS",
         flush=True,
     )
 
     print(
-        "TP3 TRAILING LOOP STARTED = TRUE",
+        f"UNIT 14 TP3 ARMED = "
+        f"{tp3_armed}",
         flush=True,
     )
 
     print(
-        "-" * 80,
+        "UNIT 14 COMBINED POSITION LOOP STARTED = TRUE",
         flush=True,
     )
 
+    print("=" * 80, flush=True)
+
     # ========================================================
-    # 5. CONTINUOUS TP3 MANAGEMENT LOOP
+    # 9. COMBINED CONTINUOUS POSITION LOOP
     # ========================================================
 
     while True:
-
         runtime_cycle += 1
 
-        # ====================================================
-        # 5A. CHECK ACTUAL DEMO POSITION FIRST
-        # ====================================================
-
-        position_path = (
-            "/capi/v3/sim/position/allPosition"
-        )
-
-        timestamp = str(
-            int(
-                time.time()
-                *
-                1000
-            )
-        )
-
-        prehash = (
-            timestamp
-            +
-            "GET"
-            +
-            position_path
-        )
-
-        signature = (
-            base64.b64encode(
-                hmac.new(
-                    api_secret.encode(
-                        "utf-8"
-                    ),
-                    prehash.encode(
-                        "utf-8"
-                    ),
-                    hashlib.sha256,
-                ).digest()
-            ).decode(
-                "utf-8"
-            )
-        )
-
-        position_headers = {
-            "ACCESS-KEY":
-                api_key,
-
-            "ACCESS-SIGN":
-                signature,
-
-            "ACCESS-TIMESTAMP":
-                timestamp,
-
-            "ACCESS-PASSPHRASE":
-                api_passphrase,
-
-            "Content-Type":
-                "application/json",
-        }
-
-        position_request = (
-            urllib.request.Request(
-                url=(
-                    base_url
-                    +
-                    position_path
-                ),
-                headers=position_headers,
-                method="GET",
-            )
-        )
-
         try:
-
-            with urllib.request.urlopen(
-                position_request,
-                timeout=15,
-            ) as response:
-
-                position_status = (
-                    response.getcode()
-                )
-
-                position_text = (
-                    response.read()
-                    .decode(
-                        "utf-8",
-                        errors="replace",
-                    )
-                )
+            position = get_active_position()
 
         except Exception as exc:
-
             print(
-                "TP3 POSITION READ ERROR = "
-                f"{repr(exc)}",
-                flush=True,
-            )
-
-            print(
-                "TP3 RUNTIME RETRYING",
+                f"UNIT 14 POSITION READ ERROR = {repr(exc)}",
                 flush=True,
             )
 
@@ -14166,138 +14700,35 @@ def fresh_tp3_runtime(
             )
 
             continue
-
-        if not (
-            200
-            <=
-            int(
-                position_status
-            )
-            <
-            300
-        ):
-
-            print(
-                "TP3 POSITION HTTP STATUS = "
-                f"{position_status}",
-                flush=True,
-            )
-
-            time.sleep(
-                poll_seconds
-            )
-
-            continue
-
-        try:
-
-            position_records = (
-                json.loads(
-                    position_text
-                )
-            )
-
-        except Exception as exc:
-
-            print(
-                "TP3 POSITION JSON ERROR = "
-                f"{repr(exc)}",
-                flush=True,
-            )
-
-            time.sleep(
-                poll_seconds
-            )
-
-            continue
-
-        active_position = None
-
-        if isinstance(
-            position_records,
-            list,
-        ):
-
-            for record in position_records:
-
-                if not isinstance(
-                    record,
-                    dict,
-                ):
-                    continue
-
-                if (
-                    str(
-                        record.get(
-                            "symbol",
-                            "",
-                        )
-                    ).upper()
-                    !=
-                    "BTCSUSDT"
-                ):
-                    continue
-
-                try:
-
-                    record_size = Decimal(
-                        str(
-                            record.get(
-                                "size",
-                                "0",
-                            )
-                        )
-                    )
-
-                except Exception:
-
-                    continue
-
-                if (
-                    record_size
-                    >
-                    Decimal("0")
-                ):
-
-                    active_position = (
-                        record
-                    )
-
-                    break
 
         # ====================================================
-        # POSITION ALREADY CLOSED
+        # 9A. POSITION CLOSED
         # ====================================================
 
-        if (
-            active_position
-            is None
-        ):
+        if position is None:
+            print("-" * 80, flush=True)
 
             print(
-                "-" * 80,
+                "UNIT 14 ACTIVE POSITION EXISTS = FALSE",
                 flush=True,
             )
 
             print(
-                "TP3 ACTIVE POSITION EXISTS = FALSE",
+                "UNIT 14 BACKUP MANAGEMENT COMPLETE",
                 flush=True,
             )
 
             print(
-                "TP3 RUNTIME STATUS = POSITION_CLOSED",
+                "UNIT 14 TP3 MANAGEMENT COMPLETE",
                 flush=True,
             )
 
             print(
-                "TP3 TRAILING LOOP COMPLETE",
+                "UNIT 14 RUNTIME STATUS = POSITION_CLOSED",
                 flush=True,
             )
 
-            print(
-                "=" * 80,
-                flush=True,
-            )
+            print("=" * 80, flush=True)
 
             return {
                 "status":
@@ -14305,170 +14736,70 @@ def fresh_tp3_runtime(
 
                 "exchange_write":
                     False,
+
+                "real_order":
+                    False,
+
+                "sl_enabled":
+                    False,
             }
 
-        actual_side = str(
-            active_position.get(
+        # ====================================================
+        # 9B. CURRENT POSITION STATE
+        # ====================================================
+
+        position_side = str(
+            position.get(
                 "side",
                 "",
             )
         ).upper()
 
-        if (
-            actual_side
-            !=
-            position_side
+        if position_side not in (
+            "LONG",
+            "SHORT",
         ):
-
             raise RuntimeError(
-                "TP3 RUNTIME BLOCKED: "
-                "POSITION SIDE CHANGED"
+                "UNIT 14 BLOCKED: INVALID POSITION SIDE"
             )
-
-        current_position_size = Decimal(
-            str(
-                active_position.get(
-                    "size",
-                    "0",
-                )
-            )
-        )
-
-        # ====================================================
-        # TP3 MAY NEVER CLOSE MORE THAN CURRENT POSITION
-        # ====================================================
-
-        close_quantity = min(
-            tp3_quantity,
-            current_position_size,
-        )
 
         if (
-            close_quantity
-            <=
-            Decimal("0")
+            position_side_from_unit_13
+            in (
+                "LONG",
+                "SHORT",
+            )
+            and
+            position_side
+            !=
+            position_side_from_unit_13
         ):
-
-            print(
-                "TP3 RUNTIME STATUS = "
-                "NO_REMAINING_QUANTITY",
-                flush=True,
+            raise RuntimeError(
+                "UNIT 14 BLOCKED: POSITION SIDE CHANGED"
             )
-
-            return {
-                "status":
-                    "NO_REMAINING_QUANTITY",
-
-                "exchange_write":
-                    False,
-            }
-
-        # ====================================================
-        # 5B. GET CURRENT PUBLIC MARK PRICE
-        # ====================================================
-
-        mark_path = (
-            "/capi/v3/market/symbolPrice"
-        )
-
-        mark_query = (
-            "?symbol=BTCUSDT"
-            "&priceType=MARK"
-        )
-
-        mark_request = (
-            urllib.request.Request(
-                url=(
-                    base_url
-                    +
-                    mark_path
-                    +
-                    mark_query
-                ),
-                method="GET",
-                headers={
-                    "Accept":
-                        "application/json",
-                },
-            )
-        )
 
         try:
-
-            with urllib.request.urlopen(
-                mark_request,
-                timeout=15,
-            ) as response:
-
-                mark_status = (
-                    response.getcode()
-                )
-
-                mark_text = (
-                    response.read()
-                    .decode(
-                        "utf-8",
-                        errors="replace",
-                    )
-                )
-
-        except Exception as exc:
-
-            print(
-                "TP3 MARK PRICE READ ERROR = "
-                f"{repr(exc)}",
-                flush=True,
-            )
-
-            time.sleep(
-                poll_seconds
-            )
-
-            continue
-
-        if not (
-            200
-            <=
-            int(
-                mark_status
-            )
-            <
-            300
-        ):
-
-            print(
-                "TP3 MARK PRICE HTTP STATUS = "
-                f"{mark_status}",
-                flush=True,
-            )
-
-            time.sleep(
-                poll_seconds
-            )
-
-            continue
-
-        try:
-
-            mark_json = (
-                json.loads(
-                    mark_text
-                )
-            )
-
-            current_mark = Decimal(
+            position_size = Decimal(
                 str(
-                    mark_json.get(
-                        "price"
+                    position.get(
+                        "size",
+                        "0",
+                    )
+                )
+            )
+
+            liquidation_price = Decimal(
+                str(
+                    position.get(
+                        "liquidatePrice",
+                        "0",
                     )
                 )
             )
 
         except Exception as exc:
-
             print(
-                "TP3 MARK PRICE JSON ERROR = "
-                f"{repr(exc)}",
+                f"UNIT 14 POSITION PARSE ERROR = {repr(exc)}",
                 flush=True,
             )
 
@@ -14478,14 +14809,26 @@ def fresh_tp3_runtime(
 
             continue
 
-        if (
-            current_mark
-            <=
-            Decimal("0")
-        ):
+        if position_size <= 0:
+            time.sleep(
+                poll_seconds
+            )
+            continue
 
+        trade_key = get_trade_key(
+            position
+        )
+
+        # ====================================================
+        # 9C. CURRENT MARK
+        # ====================================================
+
+        try:
+            current_mark = get_mark_price()
+
+        except Exception as exc:
             print(
-                "TP3 INVALID MARK PRICE",
+                f"UNIT 14 MARK READ ERROR = {repr(exc)}",
                 flush=True,
             )
 
@@ -14496,124 +14839,612 @@ def fresh_tp3_runtime(
             continue
 
         # ====================================================
-        # 5C. INITIALIZE / UPDATE BEST FAVORABLE MARK
+        # 9D. ORDER HISTORY / BACKUP STAGE
+        # ====================================================
+
+        try:
+            history = get_order_history()
+
+            (
+                completed_backups,
+                existing_backup_stages,
+                filled_backup_stages,
+            ) = determine_backup_stage(
+                history,
+                trade_key,
+            )
+
+        except Exception as exc:
+            print(
+                f"UNIT 14 HISTORY READ ERROR = {repr(exc)}",
+                flush=True,
+            )
+
+            # FAIL CLOSED:
+            # no backup may be submitted when duplicate
+            # history cannot be verified.
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # RESET TP3 BEST MARK AFTER CONFIRMED BACKUP FILL
+        #
+        # This prevents the old pre-backup trailing reference
+        # from immediately closing the newly enlarged position.
         # ====================================================
 
         if (
-            best_mark
+            last_confirmed_backup_stage
             is None
         ):
-
-            best_mark = (
-                current_mark
-            )
-
-            print(
-                f"TP3 INITIAL BEST MARK = "
-                f"{best_mark}",
-                flush=True,
+            last_confirmed_backup_stage = (
+                completed_backups
             )
 
         elif (
-            position_side
-            ==
-            "LONG"
-            and
-            current_mark
-            >
-            best_mark
+            completed_backups
+            !=
+            last_confirmed_backup_stage
         ):
-
-            best_mark = (
-                current_mark
-            )
-
             print(
-                f"TP3 NEW BEST FAVORABLE MARK = "
-                f"{best_mark}",
+                f"PASS: UNIT 14 BACKUP STAGE CHANGED "
+                f"{last_confirmed_backup_stage} "
+                f"-> {completed_backups}",
                 flush=True,
             )
 
-        elif (
-            position_side
-            ==
-            "SHORT"
-            and
-            current_mark
-            <
-            best_mark
-        ):
-
-            best_mark = (
-                current_mark
+            print(
+                "PASS: UNIT 14 NEW WEEX POSITION STATE RECEIVED",
+                flush=True,
             )
 
             print(
-                f"TP3 NEW BEST FAVORABLE MARK = "
-                f"{best_mark}",
+                f"PASS: UNIT 14 NEW LIQUIDATION PRICE = "
+                f"{liquidation_price}",
+                flush=True,
+            )
+
+            best_mark = None
+
+            last_confirmed_backup_stage = (
+                completed_backups
+            )
+
+        # ====================================================
+        # 10. TP3 MANAGEMENT
+        # ====================================================
+
+        tp3_callback_reached = False
+        trailing_trigger = None
+
+        if tp3_armed:
+            # After any backup has filled, the actual current
+            # remaining position is the quantity managed by
+            # the runner. Before any backup, preserve the
+            # original Unit 13 TP3 allocation.
+
+            if completed_backups > 0:
+                tp3_close_quantity = (
+                    position_size
+                )
+            else:
+                tp3_close_quantity = min(
+                    original_tp3_quantity,
+                    position_size,
+                )
+
+            if tp3_close_quantity > 0:
+                if best_mark is None:
+                    best_mark = (
+                        current_mark
+                    )
+
+                    print(
+                        f"TP3 INITIAL BEST MARK = "
+                        f"{best_mark}",
+                        flush=True,
+                    )
+
+                elif (
+                    position_side
+                    ==
+                    "LONG"
+                    and
+                    current_mark
+                    >
+                    best_mark
+                ):
+                    best_mark = (
+                        current_mark
+                    )
+
+                    print(
+                        f"TP3 NEW BEST FAVORABLE MARK = "
+                        f"{best_mark}",
+                        flush=True,
+                    )
+
+                elif (
+                    position_side
+                    ==
+                    "SHORT"
+                    and
+                    current_mark
+                    <
+                    best_mark
+                ):
+                    best_mark = (
+                        current_mark
+                    )
+
+                    print(
+                        f"TP3 NEW BEST FAVORABLE MARK = "
+                        f"{best_mark}",
+                        flush=True,
+                    )
+
+                if position_side == "LONG":
+                    trailing_trigger = (
+                        best_mark
+                        *
+                        (
+                            Decimal("1")
+                            -
+                            trailing_fraction
+                        )
+                    )
+
+                    tp3_callback_reached = (
+                        current_mark
+                        <=
+                        trailing_trigger
+                    )
+
+                else:
+                    trailing_trigger = (
+                        best_mark
+                        *
+                        (
+                            Decimal("1")
+                            +
+                            trailing_fraction
+                        )
+                    )
+
+                    tp3_callback_reached = (
+                        current_mark
+                        >=
+                        trailing_trigger
+                    )
+
+                print(
+                    f"UNIT 14 CYCLE = {runtime_cycle} | "
+                    f"SIDE = {position_side} | "
+                    f"SIZE = {position_size} | "
+                    f"MARK = {current_mark} | "
+                    f"LIQ = {liquidation_price} | "
+                    f"BACKUPS FILLED = {completed_backups}/{max_backups} | "
+                    f"TP3 BEST = {best_mark} | "
+                    f"TP3 TRIGGER = {trailing_trigger} | "
+                    f"TP3 CALLBACK = {tp3_callback_reached}",
+                    flush=True,
+                )
+
+        else:
+            print(
+                f"UNIT 14 CYCLE = {runtime_cycle} | "
+                f"SIDE = {position_side} | "
+                f"SIZE = {position_size} | "
+                f"MARK = {current_mark} | "
+                f"LIQ = {liquidation_price} | "
+                f"BACKUPS FILLED = {completed_backups}/{max_backups} | "
+                f"TP3 ARMED = FALSE",
                 flush=True,
             )
 
         # ====================================================
-        # 5D. CALCULATE 0.20% CALLBACK PRICE
+        # 11. TP3 HAS EXECUTION PRIORITY IF CALLBACK REACHED
         # ====================================================
 
         if (
-            position_side
-            ==
-            "LONG"
+            tp3_armed
+            and
+            tp3_callback_reached
         ):
+            # Do not submit another order if this runtime has
+            # submitted an order too recently.
 
-            trailing_trigger = (
-                best_mark
+            elapsed = (
+                time.time()
+                -
+                last_runtime_order_time
+            )
+
+            if (
+                last_runtime_order_time > 0
+                and
+                elapsed < 60
+            ):
+                print(
+                    "TP3 EXECUTION WAITING FOR "
+                    "DEMO ORDER RATE WINDOW",
+                    flush=True,
+                )
+
+                time.sleep(
+                    poll_seconds
+                )
+
+                continue
+
+            if position_side == "LONG":
+                closing_side = "SELL"
+            else:
+                closing_side = "BUY"
+
+            close_quantity = min(
+                tp3_close_quantity,
+                position_size,
+            )
+
+            close_quantity = floor_quantity(
+                close_quantity
+            )
+
+            if (
+                close_quantity
+                <
+                minimum_quantity
+            ):
+                print(
+                    "TP3 CLOSE BLOCKED: "
+                    "QUANTITY BELOW MINIMUM",
+                    flush=True,
+                )
+
+                time.sleep(
+                    poll_seconds
+                )
+
+                continue
+
+            tp3_client_id = (
+                f"FR-TP3-{trade_key}"
+            )[:36]
+
+            # Check whether THIS TP3 client ID already exists.
+
+            tp3_existing = False
+
+            for order in history:
+                if not isinstance(
+                    order,
+                    dict,
+                ):
+                    continue
+
+                if (
+                    str(
+                        order.get(
+                            "clientOrderId",
+                            "",
+                        )
+                    )
+                    ==
+                    tp3_client_id
+                ):
+                    tp3_existing = True
+                    break
+
+            if tp3_existing:
+                print(
+                    "TP3 DUPLICATE SUBMISSION BLOCKED",
+                    flush=True,
+                )
+
+                time.sleep(
+                    poll_seconds
+                )
+
+                continue
+
+            payload = {
+                "symbol":
+                    demo_symbol,
+
+                "side":
+                    closing_side,
+
+                "positionSide":
+                    position_side,
+
+                "type":
+                    "MARKET",
+
+                "quantity":
+                    quantity_text(
+                        close_quantity
+                    ),
+
+                "newClientOrderId":
+                    tp3_client_id,
+            }
+
+            # ABSOLUTE SL PROHIBITION.
+
+            for prohibited in (
+                "slTriggerPrice",
+                "SlWorkingType",
+                "stopLossPrice",
+                "stopPrice",
+            ):
+                if prohibited in payload:
+                    raise RuntimeError(
+                        "UNIT 14 BLOCKED: SL FIELD DETECTED"
+                    )
+
+            print("-" * 80, flush=True)
+
+            print(
+                "TP3 CALLBACK REACHED = TRUE",
+                flush=True,
+            )
+
+            print(
+                f"TP3 CLOSE QUANTITY = "
+                f"{close_quantity}",
+                flush=True,
+            )
+
+            print(
+                "TP3 DEMO SUBMISSION = TRUE",
+                flush=True,
+            )
+
+            try:
+                result = authenticated_post(
+                    "/capi/v3/sim/order",
+                    payload,
+                )
+
+                last_runtime_order_time = (
+                    time.time()
+                )
+
+            except Exception as exc:
+                print(
+                    f"TP3 DEMO ORDER ERROR = {repr(exc)}",
+                    flush=True,
+                )
+
+                # Submission outcome may be uncertain.
+                # Do not immediately resubmit.
+                # History/position is re-read first.
+
+                last_runtime_order_time = (
+                    time.time()
+                )
+
+                time.sleep(
+                    poll_seconds
+                )
+
+                continue
+
+            if result.get("success") is not True:
+                print(
+                    f"TP3 ORDER NOT ACCEPTED = {result}",
+                    flush=True,
+                )
+
+                time.sleep(
+                    poll_seconds
+                )
+
+                continue
+
+            print(
+                "PASS: TP3 DEMO CLOSE ACCEPTED",
+                flush=True,
+            )
+
+            print(
+                f"PASS: TP3 ORDER ID = "
+                f"{result.get('orderId')}",
+                flush=True,
+            )
+
+            print(
+                "PASS: TP3 REAL ORDER = FALSE",
+                flush=True,
+            )
+
+            print(
+                "PASS: TP3 SL = DISABLED",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12. BACKUP MANAGEMENT
+        # ====================================================
+
+        if max_backups <= 0:
+            print(
+                "UNIT 14 BACKUPS DISABLED BY CONFIG",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # ALL THREE BACKUPS ALREADY FILLED
+        # ====================================================
+
+        if completed_backups >= max_backups:
+            print(
+                f"UNIT 14 BACKUP STATUS = "
+                f"B{completed_backups} FILLED",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 NEXT BACKUP = NONE",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 B4 = DISABLED",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 FINAL LIQUIDATION BOUNDARY = "
+                f"{liquidation_price}",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        next_backup_stage = (
+            completed_backups
+            +
+            1
+        )
+
+        # Absolute B4 protection.
+
+        if next_backup_stage > 3:
+            print(
+                "UNIT 14 BACKUP STOP = NO B4",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12A. CURRENT LIQUIDATION MUST COME FROM WEEX
+        # ====================================================
+
+        if liquidation_price <= 0:
+            print(
+                f"UNIT 14 B{next_backup_stage} BLOCKED: "
+                "WEEX LIQUIDATION PRICE NOT AVAILABLE",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12B. CALCULATE BACKUP TRIGGER
+        #
+        # LONG:
+        # Bn = Ln * (1 + buffer)
+        #
+        # SHORT:
+        # Bn = Ln * (1 - buffer)
+        # ====================================================
+
+        if position_side == "LONG":
+            backup_trigger = (
+                liquidation_price
+                *
+                (
+                    Decimal("1")
+                    +
+                    backup_buffer_fraction
+                )
+            )
+
+            backup_reached = (
+                current_mark
+                <=
+                backup_trigger
+            )
+
+        else:
+            backup_trigger = (
+                liquidation_price
                 *
                 (
                     Decimal("1")
                     -
-                    trailing_fraction
+                    backup_buffer_fraction
                 )
             )
 
-            callback_reached = (
-                current_mark
-                <=
-                trailing_trigger
-            )
-
-        else:
-
-            trailing_trigger = (
-                best_mark
-                *
-                (
-                    Decimal("1")
-                    +
-                    trailing_fraction
-                )
-            )
-
-            callback_reached = (
+            backup_reached = (
                 current_mark
                 >=
-                trailing_trigger
+                backup_trigger
             )
 
         print(
-            f"TP3 CYCLE = "
-            f"{runtime_cycle} | "
-            f"SIDE = {position_side} | "
-            f"CURRENT = {current_mark} | "
-            f"BEST = {best_mark} | "
-            f"TRIGGER = {trailing_trigger} | "
-            f"CALLBACK = {callback_reached}",
+            f"UNIT 14 B{next_backup_stage} | "
+            f"L{next_backup_stage} = {liquidation_price} | "
+            f"BUFFER = {backup_buffer_percent}% | "
+            f"TRIGGER = {backup_trigger} | "
+            f"MARK = {current_mark} | "
+            f"REACHED = {backup_reached}",
             flush=True,
         )
 
+        if not backup_reached:
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
         # ====================================================
-        # 5E. CONTINUE TRAILING
+        # 12C. ANTI-DUPLICATE
         # ====================================================
 
-        if not callback_reached:
+        next_client_id = backup_client_id(
+            next_backup_stage,
+            trade_key,
+        )
+
+        if (
+            next_backup_stage
+            in
+            existing_backup_stages
+        ):
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                "ORDER ALREADY EXISTS",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 DUPLICATE BACKUP BLOCKED",
+                flush=True,
+            )
 
             time.sleep(
                 poll_seconds
@@ -14622,62 +15453,354 @@ def fresh_tp3_runtime(
             continue
 
         # ====================================================
-        # 6. CALLBACK REACHED
+        # 12D. EXPOSURE CAP
         #
-        # CLOSE TP3 USING DEMO MARKET ORDER ONLY.
+        # Configured capital allocation:
+        #
+        # initial margin %
+        # +
+        # completed backups * backup margin %
+        # +
+        # proposed next backup margin %
+        #
+        # This deliberately does NOT use the 0.0004 initial
+        # entry cap for backups.
         # ====================================================
 
-        if (
-            position_side
-            ==
-            "LONG"
-        ):
-
-            closing_side = (
-                "SELL"
+        current_configured_exposure = (
+            initial_margin_percent
+            +
+            (
+                Decimal(
+                    completed_backups
+                )
+                *
+                backup_margin_percent
             )
-
-        else:
-
-            closing_side = (
-                "BUY"
-            )
-
-        quantity_text = (
-            f"{close_quantity:.8f}"
-            .rstrip("0")
-            .rstrip(".")
         )
 
-        if not quantity_text:
+        projected_exposure = (
+            current_configured_exposure
+            +
+            backup_margin_percent
+        )
 
-            raise RuntimeError(
-                "TP3 RUNTIME BLOCKED: "
-                "EMPTY CLOSE QUANTITY"
+        print(
+            f"UNIT 14 CURRENT CONFIGURED EXPOSURE % = "
+            f"{current_configured_exposure}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 PROJECTED EXPOSURE % = "
+            f"{projected_exposure}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 EXPOSURE CAP % = "
+            f"{exposure_cap_percent}",
+            flush=True,
+        )
+
+        if (
+            projected_exposure
+            >
+            exposure_cap_percent
+        ):
+            print(
+                f"UNIT 14 B{next_backup_stage} BLOCKED: "
+                "EXPOSURE CAP",
+                flush=True,
             )
 
-        client_order_id = (
-            "FR-TP3-"
-            +
-            str(
-                int(
-                    time.time()
-                    *
-                    1000000
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12E. DEMO BALANCE
+        # ====================================================
+
+        try:
+            balance_item = get_demo_balance()
+
+            available_balance = Decimal(
+                str(
+                    balance_item.get(
+                        "availableBalance",
+                        "0",
+                    )
                 )
             )
+
+        except Exception as exc:
+            print(
+                f"UNIT 14 BALANCE READ ERROR = {repr(exc)}",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        if available_balance <= 0:
+            print(
+                f"UNIT 14 B{next_backup_stage} BLOCKED: "
+                "NO AVAILABLE DEMO BALANCE",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12F. BACKUP QUANTITY
+        #
+        # margin = available balance * backup %
+        # notional = margin * leverage
+        # qty = notional / mark
+        #
+        # No 0.0004 initial-entry cap is applied.
+        # ====================================================
+
+        backup_margin_amount = (
+            available_balance
+            *
+            (
+                backup_margin_percent
+                /
+                Decimal("100")
+            )
         )
 
-        client_order_id = (
-            client_order_id[:36]
+        backup_notional = (
+            backup_margin_amount
+            *
+            leverage_target
         )
 
-        tp3_payload = {
+        raw_backup_quantity = (
+            backup_notional
+            /
+            current_mark
+        )
+
+        backup_quantity = floor_quantity(
+            raw_backup_quantity
+        )
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"AVAILABLE SUSDT = {available_balance}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"MARGIN ALLOCATION = {backup_margin_amount}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"RAW QUANTITY = {raw_backup_quantity}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"NORMALIZED QUANTITY = {backup_quantity}",
+            flush=True,
+        )
+
+        if (
+            backup_quantity
+            <
+            minimum_quantity
+        ):
+            print(
+                f"UNIT 14 B{next_backup_stage} BLOCKED: "
+                "QUANTITY BELOW MINIMUM",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12G. FINAL POSITION RECONCILIATION
+        #
+        # Re-read actual position immediately before submission.
+        # This prevents a stale trigger from submitting against
+        # a position that has already changed or closed.
+        # ====================================================
+
+        try:
+            final_position = get_active_position()
+
+        except Exception as exc:
+            print(
+                f"UNIT 14 FINAL POSITION CHECK ERROR = "
+                f"{repr(exc)}",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        if final_position is None:
+            print(
+                f"UNIT 14 B{next_backup_stage} BLOCKED: "
+                "POSITION CLOSED BEFORE SUBMISSION",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        final_side = str(
+            final_position.get(
+                "side",
+                "",
+            )
+        ).upper()
+
+        if final_side != position_side:
+            raise RuntimeError(
+                "UNIT 14 BLOCKED: "
+                "POSITION DIRECTION CHANGED"
+            )
+
+        final_trade_key = get_trade_key(
+            final_position
+        )
+
+        if final_trade_key != trade_key:
+            print(
+                f"UNIT 14 B{next_backup_stage} BLOCKED: "
+                "POSITION IDENTITY CHANGED",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        try:
+            final_liquidation = Decimal(
+                str(
+                    final_position.get(
+                        "liquidatePrice",
+                        "0",
+                    )
+                )
+            )
+
+        except Exception:
+            final_liquidation = Decimal("0")
+
+        # If WEEX has already recalculated liquidation between
+        # trigger evaluation and submission, restart the cycle
+        # and calculate from the new liquidation.
+
+        if (
+            final_liquidation
+            !=
+            liquidation_price
+        ):
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                "LIQUIDATION CHANGED BEFORE SUBMISSION",
+                flush=True,
+            )
+
+            print(
+                f"OLD LIQUIDATION = {liquidation_price}",
+                flush=True,
+            )
+
+            print(
+                f"NEW LIQUIDATION = {final_liquidation}",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 RECALCULATING BACKUP TRIGGER",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12H. ORDER-RATE GUARD
+        # ====================================================
+
+        elapsed = (
+            time.time()
+            -
+            last_runtime_order_time
+        )
+
+        if (
+            last_runtime_order_time > 0
+            and
+            elapsed < 60
+        ):
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                "WAITING FOR DEMO ORDER RATE WINDOW",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 12I. BACKUP ORDER
+        #
+        # Same position direction:
+        #
+        # LONG backup  = BUY / LONG
+        # SHORT backup = SELL / SHORT
+        # ====================================================
+
+        if position_side == "LONG":
+            backup_order_side = "BUY"
+        else:
+            backup_order_side = "SELL"
+
+        backup_payload = {
             "symbol":
-                "BTCSUSDT",
+                demo_symbol,
 
             "side":
-                closing_side,
+                backup_order_side,
 
             "positionSide":
                 position_side,
@@ -14686,212 +15809,108 @@ def fresh_tp3_runtime(
                 "MARKET",
 
             "quantity":
-                quantity_text,
+                quantity_text(
+                    backup_quantity
+                ),
 
             "newClientOrderId":
-                client_order_id,
+                next_client_id,
         }
 
-        # ====================================================
-        # ABSOLUTE SL PROHIBITION
-        # ====================================================
+        # ABSOLUTE SL PROHIBITION.
 
-        prohibited_fields = (
+        for prohibited in (
             "slTriggerPrice",
             "SlWorkingType",
             "stopLossPrice",
             "stopPrice",
-        )
-
-        for field in prohibited_fields:
-
-            if (
-                field
-                in
-                tp3_payload
-            ):
-
+        ):
+            if prohibited in backup_payload:
                 raise RuntimeError(
-                    "TP3 RUNTIME BLOCKED: "
-                    "SL FIELD DETECTED"
+                    "UNIT 14 BLOCKED: SL FIELD DETECTED"
                 )
 
-        # ====================================================
-        # ABSOLUTE DEMO-ENDPOINT CONTRACT
-        # ====================================================
-
-        order_path = (
-            "/capi/v3/sim/order"
-        )
-
-        if (
-            "/sim/"
-            not in
-            order_path
-        ):
-
-            raise RuntimeError(
-                "TP3 RUNTIME BLOCKED: "
-                "NON-DEMO ORDER ENDPOINT"
-            )
-
-        body = json.dumps(
-            tp3_payload,
-            separators=(
-                ",",
-                ":",
-            ),
-            ensure_ascii=False,
-        )
-
-        timestamp = str(
-            int(
-                time.time()
-                *
-                1000
-            )
-        )
-
-        prehash = (
-            timestamp
-            +
-            "POST"
-            +
-            order_path
-            +
-            body
-        )
-
-        signature = (
-            base64.b64encode(
-                hmac.new(
-                    api_secret.encode(
-                        "utf-8"
-                    ),
-                    prehash.encode(
-                        "utf-8"
-                    ),
-                    hashlib.sha256,
-                ).digest()
-            ).decode(
-                "utf-8"
-            )
-        )
-
-        order_headers = {
-            "ACCESS-KEY":
-                api_key,
-
-            "ACCESS-SIGN":
-                signature,
-
-            "ACCESS-TIMESTAMP":
-                timestamp,
-
-            "ACCESS-PASSPHRASE":
-                api_passphrase,
-
-            "Content-Type":
-                "application/json",
-        }
+        print("-" * 80, flush=True)
 
         print(
-            "-" * 80,
+            f"UNIT 14 B{next_backup_stage} "
+            "TRIGGER REACHED = TRUE",
             flush=True,
         )
 
         print(
-            "TP3 CALLBACK REACHED = TRUE",
+            f"UNIT 14 B{next_backup_stage} "
+            f"LIQUIDATION REFERENCE = "
+            f"{liquidation_price}",
             flush=True,
         )
 
         print(
-            f"TP3 BEST FAVORABLE MARK = "
-            f"{best_mark}",
+            f"UNIT 14 B{next_backup_stage} "
+            f"TRIGGER PRICE = "
+            f"{backup_trigger}",
             flush=True,
         )
 
         print(
-            f"TP3 CALLBACK TRIGGER = "
-            f"{trailing_trigger}",
-            flush=True,
-        )
-
-        print(
-            f"TP3 CURRENT MARK = "
+            f"UNIT 14 B{next_backup_stage} "
+            f"CURRENT MARK = "
             f"{current_mark}",
             flush=True,
         )
 
         print(
-            f"TP3 CLOSE SIDE = "
-            f"{closing_side}",
+            f"UNIT 14 B{next_backup_stage} "
+            f"ORDER SIDE = "
+            f"{backup_order_side}",
             flush=True,
         )
 
         print(
-            f"TP3 CLOSE QUANTITY = "
-            f"{quantity_text}",
+            f"UNIT 14 B{next_backup_stage} "
+            f"QUANTITY = "
+            f"{backup_quantity}",
             flush=True,
         )
 
         print(
-            "TP3 EXECUTION ENVIRONMENT = DEMO",
+            f"UNIT 14 B{next_backup_stage} "
+            f"CLIENT ORDER ID = "
+            f"{next_client_id}",
             flush=True,
         )
 
         print(
-            "TP3 REAL ORDER = FALSE",
+            "UNIT 14 DEMO ORDER = TRUE",
             flush=True,
         )
 
         print(
-            "TP3 SL ENABLED = FALSE",
+            "UNIT 14 REAL ORDER = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 SL ENABLED = FALSE",
             flush=True,
         )
 
         # ====================================================
-        # 7. SUBMIT EXACTLY ONE DEMO TP3 CLOSE
+        # 13. SUBMIT EXACTLY ONE DEMO BACKUP
         # ====================================================
-
-        order_request = (
-            urllib.request.Request(
-                url=(
-                    base_url
-                    +
-                    order_path
-                ),
-                data=body.encode(
-                    "utf-8"
-                ),
-                headers=order_headers,
-                method="POST",
-            )
-        )
 
         try:
+            backup_result = authenticated_post(
+                "/capi/v3/sim/order",
+                backup_payload,
+            )
 
-            with urllib.request.urlopen(
-                order_request,
-                timeout=15,
-            ) as response:
-
-                order_status = (
-                    response.getcode()
-                )
-
-                order_text = (
-                    response.read()
-                    .decode(
-                        "utf-8",
-                        errors="replace",
-                    )
-                )
+            last_runtime_order_time = (
+                time.time()
+            )
 
         except urllib.error.HTTPError as exc:
-
             try:
-
                 error_text = (
                     exc.read()
                     .decode(
@@ -14899,29 +15918,27 @@ def fresh_tp3_runtime(
                         errors="replace",
                     )
                 )
-
             except Exception:
-
-                error_text = str(
-                    exc
-                )
+                error_text = str(exc)
 
             print(
-                f"TP3 DEMO ORDER HTTP ERROR = "
-                f"{exc.code}",
+                f"UNIT 14 B{next_backup_stage} "
+                f"HTTP ERROR = {exc.code}",
                 flush=True,
             )
 
             print(
-                f"TP3 DEMO ORDER ERROR RESPONSE = "
-                f"{error_text}",
+                f"UNIT 14 B{next_backup_stage} "
+                f"ERROR RESPONSE = {error_text}",
                 flush=True,
             )
 
-            # Do not blindly send another close.
-            # Recheck position on next cycle.
+            # Outcome may be uncertain.
+            # Re-read history before any retry.
 
-            best_mark = None
+            last_runtime_order_time = (
+                time.time()
+            )
 
             time.sleep(
                 poll_seconds
@@ -14930,17 +15947,18 @@ def fresh_tp3_runtime(
             continue
 
         except urllib.error.URLError as exc:
-
             print(
-                f"TP3 DEMO ORDER NETWORK ERROR = "
-                f"{exc}",
+                f"UNIT 14 B{next_backup_stage} "
+                f"NETWORK ERROR = {exc}",
                 flush=True,
             )
 
-            # Submission outcome may be uncertain.
-            # Recheck actual position before any retry.
+            # Do not blindly resubmit.
+            # Order history is checked first.
 
-            best_mark = None
+            last_runtime_order_time = (
+                time.time()
+            )
 
             time.sleep(
                 poll_seconds
@@ -14948,160 +15966,142 @@ def fresh_tp3_runtime(
 
             continue
 
-        print(
-            f"TP3 DEMO ORDER HTTP STATUS = "
-            f"{order_status}",
-            flush=True,
-        )
-
-        print(
-            f"TP3 DEMO ORDER RESPONSE = "
-            f"{order_text}",
-            flush=True,
-        )
-
-        try:
-
-            order_json = (
-                json.loads(
-                    order_text
-                )
-            )
-
         except Exception as exc:
-
-            raise RuntimeError(
-                "TP3 DEMO ORDER RESPONSE "
-                "IS NOT VALID JSON"
-            ) from exc
-
-        if not (
-            200
-            <=
-            int(
-                order_status
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                f"SUBMISSION ERROR = {repr(exc)}",
+                flush=True,
             )
-            <
-            300
-        ):
 
-            raise RuntimeError(
-                "TP3 DEMO CLOSE FAILED: "
-                f"HTTP {order_status}"
+            last_runtime_order_time = (
+                time.time()
             )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
 
         if (
-            order_json.get(
+            backup_result.get(
                 "success"
             )
             is not True
         ):
-
-            raise RuntimeError(
-                "TP3 DEMO CLOSE NOT ACCEPTED: "
-                f"{order_json}"
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                f"NOT ACCEPTED = {backup_result}",
+                flush=True,
             )
 
-        order_id = (
-            order_json.get(
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        backup_order_id = (
+            backup_result.get(
                 "orderId"
             )
         )
 
-        if not order_id:
-
-            raise RuntimeError(
-                "TP3 DEMO CLOSE ACCEPTED "
-                "WITHOUT ORDER ID"
+        if not backup_order_id:
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                "ACCEPTED WITHOUT ORDER ID",
+                flush=True,
             )
 
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        print("-" * 80, flush=True)
+
         print(
-            "-" * 80,
+            f"PASS: UNIT 14 B{next_backup_stage} "
+            "DEMO ORDER ACCEPTED",
             flush=True,
         )
 
         print(
-            "PASS: TP3 DEMO CLOSE SUBMITTED",
+            f"PASS: UNIT 14 B{next_backup_stage} "
+            f"ORDER ID = {backup_order_id}",
             flush=True,
         )
 
         print(
-            f"PASS: TP3 ORDER ID = "
-            f"{order_id}",
+            f"PASS: UNIT 14 B{next_backup_stage} "
+            "WAITING FOR EXCHANGE-CONFIRMED FILL",
             flush=True,
         )
 
         print(
-            "PASS: TP3 NEW SIGNAL REQUIRED = FALSE",
+            "PASS: UNIT 14 BACKUP STAGE NOT "
+            "ADVANCED BY TRIGGER ALONE",
             flush=True,
         )
 
         print(
-            "PASS: TP3 SL REMAINS DISABLED",
+            "PASS: UNIT 14 NEXT LIQUIDATION WILL "
+            "BE READ FROM WEEX AFTER FILL",
             flush=True,
         )
 
         print(
-            "PASS: TP3 REAL ORDER = FALSE",
+            "PASS: UNIT 14 REAL ORDER = FALSE",
             flush=True,
         )
 
         print(
-            "PASS: TP3 TRAILING RUNTIME COMPLETED",
+            "PASS: UNIT 14 SL REMAINS DISABLED",
             flush=True,
         )
 
         print(
-            "=" * 80,
+            "PASS: UNIT 14 NO LEVERAGE MUTATION",
             flush=True,
         )
 
-        return {
-            "status":
-                "TP3_EXECUTED",
+        print(
+            "PASS: UNIT 14 NO MARGIN MODE MUTATION",
+            flush=True,
+        )
 
-            "position_side":
-                position_side,
+        print(
+            "PASS: UNIT 14 NO POSITION MODE MUTATION",
+            flush=True,
+        )
 
-            "best_mark":
-                float(
-                    best_mark
-                ),
+        print("=" * 80, flush=True)
 
-            "trigger_mark":
-                float(
-                    trailing_trigger
-                ),
+        # ====================================================
+        # IMPORTANT:
+        #
+        # DO NOT calculate B2/B3 here.
+        #
+        # The next loop:
+        # 1. reads order history
+        # 2. confirms Bn FILLED
+        # 3. reads changed position
+        # 4. reads WEEX's new liquidatePrice
+        # 5. only then calculates B(n+1)
+        # ====================================================
 
-            "close_mark":
-                float(
-                    current_mark
-                ),
-
-            "close_quantity":
-                float(
-                    close_quantity
-                ),
-
-            "order_id":
-                order_id,
-
-            "exchange_write":
-                True,
-
-            "real_order":
-                False,
-
-            "sl_enabled":
-                False,
-        }
+        time.sleep(
+            poll_seconds
+        )
 
 
 # ============================================================
-# START TP3 RUNTIME
+# START UNIT 14 COMBINED TP3 + BACKUP RUNTIME
 # ============================================================
 
-FRESH_TP3_RUNTIME_RESULT = (
+FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
     fresh_tp3_runtime(
         FRESH_RECONSTRUCTION_CONFIG,
         FRESH_RECONSTRUCTION_UNIT_13_RESULT,
