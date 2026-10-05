@@ -14914,23 +14914,176 @@ def fresh_tp3_runtime(
                 completed_backups
             )
 
-        # ====================================================
-        # 10. TP3 MANAGEMENT
+        
+                # ====================================================
+        # 10. DYNAMIC TP3 ARMING + MANAGEMENT
+        #
+        # IMPORTANT FIX:
+        #
+        # TP3 MUST NOT DEPEND ONLY ON THE UNIT 13 STATE THAT
+        # EXISTED WHEN THIS RUNTIME FIRST STARTED.
+        #
+        # UNIT 14 IS ALREADY A CONTINUOUS POSITION LOOP.
+        # THEREFORE EVERY CYCLE MUST RE-READ THE CURRENT WEEX
+        # POSITION AND DETERMINE WHETHER TP1 + TP2 HAVE NOW
+        # COMPLETED.
+        #
+        # NEW SIGNAL IS NEVER REQUIRED FOR THIS.
         # ====================================================
 
         tp3_callback_reached = False
         trailing_trigger = None
 
+        # ----------------------------------------------------
+        # CURRENT EXCHANGE-CONFIRMED CUMULATIVE CLOSE SIZE
+        # ----------------------------------------------------
+
+        try:
+            current_cumulative_close_size = Decimal(
+                str(
+                    position.get(
+                        "cumCloseSize",
+                        "0",
+                    )
+                )
+            )
+
+        except Exception:
+            current_cumulative_close_size = Decimal("0")
+
+        if current_cumulative_close_size < Decimal("0"):
+            current_cumulative_close_size = Decimal("0")
+
+        # ----------------------------------------------------
+        # ORIGINAL TP1 + TP2 ALLOCATION
+        # ----------------------------------------------------
+
+        try:
+            runtime_tp1_quantity = Decimal(
+                str(
+                    unit_13_result.get(
+                        "tp1_quantity",
+                        "0",
+                    )
+                )
+            )
+        except Exception:
+            runtime_tp1_quantity = Decimal("0")
+
+        try:
+            runtime_tp2_quantity = Decimal(
+                str(
+                    unit_13_result.get(
+                        "tp2_quantity",
+                        "0",
+                    )
+                )
+            )
+        except Exception:
+            runtime_tp2_quantity = Decimal("0")
+
+        required_pre_tp3_close = (
+            runtime_tp1_quantity
+            +
+            runtime_tp2_quantity
+        )
+
+        # ----------------------------------------------------
+        # DYNAMIC ARMING
+        #
+        # Once WEEX confirms that cumulative closed quantity
+        # has reached TP1 + TP2 allocation, TP3 becomes armed.
+        #
+        # Once armed, it stays armed for this position.
+        # ----------------------------------------------------
+
+        dynamic_tp3_ready = (
+            required_pre_tp3_close
+            >
+            Decimal("0")
+            and
+            current_cumulative_close_size
+            >=
+            required_pre_tp3_close
+            and
+            position_size
+            >
+            Decimal("0")
+        )
+
+        if (
+            dynamic_tp3_ready
+            and
+            not tp3_armed
+        ):
+            tp3_armed = True
+
+            # Start trailing from the market state existing
+            # when TP3 actually becomes armed.
+            best_mark = None
+
+            print(
+                "-" * 80,
+                flush=True,
+            )
+
+            print(
+                "PASS: UNIT 14 TP1 + TP2 "
+                "EXCHANGE-CONFIRMED COMPLETE",
+                flush=True,
+            )
+
+            print(
+                "PASS: UNIT 14 TP3 DYNAMICALLY ARMED",
+                flush=True,
+            )
+
+            print(
+                "PASS: UNIT 14 TP3 ARMING "
+                "DID NOT REQUIRE NEW SIGNAL",
+                flush=True,
+            )
+
+            print(
+                f"UNIT 14 CUMULATIVE CLOSE SIZE = "
+                f"{current_cumulative_close_size}",
+                flush=True,
+            )
+
+            print(
+                f"UNIT 14 TP3 ARMING REQUIREMENT = "
+                f"{required_pre_tp3_close}",
+                flush=True,
+            )
+
+            print(
+                f"UNIT 14 TP3 TRAILING CALLBACK = "
+                f"{trailing_percent}%",
+                flush=True,
+            )
+
+            print(
+                "-" * 80,
+                flush=True,
+            )
+
+        # ----------------------------------------------------
+        # TP3 TRAILING MANAGEMENT
+        # ----------------------------------------------------
+
         if tp3_armed:
+
             # After any backup has filled, the actual current
-            # remaining position is the quantity managed by
-            # the runner. Before any backup, preserve the
-            # original Unit 13 TP3 allocation.
+            # remaining position is managed by the runner.
+            #
+            # Before any backup, preserve the original Unit 13
+            # TP3 allocation.
 
             if completed_backups > 0:
                 tp3_close_quantity = (
                     position_size
                 )
+
             else:
                 tp3_close_quantity = min(
                     original_tp3_quantity,
@@ -14938,6 +15091,7 @@ def fresh_tp3_runtime(
                 )
 
             if tp3_close_quantity > 0:
+
                 if best_mark is None:
                     best_mark = (
                         current_mark
@@ -14988,6 +15142,7 @@ def fresh_tp3_runtime(
                     )
 
                 if position_side == "LONG":
+
                     trailing_trigger = (
                         best_mark
                         *
@@ -15005,6 +15160,7 @@ def fresh_tp3_runtime(
                     )
 
                 else:
+
                     trailing_trigger = (
                         best_mark
                         *
@@ -15027,21 +15183,32 @@ def fresh_tp3_runtime(
                     f"SIZE = {position_size} | "
                     f"MARK = {current_mark} | "
                     f"LIQ = {liquidation_price} | "
-                    f"BACKUPS FILLED = {completed_backups}/{max_backups} | "
+                    f"BACKUPS FILLED = "
+                    f"{completed_backups}/{max_backups} | "
+                    f"CUM CLOSE = "
+                    f"{current_cumulative_close_size} | "
+                    f"TP3 ARMED = TRUE | "
                     f"TP3 BEST = {best_mark} | "
                     f"TP3 TRIGGER = {trailing_trigger} | "
-                    f"TP3 CALLBACK = {tp3_callback_reached}",
+                    f"TP3 CALLBACK = "
+                    f"{tp3_callback_reached}",
                     flush=True,
                 )
 
         else:
+
             print(
                 f"UNIT 14 CYCLE = {runtime_cycle} | "
                 f"SIDE = {position_side} | "
                 f"SIZE = {position_size} | "
                 f"MARK = {current_mark} | "
                 f"LIQ = {liquidation_price} | "
-                f"BACKUPS FILLED = {completed_backups}/{max_backups} | "
+                f"BACKUPS FILLED = "
+                f"{completed_backups}/{max_backups} | "
+                f"CUM CLOSE = "
+                f"{current_cumulative_close_size} | "
+                f"TP3 ARMING REQUIREMENT = "
+                f"{required_pre_tp3_close} | "
                 f"TP3 ARMED = FALSE",
                 flush=True,
             )
