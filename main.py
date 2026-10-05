@@ -11858,3 +11858,1034 @@ FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
 # UNIT 12 FULLY CLOSED AND CALLED
 # NEXT = PART 11 / UNIT 13
 # ============================================================ 
+
+# ============================================================
+# FRESH RECONSTRUCTION UNIT 13
+# EXISTING-POSITION TAKE-PROFIT MANAGEMENT
+#
+# CORE RULE:
+#
+# NEW SIGNAL QUALIFICATION CONTROLS NEW ENTRY ONLY.
+#
+# ONCE A BTCSUSDT DEMO POSITION EXISTS:
+# - UNIT 13 MANAGES IT INDEPENDENTLY.
+# - UNIT 13 DOES NOT REQUIRE A NEW QUALIFIED SIGNAL.
+# - UNIT 13 DOES NOT REQUIRE UNIT 12 TO BE READY.
+# - UNIT 13 DOES NOT CREATE AN INITIAL ENTRY.
+#
+# TP:
+# - TP1 = 25%
+# - TP2 = 25%
+# - TP3 = 50% TRAILING RUNNER
+# - TP3 TRAILING DISTANCE = 0.20%
+#
+# SAFETY:
+# - DEMO ONLY
+# - REAL TRADING PROHIBITED
+# - SL DISABLED
+# - NO BACKUP EXECUTION
+# - NO LEVERAGE MUTATION
+# - NO MARGIN MODE MUTATION
+# - NO POSITION MODE MUTATION
+# ============================================================
+
+
+def fresh_reconstruction_unit_13(
+    config,
+    unit_12_result,
+):
+    import os
+    import json
+    import time
+    import hmac
+    import hashlib
+    import base64
+    import urllib.request
+    import urllib.error
+    import urllib.parse
+
+    from decimal import (
+        Decimal,
+        ROUND_DOWN,
+    )
+
+    from datetime import (
+        datetime,
+        timezone,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 13 START",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    # ========================================================
+    # 1. BASIC INPUT VALIDATION
+    # ========================================================
+
+    if not isinstance(
+        config,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "CONFIGURATION IS NOT A DICTIONARY"
+        )
+
+    print(
+        "PASS: UNIT 13 RECEIVED UNIT 2 CONFIGURATION",
+        flush=True,
+    )
+
+    if not isinstance(
+        unit_12_result,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "UNIT 12 RESULT IS NOT A DICTIONARY"
+        )
+
+    print(
+        "PASS: UNIT 13 RECEIVED UNIT 12 RESULT",
+        flush=True,
+    )
+
+    unit_12_status = str(
+        unit_12_result.get(
+            "status",
+            "UNKNOWN",
+        )
+    ).upper()
+
+    print(
+        f"UNIT 13 RECEIVED UNIT 12 STATUS = "
+        f"{unit_12_status}",
+        flush=True,
+    )
+
+    # ========================================================
+    # IMPORTANT CORRECTION
+    #
+    # DO NOT RETURN IDLE BECAUSE UNIT 12 IS IDLE.
+    #
+    # Unit 12 controls INITIAL ENTRY.
+    #
+    # Unit 13 controls EXISTING POSITION MANAGEMENT.
+    #
+    # Therefore Unit 13 MUST inspect the actual demo position
+    # before deciding whether TP management is needed.
+    # ========================================================
+
+    print(
+        "PASS: UNIT 13 POSITION MANAGEMENT "
+        "INDEPENDENT OF NEW SIGNAL",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 WILL CHECK EXISTING POSITION "
+        "EVEN WHEN UNIT 12 IS IDLE",
+        flush=True,
+    )
+
+    # ========================================================
+    # 2. STRATEGY CONFIGURATION
+    # ========================================================
+
+    strategy = config.get(
+        "strategy"
+    )
+
+    if not isinstance(
+        strategy,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "STRATEGY CONFIGURATION MISSING"
+        )
+
+    tp1_allocation_percent = Decimal(
+        str(
+            strategy.get(
+                "tp1_allocation_percent",
+                25.0,
+            )
+        )
+    )
+
+    tp2_allocation_percent = Decimal(
+        str(
+            strategy.get(
+                "tp2_allocation_percent",
+                25.0,
+            )
+        )
+    )
+
+    tp3_allocation_percent = Decimal(
+        str(
+            strategy.get(
+                "tp3_allocation_percent",
+                50.0,
+            )
+        )
+    )
+
+    tp3_trailing_percent = Decimal(
+        str(
+            strategy.get(
+                "tp3_trailing_percent",
+                0.20,
+            )
+        )
+    )
+
+    total_tp_allocation = (
+        tp1_allocation_percent
+        +
+        tp2_allocation_percent
+        +
+        tp3_allocation_percent
+    )
+
+    if (
+        total_tp_allocation
+        != Decimal("100")
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "TP ALLOCATION DOES NOT TOTAL 100%"
+        )
+
+    if (
+        tp3_trailing_percent
+        <= Decimal("0")
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "INVALID TP3 TRAILING DISTANCE"
+        )
+
+    print(
+        "PASS: UNIT 13 TP ALLOCATION = 25 / 25 / 50",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 TP3 TRAILING DISTANCE = "
+        f"{tp3_trailing_percent}%",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3. LEVERAGE / TP TARGET CONTRACT
+    #
+    # TP1 = 10% ROI
+    # TP2 = 20% ROI
+    #
+    # At 100x:
+    # TP1 price movement ~= 0.10%
+    # TP2 price movement ~= 0.20%
+    # ========================================================
+
+    leverage_target = Decimal(
+        str(
+            strategy.get(
+                "leverage_target",
+                config.get(
+                    "leverage_target",
+                    100,
+                ),
+            )
+        )
+    )
+
+    if (
+        leverage_target
+        <= Decimal("0")
+    ):
+        leverage_target = Decimal(
+            "100"
+        )
+
+    tp1_roi_percent = Decimal(
+        "10"
+    )
+
+    tp2_roi_percent = Decimal(
+        "20"
+    )
+
+    tp1_price_move_percent = (
+        tp1_roi_percent
+        /
+        leverage_target
+    )
+
+    tp2_price_move_percent = (
+        tp2_roi_percent
+        /
+        leverage_target
+    )
+
+    print(
+        "UNIT 13 TP1 ROI TARGET = 10%",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP2 ROI TARGET = 20%",
+        flush=True,
+    )
+
+    # ========================================================
+    # 4. EXCHANGE CONFIGURATION
+    # ========================================================
+
+    exchange = config.get(
+        "exchange"
+    )
+
+    if not isinstance(
+        exchange,
+        dict,
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "EXCHANGE CONFIGURATION MISSING"
+        )
+
+    demo_symbol = exchange.get(
+        "demo_order_symbol"
+    )
+
+    if (
+        demo_symbol
+        != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "DEMO SYMBOL MUST BE BTCSUSDT"
+        )
+
+    base_url = str(
+        exchange.get(
+            "base_url",
+            "https://api-contract.weex.com",
+        )
+    ).rstrip("/")
+
+    if (
+        base_url
+        !=
+        "https://api-contract.weex.com"
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "UNEXPECTED CONTRACT BASE URL"
+        )
+
+    print(
+        "PASS: UNIT 13 DEMO SYMBOL = BTCSUSDT",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 EXECUTION ENVIRONMENT = DEMO",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 REAL TRADING PROHIBITED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 5. API CREDENTIALS
+    # ========================================================
+
+    api_key = (
+        os.environ.get(
+            "WEEX_API_KEY"
+        )
+        or
+        os.environ.get(
+            "API_KEY"
+        )
+    )
+
+    api_secret = (
+        os.environ.get(
+            "WEEX_API_SECRET"
+        )
+        or
+        os.environ.get(
+            "API_SECRET"
+        )
+    )
+
+    api_passphrase = (
+        os.environ.get(
+            "WEEX_API_PASSPHRASE"
+        )
+        or
+        os.environ.get(
+            "API_PASSPHRASE"
+        )
+    )
+
+    if not api_key:
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "WEEX API KEY MISSING"
+        )
+
+    if not api_secret:
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "WEEX API SECRET MISSING"
+        )
+
+    if not api_passphrase:
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "WEEX API PASSPHRASE MISSING"
+        )
+
+    print(
+        "PASS: UNIT 13 DEMO AUTHENTICATION AVAILABLE",
+        flush=True,
+    )
+
+    # ========================================================
+    # 6. ALWAYS CHECK CURRENT DEMO POSITION
+    #
+    # THIS HAPPENS REGARDLESS OF UNIT 12 STATUS.
+    # ========================================================
+
+    position_request_path = (
+        "/capi/v3/sim/position/allPosition"
+    )
+
+    position_method = "GET"
+
+    position_timestamp = str(
+        int(
+            time.time()
+            * 1000
+        )
+    )
+
+    position_prehash = (
+        position_timestamp
+        +
+        position_method
+        +
+        position_request_path
+    )
+
+    position_signature = (
+        base64.b64encode(
+            hmac.new(
+                api_secret.encode(
+                    "utf-8"
+                ),
+                position_prehash.encode(
+                    "utf-8"
+                ),
+                hashlib.sha256,
+            ).digest()
+        ).decode(
+            "utf-8"
+        )
+    )
+
+    position_headers = {
+        "ACCESS-KEY":
+            api_key,
+
+        "ACCESS-SIGN":
+            position_signature,
+
+        "ACCESS-TIMESTAMP":
+            position_timestamp,
+
+        "ACCESS-PASSPHRASE":
+            api_passphrase,
+
+        "Content-Type":
+            "application/json",
+    }
+
+    position_request = (
+        urllib.request.Request(
+            url=(
+                base_url
+                +
+                position_request_path
+            ),
+            headers=position_headers,
+            method="GET",
+        )
+    )
+
+    position_http_status = None
+    position_response_text = None
+
+    try:
+
+        with urllib.request.urlopen(
+            position_request,
+            timeout=15,
+        ) as response:
+
+            position_http_status = (
+                response.getcode()
+            )
+
+            position_response_text = (
+                response.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        try:
+
+            error_text = (
+                exc.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+        except Exception:
+
+            error_text = str(
+                exc
+            )
+
+        print(
+            "UNIT 13 POSITION HTTP ERROR = "
+            f"{exc.code}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 13 POSITION RESPONSE = "
+            f"{error_text}",
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 13 DEMO POSITION READ FAILED"
+        ) from exc
+
+    except urllib.error.URLError as exc:
+
+        raise RuntimeError(
+            "UNIT 13 DEMO POSITION NETWORK ERROR: "
+            f"{exc}"
+        ) from exc
+
+    if not (
+        200
+        <=
+        int(
+            position_http_status
+        )
+        <
+        300
+    ):
+        raise RuntimeError(
+            "UNIT 13 POSITION READ "
+            "NON-SUCCESS HTTP STATUS"
+        )
+
+    try:
+
+        position_records = (
+            json.loads(
+                position_response_text
+            )
+        )
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            "UNIT 13 POSITION RESPONSE "
+            "IS NOT VALID JSON"
+        ) from exc
+
+    if not isinstance(
+        position_records,
+        list,
+    ):
+        raise RuntimeError(
+            "UNIT 13 POSITION RESPONSE "
+            "IS NOT A LIST"
+        )
+
+    print(
+        "PASS: UNIT 13 DEMO POSITION READ COMPLETED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 7. FIND ACTIVE BTCSUSDT POSITION
+    # ========================================================
+
+    active_positions = []
+
+    for record in position_records:
+
+        if not isinstance(
+            record,
+            dict,
+        ):
+            continue
+
+        record_symbol = str(
+            record.get(
+                "symbol",
+                "",
+            )
+        ).upper()
+
+        if (
+            record_symbol
+            !=
+            "BTCSUSDT"
+        ):
+            continue
+
+        try:
+
+            record_size = Decimal(
+                str(
+                    record.get(
+                        "size",
+                        "0",
+                    )
+                )
+            )
+
+        except Exception:
+
+            continue
+
+        if (
+            record_size
+            >
+            Decimal("0")
+        ):
+
+            active_positions.append(
+                record
+            )
+
+    # ========================================================
+    # 8. NO EXISTING POSITION
+    #
+    # ONLY NOW MAY UNIT 13 RETURN IDLE.
+    # ========================================================
+
+    if (
+        len(
+            active_positions
+        )
+        ==
+        0
+    ):
+
+        result = {
+            "unit": 13,
+
+            "status":
+                "IDLE_NO_POSITION",
+
+            "read_only":
+                False,
+
+            "unit_12_status":
+                unit_12_status,
+
+            "position_check_attempted":
+                True,
+
+            "position_check_completed":
+                True,
+
+            "active_position_exists":
+                False,
+
+            "tp_management_required":
+                False,
+
+            "tp_execution_attempted":
+                False,
+
+            "tp_execution_completed":
+                False,
+
+            "sl_execution_attempted":
+                False,
+
+            "backup_execution_attempted":
+                False,
+
+            "real_submission_attempted":
+                False,
+
+            "exchange_write":
+                False,
+
+            "skip_reason":
+                "NO_ACTIVE_BTCSUSDT_POSITION",
+        }
+
+        print(
+            "-" * 80,
+            flush=True,
+        )
+
+        print(
+            "UNIT 13 STATUS = IDLE_NO_POSITION",
+            flush=True,
+        )
+
+        print(
+            "UNIT 13 ACTIVE POSITION EXISTS = False",
+            flush=True,
+        )
+
+        print(
+            "UNIT 13 NEW SIGNAL REQUIRED FOR NEW ENTRY = True",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 13 NO POSITION TO MANAGE",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 13 NO TP EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 13 NO SL EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 13 NO BACKUP EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "ZERO EXCHANGE WRITE = TRUE",
+            flush=True,
+        )
+
+        print(
+            "-" * 80,
+            flush=True,
+        )
+
+        print(
+            f"{datetime.now(timezone.utc).isoformat()} "
+            "FRESH RECONSTRUCTION UNIT 13 RESULT = "
+            "PASS (IDLE_NO_POSITION)",
+            flush=True,
+        )
+
+        print(
+            "=" * 80,
+            flush=True,
+        )
+
+        return result
+
+    # ========================================================
+    # 9. EXACTLY ONE ACTIVE POSITION REQUIRED
+    # ========================================================
+
+    if (
+        len(
+            active_positions
+        )
+        !=
+        1
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "MULTIPLE ACTIVE BTCSUSDT POSITIONS DETECTED"
+        )
+
+    position = (
+        active_positions[0]
+    )
+
+    position_side = str(
+        position.get(
+            "side",
+            "",
+        )
+    ).upper()
+
+    if position_side not in (
+        "LONG",
+        "SHORT",
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "INVALID POSITION SIDE"
+        )
+
+    position_size = Decimal(
+        str(
+            position.get(
+                "size",
+                "0",
+            )
+        )
+    )
+
+    if (
+        position_size
+        <=
+        Decimal("0")
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "INVALID ACTIVE POSITION SIZE"
+        )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 ACTIVE POSITION EXISTS = True",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 13 POSITION SIDE = "
+        f"{position_side}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 13 CURRENT POSITION SIZE = "
+        f"{position_size}",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 EXISTING POSITION "
+        "MANAGEMENT ACTIVATED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 NEW QUALIFIED SIGNAL "
+        "NOT REQUIRED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 10. DERIVE AVERAGE ENTRY PRICE
+    # ========================================================
+
+    try:
+
+        open_value = Decimal(
+            str(
+                position.get(
+                    "openValue",
+                    "0",
+                )
+            )
+        )
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "INVALID POSITION OPEN VALUE"
+        ) from exc
+
+    if (
+        open_value
+        <=
+        Decimal("0")
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "POSITION OPEN VALUE MISSING OR ZERO"
+        )
+
+    average_entry_price = (
+        open_value
+        /
+        position_size
+    )
+
+    if (
+        average_entry_price
+        <=
+        Decimal("0")
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "AVERAGE ENTRY PRICE INVALID"
+        )
+
+    print(
+        "UNIT 13 AVERAGE ENTRY PRICE = "
+        f"{average_entry_price}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 11. CUMULATIVE OPEN / CLOSE SIZE
+    # ========================================================
+
+    try:
+
+        cumulative_open_size = Decimal(
+            str(
+                position.get(
+                    "cumOpenSize",
+                    position_size,
+                )
+            )
+        )
+
+    except Exception:
+
+        cumulative_open_size = (
+            position_size
+        )
+
+    try:
+
+        cumulative_close_size = Decimal(
+            str(
+                position.get(
+                    "cumCloseSize",
+                    "0",
+                )
+            )
+        )
+
+    except Exception:
+
+        cumulative_close_size = (
+            Decimal("0")
+        )
+
+    if (
+        cumulative_open_size
+        <=
+        Decimal("0")
+    ):
+        cumulative_open_size = (
+            position_size
+        )
+
+    if (
+        cumulative_close_size
+        <
+        Decimal("0")
+    ):
+        cumulative_close_size = (
+            Decimal("0")
+        )
+
+    print(
+        "UNIT 13 CUMULATIVE OPEN SIZE = "
+        f"{cumulative_open_size}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 CUMULATIVE CLOSE SIZE = "
+        f"{cumulative_close_size}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 12. QUANTITY STEP
+    # ========================================================
+
+    quantity_step = Decimal(
+        "0.0001"
+    )
+
+    market_precision = config.get(
+        "market_precision"
+    )
+
+    if isinstance(
+        market_precision,
+        dict,
+    ):
+
+        configured_step = (
+            market_precision.get(
+                "quantity_step"
+            )
+        )
+
+        if (
+            configured_step
+            is not None
+        ):
+
+            try:
+
+                parsed_step = Decimal(
+                    str(
+                        configured_step
+                    )
+                )
+
+                if (
+                    parsed_step
+                    >
+                    Decimal("0")
+                ):
+                    quantity_step = (
+                        parsed_step
+                    )
+
+            except Exception:
+                pass
+
+# ============================================================
+# END PART 11A
+# CONTINUE DIRECTLY WITH PART 11B
+# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
+# ============================================================
