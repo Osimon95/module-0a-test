@@ -16729,3 +16729,13 @@ def fresh_tp3_runtime(
 # NEXT = FINAL UNIT 14 CALL
 # ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
 # ============================================================
+
+# START UNIT 14 COMBINED TP3 + BACKUP RUNTIME
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
+    fresh_tp3_runtime(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_13_RESULT,
+    )
+)
