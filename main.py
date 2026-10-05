@@ -12890,9 +12890,10 @@ def fresh_reconstruction_unit_13(
 # ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
 # ============================================================
 
+        if (
             configured_step
             is not None
-        ):
+        ):    
 
             try:
 
