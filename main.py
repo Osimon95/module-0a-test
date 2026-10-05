@@ -13621,3 +13621,1489 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
     )
 )
 
+# ============================================================
+# TP3 DEMO TRAILING RUNTIME
+#
+# PURPOSE:
+# - COMPLETE THE TP3 RUNNER ALREADY ARMED BY UNIT 13.
+# - TP3 = REMAINING 50% RUNNER.
+# - TRAILING CALLBACK = 0.20%.
+# - NO NEW QUALIFIED SIGNAL REQUIRED.
+# - DEMO BTCSUSDT ONLY.
+# - REAL ORDER PROHIBITED.
+# - SL REMAINS DISABLED.
+#
+# IMPORTANT:
+# - THIS BLOCK RUNS AFTER UNIT 13.
+# - IT DOES NOT MODIFY TP1 OR TP2.
+# - IT DOES NOT CREATE A NEW POSITION.
+# - IT CLOSES ONLY THE EXISTING TP3 RUNNER.
+# ============================================================
+
+
+def fresh_tp3_runtime(
+    config,
+    unit_13_result,
+):
+
+    import os
+    import json
+    import time
+    import hmac
+    import hashlib
+    import base64
+    import urllib.request
+    import urllib.error
+
+    from decimal import Decimal
+    from datetime import datetime, timezone
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "TP3 TRAILING RUNTIME START",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    # ========================================================
+    # 1. CONFIGURATION CONTRACT
+    # ========================================================
+
+    if not isinstance(
+        config,
+        dict,
+    ):
+        raise RuntimeError(
+            "TP3 RUNTIME BLOCKED: "
+            "CONFIGURATION MISSING"
+        )
+
+    if not isinstance(
+        unit_13_result,
+        dict,
+    ):
+        raise RuntimeError(
+            "TP3 RUNTIME BLOCKED: "
+            "UNIT 13 RESULT MISSING"
+        )
+
+    strategy = config.get(
+        "strategy",
+        {},
+    )
+
+    exchange = config.get(
+        "exchange",
+        {},
+    )
+
+    if not isinstance(
+        strategy,
+        dict,
+    ):
+        raise RuntimeError(
+            "TP3 RUNTIME BLOCKED: "
+            "STRATEGY CONFIGURATION MISSING"
+        )
+
+    if not isinstance(
+        exchange,
+        dict,
+    ):
+        raise RuntimeError(
+            "TP3 RUNTIME BLOCKED: "
+            "EXCHANGE CONFIGURATION MISSING"
+        )
+
+    execution_environment = str(
+        config.get(
+            "execution_environment",
+            "",
+        )
+    ).upper()
+
+    if (
+        execution_environment
+        !=
+        "DEMO"
+    ):
+        raise RuntimeError(
+            "TP3 RUNTIME BLOCKED: "
+            "EXECUTION ENVIRONMENT IS NOT DEMO"
+        )
+
+    market_symbol = str(
+        exchange.get(
+            "market_symbol",
+            "",
+        )
+    ).upper()
+
+    demo_symbol = str(
+        exchange.get(
+            "demo_order_symbol",
+            "",
+        )
+    ).upper()
+
+    base_url = str(
+        exchange.get(
+            "contract_base_url",
+            "",
+        )
+    ).rstrip("/")
+
+    if (
+        market_symbol
+        !=
+        "BTCUSDT"
+    ):
+        raise RuntimeError(
+            "TP3 RUNTIME BLOCKED: "
+            "MARKET SYMBOL MUST BE BTCUSDT"
+        )
+
+    if (
+        demo_symbol
+        !=
+        "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "TP3 RUNTIME BLOCKED: "
+            "DEMO SYMBOL MUST BE BTCSUSDT"
+        )
+
+    if (
+        base_url
+        !=
+        "https://api-contract.weex.com"
+    ):
+        raise RuntimeError(
+            "TP3 RUNTIME BLOCKED: "
+            "INVALID CONTRACT BASE URL"
+        )
+
+    trailing_percent = Decimal(
+        str(
+            strategy.get(
+                "tp3_trailing_percent",
+                0.20,
+            )
+        )
+    )
+
+    if (
+        trailing_percent
+        !=
+        Decimal("0.20")
+    ):
+        raise RuntimeError(
+            "TP3 RUNTIME BLOCKED: "
+            "TRAILING DISTANCE MUST BE 0.20%"
+        )
+
+    trailing_fraction = (
+        trailing_percent
+        /
+        Decimal("100")
+    )
+
+    print(
+        "PASS: TP3 EXECUTION ENVIRONMENT = DEMO",
+        flush=True,
+    )
+
+    print(
+        "PASS: TP3 MARKET SYMBOL = BTCUSDT",
+        flush=True,
+    )
+
+    print(
+        "PASS: TP3 DEMO SYMBOL = BTCSUSDT",
+        flush=True,
+    )
+
+    print(
+        "PASS: TP3 TRAILING CALLBACK = 0.20%",
+        flush=True,
+    )
+
+    print(
+        "PASS: TP3 NEW QUALIFIED SIGNAL REQUIRED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "PASS: TP3 SL REMAINS DISABLED",
+        flush=True,
+    )
+
+    print(
+        "PASS: TP3 REAL TRADING PROHIBITED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 2. UNIT 13 MUST HAVE ARMED TP3
+    # ========================================================
+
+    unit_13_status = str(
+        unit_13_result.get(
+            "status",
+            "",
+        )
+    ).upper()
+
+    tp3_armed = (
+        unit_13_result.get(
+            "tp3_armed"
+        )
+        is True
+    )
+
+    if (
+        unit_13_status
+        !=
+        "TP3_ARMED"
+        or
+        not tp3_armed
+    ):
+
+        print(
+            "TP3 RUNTIME STATUS = NOT_ARMED",
+            flush=True,
+        )
+
+        print(
+            f"TP3 RECEIVED UNIT 13 STATUS = "
+            f"{unit_13_status}",
+            flush=True,
+        )
+
+        print(
+            "TP3 TRAILING LOOP STARTED = FALSE",
+            flush=True,
+        )
+
+        print(
+            "ZERO EXCHANGE WRITE = TRUE",
+            flush=True,
+        )
+
+        print(
+            "=" * 80,
+            flush=True,
+        )
+
+        return {
+            "status":
+                "NOT_ARMED",
+
+            "exchange_write":
+                False,
+        }
+
+    position_side = str(
+        unit_13_result.get(
+            "position_side",
+            "",
+        )
+    ).upper()
+
+    if position_side not in (
+        "LONG",
+        "SHORT",
+    ):
+        raise RuntimeError(
+            "TP3 RUNTIME BLOCKED: "
+            "INVALID POSITION SIDE"
+        )
+
+    tp3_quantity = Decimal(
+        str(
+            unit_13_result.get(
+                "tp3_quantity",
+                "0",
+            )
+        )
+    )
+
+    if (
+        tp3_quantity
+        <=
+        Decimal("0")
+    ):
+        raise RuntimeError(
+            "TP3 RUNTIME BLOCKED: "
+            "INVALID TP3 QUANTITY"
+        )
+
+    print(
+        "PASS: TP3 ARMED BY UNIT 13",
+        flush=True,
+    )
+
+    print(
+        f"TP3 POSITION SIDE = "
+        f"{position_side}",
+        flush=True,
+    )
+
+    print(
+        f"TP3 ALLOCATED QUANTITY = "
+        f"{tp3_quantity}",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3. DEMO AUTHENTICATION
+    # ========================================================
+
+    api_key = (
+        os.environ.get(
+            "WEEX_API_KEY"
+        )
+        or
+        os.environ.get(
+            "API_KEY"
+        )
+    )
+
+    api_secret = (
+        os.environ.get(
+            "WEEX_API_SECRET"
+        )
+        or
+        os.environ.get(
+            "API_SECRET"
+        )
+    )
+
+    api_passphrase = (
+        os.environ.get(
+            "WEEX_API_PASSPHRASE"
+        )
+        or
+        os.environ.get(
+            "API_PASSPHRASE"
+        )
+    )
+
+    if not api_key:
+        raise RuntimeError(
+            "TP3 RUNTIME BLOCKED: "
+            "WEEX API KEY MISSING"
+        )
+
+    if not api_secret:
+        raise RuntimeError(
+            "TP3 RUNTIME BLOCKED: "
+            "WEEX API SECRET MISSING"
+        )
+
+    if not api_passphrase:
+        raise RuntimeError(
+            "TP3 RUNTIME BLOCKED: "
+            "WEEX API PASSPHRASE MISSING"
+        )
+
+    print(
+        "PASS: TP3 DEMO AUTHENTICATION AVAILABLE",
+        flush=True,
+    )
+
+    # ========================================================
+    # 4. STATE
+    #
+    # best_mark:
+    #
+    # LONG  -> highest mark observed
+    # SHORT -> lowest mark observed
+    # ========================================================
+
+    best_mark = None
+
+    runtime_cycle = 0
+
+    poll_seconds = 5
+
+    print(
+        f"TP3 RUNTIME POLL INTERVAL = "
+        f"{poll_seconds} SECONDS",
+        flush=True,
+    )
+
+    print(
+        "TP3 TRAILING LOOP STARTED = TRUE",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    # ========================================================
+    # 5. CONTINUOUS TP3 MANAGEMENT LOOP
+    # ========================================================
+
+    while True:
+
+        runtime_cycle += 1
+
+        # ====================================================
+        # 5A. CHECK ACTUAL DEMO POSITION FIRST
+        # ====================================================
+
+        position_path = (
+            "/capi/v3/sim/position/allPosition"
+        )
+
+        timestamp = str(
+            int(
+                time.time()
+                *
+                1000
+            )
+        )
+
+        prehash = (
+            timestamp
+            +
+            "GET"
+            +
+            position_path
+        )
+
+        signature = (
+            base64.b64encode(
+                hmac.new(
+                    api_secret.encode(
+                        "utf-8"
+                    ),
+                    prehash.encode(
+                        "utf-8"
+                    ),
+                    hashlib.sha256,
+                ).digest()
+            ).decode(
+                "utf-8"
+            )
+        )
+
+        position_headers = {
+            "ACCESS-KEY":
+                api_key,
+
+            "ACCESS-SIGN":
+                signature,
+
+            "ACCESS-TIMESTAMP":
+                timestamp,
+
+            "ACCESS-PASSPHRASE":
+                api_passphrase,
+
+            "Content-Type":
+                "application/json",
+        }
+
+        position_request = (
+            urllib.request.Request(
+                url=(
+                    base_url
+                    +
+                    position_path
+                ),
+                headers=position_headers,
+                method="GET",
+            )
+        )
+
+        try:
+
+            with urllib.request.urlopen(
+                position_request,
+                timeout=15,
+            ) as response:
+
+                position_status = (
+                    response.getcode()
+                )
+
+                position_text = (
+                    response.read()
+                    .decode(
+                        "utf-8",
+                        errors="replace",
+                    )
+                )
+
+        except Exception as exc:
+
+            print(
+                "TP3 POSITION READ ERROR = "
+                f"{repr(exc)}",
+                flush=True,
+            )
+
+            print(
+                "TP3 RUNTIME RETRYING",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        if not (
+            200
+            <=
+            int(
+                position_status
+            )
+            <
+            300
+        ):
+
+            print(
+                "TP3 POSITION HTTP STATUS = "
+                f"{position_status}",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        try:
+
+            position_records = (
+                json.loads(
+                    position_text
+                )
+            )
+
+        except Exception as exc:
+
+            print(
+                "TP3 POSITION JSON ERROR = "
+                f"{repr(exc)}",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        active_position = None
+
+        if isinstance(
+            position_records,
+            list,
+        ):
+
+            for record in position_records:
+
+                if not isinstance(
+                    record,
+                    dict,
+                ):
+                    continue
+
+                if (
+                    str(
+                        record.get(
+                            "symbol",
+                            "",
+                        )
+                    ).upper()
+                    !=
+                    "BTCSUSDT"
+                ):
+                    continue
+
+                try:
+
+                    record_size = Decimal(
+                        str(
+                            record.get(
+                                "size",
+                                "0",
+                            )
+                        )
+                    )
+
+                except Exception:
+
+                    continue
+
+                if (
+                    record_size
+                    >
+                    Decimal("0")
+                ):
+
+                    active_position = (
+                        record
+                    )
+
+                    break
+
+        # ====================================================
+        # POSITION ALREADY CLOSED
+        # ====================================================
+
+        if (
+            active_position
+            is None
+        ):
+
+            print(
+                "-" * 80,
+                flush=True,
+            )
+
+            print(
+                "TP3 ACTIVE POSITION EXISTS = FALSE",
+                flush=True,
+            )
+
+            print(
+                "TP3 RUNTIME STATUS = POSITION_CLOSED",
+                flush=True,
+            )
+
+            print(
+                "TP3 TRAILING LOOP COMPLETE",
+                flush=True,
+            )
+
+            print(
+                "=" * 80,
+                flush=True,
+            )
+
+            return {
+                "status":
+                    "POSITION_CLOSED",
+
+                "exchange_write":
+                    False,
+            }
+
+        actual_side = str(
+            active_position.get(
+                "side",
+                "",
+            )
+        ).upper()
+
+        if (
+            actual_side
+            !=
+            position_side
+        ):
+
+            raise RuntimeError(
+                "TP3 RUNTIME BLOCKED: "
+                "POSITION SIDE CHANGED"
+            )
+
+        current_position_size = Decimal(
+            str(
+                active_position.get(
+                    "size",
+                    "0",
+                )
+            )
+        )
+
+        # ====================================================
+        # TP3 MAY NEVER CLOSE MORE THAN CURRENT POSITION
+        # ====================================================
+
+        close_quantity = min(
+            tp3_quantity,
+            current_position_size,
+        )
+
+        if (
+            close_quantity
+            <=
+            Decimal("0")
+        ):
+
+            print(
+                "TP3 RUNTIME STATUS = "
+                "NO_REMAINING_QUANTITY",
+                flush=True,
+            )
+
+            return {
+                "status":
+                    "NO_REMAINING_QUANTITY",
+
+                "exchange_write":
+                    False,
+            }
+
+        # ====================================================
+        # 5B. GET CURRENT PUBLIC MARK PRICE
+        # ====================================================
+
+        mark_path = (
+            "/capi/v3/market/symbolPrice"
+        )
+
+        mark_query = (
+            "?symbol=BTCUSDT"
+            "&priceType=MARK"
+        )
+
+        mark_request = (
+            urllib.request.Request(
+                url=(
+                    base_url
+                    +
+                    mark_path
+                    +
+                    mark_query
+                ),
+                method="GET",
+                headers={
+                    "Accept":
+                        "application/json",
+                },
+            )
+        )
+
+        try:
+
+            with urllib.request.urlopen(
+                mark_request,
+                timeout=15,
+            ) as response:
+
+                mark_status = (
+                    response.getcode()
+                )
+
+                mark_text = (
+                    response.read()
+                    .decode(
+                        "utf-8",
+                        errors="replace",
+                    )
+                )
+
+        except Exception as exc:
+
+            print(
+                "TP3 MARK PRICE READ ERROR = "
+                f"{repr(exc)}",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        if not (
+            200
+            <=
+            int(
+                mark_status
+            )
+            <
+            300
+        ):
+
+            print(
+                "TP3 MARK PRICE HTTP STATUS = "
+                f"{mark_status}",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        try:
+
+            mark_json = (
+                json.loads(
+                    mark_text
+                )
+            )
+
+            current_mark = Decimal(
+                str(
+                    mark_json.get(
+                        "price"
+                    )
+                )
+            )
+
+        except Exception as exc:
+
+            print(
+                "TP3 MARK PRICE JSON ERROR = "
+                f"{repr(exc)}",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        if (
+            current_mark
+            <=
+            Decimal("0")
+        ):
+
+            print(
+                "TP3 INVALID MARK PRICE",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 5C. INITIALIZE / UPDATE BEST FAVORABLE MARK
+        # ====================================================
+
+        if (
+            best_mark
+            is None
+        ):
+
+            best_mark = (
+                current_mark
+            )
+
+            print(
+                f"TP3 INITIAL BEST MARK = "
+                f"{best_mark}",
+                flush=True,
+            )
+
+        elif (
+            position_side
+            ==
+            "LONG"
+            and
+            current_mark
+            >
+            best_mark
+        ):
+
+            best_mark = (
+                current_mark
+            )
+
+            print(
+                f"TP3 NEW BEST FAVORABLE MARK = "
+                f"{best_mark}",
+                flush=True,
+            )
+
+        elif (
+            position_side
+            ==
+            "SHORT"
+            and
+            current_mark
+            <
+            best_mark
+        ):
+
+            best_mark = (
+                current_mark
+            )
+
+            print(
+                f"TP3 NEW BEST FAVORABLE MARK = "
+                f"{best_mark}",
+                flush=True,
+            )
+
+        # ====================================================
+        # 5D. CALCULATE 0.20% CALLBACK PRICE
+        # ====================================================
+
+        if (
+            position_side
+            ==
+            "LONG"
+        ):
+
+            trailing_trigger = (
+                best_mark
+                *
+                (
+                    Decimal("1")
+                    -
+                    trailing_fraction
+                )
+            )
+
+            callback_reached = (
+                current_mark
+                <=
+                trailing_trigger
+            )
+
+        else:
+
+            trailing_trigger = (
+                best_mark
+                *
+                (
+                    Decimal("1")
+                    +
+                    trailing_fraction
+                )
+            )
+
+            callback_reached = (
+                current_mark
+                >=
+                trailing_trigger
+            )
+
+        print(
+            f"TP3 CYCLE = "
+            f"{runtime_cycle} | "
+            f"SIDE = {position_side} | "
+            f"CURRENT = {current_mark} | "
+            f"BEST = {best_mark} | "
+            f"TRIGGER = {trailing_trigger} | "
+            f"CALLBACK = {callback_reached}",
+            flush=True,
+        )
+
+        # ====================================================
+        # 5E. CONTINUE TRAILING
+        # ====================================================
+
+        if not callback_reached:
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # 6. CALLBACK REACHED
+        #
+        # CLOSE TP3 USING DEMO MARKET ORDER ONLY.
+        # ====================================================
+
+        if (
+            position_side
+            ==
+            "LONG"
+        ):
+
+            closing_side = (
+                "SELL"
+            )
+
+        else:
+
+            closing_side = (
+                "BUY"
+            )
+
+        quantity_text = (
+            f"{close_quantity:.8f}"
+            .rstrip("0")
+            .rstrip(".")
+        )
+
+        if not quantity_text:
+
+            raise RuntimeError(
+                "TP3 RUNTIME BLOCKED: "
+                "EMPTY CLOSE QUANTITY"
+            )
+
+        client_order_id = (
+            "FR-TP3-"
+            +
+            str(
+                int(
+                    time.time()
+                    *
+                    1000000
+                )
+            )
+        )
+
+        client_order_id = (
+            client_order_id[:36]
+        )
+
+        tp3_payload = {
+            "symbol":
+                "BTCSUSDT",
+
+            "side":
+                closing_side,
+
+            "positionSide":
+                position_side,
+
+            "type":
+                "MARKET",
+
+            "quantity":
+                quantity_text,
+
+            "newClientOrderId":
+                client_order_id,
+        }
+
+        # ====================================================
+        # ABSOLUTE SL PROHIBITION
+        # ====================================================
+
+        prohibited_fields = (
+            "slTriggerPrice",
+            "SlWorkingType",
+            "stopLossPrice",
+            "stopPrice",
+        )
+
+        for field in prohibited_fields:
+
+            if (
+                field
+                in
+                tp3_payload
+            ):
+
+                raise RuntimeError(
+                    "TP3 RUNTIME BLOCKED: "
+                    "SL FIELD DETECTED"
+                )
+
+        # ====================================================
+        # ABSOLUTE DEMO-ENDPOINT CONTRACT
+        # ====================================================
+
+        order_path = (
+            "/capi/v3/sim/order"
+        )
+
+        if (
+            "/sim/"
+            not in
+            order_path
+        ):
+
+            raise RuntimeError(
+                "TP3 RUNTIME BLOCKED: "
+                "NON-DEMO ORDER ENDPOINT"
+            )
+
+        body = json.dumps(
+            tp3_payload,
+            separators=(
+                ",",
+                ":",
+            ),
+            ensure_ascii=False,
+        )
+
+        timestamp = str(
+            int(
+                time.time()
+                *
+                1000
+            )
+        )
+
+        prehash = (
+            timestamp
+            +
+            "POST"
+            +
+            order_path
+            +
+            body
+        )
+
+        signature = (
+            base64.b64encode(
+                hmac.new(
+                    api_secret.encode(
+                        "utf-8"
+                    ),
+                    prehash.encode(
+                        "utf-8"
+                    ),
+                    hashlib.sha256,
+                ).digest()
+            ).decode(
+                "utf-8"
+            )
+        )
+
+        order_headers = {
+            "ACCESS-KEY":
+                api_key,
+
+            "ACCESS-SIGN":
+                signature,
+
+            "ACCESS-TIMESTAMP":
+                timestamp,
+
+            "ACCESS-PASSPHRASE":
+                api_passphrase,
+
+            "Content-Type":
+                "application/json",
+        }
+
+        print(
+            "-" * 80,
+            flush=True,
+        )
+
+        print(
+            "TP3 CALLBACK REACHED = TRUE",
+            flush=True,
+        )
+
+        print(
+            f"TP3 BEST FAVORABLE MARK = "
+            f"{best_mark}",
+            flush=True,
+        )
+
+        print(
+            f"TP3 CALLBACK TRIGGER = "
+            f"{trailing_trigger}",
+            flush=True,
+        )
+
+        print(
+            f"TP3 CURRENT MARK = "
+            f"{current_mark}",
+            flush=True,
+        )
+
+        print(
+            f"TP3 CLOSE SIDE = "
+            f"{closing_side}",
+            flush=True,
+        )
+
+        print(
+            f"TP3 CLOSE QUANTITY = "
+            f"{quantity_text}",
+            flush=True,
+        )
+
+        print(
+            "TP3 EXECUTION ENVIRONMENT = DEMO",
+            flush=True,
+        )
+
+        print(
+            "TP3 REAL ORDER = FALSE",
+            flush=True,
+        )
+
+        print(
+            "TP3 SL ENABLED = FALSE",
+            flush=True,
+        )
+
+        # ====================================================
+        # 7. SUBMIT EXACTLY ONE DEMO TP3 CLOSE
+        # ====================================================
+
+        order_request = (
+            urllib.request.Request(
+                url=(
+                    base_url
+                    +
+                    order_path
+                ),
+                data=body.encode(
+                    "utf-8"
+                ),
+                headers=order_headers,
+                method="POST",
+            )
+        )
+
+        try:
+
+            with urllib.request.urlopen(
+                order_request,
+                timeout=15,
+            ) as response:
+
+                order_status = (
+                    response.getcode()
+                )
+
+                order_text = (
+                    response.read()
+                    .decode(
+                        "utf-8",
+                        errors="replace",
+                    )
+                )
+
+        except urllib.error.HTTPError as exc:
+
+            try:
+
+                error_text = (
+                    exc.read()
+                    .decode(
+                        "utf-8",
+                        errors="replace",
+                    )
+                )
+
+            except Exception:
+
+                error_text = str(
+                    exc
+                )
+
+            print(
+                f"TP3 DEMO ORDER HTTP ERROR = "
+                f"{exc.code}",
+                flush=True,
+            )
+
+            print(
+                f"TP3 DEMO ORDER ERROR RESPONSE = "
+                f"{error_text}",
+                flush=True,
+            )
+
+            # Do not blindly send another close.
+            # Recheck position on next cycle.
+
+            best_mark = None
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        except urllib.error.URLError as exc:
+
+            print(
+                f"TP3 DEMO ORDER NETWORK ERROR = "
+                f"{exc}",
+                flush=True,
+            )
+
+            # Submission outcome may be uncertain.
+            # Recheck actual position before any retry.
+
+            best_mark = None
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        print(
+            f"TP3 DEMO ORDER HTTP STATUS = "
+            f"{order_status}",
+            flush=True,
+        )
+
+        print(
+            f"TP3 DEMO ORDER RESPONSE = "
+            f"{order_text}",
+            flush=True,
+        )
+
+        try:
+
+            order_json = (
+                json.loads(
+                    order_text
+                )
+            )
+
+        except Exception as exc:
+
+            raise RuntimeError(
+                "TP3 DEMO ORDER RESPONSE "
+                "IS NOT VALID JSON"
+            ) from exc
+
+        if not (
+            200
+            <=
+            int(
+                order_status
+            )
+            <
+            300
+        ):
+
+            raise RuntimeError(
+                "TP3 DEMO CLOSE FAILED: "
+                f"HTTP {order_status}"
+            )
+
+        if (
+            order_json.get(
+                "success"
+            )
+            is not True
+        ):
+
+            raise RuntimeError(
+                "TP3 DEMO CLOSE NOT ACCEPTED: "
+                f"{order_json}"
+            )
+
+        order_id = (
+            order_json.get(
+                "orderId"
+            )
+        )
+
+        if not order_id:
+
+            raise RuntimeError(
+                "TP3 DEMO CLOSE ACCEPTED "
+                "WITHOUT ORDER ID"
+            )
+
+        print(
+            "-" * 80,
+            flush=True,
+        )
+
+        print(
+            "PASS: TP3 DEMO CLOSE SUBMITTED",
+            flush=True,
+        )
+
+        print(
+            f"PASS: TP3 ORDER ID = "
+            f"{order_id}",
+            flush=True,
+        )
+
+        print(
+            "PASS: TP3 NEW SIGNAL REQUIRED = FALSE",
+            flush=True,
+        )
+
+        print(
+            "PASS: TP3 SL REMAINS DISABLED",
+            flush=True,
+        )
+
+        print(
+            "PASS: TP3 REAL ORDER = FALSE",
+            flush=True,
+        )
+
+        print(
+            "PASS: TP3 TRAILING RUNTIME COMPLETED",
+            flush=True,
+        )
+
+        print(
+            "=" * 80,
+            flush=True,
+        )
+
+        return {
+            "status":
+                "TP3_EXECUTED",
+
+            "position_side":
+                position_side,
+
+            "best_mark":
+                float(
+                    best_mark
+                ),
+
+            "trigger_mark":
+                float(
+                    trailing_trigger
+                ),
+
+            "close_mark":
+                float(
+                    current_mark
+                ),
+
+            "close_quantity":
+                float(
+                    close_quantity
+                ),
+
+            "order_id":
+                order_id,
+
+            "exchange_write":
+                True,
+
+            "real_order":
+                False,
+
+            "sl_enabled":
+                False,
+        }
+
+
+# ============================================================
+# START TP3 RUNTIME
+# ============================================================
+
+FRESH_TP3_RUNTIME_RESULT = (
+    fresh_tp3_runtime(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_13_RESULT,
+    )
+)
