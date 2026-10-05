@@ -13895,3 +13895,1010 @@ def fresh_reconstruction_unit_13(
 # CONTINUE DIRECTLY WITH PART 11C
 # ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
 # ============================================================
+
+             url=(
+                base_url
+                +
+                request_path
+            ),
+            data=body.encode(
+                "utf-8"
+            ),
+            headers=headers,
+            method="POST",
+        )
+    )
+
+    response_status = None
+    response_text = None
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            response_status = (
+                response.getcode()
+            )
+
+            response_text = (
+                response.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        try:
+
+            error_text = (
+                exc.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+        except Exception:
+
+            error_text = str(
+                exc
+            )
+
+        print(
+            "UNIT 13 TP HTTP ERROR = "
+            f"{exc.code}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 13 TP ERROR RESPONSE = "
+            f"{error_text}",
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 13 DEMO TP ORDER REJECTED"
+        ) from exc
+
+    except urllib.error.URLError as exc:
+
+        raise RuntimeError(
+            "UNIT 13 DEMO TP NETWORK ERROR: "
+            f"{exc}"
+        ) from exc
+
+    print(
+        f"UNIT 13 TP HTTP STATUS = "
+        f"{response_status}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 13 TP RESPONSE = "
+        f"{response_text}",
+        flush=True,
+    )
+
+    try:
+
+        response_json = (
+            json.loads(
+                response_text
+            )
+        )
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            "UNIT 13 TP RESPONSE "
+            "IS NOT VALID JSON"
+        ) from exc
+
+    if not (
+        200
+        <=
+        int(
+            response_status
+        )
+        <
+        300
+    ):
+        raise RuntimeError(
+            "UNIT 13 TP ORDER FAILED: "
+            f"HTTP {response_status}"
+        )
+
+    if (
+        response_json.get(
+            "success"
+        )
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 13 TP ORDER NOT ACCEPTED: "
+            f"{response_json}"
+        )
+
+    tp_order_id = (
+        response_json.get(
+            "orderId"
+        )
+    )
+
+    if not tp_order_id:
+        raise RuntimeError(
+            "UNIT 13 TP ACCEPTED "
+            "WITHOUT ORDER ID"
+        )
+
+    # ========================================================
+    # 25. SUCCESS RESULT
+    # ========================================================
+
+    result = {
+        "unit":
+            13,
+
+        "status":
+            "TP_EXECUTED",
+
+        "read_only":
+            False,
+
+        "unit_12_status":
+            unit_12_status,
+
+        "active_position_exists":
+            True,
+
+        "position_side":
+            position_side,
+
+        "position_size_before":
+            float(
+                position_size
+            ),
+
+        "average_entry_price":
+            float(
+                average_entry_price
+            ),
+
+        "mark_price":
+            float(
+                mark_price
+            ),
+
+        "tp_action":
+            tp_action,
+
+        "tp_close_quantity":
+            float(
+                close_quantity
+            ),
+
+        "tp1_target":
+            float(
+                tp1_target
+            ),
+
+        "tp2_target":
+            float(
+                tp2_target
+            ),
+
+        "tp1_quantity":
+            float(
+                tp1_quantity
+            ),
+
+        "tp2_quantity":
+            float(
+                tp2_quantity
+            ),
+
+        "tp3_quantity":
+            float(
+                tp3_quantity
+            ),
+
+        "tp3_trailing_percent":
+            float(
+                tp3_trailing_percent
+            ),
+
+        "tp_execution_attempted":
+            True,
+
+        "tp_execution_completed":
+            True,
+
+        "sl_execution_attempted":
+            False,
+
+        "backup_execution_attempted":
+            False,
+
+        "real_submission_attempted":
+            False,
+
+        "authenticated_request":
+            True,
+
+        "order_endpoint_access":
+            True,
+
+        "exchange_write":
+            True,
+
+        "request_path":
+            request_path,
+
+        "request_payload":
+            tp_payload,
+
+        "http_status":
+            response_status,
+
+        "weex_response":
+            response_json,
+
+        "order_id":
+            tp_order_id,
+    }
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        f"PASS: UNIT 13 "
+        f"{tp_action} DEMO EXECUTED",
+        flush=True,
+    )
+
+    print(
+        f"PASS: UNIT 13 TP ORDER ID = "
+        f"{tp_order_id}",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 EXISTING POSITION "
+        "MANAGED WITHOUT NEW SIGNAL",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 REAL ORDER PROHIBITED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 SL REMAINS DISABLED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 NO LEVERAGE MUTATION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 NO MARGIN MODE MUTATION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 NO POSITION MODE MUTATION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 NO BACKUP EXECUTION",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 13 RESULT = "
+        "PASS (TP EXECUTED)",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# RUN UNIT 13
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
+    fresh_reconstruction_unit_13(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_12_RESULT,
+    )
+)
+
+# ============================================================
+# TP3 DEMO TRAILING RUNTIME
+#
+# PURPOSE:
+# - COMPLETE THE TP3 RUNNER ALREADY ARMED BY UNIT 13.
+# - TP3 = REMAINING 50% RUNNER.
+# - TRAILING CALLBACK = 0.20%.
+# - NO NEW QUALIFIED SIGNAL REQUIRED.
+# - DEMO BTCSUSDT ONLY.
+# - REAL ORDER PROHIBITED.
+# - SL REMAINS DISABLED.
+#
+# IMPORTANT:
+# - THIS BLOCK RUNS AFTER UNIT 13.
+# - IT DOES NOT MODIFY TP1 OR TP2.
+# - IT DOES NOT CREATE A NEW POSITION.
+# - IT CLOSES ONLY THE EXISTING TP3 RUNNER.
+# ============================================================
+
+def fresh_tp3_runtime(
+    config,
+    unit_13_result,
+):
+    # ============================================================
+    # FRESH RECONSTRUCTION UNIT 14
+    # COMBINED TP3 + LIQUIDATION BACKUP RUNTIME
+    #
+    # FIXED SEQUENCE:
+    #
+    # ENTRY -> B1 -> L1 -> B2 -> L2 -> B3 -> L3 -> STOP
+    #
+    # IMPORTANT:
+    # - B1 uses CURRENT WEEX liquidation price L1.
+    # - AFTER B1 FILLS, WEEX position is re-read.
+    # - B2 uses the NEW liquidation price L2.
+    # - AFTER B2 FILLS, WEEX position is re-read.
+    # - B3 uses the NEW liquidation price L3.
+    # - NO B4.
+    #
+    # LONG:
+    #   backup trigger = liquidation * (1 + buffer)
+    #
+    # SHORT:
+    #   backup trigger = liquidation * (1 - buffer)
+    #
+    # DEFAULT CONFIG:
+    #   backup margin = 5%
+    #   backup buffer = 0.30%
+    #   max backups = 3
+    #   exposure cap = 35%
+    #
+    # ALL ABOVE VALUES ARE READ FROM CONFIG.
+    #
+    # SAFETY:
+    # - DEMO BTCSUSDT ONLY
+    # - REAL ORDERS PROHIBITED
+    # - SL DISABLED
+    # - ONE DIRECTION ONLY
+    # - ANTI-DUPLICATE
+    # - NO LEVERAGE MUTATION
+    # - NO MARGIN MODE MUTATION
+    # - NO POSITION MODE MUTATION
+    # ============================================================
+
+    import os
+    import json
+    import time
+    import hmac
+    import math
+    import hashlib
+    import base64
+    import urllib.request
+    import urllib.error
+    import urllib.parse
+
+    from decimal import Decimal, ROUND_DOWN
+    from datetime import datetime, timezone
+
+    print("=" * 80, flush=True)
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 14 START",
+        flush=True,
+    )
+
+    print("-" * 80, flush=True)
+
+    # ========================================================
+    # 1. CONFIGURATION CONTRACT
+    # ========================================================
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: CONFIGURATION MISSING"
+        )
+
+    if not isinstance(unit_13_result, dict):
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: UNIT 13 RESULT MISSING"
+        )
+
+    strategy = config.get("strategy", {})
+    exchange = config.get("exchange", {})
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: STRATEGY CONFIGURATION MISSING"
+        )
+
+    if not isinstance(exchange, dict):
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: EXCHANGE CONFIGURATION MISSING"
+        )
+
+    execution_environment = str(
+        config.get("execution_environment", "")
+    ).upper()
+
+    if execution_environment != "DEMO":
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: EXECUTION ENVIRONMENT NOT DEMO"
+        )
+
+    market_symbol = str(
+        exchange.get("market_symbol", "")
+    ).upper()
+
+    demo_symbol = str(
+        exchange.get("demo_order_symbol", "")
+    ).upper()
+
+    base_url = str(
+        exchange.get("contract_base_url", "")
+    ).rstrip("/")
+
+    if market_symbol != "BTCUSDT":
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: MARKET SYMBOL MUST BE BTCUSDT"
+        )
+
+    if demo_symbol != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: DEMO SYMBOL MUST BE BTCSUSDT"
+        )
+
+    if base_url != "https://api-contract.weex.com":
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID CONTRACT BASE URL"
+        )
+
+    # ========================================================
+    # 2. ADJUSTABLE STRATEGY VALUES
+    # ========================================================
+
+    backup_margin_percent = Decimal(
+        str(
+            strategy.get(
+                "backup_margin_percent",
+                5.0,
+            )
+        )
+    )
+
+    backup_buffer_percent = Decimal(
+        str(
+            strategy.get(
+                "backup_buffer_percent",
+                0.30,
+            )
+        )
+    )
+
+    max_backups = int(
+        strategy.get(
+            "max_backups",
+            3,
+        )
+    )
+
+    exposure_cap_percent = Decimal(
+        str(
+            strategy.get(
+                "exposure_cap_percent",
+                35.0,
+            )
+        )
+    )
+
+    trailing_percent = Decimal(
+        str(
+            strategy.get(
+                "tp3_trailing_percent",
+                0.20,
+            )
+        )
+    )
+
+    leverage_target = Decimal(
+        str(
+            strategy.get(
+                "leverage_target",
+                100,
+            )
+        )
+    )
+
+    initial_margin_percent = Decimal(
+        str(
+            strategy.get(
+                "initial_margin_percent",
+                5.0,
+            )
+        )
+    )
+
+    if backup_margin_percent <= 0:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID BACKUP MARGIN"
+        )
+
+    if backup_buffer_percent <= 0:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID BACKUP BUFFER"
+        )
+
+    if max_backups < 0:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID MAX BACKUPS"
+        )
+
+    # ABSOLUTE ARCHITECTURE CAP.
+    # Configuration may reduce backups below 3,
+    # but may never create B4.
+
+    max_backups = min(
+        max_backups,
+        3,
+    )
+
+    if exposure_cap_percent <= 0:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID EXPOSURE CAP"
+        )
+
+    if trailing_percent <= 0:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID TP3 TRAILING PERCENT"
+        )
+
+    if leverage_target <= 0:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID LEVERAGE"
+        )
+
+    backup_buffer_fraction = (
+        backup_buffer_percent
+        /
+        Decimal("100")
+    )
+
+    trailing_fraction = (
+        trailing_percent
+        /
+        Decimal("100")
+    )
+
+    print(
+        "PASS: UNIT 14 EXECUTION ENVIRONMENT = DEMO",
+        flush=True,
+    )
+
+    print(
+        f"PASS: UNIT 14 BACKUP MARGIN % = "
+        f"{backup_margin_percent}",
+        flush=True,
+    )
+
+    print(
+        f"PASS: UNIT 14 BACKUP BUFFER % = "
+        f"{backup_buffer_percent}",
+        flush=True,
+    )
+
+    print(
+        f"PASS: UNIT 14 MAX BACKUPS = "
+        f"{max_backups}",
+        flush=True,
+    )
+
+    print(
+        f"PASS: UNIT 14 EXPOSURE CAP % = "
+        f"{exposure_cap_percent}",
+        flush=True,
+    )
+
+    print(
+        f"PASS: UNIT 14 TP3 TRAILING % = "
+        f"{trailing_percent}",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 14 BACKUP SEQUENCE = "
+        "ENTRY -> B1 -> L1 -> B2 -> L2 -> B3 -> L3 -> STOP",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 14 BACKUP 4 = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 14 SL = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 14 REAL TRADING = PROHIBITED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3. QUANTITY CONFIGURATION
+    # ========================================================
+
+    quantity_step = Decimal("0.0001")
+    minimum_quantity = Decimal("0.0001")
+
+    try:
+        quantity_step = Decimal(
+            str(
+                exchange.get(
+                    "quantity_step",
+                    "0.0001",
+                )
+            )
+        )
+    except Exception:
+        quantity_step = Decimal("0.0001")
+
+    try:
+        minimum_quantity = Decimal(
+            str(
+                exchange.get(
+                    "minimum_quantity",
+                    "0.0001",
+                )
+            )
+        )
+    except Exception:
+        minimum_quantity = Decimal("0.0001")
+
+    if quantity_step <= 0:
+        quantity_step = Decimal("0.0001")
+
+    if minimum_quantity <= 0:
+        minimum_quantity = Decimal("0.0001")
+
+    # ========================================================
+    # 4. AUTHENTICATION
+    # ========================================================
+
+    api_key = (
+        os.environ.get("WEEX_API_KEY")
+        or
+        os.environ.get("API_KEY")
+    )
+
+    api_secret = (
+        os.environ.get("WEEX_API_SECRET")
+        or
+        os.environ.get("API_SECRET")
+    )
+
+    api_passphrase = (
+        os.environ.get("WEEX_API_PASSPHRASE")
+        or
+        os.environ.get("API_PASSPHRASE")
+    )
+
+    if not api_key:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: WEEX API KEY MISSING"
+        )
+
+    if not api_secret:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: WEEX API SECRET MISSING"
+        )
+
+    if not api_passphrase:
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: WEEX API PASSPHRASE MISSING"
+        )
+
+    print(
+        "PASS: UNIT 14 DEMO AUTHENTICATION AVAILABLE",
+        flush=True,
+    )
+
+    # ========================================================
+    # 5. HELPERS
+    # ========================================================
+
+    def quantity_text(value):
+        text_value = (
+            f"{value:.8f}"
+            .rstrip("0")
+            .rstrip(".")
+        )
+
+        return text_value
+
+    def floor_quantity(value):
+        if value <= 0:
+            return Decimal("0")
+
+        steps = (
+            value
+            /
+            quantity_step
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        )
+
+        return (
+            steps
+            *
+            quantity_step
+        )
+
+    def make_signature(
+        timestamp,
+        method,
+        path,
+        query_string="",
+        body="",
+    ):
+        method = method.upper()
+
+        message = (
+            timestamp
+            +
+            method
+            +
+            path
+        )
+
+        if query_string:
+            message += (
+                "?"
+                +
+                query_string
+            )
+
+        if body:
+            message += body
+
+        return (
+            base64.b64encode(
+                hmac.new(
+                    api_secret.encode("utf-8"),
+                    message.encode("utf-8"),
+                    hashlib.sha256,
+                ).digest()
+            ).decode("utf-8")
+        )
+
+    def authenticated_get(
+        path,
+        query_string="",
+    ):
+        timestamp = str(
+            int(
+                time.time()
+                *
+                1000
+            )
+        )
+
+        signature = make_signature(
+            timestamp,
+            "GET",
+            path,
+            query_string,
+            "",
+        )
+
+        headers = {
+            "ACCESS-KEY":
+                api_key,
+
+            "ACCESS-SIGN":
+                signature,
+
+            "ACCESS-TIMESTAMP":
+                timestamp,
+
+            "ACCESS-PASSPHRASE":
+                api_passphrase,
+
+            "Content-Type":
+                "application/json",
+        }
+
+        url = (
+            base_url
+            +
+            path
+        )
+
+        if query_string:
+            url += (
+                "?"
+                +
+                query_string
+            )
+
+        request = urllib.request.Request(
+            url=url,
+            headers=headers,
+            method="GET",
+        )
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+            status = response.getcode()
+
+            text = (
+                response.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+        if not (
+            200
+            <=
+            int(status)
+            <
+            300
+        ):
+            raise RuntimeError(
+                f"AUTHENTICATED GET FAILED: HTTP {status}"
+            )
+
+        return json.loads(text)
+
+    def authenticated_post(
+        path,
+        payload,
+    ):
+        # DEMO ENDPOINT ONLY.
+
+        if "/sim/" not in path:
+            raise RuntimeError(
+                "UNIT 14 BLOCKED: NON-DEMO WRITE ENDPOINT"
+            )
+
+        body = json.dumps(
+            payload,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+
+        timestamp = str(
+            int(
+                time.time()
+                *
+                1000
+            )
+        )
+
+        signature = make_signature(
+            timestamp,
+            "POST",
+            path,
+            "",
+            body,
+        )
+
+        headers = {
+            "ACCESS-KEY":
+                api_key,
+
+            "ACCESS-SIGN":
+                signature,
+
+            "ACCESS-TIMESTAMP":
+                timestamp,
+
+            "ACCESS-PASSPHRASE":
+                api_passphrase,
+
+            "Content-Type":
+                "application/json",
+        }
+
+        request = urllib.request.Request(
+            url=(
+                base_url
+                +
+                path
+            ),
+            data=body.encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+            status = response.getcode()
+
+            text = (
+                response.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+        print(
+            f"UNIT 14 DEMO ORDER HTTP STATUS = {status}",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 DEMO ORDER RESPONSE = {text}",
+            flush=True,
+        )
+
+        if not (
+            200
+            <=
+            int(status)
+            <
+            300
+        ):
+            raise RuntimeError(
+                f"UNIT 14 DEMO ORDER FAILED: HTTP {status}"
+            )
+
+        return json.loads(text)
+
+    def get_active_position():
+        records = authenticated_get(
+            "/capi/v3/sim/position/allPosition"
+        )
+
+        if not isinstance(records, list):
+            return None
+
+        active_records = []
+
+# ============================================================
+# END PART 11C
+# CONTINUE DIRECTLY WITH PART 11D
+# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
+# ============================================================
