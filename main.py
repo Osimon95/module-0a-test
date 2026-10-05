@@ -4317,3 +4317,864 @@ FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
 #
 # NEXT PART STARTS WITH FRESH RECONSTRUCTION UNIT 6
 # ============================================================
+
+# FRESH RECONSTRUCTION UNIT 6
+# SIGNAL ADMISSION / EXECUTION-INTENT GATE
+#
+# PURPOSE:
+# Validate the normalized Unit 5 signal candidate before any
+# account, position-sizing, TP, backup, or order layer exists.
+#
+# IMPORTANT:
+# - UNIT 1-5 REMAIN FROZEN
+# - ZERO AUTHENTICATED API ACCESS
+# - ZERO ACCOUNT ACCESS
+# - ZERO POSITION ACCESS
+# - ZERO ORDER ENDPOINT ACCESS
+# - ZERO DEMO ORDER
+# - ZERO REAL ORDER
+# - ZERO EXCHANGE WRITE
+# - NO POSITION SIZING
+# - NO TP / SL
+# - NO BACKUP EXECUTION
+# ============================================================
+
+
+def fresh_reconstruction_unit_6(
+    unit_2_config,
+    unit_4_analysis,
+    unit_5_candidate,
+):
+    from datetime import datetime, timezone
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 6 START",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # INPUT VALIDATION
+    # --------------------------------------------------------
+
+    if not isinstance(unit_2_config, dict):
+        raise TypeError(
+            "UNIT 6 EXPECTED UNIT 2 CONFIGURATION DICT"
+        )
+
+    print(
+        "PASS: UNIT 6 RECEIVED UNIT 2 CONFIGURATION",
+        flush=True,
+    )
+
+    if not isinstance(unit_4_analysis, dict):
+        raise TypeError(
+            "UNIT 6 EXPECTED UNIT 4 ANALYSIS SNAPSHOT DICT"
+        )
+
+    print(
+        "PASS: UNIT 6 RECEIVED UNIT 4 ANALYSIS SNAPSHOT",
+        flush=True,
+    )
+
+    if not isinstance(unit_5_candidate, dict):
+        raise TypeError(
+            "UNIT 6 EXPECTED UNIT 5 SIGNAL CANDIDATE DICT"
+        )
+
+    print(
+        "PASS: UNIT 6 RECEIVED UNIT 5 SIGNAL CANDIDATE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # READ UNIT 5 NORMALIZED VALUES
+    # --------------------------------------------------------
+
+    signal_qualified = bool(
+    unit_5_candidate.get(
+        "qualified",
+        False,
+    )
+)
+
+
+    active_mode = unit_5_candidate.get(
+        "active_mode",
+        "NONE",
+    )
+
+    direction = unit_5_candidate.get(
+        "direction",
+        "NONE",
+    )
+
+    qualification_reason = unit_5_candidate.get(
+        "qualification_reason",
+        "UNKNOWN",
+    )
+
+    print(
+        "PASS: UNIT 6 UNIT 5 SIGNAL CANDIDATE READ",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # SAFETY CONFIGURATION
+    # --------------------------------------------------------
+
+    anti_duplicate_orders = bool(
+        unit_2_config.get(
+            "anti_duplicate_orders",
+            True,
+        )
+    )
+
+    one_direction_only = bool(
+        unit_2_config.get(
+            "one_direction_only",
+            True,
+        )
+    )
+
+    if not anti_duplicate_orders:
+        raise RuntimeError(
+            "UNIT 6 SAFETY FAILURE: "
+            "ANTI-DUPLICATE ORDERS DISABLED"
+        )
+
+    if not one_direction_only:
+        raise RuntimeError(
+            "UNIT 6 SAFETY FAILURE: "
+            "ONE DIRECTION ONLY DISABLED"
+        )
+
+    print(
+        "PASS: UNIT 6 ANTI-DUPLICATE REQUIREMENT ENABLED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 ONE-DIRECTION REQUIREMENT ENABLED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 READ-ONLY SAFETY GATE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # SIGNAL CONSISTENCY VALIDATION
+    # --------------------------------------------------------
+
+    valid_modes = {
+        "SCALP",
+        "STRUCTURE",
+        "BREAKOUT",
+        "NONE",
+    }
+
+    valid_directions = {
+        "LONG",
+        "SHORT",
+        "NONE",
+    }
+
+    if active_mode not in valid_modes:
+        raise RuntimeError(
+            f"UNIT 6 INVALID ACTIVE MODE = {active_mode}"
+        )
+
+    if direction not in valid_directions:
+        raise RuntimeError(
+            f"UNIT 6 INVALID DIRECTION = {direction}"
+        )
+
+    print(
+        "PASS: UNIT 6 ACTIVE MODE VALIDATED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 DIRECTION VALIDATED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # SCALP ENTRY QUALITY GATE
+    # --------------------------------------------------------
+
+    scalp_quality_minimum = 75.0
+    scalp_quality_score = None
+    scalp_quality_pass = None
+    scalp_quality_details = {}
+
+    if signal_qualified and active_mode == "SCALP":
+
+        candles = unit_4_analysis.get(
+            "recent_closed_klines",
+            [],
+        )
+
+        if not isinstance(candles, list) or len(candles) < 20:
+            raise RuntimeError(
+                "UNIT 6 SCALP QUALITY BLOCKED: "
+                "INSUFFICIENT CLOSED 1M OHLC HISTORY"
+            )
+
+        candles = candles[-60:]
+
+        def pct_distance(a, b):
+            if b <= 0:
+                return 0.0
+            return abs(a - b) / b * 100.0
+
+        def direction_of(value, epsilon=0.000001):
+            if value > epsilon:
+                return "LONG"
+            if value < -epsilon:
+                return "SHORT"
+            return "NONE"
+
+        # Average recent 1-minute candle height.
+        recent_ranges = []
+        for candle in candles[-20:]:
+            close = float(candle["close"])
+            high = float(candle["high"])
+            low = float(candle["low"])
+            if close > 0:
+                recent_ranges.append(
+                    (high - low) / close * 100.0
+                )
+
+        average_cluster_height_pct = (
+            sum(recent_ranges) / len(recent_ranges)
+            if recent_ranges
+            else 0.0
+        )
+
+        # Find actual local pivot highs/lows from completed candles.
+        resistance_pivots = []
+        support_pivots = []
+
+        for i in range(2, len(candles) - 2):
+            c = candles[i]
+            left1 = candles[i - 1]
+            left2 = candles[i - 2]
+            right1 = candles[i + 1]
+            right2 = candles[i + 2]
+
+            high = float(c["high"])
+            low = float(c["low"])
+
+            if (
+                high >= float(left1["high"])
+                and high >= float(left2["high"])
+                and high > float(right1["high"])
+                and high > float(right2["high"])
+            ):
+                resistance_pivots.append(high)
+
+            if (
+                low <= float(left1["low"])
+                and low <= float(left2["low"])
+                and low < float(right1["low"])
+                and low < float(right2["low"])
+            ):
+                support_pivots.append(low)
+
+        resistance_points = resistance_pivots[-10:]
+        support_points = support_pivots[-10:]
+
+        # Require at least five actual pivots when possible.
+        # If fewer exist in 60 candles, retain what exists and
+        # score conservatively rather than inventing levels.
+        def median(values):
+            if not values:
+                return None
+            ordered = sorted(values)
+            n = len(ordered)
+            mid = n // 2
+            if n % 2:
+                return float(ordered[mid])
+            return float(
+                (ordered[mid - 1] + ordered[mid]) / 2.0
+            )
+
+        resistance_mid = median(resistance_points)
+        support_mid = median(support_points)
+
+        latest_close = float(
+            unit_4_analysis.get("latest_close", 0.0)
+        )
+        ema19 = float(unit_5_candidate.get("ema19", 0.0))
+        ema50 = float(unit_5_candidate.get("ema50", 0.0))
+        ema200 = float(unit_5_candidate.get("ema200", 0.0))
+
+        move_1m = float(unit_5_candidate.get("move_1m_pct", 0.0))
+        move_5m = float(unit_5_candidate.get("move_5m_pct", 0.0))
+        move_15m = float(unit_5_candidate.get("move_15m_pct", 0.0))
+
+        latest = candles[-1]
+        previous = candles[-2]
+        latest_open = float(latest["open"])
+        latest_high = float(latest["high"])
+        latest_low = float(latest["low"])
+        latest_candle_close = float(latest["close"])
+
+        candle_range = max(latest_high - latest_low, 0.0)
+        candle_body = abs(latest_candle_close - latest_open)
+        body_ratio = (
+            candle_body / candle_range
+            if candle_range > 0
+            else 0.0
+        )
+
+        ema_score = 0.0
+        momentum_score = 0.0
+        location_score = 0.0
+        candle_score = 0.0
+        sr_score = 0.0
+        breakout_score = 0.0
+        volatility_score = 0.0
+        exhaustion_score = 0.0
+
+        # 1) EMA alignment + price relationship: 20.
+        if direction == "LONG":
+            if ema19 > ema50 > ema200:
+                ema_score = 20.0
+            elif ema19 > ema50:
+                ema_score = 15.0
+            elif latest_close > ema19:
+                ema_score = 8.0
+        else:
+            if ema19 < ema50 < ema200:
+                ema_score = 20.0
+            elif ema19 < ema50:
+                ema_score = 15.0
+            elif latest_close < ema19:
+                ema_score = 8.0
+
+        # 2) Momentum agreement/progression: 15.
+        d1 = direction_of(move_1m)
+        d5 = direction_of(move_5m)
+        d15 = direction_of(move_15m)
+        agreement_count = sum(
+            1 for d in (d1, d5, d15)
+            if d == direction
+        )
+        momentum_score = {
+            0: 0.0,
+            1: 5.0,
+            2: 10.0,
+            3: 15.0,
+        }[agreement_count]
+
+        # 3) EMA19 entry extension normalized by current noise: 15.
+        extension_pct = pct_distance(latest_close, ema19)
+        extension_ratio = (
+            extension_pct / average_cluster_height_pct
+            if average_cluster_height_pct > 0
+            else 999.0
+        )
+        if extension_ratio <= 0.50:
+            location_score = 15.0
+        elif extension_ratio <= 1.00:
+            location_score = 12.0
+        elif extension_ratio <= 1.50:
+            location_score = 7.0
+        elif extension_ratio <= 2.00:
+            location_score = 3.0
+
+        # 4) Latest completed candle confirmation: 10.
+        candle_direction_ok = (
+            latest_candle_close > latest_open
+            if direction == "LONG"
+            else latest_candle_close < latest_open
+        )
+        if candle_direction_ok:
+            candle_score = 6.0
+            if body_ratio >= 0.50:
+                candle_score += 2.0
+            if body_ratio >= 0.70:
+                candle_score += 2.0
+
+        # 5/6) Direction-aware resistance/support midpoint and
+        # breakout/breakdown quality: 15 + 10.
+        reference_mid = (
+            resistance_mid
+            if direction == "LONG"
+            else support_mid
+        )
+        reference_points = (
+            resistance_points
+            if direction == "LONG"
+            else support_points
+        )
+
+        sr_distance_pct = None
+        sr_distance_ratio = None
+        reference_state = "NO_REFERENCE"
+
+        if reference_mid is not None and reference_mid > 0:
+            sr_distance_pct = pct_distance(
+                latest_close,
+                reference_mid,
+            )
+
+            sr_distance_ratio = (
+                sr_distance_pct / average_cluster_height_pct
+                if average_cluster_height_pct > 0
+                else 999.0
+            )
+
+            if direction == "LONG":
+                broken = latest_close > reference_mid
+                previous_below = float(previous["close"]) <= reference_mid
+            else:
+                broken = latest_close < reference_mid
+                previous_below = float(previous["close"]) >= reference_mid
+
+            if broken:
+                reference_state = "BROKEN"
+                sr_score = 15.0
+                if previous_below:
+                    breakout_score = 10.0
+                elif sr_distance_ratio <= 1.0:
+                    breakout_score = 8.0
+                else:
+                    breakout_score = 5.0
+            else:
+                reference_state = "AHEAD"
+                if sr_distance_ratio >= 2.0:
+                    sr_score = 13.0
+                elif sr_distance_ratio >= 1.25:
+                    sr_score = 10.0
+                elif sr_distance_ratio >= 0.75:
+                    sr_score = 6.0
+                else:
+                    sr_score = 2.0
+                breakout_score = 0.0
+        else:
+            # Missing a reliable 5-10 point cluster must not
+            # receive full credit.
+            sr_score = 5.0
+            breakout_score = 2.0
+
+        # 7) Healthy 1-minute tradable range: 10.
+        # Relative rather than a fixed BTC percentage.
+        if average_cluster_height_pct > 0:
+            if 0.04 <= average_cluster_height_pct <= 0.35:
+                volatility_score = 10.0
+            elif 0.02 <= average_cluster_height_pct <= 0.50:
+                volatility_score = 6.0
+            else:
+                volatility_score = 2.0
+
+        # 8) Spike/exhaustion protection: 5.
+        latest_range_pct = (
+            (latest_high - latest_low) / latest_candle_close * 100.0
+            if latest_candle_close > 0
+            else 0.0
+        )
+        spike_ratio = (
+            latest_range_pct / average_cluster_height_pct
+            if average_cluster_height_pct > 0
+            else 999.0
+        )
+        if spike_ratio <= 1.50:
+            exhaustion_score = 5.0
+        elif spike_ratio <= 2.00:
+            exhaustion_score = 3.0
+        elif spike_ratio <= 2.50:
+            exhaustion_score = 1.0
+        else:
+            exhaustion_score = 0.0
+
+        scalp_quality_score = round(
+            ema_score
+            + momentum_score
+            + location_score
+            + candle_score
+            + sr_score
+            + breakout_score
+            + volatility_score
+            + exhaustion_score,
+            2,
+        )
+
+        # Hard anti-chase protection in addition to scoring.
+        extreme_extension = extension_ratio > 2.50
+        extreme_spike = spike_ratio > 3.00
+
+        scalp_quality_pass = (
+            scalp_quality_score >= scalp_quality_minimum
+            and not extreme_extension
+            and not extreme_spike
+        )
+
+        scalp_quality_details = {
+            "minimum": scalp_quality_minimum,
+            "score": scalp_quality_score,
+            "pass": scalp_quality_pass,
+            "ema_score": ema_score,
+            "momentum_score": momentum_score,
+            "location_score": location_score,
+            "candle_score": candle_score,
+            "sr_score": sr_score,
+            "breakout_score": breakout_score,
+            "volatility_score": volatility_score,
+            "exhaustion_score": exhaustion_score,
+            "average_cluster_height_pct": round(
+                average_cluster_height_pct, 6
+            ),
+            "resistance_points": resistance_points,
+            "support_points": support_points,
+            "resistance_mid": resistance_mid,
+            "support_mid": support_mid,
+            "reference_mid": reference_mid,
+            "reference_point_count": len(reference_points),
+            "reference_state": reference_state,
+            "sr_distance_pct": sr_distance_pct,
+            "sr_distance_ratio": sr_distance_ratio,
+            "ema19_extension_pct": extension_pct,
+            "ema19_extension_ratio": extension_ratio,
+            "latest_range_pct": latest_range_pct,
+            "spike_ratio": spike_ratio,
+            "extreme_extension": extreme_extension,
+            "extreme_spike": extreme_spike,
+        }
+
+        print("-" * 80, flush=True)
+        print("UNIT 6 SCALP QUALITY GATE", flush=True)
+        print(
+            f"UNIT 6 SCALP QUALITY SCORE = "
+            f"{scalp_quality_score} / 100",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 SCALP QUALITY MINIMUM = "
+            f"{scalp_quality_minimum}",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 EMA QUALITY = {ema_score} / 20",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 MOMENTUM QUALITY = {momentum_score} / 15",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 EMA19 LOCATION QUALITY = {location_score} / 15",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 CANDLE QUALITY = {candle_score} / 10",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 S/R MID QUALITY = {sr_score} / 15",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 BREAKOUT/BREAKDOWN QUALITY = "
+            f"{breakout_score} / 10",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 VOLATILITY QUALITY = {volatility_score} / 10",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 EXHAUSTION QUALITY = {exhaustion_score} / 5",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 AVERAGE RECENT CLUSTER HEIGHT % = "
+            f"{round(average_cluster_height_pct, 6)}",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 RECENT RESISTANCE POINTS = "
+            f"{resistance_points}",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 RESISTANCE MID = {resistance_mid}",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 RECENT SUPPORT POINTS = "
+            f"{support_points}",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 SUPPORT MID = {support_mid}",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 ACTIVE S/R REFERENCE MID = {reference_mid}",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 ACTIVE S/R REFERENCE STATE = {reference_state}",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 EMA19 EXTENSION RATIO = "
+            f"{round(extension_ratio, 4)} CLUSTER HEIGHTS",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 SPIKE RATIO = "
+            f"{round(spike_ratio, 4)} CLUSTER HEIGHTS",
+            flush=True,
+        )
+        print(
+            f"UNIT 6 SCALP QUALITY GATE = "
+            f"{'PASS' if scalp_quality_pass else 'REJECT'}",
+            flush=True,
+        )
+        print("-" * 80, flush=True)
+
+    # --------------------------------------------------------
+    # ADMISSION DECISION
+    # --------------------------------------------------------
+
+    execution_intent = False
+    admission_reason = "NO_QUALIFIED_SIGNAL"
+
+    if signal_qualified:
+
+        if active_mode == "NONE":
+            admission_reason = (
+                "BLOCKED_QUALIFIED_SIGNAL_WITHOUT_MODE"
+            )
+
+        elif direction == "NONE":
+            admission_reason = (
+                "BLOCKED_QUALIFIED_SIGNAL_WITHOUT_DIRECTION"
+            )
+
+        elif active_mode == "SCALP" and scalp_quality_pass is not True:
+            execution_intent = False
+            admission_reason = (
+                "SCALP_QUALITY_GATE_REJECTED:"
+                f"SCORE={scalp_quality_score}:"
+                f"MINIMUM={scalp_quality_minimum}"
+            )
+
+        else:
+            execution_intent = True
+            admission_reason = (
+                "QUALIFIED_SIGNAL_ADMITTED"
+            )
+
+    else:
+        execution_intent = False
+        admission_reason = (
+            f"UNIT_5_NOT_QUALIFIED:"
+            f"{qualification_reason}"
+        )
+
+    # --------------------------------------------------------
+    # NORMALIZED UNIT 6 OUTPUT
+    # --------------------------------------------------------
+
+    execution_candidate = {
+        "execution_intent": execution_intent,
+        "active_mode": active_mode,
+        "direction": direction,
+        "signal_qualified": signal_qualified,
+        "unit_5_reason": qualification_reason,
+        "admission_reason": admission_reason,
+        "scalp_quality_score": scalp_quality_score,
+        "scalp_quality_minimum": scalp_quality_minimum,
+        "scalp_quality_pass": scalp_quality_pass,
+        "scalp_quality_details": scalp_quality_details,
+    }
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        f"UNIT 6 ACTIVE MODE = {active_mode}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 6 DIRECTION = {direction}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 6 SIGNAL QUALIFIED = "
+        f"{signal_qualified}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 6 EXECUTION INTENT = "
+        f"{execution_intent}",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 6 ADMISSION REASON = "
+        f"{admission_reason}",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 NORMALIZED EXECUTION CANDIDATE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 SIGNAL ADMISSION COMPLETED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 NO NETWORK REQUEST",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 NO ORDER PAYLOAD GENERATED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 NO POSITION SIZING",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 NO TP / SL",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 NO BACKUP EXECUTION",
+        flush=True,
+    )
+
+    print(
+        "ZERO AUTHENTICATED API ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ACCOUNT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ORDER ENDPOINT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE WRITE = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO LEVERAGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO MARGIN MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 6 RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return execution_candidate
+    
+
+# ============================================================
+# RUN UNIT 6
+# ============================================================
+
+FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
+    fresh_reconstruction_unit_6(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE,
+    )
+)
+
+
+# ============================================================
+# END OF TRANSMISSION PART 4
+# ZERO INDENTATION DEMARCATION
+#
+# UNIT 6 IS FULLY CLOSED
+# UNIT 6 HAS BEEN CALLED
+# SCALP QUALITY GATE IS INSTALLED
+# QUALITY MINIMUM = 75 / 100
+# STRUCTURE AND BREAKOUT ARE NOT BLOCKED BY THIS QUALITY GATE
+# NO OPEN FUNCTION
+# NO OPEN IF
+# NO OPEN TRY
+# NO OPEN DICTIONARY
+# NO INDENTATION CONTINUES INTO THE NEXT PART
+#
+# NEXT PART STARTS WITH FRESH RECONSTRUCTION UNIT 7
+# ============================================================
