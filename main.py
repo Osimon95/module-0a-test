@@ -14914,8 +14914,539 @@ def fresh_tp3_runtime(
                 completed_backups
             )
 
-        
                 # ====================================================
+        # 9E. CONTINUOUS TP1 / TP2 RUNTIME MANAGEMENT
+        #
+        # TP1 / TP2 MUST BE MANAGED FROM THE SAME CONTINUOUS
+        # EXISTING-POSITION LOOP AS TP3 AND BACKUPS.
+        #
+        # NO NEW QUALIFIED SIGNAL IS REQUIRED.
+        #
+        # EXCHANGE-CONFIRMED cumCloseSize IS THE AUTHORITY FOR
+        # HOW MUCH OF TP1 / TP2 HAS ALREADY COMPLETED.
+        # ====================================================
+
+        try:
+            cumulative_close_size = Decimal(
+                str(
+                    position.get(
+                        "cumCloseSize",
+                        "0",
+                    )
+                )
+            )
+        except Exception:
+            cumulative_close_size = Decimal("0")
+
+        if cumulative_close_size < Decimal("0"):
+            cumulative_close_size = Decimal("0")
+
+        # ----------------------------------------------------
+        # ORIGINAL UNIT 13 TP PARAMETERS
+        # ----------------------------------------------------
+
+        try:
+            runtime_tp1_target = Decimal(
+                str(
+                    unit_13_result.get(
+                        "tp1_target",
+                        "0",
+                    )
+                )
+            )
+        except Exception:
+            runtime_tp1_target = Decimal("0")
+
+        try:
+            runtime_tp2_target = Decimal(
+                str(
+                    unit_13_result.get(
+                        "tp2_target",
+                        "0",
+                    )
+                )
+            )
+        except Exception:
+            runtime_tp2_target = Decimal("0")
+
+        try:
+            runtime_tp1_quantity = Decimal(
+                str(
+                    unit_13_result.get(
+                        "tp1_quantity",
+                        "0",
+                    )
+                )
+            )
+        except Exception:
+            runtime_tp1_quantity = Decimal("0")
+
+        try:
+            runtime_tp2_quantity = Decimal(
+                str(
+                    unit_13_result.get(
+                        "tp2_quantity",
+                        "0",
+                    )
+                )
+            )
+        except Exception:
+            runtime_tp2_quantity = Decimal("0")
+
+        tp1_required_cumulative_close = (
+            runtime_tp1_quantity
+        )
+
+        tp2_required_cumulative_close = (
+            runtime_tp1_quantity
+            +
+            runtime_tp2_quantity
+        )
+
+        tp1_completed_runtime = (
+            runtime_tp1_quantity
+            >
+            Decimal("0")
+            and
+            cumulative_close_size
+            >=
+            tp1_required_cumulative_close
+        )
+
+        tp2_completed_runtime = (
+            runtime_tp2_quantity
+            >
+            Decimal("0")
+            and
+            cumulative_close_size
+            >=
+            tp2_required_cumulative_close
+        )
+
+        # ----------------------------------------------------
+        # CURRENT PRICE TARGET STATE
+        # ----------------------------------------------------
+
+        if position_side == "LONG":
+
+            tp1_reached_runtime = (
+                runtime_tp1_target
+                >
+                Decimal("0")
+                and
+                current_mark
+                >=
+                runtime_tp1_target
+            )
+
+            tp2_reached_runtime = (
+                runtime_tp2_target
+                >
+                Decimal("0")
+                and
+                current_mark
+                >=
+                runtime_tp2_target
+            )
+
+            tp_closing_side = "SELL"
+
+        else:
+
+            tp1_reached_runtime = (
+                runtime_tp1_target
+                >
+                Decimal("0")
+                and
+                current_mark
+                <=
+                runtime_tp1_target
+            )
+
+            tp2_reached_runtime = (
+                runtime_tp2_target
+                >
+                Decimal("0")
+                and
+                current_mark
+                <=
+                runtime_tp2_target
+            )
+
+            tp_closing_side = "BUY"
+
+        # ----------------------------------------------------
+        # SELECT AT MOST ONE TP ACTION PER RUNTIME CYCLE
+        #
+        # TP2 HAS PRIORITY.
+        #
+        # If market jumps through TP1 directly to TP2,
+        # outstanding quantity brings cumulative close to the
+        # full TP1 + TP2 requirement.
+        # ----------------------------------------------------
+
+        runtime_tp_action = "NONE"
+        runtime_tp_close_quantity = Decimal("0")
+        runtime_tp_required_close = Decimal("0")
+
+        if (
+            tp2_reached_runtime
+            and
+            not tp2_completed_runtime
+        ):
+
+            runtime_tp_action = "TP2"
+
+            runtime_tp_required_close = (
+                tp2_required_cumulative_close
+            )
+
+        elif (
+            tp1_reached_runtime
+            and
+            not tp1_completed_runtime
+        ):
+
+            runtime_tp_action = "TP1"
+
+            runtime_tp_required_close = (
+                tp1_required_cumulative_close
+            )
+
+        if runtime_tp_action != "NONE":
+
+            runtime_tp_close_quantity = (
+                runtime_tp_required_close
+                -
+                cumulative_close_size
+            )
+
+            runtime_tp_close_quantity = floor_quantity(
+                runtime_tp_close_quantity
+            )
+
+            if (
+                runtime_tp_close_quantity
+                >
+                position_size
+            ):
+                runtime_tp_close_quantity = floor_quantity(
+                    position_size
+                )
+
+        # ----------------------------------------------------
+        # RUNTIME STATUS
+        # ----------------------------------------------------
+
+        print(
+            f"UNIT 14 TP RUNTIME | "
+            f"TP1 TARGET = {runtime_tp1_target} | "
+            f"TP1 REACHED = {tp1_reached_runtime} | "
+            f"TP1 COMPLETE = {tp1_completed_runtime} | "
+            f"TP2 TARGET = {runtime_tp2_target} | "
+            f"TP2 REACHED = {tp2_reached_runtime} | "
+            f"TP2 COMPLETE = {tp2_completed_runtime} | "
+            f"CUM CLOSE = {cumulative_close_size}",
+            flush=True,
+        )
+
+        # ----------------------------------------------------
+        # EXECUTE AT MOST ONE DEMO TP CLOSE
+        # ----------------------------------------------------
+
+        if (
+            runtime_tp_action
+            !=
+            "NONE"
+            and
+            runtime_tp_close_quantity
+            >=
+            minimum_quantity
+        ):
+
+            # -----------------------------------------------
+            # RATE / UNCERTAIN-SUBMISSION PROTECTION
+            # -----------------------------------------------
+
+            elapsed = (
+                time.time()
+                -
+                last_runtime_order_time
+            )
+
+            if (
+                last_runtime_order_time
+                >
+                0
+                and
+                elapsed
+                <
+                60
+            ):
+
+                print(
+                    f"UNIT 14 {runtime_tp_action} "
+                    "WAITING FOR DEMO ORDER RATE WINDOW",
+                    flush=True,
+                )
+
+                time.sleep(
+                    poll_seconds
+                )
+
+                continue
+
+            # -----------------------------------------------
+            # DETERMINISTIC CLIENT ORDER ID
+            #
+            # One ID per TP stage for this position.
+            # -----------------------------------------------
+
+            runtime_tp_client_id = (
+                f"FR-{runtime_tp_action}-{trade_key}"
+            )[:36]
+
+            runtime_tp_existing = False
+
+            for order in history:
+
+                if not isinstance(
+                    order,
+                    dict,
+                ):
+                    continue
+
+                existing_client_id = str(
+                    order.get(
+                        "clientOrderId",
+                        "",
+                    )
+                )
+
+                if (
+                    existing_client_id
+                    ==
+                    runtime_tp_client_id
+                ):
+                    runtime_tp_existing = True
+                    break
+
+            # -----------------------------------------------
+            # ANTI-DUPLICATE
+            # -----------------------------------------------
+
+            if runtime_tp_existing:
+
+                print(
+                    f"UNIT 14 {runtime_tp_action} "
+                    "DUPLICATE SUBMISSION BLOCKED",
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 14 WAITING FOR EXCHANGE "
+                    "POSITION/HISTORY CONFIRMATION",
+                    flush=True,
+                )
+
+                time.sleep(
+                    poll_seconds
+                )
+
+                continue
+
+            # -----------------------------------------------
+            # DEMO MARKET CLOSE PAYLOAD
+            # -----------------------------------------------
+
+            runtime_tp_payload = {
+                "symbol":
+                    demo_symbol,
+
+                "side":
+                    tp_closing_side,
+
+                "positionSide":
+                    position_side,
+
+                "type":
+                    "MARKET",
+
+                "quantity":
+                    quantity_text(
+                        runtime_tp_close_quantity
+                    ),
+
+                "newClientOrderId":
+                    runtime_tp_client_id,
+            }
+
+            # -----------------------------------------------
+            # ABSOLUTE STOP-LOSS PROHIBITION
+            # -----------------------------------------------
+
+            for prohibited in (
+                "slTriggerPrice",
+                "SlWorkingType",
+                "stopLossPrice",
+                "stopPrice",
+            ):
+
+                if prohibited in runtime_tp_payload:
+
+                    raise RuntimeError(
+                        "UNIT 14 BLOCKED: "
+                        "SL FIELD DETECTED IN TP PAYLOAD"
+                    )
+
+            print(
+                "-" * 80,
+                flush=True,
+            )
+
+            print(
+                f"UNIT 14 {runtime_tp_action} "
+                "TARGET REACHED = TRUE",
+                flush=True,
+            )
+
+            print(
+                f"UNIT 14 {runtime_tp_action} "
+                f"CLOSE QUANTITY = "
+                f"{runtime_tp_close_quantity}",
+                flush=True,
+            )
+
+            print(
+                f"UNIT 14 {runtime_tp_action} "
+                f"CLIENT ID = "
+                f"{runtime_tp_client_id}",
+                flush=True,
+            )
+
+            print(
+                f"UNIT 14 {runtime_tp_action} "
+                "DEMO SUBMISSION = TRUE",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 NEW QUALIFIED SIGNAL "
+                "REQUIRED = FALSE",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 REAL ORDER = FALSE",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 SL = DISABLED",
+                flush=True,
+            )
+
+            # -----------------------------------------------
+            # SUBMIT EXACTLY ONE DEMO TP CLOSE
+            # -----------------------------------------------
+
+            try:
+
+                runtime_tp_result = (
+                    authenticated_post(
+                        "/capi/v3/sim/order",
+                        runtime_tp_payload,
+                    )
+                )
+
+                last_runtime_order_time = (
+                    time.time()
+                )
+
+            except Exception as exc:
+
+                print(
+                    f"UNIT 14 {runtime_tp_action} "
+                    f"DEMO ORDER ERROR = {repr(exc)}",
+                    flush=True,
+                )
+
+                # Outcome could be uncertain.
+                # Do NOT immediately resubmit.
+                # Next cycle re-reads position + history.
+
+                last_runtime_order_time = (
+                    time.time()
+                )
+
+                time.sleep(
+                    poll_seconds
+                )
+
+                continue
+
+            if (
+                runtime_tp_result.get(
+                    "success"
+                )
+                is not True
+            ):
+
+                print(
+                    f"UNIT 14 {runtime_tp_action} "
+                    "ORDER NOT ACCEPTED = "
+                    f"{runtime_tp_result}",
+                    flush=True,
+                )
+
+                time.sleep(
+                    poll_seconds
+                )
+
+                continue
+
+            print(
+                f"PASS: UNIT 14 {runtime_tp_action} "
+                "DEMO CLOSE ACCEPTED",
+                flush=True,
+            )
+
+            print(
+                f"PASS: UNIT 14 {runtime_tp_action} "
+                f"ORDER ID = "
+                f"{runtime_tp_result.get('orderId')}",
+                flush=True,
+            )
+
+            print(
+                f"PASS: UNIT 14 {runtime_tp_action} "
+                "WAITING FOR EXCHANGE FILL CONFIRMATION",
+                flush=True,
+            )
+
+            print(
+                "PASS: UNIT 14 REAL ORDER = FALSE",
+                flush=True,
+            )
+
+            print(
+                "PASS: UNIT 14 SL = DISABLED",
+                flush=True,
+            )
+
+            # Do not perform TP3 or backup execution using the
+            # stale pre-order position snapshot.
+            #
+            # Next cycle must obtain fresh position,
+            # cumCloseSize, mark and history from WEEX.
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+            
+        # ====================================================
         # 10. DYNAMIC TP3 ARMING + MANAGEMENT
         #
         # IMPORTANT FIX:
