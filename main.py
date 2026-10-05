@@ -14942,7 +14942,7 @@ def fresh_tp3_runtime(
 
         # ONE-DIRECTION-ONLY CONTRACT.
 
-        directions = {
+            directions = {
             str(
                 item.get(
                     "side",
