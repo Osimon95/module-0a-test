@@ -14797,7 +14797,7 @@ def fresh_reconstruction_unit_13(
         )
 
         # ====================================================
-        # POST-EXECUTION TP3 HANDOFF
+         # POST-EXECUTION TP3 HANDOFF
         #
         # If TP2 was successfully executed, TP1 + TP2 have
         # now been cumulatively satisfied by this execution.
