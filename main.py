@@ -14791,123 +14791,224 @@ def fresh_reconstruction_unit_13(
         "orderId"
     )
 
+# ============================================================
+# START REPLACEMENT - UNIT 13 POST-EXECUTION TP3 HANDOFF
+# ZERO INDENTATION DEMARCATION
+# ============================================================
+
     if not tp_order_id:
         raise RuntimeError(
             "UNIT 13 TP ACCEPTED WITHOUT ORDER ID"
         )
 
-        # ====================================================
-         # POST-EXECUTION TP3 HANDOFF
-        #
-        # If TP2 was successfully executed, TP1 + TP2 have
-        # now been cumulatively satisfied by this execution.
-        #
-        # Therefore any remaining TP3 executable quantity must
-        # be handed directly to Unit 14 as an ARMED runner.
-        #
-        # This does NOT require another naturally qualified
-        # entry signal.
-        # ====================================================
+    # ========================================================
+    # POST-EXECUTION TP3 HANDOFF
+    #
+    # If TP2 has now been successfully executed, TP1 + TP2
+    # are cumulatively complete.
+    #
+    # Any executable quantity remaining for TP3 becomes the
+    # live runner and must be handed directly to Unit 14.
+    #
+    # NO NEW NATURALLY QUALIFIED ENTRY SIGNAL IS REQUIRED.
+    # ========================================================
 
-        post_execution_tp3_armed = (
-            tp_action == "TP2"
-            and tp3_quantity > Decimal("0")
+    post_execution_tp3_armed = (
+        tp_action
+        ==
+        "TP2"
+        and
+        tp3_quantity
+        >
+        Decimal("0")
+    )
+
+    if post_execution_tp3_armed:
+
+        print(
+            "PASS: UNIT 13 TP1 + TP2 CUMULATIVE EXIT COMPLETED",
+            flush=True,
         )
 
-        if post_execution_tp3_armed:
+        print(
+            "PASS: UNIT 13 TP3 RUNNER REMAINS = "
+            f"{tp3_quantity}",
+            flush=True,
+        )
 
-            print(
-                "PASS: UNIT 13 TP1 + TP2 CUMULATIVE EXIT COMPLETED",
-                flush=True,
-            )
+        print(
+            "PASS: UNIT 13 TP3 ARMED AFTER TP2 EXECUTION",
+            flush=True,
+        )
 
-            print(
-                "PASS: UNIT 13 TP3 RUNNER REMAINS = "
-                f"{tp3_quantity}",
-                flush=True,
-            )
+        print(
+            "PASS: UNIT 13 TP3 HANDOFF TO UNIT 14 = READY",
+            flush=True,
+        )
 
-            print(
-                "PASS: UNIT 13 TP3 ARMED AFTER TP2 EXECUTION",
-                flush=True,
-            )
+    else:
 
-            print(
-                "PASS: UNIT 13 TP3 HANDOFF TO UNIT 14 = READY",
-                flush=True,
-            )
+        print(
+            "UNIT 13 POST-EXECUTION TP3 ARMED = FALSE",
+            flush=True,
+        )
 
-        unit_13_result = {
-            "unit": 13,
-            "status": (
+    # ========================================================
+    # BUILD FINAL UNIT 13 POST-EXECUTION RESULT
+    # ========================================================
+
+    unit_13_result = {
+
+        "unit":
+            13,
+
+        "status":
+            (
                 "TP3_ARMED"
                 if post_execution_tp3_armed
                 else "TP_EXECUTED"
             ),
-            "position_exists": True,
-            "position_side": position_side,
-            "position_size": str(position_size),
-            "average_entry_price": str(average_entry_price),
-            "total_executable_steps": total_steps,
-            "tp1_quantity": str(tp1_quantity),
-            "tp2_quantity": str(tp2_quantity),
-            "tp3_quantity": str(tp3_quantity),
-            "tp1_target_price": str(tp1_target),
-            "tp2_target_price": str(tp2_target),
-            "tp1_completed": (
+
+        "position_exists":
+            True,
+
+        "position_side":
+            position_side,
+
+        "position_size":
+            str(
+                position_size
+            ),
+
+        "average_entry_price":
+            str(
+                average_entry_price
+            ),
+
+        "total_executable_steps":
+            total_steps,
+
+        "tp1_quantity":
+            str(
+                tp1_quantity
+            ),
+
+        "tp2_quantity":
+            str(
+                tp2_quantity
+            ),
+
+        "tp3_quantity":
+            str(
+                tp3_quantity
+            ),
+
+        "tp1_target_price":
+            str(
+                tp1_target
+            ),
+
+        "tp2_target_price":
+            str(
+                tp2_target
+            ),
+
+        "tp1_completed":
+            (
                 True
                 if tp_action == "TP2"
                 else tp1_already_completed
             ),
-            "tp2_completed": (
+
+        "tp2_completed":
+            (
                 True
                 if tp_action == "TP2"
                 else tp2_already_completed
             ),
-            "tp3_armed": post_execution_tp3_armed,
-            "tp3_trailing_reference_percent": str(
+
+        "tp3_armed":
+            post_execution_tp3_armed,
+
+        "tp3_trailing_reference_percent":
+            str(
                 tp3_trailing_reference_percent
             ),
-            "tp3_trailing_min_percent": str(
+
+        "tp3_trailing_min_percent":
+            str(
                 tp3_trailing_min_percent
             ),
-            "tp3_trailing_max_percent": str(
+
+        "tp3_trailing_max_percent":
+            str(
                 tp3_trailing_max_percent
             ),
-            "tp_action": tp_action,
-            "tp_close_quantity": str(tp_close_quantity),
-            "tp_order_id": str(
-                tp_response.get(
+
+        "tp_action":
+            tp_action,
+
+        "tp_close_quantity":
+            str(
+                tp_close_quantity
+            ),
+
+        "tp_order_id":
+            str(
+                response_json.get(
                     "orderId",
                     "",
                 )
             ),
-            "demo_order_executed": True,
-            "real_order": False,
-            "sl_enabled": False,
-            "backup_execution": False,
-        }
 
-        print(
-            f"{datetime.now(timezone.utc).isoformat()} "
-            "FRESH RECONSTRUCTION UNIT 13 RESULT = "
-            + (
-                "PASS (TP3 ARMED)"
-                if post_execution_tp3_armed
-                else "PASS (TP EXECUTED)"
-            ),
-            flush=True,
-        )
+        "demo_order_executed":
+            True,
 
-        print(
-            "=" * 80,
-            flush=True,
-        )
+        "real_order":
+            False,
 
-        return unit_13_result
+        "sl_enabled":
+            False,
 
+        "backup_execution":
+            False,
+    }
 
+    print(
+        "UNIT 13 POST-EXECUTION STATUS = "
+        f"{unit_13_result['status']}",
+        flush=True,
+    )
 
+    print(
+        "UNIT 13 POST-EXECUTION TP3 ARMED = "
+        f"{post_execution_tp3_armed}",
+        flush=True,
+    )
+
+    print(
+        f"{datetime.now(timezone.utc).isoformat()} "
+        "FRESH RECONSTRUCTION UNIT 13 RESULT = "
+        +
+        (
+            "PASS (TP3 ARMED)"
+            if post_execution_tp3_armed
+            else "PASS (TP EXECUTED)"
+        ),
+        flush=True,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return unit_13_result
+# ============================================================
+# END REPLACEMENT - UNIT 13 POST-EXECUTION TP3 HANDOFF
+# ZERO INDENTATION DEMARCATION
+# ============================================================
+    
 # ============================================================
 # RUN UNIT 13
 # ============================================================
