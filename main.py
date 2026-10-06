@@ -14796,178 +14796,116 @@ def fresh_reconstruction_unit_13(
             "UNIT 13 TP ACCEPTED WITHOUT ORDER ID"
         )
 
-    # ========================================================
-    # 22. SUCCESS RESULT
-    # ========================================================
+        # ====================================================
+        # POST-EXECUTION TP3 HANDOFF
+        #
+        # If TP2 was successfully executed, TP1 + TP2 have
+        # now been cumulatively satisfied by this execution.
+        #
+        # Therefore any remaining TP3 executable quantity must
+        # be handed directly to Unit 14 as an ARMED runner.
+        #
+        # This does NOT require another naturally qualified
+        # entry signal.
+        # ====================================================
 
-    result = {
+        post_execution_tp3_armed = (
+            tp_action == "TP2"
+            and tp3_quantity > Decimal("0")
+        )
 
-        "unit":
-            13,
+        if post_execution_tp3_armed:
 
-        "status":
-            "TP_EXECUTED",
+            print(
+                "PASS: UNIT 13 TP1 + TP2 CUMULATIVE EXIT COMPLETED",
+                flush=True,
+            )
 
-        "read_only":
-            False,
+            print(
+                "PASS: UNIT 13 TP3 RUNNER REMAINS = "
+                f"{tp3_quantity}",
+                flush=True,
+            )
 
-        "unit_12_status":
-            unit_12_status,
+            print(
+                "PASS: UNIT 13 TP3 ARMED AFTER TP2 EXECUTION",
+                flush=True,
+            )
 
-        "active_position_exists":
-            True,
+            print(
+                "PASS: UNIT 13 TP3 HANDOFF TO UNIT 14 = READY",
+                flush=True,
+            )
 
-        "position_side":
-            position_side,
+        unit_13_result = {
+            "unit": 13,
+            "status": (
+                "TP3_ARMED"
+                if post_execution_tp3_armed
+                else "TP_EXECUTED"
+            ),
+            "position_exists": True,
+            "position_side": position_side,
+            "position_size": str(position_size),
+            "average_entry_price": str(average_entry_price),
+            "total_executable_steps": total_steps,
+            "tp1_quantity": str(tp1_quantity),
+            "tp2_quantity": str(tp2_quantity),
+            "tp3_quantity": str(tp3_quantity),
+            "tp1_target_price": str(tp1_target),
+            "tp2_target_price": str(tp2_target),
+            "tp1_completed": (
+                True
+                if tp_action == "TP2"
+                else tp1_already_completed
+            ),
+            "tp2_completed": (
+                True
+                if tp_action == "TP2"
+                else tp2_already_completed
+            ),
+            "tp3_armed": post_execution_tp3_armed,
+            "tp3_trailing_reference_percent": str(
+                tp3_trailing_reference_percent
+            ),
+            "tp3_trailing_min_percent": str(
+                tp3_trailing_min_percent
+            ),
+            "tp3_trailing_max_percent": str(
+                tp3_trailing_max_percent
+            ),
+            "tp_action": tp_action,
+            "tp_close_quantity": str(tp_close_quantity),
+            "tp_order_id": str(
+                tp_response.get(
+                    "orderId",
+                    "",
+                )
+            ),
+            "demo_order_executed": True,
+            "real_order": False,
+            "sl_enabled": False,
+            "backup_execution": False,
+        }
 
-        "position_size_before":
-            float(position_size),
+        print(
+            f"{datetime.now(timezone.utc).isoformat()} "
+            "FRESH RECONSTRUCTION UNIT 13 RESULT = "
+            + (
+                "PASS (TP3 ARMED)"
+                if post_execution_tp3_armed
+                else "PASS (TP EXECUTED)"
+            ),
+            flush=True,
+        )
 
-        "average_entry_price":
-            float(average_entry_price),
+        print(
+            "=" * 80,
+            flush=True,
+        )
 
-        "mark_price":
-            float(mark_price),
+        return unit_13_result
 
-        "tp_action":
-            tp_action,
-
-        "tp_close_quantity":
-            float(close_quantity),
-
-        "tp_target_allocation":
-            "10/20/70",
-
-        "tp1_target":
-            float(tp1_target),
-
-        "tp2_target":
-            float(tp2_target),
-
-        "tp1_quantity":
-            float(tp1_quantity),
-
-        "tp2_quantity":
-            float(tp2_quantity),
-
-        "tp3_quantity":
-            float(tp3_quantity),
-
-        "tp1_net_roi_floor_percent":
-            float(tp1_net_roi_floor),
-
-        "tp2_net_roi_floor_percent":
-            float(tp2_net_roi_floor),
-
-        "estimated_taker_fee_percent":
-            float(futures_taker_fee_percent),
-
-        "tp3_trailing_percent":
-            float(tp3_trailing_reference),
-
-        "tp3_trailing_reference_percent":
-            float(tp3_trailing_reference),
-
-        "tp3_trailing_min_percent":
-            float(tp3_trailing_min),
-
-        "tp3_trailing_max_percent":
-            float(tp3_trailing_max),
-
-        "tp3_trailing_dynamic":
-            True,
-
-        "tp_execution_attempted":
-            True,
-
-        "tp_execution_completed":
-            True,
-
-        "sl_execution_attempted":
-            False,
-
-        "backup_execution_attempted":
-            False,
-
-        "real_submission_attempted":
-            False,
-
-        "authenticated_request":
-            True,
-
-        "order_endpoint_access":
-            True,
-
-        "exchange_write":
-            True,
-
-        "request_path":
-            request_path,
-
-        "request_payload":
-            tp_payload,
-
-        "http_status":
-            response_status,
-
-        "weex_response":
-            response_json,
-
-        "order_id":
-            tp_order_id,
-    }
-
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 13 "
-        f"{tp_action} DEMO EXECUTED",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 13 TP ORDER ID = "
-        f"{tp_order_id}",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 13 EXISTING POSITION "
-        "MANAGED WITHOUT NEW SIGNAL",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 13 REAL ORDER PROHIBITED",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 13 SL REMAINS DISABLED",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 13 NO BACKUP EXECUTION",
-        flush=True,
-    )
-
-    print(
-        f"{datetime.now(timezone.utc).isoformat()} "
-        "FRESH RECONSTRUCTION UNIT 13 RESULT = "
-        "PASS (TP EXECUTED)",
-        flush=True,
-    )
-
-    print(
-        "=" * 80,
-        flush=True,
-    )
-
-    return result
 
 
 # ============================================================
