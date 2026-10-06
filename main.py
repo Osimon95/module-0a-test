@@ -14925,8 +14925,12 @@ def fresh_tp3_runtime(
 # ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
 # ============================================================
 
+# ============================================================
+# START PART 11D INDENTATION REPAIR
+# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
+# ============================================================
 
-        try:
+            try:
                 size = Decimal(
                     str(
                         record.get(
@@ -14938,17 +14942,17 @@ def fresh_tp3_runtime(
             except Exception:
                 continue
 
-        if size > 0:
+            if size > 0:
                 active_records.append(
                     record
                 )
 
         if not active_records:
-                return None
+            return None
 
         # ONE-DIRECTION-ONLY CONTRACT.
 
-            directions = {
+        directions = {
             str(
                 item.get(
                     "side",
@@ -14958,7 +14962,7 @@ def fresh_tp3_runtime(
             for item in active_records
         }
 
-            directions.discard("")
+        directions.discard("")
 
         if len(directions) > 1:
             raise RuntimeError(
@@ -14981,6 +14985,13 @@ def fresh_tp3_runtime(
         for item in balances:
             if not isinstance(item, dict):
                 continue
+
+# ============================================================
+# END PART 11D INDENTATION REPAIR
+# CONTINUE DIRECTLY WITH EXISTING CODE
+# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
+# ============================================================
+        
 
             if (
                 str(
