@@ -14996,61 +14996,117 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 # EXISTING UNIT 14 CONTINUES DIRECTLY BELOW
 # ============================================================
     # ============================================================
+# START COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 14
+# ZERO INDENTATION DEMARCATION
+#
+# DELETE OLD UNIT 14 FUNCTION + OLD UNIT 14 CALL
+# PASTE THIS COMPLETE BLOCK IN ITS PLACE
+# ============================================================
+
+
+def fresh_tp3_runtime(
+    config,
+    unit_13_result,
+):
+    # ========================================================
     # FRESH RECONSTRUCTION UNIT 14
-    # COMBINED TP3 + LIQUIDATION BACKUP RUNTIME
+    # DYNAMIC TP3 + LIQUIDATION BACKUP RUNTIME
     #
-    # FIXED SEQUENCE:
+    # TP3:
     #
-    # ENTRY -> B1 -> L1 -> B2 -> L2 -> B3 -> L3 -> STOP
+    # TARGET ALLOCATION:
+    #     70% BEFORE QUANTITY-STEP ADJUSTMENT
     #
-    # IMPORTANT:
-    # - B1 uses CURRENT WEEX liquidation price L1.
-    # - AFTER B1 FILLS, WEEX position is re-read.
-    # - B2 uses the NEW liquidation price L2.
-    # - AFTER B2 FILLS, WEEX position is re-read.
-    # - B3 uses the NEW liquidation price L3.
-    # - NO B4.
+    # TRAILING CALLBACK:
+    #     DYNAMIC
     #
-    # LONG:
-    #   backup trigger = liquidation * (1 + buffer)
+    # NORMAL REFERENCE:
+    #     APPROXIMATELY 0.20%
     #
-    # SHORT:
-    #   backup trigger = liquidation * (1 - buffer)
+    # DYNAMIC INPUTS:
+    #     1. ATR / VOLATILITY
+    #     2. TREND STRENGTH
+    #     3. MOMENTUM DETERIORATION
     #
-    # DEFAULT CONFIG:
-    #   backup margin = 5%
-    #   backup buffer = 0.30%
-    #   max backups = 3
-    #   exposure cap = 35%
+    # CALLBACK RANGE:
+    #     DEFAULT MIN = 0.10%
+    #     DEFAULT MAX = 0.40%
     #
-    # ALL ABOVE VALUES ARE READ FROM CONFIG.
+    # BEHAVIOUR:
     #
+    # STRONG TREND:
+    #     WIDEN TRAILING CALLBACK
+    #
+    # HIGHER VOLATILITY:
+    #     WIDEN TRAILING CALLBACK
+    #
+    # MOMENTUM DETERIORATION:
+    #     TIGHTEN TRAILING CALLBACK
+    #
+    # --------------------------------------------------------
+    # BACKUP SEQUENCE PRESERVED:
+    #
+    # ENTRY
+    #   ->
+    # B1
+    #   ->
+    # RE-READ POSITION + L1
+    #   ->
+    # B2
+    #   ->
+    # RE-READ POSITION + L2
+    #   ->
+    # B3
+    #   ->
+    # RE-READ POSITION + L3
+    #   ->
+    # STOP
+    #
+    # NO B4.
+    #
+    # LONG BACKUP:
+    #     trigger = liquidation * (1 + buffer)
+    #
+    # SHORT BACKUP:
+    #     trigger = liquidation * (1 - buffer)
+    #
+    # --------------------------------------------------------
     # SAFETY:
-    # - DEMO BTCSUSDT ONLY
-    # - REAL ORDERS PROHIBITED
-    # - SL DISABLED
-    # - ONE DIRECTION ONLY
-    # - ANTI-DUPLICATE
-    # - NO LEVERAGE MUTATION
-    # - NO MARGIN MODE MUTATION
-    # - NO POSITION MODE MUTATION
-    # ============================================================
+    #
+    # DEMO BTCSUSDT ONLY
+    # REAL ORDER PROHIBITED
+    # SL DISABLED
+    # ONE DIRECTION ONLY
+    # ANTI-DUPLICATE
+    # NO LEVERAGE MUTATION
+    # NO MARGIN MODE MUTATION
+    # NO POSITION MODE MUTATION
+    # ========================================================
 
     import os
     import json
     import time
     import hmac
-    import math
     import hashlib
     import base64
     import urllib.request
     import urllib.error
     import urllib.parse
 
-    from decimal import Decimal, ROUND_DOWN
-    from datetime import datetime, timezone
+    from decimal import (
+        Decimal,
+        ROUND_DOWN,
+    )
 
-    print("=" * 80, flush=True)
+    from datetime import (
+        datetime,
+        timezone,
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
 
     print(
         f"{datetime.now(timezone.utc).isoformat()} "
@@ -15058,73 +15114,129 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
         flush=True,
     )
 
-    print("-" * 80, flush=True)
+    print(
+        "-" * 80,
+        flush=True,
+    )
 
     # ========================================================
     # 1. CONFIGURATION CONTRACT
     # ========================================================
 
-    if not isinstance(config, dict):
+    if not isinstance(
+        config,
+        dict,
+    ):
         raise RuntimeError(
             "UNIT 14 BLOCKED: CONFIGURATION MISSING"
         )
 
-    if not isinstance(unit_13_result, dict):
+    if not isinstance(
+        unit_13_result,
+        dict,
+    ):
         raise RuntimeError(
             "UNIT 14 BLOCKED: UNIT 13 RESULT MISSING"
         )
 
-    strategy = config.get("strategy", {})
-    exchange = config.get("exchange", {})
+    strategy = config.get(
+        "strategy",
+        {},
+    )
 
-    if not isinstance(strategy, dict):
+    exchange = config.get(
+        "exchange",
+        {},
+    )
+
+    market_precision = config.get(
+        "market_precision",
+        {},
+    )
+
+    if not isinstance(
+        strategy,
+        dict,
+    ):
         raise RuntimeError(
             "UNIT 14 BLOCKED: STRATEGY CONFIGURATION MISSING"
         )
 
-    if not isinstance(exchange, dict):
+    if not isinstance(
+        exchange,
+        dict,
+    ):
         raise RuntimeError(
             "UNIT 14 BLOCKED: EXCHANGE CONFIGURATION MISSING"
         )
 
     execution_environment = str(
-        config.get("execution_environment", "")
+        config.get(
+            "execution_environment",
+            "",
+        )
     ).upper()
 
-    if execution_environment != "DEMO":
+    if (
+        execution_environment
+        !=
+        "DEMO"
+    ):
         raise RuntimeError(
-            "UNIT 14 BLOCKED: EXECUTION ENVIRONMENT NOT DEMO"
+            "UNIT 14 BLOCKED: "
+            "EXECUTION ENVIRONMENT NOT DEMO"
         )
 
     market_symbol = str(
-        exchange.get("market_symbol", "")
+        exchange.get(
+            "market_symbol",
+            "",
+        )
     ).upper()
 
     demo_symbol = str(
-        exchange.get("demo_order_symbol", "")
+        exchange.get(
+            "demo_order_symbol",
+            "",
+        )
     ).upper()
 
     base_url = str(
-        exchange.get("contract_base_url", "")
+        exchange.get(
+            "contract_base_url",
+            "",
+        )
     ).rstrip("/")
 
-    if market_symbol != "BTCUSDT":
+    if (
+        market_symbol
+        !=
+        "BTCUSDT"
+    ):
         raise RuntimeError(
             "UNIT 14 BLOCKED: MARKET SYMBOL MUST BE BTCUSDT"
         )
 
-    if demo_symbol != "BTCSUSDT":
+    if (
+        demo_symbol
+        !=
+        "BTCSUSDT"
+    ):
         raise RuntimeError(
             "UNIT 14 BLOCKED: DEMO SYMBOL MUST BE BTCSUSDT"
         )
 
-    if base_url != "https://api-contract.weex.com":
+    if (
+        base_url
+        !=
+        "https://api-contract.weex.com"
+    ):
         raise RuntimeError(
             "UNIT 14 BLOCKED: INVALID CONTRACT BASE URL"
         )
 
     # ========================================================
-    # 2. ADJUSTABLE STRATEGY VALUES
+    # 2. STRATEGY VALUES
     # ========================================================
 
     backup_margin_percent = Decimal(
@@ -15161,15 +15273,6 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
         )
     )
 
-    trailing_percent = Decimal(
-        str(
-            strategy.get(
-                "tp3_trailing_percent",
-                0.20,
-            )
-        )
-    )
-
     leverage_target = Decimal(
         str(
             strategy.get(
@@ -15188,53 +15291,121 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
         )
     )
 
-    if backup_margin_percent <= 0:
+    # --------------------------------------------------------
+    # DYNAMIC TP3 CONFIGURATION
+    # --------------------------------------------------------
+
+    trailing_reference_percent = Decimal(
+        str(
+            strategy.get(
+                "tp3_trailing_reference_percent",
+                unit_13_result.get(
+                    "tp3_trailing_reference_percent",
+                    0.20,
+                ),
+            )
+        )
+    )
+
+    trailing_min_percent = Decimal(
+        str(
+            strategy.get(
+                "tp3_trailing_min_percent",
+                unit_13_result.get(
+                    "tp3_trailing_min_percent",
+                    0.10,
+                ),
+            )
+        )
+    )
+
+    trailing_max_percent = Decimal(
+        str(
+            strategy.get(
+                "tp3_trailing_max_percent",
+                unit_13_result.get(
+                    "tp3_trailing_max_percent",
+                    0.40,
+                ),
+            )
+        )
+    )
+
+    if (
+        backup_margin_percent
+        <=
+        Decimal("0")
+    ):
         raise RuntimeError(
             "UNIT 14 BLOCKED: INVALID BACKUP MARGIN"
         )
 
-    if backup_buffer_percent <= 0:
+    if (
+        backup_buffer_percent
+        <=
+        Decimal("0")
+    ):
         raise RuntimeError(
             "UNIT 14 BLOCKED: INVALID BACKUP BUFFER"
         )
 
-    if max_backups < 0:
-        raise RuntimeError(
-            "UNIT 14 BLOCKED: INVALID MAX BACKUPS"
-        )
-
-    # ABSOLUTE ARCHITECTURE CAP.
-    # Configuration may reduce backups below 3,
-    # but may never create B4.
-
-    max_backups = min(
-        max_backups,
-        3,
-    )
-
-    if exposure_cap_percent <= 0:
+    if (
+        exposure_cap_percent
+        <=
+        Decimal("0")
+    ):
         raise RuntimeError(
             "UNIT 14 BLOCKED: INVALID EXPOSURE CAP"
         )
 
-    if trailing_percent <= 0:
-        raise RuntimeError(
-            "UNIT 14 BLOCKED: INVALID TP3 TRAILING PERCENT"
-        )
-
-    if leverage_target <= 0:
+    if (
+        leverage_target
+        <=
+        Decimal("0")
+    ):
         raise RuntimeError(
             "UNIT 14 BLOCKED: INVALID LEVERAGE"
         )
 
-    backup_buffer_fraction = (
-        backup_buffer_percent
-        /
-        Decimal("100")
+    if (
+        trailing_reference_percent
+        <=
+        Decimal("0")
+    ):
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID TP3 REFERENCE"
+        )
+
+    if (
+        trailing_min_percent
+        <=
+        Decimal("0")
+    ):
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID TP3 MINIMUM"
+        )
+
+    if (
+        trailing_max_percent
+        <
+        trailing_min_percent
+    ):
+        raise RuntimeError(
+            "UNIT 14 BLOCKED: INVALID TP3 RANGE"
+        )
+
+    # Absolute architecture protection.
+
+    max_backups = min(
+        max(
+            max_backups,
+            0,
+        ),
+        3,
     )
 
-    trailing_fraction = (
-        trailing_percent
+    backup_buffer_fraction = (
+        backup_buffer_percent
         /
         Decimal("100")
     )
@@ -15245,43 +15416,38 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
     )
 
     print(
-        f"PASS: UNIT 14 BACKUP MARGIN % = "
-        f"{backup_margin_percent}",
+        "PASS: UNIT 14 TP3 TRAILING MODE = DYNAMIC",
         flush=True,
     )
 
     print(
-        f"PASS: UNIT 14 BACKUP BUFFER % = "
-        f"{backup_buffer_percent}",
+        "PASS: UNIT 14 TP3 NORMAL REFERENCE = "
+        f"{trailing_reference_percent}%",
         flush=True,
     )
 
     print(
-        f"PASS: UNIT 14 MAX BACKUPS = "
-        f"{max_backups}",
+        "PASS: UNIT 14 TP3 DYNAMIC RANGE = "
+        f"{trailing_min_percent}% -> "
+        f"{trailing_max_percent}%",
         flush=True,
     )
 
     print(
-        f"PASS: UNIT 14 EXPOSURE CAP % = "
-        f"{exposure_cap_percent}",
-        flush=True,
-    )
-
-    print(
-        f"PASS: UNIT 14 TP3 TRAILING % = "
-        f"{trailing_percent}",
+        "PASS: UNIT 14 TP3 DYNAMIC INPUTS = "
+        "TREND + ATR/VOLATILITY + MOMENTUM DETERIORATION",
         flush=True,
     )
 
     print(
         "PASS: UNIT 14 BACKUP SEQUENCE = "
-        "ENTRY -> B1 -> L1 -> B2 -> L2 -> B3 -> L3 -> STOP",
+        "ENTRY -> B1 -> L1 -> B2 -> L2 -> "
+        "B3 -> L3 -> STOP",
         flush=True,
     )
 
     print(
-        "PASS: UNIT 14 BACKUP 4 = DISABLED",
+        "PASS: UNIT 14 B4 = DISABLED",
         flush=True,
     )
 
@@ -15296,62 +15462,118 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
     )
 
     # ========================================================
-    # 3. QUANTITY CONFIGURATION
+    # 3. QUANTITY PRECISION
     # ========================================================
 
-    quantity_step = Decimal("0.0001")
-    minimum_quantity = Decimal("0.0001")
+    quantity_step = Decimal(
+        str(
+            market_precision.get(
+                "quantity_step",
+                0.0001,
+            )
+        )
+    )
 
-    try:
+    minimum_quantity = Decimal(
+        str(
+            market_precision.get(
+                "minimum_quantity",
+                0.0001,
+            )
+        )
+    )
+
+    if (
+        quantity_step
+        <=
+        Decimal("0")
+    ):
         quantity_step = Decimal(
-            str(
-                exchange.get(
-                    "quantity_step",
-                    "0.0001",
-                )
-            )
+            "0.0001"
         )
-    except Exception:
-        quantity_step = Decimal("0.0001")
 
-    try:
+    if (
+        minimum_quantity
+        <=
+        Decimal("0")
+    ):
         minimum_quantity = Decimal(
-            str(
-                exchange.get(
-                    "minimum_quantity",
-                    "0.0001",
-                )
-            )
+            "0.0001"
         )
-    except Exception:
-        minimum_quantity = Decimal("0.0001")
 
-    if quantity_step <= 0:
-        quantity_step = Decimal("0.0001")
+    def floor_quantity(
+        value,
+    ):
 
-    if minimum_quantity <= 0:
-        minimum_quantity = Decimal("0.0001")
+        value = Decimal(
+            str(value)
+        )
+
+        if (
+            value
+            <=
+            Decimal("0")
+        ):
+            return Decimal(
+                "0"
+            )
+
+        steps = (
+            value
+            /
+            quantity_step
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        )
+
+        return (
+            steps
+            *
+            quantity_step
+        )
+
+    def quantity_text(
+        value,
+    ):
+
+        return (
+            f"{value:.8f}"
+            .rstrip("0")
+            .rstrip(".")
+        )
 
     # ========================================================
     # 4. AUTHENTICATION
     # ========================================================
 
     api_key = (
-        os.environ.get("WEEX_API_KEY")
+        os.environ.get(
+            "WEEX_API_KEY"
+        )
         or
-        os.environ.get("API_KEY")
+        os.environ.get(
+            "API_KEY"
+        )
     )
 
     api_secret = (
-        os.environ.get("WEEX_API_SECRET")
+        os.environ.get(
+            "WEEX_API_SECRET"
+        )
         or
-        os.environ.get("API_SECRET")
+        os.environ.get(
+            "API_SECRET"
+        )
     )
 
     api_passphrase = (
-        os.environ.get("WEEX_API_PASSPHRASE")
+        os.environ.get(
+            "WEEX_API_PASSPHRASE"
+        )
         or
-        os.environ.get("API_PASSPHRASE")
+        os.environ.get(
+            "API_PASSPHRASE"
+        )
     )
 
     if not api_key:
@@ -15369,41 +15591,9 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             "UNIT 14 BLOCKED: WEEX API PASSPHRASE MISSING"
         )
 
-    print(
-        "PASS: UNIT 14 DEMO AUTHENTICATION AVAILABLE",
-        flush=True,
-    )
-
     # ========================================================
-    # 5. HELPERS
+    # 5. AUTHENTICATED HELPERS
     # ========================================================
-
-    def quantity_text(value):
-        text_value = (
-            f"{value:.8f}"
-            .rstrip("0")
-            .rstrip(".")
-        )
-
-        return text_value
-
-    def floor_quantity(value):
-        if value <= 0:
-            return Decimal("0")
-
-        steps = (
-            value
-            /
-            quantity_step
-        ).to_integral_value(
-            rounding=ROUND_DOWN
-        )
-
-        return (
-            steps
-            *
-            quantity_step
-        )
 
     def make_signature(
         timestamp,
@@ -15412,12 +15602,11 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
         query_string="",
         body="",
     ):
-        method = method.upper()
 
         message = (
             timestamp
             +
-            method
+            method.upper()
             +
             path
         )
@@ -15435,17 +15624,24 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
         return (
             base64.b64encode(
                 hmac.new(
-                    api_secret.encode("utf-8"),
-                    message.encode("utf-8"),
+                    api_secret.encode(
+                        "utf-8"
+                    ),
+                    message.encode(
+                        "utf-8"
+                    ),
                     hashlib.sha256,
                 ).digest()
-            ).decode("utf-8")
+            ).decode(
+                "utf-8"
+            )
         )
 
     def authenticated_get(
         path,
         query_string="",
     ):
+
         timestamp = str(
             int(
                 time.time()
@@ -15486,25 +15682,31 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
         )
 
         if query_string:
+
             url += (
                 "?"
                 +
                 query_string
             )
 
-        request = urllib.request.Request(
-            url=url,
-            headers=headers,
-            method="GET",
+        request = (
+            urllib.request.Request(
+                url=url,
+                headers=headers,
+                method="GET",
+            )
         )
 
         with urllib.request.urlopen(
             request,
             timeout=15,
         ) as response:
-            status = response.getcode()
 
-            text = (
+            status = (
+                response.getcode()
+            )
+
+            response_text = (
                 response.read()
                 .decode(
                     "utf-8",
@@ -15520,25 +15722,36 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             300
         ):
             raise RuntimeError(
-                f"AUTHENTICATED GET FAILED: HTTP {status}"
+                "UNIT 14 AUTHENTICATED GET FAILED: "
+                f"HTTP {status}"
             )
 
-        return json.loads(text)
+        return json.loads(
+            response_text
+        )
 
     def authenticated_post(
         path,
         payload,
     ):
-        # DEMO ENDPOINT ONLY.
 
-        if "/sim/" not in path:
+        # Absolute demo-write boundary.
+
+        if (
+            "/sim/"
+            not in
+            path
+        ):
             raise RuntimeError(
                 "UNIT 14 BLOCKED: NON-DEMO WRITE ENDPOINT"
             )
 
         body = json.dumps(
             payload,
-            separators=(",", ":"),
+            separators=(
+                ",",
+                ":",
+            ),
             ensure_ascii=False,
         )
 
@@ -15575,24 +15788,31 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                 "application/json",
         }
 
-        request = urllib.request.Request(
-            url=(
-                base_url
-                +
-                path
-            ),
-            data=body.encode("utf-8"),
-            headers=headers,
-            method="POST",
+        request = (
+            urllib.request.Request(
+                url=(
+                    base_url
+                    +
+                    path
+                ),
+                data=body.encode(
+                    "utf-8"
+                ),
+                headers=headers,
+                method="POST",
+            )
         )
 
         with urllib.request.urlopen(
             request,
             timeout=15,
         ) as response:
-            status = response.getcode()
 
-            text = (
+            status = (
+                response.getcode()
+            )
+
+            response_text = (
                 response.read()
                 .decode(
                     "utf-8",
@@ -15601,12 +15821,14 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             )
 
         print(
-            f"UNIT 14 DEMO ORDER HTTP STATUS = {status}",
+            "UNIT 14 DEMO ORDER HTTP STATUS = "
+            f"{status}",
             flush=True,
         )
 
         print(
-            f"UNIT 14 DEMO ORDER RESPONSE = {text}",
+            "UNIT 14 DEMO ORDER RESPONSE = "
+            f"{response_text}",
             flush=True,
         )
 
@@ -15618,28 +15840,38 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             300
         ):
             raise RuntimeError(
-                f"UNIT 14 DEMO ORDER FAILED: HTTP {status}"
+                "UNIT 14 DEMO ORDER FAILED: "
+                f"HTTP {status}"
             )
 
-# ============================================================
-# START PART 11C-11D INDENTATION REPAIR
-# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
-# ============================================================
+        return json.loads(
+            response_text
+        )
 
-        return json.loads(text)
+    # ========================================================
+    # 6. POSITION / BALANCE / MARKET HELPERS
+    # ========================================================
 
     def get_active_position():
+
         records = authenticated_get(
             "/capi/v3/sim/position/allPosition"
         )
 
-        if not isinstance(records, list):
+        if not isinstance(
+            records,
+            list,
+        ):
             return None
 
         active_records = []
 
         for record in records:
-            if not isinstance(record, dict):
+
+            if not isinstance(
+                record,
+                dict,
+            ):
                 continue
 
             if (
@@ -15654,18 +15886,8 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             ):
                 continue
 
-# ============================================================
-# END PART 11C-11D INDENTATION REPAIR
-# CONTINUE DIRECTLY WITH EXISTING CODE
-# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
-# ============================================================
-
-# ============================================================
-# START PART 11D INDENTATION REPAIR
-# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
-# ============================================================
-
             try:
+
                 size = Decimal(
                     str(
                         record.get(
@@ -15674,59 +15896,83 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                         )
                     )
                 )
+
             except Exception:
+
                 continue
 
-            if size > 0:
+            if (
+                size
+                >
+                Decimal("0")
+            ):
                 active_records.append(
                     record
                 )
 
         if not active_records:
-            return None
 
-        # ONE-DIRECTION-ONLY CONTRACT.
+            return None
 
         directions = {
             str(
-                item.get(
+                record.get(
                     "side",
                     "",
                 )
             ).upper()
-            for item in active_records
+            for record in active_records
         }
 
-        directions.discard("")
+        directions.discard(
+            ""
+        )
 
-        if len(directions) > 1:
+        if (
+            len(directions)
+            >
+            1
+        ):
             raise RuntimeError(
                 "UNIT 14 BLOCKED: "
-                "OPPOSING ACTIVE POSITIONS DETECTED"
+                "OPPOSING POSITIONS DETECTED"
             )
 
-        return active_records[0]
+        if (
+            len(active_records)
+            >
+            1
+        ):
+            raise RuntimeError(
+                "UNIT 14 BLOCKED: "
+                "MULTIPLE ACTIVE BTCSUSDT POSITIONS"
+            )
+
+        return (
+            active_records[0]
+        )
 
     def get_demo_balance():
+
         balances = authenticated_get(
             "/capi/v3/sim/balance"
         )
 
-        if not isinstance(balances, list):
+        if not isinstance(
+            balances,
+            list,
+        ):
             raise RuntimeError(
-                "UNIT 14 BLOCKED: INVALID DEMO BALANCE RESPONSE"
+                "UNIT 14 INVALID DEMO BALANCE RESPONSE"
             )
 
         for item in balances:
-            if not isinstance(item, dict):
-                continue
 
-# ============================================================
-# END PART 11D INDENTATION REPAIR
-# CONTINUE DIRECTLY WITH EXISTING CODE
-# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
-# ============================================================
-        
+            if not isinstance(
+                item,
+                dict,
+            ):
+                continue
 
             if (
                 str(
@@ -15741,43 +15987,50 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                 return item
 
         raise RuntimeError(
-            "UNIT 14 BLOCKED: SUSDT DEMO BALANCE NOT FOUND"
+            "UNIT 14 SUSDT DEMO BALANCE NOT FOUND"
         )
 
     def get_mark_price():
-        mark_path = (
+
+        path = (
             "/capi/v3/market/symbolPrice"
         )
 
-        query_string = (
-            "symbol=BTCUSDT"
-            "&priceType=MARK"
+        query = urllib.parse.urlencode(
+            {
+                "symbol":
+                    market_symbol,
+
+                "priceType":
+                    "MARK",
+            }
         )
 
-        request = urllib.request.Request(
-            url=(
-                base_url
-                +
-                mark_path
-                +
-                "?"
-                +
-                query_string
-            ),
-            method="GET",
-            headers={
-                "Accept":
-                    "application/json",
-            },
+        request = (
+            urllib.request.Request(
+                url=(
+                    base_url
+                    +
+                    path
+                    +
+                    "?"
+                    +
+                    query
+                ),
+                method="GET",
+            )
         )
 
         with urllib.request.urlopen(
             request,
             timeout=15,
         ) as response:
-            status = response.getcode()
 
-            text = (
+            status = (
+                response.getcode()
+            )
+
+            response_text = (
                 response.read()
                 .decode(
                     "utf-8",
@@ -15793,12 +16046,14 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             300
         ):
             raise RuntimeError(
-                f"UNIT 14 MARK READ FAILED: HTTP {status}"
+                "UNIT 14 MARK PRICE READ FAILED"
             )
 
-        payload = json.loads(text)
+        payload = json.loads(
+            response_text
+        )
 
-        price = Decimal(
+        mark = Decimal(
             str(
                 payload.get(
                     "price",
@@ -15807,50 +16062,700 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             )
         )
 
-        if price <= 0:
+        if (
+            mark
+            <=
+            Decimal("0")
+        ):
             raise RuntimeError(
                 "UNIT 14 INVALID MARK PRICE"
             )
 
-        return price
+        return mark
+
+    # ========================================================
+    # 7. DYNAMIC TP3 MARKET ANALYSIS
+    # ========================================================
+
+    def get_recent_market_analysis():
+
+        endpoint = (
+            "/capi/v3/market/markPriceKlines"
+        )
+
+        query = urllib.parse.urlencode(
+            {
+                "symbol":
+                    market_symbol,
+
+                "interval":
+                    "1m",
+
+                "limit":
+                    60,
+            }
+        )
+
+        request = (
+            urllib.request.Request(
+                url=(
+                    base_url
+                    +
+                    endpoint
+                    +
+                    "?"
+                    +
+                    query
+                ),
+                method="GET",
+            )
+        )
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            status = (
+                response.getcode()
+            )
+
+            response_text = (
+                response.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+
+        if not (
+            200
+            <=
+            int(status)
+            <
+            300
+        ):
+            raise RuntimeError(
+                "UNIT 14 KLINE READ FAILED"
+            )
+
+        raw_klines = json.loads(
+            response_text
+        )
+
+        if not isinstance(
+            raw_klines,
+            list,
+        ):
+            raise RuntimeError(
+                "UNIT 14 INVALID KLINE RESPONSE"
+            )
+
+        candles = []
+
+        for raw in raw_klines:
+
+            if not isinstance(
+                raw,
+                (list, tuple),
+            ):
+                continue
+
+            if (
+                len(raw)
+                <
+                5
+            ):
+                continue
+
+            try:
+
+                open_time = int(
+                    raw[0]
+                )
+
+                open_price = Decimal(
+                    str(raw[1])
+                )
+
+                high_price = Decimal(
+                    str(raw[2])
+                )
+
+                low_price = Decimal(
+                    str(raw[3])
+                )
+
+                close_price = Decimal(
+                    str(raw[4])
+                )
+
+            except Exception:
+
+                continue
+
+            if (
+                open_price
+                <=
+                Decimal("0")
+                or
+                high_price
+                <=
+                Decimal("0")
+                or
+                low_price
+                <=
+                Decimal("0")
+                or
+                close_price
+                <=
+                Decimal("0")
+            ):
+                continue
+
+            candles.append(
+                {
+                    "time":
+                        open_time,
+
+                    "open":
+                        open_price,
+
+                    "high":
+                        high_price,
+
+                    "low":
+                        low_price,
+
+                    "close":
+                        close_price,
+                }
+            )
+
+        candles.sort(
+            key=lambda item:
+                item["time"]
+        )
+
+        if (
+            len(candles)
+            <
+            25
+        ):
+            raise RuntimeError(
+                "UNIT 14 INSUFFICIENT KLINES "
+                "FOR DYNAMIC TRAILING"
+            )
+
+        # ----------------------------------------------------
+        # EMA helper
+        # ----------------------------------------------------
+
+        def ema(
+            values,
+            period,
+        ):
+
+            multiplier = (
+                Decimal("2")
+                /
+                Decimal(
+                    period
+                    +
+                    1
+                )
+            )
+
+            ema_value = (
+                values[0]
+            )
+
+            for value in values[1:]:
+
+                ema_value = (
+                    (
+                        value
+                        -
+                        ema_value
+                    )
+                    *
+                    multiplier
+                    +
+                    ema_value
+                )
+
+            return ema_value
+
+        closes = [
+            candle["close"]
+            for candle in candles
+        ]
+
+        # ----------------------------------------------------
+        # ATR14
+        # ----------------------------------------------------
+
+        true_ranges = []
+
+        previous_close = None
+
+        for candle in candles:
+
+            high_price = (
+                candle["high"]
+            )
+
+            low_price = (
+                candle["low"]
+            )
+
+            if previous_close is None:
+
+                true_range = (
+                    high_price
+                    -
+                    low_price
+                )
+
+            else:
+
+                true_range = max(
+                    high_price
+                    -
+                    low_price,
+
+                    abs(
+                        high_price
+                        -
+                        previous_close
+                    ),
+
+                    abs(
+                        low_price
+                        -
+                        previous_close
+                    ),
+                )
+
+            true_ranges.append(
+                true_range
+            )
+
+            previous_close = (
+                candle["close"]
+            )
+
+        atr_values = (
+            true_ranges[-14:]
+        )
+
+        atr = (
+            sum(
+                atr_values,
+                Decimal("0"),
+            )
+            /
+            Decimal(
+                len(atr_values)
+            )
+        )
+
+        latest_close = (
+            closes[-1]
+        )
+
+        atr_percent = (
+            atr
+            /
+            latest_close
+            *
+            Decimal("100")
+        )
+
+        # ----------------------------------------------------
+        # TREND STRENGTH
+        #
+        # EMA9 / EMA21 separation relative to ATR.
+        #
+        # 0 = weak/flat
+        # 1 = strong directional structure
+        # ----------------------------------------------------
+
+        ema9 = ema(
+            closes[-30:],
+            9,
+        )
+
+        ema21 = ema(
+            closes[-40:],
+            21,
+        )
+
+        ema_separation = abs(
+            ema9
+            -
+            ema21
+        )
+
+        if (
+            atr
+            >
+            Decimal("0")
+        ):
+
+            trend_strength = (
+                ema_separation
+                /
+                atr
+            )
+
+        else:
+
+            trend_strength = (
+                Decimal("0")
+            )
+
+        if (
+            trend_strength
+            >
+            Decimal("1")
+        ):
+            trend_strength = (
+                Decimal("1")
+            )
+
+        if (
+            trend_strength
+            <
+            Decimal("0")
+        ):
+            trend_strength = (
+                Decimal("0")
+            )
+
+        # ----------------------------------------------------
+        # MOMENTUM DETERIORATION
+        #
+        # Compare recent 3-candle movement with the preceding
+        # 3-candle movement in the ACTIVE POSITION direction.
+        #
+        # 0 = momentum healthy
+        # 1 = strong deterioration/reversal
+        # ----------------------------------------------------
+
+        earlier_reference = (
+            closes[-7]
+        )
+
+        middle_reference = (
+            closes[-4]
+        )
+
+        latest_reference = (
+            closes[-1]
+        )
+
+        earlier_move = (
+            middle_reference
+            -
+            earlier_reference
+        )
+
+        recent_move = (
+            latest_reference
+            -
+            middle_reference
+        )
+
+        return {
+            "atr":
+                atr,
+
+            "atr_percent":
+                atr_percent,
+
+            "ema9":
+                ema9,
+
+            "ema21":
+                ema21,
+
+            "trend_strength":
+                trend_strength,
+
+            "earlier_move":
+                earlier_move,
+
+            "recent_move":
+                recent_move,
+        }
+
+    def calculate_dynamic_callback(
+        analysis,
+        position_side,
+    ):
+
+        atr_percent = Decimal(
+            str(
+                analysis[
+                    "atr_percent"
+                ]
+            )
+        )
+
+        trend_strength = Decimal(
+            str(
+                analysis[
+                    "trend_strength"
+                ]
+            )
+        )
+
+        earlier_move = Decimal(
+            str(
+                analysis[
+                    "earlier_move"
+                ]
+            )
+        )
+
+        recent_move = Decimal(
+            str(
+                analysis[
+                    "recent_move"
+                ]
+            )
+        )
+
+        # ----------------------------------------------------
+        # MOMENTUM DETERIORATION SCORE
+        #
+        # Range 0 -> 1.
+        # ----------------------------------------------------
+
+        deterioration = Decimal(
+            "0"
+        )
+
+        if (
+            position_side
+            ==
+            "LONG"
+        ):
+
+            earlier_favorable = max(
+                earlier_move,
+                Decimal("0"),
+            )
+
+            recent_favorable = max(
+                recent_move,
+                Decimal("0"),
+            )
+
+            if (
+                recent_move
+                <
+                Decimal("0")
+            ):
+                deterioration = (
+                    Decimal("1")
+                )
+
+            elif (
+                earlier_favorable
+                >
+                Decimal("0")
+            ):
+
+                deterioration = (
+                    Decimal("1")
+                    -
+                    min(
+                        recent_favorable
+                        /
+                        earlier_favorable,
+                        Decimal("1"),
+                    )
+                )
+
+        else:
+
+            earlier_favorable = max(
+                -earlier_move,
+                Decimal("0"),
+            )
+
+            recent_favorable = max(
+                -recent_move,
+                Decimal("0"),
+            )
+
+            if (
+                recent_move
+                >
+                Decimal("0")
+            ):
+                deterioration = (
+                    Decimal("1")
+                )
+
+            elif (
+                earlier_favorable
+                >
+                Decimal("0")
+            ):
+
+                deterioration = (
+                    Decimal("1")
+                    -
+                    min(
+                        recent_favorable
+                        /
+                        earlier_favorable,
+                        Decimal("1"),
+                    )
+                )
+
+        if (
+            deterioration
+            <
+            Decimal("0")
+        ):
+            deterioration = (
+                Decimal("0")
+            )
+
+        if (
+            deterioration
+            >
+            Decimal("1")
+        ):
+            deterioration = (
+                Decimal("1")
+            )
+
+        # ----------------------------------------------------
+        # VOLATILITY COMPONENT
+        #
+        # ATR contributes to callback width.
+        #
+        # Limit ATR influence to prevent one abnormal candle
+        # from creating an excessive callback.
+        # ----------------------------------------------------
+
+        atr_component = min(
+            atr_percent,
+            Decimal("0.30"),
+        )
+
+        # ----------------------------------------------------
+        # DYNAMIC CALLBACK FORMULA
+        #
+        # Reference remains the centre.
+        #
+        # ATR:
+        #     contributes up to +0.075%
+        #
+        # Trend strength:
+        #     contributes up to +0.08%
+        #
+        # Momentum deterioration:
+        #     removes up to 0.12%
+        #
+        # Final result always clamped to configured range.
+        # ----------------------------------------------------
+
+        volatility_adjustment = (
+            atr_component
+            *
+            Decimal("0.25")
+        )
+
+        trend_adjustment = (
+            trend_strength
+            *
+            Decimal("0.08")
+        )
+
+        deterioration_adjustment = (
+            deterioration
+            *
+            Decimal("0.12")
+        )
+
+        dynamic_percent = (
+            trailing_reference_percent
+            +
+            volatility_adjustment
+            +
+            trend_adjustment
+            -
+            deterioration_adjustment
+        )
+
+        dynamic_percent = max(
+            trailing_min_percent,
+            min(
+                dynamic_percent,
+                trailing_max_percent,
+            ),
+        )
+
+        return (
+            dynamic_percent,
+            deterioration,
+        )
+
+    # ========================================================
+    # 8. ORDER HISTORY / BACKUP HELPERS
+    # ========================================================
 
     def get_order_history():
-        query_string = (
-            "symbol=BTCSUSDT"
-            "&limit=1000"
-            "&page=0"
+
+        query = urllib.parse.urlencode(
+            {
+                "symbol":
+                    demo_symbol,
+
+                "limit":
+                    1000,
+
+                "page":
+                    0,
+            }
         )
 
         history = authenticated_get(
             "/capi/v3/sim/order/history",
-            query_string,
+            query,
         )
 
-        if not isinstance(history, list):
+        if not isinstance(
+            history,
+            list,
+        ):
             return []
 
         return history
 
-    # ========================================================
-    # 6. BACKUP TRADE ID
-    #
-    # Position createdTime ties B1/B2/B3 to THIS position.
-    # Old backup orders from an earlier trade cannot advance
-    # the current trade's backup stage.
-    # ========================================================
+    def get_trade_key(
+        position,
+    ):
 
-    def get_trade_key(position):
-        raw_created = str(
+        created_time = str(
             position.get(
                 "createdTime",
                 "",
             )
         )
 
-        if raw_created.isdigit():
-            return raw_created[-12:]
+        if created_time.isdigit():
 
-        # Fallback only if WEEX omitted createdTime.
+            return (
+                created_time[-12:]
+            )
+
         position_id = str(
             position.get(
                 "id",
@@ -15859,7 +16764,10 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
         )
 
         if position_id:
-            return position_id[-12:]
+
+            return (
+                position_id[-12:]
+            )
 
         raise RuntimeError(
             "UNIT 14 BLOCKED: "
@@ -15870,24 +16778,16 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
         stage,
         trade_key,
     ):
+
         return (
             f"FR-B{stage}-{trade_key}"
         )[:36]
-
-    # ========================================================
-    # 7. EXCHANGE-CONFIRMED BACKUP STAGE
-    #
-    # Stage advances ONLY when the corresponding backup order
-    # is reported FILLED with executedQty > 0.
-    #
-    # Accepted/open/unknown orders BLOCK another submission
-    # for the same stage but DO NOT advance to the next stage.
-    # ========================================================
 
     def determine_backup_stage(
         history,
         trade_key,
     ):
+
         filled_stages = set()
         existing_stages = set()
 
@@ -15895,23 +16795,32 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             1,
             max_backups + 1,
         ):
-            target_id = backup_client_id(
-                stage,
-                trade_key,
+
+            expected_id = (
+                backup_client_id(
+                    stage,
+                    trade_key,
+                )
             )
 
             for order in history:
-                if not isinstance(order, dict):
+
+                if not isinstance(
+                    order,
+                    dict,
+                ):
                     continue
 
-                client_id = str(
-                    order.get(
-                        "clientOrderId",
-                        "",
+                if (
+                    str(
+                        order.get(
+                            "clientOrderId",
+                            "",
+                        )
                     )
-                )
-
-                if client_id != target_id:
+                    !=
+                    expected_id
+                ):
                     continue
 
                 existing_stages.add(
@@ -15926,6 +16835,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                 ).upper()
 
                 try:
+
                     executed_qty = Decimal(
                         str(
                             order.get(
@@ -15934,8 +16844,12 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                             )
                         )
                     )
+
                 except Exception:
-                    executed_qty = Decimal("0")
+
+                    executed_qty = (
+                        Decimal("0")
+                    )
 
                 if (
                     status
@@ -15944,13 +16858,11 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                     and
                     executed_qty
                     >
-                    0
+                    Decimal("0")
                 ):
                     filled_stages.add(
                         stage
                     )
-
-        # Sequential integrity.
 
         completed = 0
 
@@ -15958,15 +16870,31 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             1,
             max_backups + 1,
         ):
-            if stage in filled_stages:
-                if stage != completed + 1:
+
+            if (
+                stage
+                in
+                filled_stages
+            ):
+
+                if (
+                    stage
+                    !=
+                    completed
+                    +
+                    1
+                ):
                     raise RuntimeError(
                         "UNIT 14 BLOCKED: "
                         "NON-SEQUENTIAL BACKUP HISTORY"
                     )
 
-                completed = stage
+                completed = (
+                    stage
+                )
+
             else:
+
                 break
 
         return (
@@ -15976,7 +16904,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
         )
 
     # ========================================================
-    # 8. TP3 STATE
+    # 9. INITIAL TP3 STATE
     # ========================================================
 
     unit_13_status = str(
@@ -16005,6 +16933,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
     ).upper()
 
     try:
+
         original_tp3_quantity = Decimal(
             str(
                 unit_13_result.get(
@@ -16013,15 +16942,14 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                 )
             )
         )
+
     except Exception:
-        original_tp3_quantity = Decimal("0")
+
+        original_tp3_quantity = (
+            Decimal("0")
+        )
 
     best_mark = None
-
-    # When a backup fills while TP3 is armed,
-    # TP1/TP2 have already completed for the original position.
-    # The added backup quantity becomes part of the remaining
-    # managed runner rather than being ignored.
 
     last_confirmed_backup_stage = None
 
@@ -16029,20 +16957,23 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
     poll_seconds = 5
 
-    # Prevent this controller itself from submitting two
-    # different orders too close together.
-
     last_runtime_order_time = 0.0
 
     print(
-        f"UNIT 14 RUNTIME POLL INTERVAL = "
-        f"{poll_seconds} SECONDS",
+        "UNIT 14 TP3 ARMED = "
+        f"{tp3_armed}",
         flush=True,
     )
 
     print(
-        f"UNIT 14 TP3 ARMED = "
-        f"{tp3_armed}",
+        "UNIT 14 TP3 ORIGINAL RUNNER QUANTITY = "
+        f"{original_tp3_quantity}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 RUNTIME POLL INTERVAL = "
+        f"{poll_seconds} SECONDS",
         flush=True,
     )
 
@@ -16051,21 +16982,34 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
         flush=True,
     )
 
-    print("=" * 80, flush=True)
+    print(
+        "=" * 80,
+        flush=True,
+    )
 
     # ========================================================
-    # 9. COMBINED CONTINUOUS POSITION LOOP
+    # 10. CONTINUOUS POSITION MANAGEMENT LOOP
     # ========================================================
 
     while True:
+
         runtime_cycle += 1
 
+        # ====================================================
+        # 10A. CURRENT POSITION
+        # ====================================================
+
         try:
-            position = get_active_position()
+
+            position = (
+                get_active_position()
+            )
 
         except Exception as exc:
+
             print(
-                f"UNIT 14 POSITION READ ERROR = {repr(exc)}",
+                "UNIT 14 POSITION READ ERROR = "
+                f"{repr(exc)}",
                 flush=True,
             )
 
@@ -16075,25 +17019,15 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
             continue
 
-        # ====================================================
-        # 9A. POSITION CLOSED
-        # ====================================================
-
         if position is None:
-            print("-" * 80, flush=True)
+
+            print(
+                "-" * 80,
+                flush=True,
+            )
 
             print(
                 "UNIT 14 ACTIVE POSITION EXISTS = FALSE",
-                flush=True,
-            )
-
-            print(
-                "UNIT 14 BACKUP MANAGEMENT COMPLETE",
-                flush=True,
-            )
-
-            print(
-                "UNIT 14 TP3 MANAGEMENT COMPLETE",
                 flush=True,
             )
 
@@ -16102,9 +17036,25 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                 flush=True,
             )
 
-            print("=" * 80, flush=True)
+            print(
+                "PASS: UNIT 14 TP3 MANAGEMENT COMPLETE",
+                flush=True,
+            )
+
+            print(
+                "PASS: UNIT 14 BACKUP MANAGEMENT COMPLETE",
+                flush=True,
+            )
+
+            print(
+                "=" * 80,
+                flush=True,
+            )
 
             return {
+                "unit":
+                    14,
+
                 "status":
                     "POSITION_CLOSED",
 
@@ -16117,10 +17067,6 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                 "sl_enabled":
                     False,
             }
-
-        # ====================================================
-        # 9B. CURRENT POSITION STATE
-        # ====================================================
 
         position_side = str(
             position.get(
@@ -16139,7 +17085,8 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
         if (
             position_side_from_unit_13
-            in (
+            in
+            (
                 "LONG",
                 "SHORT",
             )
@@ -16153,6 +17100,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             )
 
         try:
+
             position_size = Decimal(
                 str(
                     position.get(
@@ -16172,8 +17120,10 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             )
 
         except Exception as exc:
+
             print(
-                f"UNIT 14 POSITION PARSE ERROR = {repr(exc)}",
+                "UNIT 14 POSITION PARSE ERROR = "
+                f"{repr(exc)}",
                 flush=True,
             )
 
@@ -16183,26 +17133,39 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
             continue
 
-        if position_size <= 0:
+        if (
+            position_size
+            <=
+            Decimal("0")
+        ):
+
             time.sleep(
                 poll_seconds
             )
+
             continue
 
-        trade_key = get_trade_key(
-            position
+        trade_key = (
+            get_trade_key(
+                position
+            )
         )
 
         # ====================================================
-        # 9C. CURRENT MARK
+        # 10B. CURRENT MARK
         # ====================================================
 
         try:
-            current_mark = get_mark_price()
+
+            current_mark = (
+                get_mark_price()
+            )
 
         except Exception as exc:
+
             print(
-                f"UNIT 14 MARK READ ERROR = {repr(exc)}",
+                "UNIT 14 MARK READ ERROR = "
+                f"{repr(exc)}",
                 flush=True,
             )
 
@@ -16213,11 +17176,14 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             continue
 
         # ====================================================
-        # 9D. ORDER HISTORY / BACKUP STAGE
+        # 10C. HISTORY + CONFIRMED BACKUP STAGE
         # ====================================================
 
         try:
-            history = get_order_history()
+
+            history = (
+                get_order_history()
+            )
 
             (
                 completed_backups,
@@ -16229,14 +17195,12 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             )
 
         except Exception as exc:
+
             print(
-                f"UNIT 14 HISTORY READ ERROR = {repr(exc)}",
+                "UNIT 14 HISTORY READ ERROR = "
+                f"{repr(exc)}",
                 flush=True,
             )
-
-            # FAIL CLOSED:
-            # no backup may be submitted when duplicate
-            # history cannot be verified.
 
             time.sleep(
                 poll_seconds
@@ -16245,16 +17209,20 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             continue
 
         # ====================================================
-        # RESET TP3 BEST MARK AFTER CONFIRMED BACKUP FILL
+        # 10D. BACKUP FILL CHANGE
         #
-        # This prevents the old pre-backup trailing reference
-        # from immediately closing the newly enlarged position.
+        # Reset TP3 best mark whenever a newly confirmed
+        # backup changes the managed position.
+        #
+        # The CURRENT position and CURRENT liquidation price
+        # were already re-read at the beginning of this cycle.
         # ====================================================
 
         if (
             last_confirmed_backup_stage
             is None
         ):
+
             last_confirmed_backup_stage = (
                 completed_backups
             )
@@ -16264,20 +17232,22 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             !=
             last_confirmed_backup_stage
         ):
+
             print(
-                f"PASS: UNIT 14 BACKUP STAGE CHANGED "
-                f"{last_confirmed_backup_stage} "
-                f"-> {completed_backups}",
+                "PASS: UNIT 14 BACKUP STAGE CHANGED "
+                f"{last_confirmed_backup_stage} -> "
+                f"{completed_backups}",
                 flush=True,
             )
 
             print(
-                "PASS: UNIT 14 NEW WEEX POSITION STATE RECEIVED",
+                "PASS: UNIT 14 POSITION RE-READ "
+                "AFTER CONFIRMED BACKUP FILL",
                 flush=True,
             )
 
             print(
-                f"PASS: UNIT 14 NEW LIQUIDATION PRICE = "
+                "PASS: UNIT 14 NEW WEEX LIQUIDATION = "
                 f"{liquidation_price}",
                 flush=True,
             )
@@ -16288,140 +17258,261 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                 completed_backups
             )
 
+            print(
+                "PASS: UNIT 14 TP3 BEST MARK RESET "
+                "AFTER BACKUP FILL",
+                flush=True,
+            )
+
         # ====================================================
-        # 10. TP3 MANAGEMENT
+        # 11. DYNAMIC TP3 MANAGEMENT
         # ====================================================
 
         tp3_callback_reached = False
         trailing_trigger = None
+        dynamic_trailing_percent = None
+        momentum_deterioration = None
+        atr_percent = None
+        trend_strength = None
 
         if tp3_armed:
-            # After any backup has filled, the actual current
-            # remaining position is the quantity managed by
-            # the runner. Before any backup, preserve the
-            # original Unit 13 TP3 allocation.
 
-            if completed_backups > 0:
+            # ------------------------------------------------
+            # Once a backup has filled after TP3 was armed,
+            # the added quantity joins the remaining runner.
+            #
+            # Before backups:
+            # close no more than Unit 13 TP3 allocation.
+            #
+            # After backup:
+            # manage current remaining position as runner.
+            # ------------------------------------------------
+
+            if (
+                completed_backups
+                >
+                0
+            ):
+
                 tp3_close_quantity = (
                     position_size
                 )
+
             else:
+
                 tp3_close_quantity = min(
                     original_tp3_quantity,
                     position_size,
                 )
 
-            if tp3_close_quantity > 0:
-                if best_mark is None:
-                    best_mark = (
-                        current_mark
-                    )
+            # ------------------------------------------------
+            # BEST FAVORABLE MARK
+            # ------------------------------------------------
 
-                    print(
-                        f"TP3 INITIAL BEST MARK = "
-                        f"{best_mark}",
-                        flush=True,
-                    )
+            if best_mark is None:
 
-                elif (
-                    position_side
-                    ==
-                    "LONG"
-                    and
+                best_mark = (
                     current_mark
-                    >
-                    best_mark
-                ):
-                    best_mark = (
-                        current_mark
-                    )
-
-                    print(
-                        f"TP3 NEW BEST FAVORABLE MARK = "
-                        f"{best_mark}",
-                        flush=True,
-                    )
-
-                elif (
-                    position_side
-                    ==
-                    "SHORT"
-                    and
-                    current_mark
-                    <
-                    best_mark
-                ):
-                    best_mark = (
-                        current_mark
-                    )
-
-                    print(
-                        f"TP3 NEW BEST FAVORABLE MARK = "
-                        f"{best_mark}",
-                        flush=True,
-                    )
-
-                if position_side == "LONG":
-                    trailing_trigger = (
-                        best_mark
-                        *
-                        (
-                            Decimal("1")
-                            -
-                            trailing_fraction
-                        )
-                    )
-
-                    tp3_callback_reached = (
-                        current_mark
-                        <=
-                        trailing_trigger
-                    )
-
-                else:
-                    trailing_trigger = (
-                        best_mark
-                        *
-                        (
-                            Decimal("1")
-                            +
-                            trailing_fraction
-                        )
-                    )
-
-                    tp3_callback_reached = (
-                        current_mark
-                        >=
-                        trailing_trigger
-                    )
+                )
 
                 print(
-                    f"UNIT 14 CYCLE = {runtime_cycle} | "
-                    f"SIDE = {position_side} | "
-                    f"SIZE = {position_size} | "
-                    f"MARK = {current_mark} | "
-                    f"LIQ = {liquidation_price} | "
-                    f"BACKUPS FILLED = {completed_backups}/{max_backups} | "
-                    f"TP3 BEST = {best_mark} | "
-                    f"TP3 TRIGGER = {trailing_trigger} | "
-                    f"TP3 CALLBACK = {tp3_callback_reached}",
+                    "TP3 INITIAL BEST MARK = "
+                    f"{best_mark}",
                     flush=True,
                 )
 
-        else:
+            elif (
+                position_side
+                ==
+                "LONG"
+                and
+                current_mark
+                >
+                best_mark
+            ):
+
+                best_mark = (
+                    current_mark
+                )
+
+                print(
+                    "TP3 NEW BEST FAVORABLE MARK = "
+                    f"{best_mark}",
+                    flush=True,
+                )
+
+            elif (
+                position_side
+                ==
+                "SHORT"
+                and
+                current_mark
+                <
+                best_mark
+            ):
+
+                best_mark = (
+                    current_mark
+                )
+
+                print(
+                    "TP3 NEW BEST FAVORABLE MARK = "
+                    f"{best_mark}",
+                    flush=True,
+                )
+
+            # ------------------------------------------------
+            # RECALCULATE DYNAMIC CALLBACK EVERY CYCLE
+            # ------------------------------------------------
+
+            try:
+
+                analysis = (
+                    get_recent_market_analysis()
+                )
+
+                (
+                    dynamic_trailing_percent,
+                    momentum_deterioration,
+                ) = calculate_dynamic_callback(
+                    analysis,
+                    position_side,
+                )
+
+                atr_percent = (
+                    analysis[
+                        "atr_percent"
+                    ]
+                )
+
+                trend_strength = (
+                    analysis[
+                        "trend_strength"
+                    ]
+                )
+
+            except Exception as exc:
+
+                # Fail-safe:
+                # if market-analysis data temporarily fails,
+                # use normal reference rather than inventing
+                # market conditions.
+
+                dynamic_trailing_percent = (
+                    trailing_reference_percent
+                )
+
+                momentum_deterioration = (
+                    Decimal("0")
+                )
+
+                atr_percent = (
+                    Decimal("0")
+                )
+
+                trend_strength = (
+                    Decimal("0")
+                )
+
+                print(
+                    "UNIT 14 DYNAMIC ANALYSIS ERROR = "
+                    f"{repr(exc)}",
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 14 TP3 CALLBACK FALLBACK = "
+                    f"{trailing_reference_percent}%",
+                    flush=True,
+                )
+
+            dynamic_trailing_percent = max(
+                trailing_min_percent,
+                min(
+                    dynamic_trailing_percent,
+                    trailing_max_percent,
+                ),
+            )
+
+            dynamic_trailing_fraction = (
+                dynamic_trailing_percent
+                /
+                Decimal("100")
+            )
+
+            if (
+                position_side
+                ==
+                "LONG"
+            ):
+
+                trailing_trigger = (
+                    best_mark
+                    *
+                    (
+                        Decimal("1")
+                        -
+                        dynamic_trailing_fraction
+                    )
+                )
+
+                tp3_callback_reached = (
+                    current_mark
+                    <=
+                    trailing_trigger
+                )
+
+            else:
+
+                trailing_trigger = (
+                    best_mark
+                    *
+                    (
+                        Decimal("1")
+                        +
+                        dynamic_trailing_fraction
+                    )
+                )
+
+                tp3_callback_reached = (
+                    current_mark
+                    >=
+                    trailing_trigger
+                )
+
             print(
-                f"UNIT 14 CYCLE = {runtime_cycle} | "
+                "UNIT 14 DYNAMIC TP3 | "
+                f"CYCLE = {runtime_cycle} | "
+                f"SIDE = {position_side} | "
+                f"MARK = {current_mark} | "
+                f"BEST = {best_mark} | "
+                f"ATR% = {atr_percent} | "
+                f"TREND = {trend_strength} | "
+                f"DETERIORATION = {momentum_deterioration} | "
+                f"REFERENCE = {trailing_reference_percent}% | "
+                f"CALLBACK = {dynamic_trailing_percent}% | "
+                f"TRIGGER = {trailing_trigger} | "
+                f"REACHED = {tp3_callback_reached}",
+                flush=True,
+            )
+
+        else:
+
+            print(
+                "UNIT 14 CYCLE = "
+                f"{runtime_cycle} | "
                 f"SIDE = {position_side} | "
                 f"SIZE = {position_size} | "
                 f"MARK = {current_mark} | "
                 f"LIQ = {liquidation_price} | "
-                f"BACKUPS FILLED = {completed_backups}/{max_backups} | "
-                f"TP3 ARMED = FALSE",
+                f"BACKUPS FILLED = "
+                f"{completed_backups}/{max_backups} | "
+                "TP3 ARMED = FALSE",
                 flush=True,
             )
 
         # ====================================================
-        # 11. TP3 HAS EXECUTION PRIORITY IF CALLBACK REACHED
+        # 12. TP3 CALLBACK HAS EXECUTION PRIORITY
         # ====================================================
 
         if (
@@ -16429,8 +17520,6 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             and
             tp3_callback_reached
         ):
-            # Do not submit another order if this runtime has
-            # submitted an order too recently.
 
             elapsed = (
                 time.time()
@@ -16439,10 +17528,15 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             )
 
             if (
-                last_runtime_order_time > 0
+                last_runtime_order_time
+                >
+                0
                 and
-                elapsed < 60
+                elapsed
+                <
+                60
             ):
+
                 print(
                     "TP3 EXECUTION WAITING FOR "
                     "DEMO ORDER RATE WINDOW",
@@ -16455,18 +17549,31 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
                 continue
 
-            if position_side == "LONG":
-                closing_side = "SELL"
+            if (
+                position_side
+                ==
+                "LONG"
+            ):
+
+                closing_side = (
+                    "SELL"
+                )
+
             else:
-                closing_side = "BUY"
+
+                closing_side = (
+                    "BUY"
+                )
 
             close_quantity = min(
                 tp3_close_quantity,
                 position_size,
             )
 
-            close_quantity = floor_quantity(
-                close_quantity
+            close_quantity = (
+                floor_quantity(
+                    close_quantity
+                )
             )
 
             if (
@@ -16474,6 +17581,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                 <
                 minimum_quantity
             ):
+
                 print(
                     "TP3 CLOSE BLOCKED: "
                     "QUANTITY BELOW MINIMUM",
@@ -16490,11 +17598,10 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                 f"FR-TP3-{trade_key}"
             )[:36]
 
-            # Check whether THIS TP3 client ID already exists.
-
             tp3_existing = False
 
             for order in history:
+
                 if not isinstance(
                     order,
                     dict,
@@ -16511,10 +17618,13 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                     ==
                     tp3_client_id
                 ):
+
                     tp3_existing = True
+
                     break
 
             if tp3_existing:
+
                 print(
                     "TP3 DUPLICATE SUBMISSION BLOCKED",
                     flush=True,
@@ -16526,7 +17636,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
                 continue
 
-            payload = {
+            tp3_payload = {
                 "symbol":
                     demo_symbol,
 
@@ -16548,20 +17658,28 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                     tp3_client_id,
             }
 
-            # ABSOLUTE SL PROHIBITION.
-
             for prohibited in (
                 "slTriggerPrice",
                 "SlWorkingType",
                 "stopLossPrice",
                 "stopPrice",
             ):
-                if prohibited in payload:
+
+                if (
+                    prohibited
+                    in
+                    tp3_payload
+                ):
+
                     raise RuntimeError(
-                        "UNIT 14 BLOCKED: SL FIELD DETECTED"
+                        "UNIT 14 BLOCKED: "
+                        "SL FIELD DETECTED"
                     )
 
-            print("-" * 80, flush=True)
+            print(
+                "-" * 80,
+                flush=True,
+            )
 
             print(
                 "TP3 CALLBACK REACHED = TRUE",
@@ -16569,7 +17687,13 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             )
 
             print(
-                f"TP3 CLOSE QUANTITY = "
+                "TP3 DYNAMIC CALLBACK % = "
+                f"{dynamic_trailing_percent}",
+                flush=True,
+            )
+
+            print(
+                "TP3 CLOSE QUANTITY = "
                 f"{close_quantity}",
                 flush=True,
             )
@@ -16580,9 +17704,10 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             )
 
             try:
+
                 result = authenticated_post(
                     "/capi/v3/sim/order",
-                    payload,
+                    tp3_payload,
                 )
 
                 last_runtime_order_time = (
@@ -16590,14 +17715,15 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                 )
 
             except Exception as exc:
+
                 print(
-                    f"TP3 DEMO ORDER ERROR = {repr(exc)}",
+                    "TP3 DEMO ORDER ERROR = "
+                    f"{repr(exc)}",
                     flush=True,
                 )
 
-                # Submission outcome may be uncertain.
-                # Do not immediately resubmit.
-                # History/position is re-read first.
+                # Outcome may be uncertain.
+                # Re-read history and position before retry.
 
                 last_runtime_order_time = (
                     time.time()
@@ -16609,9 +17735,16 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
                 continue
 
-            if result.get("success") is not True:
+            if (
+                result.get(
+                    "success"
+                )
+                is not True
+            ):
+
                 print(
-                    f"TP3 ORDER NOT ACCEPTED = {result}",
+                    "TP3 ORDER NOT ACCEPTED = "
+                    f"{result}",
                     flush=True,
                 )
 
@@ -16627,8 +17760,13 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             )
 
             print(
-                f"PASS: TP3 ORDER ID = "
+                "PASS: TP3 ORDER ID = "
                 f"{result.get('orderId')}",
+                flush=True,
+            )
+
+            print(
+                "PASS: TP3 DYNAMIC TRAILING EXECUTED",
                 flush=True,
             )
 
@@ -16649,18 +17787,18 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             continue
 
         # ====================================================
-        # 12. BACKUP MANAGEMENT
+        # 13. BACKUP MANAGEMENT
         # ====================================================
 
-        if max_backups <= 0:
+        if (
+            max_backups
+            <=
+            0
+        ):
+
             print(
                 "UNIT 14 BACKUPS DISABLED BY CONFIG",
-# ============================================================
-# END PART 11D
-# CONTINUE DIRECTLY WITH PART 11E
-# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
-# ============================================================
-                 flush=True,
+                flush=True,
             )
 
             time.sleep(
@@ -16669,13 +17807,14 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
             continue
 
-        # ====================================================
-        # ALL THREE BACKUPS ALREADY FILLED
-        # ====================================================
+        if (
+            completed_backups
+            >=
+            max_backups
+        ):
 
-        if completed_backups >= max_backups:
             print(
-                f"UNIT 14 BACKUP STATUS = "
+                "UNIT 14 BACKUP STATUS = "
                 f"B{completed_backups} FILLED",
                 flush=True,
             )
@@ -16708,9 +17847,12 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             1
         )
 
-        # Absolute B4 protection.
+        if (
+            next_backup_stage
+            >
+            3
+        ):
 
-        if next_backup_stage > 3:
             print(
                 "UNIT 14 BACKUP STOP = NO B4",
                 flush=True,
@@ -16723,13 +17865,18 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             continue
 
         # ====================================================
-        # 12A. CURRENT LIQUIDATION MUST COME FROM WEEX
+        # 13A. CURRENT WEEX LIQUIDATION PRICE REQUIRED
         # ====================================================
 
-        if liquidation_price <= 0:
+        if (
+            liquidation_price
+            <=
+            Decimal("0")
+        ):
+
             print(
                 f"UNIT 14 B{next_backup_stage} BLOCKED: "
-                "WEEX LIQUIDATION PRICE NOT AVAILABLE",
+                "WEEX LIQUIDATION PRICE UNAVAILABLE",
                 flush=True,
             )
 
@@ -16740,16 +17887,15 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             continue
 
         # ====================================================
-        # 12B. CALCULATE BACKUP TRIGGER
-        #
-        # LONG:
-        # Bn = Ln * (1 + buffer)
-        #
-        # SHORT:
-        # Bn = Ln * (1 - buffer)
+        # 13B. BACKUP TRIGGER
         # ====================================================
 
-        if position_side == "LONG":
+        if (
+            position_side
+            ==
+            "LONG"
+        ):
+
             backup_trigger = (
                 liquidation_price
                 *
@@ -16767,6 +17913,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             )
 
         else:
+
             backup_trigger = (
                 liquidation_price
                 *
@@ -16785,7 +17932,8 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
         print(
             f"UNIT 14 B{next_backup_stage} | "
-            f"L{next_backup_stage} = {liquidation_price} | "
+            f"L{next_backup_stage} = "
+            f"{liquidation_price} | "
             f"BUFFER = {backup_buffer_percent}% | "
             f"TRIGGER = {backup_trigger} | "
             f"MARK = {current_mark} | "
@@ -16794,6 +17942,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
         )
 
         if not backup_reached:
+
             time.sleep(
                 poll_seconds
             )
@@ -16801,12 +17950,14 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             continue
 
         # ====================================================
-        # 12C. ANTI-DUPLICATE
+        # 13C. ANTI-DUPLICATE
         # ====================================================
 
-        next_client_id = backup_client_id(
-            next_backup_stage,
-            trade_key,
+        next_client_id = (
+            backup_client_id(
+                next_backup_stage,
+                trade_key,
+            )
         )
 
         if (
@@ -16814,6 +17965,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             in
             existing_backup_stages
         ):
+
             print(
                 f"UNIT 14 B{next_backup_stage} "
                 "ORDER ALREADY EXISTS",
@@ -16832,18 +17984,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             continue
 
         # ====================================================
-        # 12D. EXPOSURE CAP
-        #
-        # Configured capital allocation:
-        #
-        # initial margin %
-        # +
-        # completed backups * backup margin %
-        # +
-        # proposed next backup margin %
-        #
-        # This deliberately does NOT use the 0.0004 initial
-        # entry cap for backups.
+        # 13D. EXPOSURE CAP
         # ====================================================
 
         current_configured_exposure = (
@@ -16865,19 +18006,19 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
         )
 
         print(
-            f"UNIT 14 CURRENT CONFIGURED EXPOSURE % = "
+            "UNIT 14 CURRENT CONFIGURED EXPOSURE % = "
             f"{current_configured_exposure}",
             flush=True,
         )
 
         print(
-            f"UNIT 14 PROJECTED EXPOSURE % = "
+            "UNIT 14 PROJECTED EXPOSURE % = "
             f"{projected_exposure}",
             flush=True,
         )
 
         print(
-            f"UNIT 14 EXPOSURE CAP % = "
+            "UNIT 14 EXPOSURE CAP % = "
             f"{exposure_cap_percent}",
             flush=True,
         )
@@ -16887,6 +18028,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             >
             exposure_cap_percent
         ):
+
             print(
                 f"UNIT 14 B{next_backup_stage} BLOCKED: "
                 "EXPOSURE CAP",
@@ -16900,11 +18042,14 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             continue
 
         # ====================================================
-        # 12E. DEMO BALANCE
+        # 13E. DEMO BALANCE
         # ====================================================
 
         try:
-            balance_item = get_demo_balance()
+
+            balance_item = (
+                get_demo_balance()
+            )
 
             available_balance = Decimal(
                 str(
@@ -16916,8 +18061,10 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             )
 
         except Exception as exc:
+
             print(
-                f"UNIT 14 BALANCE READ ERROR = {repr(exc)}",
+                "UNIT 14 BALANCE READ ERROR = "
+                f"{repr(exc)}",
                 flush=True,
             )
 
@@ -16927,7 +18074,12 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
             continue
 
-        if available_balance <= 0:
+        if (
+            available_balance
+            <=
+            Decimal("0")
+        ):
+
             print(
                 f"UNIT 14 B{next_backup_stage} BLOCKED: "
                 "NO AVAILABLE DEMO BALANCE",
@@ -16941,13 +18093,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             continue
 
         # ====================================================
-        # 12F. BACKUP QUANTITY
-        #
-        # margin = available balance * backup %
-        # notional = margin * leverage
-        # qty = notional / mark
-        #
-        # No 0.0004 initial-entry cap is applied.
+        # 13F. BACKUP QUANTITY
         # ====================================================
 
         backup_margin_amount = (
@@ -16972,8 +18118,10 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             current_mark
         )
 
-        backup_quantity = floor_quantity(
-            raw_backup_quantity
+        backup_quantity = (
+            floor_quantity(
+                raw_backup_quantity
+            )
         )
 
         print(
@@ -17005,6 +18153,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             <
             minimum_quantity
         ):
+
             print(
                 f"UNIT 14 B{next_backup_stage} BLOCKED: "
                 "QUANTITY BELOW MINIMUM",
@@ -17018,19 +18167,19 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             continue
 
         # ====================================================
-        # 12G. FINAL POSITION RECONCILIATION
-        #
-        # Re-read actual position immediately before submission.
-        # This prevents a stale trigger from submitting against
-        # a position that has already changed or closed.
+        # 13G. FINAL POSITION RECONCILIATION
         # ====================================================
 
         try:
-            final_position = get_active_position()
+
+            final_position = (
+                get_active_position()
+            )
 
         except Exception as exc:
+
             print(
-                f"UNIT 14 FINAL POSITION CHECK ERROR = "
+                "UNIT 14 FINAL POSITION CHECK ERROR = "
                 f"{repr(exc)}",
                 flush=True,
             )
@@ -17042,6 +18191,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             continue
 
         if final_position is None:
+
             print(
                 f"UNIT 14 B{next_backup_stage} BLOCKED: "
                 "POSITION CLOSED BEFORE SUBMISSION",
@@ -17061,17 +18211,28 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             )
         ).upper()
 
-        if final_side != position_side:
+        if (
+            final_side
+            !=
+            position_side
+        ):
             raise RuntimeError(
                 "UNIT 14 BLOCKED: "
                 "POSITION DIRECTION CHANGED"
             )
 
-        final_trade_key = get_trade_key(
-            final_position
+        final_trade_key = (
+            get_trade_key(
+                final_position
+            )
         )
 
-        if final_trade_key != trade_key:
+        if (
+            final_trade_key
+            !=
+            trade_key
+        ):
+
             print(
                 f"UNIT 14 B{next_backup_stage} BLOCKED: "
                 "POSITION IDENTITY CHANGED",
@@ -17085,6 +18246,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             continue
 
         try:
+
             final_liquidation = Decimal(
                 str(
                     final_position.get(
@@ -17095,17 +18257,22 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             )
 
         except Exception:
-            final_liquidation = Decimal("0")
 
-        # If WEEX has already recalculated liquidation between
-        # trigger evaluation and submission, restart the cycle
-        # and calculate from the new liquidation.
+            final_liquidation = (
+                Decimal("0")
+            )
+
+        # ----------------------------------------------------
+        # If WEEX changed liquidation before submission,
+        # restart. Never submit from stale liquidation.
+        # ----------------------------------------------------
 
         if (
             final_liquidation
             !=
             liquidation_price
         ):
+
             print(
                 f"UNIT 14 B{next_backup_stage} "
                 "LIQUIDATION CHANGED BEFORE SUBMISSION",
@@ -17113,12 +18280,14 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             )
 
             print(
-                f"OLD LIQUIDATION = {liquidation_price}",
+                "OLD LIQUIDATION = "
+                f"{liquidation_price}",
                 flush=True,
             )
 
             print(
-                f"NEW LIQUIDATION = {final_liquidation}",
+                "NEW LIQUIDATION = "
+                f"{final_liquidation}",
                 flush=True,
             )
 
@@ -17134,7 +18303,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             continue
 
         # ====================================================
-        # 12H. ORDER-RATE GUARD
+        # 13H. ORDER RATE GUARD
         # ====================================================
 
         elapsed = (
@@ -17144,10 +18313,15 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
         )
 
         if (
-            last_runtime_order_time > 0
+            last_runtime_order_time
+            >
+            0
             and
-            elapsed < 60
+            elapsed
+            <
+            60
         ):
+
             print(
                 f"UNIT 14 B{next_backup_stage} "
                 "WAITING FOR DEMO ORDER RATE WINDOW",
@@ -17161,18 +18335,24 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             continue
 
         # ====================================================
-        # 12I. BACKUP ORDER
-        #
-        # Same position direction:
-        #
-        # LONG backup  = BUY / LONG
-        # SHORT backup = SELL / SHORT
+        # 13I. BUILD BACKUP ORDER
         # ====================================================
 
-        if position_side == "LONG":
-            backup_order_side = "BUY"
+        if (
+            position_side
+            ==
+            "LONG"
+        ):
+
+            backup_order_side = (
+                "BUY"
+            )
+
         else:
-            backup_order_side = "SELL"
+
+            backup_order_side = (
+                "SELL"
+            )
 
         backup_payload = {
             "symbol":
@@ -17196,20 +18376,28 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                 next_client_id,
         }
 
-        # ABSOLUTE SL PROHIBITION.
-
         for prohibited in (
             "slTriggerPrice",
             "SlWorkingType",
             "stopLossPrice",
             "stopPrice",
         ):
-            if prohibited in backup_payload:
+
+            if (
+                prohibited
+                in
+                backup_payload
+            ):
+
                 raise RuntimeError(
-                    "UNIT 14 BLOCKED: SL FIELD DETECTED"
+                    "UNIT 14 BLOCKED: "
+                    "SL FIELD DETECTED"
                 )
 
-        print("-" * 80, flush=True)
+        print(
+            "-" * 80,
+            flush=True,
+        )
 
         print(
             f"UNIT 14 B{next_backup_stage} "
@@ -17219,43 +18407,36 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
         print(
             f"UNIT 14 B{next_backup_stage} "
-            f"LIQUIDATION REFERENCE = "
+            "LIQUIDATION REFERENCE = "
             f"{liquidation_price}",
             flush=True,
         )
 
         print(
             f"UNIT 14 B{next_backup_stage} "
-            f"TRIGGER PRICE = "
+            "TRIGGER PRICE = "
             f"{backup_trigger}",
             flush=True,
         )
 
         print(
             f"UNIT 14 B{next_backup_stage} "
-            f"CURRENT MARK = "
+            "CURRENT MARK = "
             f"{current_mark}",
             flush=True,
         )
 
         print(
             f"UNIT 14 B{next_backup_stage} "
-            f"ORDER SIDE = "
+            "ORDER SIDE = "
             f"{backup_order_side}",
             flush=True,
         )
 
         print(
             f"UNIT 14 B{next_backup_stage} "
-            f"QUANTITY = "
+            "QUANTITY = "
             f"{backup_quantity}",
-            flush=True,
-        )
-
-        print(
-            f"UNIT 14 B{next_backup_stage} "
-            f"CLIENT ORDER ID = "
-            f"{next_client_id}",
             flush=True,
         )
 
@@ -17275,10 +18456,11 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
         )
 
         # ====================================================
-        # 13. SUBMIT EXACTLY ONE DEMO BACKUP
+        # 14. SUBMIT EXACTLY ONE DEMO BACKUP
         # ====================================================
 
         try:
+
             backup_result = authenticated_post(
                 "/capi/v3/sim/order",
                 backup_payload,
@@ -17288,69 +18470,18 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
                 time.time()
             )
 
-        except urllib.error.HTTPError as exc:
-            try:
-                error_text = (
-                    exc.read()
-                    .decode(
-                        "utf-8",
-                        errors="replace",
-                    )
-                )
-            except Exception:
-                error_text = str(exc)
+        except Exception as exc:
 
             print(
                 f"UNIT 14 B{next_backup_stage} "
-                f"HTTP ERROR = {exc.code}",
-                flush=True,
-            )
-
-            print(
-                f"UNIT 14 B{next_backup_stage} "
-                f"ERROR RESPONSE = {error_text}",
+                "SUBMISSION ERROR = "
+                f"{repr(exc)}",
                 flush=True,
             )
 
             # Outcome may be uncertain.
-            # Re-read history before any retry.
-
-            last_runtime_order_time = (
-                time.time()
-            )
-
-            time.sleep(
-                poll_seconds
-            )
-
-            continue
-
-        except urllib.error.URLError as exc:
-            print(
-                f"UNIT 14 B{next_backup_stage} "
-                f"NETWORK ERROR = {exc}",
-                flush=True,
-            )
-
             # Do not blindly resubmit.
-            # Order history is checked first.
-
-            last_runtime_order_time = (
-                time.time()
-            )
-
-            time.sleep(
-                poll_seconds
-            )
-
-            continue
-
-        except Exception as exc:
-            print(
-                f"UNIT 14 B{next_backup_stage} "
-                f"SUBMISSION ERROR = {repr(exc)}",
-                flush=True,
-            )
+            # Next cycle re-reads order history first.
 
             last_runtime_order_time = (
                 time.time()
@@ -17368,9 +18499,11 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             )
             is not True
         ):
+
             print(
                 f"UNIT 14 B{next_backup_stage} "
-                f"NOT ACCEPTED = {backup_result}",
+                "NOT ACCEPTED = "
+                f"{backup_result}",
                 flush=True,
             )
 
@@ -17387,6 +18520,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
         )
 
         if not backup_order_id:
+
             print(
                 f"UNIT 14 B{next_backup_stage} "
                 "ACCEPTED WITHOUT ORDER ID",
@@ -17399,7 +18533,10 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
             continue
 
-        print("-" * 80, flush=True)
+        print(
+            "-" * 80,
+            flush=True,
+        )
 
         print(
             f"PASS: UNIT 14 B{next_backup_stage} "
@@ -17409,7 +18546,8 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
         print(
             f"PASS: UNIT 14 B{next_backup_stage} "
-            f"ORDER ID = {backup_order_id}",
+            "ORDER ID = "
+            f"{backup_order_id}",
             flush=True,
         )
 
@@ -17456,20 +18594,25 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
             flush=True,
         )
 
-        print("=" * 80, flush=True)
+        print(
+            "=" * 80,
+            flush=True,
+        )
 
-        # ====================================================
+        # ----------------------------------------------------
         # IMPORTANT:
         #
         # DO NOT calculate B2/B3 here.
         #
-        # The next loop:
-        # 1. reads order history
-        # 2. confirms Bn FILLED
-        # 3. reads changed position
-        # 4. reads WEEX's new liquidatePrice
-        # 5. only then calculates B(n+1)
-        # ====================================================
+        # NEXT LOOP:
+        #
+        # 1. Reads history.
+        # 2. Confirms Bn FILLED.
+        # 3. Reads actual changed position.
+        # 4. Reads WEEX's new liquidation price.
+        # 5. Resets TP3 best mark.
+        # 6. Only then calculates B(n+1).
+        # ----------------------------------------------------
 
         time.sleep(
             poll_seconds
@@ -17477,13 +18620,7 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
 
 # ============================================================
-# END PART 11E
-# PART 11 / UNIT 13 + UNIT 14 RUNTIME BODY CONTINUATION COMPLETE
-# NEXT = FINAL UNIT 14 CALL
-# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
-# ============================================================
-
-# START UNIT 14 COMBINED TP3 + BACKUP RUNTIME
+# RUN UNIT 14
 # ============================================================
 
 FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
@@ -17492,3 +18629,40 @@ FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
         FRESH_RECONSTRUCTION_UNIT_13_RESULT,
     )
 )
+
+
+# ============================================================
+# END COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 14
+# ZERO INDENTATION DEMARCATION
+#
+# UNIT 14 IS FULLY CLOSED
+# UNIT 14 IS CALLED
+#
+# NO OPEN FUNCTION
+# NO OPEN LOOP
+# NO OPEN IF
+# NO OPEN TRY
+# NO OPEN DICTIONARY
+#
+# TP ARCHITECTURE:
+# TP1 TARGET = 10%
+# TP2 TARGET = 20%
+# TP3 TARGET = 70%
+#
+# TP3 CALLBACK:
+# DYNAMIC
+# NORMAL REFERENCE ~= 0.20%
+# INPUTS:
+# ATR/VOLATILITY
+# TREND STRENGTH
+# MOMENTUM DETERIORATION
+#
+# BACKUPS:
+# ENTRY -> B1 -> L1 -> B2 -> L2 -> B3 -> L3 -> STOP
+# B4 DISABLED
+#
+# SL DISABLED
+# REAL TRADING PROHIBITED
+# ============================================================
+
+
