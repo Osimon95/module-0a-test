@@ -14886,6 +14886,11 @@ def fresh_tp3_runtime(
                 f"UNIT 14 DEMO ORDER FAILED: HTTP {status}"
             )
 
+# ============================================================
+# START PART 11C-11D INDENTATION REPAIR
+# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
+# ============================================================
+
         return json.loads(text)
 
     def get_active_position():
@@ -14898,17 +14903,11 @@ def fresh_tp3_runtime(
 
         active_records = []
 
-# ============================================================
-# END PART 11C
-# CONTINUE DIRECTLY WITH PART 11D
-# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
-# ============================================================
-
-    for record in records:
+        for record in records:
             if not isinstance(record, dict):
                 continue
 
-        if (
+            if (
                 str(
                     record.get(
                         "symbol",
@@ -14919,6 +14918,13 @@ def fresh_tp3_runtime(
                 demo_symbol
             ):
                 continue
+
+# ============================================================
+# END PART 11C-11D INDENTATION REPAIR
+# CONTINUE DIRECTLY WITH EXISTING CODE
+# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
+# ============================================================
+
 
         try:
                 size = Decimal(
