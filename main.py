@@ -12332,10 +12332,21 @@ FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
 # UNIT 12 FULLY CLOSED AND CALLED
 # NEXT = PART 11 / UNIT 13
 # ============================================================ 
+    
+# ============================================================
+# START COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 13
+# ZERO INDENTATION DEMARCATION
+#
+# DELETE OLD UNIT 13 + OLD RUN UNIT 13 CALL
+# PASTE THIS COMPLETE BLOCK IN ITS PLACE
+#
+# DO NOT DELETE UNIT 14 BELOW THIS BLOCK
+# ============================================================
+
 
 # ============================================================
 # FRESH RECONSTRUCTION UNIT 13
-# EXISTING-POSITION TAKE-PROFIT MANAGEMENT
+# EXISTING-POSITION DYNAMIC TAKE-PROFIT MANAGEMENT
 #
 # CORE RULE:
 #
@@ -12347,17 +12358,67 @@ FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
 # - UNIT 13 DOES NOT REQUIRE UNIT 12 TO BE READY.
 # - UNIT 13 DOES NOT CREATE AN INITIAL ENTRY.
 #
-# TP:
-# - TP1 = 25%
-# - TP2 = 25%
-# - TP3 = 50% TRAILING RUNNER
-# - TP3 TRAILING DISTANCE = 0.20%
+# TARGET TP ALLOCATION:
+#
+# TP1 = 10%
+# TP2 = 20%
+# TP3 = 70%
+#
+# ACTUAL QUANTITIES ARE QUANTITY-STEP AWARE.
+#
+# EXAMPLE:
+#
+# 0.0010 BTC:
+# TP1 = 0.0001
+# TP2 = 0.0002
+# TP3 = 0.0007
+#
+# 0.0004 BTC:
+# ONLY FOUR 0.0001 BTC STEPS EXIST.
+#
+# THEREFORE:
+# TP1 = 0.0001
+# TP2 = 0.0001
+# TP3 = 0.0002
+#
+# EFFECTIVE = 25 / 25 / 50
+#
+# THIS IS NOT A STRATEGY CHANGE.
+# IT IS THE CLOSEST EXECUTABLE REPRESENTATION OF
+# THE CONFIGURED 10 / 20 / 70 TARGET.
+#
+# DYNAMIC TARGET CONTRACT:
+#
+# TP1:
+# - >= 5% ESTIMATED NET ROI FLOOR
+#
+# TP2:
+# - >= 10% ESTIMATED NET ROI FLOOR
+# - MUST REMAIN BEYOND TP1
+# - AT LEAST ONE PRICE STEP SEPARATION
+#
+# FEE CONTRACT:
+#
+# MARKET TP CLOSES ARE TAKER EXECUTIONS.
+#
+# DEFAULT WEEX FUTURES TAKER FEE ESTIMATE:
+# 0.08% OF NOTIONAL PER EXECUTION.
+#
+# ROUND-TRIP FEE ESTIMATE:
+# ENTRY TAKER + EXIT TAKER.
+#
+# CONFIG MAY OVERRIDE:
+# strategy["futures_taker_fee_percent"]
+#
+# TP3:
+# - UNIT 13 ONLY ARMS / HANDS OFF TP3.
+# - UNIT 14 PERFORMS DYNAMIC TRAILING.
 #
 # SAFETY:
-# - DEMO ONLY
-# - REAL TRADING PROHIBITED
+# - DEMO BTCSUSDT ONLY
+# - REAL ORDER PROHIBITED
 # - SL DISABLED
-# - NO BACKUP EXECUTION
+# - NO BACKUP EXECUTION IN UNIT 13
 # - NO LEVERAGE MUTATION
 # - NO MARGIN MODE MUTATION
 # - NO POSITION MODE MUTATION
@@ -12381,6 +12442,7 @@ def fresh_reconstruction_unit_13(
     from decimal import (
         Decimal,
         ROUND_DOWN,
+        ROUND_UP,
     )
 
     from datetime import (
@@ -12405,7 +12467,7 @@ def fresh_reconstruction_unit_13(
     )
 
     # ========================================================
-    # 1. BASIC INPUT VALIDATION
+    # 1. INPUT CONTRACT
     # ========================================================
 
     if not isinstance(
@@ -12413,23 +12475,21 @@ def fresh_reconstruction_unit_13(
         dict,
     ):
         raise RuntimeError(
-            "UNIT 13 BLOCKED: "
-            "CONFIGURATION IS NOT A DICTIONARY"
+            "UNIT 13 BLOCKED: CONFIGURATION MISSING"
         )
-
-    print(
-        "PASS: UNIT 13 RECEIVED UNIT 2 CONFIGURATION",
-        flush=True,
-    )
 
     if not isinstance(
         unit_12_result,
         dict,
     ):
         raise RuntimeError(
-            "UNIT 13 BLOCKED: "
-            "UNIT 12 RESULT IS NOT A DICTIONARY"
+            "UNIT 13 BLOCKED: UNIT 12 RESULT MISSING"
         )
+
+    print(
+        "PASS: UNIT 13 RECEIVED UNIT 2 CONFIGURATION",
+        flush=True,
+    )
 
     print(
         "PASS: UNIT 13 RECEIVED UNIT 12 RESULT",
@@ -12444,23 +12504,10 @@ def fresh_reconstruction_unit_13(
     ).upper()
 
     print(
-        f"UNIT 13 RECEIVED UNIT 12 STATUS = "
+        "UNIT 13 RECEIVED UNIT 12 STATUS = "
         f"{unit_12_status}",
         flush=True,
     )
-
-    # ========================================================
-    # IMPORTANT CORRECTION
-    #
-    # DO NOT RETURN IDLE BECAUSE UNIT 12 IS IDLE.
-    #
-    # Unit 12 controls INITIAL ENTRY.
-    #
-    # Unit 13 controls EXISTING POSITION MANAGEMENT.
-    #
-    # Therefore Unit 13 MUST inspect the actual demo position
-    # before deciding whether TP management is needed.
-    # ========================================================
 
     print(
         "PASS: UNIT 13 POSITION MANAGEMENT "
@@ -12468,14 +12515,8 @@ def fresh_reconstruction_unit_13(
         flush=True,
     )
 
-    print(
-        "PASS: UNIT 13 WILL CHECK EXISTING POSITION "
-        "EVEN WHEN UNIT 12 IS IDLE",
-        flush=True,
-    )
-
     # ========================================================
-    # 2. STRATEGY CONFIGURATION
+    # 2. STRATEGY CONTRACT
     # ========================================================
 
     strategy = config.get(
@@ -12487,15 +12528,14 @@ def fresh_reconstruction_unit_13(
         dict,
     ):
         raise RuntimeError(
-            "UNIT 13 BLOCKED: "
-            "STRATEGY CONFIGURATION MISSING"
+            "UNIT 13 BLOCKED: STRATEGY CONFIGURATION MISSING"
         )
 
     tp1_allocation_percent = Decimal(
         str(
             strategy.get(
                 "tp1_allocation_percent",
-                25.0,
+                10.0,
             )
         )
     )
@@ -12504,7 +12544,7 @@ def fresh_reconstruction_unit_13(
         str(
             strategy.get(
                 "tp2_allocation_percent",
-                25.0,
+                20.0,
             )
         )
     )
@@ -12513,16 +12553,61 @@ def fresh_reconstruction_unit_13(
         str(
             strategy.get(
                 "tp3_allocation_percent",
-                50.0,
+                70.0,
             )
         )
     )
 
-    tp3_trailing_percent = Decimal(
+    tp1_net_roi_floor = Decimal(
         str(
             strategy.get(
-                "tp3_trailing_percent",
+                "tp1_net_roi_floor_percent",
+                5.0,
+            )
+        )
+    )
+
+    tp2_net_roi_floor = Decimal(
+        str(
+            strategy.get(
+                "tp2_net_roi_floor_percent",
+                10.0,
+            )
+        )
+    )
+
+    tp1_tp2_min_roi_separation = Decimal(
+        str(
+            strategy.get(
+                "tp1_tp2_min_roi_separation_percent",
+                5.0,
+            )
+        )
+    )
+
+    tp3_trailing_reference = Decimal(
+        str(
+            strategy.get(
+                "tp3_trailing_reference_percent",
                 0.20,
+            )
+        )
+    )
+
+    tp3_trailing_min = Decimal(
+        str(
+            strategy.get(
+                "tp3_trailing_min_percent",
+                0.10,
+            )
+        )
+    )
+
+    tp3_trailing_max = Decimal(
+        str(
+            strategy.get(
+                "tp3_trailing_max_percent",
+                0.40,
             )
         )
     )
@@ -12537,7 +12622,8 @@ def fresh_reconstruction_unit_13(
 
     if (
         total_tp_allocation
-        != Decimal("100")
+        !=
+        Decimal("100")
     ):
         raise RuntimeError(
             "UNIT 13 BLOCKED: "
@@ -12545,88 +12631,232 @@ def fresh_reconstruction_unit_13(
         )
 
     if (
-        tp3_trailing_percent
-        <= Decimal("0")
+        tp1_net_roi_floor
+        <
+        Decimal("5")
     ):
         raise RuntimeError(
             "UNIT 13 BLOCKED: "
-            "INVALID TP3 TRAILING DISTANCE"
+            "TP1 NET ROI FLOOR BELOW 5%"
+        )
+
+    if (
+        tp2_net_roi_floor
+        <
+        Decimal("10")
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "TP2 NET ROI FLOOR BELOW 10%"
+        )
+
+    if (
+        tp2_net_roi_floor
+        <=
+        tp1_net_roi_floor
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "TP2 ROI FLOOR MUST EXCEED TP1"
         )
 
     print(
-        "PASS: UNIT 13 TP ALLOCATION = 25 / 25 / 50",
+        "PASS: UNIT 13 TARGET TP ALLOCATION = "
+        "10 / 20 / 70",
         flush=True,
     )
 
     print(
-        "PASS: UNIT 13 TP3 TRAILING DISTANCE = "
-        f"{tp3_trailing_percent}%",
+        "PASS: UNIT 13 TP QUANTITY MODE = STEP-AWARE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 TP1 NET ROI FLOOR = "
+        f"{tp1_net_roi_floor}%",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 13 TP2 NET ROI FLOOR = "
+        f"{tp2_net_roi_floor}%",
         flush=True,
     )
 
     # ========================================================
-    # 3. LEVERAGE / TP TARGET CONTRACT
-    #
-    # TP1 = 10% ROI
-    # TP2 = 20% ROI
-    #
-    # At 100x:
-    # TP1 price movement ~= 0.10%
-    # TP2 price movement ~= 0.20%
+    # 3. LEVERAGE + ESTIMATED TRANSACTION COST
     # ========================================================
 
     leverage_target = Decimal(
         str(
             strategy.get(
                 "leverage_target",
-                config.get(
-                    "leverage_target",
-                    100,
-                ),
+                100,
             )
         )
     )
 
     if (
         leverage_target
-        <= Decimal("0")
+        <=
+        Decimal("0")
     ):
-        leverage_target = Decimal(
-            "100"
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: INVALID LEVERAGE"
         )
 
-    tp1_roi_percent = Decimal(
-        "10"
+    # --------------------------------------------------------
+    # Conservative base/default WEEX futures taker fee.
+    #
+    # User may later override this in Unit 2:
+    #
+    # "futures_taker_fee_percent": 0.08
+    #
+    # Percentage here is NOTIONAL percentage.
+    # --------------------------------------------------------
+
+    futures_taker_fee_percent = Decimal(
+        str(
+            strategy.get(
+                "futures_taker_fee_percent",
+                0.08,
+            )
+        )
     )
 
-    tp2_roi_percent = Decimal(
-        "20"
+    if (
+        futures_taker_fee_percent
+        <
+        Decimal("0")
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: INVALID TAKER FEE"
+        )
+
+    # --------------------------------------------------------
+    # Entry + exit fee.
+    #
+    # Example:
+    #
+    # 0.08% entry
+    # +
+    # 0.08% exit
+    # =
+    # 0.16% notional round-trip estimate.
+    #
+    # At 100x leverage this corresponds to approximately
+    # 16% ROI drag relative to initial margin.
+    # --------------------------------------------------------
+
+    estimated_round_trip_fee_price_percent = (
+        futures_taker_fee_percent
+        *
+        Decimal("2")
     )
+
+    estimated_round_trip_fee_roi_percent = (
+        estimated_round_trip_fee_price_percent
+        *
+        leverage_target
+    )
+
+    # --------------------------------------------------------
+    # Required gross leveraged ROI:
+    #
+    # gross ROI
+    # -
+    # estimated fee ROI drag
+    # =
+    # estimated net ROI
+    #
+    # Therefore:
+    #
+    # gross required
+    # =
+    # net floor
+    # +
+    # fee drag
+    # --------------------------------------------------------
+
+    tp1_required_gross_roi = (
+        tp1_net_roi_floor
+        +
+        estimated_round_trip_fee_roi_percent
+    )
+
+    tp2_required_gross_roi = (
+        tp2_net_roi_floor
+        +
+        estimated_round_trip_fee_roi_percent
+    )
+
+    # Mandatory ROI separation.
+
+    minimum_tp2_from_tp1 = (
+        tp1_required_gross_roi
+        +
+        tp1_tp2_min_roi_separation
+    )
+
+    if (
+        tp2_required_gross_roi
+        <
+        minimum_tp2_from_tp1
+    ):
+        tp2_required_gross_roi = (
+            minimum_tp2_from_tp1
+        )
 
     tp1_price_move_percent = (
-        tp1_roi_percent
+        tp1_required_gross_roi
         /
         leverage_target
     )
 
     tp2_price_move_percent = (
-        tp2_roi_percent
+        tp2_required_gross_roi
         /
         leverage_target
     )
 
     print(
-        "UNIT 13 TP1 ROI TARGET = 10%",
+        "UNIT 13 LEVERAGE = "
+        f"{leverage_target}x",
         flush=True,
     )
 
     print(
-        "UNIT 13 TP2 ROI TARGET = 20%",
+        "UNIT 13 ESTIMATED TAKER FEE = "
+        f"{futures_taker_fee_percent}% NOTIONAL / SIDE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 ESTIMATED ROUND-TRIP FEE = "
+        f"{estimated_round_trip_fee_price_percent}% NOTIONAL",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 ESTIMATED FEE ROI DRAG = "
+        f"{estimated_round_trip_fee_roi_percent}%",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP1 REQUIRED GROSS ROI = "
+        f"{tp1_required_gross_roi}%",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP2 REQUIRED GROSS ROI = "
+        f"{tp2_required_gross_roi}%",
         flush=True,
     )
 
     # ========================================================
-    # 4. EXCHANGE CONFIGURATION
+    # 4. EXCHANGE CONTRACT
     # ========================================================
 
     exchange = config.get(
@@ -12638,29 +12868,52 @@ def fresh_reconstruction_unit_13(
         dict,
     ):
         raise RuntimeError(
-            "UNIT 13 BLOCKED: "
-            "EXCHANGE CONFIGURATION MISSING"
+            "UNIT 13 BLOCKED: EXCHANGE CONFIG MISSING"
         )
 
-    demo_symbol = exchange.get(
-        "demo_order_symbol"
-    )
+    demo_symbol = str(
+        exchange.get(
+            "demo_order_symbol",
+            "",
+        )
+    ).upper()
+
+    market_symbol = str(
+        exchange.get(
+            "market_symbol",
+            "BTCUSDT",
+        )
+    ).upper()
+
+    base_url = str(
+        exchange.get(
+            "contract_base_url",
+            exchange.get(
+                "base_url",
+                "https://api-contract.weex.com",
+            ),
+        )
+    ).rstrip("/")
 
     if (
         demo_symbol
-        != "BTCSUSDT"
+        !=
+        "BTCSUSDT"
     ):
         raise RuntimeError(
             "UNIT 13 BLOCKED: "
             "DEMO SYMBOL MUST BE BTCSUSDT"
         )
 
-    base_url = str(
-        exchange.get(
-            "base_url",
-            "https://api-contract.weex.com",
+    if (
+        market_symbol
+        !=
+        "BTCUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "MARKET SYMBOL MUST BE BTCUSDT"
         )
-    ).rstrip("/")
 
     if (
         base_url
@@ -12678,7 +12931,7 @@ def fresh_reconstruction_unit_13(
     )
 
     print(
-        "PASS: UNIT 13 EXECUTION ENVIRONMENT = DEMO",
+        "PASS: UNIT 13 PUBLIC MARKET SYMBOL = BTCUSDT",
         flush=True,
     )
 
@@ -12688,7 +12941,126 @@ def fresh_reconstruction_unit_13(
     )
 
     # ========================================================
-    # 5. API CREDENTIALS
+    # 5. PRECISION CONTRACT
+    # ========================================================
+
+    market_precision = config.get(
+        "market_precision",
+        {},
+    )
+
+    quantity_step = Decimal(
+        str(
+            market_precision.get(
+                "quantity_step",
+                0.0001,
+            )
+        )
+    )
+
+    minimum_quantity = Decimal(
+        str(
+            market_precision.get(
+                "minimum_quantity",
+                0.0001,
+            )
+        )
+    )
+
+    price_step = Decimal(
+        str(
+            market_precision.get(
+                "price_step",
+                0.1,
+            )
+        )
+    )
+
+    if (
+        quantity_step
+        <=
+        Decimal("0")
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: INVALID QUANTITY STEP"
+        )
+
+    if (
+        price_step
+        <=
+        Decimal("0")
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: INVALID PRICE STEP"
+        )
+
+    def round_quantity_down(
+        value,
+    ):
+
+        value = Decimal(
+            str(value)
+        )
+
+        if (
+            value
+            <=
+            Decimal("0")
+        ):
+            return Decimal("0")
+
+        steps = (
+            value
+            /
+            quantity_step
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        )
+
+        return (
+            steps
+            *
+            quantity_step
+        )
+
+    def round_price_down(
+        value,
+    ):
+
+        steps = (
+            value
+            /
+            price_step
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        )
+
+        return (
+            steps
+            *
+            price_step
+        )
+
+    def round_price_up(
+        value,
+    ):
+
+        steps = (
+            value
+            /
+            price_step
+        ).to_integral_value(
+            rounding=ROUND_UP
+        )
+
+        return (
+            steps
+            *
+            price_step
+        )
+
+    # ========================================================
+    # 6. API CREDENTIALS
     # ========================================================
 
     api_key = (
@@ -12723,50 +13095,39 @@ def fresh_reconstruction_unit_13(
 
     if not api_key:
         raise RuntimeError(
-            "UNIT 13 BLOCKED: "
-            "WEEX API KEY MISSING"
+            "UNIT 13 BLOCKED: WEEX API KEY MISSING"
         )
 
     if not api_secret:
         raise RuntimeError(
-            "UNIT 13 BLOCKED: "
-            "WEEX API SECRET MISSING"
+            "UNIT 13 BLOCKED: WEEX API SECRET MISSING"
         )
 
     if not api_passphrase:
         raise RuntimeError(
-            "UNIT 13 BLOCKED: "
-            "WEEX API PASSPHRASE MISSING"
+            "UNIT 13 BLOCKED: WEEX API PASSPHRASE MISSING"
         )
 
-    print(
-        "PASS: UNIT 13 DEMO AUTHENTICATION AVAILABLE",
-        flush=True,
-    )
-
     # ========================================================
-    # 6. ALWAYS CHECK CURRENT DEMO POSITION
-    #
-    # THIS HAPPENS REGARDLESS OF UNIT 12 STATUS.
+    # 7. AUTHENTICATED DEMO POSITION READ
     # ========================================================
 
     position_request_path = (
         "/capi/v3/sim/position/allPosition"
     )
 
-    position_method = "GET"
-
     position_timestamp = str(
         int(
             time.time()
-            * 1000
+            *
+            1000
         )
     )
 
     position_prehash = (
         position_timestamp
         +
-        position_method
+        "GET"
         +
         position_request_path
     )
@@ -12788,6 +13149,7 @@ def fresh_reconstruction_unit_13(
     )
 
     position_headers = {
+
         "ACCESS-KEY":
             api_key,
 
@@ -12815,9 +13177,6 @@ def fresh_reconstruction_unit_13(
             method="GET",
         )
     )
-
-    position_http_status = None
-    position_response_text = None
 
     try:
 
@@ -12852,18 +13211,10 @@ def fresh_reconstruction_unit_13(
 
         except Exception:
 
-            error_text = str(
-                exc
-            )
+            error_text = str(exc)
 
         print(
-            "UNIT 13 POSITION HTTP ERROR = "
-            f"{exc.code}",
-            flush=True,
-        )
-
-        print(
-            "UNIT 13 POSITION RESPONSE = "
+            "UNIT 13 POSITION ERROR RESPONSE = "
             f"{error_text}",
             flush=True,
         )
@@ -12882,30 +13233,24 @@ def fresh_reconstruction_unit_13(
     if not (
         200
         <=
-        int(
-            position_http_status
-        )
+        int(position_http_status)
         <
         300
     ):
         raise RuntimeError(
-            "UNIT 13 POSITION READ "
-            "NON-SUCCESS HTTP STATUS"
+            "UNIT 13 DEMO POSITION READ FAILED"
         )
 
     try:
 
-        position_records = (
-            json.loads(
-                position_response_text
-            )
+        position_records = json.loads(
+            position_response_text
         )
 
     except Exception as exc:
 
         raise RuntimeError(
-            "UNIT 13 POSITION RESPONSE "
-            "IS NOT VALID JSON"
+            "UNIT 13 POSITION RESPONSE INVALID JSON"
         ) from exc
 
     if not isinstance(
@@ -12913,8 +13258,7 @@ def fresh_reconstruction_unit_13(
         list,
     ):
         raise RuntimeError(
-            "UNIT 13 POSITION RESPONSE "
-            "IS NOT A LIST"
+            "UNIT 13 POSITION RESPONSE NOT LIST"
         )
 
     print(
@@ -12923,7 +13267,7 @@ def fresh_reconstruction_unit_13(
     )
 
     # ========================================================
-    # 7. FIND ACTIVE BTCSUSDT POSITION
+    # 8. FIND EXACT ACTIVE BTCSUSDT POSITION
     # ========================================================
 
     active_positions = []
@@ -12936,15 +13280,13 @@ def fresh_reconstruction_unit_13(
         ):
             continue
 
-        record_symbol = str(
-            record.get(
-                "symbol",
-                "",
-            )
-        ).upper()
-
         if (
-            record_symbol
+            str(
+                record.get(
+                    "symbol",
+                    "",
+                )
+            ).upper()
             !=
             "BTCSUSDT"
         ):
@@ -12970,27 +13312,24 @@ def fresh_reconstruction_unit_13(
             >
             Decimal("0")
         ):
-
             active_positions.append(
                 record
             )
 
     # ========================================================
-    # 8. NO EXISTING POSITION
-    #
-    # ONLY NOW MAY UNIT 13 RETURN IDLE.
+    # 9. NO POSITION
     # ========================================================
 
     if (
-        len(
-            active_positions
-        )
+        len(active_positions)
         ==
         0
     ):
 
         result = {
-            "unit": 13,
+
+            "unit":
+                13,
 
             "status":
                 "IDLE_NO_POSITION",
@@ -13000,12 +13339,6 @@ def fresh_reconstruction_unit_13(
 
             "unit_12_status":
                 unit_12_status,
-
-            "position_check_attempted":
-                True,
-
-            "position_check_completed":
-                True,
 
             "active_position_exists":
                 False,
@@ -13017,6 +13350,9 @@ def fresh_reconstruction_unit_13(
                 False,
 
             "tp_execution_completed":
+                False,
+
+            "tp3_armed":
                 False,
 
             "sl_execution_attempted":
@@ -13036,27 +13372,7 @@ def fresh_reconstruction_unit_13(
         }
 
         print(
-            "-" * 80,
-            flush=True,
-        )
-
-        print(
             "UNIT 13 STATUS = IDLE_NO_POSITION",
-            flush=True,
-        )
-
-        print(
-            "UNIT 13 ACTIVE POSITION EXISTS = False",
-            flush=True,
-        )
-
-        print(
-            "UNIT 13 NEW SIGNAL REQUIRED FOR NEW ENTRY = True",
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 13 NO POSITION TO MANAGE",
             flush=True,
         )
 
@@ -13066,22 +13382,12 @@ def fresh_reconstruction_unit_13(
         )
 
         print(
-            "PASS: UNIT 13 NO SL EXECUTION",
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 13 NO BACKUP EXECUTION",
+            "PASS: UNIT 13 SL REMAINS DISABLED",
             flush=True,
         )
 
         print(
             "ZERO EXCHANGE WRITE = TRUE",
-            flush=True,
-        )
-
-        print(
-            "-" * 80,
             flush=True,
         )
 
@@ -13099,25 +13405,17 @@ def fresh_reconstruction_unit_13(
 
         return result
 
-    # ========================================================
-    # 9. EXACTLY ONE ACTIVE POSITION REQUIRED
-    # ========================================================
-
     if (
-        len(
-            active_positions
-        )
+        len(active_positions)
         !=
         1
     ):
         raise RuntimeError(
             "UNIT 13 BLOCKED: "
-            "MULTIPLE ACTIVE BTCSUSDT POSITIONS DETECTED"
+            "MULTIPLE ACTIVE BTCSUSDT POSITIONS"
         )
 
-    position = (
-        active_positions[0]
-    )
+    position = active_positions[0]
 
     position_side = str(
         position.get(
@@ -13131,8 +13429,7 @@ def fresh_reconstruction_unit_13(
         "SHORT",
     ):
         raise RuntimeError(
-            "UNIT 13 BLOCKED: "
-            "INVALID POSITION SIDE"
+            "UNIT 13 BLOCKED: INVALID POSITION SIDE"
         )
 
     position_size = Decimal(
@@ -13150,65 +13447,21 @@ def fresh_reconstruction_unit_13(
         Decimal("0")
     ):
         raise RuntimeError(
-            "UNIT 13 BLOCKED: "
-            "INVALID ACTIVE POSITION SIZE"
+            "UNIT 13 BLOCKED: INVALID POSITION SIZE"
         )
 
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
-    print(
-        "UNIT 13 ACTIVE POSITION EXISTS = True",
-        flush=True,
-    )
-
-    print(
-        f"UNIT 13 POSITION SIDE = "
-        f"{position_side}",
-        flush=True,
-    )
-
-    print(
-        f"UNIT 13 CURRENT POSITION SIZE = "
-        f"{position_size}",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 13 EXISTING POSITION "
-        "MANAGEMENT ACTIVATED",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 13 NEW QUALIFIED SIGNAL "
-        "NOT REQUIRED",
-        flush=True,
-    )
-
     # ========================================================
-    # 10. DERIVE AVERAGE ENTRY PRICE
+    # 10. AVERAGE ENTRY
     # ========================================================
 
-    try:
-
-        open_value = Decimal(
-            str(
-                position.get(
-                    "openValue",
-                    "0",
-                )
+    open_value = Decimal(
+        str(
+            position.get(
+                "openValue",
+                "0",
             )
         )
-
-    except Exception as exc:
-
-        raise RuntimeError(
-            "UNIT 13 BLOCKED: "
-            "INVALID POSITION OPEN VALUE"
-        ) from exc
+    )
 
     if (
         open_value
@@ -13216,8 +13469,7 @@ def fresh_reconstruction_unit_13(
         Decimal("0")
     ):
         raise RuntimeError(
-            "UNIT 13 BLOCKED: "
-            "POSITION OPEN VALUE MISSING OR ZERO"
+            "UNIT 13 BLOCKED: OPEN VALUE INVALID"
         )
 
     average_entry_price = (
@@ -13232,19 +13484,8 @@ def fresh_reconstruction_unit_13(
         Decimal("0")
     ):
         raise RuntimeError(
-            "UNIT 13 BLOCKED: "
-            "AVERAGE ENTRY PRICE INVALID"
+            "UNIT 13 BLOCKED: ENTRY PRICE INVALID"
         )
-
-    print(
-        "UNIT 13 AVERAGE ENTRY PRICE = "
-        f"{average_entry_price}",
-        flush=True,
-    )
-
-    # ========================================================
-    # 11. CUMULATIVE OPEN / CLOSE SIZE
-    # ========================================================
 
     try:
 
@@ -13299,187 +13540,253 @@ def fresh_reconstruction_unit_13(
         )
 
     print(
-        "UNIT 13 CUMULATIVE OPEN SIZE = "
-        f"{cumulative_open_size}",
+        "UNIT 13 POSITION SIDE = "
+        f"{position_side}",
         flush=True,
     )
 
     print(
-        "UNIT 13 CUMULATIVE CLOSE SIZE = "
-        f"{cumulative_close_size}",
+        "UNIT 13 POSITION SIZE = "
+        f"{position_size}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 AVERAGE ENTRY PRICE = "
+        f"{average_entry_price}",
         flush=True,
     )
 
     # ========================================================
-    # 12. QUANTITY STEP
+    # 11. STEP-AWARE TP ALLOCATION
     # ========================================================
 
-    quantity_step = Decimal(
-        "0.0001"
-    )
-
-    market_precision = config.get(
-        "market_precision"
-    )
-
-    if isinstance(
-        market_precision,
-        dict,
-    ):
-
-        configured_step = (
-            market_precision.get(
-                "quantity_step"
-            )
-        )
-
-        if (
-            configured_step
-            is not None
-        ):
-
-            try:
-
-                parsed_step = Decimal(
-                    str(
-                        configured_step
-                    )
-                )
-
-                if (
-                    parsed_step
-                    >
-                    Decimal("0")
-                ):
-                    quantity_step = (
-                        parsed_step
-                    )
-
-            except Exception:
-                pass
-
-# ============================================================
-# END PART 11A
-# CONTINUE DIRECTLY WITH PART 11B
-# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
-# ============================================================
-
-        if (
-            configured_step
-            is not None
-        ):    
-
-            try:
-
-                parsed_step = Decimal(
-                    str(
-                        configured_step
-                    )
-                )
-
-                if (
-                    parsed_step
-                    >
-                    Decimal("0")
-                ):
-
-                    quantity_step = (
-                        parsed_step
-                    )
-
-            except Exception:
-
-                pass
-
-    def unit_13_round_quantity_down(
-        value,
-    ):
-
-        if (
-            value
-            <=
-            Decimal("0")
-        ):
-            return Decimal(
-                "0"
-            )
-
-        step_count = (
-            value
+    total_steps = int(
+        (
+            cumulative_open_size
             /
             quantity_step
         ).to_integral_value(
             rounding=ROUND_DOWN
         )
-
-        return (
-            step_count
-            *
-            quantity_step
-        )
-
-    # ========================================================
-    # 13. TP QUANTITY ALLOCATION
-    # ========================================================
-
-    tp1_quantity = (
-        unit_13_round_quantity_down(
-            cumulative_open_size
-            *
-            tp1_allocation_percent
-            /
-            Decimal("100")
-        )
-    )
-
-    tp2_quantity = (
-        unit_13_round_quantity_down(
-            cumulative_open_size
-            *
-            tp2_allocation_percent
-            /
-            Decimal("100")
-        )
-    )
-
-    tp3_quantity = (
-        cumulative_open_size
-        -
-        tp1_quantity
-        -
-        tp2_quantity
     )
 
     if (
-        tp3_quantity
-        <
-        Decimal("0")
+        total_steps
+        <=
+        0
     ):
         raise RuntimeError(
             "UNIT 13 BLOCKED: "
-            "INVALID TP QUANTITY ALLOCATION"
+            "POSITION BELOW EXECUTABLE QUANTITY STEP"
+        )
+
+    tp1_steps = 0
+    tp2_steps = 0
+    tp3_steps = 0
+
+    # --------------------------------------------------------
+    # 3 OR MORE STEPS:
+    #
+    # Guarantee one executable step to TP1,
+    # one executable step to TP2,
+    # and one executable step to TP3.
+    #
+    # Remaining steps are distributed according to the
+    # configured 10 / 20 / 70 target.
+    # --------------------------------------------------------
+
+    if (
+        total_steps
+        >=
+        3
+    ):
+
+        tp1_steps = max(
+            1,
+            int(
+                (
+                    Decimal(total_steps)
+                    *
+                    tp1_allocation_percent
+                    /
+                    Decimal("100")
+                ).to_integral_value(
+                    rounding=ROUND_DOWN
+                )
+            ),
+        )
+
+        tp2_steps = max(
+            1,
+            int(
+                (
+                    Decimal(total_steps)
+                    *
+                    tp2_allocation_percent
+                    /
+                    Decimal("100")
+                ).to_integral_value(
+                    rounding=ROUND_DOWN
+                )
+            ),
+        )
+
+        # Preserve at least one runner step.
+
+        while (
+            tp1_steps
+            +
+            tp2_steps
+            >
+            total_steps
+            -
+            1
+        ):
+
+            if (
+                tp2_steps
+                >
+                1
+            ):
+                tp2_steps -= 1
+
+            elif (
+                tp1_steps
+                >
+                1
+            ):
+                tp1_steps -= 1
+
+            else:
+                break
+
+        tp3_steps = (
+            total_steps
+            -
+            tp1_steps
+            -
+            tp2_steps
+        )
+
+    # --------------------------------------------------------
+    # EXACTLY TWO STEPS:
+    #
+    # Three separate exits are mathematically impossible.
+    #
+    # Preserve:
+    # TP1 = one step
+    # TP3 = one step
+    #
+    # TP2 has zero separate quantity and is treated as
+    # structurally completed once TP1 has completed.
+    # --------------------------------------------------------
+
+    elif (
+        total_steps
+        ==
+        2
+    ):
+
+        tp1_steps = 1
+        tp2_steps = 0
+        tp3_steps = 1
+
+    # --------------------------------------------------------
+    # EXACTLY ONE STEP:
+    #
+    # Splitting is impossible.
+    #
+    # Preserve entire executable quantity for TP3 runner.
+    # TP1 and TP2 become structurally complete.
+    # --------------------------------------------------------
+
+    else:
+
+        tp1_steps = 0
+        tp2_steps = 0
+        tp3_steps = 1
+
+    tp1_quantity = (
+        Decimal(tp1_steps)
+        *
+        quantity_step
+    )
+
+    tp2_quantity = (
+        Decimal(tp2_steps)
+        *
+        quantity_step
+    )
+
+    tp3_quantity = (
+        Decimal(tp3_steps)
+        *
+        quantity_step
+    )
+
+    allocated_quantity = (
+        tp1_quantity
+        +
+        tp2_quantity
+        +
+        tp3_quantity
+    )
+
+    executable_open_quantity = (
+        Decimal(total_steps)
+        *
+        quantity_step
+    )
+
+    if (
+        allocated_quantity
+        !=
+        executable_open_quantity
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: "
+            "STEP-AWARE ALLOCATION MISMATCH"
         )
 
     print(
-        f"UNIT 13 TP1 QUANTITY = "
+        "UNIT 13 TOTAL EXECUTABLE STEPS = "
+        f"{total_steps}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP1 EXECUTABLE QUANTITY = "
         f"{tp1_quantity}",
         flush=True,
     )
 
     print(
-        f"UNIT 13 TP2 QUANTITY = "
+        "UNIT 13 TP2 EXECUTABLE QUANTITY = "
         f"{tp2_quantity}",
         flush=True,
     )
 
     print(
-        f"UNIT 13 TP3 RUNNER QUANTITY = "
+        "UNIT 13 TP3 EXECUTABLE QUANTITY = "
         f"{tp3_quantity}",
         flush=True,
     )
 
+    if (
+        total_steps
+        <
+        10
+    ):
+
+        print(
+            "PASS: UNIT 13 SMALL POSITION "
+            "STEP-CONSTRAINED ALLOCATION APPLIED",
+            flush=True,
+        )
+
     # ========================================================
-    # 14. TP TARGET PRICES
+    # 12. TP1 / TP2 PRICE TARGETS
     # ========================================================
 
     tp1_fraction = (
@@ -13500,7 +13807,7 @@ def fresh_reconstruction_unit_13(
         "LONG"
     ):
 
-        tp1_target = (
+        raw_tp1_target = (
             average_entry_price
             *
             (
@@ -13510,7 +13817,7 @@ def fresh_reconstruction_unit_13(
             )
         )
 
-        tp2_target = (
+        raw_tp2_target = (
             average_entry_price
             *
             (
@@ -13519,6 +13826,27 @@ def fresh_reconstruction_unit_13(
                 tp2_fraction
             )
         )
+
+        # Round UP so rounding cannot reduce the ROI floor.
+
+        tp1_target = round_price_up(
+            raw_tp1_target
+        )
+
+        tp2_target = round_price_up(
+            raw_tp2_target
+        )
+
+        if (
+            tp2_target
+            <=
+            tp1_target
+        ):
+            tp2_target = (
+                tp1_target
+                +
+                price_step
+            )
 
         closing_side = (
             "SELL"
@@ -13526,7 +13854,7 @@ def fresh_reconstruction_unit_13(
 
     else:
 
-        tp1_target = (
+        raw_tp1_target = (
             average_entry_price
             *
             (
@@ -13536,7 +13864,7 @@ def fresh_reconstruction_unit_13(
             )
         )
 
-        tp2_target = (
+        raw_tp2_target = (
             average_entry_price
             *
             (
@@ -13546,58 +13874,52 @@ def fresh_reconstruction_unit_13(
             )
         )
 
+        # Round DOWN for SHORT so rounding cannot reduce
+        # the required favorable price movement.
+
+        tp1_target = round_price_down(
+            raw_tp1_target
+        )
+
+        tp2_target = round_price_down(
+            raw_tp2_target
+        )
+
+        if (
+            tp2_target
+            >=
+            tp1_target
+        ):
+            tp2_target = (
+                tp1_target
+                -
+                price_step
+            )
+
         closing_side = (
             "BUY"
         )
 
-    price_step = Decimal(
-        "0.1"
-    )
-
-    def unit_13_round_price_down(
-        value,
-    ):
-
-        steps = (
-            value
-            /
-            price_step
-        ).to_integral_value(
-            rounding=ROUND_DOWN
-        )
-
-        return (
-            steps
-            *
-            price_step
-        )
-
-    tp1_target = (
-        unit_13_round_price_down(
-            tp1_target
-        )
-    )
-
-    tp2_target = (
-        unit_13_round_price_down(
-            tp2_target
-        )
-    )
-
     print(
-        f"UNIT 13 TP1 TARGET PRICE = "
+        "UNIT 13 TP1 TARGET PRICE = "
         f"{tp1_target}",
         flush=True,
     )
 
     print(
-        f"UNIT 13 TP2 TARGET PRICE = "
+        "UNIT 13 TP2 TARGET PRICE = "
         f"{tp2_target}",
         flush=True,
     )
 
+    print(
+        "PASS: UNIT 13 TP1 -> TP2 "
+        "MANDATORY SEPARATION VERIFIED",
+        flush=True,
+    )
+
     # ========================================================
-    # 15. CURRENT PUBLIC MARK PRICE
+    # 13. CURRENT PUBLIC MARK PRICE
     # ========================================================
 
     mark_request_path = (
@@ -13608,7 +13930,7 @@ def fresh_reconstruction_unit_13(
         urllib.parse.urlencode(
             {
                 "symbol":
-                    "BTCUSDT",
+                    market_symbol,
 
                 "priceType":
                     "MARK",
@@ -13652,31 +13974,21 @@ def fresh_reconstruction_unit_13(
                 )
             )
 
-    except urllib.error.HTTPError as exc:
+    except Exception as exc:
 
         raise RuntimeError(
-            "UNIT 13 MARK PRICE HTTP ERROR: "
-            f"{exc.code}"
-        ) from exc
-
-    except urllib.error.URLError as exc:
-
-        raise RuntimeError(
-            "UNIT 13 MARK PRICE NETWORK ERROR: "
-            f"{exc}"
+            "UNIT 13 PUBLIC MARK PRICE READ FAILED"
         ) from exc
 
     if not (
         200
         <=
-        int(
-            mark_http_status
-        )
+        int(mark_http_status)
         <
         300
     ):
         raise RuntimeError(
-            "UNIT 13 MARK PRICE READ FAILED"
+            "UNIT 13 PUBLIC MARK PRICE HTTP FAILURE"
         )
 
     try:
@@ -13709,54 +14021,54 @@ def fresh_reconstruction_unit_13(
         )
 
     print(
-        f"UNIT 13 CURRENT MARK PRICE = "
+        "UNIT 13 CURRENT MARK PRICE = "
         f"{mark_price}",
         flush=True,
     )
 
     # ========================================================
-    # 16. DETERMINE COMPLETED TP ALLOCATION
+    # 14. COMPLETION STATE
     # ========================================================
 
-    tp1_already_completed = (
-        tp1_quantity
-        >
-        Decimal("0")
-        and
-        cumulative_close_size
-        >=
-        tp1_quantity
-    )
+    # Zero-sized TP stages are structurally complete because
+    # that stage cannot exist at the exchange quantity step.
 
-    tp2_already_completed = (
-        tp2_quantity
-        >
+    if (
+        tp1_quantity
+        ==
         Decimal("0")
-        and
-        cumulative_close_size
-        >=
-        (
+    ):
+        tp1_already_completed = True
+
+    else:
+
+        tp1_already_completed = (
+            cumulative_close_size
+            >=
             tp1_quantity
-            +
-            tp2_quantity
         )
-    )
 
-    print(
-        "UNIT 13 TP1 ALREADY COMPLETED = "
-        f"{tp1_already_completed}",
-        flush=True,
-    )
+    if (
+        tp2_quantity
+        ==
+        Decimal("0")
+    ):
 
-    print(
-        "UNIT 13 TP2 ALREADY COMPLETED = "
-        f"{tp2_already_completed}",
-        flush=True,
-    )
+        tp2_already_completed = (
+            tp1_already_completed
+        )
 
-    # ========================================================
-    # 17. CHECK TP TARGETS
-    # ========================================================
+    else:
+
+        tp2_already_completed = (
+            cumulative_close_size
+            >=
+            (
+                tp1_quantity
+                +
+                tp2_quantity
+            )
+        )
 
     if (
         position_side
@@ -13791,19 +14103,33 @@ def fresh_reconstruction_unit_13(
         )
 
     print(
-        f"UNIT 13 TP1 REACHED = "
+        "UNIT 13 TP1 COMPLETED = "
+        f"{tp1_already_completed}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP2 COMPLETED = "
+        f"{tp2_already_completed}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP1 REACHED = "
         f"{tp1_reached}",
         flush=True,
     )
 
     print(
-        f"UNIT 13 TP2 REACHED = "
+        "UNIT 13 TP2 REACHED = "
         f"{tp2_reached}",
         flush=True,
     )
 
     # ========================================================
-    # 18. SELECT EXACTLY ONE TP ACTION
+    # 15. SELECT EXACTLY ONE TP ACTION
+    #
+    # TP2 HAS PRIORITY IF PRICE JUMPS THROUGH BOTH TARGETS.
     # ========================================================
 
     close_quantity = Decimal(
@@ -13814,15 +14140,11 @@ def fresh_reconstruction_unit_13(
         "NONE"
     )
 
-    # --------------------------------------------------------
-    # TP2 HAS PRIORITY.
-    #
-    # If price jumped through TP1 directly to TP2,
-    # close whatever quantity remains necessary to bring
-    # cumulative closed quantity to TP1 + TP2 allocation.
-    # --------------------------------------------------------
-
     if (
+        tp2_quantity
+        >
+        Decimal("0")
+        and
         tp2_reached
         and
         not tp2_already_completed
@@ -13840,10 +14162,8 @@ def fresh_reconstruction_unit_13(
             cumulative_close_size
         )
 
-        close_quantity = (
-            unit_13_round_quantity_down(
-                outstanding_quantity
-            )
+        close_quantity = round_quantity_down(
+            outstanding_quantity
         )
 
         if (
@@ -13851,22 +14171,24 @@ def fresh_reconstruction_unit_13(
             >
             position_size
         ):
-            close_quantity = (
-                unit_13_round_quantity_down(
-                    position_size
-                )
+            close_quantity = round_quantity_down(
+                position_size
             )
 
         if (
             close_quantity
-            >
-            Decimal("0")
+            >=
+            minimum_quantity
         ):
             tp_action = (
                 "TP2"
             )
 
     elif (
+        tp1_quantity
+        >
+        Decimal("0")
+        and
         tp1_reached
         and
         not tp1_already_completed
@@ -13878,10 +14200,8 @@ def fresh_reconstruction_unit_13(
             cumulative_close_size
         )
 
-        close_quantity = (
-            unit_13_round_quantity_down(
-                outstanding_quantity
-            )
+        close_quantity = round_quantity_down(
+            outstanding_quantity
         )
 
         if (
@@ -13889,23 +14209,21 @@ def fresh_reconstruction_unit_13(
             >
             position_size
         ):
-            close_quantity = (
-                unit_13_round_quantity_down(
-                    position_size
-                )
+            close_quantity = round_quantity_down(
+                position_size
             )
 
         if (
             close_quantity
-            >
-            Decimal("0")
+            >=
+            minimum_quantity
         ):
             tp_action = (
                 "TP1"
             )
 
     # ========================================================
-    # 19. NO TP1 / TP2 CLOSE REQUIRED
+    # 16. MONITORING / TP3 HANDOFF
     # ========================================================
 
     if (
@@ -13919,6 +14237,10 @@ def fresh_reconstruction_unit_13(
             and
             tp2_already_completed
             and
+            tp3_quantity
+            >
+            Decimal("0")
+            and
             position_size
             >
             Decimal("0")
@@ -13931,7 +14253,7 @@ def fresh_reconstruction_unit_13(
             )
 
             skip_reason = (
-                "TP3_TRAILING_RUNTIME_REQUIRED"
+                "DYNAMIC_TP3_RUNTIME_REQUIRED"
             )
 
         else:
@@ -13941,10 +14263,11 @@ def fresh_reconstruction_unit_13(
             )
 
             skip_reason = (
-                "TP_TARGET_NOT_REACHED"
+                "DYNAMIC_TP_TARGET_NOT_REACHED"
             )
 
         result = {
+
             "unit":
                 13,
 
@@ -13957,12 +14280,6 @@ def fresh_reconstruction_unit_13(
             "unit_12_status":
                 unit_12_status,
 
-            "position_check_attempted":
-                True,
-
-            "position_check_completed":
-                True,
-
             "active_position_exists":
                 True,
 
@@ -13970,43 +14287,44 @@ def fresh_reconstruction_unit_13(
                 position_side,
 
             "position_size":
-                float(
-                    position_size
-                ),
+                float(position_size),
 
             "average_entry_price":
-                float(
-                    average_entry_price
-                ),
+                float(average_entry_price),
 
             "mark_price":
-                float(
-                    mark_price
-                ),
+                float(mark_price),
+
+            "tp_target_allocation":
+                "10/20/70",
 
             "tp1_target":
-                float(
-                    tp1_target
-                ),
+                float(tp1_target),
 
             "tp2_target":
-                float(
-                    tp2_target
-                ),
+                float(tp2_target),
 
             "tp1_quantity":
-                float(
-                    tp1_quantity
-                ),
+                float(tp1_quantity),
 
             "tp2_quantity":
-                float(
-                    tp2_quantity
-                ),
+                float(tp2_quantity),
 
             "tp3_quantity":
+                float(tp3_quantity),
+
+            "tp1_net_roi_floor_percent":
+                float(tp1_net_roi_floor),
+
+            "tp2_net_roi_floor_percent":
+                float(tp2_net_roi_floor),
+
+            "estimated_taker_fee_percent":
+                float(futures_taker_fee_percent),
+
+            "estimated_round_trip_fee_percent":
                 float(
-                    tp3_quantity
+                    estimated_round_trip_fee_price_percent
                 ),
 
             "tp1_completed":
@@ -14018,10 +14336,30 @@ def fresh_reconstruction_unit_13(
             "tp3_armed":
                 tp3_armed,
 
+            # Compatibility field for old Unit 14.
+            # It now means REFERENCE ONLY.
             "tp3_trailing_percent":
                 float(
-                    tp3_trailing_percent
+                    tp3_trailing_reference
                 ),
+
+            "tp3_trailing_reference_percent":
+                float(
+                    tp3_trailing_reference
+                ),
+
+            "tp3_trailing_min_percent":
+                float(
+                    tp3_trailing_min
+                ),
+
+            "tp3_trailing_max_percent":
+                float(
+                    tp3_trailing_max
+                ),
+
+            "tp3_trailing_dynamic":
+                True,
 
             "tp_execution_attempted":
                 False,
@@ -14051,13 +14389,8 @@ def fresh_reconstruction_unit_13(
         )
 
         print(
-            f"UNIT 13 STATUS = "
+            "UNIT 13 STATUS = "
             f"{unit_13_status}",
-            flush=True,
-        )
-
-        print(
-            "UNIT 13 ACTIVE POSITION MANAGEMENT = TRUE",
             flush=True,
         )
 
@@ -14067,13 +14400,19 @@ def fresh_reconstruction_unit_13(
         )
 
         print(
-            "UNIT 13 TP EXECUTION ATTEMPTED = False",
+            "UNIT 13 TP3 ARMED = "
+            f"{tp3_armed}",
             flush=True,
         )
 
         print(
-            f"UNIT 13 TP3 ARMED = "
-            f"{tp3_armed}",
+            "UNIT 13 TP3 TRAILING MODE = DYNAMIC",
+            flush=True,
+        )
+
+        print(
+            "UNIT 13 TP3 NORMAL REFERENCE = "
+            f"{tp3_trailing_reference}%",
             flush=True,
         )
 
@@ -14088,17 +14427,7 @@ def fresh_reconstruction_unit_13(
         )
 
         print(
-            "UNIT 13 REAL ORDER = FALSE",
-            flush=True,
-        )
-
-        print(
             "ZERO EXCHANGE WRITE = TRUE",
-            flush=True,
-        )
-
-        print(
-            "-" * 80,
             flush=True,
         )
 
@@ -14117,17 +14446,17 @@ def fresh_reconstruction_unit_13(
         return result
 
     # ========================================================
-    # 20. VALIDATE TP CLOSE QUANTITY
+    # 17. FINAL CLOSE QUANTITY VALIDATION
     # ========================================================
 
     if (
         close_quantity
-        <=
-        Decimal("0")
+        <
+        minimum_quantity
     ):
         raise RuntimeError(
             "UNIT 13 BLOCKED: "
-            "TP CLOSE QUANTITY INVALID"
+            "TP CLOSE BELOW MINIMUM QUANTITY"
         )
 
     quantity_text = (
@@ -14136,14 +14465,8 @@ def fresh_reconstruction_unit_13(
         .rstrip(".")
     )
 
-    if not quantity_text:
-        raise RuntimeError(
-            "UNIT 13 BLOCKED: "
-            "EMPTY TP QUANTITY"
-        )
-
     # ========================================================
-    # 21. BUILD DEMO TP CLOSE PAYLOAD
+    # 18. BUILD DEMO MARKET CLOSE
     # ========================================================
 
     client_order_timestamp = int(
@@ -14161,25 +14484,15 @@ def fresh_reconstruction_unit_13(
         +
         "-"
         +
-        str(
-            client_order_timestamp
-        )
+        str(client_order_timestamp)
     )
 
-    if (
-        len(
-            new_client_order_id
-        )
-        >
-        36
-    ):
-        new_client_order_id = (
-            new_client_order_id[
-                :36
-            ]
-        )
+    new_client_order_id = (
+        new_client_order_id[:36]
+    )
 
     tp_payload = {
+
         "symbol":
             "BTCSUSDT",
 
@@ -14200,13 +14513,17 @@ def fresh_reconstruction_unit_13(
     }
 
     # ========================================================
-    # 22. ABSOLUTE SL PROHIBITION
+    # 19. ABSOLUTE SL PROHIBITION
     # ========================================================
 
     prohibited_sl_fields = (
+
         "slTriggerPrice",
+
         "SlWorkingType",
+
         "stopLossPrice",
+
         "stopPrice",
     )
 
@@ -14220,12 +14537,11 @@ def fresh_reconstruction_unit_13(
             tp_payload
         ):
             raise RuntimeError(
-                "UNIT 13 BLOCKED: "
-                "SL FIELD DETECTED"
+                "UNIT 13 BLOCKED: SL FIELD DETECTED"
             )
 
     print(
-        "PASS: UNIT 13 TP CLOSE PAYLOAD VALIDATED",
+        "PASS: UNIT 13 TP PAYLOAD VALIDATED",
         flush=True,
     )
 
@@ -14235,12 +14551,21 @@ def fresh_reconstruction_unit_13(
     )
 
     # ========================================================
-    # 23. DEMO ENDPOINT ONLY
+    # 20. DEMO ENDPOINT ONLY
     # ========================================================
 
     request_path = (
         "/capi/v3/sim/order"
     )
+
+    if (
+        "/sim/"
+        not in
+        request_path
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: NON-DEMO ENDPOINT"
+        )
 
     method = (
         "POST"
@@ -14290,6 +14615,7 @@ def fresh_reconstruction_unit_13(
     )
 
     headers = {
+
         "ACCESS-KEY":
             api_key,
 
@@ -14312,25 +14638,20 @@ def fresh_reconstruction_unit_13(
     )
 
     print(
-        f"UNIT 13 TP ACTION = "
+        "UNIT 13 TP ACTION = "
         f"{tp_action}",
         flush=True,
     )
 
     print(
-        f"UNIT 13 TP CLOSE SIDE = "
+        "UNIT 13 TP CLOSE SIDE = "
         f"{closing_side}",
         flush=True,
     )
 
     print(
-        f"UNIT 13 TP CLOSE QUANTITY = "
+        "UNIT 13 TP CLOSE QUANTITY = "
         f"{quantity_text}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 13 NEW SIGNAL REQUIRED = FALSE",
         flush=True,
     )
 
@@ -14349,29 +14670,13 @@ def fresh_reconstruction_unit_13(
         flush=True,
     )
 
-    print(
-        "UNIT 13 BACKUP EXECUTION = FALSE",
-        flush=True,
-    )
-
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
     # ========================================================
-    # 24. SUBMIT EXACTLY ONE DEMO TP CLOSE
+    # 21. SUBMIT EXACTLY ONE DEMO TP CLOSE
     # ========================================================
 
     request = (
         urllib.request.Request(
-# ============================================================
-# END PART 11B
-# CONTINUE DIRECTLY WITH PART 11C
-# ZERO-INDENTATION TRANSMISSION DEMARCATION ONLY
-# ============================================================
-
-             url=(
+            url=(
                 base_url
                 +
                 request_path
@@ -14383,9 +14688,6 @@ def fresh_reconstruction_unit_13(
             method="POST",
         )
     )
-
-    response_status = None
-    response_text = None
 
     try:
 
@@ -14420,15 +14722,7 @@ def fresh_reconstruction_unit_13(
 
         except Exception:
 
-            error_text = str(
-                exc
-            )
-
-        print(
-            "UNIT 13 TP HTTP ERROR = "
-            f"{exc.code}",
-            flush=True,
-        )
+            error_text = str(exc)
 
         print(
             "UNIT 13 TP ERROR RESPONSE = "
@@ -14448,44 +14742,38 @@ def fresh_reconstruction_unit_13(
         ) from exc
 
     print(
-        f"UNIT 13 TP HTTP STATUS = "
+        "UNIT 13 TP HTTP STATUS = "
         f"{response_status}",
         flush=True,
     )
 
     print(
-        f"UNIT 13 TP RESPONSE = "
+        "UNIT 13 TP RESPONSE = "
         f"{response_text}",
         flush=True,
     )
 
     try:
 
-        response_json = (
-            json.loads(
-                response_text
-            )
+        response_json = json.loads(
+            response_text
         )
 
     except Exception as exc:
 
         raise RuntimeError(
-            "UNIT 13 TP RESPONSE "
-            "IS NOT VALID JSON"
+            "UNIT 13 TP RESPONSE INVALID JSON"
         ) from exc
 
     if not (
         200
         <=
-        int(
-            response_status
-        )
+        int(response_status)
         <
         300
     ):
         raise RuntimeError(
-            "UNIT 13 TP ORDER FAILED: "
-            f"HTTP {response_status}"
+            "UNIT 13 TP ORDER HTTP FAILURE"
         )
 
     if (
@@ -14499,23 +14787,21 @@ def fresh_reconstruction_unit_13(
             f"{response_json}"
         )
 
-    tp_order_id = (
-        response_json.get(
-            "orderId"
-        )
+    tp_order_id = response_json.get(
+        "orderId"
     )
 
     if not tp_order_id:
         raise RuntimeError(
-            "UNIT 13 TP ACCEPTED "
-            "WITHOUT ORDER ID"
+            "UNIT 13 TP ACCEPTED WITHOUT ORDER ID"
         )
 
     # ========================================================
-    # 25. SUCCESS RESULT
+    # 22. SUCCESS RESULT
     # ========================================================
 
     result = {
+
         "unit":
             13,
 
@@ -14535,57 +14821,61 @@ def fresh_reconstruction_unit_13(
             position_side,
 
         "position_size_before":
-            float(
-                position_size
-            ),
+            float(position_size),
 
         "average_entry_price":
-            float(
-                average_entry_price
-            ),
+            float(average_entry_price),
 
         "mark_price":
-            float(
-                mark_price
-            ),
+            float(mark_price),
 
         "tp_action":
             tp_action,
 
         "tp_close_quantity":
-            float(
-                close_quantity
-            ),
+            float(close_quantity),
+
+        "tp_target_allocation":
+            "10/20/70",
 
         "tp1_target":
-            float(
-                tp1_target
-            ),
+            float(tp1_target),
 
         "tp2_target":
-            float(
-                tp2_target
-            ),
+            float(tp2_target),
 
         "tp1_quantity":
-            float(
-                tp1_quantity
-            ),
+            float(tp1_quantity),
 
         "tp2_quantity":
-            float(
-                tp2_quantity
-            ),
+            float(tp2_quantity),
 
         "tp3_quantity":
-            float(
-                tp3_quantity
-            ),
+            float(tp3_quantity),
+
+        "tp1_net_roi_floor_percent":
+            float(tp1_net_roi_floor),
+
+        "tp2_net_roi_floor_percent":
+            float(tp2_net_roi_floor),
+
+        "estimated_taker_fee_percent":
+            float(futures_taker_fee_percent),
 
         "tp3_trailing_percent":
-            float(
-                tp3_trailing_percent
-            ),
+            float(tp3_trailing_reference),
+
+        "tp3_trailing_reference_percent":
+            float(tp3_trailing_reference),
+
+        "tp3_trailing_min_percent":
+            float(tp3_trailing_min),
+
+        "tp3_trailing_max_percent":
+            float(tp3_trailing_max),
+
+        "tp3_trailing_dynamic":
+            True,
 
         "tp_execution_attempted":
             True,
@@ -14633,13 +14923,13 @@ def fresh_reconstruction_unit_13(
     )
 
     print(
-        f"PASS: UNIT 13 "
+        "PASS: UNIT 13 "
         f"{tp_action} DEMO EXECUTED",
         flush=True,
     )
 
     print(
-        f"PASS: UNIT 13 TP ORDER ID = "
+        "PASS: UNIT 13 TP ORDER ID = "
         f"{tp_order_id}",
         flush=True,
     )
@@ -14661,27 +14951,7 @@ def fresh_reconstruction_unit_13(
     )
 
     print(
-        "PASS: UNIT 13 NO LEVERAGE MUTATION",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 13 NO MARGIN MODE MUTATION",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 13 NO POSITION MODE MUTATION",
-        flush=True,
-    )
-
-    print(
         "PASS: UNIT 13 NO BACKUP EXECUTION",
-        flush=True,
-    )
-
-    print(
-        "-" * 80,
         flush=True,
     )
 
@@ -14711,29 +14981,20 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
     )
 )
 
-# ============================================================
-# TP3 DEMO TRAILING RUNTIME
-#
-# PURPOSE:
-# - COMPLETE THE TP3 RUNNER ALREADY ARMED BY UNIT 13.
-# - TP3 = REMAINING 50% RUNNER.
-# - TRAILING CALLBACK = 0.20%.
-# - NO NEW QUALIFIED SIGNAL REQUIRED.
-# - DEMO BTCSUSDT ONLY.
-# - REAL ORDER PROHIBITED.
-# - SL REMAINS DISABLED.
-#
-# IMPORTANT:
-# - THIS BLOCK RUNS AFTER UNIT 13.
-# - IT DOES NOT MODIFY TP1 OR TP2.
-# - IT DOES NOT CREATE A NEW POSITION.
-# - IT CLOSES ONLY THE EXISTING TP3 RUNNER.
-# ============================================================
 
-def fresh_tp3_runtime(
-    config,
-    unit_13_result,
-):
+# ============================================================
+# END COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 13
+# ZERO INDENTATION DEMARCATION
+#
+# UNIT 13 IS FULLY CLOSED
+# UNIT 13 IS CALLED
+# NO OPEN FUNCTION
+# NO OPEN IF
+# NO OPEN TRY
+# NO OPEN DICTIONARY
+#
+# EXISTING UNIT 14 CONTINUES DIRECTLY BELOW
+# ============================================================
     # ============================================================
     # FRESH RECONSTRUCTION UNIT 14
     # COMBINED TP3 + LIQUIDATION BACKUP RUNTIME
