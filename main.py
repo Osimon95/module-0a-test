@@ -4985,14 +4985,169 @@ def fresh_reconstruction_unit_6(
         flush=True,
     )
 
+        # --------------------------------------------------------
+    # LEVERAGE-AWARE SCALP / SIDEWAYS REGIME GATE
+    # --------------------------------------------------------
+
+    strategy = unit_2_config.get(
+        "strategy",
+        {},
+    )
+
+    try:
+
+        leverage_target = float(
+            strategy.get(
+                "leverage_target",
+                100,
+            )
+        )
+
+    except Exception:
+
+        leverage_target = 100.0
+
+    # --------------------------------------------------------
+    # LEVERAGE BANDS
+    # --------------------------------------------------------
+
+    if leverage_target >= 100:
+
+        leverage_regime = "GE_100X"
+
+        scalp_quality_minimum = 80.0
+
+        persistence_window = 4
+
+        persistence_required = 3
+
+        compression_threshold_pct = 0.050
+
+        require_15m_agreement = True
+
+    elif leverage_target >= 50:
+
+        leverage_regime = "50_99X"
+
+        scalp_quality_minimum = 78.0
+
+        persistence_window = 4
+
+        persistence_required = 3
+
+        compression_threshold_pct = 0.045
+
+        require_15m_agreement = True
+
+    elif leverage_target >= 20:
+
+        leverage_regime = "20_49X"
+
+        scalp_quality_minimum = 76.0
+
+        persistence_window = 3
+
+        persistence_required = 2
+
+        compression_threshold_pct = 0.040
+
+        require_15m_agreement = False
+
+    elif leverage_target >= 11:
+
+        leverage_regime = "11_19X"
+
+        scalp_quality_minimum = 75.0
+
+        persistence_window = 3
+
+        persistence_required = 2
+
+        compression_threshold_pct = 0.035
+
+        require_15m_agreement = False
+
+    else:
+
+        leverage_regime = "LE_10X"
+
+        scalp_quality_minimum = 75.0
+
+        persistence_window = 2
+
+        persistence_required = 1
+
+        compression_threshold_pct = 0.030
+
+        require_15m_agreement = False
+
+    scalp_quality_score = None
+
+    scalp_quality_pass = None
+
+    scalp_quality_details = {}
+
+    sideways_regime = False
+
+    ema_compressed = False
+
+    momentum_conflict = False
+
+    persistence_pass = True
+
+    persistence_confirmations = 0
+
+    persistence_directions = []
+
+    fifteen_minute_support_pass = True
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 LEVERAGE-AWARE ENTRY REGIME",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 6 LEVERAGE TARGET = {leverage_target}x",
+        flush=True,
+    )
+
+    print(
+        f"UNIT 6 LEVERAGE REGIME = {leverage_regime}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 SCALP QUALITY MINIMUM = "
+        f"{scalp_quality_minimum}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 SCALP PERSISTENCE = "
+        f"{persistence_required} OF LAST "
+        f"{persistence_window} CLOSED 1M CANDLES",
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 EMA COMPRESSION THRESHOLD % = "
+        f"{compression_threshold_pct}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 STRICT 15M AGREEMENT REQUIRED = "
+        f"{require_15m_agreement}",
+        flush=True,
+    )
     # --------------------------------------------------------
     # SCALP ENTRY QUALITY GATE
     # --------------------------------------------------------
-
-    scalp_quality_minimum = 75.0
-    scalp_quality_score = None
-    scalp_quality_pass = None
-    scalp_quality_details = {}
 
     if signal_qualified and active_mode == "SCALP":
 
