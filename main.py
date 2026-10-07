@@ -18405,7 +18405,7 @@ def fresh_tp3_runtime(
     last_runtime_order_time = 0.0
 
             
-      elif (
+    elif (
                 position_side
                 ==
                 "LONG"
