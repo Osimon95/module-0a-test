@@ -16942,8 +16942,8 @@ def fresh_tp3_runtime(
             filled_stages,
         )
 
-    
-    #    # ========================================================
+    #   
+    # ========================================================
     # 9. INITIAL TP1 / TP2 / TP3 RUNTIME STATE
     #
     # UNIT 13 CALCULATES THE ORIGINAL TP PLAN.
@@ -17506,6 +17506,834 @@ def fresh_tp3_runtime(
                 flush=True,
             )
 
+                # ====================================================
+        # 10E. CONTINUOUS TP1 / TP2 MANAGEMENT
+        #
+        # UNIT 13 CALCULATED THE PLAN ONCE.
+        #
+        # UNIT 14 NOW RECHECKS TP1 / TP2 EVERY RUNTIME CYCLE.
+        #
+        # PRIORITY:
+        #
+        # IF PRICE JUMPS DIRECTLY THROUGH TP2:
+        #
+        # TP2 CLOSES THE OUTSTANDING CUMULATIVE
+        # TP1 + TP2 QUANTITY.
+        #
+        # ONLY EXCHANGE-CONFIRMED FILLS ADVANCE STATE.
+        # ====================================================
+
+        tp1_client_id = (
+            f"FR14-TP1-{trade_key}"
+        )[:36]
+
+        tp2_client_id = (
+            f"FR14-TP2-{trade_key}"
+        )[:36]
+
+        tp1_order_exists = False
+        tp2_order_exists = False
+
+        tp1_order_filled = False
+        tp2_order_filled = False
+
+        tp1_executed_qty = Decimal("0")
+        tp2_executed_qty = Decimal("0")
+
+        # ----------------------------------------------------
+        # READ RUNTIME TP ORDER HISTORY
+        # ----------------------------------------------------
+
+        for order in history:
+
+            if not isinstance(
+                order,
+                dict,
+            ):
+                continue
+
+            client_id = str(
+                order.get(
+                    "clientOrderId",
+                    "",
+                )
+            )
+
+            status = str(
+                order.get(
+                    "status",
+                    "",
+                )
+            ).upper()
+
+            try:
+
+                executed_qty = Decimal(
+                    str(
+                        order.get(
+                            "executedQty",
+                            "0",
+                        )
+                    )
+                )
+
+            except Exception:
+
+                executed_qty = (
+                    Decimal("0")
+                )
+
+            if (
+                client_id
+                ==
+                tp1_client_id
+            ):
+
+                tp1_order_exists = True
+
+                if (
+                    status
+                    ==
+                    "FILLED"
+                    and
+                    executed_qty
+                    >
+                    Decimal("0")
+                ):
+
+                    tp1_order_filled = True
+                    tp1_executed_qty = (
+                        executed_qty
+                    )
+
+            if (
+                client_id
+                ==
+                tp2_client_id
+            ):
+
+                tp2_order_exists = True
+
+                if (
+                    status
+                    ==
+                    "FILLED"
+                    and
+                    executed_qty
+                    >
+                    Decimal("0")
+                ):
+
+                    tp2_order_filled = True
+                    tp2_executed_qty = (
+                        executed_qty
+                    )
+
+        # ----------------------------------------------------
+        # CONFIRMED TP1 FILL
+        # ----------------------------------------------------
+
+        if (
+            tp1_order_filled
+            and
+            not tp1_completed
+        ):
+
+            tp1_completed = True
+
+            print(
+                "PASS: UNIT 14 TP1 EXCHANGE-CONFIRMED FILLED",
+                flush=True,
+            )
+
+            print(
+                "PASS: UNIT 14 TP1 EXECUTED QUANTITY = "
+                f"{tp1_executed_qty}",
+                flush=True,
+            )
+
+        # ----------------------------------------------------
+        # CONFIRMED TP2 FILL
+        #
+        # TP2 ORDER MAY REPRESENT CUMULATIVE TP1 + TP2
+        # WHEN PRICE JUMPED DIRECTLY THROUGH BOTH.
+        # ----------------------------------------------------
+
+        if (
+            tp2_order_filled
+            and
+            not tp2_completed
+        ):
+
+            tp1_completed = True
+            tp2_completed = True
+
+            print(
+                "PASS: UNIT 14 TP2 EXCHANGE-CONFIRMED FILLED",
+                flush=True,
+            )
+
+            print(
+                "PASS: UNIT 14 TP1 + TP2 CUMULATIVE EXIT COMPLETE",
+                flush=True,
+            )
+
+            print(
+                "PASS: UNIT 14 TP2 EXECUTED QUANTITY = "
+                f"{tp2_executed_qty}",
+                flush=True,
+            )
+
+        # ----------------------------------------------------
+        # ARM TP3 AS SOON AS TP1 + TP2 ARE CONFIRMED COMPLETE
+        # ----------------------------------------------------
+
+        if (
+            not tp3_armed
+            and
+            tp1_completed
+            and
+            tp2_completed
+            and
+            original_tp3_quantity
+            >
+            Decimal("0")
+            and
+            position_size
+            >
+            Decimal("0")
+        ):
+
+            tp3_armed = True
+
+            best_mark = None
+
+            print(
+                "PASS: UNIT 14 TP1 + TP2 COMPLETE",
+                flush=True,
+            )
+
+            print(
+                "PASS: UNIT 14 TP3 ARMED = TRUE",
+                flush=True,
+            )
+
+            print(
+                "PASS: UNIT 14 TP3 RUNNER QUANTITY = "
+                f"{original_tp3_quantity}",
+                flush=True,
+            )
+
+        # ----------------------------------------------------
+        # TP TARGET REACHED STATE
+        # ----------------------------------------------------
+
+        tp1_reached_runtime = False
+        tp2_reached_runtime = False
+
+        if (
+            position_side
+            ==
+            "LONG"
+        ):
+
+            if (
+                tp1_runtime_target
+                >
+                Decimal("0")
+            ):
+
+                tp1_reached_runtime = (
+                    current_mark
+                    >=
+                    tp1_runtime_target
+                )
+
+            if (
+                tp2_runtime_target
+                >
+                Decimal("0")
+            ):
+
+                tp2_reached_runtime = (
+                    current_mark
+                    >=
+                    tp2_runtime_target
+                )
+
+        else:
+
+            if (
+                tp1_runtime_target
+                >
+                Decimal("0")
+            ):
+
+                tp1_reached_runtime = (
+                    current_mark
+                    <=
+                    tp1_runtime_target
+                )
+
+            if (
+                tp2_runtime_target
+                >
+                Decimal("0")
+            ):
+
+                tp2_reached_runtime = (
+                    current_mark
+                    <=
+                    tp2_runtime_target
+                )
+
+        print(
+            "UNIT 14 TP STATUS | "
+            f"CYCLE = {runtime_cycle} | "
+            f"SIDE = {position_side} | "
+            f"MARK = {current_mark} | "
+            f"TP1 = {tp1_runtime_target} | "
+            f"TP1 REACHED = {tp1_reached_runtime} | "
+            f"TP1 DONE = {tp1_completed} | "
+            f"TP2 = {tp2_runtime_target} | "
+            f"TP2 REACHED = {tp2_reached_runtime} | "
+            f"TP2 DONE = {tp2_completed} | "
+            f"TP3 ARMED = {tp3_armed}",
+            flush=True,
+        )
+
+        # ----------------------------------------------------
+        # TP1 / TP2 EXECUTION IS FINISHED ONCE TP3 IS ARMED
+        # ----------------------------------------------------
+
+        if not tp3_armed:
+
+            tp_runtime_action = (
+                "NONE"
+            )
+
+            tp_runtime_quantity = (
+                Decimal("0")
+            )
+
+            tp_runtime_client_id = (
+                ""
+            )
+
+            # ------------------------------------------------
+            # TP2 HAS PRIORITY.
+            #
+            # IF TP1 WAS NEVER TAKEN AND PRICE HAS ALREADY
+            # REACHED TP2, CLOSE BOTH TP1 + TP2 ALLOCATION.
+            # ------------------------------------------------
+
+            if (
+                not tp2_completed
+                and
+                tp2_reached_runtime
+                and
+                not tp2_order_exists
+            ):
+
+                if tp1_completed:
+
+                    tp_runtime_quantity = (
+                        original_tp2_quantity
+                    )
+
+                else:
+
+                    tp_runtime_quantity = (
+                        original_tp1_quantity
+                        +
+                        original_tp2_quantity
+                    )
+
+                tp_runtime_quantity = (
+                    floor_quantity(
+                        tp_runtime_quantity
+                    )
+                )
+
+                if (
+                    tp_runtime_quantity
+                    >
+                    position_size
+                ):
+
+                    tp_runtime_quantity = (
+                        floor_quantity(
+                            position_size
+                        )
+                    )
+
+                if (
+                    tp_runtime_quantity
+                    >=
+                    minimum_quantity
+                ):
+
+                    tp_runtime_action = (
+                        "TP2"
+                    )
+
+                    tp_runtime_client_id = (
+                        tp2_client_id
+                    )
+
+            # ------------------------------------------------
+            # TP1
+            # ------------------------------------------------
+
+            elif (
+                not tp1_completed
+                and
+                tp1_reached_runtime
+                and
+                not tp1_order_exists
+            ):
+
+                tp_runtime_quantity = (
+                    floor_quantity(
+                        original_tp1_quantity
+                    )
+                )
+
+                if (
+                    tp_runtime_quantity
+                    >
+                    position_size
+                ):
+
+                    tp_runtime_quantity = (
+                        floor_quantity(
+                            position_size
+                        )
+                    )
+
+                if (
+                    tp_runtime_quantity
+                    >=
+                    minimum_quantity
+                ):
+
+                    tp_runtime_action = (
+                        "TP1"
+                    )
+
+                    tp_runtime_client_id = (
+                        tp1_client_id
+                    )
+
+            # ------------------------------------------------
+            # SUBMIT EXACTLY ONE TP ORDER
+            # ------------------------------------------------
+
+            if (
+                tp_runtime_action
+                !=
+                "NONE"
+            ):
+
+                elapsed = (
+                    time.time()
+                    -
+                    last_runtime_order_time
+                )
+
+                if (
+                    last_runtime_order_time
+                    >
+                    0
+                    and
+                    elapsed
+                    <
+                    60
+                ):
+
+                    print(
+                        "UNIT 14 "
+                        f"{tp_runtime_action} "
+                        "WAITING FOR DEMO ORDER RATE WINDOW",
+                        flush=True,
+                    )
+
+                    time.sleep(
+                        poll_seconds
+                    )
+
+                    continue
+
+                # --------------------------------------------
+                # FINAL POSITION RECONCILIATION
+                # --------------------------------------------
+
+                try:
+
+                    final_tp_position = (
+                        get_active_position()
+                    )
+
+                except Exception as exc:
+
+                    print(
+                        "UNIT 14 TP FINAL POSITION CHECK ERROR = "
+                        f"{repr(exc)}",
+                        flush=True,
+                    )
+
+                    time.sleep(
+                        poll_seconds
+                    )
+
+                    continue
+
+                if final_tp_position is None:
+
+                    print(
+                        "UNIT 14 TP SUBMISSION BLOCKED: "
+                        "POSITION CLOSED",
+                        flush=True,
+                    )
+
+                    time.sleep(
+                        poll_seconds
+                    )
+
+                    continue
+
+                final_tp_side = str(
+                    final_tp_position.get(
+                        "side",
+                        "",
+                    )
+                ).upper()
+
+                if (
+                    final_tp_side
+                    !=
+                    position_side
+                ):
+
+                    raise RuntimeError(
+                        "UNIT 14 BLOCKED: "
+                        "POSITION DIRECTION CHANGED "
+                        "BEFORE TP SUBMISSION"
+                    )
+
+                final_tp_trade_key = (
+                    get_trade_key(
+                        final_tp_position
+                    )
+                )
+
+                if (
+                    final_tp_trade_key
+                    !=
+                    trade_key
+                ):
+
+                    print(
+                        "UNIT 14 TP SUBMISSION BLOCKED: "
+                        "POSITION IDENTITY CHANGED",
+                        flush=True,
+                    )
+
+                    time.sleep(
+                        poll_seconds
+                    )
+
+                    continue
+
+                try:
+
+                    final_tp_size = Decimal(
+                        str(
+                            final_tp_position.get(
+                                "size",
+                                "0",
+                            )
+                        )
+                    )
+
+                except Exception:
+
+                    final_tp_size = (
+                        Decimal("0")
+                    )
+
+                if (
+                    final_tp_size
+                    <=
+                    Decimal("0")
+                ):
+
+                    time.sleep(
+                        poll_seconds
+                    )
+
+                    continue
+
+                if (
+                    tp_runtime_quantity
+                    >
+                    final_tp_size
+                ):
+
+                    tp_runtime_quantity = (
+                        floor_quantity(
+                            final_tp_size
+                        )
+                    )
+
+                if (
+                    tp_runtime_quantity
+                    <
+                    minimum_quantity
+                ):
+
+                    print(
+                        "UNIT 14 TP SUBMISSION BLOCKED: "
+                        "QUANTITY BELOW MINIMUM",
+                        flush=True,
+                    )
+
+                    time.sleep(
+                        poll_seconds
+                    )
+
+                    continue
+
+                if (
+                    position_side
+                    ==
+                    "LONG"
+                ):
+
+                    tp_closing_side = (
+                        "SELL"
+                    )
+
+                else:
+
+                    tp_closing_side = (
+                        "BUY"
+                    )
+
+                tp_runtime_payload = {
+
+                    "symbol":
+                        demo_symbol,
+
+                    "side":
+                        tp_closing_side,
+
+                    "positionSide":
+                        position_side,
+
+                    "type":
+                        "MARKET",
+
+                    "quantity":
+                        quantity_text(
+                            tp_runtime_quantity
+                        ),
+
+                    "newClientOrderId":
+                        tp_runtime_client_id,
+                }
+
+                # --------------------------------------------
+                # ABSOLUTE SL PROHIBITION
+                # --------------------------------------------
+
+                for prohibited in (
+
+                    "slTriggerPrice",
+
+                    "SlWorkingType",
+
+                    "stopLossPrice",
+
+                    "stopPrice",
+                ):
+
+                    if (
+                        prohibited
+                        in
+                        tp_runtime_payload
+                    ):
+
+                        raise RuntimeError(
+                            "UNIT 14 BLOCKED: "
+                            "SL FIELD DETECTED IN TP"
+                        )
+
+                print(
+                    "-" * 80,
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 14 "
+                    f"{tp_runtime_action} "
+                    "TRIGGER REACHED = TRUE",
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 14 "
+                    f"{tp_runtime_action} "
+                    "MARK = "
+                    f"{current_mark}",
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 14 "
+                    f"{tp_runtime_action} "
+                    "QUANTITY = "
+                    f"{tp_runtime_quantity}",
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 14 "
+                    f"{tp_runtime_action} "
+                    "CLIENT ID = "
+                    f"{tp_runtime_client_id}",
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 14 DEMO TP ORDER = TRUE",
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 14 REAL TP ORDER = FALSE",
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 14 SL ENABLED = FALSE",
+                    flush=True,
+                )
+
+                try:
+
+                    tp_runtime_result = (
+                        authenticated_post(
+                            "/capi/v3/sim/order",
+                            tp_runtime_payload,
+                        )
+                    )
+
+                    last_runtime_order_time = (
+                        time.time()
+                    )
+
+                except Exception as exc:
+
+                    print(
+                        "UNIT 14 "
+                        f"{tp_runtime_action} "
+                        "SUBMISSION ERROR = "
+                        f"{repr(exc)}",
+                        flush=True,
+                    )
+
+                    # Do not blindly retry immediately.
+                    # Next cycle checks order history first.
+
+                    last_runtime_order_time = (
+                        time.time()
+                    )
+
+                    time.sleep(
+                        poll_seconds
+                    )
+
+                    continue
+
+                if (
+                    tp_runtime_result.get(
+                        "success"
+                    )
+                    is not True
+                ):
+
+                    print(
+                        "UNIT 14 "
+                        f"{tp_runtime_action} "
+                        "NOT ACCEPTED = "
+                        f"{tp_runtime_result}",
+                        flush=True,
+                    )
+
+                    time.sleep(
+                        poll_seconds
+                    )
+
+                    continue
+
+                tp_runtime_order_id = (
+                    tp_runtime_result.get(
+                        "orderId"
+                    )
+                )
+
+                if not tp_runtime_order_id:
+
+                    print(
+                        "UNIT 14 "
+                        f"{tp_runtime_action} "
+                        "ACCEPTED WITHOUT ORDER ID",
+                        flush=True,
+                    )
+
+                    time.sleep(
+                        poll_seconds
+                    )
+
+                    continue
+
+                print(
+                    "PASS: UNIT 14 "
+                    f"{tp_runtime_action} "
+                    "DEMO ORDER ACCEPTED",
+                    flush=True,
+                )
+
+                print(
+                    "PASS: UNIT 14 "
+                    f"{tp_runtime_action} "
+                    "ORDER ID = "
+                    f"{tp_runtime_order_id}",
+                    flush=True,
+                )
+
+                print(
+                    "PASS: UNIT 14 "
+                    f"{tp_runtime_action} "
+                    "WAITING FOR EXCHANGE-CONFIRMED FILL",
+                    flush=True,
+                )
+
+                print(
+                    "PASS: UNIT 14 TP STATE NOT ADVANCED "
+                    "BY TRIGGER ALONE",
+                    flush=True,
+                )
+
+                # Next cycle:
+                # history confirms FILLED before state advances.
+
+                time.sleep(
+                    poll_seconds
+                )
+
+                continue
         # ====================================================
         # 11. DYNAMIC TP3 MANAGEMENT
         # ====================================================
