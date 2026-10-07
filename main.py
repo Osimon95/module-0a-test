@@ -18390,22 +18390,24 @@ def fresh_tp3_runtime(
                     f"{best_mark}",
                     flush=True,
                 )
-    # ========================================================
-    # TP3 RUNTIME FAVORABLE-MARK STATE
-    # ========================================================
+    
+                # ------------------------------------------------
+            # BEST FAVORABLE MARK
+            # ------------------------------------------------
 
-    best_mark = None
+            if best_mark is None:
 
-    last_confirmed_backup_stage = None
+                best_mark = (
+                    current_mark
+                )
 
-    runtime_cycle = 0
+                print(
+                    "TP3 INITIAL BEST MARK = "
+                    f"{best_mark}",
+                    flush=True,
+                )
 
-    poll_seconds = 5
-
-    last_runtime_order_time = 0.0
-
-            
-    elif (
+            elif (
                 position_side
                 ==
                 "LONG"
@@ -18420,7 +18422,7 @@ def fresh_tp3_runtime(
                 )
 
                 print(
-                    "TP3 NEW BEST FAVORABLE MARK = "
+                    "TP3 NEW BEST MARK = "
                     f"{best_mark}",
                     flush=True,
                 )
@@ -18440,7 +18442,7 @@ def fresh_tp3_runtime(
                 )
 
                 print(
-                    "TP3 NEW BEST FAVORABLE MARK = "
+                    "TP3 NEW BEST MARK = "
                     f"{best_mark}",
                     flush=True,
                 )
