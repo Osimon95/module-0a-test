@@ -18390,8 +18390,22 @@ def fresh_tp3_runtime(
                     f"{best_mark}",
                     flush=True,
                 )
+    # ========================================================
+    # TP3 RUNTIME FAVORABLE-MARK STATE
+    # ========================================================
 
-            elif (
+    best_mark = None
+
+    last_confirmed_backup_stage = None
+
+    runtime_cycle = 0
+
+    poll_seconds = 5
+
+    last_runtime_order_time = 0.0
+
+            
+      elif (
                 position_side
                 ==
                 "LONG"
