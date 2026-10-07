@@ -16942,8 +16942,21 @@ def fresh_tp3_runtime(
             filled_stages,
         )
 
-    # ========================================================
-    # 9. INITIAL TP3 STATE
+    
+    #    # ========================================================
+    # 9. INITIAL TP1 / TP2 / TP3 RUNTIME STATE
+    #
+    # UNIT 13 CALCULATES THE ORIGINAL TP PLAN.
+    #
+    # UNIT 14 NOW CONTINUOUSLY MONITORS:
+    #
+    # TP1
+    #   ->
+    # TP2
+    #   ->
+    # TP3 DYNAMIC TRAILING
+    #
+    # NEW SIGNAL QUALIFICATION IS NOT REQUIRED.
     # ========================================================
 
     unit_13_status = str(
@@ -16953,23 +16966,50 @@ def fresh_tp3_runtime(
         )
     ).upper()
 
-    tp3_armed = (
-        unit_13_result.get(
-            "tp3_armed"
-        )
-        is True
-        and
-        unit_13_status
-        ==
-        "TP3_ARMED"
-    )
-
     position_side_from_unit_13 = str(
         unit_13_result.get(
             "position_side",
             "",
         )
     ).upper()
+
+    # --------------------------------------------------------
+    # TP QUANTITIES
+    # --------------------------------------------------------
+
+    try:
+
+        original_tp1_quantity = Decimal(
+            str(
+                unit_13_result.get(
+                    "tp1_quantity",
+                    "0",
+                )
+            )
+        )
+
+    except Exception:
+
+        original_tp1_quantity = (
+            Decimal("0")
+        )
+
+    try:
+
+        original_tp2_quantity = Decimal(
+            str(
+                unit_13_result.get(
+                    "tp2_quantity",
+                    "0",
+                )
+            )
+        )
+
+    except Exception:
+
+        original_tp2_quantity = (
+            Decimal("0")
+        )
 
     try:
 
@@ -16988,7 +17028,170 @@ def fresh_tp3_runtime(
             Decimal("0")
         )
 
-    best_mark = None
+    # --------------------------------------------------------
+    # TP TARGETS
+    #
+    # UNIT 13 MAY RETURN EITHER:
+    #
+    # tp1_target / tp2_target
+    #
+    # OR AFTER EXECUTION:
+    #
+    # tp1_target_price / tp2_target_price
+    # --------------------------------------------------------
+
+    try:
+
+        tp1_runtime_target = Decimal(
+            str(
+                unit_13_result.get(
+                    "tp1_target",
+                    unit_13_result.get(
+                        "tp1_target_price",
+                        "0",
+                    ),
+                )
+            )
+        )
+
+    except Exception:
+
+        tp1_runtime_target = (
+            Decimal("0")
+        )
+
+    try:
+
+        tp2_runtime_target = Decimal(
+            str(
+                unit_13_result.get(
+                    "tp2_target",
+                    unit_13_result.get(
+                        "tp2_target_price",
+                        "0",
+                    ),
+                )
+            )
+        )
+
+    except Exception:
+
+        tp2_runtime_target = (
+            Decimal("0")
+        )
+
+    # --------------------------------------------------------
+    # INITIAL COMPLETION STATE FROM UNIT 13
+    # --------------------------------------------------------
+
+    tp1_completed = bool(
+        unit_13_result.get(
+            "tp1_completed",
+            False,
+        )
+    )
+
+    tp2_completed = bool(
+        unit_13_result.get(
+            "tp2_completed",
+            False,
+        )
+    )
+
+    tp3_armed = (
+        unit_13_result.get(
+            "tp3_armed"
+        )
+        is True
+        and
+        unit_13_status
+        ==
+        "TP3_ARMED"
+    )
+
+    # --------------------------------------------------------
+    # ZERO-SIZED STAGES ARE STRUCTURALLY COMPLETE
+    # --------------------------------------------------------
+
+    if (
+        original_tp1_quantity
+        <=
+        Decimal("0")
+    ):
+
+        tp1_completed = True
+
+    if (
+        original_tp2_quantity
+        <=
+        Decimal("0")
+        and
+        tp1_completed
+    ):
+
+        tp2_completed = True
+
+    if (
+        tp1_completed
+        and
+        tp2_completed
+        and
+        original_tp3_quantity
+        >
+        Decimal("0")
+    ):
+
+        tp3_armed = True
+
+    print(
+        "UNIT 14 TP1 ORIGINAL QUANTITY = "
+        f"{original_tp1_quantity}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP2 ORIGINAL QUANTITY = "
+        f"{original_tp2_quantity}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 ORIGINAL RUNNER QUANTITY = "
+        f"{original_tp3_quantity}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP1 TARGET = "
+        f"{tp1_runtime_target}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP2 TARGET = "
+        f"{tp2_runtime_target}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP1 COMPLETED = "
+        f"{tp1_completed}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP2 COMPLETED = "
+        f"{tp2_completed}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 ARMED = "
+        f"{tp3_armed}",
+        flush=True,
+    )
+    
+
 
     last_confirmed_backup_stage = None
 
