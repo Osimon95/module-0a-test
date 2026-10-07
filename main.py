@@ -5255,6 +5255,266 @@ def fresh_reconstruction_unit_6(
         move_5m = float(unit_5_candidate.get("move_5m_pct", 0.0))
         move_15m = float(unit_5_candidate.get("move_15m_pct", 0.0))
 
+                # ====================================================
+        # LEVERAGE-AWARE SIDEWAYS / CHOP DETECTION
+        # ====================================================
+
+        ema19_50_separation_pct = abs(
+            float(
+                unit_5_candidate.get(
+                    "ema19_50_separation_pct",
+                    0.0,
+                )
+            )
+        )
+
+        ema_compressed = (
+            ema19_50_separation_pct
+            <
+            compression_threshold_pct
+        )
+
+        d1 = direction_of(
+            move_1m
+        )
+
+        d5 = direction_of(
+            move_5m
+        )
+
+        d15 = direction_of(
+            move_15m
+        )
+
+        # ----------------------------------------------------
+        # 15M SUPPORT
+        # ----------------------------------------------------
+
+        if require_15m_agreement:
+
+            fifteen_minute_support_pass = (
+                d15
+                ==
+                direction
+            )
+
+        else:
+
+            fifteen_minute_support_pass = (
+                d15
+                in
+                {
+                    direction,
+                    "NONE",
+                }
+            )
+
+        # ----------------------------------------------------
+        # MULTI-WINDOW CONFLICT
+        # ----------------------------------------------------
+
+        momentum_conflict = (
+
+            d5
+            !=
+            direction
+
+            or
+
+            fifteen_minute_support_pass
+            is not True
+        )
+
+        # ----------------------------------------------------
+        # CLOSED 1M DIRECTION PERSISTENCE
+        #
+        # We do not require every candle to be the same color.
+        # We require the configured number of directional
+        # confirmations inside the recent window.
+        # ----------------------------------------------------
+
+        recent_persistence_candles = (
+            candles[
+                -persistence_window:
+            ]
+        )
+
+        persistence_directions = []
+
+        for candle in recent_persistence_candles:
+
+            candle_open = float(
+                candle.get(
+                    "open",
+                    0.0,
+                )
+            )
+
+            candle_close = float(
+                candle.get(
+                    "close",
+                    0.0,
+                )
+            )
+
+            if (
+                candle_close
+                >
+                candle_open
+            ):
+
+                candle_direction = (
+                    "LONG"
+                )
+
+            elif (
+                candle_close
+                <
+                candle_open
+            ):
+
+                candle_direction = (
+                    "SHORT"
+                )
+
+            else:
+
+                candle_direction = (
+                    "NONE"
+                )
+
+            persistence_directions.append(
+                candle_direction
+            )
+
+        persistence_confirmations = sum(
+
+            1
+
+            for candle_direction
+            in persistence_directions
+
+            if (
+                candle_direction
+                ==
+                direction
+            )
+        )
+
+        persistence_pass = (
+
+            persistence_confirmations
+            >=
+            persistence_required
+        )
+
+        # ----------------------------------------------------
+        # SIDEWAYS / CHOP RESULT
+        #
+        # SCALP IS BLOCKED WHEN:
+        #
+        # - EMA structure is compressed
+        #   AND
+        # - momentum is conflicting or persistence is weak.
+        #
+        # This avoids calling every small EMA compression
+        # sideways when directional evidence is otherwise
+        # strong.
+        # ----------------------------------------------------
+
+        sideways_regime = (
+
+            ema_compressed
+
+            and
+
+            (
+                momentum_conflict
+
+                or
+
+                persistence_pass
+                is not True
+            )
+        )
+
+        print(
+            "-" * 80,
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 SIDEWAYS / CHOP REGIME TEST",
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 EMA19/50 SEPARATION % = "
+            f"{ema19_50_separation_pct}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 EMA COMPRESSED = "
+            f"{ema_compressed}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 1M DIRECTION = "
+            f"{d1}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 5M DIRECTION = "
+            f"{d5}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 15M DIRECTION = "
+            f"{d15}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 15M SUPPORT PASS = "
+            f"{fifteen_minute_support_pass}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 PERSISTENCE DIRECTIONS = "
+            f"{persistence_directions}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 PERSISTENCE CONFIRMATIONS = "
+            f"{persistence_confirmations} / "
+            f"{persistence_required}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 PERSISTENCE PASS = "
+            f"{persistence_pass}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 MOMENTUM CONFLICT = "
+            f"{momentum_conflict}",
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 SIDEWAYS REGIME = "
+            f"{sideways_regime}",
+            flush=True,
+        )
+        
         latest = candles[-1]
         previous = candles[-2]
         latest_open = float(latest["open"])
