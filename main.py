@@ -1373,3 +1373,895 @@ FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
 # UNIT 3 FULLY CLOSED AND CALLED
 # NO OPEN FUNCTION OR BLOCK
 # ============================================================
+
+# ============================================================
+# PART 4 START - FRESH RECONSTRUCTION UNIT 4
+# ZERO INDENTATION DEMARCATION
+# ============================================================
+
+# ============================================================
+# UNIT 4 - PUBLIC MARK PRICE KLINES + EMA ANALYSIS
+# ============================================================
+
+def fresh_reconstruction_unit_4():
+
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 4 START")
+    print("-" * 80, flush=True)
+
+    # ========================================================
+    # 1. RECEIVE UNIT 2 CONFIGURATION
+    # ========================================================
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INVALID UNIT 2 CONFIGURATION"
+        )
+
+    print(
+        "PASS: UNIT 4 RECEIVED UNIT 2 CONFIGURATION",
+        flush=True,
+    )
+
+    # ========================================================
+    # 2. RECEIVE UNIT 3 MARKET SNAPSHOT
+    # ========================================================
+
+    market_snapshot = (
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    )
+
+    if not isinstance(market_snapshot, dict):
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INVALID UNIT 3 MARKET SNAPSHOT"
+        )
+
+    required_snapshot_fields = (
+        "exchange",
+        "api_version",
+        "symbol",
+        "price",
+        "price_type",
+        "exchange_time_ms",
+        "source",
+        "read_only",
+    )
+
+    missing = [
+        key for key in required_snapshot_fields
+        if key not in market_snapshot
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: MISSING UNIT 3 FIELDS = "
+            + str(missing)
+        )
+
+    if market_snapshot["exchange"] != "WEEX":
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INVALID EXCHANGE"
+        )
+
+    if market_snapshot["api_version"] != "V3":
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INVALID API VERSION"
+        )
+
+    if market_snapshot["symbol"] != "BTCUSDT":
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INVALID MARKET SYMBOL"
+        )
+
+    if market_snapshot["price_type"] != "MARK":
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INVALID PRICE TYPE"
+        )
+
+    if market_snapshot["read_only"] is not True:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: SNAPSHOT NOT READ ONLY"
+        )
+
+    exchange_time_ms = int(
+        market_snapshot["exchange_time_ms"]
+    )
+
+    if exchange_time_ms <= 0:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INVALID EXCHANGE TIME"
+        )
+
+    print(
+        "PASS: UNIT 4 UNIT 3 SNAPSHOT VALIDATED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3. VALIDATE EXCHANGE CONFIGURATION
+    # ========================================================
+
+    exchange_config = config.get("exchange")
+    safety = config.get("safety")
+
+    if not isinstance(exchange_config, dict):
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: EXCHANGE CONFIG MISSING"
+        )
+
+    if not isinstance(safety, dict):
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: SAFETY CONFIG MISSING"
+        )
+
+    base_url = exchange_config.get(
+        "contract_base_url"
+    )
+
+    market_symbol = exchange_config.get(
+        "market_symbol"
+    )
+
+    if base_url != "https://api-contract.weex.com":
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INVALID BASE URL"
+        )
+
+    if market_symbol != market_snapshot["symbol"]:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: SYMBOL MISMATCH"
+        )
+
+    # ========================================================
+    # 4. READ-ONLY SAFETY CONTRACT
+    # ========================================================
+
+    if (
+        safety.get("public_market_data_read_enabled")
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: MARKET READ DISABLED"
+        )
+
+    forbidden_capabilities = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for capability in forbidden_capabilities:
+        if safety.get(capability) is not False:
+            raise RuntimeError(
+                "UNIT 4 BLOCKED: UNSAFE CAPABILITY: "
+                + capability
+            )
+
+    print(
+        "PASS: UNIT 4 READ-ONLY SAFETY GATE",
+        flush=True,
+    )
+
+    # ========================================================
+    # 5. WEEX V3 PUBLIC KLINE SETTINGS
+    # ========================================================
+
+    interval = "1m"
+    candle_limit = 300
+
+    endpoint = (
+        "/capi/v3/market/markPriceKlines"
+    )
+
+    query_parameters = {
+        "symbol": market_symbol,
+        "interval": interval,
+        "limit": candle_limit,
+    }
+
+    request_url = (
+        base_url
+        + endpoint
+        + "?"
+        + urllib.parse.urlencode(query_parameters)
+    )
+
+    # ========================================================
+    # 6. BUILD PUBLIC GET REQUEST
+    # ========================================================
+
+    request = urllib.request.Request(
+        url=request_url,
+        method="GET",
+        headers={
+            "Accept": "application/json",
+            "User-Agent":
+                "Fresh-WEEX-Reconstruction/1-4",
+        },
+    )
+
+    if request.get_method() != "GET":
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: NON-GET REQUEST"
+        )
+
+    if request.data is not None:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: REQUEST BODY PRESENT"
+        )
+
+    print(
+        "PASS: UNIT 4 ENDPOINT = WEEX V3 MARK PRICE KLINES",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 HTTP METHOD = GET",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 AUTHENTICATION = NONE",
+        flush=True,
+    )
+
+    # ========================================================
+    # 7. EXECUTE PUBLIC READ
+    # ========================================================
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            http_status = response.getcode()
+
+            response_body = (
+                response.read().decode("utf-8")
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        error_body = ""
+
+        try:
+            error_body = (
+                exc.read().decode("utf-8")
+            )
+        except Exception:
+            pass
+
+        print(
+            "UNIT 4 HTTP ERROR CODE =",
+            exc.code,
+            flush=True,
+        )
+
+        print(
+            "UNIT 4 HTTP ERROR BODY =",
+            error_body[:1000],
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 4 WEEX V3 KLINE HTTP ERROR"
+        ) from exc
+
+    except urllib.error.URLError as exc:
+
+        print(
+            "UNIT 4 URL ERROR =",
+            repr(exc.reason),
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 4 WEEX V3 CONNECTION FAILED"
+        ) from exc
+
+    except Exception as exc:
+
+        print(
+            "UNIT 4 UNEXPECTED CONNECTION ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+        raise
+
+    if http_status != 200:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: NON-200 HTTP STATUS"
+        )
+
+    if not response_body:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: EMPTY RESPONSE"
+        )
+
+    print(
+        "PASS: UNIT 4 WEEX V3 KLINE RESPONSE RECEIVED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 8. PARSE JSON RESPONSE
+    # ========================================================
+
+    try:
+        raw_klines = json.loads(response_body)
+    except json.JSONDecodeError as exc:
+
+        print(
+            "UNIT 4 RAW RESPONSE =",
+            response_body[:1000],
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INVALID JSON"
+        ) from exc
+
+    if not isinstance(raw_klines, list):
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: KLINES NOT A LIST"
+        )
+
+    if len(raw_klines) < 200:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INSUFFICIENT KLINES"
+        )
+
+    print(
+        "PASS: UNIT 4 KLINES RECEIVED =",
+        len(raw_klines),
+        flush=True,
+    )
+
+    # ========================================================
+    # 9. NORMALIZE KLINES
+    # ========================================================
+
+    normalized_klines = []
+
+    for raw_candle in raw_klines:
+
+        if not isinstance(raw_candle, (list, tuple)):
+            raise RuntimeError(
+                "UNIT 4 BLOCKED: INVALID KLINE ENTRY"
+            )
+
+        if len(raw_candle) < 7:
+            raise RuntimeError(
+                "UNIT 4 BLOCKED: INCOMPLETE KLINE"
+            )
+
+        try:
+
+            candle = {
+                "open_time_ms": int(raw_candle[0]),
+                "open": float(raw_candle[1]),
+                "high": float(raw_candle[2]),
+                "low": float(raw_candle[3]),
+                "close": float(raw_candle[4]),
+                "volume": float(raw_candle[5]),
+                "close_time_ms": int(raw_candle[6]),
+            }
+
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "UNIT 4 BLOCKED: INVALID KLINE VALUE"
+            ) from exc
+
+        if (
+            candle["open"] <= 0
+            or candle["high"] <= 0
+            or candle["low"] <= 0
+            or candle["close"] <= 0
+        ):
+            raise RuntimeError(
+                "UNIT 4 BLOCKED: NON-POSITIVE OHLC"
+            )
+
+        normalized_klines.append(candle)
+
+    # Ensure chronological order.
+
+    normalized_klines.sort(
+        key=lambda candle: candle["open_time_ms"]
+    )
+
+    # ========================================================
+    # 10. EXCLUDE UNFINISHED CANDLES
+    # ========================================================
+
+    closed_klines = [
+        candle
+        for candle in normalized_klines
+        if candle["close_time_ms"] <= exchange_time_ms
+    ]
+
+    if len(closed_klines) < 200:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INSUFFICIENT CLOSED KLINES"
+        )
+
+    newest_returned_is_closed = (
+        normalized_klines[-1]["close_time_ms"]
+        <= exchange_time_ms
+    )
+
+    print(
+        "PASS: UNIT 4 RETURNED KLINES =",
+        len(normalized_klines),
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 CLOSED KLINES =",
+        len(closed_klines),
+        flush=True,
+    )
+
+    print(
+        "UNIT 4 NEWEST RETURNED CANDLE CLOSED =",
+        newest_returned_is_closed,
+        flush=True,
+    )
+
+    # ========================================================
+    # 11. CLOSED-CANDLE PRICE SERIES
+    # ========================================================
+
+    close_prices = [
+        candle["close"]
+        for candle in closed_klines
+    ]
+
+    # ========================================================
+    # 12. EMA CALCULATION
+    # ========================================================
+
+    def calculate_ema(prices, period):
+
+        if len(prices) < period:
+            raise RuntimeError(
+                "INSUFFICIENT DATA FOR EMA"
+                + str(period)
+            )
+
+        ema_value = (
+            sum(prices[:period]) / period
+        )
+
+        multiplier = 2.0 / (period + 1.0)
+
+        for price in prices[period:]:
+
+            ema_value = (
+                price * multiplier
+                + ema_value * (1.0 - multiplier)
+            )
+
+        return float(ema_value)
+
+    ema19 = calculate_ema(close_prices, 19)
+    ema50 = calculate_ema(close_prices, 50)
+    ema200 = calculate_ema(close_prices, 200)
+
+    if min(ema19, ema50, ema200) <= 0:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INVALID EMA VALUE"
+        )
+
+    print(
+        "PASS: UNIT 4 EMA19 =",
+        round(ema19, 6),
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 EMA50 =",
+        round(ema50, 6),
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 EMA200 =",
+        round(ema200, 6),
+        flush=True,
+    )
+
+    # ========================================================
+    # 13. EMA SEPARATION AND STRUCTURE
+    # ========================================================
+
+    ema19_50_separation_pct = (
+        abs(ema19 - ema50) / ema50 * 100.0
+    )
+
+    if ema19 > ema50 > ema200:
+        ema_structure = "BULLISH"
+
+    elif ema19 < ema50 < ema200:
+        ema_structure = "BEARISH"
+
+    else:
+        ema_structure = "MIXED"
+
+    print(
+        "PASS: UNIT 4 EMA19/50 SEPARATION % =",
+        round(ema19_50_separation_pct, 6),
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 EMA STRUCTURE =",
+        ema_structure,
+        flush=True,
+    )
+
+    # ========================================================
+    # 14. LATEST CLOSED CANDLES
+    # ========================================================
+
+    latest_candle = closed_klines[-1]
+    previous_candle = closed_klines[-2]
+
+    latest_close = float(
+        latest_candle["close"]
+    )
+
+    previous_close = float(
+        previous_candle["close"]
+    )
+
+    latest_open_time_ms = int(
+        latest_candle["open_time_ms"]
+    )
+
+    latest_close_time_ms = int(
+        latest_candle["close_time_ms"]
+    )
+
+    if previous_close <= 0:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INVALID PREVIOUS CLOSE"
+        )
+
+    # ========================================================
+    # 15. SHORT-TERM MOVE
+    # ========================================================
+
+    short_term_move_pct = (
+        (latest_close - previous_close)
+        / previous_close
+        * 100.0
+    )
+
+    print(
+        "PASS: UNIT 4 SHORT TERM MOVE % =",
+        round(short_term_move_pct, 6),
+        flush=True,
+    )
+
+    # ========================================================
+    # 16. MULTI-WINDOW MOMENTUM
+    # ========================================================
+
+    diagnostic_windows = (
+        1, 5, 15, 30, 60, 120
+    )
+
+    window_moves_pct = {}
+
+    print(
+        "UNIT 4 BREAKOUT WINDOW DIAGNOSTIC",
+        flush=True,
+    )
+
+    for window_minutes in diagnostic_windows:
+
+        if len(close_prices) <= window_minutes:
+            raise RuntimeError(
+                "UNIT 4 BLOCKED: INSUFFICIENT WINDOW DATA"
+            )
+
+        reference_close = float(
+            close_prices[-(window_minutes + 1)]
+        )
+
+        if reference_close <= 0:
+            raise RuntimeError(
+                "UNIT 4 BLOCKED: INVALID WINDOW CLOSE"
+            )
+
+        window_move_pct = (
+            (latest_close - reference_close)
+            / reference_close
+            * 100.0
+        )
+
+        window_moves_pct[window_minutes] = float(
+            window_move_pct
+        )
+
+        print(
+            "UNIT 4",
+            str(window_minutes) + "M MOVE % =",
+            round(window_move_pct, 6),
+            flush=True,
+        )
+
+    # ========================================================
+    # 17. REAL-TIME MARK PRICE
+    # ========================================================
+
+    live_mark_price = float(
+        market_snapshot["price"]
+    )
+
+    if live_mark_price <= 0:
+        raise RuntimeError(
+            "UNIT 4 BLOCKED: INVALID LIVE MARK PRICE"
+        )
+
+    # ========================================================
+    # 18. NORMALIZED ANALYSIS SNAPSHOT
+    # ========================================================
+
+    analysis_snapshot = {
+
+        "exchange": "WEEX",
+        "api_version": "V3",
+        "symbol": market_symbol,
+        "interval": interval,
+        "price_type": "MARK",
+
+        "live_mark_price": live_mark_price,
+
+        "previous_close": previous_close,
+        "latest_close": latest_close,
+
+        "latest_open_time_ms":
+            latest_open_time_ms,
+
+        "latest_close_time_ms":
+            latest_close_time_ms,
+
+        "exchange_time_ms":
+            exchange_time_ms,
+
+        "ema19": ema19,
+        "ema50": ema50,
+        "ema200": ema200,
+
+        "ema19_50_separation_pct":
+            ema19_50_separation_pct,
+
+        "short_term_move_pct":
+            short_term_move_pct,
+
+        "move_1m_pct": window_moves_pct[1],
+        "move_5m_pct": window_moves_pct[5],
+        "move_15m_pct": window_moves_pct[15],
+        "move_30m_pct": window_moves_pct[30],
+        "move_60m_pct": window_moves_pct[60],
+        "move_120m_pct": window_moves_pct[120],
+
+        "ema_structure": ema_structure,
+
+        "recent_closed_klines": [
+            dict(candle)
+            for candle in closed_klines[-60:]
+        ],
+
+        "candle_count": len(normalized_klines),
+
+        "closed_candle_count": len(closed_klines),
+
+        "newest_returned_candle_closed":
+            newest_returned_is_closed,
+
+        "source":
+            "WEEX_V3_PUBLIC_MARK_PRICE_KLINES",
+
+        "read_only": True,
+    }
+
+    # ========================================================
+    # 19. FINAL SNAPSHOT VALIDATION
+    # ========================================================
+
+    required_analysis_fields = (
+        "exchange",
+        "api_version",
+        "symbol",
+        "interval",
+        "price_type",
+        "live_mark_price",
+        "previous_close",
+        "latest_close",
+        "latest_open_time_ms",
+        "latest_close_time_ms",
+        "exchange_time_ms",
+        "ema19",
+        "ema50",
+        "ema200",
+        "ema19_50_separation_pct",
+        "short_term_move_pct",
+        "move_1m_pct",
+        "move_5m_pct",
+        "move_15m_pct",
+        "move_30m_pct",
+        "move_60m_pct",
+        "move_120m_pct",
+        "ema_structure",
+        "recent_closed_klines",
+        "candle_count",
+        "closed_candle_count",
+        "newest_returned_candle_closed",
+        "source",
+        "read_only",
+    )
+
+    missing_analysis_fields = [
+        key
+        for key in required_analysis_fields
+        if key not in analysis_snapshot
+    ]
+
+    if missing_analysis_fields:
+        raise RuntimeError(
+            "UNIT 4 ANALYSIS SNAPSHOT MISSING FIELDS = "
+            + str(missing_analysis_fields)
+        )
+
+    if analysis_snapshot["read_only"] is not True:
+        raise RuntimeError(
+            "UNIT 4 SNAPSHOT READ-ONLY FAILURE"
+        )
+
+    if latest_close_time_ms > exchange_time_ms:
+        raise RuntimeError(
+            "UNIT 4 CLOSED-CANDLE SAFETY FAILURE"
+        )
+
+    if abs(
+        analysis_snapshot["move_1m_pct"]
+        - analysis_snapshot["short_term_move_pct"]
+    ) > 0.000000001:
+        raise RuntimeError(
+            "UNIT 4 1M MOVE CONSISTENCY FAILURE"
+        )
+
+    # ========================================================
+    # 20. UNIT 4 FINAL REPORT
+    # ========================================================
+
+    print("-" * 80, flush=True)
+
+    print(
+        "PASS: UNIT 4 NORMALIZED MARKET ANALYSIS SNAPSHOT",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 CLOSED-CANDLE SIGNAL SOURCE VERIFIED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 MULTI-WINDOW MOMENTUM SNAPSHOT READY",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 PUBLIC MARKET ANALYSIS COMPLETED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 EMA19 / EMA50 / EMA200 COMPLETED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 NO ENTRY SIGNAL GENERATED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 NO ORDER PAYLOAD GENERATED",
+        flush=True,
+    )
+
+    print(
+        "ZERO AUTHENTICATED REQUEST = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ACCOUNT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ORDER ENDPOINT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE WRITE = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO LEVERAGE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO MARGIN MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print("-" * 80, flush=True)
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 4 RESULT = PASS"
+    )
+
+    print("=" * 80, flush=True)
+
+    return analysis_snapshot
+
+
+# ============================================================
+# RUN UNIT 4
+# ============================================================
+
+FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
+    fresh_reconstruction_unit_4()
+)
+
+
+# ============================================================
+# END PART 4 - COMPLETE UNIT 4
+# ZERO INDENTATION DEMARCATION
+# UNIT 4 FULLY CLOSED AND CALLED
+# NO OPEN FUNCTION
+# NO OPEN IF
+# NO OPEN TRY
+# ============================================================
