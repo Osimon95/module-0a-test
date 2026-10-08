@@ -15761,6 +15761,99 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 # ============================================================
 
 
+
+# ============================================================
+# START UNIT 14 BACKUP FILL VERIFICATION HELPER
+# ZERO INDENTATION DEMARCATION
+# ============================================================
+
+def unit14_verify_backup_fill(
+    before_quantity,
+    after_quantity,
+    expected_order_id,
+    exchange_order,
+    quantity_step,
+):
+    from decimal import Decimal, InvalidOperation
+
+    result = {
+        "verified": False,
+        "reason": "NOT_VERIFIED",
+        "executed_quantity": "0",
+        "position_increase": "0",
+    }
+
+    if not isinstance(exchange_order, dict):
+        result["reason"] = "ORDER_RECORD_MISSING"
+        return result
+
+    actual_order_id = str(
+        exchange_order.get("clientOrderId", "")
+    )
+
+    if actual_order_id != str(expected_order_id):
+        result["reason"] = "ORDER_ID_MISMATCH"
+        return result
+
+    status = str(
+        exchange_order.get("status", "")
+    ).upper()
+
+    if status != "FILLED":
+        result["reason"] = "ORDER_NOT_FILLED"
+        return result
+
+    try:
+        before = Decimal(str(before_quantity))
+        after = Decimal(str(after_quantity))
+        executed = Decimal(
+            str(exchange_order.get("executedQty"))
+        )
+        step = Decimal(str(quantity_step))
+
+    except (InvalidOperation, ValueError, TypeError):
+        result["reason"] = "INVALID_EXCHANGE_QUANTITY"
+        return result
+
+    if not all(
+        value.is_finite()
+        for value in (before, after, executed, step)
+    ):
+        result["reason"] = "NON_FINITE_QUANTITY"
+        return result
+
+    if (
+        before < 0
+        or after < 0
+        or executed <= 0
+        or step <= 0
+    ):
+        result["reason"] = "INVALID_QUANTITY_RANGE"
+        return result
+
+    position_increase = after - before
+
+    result["executed_quantity"] = str(executed)
+    result["position_increase"] = str(position_increase)
+
+    if position_increase <= 0:
+        result["reason"] = "POSITION_NOT_INCREASED"
+        return result
+
+    if abs(position_increase - executed) > step / 2:
+        result["reason"] = "POSITION_SIZE_MISMATCH"
+        return result
+
+    result["verified"] = True
+    result["reason"] = "BACKUP_FILL_AND_SIZE_CONFIRMED"
+
+    return result
+
+
+# ============================================================
+# END UNIT 14 BACKUP FILL VERIFICATION HELPER
+# ZERO INDENTATION DEMARCATION
+# ============================================================
 def fresh_tp3_runtime(
     config,
     unit_13_result,
