@@ -17911,7 +17911,11 @@ def fresh_tp3_runtime(
     
 
 
+    
     last_confirmed_backup_stage = None
+
+    # Initialize TP3 trailing state before first cycle.
+    best_mark = None
 
     runtime_cycle = 0
 
