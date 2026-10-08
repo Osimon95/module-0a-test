@@ -16606,6 +16606,545 @@ def unit14_read_exchange_snapshot(
 # COMPLETE FUNCTION CLOSED
 # ============================================================
 
+
+# ============================================================
+# START UNIT 14 REPLACEMENT - PART 3
+# ZERO INDENTATION DEMARCATION
+# DEMO ORDER HISTORY AND DUPLICATE VERIFICATION
+# ============================================================
+
+def unit14_read_backup_history(
+    context,
+    api_key,
+    api_secret,
+    api_passphrase,
+    position,
+    max_pages=20,
+):
+    """
+    UNIT 14 REPLACEMENT - PART 3
+
+    Reads WEEX demo order history.
+
+    Identifies B1, B2 and B3 using the existing
+    FR-B{stage}-{trade_key} client ID structure.
+
+    Detects:
+    - Previously recorded backup orders
+    - Reported filled backups
+    - Pending or uncertain backup orders
+    - Missing or inconsistent order information
+    - Duplicate client IDs
+
+    No exchange writes.
+    No order submission.
+
+    Historical observations alone cannot prove
+    that no active orders exist on the exchange.
+    """
+
+    import base64
+    import hashlib
+    import hmac
+    import json
+    import time
+    import urllib.parse
+    import urllib.request
+
+    from decimal import Decimal, InvalidOperation
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 14 PART 3 START - BACKUP HISTORY",
+        flush=True,
+    )
+
+    # ========================================================
+    # 1. VALIDATE CONTEXT
+    # ========================================================
+
+    if not isinstance(context, dict):
+        raise RuntimeError(
+            "UNIT 14 PART 3: INVALID CONTEXT"
+        )
+
+    if context.get("environment") != "DEMO":
+        raise RuntimeError(
+            "UNIT 14 PART 3: DEMO REQUIRED"
+        )
+
+    if context.get("demo_symbol") != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 14 PART 3: INVALID SYMBOL"
+        )
+
+    if (
+        context.get("base_url")
+        != "https://api-contract.weex.com"
+    ):
+        raise RuntimeError(
+            "UNIT 14 PART 3: INVALID API HOST"
+        )
+
+    if not isinstance(position, dict):
+        raise RuntimeError(
+            "UNIT 14 PART 3: POSITION MISSING"
+        )
+
+    if type(max_pages) is not int or not (1 <= max_pages <= 20):
+        raise RuntimeError(
+            "UNIT 14 PART 3: INVALID PAGE LIMIT"
+        )
+
+    if not all(
+        isinstance(value, str) and value.strip()
+        for value in (
+            api_key,
+            api_secret,
+            api_passphrase,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 14 PART 3: CREDENTIALS MISSING"
+        )
+
+    # ========================================================
+    # 2. EXTRACT STABLE TRADE KEY
+    # ========================================================
+
+    created_time = str(
+        position.get("createdTime", "")
+    )
+
+    position_id = str(
+        position.get("id", "")
+    )
+
+    if created_time.isdigit():
+        trade_key = created_time[-12:]
+
+    elif position_id.strip():
+        trade_key = position_id[-12:]
+
+    else:
+        raise RuntimeError(
+            "UNIT 14 PART 3: TRADE KEY UNAVAILABLE"
+        )
+
+    expected_client_ids = {}
+
+    for stage in (1, 2, 3):
+
+        client_id = (
+            f"FR-B{stage}-{trade_key}"
+        )[:36]
+
+        expected_client_ids[client_id] = stage
+
+    # ========================================================
+    # 3. AUTHENTICATED HISTORY READ
+    # ========================================================
+
+    def read_history_page(page_number):
+
+        endpoint = "/capi/v3/sim/order/history"
+
+        query = urllib.parse.urlencode({
+            "symbol": context["demo_symbol"],
+            "limit": 1000,
+            "page": page_number,
+        })
+
+        timestamp = str(int(time.time() * 1000))
+
+        message = (
+            timestamp
+            + "GET"
+            + endpoint
+            + "?"
+            + query
+        )
+
+        signature = base64.b64encode(
+            hmac.new(
+                api_secret.encode("utf-8"),
+                message.encode("utf-8"),
+                hashlib.sha256,
+            ).digest()
+        ).decode("utf-8")
+
+        request = urllib.request.Request(
+            url=(
+                context["base_url"]
+                + endpoint
+                + "?"
+                + query
+            ),
+            method="GET",
+            headers={
+                "ACCESS-KEY": api_key,
+                "ACCESS-SIGN": signature,
+                "ACCESS-TIMESTAMP": timestamp,
+                "ACCESS-PASSPHRASE": api_passphrase,
+                "Content-Type": "application/json",
+            },
+        )
+
+        if request.get_method() != "GET":
+            raise RuntimeError(
+                "UNIT 14 PART 3: NON-GET BLOCKED"
+            )
+
+        if request.data is not None:
+            raise RuntimeError(
+                "UNIT 14 PART 3: REQUEST BODY BLOCKED"
+            )
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            if response.getcode() != 200:
+                raise RuntimeError(
+                    "UNIT 14 PART 3: HISTORY HTTP FAILURE"
+                )
+
+            raw = response.read().decode("utf-8")
+
+        try:
+            records = json.loads(raw)
+
+        except (ValueError, TypeError):
+            raise RuntimeError(
+                "UNIT 14 PART 3: INVALID HISTORY JSON"
+            )
+
+        if not isinstance(records, list):
+            raise RuntimeError(
+                "UNIT 14 PART 3: INVALID HISTORY FORMAT"
+            )
+
+        if len(records) > 1000:
+            raise RuntimeError(
+                "UNIT 14 PART 3: PAGE SIZE EXCEEDED"
+            )
+
+        if not all(
+            isinstance(order, dict)
+            for order in records
+        ):
+            raise RuntimeError(
+                "UNIT 14 PART 3: INVALID ORDER RECORD"
+            )
+
+        return records
+
+    # ========================================================
+    # 4. READ SEQUENTIAL HISTORY PAGES
+    # ========================================================
+
+    all_orders = []
+    pagination_terminated = False
+    pages_read = 0
+
+    for page in range(max_pages):
+
+        records = read_history_page(page)
+
+        pages_read += 1
+
+        all_orders.extend(records)
+
+        print(
+            "UNIT 14 HISTORY PAGE =",
+            page,
+            "| RECORDS =",
+            len(records),
+            flush=True,
+        )
+
+        if len(records) < 1000:
+            pagination_terminated = True
+            break
+
+    # Prevent declaring history complete merely
+    # because the maximum page count was reached.
+
+    if not pagination_terminated:
+        raise RuntimeError(
+            "UNIT 14 PART 3: HISTORY PAGE "
+            "LIMIT REACHED"
+        )
+
+    # ========================================================
+    # 5. VALIDATE BACKUP ORDER RECORDS
+    # ========================================================
+
+    existing_stages = set()
+    filled_stages = set()
+    uncertain_stages = set()
+
+    matching_order_counts = {
+        1: 0,
+        2: 0,
+        3: 0,
+    }
+
+    executed_by_stage = {}
+
+    for order in all_orders:
+
+        client_id = str(
+            order.get("clientOrderId", "")
+        )
+
+        stage = expected_client_ids.get(
+            client_id
+        )
+
+        if stage is None:
+            continue
+
+        matching_order_counts[stage] += 1
+
+        existing_stages.add(stage)
+
+        status = str(
+            order.get("status", "")
+        ).upper().strip()
+
+        raw_executed = order.get("executedQty")
+
+        if raw_executed is None:
+            uncertain_stages.add(stage)
+            continue
+
+        try:
+            executed = Decimal(
+                str(raw_executed)
+            )
+
+        except (
+            InvalidOperation,
+            ValueError,
+            TypeError,
+        ):
+            uncertain_stages.add(stage)
+            continue
+
+        if (
+            not executed.is_finite()
+            or executed < 0
+        ):
+            uncertain_stages.add(stage)
+            continue
+
+        if (
+            status == "FILLED"
+            and executed > 0
+        ):
+            filled_stages.add(stage)
+
+            executed_by_stage[stage] = str(
+                executed
+            )
+
+        else:
+            uncertain_stages.add(stage)
+
+    # ========================================================
+    # 6. DETECT DUPLICATE AND UNCERTAIN ORDERS
+    # ========================================================
+
+    duplicate_stages = sorted(
+        stage
+        for stage, count
+        in matching_order_counts.items()
+        if count > 1
+    )
+
+    if duplicate_stages:
+        raise RuntimeError(
+            "UNIT 14 PART 3: DUPLICATE "
+            "BACKUP RECORDS = "
+            + str(duplicate_stages)
+        )
+
+    if uncertain_stages:
+        print(
+            "UNIT 14 UNRESOLVED BACKUP STAGES =",
+            sorted(uncertain_stages),
+            flush=True,
+        )
+
+    # ========================================================
+    # 7. CHECK SEQUENTIAL BACKUP RECORDS
+    # ========================================================
+
+    completed_backups = 0
+
+    for stage in (1, 2, 3):
+
+        if stage in filled_stages:
+
+            if stage != completed_backups + 1:
+                raise RuntimeError(
+                    "UNIT 14 PART 3: "
+                    "NON-SEQUENTIAL BACKUP FILLS"
+                )
+
+            completed_backups = stage
+
+        else:
+            break
+
+    if len(filled_stages) != completed_backups:
+        raise RuntimeError(
+            "UNIT 14 PART 3: "
+            "INCONSISTENT BACKUP SEQUENCE"
+        )
+
+    if completed_backups >= 3:
+        next_backup_stage = None
+
+    else:
+        next_backup_stage = (
+            completed_backups + 1
+        )
+
+    next_client_id = None
+
+    if next_backup_stage is not None:
+
+        next_client_id = (
+            f"FR-B{next_backup_stage}-{trade_key}"
+        )[:36]
+
+    # ========================================================
+    # 8. BUILD CONSERVATIVE RESULT
+    # ========================================================
+
+    # A terminal history page does not prove that:
+    # - all older orders are available;
+    # - outstanding orders have been retrieved;
+    # - other bot instances are not submitting orders;
+    # - executed quantities match actual position changes.
+    #
+    # These checks must be completed by the later
+    # integration before backup submission is enabled.
+
+    result = {
+        "read_only": True,
+        "environment": "DEMO",
+        "symbol": context["demo_symbol"],
+        "trade_key": trade_key,
+
+        "pages_read": pages_read,
+        "records_read": len(all_orders),
+        "pagination_terminated": pagination_terminated,
+
+        "existing_stages": sorted(existing_stages),
+        "filled_stages": sorted(filled_stages),
+        "uncertain_stages": sorted(uncertain_stages),
+        "duplicate_stages": duplicate_stages,
+
+        "completed_backups": completed_backups,
+        "next_backup_stage": next_backup_stage,
+        "next_client_order_id": next_client_id,
+
+        "executed_quantities": executed_by_stage,
+
+        "historical_records_parsed": True,
+
+        # Deliberately not certified yet.
+        "history_complete": False,
+        "pending_orders_verified": False,
+        "position_fills_reconciled": False,
+        "concurrent_execution_locked": False,
+
+        "backup_submission_approved": False,
+    }
+
+    # ========================================================
+    # 9. RENDER DIAGNOSTIC REPORT
+    # ========================================================
+
+    print(
+        "UNIT 14 TRADE KEY =",
+        trade_key,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 HISTORY PAGES READ =",
+        pages_read,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 HISTORY RECORDS =",
+        len(all_orders),
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 EXISTING BACKUPS =",
+        sorted(existing_stages),
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 FILLED BACKUPS =",
+        sorted(filled_stages),
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 COMPLETED BACKUPS =",
+        completed_backups,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 NEXT BACKUP =",
+        next_backup_stage,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 ORDER HISTORY COMPLETE = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 PENDING ORDERS VERIFIED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 BACKUP SUBMISSION APPROVED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 PART 3 RESULT = "
+        "HISTORY READ COMPLETED; "
+        "EXECUTION SAFETY NOT YET CERTIFIED",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# END UNIT 14 REPLACEMENT - PART 3
+# ZERO INDENTATION DEMARCATION
+# COMPLETE FUNCTION CLOSED
+# ============================================================
 def unit14_verify_backup_fill(
     before_quantity,
     after_quantity,
