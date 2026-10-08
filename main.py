@@ -16148,6 +16148,464 @@ def unit14_build_runtime_context(config, unit_13_result):
 # ZERO INDENTATION DEMARCATION
 # ============================================================
 
+
+# ============================================================
+# START UNIT 14 REPLACEMENT - PART 2
+# ZERO INDENTATION DEMARCATION
+# WEEX DEMO POSITION AND BALANCE READER
+# ============================================================
+
+def unit14_read_exchange_snapshot(
+    context,
+    api_key,
+    api_secret,
+    api_passphrase,
+):
+    """
+    UNIT 14 REPLACEMENT - PART 2
+
+    Authenticated WEEX DEMO read-only snapshot.
+
+    Reads:
+      1. Existing BTCSUSDT demo positions
+      2. SUSDT demo balance
+
+    Does not:
+      - Submit orders
+      - Change leverage
+      - Change margin mode
+      - Change position mode
+      - Access production order endpoints
+
+    Raises an error when exchange data is invalid.
+    """
+
+    import base64
+    import hashlib
+    import hmac
+    import json
+    import time
+    import urllib.parse
+    import urllib.request
+
+    from decimal import Decimal, InvalidOperation
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 14 PART 2 START - WEEX DEMO SNAPSHOT",
+        flush=True,
+    )
+
+    # ========================================================
+    # 1. VALIDATE RUNTIME CONTEXT
+    # ========================================================
+
+    if not isinstance(context, dict):
+        raise RuntimeError(
+            "UNIT 14 PART 2: INVALID CONTEXT"
+        )
+
+    if context.get("environment") != "DEMO":
+        raise RuntimeError(
+            "UNIT 14 PART 2: DEMO ENVIRONMENT REQUIRED"
+        )
+
+    if context.get("demo_symbol") != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 14 PART 2: INVALID DEMO SYMBOL"
+        )
+
+    base_url = context.get("base_url")
+
+    if base_url != "https://api-contract.weex.com":
+        raise RuntimeError(
+            "UNIT 14 PART 2: INVALID API HOST"
+        )
+
+    if not all(
+        isinstance(value, str) and value.strip()
+        for value in (
+            api_key,
+            api_secret,
+            api_passphrase,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 14 PART 2: API CREDENTIALS MISSING"
+        )
+
+    # ========================================================
+    # 2. STRICT DECIMAL CONVERSION
+    # ========================================================
+
+    def parse_decimal(value, field_name):
+        try:
+            number = Decimal(str(value))
+        except (InvalidOperation, ValueError, TypeError):
+            raise RuntimeError(
+                "UNIT 14 PART 2: INVALID " + field_name
+            )
+
+        if not number.is_finite():
+            raise RuntimeError(
+                "UNIT 14 PART 2: NONFINITE " + field_name
+            )
+
+        return number
+
+    # ========================================================
+    # 3. AUTHENTICATED GET ONLY
+    # ========================================================
+
+    def demo_get(path, query_parameters=None):
+
+        allowed_paths = (
+            "/capi/v3/sim/position/allPosition",
+            "/capi/v3/sim/balance",
+        )
+
+        if path not in allowed_paths:
+            raise RuntimeError(
+                "UNIT 14 PART 2: ENDPOINT NOT ALLOWED"
+            )
+
+        query_string = ""
+
+        if query_parameters:
+            query_string = urllib.parse.urlencode(
+                query_parameters
+            )
+
+        timestamp = str(int(time.time() * 1000))
+
+        message = timestamp + "GET" + path
+
+        if query_string:
+            message += "?" + query_string
+
+        signature = base64.b64encode(
+            hmac.new(
+                api_secret.encode("utf-8"),
+                message.encode("utf-8"),
+                hashlib.sha256,
+            ).digest()
+        ).decode("utf-8")
+
+        headers = {
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": api_passphrase,
+            "Content-Type": "application/json",
+        }
+
+        url = base_url + path
+
+        if query_string:
+            url += "?" + query_string
+
+        request = urllib.request.Request(
+            url=url,
+            headers=headers,
+            method="GET",
+        )
+
+        if request.get_method() != "GET":
+            raise RuntimeError(
+                "UNIT 14 PART 2: NON-GET REQUEST"
+            )
+
+        if request.data is not None:
+            raise RuntimeError(
+                "UNIT 14 PART 2: REQUEST BODY NOT ALLOWED"
+            )
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            status = response.getcode()
+
+            raw_body = response.read().decode(
+                "utf-8"
+            )
+
+        if status != 200:
+            raise RuntimeError(
+                "UNIT 14 PART 2: HTTP STATUS "
+                + str(status)
+            )
+
+        try:
+            payload = json.loads(raw_body)
+        except (ValueError, TypeError):
+            raise RuntimeError(
+                "UNIT 14 PART 2: INVALID JSON"
+            )
+
+        if not isinstance(payload, list):
+            raise RuntimeError(
+                "UNIT 14 PART 2: UNEXPECTED RESPONSE TYPE "
+                + path
+            )
+
+        return payload
+
+    # ========================================================
+    # 4. READ DEMO POSITIONS
+    # ========================================================
+
+    positions = demo_get(
+        "/capi/v3/sim/position/allPosition"
+    )
+
+    active_positions = []
+
+    for record in positions:
+
+        if not isinstance(record, dict):
+            raise RuntimeError(
+                "UNIT 14 PART 2: INVALID POSITION RECORD"
+            )
+
+        symbol = str(
+            record.get("symbol", "")
+        ).upper()
+
+        if symbol != context["demo_symbol"]:
+            continue
+
+        if "size" not in record:
+            raise RuntimeError(
+                "UNIT 14 PART 2: POSITION SIZE MISSING"
+            )
+
+        size = parse_decimal(
+            record["size"],
+            "POSITION SIZE",
+        )
+
+        if size < 0:
+            raise RuntimeError(
+                "UNIT 14 PART 2: NEGATIVE POSITION SIZE"
+            )
+
+        if size > 0:
+            active_positions.append(record)
+
+    if len(active_positions) > 1:
+        raise RuntimeError(
+            "UNIT 14 PART 2: MULTIPLE ACTIVE POSITIONS"
+        )
+
+    active_position = (
+        active_positions[0]
+        if active_positions
+        else None
+    )
+
+    position_size = Decimal("0")
+    position_side = "NONE"
+    exchange_leverage = None
+
+    if active_position is not None:
+
+        position_size = parse_decimal(
+            active_position["size"],
+            "ACTIVE POSITION SIZE",
+        )
+
+        position_side = str(
+            active_position.get("side", "")
+        ).upper()
+
+        if position_side not in ("LONG", "SHORT"):
+            raise RuntimeError(
+                "UNIT 14 PART 2: INVALID POSITION SIDE"
+            )
+
+        raw_leverage = active_position.get(
+            "leverage"
+        )
+
+        if raw_leverage is None:
+            raw_leverage = active_position.get(
+                "lever"
+            )
+
+        if raw_leverage is None:
+            raise RuntimeError(
+                "UNIT 14 PART 2: LEVERAGE MISSING"
+            )
+
+        exchange_leverage = parse_decimal(
+            str(raw_leverage).lower()
+            .replace("x", "").strip(),
+            "EXCHANGE LEVERAGE",
+        )
+
+        if exchange_leverage <= 0:
+            raise RuntimeError(
+                "UNIT 14 PART 2: INVALID LEVERAGE"
+            )
+
+    # ========================================================
+    # 5. READ DEMO BALANCE
+    # ========================================================
+
+    balances = demo_get(
+        "/capi/v3/sim/balance"
+    )
+
+    matching_balances = [
+        item for item in balances
+        if isinstance(item, dict)
+        and str(
+            item.get("asset", "")
+        ).upper() == "SUSDT"
+    ]
+
+    if len(matching_balances) != 1:
+        raise RuntimeError(
+            "UNIT 14 PART 2: SUSDT BALANCE "
+            "MISSING OR DUPLICATED"
+        )
+
+    balance_record = matching_balances[0]
+
+    # Preserve raw exchange fields.
+    # Do not invent margin or equity values.
+
+    available_raw = balance_record.get(
+        "available"
+    )
+
+    if available_raw is None:
+        available_raw = balance_record.get(
+            "availableBalance"
+        )
+
+    if available_raw is None:
+        raise RuntimeError(
+            "UNIT 14 PART 2: AVAILABLE BALANCE MISSING"
+        )
+
+    available_balance = parse_decimal(
+        available_raw,
+        "AVAILABLE BALANCE",
+    )
+
+    if available_balance < 0:
+        raise RuntimeError(
+            "UNIT 14 PART 2: NEGATIVE AVAILABLE BALANCE"
+        )
+
+    # ========================================================
+    # 6. BUILD VERIFIED READ-ONLY SNAPSHOT
+    # ========================================================
+
+    snapshot = {
+        "read_only": True,
+        "environment": "DEMO",
+        "symbol": context["demo_symbol"],
+
+        "position_exists": (
+            active_position is not None
+        ),
+        "position": active_position,
+        "position_size": position_size,
+        "position_side": position_side,
+        "exchange_leverage": exchange_leverage,
+
+        "balance_record": balance_record,
+        "available_balance": available_balance,
+
+        "position_records_received": len(positions),
+        "balance_records_received": len(balances),
+
+        # Not yet verified by this reader.
+        "account_margin_verified": False,
+        "order_history_verified": False,
+        "pending_orders_verified": False,
+
+        "backup_submission_approved": False,
+
+        "snapshot_time_ms": int(
+            time.time() * 1000
+        ),
+    }
+
+    # ========================================================
+    # 7. RENDER DIAGNOSTICS
+    # ========================================================
+
+    print(
+        "PASS: UNIT 14 DEMO POSITION READ",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 14 DEMO BALANCE READ",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 POSITION SIDE =",
+        position_side,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 POSITION SIZE =",
+        position_size,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 EXCHANGE LEVERAGE =",
+        exchange_leverage,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 AVAILABLE SUSDT =",
+        available_balance,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 ACCOUNT MARGIN VERIFIED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 ORDER HISTORY VERIFIED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 BACKUP SUBMISSION APPROVED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 PART 2 RESULT = PASS "
+        "(READ-ONLY)",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return snapshot
+
+
+# ============================================================
+# END UNIT 14 REPLACEMENT - PART 2
+# ZERO INDENTATION DEMARCATION
+# COMPLETE FUNCTION CLOSED
+# ============================================================
+
 def unit14_verify_backup_fill(
     before_quantity,
     after_quantity,
