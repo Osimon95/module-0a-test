@@ -15762,6 +15762,387 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
 
 
+
+
+# ============================================================
+# START COMPLETE UNIT 14 REPLACEMENT
+# PART 1 - RUNTIME CONFIGURATION AND SAFETY
+# ZERO INDENTATION DEMARCATION
+# ============================================================
+
+def unit14_build_runtime_context(config, unit_13_result):
+    """
+    UNIT 14 REPLACEMENT - PART 1
+
+    Establish and validate runtime configuration.
+
+    No HTTP requests.
+    No order submission.
+    No leverage mutation.
+    No production trading.
+
+    Returns the validated context used by the
+    subsequent Unit 14 replacement parts.
+    """
+
+    from decimal import Decimal, InvalidOperation
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 14 PART 1 START - RUNTIME CONFIGURATION",
+        flush=True,
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 14: CONFIGURATION MISSING"
+        )
+
+    if not isinstance(unit_13_result, dict):
+        raise RuntimeError(
+            "UNIT 14: UNIT 13 RESULT MISSING"
+        )
+
+    exchange = config.get("exchange")
+    strategy = config.get("strategy")
+    precision = config.get("market_precision")
+
+    if not all(
+        isinstance(item, dict)
+        for item in (exchange, strategy, precision)
+    ):
+        raise RuntimeError(
+            "UNIT 14: CONFIGURATION SECTIONS INVALID"
+        )
+
+    # ========================================================
+    # 1. STRICT DEMO ENVIRONMENT
+    # ========================================================
+
+    environment = str(
+        config.get("execution_environment", "")
+    ).upper()
+
+    if environment != "DEMO":
+        raise RuntimeError(
+            "UNIT 14: NON-DEMO ENVIRONMENT BLOCKED"
+        )
+
+    market_symbol = exchange.get("market_symbol")
+    demo_symbol = exchange.get("demo_order_symbol")
+    base_url = exchange.get("contract_base_url")
+
+    if market_symbol != "BTCUSDT":
+        raise RuntimeError(
+            "UNIT 14: INVALID MARKET SYMBOL"
+        )
+
+    if demo_symbol != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 14: INVALID DEMO SYMBOL"
+        )
+
+    if base_url != "https://api-contract.weex.com":
+        raise RuntimeError(
+            "UNIT 14: INVALID WEEX API HOST"
+        )
+
+    # ========================================================
+    # 2. SAFETY CONTRACT
+    # ========================================================
+
+    safety = config.get("safety", {})
+
+    if not isinstance(safety, dict):
+        raise RuntimeError(
+            "UNIT 14: INVALID SAFETY CONTRACT"
+        )
+
+    if safety.get("real_order_submission_enabled") is not False:
+        raise RuntimeError(
+            "UNIT 14: REAL TRADING NOT PROHIBITED"
+        )
+
+    for key in (
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    ):
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 14: UNSAFE EXCHANGE MUTATION " + key
+            )
+
+    if strategy.get("anti_duplicate_orders") is not True:
+        raise RuntimeError(
+            "UNIT 14: DUPLICATE PROTECTION DISABLED"
+        )
+
+    if strategy.get("one_direction_only") is not True:
+        raise RuntimeError(
+            "UNIT 14: ONE DIRECTION POLICY DISABLED"
+        )
+
+    # ========================================================
+    # 3. DECIMAL CONFIGURATION
+    # ========================================================
+
+    def positive_decimal(mapping, key):
+        raw = mapping.get(key)
+
+        if raw is None:
+            raise RuntimeError(
+                "UNIT 14: MISSING VALUE " + key
+            )
+
+        try:
+            value = Decimal(str(raw))
+        except (InvalidOperation, ValueError, TypeError):
+            raise RuntimeError(
+                "UNIT 14: INVALID VALUE " + key
+            )
+
+        if not value.is_finite() or value <= 0:
+            raise RuntimeError(
+                "UNIT 14: NON-POSITIVE VALUE " + key
+            )
+
+        return value
+
+    initial_margin_percent = positive_decimal(
+        strategy, "initial_margin_percent"
+    )
+
+    backup_margin_percent = positive_decimal(
+        strategy, "backup_margin_percent"
+    )
+
+    backup_buffer_percent = positive_decimal(
+        strategy, "backup_buffer_percent"
+    )
+
+    exposure_cap_percent = positive_decimal(
+        strategy, "exposure_cap_percent"
+    )
+
+    configured_leverage = positive_decimal(
+        strategy, "leverage_target"
+    )
+
+    quantity_step = positive_decimal(
+        precision, "quantity_step"
+    )
+
+    minimum_quantity = positive_decimal(
+        precision, "minimum_quantity"
+    )
+
+    price_step = positive_decimal(
+        precision, "price_step"
+    )
+
+    if initial_margin_percent > 100:
+        raise RuntimeError(
+            "UNIT 14: INITIAL MARGIN PERCENT INVALID"
+        )
+
+    if backup_margin_percent > 100:
+        raise RuntimeError(
+            "UNIT 14: BACKUP MARGIN PERCENT INVALID"
+        )
+
+    if exposure_cap_percent > 100:
+        raise RuntimeError(
+            "UNIT 14: EXPOSURE CAP INVALID"
+        )
+
+    if backup_buffer_percent >= 100:
+        raise RuntimeError(
+            "UNIT 14: BACKUP BUFFER INVALID"
+        )
+
+    if minimum_quantity < quantity_step:
+        raise RuntimeError(
+            "UNIT 14: MINIMUM QUANTITY BELOW STEP"
+        )
+
+    # ========================================================
+    # 4. THREE-BACKUP CONTRACT
+    # ========================================================
+
+    max_backups = strategy.get("max_backups")
+
+    if type(max_backups) is not int or max_backups != 3:
+        raise RuntimeError(
+            "UNIT 14: MAX BACKUPS MUST EQUAL THREE"
+        )
+
+    # ========================================================
+    # 5. TP CONFIGURATION
+    # ========================================================
+
+    tp1_allocation = positive_decimal(
+        strategy, "tp1_allocation_percent"
+    )
+
+    tp2_allocation = positive_decimal(
+        strategy, "tp2_allocation_percent"
+    )
+
+    tp3_allocation = positive_decimal(
+        strategy, "tp3_allocation_percent"
+    )
+
+    if (
+        tp1_allocation
+        + tp2_allocation
+        + tp3_allocation
+        != Decimal("100")
+    ):
+        raise RuntimeError(
+            "UNIT 14: TP ALLOCATION DOES NOT TOTAL 100%"
+        )
+
+    tp1_roi_floor = positive_decimal(
+        strategy, "tp1_net_roi_floor_percent"
+    )
+
+    tp2_roi_floor = positive_decimal(
+        strategy, "tp2_net_roi_floor_percent"
+    )
+
+    tp_separation = positive_decimal(
+        strategy,
+        "tp1_tp2_min_roi_separation_percent",
+    )
+
+    if tp2_roi_floor <= tp1_roi_floor:
+        raise RuntimeError(
+            "UNIT 14: TP2 FLOOR MUST EXCEED TP1"
+        )
+
+    # ========================================================
+    # 6. DYNAMIC TP3 CONTRACT
+    # ========================================================
+
+    trailing_reference = positive_decimal(
+        strategy, "tp3_trailing_reference_percent"
+    )
+
+    trailing_min = positive_decimal(
+        strategy, "tp3_trailing_min_percent"
+    )
+
+    trailing_max = positive_decimal(
+        strategy, "tp3_trailing_max_percent"
+    )
+
+    if not (
+        trailing_min
+        <= trailing_reference
+        <= trailing_max
+    ):
+        raise RuntimeError(
+            "UNIT 14: INVALID DYNAMIC TRAILING RANGE"
+        )
+
+    # ========================================================
+    # 7. BUILD RUNTIME CONTEXT
+    # ========================================================
+
+    context = {
+        "environment": "DEMO",
+        "market_symbol": market_symbol,
+        "demo_symbol": demo_symbol,
+        "base_url": base_url,
+
+        "initial_margin_percent": initial_margin_percent,
+        "backup_margin_percent": backup_margin_percent,
+        "backup_buffer_percent": backup_buffer_percent,
+        "exposure_cap_percent": exposure_cap_percent,
+        "configured_leverage": configured_leverage,
+
+        "max_backups": max_backups,
+        "quantity_step": quantity_step,
+        "minimum_quantity": minimum_quantity,
+        "price_step": price_step,
+
+        "tp1_allocation": tp1_allocation,
+        "tp2_allocation": tp2_allocation,
+        "tp3_allocation": tp3_allocation,
+        "tp1_roi_floor": tp1_roi_floor,
+        "tp2_roi_floor": tp2_roi_floor,
+        "tp_separation": tp_separation,
+
+        "trailing_reference": trailing_reference,
+        "trailing_min": trailing_min,
+        "trailing_max": trailing_max,
+
+        "unit_13_result": unit_13_result,
+
+        "real_order_enabled": False,
+        "stop_loss_enabled": False,
+
+        # New backup writes remain disabled until the
+        # complete replacement is tested.
+        "backup_submission_enabled": False,
+    }
+
+    print(
+        "PASS: UNIT 14 DEMO CONTRACT",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 14 MAX BACKUPS = 3",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 14 TP ALLOCATION = "
+        f"{tp1_allocation}/{tp2_allocation}/{tp3_allocation}",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 14 DYNAMIC TP3 RANGE = "
+        f"{trailing_min}% TO {trailing_max}%",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 CONFIGURED LEVERAGE =",
+        configured_leverage,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 ACTUAL EXCHANGE LEVERAGE = "
+        "NOT YET VERIFIED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 BACKUP SUBMISSION = DISABLED "
+        "PENDING INTEGRATION VALIDATION",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 PART 1 RESULT = PASS",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return context
+
+
+# ============================================================
+# END UNIT 14 REPLACEMENT - PART 1
+# ZERO INDENTATION DEMARCATION
+# COMPLETE FUNCTION CLOSED
+# ============================================================
 # ============================================================
 # START UNIT 14 BACKUP FILL VERIFICATION HELPER
 # ZERO INDENTATION DEMARCATION
