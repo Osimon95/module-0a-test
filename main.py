@@ -15854,6 +15854,266 @@ def unit14_verify_backup_fill(
 # END UNIT 14 BACKUP FILL VERIFICATION HELPER
 # ZERO INDENTATION DEMARCATION
 # ============================================================
+
+
+# ============================================================
+# START UNIT 14 EXCHANGE LEVERAGE AND MARGIN HELPER
+# ZERO INDENTATION DEMARCATION
+# PART 2
+# ============================================================
+
+def unit14_verify_backup_margin(
+    position,
+    available_balance,
+    account_equity,
+    account_used_margin,
+    pending_reserved_margin,
+    mark_price,
+    backup_margin_percent,
+    exposure_cap_percent,
+    quantity_step,
+    minimum_quantity,
+    configured_leverage=100,
+):
+    """
+    Read-only backup sizing and margin gate.
+
+    Uses exchange-reported position leverage rather than
+    assuming the configured leverage is active.
+
+    Does not submit orders or change exchange settings.
+
+    Fails closed when required risk data is missing.
+    """
+
+    from decimal import (
+        Decimal,
+        InvalidOperation,
+        ROUND_DOWN,
+    )
+
+    result = {
+        "approved": False,
+        "reason": "NOT_VERIFIED",
+        "exchange_leverage": None,
+        "configured_leverage": str(configured_leverage),
+        "backup_quantity": "0",
+        "backup_margin": "0",
+        "projected_margin_percent": None,
+        "leverage_match": False,
+    }
+
+    def reject(reason):
+        result["reason"] = reason
+
+        print(
+            "UNIT 14 BACKUP MARGIN BLOCKED:",
+            reason,
+            flush=True,
+        )
+
+        return result
+
+    def decimal_value(value):
+        parsed = Decimal(str(value))
+
+        if not parsed.is_finite():
+            raise ValueError("NON_FINITE_VALUE")
+
+        return parsed
+
+    if not isinstance(position, dict):
+        return reject("INVALID_POSITION_RECORD")
+
+    # --------------------------------------------------------
+    # 1. CONFIRM POSITION LEVERAGE FROM EXCHANGE RECORD
+    # --------------------------------------------------------
+
+    raw_leverage = position.get("leverage")
+
+    if raw_leverage is None:
+        raw_leverage = position.get("lever")
+
+    if raw_leverage is None:
+        return reject("EXCHANGE_LEVERAGE_MISSING")
+
+    try:
+        leverage = decimal_value(
+            str(raw_leverage).lower().replace("x", "").strip()
+        )
+
+        configured = decimal_value(configured_leverage)
+
+    except (InvalidOperation, ValueError, TypeError):
+        return reject("INVALID_LEVERAGE")
+
+    if leverage <= 0 or configured <= 0:
+        return reject("NON_POSITIVE_LEVERAGE")
+
+    result["exchange_leverage"] = str(leverage)
+    result["leverage_match"] = leverage == configured
+
+    # --------------------------------------------------------
+    # 2. VALIDATE EXCHANGE MARGIN AND ACCOUNT SNAPSHOT
+    # --------------------------------------------------------
+
+    if (
+        account_equity is None
+        or account_used_margin is None
+        or pending_reserved_margin is None
+    ):
+        return reject("ACCOUNT_MARGIN_SNAPSHOT_INCOMPLETE")
+
+    try:
+        available = decimal_value(available_balance)
+        equity = decimal_value(account_equity)
+        used = decimal_value(account_used_margin)
+        reserved = decimal_value(pending_reserved_margin)
+        price = decimal_value(mark_price)
+
+        margin_percent = decimal_value(
+            backup_margin_percent
+        )
+
+        exposure_cap = decimal_value(
+            exposure_cap_percent
+        )
+
+        step = decimal_value(quantity_step)
+        minimum = decimal_value(minimum_quantity)
+
+    except (InvalidOperation, ValueError, TypeError):
+        return reject("INVALID_ACCOUNT_RISK_DATA")
+
+    if (
+        available <= 0
+        or equity <= 0
+        or used < 0
+        or reserved < 0
+        or price <= 0
+        or margin_percent <= 0
+        or margin_percent > 100
+        or exposure_cap <= 0
+        or exposure_cap > 100
+        or step <= 0
+        or minimum <= 0
+    ):
+        return reject("RISK_VALUES_OUT_OF_RANGE")
+
+    # --------------------------------------------------------
+    # 3. CALCULATE BACKUP FROM EXCHANGE LEVERAGE
+    # --------------------------------------------------------
+
+    requested_margin = (
+        available * margin_percent / Decimal("100")
+    )
+
+    raw_quantity = (
+        requested_margin * leverage / price
+    )
+
+    quantity_steps = (
+        raw_quantity / step
+    ).to_integral_value(
+        rounding=ROUND_DOWN
+    )
+
+    executable_quantity = quantity_steps * step
+
+    if executable_quantity < minimum:
+        return reject("BACKUP_QUANTITY_BELOW_MINIMUM")
+
+    if executable_quantity <= 0:
+        return reject("ZERO_EXECUTABLE_BACKUP")
+
+    # --------------------------------------------------------
+    # 4. RECHECK MARGIN AFTER QUANTITY ROUNDING
+    # --------------------------------------------------------
+
+    backup_notional = executable_quantity * price
+
+    backup_margin = backup_notional / leverage
+
+    result["backup_quantity"] = str(executable_quantity)
+    result["backup_margin"] = str(backup_margin)
+
+    if backup_margin > available:
+        return reject("INSUFFICIENT_AVAILABLE_MARGIN")
+
+    # --------------------------------------------------------
+    # 5. PROJECT ACCOUNT MARGIN EXPOSURE
+    # --------------------------------------------------------
+
+    projected_margin = (
+        used + reserved + backup_margin
+    )
+
+    projected_margin_percent = (
+        projected_margin / equity * Decimal("100")
+    )
+
+    result["projected_margin_percent"] = str(
+        projected_margin_percent
+    )
+
+    if projected_margin_percent > exposure_cap:
+        return reject("ACCOUNT_EXPOSURE_CAP_EXCEEDED")
+
+    # --------------------------------------------------------
+    # 6. FINAL READ-ONLY APPROVAL
+    # --------------------------------------------------------
+
+    result["approved"] = True
+    result["reason"] = "BACKUP_MARGIN_PRECHECK_PASS"
+
+    print(
+        "UNIT 14 EXCHANGE LEVERAGE =",
+        leverage,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 CONFIGURED LEVERAGE =",
+        configured,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 LEVERAGE MATCH =",
+        result["leverage_match"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 BACKUP QUANTITY =",
+        executable_quantity,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 ESTIMATED BACKUP MARGIN =",
+        backup_margin,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 PROJECTED ACCOUNT MARGIN % =",
+        projected_margin_percent,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 14 BACKUP MARGIN PRECHECK",
+        flush=True,
+    )
+
+    return result
+
+# ============================================================
+# END UNIT 14 EXCHANGE LEVERAGE AND MARGIN HELPER
+# ZERO INDENTATION DEMARCATION
+# PART 2
+# ============================================================
 def fresh_tp3_runtime(
     config,
     unit_13_result,
