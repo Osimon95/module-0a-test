@@ -12987,12 +12987,62 @@ def fresh_reconstruction_unit_12(
 # ZERO INDENTATION
 # ============================================================
 
-FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
-    fresh_reconstruction_unit_12(
-        FRESH_RECONSTRUCTION_CONFIG,
-        FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+
+# ============================================================
+# BOT MODE MASTER SWITCH
+# RUN   = ALLOW NEW ENTRIES AND MANAGE EXISTING POSITIONS
+# PAUSE = BLOCK NEW ENTRIES, CONTINUE POSITION MANAGEMENT
+# ============================================================
+
+import os
+
+BOT_MODE = os.environ.get(
+    "BOT_MODE",
+    "RUN"
+).strip().upper()
+
+if BOT_MODE not in ("RUN", "PAUSE"):
+    raise RuntimeError(
+        "INVALID BOT_MODE: SET RUN OR PAUSE"
     )
+
+print(
+    "BOT MODE =",
+    BOT_MODE,
+    flush=True,
 )
+
+if BOT_MODE == "PAUSE":
+
+    print(
+        "UNIT 12 INITIAL ENTRY BLOCKED: BOT PAUSED",
+        flush=True,
+    )
+
+    FRESH_RECONSTRUCTION_UNIT_12_RESULT = {
+        "unit": 12,
+        "status": "IDLE",
+        "read_only": True,
+        "demo_submission_attempted": False,
+        "demo_submission_completed": False,
+        "real_submission_attempted": False,
+        "skip_reason": "BOT_MODE_PAUSE",
+    }
+
+else:
+
+    FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
+        fresh_reconstruction_unit_12(
+            FRESH_RECONSTRUCTION_CONFIG,
+            FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+        )
+    )
+
+# ============================================================
+# END BOT MODE SWITCH
+# UNIT 13 CONTINUES BELOW
+# ============================================================
+
 
 
 # ============================================================
