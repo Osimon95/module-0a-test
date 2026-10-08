@@ -665,3 +665,711 @@ FRESH_RECONSTRUCTION_CONFIG = (
 # UNIT 2 FULLY CLOSED AND CALLED
 # NO OPEN FUNCTION OR BLOCK
 # ============================================================
+
+
+# ============================================================
+# PART 3 START - RECONSTRUCTION UNIT 3
+# ZERO INDENTATION DEMARCATION
+# ============================================================
+
+# ============================================================
+# RECONSTRUCTION UNIT 3
+# WEEX V3 PUBLIC READ-ONLY MARKET DATA
+# ============================================================
+
+def fresh_reconstruction_unit_3():
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 3 START"
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 1. REQUIRE VALIDATED UNIT 2 CONFIGURATION
+    # --------------------------------------------------------
+
+    config = (
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    if not isinstance(
+        config,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: UNIT 2 CONFIGURATION MISSING"
+        )
+
+    exchange_config = (
+        config.get(
+            "exchange"
+        )
+    )
+
+    safety = (
+        config.get(
+            "safety"
+        )
+    )
+
+    if not isinstance(
+        exchange_config,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: EXCHANGE CONFIG MISSING"
+        )
+
+    if not isinstance(
+        safety,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: SAFETY CONFIG MISSING"
+        )
+
+    print(
+        "PASS: UNIT 3 RECEIVED UNIT 2 CONFIGURATION",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 2. READ EXCHANGE CONFIGURATION
+    # --------------------------------------------------------
+
+    exchange_name = (
+        exchange_config.get(
+            "name"
+        )
+    )
+
+    api_version = (
+        exchange_config.get(
+            "api_version"
+        )
+    )
+
+    base_url = (
+        exchange_config.get(
+            "contract_base_url"
+        )
+    )
+
+    market_symbol = (
+        exchange_config.get(
+            "market_symbol"
+        )
+    )
+
+    # --------------------------------------------------------
+    # 3. STRICT EXCHANGE CONFIG VALIDATION
+    # --------------------------------------------------------
+
+    if exchange_name != "WEEX":
+
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID EXCHANGE"
+        )
+
+    if api_version != "V3":
+
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID API VERSION"
+        )
+
+    if (
+        base_url
+        !=
+        "https://api-contract.weex.com"
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID BASE URL"
+        )
+
+    if market_symbol != "BTCUSDT":
+
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID MARKET SYMBOL"
+        )
+
+    print(
+        "PASS: UNIT 3 EXCHANGE = WEEX",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 API VERSION = V3",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 MARKET SYMBOL =",
+        market_symbol,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 4. SAFETY GATE
+    # --------------------------------------------------------
+
+    if (
+        safety.get(
+            "public_market_data_read_enabled"
+        )
+        is not True
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: PUBLIC MARKET READ DISABLED"
+        )
+
+    forbidden_capabilities = (
+
+        "authenticated_api_enabled",
+
+        "account_access_enabled",
+
+        "position_access_enabled",
+
+        "order_endpoint_access_enabled",
+
+        "demo_order_submission_enabled",
+
+        "real_order_submission_enabled",
+
+        "exchange_mutation_enabled",
+    )
+
+    for capability in forbidden_capabilities:
+
+        if (
+            safety.get(
+                capability
+            )
+            is not False
+        ):
+
+            raise RuntimeError(
+                "UNIT 3 BLOCKED: UNSAFE CAPABILITY ENABLED: "
+                +
+                capability
+            )
+
+    print(
+        "PASS: UNIT 3 READ-ONLY SAFETY GATE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 5. WEEX V3 PUBLIC SYMBOL-PRICE ENDPOINT
+    #
+    # GET:
+    # /capi/v3/market/symbolPrice
+    #
+    # MARK price is intentionally requested.
+    # --------------------------------------------------------
+
+    endpoint = (
+        "/capi/v3/market/symbolPrice"
+    )
+
+    price_type = "MARK"
+
+    query = urllib.parse.urlencode(
+        {
+            "symbol":
+                market_symbol,
+
+            "priceType":
+                price_type,
+        }
+    )
+
+    url = (
+        base_url
+        +
+        endpoint
+        +
+        "?"
+        +
+        query
+    )
+
+    # --------------------------------------------------------
+    # 6. BUILD STRICT GET REQUEST
+    # --------------------------------------------------------
+
+    request = urllib.request.Request(
+        url=url,
+        method="GET",
+        headers={
+            "Accept":
+                "application/json",
+
+            "User-Agent":
+                "Fresh-WEEX-Reconstruction/1-4",
+        },
+    )
+
+    if request.get_method() != "GET":
+
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: NON-GET REQUEST"
+        )
+
+    if request.data is not None:
+
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: REQUEST BODY PRESENT"
+        )
+
+    print(
+        "PASS: UNIT 3 ENDPOINT = WEEX V3 SYMBOL PRICE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 HTTP METHOD = GET",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 AUTHENTICATION = NONE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 REQUEST BODY = NONE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 PRICE TYPE = MARK",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 7. EXECUTE PUBLIC READ-ONLY GET
+    # --------------------------------------------------------
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            status_code = (
+                response.getcode()
+            )
+
+            raw_body = (
+                response
+                .read()
+                .decode(
+                    "utf-8"
+                )
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        error_body = ""
+
+        try:
+
+            error_body = (
+                exc
+                .read()
+                .decode(
+                    "utf-8"
+                )
+            )
+
+        except Exception:
+
+            pass
+
+        print(
+            "UNIT 3 HTTP ERROR CODE =",
+            exc.code,
+            flush=True,
+        )
+
+        print(
+            "UNIT 3 HTTP ERROR BODY =",
+            error_body[:1000],
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 3 WEEX V3 MARKET DATA HTTP ERROR"
+        ) from exc
+
+    except urllib.error.URLError as exc:
+
+        print(
+            "UNIT 3 URL ERROR =",
+            repr(
+                exc.reason
+            ),
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 3 WEEX V3 CONNECTION FAILED"
+        ) from exc
+
+    except Exception as exc:
+
+        print(
+            "UNIT 3 UNEXPECTED CONNECTION ERROR =",
+            repr(
+                exc
+            ),
+            flush=True,
+        )
+
+        raise
+
+    # --------------------------------------------------------
+    # 8. HTTP RESPONSE VALIDATION
+    # --------------------------------------------------------
+
+    print(
+        "UNIT 3 HTTP STATUS =",
+        status_code,
+        flush=True,
+    )
+
+    if status_code != 200:
+
+        raise RuntimeError(
+            "UNIT 3 INVALID HTTP STATUS"
+        )
+
+    if not raw_body:
+
+        raise RuntimeError(
+            "UNIT 3 EMPTY RESPONSE"
+        )
+
+    print(
+        "PASS: UNIT 3 WEEX V3 RESPONSE RECEIVED",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 9. JSON RESPONSE VALIDATION
+    # --------------------------------------------------------
+
+    try:
+
+        payload = json.loads(
+            raw_body
+        )
+
+    except json.JSONDecodeError as exc:
+
+        print(
+            "UNIT 3 RAW RESPONSE =",
+            raw_body[:1000],
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 3 INVALID JSON RESPONSE"
+        ) from exc
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 INVALID RESPONSE TYPE"
+        )
+
+    print(
+        "PASS: UNIT 3 VALID JSON RESPONSE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 10. STRICT RESPONSE CONTRACT
+    # --------------------------------------------------------
+
+    response_symbol = (
+        payload.get(
+            "symbol"
+        )
+    )
+
+    response_price = (
+        payload.get(
+            "price"
+        )
+    )
+
+    response_time = (
+        payload.get(
+            "time"
+        )
+    )
+
+    if response_symbol != market_symbol:
+
+        print(
+            "UNIT 3 RESPONSE SYMBOL =",
+            response_symbol,
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 3 RESPONSE SYMBOL MISMATCH"
+        )
+
+    try:
+
+        live_price = float(
+            response_price
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ) as exc:
+
+        raise RuntimeError(
+            "UNIT 3 INVALID MARKET PRICE"
+        ) from exc
+
+    if live_price <= 0:
+
+        raise RuntimeError(
+            "UNIT 3 NON-POSITIVE MARKET PRICE"
+        )
+
+    if not isinstance(
+        response_time,
+        int,
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 INVALID MARKET TIMESTAMP"
+        )
+
+    if response_time <= 0:
+
+        raise RuntimeError(
+            "UNIT 3 NON-POSITIVE MARKET TIMESTAMP"
+        )
+
+    print(
+        "PASS: UNIT 3 RESPONSE SYMBOL =",
+        response_symbol,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 LIVE BTC MARK PRICE =",
+        live_price,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 MARKET TIMESTAMP =",
+        response_time,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 11. NORMALIZED MARKET SNAPSHOT
+    # --------------------------------------------------------
+
+    market_snapshot = {
+
+        "exchange":
+            exchange_name,
+
+        "api_version":
+            api_version,
+
+        "symbol":
+            market_symbol,
+
+        "price":
+            live_price,
+
+        "price_type":
+            price_type,
+
+        "exchange_time_ms":
+            response_time,
+
+        "source":
+            "WEEX_V3_PUBLIC_MARK_PRICE",
+
+        "read_only":
+            True,
+    }
+
+    # --------------------------------------------------------
+    # 12. NORMALIZED SNAPSHOT VALIDATION
+    # --------------------------------------------------------
+
+    if (
+        market_snapshot[
+            "exchange"
+        ]
+        !=
+        "WEEX"
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 SNAPSHOT EXCHANGE FAILURE"
+        )
+
+    if (
+        market_snapshot[
+            "api_version"
+        ]
+        !=
+        "V3"
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 SNAPSHOT API VERSION FAILURE"
+        )
+
+    if (
+        market_snapshot[
+            "symbol"
+        ]
+        !=
+        "BTCUSDT"
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 SNAPSHOT SYMBOL FAILURE"
+        )
+
+    if (
+        market_snapshot[
+            "read_only"
+        ]
+        is not True
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 SNAPSHOT READ-ONLY FAILURE"
+        )
+
+    # --------------------------------------------------------
+    # 13. FINAL SAFETY REPORT
+    # --------------------------------------------------------
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 NORMALIZED MARKET SNAPSHOT",
+        flush=True,
+    )
+
+    print(
+        "PASS: WEEX V3 PUBLIC MARKET READ COMPLETED",
+        flush=True,
+    )
+
+    print(
+        "PASS: STANDARD LIBRARY HTTP CLIENT",
+        flush=True,
+    )
+
+    print(
+        "PASS: NO requests PACKAGE REQUIRED",
+        flush=True,
+    )
+
+    print(
+        "ZERO AUTHENTICATED REQUEST = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ACCOUNT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO POSITION ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO ORDER ENDPOINT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE WRITE = TRUE",
+        flush=True,
+    )
+
+    print(
+        "-" * 80,
+        flush=True,
+    )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 3 RESULT = PASS"
+    )
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    return market_snapshot
+
+
+# ============================================================
+# RUN UNIT 3
+# ============================================================
+
+FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
+    fresh_reconstruction_unit_3()
+)
+
+
+# ============================================================
+# END PART 3 - COMPLETE UNIT 3
+# ZERO INDENTATION DEMARCATION
+# UNIT 3 FULLY CLOSED AND CALLED
+# NO OPEN FUNCTION OR BLOCK
+# ============================================================
