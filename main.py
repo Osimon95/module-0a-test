@@ -5840,60 +5840,313 @@ def fresh_reconstruction_unit_6(
 
     # --------------------------------------------------------
     # ADMISSION DECISION
+    #
+    # IMPORTANT:
+    #
+    # BREAKOUT:
+    #     NOT BLOCKED BY SCALP SIDEWAYS FILTER.
+    #
+    # STRUCTURE:
+    #     USES ITS EXISTING STRONGER 15M QUALIFICATION.
+    #
+    # SCALP:
+    #     QUALITY + LEVERAGE-AWARE CHOP + PERSISTENCE.
     # --------------------------------------------------------
 
     execution_intent = False
-    admission_reason = "NO_QUALIFIED_SIGNAL"
+
+    admission_reason = (
+        "NO_QUALIFIED_SIGNAL"
+    )
+
+    normalized_signal_qualified = (
+        signal_qualified
+    )
+
+    normalized_active_mode = (
+        active_mode
+    )
+
+    normalized_direction = (
+        direction
+    )
 
     if signal_qualified:
 
-        if active_mode == "NONE":
+        if (
+            active_mode
+            ==
+            "NONE"
+        ):
+
             admission_reason = (
                 "BLOCKED_QUALIFIED_SIGNAL_WITHOUT_MODE"
             )
 
-        elif direction == "NONE":
+            normalized_signal_qualified = False
+
+            normalized_active_mode = (
+                "NONE"
+            )
+
+            normalized_direction = (
+                "NONE"
+            )
+
+        elif (
+            direction
+            ==
+            "NONE"
+        ):
+
             admission_reason = (
                 "BLOCKED_QUALIFIED_SIGNAL_WITHOUT_DIRECTION"
             )
 
-        elif active_mode == "SCALP" and scalp_quality_pass is not True:
+            normalized_signal_qualified = False
+
+            normalized_active_mode = (
+                "NONE"
+            )
+
+            normalized_direction = (
+                "NONE"
+            )
+
+        elif (
+            active_mode
+            ==
+            "SCALP"
+            and
+            sideways_regime
+            is True
+        ):
+
             execution_intent = False
+
+            admission_reason = (
+                "SCALP_SIDEWAYS_REGIME_BLOCKED:"
+                f"LEVERAGE={leverage_target}:"
+                f"REGIME={leverage_regime}:"
+                f"EMA_COMPRESSED={ema_compressed}:"
+                f"PERSISTENCE="
+                f"{persistence_confirmations}/"
+                f"{persistence_required}"
+            )
+
+            normalized_signal_qualified = False
+
+            normalized_active_mode = (
+                "NONE"
+            )
+
+            normalized_direction = (
+                "NONE"
+            )
+
+        elif (
+            active_mode
+            ==
+            "SCALP"
+            and
+            fifteen_minute_support_pass
+            is not True
+        ):
+
+            execution_intent = False
+
+            admission_reason = (
+                "SCALP_15M_SUPPORT_REJECTED:"
+                f"LEVERAGE={leverage_target}:"
+                f"REGIME={leverage_regime}"
+            )
+
+            normalized_signal_qualified = False
+
+            normalized_active_mode = (
+                "NONE"
+            )
+
+            normalized_direction = (
+                "NONE"
+            )
+
+        elif (
+            active_mode
+            ==
+            "SCALP"
+            and
+            persistence_pass
+            is not True
+        ):
+
+            execution_intent = False
+
+            admission_reason = (
+                "SCALP_DIRECTION_PERSISTENCE_REJECTED:"
+                f"CONFIRMATIONS="
+                f"{persistence_confirmations}/"
+                f"{persistence_required}:"
+                f"LEVERAGE={leverage_target}"
+            )
+
+            normalized_signal_qualified = False
+
+            normalized_active_mode = (
+                "NONE"
+            )
+
+            normalized_direction = (
+                "NONE"
+            )
+
+        elif (
+            active_mode
+            ==
+            "SCALP"
+            and
+            scalp_quality_pass
+            is not True
+        ):
+
+            execution_intent = False
+
             admission_reason = (
                 "SCALP_QUALITY_GATE_REJECTED:"
                 f"SCORE={scalp_quality_score}:"
-                f"MINIMUM={scalp_quality_minimum}"
+                f"MINIMUM={scalp_quality_minimum}:"
+                f"LEVERAGE={leverage_target}"
+            )
+
+            normalized_signal_qualified = False
+
+            normalized_active_mode = (
+                "NONE"
+            )
+
+            normalized_direction = (
+                "NONE"
             )
 
         else:
+
             execution_intent = True
+
             admission_reason = (
                 "QUALIFIED_SIGNAL_ADMITTED"
             )
 
     else:
+
         execution_intent = False
+
         admission_reason = (
             f"UNIT_5_NOT_QUALIFIED:"
             f"{qualification_reason}"
         )
 
+        normalized_signal_qualified = False
+
+        normalized_active_mode = (
+            "NONE"
+        )
+
+        normalized_direction = (
+            "NONE"
+        )
+
     # --------------------------------------------------------
     # NORMALIZED UNIT 6 OUTPUT
+    #
+    # If Unit 6 rejects a Unit 5 candidate, downstream Unit 7
+    # receives a clean IDLE contract instead of:
+    #
+    # execution_intent=False
+    # signal_qualified=True
+    #
+    # which previously caused a contract failure.
     # --------------------------------------------------------
 
     execution_candidate = {
-        "execution_intent": execution_intent,
-        "active_mode": active_mode,
-        "direction": direction,
-        "signal_qualified": signal_qualified,
-        "unit_5_reason": qualification_reason,
-        "admission_reason": admission_reason,
-        "scalp_quality_score": scalp_quality_score,
-        "scalp_quality_minimum": scalp_quality_minimum,
-        "scalp_quality_pass": scalp_quality_pass,
-        "scalp_quality_details": scalp_quality_details,
+
+        "execution_intent":
+            execution_intent,
+
+        "active_mode":
+            normalized_active_mode,
+
+        "direction":
+            normalized_direction,
+
+        "signal_qualified":
+            normalized_signal_qualified,
+
+        "unit_5_reason":
+            qualification_reason,
+
+        "admission_reason":
+            admission_reason,
+
+        "leverage_target":
+            leverage_target,
+
+        "leverage_regime":
+            leverage_regime,
+
+        "sideways_regime":
+            sideways_regime,
+
+        "ema_compressed":
+            ema_compressed,
+
+        "compression_threshold_pct":
+            compression_threshold_pct,
+
+        "momentum_conflict":
+            momentum_conflict,
+
+        "persistence_window":
+            persistence_window,
+
+        "persistence_required":
+            persistence_required,
+
+        "persistence_confirmations":
+            persistence_confirmations,
+
+        "persistence_directions":
+            persistence_directions,
+
+        "persistence_pass":
+            persistence_pass,
+
+        "fifteen_minute_support_pass":
+            fifteen_minute_support_pass,
+
+        "scalp_quality_score":
+            scalp_quality_score,
+
+        "scalp_quality_minimum":
+            scalp_quality_minimum,
+
+        "scalp_quality_pass":
+            scalp_quality_pass,
+
+        "scalp_quality_details":
+            scalp_quality_details,
     }
+
+    active_mode = (
+        normalized_active_mode
+    )
+
+    direction = (
+        normalized_direction
+    )
+
+    signal_qualified = (
+        normalized_signal_qualified
+    )
 
     print(
         "-" * 80,
