@@ -16114,6 +16114,325 @@ def unit14_verify_backup_margin(
 # ZERO INDENTATION DEMARCATION
 # PART 2
 # ============================================================
+
+
+# ============================================================
+# START UNIT 14 BACKUP HISTORY AND DUPLICATE GUARD
+# ZERO INDENTATION DEMARCATION
+# PART 3
+# ============================================================
+
+def unit14_verify_backup_history(
+    history,
+    trade_key,
+    max_backups=3,
+    history_complete=False,
+):
+    """
+    Read-only B1/B2/B3 history verification.
+
+    This helper:
+    - Requires explicitly validated complete history.
+    - Recognizes the existing FR-B client ID format.
+    - Detects existing and filled backup stages.
+    - Blocks duplicate submission.
+    - Blocks uncertain or inconsistent history.
+    - Never submits an exchange order.
+
+    The caller must separately verify exchange position
+    quantity after each filled backup.
+    """
+
+    from decimal import Decimal, InvalidOperation
+
+    result = {
+        "approved": False,
+        "reason": "NOT_VERIFIED",
+        "completed_backups": 0,
+        "next_backup_stage": None,
+        "existing_stages": [],
+        "filled_stages": [],
+        "blocked_stages": [],
+        "client_order_id": None,
+    }
+
+    def reject(reason):
+        result["approved"] = False
+        result["reason"] = reason
+
+        print(
+            "UNIT 14 BACKUP HISTORY BLOCKED:",
+            reason,
+            flush=True,
+        )
+
+        return result
+
+    # --------------------------------------------------------
+    # 1. VALIDATE INPUTS AND HISTORY COMPLETENESS
+    # --------------------------------------------------------
+
+    if history_complete is not True:
+        return reject("HISTORY_COMPLETENESS_UNVERIFIED")
+
+    if not isinstance(history, list):
+        return reject("INVALID_ORDER_HISTORY")
+
+    if not isinstance(trade_key, str):
+        return reject("INVALID_TRADE_KEY")
+
+    if not trade_key.strip():
+        return reject("EMPTY_TRADE_KEY")
+
+    if isinstance(max_backups, bool):
+        return reject("INVALID_BACKUP_LIMIT")
+
+    if not isinstance(max_backups, int):
+        return reject("INVALID_BACKUP_LIMIT")
+
+    if max_backups != 3:
+        return reject("BACKUP_LIMIT_MUST_EQUAL_THREE")
+
+    # --------------------------------------------------------
+    # 2. BUILD EXACT EXISTING BACKUP CLIENT IDS
+    # --------------------------------------------------------
+
+    expected_ids = {}
+
+    for stage in range(1, max_backups + 1):
+        client_id = (
+            f"FR-B{stage}-{trade_key}"
+        )[:36]
+
+        expected_ids[client_id] = stage
+
+    existing = set()
+    filled = set()
+    blocked = set()
+    counts = {}
+
+    for stage in range(1, max_backups + 1):
+        counts[stage] = 0
+
+    # --------------------------------------------------------
+    # 3. INSPECT EXCHANGE ORDER RECORDS
+    # --------------------------------------------------------
+
+    for index, order in enumerate(history):
+
+        if not isinstance(order, dict):
+            return reject(
+                f"INVALID_ORDER_RECORD_{index}"
+            )
+
+        client_id = str(
+            order.get("clientOrderId", "")
+        )
+
+        stage = expected_ids.get(client_id)
+
+        if stage is None:
+            continue
+
+        counts[stage] += 1
+        existing.add(stage)
+
+        status = str(
+            order.get("status", "")
+        ).upper().strip()
+
+        raw_executed = order.get("executedQty")
+
+        if raw_executed is None:
+            return reject(
+                f"B{stage}_EXECUTED_QTY_MISSING"
+            )
+
+        try:
+            executed = Decimal(
+                str(raw_executed)
+            )
+
+        except (
+            InvalidOperation,
+            ValueError,
+            TypeError,
+        ):
+            return reject(
+                f"B{stage}_INVALID_EXECUTED_QTY"
+            )
+
+        if not executed.is_finite():
+            return reject(
+                f"B{stage}_NONFINITE_EXECUTED_QTY"
+            )
+
+        if executed < 0:
+            return reject(
+                f"B{stage}_NEGATIVE_EXECUTED_QTY"
+            )
+
+        if status == "FILLED":
+
+            if executed <= 0:
+                return reject(
+                    f"B{stage}_FILLED_WITH_ZERO_QTY"
+                )
+
+            filled.add(stage)
+
+        else:
+            # Pending, partial, rejected, cancelled,
+            # unknown or inconsistent order status.
+            #
+            # All require manual or exchange-backed
+            # reconciliation before another backup.
+            blocked.add(stage)
+
+    # --------------------------------------------------------
+    # 4. BLOCK DUPLICATE CLIENT IDs
+    # --------------------------------------------------------
+
+    for stage, count in counts.items():
+
+        if count > 1:
+            return reject(
+                f"B{stage}_DUPLICATE_HISTORY_RECORDS"
+            )
+
+    result["existing_stages"] = sorted(existing)
+    result["filled_stages"] = sorted(filled)
+    result["blocked_stages"] = sorted(blocked)
+
+    # --------------------------------------------------------
+    # 5. REQUIRE SEQUENTIAL BACKUP HISTORY
+    # --------------------------------------------------------
+
+    completed = 0
+
+    for stage in range(1, max_backups + 1):
+
+        if stage in filled:
+
+            if stage != completed + 1:
+                return reject(
+                    "NON_SEQUENTIAL_BACKUP_FILLS"
+                )
+
+            completed = stage
+
+        else:
+            break
+
+    result["completed_backups"] = completed
+
+    if blocked:
+        return reject(
+            "UNRESOLVED_BACKUP_ORDER_EXISTS"
+        )
+
+    if len(filled) != completed:
+        return reject(
+            "BACKUP_SEQUENCE_INCONSISTENT"
+        )
+
+    # --------------------------------------------------------
+    # 6. ENFORCE MAXIMUM THREE BACKUPS
+    # --------------------------------------------------------
+
+    if completed >= max_backups:
+
+        result["reason"] = "MAX_BACKUPS_REACHED"
+
+        print(
+            "UNIT 14 BACKUPS COMPLETE =",
+            completed,
+            flush=True,
+        )
+
+        return result
+
+    # --------------------------------------------------------
+    # 7. SELECT NEXT ELIGIBLE STAGE
+    # --------------------------------------------------------
+
+    next_stage = completed + 1
+
+    if next_stage in existing:
+        return reject(
+            f"B{next_stage}_ALREADY_EXISTS"
+        )
+
+    if next_stage in filled:
+        return reject(
+            f"B{next_stage}_ALREADY_FILLED"
+        )
+
+    next_client_id = (
+        f"FR-B{next_stage}-{trade_key}"
+    )[:36]
+
+    result["next_backup_stage"] = next_stage
+    result["client_order_id"] = next_client_id
+    result["approved"] = True
+    result["reason"] = (
+        "HISTORY_PRECHECK_PASS"
+    )
+
+    # --------------------------------------------------------
+    # 8. REPORT VERIFIED HISTORY STATE
+    # --------------------------------------------------------
+
+    print(
+        "UNIT 14 BACKUP HISTORY RECORDS =",
+        len(history),
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 EXISTING BACKUP STAGES =",
+        sorted(existing),
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 FILLED BACKUP STAGES =",
+        sorted(filled),
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 COMPLETED BACKUPS =",
+        completed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 NEXT BACKUP STAGE =",
+        next_stage,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 NEXT BACKUP CLIENT ID =",
+        next_client_id,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 14 BACKUP HISTORY PRECHECK",
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# END UNIT 14 BACKUP HISTORY AND DUPLICATE GUARD
+# ZERO INDENTATION DEMARCATION
+# PART 3
+# ============================================================
+
 def fresh_tp3_runtime(
     config,
     unit_13_result,
