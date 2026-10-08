@@ -17145,6 +17145,490 @@ def unit14_read_backup_history(
 # ZERO INDENTATION DEMARCATION
 # COMPLETE FUNCTION CLOSED
 # ============================================================
+
+
+# ============================================================
+# START UNIT 14 REPLACEMENT - PART 4
+# ZERO INDENTATION DEMARCATION
+# LIQUIDATION BUFFER AND POSITION RECONCILIATION
+# ============================================================
+
+def unit14_prepare_backup_trigger(
+    context,
+    snapshot,
+    history_result,
+    mark_price,
+):
+    """
+    Prepare the next B1/B2/B3 trigger.
+
+    Uses current exchange liquidation information.
+
+    LONG: trigger above liquidation.
+    SHORT: trigger below liquidation.
+
+    Does not submit orders.
+    """
+
+    from decimal import Decimal, InvalidOperation
+
+    def number(value, label):
+        try:
+            result = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            raise RuntimeError(
+                "UNIT 14 PART 4: INVALID " + label
+            )
+
+        if not result.is_finite():
+            raise RuntimeError(
+                "UNIT 14 PART 4: NONFINITE " + label
+            )
+
+        return result
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 14 PART 4 - BACKUP TRIGGER CHECK",
+        flush=True,
+    )
+
+    result = {
+        "approved": False,
+        "reason": "NOT_VERIFIED",
+        "backup_stage": None,
+        "liquidation_price": None,
+        "trigger_price": None,
+        "mark_price": None,
+        "trigger_reached": False,
+        "position_side": None,
+        "position_size": None,
+        "backup_submission_approved": False,
+    }
+
+    def blocked(reason):
+        result["reason"] = reason
+        print(
+            "UNIT 14 BACKUP TRIGGER BLOCKED:",
+            reason,
+            flush=True,
+        )
+        return result
+
+    # ========================================================
+    # 1. VALIDATE INPUTS
+    # ========================================================
+
+    if not isinstance(context, dict):
+        return blocked("INVALID_CONTEXT")
+
+    if not isinstance(snapshot, dict):
+        return blocked("INVALID_POSITION_SNAPSHOT")
+
+    if not isinstance(history_result, dict):
+        return blocked("INVALID_HISTORY_RESULT")
+
+    if context.get("environment") != "DEMO":
+        return blocked("DEMO_ENVIRONMENT_REQUIRED")
+
+    if snapshot.get("read_only") is not True:
+        return blocked("UNVERIFIED_POSITION_READ")
+
+    if snapshot.get("symbol") != "BTCSUSDT":
+        return blocked("INVALID_POSITION_SYMBOL")
+
+    if history_result.get("symbol") != "BTCSUSDT":
+        return blocked("INVALID_HISTORY_SYMBOL")
+
+    if snapshot.get("position_exists") is not True:
+        return blocked("NO_ACTIVE_POSITION")
+
+    position = snapshot.get("position")
+
+    if not isinstance(position, dict):
+        return blocked("POSITION_RECORD_MISSING")
+
+    # ========================================================
+    # 2. VERIFY DIRECTION AND QUANTITY
+    # ========================================================
+
+    side = snapshot.get("position_side")
+
+    if side not in ("LONG", "SHORT"):
+        return blocked("INVALID_POSITION_SIDE")
+
+    try:
+        size = number(
+            snapshot.get("position_size"),
+            "POSITION_SIZE",
+        )
+
+        mark = number(
+            mark_price,
+            "MARK_PRICE",
+        )
+
+        buffer_percent = number(
+            context.get("backup_buffer_percent"),
+            "BACKUP_BUFFER",
+        )
+
+    except RuntimeError as exc:
+        return blocked(str(exc))
+
+    if size <= 0:
+        return blocked("ZERO_POSITION_SIZE")
+
+    if mark <= 0:
+        return blocked("INVALID_MARK_PRICE")
+
+    if not Decimal("0") < buffer_percent < Decimal("100"):
+        return blocked("INVALID_BACKUP_BUFFER")
+
+    # ========================================================
+    # 3. REQUIRE EXCHANGE LIQUIDATION PRICE
+    # ========================================================
+
+    liquidation_raw = position.get(
+        "liquidationPrice"
+    )
+
+    if liquidation_raw is None:
+        liquidation_raw = position.get(
+            "liqPrice"
+        )
+
+    if liquidation_raw is None:
+        return blocked("EXCHANGE_LIQUIDATION_MISSING")
+
+    try:
+        liquidation = number(
+            liquidation_raw,
+            "LIQUIDATION_PRICE",
+        )
+
+    except RuntimeError as exc:
+        return blocked(str(exc))
+
+    if liquidation <= 0:
+        return blocked("INVALID_LIQUIDATION_PRICE")
+
+    buffer_fraction = (
+        buffer_percent / Decimal("100")
+    )
+
+    # ========================================================
+    # 4. DETERMINE NEXT BACKUP STAGE
+    # ========================================================
+
+    completed = history_result.get(
+        "completed_backups"
+    )
+
+    stage = history_result.get(
+        "next_backup_stage"
+    )
+
+    if type(completed) is not int:
+        return blocked("UNVERIFIED_COMPLETED_BACKUPS")
+
+    if completed >= 3:
+        return blocked("MAX_BACKUPS_REACHED_NO_B4")
+
+    if completed < 0:
+        return blocked("INVALID_BACKUP_COUNT")
+
+    if type(stage) is not int:
+        return blocked("NEXT_STAGE_UNVERIFIED")
+
+    if stage != completed + 1:
+        return blocked("NON_SEQUENTIAL_BACKUP_STAGE")
+
+    if stage not in (1, 2, 3):
+        return blocked("BACKUP_STAGE_OUT_OF_RANGE")
+
+    if history_result.get("uncertain_stages"):
+        return blocked("UNRESOLVED_BACKUP_ORDER")
+
+    if history_result.get("duplicate_stages"):
+        return blocked("DUPLICATE_BACKUP_HISTORY")
+
+    # ========================================================
+    # 5. LONG / SHORT LIQUIDATION BUFFER
+    # ========================================================
+
+    if side == "LONG":
+
+        trigger = liquidation * (
+            Decimal("1") + buffer_fraction
+        )
+
+        # LONG liquidation is below the market
+        # in a conventional long position.
+
+        if mark <= liquidation:
+            return blocked(
+                "LONG_AT_OR_BEYOND_LIQUIDATION"
+            )
+
+        reached = mark <= trigger
+
+    else:
+
+        trigger = liquidation * (
+            Decimal("1") - buffer_fraction
+        )
+
+        # SHORT liquidation is above the market
+        # in a conventional short position.
+
+        if mark >= liquidation:
+            return blocked(
+                "SHORT_AT_OR_BEYOND_LIQUIDATION"
+            )
+
+        reached = mark >= trigger
+
+    if trigger <= 0:
+        return blocked("INVALID_TRIGGER_PRICE")
+
+    result.update({
+        "backup_stage": stage,
+        "position_side": side,
+        "position_size": str(size),
+        "liquidation_price": str(liquidation),
+        "trigger_price": str(trigger),
+        "mark_price": str(mark),
+        "trigger_reached": reached,
+    })
+
+    # ========================================================
+    # 6. RESTRICT EXECUTION UNTIL RISK VERIFIED
+    # ========================================================
+
+    # Part 3 has not certified complete history.
+    # Part 2 has not certified account margin.
+    # Neither missing condition may be assumed TRUE.
+
+    if history_result.get("history_complete") is not True:
+        return blocked("COMPLETE_HISTORY_NOT_VERIFIED")
+
+    if history_result.get("pending_orders_verified") is not True:
+        return blocked("PENDING_ORDERS_NOT_VERIFIED")
+
+    if snapshot.get("account_margin_verified") is not True:
+        return blocked("ACCOUNT_MARGIN_NOT_VERIFIED")
+
+    if not reached:
+        result["reason"] = "TRIGGER_NOT_REACHED"
+        return result
+
+    result["approved"] = True
+    result["reason"] = "TRIGGER_PRECHECK_PASSED"
+
+    # This is not permission to submit an order.
+    result["backup_submission_approved"] = False
+
+    print(
+        f"UNIT 14 B{stage} | "
+        f"SIDE = {side} | "
+        f"LIQ = {liquidation} | "
+        f"BUFFER = {buffer_percent}% | "
+        f"TRIGGER = {trigger} | "
+        f"MARK = {mark} | "
+        f"REACHED = {reached}",
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# PART 4B - ACTUAL BACKUP FILL RECONCILIATION
+# ZERO INDENTATION
+# ============================================================
+
+def unit14_reconcile_backup_position(
+    before_snapshot,
+    after_snapshot,
+    order_record,
+    expected_client_order_id,
+    quantity_step,
+):
+    """
+    Confirm:
+      - Same demo contract
+      - Same position direction
+      - Expected order client ID
+      - Positive filled quantity
+      - Actual position-size increase
+
+    Does not infer fills from Render logs.
+    Does not submit exchange orders.
+
+    Assumes no other position-changing event occurred
+    between the before and after snapshots.
+    """
+
+    from decimal import Decimal, InvalidOperation
+
+    result = {
+        "verified": False,
+        "reason": "NOT_VERIFIED",
+        "before_size": None,
+        "after_size": None,
+        "executed_quantity": None,
+        "position_increase": None,
+    }
+
+    def reject(reason):
+        result["reason"] = reason
+        print(
+            "UNIT 14 POSITION RECONCILIATION:",
+            reason,
+            flush=True,
+        )
+        return result
+
+    if not all(
+        isinstance(value, dict)
+        for value in (
+            before_snapshot,
+            after_snapshot,
+            order_record,
+        )
+    ):
+        return reject("INVALID_RECONCILIATION_INPUT")
+
+    if (
+        before_snapshot.get("symbol") != "BTCSUSDT"
+        or after_snapshot.get("symbol") != "BTCSUSDT"
+    ):
+        return reject("DEMO_SYMBOL_MISMATCH")
+
+    if (
+        before_snapshot.get("read_only") is not True
+        or after_snapshot.get("read_only") is not True
+    ):
+        return reject("POSITION_SNAPSHOT_UNVERIFIED")
+
+    before_side = before_snapshot.get("position_side")
+    after_side = after_snapshot.get("position_side")
+
+    if before_side not in ("LONG", "SHORT"):
+        return reject("INVALID_POSITION_DIRECTION")
+
+    if before_side != after_side:
+        return reject("POSITION_DIRECTION_CHANGED")
+
+    if not expected_client_order_id:
+        return reject("EXPECTED_CLIENT_ID_MISSING")
+
+    if (
+        str(order_record.get("clientOrderId", ""))
+        != str(expected_client_order_id)
+    ):
+        return reject("CLIENT_ORDER_ID_MISMATCH")
+
+    status = str(
+        order_record.get("status", "")
+    ).upper().strip()
+
+    if status != "FILLED":
+        return reject("ORDER_NOT_CONFIRMED_FILLED")
+
+    try:
+        before = Decimal(
+            str(before_snapshot.get("position_size"))
+        )
+
+        after = Decimal(
+            str(after_snapshot.get("position_size"))
+        )
+
+        executed = Decimal(
+            str(order_record.get("executedQty"))
+        )
+
+        step = Decimal(str(quantity_step))
+
+    except (InvalidOperation, TypeError, ValueError):
+        return reject("INVALID_EXCHANGE_QUANTITIES")
+
+    if not all(
+        item.is_finite()
+        for item in (before, after, executed, step)
+    ):
+        return reject("NONFINITE_EXCHANGE_QUANTITY")
+
+    if (
+        before <= 0
+        or after <= 0
+        or executed <= 0
+        or step <= 0
+    ):
+        return reject("NON_POSITIVE_QUANTITY")
+
+    increase = after - before
+
+    result.update({
+        "before_size": str(before),
+        "after_size": str(after),
+        "executed_quantity": str(executed),
+        "position_increase": str(increase),
+    })
+
+    if increase <= 0:
+        return reject("POSITION_NOT_INCREASED")
+
+    tolerance = step / Decimal("2")
+
+    if abs(increase - executed) > tolerance:
+        return reject("FILLED_QUANTITY_POSITION_MISMATCH")
+
+    # This confirms a simple isolated fill, not the
+    # absence of simultaneous TP reductions.
+
+    result["verified"] = True
+    result["reason"] = "BACKUP_FILL_POSITION_CONFIRMED"
+
+    print(
+        "PASS: UNIT 14 BACKUP FILL RECONCILED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 POSITION BEFORE =",
+        before,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 POSITION AFTER =",
+        after,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 EXCHANGE EXECUTED QTY =",
+        executed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 CONFIRMED POSITION INCREASE =",
+        increase,
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# END UNIT 14 REPLACEMENT - PART 4
+# ZERO INDENTATION DEMARCATION
+# ALL FUNCTIONS CLOSED
+# ============================================================
 def unit14_verify_backup_fill(
     before_quantity,
     after_quantity,
