@@ -20451,141 +20451,268 @@ def fresh_tp3_runtime(
         # ====================================================
         
 
+        
         # ====================================================
+        # START CORRECTION 4
         # 13G. FINAL POSITION RECONCILIATION
+        # INDENTATION: 8 SPACES
         # ====================================================
+
+        # Read the current WEEX demo position again.
+        # The earlier position snapshot may be stale.
 
         try:
 
-            final_position = (
-                get_active_position()
+            final_position = get_active_position()
+
+            if final_position is None:
+                raise ValueError(
+                    "POSITION_CLOSED_BEFORE_BACKUP"
+                )
+
+            if not isinstance(final_position, dict):
+                raise ValueError(
+                    "INVALID_FINAL_POSITION_RECORD"
+                )
+
+            # --------------------------------------------
+            # 1. VERIFY POSITION SIDE
+            # --------------------------------------------
+
+            final_side = str(
+                final_position.get("side", "")
+            ).upper().strip()
+
+            if final_side not in ("LONG", "SHORT"):
+                raise ValueError(
+                    "INVALID_FINAL_POSITION_SIDE"
+                )
+
+            if final_side != position_side:
+                raise ValueError(
+                    "POSITION_DIRECTION_CHANGED"
+                )
+
+            # --------------------------------------------
+            # 2. VERIFY POSITION IDENTITY
+            # --------------------------------------------
+
+            final_trade_key = get_trade_key(
+                final_position
+            )
+
+            if (
+                not final_trade_key
+                or final_trade_key != trade_key
+            ):
+                raise ValueError(
+                    "POSITION_IDENTITY_CHANGED"
+                )
+
+            # --------------------------------------------
+            # 3. VERIFY ACTUAL POSITION SIZE
+            # --------------------------------------------
+
+            raw_size = final_position.get("size")
+
+            if raw_size is None:
+                raise ValueError(
+                    "FINAL_POSITION_SIZE_MISSING"
+                )
+
+            final_position_size = Decimal(
+                str(raw_size)
+            )
+
+            if (
+                not final_position_size.is_finite()
+                or final_position_size <= 0
+            ):
+                raise ValueError(
+                    "INVALID_FINAL_POSITION_SIZE"
+                )
+
+            if final_position_size != position_size:
+                raise ValueError(
+                    "POSITION_SIZE_CHANGED_BEFORE_BACKUP"
+                )
+
+            # --------------------------------------------
+            # 4. VERIFY EXCHANGE LEVERAGE
+            # --------------------------------------------
+
+            raw_leverage = final_position.get(
+                "leverage"
+            )
+
+            if raw_leverage is None:
+                raw_leverage = final_position.get(
+                    "lever"
+                )
+
+            if raw_leverage is None:
+                raise ValueError(
+                    "FINAL_EXCHANGE_LEVERAGE_MISSING"
+                )
+
+            final_exchange_leverage = Decimal(
+                str(raw_leverage)
+                .lower()
+                .replace("x", "")
+                .strip()
+            )
+
+            if (
+                not final_exchange_leverage.is_finite()
+                or final_exchange_leverage <= 0
+            ):
+                raise ValueError(
+                    "INVALID_FINAL_EXCHANGE_LEVERAGE"
+                )
+
+            # Exchange leverage must remain the same
+            # as the leverage used in Correction 3.
+
+            if (
+                final_exchange_leverage
+                != exchange_leverage
+            ):
+                raise ValueError(
+                    "EXCHANGE_LEVERAGE_CHANGED"
+                )
+
+            # --------------------------------------------
+            # 5. VERIFY LIQUIDATION PRICE
+            # --------------------------------------------
+
+            raw_liquidation = final_position.get(
+                "liquidatePrice"
+            )
+
+            if raw_liquidation is None:
+                raise ValueError(
+                    "FINAL_LIQUIDATION_PRICE_MISSING"
+                )
+
+            final_liquidation = Decimal(
+                str(raw_liquidation)
+            )
+
+            if (
+                not final_liquidation.is_finite()
+                or final_liquidation <= 0
+            ):
+                raise ValueError(
+                    "INVALID_FINAL_LIQUIDATION_PRICE"
+                )
+
+            if final_liquidation != liquidation_price:
+                raise ValueError(
+                    "LIQUIDATION_PRICE_CHANGED"
+                )
+
+            # --------------------------------------------
+            # 6. VERIFY EXPECTED LIQUIDATION DIRECTION
+            # --------------------------------------------
+
+            if position_side == "LONG":
+
+                if final_liquidation >= current_mark:
+                    raise ValueError(
+                        "LONG_LIQUIDATION_DIRECTION_INVALID"
+                    )
+
+            elif position_side == "SHORT":
+
+                if final_liquidation <= current_mark:
+                    raise ValueError(
+                        "SHORT_LIQUIDATION_DIRECTION_INVALID"
+                    )
+
+            # --------------------------------------------
+            # 7. VERIFY BACKUP STAGE
+            # --------------------------------------------
+
+            if (
+                type(next_backup_stage) is not int
+                or next_backup_stage not in (1, 2, 3)
+            ):
+                raise ValueError(
+                    "INVALID_BACKUP_STAGE"
+                )
+
+            if (
+                next_backup_stage
+                != completed_backups + 1
+            ):
+                raise ValueError(
+                    "BACKUP_STAGE_SEQUENCE_CHANGED"
+                )
+
+            # --------------------------------------------
+            # 8. FINAL SNAPSHOT CONSISTENCY RESULT
+            # --------------------------------------------
+
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                "FINAL POSITION IDENTITY = VERIFIED",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 FINAL POSITION SIDE =",
+                final_side,
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 FINAL POSITION SIZE =",
+                final_position_size,
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 FINAL EXCHANGE LEVERAGE =",
+                final_exchange_leverage,
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 FINAL LIQUIDATION =",
+                final_liquidation,
+                flush=True,
+            )
+
+            print(
+                "PASS: UNIT 14 FINAL POSITION "
+                "SNAPSHOT CONSISTENT",
+                flush=True,
             )
 
         except Exception as exc:
 
             print(
-                "UNIT 14 FINAL POSITION CHECK ERROR = "
+                f"UNIT 14 B{next_backup_stage} "
+                "FINAL RECONCILIATION BLOCKED = "
                 f"{repr(exc)}",
                 flush=True,
             )
 
-            time.sleep(
-                poll_seconds
+            print(
+                "UNIT 14 ACTION = "
+                "RESTART POSITION EVALUATION",
+                flush=True,
             )
+
+            time.sleep(poll_seconds)
 
             continue
 
-        if final_position is None:
-
-            print(
-                f"UNIT 14 B{next_backup_stage} BLOCKED: "
-                "POSITION CLOSED BEFORE SUBMISSION",
-                flush=True,
-            )
-
-            time.sleep(
-                poll_seconds
-            )
-
-            continue
-
-        final_side = str(
-            final_position.get(
-                "side",
-                "",
-            )
-        ).upper()
-
-        if (
-            final_side
-            !=
-            position_side
-        ):
-            raise RuntimeError(
-                "UNIT 14 BLOCKED: "
-                "POSITION DIRECTION CHANGED"
-            )
-
-        final_trade_key = (
-            get_trade_key(
-                final_position
-            )
-        )
-
-        if (
-            final_trade_key
-            !=
-            trade_key
-        ):
-
-            print(
-                f"UNIT 14 B{next_backup_stage} BLOCKED: "
-                "POSITION IDENTITY CHANGED",
-                flush=True,
-            )
-
-            time.sleep(
-                poll_seconds
-            )
-
-            continue
-
-        try:
-
-            final_liquidation = Decimal(
-                str(
-                    final_position.get(
-                        "liquidatePrice",
-                        "0",
-                    )
-                )
-            )
-
-        except Exception:
-
-            final_liquidation = (
-                Decimal("0")
-            )
-
-        # ----------------------------------------------------
-        # If WEEX changed liquidation before submission,
-        # restart. Never submit from stale liquidation.
-        # ----------------------------------------------------
-
-        if (
-            final_liquidation
-            !=
-            liquidation_price
-        ):
-
-            print(
-                f"UNIT 14 B{next_backup_stage} "
-                "LIQUIDATION CHANGED BEFORE SUBMISSION",
-                flush=True,
-            )
-
-            print(
-                "OLD LIQUIDATION = "
-                f"{liquidation_price}",
-                flush=True,
-            )
-
-            print(
-                "NEW LIQUIDATION = "
-                f"{final_liquidation}",
-                flush=True,
-            )
-
-            print(
-                "UNIT 14 RECALCULATING BACKUP TRIGGER",
-                flush=True,
-            )
-
-            time.sleep(
-                poll_seconds
-            )
-
-            continue
+        # ====================================================
+        # END CORRECTION 4
+        # INDENTATION: 8 SPACES
+        # 13H CONTINUES DIRECTLY BELOW
+        # ====================================================
 
         # ====================================================
         # 13H. ORDER RATE GUARD
