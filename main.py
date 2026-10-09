@@ -20371,6 +20371,527 @@ def unit14_manage_tp1_tp2(
 # ZERO INDENTATION DEMARCATION
 # COMPLETE FUNCTION CLOSED
 # ============================================================
+
+
+# ============================================================
+# START UNIT 14 REPLACEMENT - PART 10
+# ZERO INDENTATION DEMARCATION
+# TP AND BACKUP VERIFICATION COORDINATOR
+# ============================================================
+
+def unit14_coordinate_management(
+    config,
+    unit_13_result,
+    mark_price,
+    api_key,
+    api_secret,
+    api_passphrase,
+    tp_plan=None,
+    closed_candles=None,
+    verified_tp_orders=None,
+    order_history_complete=False,
+    tp3_best_mark=None,
+    tp3_original_runner_quantity=None,
+):
+    """
+    UNIT 14 REPLACEMENT - PART 10
+
+    Coordinates the replacement components.
+
+    Responsibilities:
+      1. Run Parts 1-6 verification cycle.
+      2. Evaluate TP1/TP2 when input data is verified.
+      3. Evaluate TP3 trailing when armed.
+      4. Give TP3 priority over backup decisions.
+      5. Report backup trigger and margin status.
+      6. Block unverified exchange execution.
+
+    This is one diagnostic cycle.
+
+    Does not replace the original continuous runtime.
+    Does not submit or cancel orders.
+    Does not modify exchange leverage or margin mode.
+    """
+
+    from decimal import Decimal, InvalidOperation
+    from datetime import datetime, timezone
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 14 PART 10 - MANAGEMENT COORDINATION",
+        flush=True,
+    )
+
+    result = {
+        "status": "BLOCKED",
+        "reason": "NOT_VERIFIED",
+        "timestamp": datetime.now(
+            timezone.utc
+        ).isoformat(),
+        "position_verified": False,
+        "backup_stage": None,
+        "backup_trigger_reached": False,
+        "backup_submission_approved": False,
+        "tp1_completed": False,
+        "tp2_completed": False,
+        "tp3_armed": False,
+        "tp3_callback_reached": False,
+        "tp_action": "NONE",
+        "order_submission_authorized": False,
+        "real_order_enabled": False,
+    }
+
+    def report(reason):
+        result["reason"] = reason
+
+        print(
+            "UNIT 14 MANAGEMENT RESULT =",
+            result["status"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 MANAGEMENT REASON =",
+            reason,
+            flush=True,
+        )
+
+        return result
+
+    # ========================================================
+    # 1. EXPLICIT EXECUTION SAFETY
+    # ========================================================
+
+    if not isinstance(config, dict):
+        return report("INVALID_CONFIG")
+
+    if not isinstance(unit_13_result, dict):
+        return report("INVALID_UNIT13_RESULT")
+
+    try:
+        mark = Decimal(str(mark_price))
+
+    except (
+        InvalidOperation,
+        ValueError,
+        TypeError,
+    ):
+        return report("INVALID_MARK_PRICE")
+
+    if not mark.is_finite() or mark <= 0:
+        return report("INVALID_MARK_PRICE")
+
+    # This coordinator never enables trading.
+    # No external parameter can override this rule.
+
+    backup_writes_allowed = False
+    tp_writes_allowed = False
+    production_writes_allowed = False
+
+    if (
+        backup_writes_allowed
+        or tp_writes_allowed
+        or production_writes_allowed
+    ):
+        return report("EXECUTION_SAFETY_FAILURE")
+
+    # ========================================================
+    # 2. RUN VERIFIED BACKUP DIAGNOSTICS
+    # ========================================================
+
+    try:
+        verification = unit14_run_verification_cycle(
+            config,
+            unit_13_result,
+            mark,
+            api_key,
+            api_secret,
+            api_passphrase,
+        )
+
+    except Exception as exc:
+        print(
+            "UNIT 14 VERIFICATION EXCEPTION =",
+            type(exc).__name__,
+            flush=True,
+        )
+
+        return report("VERIFICATION_CYCLE_FAILED")
+
+    if not isinstance(verification, dict):
+        return report("INVALID_VERIFICATION_RESULT")
+
+    result["position_verified"] = (
+        verification.get("position_verified")
+        is True
+    )
+
+    result["backup_stage"] = verification.get(
+        "backup_stage"
+    )
+
+    result["backup_trigger_reached"] = (
+        verification.get("trigger_reached")
+        is True
+    )
+
+    if verification.get("status") == "IDLE":
+        result["status"] = "IDLE"
+        return report("NO_ACTIVE_DEMO_POSITION")
+
+    if result["position_verified"] is not True:
+        return report("POSITION_NOT_VERIFIED")
+
+    # ========================================================
+    # 3. TP INPUT CONTRACT
+    # ========================================================
+
+    # Part 9 requires a normalized TP plan and
+    # verified order records.
+    #
+    # Unit 13's actual field mapping must be
+    # checked before supplying tp_plan.
+    #
+    # Missing data is not replaced with guesses.
+
+    if not isinstance(tp_plan, dict):
+        result["status"] = "READ_ONLY"
+        return report("TP_PLAN_NOT_MAPPED")
+
+    if not isinstance(verified_tp_orders, list):
+        result["status"] = "READ_ONLY"
+        return report("TP_ORDER_RECORDS_MISSING")
+
+    if order_history_complete is not True:
+        result["status"] = "READ_ONLY"
+        return report("TP_ORDER_HISTORY_INCOMPLETE")
+
+    # ========================================================
+    # 4. OBTAIN CURRENT POSITION SNAPSHOT
+    # ========================================================
+
+    try:
+        context = unit14_build_runtime_context(
+            config,
+            unit_13_result,
+        )
+
+        snapshot = unit14_read_exchange_snapshot(
+            context,
+            api_key,
+            api_secret,
+            api_passphrase,
+        )
+
+    except Exception as exc:
+        print(
+            "UNIT 14 TP POSITION READ ERROR =",
+            type(exc).__name__,
+            flush=True,
+        )
+
+        return report("TP_POSITION_SNAPSHOT_FAILED")
+
+    if snapshot.get("position_exists") is not True:
+        result["status"] = "IDLE"
+        return report("POSITION_CLOSED")
+
+    position = snapshot.get("position")
+
+    if not isinstance(position, dict):
+        return report("INVALID_ACTIVE_POSITION")
+
+    # ========================================================
+    # 5. STABLE TRADE IDENTIFICATION
+    # ========================================================
+
+    # Must match the original bot's trade key.
+    # Until it is reconciled, TP decisions remain
+    # non-executable.
+
+    created_time = str(
+        position.get("createdTime", "")
+    )
+
+    position_id = str(
+        position.get("id", "")
+    )
+
+    if created_time.isdigit():
+        trade_key = created_time[-12:]
+
+    elif position_id.strip():
+        trade_key = position_id[-12:]
+
+    else:
+        return report("TRADE_KEY_NOT_VERIFIED")
+
+    # ========================================================
+    # 6. EVALUATE TP1 AND TP2
+    # ========================================================
+
+    try:
+        tp_result = unit14_manage_tp1_tp2(
+            context,
+            snapshot,
+            mark,
+            tp_plan,
+            verified_tp_orders,
+            trade_key,
+        )
+
+    except Exception as exc:
+        print(
+            "UNIT 14 TP1 TP2 ERROR =",
+            type(exc).__name__,
+            flush=True,
+        )
+
+        return report("TP1_TP2_EVALUATION_FAILED")
+
+    if not isinstance(tp_result, dict):
+        return report("INVALID_TP_RESULT")
+
+    if tp_result.get("evaluated") is not True:
+        return report("TP1_TP2_NOT_EVALUATED")
+
+    result["tp1_completed"] = (
+        tp_result.get("tp1_completed") is True
+    )
+
+    result["tp2_completed"] = (
+        tp_result.get("tp2_completed") is True
+    )
+
+    result["tp3_armed"] = (
+        tp_result.get("tp3_armed") is True
+    )
+
+    result["tp_action"] = tp_result.get(
+        "tp_action",
+        "NONE",
+    )
+
+    # ========================================================
+    # 7. TP1 / TP2 DECISION PRIORITY
+    # ========================================================
+
+    if result["tp_action"] in ("TP1", "TP2"):
+
+        print(
+            "UNIT 14 TP CLOSE INTENT =",
+            result["tp_action"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 TP INTENT QUANTITY =",
+            tp_result.get("tp_quantity"),
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 TP EXECUTION = BLOCKED "
+            "PENDING EXCHANGE-BACKED INTEGRATION",
+            flush=True,
+        )
+
+        result["status"] = "READ_ONLY"
+        return report("TP_CLOSE_INTENT_ONLY")
+
+    # ========================================================
+    # 8. TP3 ARMING CONDITION
+    # ========================================================
+
+    if result["tp3_armed"] is not True:
+
+        result["status"] = "READ_ONLY"
+
+        print(
+            "UNIT 14 TP3 ARMED = FALSE",
+            flush=True,
+        )
+
+        return report("TP3_NOT_ARMED")
+
+    # ========================================================
+    # 9. REQUIRE VERIFIED CLOSED CANDLES
+    # ========================================================
+
+    if not isinstance(closed_candles, list):
+        result["status"] = "READ_ONLY"
+        return report("TP3_CANDLES_NOT_AVAILABLE")
+
+    if tp3_original_runner_quantity is None:
+        result["status"] = "READ_ONLY"
+        return report("TP3_RUNNER_QUANTITY_UNVERIFIED")
+
+    # ========================================================
+    # 10. CALCULATE DYNAMIC TRAILING
+    # ========================================================
+
+    try:
+        analysis = unit14_tp3_market_analysis(
+            closed_candles
+        )
+
+        backup_count = verification.get(
+            "completed_backups"
+        )
+
+        if type(backup_count) is not int:
+            # Part 6 does not currently supply
+            # verified backup_count consistently.
+            result["status"] = "READ_ONLY"
+
+            return report(
+                "BACKUP_COUNT_NOT_RECONCILED"
+            )
+
+        trailing = unit14_tp3_evaluate_trailing(
+            context=context,
+            position_side=snapshot.get(
+                "position_side"
+            ),
+            current_mark=mark,
+            previous_best_mark=tp3_best_mark,
+            analysis=analysis,
+            tp3_armed=True,
+            position_size=snapshot.get(
+                "position_size"
+            ),
+            original_runner_quantity=(
+                tp3_original_runner_quantity
+            ),
+            confirmed_backup_count=backup_count,
+        )
+
+    except Exception as exc:
+        print(
+            "UNIT 14 TP3 ANALYSIS ERROR =",
+            type(exc).__name__,
+            flush=True,
+        )
+
+        return report("TP3_TRAILING_EVALUATION_FAILED")
+
+    if not isinstance(trailing, dict):
+        return report("INVALID_TRAILING_RESULT")
+
+    if trailing.get("evaluated") is not True:
+        return report("TP3_TRAILING_NOT_EVALUATED")
+
+    result["tp3_callback_reached"] = (
+        trailing.get("callback_reached")
+        is True
+    )
+
+    result["tp3_best_mark"] = trailing.get(
+        "best_mark"
+    )
+
+    result["tp3_callback_percent"] = (
+        trailing.get("callback_percent")
+    )
+
+    result["tp3_trigger_price"] = (
+        trailing.get("trailing_trigger")
+    )
+
+    result["tp3_close_quantity"] = (
+        trailing.get("close_quantity")
+    )
+
+    # ========================================================
+    # 11. TP3 CLOSE TAKES PRIORITY OVER BACKUPS
+    # ========================================================
+
+    if result["tp3_callback_reached"]:
+
+        result["tp_action"] = "TP3"
+
+        print(
+            "UNIT 14 PRIORITY = TP3 CLOSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 BACKUP ACTION = BLOCKED",
+            flush=True,
+        )
+
+        result["status"] = "READ_ONLY"
+        return report("TP3_CLOSE_INTENT_ONLY")
+
+    # ========================================================
+    # 12. FINAL DIAGNOSTIC REPORT
+    # ========================================================
+
+    print("-" * 80, flush=True)
+
+    print(
+        "UNIT 14 POSITION VERIFIED =",
+        result["position_verified"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP1 COMPLETED =",
+        result["tp1_completed"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP2 COMPLETED =",
+        result["tp2_completed"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 ARMED =",
+        result["tp3_armed"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 CALLBACK REACHED =",
+        result["tp3_callback_reached"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 BACKUP TRIGGER REACHED =",
+        result["backup_trigger_reached"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 BACKUP SUBMISSION = BLOCKED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP SUBMISSION = BLOCKED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 PRODUCTION ORDER = BLOCKED",
+        flush=True,
+    )
+
+    result["status"] = "READ_ONLY"
+
+    return report(
+        "MANAGEMENT_DIAGNOSTICS_COMPLETED"
+    )
+
+
+# ============================================================
+# END UNIT 14 REPLACEMENT - PART 10
+# ZERO INDENTATION DEMARCATION
+# COMPLETE FUNCTION CLOSED
+# ============================================================
 def unit14_verify_backup_fill(
     before_quantity,
     after_quantity,
