@@ -20867,83 +20867,49 @@ def fresh_tp3_runtime(
             flush=True,
         )
 
+        
         # ====================================================
-        # 14. SUBMIT EXACTLY ONE DEMO BACKUP
+        # START CORRECTION 5
+        # 14. BACKUP SUBMISSION SAFETY BOUNDARY
+        # INDENTATION: 8 SPACES
         # ====================================================
 
-        try:
+        # This section must not submit an order until:
+        #
+        # 1. Complete order history is established.
+        # 2. Pending demo orders are reconciled.
+        # 3. Account-wide margin is confirmed.
+        # 4. Actual exchange leverage is verified.
+        # 5. Position identity and quantity are stable.
+        # 6. Cross-instance duplicate protection exists.
+        # 7. Fill and position-size reconciliation works.
+        #
+        # Corrections 1-4 do not yet establish all
+        # seven conditions. Therefore fail closed.
 
-            backup_result = authenticated_post(
-                "/capi/v3/sim/order",
-                backup_payload,
-            )
+        submission_checks = {
+            "complete_history": (
+                backup_history_verified is True
+            ),
+            "pending_orders": False,
+            "account_margin": False,
+            "exchange_leverage": (
+                "exchange_leverage" in locals()
+                and exchange_leverage > 0
+            ),
+            "position_reconciled": (
+                "final_position_size" in locals()
+                and final_position_size == position_size
+            ),
+            "cross_instance_lock": False,
+            "fill_reconciliation": False,
+        }
 
-            last_runtime_order_time = (
-                time.time()
-            )
-
-        except Exception as exc:
-
-            print(
-                f"UNIT 14 B{next_backup_stage} "
-                "SUBMISSION ERROR = "
-                f"{repr(exc)}",
-                flush=True,
-            )
-
-            # Outcome may be uncertain.
-            # Do not blindly resubmit.
-            # Next cycle re-reads order history first.
-
-            last_runtime_order_time = (
-                time.time()
-            )
-
-            time.sleep(
-                poll_seconds
-            )
-
-            continue
-
-        if (
-            backup_result.get(
-                "success"
-            )
-            is not True
-        ):
-
-            print(
-                f"UNIT 14 B{next_backup_stage} "
-                "NOT ACCEPTED = "
-                f"{backup_result}",
-                flush=True,
-            )
-
-            time.sleep(
-                poll_seconds
-            )
-
-            continue
-
-        backup_order_id = (
-            backup_result.get(
-                "orderId"
-            )
-        )
-
-        if not backup_order_id:
-
-            print(
-                f"UNIT 14 B{next_backup_stage} "
-                "ACCEPTED WITHOUT ORDER ID",
-                flush=True,
-            )
-
-            time.sleep(
-                poll_seconds
-            )
-
-            continue
+        failed_checks = [
+            name
+            for name, passed in submission_checks.items()
+            if passed is not True
+        ]
 
         print(
             "-" * 80,
@@ -20951,58 +20917,79 @@ def fresh_tp3_runtime(
         )
 
         print(
-            f"PASS: UNIT 14 B{next_backup_stage} "
-            "DEMO ORDER ACCEPTED",
+            f"UNIT 14 B{next_backup_stage} "
+            "SUBMISSION SAFETY REVIEW",
             flush=True,
         )
 
         print(
-            f"PASS: UNIT 14 B{next_backup_stage} "
-            "ORDER ID = "
-            f"{backup_order_id}",
+            "UNIT 14 BACKUP CLIENT ID =",
+            next_client_id,
             flush=True,
         )
 
         print(
-            f"PASS: UNIT 14 B{next_backup_stage} "
-            "WAITING FOR EXCHANGE-CONFIRMED FILL",
+            "UNIT 14 ORDER SIDE =",
+            backup_order_side,
             flush=True,
         )
 
         print(
-            "PASS: UNIT 14 BACKUP STAGE NOT "
-            "ADVANCED BY TRIGGER ALONE",
+            "UNIT 14 INTENDED QUANTITY =",
+            backup_quantity,
+            flush=True,
+        )
+
+        for check_name, passed in submission_checks.items():
+            print(
+                "UNIT 14 SAFETY CHECK | "
+                f"{check_name} = {passed}",
+                flush=True,
+            )
+
+        if failed_checks:
+            print(
+                "UNIT 14 BACKUP BLOCKED | "
+                "UNVERIFIED CONDITIONS =",
+                failed_checks,
+                flush=True,
+            )
+
+        print(
+            "UNIT 14 BACKUP ORDER SUBMITTED = FALSE",
             flush=True,
         )
 
         print(
-            "PASS: UNIT 14 NEXT LIQUIDATION WILL "
-            "BE READ FROM WEEX AFTER FILL",
+            "UNIT 14 BACKUP FILL CONFIRMED = FALSE",
             flush=True,
         )
 
         print(
-            "PASS: UNIT 14 REAL ORDER = FALSE",
+            "UNIT 14 POSITION SIZE CHANGE "
+            "CONFIRMED = FALSE",
             flush=True,
         )
 
         print(
-            "PASS: UNIT 14 SL REMAINS DISABLED",
+            "UNIT 14 NEXT BACKUP STAGE "
+            "NOT ADVANCED",
             flush=True,
         )
 
         print(
-            "PASS: UNIT 14 NO LEVERAGE MUTATION",
+            "UNIT 14 REAL ORDER = FALSE",
             flush=True,
         )
 
         print(
-            "PASS: UNIT 14 NO MARGIN MODE MUTATION",
+            "UNIT 14 SL ENABLED = FALSE",
             flush=True,
         )
 
         print(
-            "PASS: UNIT 14 NO POSITION MODE MUTATION",
+            "UNIT 14 ACTION = "
+            "NO NEW BACKUP SUBMISSION",
             flush=True,
         )
 
@@ -21011,24 +20998,14 @@ def fresh_tp3_runtime(
             flush=True,
         )
 
-        # ----------------------------------------------------
-        # IMPORTANT:
-        #
-        # DO NOT calculate B2/B3 here.
-        #
-        # NEXT LOOP:
-        #
-        # 1. Reads history.
-        # 2. Confirms Bn FILLED.
-        # 3. Reads actual changed position.
-        # 4. Reads WEEX's new liquidation price.
-        # 5. Resets TP3 best mark.
-        # 6. Only then calculates B(n+1).
-        # ----------------------------------------------------
+        time.sleep(poll_seconds)
+        continue
 
-        time.sleep(
-            poll_seconds
-        )
+        # ====================================================
+        # END CORRECTION 5
+        # INDENTATION: 8 SPACES
+        # NEXT: COLUMN-ZERO RUN UNIT 14
+        # ====================================================
 
 
 # ============================================================
