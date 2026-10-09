@@ -18436,49 +18436,215 @@ def fresh_tp3_runtime(
         # ====================================================
 
 
+        
+        
         # ====================================================
+        # START CORRECTION 6
         # 10D. BACKUP FILL CHANGE
-        #
-        # Reset TP3 best mark whenever a newly confirmed
-        # backup changes the managed position.
-        #
-        # The CURRENT position and CURRENT liquidation price
-        # were already re-read at the beginning of this cycle.
+        # INDENTATION: 8 SPACES
         # ====================================================
 
-        if (
-            last_confirmed_backup_stage
-            is None
-        ):
+        # Distinguish three separate facts:
+        #
+        # 1. Exchange history reports a filled order.
+        # 2. The current position was successfully read.
+        # 3. Actual position-size increase is reconciled.
+        #
+        # The first two do not automatically prove
+        # the third.
+        #
+        # No new orders are submitted here.
+
+        if last_confirmed_backup_stage is None:
 
             last_confirmed_backup_stage = (
                 completed_backups
             )
 
+            print(
+                "UNIT 14 BACKUP HISTORY BASELINE =",
+                completed_backups,
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 BASELINE POSITION SIZE =",
+                position_size,
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 BASELINE LIQUIDATION =",
+                liquidation_price,
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 HISTORICAL POSITION INCREASE "
+                "RECONCILED = FALSE",
+                flush=True,
+            )
+
         elif (
             completed_backups
-            !=
-            last_confirmed_backup_stage
+            != last_confirmed_backup_stage
         ):
 
+            previous_stage = (
+                last_confirmed_backup_stage
+            )
+
+            # --------------------------------------------
+            # 1. BLOCK BACKWARD OR SKIPPED STAGES
+            # --------------------------------------------
+
+            if (
+                completed_backups
+                != previous_stage + 1
+            ):
+
+                print(
+                    "UNIT 14 BACKUP STAGE CHANGE "
+                    "UNEXPECTED | PREVIOUS =",
+                    previous_stage,
+                    "| CURRENT =",
+                    completed_backups,
+                    flush=True,
+                )
+
+                time.sleep(poll_seconds)
+                continue
+
+            # --------------------------------------------
+            # 2. VERIFY MATCHING HISTORY RECORD
+            # --------------------------------------------
+
+            expected_id = backup_client_id(
+                completed_backups,
+                trade_key,
+            )
+
+            matching_orders = [
+                order
+                for order in history
+                if isinstance(order, dict)
+                and str(
+                    order.get("clientOrderId", "")
+                ) == expected_id
+            ]
+
+            if len(matching_orders) != 1:
+
+                print(
+                    "UNIT 14 BACKUP TRANSITION BLOCKED: "
+                    "ORDER RECORD COUNT =",
+                    len(matching_orders),
+                    flush=True,
+                )
+
+                time.sleep(poll_seconds)
+                continue
+
+            matched_order = matching_orders[0]
+
+            reported_status = str(
+                matched_order.get("status", "")
+            ).upper().strip()
+
+            try:
+
+                reported_executed = Decimal(
+                    str(
+                        matched_order.get(
+                            "executedQty"
+                        )
+                    )
+                )
+
+                if (
+                    not reported_executed.is_finite()
+                    or reported_executed <= 0
+                ):
+                    raise ValueError(
+                        "INVALID EXECUTED QUANTITY"
+                    )
+
+            except Exception as exc:
+
+                print(
+                    "UNIT 14 BACKUP EXECUTION "
+                    "QUANTITY UNVERIFIED =",
+                    repr(exc),
+                    flush=True,
+                )
+
+                time.sleep(poll_seconds)
+                continue
+
+            if reported_status != "FILLED":
+
+                print(
+                    "UNIT 14 BACKUP FILL "
+                    "STATUS UNVERIFIED =",
+                    reported_status,
+                    flush=True,
+                )
+
+                time.sleep(poll_seconds)
+                continue
+
+            # --------------------------------------------
+            # 3. REPORT WHAT EXCHANGE HISTORY PROVES
+            # --------------------------------------------
+
             print(
-                "PASS: UNIT 14 BACKUP STAGE CHANGED "
-                f"{last_confirmed_backup_stage} -> "
-                f"{completed_backups}",
+                f"UNIT 14 B{completed_backups} "
+                "HISTORY STATUS = FILLED",
                 flush=True,
             )
 
             print(
-                "PASS: UNIT 14 POSITION RE-READ "
-                "AFTER CONFIRMED BACKUP FILL",
+                f"UNIT 14 B{completed_backups} "
+                "REPORTED EXECUTED QTY =",
+                reported_executed,
                 flush=True,
             )
 
             print(
-                "PASS: UNIT 14 NEW WEEX LIQUIDATION = "
-                f"{liquidation_price}",
+                "UNIT 14 CURRENT POSITION SIZE =",
+                position_size,
                 flush=True,
             )
+
+            print(
+                "UNIT 14 CURRENT LIQUIDATION =",
+                liquidation_price,
+                flush=True,
+            )
+
+            # --------------------------------------------
+            # 4. AVOID FALSE POSITION VERIFICATION
+            # --------------------------------------------
+
+            print(
+                "UNIT 14 POSITION SIZE INCREASE "
+                "RECONCILED = FALSE",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 RECONCILIATION REQUIRES "
+                "PRE-FILL POSITION SIZE AND "
+                "POST-FILL POSITION SIZE",
+                flush=True,
+            )
+
+            # This stage is history-observed only.
+            # Do not label it position-reconciled.
+            #
+            # Resetting trailing best mark ensures
+            # any changed position does not inherit
+            # the previous trailing price extreme.
 
             best_mark = None
 
@@ -18487,12 +18653,24 @@ def fresh_tp3_runtime(
             )
 
             print(
-                "PASS: UNIT 14 TP3 BEST MARK RESET "
-                "AFTER BACKUP FILL",
+                "UNIT 14 TP3 BEST MARK RESET "
+                "AFTER OBSERVED BACKUP FILL",
                 flush=True,
             )
 
-                # ====================================================
+            print(
+                "UNIT 14 NEW BACKUP AUTHORIZATION "
+                "REMAINS SUBJECT TO SAFETY GATES",
+                flush=True,
+            )
+
+        # ====================================================
+        # END CORRECTION 6
+        # INDENTATION: 8 SPACES
+        # 10E CONTINUES DIRECTLY BELOW
+        # ====================================================
+
+        # ====================================================
         # 10E. CONTINUOUS TP1 / TP2 MANAGEMENT
         #
         # UNIT 13 CALCULATED THE PLAN ONCE.
