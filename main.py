@@ -17468,33 +17468,52 @@ def fresh_tp3_runtime(
     # 8. ORDER HISTORY / BACKUP HELPERS
     # ========================================================
 
+    
+    # ========================================================
+    # CORRECTION 1 - STRICT ORDER HISTORY
+    # 4 SPACES INDENTATION
+    # ========================================================
+
     def get_order_history():
 
-        query = urllib.parse.urlencode(
-            {
-                "symbol":
-                    demo_symbol,
-
-                "limit":
-                    1000,
-
-                "page":
-                    0,
-            }
-        )
+        query = urllib.parse.urlencode({
+            "symbol": demo_symbol,
+            "limit": 1000,
+            "page": 0,
+        })
 
         history = authenticated_get(
             "/capi/v3/sim/order/history",
             query,
         )
 
-        if not isinstance(
-            history,
-            list,
-        ):
-            return []
+        if not isinstance(history, list):
+            raise RuntimeError(
+                "UNIT 14 BLOCKED: "
+                "ORDER HISTORY RESPONSE INVALID"
+            )
+
+        for index, order in enumerate(history):
+
+            if not isinstance(order, dict):
+                raise RuntimeError(
+                    "UNIT 14 BLOCKED: "
+                    "INVALID ORDER HISTORY RECORD "
+                    + str(index)
+                )
+
+        print(
+            "UNIT 14 ORDER HISTORY READ =",
+            len(history),
+            flush=True,
+        )
 
         return history
+
+    # ========================================================
+    # END CORRECTION 1
+    # 4 SPACES INDENTATION
+    # ========================================================
 
     def get_trade_key(
         position,
