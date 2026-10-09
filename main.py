@@ -20164,37 +20164,202 @@ def fresh_tp3_runtime(
 
             continue
 
+        
         # ====================================================
+        # START CORRECTION 3
         # 13F. BACKUP QUANTITY
+        # INDENTATION: 8 SPACES
+        # ====================================================
+
+        # Read leverage from the current WEEX position.
+        # Do not assume the Unit 2 target is active.
+
+        try:
+            raw_exchange_leverage = position.get(
+                "leverage"
+            )
+
+            if raw_exchange_leverage is None:
+                raw_exchange_leverage = position.get(
+                    "lever"
+                )
+
+            if raw_exchange_leverage is None:
+                raise ValueError(
+                    "EXCHANGE LEVERAGE FIELD MISSING"
+                )
+
+            exchange_leverage = Decimal(
+                str(raw_exchange_leverage)
+                .lower()
+                .replace("x", "")
+                .strip()
+            )
+
+            if (
+                not exchange_leverage.is_finite()
+                or exchange_leverage <= 0
+            ):
+                raise ValueError(
+                    "INVALID EXCHANGE LEVERAGE"
+                )
+
+            if (
+                not available_balance.is_finite()
+                or available_balance <= 0
+            ):
+                raise ValueError(
+                    "INVALID AVAILABLE BALANCE"
+                )
+
+            if (
+                not current_mark.is_finite()
+                or current_mark <= 0
+            ):
+                raise ValueError(
+                    "INVALID CURRENT MARK"
+                )
+
+            if (
+                backup_margin_percent <= 0
+                or backup_margin_percent > 100
+            ):
+                raise ValueError(
+                    "INVALID BACKUP MARGIN PERCENT"
+                )
+
+        except Exception as exc:
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                "BACKUP SIZING BLOCKED = "
+                f"{repr(exc)}",
+                flush=True,
+            )
+
+            time.sleep(poll_seconds)
+            continue
+
+        # ====================================================
+        # 1. CONFIGURED VERSUS EXCHANGE LEVERAGE
+        # ====================================================
+
+        print(
+            "UNIT 14 CONFIGURED LEVERAGE = "
+            f"{leverage_target}x",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 EXCHANGE POSITION LEVERAGE = "
+            f"{exchange_leverage}x",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 LEVERAGE MATCH = "
+            f"{exchange_leverage == leverage_target}",
+            flush=True,
+        )
+
+        # Difference is logged rather than assuming
+        # that the configured leverage is active.
+
+        # ====================================================
+        # 2. CALCULATE BACKUP USING EXCHANGE LEVERAGE
         # ====================================================
 
         backup_margin_amount = (
             available_balance
-            *
-            (
-                backup_margin_percent
-                /
-                Decimal("100")
-            )
+            * backup_margin_percent
+            / Decimal("100")
         )
 
         backup_notional = (
             backup_margin_amount
-            *
-            leverage_target
+            * exchange_leverage
         )
 
         raw_backup_quantity = (
             backup_notional
-            /
-            current_mark
+            / current_mark
         )
 
-        backup_quantity = (
-            floor_quantity(
-                raw_backup_quantity
-            )
+        backup_quantity = floor_quantity(
+            raw_backup_quantity
         )
+
+        # ====================================================
+        # 3. VALIDATE EXECUTABLE QUANTITY
+        # ====================================================
+
+        if (
+            not backup_quantity.is_finite()
+            or backup_quantity <= 0
+        ):
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                "BLOCKED: INVALID BACKUP QUANTITY",
+                flush=True,
+            )
+
+            time.sleep(poll_seconds)
+            continue
+
+        if backup_quantity < minimum_quantity:
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                "BLOCKED: QUANTITY BELOW MINIMUM",
+                flush=True,
+            )
+
+            time.sleep(poll_seconds)
+            continue
+
+        # ====================================================
+        # 4. RECHECK MARGIN AFTER STEP ROUNDING
+        # ====================================================
+
+        executable_notional = (
+            backup_quantity * current_mark
+        )
+
+        estimated_backup_margin = (
+            executable_notional
+            / exchange_leverage
+        )
+
+        if estimated_backup_margin > available_balance:
+            print(
+                f"UNIT 14 B{next_backup_stage} "
+                "BLOCKED: INSUFFICIENT AVAILABLE MARGIN",
+                flush=True,
+            )
+
+            time.sleep(poll_seconds)
+            continue
+
+        # ====================================================
+        # 5. PROJECT POSITION MARGIN
+        # ====================================================
+
+        current_position_notional = (
+            position_size * current_mark
+        )
+
+        estimated_position_margin = (
+            current_position_notional
+            / exchange_leverage
+        )
+
+        projected_position_margin = (
+            estimated_position_margin
+            + estimated_backup_margin
+        )
+
+        # This is a position-level estimate.
+        # It is not confirmed account-wide margin.
+        # Other positions, pending orders, fees and
+        # exchange maintenance margin are excluded.
 
         print(
             f"UNIT 14 B{next_backup_stage} "
@@ -20204,39 +20369,87 @@ def fresh_tp3_runtime(
 
         print(
             f"UNIT 14 B{next_backup_stage} "
-            f"MARGIN ALLOCATION = {backup_margin_amount}",
+            f"REQUESTED MARGIN = {backup_margin_amount}",
             flush=True,
         )
 
         print(
             f"UNIT 14 B{next_backup_stage} "
-            f"RAW QUANTITY = {raw_backup_quantity}",
+            f"RAW QTY = {raw_backup_quantity}",
             flush=True,
         )
 
         print(
             f"UNIT 14 B{next_backup_stage} "
-            f"NORMALIZED QUANTITY = {backup_quantity}",
+            f"EXECUTABLE QTY = {backup_quantity}",
             flush=True,
         )
 
-        if (
-            backup_quantity
-            <
-            minimum_quantity
-        ):
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"ESTIMATED BACKUP MARGIN = "
+            f"{estimated_backup_margin}",
+            flush=True,
+        )
 
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            f"PROJECTED POSITION MARGIN = "
+            f"{projected_position_margin}",
+            flush=True,
+        )
+
+        # ====================================================
+        # 6. REQUIRE COMPLETE ORDER-HISTORY VERIFICATION
+        # ====================================================
+
+        # Correction 2 deliberately leaves this False
+        # until complete history and outstanding orders
+        # have been verified.
+
+        if backup_history_verified is not True:
             print(
-                f"UNIT 14 B{next_backup_stage} BLOCKED: "
-                "QUANTITY BELOW MINIMUM",
+                f"UNIT 14 B{next_backup_stage} "
+                "SUBMISSION BLOCKED: "
+                "COMPLETE ORDER HISTORY UNVERIFIED",
                 flush=True,
             )
 
-            time.sleep(
-                poll_seconds
-            )
-
+            time.sleep(poll_seconds)
             continue
+
+        # ====================================================
+        # 7. ACCOUNT EXPOSURE SAFETY BOUNDARY
+        # ====================================================
+
+        # The existing configured exposure calculation
+        # is not sufficient to certify actual exchange
+        # margin utilization.
+        #
+        # Do not substitute available balance or the
+        # position-level estimate for account-wide
+        # used margin and pending-order commitments.
+        #
+        # Until authenticated account-wide exposure
+        # reconciliation is implemented, new backups
+        # must remain blocked.
+
+        print(
+            f"UNIT 14 B{next_backup_stage} "
+            "SUBMISSION BLOCKED: "
+            "ACCOUNT-WIDE EXPOSURE NOT YET VERIFIED",
+            flush=True,
+        )
+
+        time.sleep(poll_seconds)
+        continue
+
+        # ====================================================
+        # END CORRECTION 3
+        # INDENTATION: 8 SPACES
+        # 13G CONTINUES DIRECTLY BELOW
+        # ====================================================
+        
 
         # ====================================================
         # 13G. FINAL POSITION RECONCILIATION
