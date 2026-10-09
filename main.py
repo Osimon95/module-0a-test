@@ -3247,7 +3247,8 @@ def fresh_reconstruction_unit_4():
 
         "ema50":
             ema50,
-
+        "ema100":
+            ema100,
         "ema200":
             ema200,
 
