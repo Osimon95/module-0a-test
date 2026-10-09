@@ -5716,6 +5716,61 @@ def fresh_reconstruction_unit_6(
         else:
             exhaustion_score = 0.0
 
+        
+        # ====================================================
+        # UNIT 6 EARLY SCALP QUALITY / EXHAUSTION
+        # INDENTATION: 8 SPACES
+        # ====================================================
+
+        # EMA100 comes from the completed Unit 4 correction.
+        # EMA19/50 remains responsible for entry timing.
+
+        ema100_value = unit_4_analysis.get("ema100")
+
+        try:
+            ema100_value = float(ema100_value)
+        except (TypeError, ValueError):
+            raise RuntimeError(
+                "UNIT 6 BLOCKED: EMA100 NOT AVAILABLE"
+            )
+
+        if ema100_value <= 0:
+            raise RuntimeError(
+                "UNIT 6 BLOCKED: INVALID EMA100"
+            )
+
+        # EMA confidence is limited to 20 total points.
+        # EMA19/50 timing = 15 points maximum.
+        # EMA100 context = 5 points maximum.
+
+        ema_timing_score = min(ema_score, 15.0)
+
+        ema100_confidence = 0.0
+
+        if direction == "LONG":
+            if (
+                ema19 > ema50
+                and latest_close >= ema100_value
+            ):
+                ema100_confidence = 5.0
+            elif latest_close >= ema100_value:
+                ema100_confidence = 2.5
+
+        elif direction == "SHORT":
+            if (
+                ema19 < ema50
+                and latest_close <= ema100_value
+            ):
+                ema100_confidence = 5.0
+            elif latest_close <= ema100_value:
+                ema100_confidence = 2.5
+
+        ema_score = (
+            ema_timing_score + ema100_confidence
+        )
+
+        # Preserve existing 100-point quality structure.
+
         scalp_quality_score = round(
             ema_score
             + momentum_score
@@ -5728,16 +5783,109 @@ def fresh_reconstruction_unit_6(
             2,
         )
 
-        # Hard anti-chase protection in addition to scoring.
-        extreme_extension = extension_ratio > 2.50
-        extreme_spike = spike_ratio > 3.00
+        # Hard anti-chase restrictions.
+
+        extreme_extension = extension_ratio > 1.50
+        extreme_spike = spike_ratio > 2.00
+
+        # Detect a mature impulse with weakening momentum.
+        # Use only completed candles.
+
+        late_impulse = False
+
+        if len(candles) >= 7:
+
+            impulse_start = float(
+                candles[-6]["close"]
+            )
+
+            impulse_end = float(
+                candles[-1]["close"]
+            )
+
+            previous_move = (
+                float(candles[-2]["close"])
+                - float(candles[-3]["close"])
+            )
+
+            latest_move = (
+                float(candles[-1]["close"])
+                - float(candles[-2]["close"])
+            )
+
+            impulse_height_pct = (
+                abs(impulse_end - impulse_start)
+                / impulse_start * 100.0
+                if impulse_start > 0
+                else 0.0
+            )
+
+            impulse_ratio = (
+                impulse_height_pct
+                / average_cluster_height_pct
+                if average_cluster_height_pct > 0
+                else 999.0
+            )
+
+            if direction == "LONG":
+                weakening_momentum = (
+                    previous_move > 0
+                    and latest_move < previous_move
+                )
+                impulse_in_direction = (
+                    impulse_end > impulse_start
+                )
+            else:
+                weakening_momentum = (
+                    previous_move < 0
+                    and latest_move > previous_move
+                )
+                impulse_in_direction = (
+                    impulse_end < impulse_start
+                )
+
+            late_impulse = (
+                impulse_in_direction
+                and impulse_ratio > 3.0
+                and weakening_momentum
+                and extension_ratio > 1.0
+            )
 
         scalp_quality_pass = (
             scalp_quality_score >= scalp_quality_minimum
             and not extreme_extension
             and not extreme_spike
+            and not late_impulse
         )
 
+        print(
+            "UNIT 6 EMA100 CONFIDENCE =",
+            ema100_confidence,
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 EXTREME EXTENSION =",
+            extreme_extension,
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 EXTREME SPIKE =",
+            extreme_spike,
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 LATE IMPULSE =",
+            late_impulse,
+            flush=True,
+        )
+
+        # ====================================================
+        # END UNIT 6 EARLY SCALP QUALITY
+        # ====================================================
+        
         scalp_quality_details = {
             "minimum": scalp_quality_minimum,
             "score": scalp_quality_score,
