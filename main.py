@@ -17474,46 +17474,151 @@ def fresh_tp3_runtime(
     # 4 SPACES INDENTATION
     # ========================================================
 
+    
+    # ========================================================
+    # START CORRECTION 7
+    # STRICT PAGINATED WEEX DEMO ORDER HISTORY
+    # INDENTATION: 4 SPACES
+    # REPLACES CORRECTION 1
+    # ========================================================
+
     def get_order_history():
 
-        query = urllib.parse.urlencode({
-            "symbol": demo_symbol,
-            "limit": 1000,
-            "page": 0,
-        })
+        endpoint = "/capi/v3/sim/order/history"
 
-        history = authenticated_get(
-            "/capi/v3/sim/order/history",
-            query,
-        )
+        page_limit = 1000
+        maximum_pages = 20
 
-        if not isinstance(history, list):
-            raise RuntimeError(
-                "UNIT 14 BLOCKED: "
-                "ORDER HISTORY RESPONSE INVALID"
-            )
-
-        for index, order in enumerate(history):
-
-            if not isinstance(order, dict):
-                raise RuntimeError(
-                    "UNIT 14 BLOCKED: "
-                    "INVALID ORDER HISTORY RECORD "
-                    + str(index)
-                )
+        all_orders = []
+        seen_order_ids = set()
+        pagination_finished = False
 
         print(
-            "UNIT 14 ORDER HISTORY READ =",
-            len(history),
+            "UNIT 14 DEMO HISTORY PAGINATION START",
             flush=True,
         )
 
-        return history
+        for page_number in range(maximum_pages):
+
+            query = urllib.parse.urlencode({
+                "symbol": demo_symbol,
+                "limit": page_limit,
+                "page": page_number,
+            })
+
+            orders = authenticated_get(
+                endpoint,
+                query,
+            )
+
+            if not isinstance(orders, list):
+                raise RuntimeError(
+                    "UNIT 14 HISTORY BLOCKED: "
+                    "INVALID PAGE RESPONSE "
+                    + str(page_number)
+                )
+
+            if len(orders) > page_limit:
+                raise RuntimeError(
+                    "UNIT 14 HISTORY BLOCKED: "
+                    "PAGE LIMIT EXCEEDED"
+                )
+
+            for index, order in enumerate(orders):
+
+                if not isinstance(order, dict):
+                    raise RuntimeError(
+                        "UNIT 14 HISTORY BLOCKED: "
+                        f"INVALID RECORD {page_number}:{index}"
+                    )
+
+                if order.get("symbol") != demo_symbol:
+                    raise RuntimeError(
+                        "UNIT 14 HISTORY BLOCKED: "
+                        "ORDER SYMBOL MISMATCH"
+                    )
+
+                order_id = order.get("orderId")
+
+                if order_id is None:
+                    raise RuntimeError(
+                        "UNIT 14 HISTORY BLOCKED: "
+                        "ORDER ID MISSING"
+                    )
+
+                order_id = str(order_id).strip()
+
+                if not order_id:
+                    raise RuntimeError(
+                        "UNIT 14 HISTORY BLOCKED: "
+                        "EMPTY ORDER ID"
+                    )
+
+                if order_id in seen_order_ids:
+                    raise RuntimeError(
+                        "UNIT 14 HISTORY BLOCKED: "
+                        "DUPLICATE OR OVERLAPPING PAGE"
+                    )
+
+                seen_order_ids.add(order_id)
+                all_orders.append(order)
+
+            print(
+                "UNIT 14 HISTORY PAGE =",
+                page_number,
+                "| RECORDS =",
+                len(orders),
+                "| TOTAL =",
+                len(all_orders),
+                flush=True,
+            )
+
+            if len(orders) < page_limit:
+                pagination_finished = True
+                break
+
+        if pagination_finished is not True:
+            raise RuntimeError(
+                "UNIT 14 HISTORY BLOCKED: "
+                "MAXIMUM PAGINATION REACHED"
+            )
+
+        print(
+            "PASS: UNIT 14 AVAILABLE DEMO HISTORY "
+            "PAGES RETRIEVED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 HISTORY TOTAL ORDERS =",
+            len(all_orders),
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 HISTORY PAGINATION FINISHED =",
+            pagination_finished,
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 OPEN ORDERS VERIFIED = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 ACCOUNT MARGIN VERIFIED = FALSE",
+            flush=True,
+        )
+
+        return all_orders
 
     # ========================================================
-    # END CORRECTION 1
-    # 4 SPACES INDENTATION
+    # END CORRECTION 7
+    # INDENTATION: 4 SPACES
+    # GET_TRADE_KEY CONTINUES BELOW
     # ========================================================
+    
 
     def get_trade_key(
         position,
