@@ -2867,14 +2867,15 @@ def fresh_reconstruction_unit_4():
         flush=True,
     )
 
+    
+    
     # ========================================================
     # 13. EMA CALCULATION
+    # EMA19 / EMA50 / EMA100 / EMA200
+    # INDENTATION: 4 SPACES
     # ========================================================
 
-    def calculate_ema(
-        prices,
-        period,
-    ):
+    def calculate_ema(prices, period):
 
         if len(prices) < period:
             raise RuntimeError(
@@ -2882,64 +2883,30 @@ def fresh_reconstruction_unit_4():
                 + str(period)
             )
 
-        seed_prices = (
-            prices[
-                :period
-            ]
-        )
-
-        ema_value = (
-            sum(seed_prices)
-            /
-            period
-        )
-
-        multiplier = (
-            2.0
-            /
-            (
-                period
-                + 1.0
-            )
-        )
+        ema_value = sum(prices[:period]) / period
+        multiplier = 2.0 / (period + 1.0)
 
         for price in prices[period:]:
-
             ema_value = (
-                price
-                * multiplier
-                +
-                ema_value
-                * (
-                    1.0
-                    -
-                    multiplier
-                )
+                price * multiplier
+                + ema_value * (1.0 - multiplier)
             )
 
-        return float(
-            ema_value
+        return float(ema_value)
+
+    ema19 = calculate_ema(close_prices, 19)
+    ema50 = calculate_ema(close_prices, 50)
+    ema100 = calculate_ema(close_prices, 100)
+    ema200 = calculate_ema(close_prices, 200)
+
+    if any(
+        value <= 0
+        for value in (
+            ema19,
+            ema50,
+            ema100,
+            ema200,
         )
-
-    ema19 = calculate_ema(
-        close_prices,
-        19,
-    )
-
-    ema50 = calculate_ema(
-        close_prices,
-        50,
-    )
-
-    ema200 = calculate_ema(
-        close_prices,
-        200,
-    )
-
-    if (
-        ema19 <= 0
-        or ema50 <= 0
-        or ema200 <= 0
     ):
         raise RuntimeError(
             "UNIT 4 BLOCKED: INVALID EMA VALUE"
@@ -2947,31 +2914,32 @@ def fresh_reconstruction_unit_4():
 
     print(
         "PASS: UNIT 4 EMA19 =",
-        round(
-            ema19,
-            6,
-        ),
+        round(ema19, 6),
         flush=True,
     )
 
     print(
         "PASS: UNIT 4 EMA50 =",
-        round(
-            ema50,
-            6,
-        ),
+        round(ema50, 6),
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 EMA100 =",
+        round(ema100, 6),
         flush=True,
     )
 
     print(
         "PASS: UNIT 4 EMA200 =",
-        round(
-            ema200,
-            6,
-        ),
+        round(ema200, 6),
         flush=True,
     )
 
+    # ========================================================
+    # END UNIT 4 EMA CALCULATION
+    # UNIT 4 CONTINUES BELOW
+    # ========================================================
     # ========================================================
     # 14. EMA19 / EMA50 SEPARATION
     # ========================================================
