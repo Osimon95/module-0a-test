@@ -21379,6 +21379,719 @@ def unit14_normalize_unit13_tp_plan(
 # ZERO INDENTATION DEMARCATION
 # COMPLETE FUNCTION CLOSED
 # ============================================================
+
+
+# ============================================================
+# START UNIT 14 REPLACEMENT - PART 12
+# ZERO INDENTATION DEMARCATION
+# FINAL DIAGNOSTIC INTEGRATION
+# ============================================================
+
+def unit14_final_diagnostic_cycle(
+    config,
+    unit_13_result,
+    mark_price,
+    api_key,
+    api_secret,
+    api_passphrase,
+    closed_candles=None,
+    tp_order_records=None,
+    tp3_best_mark=None,
+):
+    """
+    UNIT 14 REPLACEMENT - PART 12
+
+    Connects the existing replacement components.
+
+    Performs one read-only diagnostic cycle.
+
+    Checks:
+      1. Configuration
+      2. WEEX demo position
+      3. Exchange leverage
+      4. Backup history
+      5. Liquidation trigger
+      6. Account margin evidence
+      7. Unit 13 TP compatibility
+      8. TP1 / TP2 status
+      9. TP3 trailing calculation
+     10. Backup and position safety
+
+    No exchange order submission.
+    No leverage mutation.
+    No real-money trading.
+
+    This function deliberately does not replace
+    the original continuous execution runtime.
+    """
+
+    from datetime import datetime, timezone
+    from decimal import Decimal, InvalidOperation
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 14 PART 12 - FINAL DIAGNOSTIC START",
+        flush=True,
+    )
+
+    result = {
+        "status": "BLOCKED",
+        "reason": "NOT_STARTED",
+        "timestamp": datetime.now(
+            timezone.utc
+        ).isoformat(),
+        "configuration": "NOT_CHECKED",
+        "position": "NOT_CHECKED",
+        "history": "NOT_CHECKED",
+        "backup_trigger": "NOT_CHECKED",
+        "account_risk": "NOT_CHECKED",
+        "unit13_tp": "NOT_CHECKED",
+        "tp1_tp2": "NOT_CHECKED",
+        "tp3": "NOT_CHECKED",
+        "new_backup_approved": False,
+        "tp_order_approved": False,
+        "exchange_writes": False,
+    }
+
+    def report(stage, state, reason):
+        result[stage] = state
+
+        print(
+            "UNIT 14 CHECK | "
+            f"{stage} = {state} | "
+            f"REASON = {reason}",
+            flush=True,
+        )
+
+    def finish(reason):
+        result["reason"] = reason
+
+        print("-" * 80, flush=True)
+
+        for key in (
+            "configuration",
+            "position",
+            "history",
+            "backup_trigger",
+            "account_risk",
+            "unit13_tp",
+            "tp1_tp2",
+            "tp3",
+        ):
+            print(
+                "UNIT 14 FINAL |",
+                key.upper(),
+                "=",
+                result[key],
+                flush=True,
+            )
+
+        print(
+            "UNIT 14 NEW BACKUP AUTHORIZED = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 TP ORDER AUTHORIZED = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 EXECUTION INTEGRATION = INCOMPLETE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 RESULT =",
+            result["status"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 REASON =",
+            reason,
+            flush=True,
+        )
+
+        print("=" * 80, flush=True)
+
+        return result
+
+    # ========================================================
+    # 1. VERIFY ALL REQUIRED COMPONENTS EXIST
+    # ========================================================
+
+    required_functions = (
+        "unit14_build_runtime_context",
+        "unit14_read_exchange_snapshot",
+        "unit14_read_backup_history",
+        "unit14_prepare_backup_trigger",
+        "unit14_reconcile_backup_position",
+        "unit14_validate_account_risk",
+        "unit14_tp3_market_analysis",
+        "unit14_tp3_dynamic_callback",
+        "unit14_tp3_evaluate_trailing",
+        "unit14_prepare_tp3_close",
+        "unit14_reconcile_tp3_close",
+        "unit14_manage_tp1_tp2",
+        "unit14_normalize_unit13_tp_plan",
+    )
+
+    missing = [
+        name
+        for name in required_functions
+        if not callable(globals().get(name))
+    ]
+
+    if missing:
+        report(
+            "configuration",
+            "FAIL",
+            "MISSING FUNCTIONS: " + str(missing),
+        )
+
+        return finish("INCOMPLETE_REPLACEMENT")
+
+    # ========================================================
+    # 2. CONFIGURATION
+    # ========================================================
+
+    try:
+        context = unit14_build_runtime_context(
+            config,
+            unit_13_result,
+        )
+
+        if not isinstance(context, dict):
+            raise RuntimeError("INVALID_CONTEXT")
+
+        if context.get("environment") != "DEMO":
+            raise RuntimeError("DEMO_REQUIRED")
+
+        if context.get("backup_submission_enabled") is not False:
+            raise RuntimeError("UNSAFE_BACKUP_FLAG")
+
+        if context.get("real_order_enabled") is not False:
+            raise RuntimeError("UNSAFE_REAL_ORDER_FLAG")
+
+    except Exception as exc:
+        report(
+            "configuration",
+            "FAIL",
+            repr(exc),
+        )
+
+        return finish("CONFIGURATION_FAILED")
+
+    report(
+        "configuration",
+        "PASS",
+        "DEMO READ-ONLY CONFIGURATION",
+    )
+
+    # ========================================================
+    # 3. VALIDATE MARK PRICE
+    # ========================================================
+
+    try:
+        mark = Decimal(str(mark_price))
+
+        if not mark.is_finite() or mark <= 0:
+            raise ValueError("INVALID_MARK")
+
+    except (InvalidOperation, TypeError, ValueError):
+        return finish("INVALID_MARK_PRICE")
+
+    # ========================================================
+    # 4. READ EXCHANGE POSITION AND BALANCE
+    # ========================================================
+
+    try:
+        snapshot = unit14_read_exchange_snapshot(
+            context,
+            api_key,
+            api_secret,
+            api_passphrase,
+        )
+
+        if not isinstance(snapshot, dict):
+            raise RuntimeError("INVALID_SNAPSHOT")
+
+        if snapshot.get("read_only") is not True:
+            raise RuntimeError("READ_ONLY_NOT_CONFIRMED")
+
+    except Exception as exc:
+        report(
+            "position",
+            "FAIL",
+            repr(exc),
+        )
+
+        return finish("POSITION_READ_FAILED")
+
+    if snapshot.get("position_exists") is not True:
+        report(
+            "position",
+            "IDLE",
+            "NO ACTIVE DEMO POSITION",
+        )
+
+        result["status"] = "IDLE"
+
+        return finish("NO_ACTIVE_POSITION")
+
+    position = snapshot.get("position")
+
+    if not isinstance(position, dict):
+        report(
+            "position",
+            "FAIL",
+            "POSITION RECORD MISSING",
+        )
+
+        return finish("POSITION_RECORD_INVALID")
+
+    report(
+        "position",
+        "PASS",
+        "EXCHANGE POSITION SNAPSHOT RECEIVED",
+    )
+
+    result["position_side"] = snapshot.get(
+        "position_side"
+    )
+
+    result["position_size"] = str(
+        snapshot.get("position_size")
+    )
+
+    result["exchange_leverage"] = (
+        str(snapshot.get("exchange_leverage"))
+    )
+
+    print(
+        "UNIT 14 EXCHANGE LEVERAGE =",
+        result["exchange_leverage"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 CONFIGURED LEVERAGE =",
+        context.get("configured_leverage"),
+        flush=True,
+    )
+
+    # ========================================================
+    # 5. BACKUP HISTORY
+    # ========================================================
+
+    try:
+        history = unit14_read_backup_history(
+            context,
+            api_key,
+            api_secret,
+            api_passphrase,
+            position,
+        )
+
+        if not isinstance(history, dict):
+            raise RuntimeError("INVALID_HISTORY")
+
+    except Exception as exc:
+        report(
+            "history",
+            "FAIL",
+            repr(exc),
+        )
+
+        return finish("BACKUP_HISTORY_FAILED")
+
+    result["completed_backups"] = history.get(
+        "completed_backups"
+    )
+
+    result["next_backup_stage"] = history.get(
+        "next_backup_stage"
+    )
+
+    if (
+        history.get("history_complete") is True
+        and history.get("pending_orders_verified") is True
+    ):
+        report(
+            "history",
+            "PASS",
+            "HISTORY AND PENDING ORDERS VERIFIED",
+        )
+
+    else:
+        report(
+            "history",
+            "UNVERIFIED",
+            "FULL ORDER STATE NOT ESTABLISHED",
+        )
+
+    # ========================================================
+    # 6. LIQUIDATION BUFFER
+    # ========================================================
+
+    try:
+        trigger = unit14_prepare_backup_trigger(
+            context,
+            snapshot,
+            history,
+            mark,
+        )
+
+        if not isinstance(trigger, dict):
+            raise RuntimeError("INVALID_TRIGGER")
+
+    except Exception as exc:
+        report(
+            "backup_trigger",
+            "FAIL",
+            repr(exc),
+        )
+
+        trigger = {}
+
+    result["backup_stage"] = trigger.get(
+        "backup_stage"
+    )
+
+    result["backup_trigger_reached"] = (
+        trigger.get("trigger_reached") is True
+    )
+
+    result["backup_trigger_price"] = trigger.get(
+        "trigger_price"
+    )
+
+    if trigger.get("approved") is True:
+        report(
+            "backup_trigger",
+            "PASS",
+            "TRIGGER CHECK PASSED",
+        )
+
+    elif trigger.get("reason") == "TRIGGER_NOT_REACHED":
+        report(
+            "backup_trigger",
+            "WAIT",
+            "PRICE HAS NOT REACHED BACKUP",
+        )
+
+    else:
+        report(
+            "backup_trigger",
+            "BLOCKED",
+            trigger.get("reason", "UNVERIFIED"),
+        )
+
+    # ========================================================
+    # 7. ACCOUNT RISK
+    # ========================================================
+
+    try:
+        account_risk = unit14_validate_account_risk(
+            context,
+            snapshot,
+            history,
+            mark,
+        )
+
+        if not isinstance(account_risk, dict):
+            raise RuntimeError("INVALID_RISK_RESULT")
+
+    except Exception as exc:
+        report(
+            "account_risk",
+            "FAIL",
+            repr(exc),
+        )
+
+        account_risk = {}
+
+    result["backup_quantity_estimate"] = (
+        account_risk.get("backup_quantity")
+    )
+
+    result["estimated_backup_margin"] = (
+        account_risk.get("estimated_backup_margin")
+    )
+
+    if account_risk.get("approved") is True:
+        report(
+            "account_risk",
+            "PASS",
+            "ACCOUNT RISK VERIFIED",
+        )
+
+    else:
+        report(
+            "account_risk",
+            "BLOCKED",
+            account_risk.get(
+                "reason",
+                "ACCOUNT_RISK_UNVERIFIED",
+            ),
+        )
+
+    # ========================================================
+    # 8. NORMALIZE UNIT 13 TP PLAN
+    # ========================================================
+
+    try:
+        normalized = unit14_normalize_unit13_tp_plan(
+            context,
+            unit_13_result,
+            snapshot,
+        )
+
+        if not isinstance(normalized, dict):
+            raise RuntimeError("INVALID_TP_NORMALIZATION")
+
+    except Exception as exc:
+        report(
+            "unit13_tp",
+            "FAIL",
+            repr(exc),
+        )
+
+        normalized = {}
+
+    tp_plan = normalized.get("tp_plan")
+
+    if (
+        normalized.get("verified") is True
+        and isinstance(tp_plan, dict)
+    ):
+        report(
+            "unit13_tp",
+            "PASS",
+            "NORMALIZED TP TARGETS AND QUANTITIES",
+        )
+
+    else:
+        report(
+            "unit13_tp",
+            "BLOCKED",
+            normalized.get(
+                "reason",
+                "TP_PLAN_UNVERIFIED",
+            ),
+        )
+
+    # ========================================================
+    # 9. TP1 / TP2 MANAGEMENT
+    # ========================================================
+
+    # TP history must be provided separately.
+    # Backup history summary cannot be substituted
+    # for verified complete TP order records.
+
+    if not isinstance(tp_plan, dict):
+        report(
+            "tp1_tp2",
+            "BLOCKED",
+            "TP_PLAN_NOT_AVAILABLE",
+        )
+
+        tp_status = {}
+
+    elif not isinstance(tp_order_records, list):
+        report(
+            "tp1_tp2",
+            "BLOCKED",
+            "TP_ORDER_RECORDS_NOT_SUPPLIED",
+        )
+
+        tp_status = {}
+
+    else:
+        trade_key = history.get("trade_key")
+
+        try:
+            tp_status = unit14_manage_tp1_tp2(
+                context,
+                snapshot,
+                mark,
+                tp_plan,
+                tp_order_records,
+                trade_key,
+            )
+
+            if not isinstance(tp_status, dict):
+                raise RuntimeError("INVALID_TP_RESULT")
+
+            if tp_status.get("evaluated") is True:
+                report(
+                    "tp1_tp2",
+                    "ANALYZED",
+                    tp_status.get(
+                        "reason",
+                        "NO_REASON",
+                    ),
+                )
+
+            else:
+                report(
+                    "tp1_tp2",
+                    "BLOCKED",
+                    tp_status.get(
+                        "reason",
+                        "NOT_EVALUATED",
+                    ),
+                )
+
+        except Exception as exc:
+            tp_status = {}
+
+            report(
+                "tp1_tp2",
+                "FAIL",
+                repr(exc),
+            )
+
+    result["tp1_completed"] = (
+        tp_status.get("tp1_completed") is True
+    )
+
+    result["tp2_completed"] = (
+        tp_status.get("tp2_completed") is True
+    )
+
+    result["tp3_armed"] = (
+        tp_status.get("tp3_armed") is True
+    )
+
+    result["next_tp_action"] = tp_status.get(
+        "tp_action",
+        "NONE",
+    )
+
+    # ========================================================
+    # 10. TP3 DYNAMIC TRAILING
+    # ========================================================
+
+    if result["tp3_armed"] is not True:
+        report(
+            "tp3",
+            "WAIT",
+            "TP1 AND TP2 NOT BOTH VERIFIED COMPLETE",
+        )
+
+    elif not isinstance(closed_candles, list):
+        report(
+            "tp3",
+            "BLOCKED",
+            "CLOSED CANDLES NOT SUPPLIED",
+        )
+
+    elif not isinstance(tp_plan, dict):
+        report(
+            "tp3",
+            "BLOCKED",
+            "TP RUNNER PLAN MISSING",
+        )
+
+    elif type(result["completed_backups"]) is not int:
+        report(
+            "tp3",
+            "BLOCKED",
+            "BACKUP COUNT UNVERIFIED",
+        )
+
+    else:
+        try:
+            analysis = unit14_tp3_market_analysis(
+                closed_candles
+            )
+
+            trailing = unit14_tp3_evaluate_trailing(
+                context=context,
+                position_side=snapshot["position_side"],
+                current_mark=mark,
+                previous_best_mark=tp3_best_mark,
+                analysis=analysis,
+                tp3_armed=True,
+                position_size=snapshot["position_size"],
+                original_runner_quantity=(
+                    tp_plan["tp3_quantity"]
+                ),
+                confirmed_backup_count=(
+                    result["completed_backups"]
+                ),
+            )
+
+            if not isinstance(trailing, dict):
+                raise RuntimeError(
+                    "INVALID_TRAILING_RESULT"
+                )
+
+            result["tp3_callback_reached"] = (
+                trailing.get("callback_reached") is True
+            )
+
+            result["tp3_best_mark"] = (
+                trailing.get("best_mark")
+            )
+
+            result["tp3_callback_percent"] = (
+                trailing.get("callback_percent")
+            )
+
+            if trailing.get("evaluated") is True:
+                report(
+                    "tp3",
+                    "ANALYZED",
+                    trailing.get("reason"),
+                )
+
+            else:
+                report(
+                    "tp3",
+                    "BLOCKED",
+                    trailing.get("reason"),
+                )
+
+        except Exception as exc:
+            report(
+                "tp3",
+                "FAIL",
+                repr(exc),
+            )
+
+    # ========================================================
+    # 11. FINAL EXECUTION BOUNDARIES
+    # ========================================================
+
+    # No order-submission pathway exists in this
+    # diagnostic coordinator.
+    #
+    # Order history, pending order checks, account
+    # margin and cross-instance locking still
+    # require verified exchange integration.
+    #
+    # No amount of successful local calculations
+    # can automatically authorize a demo order.
+
+    result["new_backup_approved"] = False
+    result["tp_order_approved"] = False
+    result["exchange_writes"] = False
+
+    result["status"] = "READ_ONLY_DIAGNOSTIC"
+
+    return finish(
+        "INTEGRATION_CHECK_COMPLETED_WITH_EXECUTION_BLOCKED"
+    )
+
+
+# ============================================================
+# END UNIT 14 REPLACEMENT - PART 12
+# ZERO INDENTATION DEMARCATION
+# COMPLETE FUNCTION CLOSED
+# ============================================================
 def unit14_verify_backup_fill(
     before_quantity,
     after_quantity,
