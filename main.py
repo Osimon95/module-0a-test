@@ -17629,6 +17629,419 @@ def unit14_reconcile_backup_position(
 # ZERO INDENTATION DEMARCATION
 # ALL FUNCTIONS CLOSED
 # ============================================================
+
+
+# ============================================================
+# START UNIT 14 REPLACEMENT - PART 5
+# ZERO INDENTATION DEMARCATION
+# ACCOUNT MARGIN AND PENDING-ORDER SAFETY
+# ============================================================
+
+def unit14_validate_account_risk(
+    context,
+    snapshot,
+    history_result,
+    mark_price,
+):
+    """
+    UNIT 14 REPLACEMENT - PART 5
+
+    Validate available WEEX demo account risk data.
+
+    Uses balance fields returned by Part 2.
+
+    Does not assume frozen margin equals all used margin.
+    Does not assume absent order history means no orders.
+
+    No exchange writes.
+    No order submission.
+    """
+
+    from decimal import (
+        Decimal,
+        InvalidOperation,
+        ROUND_DOWN,
+    )
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 14 PART 5 START - ACCOUNT RISK",
+        flush=True,
+    )
+
+    result = {
+        "approved": False,
+        "reason": "NOT_VERIFIED",
+        "account_equity": None,
+        "available_balance": None,
+        "frozen_balance": None,
+        "estimated_backup_margin": None,
+        "backup_quantity": "0",
+        "exchange_leverage": None,
+        "history_verified": False,
+        "pending_orders_verified": False,
+        "account_margin_verified": False,
+        "backup_submission_approved": False,
+    }
+
+    def block(reason):
+        result["reason"] = reason
+
+        print(
+            "UNIT 14 PART 5 BLOCKED:",
+            reason,
+            flush=True,
+        )
+
+        return result
+
+    def decimal_number(value, name):
+        try:
+            number = Decimal(str(value))
+        except (
+            InvalidOperation,
+            TypeError,
+            ValueError,
+        ):
+            raise ValueError(name + "_INVALID")
+
+        if not number.is_finite():
+            raise ValueError(name + "_NONFINITE")
+
+        return number
+
+    # ========================================================
+    # 1. VALIDATE CONTEXT
+    # ========================================================
+
+    if not isinstance(context, dict):
+        return block("INVALID_CONTEXT")
+
+    if not isinstance(snapshot, dict):
+        return block("INVALID_EXCHANGE_SNAPSHOT")
+
+    if not isinstance(history_result, dict):
+        return block("INVALID_HISTORY_RESULT")
+
+    if context.get("environment") != "DEMO":
+        return block("DEMO_ENVIRONMENT_REQUIRED")
+
+    if snapshot.get("environment") != "DEMO":
+        return block("INVALID_SNAPSHOT_ENVIRONMENT")
+
+    if snapshot.get("symbol") != "BTCSUSDT":
+        return block("INVALID_DEMO_SYMBOL")
+
+    if snapshot.get("read_only") is not True:
+        return block("SNAPSHOT_NOT_READ_ONLY")
+
+    balance = snapshot.get("balance_record")
+
+    if not isinstance(balance, dict):
+        return block("BALANCE_RECORD_MISSING")
+
+    if str(balance.get("asset", "")).upper() != "SUSDT":
+        return block("INVALID_BALANCE_ASSET")
+
+    # ========================================================
+    # 2. VALIDATE WEEX BALANCE FIELDS
+    # ========================================================
+
+    required_balance_fields = (
+        "balance",
+        "availableBalance",
+        "frozen",
+        "unrealizePnl",
+    )
+
+    for field in required_balance_fields:
+        if balance.get(field) is None:
+            return block(
+                "MISSING_BALANCE_FIELD_" + field
+            )
+
+    try:
+        wallet_balance = decimal_number(
+            balance["balance"],
+            "WALLET_BALANCE",
+        )
+
+        available = decimal_number(
+            balance["availableBalance"],
+            "AVAILABLE_BALANCE",
+        )
+
+        frozen = decimal_number(
+            balance["frozen"],
+            "FROZEN_BALANCE",
+        )
+
+        unrealized_pnl = decimal_number(
+            balance["unrealizePnl"],
+            "UNREALIZED_PNL",
+        )
+
+    except ValueError as exc:
+        return block(str(exc))
+
+    if wallet_balance < 0:
+        return block("NEGATIVE_WALLET_BALANCE")
+
+    if available < 0:
+        return block("NEGATIVE_AVAILABLE_BALANCE")
+
+    if frozen < 0:
+        return block("NEGATIVE_FROZEN_BALANCE")
+
+    # Estimate equity using the documented fields.
+    # This is not a substitute for a confirmed
+    # account-wide margin exposure record.
+
+    estimated_equity = (
+        wallet_balance + unrealized_pnl
+    )
+
+    if estimated_equity <= 0:
+        return block("NON_POSITIVE_ACCOUNT_EQUITY")
+
+    result["account_equity"] = str(estimated_equity)
+    result["available_balance"] = str(available)
+    result["frozen_balance"] = str(frozen)
+
+    print(
+        "UNIT 14 WALLET BALANCE =",
+        wallet_balance,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 AVAILABLE BALANCE =",
+        available,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 FROZEN BALANCE =",
+        frozen,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 UNREALIZED PNL =",
+        unrealized_pnl,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 ESTIMATED EQUITY =",
+        estimated_equity,
+        flush=True,
+    )
+
+    # ========================================================
+    # 3. VERIFY EXCHANGE LEVERAGE
+    # ========================================================
+
+    if snapshot.get("position_exists") is not True:
+        return block("NO_ACTIVE_POSITION")
+
+    if snapshot.get("position_side") not in (
+        "LONG",
+        "SHORT",
+    ):
+        return block("INVALID_POSITION_SIDE")
+
+    try:
+        leverage = decimal_number(
+            snapshot.get("exchange_leverage"),
+            "EXCHANGE_LEVERAGE",
+        )
+
+        mark = decimal_number(
+            mark_price,
+            "MARK_PRICE",
+        )
+
+        backup_percent = decimal_number(
+            context.get("backup_margin_percent"),
+            "BACKUP_PERCENT",
+        )
+
+        exposure_cap = decimal_number(
+            context.get("exposure_cap_percent"),
+            "EXPOSURE_CAP",
+        )
+
+        quantity_step = decimal_number(
+            context.get("quantity_step"),
+            "QUANTITY_STEP",
+        )
+
+        minimum_quantity = decimal_number(
+            context.get("minimum_quantity"),
+            "MINIMUM_QUANTITY",
+        )
+
+    except ValueError as exc:
+        return block(str(exc))
+
+    if leverage <= 0:
+        return block("INVALID_EXCHANGE_LEVERAGE")
+
+    if mark <= 0:
+        return block("INVALID_MARK_PRICE")
+
+    if not Decimal("0") < backup_percent <= Decimal("100"):
+        return block("INVALID_BACKUP_PERCENT")
+
+    if not Decimal("0") < exposure_cap <= Decimal("100"):
+        return block("INVALID_EXPOSURE_CAP")
+
+    if quantity_step <= 0 or minimum_quantity <= 0:
+        return block("INVALID_QUANTITY_PRECISION")
+
+    result["exchange_leverage"] = str(leverage)
+
+    # ========================================================
+    # 4. CALCULATE STEP-AWARE BACKUP QUANTITY
+    # ========================================================
+
+    requested_margin = (
+        available
+        * backup_percent
+        / Decimal("100")
+    )
+
+    raw_quantity = (
+        requested_margin * leverage / mark
+    )
+
+    steps = (
+        raw_quantity / quantity_step
+    ).to_integral_value(
+        rounding=ROUND_DOWN
+    )
+
+    backup_quantity = steps * quantity_step
+
+    if backup_quantity < minimum_quantity:
+        return block("BACKUP_QUANTITY_BELOW_MINIMUM")
+
+    estimated_backup_margin = (
+        backup_quantity * mark / leverage
+    )
+
+    result["backup_quantity"] = str(
+        backup_quantity
+    )
+
+    result["estimated_backup_margin"] = str(
+        estimated_backup_margin
+    )
+
+    if estimated_backup_margin > available:
+        return block("INSUFFICIENT_AVAILABLE_BALANCE")
+
+    print(
+        "UNIT 14 ACTUAL EXCHANGE LEVERAGE =",
+        leverage,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 BACKUP QUANTITY =",
+        backup_quantity,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 ESTIMATED BACKUP MARGIN =",
+        estimated_backup_margin,
+        flush=True,
+    )
+
+    # ========================================================
+    # 5. CHECK HISTORICAL BACKUP EVIDENCE
+    # ========================================================
+
+    completed = history_result.get(
+        "completed_backups"
+    )
+
+    if type(completed) is not int:
+        return block("INVALID_COMPLETED_BACKUP_COUNT")
+
+    if completed < 0 or completed > 3:
+        return block("BACKUP_COUNT_OUT_OF_RANGE")
+
+    if completed >= 3:
+        return block("MAXIMUM_THREE_BACKUPS_REACHED")
+
+    if history_result.get("uncertain_stages"):
+        return block("UNRESOLVED_BACKUP_HISTORY")
+
+    if history_result.get("duplicate_stages"):
+        return block("DUPLICATE_BACKUP_HISTORY")
+
+    if history_result.get(
+        "pagination_terminated"
+    ) is not True:
+        return block("HISTORY_PAGINATION_UNVERIFIED")
+
+    # Part 3's historical list is only one source.
+    # It cannot certify all active/pending orders.
+
+    if history_result.get(
+        "history_complete"
+    ) is not True:
+        return block("COMPLETE_ORDER_HISTORY_UNVERIFIED")
+
+    result["history_verified"] = True
+
+    # ========================================================
+    # 6. REQUIRE PENDING ORDER CERTIFICATION
+    # ========================================================
+
+    if history_result.get(
+        "pending_orders_verified"
+    ) is not True:
+        return block("PENDING_ORDERS_NOT_VERIFIED")
+
+    result["pending_orders_verified"] = True
+
+    # ========================================================
+    # 7. REQUIRE ACCOUNT-WIDE EXPOSURE EVIDENCE
+    # ========================================================
+
+    # Frozen funds are not automatically the same as
+    # total margin committed across all positions.
+    #
+    # The exact used-margin figure and pending margin
+    # reservations must be independently confirmed.
+    #
+    # Do not authorize execution from an estimate.
+
+    if snapshot.get(
+        "account_margin_verified"
+    ) is not True:
+        return block("ACCOUNT_MARGIN_NOT_VERIFIED")
+
+    # No approved account-wide margin figures are
+    # currently provided by Parts 2-4.
+    #
+    # Therefore this part deliberately cannot promote
+    # the result to submission approval.
+
+    return block(
+        "ACCOUNT_EXPOSURE_RECONCILIATION_REQUIRED"
+    )
+
+
+# ============================================================
+# END UNIT 14 REPLACEMENT - PART 5
+# ZERO INDENTATION DEMARCATION
+# COMPLETE FUNCTION CLOSED
+# ============================================================
 def unit14_verify_backup_fill(
     before_quantity,
     after_quantity,
