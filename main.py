@@ -4998,7 +4998,7 @@ def fresh_reconstruction_unit_6(
         flush=True,
     )
 
-        # --------------------------------------------------------
+    # --------------------------------------------------------
     # LEVERAGE-AWARE SCALP / SIDEWAYS REGIME GATE
     # --------------------------------------------------------
 
@@ -5024,19 +5024,31 @@ def fresh_reconstruction_unit_6(
     # LEVERAGE BANDS
     # --------------------------------------------------------
 
+    
+    # ========================================================
+    # UNIT 6 EARLY SCALP SETTINGS
+    # 100X LEVERAGE BAND
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
     if leverage_target >= 100:
 
         leverage_regime = "GE_100X"
 
-        scalp_quality_minimum = 80.0
+        scalp_quality_minimum = 70.0
 
-        persistence_window = 4
+        persistence_window = 3
 
-        persistence_required = 3
+        persistence_required = 2
 
         compression_threshold_pct = 0.050
 
-        require_15m_agreement = True
+        require_15m_agreement = False
+
+    # ========================================================
+    # END 100X EARLY SCALP SETTINGS
+    # NEXT LINE: elif leverage_target >= 50:
+    # ========================================================
 
     elif leverage_target >= 50:
 
@@ -5268,7 +5280,7 @@ def fresh_reconstruction_unit_6(
         move_5m = float(unit_5_candidate.get("move_5m_pct", 0.0))
         move_15m = float(unit_5_candidate.get("move_15m_pct", 0.0))
 
-                # ====================================================
+        # ====================================================
         # LEVERAGE-AWARE SIDEWAYS / CHOP DETECTION
         # ====================================================
 
