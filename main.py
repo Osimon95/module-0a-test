@@ -684,6 +684,49 @@ def fresh_reconstruction_unit_2():
             "INVALID EXPOSURE CAP"
         )
 
+    
+    # ========================================================
+    # START UNIT 2 SIZE PROTECTION
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    # Configuration limits for all entry modes.
+    # Actual exchange margin must also be checked
+    # by the execution units before orders.
+
+    if strategy["initial_margin_percent"] > 5.0:
+        validation_errors.append(
+            "INITIAL ENTRY MARGIN EXCEEDS 5%"
+        )
+
+    if strategy["backup_margin_percent"] > 5.0:
+        validation_errors.append(
+            "BACKUP MARGIN EXCEEDS 5%"
+        )
+
+    if strategy["exposure_cap_percent"] > 35.0:
+        validation_errors.append(
+            "EXPOSURE CAP EXCEEDS 35%"
+        )
+
+    configured_staged_exposure = (
+        strategy["initial_margin_percent"]
+        + strategy["max_backups"]
+        * strategy["backup_margin_percent"]
+    )
+
+    if (
+        configured_staged_exposure
+        > strategy["exposure_cap_percent"]
+    ):
+        validation_errors.append(
+            "STAGED MARGIN EXCEEDS EXPOSURE CAP"
+        )
+
+    # ========================================================
+    # END UNIT 2 SIZE PROTECTION
+    # INDENTATION: 4 SPACES
+    # ========================================================
     # --------------------------------------------------------
     # TP ALLOCATION VALIDATION
     # --------------------------------------------------------
