@@ -3324,6 +3324,7 @@ def fresh_reconstruction_unit_4():
         "exchange_time_ms",
         "ema19",
         "ema50",
+        "ema100",
         "ema200",
         "ema19_50_separation_pct",
         "short_term_move_pct",
