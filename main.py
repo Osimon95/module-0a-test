@@ -20892,6 +20892,493 @@ def unit14_coordinate_management(
 # ZERO INDENTATION DEMARCATION
 # COMPLETE FUNCTION CLOSED
 # ============================================================
+
+
+# ============================================================
+# START UNIT 14 REPLACEMENT - PART 11
+# ZERO INDENTATION DEMARCATION
+# UNIT 13 TP PLAN COMPATIBILITY
+# ============================================================
+
+def unit14_normalize_unit13_tp_plan(
+    context,
+    unit_13_result,
+    snapshot,
+):
+    """
+    UNIT 14 REPLACEMENT - PART 11
+
+    Normalize actual Unit 13 TP plan fields.
+
+    Accepted target names:
+      tp1_target
+      tp2_target
+      tp1_target_price
+      tp2_target_price
+
+    Quantity names:
+      tp1_quantity
+      tp2_quantity
+      tp3_quantity
+
+    Validate:
+      - Demo environment
+      - Position direction
+      - Executable quantity steps
+      - Correct TP target direction
+      - TP allocation consistency
+      - Existing Unit 13 completion flags
+
+    Read-only.
+    No API requests.
+    No order submission.
+    """
+
+    from decimal import (
+        Decimal,
+        InvalidOperation,
+    )
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 14 PART 11 START - TP PLAN",
+        flush=True,
+    )
+
+    result = {
+        "verified": False,
+        "reason": "NOT_VERIFIED",
+        "tp_plan": None,
+        "tp1_completed": False,
+        "tp2_completed": False,
+        "tp3_armed": False,
+        "submission_authorized": False,
+    }
+
+    def block(reason):
+        result["reason"] = reason
+
+        print(
+            "UNIT 14 TP PLAN BLOCKED:",
+            reason,
+            flush=True,
+        )
+
+        return result
+
+    def D(value, label):
+        try:
+            number = Decimal(str(value))
+        except (
+            InvalidOperation,
+            TypeError,
+            ValueError,
+        ):
+            raise ValueError(
+                "INVALID_" + label
+            )
+
+        if not number.is_finite():
+            raise ValueError(
+                "NONFINITE_" + label
+            )
+
+        return number
+
+    # ========================================================
+    # 1. CONTRACT VALIDATION
+    # ========================================================
+
+    if not isinstance(context, dict):
+        return block("INVALID_CONTEXT")
+
+    if not isinstance(unit_13_result, dict):
+        return block("INVALID_UNIT13_RESULT")
+
+    if not isinstance(snapshot, dict):
+        return block("INVALID_POSITION_SNAPSHOT")
+
+    if context.get("environment") != "DEMO":
+        return block("NON_DEMO_CONTEXT")
+
+    if context.get("demo_symbol") != "BTCSUSDT":
+        return block("INVALID_DEMO_SYMBOL")
+
+    if snapshot.get("symbol") != "BTCSUSDT":
+        return block("POSITION_SYMBOL_MISMATCH")
+
+    if snapshot.get("read_only") is not True:
+        return block("UNVERIFIED_SNAPSHOT")
+
+    if snapshot.get("position_exists") is not True:
+        return block("NO_ACTIVE_POSITION")
+
+    # ========================================================
+    # 2. VERIFY POSITION DIRECTION
+    # ========================================================
+
+    position_side = snapshot.get(
+        "position_side"
+    )
+
+    if position_side not in ("LONG", "SHORT"):
+        return block("INVALID_POSITION_SIDE")
+
+    unit13_side = str(
+        unit_13_result.get(
+            "position_side",
+            "",
+        )
+    ).upper()
+
+    if unit13_side != position_side:
+        return block("UNIT13_POSITION_SIDE_MISMATCH")
+
+    # ========================================================
+    # 3. NORMALIZE TARGET PRICES
+    # ========================================================
+
+    def target_value(short_name, long_name):
+
+        short_value = unit_13_result.get(
+            short_name
+        )
+
+        long_value = unit_13_result.get(
+            long_name
+        )
+
+        if (
+            short_value is None
+            and long_value is None
+        ):
+            raise ValueError(
+                "MISSING_" + short_name
+            )
+
+        if short_value is not None:
+            first = D(
+                short_value,
+                short_name,
+            )
+
+            if long_value is not None:
+                second = D(
+                    long_value,
+                    long_name,
+                )
+
+                if first != second:
+                    raise ValueError(
+                        "CONFLICTING_" + short_name
+                    )
+
+            return first
+
+        return D(
+            long_value,
+            long_name,
+        )
+
+    try:
+        tp1_target = target_value(
+            "tp1_target",
+            "tp1_target_price",
+        )
+
+        tp2_target = target_value(
+            "tp2_target",
+            "tp2_target_price",
+        )
+
+    except ValueError as exc:
+        return block(str(exc))
+
+    if tp1_target <= 0 or tp2_target <= 0:
+        return block("NONPOSITIVE_TP_TARGET")
+
+    # ========================================================
+    # 4. NORMALIZE QUANTITIES
+    # ========================================================
+
+    for field in (
+        "tp1_quantity",
+        "tp2_quantity",
+        "tp3_quantity",
+    ):
+        if field not in unit_13_result:
+            return block(
+                "UNIT13_MISSING_" + field
+            )
+
+    try:
+        tp1_quantity = D(
+            unit_13_result["tp1_quantity"],
+            "TP1_QUANTITY",
+        )
+
+        tp2_quantity = D(
+            unit_13_result["tp2_quantity"],
+            "TP2_QUANTITY",
+        )
+
+        tp3_quantity = D(
+            unit_13_result["tp3_quantity"],
+            "TP3_QUANTITY",
+        )
+
+        quantity_step = D(
+            context.get("quantity_step"),
+            "QUANTITY_STEP",
+        )
+
+        minimum_quantity = D(
+            context.get("minimum_quantity"),
+            "MINIMUM_QUANTITY",
+        )
+
+        position_size = D(
+            snapshot.get("position_size"),
+            "POSITION_SIZE",
+        )
+
+    except ValueError as exc:
+        return block(str(exc))
+
+    if quantity_step <= 0 or minimum_quantity <= 0:
+        return block("INVALID_MARKET_PRECISION")
+
+    if position_size <= 0:
+        return block("INVALID_POSITION_SIZE")
+
+    if any(
+        quantity < 0
+        for quantity in (
+            tp1_quantity,
+            tp2_quantity,
+            tp3_quantity,
+        )
+    ):
+        return block("NEGATIVE_TP_QUANTITY")
+
+    total_quantity = (
+        tp1_quantity
+        + tp2_quantity
+        + tp3_quantity
+    )
+
+    if total_quantity <= 0:
+        return block("ZERO_TP_ALLOCATION")
+
+    # ========================================================
+    # 5. QUANTITY STEP CONSISTENCY
+    # ========================================================
+
+    for label, quantity in (
+        ("TP1", tp1_quantity),
+        ("TP2", tp2_quantity),
+        ("TP3", tp3_quantity),
+    ):
+        if quantity == 0:
+            continue
+
+        if quantity < minimum_quantity:
+            return block(
+                label + "_BELOW_MINIMUM"
+            )
+
+        if (
+            quantity / quantity_step
+        ) != (
+            quantity / quantity_step
+        ).to_integral_value():
+            return block(
+                label + "_NOT_STEP_ALIGNED"
+            )
+
+    # ========================================================
+    # 6. TP TARGET DIRECTION
+    # ========================================================
+
+    if position_side == "LONG":
+
+        if tp2_target <= tp1_target:
+            return block(
+                "LONG_TP2_NOT_ABOVE_TP1"
+            )
+
+    else:
+
+        if tp2_target >= tp1_target:
+            return block(
+                "SHORT_TP2_NOT_BELOW_TP1"
+            )
+
+    # ========================================================
+    # 7. EXISTING UNIT 13 TP FLAGS
+    # ========================================================
+
+    for flag in (
+        "tp1_completed",
+        "tp2_completed",
+        "tp3_armed",
+    ):
+        if flag in unit_13_result:
+            if type(unit_13_result[flag]) is not bool:
+                return block(
+                    "INVALID_UNIT13_FLAG_" + flag
+                )
+
+    tp1_completed = (
+        unit_13_result.get(
+            "tp1_completed",
+            False,
+        ) is True
+    )
+
+    tp2_completed = (
+        unit_13_result.get(
+            "tp2_completed",
+            False,
+        ) is True
+    )
+
+    tp3_armed = (
+        unit_13_result.get(
+            "tp3_armed",
+            False,
+        ) is True
+    )
+
+    if tp2_completed and not tp1_completed:
+        return block(
+            "TP2_COMPLETED_WITHOUT_TP1"
+        )
+
+    if tp3_armed and not (
+        tp1_completed and tp2_completed
+    ):
+        return block(
+            "TP3_ARMED_BEFORE_TP1_TP2"
+        )
+
+    # ========================================================
+    # 8. NORMALIZED TP PLAN
+    # ========================================================
+
+    normalized_plan = {
+        "tp1_target": str(tp1_target),
+        "tp2_target": str(tp2_target),
+        "tp1_quantity": str(tp1_quantity),
+        "tp2_quantity": str(tp2_quantity),
+        "tp3_quantity": str(tp3_quantity),
+
+        "position_side": position_side,
+        "position_size": str(position_size),
+
+        "tp1_completed": tp1_completed,
+        "tp2_completed": tp2_completed,
+        "tp3_armed": tp3_armed,
+
+        "unit13_status": unit_13_result.get(
+            "status"
+        ),
+
+        "source": "UNIT13_NORMALIZED",
+    }
+
+    result["verified"] = True
+    result["reason"] = "UNIT13_TP_PLAN_NORMALIZED"
+    result["tp_plan"] = normalized_plan
+
+    result["tp1_completed"] = tp1_completed
+    result["tp2_completed"] = tp2_completed
+    result["tp3_armed"] = tp3_armed
+
+    # Never equate valid plan data with permission
+    # to execute an exchange order.
+    result["submission_authorized"] = False
+
+    # ========================================================
+    # 9. RENDER DIAGNOSTICS
+    # ========================================================
+
+    print(
+        "PASS: UNIT 14 UNIT13 TP PLAN NORMALIZED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 POSITION SIDE =",
+        position_side,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP1 TARGET =",
+        tp1_target,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP2 TARGET =",
+        tp2_target,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP1 QTY =",
+        tp1_quantity,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP2 QTY =",
+        tp2_quantity,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 RUNNER QTY =",
+        tp3_quantity,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP1 COMPLETED =",
+        tp1_completed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP2 COMPLETED =",
+        tp2_completed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 ARMED =",
+        tp3_armed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 PART 11 RESULT = PASS "
+        "(READ ONLY)",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# END UNIT 14 REPLACEMENT - PART 11
+# ZERO INDENTATION DEMARCATION
+# COMPLETE FUNCTION CLOSED
+# ============================================================
 def unit14_verify_backup_fill(
     before_quantity,
     after_quantity,
