@@ -18455,6 +18455,659 @@ def unit14_validate_account_risk(
 # ZERO INDENTATION DEMARCATION
 # COMPLETE FUNCTION CLOSED
 # ============================================================
+
+
+# ============================================================
+# START UNIT 14 REPLACEMENT - PART 7
+# ZERO INDENTATION DEMARCATION
+# DYNAMIC TP3 MARKET ANALYSIS AND TRAILING CONTROL
+# ============================================================
+
+def unit14_tp3_market_analysis(candles):
+    """
+    Analyze closed 1-minute market candles.
+
+    Original Unit 14 methodology:
+      ATR14
+      EMA9 / EMA21 trend strength
+      Two consecutive 3-candle momentum windows
+
+    This function does not retrieve candles.
+    The caller must provide verified, chronologically
+    ordered, CLOSED candles.
+
+    No exchange order submission.
+    """
+
+    from decimal import Decimal, InvalidOperation
+
+    def D(value):
+        try:
+            result = Decimal(str(value))
+        except (TypeError, ValueError, InvalidOperation):
+            raise RuntimeError(
+                "UNIT 14 TP3: INVALID DECIMAL"
+            )
+
+        if not result.is_finite():
+            raise RuntimeError(
+                "UNIT 14 TP3: NONFINITE DECIMAL"
+            )
+
+        return result
+
+    if not isinstance(candles, list):
+        raise RuntimeError(
+            "UNIT 14 TP3: CANDLE LIST REQUIRED"
+        )
+
+    if len(candles) < 40:
+        raise RuntimeError(
+            "UNIT 14 TP3: INSUFFICIENT CLOSED CANDLES"
+        )
+
+    normalized = []
+    previous_time = None
+
+    for index, candle in enumerate(candles):
+
+        if not isinstance(candle, dict):
+            raise RuntimeError(
+                "UNIT 14 TP3: INVALID CANDLE RECORD"
+            )
+
+        for field in ("high", "low", "close"):
+            if field not in candle:
+                raise RuntimeError(
+                    "UNIT 14 TP3: MISSING " + field
+                )
+
+        high = D(candle["high"])
+        low = D(candle["low"])
+        close = D(candle["close"])
+
+        if high <= 0 or low <= 0 or close <= 0:
+            raise RuntimeError(
+                "UNIT 14 TP3: NONPOSITIVE CANDLE PRICE"
+            )
+
+        if high < low:
+            raise RuntimeError(
+                "UNIT 14 TP3: INVALID HIGH LOW"
+            )
+
+        if not (low <= close <= high):
+            raise RuntimeError(
+                "UNIT 14 TP3: CLOSE OUTSIDE RANGE"
+            )
+
+        # Require caller-provided evidence that the
+        # candle is closed. Merely having OHLC values
+        # is insufficient for this strategy.
+
+        if candle.get("closed") is not True:
+            raise RuntimeError(
+                "UNIT 14 TP3: UNCONFIRMED CLOSED CANDLE"
+            )
+
+        timestamp = candle.get("open_time_ms")
+
+        if type(timestamp) is not int or timestamp <= 0:
+            raise RuntimeError(
+                "UNIT 14 TP3: INVALID CANDLE TIMESTAMP"
+            )
+
+        if previous_time is not None:
+            if timestamp - previous_time != 60000:
+                raise RuntimeError(
+                    "UNIT 14 TP3: NONCONTIGUOUS 1M CANDLES"
+                )
+
+        previous_time = timestamp
+
+        normalized.append({
+            "high": high,
+            "low": low,
+            "close": close,
+        })
+
+    def ema(values, period):
+        if len(values) < period:
+            raise RuntimeError(
+                "UNIT 14 TP3: INSUFFICIENT EMA DATA"
+            )
+
+        multiplier = (
+            Decimal("2")
+            / Decimal(period + 1)
+        )
+
+        result = values[0]
+
+        for value in values[1:]:
+            result = (
+                result
+                + (value - result) * multiplier
+            )
+
+        return result
+
+    # ========================================================
+    # ATR14
+    # ========================================================
+
+    true_ranges = []
+    previous_close = None
+
+    for candle in normalized:
+
+        high = candle["high"]
+        low = candle["low"]
+
+        if previous_close is None:
+            true_range = high - low
+
+        else:
+            true_range = max(
+                high - low,
+                abs(high - previous_close),
+                abs(low - previous_close),
+            )
+
+        true_ranges.append(true_range)
+        previous_close = candle["close"]
+
+    atr = (
+        sum(true_ranges[-14:], Decimal("0"))
+        / Decimal("14")
+    )
+
+    closes = [
+        candle["close"]
+        for candle in normalized
+    ]
+
+    latest_close = closes[-1]
+
+    atr_percent = (
+        atr / latest_close * Decimal("100")
+    )
+
+    # ========================================================
+    # EMA9 / EMA21 TREND STRENGTH
+    # ========================================================
+
+    ema9 = ema(closes[-30:], 9)
+    ema21 = ema(closes[-40:], 21)
+
+    if atr > 0:
+        trend_strength = (
+            abs(ema9 - ema21) / atr
+        )
+    else:
+        trend_strength = Decimal("0")
+
+    trend_strength = max(
+        Decimal("0"),
+        min(Decimal("1"), trend_strength),
+    )
+
+    # ========================================================
+    # MOMENTUM WINDOWS
+    # ========================================================
+
+    earlier_move = (
+        closes[-4] - closes[-7]
+    )
+
+    recent_move = (
+        closes[-1] - closes[-4]
+    )
+
+    return {
+        "atr": atr,
+        "atr_percent": atr_percent,
+        "ema9": ema9,
+        "ema21": ema21,
+        "trend_strength": trend_strength,
+        "earlier_move": earlier_move,
+        "recent_move": recent_move,
+        "latest_close": latest_close,
+        "closed_candle_count": len(normalized),
+    }
+
+
+# ============================================================
+# PART 7B - DYNAMIC CALLBACK CALCULATION
+# ZERO INDENTATION
+# ============================================================
+
+def unit14_tp3_dynamic_callback(
+    context,
+    analysis,
+    position_side,
+):
+    """
+    Preserve the original Unit 14 callback formula.
+
+    Reference approximately 0.20%.
+    ATR widens callback.
+    Trend strength widens callback.
+    Momentum deterioration tightens callback.
+
+    Configured minimum and maximum remain enforced.
+    """
+
+    from decimal import Decimal, InvalidOperation
+
+    if not isinstance(context, dict):
+        raise RuntimeError(
+            "UNIT 14 TP3: INVALID CONTEXT"
+        )
+
+    if not isinstance(analysis, dict):
+        raise RuntimeError(
+            "UNIT 14 TP3: INVALID MARKET ANALYSIS"
+        )
+
+    if position_side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT 14 TP3: INVALID POSITION SIDE"
+        )
+
+    def D(value):
+        try:
+            number = Decimal(str(value))
+        except (InvalidOperation, ValueError, TypeError):
+            raise RuntimeError(
+                "UNIT 14 TP3: INVALID CALLBACK INPUT"
+            )
+
+        if not number.is_finite():
+            raise RuntimeError(
+                "UNIT 14 TP3: NONFINITE CALLBACK INPUT"
+            )
+
+        return number
+
+    reference = D(
+        context.get("trailing_reference")
+    )
+
+    lower = D(
+        context.get("trailing_min")
+    )
+
+    upper = D(
+        context.get("trailing_max")
+    )
+
+    atr_percent = D(
+        analysis.get("atr_percent")
+    )
+
+    trend_strength = D(
+        analysis.get("trend_strength")
+    )
+
+    earlier_move = D(
+        analysis.get("earlier_move")
+    )
+
+    recent_move = D(
+        analysis.get("recent_move")
+    )
+
+    if not Decimal("0") < lower <= reference <= upper:
+        raise RuntimeError(
+            "UNIT 14 TP3: INVALID CALLBACK RANGE"
+        )
+
+    if atr_percent < 0:
+        raise RuntimeError(
+            "UNIT 14 TP3: INVALID ATR PERCENT"
+        )
+
+    if not Decimal("0") <= trend_strength <= Decimal("1"):
+        raise RuntimeError(
+            "UNIT 14 TP3: INVALID TREND STRENGTH"
+        )
+
+    deterioration = Decimal("0")
+
+    if position_side == "LONG":
+
+        earlier_favorable = max(
+            earlier_move,
+            Decimal("0"),
+        )
+
+        recent_favorable = max(
+            recent_move,
+            Decimal("0"),
+        )
+
+        if recent_move < 0:
+            deterioration = Decimal("1")
+
+        elif earlier_favorable > 0:
+            deterioration = (
+                Decimal("1")
+                - min(
+                    recent_favorable / earlier_favorable,
+                    Decimal("1"),
+                )
+            )
+
+    else:
+
+        earlier_favorable = max(
+            -earlier_move,
+            Decimal("0"),
+        )
+
+        recent_favorable = max(
+            -recent_move,
+            Decimal("0"),
+        )
+
+        if recent_move > 0:
+            deterioration = Decimal("1")
+
+        elif earlier_favorable > 0:
+            deterioration = (
+                Decimal("1")
+                - min(
+                    recent_favorable / earlier_favorable,
+                    Decimal("1"),
+                )
+            )
+
+    deterioration = max(
+        Decimal("0"),
+        min(Decimal("1"), deterioration),
+    )
+
+    # Preserve original dynamic weighting.
+
+    volatility_component = min(
+        atr_percent,
+        Decimal("0.30"),
+    )
+
+    volatility_adjustment = (
+        volatility_component * Decimal("0.25")
+    )
+
+    trend_adjustment = (
+        trend_strength * Decimal("0.08")
+    )
+
+    deterioration_adjustment = (
+        deterioration * Decimal("0.12")
+    )
+
+    dynamic_callback = (
+        reference
+        + volatility_adjustment
+        + trend_adjustment
+        - deterioration_adjustment
+    )
+
+    dynamic_callback = max(
+        lower,
+        min(upper, dynamic_callback),
+    )
+
+    return {
+        "callback_percent": dynamic_callback,
+        "reference_percent": reference,
+        "atr_percent": atr_percent,
+        "trend_strength": trend_strength,
+        "momentum_deterioration": deterioration,
+        "minimum_percent": lower,
+        "maximum_percent": upper,
+    }
+
+
+# ============================================================
+# PART 7C - TP3 BEST PRICE AND TRAILING EVALUATION
+# ZERO INDENTATION
+# ============================================================
+
+def unit14_tp3_evaluate_trailing(
+    context,
+    position_side,
+    current_mark,
+    previous_best_mark,
+    analysis,
+    tp3_armed,
+    position_size,
+    original_runner_quantity,
+    confirmed_backup_count,
+):
+    """
+    Calculate TP3 trailing position and callback.
+
+    LONG:
+      Keep highest favorable mark.
+      Trigger when price falls below trailing level.
+
+    SHORT:
+      Keep lowest favorable mark.
+      Trigger when price rises above trailing level.
+
+    Before backups:
+      Limit runner to original TP3 allocation.
+
+    After verified backups:
+      Remaining position may join TP3 runner.
+
+    Calculation only. Never submits orders.
+    """
+
+    from decimal import Decimal, InvalidOperation
+
+    result = {
+        "evaluated": False,
+        "tp3_armed": False,
+        "callback_reached": False,
+        "close_quantity": "0",
+        "best_mark": None,
+        "trailing_trigger": None,
+        "callback_percent": None,
+        "reason": "NOT_VERIFIED",
+        "submission_approved": False,
+    }
+
+    def block(reason):
+        result["reason"] = reason
+        return result
+
+    def D(value):
+        try:
+            number = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            raise ValueError("INVALID_DECIMAL")
+
+        if not number.is_finite():
+            raise ValueError("NONFINITE_DECIMAL")
+
+        return number
+
+    if not isinstance(context, dict):
+        return block("INVALID_CONTEXT")
+
+    if context.get("environment") != "DEMO":
+        return block("NON_DEMO_ENVIRONMENT")
+
+    if position_side not in ("LONG", "SHORT"):
+        return block("INVALID_POSITION_SIDE")
+
+    if tp3_armed is not True:
+        result["evaluated"] = True
+        result["reason"] = "TP3_NOT_ARMED"
+        return result
+
+    if type(confirmed_backup_count) is not int:
+        return block("INVALID_BACKUP_COUNT")
+
+    if not 0 <= confirmed_backup_count <= 3:
+        return block("BACKUP_COUNT_OUT_OF_RANGE")
+
+    try:
+        mark = D(current_mark)
+        size = D(position_size)
+        runner = D(original_runner_quantity)
+        step = D(context.get("quantity_step"))
+
+        best = (
+            None
+            if previous_best_mark is None
+            else D(previous_best_mark)
+        )
+
+    except ValueError as exc:
+        return block(str(exc))
+
+    if mark <= 0 or size <= 0 or step <= 0:
+        return block("INVALID_MARK_SIZE_OR_STEP")
+
+    if runner < 0:
+        return block("INVALID_ORIGINAL_RUNNER")
+
+    if best is None:
+        best = mark
+
+    elif best <= 0:
+        return block("INVALID_PREVIOUS_BEST")
+
+    # ========================================================
+    # BEST FAVORABLE PRICE
+    # ========================================================
+
+    if position_side == "LONG":
+        best = max(best, mark)
+
+    else:
+        best = min(best, mark)
+
+    # ========================================================
+    # DYNAMIC CALLBACK
+    # ========================================================
+
+    try:
+        callback = unit14_tp3_dynamic_callback(
+            context,
+            analysis,
+            position_side,
+        )
+
+    except Exception as exc:
+        return block(
+            "DYNAMIC_MARKET_ANALYSIS_UNVERIFIED_"
+            + type(exc).__name__
+        )
+
+    callback_percent = callback[
+        "callback_percent"
+    ]
+
+    callback_fraction = (
+        callback_percent / Decimal("100")
+    )
+
+    # ========================================================
+    # CALCULATE DIRECTIONAL TRAILING LEVEL
+    # ========================================================
+
+    if position_side == "LONG":
+
+        trailing_trigger = (
+            best
+            * (Decimal("1") - callback_fraction)
+        )
+
+        reached = mark <= trailing_trigger
+
+    else:
+
+        trailing_trigger = (
+            best
+            * (Decimal("1") + callback_fraction)
+        )
+
+        reached = mark >= trailing_trigger
+
+    # ========================================================
+    # RUNNER QUANTITY
+    # ========================================================
+
+    if confirmed_backup_count > 0:
+
+        desired_quantity = size
+
+    else:
+
+        desired_quantity = min(
+            runner,
+            size,
+        )
+
+    from decimal import ROUND_DOWN
+
+    executable_steps = (
+        desired_quantity / step
+    ).to_integral_value(
+        rounding=ROUND_DOWN
+    )
+
+    close_quantity = executable_steps * step
+
+    result.update({
+        "evaluated": True,
+        "tp3_armed": True,
+        "callback_reached": reached,
+        "close_quantity": str(close_quantity),
+        "best_mark": str(best),
+        "trailing_trigger": str(trailing_trigger),
+        "callback_percent": str(callback_percent),
+        "atr_percent": str(callback["atr_percent"]),
+        "trend_strength": str(callback["trend_strength"]),
+        "momentum_deterioration": str(
+            callback["momentum_deterioration"]
+        ),
+        "reason": (
+            "TRAILING_CALLBACK_REACHED"
+            if reached
+            else "TRAILING_ACTIVE"
+        ),
+        "submission_approved": False,
+    })
+
+    if close_quantity <= 0:
+        result["reason"] = "NO_EXECUTABLE_RUNNER_QUANTITY"
+
+    print(
+        "UNIT 14 DYNAMIC TP3 | "
+        f"SIDE = {position_side} | "
+        f"MARK = {mark} | "
+        f"BEST = {best} | "
+        f"CALLBACK = {callback_percent}% | "
+        f"TRIGGER = {trailing_trigger} | "
+        f"REACHED = {reached} | "
+        f"QTY = {close_quantity}",
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# END UNIT 14 REPLACEMENT - PART 7
+# ZERO INDENTATION DEMARCATION
+# ALL FUNCTIONS CLOSED
+# ============================================================
 def unit14_verify_backup_fill(
     before_quantity,
     after_quantity,
