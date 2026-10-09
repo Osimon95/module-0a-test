@@ -19654,6 +19654,723 @@ def unit14_reconcile_tp3_close(
 # ZERO INDENTATION DEMARCATION
 # BOTH FUNCTIONS COMPLETELY CLOSED
 # ============================================================
+
+
+# ============================================================
+# START UNIT 14 REPLACEMENT - PART 9
+# ZERO INDENTATION DEMARCATION
+# TP1 TP2 CONTINUOUS MANAGEMENT
+# CUMULATIVE EXIT AND TP3 ARMING
+# ============================================================
+
+def unit14_manage_tp1_tp2(
+    context,
+    snapshot,
+    current_mark,
+    tp_plan,
+    order_history,
+    trade_key,
+):
+    """
+    UNIT 14 REPLACEMENT - PART 9
+
+    Reconcile TP1 and TP2 execution and prepare
+    the next take-profit action.
+
+    Preserves original Unit 14 behavior:
+
+    1. TP1 and TP2 are independently tracked.
+    2. TP2 has priority when both targets are reached.
+    3. TP2 can close outstanding TP1 + TP2 allocation.
+    4. Only confirmed exchange fills advance TP state.
+    5. No duplicate TP client IDs are permitted.
+    6. TP3 arms after confirmed TP1 and TP2 completion.
+    7. LONG closes through SELL.
+    8. SHORT closes through BUY.
+    9. No stop-loss fields.
+    10. No real-money orders.
+
+    Returns a read-only TP management decision.
+
+    This function does not submit exchange orders.
+    """
+
+    from decimal import (
+        Decimal,
+        InvalidOperation,
+        ROUND_DOWN,
+    )
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 14 PART 9 START - TP1 TP2 MANAGEMENT",
+        flush=True,
+    )
+
+    result = {
+        "evaluated": False,
+        "reason": "NOT_VERIFIED",
+        "tp1_completed": False,
+        "tp2_completed": False,
+        "tp3_armed": False,
+        "tp1_reached": False,
+        "tp2_reached": False,
+        "tp1_executed_quantity": "0",
+        "tp2_executed_quantity": "0",
+        "tp_action": "NONE",
+        "tp_quantity": "0",
+        "tp_client_order_id": None,
+        "tp_close_side": None,
+        "close_intent": None,
+        "submission_authorized": False,
+    }
+
+    def block(reason):
+        result["reason"] = reason
+
+        print(
+            "UNIT 14 TP MANAGEMENT BLOCKED:",
+            reason,
+            flush=True,
+        )
+
+        return result
+
+    def D(value, name):
+        try:
+            number = Decimal(str(value))
+        except (
+            InvalidOperation,
+            TypeError,
+            ValueError,
+        ):
+            raise ValueError(
+                "INVALID_" + name
+            )
+
+        if not number.is_finite():
+            raise ValueError(
+                "NONFINITE_" + name
+            )
+
+        return number
+
+    # ========================================================
+    # 1. VALIDATE DEMO CONFIGURATION
+    # ========================================================
+
+    if not isinstance(context, dict):
+        return block("INVALID_CONTEXT")
+
+    if not isinstance(snapshot, dict):
+        return block("INVALID_POSITION_SNAPSHOT")
+
+    if not isinstance(tp_plan, dict):
+        return block("INVALID_TP_PLAN")
+
+    if not isinstance(order_history, list):
+        return block("ORDER_HISTORY_UNAVAILABLE")
+
+    if context.get("environment") != "DEMO":
+        return block("NON_DEMO_ENVIRONMENT")
+
+    if context.get("demo_symbol") != "BTCSUSDT":
+        return block("INVALID_DEMO_SYMBOL")
+
+    if snapshot.get("symbol") != "BTCSUSDT":
+        return block("POSITION_SYMBOL_MISMATCH")
+
+    if snapshot.get("read_only") is not True:
+        return block("POSITION_SNAPSHOT_UNVERIFIED")
+
+    if snapshot.get("position_exists") is not True:
+        result["evaluated"] = True
+        result["reason"] = "NO_ACTIVE_POSITION"
+        return result
+
+    if (
+        not isinstance(trade_key, str)
+        or not trade_key.strip()
+    ):
+        return block("INVALID_TRADE_KEY")
+
+    # ========================================================
+    # 2. VERIFY CURRENT POSITION
+    # ========================================================
+
+    side = snapshot.get("position_side")
+
+    if side == "LONG":
+        close_side = "SELL"
+
+    elif side == "SHORT":
+        close_side = "BUY"
+
+    else:
+        return block("INVALID_POSITION_SIDE")
+
+    try:
+        position_size = D(
+            snapshot.get("position_size"),
+            "POSITION_SIZE",
+        )
+
+        mark = D(
+            current_mark,
+            "MARK_PRICE",
+        )
+
+        step = D(
+            context.get("quantity_step"),
+            "QUANTITY_STEP",
+        )
+
+        minimum = D(
+            context.get("minimum_quantity"),
+            "MINIMUM_QUANTITY",
+        )
+
+    except ValueError as exc:
+        return block(str(exc))
+
+    if position_size <= 0:
+        return block("EMPTY_POSITION")
+
+    if mark <= 0:
+        return block("INVALID_MARK_PRICE")
+
+    if step <= 0 or minimum <= 0:
+        return block("INVALID_MARKET_PRECISION")
+
+    result["tp_close_side"] = close_side
+
+    def floor_quantity(quantity):
+        return (
+            quantity / step
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        ) * step
+
+    # ========================================================
+    # 3. RECEIVE EXISTING UNIT 13 TP PLAN
+    # ========================================================
+
+    required_plan_fields = (
+        "tp1_target",
+        "tp2_target",
+        "tp1_quantity",
+        "tp2_quantity",
+        "tp3_quantity",
+    )
+
+    for field in required_plan_fields:
+        if field not in tp_plan:
+            return block(
+                "MISSING_TP_PLAN_" + field
+            )
+
+    try:
+        tp1_target = D(
+            tp_plan["tp1_target"],
+            "TP1_TARGET",
+        )
+
+        tp2_target = D(
+            tp_plan["tp2_target"],
+            "TP2_TARGET",
+        )
+
+        tp1_quantity = D(
+            tp_plan["tp1_quantity"],
+            "TP1_QUANTITY",
+        )
+
+        tp2_quantity = D(
+            tp_plan["tp2_quantity"],
+            "TP2_QUANTITY",
+        )
+
+        tp3_quantity = D(
+            tp_plan["tp3_quantity"],
+            "TP3_QUANTITY",
+        )
+
+    except ValueError as exc:
+        return block(str(exc))
+
+    if tp1_target <= 0 or tp2_target <= 0:
+        return block("INVALID_TP_TARGETS")
+
+    if (
+        tp1_quantity < 0
+        or tp2_quantity < 0
+        or tp3_quantity < 0
+    ):
+        return block("NEGATIVE_TP_ALLOCATION")
+
+    if (
+        tp1_quantity
+        + tp2_quantity
+        + tp3_quantity
+        <= 0
+    ):
+        return block("ZERO_TP_ALLOCATION")
+
+    # TP2 must remain farther into profit than TP1.
+
+    if side == "LONG":
+
+        if tp2_target <= tp1_target:
+            return block(
+                "LONG_TP_TARGET_ORDER_INVALID"
+            )
+
+    else:
+
+        if tp2_target >= tp1_target:
+            return block(
+                "SHORT_TP_TARGET_ORDER_INVALID"
+            )
+
+    # ========================================================
+    # 4. EXACT ORIGINAL TP CLIENT IDS
+    # ========================================================
+
+    tp1_client_id = (
+        f"FR14-TP1-{trade_key}"
+    )[:36]
+
+    tp2_client_id = (
+        f"FR14-TP2-{trade_key}"
+    )[:36]
+
+    tp_order_state = {
+        "TP1": {
+            "id": tp1_client_id,
+            "exists": False,
+            "filled": False,
+            "executed": Decimal("0"),
+            "status": "NOT_FOUND",
+        },
+        "TP2": {
+            "id": tp2_client_id,
+            "exists": False,
+            "filled": False,
+            "executed": Decimal("0"),
+            "status": "NOT_FOUND",
+        },
+    }
+
+    # ========================================================
+    # 5. INSPECT EXCHANGE TP HISTORY
+    # ========================================================
+
+    matched_counts = {
+        "TP1": 0,
+        "TP2": 0,
+    }
+
+    for index, order in enumerate(order_history):
+
+        if not isinstance(order, dict):
+            return block(
+                "INVALID_ORDER_RECORD_"
+                + str(index)
+            )
+
+        client_id = str(
+            order.get("clientOrderId", "")
+        )
+
+        if client_id == tp1_client_id:
+            label = "TP1"
+
+        elif client_id == tp2_client_id:
+            label = "TP2"
+
+        else:
+            continue
+
+        matched_counts[label] += 1
+
+        state = tp_order_state[label]
+        state["exists"] = True
+
+        status = str(
+            order.get("status", "")
+        ).upper().strip()
+
+        state["status"] = status
+
+        raw_executed = order.get(
+            "executedQty"
+        )
+
+        if raw_executed is None:
+            return block(
+                label + "_EXECUTED_QUANTITY_MISSING"
+            )
+
+        try:
+            executed = D(
+                raw_executed,
+                label + "_EXECUTED",
+            )
+
+        except ValueError as exc:
+            return block(str(exc))
+
+        if executed < 0:
+            return block(
+                label + "_NEGATIVE_EXECUTION"
+            )
+
+        state["executed"] = executed
+
+        if status == "FILLED":
+
+            if executed <= 0:
+                return block(
+                    label + "_FILLED_WITH_ZERO_QUANTITY"
+                )
+
+            state["filled"] = True
+
+        else:
+
+            # Existing but not fully filled means
+            # unresolved, not permission to retry.
+            state["filled"] = False
+
+    # ========================================================
+    # 6. REJECT DUPLICATE HISTORY RECORDS
+    # ========================================================
+
+    for label, count in matched_counts.items():
+
+        if count > 1:
+            return block(
+                label + "_DUPLICATE_ORDER_HISTORY"
+            )
+
+    tp1_state = tp_order_state["TP1"]
+    tp2_state = tp_order_state["TP2"]
+
+    # ========================================================
+    # 7. EXCHANGE-CONFIRMED EXECUTION FLAGS
+    # ========================================================
+
+    tp1_filled = tp1_state["filled"]
+    tp2_filled = tp2_state["filled"]
+
+    tp1_executed = tp1_state["executed"]
+    tp2_executed = tp2_state["executed"]
+
+    result["tp1_executed_quantity"] = str(
+        tp1_executed
+    )
+
+    result["tp2_executed_quantity"] = str(
+        tp2_executed
+    )
+
+    # TP2 can represent a cumulative TP1+TP2
+    # close only when the executed quantity
+    # actually covers the required outstanding
+    # allocation. Do not assume that from status.
+
+    tp1_allocation_satisfied = False
+    tp2_allocation_satisfied = False
+
+    tolerance = step / Decimal("2")
+
+    if tp1_quantity <= 0:
+        tp1_allocation_satisfied = True
+
+    elif (
+        tp1_filled
+        and tp1_executed + tolerance >= tp1_quantity
+    ):
+        tp1_allocation_satisfied = True
+
+    if tp2_filled:
+
+        combined_executed = (
+            tp1_executed + tp2_executed
+        )
+
+        combined_required = (
+            tp1_quantity + tp2_quantity
+        )
+
+        if (
+            combined_executed + tolerance
+            >= combined_required
+        ):
+            tp1_allocation_satisfied = True
+            tp2_allocation_satisfied = True
+
+        elif (
+            tp1_allocation_satisfied
+            and tp2_executed + tolerance
+            >= tp2_quantity
+        ):
+            tp2_allocation_satisfied = True
+
+    result["tp1_completed"] = (
+        tp1_allocation_satisfied
+    )
+
+    result["tp2_completed"] = (
+        tp2_allocation_satisfied
+    )
+
+    # ========================================================
+    # 8. DETERMINE WHETHER TARGETS ARE REACHED
+    # ========================================================
+
+    if side == "LONG":
+
+        tp1_reached = (
+            mark >= tp1_target
+        )
+
+        tp2_reached = (
+            mark >= tp2_target
+        )
+
+    else:
+
+        tp1_reached = (
+            mark <= tp1_target
+        )
+
+        tp2_reached = (
+            mark <= tp2_target
+        )
+
+    result["tp1_reached"] = tp1_reached
+    result["tp2_reached"] = tp2_reached
+
+    # ========================================================
+    # 9. ARM TP3 ONLY AFTER CONFIRMED TP COMPLETION
+    # ========================================================
+
+    if (
+        tp1_allocation_satisfied
+        and tp2_allocation_satisfied
+        and tp3_quantity >= minimum
+        and position_size > 0
+    ):
+
+        result["tp3_armed"] = True
+        result["evaluated"] = True
+        result["reason"] = (
+            "TP1_TP2_COMPLETE_TP3_ARMED"
+        )
+
+        print(
+            "PASS: UNIT 14 TP1 + TP2 "
+            "EXCHANGE FILL QUANTITIES SATISFIED",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 14 TP3 ARMED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 TP3 ORIGINAL RUNNER QTY =",
+            tp3_quantity,
+            flush=True,
+        )
+
+        return result
+
+    # ========================================================
+    # 10. DO NOT REPLACE AN UNRESOLVED TP ORDER
+    # ========================================================
+
+    for label in ("TP1", "TP2"):
+
+        state = tp_order_state[label]
+
+        if state["exists"] and not state["filled"]:
+
+            result["evaluated"] = True
+            result["reason"] = (
+                label + "_ORDER_UNRESOLVED"
+            )
+
+            return result
+
+    # ========================================================
+    # 11. TP2 PRIORITY, INCLUDING CUMULATIVE EXIT
+    # ========================================================
+
+    action = "NONE"
+    desired_quantity = Decimal("0")
+    action_client_id = None
+
+    if (
+        tp2_reached
+        and not tp2_allocation_satisfied
+        and not tp2_state["exists"]
+    ):
+
+        # Outstanding cumulative allocation,
+        # accounting for confirmed TP1 execution.
+
+        cumulative_required = (
+            tp1_quantity + tp2_quantity
+        )
+
+        confirmed_previous = (
+            tp1_executed
+        )
+
+        desired_quantity = max(
+            Decimal("0"),
+            cumulative_required - confirmed_previous,
+        )
+
+        action = "TP2"
+        action_client_id = tp2_client_id
+
+    # ========================================================
+    # 12. TP1 WHEN TP2 IS NOT REACHED
+    # ========================================================
+
+    elif (
+        tp1_reached
+        and not tp1_allocation_satisfied
+        and not tp1_state["exists"]
+    ):
+
+        desired_quantity = (
+            tp1_quantity
+        )
+
+        action = "TP1"
+        action_client_id = tp1_client_id
+
+    # ========================================================
+    # 13. STEP-AWARE QUANTITY BOUNDARY
+    # ========================================================
+
+    if action == "NONE":
+
+        result["evaluated"] = True
+        result["reason"] = (
+            "NO_NEW_TP_ACTION_REQUIRED"
+        )
+
+        return result
+
+    desired_quantity = min(
+        desired_quantity,
+        position_size,
+    )
+
+    executable_quantity = floor_quantity(
+        desired_quantity
+    )
+
+    if executable_quantity < minimum:
+
+        result["evaluated"] = True
+        result["reason"] = (
+            "TP_QUANTITY_BELOW_MINIMUM"
+        )
+
+        return result
+
+    # ========================================================
+    # 14. PREPARE CLOSING INTENT ONLY
+    # ========================================================
+
+    close_intent = {
+        "symbol": "BTCSUSDT",
+        "side": close_side,
+        "positionSide": side,
+        "type": "MARKET",
+        "quantity": format(
+            executable_quantity,
+            "f",
+        ),
+        "newClientOrderId": action_client_id,
+    }
+
+    result["evaluated"] = True
+    result["reason"] = (
+        action + "_CLOSE_INTENT_PREPARED"
+    )
+
+    result["tp_action"] = action
+
+    result["tp_quantity"] = str(
+        executable_quantity
+    )
+
+    result["tp_client_order_id"] = (
+        action_client_id
+    )
+
+    result["close_intent"] = close_intent
+
+    # IMPORTANT:
+    # The caller must verify:
+    # - No active duplicate exchange order
+    # - Current position size immediately before close
+    # - Atomic/idempotent order submission
+    # - Complete exchange response validation
+    # - Actual fill and position reduction
+    #
+    # This function cannot grant submission approval.
+
+    result["submission_authorized"] = False
+
+    print(
+        "UNIT 14 TP STATUS | "
+        f"SIDE = {side} | "
+        f"MARK = {mark} | "
+        f"TP1 = {tp1_target} | "
+        f"TP1 REACHED = {tp1_reached} | "
+        f"TP1 DONE = {tp1_allocation_satisfied} | "
+        f"TP2 = {tp2_target} | "
+        f"TP2 REACHED = {tp2_reached} | "
+        f"TP2 DONE = {tp2_allocation_satisfied} | "
+        f"TP3 ARMED = {result['tp3_armed']}",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 NEXT TP ACTION =",
+        action,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP CLOSE QUANTITY =",
+        executable_quantity,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP SUBMISSION = "
+        "NOT AUTHORIZED BY PART 9",
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# END UNIT 14 REPLACEMENT - PART 9
+# ZERO INDENTATION DEMARCATION
+# COMPLETE FUNCTION CLOSED
+# ============================================================
 def unit14_verify_backup_fill(
     before_quantity,
     after_quantity,
