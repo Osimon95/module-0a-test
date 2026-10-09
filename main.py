@@ -18158,15 +18158,49 @@ def fresh_tp3_runtime(
 
             continue
 
+        
+        
         # ====================================================
-        # 10C. HISTORY + CONFIRMED BACKUP STAGE
+        # START CORRECTION 2
+        # 10C. STRICT BACKUP HISTORY VERIFICATION
+        # INDENTATION: 8 SPACES
         # ====================================================
+
+        backup_history_verified = False
+        backup_history_reason = "NOT_VERIFIED"
+
+        completed_backups = 0
+        existing_backup_stages = set()
+        filled_backup_stages = set()
 
         try:
 
-            history = (
-                get_order_history()
-            )
+            history = get_order_history()
+
+            if not isinstance(history, list):
+                raise RuntimeError(
+                    "INVALID_ORDER_HISTORY"
+                )
+
+            # A full first page is not proof that
+            # older orders do not exist.
+
+            if len(history) >= 1000:
+                raise RuntimeError(
+                    "HISTORY_PAGINATION_REQUIRED"
+                )
+
+            # Validate all returned records.
+
+            for index, order in enumerate(history):
+
+                if not isinstance(order, dict):
+                    raise RuntimeError(
+                        "INVALID_HISTORY_RECORD_"
+                        + str(index)
+                    )
+
+            # Existing Unit 14 backup-stage reader.
 
             (
                 completed_backups,
@@ -18177,19 +18211,230 @@ def fresh_tp3_runtime(
                 trade_key,
             )
 
-        except Exception as exc:
+            # Ensure backup counts remain valid.
+
+            if (
+                type(completed_backups) is not int
+                or completed_backups < 0
+                or completed_backups > max_backups
+            ):
+                raise RuntimeError(
+                    "INVALID_COMPLETED_BACKUP_COUNT"
+                )
+
+            if not isinstance(
+                existing_backup_stages,
+                set,
+            ):
+                raise RuntimeError(
+                    "INVALID_EXISTING_BACKUP_STAGES"
+                )
+
+            if not isinstance(
+                filled_backup_stages,
+                set,
+            ):
+                raise RuntimeError(
+                    "INVALID_FILLED_BACKUP_STAGES"
+                )
+
+            # Verify exact client IDs and returned
+            # order quantities for current trade.
+
+            seen_backup_ids = set()
+            unresolved_stages = set()
+
+            for order in history:
+
+                client_id = str(
+                    order.get("clientOrderId", "")
+                )
+
+                matched_stage = None
+
+                for stage in range(
+                    1,
+                    max_backups + 1,
+                ):
+
+                    expected_id = backup_client_id(
+                        stage,
+                        trade_key,
+                    )
+
+                    if client_id == expected_id:
+                        matched_stage = stage
+                        break
+
+                if matched_stage is None:
+                    continue
+
+                if client_id in seen_backup_ids:
+                    raise RuntimeError(
+                        "DUPLICATE_BACKUP_HISTORY_ID_"
+                        + client_id
+                    )
+
+                seen_backup_ids.add(client_id)
+
+                status = str(
+                    order.get("status", "")
+                ).upper().strip()
+
+                raw_executed = order.get(
+                    "executedQty"
+                )
+
+                if raw_executed is None:
+                    raise RuntimeError(
+                        f"B{matched_stage}_"
+                        "EXECUTED_QUANTITY_MISSING"
+                    )
+
+                executed_qty = Decimal(
+                    str(raw_executed)
+                )
+
+                if (
+                    not executed_qty.is_finite()
+                    or executed_qty < 0
+                ):
+                    raise RuntimeError(
+                        f"B{matched_stage}_"
+                        "INVALID_EXECUTED_QUANTITY"
+                    )
+
+                if status == "FILLED":
+
+                    if executed_qty <= 0:
+                        raise RuntimeError(
+                            f"B{matched_stage}_"
+                            "FILLED_WITH_ZERO_QUANTITY"
+                        )
+
+                    if matched_stage not in (
+                        filled_backup_stages
+                    ):
+                        raise RuntimeError(
+                            f"B{matched_stage}_"
+                            "FILL_STATE_MISMATCH"
+                        )
+
+                else:
+
+                    # An outstanding, partially filled,
+                    # cancelled, rejected or unknown
+                    # order needs reconciliation before
+                    # another backup is submitted.
+
+                    unresolved_stages.add(
+                        matched_stage
+                    )
+
+            if unresolved_stages:
+                raise RuntimeError(
+                    "UNRESOLVED_BACKUP_STAGES_"
+                    + str(sorted(unresolved_stages))
+                )
+
+            # Confirm recorded filled stages are
+            # strictly sequential.
+
+            expected_filled = set(
+                range(
+                    1,
+                    completed_backups + 1,
+                )
+            )
+
+            if (
+                filled_backup_stages
+                != expected_filled
+            ):
+                raise RuntimeError(
+                    "NON_SEQUENTIAL_BACKUP_FILLS"
+                )
+
+            # These checks validate the returned
+            # records only. They do not certify that
+            # all exchange orders were retrieved.
+
+            backup_history_reason = (
+                "RETURNED_RECORDS_VALIDATED_"
+                "FULL_HISTORY_UNVERIFIED"
+            )
 
             print(
-                "UNIT 14 HISTORY READ ERROR = "
-                f"{repr(exc)}",
+                "UNIT 14 HISTORY RECORDS =",
+                len(history),
                 flush=True,
             )
 
-            time.sleep(
-                poll_seconds
+            print(
+                "UNIT 14 COMPLETED BACKUPS =",
+                completed_backups,
+                flush=True,
             )
 
+            print(
+                "UNIT 14 EXISTING BACKUP STAGES =",
+                sorted(existing_backup_stages),
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 FILLED BACKUP STAGES =",
+                sorted(filled_backup_stages),
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 HISTORY STATUS =",
+                backup_history_reason,
+                flush=True,
+            )
+
+        except Exception as exc:
+
+            backup_history_reason = (
+                "HISTORY_VALIDATION_FAILED"
+            )
+
+            print(
+                "UNIT 14 BACKUP HISTORY ERROR =",
+                repr(exc),
+                flush=True,
+            )
+
+            # Do not continue with backup or
+            # TP decisions using invalid history.
+
+            time.sleep(poll_seconds)
             continue
+
+        # Complete historical coverage and pending
+        # exchange orders are not yet verified.
+        #
+        # The flag must remain False until a later
+        # correction establishes those facts.
+
+        backup_history_verified = False
+
+        print(
+            "UNIT 14 FULL BACKUP HISTORY VERIFIED =",
+            backup_history_verified,
+            flush=True,
+        )
+
+        # ====================================================
+        # END CORRECTION 2
+        # INDENTATION: 8 SPACES
+        # 10D CONTINUES DIRECTLY BELOW
+        # ====================================================
+        # ====================================================
+        # 10C. HISTORY + CONFIRMED BACKUP STAGE
+        # ====================================================
+
 
         # ====================================================
         # 10D. BACKUP FILL CHANGE
