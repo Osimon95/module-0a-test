@@ -19108,6 +19108,552 @@ def unit14_tp3_evaluate_trailing(
 # ZERO INDENTATION DEMARCATION
 # ALL FUNCTIONS CLOSED
 # ============================================================
+
+
+# ============================================================
+# START UNIT 14 REPLACEMENT - PART 8
+# ZERO INDENTATION DEMARCATION
+# TP3 CLOSE INTENT AND EXCHANGE RECONCILIATION
+# ============================================================
+
+def unit14_prepare_tp3_close(
+    context,
+    snapshot,
+    trailing_result,
+    trade_key,
+    exchange_order_records,
+    pending_orders_verified=False,
+):
+    """
+    UNIT 14 REPLACEMENT - PART 8A
+
+    Prepare a TP3 demo MARKET close intent.
+
+    Does not submit the order.
+
+    Safeguards:
+    - Demo contract only
+    - Confirmed position direction
+    - TP3 callback reached
+    - Step-aware quantity
+    - No opposite-direction entry
+    - Deterministic client order ID
+    - Existing TP3 order detection
+    - Uncertain order state blocks submission
+    - No SL fields
+    """
+
+    from decimal import (
+        Decimal,
+        InvalidOperation,
+        ROUND_DOWN,
+    )
+
+    result = {
+        "ready": False,
+        "reason": "NOT_VERIFIED",
+        "payload": None,
+        "client_order_id": None,
+        "quantity": "0",
+        "position_side": None,
+        "submission_authorized": False,
+    }
+
+    def block(reason):
+        result["reason"] = reason
+        print(
+            "UNIT 14 TP3 CLOSE BLOCKED:",
+            reason,
+            flush=True,
+        )
+        return result
+
+    def D(value):
+        try:
+            value = Decimal(str(value))
+        except (
+            InvalidOperation,
+            ValueError,
+            TypeError,
+        ):
+            raise ValueError("INVALID_DECIMAL")
+
+        if not value.is_finite():
+            raise ValueError("NONFINITE_DECIMAL")
+
+        return value
+
+    # ========================================================
+    # 1. VALIDATE INPUTS
+    # ========================================================
+
+    if not isinstance(context, dict):
+        return block("INVALID_CONTEXT")
+
+    if not isinstance(snapshot, dict):
+        return block("INVALID_SNAPSHOT")
+
+    if not isinstance(trailing_result, dict):
+        return block("INVALID_TRAILING_RESULT")
+
+    if not isinstance(exchange_order_records, list):
+        return block("ORDER_RECORDS_UNAVAILABLE")
+
+    if context.get("environment") != "DEMO":
+        return block("DEMO_ONLY")
+
+    if context.get("demo_symbol") != "BTCSUSDT":
+        return block("INVALID_DEMO_SYMBOL")
+
+    if snapshot.get("symbol") != "BTCSUSDT":
+        return block("POSITION_SYMBOL_MISMATCH")
+
+    if snapshot.get("read_only") is not True:
+        return block("POSITION_UNVERIFIED")
+
+    if snapshot.get("position_exists") is not True:
+        return block("NO_OPEN_POSITION")
+
+    if pending_orders_verified is not True:
+        return block("PENDING_ORDER_STATE_UNVERIFIED")
+
+    if not isinstance(trade_key, str):
+        return block("INVALID_TRADE_KEY")
+
+    if not trade_key.strip():
+        return block("EMPTY_TRADE_KEY")
+
+    # ========================================================
+    # 2. VERIFY TP3 TRAILING DECISION
+    # ========================================================
+
+    if trailing_result.get("evaluated") is not True:
+        return block("TP3_NOT_EVALUATED")
+
+    if trailing_result.get("tp3_armed") is not True:
+        return block("TP3_NOT_ARMED")
+
+    if trailing_result.get("callback_reached") is not True:
+        result["reason"] = "TP3_CALLBACK_NOT_REACHED"
+        return result
+
+    if trailing_result.get("reason") != (
+        "TRAILING_CALLBACK_REACHED"
+    ):
+        return block("TP3_TRIGGER_STATE_INCONSISTENT")
+
+    # ========================================================
+    # 3. VERIFY POSITION SIDE
+    # ========================================================
+
+    position_side = snapshot.get("position_side")
+
+    if position_side == "LONG":
+        close_side = "SELL"
+
+    elif position_side == "SHORT":
+        close_side = "BUY"
+
+    else:
+        return block("INVALID_POSITION_SIDE")
+
+    result["position_side"] = position_side
+
+    # ========================================================
+    # 4. EXECUTABLE QUANTITY
+    # ========================================================
+
+    try:
+        position_size = D(
+            snapshot.get("position_size")
+        )
+
+        intended_quantity = D(
+            trailing_result.get("close_quantity")
+        )
+
+        quantity_step = D(
+            context.get("quantity_step")
+        )
+
+        minimum_quantity = D(
+            context.get("minimum_quantity")
+        )
+
+    except ValueError as exc:
+        return block(str(exc))
+
+    if (
+        position_size <= 0
+        or intended_quantity <= 0
+        or quantity_step <= 0
+        or minimum_quantity <= 0
+    ):
+        return block("INVALID_POSITION_OR_CLOSE_QUANTITY")
+
+    if intended_quantity > position_size:
+        return block("TP3_QUANTITY_EXCEEDS_POSITION")
+
+    quantity = (
+        intended_quantity / quantity_step
+    ).to_integral_value(
+        rounding=ROUND_DOWN
+    ) * quantity_step
+
+    if quantity < minimum_quantity:
+        return block("TP3_QUANTITY_BELOW_MINIMUM")
+
+    result["quantity"] = str(quantity)
+
+    # ========================================================
+    # 5. BUILD DETERMINISTIC CLIENT ORDER ID
+    # ========================================================
+
+    client_id = (
+        f"FR-TP3-{trade_key}"
+    )[:36]
+
+    result["client_order_id"] = client_id
+
+    # ========================================================
+    # 6. CHECK EXISTING TP3 ORDERS
+    # ========================================================
+
+    for index, order in enumerate(
+        exchange_order_records
+    ):
+        if not isinstance(order, dict):
+            return block(
+                f"INVALID_ORDER_RECORD_{index}"
+            )
+
+        existing_id = str(
+            order.get("clientOrderId", "")
+        )
+
+        if existing_id != client_id:
+            continue
+
+        # An order with this ID has existed.
+        # Never blindly submit another TP3 close,
+        # regardless of whether it was filled,
+        # partially filled, cancelled or rejected.
+
+        status = str(
+            order.get("status", "")
+        ).upper()
+
+        return block(
+            "EXISTING_TP3_ORDER_" + status
+        )
+
+    # ========================================================
+    # 7. PREPARE DEMO MARKET CLOSE INTENT
+    # ========================================================
+
+    # This preserves the payload field structure from
+    # the original Unit 14.
+    #
+    # No STOP LOSS fields.
+    # No production endpoint.
+    # No new position direction.
+
+    payload = {
+        "symbol": "BTCSUSDT",
+        "side": close_side,
+        "positionSide": position_side,
+        "type": "MARKET",
+        "quantity": format(quantity, "f"),
+        "newClientOrderId": client_id,
+    }
+
+    prohibited_fields = (
+        "slTriggerPrice",
+        "SlWorkingType",
+        "stopLossPrice",
+        "stopPrice",
+    )
+
+    for field in prohibited_fields:
+        if field in payload:
+            return block(
+                "PROHIBITED_SL_FIELD_" + field
+            )
+
+    result["payload"] = payload
+    result["ready"] = True
+    result["reason"] = "TP3_CLOSE_INTENT_PREPARED"
+
+    # Submission remains disabled pending final
+    # exchange-backed execution integration.
+    result["submission_authorized"] = False
+
+    print(
+        "UNIT 14 TP3 CLOSE INTENT READY",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 SIDE =",
+        close_side,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 QUANTITY =",
+        quantity,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 CLIENT ID =",
+        client_id,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 ORDER SUBMISSION = DISABLED",
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# PART 8B - VERIFY TP3 CLOSE EXECUTION
+# ZERO INDENTATION DEMARCATION
+# ============================================================
+
+def unit14_reconcile_tp3_close(
+    before_snapshot,
+    after_snapshot,
+    order_record,
+    expected_client_order_id,
+    quantity_step,
+):
+    """
+    UNIT 14 REPLACEMENT - PART 8B
+
+    Reconcile an exchange-reported TP3 close with
+    the observed reduction in position size.
+
+    Does not submit or retry orders.
+
+    Requires:
+    - Correct demo symbol
+    - Same position direction if still open
+    - Matching TP3 client order ID
+    - FILLED exchange order status
+    - Positive executed quantity
+    - Position-size reduction
+
+    Assumes no other position-changing execution
+    between the before and after snapshots.
+    """
+
+    from decimal import Decimal, InvalidOperation
+
+    result = {
+        "verified": False,
+        "reason": "NOT_VERIFIED",
+        "before_quantity": None,
+        "after_quantity": None,
+        "executed_quantity": None,
+        "position_reduction": None,
+    }
+
+    def block(reason):
+        result["reason"] = reason
+
+        print(
+            "UNIT 14 TP3 RECONCILIATION BLOCKED:",
+            reason,
+            flush=True,
+        )
+
+        return result
+
+    def D(value):
+        try:
+            number = Decimal(str(value))
+        except (
+            InvalidOperation,
+            TypeError,
+            ValueError,
+        ):
+            raise ValueError("INVALID_QUANTITY")
+
+        if not number.is_finite():
+            raise ValueError("NONFINITE_QUANTITY")
+
+        return number
+
+    # ========================================================
+    # 1. VALIDATE INPUTS
+    # ========================================================
+
+    if not all(
+        isinstance(item, dict)
+        for item in (
+            before_snapshot,
+            after_snapshot,
+            order_record,
+        )
+    ):
+        return block("INVALID_RECONCILIATION_INPUT")
+
+    if (
+        before_snapshot.get("symbol") != "BTCSUSDT"
+        or after_snapshot.get("symbol") != "BTCSUSDT"
+    ):
+        return block("SYMBOL_MISMATCH")
+
+    if (
+        before_snapshot.get("read_only") is not True
+        or after_snapshot.get("read_only") is not True
+    ):
+        return block("UNVERIFIED_POSITION_SNAPSHOTS")
+
+    before_side = before_snapshot.get(
+        "position_side"
+    )
+
+    after_side = after_snapshot.get(
+        "position_side"
+    )
+
+    if before_side not in ("LONG", "SHORT"):
+        return block("INVALID_ORIGINAL_DIRECTION")
+
+    if after_side not in (
+        before_side,
+        "NONE",
+    ):
+        return block("POSITION_DIRECTION_CHANGED")
+
+    # ========================================================
+    # 2. VERIFY EXACT ORDER ID
+    # ========================================================
+
+    if not isinstance(
+        expected_client_order_id,
+        str,
+    ) or not expected_client_order_id:
+        return block("INVALID_EXPECTED_CLIENT_ID")
+
+    actual_id = str(
+        order_record.get("clientOrderId", "")
+    )
+
+    if actual_id != expected_client_order_id:
+        return block("TP3_CLIENT_ID_MISMATCH")
+
+    # ========================================================
+    # 3. VERIFY EXCHANGE FILL STATUS
+    # ========================================================
+
+    status = str(
+        order_record.get("status", "")
+    ).upper().strip()
+
+    if status != "FILLED":
+        return block("TP3_NOT_CONFIRMED_FILLED")
+
+    # ========================================================
+    # 4. EXTRACT POSITION QUANTITIES
+    # ========================================================
+
+    try:
+        before = D(
+            before_snapshot.get("position_size")
+        )
+
+        after = D(
+            after_snapshot.get("position_size")
+        )
+
+        executed = D(
+            order_record.get("executedQty")
+        )
+
+        step = D(quantity_step)
+
+    except ValueError as exc:
+        return block(str(exc))
+
+    if (
+        before <= 0
+        or after < 0
+        or executed <= 0
+        or step <= 0
+    ):
+        return block("INVALID_QUANTITY_RANGE")
+
+    reduction = before - after
+
+    result.update({
+        "before_quantity": str(before),
+        "after_quantity": str(after),
+        "executed_quantity": str(executed),
+        "position_reduction": str(reduction),
+    })
+
+    # ========================================================
+    # 5. VERIFY POSITION REDUCTION
+    # ========================================================
+
+    if reduction <= 0:
+        return block("POSITION_NOT_REDUCED")
+
+    tolerance = step / Decimal("2")
+
+    if abs(reduction - executed) > tolerance:
+        return block("TP3_EXECUTION_SIZE_MISMATCH")
+
+    # ========================================================
+    # 6. CONFIRMED TP3 CLOSE RESULT
+    # ========================================================
+
+    result["verified"] = True
+    result["reason"] = "TP3_FILL_AND_REDUCTION_CONFIRMED"
+
+    print(
+        "PASS: UNIT 14 TP3 EXCHANGE FILL CONFIRMED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 POSITION BEFORE =",
+        before,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 POSITION AFTER =",
+        after,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 EXECUTED QUANTITY =",
+        executed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 VERIFIED REDUCTION =",
+        reduction,
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# END UNIT 14 REPLACEMENT - PART 8
+# ZERO INDENTATION DEMARCATION
+# BOTH FUNCTIONS COMPLETELY CLOSED
+# ============================================================
 def unit14_verify_backup_fill(
     before_quantity,
     after_quantity,
