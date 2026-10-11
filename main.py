@@ -4331,10 +4331,44 @@ def fresh_reconstruction_unit_5(
 
         qualified = True
 
-        qualification_reason = (
-            "SCALP_5M_DIRECTION_AND_"
-            "MOMENTUM_CONFIRMED"
+        
+    elif (
+        momentum_5m_direction in ("LONG", "SHORT")
+        and abs(move_5m_pct) >= SCALP_MIN_MOVE_PCT
+        and (
+            momentum_1m_direction == momentum_5m_direction
+            or (
+                momentum_5m_direction == "LONG"
+                and latest_close > previous_close
+            )
+            or (
+                momentum_5m_direction == "SHORT"
+                and latest_close < previous_close
+            )
         )
+    ):
+        # PRICE-FIRST SCALP QUALIFICATION
+        #
+        # EMA separation is no longer a mandatory
+        # qualification condition for SCALP.
+        #
+        # Unit 6 performs the weighted scoring and
+        # additional anti-chase safety checks.
+        #
+        # STRUCTURE and BREAKOUT remain unchanged.
+
+        active_mode = "SCALP"
+
+        direction = momentum_5m_direction
+
+        scalp_direction = direction
+
+        qualified = True
+
+        qualification_reason = (
+            "SCALP_PRICE_FIRST_PENDING_UNIT_6_SCORE"
+        )
+        
 
     # --------------------------------------------------------
     # NO QUALIFIED MODE
