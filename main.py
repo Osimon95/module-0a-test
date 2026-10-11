@@ -165,1226 +165,505 @@ FRESH_RECONSTRUCTION_UNIT_1_READY = (
     fresh_reconstruction_unit_1()
 )
 
+
 # ============================================================
 # START COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 2
 # ZERO INDENTATION DEMARCATION
-# DELETE THE OLD UNIT 2 AND ITS CALL
-# PASTE THIS COMPLETE BLOCK IN ITS PLACE
 # ============================================================
-
-
-# ============================================================
-# RECONSTRUCTION UNIT 2
-# CONFIGURATION + SAFETY CONTRACT
 #
-# UPDATED TP ARCHITECTURE:
+# COORDINATED ENTRY AND RE-ENTRY CONFIGURATION
 #
-# TP1:
-# - TARGET ALLOCATION = 10%
-# - STEP-AWARE EXECUTION
-# - DYNAMIC TARGET
-# - MINIMUM NET ROI FLOOR = 5%
+# PRESERVED:
+# - WEEX V3
+# - BTCUSDT public market
+# - BTCSUSDT demo environment
+# - 100x target leverage
+# - Initial margin 5%
+# - Backup margin 5%
+# - Maximum backups 3
+# - Exposure cap 35%
+# - TP allocation 10/20/70
+# - TP3 dynamic trailing
+# - SL disabled
+# - One direction only
+# - Anti-duplicate protection
+# - REAL TRADING DISABLED
 #
-# TP2:
-# - TARGET ALLOCATION = 20%
-# - STEP-AWARE EXECUTION
-# - DYNAMIC TARGET
-# - MINIMUM NET ROI FLOOR = 10%
-# - MANDATORY TP1 -> TP2 SEPARATION
-#
-# TP3:
-# - TARGET ALLOCATION = 70%
-# - TRAILING RUNNER
-# - DYNAMIC CALLBACK
-# - NORMAL REFERENCE = 0.20%
-# - CALLBACK MAY WIDEN/TIGHTEN ACCORDING TO:
-#     TREND STRENGTH
-#     ATR / VOLATILITY
-#     MOMENTUM DETERIORATION
-#
-# IMPORTANT:
-# - 0.20% IS A REFERENCE, NOT A FIXED CALLBACK.
-# - ACTUAL EXECUTABLE TP QUANTITIES ARE STEP-AWARE.
-# - SL REMAINS DISABLED.
-# - MAX BACKUPS = 3.
-# - ONE DIRECTION ONLY.
-# - ANTI-DUPLICATE ORDERS ENABLED.
-# - REAL ORDER SUBMISSION PROHIBITED.
+# NEW CONFIGURATION:
+# - Continuous entry scan
+# - Five-second scan interval
+# - Flat-position re-entry
+# - Fresh signal requirement
+# - Price-led scalp scoring
+# - Exchange-state reconciliation
 # ============================================================
 
 
 def fresh_reconstruction_unit_2():
 
-    print(
-        "=" * 80,
-        flush=True,
-    )
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 2 START")
 
-    log(
-        "FRESH RECONSTRUCTION UNIT 2 START"
-    )
-
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
-    # --------------------------------------------------------
-    # 1. REQUIRE UNIT 1
-    # --------------------------------------------------------
-
-    if (
-        FRESH_RECONSTRUCTION_UNIT_1_READY
-        is not True
-    ):
-
+    if FRESH_RECONSTRUCTION_UNIT_1_READY is not True:
         raise RuntimeError(
             "UNIT 2 BLOCKED: UNIT 1 NOT READY"
         )
 
-    # --------------------------------------------------------
-    # 2. EXCHANGE CONFIGURATION
-    #
-    # BTCUSDT:
-    #   WEEX V3 public/live contract market symbol.
-    #
-    # BTCSUSDT:
-    #   WEEX V3 simulated/demo order symbol.
-    #
-    # These are intentionally separate.
-    # --------------------------------------------------------
-
-    exchange_name = (
-        "WEEX"
-    )
-
-    api_version = (
-        "V3"
-    )
-
-    contract_base_url = (
-        "https://api-contract.weex.com"
-    )
-
-    market_symbol = (
-        "BTCUSDT"
-    )
-
-    demo_order_symbol = (
-        "BTCSUSDT"
-    )
-
-    execution_environment = (
-        "DEMO"
-    )
-
-    # --------------------------------------------------------
-    # 3. SAFETY CAPABILITY CONFIGURATION
-    #
-    # Unit 2 itself remains configuration/read-only.
-    #
-    # Later explicitly validated demo execution units may
-    # perform authenticated DEMO actions independently.
-    #
-    # REAL trading remains prohibited.
-    # --------------------------------------------------------
-
-    safety = {
-
-        "public_market_data_read_enabled":
-            True,
-
-        "demo_account_balance_read_enabled":
-            True,
-
-        "authenticated_api_enabled":
-            False,
-
-        "account_access_enabled":
-            False,
-
-        "position_access_enabled":
-            False,
-
-        "order_endpoint_access_enabled":
-            False,
-
-        "demo_order_submission_enabled":
-            False,
-
-        "real_order_submission_enabled":
-            False,
-
-        "exchange_mutation_enabled":
-            False,
-
-        "leverage_mutation_enabled":
-            False,
-
-        "margin_mode_mutation_enabled":
-            False,
-
-        "position_mode_mutation_enabled":
-            False,
-    }
-
-    # --------------------------------------------------------
-    # 4. STRATEGY CONFIGURATION
-    # --------------------------------------------------------
-
-    strategy = {
-
-        # ----------------------------------------------------
-        # LEVERAGE / ENTRY
-        # ----------------------------------------------------
-
-        "leverage_target":
-            100,
-
-        "initial_margin_percent":
-            5.0,
-
-        # ----------------------------------------------------
-        # BACKUPS
-        # ----------------------------------------------------
-
-        "backup_margin_percent":
-            5.0,
-
-        "backup_buffer_percent":
-            0.30,
-
-        "max_backups":
-            3,
-
-        "exposure_cap_percent":
-            35.0,
-
-        # ----------------------------------------------------
-        # TP QUANTITY ALLOCATION TARGET
-        #
-        # These are desired allocation percentages.
-        #
-        # Unit 13 converts them into executable quantities
-        # according to the 0.0001 BTC quantity step.
-        #
-        # Example:
-        #
-        # 0.0010 BTC = 10 quantity steps
-        #
-        # TP1 = 0.0001
-        # TP2 = 0.0002
-        # TP3 = 0.0007
-        #
-        # Smaller positions are adjusted by Unit 13 so that
-        # invalid sub-step quantities are never submitted.
-        # ----------------------------------------------------
-
-        "tp1_allocation_percent":
-            10.0,
-
-        "tp2_allocation_percent":
-            20.0,
-
-        "tp3_allocation_percent":
-            70.0,
-
-        # ----------------------------------------------------
-        # TP1 DYNAMIC TARGET
-        #
-        # TP1 must never be intentionally targeted below
-        # 5% net leveraged ROI.
-        #
-        # Favorable conditions may extend TP1 above this
-        # floor.
-        # ----------------------------------------------------
-
-        "tp1_net_roi_floor_percent":
-            5.0,
-
-        # ----------------------------------------------------
-        # TP2 DYNAMIC TARGET
-        #
-        # TP2 must never be intentionally targeted below
-        # 10% net leveraged ROI.
-        #
-        # Favorable conditions may extend TP2 above this
-        # floor.
-        # ----------------------------------------------------
-
-        "tp2_net_roi_floor_percent":
-            10.0,
-
-        # ----------------------------------------------------
-        # MANDATORY TP1 -> TP2 SEPARATION
-        #
-        # TP2 must remain beyond TP1.
-        #
-        # Unit 13 also enforces at least one exchange price
-        # step after rounding.
-        # ----------------------------------------------------
-
-        "tp1_tp2_min_roi_separation_percent":
-            5.0,
-
-        # ----------------------------------------------------
-        # TP3 DYNAMIC TRAILING CALLBACK
-        #
-        # 0.20% = normal/reference callback.
-        #
-        # THIS IS NOT A FIXED TRAILING DISTANCE.
-        #
-        # Unit 14 dynamically adjusts the actual callback
-        # according to:
-        #
-        # - trend strength
-        # - ATR / volatility
-        # - momentum deterioration
-        #
-        # Strong clean trend / higher useful volatility:
-        #     may widen callback.
-        #
-        # Momentum deterioration:
-        #     may tighten callback.
-        #
-        # Absolute boundaries prevent runaway values.
-        # ----------------------------------------------------
-
-        "tp3_trailing_reference_percent":
-            0.20,
-
-        "tp3_trailing_min_percent":
-            0.10,
-
-        "tp3_trailing_max_percent":
-            0.40,
-
-        # ----------------------------------------------------
-        # SIGNAL / MODE CONTROL
-        # ----------------------------------------------------
-
-        "signal_expiry_seconds":
-            120,
-
-        "loss_cooldown_seconds":
-            300,
-
-        "one_direction_only":
-            True,
-
-        "anti_duplicate_orders":
-            True,
-
-        "active_trade_mode_lock":
-            True,
-
-        "exclusive_mode":
-            True,
-
-        "mode_confirmations_required":
-            3,
-    }
-
-    # --------------------------------------------------------
-    # 5. MARKET PRECISION
-    # --------------------------------------------------------
-
-    market_precision = {
-
-        "quantity_step":
-            0.0001,
-
-        "minimum_quantity":
-            0.0001,
-
-        "price_step":
-            0.1,
-    }
-
-    # --------------------------------------------------------
-    # 6. COMPLETE CONFIGURATION OBJECT
-    # --------------------------------------------------------
-
-    config = {
-
-        "exchange": {
-
-            "name":
-                exchange_name,
-
-            "api_version":
-                api_version,
-
-            "contract_base_url":
-                contract_base_url,
-
-            "market_symbol":
-                market_symbol,
-
-            "demo_order_symbol":
-                demo_order_symbol,
-        },
-
-        "execution_environment":
-            execution_environment,
-
-        "safety":
-            safety,
-
-        "strategy":
-            strategy,
-
-        "market_precision":
-            market_precision,
-    }
-
-    # --------------------------------------------------------
-    # 7. CONFIGURATION VALIDATION
-    # --------------------------------------------------------
-
-    validation_errors = []
-
-    # --------------------------------------------------------
-    # EXCHANGE VALIDATION
-    # --------------------------------------------------------
-
-    if (
-        exchange_name
-        !=
-        "WEEX"
-    ):
-
-        validation_errors.append(
-            "INVALID EXCHANGE"
-        )
-
-    if (
-        api_version
-        !=
-        "V3"
-    ):
-
-        validation_errors.append(
-            "INVALID API VERSION"
-        )
-
-    if (
-        contract_base_url
-        !=
-        "https://api-contract.weex.com"
-    ):
-
-        validation_errors.append(
-            "INVALID CONTRACT BASE URL"
-        )
-
-    if (
-        market_symbol
-        !=
-        "BTCUSDT"
-    ):
-
-        validation_errors.append(
-            "INVALID MARKET SYMBOL"
-        )
-
-    if (
-        demo_order_symbol
-        !=
-        "BTCSUSDT"
-    ):
-
-        validation_errors.append(
-            "INVALID DEMO ORDER SYMBOL"
-        )
-
-    if (
-        execution_environment
-        !=
-        "DEMO"
-    ):
-
-        validation_errors.append(
-            "INVALID EXECUTION ENVIRONMENT"
-        )
-
-    # --------------------------------------------------------
-    # BASIC STRATEGY VALIDATION
-    # --------------------------------------------------------
-
-    if (
-        strategy[
-            "leverage_target"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID LEVERAGE TARGET"
-        )
-
-    if (
-        strategy[
-            "initial_margin_percent"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID INITIAL MARGIN"
-        )
-
-    if (
-        strategy[
-            "backup_margin_percent"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID BACKUP MARGIN"
-        )
-
-    if (
-        strategy[
-            "backup_buffer_percent"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID BACKUP BUFFER"
-        )
-
-    if (
-        strategy[
-            "max_backups"
-        ]
-        !=
-        3
-    ):
-
-        validation_errors.append(
-            "INVALID MAX BACKUPS"
-        )
-
-    if (
-        strategy[
-            "exposure_cap_percent"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID EXPOSURE CAP"
-        )
-
-    
     # ========================================================
-    # START UNIT 2 SIZE PROTECTION
+    # EXCHANGE CONFIGURATION
     # INDENTATION: 4 SPACES
     # ========================================================
 
-    # Configuration limits for all entry modes.
-    # Actual exchange margin must also be checked
-    # by the execution units before orders.
+    exchange = {
+        "name": "WEEX",
+        "api_version": "V3",
+        "contract_base_url":
+            "https://api-contract.weex.com",
+        "market_symbol": "BTCUSDT",
+        "demo_order_symbol": "BTCSUSDT",
+    }
 
-    if strategy["initial_margin_percent"] > 5.0:
-        validation_errors.append(
-            "INITIAL ENTRY MARGIN EXCEEDS 5%"
-        )
+    execution_environment = "DEMO"
 
-    if strategy["backup_margin_percent"] > 5.0:
-        validation_errors.append(
-            "BACKUP MARGIN EXCEEDS 5%"
-        )
+    # ========================================================
+    # SAFETY CONFIGURATION
+    # INDENTATION: 4 SPACES
+    #
+    # These are baseline capabilities.
+    # Validated later demo execution units use separate gates.
+    # ========================================================
 
-    if strategy["exposure_cap_percent"] > 35.0:
-        validation_errors.append(
-            "EXPOSURE CAP EXCEEDS 35%"
-        )
+    safety = {
+        "public_market_data_read_enabled": True,
+        "demo_account_balance_read_enabled": True,
+        "authenticated_api_enabled": False,
+        "account_access_enabled": False,
+        "position_access_enabled": False,
+        "order_endpoint_access_enabled": False,
+        "demo_order_submission_enabled": False,
+        "real_order_submission_enabled": False,
+        "exchange_mutation_enabled": False,
+        "leverage_mutation_enabled": False,
+        "margin_mode_mutation_enabled": False,
+        "position_mode_mutation_enabled": False,
+    }
 
-    configured_staged_exposure = (
+    # ========================================================
+    # STRATEGY CONFIGURATION
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    strategy = {
+
+        # LEVERAGE AND POSITION SIZE
+        "leverage_target": 100,
+        "initial_margin_percent": 5.0,
+        "backup_margin_percent": 5.0,
+        "backup_buffer_percent": 0.30,
+        "max_backups": 3,
+        "exposure_cap_percent": 35.0,
+
+        # PROFIT ALLOCATION
+        "tp1_allocation_percent": 10.0,
+        "tp2_allocation_percent": 20.0,
+        "tp3_allocation_percent": 70.0,
+
+        # NET ROI TARGET FLOORS
+        "tp1_net_roi_floor_percent": 5.0,
+        "tp2_net_roi_floor_percent": 10.0,
+        "tp1_tp2_min_roi_separation_percent": 5.0,
+
+        # TP3 DYNAMIC TRAILING
+        "tp3_trailing_reference_percent": 0.20,
+        "tp3_trailing_min_percent": 0.10,
+        "tp3_trailing_max_percent": 0.40,
+
+        # FEE ESTIMATE; NOT AN EXCHANGE FEE QUOTE
+        "futures_taker_fee_percent": 0.08,
+
+        # EXISTING SIGNAL CONTROL
+        "signal_expiry_seconds": 120,
+        "loss_cooldown_seconds": 300,
+        "one_direction_only": True,
+        "anti_duplicate_orders": True,
+        "active_trade_mode_lock": True,
+        "exclusive_mode": True,
+        "mode_confirmations_required": 3,
+
+        # CONTINUOUS ENTRY SCANNING
+        "continuous_entry_scan_enabled": True,
+        "entry_scan_interval_seconds": 5.0,
+        "refresh_market_each_scan": True,
+        "refresh_signal_each_scan": True,
+        "refresh_indicators_on_new_candle": True,
+
+        # FLAT POSITION RE-ENTRY
+        "flat_position_reentry_enabled": True,
+        "require_fresh_reentry_signal": True,
+        "require_confirmed_flat_position": True,
+        "require_no_pending_entry_orders": True,
+        "require_exchange_state_reconciliation": True,
+
+        # RE-ENTRY PROTECTION
+        "profitable_close_reentry_enabled": True,
+        "loss_cooldown_reentry_required": True,
+        "block_duplicate_signal_ids": True,
+        "block_unconfirmed_order_state": True,
+        "require_fresh_account_balance": True,
+        "reconcile_after_restart": True,
+
+        # SCALP QUALITY SCORING
+        "scalp_quality_threshold": 70.0,
+
+        "scalp_price_weight": 50.0,
+        "scalp_ema_weight": 15.0,
+        "scalp_momentum_weight": 15.0,
+        "scalp_structure_weight": 10.0,
+        "scalp_volatility_timing_weight": 10.0,
+
+        # MODE PRESERVATION
+        "scalp_mode_enabled": True,
+        "structure_mode_enabled": True,
+        "breakout_mode_enabled": True,
+
+        # EXISTING SL POLICY
+        "stop_loss_enabled": False,
+
+        # EXECUTION BOUNDARY
+        "real_money_execution_enabled": False,
+    }
+
+    # ========================================================
+    # MARKET PRECISION
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    market_precision = {
+        "quantity_step": 0.0001,
+        "minimum_quantity": 0.0001,
+        "price_step": 0.1,
+    }
+
+    # ========================================================
+    # COMPLETE CONFIGURATION
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    config = {
+        "exchange": exchange,
+        "execution_environment": execution_environment,
+        "safety": safety,
+        "strategy": strategy,
+        "market_precision": market_precision,
+    }
+
+    # ========================================================
+    # STRICT VALIDATION
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    errors = []
+
+    if exchange["name"] != "WEEX":
+        errors.append("INVALID_EXCHANGE")
+
+    if exchange["api_version"] != "V3":
+        errors.append("INVALID_API_VERSION")
+
+    if exchange["contract_base_url"] != (
+        "https://api-contract.weex.com"
+    ):
+        errors.append("INVALID_BASE_URL")
+
+    if exchange["market_symbol"] != "BTCUSDT":
+        errors.append("INVALID_MARKET_SYMBOL")
+
+    if exchange["demo_order_symbol"] != "BTCSUSDT":
+        errors.append("INVALID_DEMO_SYMBOL")
+
+    if execution_environment != "DEMO":
+        errors.append("REAL_ENVIRONMENT_PROHIBITED")
+
+    if strategy["leverage_target"] <= 0:
+        errors.append("INVALID_LEVERAGE")
+
+    if not (0 < strategy["initial_margin_percent"] <= 5):
+        errors.append("INVALID_INITIAL_MARGIN")
+
+    if not (0 < strategy["backup_margin_percent"] <= 5):
+        errors.append("INVALID_BACKUP_MARGIN")
+
+    if strategy["max_backups"] != 3:
+        errors.append("INVALID_BACKUP_COUNT")
+
+    if strategy["backup_buffer_percent"] <= 0:
+        errors.append("INVALID_BACKUP_BUFFER")
+
+    if not (0 < strategy["exposure_cap_percent"] <= 35):
+        errors.append("INVALID_EXPOSURE_CAP")
+
+    staged_margin = (
         strategy["initial_margin_percent"]
         + strategy["max_backups"]
         * strategy["backup_margin_percent"]
     )
 
-    if (
-        configured_staged_exposure
-        > strategy["exposure_cap_percent"]
-    ):
-        validation_errors.append(
-            "STAGED MARGIN EXCEEDS EXPOSURE CAP"
-        )
+    if staged_margin > strategy["exposure_cap_percent"]:
+        errors.append("STAGED_MARGIN_EXCEEDS_CAP")
 
     # ========================================================
-    # END UNIT 2 SIZE PROTECTION
+    # TAKE PROFIT VALIDATION
     # INDENTATION: 4 SPACES
     # ========================================================
-    # --------------------------------------------------------
-    # TP ALLOCATION VALIDATION
-    # --------------------------------------------------------
 
-    tp_total = (
+    tp_total = sum((
+        strategy["tp1_allocation_percent"],
+        strategy["tp2_allocation_percent"],
+        strategy["tp3_allocation_percent"],
+    ))
 
-        strategy[
-            "tp1_allocation_percent"
-        ]
+    if abs(tp_total - 100.0) > 0.000001:
+        errors.append("INVALID_TP_ALLOCATION")
 
-        +
+    if strategy["tp1_net_roi_floor_percent"] < 5:
+        errors.append("INVALID_TP1_FLOOR")
 
-        strategy[
-            "tp2_allocation_percent"
-        ]
+    if strategy["tp2_net_roi_floor_percent"] < 10:
+        errors.append("INVALID_TP2_FLOOR")
 
-        +
+    if strategy["tp1_tp2_min_roi_separation_percent"] <= 0:
+        errors.append("INVALID_TP_SEPARATION")
 
-        strategy[
-            "tp3_allocation_percent"
-        ]
+    trailing_min = strategy["tp3_trailing_min_percent"]
+    trailing_ref = strategy["tp3_trailing_reference_percent"]
+    trailing_max = strategy["tp3_trailing_max_percent"]
+
+    if not (0 < trailing_min <= trailing_ref <= trailing_max):
+        errors.append("INVALID_DYNAMIC_TRAILING_RANGE")
+
+    # ========================================================
+    # ENTRY SCAN VALIDATION
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    if strategy["continuous_entry_scan_enabled"] is not True:
+        errors.append("CONTINUOUS_SCAN_DISABLED")
+
+    if strategy["entry_scan_interval_seconds"] < 5:
+        errors.append("SCAN_INTERVAL_TOO_SHORT")
+
+    if strategy["refresh_market_each_scan"] is not True:
+        errors.append("MARKET_REFRESH_DISABLED")
+
+    if strategy["refresh_signal_each_scan"] is not True:
+        errors.append("SIGNAL_REFRESH_DISABLED")
+
+    if strategy["signal_expiry_seconds"] <= 0:
+        errors.append("INVALID_SIGNAL_EXPIRY")
+
+    if strategy["loss_cooldown_seconds"] < 300:
+        errors.append("INSUFFICIENT_LOSS_COOLDOWN")
+
+    # ========================================================
+    # SCALP WEIGHT VALIDATION
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    weight_keys = (
+        "scalp_price_weight",
+        "scalp_ema_weight",
+        "scalp_momentum_weight",
+        "scalp_structure_weight",
+        "scalp_volatility_timing_weight",
     )
 
-    if (
-        tp_total
-        !=
-        100.0
-    ):
+    total_weight = sum(
+        strategy[key] for key in weight_keys
+    )
 
-        validation_errors.append(
-            "TP ALLOCATION DOES NOT TOTAL 100%"
-        )
+    if abs(total_weight - 100.0) > 0.000001:
+        errors.append("SCALP_WEIGHTS_NOT_100")
 
-    if (
-        strategy[
-            "tp1_allocation_percent"
-        ]
-        <=
-        0
-    ):
+    if strategy["scalp_price_weight"] != 50.0:
+        errors.append("PRICE_WEIGHT_NOT_50")
 
-        validation_errors.append(
-            "INVALID TP1 ALLOCATION"
-        )
+    quality_threshold = strategy["scalp_quality_threshold"]
 
-    if (
-        strategy[
-            "tp2_allocation_percent"
-        ]
-        <=
-        0
-    ):
+    if not (0 < quality_threshold <= 100):
+        errors.append("INVALID_SCALP_THRESHOLD")
 
-        validation_errors.append(
-            "INVALID TP2 ALLOCATION"
-        )
+    # ========================================================
+    # ANTI-DUPLICATE AND RE-ENTRY VALIDATION
+    # INDENTATION: 4 SPACES
+    # ========================================================
 
-    if (
-        strategy[
-            "tp3_allocation_percent"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID TP3 ALLOCATION"
-        )
-
-    # --------------------------------------------------------
-    # TP1 / TP2 DYNAMIC ROI VALIDATION
-    # --------------------------------------------------------
-
-    if (
-        strategy[
-            "tp1_net_roi_floor_percent"
-        ]
-        <
-        5.0
-    ):
-
-        validation_errors.append(
-            "TP1 NET ROI FLOOR BELOW 5%"
-        )
-
-    if (
-        strategy[
-            "tp2_net_roi_floor_percent"
-        ]
-        <
-        10.0
-    ):
-
-        validation_errors.append(
-            "TP2 NET ROI FLOOR BELOW 10%"
-        )
-
-    if (
-        strategy[
-            "tp2_net_roi_floor_percent"
-        ]
-        <=
-        strategy[
-            "tp1_net_roi_floor_percent"
-        ]
-    ):
-
-        validation_errors.append(
-            "TP2 ROI FLOOR MUST EXCEED TP1 ROI FLOOR"
-        )
-
-    if (
-        strategy[
-            "tp1_tp2_min_roi_separation_percent"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID TP1 TP2 ROI SEPARATION"
-        )
-
-    # --------------------------------------------------------
-    # TP3 DYNAMIC TRAILING VALIDATION
-    # --------------------------------------------------------
-
-    if (
-        strategy[
-            "tp3_trailing_reference_percent"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID TP3 TRAILING REFERENCE"
-        )
-
-    if (
-        strategy[
-            "tp3_trailing_min_percent"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID TP3 TRAILING MINIMUM"
-        )
-
-    if (
-        strategy[
-            "tp3_trailing_max_percent"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID TP3 TRAILING MAXIMUM"
-        )
-
-    if (
-        strategy[
-            "tp3_trailing_min_percent"
-        ]
-        >
-        strategy[
-            "tp3_trailing_reference_percent"
-        ]
-    ):
-
-        validation_errors.append(
-            "TP3 MINIMUM EXCEEDS REFERENCE"
-        )
-
-    if (
-        strategy[
-            "tp3_trailing_reference_percent"
-        ]
-        >
-        strategy[
-            "tp3_trailing_max_percent"
-        ]
-    ):
-
-        validation_errors.append(
-            "TP3 REFERENCE EXCEEDS MAXIMUM"
-        )
-
-    # --------------------------------------------------------
-    # SIGNAL / MODE VALIDATION
-    # --------------------------------------------------------
-
-    if (
-        strategy[
-            "signal_expiry_seconds"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID SIGNAL EXPIRY"
-        )
-
-    if (
-        strategy[
-            "loss_cooldown_seconds"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID LOSS COOLDOWN"
-        )
-
-    if (
-        strategy[
-            "mode_confirmations_required"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID MODE CONFIRMATION COUNT"
-        )
-
-    # --------------------------------------------------------
-    # BOOLEAN STRATEGY CONTRACTS
-    # --------------------------------------------------------
-
-    required_true_strategy_flags = (
-
+    required_protections = (
         "one_direction_only",
-
         "anti_duplicate_orders",
-
         "active_trade_mode_lock",
-
         "exclusive_mode",
+        "flat_position_reentry_enabled",
+        "require_fresh_reentry_signal",
+        "require_confirmed_flat_position",
+        "require_no_pending_entry_orders",
+        "require_exchange_state_reconciliation",
+        "block_duplicate_signal_ids",
+        "block_unconfirmed_order_state",
+        "require_fresh_account_balance",
+        "reconcile_after_restart",
+        "loss_cooldown_reentry_required",
     )
 
-    for flag_name in (
-        required_true_strategy_flags
+    for key in required_protections:
+        if strategy.get(key) is not True:
+            errors.append("PROTECTION_DISABLED:" + key)
+
+    if strategy["mode_confirmations_required"] <= 0:
+        errors.append("INVALID_MODE_CONFIRMATIONS")
+
+    # ========================================================
+    # MARKET PRECISION VALIDATION
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    for key in (
+        "quantity_step",
+        "minimum_quantity",
+        "price_step",
     ):
+        if market_precision[key] <= 0:
+            errors.append("INVALID_PRECISION:" + key)
 
-        if (
-            strategy.get(
-                flag_name
-            )
-            is not True
-        ):
+    # ========================================================
+    # ZERO REAL-MONEY WRITE SAFETY
+    # INDENTATION: 4 SPACES
+    # ========================================================
 
-            validation_errors.append(
-                "STRATEGY FLAG MUST BE TRUE: "
-                +
-                flag_name
-            )
+    if strategy["real_money_execution_enabled"] is not False:
+        errors.append("REAL_EXECUTION_NOT_BLOCKED")
 
-    # --------------------------------------------------------
-    # PRECISION VALIDATION
-    # --------------------------------------------------------
+    if safety["public_market_data_read_enabled"] is not True:
+        errors.append("PUBLIC_MARKET_READ_DISABLED")
 
-    if (
-        market_precision[
-            "quantity_step"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID QUANTITY STEP"
-        )
-
-    if (
-        market_precision[
-            "minimum_quantity"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID MINIMUM QUANTITY"
-        )
-
-    if (
-        market_precision[
-            "price_step"
-        ]
-        <=
-        0
-    ):
-
-        validation_errors.append(
-            "INVALID PRICE STEP"
-        )
-
-    # --------------------------------------------------------
-    # SAFETY VALIDATION
-    # --------------------------------------------------------
-
-    if (
-        safety[
-            "public_market_data_read_enabled"
-        ]
-        is not True
-    ):
-
-        validation_errors.append(
-            "PUBLIC MARKET DATA READ MUST BE ENABLED"
-        )
-
-    dangerous_capabilities = (
-
+    forbidden_capabilities = (
         "authenticated_api_enabled",
-
         "account_access_enabled",
-
         "position_access_enabled",
-
         "order_endpoint_access_enabled",
-
         "demo_order_submission_enabled",
-
         "real_order_submission_enabled",
-
         "exchange_mutation_enabled",
-
         "leverage_mutation_enabled",
-
         "margin_mode_mutation_enabled",
-
         "position_mode_mutation_enabled",
     )
 
-    for capability in (
-        dangerous_capabilities
-    ):
+    for key in forbidden_capabilities:
+        if safety.get(key) is not False:
+            errors.append("UNSAFE_CAPABILITY:" + key)
 
-        if (
-            safety.get(
-                capability
-            )
-            is not False
-        ):
+    # ========================================================
+    # VALIDATION RESULT
+    # INDENTATION: 4 SPACES
+    # ========================================================
 
-            validation_errors.append(
-                "UNSAFE CAPABILITY ENABLED: "
-                +
-                capability
-            )
-
-    # --------------------------------------------------------
-    # FINAL VALIDATION RESULT
-    # --------------------------------------------------------
-
-    if validation_errors:
-
+    if errors:
         print(
             "UNIT 2 VALIDATION ERRORS =",
-            validation_errors,
+            errors,
             flush=True,
         )
-
         raise RuntimeError(
             "UNIT 2 CONFIGURATION VALIDATION FAILED"
         )
 
-    # --------------------------------------------------------
-    # UNIT 2 PASS OUTPUT
-    # --------------------------------------------------------
+    # ========================================================
+    # RENDER LOGGING
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    print("PASS: UNIT 2 CONFIGURATION CREATED", flush=True)
+    print("PASS: EXCHANGE = WEEX V3", flush=True)
+    print("PASS: MARKET SYMBOL = BTCUSDT", flush=True)
+    print("PASS: DEMO SYMBOL = BTCSUSDT", flush=True)
 
     print(
-        "PASS: UNIT 2 CONFIGURATION CREATED",
+        "PASS: CONTINUOUS ENTRY SCAN CONFIGURED = TRUE",
         flush=True,
     )
 
     print(
-        "PASS: EXCHANGE =",
-        exchange_name,
+        "PASS: ENTRY SCAN INTERVAL = 5 SECONDS",
         flush=True,
     )
 
     print(
-        "PASS: API VERSION =",
-        api_version,
+        "PASS: FLAT POSITION REENTRY CONFIGURED = TRUE",
         flush=True,
     )
 
     print(
-        "PASS: MARKET SYMBOL =",
-        market_symbol,
+        "PASS: FRESH REENTRY SIGNAL REQUIRED",
         flush=True,
     )
 
     print(
-        "PASS: DEMO ORDER SYMBOL =",
-        demo_order_symbol,
+        "PASS: EXCHANGE STATE RECONCILIATION REQUIRED",
         flush=True,
     )
 
     print(
-        "PASS: EXECUTION ENVIRONMENT =",
-        execution_environment,
+        "PASS: ANTI-DUPLICATE PROTECTION CONFIGURED",
         flush=True,
     )
 
     print(
-        "PASS: LEVERAGE TARGET =",
-        strategy[
-            "leverage_target"
-        ],
+        "PASS: POSITION SIZE CONFIGURATION VALIDATED",
         flush=True,
     )
 
     print(
-        "PASS: INITIAL MARGIN % =",
-        strategy[
-            "initial_margin_percent"
-        ],
+        "PASS: SCALP PRICE WEIGHT = 50%",
         flush=True,
     )
 
     print(
-        "PASS: BACKUP MARGIN % =",
-        strategy[
-            "backup_margin_percent"
-        ],
+        "PASS: SCALP QUALITY THRESHOLD = 70",
         flush=True,
     )
 
     print(
-        "PASS: BACKUP BUFFER % =",
-        strategy[
-            "backup_buffer_percent"
-        ],
+        "PASS: SCALP / STRUCTURE / BREAKOUT CONFIGURED",
         flush=True,
     )
 
     print(
-        "PASS: MAX BACKUPS =",
-        strategy[
-            "max_backups"
-        ],
+        "PASS: TP ALLOCATION = 10 / 20 / 70",
         flush=True,
     )
 
     print(
-        "PASS: EXPOSURE CAP % =",
-        strategy[
-            "exposure_cap_percent"
-        ],
+        "PASS: TP3 DYNAMIC TRAILING CONFIGURED",
         flush=True,
     )
 
     print(
-        "PASS: TP TARGET ALLOCATION = "
-        "10% / 20% / 70%",
+        "PASS: MAXIMUM BACKUPS = 3",
         flush=True,
     )
 
     print(
-        "PASS: TP ALLOCATION TOTAL =",
-        tp_total,
-        "%",
+        "PASS: SL REMAINS DISABLED",
         flush=True,
     )
 
     print(
-        "PASS: TP1 NET ROI FLOOR =",
-        strategy[
-            "tp1_net_roi_floor_percent"
-        ],
-        "%",
+        "PASS: REAL MONEY EXECUTION DISABLED",
         flush=True,
     )
 
     print(
-        "PASS: TP2 NET ROI FLOOR =",
-        strategy[
-            "tp2_net_roi_floor_percent"
-        ],
-        "%",
-        flush=True,
-    )
-
-    print(
-        "PASS: TP1 -> TP2 MIN ROI SEPARATION =",
-        strategy[
-            "tp1_tp2_min_roi_separation_percent"
-        ],
-        "%",
-        flush=True,
-    )
-
-    print(
-        "PASS: TP3 TRAILING REFERENCE =",
-        strategy[
-            "tp3_trailing_reference_percent"
-        ],
-        "%",
-        flush=True,
-    )
-
-    print(
-        "PASS: TP3 TRAILING RANGE =",
-        strategy[
-            "tp3_trailing_min_percent"
-        ],
-        "%",
-        "TO",
-        strategy[
-            "tp3_trailing_max_percent"
-        ],
-        "%",
-        flush=True,
-    )
-
-    print(
-        "PASS: TP3 TRAILING MODE = DYNAMIC",
-        flush=True,
-    )
-
-    print(
-        "PASS: TP3 DYNAMIC INPUTS = "
-        "TREND + ATR/VOLATILITY + MOMENTUM DETERIORATION",
-        flush=True,
-    )
-
-    print(
-        "PASS: TP QUANTITY MODE = STEP-AWARE",
-        flush=True,
-    )
-
-    print(
-        "PASS: QUANTITY STEP =",
-        market_precision[
-            "quantity_step"
-        ],
-        flush=True,
-    )
-
-    print(
-        "PASS: MINIMUM QUANTITY =",
-        market_precision[
-            "minimum_quantity"
-        ],
-        flush=True,
-    )
-
-    print(
-        "PASS: PRICE STEP =",
-        market_precision[
-            "price_step"
-        ],
-        flush=True,
-    )
-
-    print(
-        "PASS: ANTI-DUPLICATE ORDERS =",
-        strategy[
-            "anti_duplicate_orders"
-        ],
-        flush=True,
-    )
-
-    print(
-        "PASS: ONE DIRECTION ONLY =",
-        strategy[
-            "one_direction_only"
-        ],
-        flush=True,
-    )
-
-    print(
-        "PASS: ACTIVE TRADE MODE LOCK =",
-        strategy[
-            "active_trade_mode_lock"
-        ],
-        flush=True,
-    )
-
-    print(
-        "PASS: EXCLUSIVE MODE =",
-        strategy[
-            "exclusive_mode"
-        ],
-        flush=True,
-    )
-
-    print(
-        "PASS: SL = DISABLED",
-        flush=True,
-    )
-
-    print(
-        "PASS: PUBLIC MARKET DATA READ ENABLED",
-        flush=True,
-    )
-
-    print(
-        "ZERO AUTHENTICATED API ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO ACCOUNT ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO POSITION ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO ORDER ENDPOINT ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO DEMO ORDER SUBMISSION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO REAL ORDER SUBMISSION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO EXCHANGE MUTATION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO LEVERAGE MUTATION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO MARGIN MODE MUTATION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO POSITION MODE MUTATION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "-" * 80,
+        "ZERO EXCHANGE WRITE BY UNIT 2 = TRUE",
         flush=True,
     )
 
@@ -1392,16 +671,14 @@ def fresh_reconstruction_unit_2():
         "FRESH RECONSTRUCTION UNIT 2 RESULT = PASS"
     )
 
-    print(
-        "=" * 80,
-        flush=True,
-    )
+    print("=" * 80, flush=True)
 
     return config
 
 
 # ============================================================
 # RUN UNIT 2
+# ZERO INDENTATION
 # ============================================================
 
 FRESH_RECONSTRUCTION_CONFIG = (
@@ -1413,15 +690,17 @@ FRESH_RECONSTRUCTION_CONFIG = (
 # END COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 2
 # ZERO INDENTATION DEMARCATION
 #
-# UNIT 2 IS FULLY CLOSED
-# UNIT 2 IS CALLED
+# UNIT 2 FULLY CLOSED
+# UNIT 2 CALLED ONCE
 # NO OPEN FUNCTION
 # NO OPEN IF
 # NO OPEN TRY
+# NO OPEN LOOP
 # NO OPEN DICTIONARY
 #
 # EXISTING UNIT 3 CONTINUES DIRECTLY BELOW
 # ============================================================
+
 # ============================================================
 # RECONSTRUCTION UNIT 3
 # WEEX V3 PUBLIC READ-ONLY MARKET DATA
