@@ -17642,33 +17642,66 @@ def fresh_tp3_runtime(
     # 8. ORDER HISTORY / BACKUP HELPERS
     # ========================================================
 
+   
+    # ========================================================
+    # UNIT 14 COORDINATED CORRECTION
+    # STRICT DEMO ORDER-HISTORY VERIFICATION
+    # ========================================================
+
     def get_order_history():
 
-        query = urllib.parse.urlencode(
-            {
-                "symbol":
-                    demo_symbol,
+        all_orders = []
+        page = 0
+        page_limit = 1000
+        max_pages = 20
 
-                "limit":
-                    1000,
+        while page < max_pages:
 
-                "page":
-                    0,
-            }
+            query = urllib.parse.urlencode({
+                "symbol": demo_symbol,
+                "limit": page_limit,
+                "page": page,
+            })
+
+            result = authenticated_get(
+                "/capi/v3/sim/order/history",
+                query,
+            )
+
+            if not isinstance(result, list):
+                raise RuntimeError(
+                    "UNIT 14 HISTORY VERIFICATION FAILED: "
+                    "INVALID RESPONSE TYPE"
+                )
+
+            for order in result:
+                if not isinstance(order, dict):
+                    raise RuntimeError(
+                        "UNIT 14 HISTORY VERIFICATION FAILED: "
+                        "INVALID ORDER RECORD"
+                    )
+
+            all_orders.extend(result)
+
+            if len(result) < page_limit:
+                print(
+                    "PASS: UNIT 14 ORDER HISTORY COMPLETE | "
+                    f"RECORDS = {len(all_orders)}",
+                    flush=True,
+                )
+                return all_orders
+
+            page += 1
+
+        raise RuntimeError(
+            "UNIT 14 HISTORY VERIFICATION FAILED: "
+            "PAGINATION LIMIT REACHED"
         )
 
-        history = authenticated_get(
-            "/capi/v3/sim/order/history",
-            query,
-        )
-
-        if not isinstance(
-            history,
-            list,
-        ):
-            return []
-
-        return history
+    # ========================================================
+    # END STRICT ORDER-HISTORY VERIFICATION
+    # ========================================================
+    
 
     def get_trade_key(
         position,
