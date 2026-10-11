@@ -9373,31 +9373,35 @@ def fresh_reconstruction_refresh_unit_12(
 # EXISTING UNIT 13 CONTINUES DIRECTLY BELOW
 # ============================================================
      
+
 # ============================================================
 # START COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 13
 # ZERO INDENTATION DEMARCATION
 # ============================================================
 #
-# EXISTING POSITION TP MANAGEMENT PLANNER
+# WEEX DEMO EXISTING POSITION TAKE PROFIT PLANNER
+# CORRECTIONS 1 + 2 CONSOLIDATED
 #
-# COORDINATED RECONSTRUCTION VERSION
+# PRESERVED:
+# - Independent of Unit 12 signal qualification
+# - WEEX DEMO BTCSUSDT
+# - TP1 / TP2 net ROI targets
+# - TP3 dynamic trailing parameters
+# - 10 / 20 / 70 desired allocation
+# - Step-aware small-position allocation
+# - Unit 14 handoff fields
+# - SL disabled
+# - No demo or real order submission
 #
-# - Independent of fresh entry qualification
-# - Authenticated WEEX DEMO position GET only
-# - Step-aware TP1 / TP2 / TP3 calculation
-# - TP1 net ROI floor 5%
-# - TP2 net ROI floor 10%
-# - TP3 dynamic trailing configuration preserved
-# - Unit 14 handoff fields preserved
-# - No demo order submission in this unit
-# - No real-money trading
-# - SL remains disabled
+# CORRECTED:
+# - TP quantities capped by remaining position
+# - TP1 / TP2 / TP3 conservation
+# - Historical order identity verification
+# - Actual filled quantity reporting
+# - Unknown pending order state remains blocked
+# - Unverified fills never reported as completed
 #
-# IMPORTANT:
-# Unit 14 must be separately verified or paused.
-# This Unit 13 does not disable Unit 14 exchange writes.
-#
-# ZERO EXCHANGE WRITE BY UNIT 13
+# ZERO EXCHANGE WRITE
 # ============================================================
 
 import os
@@ -9408,6 +9412,7 @@ import base64
 import hashlib
 import urllib.request
 import urllib.error
+import urllib.parse
 
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
 
@@ -9435,20 +9440,33 @@ def fresh_unit_13_decimal(value, name):
 
 
 # ============================================================
-# UNIT 13 DEMO POSITION READ
+# UNIT 13 AUTHENTICATED READ-ONLY GET
 # ZERO INDENTATION
 # ============================================================
 
-def fresh_unit_13_read_positions():
+def fresh_unit_13_authenticated_get(path, params=None):
 
-    path = "/capi/v3/sim/position/allPosition"
+    if not path.startswith("/capi/v3/sim/"):
+        raise RuntimeError(
+            "UNIT 13 NON-DEMO ENDPOINT BLOCKED"
+        )
 
-    api_key = (
+    allowed = (
+        "/capi/v3/sim/position/allPosition",
+        "/capi/v3/sim/order/history",
+    )
+
+    if path not in allowed:
+        raise RuntimeError(
+            "UNIT 13 ENDPOINT NOT ALLOWED"
+        )
+
+    key = (
         os.getenv("WEEX_API_KEY")
         or os.getenv("API_KEY")
     )
 
-    api_secret = (
+    secret = (
         os.getenv("WEEX_API_SECRET")
         or os.getenv("API_SECRET")
     )
@@ -9458,17 +9476,25 @@ def fresh_unit_13_read_positions():
         or os.getenv("API_PASSPHRASE")
     )
 
-    if not all((api_key, api_secret, passphrase)):
+    if not all((key, secret, passphrase)):
         raise RuntimeError(
             "UNIT 13 DEMO CREDENTIALS MISSING"
         )
 
+    request_path = path
+
+    if params:
+        request_path += "?" + urllib.parse.urlencode(
+            params
+        )
+
     timestamp = str(int(time.time() * 1000))
-    message = timestamp + "GET" + path
+
+    message = timestamp + "GET" + request_path
 
     signature = base64.b64encode(
         hmac.new(
-            api_secret.encode("utf-8"),
+            secret.encode("utf-8"),
             message.encode("utf-8"),
             hashlib.sha256,
         ).digest()
@@ -9477,11 +9503,11 @@ def fresh_unit_13_read_positions():
     request = urllib.request.Request(
         url=(
             "https://api-contract.weex.com"
-            + path
+            + request_path
         ),
         method="GET",
         headers={
-            "ACCESS-KEY": api_key,
+            "ACCESS-KEY": key,
             "ACCESS-SIGN": signature,
             "ACCESS-TIMESTAMP": timestamp,
             "ACCESS-PASSPHRASE": passphrase,
@@ -9492,7 +9518,7 @@ def fresh_unit_13_read_positions():
 
     if request.get_method() != "GET":
         raise RuntimeError(
-            "UNIT 13 NON-GET REQUEST BLOCKED"
+            "UNIT 13 NON-GET BLOCKED"
         )
 
     if request.data is not None:
@@ -9508,36 +9534,57 @@ def fresh_unit_13_read_positions():
 
             if response.getcode() != 200:
                 raise RuntimeError(
-                    "UNIT 13 POSITION HTTP FAILURE"
+                    "UNIT 13 HTTP STATUS INVALID"
                 )
 
             raw = response.read().decode("utf-8")
 
     except urllib.error.URLError as exc:
         raise RuntimeError(
-            "UNIT 13 POSITION READ FAILED"
+            "UNIT 13 AUTHENTICATED READ FAILED"
         ) from exc
 
     try:
-        records = json.loads(raw)
-    except json.JSONDecodeError as exc:
+        payload = json.loads(raw)
+    except (ValueError, TypeError) as exc:
         raise RuntimeError(
-            "UNIT 13 INVALID POSITION JSON"
+            "UNIT 13 INVALID JSON"
         ) from exc
+
+    return payload
+
+
+# ============================================================
+# UNIT 13 DEMO POSITION READER
+# PRESERVED FOR UNIT 14 COMPATIBILITY
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_13_read_positions():
+
+    records = fresh_unit_13_authenticated_get(
+        "/capi/v3/sim/position/allPosition"
+    )
 
     if not isinstance(records, list):
         raise RuntimeError(
             "UNIT 13 INVALID POSITION RESPONSE"
         )
 
+    if not all(
+        isinstance(item, dict)
+        for item in records
+    ):
+        raise RuntimeError(
+            "UNIT 13 INVALID POSITION RECORD"
+        )
+
     return records
 
 
-
 # ============================================================
-# UNIT 13 STEP-AWARE TP ALLOCATION
-# CORRECTION 1A
-# ZERO INDENTATION DEMARCATION
+# UNIT 13 STEP-AWARE ALLOCATION
+# ZERO INDENTATION
 # ============================================================
 
 def fresh_unit_13_allocate(total_steps):
@@ -9546,7 +9593,7 @@ def fresh_unit_13_allocate(total_steps):
 
     if total_steps < 0:
         raise RuntimeError(
-            "UNIT 13 NEGATIVE EXECUTABLE STEPS"
+            "UNIT 13 NEGATIVE POSITION STEPS"
         )
 
     if total_steps == 0:
@@ -9563,7 +9610,7 @@ def fresh_unit_13_allocate(total_steps):
         int(
             Decimal(total_steps)
             * Decimal("0.10")
-        )
+        ),
     )
 
     tp2 = max(
@@ -9571,14 +9618,14 @@ def fresh_unit_13_allocate(total_steps):
         int(
             Decimal(total_steps)
             * Decimal("0.20")
-        )
+        ),
     )
 
     tp3 = total_steps - tp1 - tp2
 
     if tp3 < 1:
         raise RuntimeError(
-            "UNIT 13 TP3 RUNNER NOT PROTECTED"
+            "UNIT 13 TP3 RUNNER PROTECTION FAILED"
         )
 
     if tp1 + tp2 + tp3 != total_steps:
@@ -9590,9 +9637,244 @@ def fresh_unit_13_allocate(total_steps):
 
 
 # ============================================================
-# END CORRECTION 1A
+# UNIT 13 HISTORY READER
 # ZERO INDENTATION
 # ============================================================
+
+def fresh_unit_13_read_tp_history():
+
+    records = []
+    max_pages = 10
+    page_limit = 100
+
+    for page in range(max_pages):
+
+        payload = fresh_unit_13_authenticated_get(
+            "/capi/v3/sim/order/history",
+            {
+                "symbol": "BTCSUSDT",
+                "limit": page_limit,
+                "page": page,
+            },
+        )
+
+        if not isinstance(payload, list):
+            raise RuntimeError(
+                "UNIT 13 INVALID HISTORY RESPONSE"
+            )
+
+        if not all(
+            isinstance(item, dict)
+            for item in payload
+        ):
+            raise RuntimeError(
+                "UNIT 13 INVALID HISTORY RECORD"
+            )
+
+        records.extend(payload)
+
+        if len(payload) < page_limit:
+            return {
+                "records": records,
+                "pagination_complete": True,
+                "pages_read": page + 1,
+            }
+
+    return {
+        "records": records,
+        "pagination_complete": False,
+        "pages_read": max_pages,
+    }
+
+
+# ============================================================
+# UNIT 13 VERIFIED FILL MATCHING
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_13_reconcile_fills(
+    history,
+    registry,
+    position_side,
+    position_open_ms,
+    quantity_step,
+):
+
+    stages = ("TP1", "TP2", "TP3")
+
+    statuses = {
+        stage: "UNVERIFIED"
+        for stage in stages
+    }
+
+    quantities = {
+        stage: Decimal("0")
+        for stage in stages
+    }
+
+    reasons = {
+        stage: "NO_VERIFIED_ORDER_ID"
+        for stage in stages
+    }
+
+    if (
+        not isinstance(registry, dict)
+        or position_open_ms is None
+    ):
+        return statuses, quantities, reasons
+
+    open_ms = int(position_open_ms)
+
+    if open_ms <= 0:
+        return statuses, quantities, reasons
+
+    close_side = (
+        "SELL" if position_side == "LONG" else "BUY"
+    )
+
+    used_order_ids = set()
+
+    for stage in stages:
+
+        registered = registry.get(stage)
+
+        if not isinstance(registered, dict):
+            continue
+
+        order_id = str(
+            registered.get("orderId") or ""
+        )
+
+        client_id = str(
+            registered.get("clientOrderId") or ""
+        )
+
+        if not order_id and not client_id:
+            continue
+
+        matches = []
+
+        for order in history:
+
+            if str(
+                order.get("symbol", "")
+            ).upper() != "BTCSUSDT":
+                continue
+
+            if str(
+                order.get("positionSide", "")
+            ).upper() != position_side:
+                continue
+
+            if str(
+                order.get("side", "")
+            ).upper() != close_side:
+                continue
+
+            exchange_id = str(
+                order.get("orderId") or ""
+            )
+
+            exchange_client_id = str(
+                order.get("clientOrderId") or ""
+            )
+
+            if order_id:
+                if exchange_id != order_id:
+                    continue
+
+            if client_id:
+                if exchange_client_id != client_id:
+                    continue
+
+            try:
+                created_ms = int(
+                    order.get("time")
+                )
+            except (ValueError, TypeError):
+                continue
+
+            if created_ms < open_ms:
+                continue
+
+            matches.append(order)
+
+        if len(matches) != 1:
+            reasons[stage] = (
+                "ORDER_NOT_UNIQUELY_MATCHED"
+            )
+            continue
+
+        order = matches[0]
+
+        unique_id = str(order.get("orderId"))
+
+        if unique_id in used_order_ids:
+            reasons[stage] = "DUPLICATE_STAGE_ORDER"
+            continue
+
+        used_order_ids.add(unique_id)
+
+        original = fresh_unit_13_decimal(
+            order.get("origQty"),
+            stage + " original quantity",
+        )
+
+        executed = fresh_unit_13_decimal(
+            order.get("executedQty"),
+            stage + " executed quantity",
+        )
+
+        if (
+            original <= 0
+            or executed < 0
+            or executed > original
+        ):
+            raise RuntimeError(
+                "UNIT 13 INVALID TP FILL SIZE"
+            )
+
+        for quantity in (original, executed):
+            steps = quantity / quantity_step
+
+            if steps != steps.to_integral_value():
+                raise RuntimeError(
+                    "UNIT 13 TP FILL STEP MISMATCH"
+                )
+
+        status = str(
+            order.get("status", "")
+        ).upper()
+
+        quantities[stage] = executed
+
+        if status == "FILLED" and executed == original:
+            statuses[stage] = "FILLED"
+            reasons[stage] = "EXCHANGE_FILL_CONFIRMED"
+
+        elif executed > 0:
+            statuses[stage] = "PARTIAL"
+            reasons[stage] = (
+                "EXECUTED_QUANTITY_NONZERO"
+            )
+
+        elif status in (
+            "CANCELED",
+            "CANCELLED",
+            "REJECTED",
+            "EXPIRED",
+        ):
+            statuses[stage] = status
+            reasons[stage] = "NO_CONFIRMED_FILL"
+
+        else:
+            statuses[stage] = "UNVERIFIED"
+            reasons[stage] = (
+                "ORDER_STATUS_NOT_FINAL"
+            )
+
+    return statuses, quantities, reasons
+
 
 # ============================================================
 # UNIT 13 MAIN FUNCTION
@@ -9608,13 +9890,13 @@ def fresh_reconstruction_unit_13(
     log("FRESH RECONSTRUCTION UNIT 13 START")
 
     # ========================================================
-    # 1. INPUT VALIDATION
+    # 1. INPUTS AND SAFETY
     # INDENTATION: 4 SPACES
     # ========================================================
 
     if not isinstance(config, dict):
         raise RuntimeError(
-            "UNIT 13 CONFIGURATION MISSING"
+            "UNIT 13 CONFIG MISSING"
         )
 
     if not isinstance(unit_12_result, dict):
@@ -9622,26 +9904,26 @@ def fresh_reconstruction_unit_13(
             "UNIT 13 UNIT 12 RESULT MISSING"
         )
 
-    strategy = config.get("strategy")
-    exchange = config.get("exchange")
-    precision = config.get("market_precision")
+    strategy = config.get("strategy", {})
+    exchange = config.get("exchange", {})
+    precision = config.get("market_precision", {})
 
     if not all(
         isinstance(item, dict)
         for item in (strategy, exchange, precision)
     ):
         raise RuntimeError(
-            "UNIT 13 CONFIGURATION INVALID"
+            "UNIT 13 CONFIG SECTIONS INVALID"
         )
 
     if config.get("execution_environment") != "DEMO":
         raise RuntimeError(
-            "UNIT 13 REAL ENVIRONMENT PROHIBITED"
+            "UNIT 13 NON-DEMO ENVIRONMENT"
         )
 
     if exchange.get("demo_order_symbol") != "BTCSUSDT":
         raise RuntimeError(
-            "UNIT 13 DEMO SYMBOL MISMATCH"
+            "UNIT 13 DEMO SYMBOL INVALID"
         )
 
     if strategy.get(
@@ -9653,118 +9935,115 @@ def fresh_reconstruction_unit_13(
 
     if strategy.get("stop_loss_enabled") is not False:
         raise RuntimeError(
-            "UNIT 13 UNEXPECTED SL ENABLED"
+            "UNIT 13 SL POLICY MISMATCH"
         )
 
     # ========================================================
-    # 2. TP CONFIGURATION
+    # 2. STRATEGY AND PRECISION
     # INDENTATION: 4 SPACES
     # ========================================================
 
-    tp1_pct = fresh_unit_13_decimal(
-        strategy["tp1_allocation_percent"],
-        "tp1 allocation",
+    allocation = tuple(
+        fresh_unit_13_decimal(
+            strategy.get(key),
+            key,
+        )
+        for key in (
+            "tp1_allocation_percent",
+            "tp2_allocation_percent",
+            "tp3_allocation_percent",
+        )
     )
 
-    tp2_pct = fresh_unit_13_decimal(
-        strategy["tp2_allocation_percent"],
-        "tp2 allocation",
-    )
-
-    tp3_pct = fresh_unit_13_decimal(
-        strategy["tp3_allocation_percent"],
-        "tp3 allocation",
-    )
-
-    if (tp1_pct, tp2_pct, tp3_pct) != (
+    if allocation != (
         Decimal("10"),
         Decimal("20"),
         Decimal("70"),
     ):
         raise RuntimeError(
-            "UNIT 13 TP ALLOCATION CONTRACT MISMATCH"
+            "UNIT 13 ALLOCATION CONFIG MISMATCH"
         )
 
     quantity_step = fresh_unit_13_decimal(
-        precision["quantity_step"],
+        precision.get("quantity_step"),
         "quantity step",
     )
 
     price_step = fresh_unit_13_decimal(
-        precision["price_step"],
+        precision.get("price_step"),
         "price step",
     )
 
-    leverage_target = fresh_unit_13_decimal(
-        strategy["leverage_target"],
+    leverage = fresh_unit_13_decimal(
+        strategy.get("leverage_target"),
         "target leverage",
     )
 
-    fee_per_side = fresh_unit_13_decimal(
+    fee = fresh_unit_13_decimal(
         strategy.get(
             "futures_taker_fee_percent",
             0.08,
         ),
-        "estimated taker fee",
+        "estimated fee",
     )
 
-    tp1_net_floor = fresh_unit_13_decimal(
-        strategy["tp1_net_roi_floor_percent"],
-        "tp1 net ROI floor",
+    floor1 = fresh_unit_13_decimal(
+        strategy.get("tp1_net_roi_floor_percent"),
+        "TP1 ROI floor",
     )
 
-    tp2_net_floor = fresh_unit_13_decimal(
-        strategy["tp2_net_roi_floor_percent"],
-        "tp2 net ROI floor",
+    floor2 = fresh_unit_13_decimal(
+        strategy.get("tp2_net_roi_floor_percent"),
+        "TP2 ROI floor",
     )
 
-    separation_roi = fresh_unit_13_decimal(
-        strategy[
+    separation = fresh_unit_13_decimal(
+        strategy.get(
             "tp1_tp2_min_roi_separation_percent"
-        ],
+        ),
         "TP separation",
     )
 
-    trailing_reference = fresh_unit_13_decimal(
-        strategy["tp3_trailing_reference_percent"],
+    trailing_ref = fresh_unit_13_decimal(
+        strategy.get("tp3_trailing_reference_percent"),
         "trailing reference",
     )
 
     trailing_min = fresh_unit_13_decimal(
-        strategy["tp3_trailing_min_percent"],
+        strategy.get("tp3_trailing_min_percent"),
         "trailing minimum",
     )
 
     trailing_max = fresh_unit_13_decimal(
-        strategy["tp3_trailing_max_percent"],
+        strategy.get("tp3_trailing_max_percent"),
         "trailing maximum",
     )
 
-    if quantity_step <= 0 or price_step <= 0:
+    if (
+        quantity_step <= 0
+        or price_step <= 0
+        or leverage <= 0
+        or fee < 0
+        or floor1 < 0
+        or floor2 < 0
+        or separation <= 0
+    ):
         raise RuntimeError(
-            "UNIT 13 INVALID MARKET PRECISION"
-        )
-
-    if leverage_target <= 0:
-        raise RuntimeError(
-            "UNIT 13 INVALID LEVERAGE"
+            "UNIT 13 INVALID STRATEGY PARAMETERS"
         )
 
     if not (
-        Decimal("0") <
-        trailing_min <= trailing_reference <= trailing_max
+        Decimal("0")
+        < trailing_min
+        <= trailing_ref
+        <= trailing_max
     ):
         raise RuntimeError(
-            "UNIT 13 INVALID TRAILING RANGE"
-        )
-
-    if fee_per_side < 0:
-        raise RuntimeError(
-            "UNIT 13 INVALID FEE ESTIMATE"
+            "UNIT 13 TRAILING RANGE INVALID"
         )
 
     # ========================================================
-    # 3. NORMALIZED IDLE RESULT
+    # 3. DEFAULT RESULT / UNIT 14 CONTRACT
     # INDENTATION: 4 SPACES
     # ========================================================
 
@@ -9784,6 +10063,7 @@ def fresh_reconstruction_unit_13(
         "tp1_quantity": "0",
         "tp2_quantity": "0",
         "tp3_quantity": "0",
+        "tp_total_quantity": "0",
 
         "tp1_target": "0",
         "tp2_target": "0",
@@ -9794,8 +10074,16 @@ def fresh_reconstruction_unit_13(
         "tp2_completed": False,
         "tp3_armed": False,
 
+        "tp1_fill_status": "UNVERIFIED",
+        "tp2_fill_status": "UNVERIFIED",
+        "tp3_fill_status": "UNVERIFIED",
+
+        "tp1_filled_quantity": "0",
+        "tp2_filled_quantity": "0",
+        "tp3_filled_quantity": "0",
+
         "tp3_trailing_reference_percent":
-            str(trailing_reference),
+            str(trailing_ref),
         "tp3_trailing_min_percent":
             str(trailing_min),
         "tp3_trailing_max_percent":
@@ -9812,53 +10100,44 @@ def fresh_reconstruction_unit_13(
 
         "actual_leverage_verified": False,
         "profit_targets_estimated": True,
+
+        "tp_pending_orders_verified": False,
+        "tp_reconciliation_complete": False,
+        "tp_history_complete": False,
+
         "skip_reason": "NO_ACTIVE_BTCSUSDT_POSITION",
     }
 
     # ========================================================
-    # 4. INDEPENDENT DEMO POSITION READ
+    # 4. LIVE DEMO POSITION READ
     # INDENTATION: 4 SPACES
-    #
-    # Unit 12 may be IDLE or PAUSED.
-    # Existing-position monitoring does not require
-    # another qualified entry signal.
     # ========================================================
 
-    records = fresh_unit_13_read_positions()
+    positions = fresh_unit_13_read_positions()
 
     active = []
 
-    for record in records:
-
-        if not isinstance(record, dict):
-            raise RuntimeError(
-                "UNIT 13 INVALID POSITION RECORD"
-            )
+    for record in positions:
 
         if str(
             record.get("symbol", "")
         ).upper() != "BTCSUSDT":
             continue
 
-        if "size" not in record:
-            raise RuntimeError(
-                "UNIT 13 POSITION SIZE MISSING"
-            )
-
-        size = fresh_unit_13_decimal(
-            record["size"],
+        size_value = fresh_unit_13_decimal(
+            record.get("size"),
             "position size",
         )
 
-        if size < 0:
+        if size_value < 0:
             raise RuntimeError(
                 "UNIT 13 NEGATIVE POSITION SIZE"
             )
 
-        if size > 0:
+        if size_value > 0:
             active.append(record)
 
-    if len(active) == 0:
+    if not active:
 
         print(
             "UNIT 13 STATUS = IDLE_NO_POSITION",
@@ -9866,7 +10145,12 @@ def fresh_reconstruction_unit_13(
         )
 
         print(
-            "UNIT 13 ACTIVE POSITION = FALSE",
+            "UNIT 13 NEW ENTRY SIGNAL REQUIRED = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 13 REENTRY AUTHORIZED = FALSE",
             flush=True,
         )
 
@@ -9903,12 +10187,12 @@ def fresh_reconstruction_unit_13(
 
     if side not in ("LONG", "SHORT"):
         raise RuntimeError(
-            "UNIT 13 INVALID POSITION SIDE"
+            "UNIT 13 POSITION SIDE INVALID"
         )
 
     size = fresh_unit_13_decimal(
-        position["size"],
-        "position size",
+        position.get("size"),
+        "current position size",
     )
 
     open_value = fresh_unit_13_decimal(
@@ -9918,44 +10202,24 @@ def fresh_reconstruction_unit_13(
 
     if size <= 0 or open_value <= 0:
         raise RuntimeError(
-            "UNIT 13 INVALID ACTIVE POSITION"
+            "UNIT 13 ACTIVE POSITION INVALID"
         )
 
     average_entry = open_value / size
 
-    if average_entry <= 0:
-        raise RuntimeError(
-            "UNIT 13 INVALID AVERAGE ENTRY"
-        )
-
     # ========================================================
-    # 6. HISTORICAL EXECUTABLE QUANTITY
+    # 6. CURRENT POSITION QUANTITY CONSERVATION
     # INDENTATION: 4 SPACES
-    #
-    # Prefer cumulative original entry size where valid.
-    # This avoids reallocating the entire TP plan
-    # every time an earlier TP reduces open quantity.
     # ========================================================
 
-    original_size = fresh_unit_13_decimal(
-        position.get("cumOpenSize", size),
-        "cumulative open size",
-    )
+    exact_steps = size / quantity_step
 
-    if original_size < size:
+    if exact_steps != exact_steps.to_integral_value():
         raise RuntimeError(
-            "UNIT 13 INCONSISTENT ORIGINAL SIZE"
+            "UNIT 13 POSITION NOT STEP ALIGNED"
         )
 
-    total_steps = int(
-        (original_size / quantity_step)
-        .to_integral_value(rounding=ROUND_DOWN)
-    )
-
-    if total_steps < 1:
-        raise RuntimeError(
-            "UNIT 13 POSITION BELOW EXECUTABLE STEP"
-        )
+    total_steps = int(exact_steps)
 
     steps1, steps2, steps3 = (
         fresh_unit_13_allocate(total_steps)
@@ -9965,145 +10229,174 @@ def fresh_reconstruction_unit_13(
     qty2 = quantity_step * steps2
     qty3 = quantity_step * steps3
 
+    total_tp = qty1 + qty2 + qty3
+
+    if total_tp != size:
+        raise RuntimeError(
+            "UNIT 13 TP QUANTITY CONSERVATION FAILED"
+        )
+
     # ========================================================
-    # 7. ESTIMATED NET ROI TO PRICE TARGETS
+    # 7. TP TARGET PRICES
     # INDENTATION: 4 SPACES
-    #
-    # These are estimates using configured leverage
-    # and a simplified round-trip taker-fee model.
-    #
-    # Actual exchange leverage and realized fees
-    # have NOT been independently confirmed.
     # ========================================================
 
-    round_trip_fee_pct = (
-        fee_per_side * Decimal("2")
-    )
+    round_trip_fee = fee * Decimal("2")
+    fee_drag_roi = round_trip_fee * leverage
 
-    fee_roi_drag = (
-        round_trip_fee_pct * leverage_target
-    )
+    roi1 = floor1 + fee_drag_roi
+    roi2 = floor2 + fee_drag_roi
 
-    required_tp1_gross_roi = (
-        tp1_net_floor + fee_roi_drag
-    )
+    move1 = roi1 / leverage / Decimal("100")
+    move2 = roi2 / leverage / Decimal("100")
 
-    required_tp2_gross_roi = (
-        tp2_net_floor + fee_roi_drag
-    )
-
-    price_move1_pct = (
-        required_tp1_gross_roi
-        / leverage_target
-    )
-
-    price_move2_pct = (
-        required_tp2_gross_roi
-        / leverage_target
+    minimum_gap = (
+        average_entry
+        * separation
+        / leverage
+        / Decimal("100")
     )
 
     if side == "LONG":
 
-        raw_tp1 = average_entry * (
-            Decimal("1")
-            + price_move1_pct / Decimal("100")
+        raw1 = average_entry * (
+            Decimal("1") + move1
         )
 
-        raw_tp2 = average_entry * (
-            Decimal("1")
-            + price_move2_pct / Decimal("100")
+        raw2 = average_entry * (
+            Decimal("1") + move2
         )
 
-        tp1_target = (
-            raw_tp1 / price_step
+        target1 = (
+            raw1 / price_step
         ).to_integral_value(
             rounding=ROUND_UP
         ) * price_step
 
-        tp2_target = (
-            raw_tp2 / price_step
+        target2 = (
+            raw2 / price_step
         ).to_integral_value(
             rounding=ROUND_UP
         ) * price_step
 
-        minimum_separation = (
-            average_entry
-            * separation_roi
-            / leverage_target
-            / Decimal("100")
+        target2 = max(
+            target2,
+            target1 + price_step,
+            target1 + minimum_gap,
         )
 
-        tp2_target = max(
-            tp2_target,
-            tp1_target + price_step,
-            tp1_target + minimum_separation,
-        )
-
-        tp2_target = (
-            tp2_target / price_step
+        target2 = (
+            target2 / price_step
         ).to_integral_value(
             rounding=ROUND_UP
         ) * price_step
 
     else:
 
-        raw_tp1 = average_entry * (
-            Decimal("1")
-            - price_move1_pct / Decimal("100")
+        raw1 = average_entry * (
+            Decimal("1") - move1
         )
 
-        raw_tp2 = average_entry * (
-            Decimal("1")
-            - price_move2_pct / Decimal("100")
+        raw2 = average_entry * (
+            Decimal("1") - move2
         )
 
-        tp1_target = (
-            raw_tp1 / price_step
+        target1 = (
+            raw1 / price_step
         ).to_integral_value(
             rounding=ROUND_DOWN
         ) * price_step
 
-        tp2_target = (
-            raw_tp2 / price_step
+        target2 = (
+            raw2 / price_step
         ).to_integral_value(
             rounding=ROUND_DOWN
         ) * price_step
 
-        minimum_separation = (
-            average_entry
-            * separation_roi
-            / leverage_target
-            / Decimal("100")
+        target2 = min(
+            target2,
+            target1 - price_step,
+            target1 - minimum_gap,
         )
 
-        tp2_target = min(
-            tp2_target,
-            tp1_target - price_step,
-            tp1_target - minimum_separation,
-        )
-
-        tp2_target = (
-            tp2_target / price_step
+        target2 = (
+            target2 / price_step
         ).to_integral_value(
             rounding=ROUND_DOWN
         ) * price_step
 
-    if tp1_target <= 0 or tp2_target <= 0:
+    if target1 <= 0 or target2 <= 0:
         raise RuntimeError(
-            "UNIT 13 INVALID TP PRICE TARGET"
+            "UNIT 13 TARGET PRICE INVALID"
         )
 
     # ========================================================
-    # 8. BUILD NON-EXECUTING TP PLAN
+    # 8. HISTORICAL TP RECONCILIATION
     # INDENTATION: 4 SPACES
-    #
-    # Completion cannot be proven from size alone.
-    # Historical fills must be reconciled separately.
-    # No TP3 arming is claimed without fill evidence.
     # ========================================================
+
+    history_info = fresh_unit_13_read_tp_history()
+
+    history = history_info["records"]
+    history_complete = (
+        history_info["pagination_complete"]
+    )
+
+    # Only a previously recorded, exchange-confirmed
+    # TP order identity is accepted.
+    #
+    # A registry may be supplied by an existing persistence
+    # layer using strategy["tp_order_ids"].
+    #
+    # Missing registry values are not guessed.
+
+    registry = strategy.get("tp_order_ids", {})
+
+    position_open_ms = strategy.get(
+        "tp_position_open_time_ms"
+    )
+
+    statuses, filled, reasons = (
+        fresh_unit_13_reconcile_fills(
+            history,
+            registry,
+            side,
+            position_open_ms,
+            quantity_step,
+        )
+    )
+
+    tp1_done = (
+        statuses["TP1"] == "FILLED"
+    )
+
+    tp2_done = (
+        statuses["TP2"] == "FILLED"
+    )
+
+    # No automatic TP3 arming without a separately
+    # verified persistent trailing-state contract.
+    tp3_armed = False
+
+    # ========================================================
+    # 9. CONSERVATIVE RECONCILIATION BOUNDARY
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    # Historical order history alone cannot establish
+    # the full set of current working TP orders.
+    #
+    # Nor can it distinguish all TP/backup effects
+    # without an authenticated position-lifecycle ledger.
+    #
+    # Therefore no new order quantity is authorized.
+
+    pending_verified = False
+    reconciliation_complete = False
 
     result.update({
         "status": "TP_PLAN_READ_ONLY",
+
         "position_exists": True,
         "active_position_exists": True,
         "position_side": side,
@@ -10111,30 +10404,54 @@ def fresh_reconstruction_unit_13(
         "average_entry_price": str(average_entry),
 
         "total_executable_steps": total_steps,
-
         "tp1_quantity": str(qty1),
         "tp2_quantity": str(qty2),
         "tp3_quantity": str(qty3),
+        "tp_total_quantity": str(total_tp),
 
-        "tp1_target": str(tp1_target),
-        "tp2_target": str(tp2_target),
-        "tp1_target_price": str(tp1_target),
-        "tp2_target_price": str(tp2_target),
+        "tp1_target": str(target1),
+        "tp2_target": str(target2),
+        "tp1_target_price": str(target1),
+        "tp2_target_price": str(target2),
 
-        "tp1_completed": False,
-        "tp2_completed": False,
-        "tp3_armed": False,
+        "tp1_completed": tp1_done,
+        "tp2_completed": tp2_done,
+        "tp3_armed": tp3_armed,
+
+        "tp1_fill_status": statuses["TP1"],
+        "tp2_fill_status": statuses["TP2"],
+        "tp3_fill_status": statuses["TP3"],
+
+        "tp1_filled_quantity":
+            str(filled["TP1"]),
+        "tp2_filled_quantity":
+            str(filled["TP2"]),
+        "tp3_filled_quantity":
+            str(filled["TP3"]),
+
+        "tp1_fill_reason": reasons["TP1"],
+        "tp2_fill_reason": reasons["TP2"],
+        "tp3_fill_reason": reasons["TP3"],
+
+        "tp1_enabled": qty1 > 0,
+        "tp2_enabled": qty2 > 0,
+        "tp3_enabled": qty3 > 0,
+
+        "tp_quantity_protection": True,
+
+        "tp_history_records": len(history),
+        "tp_history_complete": history_complete,
+        "tp_pending_orders_verified":
+            pending_verified,
+        "tp_reconciliation_complete":
+            reconciliation_complete,
 
         "tp_management_required": True,
 
-        "required_tp1_gross_roi":
-            str(required_tp1_gross_roi),
-
-        "required_tp2_gross_roi":
-            str(required_tp2_gross_roi),
-
+        "required_tp1_gross_roi": str(roi1),
+        "required_tp2_gross_roi": str(roi2),
         "estimated_fee_roi_drag":
-            str(fee_roi_drag),
+            str(fee_drag_roi),
 
         "tp_execution_attempted": False,
         "tp_execution_completed": False,
@@ -10142,12 +10459,12 @@ def fresh_reconstruction_unit_13(
         "exchange_write": False,
 
         "skip_reason":
-            "TP_EXECUTION_PAUSED_PENDING_FILL_"
-            "RECONCILIATION_AND_UNIT14_INTEGRATION",
+            "TP_SUBMISSION_PAUSED_PENDING_"
+            "COMPLETE_POSITION_AND_ORDER_RECONCILIATION",
     })
 
     # ========================================================
-    # 9. RENDER STATUS
+    # 10. VISIBLE RENDER LOGS
     # INDENTATION: 4 SPACES
     # ========================================================
 
@@ -10177,7 +10494,7 @@ def fresh_reconstruction_unit_13(
     )
 
     print(
-        "UNIT 13 TP ALLOCATION = 10/20/70 TARGET",
+        "UNIT 13 TP ALLOCATION TARGET = 10/20/70",
         flush=True,
     )
 
@@ -10200,20 +10517,81 @@ def fresh_reconstruction_unit_13(
     )
 
     print(
+        "UNIT 13 TOTAL TP QUANTITY =",
+        total_tp,
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP QUANTITY CONSERVATION = PASS",
+        flush=True,
+    )
+
+    print(
         "UNIT 13 TP1 TARGET =",
-        tp1_target,
+        target1,
         flush=True,
     )
 
     print(
         "UNIT 13 TP2 TARGET =",
-        tp2_target,
+        target2,
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP1 FILL STATUS =",
+        statuses["TP1"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP2 FILL STATUS =",
+        statuses["TP2"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP3 FILL STATUS =",
+        statuses["TP3"],
+        flush=True,
+    )
+
+    for stage in ("TP1", "TP2", "TP3"):
+
+        print(
+            "UNIT 13",
+            stage,
+            "FILLED QUANTITY =",
+            filled[stage],
+            flush=True,
+        )
+
+    print(
+        "UNIT 13 HISTORY RECORDS =",
+        len(history),
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 HISTORY PAGINATION COMPLETE =",
+        history_complete,
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 PENDING ORDERS VERIFIED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 FULL RECONCILIATION = FALSE",
         flush=True,
     )
 
     print(
         "UNIT 13 TP3 TRAILING REFERENCE =",
-        trailing_reference,
+        trailing_ref,
         "%",
         flush=True,
     )
@@ -10224,11 +10602,6 @@ def fresh_reconstruction_unit_13(
         "TO",
         trailing_max,
         "%",
-        flush=True,
-    )
-
-    print(
-        "UNIT 13 TP1/TP2 FILL STATE = UNVERIFIED",
         flush=True,
     )
 
@@ -10311,18 +10684,14 @@ def fresh_reconstruction_refresh_unit_13(
 # ZERO INDENTATION DEMARCATION
 #
 # UNIT 13 FULLY CLOSED
-# UNIT 13 CALLED ONCE
-# REFRESH FUNCTION CREATED
-# UNIT 14 TP FIELD NAMES PRESERVED
-# NO ORDER SUBMISSION IN UNIT 13
-# NO OPEN FUNCTION
-# NO OPEN IF
-# NO OPEN TRY
-# NO OPEN LOOP
+# INITIAL CALL INCLUDED
+# REFRESH FUNCTION INCLUDED
+# UNIT 14 COMPATIBILITY FIELDS PRESERVED
+# ZERO EXCHANGE WRITE
 #
-# UNIT 14 CONTINUES DIRECTLY BELOW
+# EXISTING UNIT 14 CONTINUES DIRECTLY BELOW
 # ============================================================
- 
+
 # ============================================================
 # START COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 14
 # ZERO INDENTATION DEMARCATION
