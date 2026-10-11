@@ -9533,31 +9533,37 @@ def fresh_unit_13_read_positions():
     return records
 
 
+
 # ============================================================
-# UNIT 13 STEP-AWARE ALLOCATION
-# ZERO INDENTATION
+# UNIT 13 STEP-AWARE TP ALLOCATION
+# CORRECTION 1A
+# ZERO INDENTATION DEMARCATION
 # ============================================================
 
 def fresh_unit_13_allocate(total_steps):
 
-    if total_steps < 1:
-        return 0, 0, 0
+    total_steps = int(total_steps)
 
-    # Fewer than three steps cannot support three
-    # separate executable TP stages.
+    if total_steps < 0:
+        raise RuntimeError(
+            "UNIT 13 NEGATIVE EXECUTABLE STEPS"
+        )
+
+    if total_steps == 0:
+        return 0, 0, 0
 
     if total_steps == 1:
         return 0, 0, 1
 
     if total_steps == 2:
-        return 0, 0, 2
+        return 1, 0, 1
 
     tp1 = max(
         1,
         int(
             Decimal(total_steps)
             * Decimal("0.10")
-        ),
+        )
     )
 
     tp2 = max(
@@ -9565,23 +9571,28 @@ def fresh_unit_13_allocate(total_steps):
         int(
             Decimal(total_steps)
             * Decimal("0.20")
-        ),
+        )
     )
 
     tp3 = total_steps - tp1 - tp2
 
     if tp3 < 1:
-        tp1 = 1
-        tp2 = 1
-        tp3 = total_steps - 2
+        raise RuntimeError(
+            "UNIT 13 TP3 RUNNER NOT PROTECTED"
+        )
 
     if tp1 + tp2 + tp3 != total_steps:
         raise RuntimeError(
-            "UNIT 13 TP ALLOCATION MISMATCH"
+            "UNIT 13 TP QUANTITY CONSERVATION FAILED"
         )
 
     return tp1, tp2, tp3
 
+
+# ============================================================
+# END CORRECTION 1A
+# ZERO INDENTATION
+# ============================================================
 
 # ============================================================
 # UNIT 13 MAIN FUNCTION
