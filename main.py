@@ -5590,166 +5590,449 @@ def fresh_reconstruction_unit_6(
             else 0.0
         )
 
-        ema_score = 0.0
-        momentum_score = 0.0
-        location_score = 0.0
-        candle_score = 0.0
-        sr_score = 0.0
-        breakout_score = 0.0
-        volatility_score = 0.0
-        exhaustion_score = 0.0
+        
+        # ====================================================
+        # UNIT 6 - PRICE-FIRST SCALP QUALITY
+        # WEIGHTS: 50 / 20 / 12 / 10 / 5 / 3
+        # ====================================================
 
-        # 1) EMA alignment + price relationship: 20.
-        if direction == "LONG":
-            if ema19 > ema50 > ema200:
-                ema_score = 20.0
-            elif ema19 > ema50:
-                ema_score = 15.0
-            elif latest_close > ema19:
-                ema_score = 8.0
-        else:
-            if ema19 < ema50 < ema200:
-                ema_score = 20.0
-            elif ema19 < ema50:
-                ema_score = 15.0
-            elif latest_close < ema19:
-                ema_score = 8.0
-
-        # 2) Momentum agreement/progression: 15.
-        d1 = direction_of(move_1m)
-        d5 = direction_of(move_5m)
-        d15 = direction_of(move_15m)
-        agreement_count = sum(
-            1 for d in (d1, d5, d15)
-            if d == direction
+        ema100_value = float(
+            unit_4_analysis.get("ema100", 0.0)
         )
-        momentum_score = {
-            0: 0.0,
-            1: 5.0,
-            2: 10.0,
-            3: 15.0,
-        }[agreement_count]
 
-        # 3) EMA19 entry extension normalized by current noise: 15.
-        extension_pct = pct_distance(latest_close, ema19)
-        extension_ratio = (
-            extension_pct / average_cluster_height_pct
-            if average_cluster_height_pct > 0
-            else 999.0
+        if ema100_value <= 0:
+            raise RuntimeError(
+                "UNIT 6 BLOCKED: EMA100 MISSING"
+            )
+
+        latest = candles[-1]
+        previous = candles[-2]
+
+        latest_open = float(latest["open"])
+        latest_high = float(latest["high"])
+        latest_low = float(latest["low"])
+        latest_candle_close = float(latest["close"])
+
+        candle_range = max(
+            latest_high - latest_low, 0.0
         )
-        if extension_ratio <= 0.50:
-            location_score = 15.0
-        elif extension_ratio <= 1.00:
-            location_score = 12.0
-        elif extension_ratio <= 1.50:
-            location_score = 7.0
-        elif extension_ratio <= 2.00:
-            location_score = 3.0
 
-        # 4) Latest completed candle confirmation: 10.
+        candle_body = abs(
+            latest_candle_close - latest_open
+        )
+
+        body_ratio = (
+            candle_body / candle_range
+            if candle_range > 0 else 0.0
+        )
+
         candle_direction_ok = (
             latest_candle_close > latest_open
             if direction == "LONG"
             else latest_candle_close < latest_open
         )
-        if candle_direction_ok:
-            candle_score = 6.0
-            if body_ratio >= 0.50:
-                candle_score += 2.0
-            if body_ratio >= 0.70:
-                candle_score += 2.0
 
-        # 5/6) Direction-aware resistance/support midpoint and
-        # breakout/breakdown quality: 15 + 10.
+        extension_pct = pct_distance(
+            latest_close, ema19
+        )
+
+        extension_ratio = (
+            extension_pct / average_cluster_height_pct
+            if average_cluster_height_pct > 0
+            else 999.0
+        )
+
+        latest_range_pct = (
+            candle_range / latest_candle_close * 100.0
+            if latest_candle_close > 0
+            else 0.0
+        )
+
+        spike_ratio = (
+            latest_range_pct / average_cluster_height_pct
+            if average_cluster_height_pct > 0
+            else 999.0
+        )
+
+        # ----------------------------------------------------
+        # 1. PRICE ACTION = 50 POINTS
+        # ----------------------------------------------------
+
+        candle_score = (
+            12.0
+            + (4.0 if body_ratio >= 0.5 else 0.0)
+            + (4.0 if body_ratio >= 0.7 else 0.0)
+        ) if candle_direction_ok else 0.0
+
+        persistence_score = min(
+            15.0,
+            15.0 * persistence_confirmations
+            / max(1, persistence_window)
+        )
+
+        location_score = (
+            10.0 if extension_ratio <= 0.5
+            else 8.0 if extension_ratio <= 1.0
+            else 4.0 if extension_ratio <= 1.5
+            else 0.0
+        )
+
+        # ----------------------------------------------------
+        # 2. SUPPORT / RESISTANCE = 20 POINTS
+        # ----------------------------------------------------
+
         reference_mid = (
             resistance_mid
             if direction == "LONG"
             else support_mid
         )
+
         reference_points = (
             resistance_points
             if direction == "LONG"
             else support_points
         )
 
+        reference_state = "NO_REFERENCE"
         sr_distance_pct = None
         sr_distance_ratio = None
-        reference_state = "NO_REFERENCE"
+
+        sr_score = 0.0
+        breakout_score = 0.0
 
         if reference_mid is not None and reference_mid > 0:
-            sr_distance_pct = pct_distance(
-                latest_close,
-                reference_mid,
+
+            distance = pct_distance(
+                latest_close, reference_mid
             )
 
+            sr_distance_pct = distance
+
             sr_distance_ratio = (
-                sr_distance_pct / average_cluster_height_pct
+                distance / average_cluster_height_pct
+                if average_cluster_height_pct > 0
+                else 999.0
+            )
+
+            broken = (
+                latest_close > reference_mid
+                if direction == "LONG"
+                else latest_close < reference_mid
+            )
+
+            previously_unbroken = (
+                float(previous["close"]) <= reference_mid
+                if direction == "LONG"
+                else float(previous["close"]) >= reference_mid
+            )
+
+            reference_state = (
+                "BROKEN" if broken else "AHEAD"
+            )
+
+            if broken:
+                sr_score = (
+                    20.0 if sr_distance_ratio <= 1.5
+                    else 10.0
+                )
+
+                breakout_score = (
+                    5.0 if previously_unbroken else 2.0
+                )
+            else:
+                sr_score = (
+                    16.0 if sr_distance_ratio >= 1.5
+                    else 10.0 if sr_distance_ratio >= 0.75
+                    else 3.0
+                )
+
+        # ----------------------------------------------------
+        # COMPLETE PRICE ACTION SCORE
+        # ----------------------------------------------------
+
+        price_action_score = (
+            candle_score
+            + persistence_score
+            + location_score
+            + breakout_score
+        )
+
+        # ----------------------------------------------------
+        # 3. MOMENTUM = 12 POINTS
+        # ----------------------------------------------------
+
+        agreement_count = sum(
+            1
+            for movement in (
+                move_1m,
+                move_5m,
+                move_15m
+            )
+            if direction_of(movement) == direction
+        )
+
+        momentum_score = 4.0 * agreement_count
+
+        # ----------------------------------------------------
+        # 4. EMA19 / EMA50 = 10 POINTS
+        # ----------------------------------------------------
+
+        ema_timing_score = (
+            10.0
+            if (
+                (direction == "LONG" and ema19 > ema50)
+                or
+                (direction == "SHORT" and ema19 < ema50)
+            )
+            else 5.0
+            if (
+                (direction == "LONG" and latest_close > ema19)
+                or
+                (direction == "SHORT" and latest_close < ema19)
+            )
+            else 0.0
+        )
+
+        # ----------------------------------------------------
+        # 5. EMA100 / EMA200 = 5 POINTS
+        # ----------------------------------------------------
+
+        ema100_confidence = (
+            5.0
+            if (
+                (
+                    direction == "LONG"
+                    and latest_close >= ema100_value
+                    and latest_close >= ema200
+                )
+                or
+                (
+                    direction == "SHORT"
+                    and latest_close <= ema100_value
+                    and latest_close <= ema200
+                )
+            )
+            else 2.5
+            if (
+                (
+                    direction == "LONG"
+                    and latest_close >= ema100_value
+                )
+                or
+                (
+                    direction == "SHORT"
+                    and latest_close <= ema100_value
+                )
+            )
+            else 0.0
+        )
+
+        ema_score = (
+            ema_timing_score + ema100_confidence
+        )
+
+        # ----------------------------------------------------
+        # 6. ATR / VOLATILITY PROXY = 3 POINTS
+        # ----------------------------------------------------
+
+        volatility_score = (
+            3.0
+            if 0.04 <= average_cluster_height_pct <= 0.35
+            else 1.5
+            if 0.02 <= average_cluster_height_pct <= 0.50
+            else 0.0
+        )
+
+        exhaustion_score = 0.0
+
+        # ----------------------------------------------------
+        # FINAL SCALP QUALITY SCORE
+        # ----------------------------------------------------
+
+        scalp_quality_score = round(
+            price_action_score
+            + sr_score
+            + momentum_score
+            + ema_score
+            + volatility_score,
+            2
+        )
+
+        # ----------------------------------------------------
+        # ANTI-CHASE PROTECTION
+        # ----------------------------------------------------
+
+        extreme_extension = extension_ratio > 1.50
+        extreme_spike = spike_ratio > 2.00
+
+        late_impulse = False
+
+        if len(candles) >= 7:
+
+            impulse_start = float(
+                candles[-6]["close"]
+            )
+
+            impulse_end = float(
+                candles[-1]["close"]
+            )
+
+            previous_move = (
+                float(candles[-2]["close"])
+                - float(candles[-3]["close"])
+            )
+
+            latest_move = (
+                float(candles[-1]["close"])
+                - float(candles[-2]["close"])
+            )
+
+            impulse_height_pct = (
+                abs(impulse_end - impulse_start)
+                / impulse_start * 100.0
+                if impulse_start > 0
+                else 0.0
+            )
+
+            impulse_ratio = (
+                impulse_height_pct
+                / average_cluster_height_pct
                 if average_cluster_height_pct > 0
                 else 999.0
             )
 
             if direction == "LONG":
-                broken = latest_close > reference_mid
-                previous_below = float(previous["close"]) <= reference_mid
-            else:
-                broken = latest_close < reference_mid
-                previous_below = float(previous["close"]) >= reference_mid
+                weakening_momentum = (
+                    previous_move > 0
+                    and latest_move < previous_move
+                )
 
-            if broken:
-                reference_state = "BROKEN"
-                sr_score = 15.0
-                if previous_below:
-                    breakout_score = 10.0
-                elif sr_distance_ratio <= 1.0:
-                    breakout_score = 8.0
-                else:
-                    breakout_score = 5.0
+                impulse_in_direction = (
+                    impulse_end > impulse_start
+                )
             else:
-                reference_state = "AHEAD"
-                if sr_distance_ratio >= 2.0:
-                    sr_score = 13.0
-                elif sr_distance_ratio >= 1.25:
-                    sr_score = 10.0
-                elif sr_distance_ratio >= 0.75:
-                    sr_score = 6.0
-                else:
-                    sr_score = 2.0
-                breakout_score = 0.0
-        else:
-            # Missing a reliable 5-10 point cluster must not
-            # receive full credit.
-            sr_score = 5.0
-            breakout_score = 2.0
+                weakening_momentum = (
+                    previous_move < 0
+                    and latest_move > previous_move
+                )
 
-        # 7) Healthy 1-minute tradable range: 10.
-        # Relative rather than a fixed BTC percentage.
-        if average_cluster_height_pct > 0:
-            if 0.04 <= average_cluster_height_pct <= 0.35:
-                volatility_score = 10.0
-            elif 0.02 <= average_cluster_height_pct <= 0.50:
-                volatility_score = 6.0
-            else:
-                volatility_score = 2.0
+                impulse_in_direction = (
+                    impulse_end < impulse_start
+                )
 
-        # 8) Spike/exhaustion protection: 5.
-        latest_range_pct = (
-            (latest_high - latest_low) / latest_candle_close * 100.0
-            if latest_candle_close > 0
-            else 0.0
+            late_impulse = (
+                impulse_in_direction
+                and impulse_ratio > 3.0
+                and weakening_momentum
+                and extension_ratio > 1.0
+            )
+
+        # ----------------------------------------------------
+        # FINAL QUALIFICATION
+        # ----------------------------------------------------
+
+        scalp_quality_pass = (
+            scalp_quality_score >= scalp_quality_minimum
+            and price_action_score >= 35.0
+            and persistence_pass
+            and not extreme_extension
+            and not extreme_spike
+            and not late_impulse
         )
-        spike_ratio = (
-            latest_range_pct / average_cluster_height_pct
-            if average_cluster_height_pct > 0
-            else 999.0
+
+        # ----------------------------------------------------
+        # DIAGNOSTIC LOGGING
+        # ----------------------------------------------------
+
+        print(
+            "UNIT 6 PRICE FIRST WEIGHTS = 50/20/12/10/5/3",
+            flush=True
         )
-        if spike_ratio <= 1.50:
-            exhaustion_score = 5.0
-        elif spike_ratio <= 2.00:
-            exhaustion_score = 3.0
-        elif spike_ratio <= 2.50:
-            exhaustion_score = 1.0
-        else:
-            exhaustion_score = 0.0
+
+        print(
+            "UNIT 6 PRICE ACTION =",
+            price_action_score,
+            "/50",
+            flush=True
+        )
+
+        print(
+            "UNIT 6 SUPPORT RESISTANCE =",
+            sr_score,
+            "/20",
+            flush=True
+        )
+
+        print(
+            "UNIT 6 MOMENTUM =",
+            momentum_score,
+            "/12",
+            flush=True
+        )
+
+        print(
+            "UNIT 6 EMA19/50 =",
+            ema_timing_score,
+            "/10",
+            flush=True
+        )
+
+        print(
+            "UNIT 6 EMA100/200 =",
+            ema100_confidence,
+            "/5",
+            flush=True
+        )
+
+        print(
+            "UNIT 6 VOLATILITY =",
+            volatility_score,
+            "/3",
+            flush=True
+        )
+
+        print(
+            "UNIT 6 TOTAL QUALITY =",
+            scalp_quality_score,
+            "/100",
+            flush=True
+        )
+
+        print(
+            "UNIT 6 PRICE MINIMUM PASS =",
+            price_action_score >= 35.0,
+            flush=True
+        )
+
+        print(
+            "UNIT 6 EXTREME EXTENSION =",
+            extreme_extension,
+            flush=True
+        )
+
+        print(
+            "UNIT 6 EXTREME SPIKE =",
+            extreme_spike,
+            flush=True
+        )
+
+        print(
+            "UNIT 6 LATE IMPULSE =",
+            late_impulse,
+            flush=True
+        )
+
+        print(
+            "UNIT 6 SCALP QUALITY PASS =",
+            scalp_quality_pass,
+            flush=True
+        )
+
+        # ====================================================
+        # END UNIT 6 EARLY SCALP QUALITY
+        # ====================================================
+        
+        
 
         
         # ====================================================
