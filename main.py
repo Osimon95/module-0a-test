@@ -8705,7 +8705,674 @@ def fresh_reconstruction_refresh_unit_11(
 #
 # EXISTING UNIT 12 CONTINUES DIRECTLY BELOW
 # ============================================================
+ 
+# ============================================================
+# START COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 12
+# ZERO INDENTATION DEMARCATION
+# ============================================================
+#
+# WEEX DEMO POSITION AND RE-ENTRY SAFETY GATE
+#
+# - Accepts Unit 11 IDLE / PREPARED_BLOCKED
+# - Performs authenticated DEMO position GET only
+# - Detects existing BTC demo positions
+# - Does not assume pending orders are cleared
+# - Does not assume actual leverage is verified
+# - Does not authorize an entry
+# - Preserves independent Unit 13 position management
+# - No initial entry, TP, SL or backup submission
+# - No real-money exchange access
+#
+# ZERO EXCHANGE WRITE
+# ============================================================
 
+import os
+import time
+import json
+import hmac
+import hashlib
+import base64
+import urllib.request
+import urllib.error
+
+from decimal import Decimal, InvalidOperation
+
+
+# ============================================================
+# UNIT 12 MASTER BOT SWITCH
+# ZERO INDENTATION
+#
+# RUN   = scanning permitted; submissions still blocked
+# PAUSE = new entry scanning and submissions paused
+#
+# DEFAULT PAUSE DURING INTEGRATION
+# ============================================================
+
+BOT_MODE = os.getenv(
+    "BOT_MODE", "PAUSE"
+).strip().upper()
+
+if BOT_MODE not in ("RUN", "PAUSE"):
+    raise RuntimeError(
+        "UNIT 12 INVALID BOT_MODE"
+    )
+
+
+# ============================================================
+# UNIT 12 AUTHENTICATED DEMO GET HELPER
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_12_demo_get(path):
+
+    if path != "/capi/v3/sim/position/allPosition":
+        raise RuntimeError(
+            "UNIT 12 ENDPOINT NOT ALLOWED"
+        )
+
+    api_key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    api_secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    passphrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((api_key, api_secret, passphrase)):
+        raise RuntimeError(
+            "UNIT 12 DEMO READ CREDENTIALS MISSING"
+        )
+
+    timestamp = str(int(time.time() * 1000))
+
+    prehash = timestamp + "GET" + path
+
+    signature = base64.b64encode(
+        hmac.new(
+            api_secret.encode("utf-8"),
+            prehash.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    headers = {
+        "ACCESS-KEY": api_key,
+        "ACCESS-SIGN": signature,
+        "ACCESS-TIMESTAMP": timestamp,
+        "ACCESS-PASSPHRASE": passphrase,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "Fresh-WEEX-Unit12",
+    }
+
+    url = (
+        "https://api-contract.weex.com"
+        + path
+    )
+
+    request = urllib.request.Request(
+        url=url,
+        headers=headers,
+        method="GET",
+    )
+
+    if request.get_method() != "GET":
+        raise RuntimeError(
+            "UNIT 12 NON-GET REQUEST BLOCKED"
+        )
+
+    if request.data is not None:
+        raise RuntimeError(
+            "UNIT 12 REQUEST BODY BLOCKED"
+        )
+
+    with urllib.request.urlopen(
+        request,
+        timeout=15,
+    ) as response:
+
+        if response.getcode() != 200:
+            raise RuntimeError(
+                "UNIT 12 DEMO GET HTTP FAILURE"
+            )
+
+        raw = response.read().decode("utf-8")
+
+    data = json.loads(raw)
+
+    if not isinstance(data, list):
+        raise RuntimeError(
+            "UNIT 12 UNEXPECTED POSITION RESPONSE"
+        )
+
+    return data
+
+
+# ============================================================
+# UNIT 12 POSITION NORMALIZATION
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_12_parse_positions(records):
+
+    if not isinstance(records, list):
+        raise RuntimeError(
+            "UNIT 12 POSITION LIST INVALID"
+        )
+
+    active = []
+
+    for record in records:
+
+        if not isinstance(record, dict):
+            raise RuntimeError(
+                "UNIT 12 POSITION RECORD INVALID"
+            )
+
+        symbol = str(
+            record.get("symbol", "")
+        ).upper()
+
+        if symbol != "BTCSUSDT":
+            continue
+
+        if "size" not in record:
+            raise RuntimeError(
+                "UNIT 12 BTC POSITION SIZE MISSING"
+            )
+
+        try:
+            size = Decimal(
+                str(record["size"])
+            )
+        except (InvalidOperation, TypeError) as exc:
+            raise RuntimeError(
+                "UNIT 12 BTC POSITION SIZE INVALID"
+            ) from exc
+
+        if not size.is_finite():
+            raise RuntimeError(
+                "UNIT 12 NON-FINITE POSITION SIZE"
+            )
+
+        if size < 0:
+            raise RuntimeError(
+                "UNIT 12 NEGATIVE POSITION SIZE"
+            )
+
+        if size > 0:
+
+            active.append({
+                "symbol": symbol,
+                "size": str(size),
+                "side": record.get(
+                    "positionSide",
+                    record.get("side"),
+                ),
+                "leverage": record.get(
+                    "leverage"
+                ),
+                "marginType": record.get(
+                    "marginType"
+                ),
+                "id": record.get("id"),
+            })
+
+    return active
+
+
+# ============================================================
+# UNIT 12 MAIN SAFETY GATE
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_reconstruction_unit_12(
+    config,
+    unit_11_result,
+):
+
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 12 START")
+
+    # ========================================================
+    # 1. VERIFY CONFIGURATION
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 12 CONFIGURATION MISSING"
+        )
+
+    if not isinstance(unit_11_result, dict):
+        raise RuntimeError(
+            "UNIT 12 UNIT 11 RESULT MISSING"
+        )
+
+    exchange = config.get("exchange")
+    strategy = config.get("strategy")
+
+    if not isinstance(exchange, dict):
+        raise RuntimeError(
+            "UNIT 12 EXCHANGE CONFIGURATION MISSING"
+        )
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError(
+            "UNIT 12 STRATEGY CONFIGURATION MISSING"
+        )
+
+    if config.get("execution_environment") != "DEMO":
+        raise RuntimeError(
+            "UNIT 12 REAL ENVIRONMENT PROHIBITED"
+        )
+
+    if exchange.get("name") != "WEEX":
+        raise RuntimeError(
+            "UNIT 12 INVALID EXCHANGE"
+        )
+
+    if exchange.get("api_version") != "V3":
+        raise RuntimeError(
+            "UNIT 12 INVALID API VERSION"
+        )
+
+    if exchange.get("demo_order_symbol") != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 12 INVALID DEMO SYMBOL"
+        )
+
+    if unit_11_result.get("read_only") is not True:
+        raise RuntimeError(
+            "UNIT 12 UNIT 11 NOT READ ONLY"
+        )
+
+    if strategy.get(
+        "real_money_execution_enabled"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 12 REAL EXECUTION ENABLED"
+        )
+
+    # ========================================================
+    # 2. INITIAL FAIL-CLOSED RESULT
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    result = {
+        "unit": 12,
+        "status": "IDLE",
+        "read_only": True,
+
+        "active_mode": "NONE",
+        "direction": "NONE",
+        "signal_qualified": False,
+        "execution_intent": False,
+
+        "preparation_status":
+            unit_11_result.get(
+                "preparation_status", "IDLE"
+            ),
+
+        "signal_id":
+            unit_11_result.get("signal_id"),
+
+        "position_check_attempted": False,
+        "position_check_completed": False,
+        "position_endpoint_access": False,
+
+        "active_position_exists": False,
+        "active_positions": [],
+
+        "flat_position_confirmed": False,
+        "pending_orders_cleared": False,
+        "actual_leverage_verified": False,
+        "exchange_state_reconciled": False,
+        "anti_duplicate_verified": False,
+
+        "demo_submission_attempted": False,
+        "demo_submission_completed": False,
+        "real_submission_attempted": False,
+
+        "authenticated_request": False,
+        "order_endpoint_access": False,
+        "exchange_write": False,
+
+        "reentry_authorized": False,
+        "order_submission_authorized": False,
+
+        "skip_reason": "NO_QUALIFIED_SIGNAL",
+    }
+
+    # ========================================================
+    # 3. BOT MODE
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    print(
+        "BOT MODE =",
+        BOT_MODE,
+        flush=True,
+    )
+
+    if BOT_MODE == "PAUSE":
+
+        result["skip_reason"] = "BOT_MODE_PAUSE"
+
+        print(
+            "UNIT 12 INITIAL ENTRIES = PAUSED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 12 POSITION MANAGEMENT = "
+            "INDEPENDENT UNIT 13/14",
+            flush=True,
+        )
+
+        return result
+
+    # ========================================================
+    # 4. UNIT 11 SAFETY BOUNDARY
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    if unit_11_result.get("status") != "IDLE":
+        raise RuntimeError(
+            "UNIT 12 UNEXPECTED UNIT 11 STATUS"
+        )
+
+    if unit_11_result.get(
+        "order_submission_authorized"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 12 UNSAFE ORDER AUTHORIZATION"
+        )
+
+    if unit_11_result.get(
+        "order_payload"
+    ) is not None:
+        raise RuntimeError(
+            "UNIT 12 ORDER PAYLOAD MUST BE NONE"
+        )
+
+    preparation_status = unit_11_result.get(
+        "preparation_status", "IDLE"
+    )
+
+    if preparation_status == "IDLE":
+
+        result["skip_reason"] = (
+            unit_11_result.get("skip_reason")
+            or "UNIT_11_IDLE"
+        )
+
+        print(
+            "UNIT 12 STATUS = IDLE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 12 SKIP REASON =",
+            result["skip_reason"],
+            flush=True,
+        )
+
+        return result
+
+    if preparation_status != "PREPARED_BLOCKED":
+        raise RuntimeError(
+            "UNIT 12 UNKNOWN PREPARATION STATUS"
+        )
+
+    prepared = unit_11_result.get(
+        "prepared_candidate"
+    )
+
+    if not isinstance(prepared, dict):
+        raise RuntimeError(
+            "UNIT 12 PREPARED CANDIDATE MISSING"
+        )
+
+    if prepared.get("read_only") is not True:
+        raise RuntimeError(
+            "UNIT 12 PREPARED CANDIDATE UNSAFE"
+        )
+
+    if prepared.get("submission_allowed") is not False:
+        raise RuntimeError(
+            "UNIT 12 SUBMISSION NOT BLOCKED"
+        )
+
+    if prepared.get("exchange_checks_completed") is not False:
+        raise RuntimeError(
+            "UNIT 12 UNEXPECTED COMPLETED CHECKS"
+        )
+
+    # ========================================================
+    # 5. READ CURRENT DEMO POSITION
+    # INDENTATION: 4 SPACES
+    #
+    # This is a diagnostic exchange read only.
+    # No order is submitted even if position is flat.
+    # ========================================================
+
+    result["position_check_attempted"] = True
+
+    try:
+
+        records = fresh_unit_12_demo_get(
+            "/capi/v3/sim/position/allPosition"
+        )
+
+        result["authenticated_request"] = True
+        result["position_endpoint_access"] = True
+
+        active = fresh_unit_12_parse_positions(
+            records
+        )
+
+    except Exception as exc:
+
+        result["skip_reason"] = (
+            "DEMO_POSITION_VERIFICATION_FAILED"
+        )
+
+        print(
+            "UNIT 12 POSITION CHECK ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+        print(
+            "UNIT 12 ENTRY = BLOCKED",
+            flush=True,
+        )
+
+        return result
+
+    result["position_check_completed"] = True
+    result["active_positions"] = active
+
+    result["active_position_exists"] = (
+        len(active) > 0
+    )
+
+    result["flat_position_confirmed"] = (
+        len(active) == 0
+    )
+
+    # ========================================================
+    # 6. ACTIVE POSITION PROTECTION
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    if result["active_position_exists"]:
+
+        result["status"] = "BLOCKED_ACTIVE_POSITION"
+        result["skip_reason"] = (
+            "NON_ZERO_DEMO_POSITION_BLOCK"
+        )
+
+        print(
+            "UNIT 12 ACTIVE POSITION COUNT =",
+            len(active),
+            flush=True,
+        )
+
+        print(
+            "UNIT 12 ENTRY = BLOCKED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 12 EXISTING POSITION MANAGEMENT = "
+            "UNIT 13/14",
+            flush=True,
+        )
+
+        return result
+
+    # ========================================================
+    # 7. FLAT DOES NOT EQUAL AUTHORIZED
+    # INDENTATION: 4 SPACES
+    #
+    # Pending orders and actual leverage are not yet
+    # independently verified by this correction.
+    #
+    # Never infer their status from position size zero.
+    # ========================================================
+
+    result["status"] = "FLAT_PENDING_CHECKS"
+
+    result["skip_reason"] = (
+        "PENDING_ORDERS_LEVERAGE_AND_DUPLICATE_"
+        "RECONCILIATION_NOT_COMPLETED"
+    )
+
+    print(
+        "UNIT 12 FLAT POSITION CONFIRMED = TRUE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 PENDING ORDERS CLEARED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 ACTUAL LEVERAGE VERIFIED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 DUPLICATE CHECK VERIFIED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 EXCHANGE STATE RECONCILED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 REENTRY AUTHORIZED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 DEMO ORDER SUBMISSION = BLOCKED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 REAL ORDER SUBMISSION = BLOCKED",
+        flush=True,
+    )
+
+    print(
+        "ZERO ORDER ENDPOINT ACCESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "ZERO EXCHANGE WRITE = TRUE",
+        flush=True,
+    )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 12 "
+        "RESULT = PASS (FLAT_PENDING_CHECKS)"
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# INITIAL UNIT 12 EXECUTION
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
+    fresh_reconstruction_unit_12(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+    )
+)
+
+
+# ============================================================
+# UNIT 12 REUSABLE REFRESH
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_reconstruction_refresh_unit_12(
+    unit_11_result=None
+):
+
+    global FRESH_RECONSTRUCTION_UNIT_12_RESULT
+
+    if unit_11_result is None:
+        unit_11_result = (
+            FRESH_RECONSTRUCTION_UNIT_11_RESULT
+        )
+
+    refreshed = fresh_reconstruction_unit_12(
+        FRESH_RECONSTRUCTION_CONFIG,
+        unit_11_result,
+    )
+
+    FRESH_RECONSTRUCTION_UNIT_12_RESULT = refreshed
+
+    return refreshed
+
+
+# ============================================================
+# END COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 12
+# ZERO INDENTATION DEMARCATION
+#
+# UNIT 12 FULLY CLOSED
+# UNIT 12 CALLED ONCE
+# REFRESH FUNCTION CREATED
+# DEMO POSITION READ ONLY
+# NO DEMO ORDER ENDPOINT
+# NO REAL ORDER ENDPOINT
+# NO LEVERAGE MUTATION
+# NO MARGIN MODE MUTATION
+# NO POSITION MODE MUTATION
+#
+# EXISTING UNIT 13 CONTINUES DIRECTLY BELOW
+# ============================================================
+    
 # ============================================================
 # FRESH RECONSTRUCTION UNIT 13
 # EXISTING-POSITION DYNAMIC TAKE-PROFIT MANAGEMENT
