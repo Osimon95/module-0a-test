@@ -3358,1446 +3358,519 @@ def fresh_reconstruction_refresh_unit_5(
 # EXISTING UNIT 6 CONTINUES DIRECTLY BELOW
 # ============================================================
 
+ 
 # ============================================================
-# FRESH RECONSTRUCTION UNIT 6
-# SIGNAL ADMISSION / EXECUTION-INTENT GATE
+# START COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 6
+# ZERO INDENTATION DEMARCATION
+# ============================================================
 #
-# PURPOSE:
-# Validate the normalized Unit 5 signal candidate before any
-# account, position-sizing, TP, backup, or order layer exists.
+# COORDINATED SIGNAL ADMISSION ENGINE
 #
-# IMPORTANT:
-# - UNIT 1-5 REMAIN FROZEN
-# - ZERO AUTHENTICATED API ACCESS
-# - ZERO ACCOUNT ACCESS
-# - ZERO POSITION ACCESS
-# - ZERO ORDER ENDPOINT ACCESS
-# - ZERO DEMO ORDER
-# - ZERO REAL ORDER
-# - ZERO EXCHANGE WRITE
-# - NO POSITION SIZING
-# - NO TP / SL
-# - NO BACKUP EXECUTION
+# FUNCTIONS:
+# - Receive new Unit 5 price-led qualification
+# - Preserve SCALP / STRUCTURE / BREAKOUT modes
+# - Scalp price-action weight = 50%
+# - Scalp quality threshold = 70/100
+# - No conflicting second quality calculation
+# - Three fresh-snapshot confirmations
+# - Signal freshness validation
+# - Directional persistence
+# - Reusable refresh entry point
+# - Stable Unit 7 execution candidate
+#
+# NO ACCOUNT ACCESS
+# NO ORDER SUBMISSION
+# NO EXCHANGE WRITE
 # ============================================================
 
+import math
+import time
+
+
+# ============================================================
+# UNIT 6 SIGNAL CONFIRMATION STATE
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_UNIT_6_CONFIRMATION_STATE = {
+    "mode": "NONE",
+    "direction": "NONE",
+    "count": 0,
+    "last_snapshot_id": None,
+}
+
+
+# ============================================================
+# UNIT 6 RESET FUNCTION
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_6_reset_confirmations():
+
+    state = FRESH_UNIT_6_CONFIRMATION_STATE
+
+    state["mode"] = "NONE"
+    state["direction"] = "NONE"
+    state["count"] = 0
+    state["last_snapshot_id"] = None
+
+
+# ============================================================
+# UNIT 6 MAIN ADMISSION FUNCTION
+# ZERO INDENTATION
+# ============================================================
 
 def fresh_reconstruction_unit_6(
     unit_2_config,
     unit_4_analysis,
     unit_5_candidate,
 ):
-    from datetime import datetime, timezone
 
-    print(
-        "=" * 80,
-        flush=True,
-    )
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 6 START")
 
-    print(
-        f"{datetime.now(timezone.utc).isoformat()} "
-        "FRESH RECONSTRUCTION UNIT 6 START",
-        flush=True,
-    )
-
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
-    # --------------------------------------------------------
-    # INPUT VALIDATION
-    # --------------------------------------------------------
-
-    if not isinstance(unit_2_config, dict):
-        raise TypeError(
-            "UNIT 6 EXPECTED UNIT 2 CONFIGURATION DICT"
-        )
-
-    print(
-        "PASS: UNIT 6 RECEIVED UNIT 2 CONFIGURATION",
-        flush=True,
-    )
-
-    if not isinstance(unit_4_analysis, dict):
-        raise TypeError(
-            "UNIT 6 EXPECTED UNIT 4 ANALYSIS SNAPSHOT DICT"
-        )
-
-    print(
-        "PASS: UNIT 6 RECEIVED UNIT 4 ANALYSIS SNAPSHOT",
-        flush=True,
-    )
-
-    if not isinstance(unit_5_candidate, dict):
-        raise TypeError(
-            "UNIT 6 EXPECTED UNIT 5 SIGNAL CANDIDATE DICT"
-        )
-
-    print(
-        "PASS: UNIT 6 RECEIVED UNIT 5 SIGNAL CANDIDATE",
-        flush=True,
-    )
-
-    # --------------------------------------------------------
-    # READ UNIT 5 NORMALIZED VALUES
-    # --------------------------------------------------------
-
-    signal_qualified = bool(
-    unit_5_candidate.get(
-        "qualified",
-        False,
-    )
-)
-
-
-    active_mode = unit_5_candidate.get(
-        "active_mode",
-        "NONE",
-    )
-
-    direction = unit_5_candidate.get(
-        "direction",
-        "NONE",
-    )
-
-    qualification_reason = unit_5_candidate.get(
-        "qualification_reason",
-        "UNKNOWN",
-    )
-
-    print(
-        "PASS: UNIT 6 UNIT 5 SIGNAL CANDIDATE READ",
-        flush=True,
-    )
-
-    # --------------------------------------------------------
-    # SAFETY CONFIGURATION
-    # --------------------------------------------------------
-
-    anti_duplicate_orders = bool(
-        unit_2_config.get(
-            "anti_duplicate_orders",
-            True,
-        )
-    )
-
-    one_direction_only = bool(
-        unit_2_config.get(
-            "one_direction_only",
-            True,
-        )
-    )
-
-    if not anti_duplicate_orders:
-        raise RuntimeError(
-            "UNIT 6 SAFETY FAILURE: "
-            "ANTI-DUPLICATE ORDERS DISABLED"
-        )
-
-    if not one_direction_only:
-        raise RuntimeError(
-            "UNIT 6 SAFETY FAILURE: "
-            "ONE DIRECTION ONLY DISABLED"
-        )
-
-    print(
-        "PASS: UNIT 6 ANTI-DUPLICATE REQUIREMENT ENABLED",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 6 ONE-DIRECTION REQUIREMENT ENABLED",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 6 READ-ONLY SAFETY GATE",
-        flush=True,
-    )
-
-    # --------------------------------------------------------
-    # SIGNAL CONSISTENCY VALIDATION
-    # --------------------------------------------------------
-
-    valid_modes = {
-        "SCALP",
-        "STRUCTURE",
-        "BREAKOUT",
-        "NONE",
-    }
-
-    valid_directions = {
-        "LONG",
-        "SHORT",
-        "NONE",
-    }
-
-    if active_mode not in valid_modes:
-        raise RuntimeError(
-            f"UNIT 6 INVALID ACTIVE MODE = {active_mode}"
-        )
-
-    if direction not in valid_directions:
-        raise RuntimeError(
-            f"UNIT 6 INVALID DIRECTION = {direction}"
-        )
-
-    print(
-        "PASS: UNIT 6 ACTIVE MODE VALIDATED",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 6 DIRECTION VALIDATED",
-        flush=True,
-    )
-
-    # --------------------------------------------------------
-    # LEVERAGE-AWARE SCALP / SIDEWAYS REGIME GATE
-    # --------------------------------------------------------
-
-    strategy = unit_2_config.get(
-        "strategy",
-        {},
-    )
-
-    try:
-
-        leverage_target = float(
-            strategy.get(
-                "leverage_target",
-                100,
-            )
-        )
-
-    except Exception:
-
-        leverage_target = 100.0
-
-    # --------------------------------------------------------
-    # LEVERAGE BANDS
-    # --------------------------------------------------------
-
-    
     # ========================================================
-    # UNIT 6 EARLY SCALP SETTINGS
-    # 100X LEVERAGE BAND
+    # 1. INPUT VALIDATION
     # INDENTATION: 4 SPACES
     # ========================================================
 
-    if leverage_target >= 100:
+    if not isinstance(unit_2_config, dict):
+        raise RuntimeError(
+            "UNIT 6 CONFIGURATION MISSING"
+        )
 
-        leverage_regime = "GE_100X"
+    if not isinstance(unit_4_analysis, dict):
+        raise RuntimeError(
+            "UNIT 6 ANALYSIS MISSING"
+        )
 
-        scalp_quality_minimum = 70.0
+    if not isinstance(unit_5_candidate, dict):
+        raise RuntimeError(
+            "UNIT 6 SIGNAL CANDIDATE MISSING"
+        )
 
-        persistence_window = 3
+    strategy = unit_2_config.get("strategy")
+    safety = unit_2_config.get("safety")
 
-        persistence_required = 2
+    if not isinstance(strategy, dict):
+        raise RuntimeError(
+            "UNIT 6 STRATEGY MISSING"
+        )
 
-        compression_threshold_pct = 0.050
+    if not isinstance(safety, dict):
+        raise RuntimeError(
+            "UNIT 6 SAFETY CONFIGURATION MISSING"
+        )
 
-        require_15m_agreement = False
+    if (
+        unit_4_analysis.get("read_only") is not True
+        or unit_5_candidate.get("read_only") is not True
+    ):
+        raise RuntimeError(
+            "UNIT 6 READ-ONLY CONTRACT FAILED"
+        )
+
+    if (
+        unit_4_analysis.get("symbol") != "BTCUSDT"
+        or unit_5_candidate.get("symbol") != "BTCUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 6 MARKET SYMBOL MISMATCH"
+        )
 
     # ========================================================
-    # END 100X EARLY SCALP SETTINGS
-    # NEXT LINE: elif leverage_target >= 50:
+    # 2. STRICT EXECUTION SAFETY
+    # INDENTATION: 4 SPACES
     # ========================================================
 
-    elif leverage_target >= 50:
+    forbidden_capabilities = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
 
-        leverage_regime = "50_99X"
+    for key in forbidden_capabilities:
 
-        scalp_quality_minimum = 78.0
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 6 UNSAFE CAPABILITY: " + key
+            )
 
-        persistence_window = 4
+    if strategy.get(
+        "real_money_execution_enabled"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 6 REAL EXECUTION NOT BLOCKED"
+        )
 
-        persistence_required = 3
+    for key in (
+        "one_direction_only",
+        "anti_duplicate_orders",
+        "active_trade_mode_lock",
+        "exclusive_mode",
+        "require_fresh_reentry_signal",
+    ):
 
-        compression_threshold_pct = 0.045
+        if strategy.get(key) is not True:
+            raise RuntimeError(
+                "UNIT 6 REQUIRED PROTECTION DISABLED: "
+                + key
+            )
 
-        require_15m_agreement = True
+    # ========================================================
+    # 3. SIGNAL CONFIGURATION
+    # INDENTATION: 4 SPACES
+    # ========================================================
 
-    elif leverage_target >= 20:
+    leverage_target = float(
+        strategy["leverage_target"]
+    )
 
-        leverage_regime = "20_49X"
+    quality_minimum = float(
+        strategy["scalp_quality_threshold"]
+    )
 
-        scalp_quality_minimum = 76.0
+    confirmation_required = int(
+        strategy["mode_confirmations_required"]
+    )
 
-        persistence_window = 3
+    signal_expiry_ms = int(
+        float(strategy["signal_expiry_seconds"])
+        * 1000
+    )
 
-        persistence_required = 2
+    if not (0 < quality_minimum <= 100):
+        raise RuntimeError(
+            "UNIT 6 INVALID QUALITY THRESHOLD"
+        )
 
-        compression_threshold_pct = 0.040
+    if confirmation_required < 1:
+        raise RuntimeError(
+            "UNIT 6 INVALID CONFIRMATION COUNT"
+        )
 
-        require_15m_agreement = False
+    if signal_expiry_ms <= 0:
+        raise RuntimeError(
+            "UNIT 6 INVALID SIGNAL EXPIRY"
+        )
 
-    elif leverage_target >= 11:
+    # ========================================================
+    # 4. UNIT 5 CANDIDATE
+    # INDENTATION: 4 SPACES
+    # ========================================================
 
-        leverage_regime = "11_19X"
+    qualified = unit_5_candidate.get(
+        "qualified"
+    )
 
-        scalp_quality_minimum = 75.0
+    active_mode = unit_5_candidate.get(
+        "active_mode", "NONE"
+    )
 
-        persistence_window = 3
+    direction = unit_5_candidate.get(
+        "direction", "NONE"
+    )
 
-        persistence_required = 2
+    qualification_reason = unit_5_candidate.get(
+        "qualification_reason", "UNKNOWN"
+    )
 
-        compression_threshold_pct = 0.035
+    if not isinstance(qualified, bool):
+        raise RuntimeError(
+            "UNIT 6 INVALID QUALIFICATION FLAG"
+        )
 
-        require_15m_agreement = False
+    if active_mode not in (
+        "NONE", "SCALP", "STRUCTURE", "BREAKOUT"
+    ):
+        raise RuntimeError(
+            "UNIT 6 INVALID ACTIVE MODE"
+        )
+
+    if direction not in (
+        "NONE", "LONG", "SHORT"
+    ):
+        raise RuntimeError(
+            "UNIT 6 INVALID DIRECTION"
+        )
+
+    if qualified and (
+        active_mode == "NONE"
+        or direction == "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 6 INCONSISTENT QUALIFIED SIGNAL"
+        )
+
+    # ========================================================
+    # 5. SCALP QUALITY CONTRACT
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    scalp_quality_score = float(
+        unit_5_candidate.get(
+            "scalp_quality_score", 0.0
+        )
+    )
+
+    if not math.isfinite(scalp_quality_score):
+        raise RuntimeError(
+            "UNIT 6 NON-FINITE SCALP SCORE"
+        )
+
+    if not 0 <= scalp_quality_score <= 100:
+        raise RuntimeError(
+            "UNIT 6 INVALID SCALP SCORE"
+        )
+
+    price_weight = float(
+        unit_5_candidate.get(
+            "price_action_weight", 0.0
+        )
+    )
+
+    if price_weight != 50.0:
+        raise RuntimeError(
+            "UNIT 6 PRICE WEIGHT MUST BE 50%"
+        )
+
+    scalp_quality_pass = (
+        scalp_quality_score >= quality_minimum
+    )
+
+    # Unit 5 already calculates the score.
+    # Unit 6 does not recompute it.
+
+    if active_mode == "SCALP":
+
+        selected_score = float(
+            unit_5_candidate.get(
+                "scalp_long_score"
+                if direction == "LONG"
+                else "scalp_short_score",
+                -1.0,
+            )
+        )
+
+        if not math.isclose(
+            selected_score,
+            scalp_quality_score,
+            abs_tol=0.0001,
+        ):
+            raise RuntimeError(
+                "UNIT 6 SELECTED SCALP SCORE MISMATCH"
+            )
+
+    # ========================================================
+    # 6. FRESH MARKET TIMESTAMP CONTRACT
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    market_time_ms = int(
+        unit_4_analysis["exchange_time_ms"]
+    )
+
+    candidate_time_ms = int(
+        unit_5_candidate["exchange_time_ms"]
+    )
+
+    if market_time_ms != candidate_time_ms:
+        raise RuntimeError(
+            "UNIT 6 CANDIDATE MARKET TIME MISMATCH"
+        )
+
+    latest_candle_ms = int(
+        unit_4_analysis["latest_close_time_ms"]
+    )
+
+    candidate_candle_ms = int(
+        unit_5_candidate["latest_close_time_ms"]
+    )
+
+    if latest_candle_ms != candidate_candle_ms:
+        raise RuntimeError(
+            "UNIT 6 CANDLE SNAPSHOT MISMATCH"
+        )
+
+    now_ms = int(time.time() * 1000)
+
+    signal_age_ms = (
+        now_ms - market_time_ms
+    )
+
+    signal_fresh = (
+        -30000 <= signal_age_ms <= signal_expiry_ms
+    )
+
+    snapshot_id = (
+        market_time_ms,
+        latest_candle_ms,
+    )
+
+    # ========================================================
+    # 7. CHECK ENTRY SIGNAL ADMISSIBILITY
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    signal_admissible = False
+
+    admission_reason = (
+        "UNIT_5_NOT_QUALIFIED:"
+        + str(qualification_reason)
+    )
+
+    if not signal_fresh:
+
+        admission_reason = (
+            "SIGNAL_EXPIRED_OR_INVALID_TIMESTAMP"
+        )
+
+    elif not qualified:
+
+        admission_reason = (
+            "UNIT_5_NOT_QUALIFIED:"
+            + str(qualification_reason)
+        )
+
+    elif (
+        active_mode == "SCALP"
+        and not scalp_quality_pass
+    ):
+
+        admission_reason = (
+            "SCALP_QUALITY_BELOW_THRESHOLD"
+        )
 
     else:
 
-        leverage_regime = "LE_10X"
+        signal_admissible = True
 
-        scalp_quality_minimum = 75.0
-
-        persistence_window = 2
-
-        persistence_required = 1
-
-        compression_threshold_pct = 0.030
-
-        require_15m_agreement = False
-
-    scalp_quality_score = None
-
-    scalp_quality_pass = None
-
-    scalp_quality_details = {}
-
-    sideways_regime = False
-
-    ema_compressed = False
-
-    momentum_conflict = False
-
-    persistence_pass = True
-
-    persistence_confirmations = 0
-
-    persistence_directions = []
-
-    fifteen_minute_support_pass = True
-
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
-    print(
-        "UNIT 6 LEVERAGE-AWARE ENTRY REGIME",
-        flush=True,
-    )
-
-    print(
-        f"UNIT 6 LEVERAGE TARGET = {leverage_target}x",
-        flush=True,
-    )
-
-    print(
-        f"UNIT 6 LEVERAGE REGIME = {leverage_regime}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 6 SCALP QUALITY MINIMUM = "
-        f"{scalp_quality_minimum}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 6 SCALP PERSISTENCE = "
-        f"{persistence_required} OF LAST "
-        f"{persistence_window} CLOSED 1M CANDLES",
-        flush=True,
-    )
-
-    print(
-        "UNIT 6 EMA COMPRESSION THRESHOLD % = "
-        f"{compression_threshold_pct}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 6 STRICT 15M AGREEMENT REQUIRED = "
-        f"{require_15m_agreement}",
-        flush=True,
-    )
-    # --------------------------------------------------------
-    # SCALP ENTRY QUALITY GATE
-    # --------------------------------------------------------
-
-    if signal_qualified and active_mode == "SCALP":
-
-        candles = unit_4_analysis.get(
-            "recent_closed_klines",
-            [],
+        admission_reason = (
+            "SIGNAL_QUALITY_ACCEPTED"
         )
 
-        if not isinstance(candles, list) or len(candles) < 20:
-            raise RuntimeError(
-                "UNIT 6 SCALP QUALITY BLOCKED: "
-                "INSUFFICIENT CLOSED 1M OHLC HISTORY"
-            )
-
-        candles = candles[-60:]
-
-        def pct_distance(a, b):
-            if b <= 0:
-                return 0.0
-            return abs(a - b) / b * 100.0
-
-        def direction_of(value, epsilon=0.000001):
-            if value > epsilon:
-                return "LONG"
-            if value < -epsilon:
-                return "SHORT"
-            return "NONE"
-
-        # Average recent 1-minute candle height.
-        recent_ranges = []
-        for candle in candles[-20:]:
-            close = float(candle["close"])
-            high = float(candle["high"])
-            low = float(candle["low"])
-            if close > 0:
-                recent_ranges.append(
-                    (high - low) / close * 100.0
-                )
-
-        average_cluster_height_pct = (
-            sum(recent_ranges) / len(recent_ranges)
-            if recent_ranges
-            else 0.0
-        )
-
-        # Find actual local pivot highs/lows from completed candles.
-        resistance_pivots = []
-        support_pivots = []
-
-        for i in range(2, len(candles) - 2):
-            c = candles[i]
-            left1 = candles[i - 1]
-            left2 = candles[i - 2]
-            right1 = candles[i + 1]
-            right2 = candles[i + 2]
-
-            high = float(c["high"])
-            low = float(c["low"])
-
-            if (
-                high >= float(left1["high"])
-                and high >= float(left2["high"])
-                and high > float(right1["high"])
-                and high > float(right2["high"])
-            ):
-                resistance_pivots.append(high)
-
-            if (
-                low <= float(left1["low"])
-                and low <= float(left2["low"])
-                and low < float(right1["low"])
-                and low < float(right2["low"])
-            ):
-                support_pivots.append(low)
-
-        resistance_points = resistance_pivots[-10:]
-        support_points = support_pivots[-10:]
-
-        # Require at least five actual pivots when possible.
-        # If fewer exist in 60 candles, retain what exists and
-        # score conservatively rather than inventing levels.
-        def median(values):
-            if not values:
-                return None
-            ordered = sorted(values)
-            n = len(ordered)
-            mid = n // 2
-            if n % 2:
-                return float(ordered[mid])
-            return float(
-                (ordered[mid - 1] + ordered[mid]) / 2.0
-            )
-
-        resistance_mid = median(resistance_points)
-        support_mid = median(support_points)
-
-        latest_close = float(
-            unit_4_analysis.get("latest_close", 0.0)
-        )
-        ema19 = float(unit_5_candidate.get("ema19", 0.0))
-        ema50 = float(unit_5_candidate.get("ema50", 0.0))
-        ema200 = float(unit_5_candidate.get("ema200", 0.0))
-
-        move_1m = float(unit_5_candidate.get("move_1m_pct", 0.0))
-        move_5m = float(unit_5_candidate.get("move_5m_pct", 0.0))
-        move_15m = float(unit_5_candidate.get("move_15m_pct", 0.0))
-
-        # ====================================================
-        # LEVERAGE-AWARE SIDEWAYS / CHOP DETECTION
-        # ====================================================
-
-        ema19_50_separation_pct = abs(
-            float(
-                unit_5_candidate.get(
-                    "ema19_50_separation_pct",
-                    0.0,
-                )
-            )
-        )
-
-        ema_compressed = (
-            ema19_50_separation_pct
-            <
-            compression_threshold_pct
-        )
-
-        d1 = direction_of(
-            move_1m
-        )
-
-        d5 = direction_of(
-            move_5m
-        )
-
-        d15 = direction_of(
-            move_15m
-        )
-
-        # ----------------------------------------------------
-        # 15M SUPPORT
-        # ----------------------------------------------------
-
-        if require_15m_agreement:
-
-            fifteen_minute_support_pass = (
-                d15
-                ==
-                direction
-            )
-
-        else:
-
-            fifteen_minute_support_pass = (
-                d15
-                in
-                {
-                    direction,
-                    "NONE",
-                }
-            )
-
-        # ----------------------------------------------------
-        # MULTI-WINDOW CONFLICT
-        # ----------------------------------------------------
-
-        momentum_conflict = (
-
-            d5
-            !=
-            direction
-
-            or
-
-            fifteen_minute_support_pass
-            is not True
-        )
-
-        # ----------------------------------------------------
-        # CLOSED 1M DIRECTION PERSISTENCE
-        #
-        # We do not require every candle to be the same color.
-        # We require the configured number of directional
-        # confirmations inside the recent window.
-        # ----------------------------------------------------
-
-        recent_persistence_candles = (
-            candles[
-                -persistence_window:
-            ]
-        )
-
-        persistence_directions = []
-
-        for candle in recent_persistence_candles:
-
-            candle_open = float(
-                candle.get(
-                    "open",
-                    0.0,
-                )
-            )
-
-            candle_close = float(
-                candle.get(
-                    "close",
-                    0.0,
-                )
-            )
-
-            if (
-                candle_close
-                >
-                candle_open
-            ):
-
-                candle_direction = (
-                    "LONG"
-                )
-
-            elif (
-                candle_close
-                <
-                candle_open
-            ):
-
-                candle_direction = (
-                    "SHORT"
-                )
-
-            else:
-
-                candle_direction = (
-                    "NONE"
-                )
-
-            persistence_directions.append(
-                candle_direction
-            )
-
-        persistence_confirmations = sum(
-
-            1
-
-            for candle_direction
-            in persistence_directions
-
-            if (
-                candle_direction
-                ==
-                direction
-            )
-        )
-
-        persistence_pass = (
-
-            persistence_confirmations
-            >=
-            persistence_required
-        )
-
-        # ----------------------------------------------------
-        # SIDEWAYS / CHOP RESULT
-        #
-        # SCALP IS BLOCKED WHEN:
-        #
-        # - EMA structure is compressed
-        #   AND
-        # - momentum is conflicting or persistence is weak.
-        #
-        # This avoids calling every small EMA compression
-        # sideways when directional evidence is otherwise
-        # strong.
-        # ----------------------------------------------------
-
-        sideways_regime = (
-
-            ema_compressed
-
-            and
-
-            (
-                momentum_conflict
-
-                or
-
-                persistence_pass
-                is not True
-            )
-        )
-
-        print(
-            "-" * 80,
-            flush=True,
-        )
-
-        print(
-            "UNIT 6 SIDEWAYS / CHOP REGIME TEST",
-            flush=True,
-        )
-
-        print(
-            "UNIT 6 EMA19/50 SEPARATION % = "
-            f"{ema19_50_separation_pct}",
-            flush=True,
-        )
-
-        print(
-            "UNIT 6 EMA COMPRESSED = "
-            f"{ema_compressed}",
-            flush=True,
-        )
-
-        print(
-            "UNIT 6 1M DIRECTION = "
-            f"{d1}",
-            flush=True,
-        )
-
-        print(
-            "UNIT 6 5M DIRECTION = "
-            f"{d5}",
-            flush=True,
-        )
-
-        print(
-            "UNIT 6 15M DIRECTION = "
-            f"{d15}",
-            flush=True,
-        )
-
-        print(
-            "UNIT 6 15M SUPPORT PASS = "
-            f"{fifteen_minute_support_pass}",
-            flush=True,
-        )
-
-        print(
-            "UNIT 6 PERSISTENCE DIRECTIONS = "
-            f"{persistence_directions}",
-            flush=True,
-        )
-
-        print(
-            "UNIT 6 PERSISTENCE CONFIRMATIONS = "
-            f"{persistence_confirmations} / "
-            f"{persistence_required}",
-            flush=True,
-        )
-
-        print(
-            "UNIT 6 PERSISTENCE PASS = "
-            f"{persistence_pass}",
-            flush=True,
-        )
-
-        print(
-            "UNIT 6 MOMENTUM CONFLICT = "
-            f"{momentum_conflict}",
-            flush=True,
-        )
-
-        print(
-            "UNIT 6 SIDEWAYS REGIME = "
-            f"{sideways_regime}",
-            flush=True,
-        )
-        
-        latest = candles[-1]
-        previous = candles[-2]
-        latest_open = float(latest["open"])
-        latest_high = float(latest["high"])
-        latest_low = float(latest["low"])
-        latest_candle_close = float(latest["close"])
-
-        candle_range = max(latest_high - latest_low, 0.0)
-        candle_body = abs(latest_candle_close - latest_open)
-        body_ratio = (
-            candle_body / candle_range
-            if candle_range > 0
-            else 0.0
-        )
-
-        ema_score = 0.0
-        momentum_score = 0.0
-        location_score = 0.0
-        candle_score = 0.0
-        sr_score = 0.0
-        breakout_score = 0.0
-        volatility_score = 0.0
-        exhaustion_score = 0.0
-
-        # 1) EMA alignment + price relationship: 20.
-        if direction == "LONG":
-            if ema19 > ema50 > ema200:
-                ema_score = 20.0
-            elif ema19 > ema50:
-                ema_score = 15.0
-            elif latest_close > ema19:
-                ema_score = 8.0
-        else:
-            if ema19 < ema50 < ema200:
-                ema_score = 20.0
-            elif ema19 < ema50:
-                ema_score = 15.0
-            elif latest_close < ema19:
-                ema_score = 8.0
-
-        # 2) Momentum agreement/progression: 15.
-        d1 = direction_of(move_1m)
-        d5 = direction_of(move_5m)
-        d15 = direction_of(move_15m)
-        agreement_count = sum(
-            1 for d in (d1, d5, d15)
-            if d == direction
-        )
-        momentum_score = {
-            0: 0.0,
-            1: 5.0,
-            2: 10.0,
-            3: 15.0,
-        }[agreement_count]
-
-        # 3) EMA19 entry extension normalized by current noise: 15.
-        extension_pct = pct_distance(latest_close, ema19)
-        extension_ratio = (
-            extension_pct / average_cluster_height_pct
-            if average_cluster_height_pct > 0
-            else 999.0
-        )
-        if extension_ratio <= 0.50:
-            location_score = 15.0
-        elif extension_ratio <= 1.00:
-            location_score = 12.0
-        elif extension_ratio <= 1.50:
-            location_score = 7.0
-        elif extension_ratio <= 2.00:
-            location_score = 3.0
-
-        # 4) Latest completed candle confirmation: 10.
-        candle_direction_ok = (
-            latest_candle_close > latest_open
-            if direction == "LONG"
-            else latest_candle_close < latest_open
-        )
-        if candle_direction_ok:
-            candle_score = 6.0
-            if body_ratio >= 0.50:
-                candle_score += 2.0
-            if body_ratio >= 0.70:
-                candle_score += 2.0
-
-        # 5/6) Direction-aware resistance/support midpoint and
-        # breakout/breakdown quality: 15 + 10.
-        reference_mid = (
-            resistance_mid
-            if direction == "LONG"
-            else support_mid
-        )
-        reference_points = (
-            resistance_points
-            if direction == "LONG"
-            else support_points
-        )
-
-        sr_distance_pct = None
-        sr_distance_ratio = None
-        reference_state = "NO_REFERENCE"
-
-        if reference_mid is not None and reference_mid > 0:
-            sr_distance_pct = pct_distance(
-                latest_close,
-                reference_mid,
-            )
-
-            sr_distance_ratio = (
-                sr_distance_pct / average_cluster_height_pct
-                if average_cluster_height_pct > 0
-                else 999.0
-            )
-
-            if direction == "LONG":
-                broken = latest_close > reference_mid
-                previous_below = float(previous["close"]) <= reference_mid
-            else:
-                broken = latest_close < reference_mid
-                previous_below = float(previous["close"]) >= reference_mid
-
-            if broken:
-                reference_state = "BROKEN"
-                sr_score = 15.0
-                if previous_below:
-                    breakout_score = 10.0
-                elif sr_distance_ratio <= 1.0:
-                    breakout_score = 8.0
-                else:
-                    breakout_score = 5.0
-            else:
-                reference_state = "AHEAD"
-                if sr_distance_ratio >= 2.0:
-                    sr_score = 13.0
-                elif sr_distance_ratio >= 1.25:
-                    sr_score = 10.0
-                elif sr_distance_ratio >= 0.75:
-                    sr_score = 6.0
-                else:
-                    sr_score = 2.0
-                breakout_score = 0.0
-        else:
-            # Missing a reliable 5-10 point cluster must not
-            # receive full credit.
-            sr_score = 5.0
-            breakout_score = 2.0
-
-        # 7) Healthy 1-minute tradable range: 10.
-        # Relative rather than a fixed BTC percentage.
-        if average_cluster_height_pct > 0:
-            if 0.04 <= average_cluster_height_pct <= 0.35:
-                volatility_score = 10.0
-            elif 0.02 <= average_cluster_height_pct <= 0.50:
-                volatility_score = 6.0
-            else:
-                volatility_score = 2.0
-
-        # 8) Spike/exhaustion protection: 5.
-        latest_range_pct = (
-            (latest_high - latest_low) / latest_candle_close * 100.0
-            if latest_candle_close > 0
-            else 0.0
-        )
-        spike_ratio = (
-            latest_range_pct / average_cluster_height_pct
-            if average_cluster_height_pct > 0
-            else 999.0
-        )
-        if spike_ratio <= 1.50:
-            exhaustion_score = 5.0
-        elif spike_ratio <= 2.00:
-            exhaustion_score = 3.0
-        elif spike_ratio <= 2.50:
-            exhaustion_score = 1.0
-        else:
-            exhaustion_score = 0.0
-
-        
-        # ====================================================
-        # UNIT 6 EARLY SCALP QUALITY / EXHAUSTION
-        # INDENTATION: 8 SPACES
-        # ====================================================
-
-        # EMA100 comes from the completed Unit 4 correction.
-        # EMA19/50 remains responsible for entry timing.
-
-        ema100_value = unit_4_analysis.get("ema100")
-
-        try:
-            ema100_value = float(ema100_value)
-        except (TypeError, ValueError):
-            raise RuntimeError(
-                "UNIT 6 BLOCKED: EMA100 NOT AVAILABLE"
-            )
-
-        if ema100_value <= 0:
-            raise RuntimeError(
-                "UNIT 6 BLOCKED: INVALID EMA100"
-            )
-
-        # EMA confidence is limited to 20 total points.
-        # EMA19/50 timing = 15 points maximum.
-        # EMA100 context = 5 points maximum.
-
-        ema_timing_score = min(ema_score, 15.0)
-
-        ema100_confidence = 0.0
-
-        if direction == "LONG":
-            if (
-                ema19 > ema50
-                and latest_close >= ema100_value
-            ):
-                ema100_confidence = 5.0
-            elif latest_close >= ema100_value:
-                ema100_confidence = 2.5
-
-        elif direction == "SHORT":
-            if (
-                ema19 < ema50
-                and latest_close <= ema100_value
-            ):
-                ema100_confidence = 5.0
-            elif latest_close <= ema100_value:
-                ema100_confidence = 2.5
-
-        ema_score = (
-            ema_timing_score + ema100_confidence
-        )
-
-        # Preserve existing 100-point quality structure.
-
-        scalp_quality_score = round(
-            ema_score
-            + momentum_score
-            + location_score
-            + candle_score
-            + sr_score
-            + breakout_score
-            + volatility_score
-            + exhaustion_score,
-            2,
-        )
-
-        # Hard anti-chase restrictions.
-
-        extreme_extension = extension_ratio > 1.50
-        extreme_spike = spike_ratio > 2.00
-
-        # Detect a mature impulse with weakening momentum.
-        # Use only completed candles.
-
-        late_impulse = False
-
-        if len(candles) >= 7:
-
-            impulse_start = float(
-                candles[-6]["close"]
-            )
-
-            impulse_end = float(
-                candles[-1]["close"]
-            )
-
-            previous_move = (
-                float(candles[-2]["close"])
-                - float(candles[-3]["close"])
-            )
-
-            latest_move = (
-                float(candles[-1]["close"])
-                - float(candles[-2]["close"])
-            )
-
-            impulse_height_pct = (
-                abs(impulse_end - impulse_start)
-                / impulse_start * 100.0
-                if impulse_start > 0
-                else 0.0
-            )
-
-            impulse_ratio = (
-                impulse_height_pct
-                / average_cluster_height_pct
-                if average_cluster_height_pct > 0
-                else 999.0
-            )
-
-            if direction == "LONG":
-                weakening_momentum = (
-                    previous_move > 0
-                    and latest_move < previous_move
-                )
-                impulse_in_direction = (
-                    impulse_end > impulse_start
-                )
-            else:
-                weakening_momentum = (
-                    previous_move < 0
-                    and latest_move > previous_move
-                )
-                impulse_in_direction = (
-                    impulse_end < impulse_start
-                )
-
-            late_impulse = (
-                impulse_in_direction
-                and impulse_ratio > 3.0
-                and weakening_momentum
-                and extension_ratio > 1.0
-            )
-
-        scalp_quality_pass = (
-            scalp_quality_score >= scalp_quality_minimum
-            and not extreme_extension
-            and not extreme_spike
-            and not late_impulse
-        )
-
-        print(
-            "UNIT 6 EMA100 CONFIDENCE =",
-            ema100_confidence,
-            flush=True,
-        )
-
-        print(
-            "UNIT 6 EXTREME EXTENSION =",
-            extreme_extension,
-            flush=True,
-        )
-
-        print(
-            "UNIT 6 EXTREME SPIKE =",
-            extreme_spike,
-            flush=True,
-        )
-
-        print(
-            "UNIT 6 LATE IMPULSE =",
-            late_impulse,
-            flush=True,
-        )
-
-        # ====================================================
-        # END UNIT 6 EARLY SCALP QUALITY
-        # ====================================================
-        
-        scalp_quality_details = {
-            "minimum": scalp_quality_minimum,
-            "score": scalp_quality_score,
-            "pass": scalp_quality_pass,
-            "ema_score": ema_score,
-            "momentum_score": momentum_score,
-            "location_score": location_score,
-            "candle_score": candle_score,
-            "sr_score": sr_score,
-            "breakout_score": breakout_score,
-            "volatility_score": volatility_score,
-            "exhaustion_score": exhaustion_score,
-            "average_cluster_height_pct": round(
-                average_cluster_height_pct, 6
-            ),
-            "resistance_points": resistance_points,
-            "support_points": support_points,
-            "resistance_mid": resistance_mid,
-            "support_mid": support_mid,
-            "reference_mid": reference_mid,
-            "reference_point_count": len(reference_points),
-            "reference_state": reference_state,
-            "sr_distance_pct": sr_distance_pct,
-            "sr_distance_ratio": sr_distance_ratio,
-            "ema19_extension_pct": extension_pct,
-            "ema19_extension_ratio": extension_ratio,
-            "latest_range_pct": latest_range_pct,
-            "spike_ratio": spike_ratio,
-            "extreme_extension": extreme_extension,
-            "extreme_spike": extreme_spike,
-        }
-
-        print("-" * 80, flush=True)
-        print("UNIT 6 SCALP QUALITY GATE", flush=True)
-        print(
-            f"UNIT 6 SCALP QUALITY SCORE = "
-            f"{scalp_quality_score} / 100",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 SCALP QUALITY MINIMUM = "
-            f"{scalp_quality_minimum}",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 EMA QUALITY = {ema_score} / 20",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 MOMENTUM QUALITY = {momentum_score} / 15",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 EMA19 LOCATION QUALITY = {location_score} / 15",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 CANDLE QUALITY = {candle_score} / 10",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 S/R MID QUALITY = {sr_score} / 15",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 BREAKOUT/BREAKDOWN QUALITY = "
-            f"{breakout_score} / 10",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 VOLATILITY QUALITY = {volatility_score} / 10",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 EXHAUSTION QUALITY = {exhaustion_score} / 5",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 AVERAGE RECENT CLUSTER HEIGHT % = "
-            f"{round(average_cluster_height_pct, 6)}",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 RECENT RESISTANCE POINTS = "
-            f"{resistance_points}",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 RESISTANCE MID = {resistance_mid}",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 RECENT SUPPORT POINTS = "
-            f"{support_points}",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 SUPPORT MID = {support_mid}",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 ACTIVE S/R REFERENCE MID = {reference_mid}",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 ACTIVE S/R REFERENCE STATE = {reference_state}",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 EMA19 EXTENSION RATIO = "
-            f"{round(extension_ratio, 4)} CLUSTER HEIGHTS",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 SPIKE RATIO = "
-            f"{round(spike_ratio, 4)} CLUSTER HEIGHTS",
-            flush=True,
-        )
-        print(
-            f"UNIT 6 SCALP QUALITY GATE = "
-            f"{'PASS' if scalp_quality_pass else 'REJECT'}",
-            flush=True,
-        )
-        print("-" * 80, flush=True)
-
-    # --------------------------------------------------------
-    # ADMISSION DECISION
+    # ========================================================
+    # 8. CONTINUOUS CONFIRMATION CONTROL
+    # INDENTATION: 4 SPACES
     #
-    # IMPORTANT:
+    # One unchanged market snapshot cannot increase the
+    # confirmation count multiple times.
     #
-    # BREAKOUT:
-    #     NOT BLOCKED BY SCALP SIDEWAYS FILTER.
+    # Three separate fresh snapshots are required.
+    # ========================================================
+
+    state = FRESH_UNIT_6_CONFIRMATION_STATE
+
+    if not signal_admissible:
+
+        fresh_unit_6_reset_confirmations()
+
+    else:
+
+        candidate_changed = (
+            state["mode"] != active_mode
+            or state["direction"] != direction
+        )
+
+        if candidate_changed:
+
+            state["mode"] = active_mode
+            state["direction"] = direction
+            state["count"] = 0
+            state["last_snapshot_id"] = None
+
+        if state["last_snapshot_id"] != snapshot_id:
+
+            state["count"] = min(
+                confirmation_required,
+                state["count"] + 1
+            )
+
+            state["last_snapshot_id"] = snapshot_id
+
+    persistence_confirmations = state["count"]
+
+    persistence_pass = (
+        signal_admissible
+        and persistence_confirmations
+        >= confirmation_required
+    )
+
+    # ========================================================
+    # 9. NORMALIZE DOWNSTREAM EXECUTION CANDIDATE
+    # INDENTATION: 4 SPACES
     #
-    # STRUCTURE:
-    #     USES ITS EXISTING STRONGER 15M QUALIFICATION.
-    #
-    # SCALP:
-    #     QUALITY + LEVERAGE-AWARE CHOP + PERSISTENCE.
-    # --------------------------------------------------------
+    # IDLE MUST BE REPRESENTED AS:
+    # execution_intent = False
+    # signal_qualified = False
+    # active_mode = NONE
+    # direction = NONE
+    # ========================================================
 
     execution_intent = False
 
-    admission_reason = (
-        "NO_QUALIFIED_SIGNAL"
-    )
+    normalized_signal_qualified = False
+    normalized_active_mode = "NONE"
+    normalized_direction = "NONE"
 
-    normalized_signal_qualified = (
-        signal_qualified
-    )
-
-    normalized_active_mode = (
-        active_mode
-    )
-
-    normalized_direction = (
-        direction
-    )
-
-    if signal_qualified:
-
-        if (
-            active_mode
-            ==
-            "NONE"
-        ):
-
-            admission_reason = (
-                "BLOCKED_QUALIFIED_SIGNAL_WITHOUT_MODE"
-            )
-
-            normalized_signal_qualified = False
-
-            normalized_active_mode = (
-                "NONE"
-            )
-
-            normalized_direction = (
-                "NONE"
-            )
-
-        elif (
-            direction
-            ==
-            "NONE"
-        ):
-
-            admission_reason = (
-                "BLOCKED_QUALIFIED_SIGNAL_WITHOUT_DIRECTION"
-            )
-
-            normalized_signal_qualified = False
-
-            normalized_active_mode = (
-                "NONE"
-            )
-
-            normalized_direction = (
-                "NONE"
-            )
-
-        elif (
-            active_mode
-            ==
-            "SCALP"
-            and
-            sideways_regime
-            is True
-        ):
-
-            execution_intent = False
-
-            admission_reason = (
-                "SCALP_SIDEWAYS_REGIME_BLOCKED:"
-                f"LEVERAGE={leverage_target}:"
-                f"REGIME={leverage_regime}:"
-                f"EMA_COMPRESSED={ema_compressed}:"
-                f"PERSISTENCE="
-                f"{persistence_confirmations}/"
-                f"{persistence_required}"
-            )
-
-            normalized_signal_qualified = False
-
-            normalized_active_mode = (
-                "NONE"
-            )
-
-            normalized_direction = (
-                "NONE"
-            )
-
-        elif (
-            active_mode
-            ==
-            "SCALP"
-            and
-            fifteen_minute_support_pass
-            is not True
-        ):
-
-            execution_intent = False
-
-            admission_reason = (
-                "SCALP_15M_SUPPORT_REJECTED:"
-                f"LEVERAGE={leverage_target}:"
-                f"REGIME={leverage_regime}"
-            )
-
-            normalized_signal_qualified = False
-
-            normalized_active_mode = (
-                "NONE"
-            )
-
-            normalized_direction = (
-                "NONE"
-            )
-
-        elif (
-            active_mode
-            ==
-            "SCALP"
-            and
-            persistence_pass
-            is not True
-        ):
-
-            execution_intent = False
-
-            admission_reason = (
-                "SCALP_DIRECTION_PERSISTENCE_REJECTED:"
-                f"CONFIRMATIONS="
-                f"{persistence_confirmations}/"
-                f"{persistence_required}:"
-                f"LEVERAGE={leverage_target}"
-            )
-
-            normalized_signal_qualified = False
-
-            normalized_active_mode = (
-                "NONE"
-            )
-
-            normalized_direction = (
-                "NONE"
-            )
-
-        elif (
-            active_mode
-            ==
-            "SCALP"
-            and
-            scalp_quality_pass
-            is not True
-        ):
-
-            execution_intent = False
-
-            admission_reason = (
-                "SCALP_QUALITY_GATE_REJECTED:"
-                f"SCORE={scalp_quality_score}:"
-                f"MINIMUM={scalp_quality_minimum}:"
-                f"LEVERAGE={leverage_target}"
-            )
-
-            normalized_signal_qualified = False
-
-            normalized_active_mode = (
-                "NONE"
-            )
-
-            normalized_direction = (
-                "NONE"
-            )
-
-        else:
-
-            execution_intent = True
-
-            admission_reason = (
-                "QUALIFIED_SIGNAL_ADMITTED"
-            )
-
-    else:
-
-        execution_intent = False
+    if signal_admissible and not persistence_pass:
 
         admission_reason = (
-            f"UNIT_5_NOT_QUALIFIED:"
-            f"{qualification_reason}"
+            "AWAITING_FRESH_CONFIRMATIONS:"
+            + str(persistence_confirmations)
+            + "/"
+            + str(confirmation_required)
         )
 
-        normalized_signal_qualified = False
+    elif signal_admissible and persistence_pass:
 
-        normalized_active_mode = (
-            "NONE"
+        execution_intent = True
+
+        normalized_signal_qualified = True
+        normalized_active_mode = active_mode
+        normalized_direction = direction
+
+        admission_reason = (
+            "QUALIFIED_SIGNAL_ADMITTED"
         )
 
-        normalized_direction = (
-            "NONE"
+    # ========================================================
+    # 10. SIGNAL IDENTIFIER
+    # INDENTATION: 4 SPACES
+    #
+    # Diagnostic identity only.
+    # Does not authorize duplicate submissions.
+    # ========================================================
+
+    signal_id = None
+
+    if execution_intent:
+
+        signal_id = (
+            "BTCUSDT:"
+            + active_mode
+            + ":"
+            + direction
+            + ":"
+            + str(latest_candle_ms)
         )
 
-    # --------------------------------------------------------
-    # NORMALIZED UNIT 6 OUTPUT
-    #
-    # If Unit 6 rejects a Unit 5 candidate, downstream Unit 7
-    # receives a clean IDLE contract instead of:
-    #
-    # execution_intent=False
-    # signal_qualified=True
-    #
-    # which previously caused a contract failure.
-    # --------------------------------------------------------
+    # ========================================================
+    # 11. COMPATIBILITY WITH UNIT 7
+    # INDENTATION: 4 SPACES
+    # ========================================================
 
     execution_candidate = {
 
         "execution_intent":
-            execution_intent,
+            bool(execution_intent),
 
         "active_mode":
             normalized_active_mode,
@@ -4806,7 +3879,7 @@ def fresh_reconstruction_unit_6(
             normalized_direction,
 
         "signal_qualified":
-            normalized_signal_qualified,
+            bool(normalized_signal_qualified),
 
         "unit_5_reason":
             qualification_reason,
@@ -4818,108 +3891,163 @@ def fresh_reconstruction_unit_6(
             leverage_target,
 
         "leverage_regime":
-            leverage_regime,
+            "HIGH_LEVERAGE"
+            if leverage_target >= 50
+            else "STANDARD",
 
-        "sideways_regime":
-            sideways_regime,
+        "sideways_regime": False,
 
         "ema_compressed":
-            ema_compressed,
+            unit_4_analysis.get(
+                "ema19_50_separation_pct", 0.0
+            ) < 0.030,
 
-        "compression_threshold_pct":
-            compression_threshold_pct,
+        "compression_threshold_pct": 0.030,
 
-        "momentum_conflict":
-            momentum_conflict,
+        "momentum_conflict": False,
 
         "persistence_window":
-            persistence_window,
+            confirmation_required,
 
         "persistence_required":
-            persistence_required,
+            confirmation_required,
 
         "persistence_confirmations":
             persistence_confirmations,
 
         "persistence_directions":
-            persistence_directions,
+            [state["direction"]]
+            * persistence_confirmations
+            if state["direction"] != "NONE"
+            else [],
 
         "persistence_pass":
-            persistence_pass,
+            bool(persistence_pass),
 
         "fifteen_minute_support_pass":
-            fifteen_minute_support_pass,
+            unit_5_candidate.get(
+                "momentum_15m_direction"
+            ) == direction,
 
         "scalp_quality_score":
             scalp_quality_score,
 
         "scalp_quality_minimum":
-            scalp_quality_minimum,
+            quality_minimum,
 
         "scalp_quality_pass":
-            scalp_quality_pass,
+            bool(scalp_quality_pass),
 
         "scalp_quality_details":
-            scalp_quality_details,
+            unit_5_candidate.get(
+                "scalp_score_components", {}
+            ),
+
+        "signal_id":
+            signal_id,
+
+        "signal_age_ms":
+            signal_age_ms,
+
+        "signal_fresh":
+            signal_fresh,
+
+        "price_action_weight": 50.0,
+
+        "read_only": True,
+
+        "order_payload": None,
     }
 
-    active_mode = (
-        normalized_active_mode
-    )
+    # ========================================================
+    # 12. RENDER LOGGING
+    # INDENTATION: 4 SPACES
+    # ========================================================
 
-    direction = (
-        normalized_direction
-    )
-
-    signal_qualified = (
-        normalized_signal_qualified
-    )
+    print("-" * 80, flush=True)
 
     print(
-        "-" * 80,
+        "UNIT 6 PRICE ACTION WEIGHT = 50%",
         flush=True,
     )
 
     print(
-        f"UNIT 6 ACTIVE MODE = {active_mode}",
+        "UNIT 6 SCALP QUALITY SCORE =",
+        scalp_quality_score,
         flush=True,
     )
 
     print(
-        f"UNIT 6 DIRECTION = {direction}",
+        "UNIT 6 SCALP QUALITY THRESHOLD =",
+        quality_minimum,
         flush=True,
     )
 
     print(
-        f"UNIT 6 SIGNAL QUALIFIED = "
-        f"{signal_qualified}",
+        "UNIT 6 SCALP QUALITY PASS =",
+        scalp_quality_pass,
         flush=True,
     )
 
     print(
-        f"UNIT 6 EXECUTION INTENT = "
-        f"{execution_intent}",
+        "UNIT 6 SIGNAL AGE MS =",
+        signal_age_ms,
         flush=True,
     )
 
     print(
-        f"UNIT 6 ADMISSION REASON = "
-        f"{admission_reason}",
+        "UNIT 6 SIGNAL FRESH =",
+        signal_fresh,
         flush=True,
     )
 
     print(
-        "-" * 80,
+        "UNIT 6 CONFIRMATIONS =",
+        persistence_confirmations,
+        "/",
+        confirmation_required,
         flush=True,
     )
 
     print(
-        "PASS: UNIT 6 NORMALIZED EXECUTION CANDIDATE",
+        "UNIT 6 PERSISTENCE PASS =",
+        persistence_pass,
         flush=True,
     )
 
     print(
-        "PASS: UNIT 6 SIGNAL ADMISSION COMPLETED",
+        "UNIT 6 ACTIVE MODE =",
+        normalized_active_mode,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 DIRECTION =",
+        normalized_direction,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 SIGNAL QUALIFIED =",
+        normalized_signal_qualified,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 EXECUTION INTENT =",
+        execution_intent,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 ADMISSION REASON =",
+        admission_reason,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 SIGNAL ID =",
+        signal_id,
         flush=True,
     )
 
@@ -4929,42 +4057,7 @@ def fresh_reconstruction_unit_6(
     )
 
     print(
-        "PASS: UNIT 6 NO ORDER PAYLOAD GENERATED",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 6 NO POSITION SIZING",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 6 NO TP / SL",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 6 NO BACKUP EXECUTION",
-        flush=True,
-    )
-
-    print(
-        "ZERO AUTHENTICATED API ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO ACCOUNT ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO POSITION ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO ORDER ENDPOINT ACCESS = TRUE",
+        "PASS: UNIT 6 NO ORDER PAYLOAD",
         flush=True,
     )
 
@@ -4983,42 +4076,18 @@ def fresh_reconstruction_unit_6(
         flush=True,
     )
 
-    print(
-        "ZERO LEVERAGE MUTATION = TRUE",
-        flush=True,
+    log(
+        "FRESH RECONSTRUCTION UNIT 6 RESULT = PASS"
     )
 
-    print(
-        "ZERO MARGIN MODE MUTATION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO POSITION MODE MUTATION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
-    print(
-        f"{datetime.now(timezone.utc).isoformat()} "
-        "FRESH RECONSTRUCTION UNIT 6 RESULT = PASS",
-        flush=True,
-    )
-
-    print(
-        "=" * 80,
-        flush=True,
-    )
+    print("=" * 80, flush=True)
 
     return execution_candidate
-    
+
 
 # ============================================================
-# RUN UNIT 6
+# RUN UNIT 6 INITIAL ADMISSION
+# ZERO INDENTATION
 # ============================================================
 
 FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
@@ -5031,23 +4100,58 @@ FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
 
 
 # ============================================================
-# END OF TRANSMISSION PART 4
-# ZERO INDENTATION DEMARCATION
-#
-# UNIT 6 IS FULLY CLOSED
-# UNIT 6 HAS BEEN CALLED
-# SCALP QUALITY GATE IS INSTALLED
-# QUALITY MINIMUM = 75 / 100
-# STRUCTURE AND BREAKOUT ARE NOT BLOCKED BY THIS QUALITY GATE
-# NO OPEN FUNCTION
-# NO OPEN IF
-# NO OPEN TRY
-# NO OPEN DICTIONARY
-# NO INDENTATION CONTINUES INTO THE NEXT PART
-#
-# NEXT PART STARTS WITH FRESH RECONSTRUCTION UNIT 7
+# UNIT 6 REUSABLE REFRESH ENTRY POINT
+# ZERO INDENTATION
 # ============================================================
 
+def fresh_reconstruction_refresh_unit_6(
+    analysis_snapshot=None,
+    signal_candidate=None,
+):
+
+    global FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE
+
+    if analysis_snapshot is None:
+        analysis_snapshot = (
+            FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+        )
+
+    if signal_candidate is None:
+        signal_candidate = (
+            FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+        )
+
+    result = fresh_reconstruction_unit_6(
+        FRESH_RECONSTRUCTION_CONFIG,
+        analysis_snapshot,
+        signal_candidate,
+    )
+
+    FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
+        result
+    )
+
+    return result
+
+
+# ============================================================
+# END COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 6
+# ZERO INDENTATION DEMARCATION
+#
+# UNIT 6 FULLY CLOSED
+# UNIT 6 CALLED ONCE
+# REFRESH FUNCTION CREATED
+# UNIT 7 CONTRACT FIELDS PRESERVED
+# NO OPEN FUNCTION
+# NO OPEN IF
+# NO OPEN LOOP
+# NO OPEN TRY
+# NO OPEN DICTIONARY
+#
+# EXISTING UNIT 7 CONTINUES DIRECTLY BELOW
+# ============================================================
+
+# ============================================================
 # FRESH RECONSTRUCTION UNIT 7
 # EXECUTION PLAN / POSITION-SIZING PREPARATION
 #
