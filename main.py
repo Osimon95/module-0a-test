@@ -2379,115 +2379,140 @@ def fresh_reconstruction_refresh_unit_4(
 # EXISTING UNIT 5 CONTINUES BELOW
 # ============================================================
 
+
 # ============================================================
-# FRESH RECONSTRUCTION UNIT 5
-# MULTI-WINDOW SIGNAL QUALIFICATION ENGINE
+# START COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 5
+# ZERO INDENTATION DEMARCATION
+# ============================================================
 #
-# PURPOSE:
-# Consume the verified normalized Unit 4 market-analysis
-# snapshot and determine whether the current market state
-# qualifies for:
+# PRICE-LED MULTI-MODE QUALIFICATION ENGINE
 #
-#   - SCALP
-#   - STRUCTURE
-#   - BREAKOUT
-#   - NO TRADE
+# SCALP:
+# PRICE ACTION                 50%
+# EMA CONTEXT                  15%
+# MOMENTUM                     15%
+# SUPPORT / RESISTANCE         10%
+# VOLATILITY / TIMING          10%
 #
-# MOMENTUM ARCHITECTURE:
+# QUALITY THRESHOLD = 70 / 100
 #
-# SCALP
-#   Primary momentum = CLOSED 5M movement
-#   1M movement = freshness / supporting information
+# MODE PRIORITY:
+# BREAKOUT -> STRUCTURE -> SCALP
 #
-# STRUCTURE
-#   Primary momentum = CLOSED 15M movement
+# PRESERVED:
+# - One exclusive active mode
+# - EMA19 / EMA50 / EMA200
+# - EMA100 scalp context
+# - 1M / 5M / 15M / 30M momentum
+# - Zero exchange writes
 #
-# BREAKOUT
-#   Primary momentum = CLOSED 30M movement
-#   5M / 15M provide directional support
-#
-# IMPORTANT:
-# - EMA thresholds remain unchanged
-# - Movement thresholds remain unchanged
-# - EMA200 is NOT required for SCALP
-# - ZERO AUTHENTICATED API ACCESS
-# - ZERO ACCOUNT ACCESS
-# - ZERO POSITION ACCESS
-# - ZERO ORDER ENDPOINT ACCESS
-# - ZERO DEMO ORDER
-# - ZERO REAL ORDER
-# - ZERO EXCHANGE WRITE
-# - ZERO ORDER PAYLOAD
-# - ZERO POSITION SIZING
-# - ZERO TP / SL
-# - ZERO BACKUP EXECUTION
-#
-# UNIT 5 ONLY QUALIFIES MARKET STATE.
+# THIS UNIT DOES NOT SUBMIT ORDERS.
 # ============================================================
 
+import math
+from datetime import datetime, timezone
+
+
+# ============================================================
+# UNIT 5 HELPER FUNCTIONS
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_5_direction(value, deadband=0.0):
+
+    if value > deadband:
+        return "LONG"
+
+    if value < -deadband:
+        return "SHORT"
+
+    return "NONE"
+
+
+def fresh_unit_5_clamp(value, minimum, maximum):
+
+    return max(
+        minimum,
+        min(maximum, value)
+    )
+
+
+def fresh_unit_5_fraction(value):
+
+    return fresh_unit_5_clamp(
+        value, 0.0, 1.0
+    )
+
+
+# ============================================================
+# UNIT 5 MAIN QUALIFICATION ENGINE
+# ZERO INDENTATION
+# ============================================================
 
 def fresh_reconstruction_unit_5(
     unit_2_config,
     unit_4_snapshot,
 ):
-    print(
-        "=" * 80,
-        flush=True,
-    )
+
+    print("=" * 80, flush=True)
 
     print(
-        f"{datetime.now(timezone.utc).isoformat()} "
+        datetime.now(timezone.utc).isoformat(),
         "FRESH RECONSTRUCTION UNIT 5 START",
         flush=True,
     )
 
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
     # ========================================================
-    # 1. INPUT VALIDATION
+    # 1. VALIDATE INPUTS
+    # INDENTATION: 4 SPACES
     # ========================================================
 
-    if not isinstance(
-        unit_2_config,
-        dict,
-    ):
+    if not isinstance(unit_2_config, dict):
         raise RuntimeError(
-            "UNIT 5 FAILED: INVALID UNIT 2 CONFIGURATION"
+            "UNIT 5 INVALID CONFIGURATION"
         )
 
-    print(
-        "PASS: UNIT 5 RECEIVED UNIT 2 CONFIGURATION",
-        flush=True,
-    )
-
-    if not isinstance(
-        unit_4_snapshot,
-        dict,
-    ):
+    if not isinstance(unit_4_snapshot, dict):
         raise RuntimeError(
-            "UNIT 5 FAILED: INVALID UNIT 4 SNAPSHOT"
+            "UNIT 5 INVALID ANALYSIS SNAPSHOT"
         )
 
-    print(
-        "PASS: UNIT 5 RECEIVED UNIT 4 MARKET SNAPSHOT",
-        flush=True,
-    )
+    strategy = unit_2_config.get("strategy", {})
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError(
+            "UNIT 5 STRATEGY MISSING"
+        )
+
+    if unit_4_snapshot.get("read_only") is not True:
+        raise RuntimeError(
+            "UNIT 5 ANALYSIS NOT READ ONLY"
+        )
+
+    if unit_4_snapshot.get("symbol") != "BTCUSDT":
+        raise RuntimeError(
+            "UNIT 5 SYMBOL MISMATCH"
+        )
+
+    if strategy.get(
+        "real_money_execution_enabled"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 5 REAL EXECUTION NOT BLOCKED"
+        )
 
     # ========================================================
-    # 2. REQUIRED UNIT 4 FIELDS
+    # 2. READ MARKET VALUES
+    # INDENTATION: 4 SPACES
     # ========================================================
 
-    required_fields = (
-        "symbol",
+    required_numeric = (
         "live_mark_price",
         "ema19",
         "ema50",
+        "ema100",
         "ema200",
         "ema19_50_separation_pct",
-        "ema_structure",
         "previous_close",
         "latest_close",
         "short_term_move_pct",
@@ -2497,1040 +2522,742 @@ def fresh_reconstruction_unit_5(
         "move_30m_pct",
         "move_60m_pct",
         "move_120m_pct",
+        "support_20",
+        "resistance_20",
+        "atr14_percent",
+        "latest_candle_body_ratio",
     )
 
-    missing_fields = [
-        field
-        for field in required_fields
-        if field not in unit_4_snapshot
-    ]
+    data = {}
 
-    if missing_fields:
-        raise RuntimeError(
-            "UNIT 5 FAILED: UNIT 4 SNAPSHOT MISSING FIELDS = "
-            + str(missing_fields)
+    for key in required_numeric:
+
+        try:
+            value = float(unit_4_snapshot[key])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "UNIT 5 INVALID MARKET FIELD: " + key
+            ) from exc
+
+        if not math.isfinite(value):
+            raise RuntimeError(
+                "UNIT 5 NON-FINITE FIELD: " + key
+            )
+
+        data[key] = value
+
+    price = data["live_mark_price"]
+    ema19 = data["ema19"]
+    ema50 = data["ema50"]
+    ema100 = data["ema100"]
+    ema200 = data["ema200"]
+
+    separation = abs(
+        data["ema19_50_separation_pct"]
+    )
+
+    previous_close = data["previous_close"]
+    latest_close = data["latest_close"]
+
+    move_1m = data["move_1m_pct"]
+    move_5m = data["move_5m_pct"]
+    move_15m = data["move_15m_pct"]
+    move_30m = data["move_30m_pct"]
+    move_60m = data["move_60m_pct"]
+    move_120m = data["move_120m_pct"]
+
+    support = data["support_20"]
+    resistance = data["resistance_20"]
+    atr_pct = data["atr14_percent"]
+    body_ratio = data["latest_candle_body_ratio"]
+
+    if any(
+        value <= 0
+        for value in (
+            price, ema19, ema50, ema100,
+            ema200, previous_close, latest_close
         )
-
-    print(
-        "PASS: UNIT 5 REQUIRED UNIT 4 FIELDS PRESENT",
-        flush=True,
-    )
-
-    # ========================================================
-    # 3. NORMALIZE INPUT VALUES
-    # ========================================================
-
-    symbol = str(
-        unit_4_snapshot[
-            "symbol"
-        ]
-    ).upper()
-
-    live_price = float(
-        unit_4_snapshot[
-            "live_mark_price"
-        ]
-    )
-
-    ema19 = float(
-        unit_4_snapshot[
-            "ema19"
-        ]
-    )
-
-    ema50 = float(
-        unit_4_snapshot[
-            "ema50"
-        ]
-    )
-
-    ema200 = float(
-        unit_4_snapshot[
-            "ema200"
-        ]
-    )
-
-    separation_pct = abs(
-        float(
-            unit_4_snapshot[
-                "ema19_50_separation_pct"
-            ]
-        )
-    )
-
-    ema_structure = str(
-        unit_4_snapshot[
-            "ema_structure"
-        ]
-    ).upper()
-
-    previous_close = float(
-        unit_4_snapshot[
-            "previous_close"
-        ]
-    )
-
-    latest_close = float(
-        unit_4_snapshot[
-            "latest_close"
-        ]
-    )
-
-    short_term_move_pct = float(
-        unit_4_snapshot[
-            "short_term_move_pct"
-        ]
-    )
-
-    move_1m_pct = float(
-        unit_4_snapshot[
-            "move_1m_pct"
-        ]
-    )
-
-    move_5m_pct = float(
-        unit_4_snapshot[
-            "move_5m_pct"
-        ]
-    )
-
-    move_15m_pct = float(
-        unit_4_snapshot[
-            "move_15m_pct"
-        ]
-    )
-
-    move_30m_pct = float(
-        unit_4_snapshot[
-            "move_30m_pct"
-        ]
-    )
-
-    move_60m_pct = float(
-        unit_4_snapshot[
-            "move_60m_pct"
-        ]
-    )
-
-    move_120m_pct = float(
-        unit_4_snapshot[
-            "move_120m_pct"
-        ]
-    )
-
-    if live_price <= 0:
-        raise RuntimeError(
-            "UNIT 5 FAILED: INVALID LIVE PRICE"
-        )
-
-    if (
-        ema19 <= 0
-        or ema50 <= 0
-        or ema200 <= 0
     ):
         raise RuntimeError(
-            "UNIT 5 FAILED: INVALID EMA VALUE"
+            "UNIT 5 INVALID NON-POSITIVE PRICE"
         )
 
-    print(
-        "PASS: UNIT 5 UNIT 4 SNAPSHOT VALIDATED",
-        flush=True,
-    )
+    if not (0 <= body_ratio <= 1):
+        raise RuntimeError(
+            "UNIT 5 INVALID BODY RATIO"
+        )
+
+    if support <= 0 or resistance <= support:
+        raise RuntimeError(
+            "UNIT 5 INVALID MARKET RANGE"
+        )
+
+    if atr_pct < 0:
+        raise RuntimeError(
+            "UNIT 5 INVALID ATR"
+        )
 
     # ========================================================
-    # 4. READ-ONLY SAFETY GATE
+    # 3. VERIFY SCORING CONFIGURATION
+    # INDENTATION: 4 SPACES
     # ========================================================
 
-    print(
-        "PASS: UNIT 5 READ-ONLY SAFETY GATE",
-        flush=True,
+    weights = {
+        "price": float(
+            strategy["scalp_price_weight"]
+        ),
+        "ema": float(
+            strategy["scalp_ema_weight"]
+        ),
+        "momentum": float(
+            strategy["scalp_momentum_weight"]
+        ),
+        "structure": float(
+            strategy["scalp_structure_weight"]
+        ),
+        "timing": float(
+            strategy["scalp_volatility_timing_weight"]
+        ),
+    }
+
+    if abs(sum(weights.values()) - 100) > 0.000001:
+        raise RuntimeError(
+            "UNIT 5 INVALID SCALP WEIGHTS"
+        )
+
+    if weights != {
+        "price": 50.0,
+        "ema": 15.0,
+        "momentum": 15.0,
+        "structure": 10.0,
+        "timing": 10.0,
+    }:
+        raise RuntimeError(
+            "UNIT 5 SCALP WEIGHT CONTRACT MISMATCH"
+        )
+
+    threshold = float(
+        strategy["scalp_quality_threshold"]
     )
+
+    if not (0 < threshold <= 100):
+        raise RuntimeError(
+            "UNIT 5 INVALID QUALITY THRESHOLD"
+        )
 
     # ========================================================
-    # 5. MODE THRESHOLDS
-    #
-    # PRESERVED FROM EXISTING UNIT 5.
+    # 4. DIRECTIONAL CONTEXT
+    # INDENTATION: 4 SPACES
     # ========================================================
 
-    BREAKOUT_MIN_SEPARATION_PCT = 0.120
-    STRUCTURE_MIN_SEPARATION_PCT = 0.070
-    SCALP_MIN_SEPARATION_PCT = 0.030
-
-    BREAKOUT_MIN_MOVE_PCT = 0.080
-    STRUCTURE_MIN_MOVE_PCT = 0.040
-    SCALP_MIN_MOVE_PCT = 0.015
-
-    print(
-        "PASS: UNIT 5 MODE THRESHOLDS LOADED",
-        flush=True,
+    ema_structure = (
+        unit_4_snapshot["ema_structure"]
     )
 
-    print(
-        "UNIT 5 SCALP MIN SEPARATION % = "
-        f"{SCALP_MIN_SEPARATION_PCT}",
-        flush=True,
-    )
+    ema_direction = "NONE"
 
-    print(
-        "UNIT 5 STRUCTURE MIN SEPARATION % = "
-        f"{STRUCTURE_MIN_SEPARATION_PCT}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 BREAKOUT MIN SEPARATION % = "
-        f"{BREAKOUT_MIN_SEPARATION_PCT}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 SCALP MIN MOVE % = "
-        f"{SCALP_MIN_MOVE_PCT}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 STRUCTURE MIN MOVE % = "
-        f"{STRUCTURE_MIN_MOVE_PCT}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 BREAKOUT MIN MOVE % = "
-        f"{BREAKOUT_MIN_MOVE_PCT}",
-        flush=True,
-    )
-
-    # ========================================================
-    # 6. EMA DIRECTION
-    # ========================================================
-
-    bullish_alignment = (
-        ema19 > ema50
-        and ema50 > ema200
-    )
-
-    bearish_alignment = (
-        ema19 < ema50
-        and ema50 < ema200
-    )
-
-    if bullish_alignment:
+    if ema19 > ema50 > ema200:
         ema_direction = "LONG"
 
-    elif bearish_alignment:
+    elif ema19 < ema50 < ema200:
         ema_direction = "SHORT"
 
-    else:
-        ema_direction = "NONE"
-
-    print(
-        "UNIT 5 EMA DIRECTION = "
-        f"{ema_direction}",
-        flush=True,
-    )
+    momentum_1m = fresh_unit_5_direction(move_1m)
+    momentum_5m = fresh_unit_5_direction(move_5m)
+    momentum_15m = fresh_unit_5_direction(move_15m)
+    momentum_30m = fresh_unit_5_direction(move_30m)
+    momentum_60m = fresh_unit_5_direction(move_60m)
+    momentum_120m = fresh_unit_5_direction(move_120m)
 
     # ========================================================
-    # 7. MULTI-WINDOW MOMENTUM
-    # ========================================================
-
-    def movement_direction(
-        movement_pct,
-    ):
-        if movement_pct > 0:
-            return "LONG"
-
-        if movement_pct < 0:
-            return "SHORT"
-
-        return "NONE"
-
-    momentum_1m_direction = (
-        movement_direction(
-            move_1m_pct
-        )
-    )
-
-    momentum_5m_direction = (
-        movement_direction(
-            move_5m_pct
-        )
-    )
-
-    momentum_15m_direction = (
-        movement_direction(
-            move_15m_pct
-        )
-    )
-
-    momentum_30m_direction = (
-        movement_direction(
-            move_30m_pct
-        )
-    )
-
-    momentum_60m_direction = (
-        movement_direction(
-            move_60m_pct
-        )
-    )
-
-    momentum_120m_direction = (
-        movement_direction(
-            move_120m_pct
-        )
-    )
-
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 MULTI-WINDOW MOMENTUM",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 1M MOVE % = "
-        f"{move_1m_pct}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 1M DIRECTION = "
-        f"{momentum_1m_direction}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 5M MOVE % = "
-        f"{move_5m_pct}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 5M DIRECTION = "
-        f"{momentum_5m_direction}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 15M MOVE % = "
-        f"{move_15m_pct}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 15M DIRECTION = "
-        f"{momentum_15m_direction}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 30M MOVE % = "
-        f"{move_30m_pct}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 30M DIRECTION = "
-        f"{momentum_30m_direction}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 60M MOVE % = "
-        f"{move_60m_pct}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 60M DIRECTION = "
-        f"{momentum_60m_direction}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 120M MOVE % = "
-        f"{move_120m_pct}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 120M DIRECTION = "
-        f"{momentum_120m_direction}",
-        flush=True,
-    )
-
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
-    # ========================================================
-    # 8. SCALP CONTEXT
+    # 5. SCALP DIRECTION CANDIDATES
+    # INDENTATION: 4 SPACES
     #
-    # Primary momentum:
-    # CLOSED 5M movement.
-    #
-    # EMA200 intentionally NOT required.
-    #
-    # The latest 1M candle remains visible for freshness,
-    # but a single counter-direction 1M candle does NOT
-    # automatically veto valid 5M momentum.
+    # Score both directions independently.
+    # This does not automatically force EMA agreement.
     # ========================================================
 
-    scalp_long_context = (
-        ema19 > ema50
-        and momentum_5m_direction == "LONG"
+    scalp_scores = {}
+    scalp_components = {}
+
+    recent = unit_4_snapshot.get(
+        "recent_closed_klines"
     )
 
-    scalp_short_context = (
-        ema19 < ema50
-        and momentum_5m_direction == "SHORT"
-    )
+    if not isinstance(recent, list) or len(recent) < 20:
+        raise RuntimeError(
+            "UNIT 5 CLOSED-CANDLE HISTORY MISSING"
+        )
+
+    for candle in recent[-20:]:
+
+        if not isinstance(candle, dict):
+            raise RuntimeError(
+                "UNIT 5 INVALID CANDLE HISTORY"
+            )
+
+    # ========================================================
+    # 6. CALCULATE DIRECTIONAL SCORES
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    for side in ("LONG", "SHORT"):
+
+        sign = 1 if side == "LONG" else -1
+
+        directional_1m = sign * move_1m
+        directional_5m = sign * move_5m
+        directional_15m = sign * move_15m
+
+        directional_candle = (
+            sign * (latest_close - previous_close)
+            / previous_close
+            * 100.0
+        )
+
+        # ----------------------------------------------------
+        # PRICE ACTION - MAXIMUM 50 POINTS
+        # ----------------------------------------------------
+
+        recent_high = max(
+            float(c["high"])
+            for c in recent[-5:]
+        )
+
+        recent_low = min(
+            float(c["low"])
+            for c in recent[-5:]
+        )
+
+        recent_range = max(
+            recent_high - recent_low,
+            0.00000001,
+        )
+
+        position = fresh_unit_5_fraction(
+            (price - recent_low) / recent_range
+        )
+
+        directional_position = (
+            position
+            if side == "LONG"
+            else 1.0 - position
+        )
+
+        price_parts = {
+            "five_minute_move":
+                15.0 * fresh_unit_5_fraction(
+                    directional_5m / 0.08
+                ),
+
+            "one_minute_move":
+                10.0 * fresh_unit_5_fraction(
+                    directional_1m / 0.035
+                ),
+
+            "closed_candle_direction":
+                10.0 * fresh_unit_5_fraction(
+                    directional_candle / 0.04
+                ),
+
+            "candle_body":
+                5.0 * body_ratio
+                if directional_candle > 0
+                else 0.0,
+
+            "recent_range_position":
+                10.0 * directional_position,
+        }
+
+        price_score = sum(price_parts.values())
+
+        # ----------------------------------------------------
+        # EMA CONTEXT - MAXIMUM 15 POINTS
+        # ----------------------------------------------------
+
+        favorable_ema19 = (
+            sign * (price - ema19) > 0
+        )
+
+        favorable_ema50 = (
+            sign * (ema19 - ema50) > 0
+        )
+
+        favorable_ema100 = (
+            sign * (ema50 - ema100) > 0
+        )
+
+        ema_score = (
+            (5.0 if favorable_ema19 else 0.0)
+            + (5.0 if favorable_ema50 else 0.0)
+            + (3.0 if favorable_ema100 else 0.0)
+            + (
+                2.0 * fresh_unit_5_fraction(
+                    separation / 0.03
+                )
+                if favorable_ema50
+                else 0.0
+            )
+        )
+
+        # ----------------------------------------------------
+        # MOMENTUM - MAXIMUM 15 POINTS
+        # ----------------------------------------------------
+
+        momentum_score = (
+            (6.0 if directional_5m > 0 else 0.0)
+            + (5.0 if directional_15m > 0 else 0.0)
+            + (4.0 if directional_1m > 0 else 0.0)
+        )
+
+        # ----------------------------------------------------
+        # SUPPORT / RESISTANCE - MAXIMUM 10 POINTS
+        # ----------------------------------------------------
+
+        market_range = resistance - support
+
+        distance_to_target = (
+            resistance - price
+            if side == "LONG"
+            else price - support
+        )
+
+        available_room = fresh_unit_5_fraction(
+            distance_to_target / market_range
+        )
+
+        structure_score = (
+            10.0 * available_room
+        )
+
+        # ----------------------------------------------------
+        # VOLATILITY / TIMING - MAXIMUM 10 POINTS
+        #
+        # Excessive extension is penalized.
+        # Very low volatility earns fewer points.
+        # ----------------------------------------------------
+
+        ema_extension = (
+            abs(price - ema19)
+            / ema19
+            * 100.0
+        )
+
+        extension_limit = max(
+            1.5 * atr_pct,
+            0.02,
+        )
+
+        extension_factor = fresh_unit_5_fraction(
+            1.0 - ema_extension / extension_limit
+        )
+
+        volatility_factor = fresh_unit_5_fraction(
+            atr_pct / 0.08
+        )
+
+        timing_score = (
+            6.0 * extension_factor
+            + 4.0 * volatility_factor
+        )
+
+        components = {
+            "price_action": round(price_score, 4),
+            "ema": round(ema_score, 4),
+            "momentum": round(momentum_score, 4),
+            "structure": round(structure_score, 4),
+            "volatility_timing": round(timing_score, 4),
+        }
+
+        total_score = sum(components.values())
+
+        scalp_scores[side] = round(
+            total_score, 4
+        )
+
+        scalp_components[side] = components
+
+    # ========================================================
+    # 7. SELECT SCALP CANDIDATE
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    long_score = scalp_scores["LONG"]
+    short_score = scalp_scores["SHORT"]
 
     scalp_direction = "NONE"
+    scalp_score = max(long_score, short_score)
 
-    if scalp_long_context:
-        scalp_direction = "LONG"
-
-    elif scalp_short_context:
-        scalp_direction = "SHORT"
-
-    scalp_move_pct = abs(
-        move_5m_pct
+    best_side = (
+        "LONG"
+        if long_score > short_score
+        else "SHORT"
     )
+
+    # Avoid arbitrary selection on a tied score.
+    score_difference = abs(
+        long_score - short_score
+    )
+
+    if (
+        scalp_score >= threshold
+        and score_difference >= 5.0
+    ):
+        # Some actual directional movement is necessary.
+        side_sign = (
+            1 if best_side == "LONG" else -1
+        )
+
+        if (
+            side_sign * move_5m > 0
+            and side_sign * move_1m >= 0
+        ):
+            scalp_direction = best_side
+
+    scalp_move_pct = abs(move_5m)
 
     scalp_1m_support = (
-        momentum_1m_direction
-        ==
-        scalp_direction
-    )
-
-    print(
-        "UNIT 5 SCALP DIRECTION = "
-        f"{scalp_direction}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 SCALP LONG CONTEXT = "
-        f"{scalp_long_context}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 SCALP SHORT CONTEXT = "
-        f"{scalp_short_context}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 SCALP 5M MOVE % = "
-        f"{move_5m_pct}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 SCALP 1M FRESHNESS SUPPORT = "
-        f"{scalp_1m_support}",
-        flush=True,
+        scalp_direction != "NONE"
+        and momentum_1m == scalp_direction
     )
 
     # ========================================================
-    # 9. STRUCTURE CONTEXT
+    # 8. STRUCTURE QUALIFICATION
+    # INDENTATION: 4 SPACES
     #
-    # Primary momentum:
-    # CLOSED 15M movement.
-    #
-    # STRUCTURE still requires mature EMA19/50/200 alignment.
+    # Preserve original minimum thresholds.
     # ========================================================
 
     structure_direction = "NONE"
-
-    if (
-        ema_direction != "NONE"
-        and
-        momentum_15m_direction
-        ==
-        ema_direction
-    ):
-        structure_direction = (
-            ema_direction
-        )
+    structure_move_pct = abs(move_15m)
 
     structure_direction_agreement = (
-        structure_direction
-        !=
-        "NONE"
+        ema_direction != "NONE"
+        and momentum_15m == ema_direction
     )
 
-    structure_move_pct = abs(
-        move_15m_pct
-    )
-
-    print(
-        "UNIT 5 STRUCTURE DIRECTION = "
-        f"{structure_direction}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 STRUCTURE DIRECTION AGREEMENT = "
-        f"{structure_direction_agreement}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 STRUCTURE 15M MOVE % = "
-        f"{move_15m_pct}",
-        flush=True,
-    )
+    if (
+        structure_direction_agreement
+        and separation >= 0.070
+        and structure_move_pct >= 0.040
+    ):
+        structure_direction = ema_direction
 
     # ========================================================
-    # 10. BREAKOUT CONTEXT
-    #
-    # Primary momentum:
-    # CLOSED 30M movement.
-    #
-    # At least one faster window (5M or 15M) must support
-    # the 30M breakout direction.
-    #
-    # EMA50/EMA200 crossover is still NOT required.
-    # EMA200 remains directional context.
+    # 9. BREAKOUT QUALIFICATION
+    # INDENTATION: 4 SPACES
     # ========================================================
-
-    breakout_primary_direction = (
-        momentum_30m_direction
-    )
-
-    breakout_fast_support = (
-        (
-            momentum_5m_direction
-            ==
-            breakout_primary_direction
-        )
-        or
-        (
-            momentum_15m_direction
-            ==
-            breakout_primary_direction
-        )
-    )
-
-    breakout_long_context = (
-        breakout_primary_direction == "LONG"
-        and breakout_fast_support
-        and ema19 > ema50
-        and live_price > ema19
-        and live_price > ema200
-    )
-
-    breakout_short_context = (
-        breakout_primary_direction == "SHORT"
-        and breakout_fast_support
-        and ema19 < ema50
-        and live_price < ema19
-        and live_price < ema200
-    )
 
     breakout_direction = "NONE"
+    breakout_move_pct = abs(move_30m)
 
-    if breakout_long_context:
-        breakout_direction = "LONG"
-
-    elif breakout_short_context:
-        breakout_direction = "SHORT"
-
-    breakout_move_pct = abs(
-        move_30m_pct
+    breakout_fast_support = (
+        momentum_30m != "NONE"
+        and momentum_5m == momentum_30m
+        and momentum_15m == momentum_30m
     )
 
-    print(
-        "UNIT 5 BREAKOUT PRIMARY DIRECTION = "
-        f"{breakout_primary_direction}",
-        flush=True,
+    breakout_long = (
+        momentum_30m == "LONG"
+        and breakout_fast_support
+        and ema19 > ema50
+        and price > ema19
+        and price > ema200
     )
 
-    print(
-        "UNIT 5 BREAKOUT FAST SUPPORT = "
-        f"{breakout_fast_support}",
-        flush=True,
+    breakout_short = (
+        momentum_30m == "SHORT"
+        and breakout_fast_support
+        and ema19 < ema50
+        and price < ema19
+        and price < ema200
     )
 
-    print(
-        "UNIT 5 BREAKOUT DIRECTION = "
-        f"{breakout_direction}",
-        flush=True,
-    )
+    if (
+        separation >= 0.120
+        and breakout_move_pct >= 0.080
+    ):
 
-    print(
-        "UNIT 5 BREAKOUT LONG CONTEXT = "
-        f"{breakout_long_context}",
-        flush=True,
-    )
+        if breakout_long:
+            breakout_direction = "LONG"
 
-    print(
-        "UNIT 5 BREAKOUT SHORT CONTEXT = "
-        f"{breakout_short_context}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 BREAKOUT 30M MOVE % = "
-        f"{move_30m_pct}",
-        flush=True,
-    )
+        elif breakout_short:
+            breakout_direction = "SHORT"
 
     # ========================================================
-    # 11. EXCLUSIVE MODE QUALIFICATION
-    #
-    # Priority remains:
-    #
-    # BREAKOUT -> STRUCTURE -> SCALP
-    #
-    # Only ONE mode can qualify.
+    # 10. EXCLUSIVE MODE SELECTION
+    # INDENTATION: 4 SPACES
     # ========================================================
 
     active_mode = "NONE"
     direction = "NONE"
     qualified = False
+
     qualification_reason = (
         "NO_MODE_QUALIFIED"
     )
 
-    # --------------------------------------------------------
-    # BREAKOUT
-    # --------------------------------------------------------
-
     if (
         breakout_direction != "NONE"
-        and
-        separation_pct
-        >=
-        BREAKOUT_MIN_SEPARATION_PCT
-        and
-        breakout_move_pct
-        >=
-        BREAKOUT_MIN_MOVE_PCT
+        and strategy.get(
+            "breakout_mode_enabled"
+        ) is True
     ):
+
         active_mode = "BREAKOUT"
-
-        direction = (
-            breakout_direction
-        )
-
+        direction = breakout_direction
         qualified = True
 
         qualification_reason = (
-            "BREAKOUT_30M_DIRECTION_AND_"
-            "MULTI_WINDOW_MOMENTUM_CONFIRMED"
+            "BREAKOUT_QUALIFIED"
         )
-
-    # --------------------------------------------------------
-    # STRUCTURE
-    # --------------------------------------------------------
 
     elif (
-        structure_direction_agreement
-        and
-        separation_pct
-        >=
-        STRUCTURE_MIN_SEPARATION_PCT
-        and
-        structure_move_pct
-        >=
-        STRUCTURE_MIN_MOVE_PCT
+        structure_direction != "NONE"
+        and strategy.get(
+            "structure_mode_enabled"
+        ) is True
     ):
+
         active_mode = "STRUCTURE"
-
-        direction = (
-            structure_direction
-        )
-
+        direction = structure_direction
         qualified = True
 
         qualification_reason = (
-            "STRUCTURE_15M_DIRECTION_AND_"
-            "MOMENTUM_CONFIRMED"
+            "STRUCTURE_QUALIFIED"
         )
-
-    # --------------------------------------------------------
-    # SCALP
-    # --------------------------------------------------------
 
     elif (
         scalp_direction != "NONE"
-        and
-        separation_pct
-        >=
-        SCALP_MIN_SEPARATION_PCT
-        and
-        scalp_move_pct
-        >=
-        SCALP_MIN_MOVE_PCT
+        and strategy.get(
+            "scalp_mode_enabled"
+        ) is True
     ):
+
         active_mode = "SCALP"
-
-        direction = (
-            scalp_direction
-        )
-
+        direction = scalp_direction
         qualified = True
 
         qualification_reason = (
-            "SCALP_5M_DIRECTION_AND_"
-            "MOMENTUM_CONFIRMED"
+            "SCALP_PRICE_LED_SCORE_QUALIFIED"
         )
-
-    # --------------------------------------------------------
-    # NO QUALIFIED MODE
-    # --------------------------------------------------------
 
     else:
 
-        any_directional_context = (
-            scalp_direction != "NONE"
-            or
-            structure_direction != "NONE"
-            or
-            breakout_direction != "NONE"
-        )
-
-        if not any_directional_context:
+        if score_difference < 5.0:
             qualification_reason = (
-                "NO_MULTI_WINDOW_DIRECTIONAL_CONTEXT"
+                "SCALP_DIRECTION_AMBIGUOUS"
             )
 
-        elif (
-            separation_pct
-            <
-            SCALP_MIN_SEPARATION_PCT
-        ):
+        elif scalp_score < threshold:
             qualification_reason = (
-                "EMA_SEPARATION_BELOW_MINIMUM"
-            )
-
-        elif (
-            scalp_direction != "NONE"
-            and
-            scalp_move_pct
-            <
-            SCALP_MIN_MOVE_PCT
-        ):
-            qualification_reason = (
-                "SCALP_5M_MOVE_BELOW_MINIMUM"
-            )
-
-        elif (
-            structure_direction != "NONE"
-            and
-            separation_pct
-            >=
-            STRUCTURE_MIN_SEPARATION_PCT
-            and
-            structure_move_pct
-            <
-            STRUCTURE_MIN_MOVE_PCT
-        ):
-            qualification_reason = (
-                "STRUCTURE_15M_MOVE_BELOW_MINIMUM"
-            )
-
-        elif (
-            breakout_direction != "NONE"
-            and
-            separation_pct
-            >=
-            BREAKOUT_MIN_SEPARATION_PCT
-            and
-            breakout_move_pct
-            <
-            BREAKOUT_MIN_MOVE_PCT
-        ):
-            qualification_reason = (
-                "BREAKOUT_30M_MOVE_BELOW_MINIMUM"
+                "SCALP_QUALITY_BELOW_THRESHOLD"
             )
 
         else:
             qualification_reason = (
-                "NO_MODE_THRESHOLDS_CONFIRMED"
+                "DIRECTIONAL_MOMENTUM_NOT_CONFIRMED"
             )
 
     # ========================================================
-    # 12. PRICE RELATIONSHIP CHECKS
+    # 11. PREPARE DOWNSTREAM COMPATIBILITY
+    # INDENTATION: 4 SPACES
     # ========================================================
 
-    price_above_ema19 = (
-        live_price > ema19
-    )
-
-    price_above_ema50 = (
-        live_price > ema50
-    )
-
-    price_above_ema200 = (
-        live_price > ema200
-    )
+    price_above_ema19 = price > ema19
+    price_above_ema50 = price > ema50
+    price_above_ema200 = price > ema200
 
     latest_close_above_previous = (
-        latest_close
-        >
-        previous_close
+        latest_close > previous_close
     )
-
-    print(
-        "UNIT 5 PRICE ABOVE EMA19 = "
-        f"{price_above_ema19}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 PRICE ABOVE EMA50 = "
-        f"{price_above_ema50}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 PRICE ABOVE EMA200 = "
-        f"{price_above_ema200}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 LATEST CLOSE ABOVE PREVIOUS = "
-        f"{latest_close_above_previous}",
-        flush=True,
-    )
-
-    # ========================================================
-    # 13. NORMALIZED SIGNAL CANDIDATE
-    #
-    # Existing fields required by Unit 6 are preserved.
-    # Additional diagnostics are included.
-    # ========================================================
 
     signal_candidate = {
-        "symbol":
-            symbol,
 
-        "qualified":
-            qualified,
+        # ORIGINAL UNIT 6 CONTRACT
+        "symbol": "BTCUSDT",
+        "qualified": qualified,
+        "active_mode": active_mode,
+        "direction": direction,
+        "qualification_reason": qualification_reason,
 
-        "active_mode":
-            active_mode,
+        "live_mark_price": price,
+        "ema19": ema19,
+        "ema50": ema50,
+        "ema100": ema100,
+        "ema200": ema200,
 
-        "direction":
-            direction,
+        "ema19_50_separation_pct": separation,
+        "ema_structure": ema_structure,
+        "ema_direction": ema_direction,
 
-        "qualification_reason":
-            qualification_reason,
-
-        "live_mark_price":
-            live_price,
-
-        "ema19":
-            ema19,
-
-        "ema50":
-            ema50,
-
-        "ema200":
-            ema200,
-
-        "ema19_50_separation_pct":
-            separation_pct,
-
-        "ema_structure":
-            ema_structure,
-
-        "ema_direction":
-            ema_direction,
-
-        # Compatibility field:
-        # represents the latest 1M direction.
-        "momentum_direction":
-            momentum_1m_direction,
+        "momentum_direction": momentum_1m,
 
         "direction_agreement":
             structure_direction_agreement,
 
-        # Compatibility field:
-        # retain original Unit 4 1M value.
         "short_term_move_pct":
-            short_term_move_pct,
+            data["short_term_move_pct"],
 
         "absolute_short_term_move_pct":
-            abs(
-                short_term_move_pct
-            ),
+            abs(data["short_term_move_pct"]),
 
-        "previous_close":
-            previous_close,
+        "previous_close": previous_close,
+        "latest_close": latest_close,
 
-        "latest_close":
-            latest_close,
-
-        "price_above_ema19":
-            price_above_ema19,
-
-        "price_above_ema50":
-            price_above_ema50,
-
-        "price_above_ema200":
-            price_above_ema200,
+        "price_above_ema19": price_above_ema19,
+        "price_above_ema50": price_above_ema50,
+        "price_above_ema200": price_above_ema200,
 
         "latest_close_above_previous":
             latest_close_above_previous,
 
-        # Multi-window diagnostics.
-        "move_1m_pct":
-            move_1m_pct,
+        "move_1m_pct": move_1m,
+        "move_5m_pct": move_5m,
+        "move_15m_pct": move_15m,
+        "move_30m_pct": move_30m,
+        "move_60m_pct": move_60m,
+        "move_120m_pct": move_120m,
 
-        "move_5m_pct":
-            move_5m_pct,
+        "momentum_1m_direction": momentum_1m,
+        "momentum_5m_direction": momentum_5m,
+        "momentum_15m_direction": momentum_15m,
+        "momentum_30m_direction": momentum_30m,
+        "momentum_60m_direction": momentum_60m,
+        "momentum_120m_direction": momentum_120m,
 
-        "move_15m_pct":
-            move_15m_pct,
+        "scalp_direction": scalp_direction,
+        "scalp_move_pct": scalp_move_pct,
+        "scalp_1m_support": scalp_1m_support,
 
-        "move_30m_pct":
-            move_30m_pct,
+        "structure_direction": structure_direction,
+        "structure_move_pct": structure_move_pct,
 
-        "move_60m_pct":
-            move_60m_pct,
+        "breakout_direction": breakout_direction,
+        "breakout_move_pct": breakout_move_pct,
+        "breakout_fast_support": breakout_fast_support,
 
-        "move_120m_pct":
-            move_120m_pct,
+        # NEW QUALITY DIAGNOSTICS
+        "scalp_quality_score": scalp_score,
+        "scalp_quality_threshold": threshold,
 
-        "momentum_1m_direction":
-            momentum_1m_direction,
+        "scalp_long_score": long_score,
+        "scalp_short_score": short_score,
 
-        "momentum_5m_direction":
-            momentum_5m_direction,
+        "scalp_score_components":
+            scalp_components,
 
-        "momentum_15m_direction":
-            momentum_15m_direction,
+        "price_action_weight": 50.0,
 
-        "momentum_30m_direction":
-            momentum_30m_direction,
+        # FRESHNESS
+        "exchange_time_ms":
+            unit_4_snapshot.get(
+                "exchange_time_ms"
+            ),
 
-        "momentum_60m_direction":
-            momentum_60m_direction,
+        "latest_close_time_ms":
+            unit_4_snapshot.get(
+                "latest_close_time_ms"
+            ),
 
-        "momentum_120m_direction":
-            momentum_120m_direction,
-
-        "scalp_direction":
-            scalp_direction,
-
-        "scalp_move_pct":
-            scalp_move_pct,
-
-        "scalp_1m_support":
-            scalp_1m_support,
-
-        "structure_direction":
-            structure_direction,
-
-        "structure_move_pct":
-            structure_move_pct,
-
-        "breakout_direction":
-            breakout_direction,
-
-        "breakout_move_pct":
-            breakout_move_pct,
-
-        "breakout_fast_support":
-            breakout_fast_support,
+        # EXECUTION SAFETY
+        "read_only": True,
+        "order_payload": None,
+        "execution_intent": False,
     }
 
     # ========================================================
-    # 14. FINAL SIGNAL LOG
+    # 12. RENDER STATUS LOGGING
+    # INDENTATION: 4 SPACES
     # ========================================================
 
+    print("-" * 80, flush=True)
+
     print(
-        "-" * 80,
+        "UNIT 5 LIVE BTC PRICE =",
+        price,
         flush=True,
     )
 
     print(
-        "UNIT 5 ACTIVE MODE = "
-        f"{active_mode}",
+        "UNIT 5 SCALP PRICE WEIGHT = 50%",
         flush=True,
     )
 
     print(
-        "UNIT 5 DIRECTION = "
-        f"{direction}",
+        "UNIT 5 SCALP QUALITY THRESHOLD =",
+        threshold,
         flush=True,
     )
 
     print(
-        "UNIT 5 SIGNAL QUALIFIED = "
-        f"{qualified}",
+        "UNIT 5 SCALP LONG SCORE =",
+        long_score,
         flush=True,
     )
 
     print(
-        "UNIT 5 QUALIFICATION REASON = "
-        f"{qualification_reason}",
+        "UNIT 5 SCALP SHORT SCORE =",
+        short_score,
         flush=True,
     )
 
     print(
-        "UNIT 5 EMA19/50 SEPARATION % = "
-        f"{separation_pct}",
+        "UNIT 5 SCALP DIRECTION =",
+        scalp_direction,
         flush=True,
     )
 
     print(
-        "UNIT 5 ORIGINAL 1M MOVE % = "
-        f"{short_term_move_pct}",
+        "UNIT 5 SCALP COMPONENT SCORES =",
+        scalp_components,
         flush=True,
     )
 
     print(
-        "UNIT 5 SCALP 5M MOVE % = "
-        f"{scalp_move_pct}",
+        "UNIT 5 EMA19/50 SEPARATION =",
+        separation,
         flush=True,
     )
 
     print(
-        "UNIT 5 STRUCTURE 15M MOVE % = "
-        f"{structure_move_pct}",
+        "UNIT 5 EMA SEPARATION = WEIGHTED FOR SCALP",
         flush=True,
     )
 
     print(
-        "UNIT 5 BREAKOUT 30M MOVE % = "
-        f"{breakout_move_pct}",
+        "UNIT 5 STRUCTURE DIRECTION =",
+        structure_direction,
         flush=True,
     )
 
     print(
-        "-" * 80,
-        flush=True,
-    )
-
-    # ========================================================
-    # 15. SAFETY ASSERTIONS
-    # ========================================================
-
-    print(
-        "PASS: UNIT 5 NORMALIZED SIGNAL CANDIDATE",
+        "UNIT 5 BREAKOUT DIRECTION =",
+        breakout_direction,
         flush=True,
     )
 
     print(
-        "PASS: UNIT 5 MULTI-WINDOW SIGNAL QUALIFICATION COMPLETED",
+        "UNIT 5 ACTIVE MODE =",
+        active_mode,
         flush=True,
     )
 
     print(
-        "PASS: UNIT 5 EXCLUSIVE MODE SELECTION",
+        "UNIT 5 DIRECTION =",
+        direction,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 SIGNAL QUALIFIED =",
+        qualified,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 QUALIFICATION REASON =",
+        qualification_reason,
         flush=True,
     )
 
@@ -3540,42 +3267,12 @@ def fresh_reconstruction_unit_5(
     )
 
     print(
-        "PASS: UNIT 5 NO ORDER PAYLOAD GENERATED",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 5 NO POSITION SIZING",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 5 NO TP / SL",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 5 NO BACKUP EXECUTION",
+        "PASS: UNIT 5 NO ORDER PAYLOAD",
         flush=True,
     )
 
     print(
         "ZERO AUTHENTICATED API ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO ACCOUNT ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO POSITION ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO ORDER ENDPOINT ACCESS = TRUE",
         flush=True,
     )
 
@@ -3594,42 +3291,18 @@ def fresh_reconstruction_unit_5(
         flush=True,
     )
 
-    print(
-        "ZERO LEVERAGE MUTATION = TRUE",
-        flush=True,
+    log(
+        "FRESH RECONSTRUCTION UNIT 5 RESULT = PASS"
     )
 
-    print(
-        "ZERO MARGIN MODE MUTATION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO POSITION MODE MUTATION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
-    print(
-        f"{datetime.now(timezone.utc).isoformat()} "
-        "FRESH RECONSTRUCTION UNIT 5 RESULT = PASS",
-        flush=True,
-    )
-
-    print(
-        "=" * 80,
-        flush=True,
-    )
+    print("=" * 80, flush=True)
 
     return signal_candidate
 
 
 # ============================================================
-# RUN UNIT 5
+# RUN UNIT 5 INITIAL QUALIFICATION
+# ZERO INDENTATION
 # ============================================================
 
 FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
@@ -3641,20 +3314,51 @@ FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
 
 
 # ============================================================
-# END OF TRANSMISSION PART 3
-# ZERO INDENTATION DEMARCATION
-#
-# UNIT 5 IS FULLY CLOSED
-# UNIT 5 HAS BEEN CALLED
-# NO OPEN FUNCTION
-# NO OPEN IF
-# NO OPEN TRY
-# NO OPEN DICTIONARY
-# NO INDENTATION CONTINUES INTO THE NEXT PART
-#
-# NEXT PART STARTS WITH FRESH RECONSTRUCTION UNIT 6
+# UNIT 5 REUSABLE REFRESH FUNCTION
+# ZERO INDENTATION
 # ============================================================
 
+def fresh_reconstruction_refresh_unit_5(
+    analysis_snapshot=None
+):
+
+    global FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+
+    if analysis_snapshot is None:
+        analysis_snapshot = (
+            FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+        )
+
+    refreshed_candidate = (
+        fresh_reconstruction_unit_5(
+            FRESH_RECONSTRUCTION_CONFIG,
+            analysis_snapshot,
+        )
+    )
+
+    FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
+        refreshed_candidate
+    )
+
+    return refreshed_candidate
+
+
+# ============================================================
+# END COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 5
+# ZERO INDENTATION DEMARCATION
+#
+# UNIT 5 FULLY CLOSED
+# INITIAL QUALIFICATION EXECUTED
+# REUSABLE REFRESH FUNCTION CREATED
+# NO OPEN FUNCTION
+# NO OPEN IF
+# NO OPEN LOOP
+# NO OPEN TRY
+#
+# EXISTING UNIT 6 CONTINUES DIRECTLY BELOW
+# ============================================================
+
+# ============================================================
 # FRESH RECONSTRUCTION UNIT 6
 # SIGNAL ADMISSION / EXECUTION-INTENT GATE
 #
