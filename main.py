@@ -13843,6 +13843,21 @@ except urllib.error.HTTPError as exc:
             "WITHOUT ORDER ID"
         )
 
+    
+    # ========================================================
+    # START 3C STEP 2 - INSERTION 2
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    unit12_journal_acknowledge(
+        pending_client_id,
+        order_id,
+    )
+
+    # ========================================================
+    # END 3C STEP 2 - INSERTION 2
+    # INDENTATION: 4 SPACES
+    # ========================================================
     print(
         "PASS: UNIT 12 WEEX RESPONSE SUCCESS = TRUE",
         flush=True,
