@@ -18648,22 +18648,30 @@ def fresh_tp3_runtime(
                 flush=True,
             )
 
+            
+            
+            # =================================================
+            # START CORRECTION 3B.2
+            # INDENTATION: 12 SPACES
+            # =================================================
+
             return {
-                "unit":
-                    14,
-
-                "status":
-                    "POSITION_CLOSED",
-
-                "exchange_write":
-                    False,
-
-                "real_order":
-                    False,
-
-                "sl_enabled":
-                    False,
+                "unit": 14,
+                "status": "CLOSURE_CANDIDATE",
+                "position_observed_absent": True,
+                "closure_verified": False,
+                "reentry_authorized": False,
+                "requires_fresh_account_check": True,
+                "requires_order_reconciliation": True,
+                "exchange_write": False,
+                "real_order": False,
+                "sl_enabled": False,
             }
+
+            # =================================================
+            # END CORRECTION 3B.2
+            # INDENTATION: 12 SPACES
+            # =================================================
 
         position_side = str(
             position.get(
