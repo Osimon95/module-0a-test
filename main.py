@@ -20904,3 +20904,201 @@ FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
 # ============================================================
 
 
+# ============================================================
+# START CORRECTION 3A
+# CONTINUOUS ENTRY SCAN COORDINATOR
+# ZERO INDENTATION DEMARCATION
+#
+# PLACE AFTER THE EXISTING RUN UNIT 14 CALL
+# ============================================================
+
+import time
+import os
+
+CONTINUOUS_SCAN_ENABLED = True
+CONTINUOUS_SCAN_INTERVAL_SECONDS = 5
+
+def fresh_continuous_scan_cycle():
+
+    global FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    global FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+    global FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+    global FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE
+    global FRESH_RECONSTRUCTION_SIZING_CANDIDATE
+    global FRESH_RECONSTRUCTION_UNIT_8_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_9_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_10_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_11_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_12_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_13_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_14_RESULT
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    if config.get("execution_environment") != "DEMO":
+        raise RuntimeError(
+            "CONTINUOUS SCAN BLOCKED: NOT DEMO"
+        )
+
+    if config["exchange"]["demo_order_symbol"] != "BTCSUSDT":
+        raise RuntimeError(
+            "CONTINUOUS SCAN BLOCKED: DEMO SYMBOL"
+        )
+
+    if config["exchange"]["market_symbol"] != "BTCUSDT":
+        raise RuntimeError(
+            "CONTINUOUS SCAN BLOCKED: MARKET SYMBOL"
+        )
+
+    # Refresh actual exchange market data.
+    FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
+        fresh_reconstruction_unit_3()
+    )
+
+    FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
+        fresh_reconstruction_unit_4()
+    )
+
+    # Run signal analysis against fresh candles.
+    FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
+        fresh_reconstruction_unit_5(
+            config,
+            FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+        )
+    )
+
+    # Includes price-weighted scalp quality.
+    FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
+        fresh_reconstruction_unit_6(
+            config,
+            FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+            FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE,
+        )
+    )
+
+    FRESH_RECONSTRUCTION_SIZING_CANDIDATE = (
+        fresh_reconstruction_unit_7(
+            config,
+            FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE,
+        )
+    )
+
+    # Existing admission and confirmation units.
+    FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
+        fresh_reconstruction_unit_8(
+            config,
+            FRESH_RECONSTRUCTION_SIZING_CANDIDATE,
+            FRESH_RECONSTRUCTION_MARKET_SNAPSHOT,
+        )
+    )
+
+    FRESH_RECONSTRUCTION_UNIT_9_RESULT = (
+        fresh_reconstruction_unit_9(
+            config,
+            FRESH_RECONSTRUCTION_UNIT_8_RESULT,
+        )
+    )
+
+    FRESH_RECONSTRUCTION_UNIT_10_RESULT = (
+        fresh_reconstruction_unit_10(
+            config,
+            FRESH_RECONSTRUCTION_UNIT_9_RESULT,
+        )
+    )
+
+    FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
+        fresh_reconstruction_unit_11(
+            config,
+            FRESH_RECONSTRUCTION_UNIT_10_RESULT,
+        )
+    )
+
+    current_mode = os.environ.get(
+        "BOT_MODE",
+        "RUN",
+    ).strip().upper()
+
+    if current_mode not in ("RUN", "PAUSE"):
+        raise RuntimeError(
+            "CONTINUOUS SCAN INVALID BOT MODE"
+        )
+
+    if current_mode == "PAUSE":
+
+        FRESH_RECONSTRUCTION_UNIT_12_RESULT = {
+            "unit": 12,
+            "status": "IDLE",
+            "read_only": True,
+            "demo_submission_attempted": False,
+            "demo_submission_completed": False,
+            "real_submission_attempted": False,
+            "skip_reason": "BOT_MODE_PAUSE",
+        }
+
+    else:
+
+        # Reuse existing authenticated DEMO entry gates.
+        # This coordinator adds no new order endpoint.
+        FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
+            fresh_reconstruction_unit_12(
+                config,
+                FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+            )
+        )
+
+    # Existing-position management is independent
+    # of whether a fresh entry qualified.
+    FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
+        fresh_reconstruction_unit_13(
+            config,
+            FRESH_RECONSTRUCTION_UNIT_12_RESULT,
+        )
+    )
+
+    FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
+        fresh_tp3_runtime(
+            config,
+            FRESH_RECONSTRUCTION_UNIT_13_RESULT,
+        )
+    )
+
+    return FRESH_RECONSTRUCTION_UNIT_14_RESULT
+
+
+print(
+    "CONTINUOUS SCAN COORDINATOR INSTALLED",
+    flush=True,
+)
+
+if CONTINUOUS_SCAN_ENABLED:
+
+    while True:
+
+        time.sleep(
+            CONTINUOUS_SCAN_INTERVAL_SECONDS
+        )
+
+        print(
+            "CONTINUOUS SCAN NEW CYCLE",
+            flush=True,
+        )
+
+        # Exchange failures must stop the cycle.
+        # Never assume an error means zero position.
+        result = fresh_continuous_scan_cycle()
+
+        if not isinstance(result, dict):
+            raise RuntimeError(
+                "CONTINUOUS SCAN INVALID UNIT 14 RESULT"
+            )
+
+        print(
+            "CONTINUOUS SCAN UNIT 14 STATUS =",
+            result.get("status"),
+            flush=True,
+        
+
+# ============================================================
+# END CORRECTION 3A
+# ZERO INDENTATION DEMARCATION
+# ============================================================
