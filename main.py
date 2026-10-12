@@ -13008,7 +13008,7 @@ def fresh_reconstruction_unit_12(
                 )
             )
 
-except urllib.error.HTTPError as exc:
+    except urllib.error.HTTPError as exc:
 
         error_text = ""
 
