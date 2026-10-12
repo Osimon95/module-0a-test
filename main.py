@@ -13375,15 +13375,6 @@ def fresh_reconstruction_unit_12(
 
         return result
 
-    
-    # =
-    # 
-        raise RuntimeError(
-                "UNIT 12 INVALID HISTORY RECORD"
-            )
-
-        if 
-
     # ========================================================
     # START CORRECTED 3B.1
     # UNIT 12 DOUBLE POSITION CONFIRMATION
