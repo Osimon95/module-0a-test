@@ -6998,10 +6998,198 @@ def fresh_reconstruction_unit_7(
             "UNIT 7 FAILED: INVALID TRADE DIRECTION"
         )
 
+    # ========================================================
+    # START CORRECTION 2 - UNIT 7
+    # PRICE-WEIGHTED SCALP ADMISSION
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    if active_mode == "SCALP":
+
+        quality = unit_6_candidate.get(
+            "scalp_quality_details"
+        )
+
+        if not isinstance(quality, dict):
+            raise RuntimeError(
+                "UNIT 7 BLOCKED: SCALP QUALITY DETAILS MISSING"
+            )
+
+        # Reconstruct price score independently
+        # from the original Unit 6 components.
+
+        price_fields = (
+            ("location_score", 15.0),
+            ("candle_score", 10.0),
+            ("sr_score", 15.0),
+            ("breakout_score", 10.0),
+        )
+
+        supporting_fields = (
+            ("ema_score", 20.0),
+            ("momentum_score", 15.0),
+            ("volatility_score", 10.0),
+            ("exhaustion_score", 5.0),
+        )
+
+        def verified_component(name, maximum):
+
+            value = quality.get(name)
+
+            if isinstance(value, bool):
+                raise RuntimeError(
+                    "UNIT 7 INVALID SCALP COMPONENT: " + name
+                )
+
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                raise RuntimeError(
+                    "UNIT 7 MISSING SCALP COMPONENT: " + name
+                )
+
+            if not (0.0 <= value <= maximum):
+                raise RuntimeError(
+                    "UNIT 7 OUT-OF-RANGE COMPONENT: " + name
+                )
+
+            return value
+
+        price_score = round(
+            sum(
+                verified_component(name, maximum)
+                for name, maximum in price_fields
+            ),
+            2,
+        )
+
+        supporting_score = round(
+            sum(
+                verified_component(name, maximum)
+                for name, maximum in supporting_fields
+            ),
+            2,
+        )
+
+        total_score = round(
+            price_score + supporting_score,
+            2,
+        )
+
+        configured_minimum = float(
+            unit_6_candidate.get(
+                "scalp_quality_minimum",
+                70.0,
+            )
+        )
+
+        required_total = max(
+            70.0,
+            configured_minimum,
+        )
+
+        price_pass = price_score >= 30.0
+        total_pass = total_score >= required_total
+
+        quality_gate_pass = (
+            unit_6_candidate.get(
+                "scalp_quality_pass"
+            ) is True
+            and quality.get("pass") is True
+            and price_pass
+            and total_pass
+        )
+
+        # Confirm the calculated score agrees
+        # with Unit 6's reported score.
+
+        reported_score = float(
+            unit_6_candidate.get(
+                "scalp_quality_score",
+                -1.0,
+            )
+        )
+
+        score_consistent = (
+            abs(reported_score - total_score) <= 0.02
+        )
+
+        print(
+            "UNIT 7 PRICE WEIGHT = 50%",
+            flush=True,
+        )
+
+        print(
+            "UNIT 7 PRICE SCORE =",
+            price_score,
+            "/ 50",
+            flush=True,
+        )
+
+        print(
+            "UNIT 7 SUPPORTING SCORE =",
+            supporting_score,
+            "/ 50",
+            flush=True,
+        )
+
+        print(
+            "UNIT 7 TOTAL SCORE =",
+            total_score,
+            "/ 100",
+            flush=True,
+        )
+
+        print(
+            "UNIT 7 PRICE PASS =",
+            price_pass,
+            flush=True,
+        )
+
+        print(
+            "UNIT 7 QUALITY GATE PASS =",
+            quality_gate_pass,
+            flush=True,
+        )
+
+        print(
+            "UNIT 7 SCORE CONSISTENT =",
+            score_consistent,
+            flush=True,
+        )
+
+        if not score_consistent:
+            raise RuntimeError(
+                "UNIT 7 BLOCKED: UNIT 6 SCORE MISMATCH"
+            )
+
+        if not quality_gate_pass:
+            raise RuntimeError(
+                "UNIT 7 BLOCKED: SCALP QUALITY FAILED"
+            )
+
+        print(
+            "PASS: UNIT 7 PRICE-WEIGHTED SCALP VERIFIED",
+            flush=True,
+        )
+
+    else:
+
+        print(
+            "UNIT 7 SCALP-ONLY QUALITY GATE = NOT APPLICABLE",
+            flush=True,
+        )
+
     print(
         "PASS: UNIT 7 QUALIFIED EXECUTION CANDIDATE",
         flush=True,
     )
+
+    # ========================================================
+    # END CORRECTION 2 - UNIT 7
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
 
     print(
         "PASS: UNIT 7 ACTIVE MODE =",
