@@ -13008,7 +13008,7 @@ def fresh_reconstruction_unit_12(
                 )
             )
 
-    except urllib.error.HTTPError as exc:
+except urllib.error.HTTPError as exc:
 
         error_text = ""
 
@@ -13020,7 +13020,7 @@ def fresh_reconstruction_unit_12(
                     errors="replace",
                 )
             )
-    except Exception:
+        except Exception:
             error_text = str(exc)
 
         print(
