@@ -5769,27 +5769,53 @@ def fresh_reconstruction_unit_6(
             ema_timing_score + ema100_confidence
         )
 
-        # Preserve existing 100-point quality structure.
+        
+        # ====================================================
+        # START UNIT 6 PRICE-WEIGHTED SCALP CORRECTION
+        # INDENTATION: 8 SPACES
+        # ====================================================
 
-        scalp_quality_score = round(
-            ema_score
-            + momentum_score
-            + location_score
-            + candle_score
-            + sr_score
-            + breakout_score
-            + volatility_score
-            + exhaustion_score,
+        # PRICE ACTION = 50 POINTS
+        # SUPPORTING INDICATORS = 50 POINTS
+        # TOTAL = 100 POINTS
+
+        price_action_score = round(
+            min(max(location_score, 0.0), 15.0)
+            + min(max(candle_score, 0.0), 10.0)
+            + min(max(sr_score, 0.0), 15.0)
+            + min(max(breakout_score, 0.0), 10.0),
             2,
         )
 
-        # Hard anti-chase restrictions.
+        supporting_score = round(
+            min(max(ema_score, 0.0), 20.0)
+            + min(max(momentum_score, 0.0), 15.0)
+            + min(max(volatility_score, 0.0), 10.0)
+            + min(max(exhaustion_score, 0.0), 5.0),
+            2,
+        )
+
+        scalp_quality_score = round(
+            price_action_score + supporting_score,
+            2,
+        )
+
+        # The price component must qualify independently.
+        # This prevents technical indicators from
+        # compensating for weak price action.
+
+        minimum_price_action_score = 30.0
+
+        price_action_pass = (
+            price_action_score >= minimum_price_action_score
+        )
+
+        # Preserve anti-chase restrictions.
 
         extreme_extension = extension_ratio > 1.50
         extreme_spike = spike_ratio > 2.00
 
-        # Detect a mature impulse with weakening momentum.
-        # Use only completed candles.
+        # Detect exhausted impulses using closed candles.
 
         late_impulse = False
 
@@ -5828,18 +5854,23 @@ def fresh_reconstruction_unit_6(
             )
 
             if direction == "LONG":
+
                 weakening_momentum = (
                     previous_move > 0
                     and latest_move < previous_move
                 )
+
                 impulse_in_direction = (
                     impulse_end > impulse_start
                 )
+
             else:
+
                 weakening_momentum = (
                     previous_move < 0
                     and latest_move > previous_move
                 )
+
                 impulse_in_direction = (
                     impulse_end < impulse_start
                 )
@@ -5851,18 +5882,60 @@ def fresh_reconstruction_unit_6(
                 and extension_ratio > 1.0
             )
 
+        # BOTH PRICE QUALITY AND TOTAL QUALITY
+        # MUST PASS.
+        # Anti-chase protections remain mandatory.
+
         scalp_quality_pass = (
             scalp_quality_score >= scalp_quality_minimum
+            and price_action_pass
             and not extreme_extension
             and not extreme_spike
             and not late_impulse
         )
 
         print(
-            "UNIT 6 EMA100 CONFIDENCE =",
-            ema100_confidence,
+            "UNIT 6 PRICE WEIGHT = 50%",
             flush=True,
         )
+
+        print(
+            "UNIT 6 PRICE ACTION SCORE =",
+            price_action_score,
+            "/ 50",
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 SUPPORTING SCORE =",
+            supporting_score,
+            "/ 50",
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 PRICE MINIMUM =",
+            minimum_price_action_score,
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 PRICE ACTION PASS =",
+            price_action_pass,
+            flush=True,
+        )
+
+        print(
+            "UNIT 6 TOTAL QUALITY =",
+            scalp_quality_score,
+            "/ 100",
+            flush=True,
+        )
+
+        # ====================================================
+        # END UNIT 6 PRICE-WEIGHTED SCALP CORRECTION
+        # INDENTATION: 8 SPACES
+        # ====================================================
 
         print(
             "UNIT 6 EXTREME EXTENSION =",
