@@ -13020,7 +13020,7 @@ def fresh_reconstruction_unit_12(
                     errors="replace",
                 )
             )
-        except Exception:
+    except Exception:
             error_text = str(exc)
 
         print(
