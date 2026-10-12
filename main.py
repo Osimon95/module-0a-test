@@ -13005,6 +13005,209 @@ def fresh_reconstruction_unit_12(
 
         return result
 
+    
+    # ========================================================
+    # START CORRECTION 3B.1
+    # UNIT 12 VERIFIED FLAT POSITION GATE
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    # This block is reached only after the original
+    # Unit 12 position check found zero active positions.
+
+    print(
+        "UNIT 12 REENTRY RECONCILIATION START",
+        flush=True,
+    )
+
+    def unit12_authenticated_demo_get(path):
+
+        timestamp = str(int(time.time() * 1000))
+
+        signature = base64.b64encode(
+            hmac.new(
+                api_secret.encode("utf-8"),
+                (timestamp + "GET" + path).encode("utf-8"),
+                hashlib.sha256,
+            ).digest()
+        ).decode("utf-8")
+
+        headers = {
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": api_passphrase,
+            "Content-Type": "application/json",
+        }
+
+        request = urllib.request.Request(
+            base_url + path,
+            headers=headers,
+            method="GET",
+        )
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            if response.getcode() != 200:
+                raise RuntimeError(
+                    "UNIT 12 RECONCILIATION HTTP FAILURE"
+                )
+
+            payload = json.loads(
+                response.read().decode("utf-8")
+            )
+
+        if not isinstance(payload, list):
+            raise RuntimeError(
+                "UNIT 12 RECONCILIATION INVALID RESPONSE"
+            )
+
+        return payload
+
+    # Require a fresh second account read.
+    # The original position read was confirmation 1.
+
+    time.sleep(2)
+
+    second_positions = unit12_authenticated_demo_get(
+        "/capi/v3/sim/position/allPosition"
+    )
+
+    second_flat = True
+
+    for record in second_positions:
+
+        if not isinstance(record, dict):
+            raise RuntimeError(
+                "UNIT 12 INVALID SECOND POSITION RECORD"
+            )
+
+        if str(record.get("symbol", "")).upper() != "BTCSUSDT":
+            continue
+
+        if "size" not in record:
+            raise RuntimeError(
+                "UNIT 12 SECOND POSITION SIZE MISSING"
+            )
+
+        size = float(record["size"])
+
+        if size < 0:
+            raise RuntimeError(
+                "UNIT 12 NEGATIVE POSITION SIZE"
+            )
+
+        if size > 0:
+            second_flat = False
+
+    print(
+        "UNIT 12 FIRST FLAT READING = TRUE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 SECOND FLAT READING =",
+        second_flat,
+        flush=True,
+    )
+
+    if not second_flat:
+        raise RuntimeError(
+            "UNIT 12 REENTRY BLOCKED: POSITION EXISTS"
+        )
+
+    # Review recent simulated order history.
+    # Non-final statuses block fresh initial entry.
+
+    import urllib.parse
+
+    history_query = urllib.parse.urlencode({
+        "symbol": "BTCSUSDT",
+        "limit": 100,
+        "page": 0,
+    })
+
+    history_path = (
+        "/capi/v3/sim/order/history?"
+        + history_query
+    )
+
+    history = unit12_authenticated_demo_get(
+        history_path
+    )
+
+    final_statuses = {
+        "FILLED",
+        "CANCELED",
+        "CANCELLED",
+        "REJECTED",
+        "EXPIRED",
+    }
+
+    unresolved_orders = []
+
+    for record in history:
+
+        if not isinstance(record, dict):
+            raise RuntimeError(
+                "UNIT 12 INVALID HISTORY RECORD"
+            )
+
+        if str(record.get("symbol", "")).upper() != "BTCSUSDT":
+            continue
+
+        status = str(
+            record.get("status", "")
+        ).upper()
+
+        if status not in final_statuses:
+            unresolved_orders.append({
+                "order_id": record.get("orderId"),
+                "status": status,
+            })
+
+    print(
+        "UNIT 12 RECENT HISTORY RECORDS =",
+        len(history),
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 UNRESOLVED HISTORY ORDERS =",
+        len(unresolved_orders),
+        flush=True,
+    )
+
+    if unresolved_orders:
+        print(
+            "UNIT 12 UNRESOLVED ORDER DETAILS =",
+            unresolved_orders,
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 12 REENTRY BLOCKED: "
+            "UNRESOLVED DEMO ORDER HISTORY"
+        )
+
+    print(
+        "PASS: UNIT 12 TWO FLAT POSITION READINGS",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 12 RECENT DEMO HISTORY CHECK",
+        flush=True,
+    )
+
+    # ========================================================
+    # END CORRECTION 3B.1
+    # INDENTATION: 4 SPACES
+    # ========================================================
+    
     # ========================================================
     # ZERO POSITION:
     # INITIAL ENTRY IS PERMITTED
