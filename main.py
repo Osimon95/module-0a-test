@@ -13703,6 +13703,21 @@ except urllib.error.HTTPError as exc:
         flush=True,
     )
 
+    
+
+    # ========================================================
+    # START 3C STEP 2 - INSERTION 1
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    pending_client_id = unit12_journal_begin(
+        final_payload
+    )
+
+    # ========================================================
+    # END 3C STEP 2 - INSERTION 1
+    # INDENTATION: 4 SPACES
+    # ========================================================
     request = urllib.request.Request(
         url=url,
         data=body_bytes,
