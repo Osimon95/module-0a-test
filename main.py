@@ -13378,7 +13378,7 @@ def fresh_reconstruction_unit_12(
     
     # =
     # 
-            raise RuntimeError(
+        raise RuntimeError(
                 "UNIT 12 INVALID HISTORY RECORD"
             )
 
