@@ -11969,6 +11969,376 @@ FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
 # ============================================================
 
 
+
+# ============================================================
+# START 3C REPLACEMENT
+# WEEX + PYTHON IN-MEMORY DEMO ENTRY GUARD
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import time
+import json
+import hmac
+import base64
+import hashlib
+import threading
+import urllib.parse
+import urllib.request
+
+UNIT12_GUARD_LOCK = threading.RLock()
+
+UNIT12_GUARD_STATE = {
+    "startup_approved": False,
+    "client_id": None,
+    "order_id": None,
+    "state": "STARTUP_UNVERIFIED",
+}
+
+
+def unit12_authenticated_get(path, query=""):
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    passphrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, passphrase)):
+        raise RuntimeError(
+            "3C BLOCKED: DEMO API CREDENTIALS MISSING"
+        )
+
+    signed_path = path + (
+        "?" + query if query else ""
+    )
+
+    timestamp = str(int(time.time() * 1000))
+
+    prehash = timestamp + "GET" + signed_path
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            prehash.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    request = urllib.request.Request(
+        "https://api-contract.weex.com" + signed_path,
+        method="GET",
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": passphrase,
+            "Accept": "application/json",
+        },
+    )
+
+    with urllib.request.urlopen(
+        request,
+        timeout=15,
+    ) as response:
+
+        if response.getcode() != 200:
+            raise RuntimeError(
+                "3C AUTHENTICATED GET FAILED"
+            )
+
+        data = json.loads(
+            response.read().decode("utf-8")
+        )
+
+    if not isinstance(data, list):
+        raise RuntimeError(
+            "3C INVALID EXCHANGE RESPONSE"
+        )
+
+    return data
+
+
+def unit12_exchange_snapshot():
+
+    positions = unit12_authenticated_get(
+        "/capi/v3/sim/position/allPosition"
+    )
+
+    history = unit12_authenticated_get(
+        "/capi/v3/sim/order/history",
+        urllib.parse.urlencode({
+            "symbol": "BTCSUSDT",
+            "limit": 1000,
+            "page": 0,
+        }),
+    )
+
+    active_positions = []
+
+    for item in positions:
+
+        if not isinstance(item, dict):
+            raise RuntimeError(
+                "3C INVALID POSITION RECORD"
+            )
+
+        if item.get("symbol") != "BTCSUSDT":
+            continue
+
+        if "size" not in item:
+            raise RuntimeError(
+                "3C POSITION SIZE MISSING"
+            )
+
+        size = float(item["size"])
+
+        if not (0 <= size < float("inf")):
+            raise RuntimeError(
+                "3C INVALID POSITION SIZE"
+            )
+
+        if size > 0:
+            active_positions.append(item)
+
+    for item in history:
+
+        if not isinstance(item, dict):
+            raise RuntimeError(
+                "3C INVALID HISTORY RECORD"
+            )
+
+    return {
+        "positions": active_positions,
+        "history": history,
+    }
+
+
+def unit12_journal_status():
+
+    with UNIT12_GUARD_LOCK:
+
+        state = UNIT12_GUARD_STATE
+
+        if not state["startup_approved"]:
+            return (
+                "STARTUP_UNVERIFIED",
+                None,
+                None,
+            )
+
+        if state["client_id"] is not None:
+            return (
+                state["client_id"],
+                state["state"],
+                state["order_id"],
+            )
+
+        return None
+
+
+def unit12_approve_startup_after_review():
+
+    # Must only be called after manual review of
+    # outstanding demo orders and previous submissions.
+    # This is NOT automatic exchange clearance.
+
+    first = unit12_exchange_snapshot()
+
+    time.sleep(2)
+
+    second = unit12_exchange_snapshot()
+
+    if first["positions"] or second["positions"]:
+        raise RuntimeError(
+            "3C STARTUP ENTRY BLOCKED: ACTIVE POSITION"
+        )
+
+    final_statuses = {
+        "FILLED",
+        "CANCELED",
+        "CANCELLED",
+        "REJECTED",
+        "EXPIRED",
+    }
+
+    for order in second["history"]:
+
+        status = str(
+            order.get("status", "")
+        ).upper()
+
+        if status not in final_statuses:
+            raise RuntimeError(
+                "3C STARTUP: UNRESOLVED HISTORY ORDER"
+            )
+
+    # Operator review is required separately.
+    # In particular, inspect pending/conditional orders
+    # and any submissions missing from recent history.
+
+    with UNIT12_GUARD_LOCK:
+        if UNIT12_GUARD_STATE["client_id"] is not None:
+            raise RuntimeError(
+                "3C PENDING LOCAL SUBMISSION"
+            )
+
+        UNIT12_GUARD_STATE["startup_approved"] = True
+        UNIT12_GUARD_STATE["state"] = "READY"
+
+    print(
+        "3C STARTUP REVIEW APPROVED IN PROCESS",
+        flush=True,
+    )
+
+
+def unit12_journal_begin(payload):
+
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            "3C INVALID ORDER PAYLOAD"
+        )
+
+    if payload.get("symbol") != "BTCSUSDT":
+        raise RuntimeError(
+            "3C BLOCKED: DEMO SYMBOL REQUIRED"
+        )
+
+    client_id = str(
+        payload.get("newClientOrderId", "")
+    ).strip()
+
+    if not client_id:
+        raise RuntimeError(
+            "3C CLIENT ORDER ID MISSING"
+        )
+
+    with UNIT12_GUARD_LOCK:
+
+        if not UNIT12_GUARD_STATE["startup_approved"]:
+            raise RuntimeError(
+                "3C BLOCKED: STARTUP NOT APPROVED"
+            )
+
+        if UNIT12_GUARD_STATE["client_id"] is not None:
+            raise RuntimeError(
+                "3C BLOCKED: PRIOR ENTRY UNRECONCILED"
+            )
+
+        # Reserve the submission before remote checks
+        # to prevent overlapping attempts in this process.
+        UNIT12_GUARD_STATE["client_id"] = client_id
+        UNIT12_GUARD_STATE["order_id"] = None
+        UNIT12_GUARD_STATE["state"] = "RESERVED_UNCERTAIN"
+
+    try:
+
+        first = unit12_exchange_snapshot()
+
+        time.sleep(2)
+
+        second = unit12_exchange_snapshot()
+
+        if first["positions"] or second["positions"]:
+            raise RuntimeError(
+                "3C BLOCKED: ACTIVE DEMO POSITION"
+            )
+
+        terminal = {
+            "FILLED",
+            "CANCELED",
+            "CANCELLED",
+            "REJECTED",
+            "EXPIRED",
+        }
+
+        for record in second["history"]:
+
+            status = str(
+                record.get("status", "")
+            ).upper()
+
+            if status not in terminal:
+                raise RuntimeError(
+                    "3C BLOCKED: UNRESOLVED HISTORY ORDER"
+                )
+
+            if str(
+                record.get("clientOrderId", "")
+            ) == client_id:
+                raise RuntimeError(
+                    "3C BLOCKED: CLIENT ID ALREADY EXISTS"
+                )
+
+    except Exception:
+
+        # Do not silently release this reservation.
+        # A failed or incomplete check needs reconciliation.
+        with UNIT12_GUARD_LOCK:
+            UNIT12_GUARD_STATE["state"] = (
+                "PREFLIGHT_UNRESOLVED"
+            )
+
+        raise
+
+    with UNIT12_GUARD_LOCK:
+
+        UNIT12_GUARD_STATE["state"] = (
+            "SUBMISSION_UNCERTAIN"
+        )
+
+    print(
+        "3C DEMO ENTRY GUARDED =",
+        client_id,
+        flush=True,
+    )
+
+    return client_id
+
+
+def unit12_journal_acknowledge(
+    client_id,
+    exchange_order_id,
+):
+
+    if not exchange_order_id:
+        raise RuntimeError(
+            "3C EXCHANGE ORDER ID MISSING"
+        )
+
+    with UNIT12_GUARD_LOCK:
+
+        state = UNIT12_GUARD_STATE
+
+        if state["client_id"] != client_id:
+            raise RuntimeError(
+                "3C CLIENT ID MISMATCH"
+            )
+
+        state["order_id"] = str(exchange_order_id)
+        state["state"] = "ACCEPTED_UNRECONCILED"
+
+    print(
+        "3C DEMO ORDER ACKNOWLEDGED =",
+        exchange_order_id,
+        flush=True,
+    )
+
+
+# ============================================================
+# END 3C REPLACEMENT
+# ZERO INDENTATION
+# ============================================================
+
 def fresh_reconstruction_unit_12(
     config,
     unit_11_result,
