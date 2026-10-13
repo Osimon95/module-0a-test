@@ -21429,7 +21429,7 @@ def fresh_tp3_runtime(
 
 config,
 FRESH_RECONSTRUCTION_UNIT_9_RESULT,
-        )
+    )
     )
 
     FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
@@ -21442,9 +21442,10 @@ FRESH_RECONSTRUCTION_UNIT_9_RESULT,
     # ========================================================
     # 4. MASTER MODE AND PERSISTENT ENTRY GUARD
     # ========================================================
-
-    mode = os.getenv(
+   
+        mode = os.getenv(
         "BOT_MODE",
         "RUN",
     )
+    
  
