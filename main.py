@@ -21446,5 +21446,5 @@ FRESH_RECONSTRUCTION_UNIT_9_RESULT,
     mode = os.getenv(
         "BOT_MODE",
         "RUN",
-    ).
+    )
  
