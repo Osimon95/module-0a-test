@@ -1,4 +1,3 @@
-
 # ============================================================
 # FRESH WEEX BOT RECONSTRUCTION
 # UNITS 1 -> 4
@@ -8303,28 +8302,106 @@ def fresh_reconstruction_unit_8(
         flush=True,
     )
 
-    # --------------------------------------------------------
-    # 16. POSITION SIZE CALCULATION
-    #
-    # margin allocation =
-    # available balance * initial margin %
-    #
-    # notional =
-    # margin allocation * leverage
-    #
-    # raw BTC quantity =
-    # notional / live BTC mark price
-    #
-    # Final quantity is always rounded DOWN to quantity_step.
-    # --------------------------------------------------------
 
-    margin_allocation = (
-        available_balance
-        * (
-            initial_margin_percent
-            / 100.0
+    
+    # ========================================================
+    # START UNIT 8 REPLACEMENT
+    # 16. FIXED-USDT INITIAL ENTRY SIZING
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    # Read initial margin amount from Render.
+    # Default: 1.00 demo USDT.
+    # This is MARGIN, not leveraged notional.
+
+    fixed_usdt_text = os.getenv(
+        "ENTRY_FIXED_USDT",
+        "1.00",
+    )
+
+    try:
+        fixed_usdt = float(
+            fixed_usdt_text
+        )
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: INVALID ENTRY_FIXED_USDT"
+        ) from exc
+
+    if (
+        not math.isfinite(fixed_usdt)
+        or fixed_usdt <= 0
+    ):
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: FIXED USDT MUST BE POSITIVE"
+        )
+
+    # Preserve the established total exposure ceiling
+    # and reserve the configured margin for B1-B3.
+
+    strategy_config = config.get(
+        "strategy",
+        {},
+    )
+
+    exposure_cap_percent = float(
+        strategy_config.get(
+            "exposure_cap_percent",
+            35.0,
         )
     )
+
+    backup_margin_percent = float(
+        strategy_config.get(
+            "backup_margin_percent",
+            5.0,
+        )
+    )
+
+    max_backups = int(
+        strategy_config.get(
+            "max_backups",
+            3,
+        )
+    )
+
+    reserved_backup_percent = (
+        backup_margin_percent * max_backups
+    )
+
+    maximum_initial_percent = (
+        exposure_cap_percent
+        - reserved_backup_percent
+    )
+
+    if (
+        not math.isfinite(maximum_initial_percent)
+        or maximum_initial_percent <= 0
+    ):
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: NO INITIAL MARGIN CAPACITY"
+        )
+
+    maximum_initial_margin = (
+        available_balance
+        * maximum_initial_percent
+        / 100.0
+    )
+
+    if fixed_usdt > maximum_initial_margin:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: FIXED ENTRY EXCEEDS "
+            "AVAILABLE INITIAL MARGIN ALLOCATION"
+        )
+
+    if fixed_usdt > available_balance:
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: INSUFFICIENT DEMO BALANCE"
+        )
+
+    margin_allocation = fixed_usdt
+
+    # Leverage and BTC quantity calculation.
 
     notional_value = (
         margin_allocation
@@ -8337,11 +8414,8 @@ def fresh_reconstruction_unit_8(
     )
 
     quantity_steps = math.floor(
-        (
-            raw_quantity
-            + 1e-12
-        )
-        / quantity_step
+        raw_quantity / quantity_step
+        + 1e-12
     )
 
     normalized_quantity = (
@@ -8352,17 +8426,9 @@ def fresh_reconstruction_unit_8(
     quantity_decimals = max(
         0,
         len(
-            str(
-                quantity_step
-            ).rstrip(
-                "0"
-            ).split(
-                "."
-            )[-1]
+            str(quantity_step).rstrip("0").split(".")[-1]
         )
-        if "." in str(
-            quantity_step
-        )
+        if "." in str(quantity_step)
         else 0,
     )
 
@@ -8373,90 +8439,65 @@ def fresh_reconstruction_unit_8(
 
     if normalized_quantity < minimum_quantity:
         raise RuntimeError(
-            "UNIT 8 BLOCKED: CALCULATED QUANTITY BELOW MINIMUM"
+            "UNIT 8 BLOCKED: ENTRY BELOW MINIMUM QUANTITY"
         )
 
     if normalized_quantity <= 0:
         raise RuntimeError(
-            "UNIT 8 BLOCKED: CALCULATED QUANTITY NON-POSITIVE"
+            "UNIT 8 BLOCKED: NON-POSITIVE ENTRY QUANTITY"
         )
 
-    # ========================================================
-    # INITIAL ENTRY SAFETY CAP
-    #
-    # The theoretical position-sizing calculation remains
-    # visible for diagnostics, but the executable INITIAL
-    # ENTRY quantity must never exceed 0.0004 BTC.
-    #
-    # This cap applies to the initial entry only.
-    # It must NOT later be used as a blanket cap for:
-    #   - TP1
-    #   - TP2
-    #   - TP3 trailing
-    #   - Backup 1
-    #   - Backup 2
-    #   - Backup 3
-    # ========================================================
+    # No independent fixed BTC cap.
+    # Fixed USDT and existing exposure rules control size.
 
-    initial_entry_max_quantity = 0.0004
-
-    executable_quantity = min(
-        normalized_quantity,
-        initial_entry_max_quantity,
-    )
-
-    executable_quantity = round(
-        executable_quantity,
-        quantity_decimals,
-    )
-
-    if executable_quantity < minimum_quantity:
-        raise RuntimeError(
-            "UNIT 8 BLOCKED: CAPPED INITIAL ENTRY QUANTITY BELOW MINIMUM"
-        )
-
-    if executable_quantity <= 0:
-        raise RuntimeError(
-            "UNIT 8 BLOCKED: CAPPED INITIAL ENTRY QUANTITY NON-POSITIVE"
-        )
+    executable_quantity = normalized_quantity
 
     print(
-        "PASS: UNIT 8 MARGIN ALLOCATION SUSDT =",
+        "UNIT 8 ENTRY SIZE MODE = FIXED_USDT",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 REQUESTED INITIAL MARGIN SUSDT =",
+        fixed_usdt,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 ALLOWED INITIAL MARGIN SUSDT =",
+        maximum_initial_margin,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 MARGIN ALLOCATION SUSDT =",
         margin_allocation,
         flush=True,
     )
 
     print(
-        "PASS: UNIT 8 LEVERAGED NOTIONAL SUSDT =",
+        "UNIT 8 LEVERAGED NOTIONAL SUSDT =",
         notional_value,
         flush=True,
     )
 
     print(
-        "PASS: UNIT 8 RAW BTC QUANTITY =",
+        "UNIT 8 RAW BTC QUANTITY =",
         raw_quantity,
         flush=True,
     )
 
     print(
-        "PASS: UNIT 8 THEORETICAL BTC QUANTITY =",
-        normalized_quantity,
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 8 INITIAL ENTRY MAX BTC QUANTITY =",
-        initial_entry_max_quantity,
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 8 EXECUTABLE INITIAL ENTRY BTC QUANTITY =",
+        "UNIT 8 EXECUTABLE INITIAL BTC QUANTITY =",
         executable_quantity,
         flush=True,
     )
 
-    normalized_quantity = executable_quantity
+    # ========================================================
+    # END UNIT 8 REPLACEMENT
+    # NEXT EXISTING SECTION = 17
+    # INDENTATION REMAINS 4 SPACES
+    # ========================================================
 
     # --------------------------------------------------------
     # 17. NORMALIZED POSITION-SIZING OBJECT
