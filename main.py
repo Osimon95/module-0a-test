@@ -20705,9 +20705,23 @@ def fresh_tp3_runtime(
         )
 
 
+
 # ============================================================
-# RUN UNIT 14
+# START CONTINUOUS OPERATION CORRECTION
+# REPLACES THE EXISTING RUN UNIT 14 CALL ONLY
+# ZERO INDENTATION
 # ============================================================
+
+import os
+import time
+
+print(
+    "CONTINUOUS TRADING CYCLE = ENABLED",
+    flush=True,
+)
+
+# Run Unit 14 first using the fresh startup
+# results already produced by Units 1-13.
 
 FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
     fresh_tp3_runtime(
@@ -20716,6 +20730,205 @@ FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
     )
 )
 
+# Unit 14 returns after position closure.
+# Rebuild fresh market analysis and entry
+# decisions before beginning another trade.
+
+continuous_cycle = 0
+
+while True:
+
+    # --------------------------------------------------------
+    # 1. REQUIRE COMPLETED UNIT 14
+    # --------------------------------------------------------
+
+    if not isinstance(
+        FRESH_RECONSTRUCTION_UNIT_14_RESULT,
+        dict,
+    ):
+        raise RuntimeError(
+            "CONTINUOUS CYCLE: INVALID UNIT 14 RESULT"
+        )
+
+    previous_status = str(
+        FRESH_RECONSTRUCTION_UNIT_14_RESULT.get(
+            "status",
+            "",
+        )
+    ).upper()
+
+    if previous_status != "POSITION_CLOSED":
+        raise RuntimeError(
+            "CONTINUOUS CYCLE BLOCKED: "
+            "UNIT 14 DID NOT CONFIRM POSITION_CLOSED"
+        )
+
+    continuous_cycle += 1
+
+    print(
+        "=" * 80,
+        flush=True,
+    )
+
+    print(
+        "CONTINUOUS ENTRY SCAN CYCLE =",
+        continuous_cycle,
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 2. REFRESH BOT MODE
+    # --------------------------------------------------------
+
+    BOT_MODE = os.getenv(
+        "BOT_MODE",
+        "RUN",
+    ).strip().upper()
+
+    if BOT_MODE not in ("RUN", "PAUSE"):
+        raise RuntimeError(
+            "INVALID BOT_MODE: SET RUN OR PAUSE"
+        )
+
+    # --------------------------------------------------------
+    # 3. REFRESH MARKET DATA
+    # --------------------------------------------------------
+
+    FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
+        fresh_reconstruction_unit_3()
+    )
+
+    FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
+        fresh_reconstruction_unit_4()
+    )
+
+    # --------------------------------------------------------
+    # 4. REFRESH SIGNAL AND ENTRY ANALYSIS
+    # --------------------------------------------------------
+
+    FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
+        fresh_reconstruction_unit_5(
+            FRESH_RECONSTRUCTION_CONFIG,
+            FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+        )
+    )
+
+    FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
+        fresh_reconstruction_unit_6(
+            FRESH_RECONSTRUCTION_CONFIG,
+            FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+            FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE,
+        )
+    )
+
+    FRESH_RECONSTRUCTION_SIZING_CANDIDATE = (
+        fresh_reconstruction_unit_7(
+            FRESH_RECONSTRUCTION_CONFIG,
+            FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE,
+        )
+    )
+
+    # --------------------------------------------------------
+    # 5. REFRESH POSITION SIZING AND VALIDATION
+    # --------------------------------------------------------
+
+    FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
+        fresh_reconstruction_unit_8(
+            FRESH_RECONSTRUCTION_CONFIG,
+            FRESH_RECONSTRUCTION_SIZING_CANDIDATE,
+            FRESH_RECONSTRUCTION_MARKET_SNAPSHOT,
+        )
+    )
+
+    FRESH_RECONSTRUCTION_UNIT_9_RESULT = (
+        fresh_reconstruction_unit_9(
+            FRESH_RECONSTRUCTION_CONFIG,
+            FRESH_RECONSTRUCTION_UNIT_8_RESULT,
+        )
+    )
+
+    FRESH_RECONSTRUCTION_UNIT_10_RESULT = (
+        fresh_reconstruction_unit_10(
+            FRESH_RECONSTRUCTION_CONFIG,
+            FRESH_RECONSTRUCTION_UNIT_9_RESULT,
+        )
+    )
+
+    FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
+        fresh_reconstruction_unit_11(
+            FRESH_RECONSTRUCTION_CONFIG,
+            FRESH_RECONSTRUCTION_UNIT_10_RESULT,
+        )
+    )
+
+    # --------------------------------------------------------
+    # 6. CONTROL NEW ENTRY
+    # --------------------------------------------------------
+
+    if BOT_MODE == "PAUSE":
+
+        print(
+            "CONTINUOUS CYCLE: NEW ENTRY PAUSED",
+            flush=True,
+        )
+
+        FRESH_RECONSTRUCTION_UNIT_12_RESULT = {
+            "unit": 12,
+            "status": "IDLE",
+            "read_only": True,
+            "demo_submission_attempted": False,
+            "demo_submission_completed": False,
+            "real_submission_attempted": False,
+            "skip_reason": "BOT_MODE_PAUSE",
+        }
+
+    else:
+
+        FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
+            fresh_reconstruction_unit_12(
+                FRESH_RECONSTRUCTION_CONFIG,
+                FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+            )
+        )
+
+    # --------------------------------------------------------
+    # 7. REFRESH TP POSITION PLAN
+    # --------------------------------------------------------
+
+    FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
+        fresh_reconstruction_unit_13(
+            FRESH_RECONSTRUCTION_CONFIG,
+            FRESH_RECONSTRUCTION_UNIT_12_RESULT,
+        )
+    )
+
+    # --------------------------------------------------------
+    # 8. RETURN TO ESTABLISHED UNIT 14 MANAGEMENT
+    # --------------------------------------------------------
+
+    FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
+        fresh_tp3_runtime(
+            FRESH_RECONSTRUCTION_CONFIG,
+            FRESH_RECONSTRUCTION_UNIT_13_RESULT,
+        )
+    )
+
+    print(
+        "CONTINUOUS CYCLE COMPLETED =",
+        continuous_cycle,
+        flush=True,
+    )
+
+    # This delay applies after Unit 14 returns.
+    # Unit 14 retains its own position polling.
+
+    time.sleep(5)
+
+
+# ============================================================
+# END CONTINUOUS OPERATION CORRECTION
+# ZERO INDENTATION
+# ============================================================
 
 # ============================================================
 # END COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 14
