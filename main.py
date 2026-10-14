@@ -18191,9 +18191,18 @@ def fresh_tp3_runtime(
         flush=True,
     )
     
-
+    # ========================================================
+    # UNIT 14 CONTINUOUS TP3 STATE INITIALIZATION
+    # INDENTATION: 4 SPACES
+    # ========================================================
 
     last_confirmed_backup_stage = None
+
+    # Initialize TP3 best favorable mark.
+    # Required when TP3 is already armed at startup.
+    # Existing runtime logic updates or resets this value.
+
+    best_mark = None
 
     runtime_cycle = 0
 
@@ -18201,6 +18210,10 @@ def fresh_tp3_runtime(
 
     last_runtime_order_time = 0.0
 
+    # ========================================================
+    # END TP3 STATE INITIALIZATION
+    # ========================================================
+    
     print(
         "UNIT 14 TP3 ARMED = "
         f"{tp3_armed}",
