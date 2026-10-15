@@ -21169,6 +21169,21 @@ print(
 
 UNIT15_STARTUP_RESULT = unit15_report()
 
+
+# ============================================================
+# UNIT 15 TELEGRAM STARTUP NOTIFICATION
+# ZERO INDENTATION
+# ============================================================
+
+unit15_notify_result(
+    UNIT15_STARTUP_RESULT,
+    event="STARTUP"
+)
+
+# ============================================================
+# END STARTUP NOTIFICATION
+# ============================================================
+
 print(
     "UNIT 15 STARTUP STATUS =",
     UNIT15_STARTUP_RESULT["status"],
