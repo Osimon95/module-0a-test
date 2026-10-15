@@ -21186,6 +21186,23 @@ while True:
         flush=True,
     )
 
+    
+    # ========================================================
+    # UNIT 15 PERIODIC PERFORMANCE NOTIFICATION
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    UNIT15_LATEST_RESULT = unit15_report()
+
+    print(
+        "UNIT 15 REPORT STATUS =",
+        UNIT15_LATEST_RESULT["status"],
+        flush=True
+    )
+
+    # ========================================================
+    # END UNIT 15 NOTIFICATION
+    # ========================================================
     # This delay applies after Unit 14 returns.
     # Unit 14 retains its own position polling.
 
