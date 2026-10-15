@@ -7886,7 +7886,7 @@ def fresh_reconstruction_unit_8(
 
     fixed_usdt_text = os.getenv(
         "ENTRY_FIXED_USDT",
-        "1.00",
+        "0.50",
     )
 
     try:
@@ -7908,13 +7908,29 @@ def fresh_reconstruction_unit_8(
 
     # Preserve the established total exposure ceiling
     
+    
     # ========================================================
-    # UNIT 8 - PROGRESSIVE BACKUP AFFORDABILITY
+    # UNIT 8 - FIVE BACKUP CONFIGURATION
     # INDENTATION: 4 SPACES
     # ========================================================
 
-    multipliers = (
-        1.0, 1.5, 2.0, 2.5, 3.0
+    strategy = config.get("strategy")
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError(
+            "UNIT 8 BLOCKED: STRATEGY CONFIG MISSING"
+        )
+
+    max_backups = int(
+        strategy.get("max_backups", 0)
+    )
+
+    multipliers = tuple(
+        strategy.get("backup_multipliers", ())
+    )
+
+    exposure_cap_percent = float(
+        strategy.get("exposure_cap_percent", 0)
     )
 
     if max_backups != 5:
@@ -7922,11 +7938,25 @@ def fresh_reconstruction_unit_8(
             "UNIT 8 INVALID BACKUP COUNT"
         )
 
-    if not (0 < exposure_cap_percent <= 35.0):
+    if multipliers != (
+        1.0, 1.5, 2.0, 2.5, 3.0
+    ):
+        raise RuntimeError(
+            "UNIT 8 INVALID BACKUP MULTIPLIERS"
+        )
+
+    if not (
+        0 < exposure_cap_percent <= 35.0
+    ):
         raise RuntimeError(
             "UNIT 8 INVALID EXPOSURE CAP"
         )
 
+    # ========================================================
+    # END UNIT 8 CONFIGURATION
+    # EXISTING INITIAL MARGIN CHECK CONTINUES
+    # ========================================================
+    
     maximum_initial_margin = (
         available_balance
         * exposure_cap_percent
