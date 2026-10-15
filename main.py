@@ -16297,6 +16297,51 @@ def fresh_tp3_runtime(
         )
     )
 
+    
+    # ========================================================
+    # START UNIT 14 FIXED BACKUP MARGIN
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    try:
+        fixed_entry_margin = Decimal(
+            os.getenv(
+                "ENTRY_FIXED_USDT",
+                "1.00",
+            ).strip()
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "UNIT 14 INVALID ENTRY_FIXED_USDT"
+        ) from exc
+
+    if (
+        not fixed_entry_margin.is_finite()
+        or fixed_entry_margin <= Decimal("0")
+    ):
+        raise RuntimeError(
+            "UNIT 14 FIXED ENTRY MARGIN MUST BE POSITIVE"
+        )
+
+    # Locked for this Unit 14 runtime invocation.
+    fixed_backup_margin = fixed_entry_margin
+
+    print(
+        "UNIT 14 FIXED INITIAL MARGIN SUSDT =",
+        fixed_entry_margin,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 B1-B3 MARGIN EACH SUSDT =",
+        fixed_backup_margin,
+        flush=True,
+    )
+
+    # ========================================================
+    # END UNIT 14 FIXED BACKUP MARGIN
+    # ========================================================
+    
     # --------------------------------------------------------
     # DYNAMIC TP3 CONFIGURATION
     # --------------------------------------------------------
