@@ -20240,15 +20240,33 @@ def fresh_tp3_runtime(
         # 13F. BACKUP QUANTITY
         # ====================================================
 
+        
+        # ====================================================
+        # START FIXED-DOLLAR BACKUP SIZING
+        # INDENTATION: 8 SPACES
+        # ====================================================
+
         backup_margin_amount = (
-            available_balance
-            *
-            (
-                backup_margin_percent
-                /
-                Decimal("100")
-            )
+            fixed_backup_margin
         )
+
+        if backup_margin_amount > available_balance:
+
+            print(
+                f"UNIT 14 B{next_backup_stage} BLOCKED: "
+                "INSUFFICIENT DEMO MARGIN",
+                flush=True,
+            )
+
+            time.sleep(
+                poll_seconds
+            )
+
+            continue
+
+        # ====================================================
+        # END FIXED-DOLLAR BACKUP SIZING
+        # ====================================================
 
         backup_notional = (
             backup_margin_amount
