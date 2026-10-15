@@ -20134,73 +20134,82 @@ def fresh_tp3_runtime(
 
             continue
 
+        
         # ====================================================
-        # 13D. EXPOSURE CAP
+        # UNIT 14 - PROGRESSIVE FIVE BACKUP CONTROL
+        # INDENTATION: 8 SPACES
         # ====================================================
 
-        current_configured_exposure = (
-            initial_margin_percent
-            +
-            (
-                Decimal(
-                    completed_backups
+        backup_multipliers = (
+            Decimal("1"),
+            Decimal("1.5"),
+            Decimal("2"),
+            Decimal("2.5"),
+            Decimal("3"),
+        )
+
+        backup_stage = int(next_backup_stage)
+
+        if not 1 <= backup_stage <= 5:
+            raise RuntimeError(
+                "UNIT 14 INVALID BACKUP STAGE"
+            )
+
+        if completed_backups != backup_stage - 1:
+            raise RuntimeError(
+                "UNIT 14 BACKUP SEQUENCE MISMATCH"
+            )
+
+        backup_multiplier = (
+            backup_multipliers[backup_stage - 1]
+        )
+
+        backup_margin_amount = (
+            fixed_backup_margin
+            * backup_multiplier
+        )
+
+        current_margin_committed = (
+            fixed_entry_margin
+            * (
+                Decimal("1")
+                + sum(
+                    backup_multipliers[
+                        :completed_backups
+                    ]
                 )
-                *
-                backup_margin_percent
             )
         )
 
-        projected_exposure = (
-            current_configured_exposure
-            +
-            backup_margin_percent
+        projected_margin_committed = (
+            current_margin_committed
+            + backup_margin_amount
         )
 
         print(
-            "UNIT 14 CURRENT CONFIGURED EXPOSURE % = "
-            f"{current_configured_exposure}",
+            f"UNIT 14 B{backup_stage} "
+            f"MULTIPLIER = {backup_multiplier}X",
             flush=True,
         )
 
         print(
-            "UNIT 14 PROJECTED EXPOSURE % = "
-            f"{projected_exposure}",
+            "UNIT 14 CURRENT PLANNED MARGIN =",
+            current_margin_committed,
             flush=True,
         )
 
         print(
-            "UNIT 14 EXPOSURE CAP % = "
-            f"{exposure_cap_percent}",
+            "UNIT 14 PROJECTED PLANNED MARGIN =",
+            projected_margin_committed,
             flush=True,
         )
 
-        if (
-            projected_exposure
-            >
-            exposure_cap_percent
-        ):
-
-            print(
-                f"UNIT 14 B{next_backup_stage} BLOCKED: "
-                "EXPOSURE CAP",
-                flush=True,
-            )
-
-            time.sleep(
-                poll_seconds
-            )
-
-            continue
-
-        # ====================================================
-        # 13E. DEMO BALANCE
-        # ====================================================
+        # ----------------------------------------------------
+        # VERIFY FRESH DEMO AVAILABLE BALANCE
+        # ----------------------------------------------------
 
         try:
-
-            balance_item = (
-                get_demo_balance()
-            )
+            balance_item = get_demo_balance()
 
             available_balance = Decimal(
                 str(
@@ -20211,99 +20220,105 @@ def fresh_tp3_runtime(
                 )
             )
 
+            if not available_balance.is_finite():
+                raise ValueError(
+                    "NON-FINITE AVAILABLE BALANCE"
+                )
+
         except Exception as exc:
-
             print(
-                "UNIT 14 BALANCE READ ERROR = "
-                f"{repr(exc)}",
-                flush=True,
-            )
-
-            time.sleep(
-                poll_seconds
-            )
-
-            continue
-
-        if (
-            available_balance
-            <=
-            Decimal("0")
-        ):
-
-            print(
-                f"UNIT 14 B{next_backup_stage} BLOCKED: "
-                "NO AVAILABLE DEMO BALANCE",
-                flush=True,
-            )
-
-            time.sleep(
-                poll_seconds
-            )
-
-            continue
-
-        # ====================================================
-        # 13F. BACKUP QUANTITY
-        # ====================================================
-
-        
-        # ====================================================
-        # START UNIT 14 BACKUP MULTIPLIER CORRECTION
-        # INDENTATION: 8 SPACES
-        # ====================================================
-
-        
-        # ====================================================
-        # UNIT 14 BACKUP MULTIPLIERS
-        # INDENTATION: 8 SPACES
-        # ====================================================
-
-        backup_multipliers = {
-            1: Decimal("2"),
-            2: Decimal("3"),
-            3: Decimal("4"),
-        }
-
-        # ====================================================
-        # END BACKUP MULTIPLIERS
-        # ====================================================
-
-        backup_stage = int(
-            next_backup_stage
-        )
-
-        if backup_stage not in backup_multipliers:
-            raise RuntimeError(
-                "UNIT 14 INVALID BACKUP STAGE"
-            )
-
-        backup_margin_amount = (
-            fixed_backup_margin
-            * backup_multipliers[backup_stage]
-        )
-
-        print(
-            f"UNIT 14 B{backup_stage} "
-            f"MULTIPLIER = "
-            f"{backup_multipliers[backup_stage]}X",
-            flush=True,
-        )
-
-        if backup_margin_amount > available_balance:
-
-            print(
-                f"UNIT 14 B{backup_stage} BLOCKED: "
-                "INSUFFICIENT DEMO MARGIN",
+                "UNIT 14 BALANCE READ ERROR =",
+                repr(exc),
                 flush=True,
             )
 
             time.sleep(poll_seconds)
             continue
 
+        # ----------------------------------------------------
+        # CONSERVATIVE ACCOUNT FUNDS ESTIMATE
+        # ----------------------------------------------------
+
+        budgeted_funds = (
+            available_balance
+            + current_margin_committed
+        )
+
+        maximum_allowed_exposure = (
+            budgeted_funds
+            * exposure_cap_percent
+            / Decimal("100")
+        )
+
+        remaining_exposure_allowance = max(
+            Decimal("0"),
+            maximum_allowed_exposure
+            - current_margin_committed,
+        )
+
+        print(
+            "UNIT 14 AVAILABLE BALANCE =",
+            available_balance,
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 EXPOSURE LIMIT =",
+            maximum_allowed_exposure,
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 REMAINING ALLOWANCE =",
+            remaining_exposure_allowance,
+            flush=True,
+        )
+
+        # ----------------------------------------------------
+        # FULL BACKUP SIZE REQUIRED
+        # ----------------------------------------------------
+
+        if (
+            available_balance
+            < backup_margin_amount
+        ):
+            print(
+                f"UNIT 14 B{backup_stage} WAITING: "
+                "INSUFFICIENT AVAILABLE BALANCE",
+                flush=True,
+            )
+
+            time.sleep(poll_seconds)
+            continue
+
+        if (
+            backup_margin_amount
+            > remaining_exposure_allowance
+        ):
+            print(
+                f"UNIT 14 B{backup_stage} WAITING: "
+                "35% EXPOSURE CAP",
+                flush=True,
+            )
+
+            time.sleep(poll_seconds)
+            continue
+
+        print(
+            f"UNIT 14 B{backup_stage} "
+            "AFFORDABILITY CHECK = PASS",
+            flush=True,
+        )
+
+        print(
+            f"UNIT 14 B{backup_stage} "
+            f"PLANNED MARGIN = {backup_margin_amount}",
+            flush=True,
+        )
+
         # ====================================================
-        # END UNIT 14 BACKUP MULTIPLIER CORRECTION
-        # EXISTING backup_notional CONTINUES BELOW
+        # END UNIT 14 PROGRESSIVE BACKUP CONTROL
+        # NEXT: EXISTING backup_notional CALCULATION
         # ====================================================
         
         backup_notional = (
