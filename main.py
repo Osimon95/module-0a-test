@@ -20970,6 +20970,23 @@ print(
     flush=True,
 )
 
+
+# ============================================================
+# UNIT 15 STARTUP HISTORY RECOVERY
+# ZERO INDENTATION
+# ============================================================
+
+UNIT15_STARTUP_RESULT = unit15_report()
+
+print(
+    "UNIT 15 STARTUP STATUS =",
+    UNIT15_STARTUP_RESULT["status"],
+    flush=True
+)
+
+# ============================================================
+# END UNIT 15 STARTUP RECOVERY
+# ============================================================
 # Run Unit 14 first using the fresh startup
 # results already produced by Units 1-13.
 
