@@ -21400,6 +21400,20 @@ while True:
 
     UNIT15_LATEST_RESULT = unit15_report()
 
+    # ========================================================
+    # UNIT 15 TELEGRAM CYCLE NOTIFICATION
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    unit15_notify_result(
+        UNIT15_LATEST_RESULT,
+        event="CYCLE"
+    )
+
+    # ========================================================
+    # END TELEGRAM CYCLE NOTIFICATION
+    # ========================================================
+
     print(
         "UNIT 15 REPORT STATUS =",
         UNIT15_LATEST_RESULT["status"],
