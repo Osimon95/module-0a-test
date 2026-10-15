@@ -8337,70 +8337,77 @@ def fresh_reconstruction_unit_8(
         )
 
     # Preserve the established total exposure ceiling
-    # and reserve the configured margin for B1-B3.
+    
+    # ========================================================
+    # UNIT 8 - PROGRESSIVE BACKUP AFFORDABILITY
+    # INDENTATION: 4 SPACES
+    # ========================================================
 
-    strategy_config = config.get(
-        "strategy",
-        {},
+    multipliers = (
+        1.0, 1.5, 2.0, 2.5, 3.0
     )
 
-    exposure_cap_percent = float(
-        strategy_config.get(
-            "exposure_cap_percent",
-            35.0,
-        )
-    )
-
-    backup_margin_percent = float(
-        strategy_config.get(
-            "backup_margin_percent",
-            5.0,
-        )
-    )
-
-    max_backups = int(
-        strategy_config.get(
-            "max_backups",
-            3,
-        )
-    )
-
-    reserved_backup_percent = (
-        backup_margin_percent * max_backups
-    )
-
-    maximum_initial_percent = (
-        exposure_cap_percent
-        - reserved_backup_percent
-    )
-
-    if (
-        not math.isfinite(maximum_initial_percent)
-        or maximum_initial_percent <= 0
-    ):
+    if max_backups != 5:
         raise RuntimeError(
-            "UNIT 8 BLOCKED: NO INITIAL MARGIN CAPACITY"
+            "UNIT 8 INVALID BACKUP COUNT"
+        )
+
+    if not (0 < exposure_cap_percent <= 35.0):
+        raise RuntimeError(
+            "UNIT 8 INVALID EXPOSURE CAP"
         )
 
     maximum_initial_margin = (
         available_balance
-        * maximum_initial_percent
+        * exposure_cap_percent
         / 100.0
     )
 
     if fixed_usdt > maximum_initial_margin:
         raise RuntimeError(
-            "UNIT 8 BLOCKED: FIXED ENTRY EXCEEDS "
-            "AVAILABLE INITIAL MARGIN ALLOCATION"
+            "UNIT 8 BLOCKED: INITIAL ENTRY "
+            "EXCEEDS EXPOSURE ALLOWANCE"
         )
 
     if fixed_usdt > available_balance:
         raise RuntimeError(
-            "UNIT 8 BLOCKED: INSUFFICIENT DEMO BALANCE"
+            "UNIT 8 BLOCKED: INSUFFICIENT "
+            "INITIAL ENTRY BALANCE"
         )
 
     margin_allocation = fixed_usdt
 
+    # Backups are assessed individually by Unit 14.
+    # Do not reserve the entire ladder here.
+
+    print(
+        "UNIT 8 BACKUP FUNDING = PROGRESSIVE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 INITIAL MARGIN =",
+        margin_allocation,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 MAX BACKUPS =",
+        max_backups,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 EXPOSURE CAP =",
+        exposure_cap_percent,
+        "%",
+        flush=True,
+    )
+
+    # ========================================================
+    # END UNIT 8 PROGRESSIVE AFFORDABILITY
+    # EXISTING NOTIONAL CALCULATION CONTINUES
+    # ========================================================
     # Leverage and BTC quantity calculation.
 
     notional_value = (
