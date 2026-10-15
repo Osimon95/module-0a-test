@@ -20594,104 +20594,227 @@ def unit15_interval(period=None):
     )
 
 
+# ============================================================
+# START UNIT 15 - CORRECTED WEEX HISTORY PAGINATION
+# ZERO INDENTATION
+# READ-ONLY - NO EXCHANGE WRITE
+# ============================================================
+
 def unit15_sync_history(period=None):
+
     start, end = unit15_interval(period)
 
-    # Include an earlier lookback to find the opening
-    # orders of positions closed in the selected interval.
+    # Retrieve earlier entries for positions
+    # that may close during the selected period.
     lookback = timedelta(days=90)
+
     fetch_start = start - lookback
 
-    # API calls must span less than 90 days.
-    chunk = timedelta(days=89)
+    # Stay safely below WEEX's 90-day limit.
+    chunk_size = timedelta(days=89)
+
     cursor = fetch_start
 
     unique_orders = {}
     pages_fetched = 0
+    chunks_fetched = 0
+
+    page_limit = 1000
+    max_pages_per_chunk = 20
 
     while cursor < end:
-        chunk_end = min(cursor + chunk, end)
 
-        start_ms = int(cursor.timestamp() * 1000)
-        end_ms = int(chunk_end.timestamp() * 1000)
+        chunk_end = min(
+            cursor + chunk_size,
+            end
+        )
+
+        start_ms = int(
+            cursor.timestamp() * 1000
+        )
+
+        end_ms = int(
+            chunk_end.timestamp() * 1000
+        )
 
         page = 0
-        limit = 500
+        previous_fingerprint = None
+        chunk_seen_ids = set()
+        chunk_complete = False
 
-        while True:
-            if page >= 100:
-                raise RuntimeError(
-                    "UNIT 15 PAGINATION INCOMPLETE"
-                )
+        chunks_fetched += 1
 
-            params = {
+        while page < max_pages_per_chunk:
+
+            parameters = {
                 "symbol": UNIT15_SYMBOL,
+                "limit": page_limit,
+                "page": page,
                 "startTime": start_ms,
-                "endTime": end_ms,
-                "limit": limit,
-                "page": page
+                "endTime": end_ms
             }
 
-            rows = unit15_get_history_page(params)
+            rows = unit15_get_history_page(
+                parameters
+            )
+
             pages_fetched += 1
 
+            print(
+                "UNIT 15 HISTORY PAGE =",
+                page,
+                "| ROWS =",
+                len(rows),
+                "| CHUNK =",
+                chunks_fetched,
+                flush=True
+            )
+
+            if not rows:
+                chunk_complete = True
+                break
+
+            page_ids = []
+
             for row in rows:
+
                 order_id = str(
                     row.get("orderId", "")
                 ).strip()
 
                 if not order_id:
                     raise RuntimeError(
-                        "UNIT 15 ORDER ID MISSING"
+                        "UNIT 15 HISTORY MISSING ORDER ID"
                     )
 
-                if (
-                    str(row.get("symbol", "")).upper()
-                    != UNIT15_SYMBOL
-                ):
+                page_ids.append(order_id)
+
+            # Detect an identical repeated page.
+            fingerprint = tuple(page_ids)
+
+            if fingerprint == previous_fingerprint:
+                raise RuntimeError(
+                    "UNIT 15 PAGINATION STALLED: "
+                    "IDENTICAL PAGE REPEATED"
+                )
+
+            previous_fingerprint = fingerprint
+
+            # Detect overlapping or non-advancing pages.
+            newly_seen = set(page_ids) - chunk_seen_ids
+
+            if not newly_seen:
+                raise RuntimeError(
+                    "UNIT 15 PAGINATION STALLED: "
+                    "NO NEW ORDER IDS"
+                )
+
+            chunk_seen_ids.update(page_ids)
+
+            for row in rows:
+
+                order_id = str(
+                    row["orderId"]
+                ).strip()
+
+                symbol = str(
+                    row.get("symbol", "")
+                ).upper()
+
+                if symbol != UNIT15_SYMBOL:
                     continue
 
-                prior = unique_orders.get(order_id)
+                # Preserve the latest known version
+                # of each exchange order.
+                previous = unique_orders.get(
+                    order_id
+                )
 
-                if (
-                    prior is None
-                    or int(row.get("updateTime") or 0)
-                    >= int(prior.get("updateTime") or 0)
-                ):
+                if previous is None:
                     unique_orders[order_id] = row
 
-            if len(rows) < limit:
+                else:
+                    current_update = int(
+                        row.get("updateTime") or 0
+                    )
+
+                    previous_update = int(
+                        previous.get("updateTime") or 0
+                    )
+
+                    if current_update >= previous_update:
+                        unique_orders[order_id] = row
+
+            # This is the expected ending condition.
+            if len(rows) < page_limit:
+                chunk_complete = True
                 break
 
             page += 1
 
+        if not chunk_complete:
+            raise RuntimeError(
+                "UNIT 15 HISTORY INCOMPLETE: "
+                "PAGE SAFETY LIMIT REACHED"
+            )
+
+        # Continue to next date window.
         cursor = chunk_end
 
     orders = sorted(
         unique_orders.values(),
         key=lambda row: (
-            int(row.get("updateTime") or row.get("time") or 0),
-            str(row.get("orderId", ""))
+            int(
+                row.get("updateTime")
+                or row.get("time")
+                or 0
+            ),
+            str(
+                row.get("orderId", "")
+            )
         )
     )
 
     print(
-        "UNIT 15 WEEX HISTORY SYNC = PASS",
+        "PASS: UNIT 15 WEEX HISTORY SYNC",
         flush=True
     )
+
     print(
         "UNIT 15 UNIQUE ORDERS =",
         len(orders),
         flush=True
     )
+
     print(
-        "UNIT 15 PAGES FETCHED =",
+        "UNIT 15 HISTORY PAGES =",
         pages_fetched,
+        flush=True
+    )
+
+    print(
+        "UNIT 15 HISTORY CHUNKS =",
+        chunks_fetched,
+        flush=True
+    )
+
+    print(
+        "UNIT 15 PAGINATION STATUS = COMPLETE",
+        flush=True
+    )
+
+    print(
+        "UNIT 15 EXCHANGE WRITE = FALSE",
         flush=True
     )
 
     return orders
 
+
+# ============================================================
+# END UNIT 15 PAGINATION CORRECTION
+# ZERO INDENTATION
+# ============================================================
 
 def unit15_reconstruct(orders, period=None):
     start, end = unit15_interval(period)
