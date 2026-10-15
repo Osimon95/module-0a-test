@@ -21261,6 +21261,106 @@ print(
 # ZERO INDENTATION
 # ============================================================
 
+
+# ============================================================
+# UNIT 15 HISTORY RECONSTRUCTION DIAGNOSTIC
+# ZERO INDENTATION
+# NO EXCHANGE WRITES
+# ============================================================
+
+def unit15_history_diagnostic():
+
+    from collections import Counter
+    from decimal import Decimal
+
+    try:
+        orders = unit15_sync_history()
+
+        statuses = Counter()
+        actions = Counter()
+        sides = Counter()
+
+        filled = 0
+        zero_quantity = 0
+        missing_prices = 0
+
+        earliest = None
+        latest = None
+
+        for order in orders:
+
+            statuses[
+                str(order.get("status", "MISSING"))
+            ] += 1
+
+            actions[
+                str(order.get("side", "MISSING"))
+            ] += 1
+
+            sides[
+                str(order.get(
+                    "positionSide", "MISSING"
+                ))
+            ] += 1
+
+            qty = Decimal(
+                str(order.get("executedQty") or "0")
+            )
+
+            price = Decimal(
+                str(order.get("avgPrice") or "0")
+            )
+
+            if qty > 0:
+                filled += 1
+                if price <= 0:
+                    missing_prices += 1
+            else:
+                zero_quantity += 1
+
+            stamp = int(
+                order.get("time")
+                or order.get("updateTime")
+                or 0
+            )
+
+            if stamp > 0:
+                earliest = (
+                    stamp if earliest is None
+                    else min(earliest, stamp)
+                )
+
+                latest = (
+                    stamp if latest is None
+                    else max(latest, stamp)
+                )
+
+        print("=" * 60, flush=True)
+        print("UNIT 15 HISTORY DIAGNOSTIC", flush=True)
+        print("TOTAL ORDERS =", len(orders), flush=True)
+        print("ORDER STATUSES =", dict(statuses), flush=True)
+        print("ORDER ACTIONS =", dict(actions), flush=True)
+        print("POSITION SIDES =", dict(sides), flush=True)
+        print("FILLED QUANTITY ORDERS =", filled, flush=True)
+        print("ZERO QUANTITY ORDERS =", zero_quantity, flush=True)
+        print("FILLED ORDERS MISSING PRICE =",
+              missing_prices, flush=True)
+
+        print("EARLIEST ORDER MS =", earliest, flush=True)
+        print("LATEST ORDER MS =", latest, flush=True)
+        print("=" * 60, flush=True)
+
+    except Exception as error:
+        print(
+            "UNIT 15 DIAGNOSTIC ERROR =",
+            type(error).__name__,
+            str(error),
+            flush=True
+        )
+
+# ============================================================
+# END UNIT 15 HISTORY DIAGNOSTIC
+# ============================================================
 print(
     "PASS: UNIT 15 EXCHANGE HISTORY ENGINE LOADED",
     flush=True
