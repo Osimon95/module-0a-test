@@ -21392,6 +21392,8 @@ print(
 
 UNIT15_STARTUP_RESULT = unit15_report()
 
+unit15_history_diagnostic()
+
 
 # ============================================================
 # UNIT 15 TELEGRAM STARTUP NOTIFICATION
