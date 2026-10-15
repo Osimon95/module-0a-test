@@ -20254,8 +20254,8 @@ def fresh_tp3_runtime(
 
         backup_multipliers = {
             1: Decimal("2"),
-            2: Decimal("2"),
-            3: Decimal("2"),
+            2: Decimal("3"),
+            3: Decimal("4"),
         }
 
         # ====================================================
