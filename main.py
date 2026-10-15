@@ -20947,6 +20947,197 @@ def unit15_report(period=None):
         }
 
 
+# ============================================================
+# START UNIT 15 TELEGRAM NOTIFICATION UPGRADE
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import time
+import json
+import urllib.parse
+import urllib.request
+
+UNIT15_TELEGRAM_ENABLED = os.getenv(
+    "UNIT15_TELEGRAM_ENABLED",
+    "false"
+).strip().lower() in ("true", "1", "yes", "on")
+
+UNIT15_TELEGRAM_STARTUP = os.getenv(
+    "UNIT15_TELEGRAM_STARTUP",
+    "true"
+).strip().lower() in ("true", "1", "yes", "on")
+
+UNIT15_TELEGRAM_CYCLE = os.getenv(
+    "UNIT15_TELEGRAM_CYCLE",
+    "true"
+).strip().lower() in ("true", "1", "yes", "on")
+
+UNIT15_TELEGRAM_MIN_INTERVAL = max(
+    60,
+    int(os.getenv(
+        "UNIT15_TELEGRAM_MIN_INTERVAL",
+        "3600"
+    ))
+)
+
+UNIT15_LAST_MESSAGE = None
+UNIT15_LAST_SENT_AT = 0.0
+
+
+def unit15_send_telegram(message, event="CYCLE"):
+    global UNIT15_LAST_MESSAGE
+    global UNIT15_LAST_SENT_AT
+
+    if not UNIT15_TELEGRAM_ENABLED:
+        print(
+            "UNIT 15 TELEGRAM = DISABLED",
+            flush=True
+        )
+        return False
+
+    event = str(event).upper()
+
+    if event == "STARTUP" and not UNIT15_TELEGRAM_STARTUP:
+        return False
+
+    if event == "CYCLE" and not UNIT15_TELEGRAM_CYCLE:
+        return False
+
+    token = os.getenv(
+        "TELEGRAM_BOT_TOKEN", ""
+    ).strip()
+
+    chat_id = os.getenv(
+        "TELEGRAM_CHAT_ID", ""
+    ).strip()
+
+    if not token or not chat_id:
+        print(
+            "UNIT 15 TELEGRAM = "
+            "MISSING TOKEN OR CHAT ID",
+            flush=True
+        )
+        return False
+
+    message = str(message).strip()
+
+    if not message:
+        return False
+
+    # Telegram message maximum is 4096 characters.
+    message = message[:4000]
+
+    now = time.time()
+
+    if (
+        message == UNIT15_LAST_MESSAGE
+        and
+        now - UNIT15_LAST_SENT_AT
+        < UNIT15_TELEGRAM_MIN_INTERVAL
+    ):
+        print(
+            "UNIT 15 TELEGRAM = "
+            "DUPLICATE SUPPRESSED",
+            flush=True
+        )
+        return False
+
+    url = (
+        "https://api.telegram.org/bot"
+        + token
+        + "/sendMessage"
+    )
+
+    payload = urllib.parse.urlencode({
+        "chat_id": chat_id,
+        "text": message
+    }).encode("utf-8")
+
+    try:
+        request = urllib.request.Request(
+            url,
+            data=payload,
+            method="POST"
+        )
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15
+        ) as response:
+            result = json.loads(
+                response.read().decode("utf-8")
+            )
+
+        if not result.get("ok", False):
+            print(
+                "UNIT 15 TELEGRAM = "
+                "API REJECTED MESSAGE",
+                flush=True
+            )
+            return False
+
+        UNIT15_LAST_MESSAGE = message
+        UNIT15_LAST_SENT_AT = now
+
+        print(
+            "PASS: UNIT 15 TELEGRAM SENT",
+            flush=True
+        )
+        return True
+
+    except Exception as error:
+        print(
+            "UNIT 15 TELEGRAM FAILED =",
+            type(error).__name__,
+            str(error)[:150],
+            flush=True
+        )
+        return False
+
+
+def unit15_notify_result(result, event="CYCLE"):
+    if not isinstance(result, dict):
+        return False
+
+    if result.get("status") != "PASS":
+        print(
+            "UNIT 15 TELEGRAM = "
+            "SKIPPED INVALID REPORT",
+            flush=True
+        )
+        return False
+
+    report = result.get("report")
+
+    if not report:
+        return False
+
+    message = (
+        "WEEX DEMO TRADING PERFORMANCE\n"
+        + "Notification: "
+        + str(event).upper()
+        + "\n\n"
+        + str(report)
+    )
+
+    return unit15_send_telegram(
+        message,
+        event=event
+    )
+
+
+print(
+    "UNIT 15 TELEGRAM ENABLED =",
+    UNIT15_TELEGRAM_ENABLED,
+    flush=True
+)
+
+# ============================================================
+# END UNIT 15 TELEGRAM NOTIFICATION UPGRADE
+# ZERO INDENTATION
+# ============================================================
+
 print(
     "PASS: UNIT 15 EXCHANGE HISTORY ENGINE LOADED",
     flush=True
