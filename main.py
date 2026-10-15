@@ -20242,32 +20242,53 @@ def fresh_tp3_runtime(
 
         
         # ====================================================
-        # START FIXED-DOLLAR BACKUP SIZING
+        # START UNIT 14 BACKUP MULTIPLIER CORRECTION
         # INDENTATION: 8 SPACES
         # ====================================================
 
+        backup_multipliers = {
+            1: Decimal("2"),
+            2: Decimal("3"),
+            3: Decimal("4"),
+        }
+
+        backup_stage = int(
+            next_backup_stage
+        )
+
+        if backup_stage not in backup_multipliers:
+            raise RuntimeError(
+                "UNIT 14 INVALID BACKUP STAGE"
+            )
+
         backup_margin_amount = (
             fixed_backup_margin
+            * backup_multipliers[backup_stage]
+        )
+
+        print(
+            f"UNIT 14 B{backup_stage} "
+            f"MULTIPLIER = "
+            f"{backup_multipliers[backup_stage]}X",
+            flush=True,
         )
 
         if backup_margin_amount > available_balance:
 
             print(
-                f"UNIT 14 B{next_backup_stage} BLOCKED: "
+                f"UNIT 14 B{backup_stage} BLOCKED: "
                 "INSUFFICIENT DEMO MARGIN",
                 flush=True,
             )
 
-            time.sleep(
-                poll_seconds
-            )
-
+            time.sleep(poll_seconds)
             continue
 
         # ====================================================
-        # END FIXED-DOLLAR BACKUP SIZING
+        # END UNIT 14 BACKUP MULTIPLIER CORRECTION
+        # EXISTING backup_notional CONTINUES BELOW
         # ====================================================
-
+        
         backup_notional = (
             backup_margin_amount
             *
