@@ -20436,6 +20436,527 @@ def fresh_tp3_runtime(
 
 
 # ============================================================
+# START UNIT 15 - WEEX EXCHANGE HISTORY REPORTER
+# ZERO INDENTATION
+# READ ONLY - NO ORDER POST OR ACCOUNT MUTATIONS
+# ============================================================
+
+import os
+import time
+import json
+import hmac
+import hashlib
+import base64
+import urllib.request
+import urllib.parse
+
+from decimal import Decimal
+from datetime import datetime, timezone, timedelta
+
+UNIT15_SYMBOL = "BTCSUSDT"
+
+UNIT15_PERIOD = os.getenv(
+    "UNIT15_PERIOD", "7d"
+).strip().lower()
+
+UNIT15_START = os.getenv(
+    "UNIT15_START", ""
+).strip()
+
+UNIT15_END = os.getenv(
+    "UNIT15_END", ""
+).strip()
+
+UNIT15_BASE_URL = "https://api-contract.weex.com"
+UNIT15_PATH = "/capi/v3/sim/order/history"
+
+
+def unit15_credentials():
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+    passphrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, passphrase)):
+        raise RuntimeError(
+            "UNIT 15 WEEX CREDENTIALS MISSING"
+        )
+
+    return key, secret, passphrase
+
+
+def unit15_get_history_page(parameters):
+    key, secret, passphrase = unit15_credentials()
+
+    query = urllib.parse.urlencode(parameters)
+    timestamp = str(int(time.time() * 1000))
+
+    message = (
+        timestamp
+        + "GET"
+        + UNIT15_PATH
+        + "?"
+        + query
+    )
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            message.encode("utf-8"),
+            hashlib.sha256
+        ).digest()
+    ).decode("utf-8")
+
+    headers = {
+        "ACCESS-KEY": key,
+        "ACCESS-SIGN": signature,
+        "ACCESS-TIMESTAMP": timestamp,
+        "ACCESS-PASSPHRASE": passphrase,
+        "Content-Type": "application/json"
+    }
+
+    request = urllib.request.Request(
+        UNIT15_BASE_URL
+        + UNIT15_PATH
+        + "?"
+        + query,
+        headers=headers,
+        method="GET"
+    )
+
+    with urllib.request.urlopen(
+        request, timeout=20
+    ) as response:
+        payload = json.loads(
+            response.read().decode("utf-8")
+        )
+
+    if not isinstance(payload, list):
+        raise RuntimeError(
+            "UNIT 15 INVALID WEEX HISTORY RESPONSE"
+        )
+
+    if not all(
+        isinstance(item, dict)
+        for item in payload
+    ):
+        raise RuntimeError(
+            "UNIT 15 INVALID ORDER ROW"
+        )
+
+    return payload
+
+
+def unit15_interval(period=None):
+    period = (period or UNIT15_PERIOD).lower()
+
+    now = datetime.now(timezone.utc)
+
+    durations = {
+        "24h": timedelta(hours=24),
+        "7d": timedelta(days=7),
+        "30d": timedelta(days=30),
+        "90d": timedelta(days=90)
+    }
+
+    if period in durations:
+        return now - durations[period], now
+
+    if period == "custom":
+        start = datetime.strptime(
+            UNIT15_START, "%Y-%m-%d"
+        ).replace(tzinfo=timezone.utc)
+
+        end = datetime.strptime(
+            UNIT15_END, "%Y-%m-%d"
+        ).replace(
+            tzinfo=timezone.utc
+        ) + timedelta(days=1)
+
+        if start >= end:
+            raise ValueError(
+                "UNIT 15 INVALID DATE RANGE"
+            )
+
+        return start, end
+
+    raise ValueError(
+        "UNIT 15 PERIOD MUST BE "
+        "24h, 7d, 30d, 90d OR custom"
+    )
+
+
+def unit15_sync_history(period=None):
+    start, end = unit15_interval(period)
+
+    # Include an earlier lookback to find the opening
+    # orders of positions closed in the selected interval.
+    lookback = timedelta(days=90)
+    fetch_start = start - lookback
+
+    # API calls must span less than 90 days.
+    chunk = timedelta(days=89)
+    cursor = fetch_start
+
+    unique_orders = {}
+    pages_fetched = 0
+
+    while cursor < end:
+        chunk_end = min(cursor + chunk, end)
+
+        start_ms = int(cursor.timestamp() * 1000)
+        end_ms = int(chunk_end.timestamp() * 1000)
+
+        page = 0
+        limit = 500
+
+        while True:
+            if page >= 100:
+                raise RuntimeError(
+                    "UNIT 15 PAGINATION INCOMPLETE"
+                )
+
+            params = {
+                "symbol": UNIT15_SYMBOL,
+                "startTime": start_ms,
+                "endTime": end_ms,
+                "limit": limit,
+                "page": page
+            }
+
+            rows = unit15_get_history_page(params)
+            pages_fetched += 1
+
+            for row in rows:
+                order_id = str(
+                    row.get("orderId", "")
+                ).strip()
+
+                if not order_id:
+                    raise RuntimeError(
+                        "UNIT 15 ORDER ID MISSING"
+                    )
+
+                if (
+                    str(row.get("symbol", "")).upper()
+                    != UNIT15_SYMBOL
+                ):
+                    continue
+
+                prior = unique_orders.get(order_id)
+
+                if (
+                    prior is None
+                    or int(row.get("updateTime") or 0)
+                    >= int(prior.get("updateTime") or 0)
+                ):
+                    unique_orders[order_id] = row
+
+            if len(rows) < limit:
+                break
+
+            page += 1
+
+        cursor = chunk_end
+
+    orders = sorted(
+        unique_orders.values(),
+        key=lambda row: (
+            int(row.get("updateTime") or row.get("time") or 0),
+            str(row.get("orderId", ""))
+        )
+    )
+
+    print(
+        "UNIT 15 WEEX HISTORY SYNC = PASS",
+        flush=True
+    )
+    print(
+        "UNIT 15 UNIQUE ORDERS =",
+        len(orders),
+        flush=True
+    )
+    print(
+        "UNIT 15 PAGES FETCHED =",
+        pages_fetched,
+        flush=True
+    )
+
+    return orders
+
+
+def unit15_reconstruct(orders, period=None):
+    start, end = unit15_interval(period)
+
+    start_ms = int(start.timestamp() * 1000)
+    end_ms = int(end.timestamp() * 1000)
+
+    D = lambda value: Decimal(str(value))
+
+    positions = {
+        "LONG": {
+            "qty": D("0"),
+            "cost": D("0"),
+            "pnl": D("0"),
+            "start_known": True
+        },
+        "SHORT": {
+            "qty": D("0"),
+            "cost": D("0"),
+            "pnl": D("0"),
+            "start_known": True
+        }
+    }
+
+    completed = []
+    excluded = 0
+
+    for order in orders:
+        try:
+            side = str(
+                order.get("positionSide", "")
+            ).upper()
+
+            action = str(
+                order.get("side", "")
+            ).upper()
+
+            if side not in positions:
+                excluded += 1
+                continue
+
+            qty = D(order.get("executedQty") or "0")
+            price = D(order.get("avgPrice") or "0")
+
+            if qty <= 0:
+                continue
+
+            if price <= 0:
+                excluded += 1
+                continue
+
+            stamp = int(
+                order.get("updateTime")
+                or order.get("time")
+                or 0
+            )
+
+            state = positions[side]
+
+            is_entry = (
+                (side == "LONG" and action == "BUY")
+                or
+                (side == "SHORT" and action == "SELL")
+            )
+
+            is_exit = (
+                (side == "LONG" and action == "SELL")
+                or
+                (side == "SHORT" and action == "BUY")
+            )
+
+            if is_entry:
+                state["qty"] += qty
+                state["cost"] += qty * price
+                continue
+
+            if not is_exit:
+                excluded += 1
+                continue
+
+            if qty > state["qty"]:
+                # Missing entry history or inconsistent
+                # fills: do not invent a winning trade.
+                state["qty"] = D("0")
+                state["cost"] = D("0")
+                state["pnl"] = D("0")
+                state["start_known"] = False
+                excluded += 1
+                continue
+
+            average = (
+                state["cost"] / state["qty"]
+            )
+
+            if side == "LONG":
+                realized = (price - average) * qty
+            else:
+                realized = (average - price) * qty
+
+            state["pnl"] += realized
+            state["qty"] -= qty
+            state["cost"] -= average * qty
+
+            if state["qty"] == 0:
+                if (
+                    start_ms <= stamp < end_ms
+                    and state["start_known"]
+                ):
+                    completed.append({
+                        "side": side,
+                        "gross_pnl": state["pnl"],
+                        "closed_ms": stamp
+                    })
+
+                state["cost"] = D("0")
+                state["pnl"] = D("0")
+                state["start_known"] = True
+
+        except (
+            ValueError,
+            ArithmeticError,
+            TypeError
+        ):
+            excluded += 1
+
+    wins = sum(
+        item["gross_pnl"] > 0
+        for item in completed
+    )
+
+    losses = sum(
+        item["gross_pnl"] < 0
+        for item in completed
+    )
+
+    breakeven = sum(
+        item["gross_pnl"] == 0
+        for item in completed
+    )
+
+    count = len(completed)
+
+    profit = sum(
+        (
+            item["gross_pnl"]
+            for item in completed
+            if item["gross_pnl"] > 0
+        ),
+        D("0")
+    )
+
+    loss = sum(
+        (
+            -item["gross_pnl"]
+            for item in completed
+            if item["gross_pnl"] < 0
+        ),
+        D("0")
+    )
+
+    def pct(numerator, denominator):
+        if denominator == 0:
+            return None
+        return numerator * D("100") / denominator
+
+    return {
+        "count": count,
+        "wins": wins,
+        "losses": losses,
+        "breakeven": breakeven,
+        "win_rate": pct(D(wins), D(count)),
+        "loss_rate": pct(D(losses), D(count)),
+        "profit": profit,
+        "loss": loss,
+        "gross_pnl": profit - loss,
+        "winning_amount_percent": pct(
+            profit, profit + loss
+        ),
+        "losing_amount_percent": pct(
+            loss, profit + loss
+        ),
+        "excluded": excluded,
+        "net_roi": None
+    }
+
+
+def unit15_percent(value):
+    if value is None:
+        return "N/A"
+    return f"{value:.2f}%"
+
+
+def unit15_report(period=None):
+    selected = period or UNIT15_PERIOD
+
+    try:
+        orders = unit15_sync_history(selected)
+        stats = unit15_reconstruct(
+            orders, selected
+        )
+
+        report = (
+            "\n"
+            "========================================\n"
+            "UNIT 15 WEEX DEMO PERFORMANCE\n"
+            "========================================\n"
+            f"Period: {selected}\n"
+            f"Unique orders: {len(orders)}\n"
+            f"Completed cycles: {stats['count']}\n"
+            f"Winning cycles: {stats['wins']}\n"
+            f"Losing cycles: {stats['losses']}\n"
+            f"Break-even: {stats['breakeven']}\n"
+            f"Gross win rate: "
+            f"{unit15_percent(stats['win_rate'])}\n"
+            f"Gross loss rate: "
+            f"{unit15_percent(stats['loss_rate'])}\n"
+            f"Winning amount share: "
+            f"{unit15_percent(stats['winning_amount_percent'])}\n"
+            f"Losing amount share: "
+            f"{unit15_percent(stats['losing_amount_percent'])}\n"
+            f"Price-based gross profit: "
+            f"{stats['profit']:.4f} USDT\n"
+            f"Price-based gross loss: "
+            f"{stats['loss']:.4f} USDT\n"
+            f"Gross P&L: "
+            f"{stats['gross_pnl']:+.4f} USDT\n"
+            "Net ROI: N/A - fees/funding not verified\n"
+            f"Excluded records: {stats['excluded']}\n"
+            "SOURCE: WEEX EXCHANGE HISTORY\n"
+            "EXCHANGE WRITE: FALSE\n"
+            "========================================"
+        )
+
+        print(report, flush=True)
+
+        return {
+            "status": "PASS",
+            "report": report,
+            "stats": stats
+        }
+
+    except Exception as error:
+        print(
+            "UNIT 15 HISTORY REPORT FAILED:",
+            type(error).__name__,
+            str(error),
+            flush=True
+        )
+
+        return {
+            "status": "ERROR",
+            "report": None
+        }
+
+
+print(
+    "PASS: UNIT 15 EXCHANGE HISTORY ENGINE LOADED",
+    flush=True
+)
+
+# ============================================================
+# END UNIT 15 - ZERO INDENTATION
+# ============================================================
+
+# ============================================================
 # START CONTINUOUS OPERATION CORRECTION
 # REPLACES THE EXISTING RUN UNIT 14 CALL ONLY
 # ZERO INDENTATION
