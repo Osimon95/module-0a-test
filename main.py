@@ -21481,6 +21481,245 @@ def unit15_analyze(
 # END UNIT 15 HISTORY PARSER CORRECTION
 # EXISTING WORKER ACTIVATION FOLLOWS
 # ============================================================
+
+
+# ============================================================
+# START UNIT 15 EXCLUSION DIAGNOSTICS
+# ZERO INDENTATION
+# READ ONLY - NO EXCHANGE WRITE
+# PRESERVES EXISTING ANALYSIS
+# ============================================================
+
+from collections import Counter as _U15_ExcludeCounter
+
+_UNIT15_ANALYZE_BEFORE_EXCLUSION_CHECK = unit15_analyze
+
+
+def unit15_analyze(orders, history_complete):
+
+    result = _UNIT15_ANALYZE_BEFORE_EXCLUSION_CHECK(
+        orders,
+        history_complete,
+    )
+
+    reasons = _U15_ExcludeCounter()
+    fills = []
+
+    now_ms = int(_u15_time.time() * 1000)
+
+    for original in orders:
+
+        record = unit15_normalize_order(original)
+
+        if record is None:
+            reasons["INVALID_RECORD"] += 1
+            continue
+
+        timestamp = record.get("createdTime")
+
+        if timestamp is None:
+            reasons["INVALID_TIMESTAMP"] += 1
+            continue
+
+        try:
+            timestamp = int(timestamp)
+        except (TypeError, ValueError):
+            reasons["INVALID_TIMESTAMP"] += 1
+            continue
+
+        if timestamp > now_ms:
+            reasons["FUTURE_TIMESTAMP"] += 1
+            continue
+
+        status = str(
+            record.get("status", "")
+        ).upper()
+
+        if status != "FILLED":
+            reasons["NON_FILLED_SKIPPED"] += 1
+            continue
+
+        quantity = unit15_decimal(
+            record.get("executedQty")
+        )
+
+        price = unit15_decimal(
+            record.get("avgPrice")
+        )
+
+        if quantity is None or quantity <= 0:
+            reasons["INVALID_FILLED_QUANTITY"] += 1
+            continue
+
+        if price is None or price <= 0:
+            reasons["INVALID_FILL_PRICE"] += 1
+            continue
+
+        side = str(
+            record.get("side", "")
+        ).upper()
+
+        direction = str(
+            record.get("positionSide", "")
+        ).upper()
+
+        trade_side = str(
+            record.get("tradeSide", "")
+        ).upper()
+
+        action = None
+
+        if direction in ("LONG", "SHORT"):
+
+            if trade_side in ("OPEN", "CLOSE"):
+                action = trade_side
+
+            elif side in ("BUY", "SELL"):
+
+                if direction == "LONG":
+                    action = (
+                        "OPEN" if side == "BUY"
+                        else "CLOSE"
+                    )
+
+                else:
+                    action = (
+                        "OPEN" if side == "SELL"
+                        else "CLOSE"
+                    )
+
+        if action is None:
+
+            explicit = side + "_" + trade_side
+
+            if "OPEN_LONG" in explicit:
+                direction, action = "LONG", "OPEN"
+
+            elif "CLOSE_LONG" in explicit:
+                direction, action = "LONG", "CLOSE"
+
+            elif "OPEN_SHORT" in explicit:
+                direction, action = "SHORT", "OPEN"
+
+            elif "CLOSE_SHORT" in explicit:
+                direction, action = "SHORT", "CLOSE"
+
+        if action is None:
+            reasons["UNRESOLVED_DIRECTION"] += 1
+            continue
+
+        fills.append({
+            "time": timestamp,
+            "id": str(
+                unit15_first_present(
+                    record,
+                    "orderId",
+                    "id",
+                    "clientOrderId",
+                )
+            ),
+            "direction": direction,
+            "action": action,
+            "quantity": quantity,
+        })
+
+    fills.sort(
+        key=lambda row: (
+            row["time"],
+            row["id"],
+        )
+    )
+
+    positions = {
+        "LONG": _U15_D("0"),
+        "SHORT": _U15_D("0"),
+    }
+
+    for fill in fills:
+
+        direction = fill["direction"]
+        quantity = fill["quantity"]
+
+        if fill["action"] == "OPEN":
+
+            positions[direction] += quantity
+            continue
+
+        available = positions[direction]
+
+        if available <= 0:
+            reasons["CLOSE_WITHOUT_OPEN"] += 1
+            continue
+
+        if quantity > available:
+            reasons["CLOSE_EXCEEDS_POSITION"] += 1
+            continue
+
+        positions[direction] -= quantity
+
+    detected_exclusions = sum(
+        count
+        for reason, count in reasons.items()
+        if reason != "NON_FILLED_SKIPPED"
+    )
+
+    print("=" * 55, flush=True)
+    print(
+        "UNIT 15 EXCLUSION RECONCILIATION",
+        flush=True,
+    )
+
+    for reason, count in sorted(reasons.items()):
+        print(
+            "UNIT 15 EXCLUSION |",
+            reason,
+            "=",
+            count,
+            flush=True,
+        )
+
+    print(
+        "UNIT 15 REPORTED EXCLUSIONS =",
+        result.get("excluded"),
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 DIAGNOSED EXCLUSIONS =",
+        detected_exclusions,
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 EXCLUSION COUNT MATCH =",
+        detected_exclusions == result.get("excluded"),
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 HISTORICAL DATA READ ONLY = TRUE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 EXCHANGE WRITE = FALSE",
+        flush=True,
+    )
+
+    print("=" * 55, flush=True)
+
+    result["exclusion_reasons"] = dict(reasons)
+    result["exclusion_count_match"] = (
+        detected_exclusions == result.get("excluded")
+    )
+
+    return result
+
+
+# ============================================================
+# END UNIT 15 EXCLUSION DIAGNOSTICS
+# EXISTING WORKER ACTIVATION FOLLOWS
+# ============================================================
 # ============================================================
 # ACTIVATE THE ADDITIVE UNIT 15 WORKER
 # ============================================================
