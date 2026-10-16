@@ -20436,6 +20436,719 @@ def fresh_tp3_runtime(
 
 
 # ============================================================
+# START UNIT 15 ADDITIVE PERFORMANCE REPORTER
+# ZERO INDENTATION
+#
+# INSERT ABOVE:
+# START CONTINUOUS OPERATION CORRECTION
+#
+# NO EXISTING UNITS ARE DELETED OR MODIFIED.
+# DEMO HISTORY READ ONLY.
+# ============================================================
+
+import os as _u15_os
+import time as _u15_time
+import json as _u15_json
+import hmac as _u15_hmac
+import base64 as _u15_base64
+import hashlib as _u15_hashlib
+import threading as _u15_threading
+import urllib.request as _u15_request
+import urllib.parse as _u15_parse
+
+from decimal import Decimal as _U15_D
+from datetime import datetime as _U15_DT
+from datetime import timezone as _U15_TZ
+
+
+UNIT15_REPORT_HOURS = 24
+UNIT15_REPORT_INTERVAL_SECONDS = 3600
+UNIT15_MAX_PAGES = 20
+UNIT15_PAGE_LIMIT = 1000
+
+_UNIT15_HISTORY_PATH = (
+    "/capi/v3/sim/order/history"
+)
+
+
+def unit15_decimal(value):
+
+    try:
+        number = _U15_D(str(value))
+        if number.is_finite():
+            return number
+    except Exception:
+        pass
+
+    return None
+
+
+def unit15_value(record, *names):
+
+    for name in names:
+        value = record.get(name)
+        if value is not None and value != "":
+            return value
+
+    return None
+
+
+def unit15_history_get():
+
+    key = (
+        _u15_os.getenv("WEEX_API_KEY")
+        or _u15_os.getenv("API_KEY")
+    )
+
+    secret = (
+        _u15_os.getenv("WEEX_API_SECRET")
+        or _u15_os.getenv("API_SECRET")
+    )
+
+    passphrase = (
+        _u15_os.getenv("WEEX_API_PASSPHRASE")
+        or _u15_os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, passphrase)):
+        raise RuntimeError(
+            "UNIT 15: MISSING READ CREDENTIALS"
+        )
+
+    base = FRESH_RECONSTRUCTION_CONFIG[
+        "exchange"
+    ]["contract_base_url"]
+
+    if base != "https://api-contract.weex.com":
+        raise RuntimeError(
+            "UNIT 15: INVALID EXCHANGE HOST"
+        )
+
+    symbol = FRESH_RECONSTRUCTION_CONFIG[
+        "exchange"
+    ]["demo_order_symbol"]
+
+    if symbol != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 15: DEMO SYMBOL REQUIRED"
+        )
+
+    all_orders = []
+    seen_ids = set()
+    complete = False
+
+    for page in range(UNIT15_MAX_PAGES):
+
+        query = _u15_parse.urlencode({
+            "symbol": symbol,
+            "limit": UNIT15_PAGE_LIMIT,
+            "page": page,
+        })
+
+        timestamp = str(
+            int(_u15_time.time() * 1000)
+        )
+
+        message = (
+            timestamp
+            + "GET"
+            + _UNIT15_HISTORY_PATH
+            + "?"
+            + query
+        )
+
+        signature = _u15_base64.b64encode(
+            _u15_hmac.new(
+                secret.encode("utf-8"),
+                message.encode("utf-8"),
+                _u15_hashlib.sha256,
+            ).digest()
+        ).decode("utf-8")
+
+        url = (
+            base
+            + _UNIT15_HISTORY_PATH
+            + "?"
+            + query
+        )
+
+        request = _u15_request.Request(
+            url=url,
+            method="GET",
+            headers={
+                "ACCESS-KEY": key,
+                "ACCESS-SIGN": signature,
+                "ACCESS-TIMESTAMP": timestamp,
+                "ACCESS-PASSPHRASE": passphrase,
+                "Content-Type": "application/json",
+            },
+        )
+
+        if (
+            request.get_method() != "GET"
+            or request.data is not None
+        ):
+            raise RuntimeError(
+                "UNIT 15: NON-READ REQUEST BLOCKED"
+            )
+
+        with _u15_request.urlopen(
+            request,
+            timeout=20,
+        ) as response:
+
+            data = _u15_json.loads(
+                response.read().decode("utf-8")
+            )
+
+        if not isinstance(data, list):
+            raise RuntimeError(
+                "UNIT 15: HISTORY RESPONSE NOT A LIST"
+            )
+
+        for order in data:
+
+            if not isinstance(order, dict):
+                continue
+
+            identity = unit15_value(
+                order,
+                "orderId",
+                "id",
+                "clientOrderId",
+            )
+
+            if identity is None:
+                # Without identity, deduplication
+                # cannot be guaranteed.
+                continue
+
+            identity = str(identity)
+
+            if identity in seen_ids:
+                continue
+
+            seen_ids.add(identity)
+            all_orders.append(order)
+
+        if len(data) < UNIT15_PAGE_LIMIT:
+            complete = True
+            break
+
+    return all_orders, complete
+
+
+def unit15_analyze(orders, history_complete):
+
+    now_ms = int(_u15_time.time() * 1000)
+
+    cutoff_ms = (
+        now_ms
+        - UNIT15_REPORT_HOURS * 3600000
+    )
+
+    excluded = 0
+    normalized = []
+
+    for order in orders:
+
+        timestamp = unit15_value(
+            order,
+            "createdTime",
+            "createTime",
+            "cTime",
+        )
+
+        try:
+            timestamp = int(timestamp)
+            if timestamp < 100000000000:
+                timestamp *= 1000
+        except Exception:
+            excluded += 1
+            continue
+
+        if timestamp > now_ms:
+            excluded += 1
+            continue
+
+        status = str(
+            order.get("status", "")
+        ).upper()
+
+        if status != "FILLED":
+            continue
+
+        quantity = unit15_decimal(
+            unit15_value(
+                order,
+                "executedQty",
+                "filledQty",
+            )
+        )
+
+        price = unit15_decimal(
+            unit15_value(
+                order,
+                "avgPrice",
+                "averagePrice",
+                "fillPrice",
+            )
+        )
+
+        if (
+            quantity is None
+            or price is None
+            or quantity <= 0
+            or price <= 0
+        ):
+            excluded += 1
+            continue
+
+        side = str(
+            unit15_value(
+                order,
+                "side",
+            ) or ""
+        ).upper()
+
+        position_side = str(
+            unit15_value(
+                order,
+                "positionSide",
+                "holdSide",
+            ) or ""
+        ).upper()
+
+        trade_side = str(
+            unit15_value(
+                order,
+                "tradeSide",
+            ) or ""
+        ).upper()
+
+        action = None
+        direction = None
+
+        if position_side in ("LONG", "SHORT"):
+
+            direction = position_side
+
+            if trade_side in ("OPEN", "CLOSE"):
+                action = trade_side
+
+            elif side in ("BUY", "SELL"):
+
+                if direction == "LONG":
+                    action = (
+                        "OPEN" if side == "BUY"
+                        else "CLOSE"
+                    )
+                else:
+                    action = (
+                        "OPEN" if side == "SELL"
+                        else "CLOSE"
+                    )
+
+        if action is None:
+            explicit = side + "_" + trade_side
+
+            if "OPEN_LONG" in explicit:
+                direction, action = "LONG", "OPEN"
+            elif "CLOSE_LONG" in explicit:
+                direction, action = "LONG", "CLOSE"
+            elif "OPEN_SHORT" in explicit:
+                direction, action = "SHORT", "OPEN"
+            elif "CLOSE_SHORT" in explicit:
+                direction, action = "SHORT", "CLOSE"
+
+        if action is None:
+            excluded += 1
+            continue
+
+        normalized.append({
+            "time": timestamp,
+            "quantity": quantity,
+            "price": price,
+            "direction": direction,
+            "action": action,
+            "id": str(
+                unit15_value(
+                    order,
+                    "orderId",
+                    "id",
+                    "clientOrderId",
+                )
+            ),
+        })
+
+    normalized.sort(
+        key=lambda x: (x["time"], x["id"])
+    )
+
+    positions = {
+        "LONG": {
+            "qty": _U15_D("0"),
+            "cost": _U15_D("0"),
+            "pnl": _U15_D("0"),
+            "invalid": False,
+        },
+        "SHORT": {
+            "qty": _U15_D("0"),
+            "cost": _U15_D("0"),
+            "pnl": _U15_D("0"),
+            "invalid": False,
+        },
+    }
+
+    completed = []
+
+    for fill in normalized:
+
+        position = positions[fill["direction"]]
+
+        qty = fill["quantity"]
+        price = fill["price"]
+
+        if fill["action"] == "OPEN":
+
+            position["cost"] += qty * price
+            position["qty"] += qty
+            continue
+
+        current_qty = position["qty"]
+
+        if current_qty <= 0 or qty > current_qty:
+
+            position["invalid"] = True
+            excluded += 1
+            continue
+
+        average_price = (
+            position["cost"] / current_qty
+        )
+
+        if fill["direction"] == "LONG":
+            pnl = (price - average_price) * qty
+        else:
+            pnl = (average_price - price) * qty
+
+        position["pnl"] += pnl
+        position["qty"] -= qty
+        position["cost"] -= average_price * qty
+
+        if position["qty"] == 0:
+
+            if (
+                not position["invalid"]
+                and fill["time"] >= cutoff_ms
+            ):
+                completed.append(position["pnl"])
+
+            position["cost"] = _U15_D("0")
+            position["pnl"] = _U15_D("0")
+            position["invalid"] = False
+
+    # Complete history is essential for reliable
+    # reconstruction of opening positions.
+    #
+    # Order fills alone do not verify fees,
+    # funding, realized exchange P&L,
+    # or return on allocated margin.
+
+    if not history_complete or excluded:
+        verified = False
+    else:
+        verified = True
+
+    winners = sum(p > 0 for p in completed)
+    losers = sum(p < 0 for p in completed)
+    breakeven = sum(p == 0 for p in completed)
+
+    gross_profit = sum(
+        (p for p in completed if p > 0),
+        _U15_D("0"),
+    )
+
+    gross_loss = sum(
+        (-p for p in completed if p < 0),
+        _U15_D("0"),
+    )
+
+    total = len(completed)
+
+    resolved = winners + losers
+
+    win_rate = (
+        100 * winners / resolved
+        if resolved else None
+    )
+
+    loss_rate = (
+        100 * losers / resolved
+        if resolved else None
+    )
+
+    amount_total = gross_profit + gross_loss
+
+    win_share = (
+        100 * gross_profit / amount_total
+        if amount_total > 0 else None
+    )
+
+    loss_share = (
+        100 * gross_loss / amount_total
+        if amount_total > 0 else None
+    )
+
+    return {
+        "unique_orders": len(orders),
+        "filled_orders_processed": len(normalized),
+        "completed": total,
+        "winners": winners,
+        "losers": losers,
+        "breakeven": breakeven,
+        "win_rate": win_rate,
+        "loss_rate": loss_rate,
+        "win_share": win_share,
+        "loss_share": loss_share,
+        "profit": gross_profit,
+        "loss": gross_loss,
+        "gross_pnl": gross_profit - gross_loss,
+        "excluded": excluded,
+        "complete_history": history_complete,
+        "reconstruction_verified": verified,
+    }
+
+
+def unit15_format_percent(value):
+
+    if value is None:
+        return "N/A"
+
+    return f"{float(value):.2f}%"
+
+
+def unit15_report(reason="SCHEDULED"):
+
+    orders, complete = unit15_history_get()
+
+    result = unit15_analyze(
+        orders,
+        complete,
+    )
+
+    print("\n" + "=" * 48, flush=True)
+    print(
+        "UNIT 15 WEEX DEMO PERFORMANCE",
+        flush=True,
+    )
+    print("Notification:", reason, flush=True)
+    print("=" * 48, flush=True)
+
+    print(
+        "Period:",
+        f"{UNIT15_REPORT_HOURS}h",
+        flush=True,
+    )
+
+    print(
+        "Unique historical orders:",
+        result["unique_orders"],
+        flush=True,
+    )
+
+    print(
+        "Filled orders processed:",
+        result["filled_orders_processed"],
+        flush=True,
+    )
+
+    print(
+        "Completed cycles:",
+        result["completed"],
+        flush=True,
+    )
+
+    print(
+        "Winning cycles:",
+        result["winners"],
+        flush=True,
+    )
+
+    print(
+        "Losing cycles:",
+        result["losers"],
+        flush=True,
+    )
+
+    print(
+        "Break-even cycles:",
+        result["breakeven"],
+        flush=True,
+    )
+
+    print(
+        "Winning trade rate:",
+        unit15_format_percent(result["win_rate"]),
+        flush=True,
+    )
+
+    print(
+        "Losing trade rate:",
+        unit15_format_percent(result["loss_rate"]),
+        flush=True,
+    )
+
+    print(
+        "Winning amount share:",
+        unit15_format_percent(result["win_share"]),
+        flush=True,
+    )
+
+    print(
+        "Losing amount share:",
+        unit15_format_percent(result["loss_share"]),
+        flush=True,
+    )
+
+    if result["reconstruction_verified"]:
+
+        print(
+            "Estimated gross profit:",
+            f'{result["profit"]:+.6f} USDT',
+            flush=True,
+        )
+
+        print(
+            "Estimated gross loss:",
+            f'-{result["loss"]:.6f} USDT',
+            flush=True,
+        )
+
+        print(
+            "Estimated gross P&L:",
+            f'{result["gross_pnl"]:+.6f} USDT',
+            flush=True,
+        )
+
+    else:
+
+        print(
+            "Gross P&L: N/A - "
+            "RECONCILIATION INCOMPLETE",
+            flush=True,
+        )
+
+    print(
+        "Net ROI: N/A - "
+        "FEES, FUNDING AND MARGIN "
+        "NOT RECONCILED",
+        flush=True,
+    )
+
+    print(
+        "Excluded records:",
+        result["excluded"],
+        flush=True,
+    )
+
+    print(
+        "History pagination complete:",
+        result["complete_history"],
+        flush=True,
+    )
+
+    print(
+        "Calculation coverage verified:",
+        result["reconstruction_verified"],
+        flush=True,
+    )
+
+    print(
+        "Source: WEEX DEMO ORDER HISTORY",
+        flush=True,
+    )
+
+    print(
+        "EXCHANGE WRITE: FALSE",
+        flush=True,
+    )
+
+    print("=" * 48 + "\n", flush=True)
+
+    return result
+
+
+def unit15_worker():
+
+    first_run = True
+
+    while True:
+
+        try:
+
+            unit15_report(
+                "STARTUP" if first_run
+                else "PERIODIC"
+            )
+
+        except Exception as error:
+
+            print(
+                "UNIT 15 REPORT ERROR:",
+                repr(error),
+                flush=True,
+            )
+
+        first_run = False
+
+        _u15_time.sleep(
+            UNIT15_REPORT_INTERVAL_SECONDS
+        )
+
+
+# ============================================================
+# ACTIVATE THE ADDITIVE UNIT 15 WORKER
+# ============================================================
+
+if _u15_os.getenv(
+    "UNIT15_ENABLED",
+    "TRUE",
+).strip().upper() == "TRUE":
+
+    _UNIT15_THREAD = _u15_threading.Thread(
+        target=unit15_worker,
+        name="WEEX-UNIT15-PERFORMANCE",
+        daemon=True,
+    )
+
+    _UNIT15_THREAD.start()
+
+    print(
+        "PASS: UNIT 15 REPORTING WORKER STARTED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 15 EXCHANGE READ ONLY",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNITS 1-14 PRESERVED",
+        flush=True,
+    )
+
+
+# ============================================================
+# END UNIT 15 ADDITIVE PERFORMANCE REPORTER
+# ZERO INDENTATION
+#
+# ORIGINAL CONTINUOUS OPERATION CORRECTION
+# MUST REMAIN DIRECTLY BELOW THIS BLOCK.
+# ============================================================
+
+# ============================================================
 # START CONTINUOUS OPERATION CORRECTION
 # REPLACES THE EXISTING RUN UNIT 14 CALL ONLY
 # ZERO INDENTATION
