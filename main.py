@@ -21134,44 +21134,45 @@ def unit15_first_present(record, *fields):
     return None
 
 
+# ============================================================
+# START UNIT 15 TIMESTAMP NORMALIZATION REPLACEMENT
+# ZERO INDENTATION
+# UNITS 1-14 UNCHANGED
+# ============================================================
+
 def unit15_normalize_timestamp(value):
 
-    if value is None:
+    if value is None or isinstance(value, bool):
         return None
 
-    try:
-        number = float(value)
-
-        if number <= 0:
-            return None
-
-        if number < 100000000000:
-            number *= 1000
-
-        return int(number)
-
-    except (TypeError, ValueError):
-        pass
-
     if isinstance(value, str):
-
+        value = value.strip()
+        if not value:
+            return None
         try:
-            value = value.replace("Z", "+00:00")
-
             moment = _U15_DateTime.fromisoformat(
-                value
+                value.replace("Z", "+00:00")
             )
-
-            if moment.tzinfo is None:
+            if moment.tzinfo is not None:
+                result = int(moment.timestamp() * 1000)
+                if 946684800000 <= result <= 4102444800000:
+                    return result
                 return None
-
-            return int(
-                moment.timestamp() * 1000
-            )
-
         except (ValueError, OverflowError):
             pass
 
+    number = unit15_decimal(value)
+    if number is None or number <= 0:
+        return None
+
+    if number >= _U15_D("100000000000000"):
+        number /= 1000
+    elif number < _U15_D("100000000000"):
+        number *= 1000
+
+    result = int(number)
+    if 946684800000 <= result <= 4102444800000:
+        return result
     return None
 
 
@@ -21190,11 +21191,12 @@ def unit15_normalize_order(record):
         "ctime",
         "createdAt",
         "timestamp",
+        "time",
+        "updateTime",
+        "updatedAt",
     )
 
-    timestamp = unit15_normalize_timestamp(
-        timestamp
-    )
+    timestamp = unit15_normalize_timestamp(timestamp)
 
     if timestamp is not None:
         result["createdTime"] = timestamp
@@ -21231,21 +21233,17 @@ def unit15_normalize_order(record):
     )
 
     if status is not None:
+        status = str(status).strip().upper()
 
-        normalized_status = (
-            str(status).strip().upper()
-        )
-
-        if normalized_status in (
+        if status in (
             "FILLED",
             "FULLY_FILLED",
             "FULL_FILLED",
             "FULLFILL",
         ):
-            result["status"] = "FILLED"
+            status = "FILLED"
 
-        else:
-            result["status"] = normalized_status
+        result["status"] = status
 
     side = unit15_first_present(
         result,
@@ -21254,9 +21252,7 @@ def unit15_normalize_order(record):
     )
 
     if side is not None:
-        result["side"] = (
-            str(side).strip().upper()
-        )
+        result["side"] = str(side).strip().upper()
 
     position_side = unit15_first_present(
         result,
@@ -21284,6 +21280,12 @@ def unit15_normalize_order(record):
 
     return result
 
+
+# ============================================================
+# END UNIT 15 TIMESTAMP NORMALIZATION REPLACEMENT
+# ZERO INDENTATION
+# EXISTING UNIT 15 ANALYSIS CONTINUES BELOW
+# ============================================================
 
 def unit15_analyze(
     orders,
