@@ -21621,6 +21621,7 @@ def unit15_analyze(orders, history_complete):
             "direction": direction,
             "action": action,
             "quantity": quantity,
+            "price": price,
         })
 
     fills.sort(
