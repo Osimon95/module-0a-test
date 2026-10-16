@@ -21659,7 +21659,7 @@ def unit15_analyze(orders, history_complete):
                 "| TIME UTC =",
                 _U15_DateTime.fromtimestamp(
                     fill["time"] / 1000,
-                    _U15_Timezone.utc,
+                    timezone.utc,
                 ).isoformat(),
                 "| DIRECTION =",
                 direction,
