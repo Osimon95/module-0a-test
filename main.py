@@ -20436,11 +20436,9 @@ def fresh_tp3_runtime(
 
 
 # ============================================================
-# START UNIT 15 ADDITIVE PERFORMANCE REPORTER
-# CONSOLIDATED REPLACEMENT
-# ZERO INDENTATION
-# DEMO HISTORY READ ONLY
-# UNITS 1-14 PRESERVED
+# UNIT 15 REPLACEMENT: EXCHANGE-ONLY PERFORMANCE REPORT
+# ZERO INDENTATION. REPLACES OLD UNIT 15 IN FULL.
+# NO WRITES. NO MUTATION OF UNITS 1-14.
 # ============================================================
 
 import os as _u15_os
@@ -20469,18 +20467,12 @@ _UNIT15_HISTORY_PATH = (
 )
 
 
-# ============================================================
-# 1. VALUE HELPERS
-# ============================================================
-
 def unit15_decimal(value):
 
     try:
         number = _U15_D(str(value))
-
         if number.is_finite():
             return number
-
     except Exception:
         pass
 
@@ -20489,152 +20481,13 @@ def unit15_decimal(value):
 
 def unit15_value(record, *names):
 
-    if not isinstance(record, dict):
-        return None
-
     for name in names:
-
         value = record.get(name)
-
         if value is not None and value != "":
             return value
 
     return None
 
-
-def unit15_normalize_timestamp(value):
-
-    if value is None:
-        return None
-
-    try:
-
-        number = _U15_D(str(value))
-
-        if number.is_finite():
-
-            magnitude = abs(number)
-
-            if magnitude >= _U15_D("1e14"):
-                number /= 1000
-
-            elif magnitude < _U15_D("1e11"):
-                number *= 1000
-
-            milliseconds = int(number)
-
-            date = _U15_DT.fromtimestamp(
-                milliseconds / 1000,
-                _U15_TZ.utc,
-            )
-
-            if 2000 <= date.year <= 2100:
-                return milliseconds
-
-    except Exception:
-        pass
-
-    try:
-
-        value = str(value).strip()
-
-        date = _U15_DT.fromisoformat(
-            value.replace("Z", "+00:00")
-        )
-
-        if date.tzinfo is None:
-            date = date.replace(
-                tzinfo=_U15_TZ.utc
-            )
-
-        if 2000 <= date.year <= 2100:
-            return int(date.timestamp() * 1000)
-
-    except Exception:
-        pass
-
-    return None
-
-
-def unit15_normalize_order(record):
-
-    if not isinstance(record, dict):
-        return None
-
-    result = dict(record)
-
-    timestamp = unit15_value(
-        record,
-        "createdTime",
-        "createTime",
-        "cTime",
-        "ctime",
-        "createdAt",
-        "timestamp",
-        "time",
-        "updateTime",
-        "updatedAt",
-    )
-
-    result["createdTime"] = (
-        unit15_normalize_timestamp(timestamp)
-    )
-
-    result["executedQty"] = unit15_value(
-        record,
-        "executedQty",
-        "filledQty",
-        "filledQuantity",
-        "dealQty",
-        "cumQty",
-    )
-
-    result["avgPrice"] = unit15_value(
-        record,
-        "avgPrice",
-        "averagePrice",
-        "fillPrice",
-        "dealAvgPrice",
-    )
-
-    result["status"] = str(
-        unit15_value(
-            record,
-            "status",
-            "orderStatus",
-        ) or ""
-    ).upper()
-
-    result["side"] = str(
-        unit15_value(
-            record,
-            "side",
-            "orderSide",
-        ) or ""
-    ).upper()
-
-    result["positionSide"] = str(
-        unit15_value(
-            record,
-            "positionSide",
-            "holdSide",
-        ) or ""
-    ).upper()
-
-    result["tradeSide"] = str(
-        unit15_value(
-            record,
-            "tradeSide",
-        ) or ""
-    ).upper()
-
-    return result
-
-
-# ============================================================
-# 2. AUTHENTICATED DEMO HISTORY GET
-# ZERO EXCHANGE WRITE
-# ============================================================
 
 def unit15_history_get():
 
@@ -20662,22 +20515,22 @@ def unit15_history_get():
         "exchange"
     ]["contract_base_url"]
 
-    symbol = FRESH_RECONSTRUCTION_CONFIG[
-        "exchange"
-    ]["demo_order_symbol"]
-
     if base != "https://api-contract.weex.com":
         raise RuntimeError(
             "UNIT 15: INVALID EXCHANGE HOST"
         )
+
+    symbol = FRESH_RECONSTRUCTION_CONFIG[
+        "exchange"
+    ]["demo_order_symbol"]
 
     if symbol != "BTCSUSDT":
         raise RuntimeError(
             "UNIT 15: DEMO SYMBOL REQUIRED"
         )
 
-    orders = []
-    seen = set()
+    all_orders = []
+    seen_ids = set()
     complete = False
 
     for page in range(UNIT15_MAX_PAGES):
@@ -20708,13 +20561,15 @@ def unit15_history_get():
             ).digest()
         ).decode("utf-8")
 
+        url = (
+            base
+            + _UNIT15_HISTORY_PATH
+            + "?"
+            + query
+        )
+
         request = _u15_request.Request(
-            url=(
-                base
-                + _UNIT15_HISTORY_PATH
-                + "?"
-                + query
-            ),
+            url=url,
             method="GET",
             headers={
                 "ACCESS-KEY": key,
@@ -20730,7 +20585,7 @@ def unit15_history_get():
             or request.data is not None
         ):
             raise RuntimeError(
-                "UNIT 15 NON-READ REQUEST BLOCKED"
+                "UNIT 15: NON-READ REQUEST BLOCKED"
             )
 
         with _u15_request.urlopen(
@@ -20744,7 +20599,7 @@ def unit15_history_get():
 
         if not isinstance(data, list):
             raise RuntimeError(
-                "UNIT 15 HISTORY NOT A LIST"
+                "UNIT 15: HISTORY RESPONSE NOT A LIST"
             )
 
         for order in data:
@@ -20764,568 +20619,499 @@ def unit15_history_get():
 
             identity = str(identity)
 
-            if identity in seen:
+            if identity in seen_ids:
                 continue
 
-            seen.add(identity)
-            orders.append(order)
+            seen_ids.add(identity)
+            all_orders.append(order)
 
         if len(data) < UNIT15_PAGE_LIMIT:
             complete = True
             break
 
-    return orders, complete
+    return all_orders, complete
 
 
-# ============================================================
-# 3. TRADE DIRECTION CLASSIFICATION
-# ============================================================
+def unit15_timestamp(value):
 
-def unit15_classify(record):
+    if value is None or isinstance(value, bool):
+        return None
+
+    try:
+        if isinstance(value, str) and (
+            "T" in value or "-" in value
+        ):
+            moment = _U15_DT.fromisoformat(
+                value.replace("Z", "+00:00")
+            )
+
+            if moment.tzinfo is None:
+                return None
+
+            return int(moment.timestamp() * 1000)
+
+        n = unit15_decimal(value)
+
+        if n is None:
+            return None
+
+        if n >= _U15_D("100000000000000"):
+            n /= 1000
+        elif n < _U15_D("100000000000"):
+            n *= 1000
+
+        result = int(n)
+
+        return (
+            result
+            if 946684800000 <= result <= 4102444800000
+            else None
+        )
+
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def unit15_parse(order):
+
+    if not isinstance(order, dict):
+        return None, "INVALID_RECORD"
+
+    status = str(
+        unit15_value(
+            order,
+            "status",
+            "state",
+            "orderStatus",
+        ) or ""
+    ).upper()
+
+    if status not in (
+        "FILLED",
+        "FULLY_FILLED",
+        "FULL_FILLED",
+        "FULLFILL",
+    ):
+        return None, "NOT_FULLY_FILLED"
+
+    tm = unit15_timestamp(
+        unit15_value(
+            order,
+            "createdTime",
+            "createTime",
+            "cTime",
+            "ctime",
+            "createdAt",
+            "timestamp",
+            "time",
+            "updateTime",
+            "updatedAt",
+        )
+    )
+
+    if (
+        tm is None
+        or tm > int(_u15_time.time() * 1000)
+    ):
+        return None, "INVALID_TIMESTAMP"
+
+    qty = unit15_decimal(
+        unit15_value(
+            order,
+            "executedQty",
+            "filledQty",
+            "filledSize",
+            "executedQuantity",
+            "dealSize",
+        )
+    )
+
+    price = unit15_decimal(
+        unit15_value(
+            order,
+            "avgPrice",
+            "averagePrice",
+            "fillPrice",
+            "priceAvg",
+            "executedPrice",
+        )
+    )
+
+    if qty is None or qty <= 0:
+        return None, "INVALID_QUANTITY"
+
+    if price is None or price <= 0:
+        return None, "INVALID_PRICE"
 
     side = str(
-        record.get("side", "")
+        unit15_value(
+            order,
+            "side",
+            "orderSide",
+        ) or ""
     ).upper()
 
     direction = str(
-        record.get("positionSide", "")
+        unit15_value(
+            order,
+            "positionSide",
+            "holdSide",
+            "posSide",
+        ) or ""
     ).upper()
 
-    trade_side = str(
-        record.get("tradeSide", "")
+    action = str(
+        unit15_value(
+            order,
+            "tradeSide",
+            "tradeType",
+            "offset",
+        ) or ""
     ).upper()
 
-    if direction in ("LONG", "SHORT"):
+    if (
+        direction in ("LONG", "SHORT")
+        and action in ("OPEN", "CLOSE")
+    ):
+        pass
 
-        if trade_side in ("OPEN", "CLOSE"):
-            return direction, trade_side
+    elif (
+        direction in ("LONG", "SHORT")
+        and side in ("BUY", "SELL")
+    ):
+        action = (
+            "OPEN"
+            if (direction == "LONG") == (side == "BUY")
+            else "CLOSE"
+        )
 
-        if side in ("BUY", "SELL"):
+    else:
+        combined = side + "_" + action
 
-            if direction == "LONG":
-                action = (
-                    "OPEN" if side == "BUY"
-                    else "CLOSE"
-                )
+        matched = next(
+            (
+                (d, a)
+                for d in ("LONG", "SHORT")
+                for a in ("OPEN", "CLOSE")
+                if a + "_" + d in combined
+            ),
+            None,
+        )
 
-            else:
-                action = (
-                    "OPEN" if side == "SELL"
-                    else "CLOSE"
-                )
+        if matched is None:
+            return None, "UNRESOLVED_DIRECTION"
 
-            return direction, action
+        direction, action = matched
 
-    explicit = side + "_" + trade_side
+    oid = unit15_value(
+        order,
+        "orderId",
+        "id",
+        "clientOrderId",
+    )
 
-    for candidate in ("LONG", "SHORT"):
+    if oid is None:
+        return None, "MISSING_ORDER_ID"
 
-        for action in ("OPEN", "CLOSE"):
+    return {
+        "id": str(oid),
+        "time": tm,
+        "quantity": qty,
+        "price": price,
+        "direction": direction,
+        "action": action,
+    }, None
 
-            if (
-                action + "_" + candidate
-            ) in explicit:
-
-                return candidate, action
-
-    return None, None
-
-
-# ============================================================
-# 4. SINGLE PERFORMANCE ANALYZER
-# NO WRAPPERS OR DUPLICATE FUNCTIONS
-# ============================================================
 
 def unit15_analyze(orders, history_complete):
 
-    now_ms = int(_u15_time.time() * 1000)
+    now = int(_u15_time.time() * 1000)
 
-    cutoff_ms = (
-        now_ms
-        - UNIT15_REPORT_HOURS * 3600000
+    cutoff = (
+        now - UNIT15_REPORT_HOURS * 3600000
     )
 
-    diagnostics = _U15_Counter()
-    exclusions = _U15_Counter()
+    reasons = _U15_Counter()
+    fills = []
+    seen = set()
 
-    normalized = []
+    for order in orders:
 
-    for original in orders:
+        fill, why = unit15_parse(order)
 
-        record = unit15_normalize_order(
-            original
-        )
-
-        if record is None:
-            exclusions["INVALID_RECORD"] += 1
+        if why:
+            reasons[why] += 1
             continue
 
-        timestamp = record["createdTime"]
-
-        if timestamp is None:
-            exclusions["INVALID_TIMESTAMP"] += 1
+        if fill["id"] in seen:
+            reasons["DUPLICATE_ID"] += 1
             continue
 
-        if timestamp > now_ms:
-            exclusions["FUTURE_TIMESTAMP"] += 1
-            continue
+        seen.add(fill["id"])
+        fills.append(fill)
 
-        status = record["status"]
-
-        if status != "FILLED":
-
-            diagnostics[
-                "NON_FILLED:" + status
-            ] += 1
-
-            continue
-
-        quantity = unit15_decimal(
-            record["executedQty"]
-        )
-
-        price = unit15_decimal(
-            record["avgPrice"]
-        )
-
-        if quantity is None or quantity <= 0:
-            exclusions["INVALID_QUANTITY"] += 1
-            continue
-
-        if price is None or price <= 0:
-            exclusions["INVALID_PRICE"] += 1
-            continue
-
-        direction, action = unit15_classify(
-            record
-        )
-
-        if direction is None or action is None:
-            exclusions["UNRESOLVED_DIRECTION"] += 1
-            continue
-
-        normalized.append({
-            "time": timestamp,
-            "quantity": quantity,
-            "price": price,
-            "direction": direction,
-            "action": action,
-            "id": str(
-                unit15_value(
-                    record,
-                    "orderId",
-                    "id",
-                    "clientOrderId",
-                )
-            ),
-        })
-
-    normalized.sort(
-        key=lambda item: (
-            item["time"],
-            item["id"],
-        )
+    fills.sort(
+        key=lambda x: (x["time"], x["id"])
     )
 
     positions = {
-        "LONG": {
-            "qty": _U15_D("0"),
-            "cost": _U15_D("0"),
-            "pnl": _U15_D("0"),
-            "invalid": False,
-        },
-        "SHORT": {
-            "qty": _U15_D("0"),
-            "cost": _U15_D("0"),
-            "pnl": _U15_D("0"),
-            "invalid": False,
-        },
+        d: {
+            "qty": _U15_D(0),
+            "cost": _U15_D(0),
+            "pnl": _U15_D(0),
+            "unknown": False,
+        }
+        for d in ("LONG", "SHORT")
     }
 
     completed = []
-    unmatched = []
 
-    for fill in normalized:
+    for fill in fills:
 
-        direction = fill["direction"]
-        action = fill["action"]
-        quantity = fill["quantity"]
+        p = positions[fill["direction"]]
+
+        qty = fill["quantity"]
         price = fill["price"]
 
-        position = positions[direction]
+        if fill["action"] == "OPEN":
 
-        if action == "OPEN":
-
-            position["qty"] += quantity
-            position["cost"] += quantity * price
+            p["qty"] += qty
+            p["cost"] += qty * price
 
             continue
 
-        available = position["qty"]
+        if p["qty"] <= 0 or qty > p["qty"]:
 
-        if available <= 0:
-
-            exclusions["CLOSE_WITHOUT_OPEN"] += 1
-
-            unmatched.append({
-                **fill,
-                "reason": "CLOSE_WITHOUT_OPEN",
-            })
-
-            position["invalid"] = True
+            reasons["UNMATCHED_CLOSE"] += 1
+            p["unknown"] = True
 
             continue
 
-        if quantity > available:
+        avg = p["cost"] / p["qty"]
 
-            exclusions["CLOSE_EXCEEDS_POSITION"] += 1
+        gain = (
+            (price - avg)
+            if fill["direction"] == "LONG"
+            else (avg - price)
+        ) * qty
 
-            unmatched.append({
-                **fill,
-                "reason": "CLOSE_EXCEEDS_POSITION",
-            })
+        p["pnl"] += gain
+        p["qty"] -= qty
+        p["cost"] -= avg * qty
 
-            position["invalid"] = True
-
-            continue
-
-        average_price = (
-            position["cost"] / available
-        )
-
-        if direction == "LONG":
-
-            pnl = (
-                price - average_price
-            ) * quantity
-
-        else:
-
-            pnl = (
-                average_price - price
-            ) * quantity
-
-        position["pnl"] += pnl
-        position["qty"] -= quantity
-
-        position["cost"] -= (
-            average_price * quantity
-        )
-
-        if position["qty"] == 0:
+        if p["qty"] == 0:
 
             if (
-                not position["invalid"]
-                and fill["time"] >= cutoff_ms
+                not p["unknown"]
+                and fill["time"] >= cutoff
             ):
+                completed.append(p["pnl"])
 
-                completed.append(
-                    position["pnl"]
-                )
+            elif p["unknown"]:
+                reasons[
+                    "CYCLE_INCOMPLETE_HISTORY"
+                ] += 1
 
-            position["cost"] = _U15_D("0")
-            position["pnl"] = _U15_D("0")
-            position["invalid"] = False
+            p.update(
+                qty=_U15_D(0),
+                cost=_U15_D(0),
+                pnl=_U15_D(0),
+                unknown=False,
+            )
 
     winners = sum(
-        pnl > 0 for pnl in completed
+        v > 0 for v in completed
     )
 
     losers = sum(
-        pnl < 0 for pnl in completed
+        v < 0 for v in completed
     )
 
-    breakeven = sum(
-        pnl == 0 for pnl in completed
+    flat = sum(
+        v == 0 for v in completed
     )
 
-    profit = sum(
-        (p for p in completed if p > 0),
-        _U15_D("0"),
+    gross_win = sum(
+        (v for v in completed if v > 0),
+        _U15_D(0),
     )
 
-    loss = sum(
-        (-p for p in completed if p < 0),
-        _U15_D("0"),
+    gross_loss = sum(
+        (-v for v in completed if v < 0),
+        _U15_D(0),
     )
 
-    resolved = winners + losers
-
-    win_rate = (
-        100 * winners / resolved
-        if resolved else None
+    incomplete = (
+        not history_complete
+        or bool(
+            reasons["UNMATCHED_CLOSE"]
+            or reasons["CYCLE_INCOMPLETE_HISTORY"]
+            or reasons["INVALID_TIMESTAMP"]
+            or reasons["UNRESOLVED_DIRECTION"]
+            or reasons["INVALID_QUANTITY"]
+            or reasons["INVALID_PRICE"]
+        )
     )
-
-    loss_rate = (
-        100 * losers / resolved
-        if resolved else None
-    )
-
-    amount_total = profit + loss
-
-    win_share = (
-        100 * profit / amount_total
-        if amount_total > 0 else None
-    )
-
-    loss_share = (
-        100 * loss / amount_total
-        if amount_total > 0 else None
-    )
-
-    exclusion_count = sum(
-        exclusions.values()
-    )
-
-    # Pagination completeness alone cannot verify
-    # the full historical position inventory.
-    # Fees, funding, and margin remain unknown.
 
     return {
-        "unique_orders": len(orders),
-        "filled_orders_processed": len(normalized),
+        "orders": len(orders),
+        "fills": len(fills),
         "completed": len(completed),
         "winners": winners,
         "losers": losers,
-        "breakeven": breakeven,
-        "win_rate": win_rate,
-        "loss_rate": loss_rate,
-        "win_share": win_share,
-        "loss_share": loss_share,
-        "profit": profit,
-        "loss": loss,
-        "gross_pnl": profit - loss,
-        "excluded": exclusion_count,
-        "exclusion_reasons": dict(exclusions),
-        "diagnostics": dict(diagnostics),
-        "unmatched": unmatched,
-        "open_positions": positions,
-        "complete_history": history_complete,
-        "reconstruction_verified": False,
+        "breakeven": flat,
+        "gross_win": gross_win,
+        "gross_loss": gross_loss,
+        "gross_pnl": gross_win - gross_loss,
+        "open_qty": {
+            d: str(p["qty"])
+            for d, p in positions.items()
+        },
+        "reasons": dict(reasons),
+        "history_complete": history_complete,
+        "provisional": incomplete,
     }
 
 
-# ============================================================
-# 5. REPORT FORMATTING
-# ============================================================
+def unit15_report(reason="PERIODIC"):
 
-def unit15_format_percent(value):
+    orders, history_complete = (
+        unit15_history_get()
+    )
 
-    if value is None:
-        return "N/A"
-
-    return f"{float(value):.2f}%"
-
-
-def unit15_report(reason="SCHEDULED"):
-
-    orders, complete = unit15_history_get()
-
-    result = unit15_analyze(
+    r = unit15_analyze(
         orders,
-        complete,
+        history_complete,
     )
 
-    print("=" * 55, flush=True)
-    print(
-        "UNIT 15 WEEX DEMO PERFORMANCE",
-        flush=True,
-    )
-    print(
-        "Notification:",
-        reason,
-        flush=True,
-    )
-    print("=" * 55, flush=True)
-
-    print(
-        "Period:",
-        f"{UNIT15_REPORT_HOURS}h",
-        flush=True,
+    closed = (
+        r["winners"] + r["losers"]
     )
 
-    for title, key in (
-        ("Unique historical orders", "unique_orders"),
-        ("Filled orders processed", "filled_orders_processed"),
-        ("Completed cycles", "completed"),
-        ("Winning cycles", "winners"),
-        ("Losing cycles", "losers"),
-        ("Break-even cycles", "breakeven"),
-    ):
+    total_amt = (
+        r["gross_win"] + r["gross_loss"]
+    )
 
-        print(
-            title + ":",
-            result[key],
-            flush=True,
+    def percent(n, d):
+
+        return (
+            "N/A"
+            if not d
+            else f"{100 * float(n) / float(d):.2f}%"
         )
 
     print(
-        "Winning trade rate:",
-        unit15_format_percent(
-            result["win_rate"]
-        ),
+        "\n" + "=" * 52,
         flush=True,
     )
 
     print(
-        "Losing trade rate:",
-        unit15_format_percent(
-            result["loss_rate"]
-        ),
+        "UNIT 15 WEEX DEMO PERFORMANCE |",
+        reason,
         flush=True,
     )
 
     print(
-        "Winning amount share:",
-        unit15_format_percent(
-            result["win_share"]
-        ),
+        "Reporting window:",
+        UNIT15_REPORT_HOURS,
+        "hours",
         flush=True,
     )
 
     print(
-        "Losing amount share:",
-        unit15_format_percent(
-            result["loss_share"]
-        ),
+        "Raw history orders:",
+        r["orders"],
         flush=True,
     )
 
     print(
-        "Provisional gross profit:",
-        f'{result["profit"]:+.6f} USDT',
+        "Recognized fully filled orders:",
+        r["fills"],
         flush=True,
     )
 
     print(
-        "Provisional gross loss:",
-        f'-{result["loss"]:.6f} USDT',
+        "Completed matched cycles:",
+        r["completed"],
         flush=True,
     )
 
     print(
-        "Provisional gross P&L:",
-        f'{result["gross_pnl"]:+.6f} USDT',
+        "Winning / Losing / Break-even:",
+        r["winners"],
+        r["losers"],
+        r["breakeven"],
         flush=True,
     )
 
     print(
-        "Net ROI: N/A - "
-        "FEES, FUNDING AND MARGIN "
-        "NOT RECONCILED",
+        "Win / Loss rate (excluding break-even):",
+        percent(r["winners"], closed),
+        percent(r["losers"], closed),
         flush=True,
     )
 
     print(
-        "Excluded records:",
-        result["excluded"],
+        "Winning / Losing amount share:",
+        percent(r["gross_win"], total_amt),
+        percent(r["gross_loss"], total_amt),
+        flush=True,
+    )
+
+    print(
+        "Price-based gross profit:",
+        r["gross_win"],
+        "USDT",
+        flush=True,
+    )
+
+    print(
+        "Price-based gross loss:",
+        r["gross_loss"],
+        "USDT",
+        flush=True,
+    )
+
+    print(
+        "Price-based gross P&L:",
+        r["gross_pnl"],
+        "USDT",
+        flush=True,
+    )
+
+    print(
+        "Open/unmatched quantities from retrieved history:",
+        r["open_qty"],
         flush=True,
     )
 
     print(
         "History pagination complete:",
-        result["complete_history"],
+        r["history_complete"],
         flush=True,
     )
 
     print(
-        "Calculation coverage verified:",
-        result["reconstruction_verified"],
+        "Reconstruction provisional:",
+        r["provisional"],
         flush=True,
     )
 
     print(
-        "SOURCE: WEEX DEMO ORDER HISTORY",
+        "Diagnostics:",
+        r["reasons"],
         flush=True,
     )
 
     print(
-        "EXCHANGE WRITE: FALSE",
-        flush=True,
-    )
-
-    print("=" * 55, flush=True)
-
-    # --------------------------------------------------------
-    # EXCLUSION RECONCILIATION
-    # --------------------------------------------------------
-
-    print(
-        "UNIT 15 EXCLUSION RECONCILIATION",
-        flush=True,
-    )
-
-    for key, count in sorted(
-        result["exclusion_reasons"].items()
-    ):
-
-        print(
-            "UNIT 15 EXCLUSION |",
-            key,
-            "=",
-            count,
-            flush=True,
-        )
-
-    for item in result["unmatched"]:
-
-        date = _U15_DT.fromtimestamp(
-            item["time"] / 1000,
-            _U15_TZ.utc,
-        ).isoformat()
-
-        print(
-            "UNIT 15 UNMATCHED CLOSE |",
-            "ORDER ID =", item["id"],
-            "| TIME UTC =", date,
-            "| DIRECTION =", item["direction"],
-            "| QUANTITY =", item["quantity"],
-            "| FILL PRICE =", item["price"],
-            "| REASON =", item["reason"],
-            flush=True,
-        )
-
-    for key, count in sorted(
-        result["diagnostics"].items()
-    ):
-
-        print(
-            "UNIT 15 DIAGNOSTIC |",
-            key,
-            "=",
-            count,
-            flush=True,
-        )
-
-    for direction, position in (
-        result["open_positions"].items()
-    ):
-
-        if position["qty"] > 0:
-
-            print(
-                "UNIT 15 UNRESOLVED INVENTORY |",
-                direction,
-                "| QUANTITY =", position["qty"],
-                "| HISTORY VALID =",
-                not position["invalid"],
-                flush=True,
-            )
-
-    print(
-        "UNIT 15 REPORTED EXCLUSIONS =",
-        result["excluded"],
+        "NET ROI = N/A "
+        "(fees/funding/allocated margin unverified)",
         flush=True,
     )
 
     print(
-        "UNIT 15 UNMATCHED CLOSING ORDERS =",
-        len(result["unmatched"]),
-        flush=True,
-    )
-
-    print(
-        "UNIT 15 HISTORICAL DATA READ ONLY = TRUE",
+        "CLOSE CAUSE = UNVERIFIED "
+        "(order history alone insufficient)",
         flush=True,
     )
 
@@ -21334,56 +21120,55 @@ def unit15_report(reason="SCHEDULED"):
         flush=True,
     )
 
-    print("=" * 55, flush=True)
+    print(
+        "=" * 52 + "\n",
+        flush=True,
+    )
 
-    return result
+    return r
 
-
-# ============================================================
-# 6. HOURLY PERFORMANCE WORKER
-# ============================================================
 
 def unit15_worker():
 
-    first_run = True
+    first = True
 
     while True:
 
         try:
-
             unit15_report(
-                "STARTUP" if first_run
+                "STARTUP"
+                if first
                 else "PERIODIC"
             )
 
-        except Exception as error:
+        except Exception as exc:
 
             print(
                 "UNIT 15 REPORT ERROR:",
-                repr(error),
+                repr(exc),
                 flush=True,
             )
 
-        first_run = False
+        first = False
 
         _u15_time.sleep(
             UNIT15_REPORT_INTERVAL_SECONDS
         )
 
 
-# ============================================================
-# 7. ACTIVATE THE ADDITIVE UNIT 15 WORKER
-# ============================================================
+if (
+    _u15_os.getenv(
+        "UNIT15_ENABLED",
+        "TRUE",
+    ).strip().upper() == "TRUE"
+):
 
-if _u15_os.getenv(
-    "UNIT15_ENABLED",
-    "TRUE",
-).strip().upper() == "TRUE":
-
-    _UNIT15_THREAD = _u15_threading.Thread(
-        target=unit15_worker,
-        name="WEEX-UNIT15-PERFORMANCE",
-        daemon=True,
+    _UNIT15_THREAD = (
+        _u15_threading.Thread(
+            target=unit15_worker,
+            name="WEEX-UNIT15-PERFORMANCE",
+            daemon=True,
+        )
     )
 
     _UNIT15_THREAD.start()
@@ -21405,8 +21190,8 @@ if _u15_os.getenv(
 
 
 # ============================================================
-# END UNIT 15 ADDITIVE PERFORMANCE REPORTER
-# ZERO INDENTATION
+# END UNIT 15 REPLACEMENT
+# ORIGINAL CONTINUOUS OPERATION CORRECTION FOLLOWS
 # ============================================================
 
 # ============================================================
