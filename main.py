@@ -21647,10 +21647,30 @@ def unit15_analyze(orders, history_complete):
 
         available = positions[direction]
 
+        
         if available <= 0:
-            reasons["CLOSE_WITHOUT_OPEN"] += 1
-            continue
 
+            reasons["CLOSE_WITHOUT_OPEN"] += 1
+
+            print(
+                "UNIT 15 UNMATCHED CLOSE |",
+                "ORDER ID =", fill["id"],
+                "| TIME UTC =",
+                _U15_DateTime.fromtimestamp(
+                    fill["time"] / 1000,
+                    _U15_Timezone.utc,
+                ).isoformat(),
+                "| DIRECTION =",
+                direction,
+                "| QUANTITY =",
+                quantity,
+                "| FILL PRICE =",
+                fill["price"],
+                "| REASON = NO MATCHED OPENING QUANTITY",
+                flush=True,
+            )
+
+            continue
         if quantity > available:
             reasons["CLOSE_EXCEEDS_POSITION"] += 1
             continue
