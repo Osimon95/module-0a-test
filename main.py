@@ -21031,11 +21031,30 @@ def unit15_report(reason="SCHEDULED"):
             flush=True,
         )
 
+    
     else:
 
         print(
-            "Gross P&L: N/A - "
-            "RECONCILIATION INCOMPLETE",
+            "Provisional price-based gross profit:",
+            f'{result["profit"]:+.6f} USDT',
+            flush=True,
+        )
+
+        print(
+            "Provisional price-based gross loss:",
+            f'-{result["loss"]:.6f} USDT',
+            flush=True,
+        )
+
+        print(
+            "Provisional price-based gross P&L:",
+            f'{result["gross_pnl"]:+.6f} USDT',
+            flush=True,
+        )
+
+        print(
+            "WARNING: THESE VALUES ARE NOT VERIFIED. "
+            "RECONCILIATION INCOMPLETE.",
             flush=True,
         )
 
