@@ -21108,6 +21108,359 @@ def unit15_worker():
 
 
 # ============================================================
+# START UNIT 15 HISTORY PARSER CORRECTION
+# ZERO INDENTATION
+#
+# ADDITION ONLY
+# UNITS 1-14 UNCHANGED
+# EXISTING UNIT 15 ANALYSIS PRESERVED
+# ============================================================
+
+from collections import Counter as _U15_Counter
+from datetime import datetime as _U15_DateTime
+
+_UNIT15_ORIGINAL_ANALYZE = unit15_analyze
+
+
+def unit15_first_present(record, *fields):
+
+    for field in fields:
+
+        value = record.get(field)
+
+        if value is not None and value != "":
+            return value
+
+    return None
+
+
+def unit15_normalize_timestamp(value):
+
+    if value is None:
+        return None
+
+    try:
+        number = float(value)
+
+        if number <= 0:
+            return None
+
+        if number < 100000000000:
+            number *= 1000
+
+        return int(number)
+
+    except (TypeError, ValueError):
+        pass
+
+    if isinstance(value, str):
+
+        try:
+            value = value.replace("Z", "+00:00")
+
+            moment = _U15_DateTime.fromisoformat(
+                value
+            )
+
+            if moment.tzinfo is None:
+                return None
+
+            return int(
+                moment.timestamp() * 1000
+            )
+
+        except (ValueError, OverflowError):
+            pass
+
+    return None
+
+
+def unit15_normalize_order(record):
+
+    if not isinstance(record, dict):
+        return None
+
+    result = dict(record)
+
+    timestamp = unit15_first_present(
+        result,
+        "createdTime",
+        "createTime",
+        "cTime",
+        "ctime",
+        "createdAt",
+        "timestamp",
+    )
+
+    timestamp = unit15_normalize_timestamp(
+        timestamp
+    )
+
+    if timestamp is not None:
+        result["createdTime"] = timestamp
+
+    quantity = unit15_first_present(
+        result,
+        "executedQty",
+        "filledQty",
+        "filledSize",
+        "executedQuantity",
+        "dealSize",
+    )
+
+    if quantity is not None:
+        result["executedQty"] = quantity
+
+    price = unit15_first_present(
+        result,
+        "avgPrice",
+        "averagePrice",
+        "fillPrice",
+        "priceAvg",
+        "executedPrice",
+    )
+
+    if price is not None:
+        result["avgPrice"] = price
+
+    status = unit15_first_present(
+        result,
+        "status",
+        "state",
+        "orderStatus",
+    )
+
+    if status is not None:
+
+        normalized_status = (
+            str(status).strip().upper()
+        )
+
+        if normalized_status in (
+            "FILLED",
+            "FULLY_FILLED",
+            "FULL_FILLED",
+            "FULLFILL",
+        ):
+            result["status"] = "FILLED"
+
+        else:
+            result["status"] = normalized_status
+
+    side = unit15_first_present(
+        result,
+        "side",
+        "orderSide",
+    )
+
+    if side is not None:
+        result["side"] = (
+            str(side).strip().upper()
+        )
+
+    position_side = unit15_first_present(
+        result,
+        "positionSide",
+        "holdSide",
+        "posSide",
+    )
+
+    if position_side is not None:
+        result["positionSide"] = (
+            str(position_side).strip().upper()
+        )
+
+    trade_side = unit15_first_present(
+        result,
+        "tradeSide",
+        "tradeType",
+        "offset",
+    )
+
+    if trade_side is not None:
+        result["tradeSide"] = (
+            str(trade_side).strip().upper()
+        )
+
+    return result
+
+
+def unit15_analyze(
+    orders,
+    history_complete,
+):
+
+    diagnostics = _U15_Counter()
+    normalized_orders = []
+
+    now_ms = int(
+        _u15_time.time() * 1000
+    )
+
+    for original in orders:
+
+        record = unit15_normalize_order(
+            original
+        )
+
+        if record is None:
+            diagnostics["INVALID_RECORD"] += 1
+            continue
+
+        normalized_orders.append(record)
+
+        timestamp = record.get(
+            "createdTime"
+        )
+
+        if timestamp is None:
+            diagnostics["MISSING_TIMESTAMP"] += 1
+
+        elif timestamp > now_ms:
+            diagnostics["FUTURE_TIMESTAMP"] += 1
+
+        status = str(
+            record.get("status", "")
+        ).upper()
+
+        if status == "FILLED":
+            diagnostics["FILLED_STATUS"] += 1
+
+        elif status:
+            diagnostics[
+                "OTHER_STATUS:" + status[:24]
+            ] += 1
+
+        else:
+            diagnostics["MISSING_STATUS"] += 1
+
+        quantity = unit15_decimal(
+            record.get("executedQty")
+        )
+
+        if quantity is None or quantity <= 0:
+            diagnostics["MISSING_FILLED_QUANTITY"] += 1
+
+        price = unit15_decimal(
+            record.get("avgPrice")
+        )
+
+        if price is None or price <= 0:
+            diagnostics["MISSING_FILL_PRICE"] += 1
+
+        direction = str(
+            record.get(
+                "positionSide",
+                "",
+            )
+        ).upper()
+
+        trade_side = str(
+            record.get(
+                "tradeSide",
+                "",
+            )
+        ).upper()
+
+        side = str(
+            record.get(
+                "side",
+                "",
+            )
+        ).upper()
+
+        if (
+            direction not in ("LONG", "SHORT")
+            and trade_side not in ("OPEN", "CLOSE")
+            and not any(
+                name in (side + "_" + trade_side)
+                for name in (
+                    "OPEN_LONG",
+                    "CLOSE_LONG",
+                    "OPEN_SHORT",
+                    "CLOSE_SHORT",
+                )
+            )
+        ):
+            diagnostics["DIRECTION_NEEDS_REVIEW"] += 1
+
+    print(
+        "=" * 55,
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 WEEX HISTORY FIELD DIAGNOSTICS",
+        flush=True,
+    )
+
+    print(
+        "Raw records:",
+        len(orders),
+        flush=True,
+    )
+
+    print(
+        "Normalized records:",
+        len(normalized_orders),
+        flush=True,
+    )
+
+    for reason, count in sorted(
+        diagnostics.items()
+    ):
+
+        print(
+            "UNIT 15 DIAGNOSTIC |",
+            reason,
+            "=",
+            count,
+            flush=True,
+        )
+
+    if normalized_orders:
+
+        field_names = set()
+
+        for record in normalized_orders[:20]:
+            field_names.update(
+                str(key)
+                for key in record.keys()
+            )
+
+        print(
+            "UNIT 15 AVAILABLE FIELD NAMES =",
+            sorted(field_names),
+            flush=True,
+        )
+
+    print(
+        "UNIT 15 EXCHANGE WRITE = FALSE",
+        flush=True,
+    )
+
+    print(
+        "=" * 55,
+        flush=True,
+    )
+
+    result = _UNIT15_ORIGINAL_ANALYZE(
+        normalized_orders,
+        history_complete,
+    )
+
+    result["history_diagnostics"] = dict(
+        diagnostics
+    )
+
+    return result
+
+
+# ============================================================
+# END UNIT 15 HISTORY PARSER CORRECTION
+# EXISTING WORKER ACTIVATION FOLLOWS
+# ============================================================
+# ============================================================
 # ACTIVATE THE ADDITIVE UNIT 15 WORKER
 # ============================================================
 
