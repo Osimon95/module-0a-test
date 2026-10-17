@@ -20450,8 +20450,6 @@ def fresh_tp3_runtime(
             poll_seconds
         )
 
-
-what is the current price 
 # ============================================================
 # START COMPLETE UNIT 15 REPLACEMENT
 # ZERO INDENTATION - DEMO READ ONLY
