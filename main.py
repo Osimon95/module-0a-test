@@ -16108,7 +16108,7 @@ def fresh_tp3_runtime(
         flush=True,
     )
 
-        print(
+    print(
         "PASS: UNIT 14 BACKUP SEQUENCE = "
         "ENTRY -> B1 -> L1 -> B2 -> L2 -> "
         "B3 -> L3 -> B4 -> L4 -> B5 -> L5 -> STOP",
