@@ -19609,14 +19609,19 @@ def fresh_tp3_runtime(
             1
         )
 
+        # ====================================================
+        # FIVE BACKUP STAGE PROTECTION
+        # INDENTATION: 8 SPACES
+        # ====================================================
+
         if (
             next_backup_stage
             >
-            3
+            5
         ):
 
             print(
-                "UNIT 14 BACKUP STOP = NO B4",
+                "UNIT 14 BACKUP STOP = FIVE BACKUPS MAXIMUM",
                 flush=True,
             )
 
@@ -19625,6 +19630,7 @@ def fresh_tp3_runtime(
             )
 
             continue
+    
 
         # ====================================================
         # 13A. CURRENT WEEX LIQUIDATION PRICE REQUIRED
