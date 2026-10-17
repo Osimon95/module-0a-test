@@ -16054,12 +16054,23 @@ def fresh_tp3_runtime(
 
     # Absolute architecture protection.
 
+    # ========================================================
+    # FIVE BACKUP ARCHITECTURE
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
     max_backups = min(
         max(
             max_backups,
             0,
         ),
-        3,
+        5,
+    )
+
+    print(
+        "PASS: UNIT 14 MAX BACKUPS =",
+        max_backups,
+        flush=True,
     )
 
     backup_buffer_fraction = (
