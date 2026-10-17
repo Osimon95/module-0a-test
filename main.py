@@ -21409,6 +21409,207 @@ def unit15_telegram(message):
 
 
 # ============================================================
+# UNIT 15 ADDITIONAL EQUITY PERFORMANCE MONITOR
+# ZERO INDENTATION
+# READ ONLY - NO EXCHANGE WRITES
+# ============================================================
+
+_UNIT15_EQUITY_PREVIOUS = None
+
+
+def unit15_read_demo_equity():
+
+    key = (
+        _u15_os.getenv("WEEX_API_KEY")
+        or _u15_os.getenv("API_KEY")
+    )
+
+    secret = (
+        _u15_os.getenv("WEEX_API_SECRET")
+        or _u15_os.getenv("API_SECRET")
+    )
+
+    passphrase = (
+        _u15_os.getenv("WEEX_API_PASSPHRASE")
+        or _u15_os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, passphrase)):
+        raise RuntimeError(
+            "UNIT 15 EQUITY CREDENTIALS MISSING"
+        )
+
+    base = FRESH_RECONSTRUCTION_CONFIG[
+        "exchange"
+    ]["contract_base_url"]
+
+    if base != "https://api-contract.weex.com":
+        raise RuntimeError(
+            "UNIT 15 EQUITY INVALID HOST"
+        )
+
+    path = "/capi/v3/sim/balance"
+
+    timestamp = str(
+        int(_u15_time.time() * 1000)
+    )
+
+    message = timestamp + "GET" + path
+
+    signature = _u15_base64.b64encode(
+        _u15_hmac.new(
+            secret.encode("utf-8"),
+            message.encode("utf-8"),
+            _u15_hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    request = _u15_request.Request(
+        url=base + path,
+        method="GET",
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": passphrase,
+            "Content-Type": "application/json",
+        },
+    )
+
+    if (
+        request.get_method() != "GET"
+        or request.data is not None
+    ):
+        raise RuntimeError(
+            "UNIT 15 EQUITY NON-GET BLOCKED"
+        )
+
+    with _u15_request.urlopen(
+        request,
+        timeout=20,
+    ) as response:
+        payload = _u15_json.loads(
+            response.read().decode("utf-8")
+        )
+
+    if not isinstance(payload, list):
+        raise RuntimeError(
+            "UNIT 15 EQUITY INVALID RESPONSE"
+        )
+
+    for item in payload:
+
+        if not isinstance(item, dict):
+            continue
+
+        if str(
+            item.get("asset", "")
+        ).upper() != "SUSDT":
+            continue
+
+        # Only explicitly identifiable equity fields.
+        # Available balance is intentionally excluded.
+
+        for field in (
+            "totalEquity",
+            "accountEquity",
+            "equity",
+        ):
+
+            if field not in item:
+                continue
+
+            amount = unit15_decimal(
+                item.get(field)
+            )
+
+            if amount is not None and amount >= 0:
+
+                return {
+                    "equity": amount,
+                    "field": field,
+                    "time": int(
+                        _u15_time.time() * 1000
+                    ),
+                }
+
+        print(
+            "UNIT 15 BALANCE FIELDS =",
+            sorted(item.keys()),
+            flush=True,
+        )
+
+        return None
+
+    return None
+
+
+def unit15_equity_comparison():
+
+    global _UNIT15_EQUITY_PREVIOUS
+
+    current = unit15_read_demo_equity()
+
+    if current is None:
+        return (
+            "Equity comparison: PENDING\n"
+            "Reason: Equity field not verified"
+        )
+
+    previous = _UNIT15_EQUITY_PREVIOUS
+
+    _UNIT15_EQUITY_PREVIOUS = current
+
+    if previous is None:
+        return (
+            "Equity comparison: BASELINE SAVED\n"
+            f"Starting equity: {current['equity']:.4f} SUSDT\n"
+            "Net equity change: PENDING"
+        )
+
+    if previous["field"] != current["field"]:
+        return (
+            "Equity comparison: BASELINE RESET\n"
+            "Reason: Equity field changed"
+        )
+
+    difference = (
+        current["equity"]
+        - previous["equity"]
+    )
+
+    elapsed_hours = (
+        current["time"] - previous["time"]
+    ) / 3600000
+
+    if previous["equity"] > 0:
+        change_percent = (
+            difference
+            / previous["equity"]
+            * _U15_D("100")
+        )
+        percent_text = f"{change_percent:+.2f}%"
+    else:
+        percent_text = "N/A"
+
+    return (
+        "EQUITY PERFORMANCE\n"
+        f"Interval: {elapsed_hours:.2f}h\n"
+        f"Equity before: {previous['equity']:.4f} SUSDT\n"
+        f"Equity after: {current['equity']:.4f} SUSDT\n"
+        f"Equity change: {difference:+.4f} SUSDT\n"
+        f"Equity change %: {percent_text}\n"
+        "External flow adjustment: PENDING\n"
+        "Realized-only P&L: NOT VERIFIED"
+    )
+
+
+# ============================================================
+# END EQUITY PERFORMANCE MONITOR
+# EXISTING UNIT 15 REPORT CONTINUES BELOW
+# ============================================================
+
+# ============================================================
 # UNIT 15 COMPLETE PERFORMANCE REPORT
 # ============================================================
 
