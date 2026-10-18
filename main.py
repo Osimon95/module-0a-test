@@ -9960,23 +9960,157 @@ def fresh_reconstruction_unit_13(
             "UNIT 13 BLOCKED: INVALID POSITION SIDE"
         )
 
-    position_size = Decimal(
-        str(
-            position.get(
-                "size",
-                "0",
-            )
+    
+    # ========================================================
+    # 9A. ACTUAL WEEX POSITION LEVERAGE
+    # INDENTATION: FOUR SPACES
+    # ========================================================
+
+    try:
+        effective_leverage = Decimal(
+            str(position["leverage"])
         )
-    )
+    except (
+        KeyError,
+        ValueError,
+        TypeError,
+        ArithmeticError,
+    ) as exc:
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: EXCHANGE LEVERAGE MISSING"
+        ) from exc
 
     if (
-        position_size
-        <=
-        Decimal("0")
+        not effective_leverage.is_finite()
+        or effective_leverage <= Decimal("0")
     ):
         raise RuntimeError(
-            "UNIT 13 BLOCKED: INVALID POSITION SIZE"
+            "UNIT 13 BLOCKED: INVALID EXCHANGE LEVERAGE"
         )
+
+    # Do not request any leverage change.
+    # Preserve old variable name only where needed
+    # by downstream calculations.
+
+    leverage_target = effective_leverage
+
+    # ========================================================
+    # 9B. VALIDATE POSITION MARGIN
+    # ========================================================
+
+    try:
+        actual_margin_size = Decimal(
+            str(position["marginSize"])
+        )
+    except (
+        KeyError,
+        ValueError,
+        TypeError,
+        ArithmeticError,
+    ) as exc:
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: POSITION MARGIN MISSING"
+        ) from exc
+
+    if (
+        not actual_margin_size.is_finite()
+        or actual_margin_size <= Decimal("0")
+    ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: INVALID POSITION MARGIN"
+        )
+
+    # ========================================================
+    # 9C. REBUILD TP1 AND TP2 REQUIRED ROI
+    # ========================================================
+
+    estimated_round_trip_fee_roi_percent = (
+        estimated_round_trip_fee_price_percent
+        * effective_leverage
+    )
+
+    tp1_required_gross_roi = (
+        tp1_net_roi_floor
+        + estimated_round_trip_fee_roi_percent
+    )
+
+    tp2_required_gross_roi = (
+        tp2_net_roi_floor
+        + estimated_round_trip_fee_roi_percent
+    )
+
+    minimum_tp2_from_tp1 = (
+        tp1_required_gross_roi
+        + tp1_tp2_min_roi_separation
+    )
+
+    if tp2_required_gross_roi < minimum_tp2_from_tp1:
+        tp2_required_gross_roi = minimum_tp2_from_tp1
+
+    tp1_price_move_percent = (
+        tp1_required_gross_roi / effective_leverage
+    )
+
+    tp2_price_move_percent = (
+        tp2_required_gross_roi / effective_leverage
+    )
+
+    # ========================================================
+    # 9D. EXCHANGE POSITION DIAGNOSTICS
+    # ========================================================
+
+    print(
+        "UNIT 13 ACTUAL WEEX LEVERAGE =",
+        effective_leverage,
+        "x",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 ACTUAL MARGIN SIZE =",
+        actual_margin_size,
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 ESTIMATED ROUND TRIP FEE ROI =",
+        estimated_round_trip_fee_roi_percent,
+        "%",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP1 GROSS ROI REQUIREMENT =",
+        tp1_required_gross_roi,
+        "%",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP2 GROSS ROI REQUIREMENT =",
+        tp2_required_gross_roi,
+        "%",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP1 REQUIRED PRICE MOVEMENT =",
+        tp1_price_move_percent,
+        "%",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 TP2 REQUIRED PRICE MOVEMENT =",
+        tp2_price_move_percent,
+        "%",
+        flush=True,
+    )
+
+    print(
+        "UNIT 13 LEVERAGE MUTATION = FALSE",
+        flush=True,
+    )
 
     # ========================================================
     # 10. AVERAGE ENTRY
