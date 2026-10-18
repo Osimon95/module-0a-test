@@ -21624,6 +21624,47 @@ def unit15_report(
             end.timestamp() * 1000
         )
 
+        
+        # ----------------------------------------------------
+        # UNIT 15 EQUITY SNAPSHOT
+        # INDENTATION: 8 SPACES
+        # ----------------------------------------------------
+
+        equity_snapshot = None
+        equity_error = None
+
+        try:
+
+            equity_snapshot = (
+                unit15_read_equity()
+            )
+
+            unit15_save_equity(
+                equity_snapshot
+            )
+
+            print(
+                "UNIT 15 EQUITY SNAPSHOT =",
+                equity_snapshot,
+                flush=True,
+            )
+
+        except Exception as exc:
+
+            equity_error = str(exc)
+
+            print(
+                "UNIT 15 EQUITY READ UNAVAILABLE =",
+                equity_error,
+                flush=True,
+            )
+
+        equity_result = (
+            unit15_equity_change(
+                start_ms,
+                end_ms,
+            )
+        )
         # ----------------------------------------------------
         # FETCH EXCHANGE HISTORY ONCE
         # ----------------------------------------------------
