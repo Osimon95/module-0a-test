@@ -6836,451 +6836,106 @@ FRESH_RECONSTRUCTION_UNIT_10_RESULT = (
 # EXISTING UNIT 11 CONTINUES BELOW
 # ============================================================
 
-# ============================================================
-# FRESH RECONSTRUCTION UNIT 11
-# DEMO ORDER PAYLOAD CONSTRUCTION + VALIDATION
-#
-# PURPOSE:
-# - Consume verified Unit 2 configuration
-# - Consume verified Unit 10 result
-# - Preserve normal IDLE state when no trade is qualified
-# - Build a normalized WEEX DEMO order payload when READY
-# - Validate the payload WITHOUT submission
-#
-# IMPORTANT:
-# - ZERO AUTHENTICATED API ACCESS
-# - ZERO ACCOUNT ACCESS
-# - ZERO POSITION ACCESS
-# - ZERO ORDER ENDPOINT ACCESS
-# - ZERO DEMO ORDER SUBMISSION
-# - ZERO REAL ORDER SUBMISSION
-# - ZERO EXCHANGE WRITE
-# - ZERO LEVERAGE MUTATION
-# - ZERO MARGIN MODE MUTATION
-# - ZERO POSITION MODE MUTATION
-#
-# UNIT 11 MAY CONSTRUCT A PAYLOAD IN MEMORY.
-# UNIT 11 MUST NOT SUBMIT THAT PAYLOAD.
-#
-# TP AND SL REMAIN INDEPENDENT.
-# UNIT 11 DOES NOT EXECUTE TP.
-# UNIT 11 DOES NOT EXECUTE SL.
-# UNIT 11 DOES NOT EXECUTE BACKUPS.
-# ============================================================
 
+# ============================================================
+# START COMPLETE REPLACEMENT - UNIT 11
+# ZERO INDENTATION
+#
+# WEEX DEMO ENTRY PAYLOAD PREPARATION
+# EXCHANGE-CONTROLLED LEVERAGE
+#
+# NO PYTHON LEVERAGE SETTING
+# NO ORDER SUBMISSION IN THIS UNIT
+# UNIT 12 RETAINS DEMO EXECUTION AUTHORITY
+# ============================================================
 
 def fresh_reconstruction_unit_11(
     config,
     unit_10_result,
 ):
+    import math
+    import uuid
+    from decimal import Decimal
     from datetime import datetime, timezone
 
-    print(
-        "=" * 80,
-        flush=True,
-    )
-
-    print(
-        f"{datetime.now(timezone.utc).isoformat()} "
-        "FRESH RECONSTRUCTION UNIT 11 START",
-        flush=True,
-    )
-
-    print(
-        "-" * 80,
-        flush=True,
-    )
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 11 START")
 
     # ========================================================
     # 1. INPUT VALIDATION
     # ========================================================
 
-    if not isinstance(
-        config,
-        dict,
-    ):
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT 11 INVALID CONFIGURATION")
+
+    if not isinstance(unit_10_result, dict):
+        raise RuntimeError("UNIT 11 INVALID UNIT 10 RESULT")
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+    strategy = config.get("strategy", {})
+    precision = config.get("market_precision", {})
+
+    if not all(isinstance(v, dict) for v in (
+        exchange, safety, strategy, precision
+    )):
         raise RuntimeError(
-            "UNIT 11 BLOCKED: INVALID UNIT 2 CONFIGURATION"
+            "UNIT 11 CONFIGURATION SECTION MISSING"
         )
 
-    print(
-        "PASS: UNIT 11 RECEIVED UNIT 2 CONFIGURATION",
-        flush=True,
-    )
+    if config.get("execution_environment") != "DEMO":
+        raise RuntimeError("UNIT 11 DEMO ONLY")
 
-    if not isinstance(
-        unit_10_result,
-        dict,
-    ):
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: INVALID UNIT 10 RESULT"
-        )
+    if exchange.get("name") != "WEEX":
+        raise RuntimeError("UNIT 11 INVALID EXCHANGE")
 
-    print(
-        "PASS: UNIT 11 RECEIVED UNIT 10 RESULT",
-        flush=True,
-    )
+    if exchange.get("api_version") != "V3":
+        raise RuntimeError("UNIT 11 INVALID API VERSION")
+
+    if exchange.get("market_symbol") != "BTCUSDT":
+        raise RuntimeError("UNIT 11 INVALID MARKET SYMBOL")
+
+    if exchange.get("demo_order_symbol") != "BTCSUSDT":
+        raise RuntimeError("UNIT 11 INVALID DEMO SYMBOL")
 
     # ========================================================
-    # 2. CONFIGURATION SECTIONS
+    # 2. SAFETY CONTRACT
     # ========================================================
 
-    exchange = config.get(
-        "exchange"
-    )
-
-    safety = config.get(
-        "safety"
-    )
-
-    strategy = config.get(
-        "strategy"
-    )
-
-    market_precision = config.get(
-        "market_precision"
-    )
-
-    if not isinstance(
-        exchange,
-        dict,
-    ):
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: EXCHANGE CONFIGURATION MISSING"
-        )
-
-    if not isinstance(
-        safety,
-        dict,
-    ):
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: SAFETY CONFIGURATION MISSING"
-        )
-
-    if not isinstance(
-        strategy,
-        dict,
-    ):
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: STRATEGY CONFIGURATION MISSING"
-        )
-
-    if not isinstance(
-        market_precision,
-        dict,
-    ):
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: MARKET PRECISION MISSING"
-        )
-
-    print(
-        "PASS: UNIT 11 CONFIGURATION SECTIONS PRESENT",
-        flush=True,
-    )
-
-    # ========================================================
-    # 3. STRICT UNIT 10 CONTRACT
-    # ========================================================
-
-    required_unit_10_fields = (
-        "status",
-        "active_mode",
-        "direction",
-        "signal_qualified",
-        "execution_intent",
-        "trade_plan_ready",
-        "trade_plan",
-        "execution_ready",
-        "execution_candidate",
-        "demo_boundary_ready",
-        "demo_submission_instruction",
-        "skip_reason",
-        "order_payload_created",
-        "demo_submission_requested",
-        "real_submission_requested",
-        "tp_execution_requested",
-        "sl_execution_requested",
-        "backup_execution_requested",
-        "read_only",
-    )
-
-    missing_unit_10_fields = [
-        field
-        for field in required_unit_10_fields
-        if field not in unit_10_result
-    ]
-
-    if missing_unit_10_fields:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: UNIT 10 MISSING FIELDS = "
-            + str(
-                missing_unit_10_fields
-            )
-        )
-
-    print(
-        "PASS: UNIT 11 UNIT 10 CONTRACT VALIDATED",
-        flush=True,
-    )
-
-    # ========================================================
-    # 4. UNIT 10 READ-ONLY CONTRACT
-    # ========================================================
-
-    if unit_10_result.get(
-        "read_only"
-    ) is not True:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: UNIT 10 RESULT NOT READ ONLY"
-        )
-
-    if unit_10_result.get(
-        "order_payload_created"
-    ) is not False:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: UNIT 10 ALREADY CREATED PAYLOAD"
-        )
-
-    if unit_10_result.get(
-        "demo_submission_requested"
-    ) is not False:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: UNIT 10 REQUESTED DEMO SUBMISSION"
-        )
-
-    if unit_10_result.get(
-        "real_submission_requested"
-    ) is not False:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: UNIT 10 REQUESTED REAL SUBMISSION"
-        )
-
-    if unit_10_result.get(
-        "tp_execution_requested"
-    ) is not False:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: UNIT 10 REQUESTED TP EXECUTION"
-        )
-
-    if unit_10_result.get(
-        "sl_execution_requested"
-    ) is not False:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: UNIT 10 REQUESTED SL EXECUTION"
-        )
-
-    if unit_10_result.get(
-        "backup_execution_requested"
-    ) is not False:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: UNIT 10 REQUESTED BACKUP EXECUTION"
-        )
-
-    print(
-        "PASS: UNIT 11 UNIT 10 READ-ONLY CONTRACT",
-        flush=True,
-    )
-
-    # ========================================================
-    # 5. GLOBAL SAFETY GATE
-    # ========================================================
-
-    forbidden_capabilities = (
-        "authenticated_api_enabled",
-        "account_access_enabled",
-        "position_access_enabled",
-        "order_endpoint_access_enabled",
-        "demo_order_submission_enabled",
+    for key in (
         "real_order_submission_enabled",
         "exchange_mutation_enabled",
         "leverage_mutation_enabled",
         "margin_mode_mutation_enabled",
         "position_mode_mutation_enabled",
-    )
-
-    for capability in forbidden_capabilities:
-
-        if safety.get(
-            capability
-        ) is not False:
-
+    ):
+        if safety.get(key) is not False:
             raise RuntimeError(
-                "UNIT 11 BLOCKED: UNSAFE CAPABILITY ENABLED: "
-                + capability
+                "UNIT 11 UNSAFE CAPABILITY: " + key
             )
 
-    print(
-        "PASS: UNIT 11 READ-ONLY SAFETY GATE",
-        flush=True,
-    )
-
-    # ========================================================
-    # 6. WEEX DEMO ENVIRONMENT CONTRACT
-    # ========================================================
-
-    if exchange.get(
-        "name"
-    ) != "WEEX":
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: INVALID EXCHANGE"
-        )
-
-    if exchange.get(
-        "api_version"
-    ) != "V3":
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: INVALID API VERSION"
-        )
-
-    if exchange.get(
-        "market_symbol"
-    ) != "BTCUSDT":
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: INVALID MARKET SYMBOL"
-        )
-
-    if exchange.get(
-        "demo_order_symbol"
-    ) != "BTCSUSDT":
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: INVALID DEMO ORDER SYMBOL"
-        )
-
-    if config.get(
-        "execution_environment"
-    ) != "DEMO":
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: EXECUTION ENVIRONMENT NOT DEMO"
-        )
-
-    print(
-        "PASS: UNIT 11 WEEX DEMO ENVIRONMENT CONTRACT",
-        flush=True,
-    )
-
-    # ========================================================
-    # 7. STRATEGY SAFETY CONTRACT
-    # ========================================================
-
-    if strategy.get(
-        "anti_duplicate_orders"
-    ) is not True:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: ANTI-DUPLICATE ORDERS DISABLED"
-        )
-
-    if strategy.get(
-        "one_direction_only"
-    ) is not True:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: ONE DIRECTION ONLY DISABLED"
-        )
-
-    if strategy.get(
-        "active_trade_mode_lock"
-    ) is not True:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: ACTIVE TRADE MODE LOCK DISABLED"
-        )
-
-    print(
-        "PASS: UNIT 11 STRATEGY SAFETY CONTRACT",
-        flush=True,
-    )
-
-    # ========================================================
-    # 8. NORMALIZE UNIT 10 STATE
-    # ========================================================
-
-    status = str(
-        unit_10_result.get(
-            "status",
-            "IDLE",
-        )
-    ).upper()
-
-    active_mode = unit_10_result.get(
-        "active_mode"
-    )
-
-    direction = unit_10_result.get(
-        "direction"
-    )
-
-    signal_qualified = bool(
-        unit_10_result.get(
-            "signal_qualified",
-            False,
-        )
-    )
-
-    execution_intent = bool(
-        unit_10_result.get(
-            "execution_intent",
-            False,
-        )
-    )
-
-    trade_plan_ready = bool(
-        unit_10_result.get(
-            "trade_plan_ready",
-            False,
-        )
-    )
-
-    execution_ready = bool(
-        unit_10_result.get(
-            "execution_ready",
-            False,
-        )
-    )
-
-    demo_boundary_ready = bool(
-        unit_10_result.get(
-            "demo_boundary_ready",
-            False,
-        )
-    )
-
-    trade_plan = unit_10_result.get(
-        "trade_plan"
-    )
-
-    execution_candidate = unit_10_result.get(
-        "execution_candidate"
-    )
-
-    demo_submission_instruction = (
-        unit_10_result.get(
-            "demo_submission_instruction"
-        )
-    )
-
-    skip_reason = str(
-        unit_10_result.get(
-            "skip_reason",
-            "NONE",
-        )
-    )
-
-    # ========================================================
-    # 9. NORMAL IDLE PATH
-    # ========================================================
-
-    if (
-        status == "IDLE"
-        or not signal_qualified
-        or not execution_intent
-        or not trade_plan_ready
-        or not execution_ready
-        or not demo_boundary_ready
+    for key in (
+        "anti_duplicate_orders",
+        "one_direction_only",
+        "active_trade_mode_lock",
+        "exclusive_mode",
     ):
+        if strategy.get(key) is not True:
+            raise RuntimeError(
+                "UNIT 11 SAFETY RULE DISABLED: " + key
+            )
 
-        unit_11_result = {
+    # ========================================================
+    # 3. NORMALIZED IDLE RESULT
+    # ========================================================
+
+    def idle(reason):
+
+        result = {
             "status": "IDLE",
-            "active_mode": active_mode,
-            "direction": direction,
-            "signal_qualified": signal_qualified,
+            "active_mode": "NONE",
+            "direction": "NONE",
+            "signal_qualified": False,
             "execution_intent": False,
             "trade_plan_ready": False,
             "trade_plan": None,
@@ -7290,7 +6945,7 @@ def fresh_reconstruction_unit_11(
             "demo_submission_instruction": None,
             "payload_ready": False,
             "order_payload": None,
-            "skip_reason": skip_reason,
+            "skip_reason": str(reason),
             "order_payload_created": False,
             "demo_submission_requested": False,
             "real_submission_requested": False,
@@ -7300,565 +6955,343 @@ def fresh_reconstruction_unit_11(
             "read_only": True,
         }
 
-        print(
-            "-" * 80,
-            flush=True,
-        )
+        print("UNIT 11 STATUS = IDLE", flush=True)
+        print("UNIT 11 SKIP REASON =", reason, flush=True)
 
-        print(
-            "UNIT 11 STATUS = IDLE",
-            flush=True,
-        )
-
-        print(
-            f"UNIT 11 ACTIVE MODE = {active_mode}",
-            flush=True,
-        )
-
-        print(
-            f"UNIT 11 DIRECTION = {direction}",
-            flush=True,
-        )
-
-        print(
-            f"UNIT 11 SIGNAL QUALIFIED = "
-            f"{signal_qualified}",
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 EXECUTION INTENT = False",
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 DEMO BOUNDARY READY = False",
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 PAYLOAD READY = False",
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 ORDER PAYLOAD = NONE",
-            flush=True,
-        )
-
-        print(
-            f"UNIT 11 SKIP REASON = {skip_reason}",
-            flush=True,
-        )
-
-        print(
-            "-" * 80,
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 11 NORMAL NO-TRADE STATE",
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 11 NO ORDER PAYLOAD GENERATED",
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 11 NO NETWORK REQUEST",
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 11 NO DEMO SUBMISSION",
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 11 NO REAL SUBMISSION",
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 11 NO TP EXECUTION",
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 11 NO SL EXECUTION",
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 11 NO BACKUP EXECUTION",
-            flush=True,
-        )
-
-        print(
-            "ZERO AUTHENTICATED API ACCESS = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO ACCOUNT ACCESS = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO POSITION ACCESS = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO ORDER ENDPOINT ACCESS = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO DEMO ORDER = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO REAL ORDER = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO EXCHANGE WRITE = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO LEVERAGE MUTATION = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO MARGIN MODE MUTATION = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO POSITION MODE MUTATION = TRUE",
-            flush=True,
-        )
-
-        print(
-            "-" * 80,
-            flush=True,
-        )
-
-        print(
-            f"{datetime.now(timezone.utc).isoformat()} "
+        log(
             "FRESH RECONSTRUCTION UNIT 11 "
-            "RESULT = PASS (IDLE)",
-            flush=True,
+            "RESULT = PASS (IDLE)"
         )
 
-        print(
-            "=" * 80,
-            flush=True,
+        return result
+
+    # ========================================================
+    # 4. UNIT 10 ADMISSION
+    # ========================================================
+
+    status = unit_10_result.get("status", "IDLE")
+
+    if status == "IDLE":
+        return idle(
+            unit_10_result.get(
+                "skip_reason", "UNIT_10_IDLE"
+            )
         )
-
-        return unit_11_result
-
-    # ========================================================
-    # 10. ACTIONABLE UNIT 10 CONTRACT
-    # ========================================================
 
     if status != "READY":
+        return idle("UNIT_10_NOT_READY")
+
+    if unit_10_result.get("read_only") is not True:
         raise RuntimeError(
-            "UNIT 11 BLOCKED: ACTIONABLE UNIT 10 STATUS NOT READY"
+            "UNIT 11 UNIT 10 PREPARATION SAFETY FAILURE"
         )
 
-    if active_mode not in (
-        "SCALP",
-        "STRUCTURE",
-        "BREAKOUT",
+    for key in (
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "execution_ready",
+        "demo_boundary_ready",
     ):
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: INVALID ACTIVE MODE"
-        )
+        if unit_10_result.get(key) is not True:
+            return idle("UNIT_10_NOT_ADMITTED:" + key)
 
-    if direction not in (
-        "LONG",
-        "SHORT",
+    for key in (
+        "order_payload_created",
+        "demo_submission_requested",
+        "real_submission_requested",
+        "tp_execution_requested",
+        "sl_execution_requested",
+        "backup_execution_requested",
     ):
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: INVALID DIRECTION"
-        )
+        if unit_10_result.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 11 UNEXPECTED PRIOR EXECUTION: " + key
+            )
 
-    if not isinstance(
-        trade_plan,
-        dict,
+    mode = unit_10_result.get("active_mode")
+    direction = unit_10_result.get("direction")
+
+    if mode not in (
+        "SCALP", "STRUCTURE", "BREAKOUT"
     ):
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: TRADE PLAN MISSING"
-        )
+        return idle("INVALID_ACTIVE_MODE")
 
-    if not isinstance(
-        execution_candidate,
-        dict,
-    ):
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: EXECUTION CANDIDATE MISSING"
-        )
+    if direction not in ("LONG", "SHORT"):
+        return idle("INVALID_DIRECTION")
 
-    if not isinstance(
-        demo_submission_instruction,
-        dict,
-    ):
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: DEMO SUBMISSION INSTRUCTION MISSING"
-        )
+    # ========================================================
+    # 5. TRADE PLAN AND INSTRUCTION
+    # ========================================================
 
-    print(
-        "PASS: UNIT 11 ACTIONABLE UNIT 10 CONTRACT",
-        flush=True,
+    trade_plan = unit_10_result.get("trade_plan")
+    candidate = unit_10_result.get(
+        "execution_candidate"
+    )
+    instruction = unit_10_result.get(
+        "demo_submission_instruction"
     )
 
-    # ========================================================
-    # 11. VALIDATE UNIT 10 DEMO INSTRUCTION
-    # ========================================================
+    if not all(isinstance(v, dict) for v in (
+        trade_plan, candidate, instruction
+    )):
+        return idle("MISSING_EXECUTION_COMPONENT")
 
-    required_instruction_fields = (
-        "exchange",
-        "api_version",
-        "execution_environment",
-        "market_symbol",
-        "demo_order_symbol",
-        "active_mode",
-        "direction",
-        "trade_plan",
-        "execution_candidate",
+    if (
+        trade_plan.get("active_mode") != mode
+        or candidate.get("active_mode") != mode
+        or instruction.get("active_mode") != mode
+    ):
+        return idle("EXECUTION_MODE_MISMATCH")
+
+    if (
+        trade_plan.get("direction") != direction
+        or candidate.get("direction") != direction
+        or instruction.get("direction") != direction
+    ):
+        return idle("EXECUTION_DIRECTION_MISMATCH")
+
+    if candidate.get("trade_plan") != trade_plan:
+        return idle("EXECUTION_CANDIDATE_MISMATCH")
+
+    if instruction.get("trade_plan") != trade_plan:
+        return idle("INSTRUCTION_TRADE_PLAN_MISMATCH")
+
+    if instruction.get("execution_candidate") != candidate:
+        return idle("INSTRUCTION_CANDIDATE_MISMATCH")
+
+    if instruction.get("execution_environment") != "DEMO":
+        return idle("INSTRUCTION_NOT_DEMO")
+
+    if instruction.get("demo_order_symbol") != "BTCSUSDT":
+        return idle("INSTRUCTION_SYMBOL_MISMATCH")
+
+    if instruction.get("read_only") is not True:
+        return idle("UNSAFE_SUBMISSION_INSTRUCTION")
+
+    for key in (
         "anti_duplicate_required",
         "one_direction_only_required",
         "active_trade_mode_lock_required",
-        "payload_creation_allowed",
-        "submission_allowed",
-        "read_only",
-    )
+    ):
+        if instruction.get(key) is not True:
+            return idle("MISSING_EXECUTION_GUARD:" + key)
 
-    missing_instruction_fields = [
-        field
-        for field in required_instruction_fields
-        if field not in demo_submission_instruction
-    ]
+    # Unit 10's submission_allowed=False means
+    # Unit 10 itself must not submit an order.
+    # Unit 12 remains the authorized demo executor.
 
-    if missing_instruction_fields:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: DEMO INSTRUCTION MISSING FIELDS = "
-            + str(
-                missing_instruction_fields
-            )
-        )
-
-    if demo_submission_instruction.get(
-        "exchange"
-    ) != "WEEX":
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: INVALID INSTRUCTION EXCHANGE"
-        )
-
-    if demo_submission_instruction.get(
-        "api_version"
-    ) != "V3":
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: INVALID INSTRUCTION API VERSION"
-        )
-
-    if demo_submission_instruction.get(
-        "execution_environment"
-    ) != "DEMO":
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: INVALID INSTRUCTION ENVIRONMENT"
-        )
-
-    if demo_submission_instruction.get(
-        "market_symbol"
-    ) != "BTCUSDT":
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: INVALID INSTRUCTION MARKET SYMBOL"
-        )
-
-    if demo_submission_instruction.get(
-        "demo_order_symbol"
-    ) != "BTCSUSDT":
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: INVALID INSTRUCTION DEMO SYMBOL"
-        )
-
-    if demo_submission_instruction.get(
-        "active_mode"
-    ) != active_mode:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: ACTIVE MODE CONTRACT MISMATCH"
-        )
-
-    if demo_submission_instruction.get(
-        "direction"
-    ) != direction:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: DIRECTION CONTRACT MISMATCH"
-        )
-
-    if demo_submission_instruction.get(
-        "anti_duplicate_required"
-    ) is not True:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: ANTI-DUPLICATE CONTRACT MISSING"
-        )
-
-    if demo_submission_instruction.get(
-        "one_direction_only_required"
-    ) is not True:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: ONE-DIRECTION CONTRACT MISSING"
-        )
-
-    if demo_submission_instruction.get(
-        "active_trade_mode_lock_required"
-    ) is not True:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: MODE LOCK CONTRACT MISSING"
-        )
-
-    if demo_submission_instruction.get(
-        "payload_creation_allowed"
-    ) is not False:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: UNIT 10 PAYLOAD FLAG CHANGED"
-        )
-
-    if demo_submission_instruction.get(
-        "submission_allowed"
-    ) is not False:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: SUBMISSION FLAG ENABLED"
-        )
-
-    if demo_submission_instruction.get(
-        "read_only"
-    ) is not True:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: DEMO INSTRUCTION NOT READ ONLY"
-        )
-
-    print(
-        "PASS: UNIT 11 DEMO INSTRUCTION VALIDATED",
-        flush=True,
-    )
+    if instruction.get("submission_allowed") is not False:
+        return idle("INVALID_UNIT_10_SUBMISSION_BOUNDARY")
 
     # ========================================================
-    # 12. READ EXECUTION DATA
-    #
-    # Unit 11 does not invent quantity or entry data.
-    # It consumes the already-normalized execution candidate
-    # produced by the preceding verified units.
+    # 6. VERIFIED WEEX LEVERAGE HANDOFF
     # ========================================================
 
-    quantity = execution_candidate.get(
-        "quantity"
-    )
+    sizing = trade_plan.get("position_sizing")
 
-    if quantity is None:
-        quantity = execution_candidate.get(
-            "position_quantity"
-        )
+    if not isinstance(sizing, dict):
+        return idle("POSITION_SIZING_MISSING")
 
-    if quantity is None:
-        quantity = execution_candidate.get(
-            "order_quantity"
-        )
+    if sizing.get("leverage_target") is not None:
+        return idle("PYTHON_LEVERAGE_TARGET_PRESENT")
 
-    if quantity is None:
+    if sizing.get(
+        "leverage_source"
+    ) != "WEEX_SYMBOL_CONFIG":
+        return idle("EXCHANGE_LEVERAGE_SOURCE_INVALID")
 
-        nested_trade_plan = execution_candidate.get(
-            "trade_plan"
-        )
+    if sizing.get(
+        "demo_leverage_match_confirmed"
+    ) is not True:
+        return idle("DEMO_LEVERAGE_MATCH_NOT_CONFIRMED")
 
-        if isinstance(
-            nested_trade_plan,
-            dict,
-        ):
-            quantity = nested_trade_plan.get(
-                "quantity"
-            )
+    if sizing.get("position_sizing_performed") is not True:
+        return idle("POSITION_SIZING_INCOMPLETE")
 
-            if quantity is None:
+    if sizing.get("quantity_calculated") is not True:
+        return idle("POSITION_QUANTITY_NOT_CALCULATED")
 
-                nested_position_sizing = (
-                    nested_trade_plan.get(
-                        "position_sizing"
-                    )
-                )
+    if sizing.get("margin_mode") not in (
+        "CROSSED", "ISOLATED"
+    ):
+        return idle("INVALID_MARGIN_MODE")
 
-                if isinstance(
-                    nested_position_sizing,
-                    dict,
-                ):
-                    quantity = (
-                        nested_position_sizing.get(
-                            "quantity"
-                        )
-                    )
+    if sizing.get("position_mode") not in (
+        "COMBINED", "SEPARATED"
+    ):
+        return idle("INVALID_POSITION_MODE")
 
-    if quantity is None:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: EXECUTION QUANTITY MISSING"
-        )
-
-    print(
-        "PASS: UNIT 11 VERIFIED EXECUTION QUANTITY RECEIVED =",
-        quantity,
-        flush=True,
-    )
+    # ========================================================
+    # 7. QUANTITY AND MARGIN VALIDATION
+    # ========================================================
 
     try:
-        quantity_value = float(
-            quantity
+        quantity = Decimal(str(sizing["quantity"]))
+        quantity_step = Decimal(
+            str(sizing["quantity_step"])
         )
+        minimum_quantity = Decimal(
+            str(sizing["minimum_quantity"])
+        )
+        config_step = Decimal(
+            str(precision["quantity_step"])
+        )
+        config_minimum = Decimal(
+            str(precision["minimum_quantity"])
+        )
+
+        price = float(sizing["live_mark_price"])
+        leverage = float(sizing["effective_leverage"])
+        margin = float(sizing["estimated_margin"])
+        allocated = float(sizing["margin_allocation"])
+        available = float(sizing["available_balance"])
+        cap = float(sizing["exposure_cap_percent"])
+        total_balance = float(sizing["total_balance"])
+        frozen = float(sizing["frozen_balance"])
+
     except (
-        TypeError,
-        ValueError,
-    ) as exc:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: INVALID EXECUTION QUANTITY"
-        ) from exc
+        KeyError, TypeError, ValueError, ArithmeticError
+    ):
+        return idle("INVALID_SIZING_FIELDS")
 
-    if quantity_value <= 0:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: NON-POSITIVE EXECUTION QUANTITY"
+    if not all(
+        value.is_finite() and value > 0
+        for value in (
+            quantity, quantity_step,
+            minimum_quantity,
+            config_step, config_minimum
         )
+    ):
+        return idle("INVALID_QUANTITY_PRECISION")
 
-    minimum_quantity = float(
-        market_precision.get(
-            "minimum_quantity",
-            0.0,
-        )
+    if quantity_step != config_step:
+        return idle("QUANTITY_STEP_CONFIG_MISMATCH")
+
+    if minimum_quantity != config_minimum:
+        return idle("MINIMUM_QUANTITY_CONFIG_MISMATCH")
+
+    if quantity < minimum_quantity:
+        return idle("QUANTITY_BELOW_EXCHANGE_MINIMUM")
+
+    if (
+        quantity / quantity_step
+    ) != (
+        quantity / quantity_step
+    ).to_integral_value():
+        return idle("QUANTITY_NOT_STEP_ALIGNED")
+
+    numeric_values = (
+        price, leverage, margin, allocated,
+        available, cap, total_balance
     )
 
-    if quantity_value < minimum_quantity:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: QUANTITY BELOW MINIMUM"
-        )
+    if not all(
+        math.isfinite(v) and v > 0
+        for v in numeric_values
+    ):
+        return idle("NONFINITE_OR_NONPOSITIVE_SIZING")
 
-    print(
-        "PASS: UNIT 11 EXECUTION QUANTITY VALIDATED",
-        flush=True,
+    if not math.isfinite(frozen) or frozen < 0:
+        return idle("INVALID_FROZEN_BALANCE")
+
+    if not 0 < cap <= 35:
+        return idle("EXPOSURE_CAP_INVALID")
+
+    expected_margin = (
+        float(quantity) * price / leverage
     )
+
+    if not math.isclose(
+        margin,
+        expected_margin,
+        rel_tol=0.000001,
+        abs_tol=0.00000001,
+    ):
+        return idle("MARGIN_CALCULATION_MISMATCH")
+
+    if margin > allocated + 1e-8:
+        return idle("INITIAL_MARGIN_ALLOCATION_EXCEEDED")
+
+    if margin > available + 1e-8:
+        return idle("AVAILABLE_BALANCE_INSUFFICIENT")
+
+    committed_proxy = max(
+        0.0, total_balance - available
+    )
+
+    if committed_proxy + margin > (
+        total_balance * cap / 100.0 + 1e-8
+    ):
+        return idle("MAX_EXPOSURE_CAP_EXCEEDED")
+
+    try:
+        plan_quantity = Decimal(
+            str(trade_plan["quantity"])
+        )
+    except (KeyError, TypeError, ValueError):
+        return idle("TRADE_PLAN_QUANTITY_INVALID")
+
+    if plan_quantity != quantity:
+        return idle("TRADE_PLAN_QUANTITY_MISMATCH")
 
     # ========================================================
-    # 13. MAP INTERNAL DIRECTION TO WEEX ENTRY SIDE
-    #
-    # LONG  -> BUY / LONG
-    # SHORT -> SELL / SHORT
+    # 8. MAP LONG / SHORT TO WEEX DEMO ENTRY
     # ========================================================
 
     if direction == "LONG":
-
         order_side = "BUY"
         position_side = "LONG"
-
-    elif direction == "SHORT":
-
+    else:
         order_side = "SELL"
         position_side = "SHORT"
 
-    else:
+    quantity_text = format(quantity, "f")
 
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: UNSUPPORTED DIRECTION"
-        )
-
-    # ========================================================
-    # 14. FORMAT QUANTITY
-    # ========================================================
-
-    quantity_text = (
-        f"{quantity_value:.8f}"
-        .rstrip("0")
-        .rstrip(".")
-    )
-
-    if not quantity_text:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: EMPTY QUANTITY"
-        )
+    if not quantity_text or Decimal(
+        quantity_text
+    ) != quantity:
+        return idle("INVALID_FORMATTED_QUANTITY")
 
     # ========================================================
-    # 15. BUILD IN-MEMORY DEMO ENTRY PAYLOAD
-    #
-    # IMPORTANT:
-    # This dictionary is NOT transmitted by Unit 11.
-    #
-    # WEEX V3 DEMO requires a nonblank newClientOrderId.
-    # Generate it here so Unit 12 receives the complete
-    # validated entry payload.
-    #
-    # No TP is attached here.
-    # No SL is attached here.
-    # TP and SL remain separate later capabilities.
+    # 9. CREATE UNIQUE ORDER IDENTIFIER
     # ========================================================
 
-    client_order_timestamp = int(
-        datetime.now(
-            timezone.utc
-        ).timestamp()
-        * 1000000
-    )
-
-    new_client_order_id = (
+    client_order_id = (
         "FR11-"
-        + direction
+        + datetime.now(
+            timezone.utc
+        ).strftime("%y%m%d%H%M%S%f")
         + "-"
-        + str(
-            client_order_timestamp
-        )
+        + uuid.uuid4().hex[:8]
     )
 
-    if not new_client_order_id.strip():
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: "
-            "NEW CLIENT ORDER ID EMPTY"
-        )
+    # A unique identifier prevents accidental reuse.
+    # It does not replace durable order reconciliation.
+
+    # ========================================================
+    # 10. BUILD DEMO MARKET ORDER PAYLOAD
+    # ========================================================
 
     order_payload = {
-        "symbol":
-            exchange.get(
-                "demo_order_symbol"
-            ),
-
-        "side":
-            order_side,
-
-        "positionSide":
-            position_side,
-
-        "type":
-            "MARKET",
-
-        "quantity":
-            quantity_text,
-
-        "newClientOrderId":
-            new_client_order_id,
+        "symbol": "BTCSUSDT",
+        "side": order_side,
+        "positionSide": position_side,
+        "type": "MARKET",
+        "quantity": quantity_text,
+        "newClientOrderId": client_order_id,
     }
 
-    print(
-        "PASS: UNIT 11 NEW CLIENT ORDER ID GENERATED = "
-        f"{new_client_order_id}",
-        flush=True,
-    )
+    # No leverage field.
+    # No margin-mode mutation field.
+    # No real trading symbol.
+    # No TP, SL or backup instruction here.
 
     # ========================================================
-    # 16. STRICT PAYLOAD VALIDATION
+    # 11. STRICT PAYLOAD VALIDATION
     # ========================================================
 
-    required_payload_fields = (
+    required_payload = (
         "symbol",
         "side",
         "positionSide",
@@ -7867,153 +7300,52 @@ def fresh_reconstruction_unit_11(
         "newClientOrderId",
     )
 
-    missing_payload_fields = [
-        field
-        for field in required_payload_fields
-        if field not in order_payload
-    ]
-
-    if not str(
-        order_payload.get(
-            "newClientOrderId",
-            ""
-        )
-    ).strip():
+    if set(order_payload) != set(required_payload):
         raise RuntimeError(
-            "UNIT 11 BLOCKED: "
-            "NEW CLIENT ORDER ID BLANK"
+            "UNIT 11 UNEXPECTED ORDER PAYLOAD FIELDS"
         )
 
-    print(
-        "PASS: UNIT 11 NEW CLIENT ORDER ID VALIDATED",
-        flush=True,
-    )
+    if order_payload["symbol"] != "BTCSUSDT":
+        raise RuntimeError("UNIT 11 WRONG ORDER SYMBOL")
 
-    if missing_payload_fields:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: PAYLOAD MISSING FIELDS = "
-            + str(
-                missing_payload_fields
-            )
-        )
+    if order_payload["type"] != "MARKET":
+        raise RuntimeError("UNIT 11 NOT MARKET ORDER")
 
-    if order_payload[
-        "symbol"
-    ] != "BTCSUSDT":
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: PAYLOAD SYMBOL FAILURE"
-        )
+    if not order_payload["newClientOrderId"]:
+        raise RuntimeError("UNIT 11 EMPTY CLIENT ORDER ID")
 
-    if order_payload[
-        "side"
-    ] not in (
-        "BUY",
-        "SELL",
+    if direction == "LONG" and (
+        order_payload["side"] != "BUY"
+        or order_payload["positionSide"] != "LONG"
     ):
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: PAYLOAD SIDE FAILURE"
-        )
+        raise RuntimeError("UNIT 11 LONG ORDER MISMATCH")
 
-    if order_payload[
-        "positionSide"
-    ] not in (
-        "LONG",
-        "SHORT",
+    if direction == "SHORT" and (
+        order_payload["side"] != "SELL"
+        or order_payload["positionSide"] != "SHORT"
     ):
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: PAYLOAD POSITION SIDE FAILURE"
-        )
-
-    if order_payload[
-        "type"
-    ] != "MARKET":
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: PAYLOAD TYPE FAILURE"
-        )
-
-    if (
-        direction == "LONG"
-        and (
-            order_payload["side"] != "BUY"
-            or
-            order_payload["positionSide"] != "LONG"
-        )
-    ):
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: LONG PAYLOAD DIRECTION FAILURE"
-        )
-
-    if (
-        direction == "SHORT"
-        and (
-            order_payload["side"] != "SELL"
-            or
-            order_payload["positionSide"] != "SHORT"
-        )
-    ):
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: SHORT PAYLOAD DIRECTION FAILURE"
-        )
-
-    forbidden_payload_fields = (
-        "slTriggerPrice",
-        "SlWorkingType",
-        "stopLossPrice",
-        "stopPrice",
-        "tpTriggerPrice",
-        "TpWorkingType",
-    )
-
-    unexpected_protected_fields = [
-        field
-        for field in forbidden_payload_fields
-        if field in order_payload
-    ]
-
-    if unexpected_protected_fields:
-        raise RuntimeError(
-            "UNIT 11 BLOCKED: TP/SL FIELD PRESENT IN ENTRY PAYLOAD = "
-            + str(
-                unexpected_protected_fields
-            )
-        )
-
-    print(
-        "PASS: UNIT 11 DEMO ENTRY PAYLOAD VALIDATED",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 11 TP NOT COUPLED TO ENTRY PAYLOAD",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 11 SL NOT COUPLED TO ENTRY PAYLOAD",
-        flush=True,
-    )
+        raise RuntimeError("UNIT 11 SHORT ORDER MISMATCH")
 
     # ========================================================
-    # 17. FINAL NORMALIZED RESULT
+    # 12. RESULT FOR UNIT 12
     # ========================================================
 
-    unit_11_result = {
+    result = {
         "status": "READY",
-        "active_mode": active_mode,
+        "active_mode": mode,
         "direction": direction,
         "signal_qualified": True,
         "execution_intent": True,
         "trade_plan_ready": True,
         "trade_plan": trade_plan,
         "execution_ready": True,
-        "execution_candidate": execution_candidate,
+        "execution_candidate": candidate,
         "demo_boundary_ready": True,
-        "demo_submission_instruction":
-            demo_submission_instruction,
+        "demo_submission_instruction": instruction,
         "payload_ready": True,
         "order_payload": order_payload,
-        "skip_reason": "NONE",
         "order_payload_created": True,
+        "skip_reason": "NONE",
         "demo_submission_requested": False,
         "real_submission_requested": False,
         "tp_execution_requested": False,
@@ -8023,177 +7355,67 @@ def fresh_reconstruction_unit_11(
     }
 
     # ========================================================
-    # 18. FINAL REPORT
+    # 13. DIAGNOSTIC REPORT
     # ========================================================
 
+    print("UNIT 11 STATUS = READY", flush=True)
+    print("UNIT 11 ACTIVE MODE =", mode, flush=True)
+    print("UNIT 11 DIRECTION =", direction, flush=True)
     print(
-        "-" * 80,
+        "UNIT 11 EXCHANGE LEVERAGE =",
+        leverage,
+        flush=True,
+    )
+    print(
+        "UNIT 11 MARGIN MODE =",
+        sizing["margin_mode"],
+        flush=True,
+    )
+    print(
+        "UNIT 11 POSITION MODE =",
+        sizing["position_mode"],
+        flush=True,
+    )
+    print(
+        "UNIT 11 BTC QUANTITY =",
+        quantity_text,
+        flush=True,
+    )
+    print(
+        "UNIT 11 ESTIMATED MARGIN =",
+        margin,
+        flush=True,
+    )
+    print(
+        "UNIT 11 PAYLOAD READY = TRUE",
+        flush=True,
+    )
+    print(
+        "UNIT 11 ORDER TYPE = MARKET",
+        flush=True,
+    )
+    print(
+        "UNIT 11 CLIENT ORDER ID =",
+        client_order_id,
+        flush=True,
+    )
+    print(
+        "UNIT 11 LEVERAGE MUTATION = FALSE",
+        flush=True,
+    )
+    print(
+        "UNIT 11 DEMO SUBMISSION = FALSE",
+        flush=True,
+    )
+    print(
+        "UNIT 11 REAL SUBMISSION = FALSE",
         flush=True,
     )
 
-    print(
-        "UNIT 11 STATUS = READY",
-        flush=True,
-    )
+    log("FRESH RECONSTRUCTION UNIT 11 RESULT = PASS")
+    print("=" * 80, flush=True)
 
-    print(
-        f"UNIT 11 ACTIVE MODE = {active_mode}",
-        flush=True,
-    )
-
-    print(
-        f"UNIT 11 DIRECTION = {direction}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 SIGNAL QUALIFIED = True",
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 EXECUTION INTENT = True",
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 DEMO BOUNDARY READY = True",
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 PAYLOAD READY = True",
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 ORDER PAYLOAD =",
-        order_payload,
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 ORDER PAYLOAD CREATED = True",
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 DEMO SUBMISSION REQUESTED = False",
-        flush=True,
-    )
-
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 11 DEMO PAYLOAD CONSTRUCTION COMPLETED",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 11 PAYLOAD VALIDATION COMPLETED",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 11 NO NETWORK REQUEST",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 11 NO DEMO SUBMISSION",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 11 NO REAL SUBMISSION",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 11 NO TP EXECUTION",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 11 NO SL EXECUTION",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 11 NO BACKUP EXECUTION",
-        flush=True,
-    )
-
-    print(
-        "ZERO AUTHENTICATED API ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO ACCOUNT ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO POSITION ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO ORDER ENDPOINT ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO DEMO ORDER = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO REAL ORDER = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO EXCHANGE WRITE = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO LEVERAGE MUTATION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO MARGIN MODE MUTATION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO POSITION MODE MUTATION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
-    print(
-        f"{datetime.now(timezone.utc).isoformat()} "
-        "FRESH RECONSTRUCTION UNIT 11 RESULT = PASS",
-        flush=True,
-    )
-
-    print(
-        "=" * 80,
-        flush=True,
-    )
-
-    return unit_11_result
+    return result
 
 
 # ============================================================
@@ -8209,10 +7431,11 @@ FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
 )
 
 # ============================================================
-# END PART 9
-# UNIT 11 FULLY CLOSED AND CALLED
-# NEXT = PART 10 / UNIT 12
+# END COMPLETE REPLACEMENT - UNIT 11
+# ZERO INDENTATION
+# EXISTING UNIT 12 CONTINUES BELOW
 # ============================================================
+
 
 # ============================================================
 # FRESH RECONSTRUCTION UNIT 12
