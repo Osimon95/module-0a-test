@@ -21199,6 +21199,272 @@ def unit15_percent(
 
 
 # ============================================================
+# UNIT 15 EQUITY SNAPSHOT TRACKING
+# ZERO INDENTATION
+# READ-ONLY DEMO ACCOUNT
+# ============================================================
+
+import math as _u15_math
+
+_UNIT15_EQUITY_PATH = _u15_os.getenv(
+    "UNIT15_EQUITY_PATH",
+    "/tmp/weex_unit15_equity.jsonl"
+)
+
+_UNIT15_EQUITY_FIELDS = (
+    "equity",
+    "accountEquity",
+    "totalEquity",
+    "marginBalance",
+)
+
+def unit15_read_equity():
+
+    key = (
+        _u15_os.getenv("WEEX_API_KEY")
+        or _u15_os.getenv("API_KEY")
+    )
+
+    secret = (
+        _u15_os.getenv("WEEX_API_SECRET")
+        or _u15_os.getenv("API_SECRET")
+    )
+
+    phrase = (
+        _u15_os.getenv("WEEX_API_PASSPHRASE")
+        or _u15_os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        raise RuntimeError(
+            "UNIT 15 EQUITY CREDENTIALS MISSING"
+        )
+
+    exchange = FRESH_RECONSTRUCTION_CONFIG[
+        "exchange"
+    ]
+
+    base = exchange["contract_base_url"]
+
+    if (
+        base != "https://api-contract.weex.com"
+        or exchange["demo_order_symbol"] != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 15 EQUITY SAFETY FAILURE"
+        )
+
+    path = "/capi/v3/sim/balance"
+
+    timestamp = str(
+        int(_u15_time.time() * 1000)
+    )
+
+    signature = _u15_base64.b64encode(
+        _u15_hmac.new(
+            secret.encode(),
+            (timestamp + "GET" + path).encode(),
+            _u15_hashlib.sha256,
+        ).digest()
+    ).decode()
+
+    request = _u15_request.Request(
+        base + path,
+        method="GET",
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": phrase,
+            "Content-Type": "application/json",
+        },
+    )
+
+    if (
+        request.get_method() != "GET"
+        or request.data is not None
+    ):
+        raise RuntimeError(
+            "UNIT 15 EQUITY WRITE BLOCKED"
+        )
+
+    with _u15_request.urlopen(
+        request,
+        timeout=20,
+    ) as response:
+
+        balances = _u15_json.loads(
+            response.read().decode()
+        )
+
+    if not isinstance(balances, list):
+        raise RuntimeError(
+            "UNIT 15 INVALID BALANCE RESPONSE"
+        )
+
+    for item in balances:
+
+        if not isinstance(item, dict):
+            continue
+
+        if str(
+            item.get("asset", "")
+        ).upper() != "SUSDT":
+            continue
+
+        for field in _UNIT15_EQUITY_FIELDS:
+
+            value = item.get(field)
+
+            if value is None:
+                continue
+
+            try:
+                equity = _U15_D(str(value))
+            except Exception:
+                continue
+
+            if (
+                equity.is_finite()
+                and equity >= 0
+            ):
+                return {
+                    "time_ms": int(
+                        _u15_time.time() * 1000
+                    ),
+                    "equity": str(equity),
+                    "asset": "SUSDT",
+                    "field": field,
+                }
+
+    raise RuntimeError(
+        "UNIT 15 EXPLICIT EQUITY FIELD NOT FOUND"
+    )
+
+
+def unit15_save_equity(snapshot):
+
+    with open(
+        _UNIT15_EQUITY_PATH,
+        "a",
+        encoding="utf-8",
+    ) as file:
+
+        file.write(
+            _u15_json.dumps(snapshot) + "\n"
+        )
+
+
+def unit15_equity_history():
+
+    records = []
+
+    try:
+        with open(
+            _UNIT15_EQUITY_PATH,
+            "r",
+            encoding="utf-8",
+        ) as file:
+
+            for line in file:
+
+                try:
+                    item = _u15_json.loads(line)
+
+                    timestamp = int(
+                        item["time_ms"]
+                    )
+
+                    equity = _U15_D(
+                        str(item["equity"])
+                    )
+
+                    if (
+                        equity.is_finite()
+                        and equity >= 0
+                    ):
+                        records.append(
+                            (timestamp, equity)
+                        )
+
+                except (
+                    KeyError,
+                    ValueError,
+                    TypeError,
+                    ArithmeticError,
+                ):
+                    continue
+
+    except FileNotFoundError:
+        pass
+
+    return sorted(records)
+
+
+def unit15_equity_change(
+    start_ms,
+    end_ms,
+    tolerance_ms=600000,
+):
+
+    records = unit15_equity_history()
+
+    def nearest(boundary):
+
+        candidates = [
+            item
+            for item in records
+            if abs(item[0] - boundary)
+            <= tolerance_ms
+        ]
+
+        if not candidates:
+            return None
+
+        return min(
+            candidates,
+            key=lambda item:
+                abs(item[0] - boundary)
+        )
+
+    first = nearest(start_ms)
+    last = nearest(end_ms)
+
+    if (
+        first is None
+        or last is None
+        or first[0] >= last[0]
+    ):
+        return None
+
+    starting_equity = first[1]
+    ending_equity = last[1]
+
+    change = (
+        ending_equity - starting_equity
+    )
+
+    roi = None
+
+    if starting_equity > 0:
+        roi = (
+            change / starting_equity * 100
+        )
+
+    return {
+        "start": starting_equity,
+        "end": ending_equity,
+        "change": change,
+        "roi": roi,
+        "start_time_ms": first[0],
+        "end_time_ms": last[0],
+    }
+
+# ============================================================
+# END UNIT 15 EQUITY SNAPSHOT TRACKING
+# ZERO INDENTATION
+# ============================================================
+# ============================================================
 # UNIT 15 TELEGRAM NOTIFICATION
 # ============================================================
 
