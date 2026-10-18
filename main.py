@@ -10112,6 +10112,77 @@ def fresh_reconstruction_unit_13(
         flush=True,
     )
 
+    
+    # ========================================================
+    # 9E. WEEX POSITION FINANCIAL SNAPSHOT
+    # INDENTATION: FOUR SPACES
+    # DIAGNOSTICS ONLY
+    # ========================================================
+
+    financial_fields = (
+        "openFee",
+        "fundingFee",
+        "cumOpenFee",
+        "cumCloseFee",
+        "cumFundingFee",
+        "cumLiquidateFee",
+        "cumOpenSize",
+        "cumCloseSize",
+        "unrealizePnl",
+        "liquidatePrice",
+    )
+
+    position_financial_snapshot = {}
+
+    for field in financial_fields:
+
+        raw_value = position.get(field)
+
+        if raw_value is None:
+            position_financial_snapshot[field] = None
+            continue
+
+        try:
+            value = Decimal(str(raw_value))
+
+            if not value.is_finite():
+                raise ValueError("NONFINITE")
+
+            position_financial_snapshot[field] = (
+                str(value)
+            )
+
+        except (ValueError, TypeError, ArithmeticError):
+            position_financial_snapshot[field] = None
+
+    position_financial_snapshot["leverage"] = str(
+        effective_leverage
+    )
+
+    position_financial_snapshot["marginSize"] = str(
+        actual_margin_size
+    )
+
+    position_financial_snapshot["positionId"] = (
+        str(position.get("id", ""))
+    )
+
+    position_financial_snapshot["updatedTime"] = (
+        position.get("updatedTime")
+    )
+
+    print(
+        "UNIT 13 WEEX POSITION FINANCIAL SNAPSHOT =",
+        position_financial_snapshot,
+        flush=True,
+    )
+
+    # These cumulative exchange fields improve
+    # reconciliation and reporting.
+    #
+    # They must not be treated as complete realized
+    # cycle profit until order fills, fees and
+    # funding are reconciled.
     # ========================================================
     # 10. AVERAGE ENTRY
     # ========================================================
