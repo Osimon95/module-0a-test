@@ -21306,7 +21306,10 @@ def unit15_latest_8h_end(now):
 
 
 # ============================================================
-# UNIT 15 REPORT GENERATOR
+# UNIT 15 PERFORMANCE REPORT
+# INTERVAL + PREVIOUS 8H + CUMULATIVE PERFORMANCE
+# ZERO INDENTATION
+# PRESERVES EXISTING WORKER AND TELEGRAM COMMANDS
 # ============================================================
 
 def unit15_report(
@@ -21316,6 +21319,11 @@ def unit15_report(
 ):
 
     global _UNIT15_LAST_REPORT
+
+    if hours not in (1, 8, 24):
+        raise ValueError(
+            "UNIT 15 UNSUPPORTED REPORT INTERVAL"
+        )
 
     with _UNIT15_LOCK:
 
@@ -21332,7 +21340,6 @@ def unit15_report(
             )
 
         if end is None:
-
             raise RuntimeError(
                 "UNIT 15 NO COMPLETED WINDOW"
             )
@@ -21343,16 +21350,66 @@ def unit15_report(
             )
         )
 
+        start_ms = int(
+            start.timestamp() * 1000
+        )
+
+        end_ms = int(
+            end.timestamp() * 1000
+        )
+
+        # ----------------------------------------------------
+        # FETCH EXCHANGE HISTORY ONCE
+        # ----------------------------------------------------
+
         orders, complete = (
             unit15_history_get()
         )
 
+        # ----------------------------------------------------
+        # CURRENT SELECTED INTERVAL
+        # ----------------------------------------------------
+
         result = unit15_analyze(
             orders,
             complete,
-            int(start.timestamp() * 1000),
-            int(end.timestamp() * 1000),
+            start_ms,
+            end_ms,
         )
+
+        # ----------------------------------------------------
+        # CUMULATIVE AVAILABLE HISTORY
+        # ----------------------------------------------------
+
+        cumulative = unit15_analyze(
+            orders,
+            complete,
+            0,
+            end_ms,
+        )
+
+        # ----------------------------------------------------
+        # PREVIOUS 8H INTERVAL
+        # ----------------------------------------------------
+
+        previous = None
+
+        if hours == 8:
+
+            previous_start_ms = (
+                start_ms - 8 * 3600000
+            )
+
+            previous = unit15_analyze(
+                orders,
+                complete,
+                previous_start_ms,
+                start_ms,
+            )
+
+        # ----------------------------------------------------
+        # CURRENT INTERVAL RESULTS
+        # ----------------------------------------------------
 
         wins = result["winners"]
         losses = result["losers"]
@@ -21361,6 +21418,38 @@ def unit15_report(
             result["gross_win"]
             + result["gross_loss"]
         )
+
+        # ----------------------------------------------------
+        # CUMULATIVE RESULTS
+        # ----------------------------------------------------
+
+        cumulative_wins = (
+            cumulative["winners"]
+        )
+
+        cumulative_losses = (
+            cumulative["losers"]
+        )
+
+        cumulative_count = (
+            cumulative["completed"]
+        )
+
+        cumulative_gross_profit = (
+            cumulative["gross_win"]
+        )
+
+        cumulative_gross_loss = (
+            cumulative["gross_loss"]
+        )
+
+        cumulative_gross_pnl = (
+            cumulative["gross_pnl"]
+        )
+
+        # ----------------------------------------------------
+        # BUILD MAIN REPORT
+        # ----------------------------------------------------
 
         report = (
             "WEEX DEMO TRADING PERFORMANCE\n"
@@ -21392,9 +21481,79 @@ def unit15_report(
             "Net ROI: N/A\n"
             "Fees/funding/margin: Unverified\n"
             "Close cause: Unverified\n"
+        )
+
+        # ----------------------------------------------------
+        # ADD PREVIOUS 8H COMPARISON
+        # ----------------------------------------------------
+
+        if previous is not None:
+
+            combined_profit = (
+                previous["gross_pnl"]
+                + result["gross_pnl"]
+            )
+
+            combined_wins = (
+                previous["winners"]
+                + result["winners"]
+            )
+
+            combined_losses = (
+                previous["losers"]
+                + result["losers"]
+            )
+
+            report += (
+                "\nPREVIOUS 8H COMPARISON\n"
+                "================================\n"
+                f"Previous 8H P&L: "
+                f"{previous['gross_pnl']:+.4f} USDT\n"
+                f"Current 8H P&L: "
+                f"{result['gross_pnl']:+.4f} USDT\n"
+                f"Combined 16H P&L: "
+                f"{combined_profit:+.4f} USDT\n"
+                f"Combined winning cycles: "
+                f"{combined_wins}\n"
+                f"Combined losing cycles: "
+                f"{combined_losses}\n"
+            )
+
+        # ----------------------------------------------------
+        # ADD CUMULATIVE PERFORMANCE
+        # ----------------------------------------------------
+
+        report += (
+            "\nCUMULATIVE PERFORMANCE\n"
+            "================================\n"
+            "Scope: Available exchange history\n"
+            f"Completed cycles: {cumulative_count}\n"
+            f"Winning cycles: {cumulative_wins}\n"
+            f"Losing cycles: {cumulative_losses}\n"
+            f"Break-even: {cumulative['breakeven']}\n"
+            f"Gross win rate: "
+            f"{unit15_percent(cumulative_wins, cumulative_wins + cumulative_losses)}\n"
+            f"Gross profit: "
+            f"{cumulative_gross_profit:.4f} USDT\n"
+            f"Gross loss: "
+            f"{cumulative_gross_loss:.4f} USDT\n"
+            f"Gross P&L: "
+            f"{cumulative_gross_pnl:+.4f} USDT\n"
+            f"Unmatched closes: "
+            f"{len(cumulative['unmatched'])}\n"
+            f"History complete: "
+            f"{cumulative['history_complete']}\n"
+            f"Provisional: "
+            f"{cumulative['provisional']}\n"
+            "Net profit: PENDING\n"
+            "Net ROI: PENDING\n"
             "Exchange writes: FALSE\n"
             "================================"
         )
+
+        # ----------------------------------------------------
+        # DIAGNOSTICS
+        # ----------------------------------------------------
 
         print(
             "UNIT 15 REPORT START\n"
@@ -21425,16 +21584,42 @@ def unit15_report(
         if result["provisional"]:
 
             print(
-                "WARNING: UNIT 15 RECONSTRUCTION PROVISIONAL",
+                "WARNING: UNIT 15 INTERVAL "
+                "RECONSTRUCTION PROVISIONAL",
                 flush=True,
             )
 
-        _UNIT15_LAST_REPORT = result
+        if cumulative["provisional"]:
+
+            print(
+                "WARNING: UNIT 15 CUMULATIVE "
+                "RECONSTRUCTION PROVISIONAL",
+                flush=True,
+            )
+
+        # ----------------------------------------------------
+        # SAVE LATEST RESULT IN MEMORY
+        # ----------------------------------------------------
+
+        _UNIT15_LAST_REPORT = {
+            "interval": result,
+            "cumulative": cumulative,
+            "previous_8h": previous,
+        }
+
+        # ----------------------------------------------------
+        # TELEGRAM DELIVERY
+        # ----------------------------------------------------
 
         unit15_telegram(report)
 
-        return result
+        return _UNIT15_LAST_REPORT
 
+
+# ============================================================
+# END UNIT 15 PERFORMANCE REPORT REPLACEMENT
+# EXISTING TELEGRAM COMMANDS CONTINUE BELOW
+# ============================================================
 
 # ============================================================
 # UNIT 15 VOLUNTARY TELEGRAM COMMANDS
