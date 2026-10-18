@@ -6040,88 +6040,45 @@ FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
 # UNIT 9 CONTINUES BELOW
 # ============================================================
 
-# ============================================================
-# FRESH RECONSTRUCTION UNIT 9
-# VALIDATED EXECUTION PREPARATION
-#
-# PURPOSE:
-# Receive the completed Unit 8 result and prepare a strictly
-# internal execution candidate for the later demo-submission
-# boundary.
-#
-# IMPORTANT:
-# - ZERO AUTHENTICATED API ACCESS
-# - ZERO ACCOUNT ACCESS
-# - ZERO POSITION ACCESS
-# - ZERO ORDER ENDPOINT ACCESS
-# - ZERO DEMO ORDER
-# - ZERO REAL ORDER
-# - ZERO EXCHANGE WRITE
-# - ZERO LEVERAGE MUTATION
-# - ZERO MARGIN MODE MUTATION
-# - ZERO POSITION MODE MUTATION
-#
-# Unit 9 DOES NOT submit an order.
-# Unit 9 DOES NOT create a WEEX order payload.
-# Unit 9 DOES NOT execute TP.
-# Unit 9 DOES NOT execute SL.
-#
-# TP AND SL REMAIN INDEPENDENT CAPABILITIES.
-# UNIT 9 MUST NOT COUPLE TP TO SL.
-# ============================================================
 
+# ============================================================
+# START COMPLETE REPLACEMENT - UNIT 9
+# ZERO INDENTATION
+#
+# VALIDATED DEMO EXECUTION PREPARATION
+# EXCHANGE-CONTROLLED LEVERAGE PRESERVED
+# NO ORDER SUBMISSION
+# ============================================================
 
 def fresh_reconstruction_unit_9(
     config,
     unit_8_result,
 ):
-    from datetime import datetime, timezone
+    import math
 
-    print(
-        "=" * 80,
-        flush=True,
-    )
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 9 START")
 
-    print(
-        f"{datetime.now(timezone.utc).isoformat()} "
-        "FRESH RECONSTRUCTION UNIT 9 START",
-        flush=True,
-    )
-
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
-    # --------------------------------------------------------
-    # INPUT VALIDATION
-    # --------------------------------------------------------
+    # ========================================================
+    # 1. INPUT VALIDATION
+    # ========================================================
 
     if not isinstance(config, dict):
-        raise TypeError(
-            "UNIT 9 CONFIGURATION MUST BE A DICTIONARY"
-        )
-
-    print(
-        "PASS: UNIT 9 RECEIVED UNIT 2 CONFIGURATION",
-        flush=True,
-    )
+        raise RuntimeError("UNIT 9 INVALID CONFIG")
 
     if not isinstance(unit_8_result, dict):
-        raise TypeError(
-            "UNIT 9 UNIT 8 RESULT MUST BE A DICTIONARY"
-        )
+        raise RuntimeError("UNIT 9 INVALID UNIT 8 RESULT")
 
-    print(
-        "PASS: UNIT 9 RECEIVED UNIT 8 RESULT",
-        flush=True,
-    )
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+    strategy = config.get("strategy", {})
 
-    # --------------------------------------------------------
-    # UNIT 8 CONTRACT VALIDATION
-    # --------------------------------------------------------
+    if not all(isinstance(v, dict) for v in (
+        exchange, safety, strategy
+    )):
+        raise RuntimeError("UNIT 9 INVALID CONFIG SECTIONS")
 
-    required_unit_8_fields = (
+    required_fields = (
         "status",
         "active_mode",
         "direction",
@@ -6133,386 +6090,201 @@ def fresh_reconstruction_unit_9(
         "read_only",
     )
 
-    missing_unit_8_fields = [
-        field
-        for field in required_unit_8_fields
-        if field not in unit_8_result
-    ]
+    if any(k not in unit_8_result for k in required_fields):
+        raise RuntimeError("UNIT 9 MISSING UNIT 8 FIELDS")
 
-    if missing_unit_8_fields:
-        raise RuntimeError(
-            "UNIT 9 MISSING UNIT 8 FIELDS: "
-            + ", ".join(missing_unit_8_fields)
-        )
+    if unit_8_result["read_only"] is not True:
+        raise RuntimeError("UNIT 9 UNSAFE UNIT 8 HANDOFF")
 
-    print(
-        "PASS: UNIT 9 UNIT 8 CONTRACT VALIDATED",
-        flush=True,
-    )
+    if config.get("execution_environment") != "DEMO":
+        raise RuntimeError("UNIT 9 DEMO ONLY")
 
-    # --------------------------------------------------------
-    # READ-ONLY SAFETY GATE
-    # --------------------------------------------------------
+    if exchange.get("demo_order_symbol") != "BTCSUSDT":
+        raise RuntimeError("UNIT 9 INVALID DEMO SYMBOL")
 
-    if unit_8_result.get("read_only") is not True:
-        raise RuntimeError(
-            "UNIT 9 REJECTED NON-READ-ONLY UNIT 8 RESULT"
-        )
-
-    print(
-        "PASS: UNIT 9 READ-ONLY SAFETY GATE",
-        flush=True,
-    )
-
-    # --------------------------------------------------------
-    # NORMALIZE UNIT 8 STATE
-    # --------------------------------------------------------
-
-    status = str(
-        unit_8_result.get(
-            "status",
-            "IDLE",
-        )
-    ).upper()
-
-    active_mode = unit_8_result.get(
-        "active_mode"
-    )
-
-    direction = unit_8_result.get(
-        "direction"
-    )
-
-    signal_qualified = bool(
-        unit_8_result.get(
-            "signal_qualified",
-            False,
-        )
-    )
-
-    execution_intent = bool(
-        unit_8_result.get(
-            "execution_intent",
-            False,
-        )
-    )
-
-    trade_plan_ready = bool(
-        unit_8_result.get(
-            "trade_plan_ready",
-            False,
-        )
-    )
-
-    trade_plan = unit_8_result.get(
-        "trade_plan"
-    )
-
-    skip_reason = str(
-        unit_8_result.get(
-            "skip_reason",
-            "NONE",
-        )
-    )
-
-    # --------------------------------------------------------
-    # NORMAL IDLE PATH
-    # --------------------------------------------------------
-
-    if (
-        status == "IDLE"
-        or not signal_qualified
-        or not execution_intent
-        or not trade_plan_ready
+    for key in (
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
     ):
-        execution_candidate = {
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 9 UNSAFE CAPABILITY: " + key
+            )
+
+    # ========================================================
+    # 2. NORMALIZED IDLE RESULT
+    # ========================================================
+
+    def idle(reason):
+        result = {
             "status": "IDLE",
-            "active_mode": active_mode,
-            "direction": direction,
-            "signal_qualified": signal_qualified,
+            "active_mode": "NONE",
+            "direction": "NONE",
+            "signal_qualified": False,
             "execution_intent": False,
             "trade_plan_ready": False,
             "trade_plan": None,
             "execution_ready": False,
             "execution_candidate": None,
-            "skip_reason": skip_reason,
+            "skip_reason": str(reason),
             "order_payload_created": False,
             "tp_execution_requested": False,
             "sl_execution_requested": False,
             "read_only": True,
         }
 
-        print(
-            "-" * 80,
-            flush=True,
-        )
+        print("UNIT 9 STATUS = IDLE", flush=True)
+        print("UNIT 9 REASON =", reason, flush=True)
+        log("FRESH RECONSTRUCTION UNIT 9 RESULT = PASS (IDLE)")
+        return result
 
-        print(
-            "UNIT 9 STATUS = IDLE",
-            flush=True,
-        )
+    # ========================================================
+    # 3. UNIT 8 ADMISSION
+    # ========================================================
 
-        print(
-            f"UNIT 9 ACTIVE MODE = {active_mode}",
-            flush=True,
-        )
+    status = unit_8_result["status"]
+    mode = unit_8_result["active_mode"]
+    side = unit_8_result["direction"]
 
-        print(
-            f"UNIT 9 DIRECTION = {direction}",
-            flush=True,
-        )
+    if status == "IDLE":
+        return idle(unit_8_result["skip_reason"])
 
-        print(
-            f"UNIT 9 SIGNAL QUALIFIED = "
-            f"{signal_qualified}",
-            flush=True,
-        )
+    if status != "READY":
+        raise RuntimeError("UNIT 9 INVALID READY STATUS")
 
-        print(
-            "UNIT 9 EXECUTION INTENT = False",
-            flush=True,
-        )
+    if unit_8_result["signal_qualified"] is not True:
+        return idle("UNIT_8_SIGNAL_NOT_QUALIFIED")
 
-        print(
-            "UNIT 9 TRADE PLAN READY = False",
-            flush=True,
-        )
+    if unit_8_result["execution_intent"] is not True:
+        return idle("UNIT_8_EXECUTION_INTENT_FALSE")
 
-        print(
-            "UNIT 9 EXECUTION READY = False",
-            flush=True,
-        )
+    if unit_8_result["trade_plan_ready"] is not True:
+        return idle("UNIT_8_TRADE_PLAN_NOT_READY")
 
-        print(
-            "UNIT 9 EXECUTION CANDIDATE = NONE",
-            flush=True,
-        )
+    if mode not in ("SCALP", "STRUCTURE", "BREAKOUT"):
+        raise RuntimeError("UNIT 9 INVALID ACTIVE MODE")
 
-        print(
-            f"UNIT 9 SKIP REASON = {skip_reason}",
-            flush=True,
-        )
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError("UNIT 9 INVALID DIRECTION")
 
-        print(
-            "-" * 80,
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 9 NORMAL NO-TRADE STATE",
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 9 NO EXECUTION CANDIDATE GENERATED",
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 9 NO NETWORK REQUEST",
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 9 NO ORDER PAYLOAD GENERATED",
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 9 NO TP EXECUTION",
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 9 NO SL EXECUTION",
-            flush=True,
-        )
-
-        print(
-            "PASS: UNIT 9 TP / SL CAPABILITIES REMAIN INDEPENDENT",
-            flush=True,
-        )
-
-        print(
-            "ZERO AUTHENTICATED API ACCESS = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO ACCOUNT ACCESS = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO POSITION ACCESS = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO ORDER ENDPOINT ACCESS = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO DEMO ORDER = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO REAL ORDER = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO EXCHANGE WRITE = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO LEVERAGE MUTATION = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO MARGIN MODE MUTATION = TRUE",
-            flush=True,
-        )
-
-        print(
-            "ZERO POSITION MODE MUTATION = TRUE",
-            flush=True,
-        )
-
-        print(
-            "-" * 80,
-            flush=True,
-        )
-
-        print(
-            f"{datetime.now(timezone.utc).isoformat()} "
-            "FRESH RECONSTRUCTION UNIT 9 RESULT = "
-            "PASS (IDLE)",
-            flush=True,
-        )
-
-        print(
-            "=" * 80,
-            flush=True,
-        )
-
-        return execution_candidate
-
-    # --------------------------------------------------------
-    # ACTIONABLE UNIT 8 PATH
-    # --------------------------------------------------------
-
-    if status not in (
-        "READY",
-        "QUALIFIED",
-        "ACTIVE",
-    ):
-        raise RuntimeError(
-            "UNIT 9 ACTIONABLE UNIT 8 RESULT HAS "
-            f"INVALID STATUS: {status}"
-        )
+    trade_plan = unit_8_result.get("trade_plan")
 
     if not isinstance(trade_plan, dict):
-        raise RuntimeError(
-            "UNIT 9 ACTIONABLE RESULT REQUIRES "
-            "A TRADE PLAN DICTIONARY"
-        )
+        raise RuntimeError("UNIT 9 TRADE PLAN MISSING")
 
-    if active_mode not in (
-        "SCALP",
-        "STRUCTURE",
-        "BREAKOUT",
+    if trade_plan.get("active_mode") != mode:
+        raise RuntimeError("UNIT 9 MODE MISMATCH")
+
+    if trade_plan.get("direction") != side:
+        raise RuntimeError("UNIT 9 DIRECTION MISMATCH")
+
+    if trade_plan.get("execution_environment") != "DEMO":
+        raise RuntimeError("UNIT 9 NOT DEMO TRADE")
+
+    # ========================================================
+    # 4. POSITION SIZING VERIFICATION
+    # ========================================================
+
+    sizing = trade_plan.get("position_sizing")
+
+    if not isinstance(sizing, dict):
+        raise RuntimeError("UNIT 9 SIZING MISSING")
+
+    if sizing.get("position_sizing_performed") is not True:
+        return idle("POSITION_SIZING_NOT_PERFORMED")
+
+    if sizing.get("quantity_calculated") is not True:
+        return idle("QUANTITY_NOT_CALCULATED")
+
+    if sizing.get("leverage_source") != "WEEX_SYMBOL_CONFIG":
+        return idle("INVALID_LEVERAGE_SOURCE")
+
+    if sizing.get(
+        "demo_leverage_match_confirmed"
+    ) is not True:
+        return idle("DEMO_LEVERAGE_NOT_CONFIRMED")
+
+    if sizing.get("leverage_target") is not None:
+        return idle("PYTHON_LEVERAGE_TARGET_PRESENT")
+
+    try:
+        quantity = float(sizing["quantity"])
+        leverage = float(sizing["effective_leverage"])
+        price = float(sizing["live_mark_price"])
+        margin = float(sizing["estimated_margin"])
+        available = float(sizing["available_balance"])
+        minimum = float(sizing["minimum_quantity"])
+        step = float(sizing["quantity_step"])
+        cap = float(sizing["exposure_cap_percent"])
+        total_balance = float(sizing["total_balance"])
+    except (KeyError, ValueError, TypeError):
+        return idle("INVALID_POSITION_SIZING_DATA")
+
+    values = (
+        quantity, leverage, price, margin,
+        available, minimum, step, cap, total_balance
+    )
+
+    if not all(math.isfinite(v) and v > 0 for v in values):
+        return idle("INVALID_NUMERIC_SIZING_DATA")
+
+    if quantity < minimum:
+        return idle("QUANTITY_BELOW_MINIMUM")
+
+    if not math.isclose(
+        quantity / step,
+        round(quantity / step),
+        rel_tol=0,
+        abs_tol=0.000001,
     ):
-        raise RuntimeError(
-            "UNIT 9 INVALID ACTIVE MODE: "
-            f"{active_mode}"
-        )
+        return idle("QUANTITY_STEP_MISMATCH")
 
-    print(
-        "PASS: UNIT 9 ACTIVE MODE VALIDATED",
-        flush=True,
-    )
+    if not 0 < cap <= 35:
+        return idle("INVALID_EXPOSURE_CAP")
 
-    if direction not in (
-        "LONG",
-        "SHORT",
+    if margin > available:
+        return idle("INSUFFICIENT_AVAILABLE_MARGIN")
+
+    if not math.isclose(
+        margin,
+        quantity * price / leverage,
+        rel_tol=0.000001,
+        abs_tol=0.00000001,
     ):
-        raise RuntimeError(
-            "UNIT 9 INVALID DIRECTION: "
-            f"{direction}"
-        )
+        return idle("MARGIN_CALCULATION_MISMATCH")
 
-    print(
-        "PASS: UNIT 9 DIRECTION VALIDATED",
-        flush=True,
-    )
+    # Unit 8 verifies exposure against committed funds.
+    # Unit 9 must not override that calculation.
+    # Later execution must refresh account conditions
+    # immediately before submitting the order.
 
-    # --------------------------------------------------------
-    # CROSS-CHECK TRADE PLAN IDENTITY
-    # --------------------------------------------------------
+    if float(trade_plan.get("quantity", 0)) != quantity:
+        return idle("TRADE_PLAN_QUANTITY_MISMATCH")
 
-    trade_plan_mode = trade_plan.get(
-        "active_mode"
-    )
-
-    trade_plan_direction = trade_plan.get(
-        "direction"
-    )
-
-    if trade_plan_mode != active_mode:
-        raise RuntimeError(
-            "UNIT 9 TRADE PLAN MODE DOES NOT MATCH "
-            "UNIT 8 ACTIVE MODE"
-        )
-
-    if trade_plan_direction != direction:
-        raise RuntimeError(
-            "UNIT 9 TRADE PLAN DIRECTION DOES NOT MATCH "
-            "UNIT 8 DIRECTION"
-        )
-
-    print(
-        "PASS: UNIT 9 TRADE PLAN IDENTITY VALIDATED",
-        flush=True,
-    )
-
-    # --------------------------------------------------------
-    # INTERNAL EXECUTION CANDIDATE
-    #
-    # IMPORTANT:
-    # This is NOT a WEEX payload.
-    # No endpoint-specific fields are generated here.
-    # --------------------------------------------------------
-
-    normalized_execution_candidate = {
-        "active_mode": active_mode,
-        "direction": direction,
-        "trade_plan": trade_plan,
-        "execution_environment": trade_plan.get(
-            "execution_environment",
-            config.get(
-                "execution_environment",
-                "DEMO",
-            ),
-        ),
-    }
+    # ========================================================
+    # 5. EXECUTION CANDIDATE
+    # ========================================================
 
     execution_candidate = {
+        "active_mode": mode,
+        "direction": side,
+        "trade_plan": trade_plan,
+        "execution_environment": "DEMO",
+    }
+
+    result = {
         "status": "READY",
-        "active_mode": active_mode,
-        "direction": direction,
+        "active_mode": mode,
+        "direction": side,
         "signal_qualified": True,
         "execution_intent": True,
         "trade_plan_ready": True,
         "trade_plan": trade_plan,
         "execution_ready": True,
-        "execution_candidate": (
-            normalized_execution_candidate
-        ),
+        "execution_candidate": execution_candidate,
         "skip_reason": "NONE",
         "order_payload_created": False,
         "tp_execution_requested": False,
@@ -6520,167 +6292,28 @@ def fresh_reconstruction_unit_9(
         "read_only": True,
     }
 
-    print(
-        "-" * 80,
-        flush=True,
-    )
+    # ========================================================
+    # 6. REPORT
+    # ========================================================
 
-    print(
-        "UNIT 9 STATUS = READY",
-        flush=True,
-    )
+    print("UNIT 9 STATUS = READY", flush=True)
+    print("UNIT 9 MODE =", mode, flush=True)
+    print("UNIT 9 DIRECTION =", side, flush=True)
+    print("UNIT 9 QUANTITY =", quantity, flush=True)
+    print("UNIT 9 EXCHANGE LEVERAGE =", leverage, flush=True)
+    print("UNIT 9 ESTIMATED MARGIN =", margin, flush=True)
+    print("UNIT 9 EXECUTION READY = TRUE", flush=True)
+    print("UNIT 9 ORDER PAYLOAD CREATED = FALSE", flush=True)
+    print("UNIT 9 EXCHANGE WRITE = FALSE", flush=True)
 
-    print(
-        f"UNIT 9 ACTIVE MODE = {active_mode}",
-        flush=True,
-    )
+    log("FRESH RECONSTRUCTION UNIT 9 RESULT = PASS")
+    print("=" * 80, flush=True)
 
-    print(
-        f"UNIT 9 DIRECTION = {direction}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 9 SIGNAL QUALIFIED = True",
-        flush=True,
-    )
-
-    print(
-        "UNIT 9 EXECUTION INTENT = True",
-        flush=True,
-    )
-
-    print(
-        "UNIT 9 TRADE PLAN READY = True",
-        flush=True,
-    )
-
-    print(
-        "UNIT 9 EXECUTION READY = True",
-        flush=True,
-    )
-
-    print(
-        "UNIT 9 INTERNAL EXECUTION CANDIDATE = READY",
-        flush=True,
-    )
-
-    print(
-        "UNIT 9 ORDER PAYLOAD CREATED = False",
-        flush=True,
-    )
-
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 9 VALIDATED EXECUTION PREPARATION",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 9 INTERNAL EXECUTION CANDIDATE GENERATED",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 9 NO NETWORK REQUEST",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 9 NO ORDER PAYLOAD GENERATED",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 9 NO TP EXECUTION",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 9 NO SL EXECUTION",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 9 TP / SL CAPABILITIES REMAIN INDEPENDENT",
-        flush=True,
-    )
-
-    print(
-        "ZERO AUTHENTICATED API ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO ACCOUNT ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO POSITION ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO ORDER ENDPOINT ACCESS = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO DEMO ORDER = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO REAL ORDER = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO EXCHANGE WRITE = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO LEVERAGE MUTATION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO MARGIN MODE MUTATION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "ZERO POSITION MODE MUTATION = TRUE",
-        flush=True,
-    )
-
-    print(
-        "-" * 80,
-        flush=True,
-    )
-
-    print(
-        f"{datetime.now(timezone.utc).isoformat()} "
-        "FRESH RECONSTRUCTION UNIT 9 RESULT = PASS",
-        flush=True,
-    )
-
-    print(
-        "=" * 80,
-        flush=True,
-    )
-
-    return execution_candidate
+    return result
 
 
 # ============================================================
-# FRESH RECONSTRUCTION UNIT 9 RUNNER
+# RUN UNIT 9
 # ZERO INDENTATION
 # ============================================================
 
@@ -6692,9 +6325,9 @@ FRESH_RECONSTRUCTION_UNIT_9_RESULT = (
 )
 
 # ============================================================
-# END PART 7
-# UNIT 9 FULLY CLOSED AND CALLED
-# NEXT = PART 8 / UNIT 10
+# END COMPLETE REPLACEMENT - UNIT 9
+# ZERO INDENTATION
+# UNIT 10 CONTINUES BELOW
 # ============================================================
 
 # ============================================================
