@@ -21790,6 +21790,57 @@ def unit15_report(
             "Close cause: Unverified\n"
         )
 
+        
+        # ----------------------------------------------------
+        # UNIT 15 EQUITY PERFORMANCE REPORT
+        # INDENTATION: 8 SPACES
+        # ----------------------------------------------------
+
+        report += (
+            "\nEQUITY-BASED PERFORMANCE\n"
+            "================================\n"
+        )
+
+        if equity_result is None:
+
+            report += (
+                "Starting equity: N/A\n"
+                "Ending equity: N/A\n"
+                "Equity change: N/A\n"
+                "Equity ROI: N/A\n"
+                "Reason: Matching historical "
+                "equity snapshots unavailable\n"
+            )
+
+        else:
+
+            report += (
+                f"Starting equity: "
+                f"{equity_result['start']:.4f} SUSDT\n"
+                f"Ending equity: "
+                f"{equity_result['end']:.4f} SUSDT\n"
+                f"Equity change: "
+                f"{equity_result['change']:+.4f} SUSDT\n"
+            )
+
+            if equity_result["roi"] is None:
+
+                report += (
+                    "Equity ROI: N/A\n"
+                )
+
+            else:
+
+                report += (
+                    f"Equity ROI: "
+                    f"{equity_result['roi']:+.2f}%\n"
+                )
+
+        report += (
+            "Net trading profit: Unverified\n"
+            "Deposits/transfers: Unverified\n"
+            "Exchange writes: FALSE\n"
+        )
         # ----------------------------------------------------
         # ADD PREVIOUS 8H COMPARISON
         # ----------------------------------------------------
