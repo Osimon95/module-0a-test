@@ -12045,14 +12045,31 @@ def fresh_tp3_runtime(
         )
     )
 
-    leverage_target = Decimal(
-        str(
-            strategy.get(
-                "leverage_target",
-                100,
-            )
-        )
+    
+    # ========================================================
+    # UNIT 14A - WEEX LEVERAGE AUTHORITY
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    # Leverage is not selected in Python.
+    # It must come from the actual WEEX demo position
+    # during each position-management cycle.
+
+    leverage_target = None
+
+    print(
+        "UNIT 14 LEVERAGE AUTHORITY = WEEX EXCHANGE",
+        flush=True,
     )
+
+    print(
+        "UNIT 14 PYTHON LEVERAGE SETTING = DISABLED",
+        flush=True,
+    )
+
+    # ========================================================
+    # END UNIT 14A
+    # ========================================================
 
     initial_margin_percent = Decimal(
         str(
