@@ -9327,175 +9327,59 @@ def fresh_reconstruction_unit_13(
         flush=True,
     )
 
+    
     # ========================================================
-    # 3. LEVERAGE + ESTIMATED TRANSACTION COST
+    # 3. FEE CONFIGURATION
+    # LEVERAGE WILL COME FROM ACTUAL DEMO POSITION
+    # INDENTATION: FOUR SPACES
     # ========================================================
 
-    leverage_target = Decimal(
-        str(
-            strategy.get(
-                "leverage_target",
-                100,
-            )
-        )
-    )
-
-    if (
-        leverage_target
-        <=
-        Decimal("0")
-    ):
-        raise RuntimeError(
-            "UNIT 13 BLOCKED: INVALID LEVERAGE"
-        )
-
-    # --------------------------------------------------------
-    # Conservative base/default WEEX futures taker fee.
+    # Do not take leverage from Unit 2 strategy.
+    # No hardcoded 100x or 20x.
     #
-    # User may later override this in Unit 2:
+    # Actual leverage will be read from:
+    # GET /capi/v3/sim/position/allPosition
     #
-    # "futures_taker_fee_percent": 0.08
-    #
-    # Percentage here is NOTIONAL percentage.
-    # --------------------------------------------------------
+    # This section only initializes the fee estimate.
 
     futures_taker_fee_percent = Decimal(
         str(
             strategy.get(
                 "futures_taker_fee_percent",
-                0.08,
+                "0.08",
             )
         )
     )
 
     if (
-        futures_taker_fee_percent
-        <
-        Decimal("0")
+        not futures_taker_fee_percent.is_finite()
+        or futures_taker_fee_percent < Decimal("0")
+        or futures_taker_fee_percent >= Decimal("1")
     ):
         raise RuntimeError(
             "UNIT 13 BLOCKED: INVALID TAKER FEE"
         )
 
-    # --------------------------------------------------------
-    # Entry + exit fee.
+    # Default is an estimate, not a verified rate
+    # for the demo account.
     #
-    # Example:
-    #
-    # 0.08% entry
-    # +
-    # 0.08% exit
-    # =
-    # 0.16% notional round-trip estimate.
-    #
-    # At 100x leverage this corresponds to approximately
-    # 16% ROI drag relative to initial margin.
-    # --------------------------------------------------------
+    # More accurate fee information should come from
+    # exchange records or a verified rate source.
 
     estimated_round_trip_fee_price_percent = (
-        futures_taker_fee_percent
-        *
-        Decimal("2")
-    )
-
-    estimated_round_trip_fee_roi_percent = (
-        estimated_round_trip_fee_price_percent
-        *
-        leverage_target
-    )
-
-    # --------------------------------------------------------
-    # Required gross leveraged ROI:
-    #
-    # gross ROI
-    # -
-    # estimated fee ROI drag
-    # =
-    # estimated net ROI
-    #
-    # Therefore:
-    #
-    # gross required
-    # =
-    # net floor
-    # +
-    # fee drag
-    # --------------------------------------------------------
-
-    tp1_required_gross_roi = (
-        tp1_net_roi_floor
-        +
-        estimated_round_trip_fee_roi_percent
-    )
-
-    tp2_required_gross_roi = (
-        tp2_net_roi_floor
-        +
-        estimated_round_trip_fee_roi_percent
-    )
-
-    # Mandatory ROI separation.
-
-    minimum_tp2_from_tp1 = (
-        tp1_required_gross_roi
-        +
-        tp1_tp2_min_roi_separation
-    )
-
-    if (
-        tp2_required_gross_roi
-        <
-        minimum_tp2_from_tp1
-    ):
-        tp2_required_gross_roi = (
-            minimum_tp2_from_tp1
-        )
-
-    tp1_price_move_percent = (
-        tp1_required_gross_roi
-        /
-        leverage_target
-    )
-
-    tp2_price_move_percent = (
-        tp2_required_gross_roi
-        /
-        leverage_target
+        futures_taker_fee_percent * Decimal("2")
     )
 
     print(
-        "UNIT 13 LEVERAGE = "
-        f"{leverage_target}x",
+        "UNIT 13 DEFAULT TAKER FEE ESTIMATE =",
+        futures_taker_fee_percent,
+        "% PER SIDE",
         flush=True,
     )
 
     print(
-        "UNIT 13 ESTIMATED TAKER FEE = "
-        f"{futures_taker_fee_percent}% NOTIONAL / SIDE",
-        flush=True,
-    )
-
-    print(
-        "UNIT 13 ESTIMATED ROUND-TRIP FEE = "
-        f"{estimated_round_trip_fee_price_percent}% NOTIONAL",
-        flush=True,
-    )
-
-    print(
-        "UNIT 13 ESTIMATED FEE ROI DRAG = "
-        f"{estimated_round_trip_fee_roi_percent}%",
-        flush=True,
-    )
-
-    print(
-        "UNIT 13 TP1 REQUIRED GROSS ROI = "
-        f"{tp1_required_gross_roi}%",
-        flush=True,
-    )
-
-    print(
-        "UNIT 13 TP2 REQUIRED GROSS ROI = "
-        f"{tp2_required_gross_roi}%",
+        "UNIT 13 LEVERAGE SOURCE = "
+        "ACTUAL WEEX DEMO POSITION",
         flush=True,
     )
 
