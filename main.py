@@ -3588,30 +3588,272 @@ def fresh_reconstruction_unit_5(
         flush=True,
     )
 
+    
     # ========================================================
-    # 8. SCALP CONTEXT
-    #
-    # Primary momentum:
-    # CLOSED 5M movement.
-    #
-    # EMA200 intentionally NOT required.
-    #
-    # The latest 1M candle remains visible for freshness,
-    # but a single counter-direction 1M candle does NOT
-    # automatically veto valid 5M momentum.
+    # UNIT 5A START
+    # SECTIONS 8 TO 11 COMPLETE REPLACEMENT
+    # INDENTATION: FOUR SPACES
     # ========================================================
 
+    # ========================================================
+    # 8. CLOSED CANDLE MARKET CONTEXT
+    # ========================================================
+
+    candles = unit_4_snapshot.get(
+        "recent_closed_klines", []
+    )
+
+    if not isinstance(candles, list) or len(candles) < 30:
+        raise RuntimeError(
+            "UNIT 5 BLOCKED: INSUFFICIENT CLOSED CANDLES"
+        )
+
+    candles = candles[-60:]
+
+    for candle in candles:
+        if not isinstance(candle, dict):
+            raise RuntimeError(
+                "UNIT 5 INVALID CLOSED CANDLE"
+            )
+
+        for key in ("open", "high", "low", "close"):
+            value = float(candle[key])
+            if not 0 < value < float("inf"):
+                raise RuntimeError(
+                    "UNIT 5 INVALID CANDLE PRICE"
+                )
+
+    recent = candles[-20:]
+    previous_range = candles[-21:-1]
+
+    range_high = max(
+        float(c["high"]) for c in previous_range
+    )
+
+    range_low = min(
+        float(c["low"]) for c in previous_range
+    )
+
+    if range_low <= 0:
+        raise RuntimeError("INVALID RANGE LOW")
+
+    range_width_pct = (
+        (range_high - range_low) / range_low * 100.0
+    )
+
+    recent_high = max(
+        float(c["high"]) for c in recent
+    )
+
+    recent_low = min(
+        float(c["low"]) for c in recent
+    )
+
+    recent_range_pct = (
+        (recent_high - recent_low)
+        / latest_close * 100.0
+    )
+
+    ema100 = float(
+        unit_4_snapshot.get("ema100", ema200)
+    )
+
+    if not 0 < ema100 < float("inf"):
+        raise RuntimeError("INVALID EMA100")
+
+    # ========================================================
+    # 9. EARLY STRUCTURE QUALIFICATION
+    # ========================================================
+
+    # EMA200 is a context indicator.
+    # Full EMA19/50/200 alignment is not compulsory
+    # for preliminary STRUCTURE qualification.
+
+    structure_direction = "NONE"
+
+    structure_long_votes = sum((
+        ema19 > ema50,
+        move_5m_pct > 0 and move_15m_pct > 0,
+        latest_close > ema19 and latest_close > ema100,
+    ))
+
+    structure_short_votes = sum((
+        ema19 < ema50,
+        move_5m_pct < 0 and move_15m_pct < 0,
+        latest_close < ema19 and latest_close < ema100,
+    ))
+
+    structure_move_pct = abs(move_15m_pct)
+
+    structure_long_candidate = (
+        structure_long_votes >= 2
+        and move_15m_pct >= 0.020
+        and separation_pct >= 0.035
+        and latest_close > ema19
+    )
+
+    structure_short_candidate = (
+        structure_short_votes >= 2
+        and move_15m_pct <= -0.020
+        and separation_pct >= 0.035
+        and latest_close < ema19
+    )
+
+    structure_candidate = (
+        structure_long_candidate
+        or structure_short_candidate
+    )
+
+    structure_long_ready = (
+        structure_long_candidate
+        and structure_long_votes == 3
+        and structure_move_pct >= 0.035
+    )
+
+    structure_short_ready = (
+        structure_short_candidate
+        and structure_short_votes == 3
+        and structure_move_pct >= 0.035
+    )
+
+    structure_ready = (
+        structure_long_ready
+        or structure_short_ready
+    )
+
+    if structure_long_candidate:
+        structure_direction = "LONG"
+
+    elif structure_short_candidate:
+        structure_direction = "SHORT"
+
+    structure_direction_agreement = (
+        structure_ready
+    )
+
+    # ========================================================
+    # 10. PRICE-BASED BREAKOUT QUALIFICATION
+    # ========================================================
+
+    # The latest closed candle must actually break
+    # the preceding 20-candle range to be READY.
+    #
+    # A nearby developing candidate can be detected
+    # before the actual breakout.
+
+    breakout_primary_direction = (
+        momentum_30m_direction
+    )
+
+    breakout_fast_support = (
+        momentum_5m_direction
+        == breakout_primary_direction
+        or momentum_15m_direction
+        == breakout_primary_direction
+    )
+
+    breakout_move_pct = abs(move_30m_pct)
+
+    latest_high = float(candles[-1]["high"])
+    latest_low = float(candles[-1]["low"])
+
+    upper_distance_pct = (
+        (range_high - latest_close)
+        / latest_close * 100.0
+    )
+
+    lower_distance_pct = (
+        (latest_close - range_low)
+        / latest_close * 100.0
+    )
+
+    breakout_long_candidate = (
+        move_5m_pct > 0.015
+        and move_15m_pct > 0
+        and latest_close > ema19
+        and upper_distance_pct <= 0.080
+    )
+
+    breakout_short_candidate = (
+        move_5m_pct < -0.015
+        and move_15m_pct < 0
+        and latest_close < ema19
+        and lower_distance_pct <= 0.080
+    )
+
+    breakout_candidate = (
+        breakout_long_candidate
+        or breakout_short_candidate
+    )
+
+    breakout_long_ready = (
+        breakout_long_candidate
+        and latest_close > range_high
+        and latest_high > range_high
+        and move_5m_pct >= 0.030
+        and move_15m_pct > 0
+    )
+
+    breakout_short_ready = (
+        breakout_short_candidate
+        and latest_close < range_low
+        and latest_low < range_low
+        and move_5m_pct <= -0.030
+        and move_15m_pct < 0
+    )
+
+    breakout_ready = (
+        breakout_long_ready
+        or breakout_short_ready
+    )
+
+    breakout_direction = "NONE"
+
+    if breakout_long_candidate:
+        breakout_direction = "LONG"
+
+    elif breakout_short_candidate:
+        breakout_direction = "SHORT"
+
+    breakout_long_context = breakout_long_candidate
+    breakout_short_context = breakout_short_candidate
+
+    # ========================================================
+    # 11. SCALP SIDEWAYS AND FEE-AWARE CONTEXT
+    # ========================================================
+
+    scalp_move_pct = abs(move_5m_pct)
+
+    scalp_direction = "NONE"
+
+    # Sideways participation: short-term movement may
+    # exist, but a stronger directional regime must
+    # take priority.
+
+    sideways_context = (
+        not structure_candidate
+        and not breakout_candidate
+        and separation_pct <= 0.090
+        and abs(move_30m_pct) <= 0.180
+    )
+
     scalp_long_context = (
-        ema19 > ema50
-        and momentum_5m_direction == "LONG"
+        sideways_context
+        and move_5m_pct >= SCALP_MIN_MOVE_PCT
+        and (
+            move_1m_pct > 0
+            or latest_close > previous_close
+        )
     )
 
     scalp_short_context = (
-        ema19 < ema50
-        and momentum_5m_direction == "SHORT"
+        sideways_context
+        and move_5m_pct <= -SCALP_MIN_MOVE_PCT
+        and (
+            move_1m_pct < 0
+            or latest_close < previous_close
+        )
     )
-
-    scalp_direction = "NONE"
 
     if scalp_long_context:
         scalp_direction = "LONG"
@@ -3619,400 +3861,134 @@ def fresh_reconstruction_unit_5(
     elif scalp_short_context:
         scalp_direction = "SHORT"
 
-    scalp_move_pct = abs(
-        move_5m_pct
-    )
-
     scalp_1m_support = (
-        momentum_1m_direction
-        ==
-        scalp_direction
+        scalp_direction != "NONE"
+        and momentum_1m_direction == scalp_direction
     )
 
-    print(
-        "UNIT 5 SCALP DIRECTION = "
-        f"{scalp_direction}",
-        flush=True,
+    # Preliminary fee feasibility only.
+    #
+    # A historical price range is not a prediction of
+    # future obtainable profit.
+    #
+    # Unit 6 and downstream execution must still check
+    # prospective reward, spread, fees, slippage,
+    # and entry quality.
+
+    assumed_taker_fee_per_side_pct = 0.080
+    assumed_extra_friction_pct = 0.020
+
+    minimum_net_price_profit_pct = 0.050
+
+    minimum_sustainable_range_pct = (
+        2.0 * assumed_taker_fee_per_side_pct
+        + assumed_extra_friction_pct
+        + minimum_net_price_profit_pct
     )
 
-    print(
-        "UNIT 5 SCALP LONG CONTEXT = "
-        f"{scalp_long_context}",
-        flush=True,
+    scalp_range_feasible = (
+        recent_range_pct
+        >= minimum_sustainable_range_pct
     )
 
-    print(
-        "UNIT 5 SCALP SHORT CONTEXT = "
-        f"{scalp_short_context}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 SCALP 5M MOVE % = "
-        f"{move_5m_pct}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 SCALP 1M FRESHNESS SUPPORT = "
-        f"{scalp_1m_support}",
-        flush=True,
+    scalp_ready = (
+        scalp_direction != "NONE"
+        and sideways_context
+        and scalp_range_feasible
     )
 
     # ========================================================
-    # 9. STRUCTURE CONTEXT
-    #
-    # Primary momentum:
-    # CLOSED 15M movement.
-    #
-    # STRUCTURE still requires mature EMA19/50/200 alignment.
-    # ========================================================
-
-    structure_direction = "NONE"
-
-    if (
-        ema_direction != "NONE"
-        and
-        momentum_15m_direction
-        ==
-        ema_direction
-    ):
-        structure_direction = (
-            ema_direction
-        )
-
-    structure_direction_agreement = (
-        structure_direction
-        !=
-        "NONE"
-    )
-
-    structure_move_pct = abs(
-        move_15m_pct
-    )
-
-    print(
-        "UNIT 5 STRUCTURE DIRECTION = "
-        f"{structure_direction}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 STRUCTURE DIRECTION AGREEMENT = "
-        f"{structure_direction_agreement}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 STRUCTURE 15M MOVE % = "
-        f"{move_15m_pct}",
-        flush=True,
-    )
-
-    # ========================================================
-    # 10. BREAKOUT CONTEXT
-    #
-    # Primary momentum:
-    # CLOSED 30M movement.
-    #
-    # At least one faster window (5M or 15M) must support
-    # the 30M breakout direction.
-    #
-    # EMA50/EMA200 crossover is still NOT required.
-    # EMA200 remains directional context.
-    # ========================================================
-
-    breakout_primary_direction = (
-        momentum_30m_direction
-    )
-
-    breakout_fast_support = (
-        (
-            momentum_5m_direction
-            ==
-            breakout_primary_direction
-        )
-        or
-        (
-            momentum_15m_direction
-            ==
-            breakout_primary_direction
-        )
-    )
-
-    breakout_long_context = (
-        breakout_primary_direction == "LONG"
-        and breakout_fast_support
-        and ema19 > ema50
-        and live_price > ema19
-        and live_price > ema200
-    )
-
-    breakout_short_context = (
-        breakout_primary_direction == "SHORT"
-        and breakout_fast_support
-        and ema19 < ema50
-        and live_price < ema19
-        and live_price < ema200
-    )
-
-    breakout_direction = "NONE"
-
-    if breakout_long_context:
-        breakout_direction = "LONG"
-
-    elif breakout_short_context:
-        breakout_direction = "SHORT"
-
-    breakout_move_pct = abs(
-        move_30m_pct
-    )
-
-    print(
-        "UNIT 5 BREAKOUT PRIMARY DIRECTION = "
-        f"{breakout_primary_direction}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 BREAKOUT FAST SUPPORT = "
-        f"{breakout_fast_support}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 BREAKOUT DIRECTION = "
-        f"{breakout_direction}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 BREAKOUT LONG CONTEXT = "
-        f"{breakout_long_context}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 BREAKOUT SHORT CONTEXT = "
-        f"{breakout_short_context}",
-        flush=True,
-    )
-
-    print(
-        "UNIT 5 BREAKOUT 30M MOVE % = "
-        f"{move_30m_pct}",
-        flush=True,
-    )
-
-    # ========================================================
-    # 11. EXCLUSIVE MODE QUALIFICATION
-    #
-    # Priority remains:
-    #
-    # BREAKOUT -> STRUCTURE -> SCALP
-    #
-    # Only ONE mode can qualify.
+    # 11A. STRICT MODE ARBITRATION
     # ========================================================
 
     active_mode = "NONE"
     direction = "NONE"
     qualified = False
-    qualification_reason = (
-        "NO_MODE_QUALIFIED"
-    )
+    qualification_reason = "NO_MODE_QUALIFIED"
 
-    # --------------------------------------------------------
-    # BREAKOUT
-    # --------------------------------------------------------
+    if breakout_ready:
 
-    if (
-        breakout_direction != "NONE"
-        and
-        separation_pct
-        >=
-        BREAKOUT_MIN_SEPARATION_PCT
-        and
-        breakout_move_pct
-        >=
-        BREAKOUT_MIN_MOVE_PCT
-    ):
         active_mode = "BREAKOUT"
-
-        direction = (
-            breakout_direction
-        )
-
+        direction = breakout_direction
         qualified = True
-
         qualification_reason = (
-            "BREAKOUT_30M_DIRECTION_AND_"
-            "MULTI_WINDOW_MOMENTUM_CONFIRMED"
+            "BREAKOUT_CONFIRMED_CLOSED_CANDLE_RANGE"
         )
 
-    # --------------------------------------------------------
-    # STRUCTURE
-    # --------------------------------------------------------
+    elif structure_ready:
 
-    elif (
-        structure_direction_agreement
-        and
-        separation_pct
-        >=
-        STRUCTURE_MIN_SEPARATION_PCT
-        and
-        structure_move_pct
-        >=
-        STRUCTURE_MIN_MOVE_PCT
-    ):
         active_mode = "STRUCTURE"
-
-        direction = (
-            structure_direction
+        direction = structure_direction
+        qualified = True
+        qualification_reason = (
+            "EARLY_STRUCTURE_THREE_FACTOR_CONFIRMATION"
         )
 
-        qualified = True
+    elif breakout_candidate:
 
         qualification_reason = (
-            "STRUCTURE_15M_DIRECTION_AND_"
-            "MOMENTUM_CONFIRMED"
+            "DEVELOPING_BREAKOUT_SCALP_DEFERRED"
         )
 
-    # --------------------------------------------------------
-    # SCALP
-    # --------------------------------------------------------
-
-    elif (
-        scalp_direction != "NONE"
-        and
-        separation_pct
-        >=
-        SCALP_MIN_SEPARATION_PCT
-        and
-        scalp_move_pct
-        >=
-        SCALP_MIN_MOVE_PCT
-    ):
-        active_mode = "SCALP"
-
-        direction = (
-            scalp_direction
-        )
-
-        qualified = True
-
-        
-    elif (
-        momentum_5m_direction in ("LONG", "SHORT")
-        and abs(move_5m_pct) >= SCALP_MIN_MOVE_PCT
-        and (
-            momentum_1m_direction == momentum_5m_direction
-            or (
-                momentum_5m_direction == "LONG"
-                and latest_close > previous_close
-            )
-            or (
-                momentum_5m_direction == "SHORT"
-                and latest_close < previous_close
-            )
-        )
-    ):
-        # PRICE-FIRST SCALP QUALIFICATION
-        #
-        # EMA separation is no longer a mandatory
-        # qualification condition for SCALP.
-        #
-        # Unit 6 performs the weighted scoring and
-        # additional anti-chase safety checks.
-        #
-        # STRUCTURE and BREAKOUT remain unchanged.
-
-        active_mode = "SCALP"
-
-        direction = momentum_5m_direction
-
-        scalp_direction = direction
-
-        qualified = True
+    elif structure_candidate:
 
         qualification_reason = (
-            "SCALP_PRICE_FIRST_PENDING_UNIT_6_SCORE"
+            "DEVELOPING_STRUCTURE_SCALP_DEFERRED"
         )
-        
 
-    # --------------------------------------------------------
-    # NO QUALIFIED MODE
-    # --------------------------------------------------------
+    elif scalp_ready:
+
+        active_mode = "SCALP"
+        direction = scalp_direction
+        qualified = True
+        qualification_reason = (
+            "SIDEWAYS_SCALP_PRELIMINARY_FEE_FILTER_PASS"
+        )
+
+    elif sideways_context and not scalp_range_feasible:
+
+        qualification_reason = (
+            "SCALP_HISTORICAL_RANGE_BELOW_FEE_THRESHOLD"
+        )
 
     else:
 
-        any_directional_context = (
-            scalp_direction != "NONE"
-            or
-            structure_direction != "NONE"
-            or
-            breakout_direction != "NONE"
+        qualification_reason = (
+            "NO_ACCEPTABLE_TRADE_CONTEXT"
         )
 
-        if not any_directional_context:
-            qualification_reason = (
-                "NO_MULTI_WINDOW_DIRECTIONAL_CONTEXT"
-            )
+    # ========================================================
+    # 11B. DIAGNOSTICS
+    # ========================================================
 
-        elif (
-            separation_pct
-            <
-            SCALP_MIN_SEPARATION_PCT
-        ):
-            qualification_reason = (
-                "EMA_SEPARATION_BELOW_MINIMUM"
-            )
+    print("UNIT 5 RANGE HIGH =", range_high, flush=True)
+    print("UNIT 5 RANGE LOW =", range_low, flush=True)
+    print("UNIT 5 RANGE WIDTH % =", range_width_pct, flush=True)
 
-        elif (
-            scalp_direction != "NONE"
-            and
-            scalp_move_pct
-            <
-            SCALP_MIN_MOVE_PCT
-        ):
-            qualification_reason = (
-                "SCALP_5M_MOVE_BELOW_MINIMUM"
-            )
+    print("UNIT 5 BREAKOUT CANDIDATE =", breakout_candidate, flush=True)
+    print("UNIT 5 BREAKOUT READY =", breakout_ready, flush=True)
+    print("UNIT 5 BREAKOUT DIRECTION =", breakout_direction, flush=True)
 
-        elif (
-            structure_direction != "NONE"
-            and
-            separation_pct
-            >=
-            STRUCTURE_MIN_SEPARATION_PCT
-            and
-            structure_move_pct
-            <
-            STRUCTURE_MIN_MOVE_PCT
-        ):
-            qualification_reason = (
-                "STRUCTURE_15M_MOVE_BELOW_MINIMUM"
-            )
+    print("UNIT 5 STRUCTURE CANDIDATE =", structure_candidate, flush=True)
+    print("UNIT 5 STRUCTURE READY =", structure_ready, flush=True)
+    print("UNIT 5 STRUCTURE DIRECTION =", structure_direction, flush=True)
 
-        elif (
-            breakout_direction != "NONE"
-            and
-            separation_pct
-            >=
-            BREAKOUT_MIN_SEPARATION_PCT
-            and
-            breakout_move_pct
-            <
-            BREAKOUT_MIN_MOVE_PCT
-        ):
-            qualification_reason = (
-                "BREAKOUT_30M_MOVE_BELOW_MINIMUM"
-            )
+    print("UNIT 5 SIDEWAYS CONTEXT =", sideways_context, flush=True)
+    print("UNIT 5 SCALP RANGE % =", recent_range_pct, flush=True)
+    print("UNIT 5 SCALP RANGE FEASIBLE =", scalp_range_feasible, flush=True)
+    print("UNIT 5 SCALP READY =", scalp_ready, flush=True)
+    print("UNIT 5 SCALP DIRECTION =", scalp_direction, flush=True)
 
-        else:
-            qualification_reason = (
-                "NO_MODE_THRESHOLDS_CONFIRMED"
-            )
+    print("UNIT 5 SELECTED MODE =", active_mode, flush=True)
+    print("UNIT 5 QUALIFIED =", qualified, flush=True)
+    print("UNIT 5 REASON =", qualification_reason, flush=True)
 
+    # ========================================================
+    # UNIT 5A END
+    # EXISTING SECTION 12 CONTINUES BELOW
+    # NO OTHER UNIT REPLACED
+    # ========================================================
+    
     # ========================================================
     # 12. PRICE RELATIONSHIP CHECKS
     # ========================================================
