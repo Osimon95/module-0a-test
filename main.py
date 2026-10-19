@@ -4632,417 +4632,758 @@ FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
 
 
 # ============================================================
-# START UNIT 6 CONTROLLED BRANCH TEST HARNESS
+# START COMPLETE REPLACEMENT - UNIT 7
 # ZERO INDENTATION
-# TEMPORARY TEST CODE - REMOVE AFTER VERIFICATION
+#
+# POSITION SIZING PREPARATION
+# ADJUSTABLE STRATEGY REGISTER
+# CONTROLLED CAPITAL SCENARIOS
+#
+# NO ACCOUNT REQUEST
+# NO ORDER
+# NO EXCHANGE WRITE
+# NO STRATEGY OVERRIDE
 # ============================================================
 
-def run_unit_6_controlled_tests():
+def fresh_reconstruction_unit_7(
+    unit_2_config,
+    unit_6_candidate,
+):
 
-    import copy
-    import time
+    import math
 
     print("=" * 80, flush=True)
-    print(
-        "UNIT 6 CONTROLLED BRANCH TEST START",
-        flush=True
-    )
+    log("FRESH RECONSTRUCTION UNIT 7 START")
     print("-" * 80, flush=True)
 
-    config = copy.deepcopy(
-        FRESH_RECONSTRUCTION_CONFIG
-    )
-
-    base_u4 = copy.deepcopy(
-        FRESH_RECONSTRUCTION_UNIT_4_RESULT
-    )
-
-    base_u5 = copy.deepcopy(
-        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
-    )
-
-    results = []
-
     # ========================================================
-    # HELPER - EXECUTE ONE BRANCH TEST
+    # 1. RECEIVE VERIFIED INPUTS
     # ========================================================
 
-    def check_case(
-        name,
-        u4,
-        u5,
-        expected_intent,
-        expected_mode,
-        expected_reason,
-    ):
-
-        print("-" * 80, flush=True)
-        print(
-            "TEST CASE =",
-            name,
-            flush=True
+    if not isinstance(unit_2_config, dict):
+        raise RuntimeError(
+            "UNIT 7 INVALID UNIT 2 CONFIGURATION"
         )
+
+    if not isinstance(unit_6_candidate, dict):
+        raise RuntimeError(
+            "UNIT 7 INVALID UNIT 6 RESULT"
+        )
+
+    strategy = unit_2_config.get("strategy")
+    exchange = unit_2_config.get("exchange")
+    precision = unit_2_config.get(
+        "market_precision"
+    )
+    safety = unit_2_config.get("safety")
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            strategy,
+            exchange,
+            precision,
+            safety,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 7 CONFIGURATION SECTIONS MISSING"
+        )
+
+    if (
+        exchange.get("name") != "WEEX"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or unit_2_config.get(
+            "execution_environment"
+        ) != "DEMO"
+    ):
+        raise RuntimeError(
+            "UNIT 7 INVALID EXCHANGE ENVIRONMENT"
+        )
+
+    print(
+        "PASS: UNIT 7 RECEIVED UNIT 2 AND UNIT 6",
+        flush=True
+    )
+
+    # ========================================================
+    # 2. READ ONLY SAFETY
+    # ========================================================
+
+    forbidden = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for flag in forbidden:
+
+        if safety.get(flag) is not False:
+            raise RuntimeError(
+                "UNIT 7 UNSAFE FLAG: " + flag
+            )
+
+    if (
+        unit_6_candidate.get("read_only")
+        is not True
+        or unit_6_candidate.get(
+            "trade_authorized"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 7 INVALID UNIT 6 SAFETY CONTRACT"
+        )
+
+    print(
+        "PASS: UNIT 7 READ ONLY SAFETY",
+        flush=True
+    )
+
+    # ========================================================
+    # 3. READ ADJUSTABLE BASELINE
+    # ========================================================
+
+    def number(data, key):
 
         try:
+            value = float(data[key])
+        except (KeyError, ValueError, TypeError) as exc:
+            raise RuntimeError(
+                "UNIT 7 INVALID PARAMETER: " + key
+            ) from exc
 
-            result = fresh_reconstruction_unit_6(
-                config,
-                u4,
-                u5,
+        if not math.isfinite(value):
+            raise RuntimeError(
+                "UNIT 7 NONFINITE PARAMETER: " + key
             )
 
-            actual_intent = result.get(
-                "execution_intent"
-            )
+        return value
 
-            actual_mode = result.get(
-                "active_mode"
-            )
-
-            actual_reason = result.get(
-                "admission_reason", ""
-            )
-
-            passed = (
-                actual_intent is expected_intent
-                and actual_mode == expected_mode
-                and actual_reason == expected_reason
-                and result.get(
-                    "trade_authorized"
-                ) is False
-                and result.get(
-                    "order_payload_generated"
-                ) is False
-            )
-
-            print(
-                "TEST EXPECTED REASON =",
-                expected_reason,
-                flush=True
-            )
-
-            print(
-                "TEST ACTUAL REASON =",
-                actual_reason,
-                flush=True
-            )
-
-        except Exception as exc:
-
-            passed = False
-
-            print(
-                "TEST EXCEPTION =",
-                repr(exc),
-                flush=True
-            )
-
-        results.append((name, passed))
-
-        print(
-            "TEST RESULT =",
-            "PASS" if passed else "FAIL",
-            flush=True
-        )
-
-    # ========================================================
-    # CASE 1 - QUALIFIED BREAKOUT SHORT
-    # ========================================================
-
-    u4 = copy.deepcopy(base_u4)
-    u5 = copy.deepcopy(base_u5)
-
-    u4["breakout_confirmed_short"] = True
-    u4["breakout_confirmed_long"] = False
-    u4["price_overextended"] = False
-
-    u5.update({
-        "qualified": True,
-        "active_mode": "BREAKOUT",
-        "direction": "SHORT",
-        "candidate_mode": "BREAKOUT",
-        "candidate_stage": "QUALIFIED",
-        "direction_evidence": "SHORT",
-        "higher_mode_developing": True,
-        "qualification_reason":
-            "CONTROLLED_BREAKOUT_SHORT",
-    })
-
-    check_case(
-        "BREAKOUT_SHORT_ADMISSION",
-        u4,
-        u5,
-        True,
-        "BREAKOUT",
-        "BREAKOUT_PRELIMINARY_ADMISSION_PASS",
+    fixed_initial = number(
+        strategy,
+        "initial_fixed_usdt"
     )
 
-    # ========================================================
-    # CASE 2 - QUALIFIED STRUCTURE SHORT
-    # ========================================================
-
-    u4 = copy.deepcopy(base_u4)
-    u5 = copy.deepcopy(base_u5)
-
-    u4["structure_developing_short"] = True
-    u4["structure_developing_long"] = False
-    u4["breakout_confirmed_short"] = False
-    u4["breakout_confirmed_long"] = False
-    u4["price_overextended"] = False
-    u4["move_15m_pct"] = -0.10
-
-    u5.update({
-        "qualified": True,
-        "active_mode": "STRUCTURE",
-        "direction": "SHORT",
-        "candidate_mode": "STRUCTURE",
-        "candidate_stage": "QUALIFIED",
-        "direction_evidence": "SHORT",
-        "higher_mode_developing": True,
-        "qualification_reason":
-            "CONTROLLED_STRUCTURE_SHORT",
-    })
-
-    check_case(
-        "STRUCTURE_SHORT_ADMISSION",
-        u4,
-        u5,
-        True,
-        "STRUCTURE",
-        "STRUCTURE_PRELIMINARY_ADMISSION_PASS",
+    initial_pct = number(
+        strategy,
+        "initial_margin_percent"
     )
 
-    # ========================================================
-    # CASE 3 - DEVELOPING STRUCTURE REJECTED
-    # ========================================================
-
-    u4 = copy.deepcopy(base_u4)
-    u5 = copy.deepcopy(base_u5)
-
-    u5.update({
-        "qualified": False,
-        "active_mode": "NONE",
-        "direction": "NONE",
-        "candidate_mode": "STRUCTURE",
-        "candidate_stage": "DEVELOPING",
-        "higher_mode_developing": True,
-        "qualification_reason":
-            "CONTROLLED_STRUCTURE_DEVELOPING",
-    })
-
-    check_case(
-        "DEVELOPING_STRUCTURE_REJECTION",
-        u4,
-        u5,
-        False,
-        "NONE",
-        "STRUCTURE_DEVELOPING_NOT_QUALIFIED",
+    exposure_cap_pct = number(
+        strategy,
+        "exposure_cap_percent"
     )
 
-    # ========================================================
-    # HELPER - SYNTHETIC SIDEWAYS TEST CANDLES
-    #
-    # These are deliberately constructed test candles.
-    # They do NOT represent WEEX market observations.
-    # ========================================================
-
-    def make_scalp_case(highroom):
-
-        u4 = copy.deepcopy(base_u4)
-        u5 = copy.deepcopy(base_u5)
-
-        p = 82000.0
-
-        last_open_ms = int(
-            base_u4["recent_closed_klines"][-1][
-                "open_time_ms"
-            ]
-        )
-
-        synthetic = []
-
-        for i in range(60):
-
-            opening = (
-                last_open_ms
-                - (59 - i) * 60000
-            )
-
-            closing = p - (59 - i) * 2.0
-
-            opening_price = closing - 1.0
-
-            synthetic.append({
-                "open_time_ms": opening,
-                "close_time_ms":
-                    opening + 59999,
-                "open": opening_price,
-                "high": closing + highroom,
-                "low": opening_price - 1.0,
-                "close": closing,
-            })
-
-        u4["recent_closed_klines"] = synthetic
-        u4["latest_open_time_ms"] = (
-            synthetic[-1]["open_time_ms"]
-        )
-        u4["latest_close_time_ms"] = (
-            synthetic[-1]["close_time_ms"]
-        )
-
-        u4.update({
-            "latest_close": p,
-            "previous_close": p - 2.0,
-            "live_mark_price": p,
-            "ema19": p - 25.0,
-            "ema50": p - 35.0,
-            "ema100": p - 45.0,
-            "ema200": p - 55.0,
-            "atr14": 10.0,
-            "move_1m_pct": 0.00244,
-            "move_5m_pct": 0.01220,
-            "move_15m_pct": 0.03660,
-            "sideways_candidate": True,
-            "price_overextended": False,
-        })
-
-        u5.update({
-            "qualified": False,
-            "active_mode": "NONE",
-            "direction": "NONE",
-            "candidate_mode": "SCALP",
-            "candidate_stage": "PENDING_UNIT_6",
-            "higher_mode_developing": False,
-            "scalp_direction": "LONG",
-            "sideways_context": True,
-            "scalp_range_feasible": True,
-            "qualification_reason":
-                "CONTROLLED_SCALP_PENDING",
-        })
-
-        return u4, u5
-
-    # ========================================================
-    # CASE 4 - SCALP QUALITY PASSES,
-    # BUT EXECUTION STAYS DISABLED
-    # ========================================================
-
-    u4, u5 = make_scalp_case(500.0)
-
-    check_case(
-        "SCALP_QUALITY_PASS_HELD",
-        u4,
-        u5,
-        False,
-        "NONE",
-        "SCALP_QUALITY_PASS_"
-        "AWAITING_PERSISTENCE_AND_LIVE_COSTS",
+    backup_buffer_pct = number(
+        strategy,
+        "backup_buffer_percent"
     )
 
-    # ========================================================
-    # CASE 5 - SCALP HEADROOM INSUFFICIENT
-    # ========================================================
-
-    u4, u5 = make_scalp_case(1.0)
-
-    check_case(
-        "SCALP_FEE_REJECTION",
-        u4,
-        u5,
-        False,
-        "NONE",
-        "SCALP_INSUFFICIENT_NET_HEADROOM",
+    multipliers_raw = strategy.get(
+        "backup_multipliers"
     )
 
-    # ========================================================
-    # CASE 6 - SCALP CANNOT OVERRIDE STRUCTURE
-    # ========================================================
-
-    u4, u5 = make_scalp_case(500.0)
-
-    u5["higher_mode_developing"] = True
-
-    check_case(
-        "SCALP_HIGHER_MODE_PROTECTION",
-        u4,
-        u5,
-        False,
-        "NONE",
-        "HIGHER_MODE_DEVELOPING_SCALP_BLOCKED",
-    )
-
-    # ========================================================
-    # FINAL RESULTS
-    # ========================================================
-
-    print("=" * 80, flush=True)
-    print(
-        "UNIT 6 CONTROLLED TEST SUMMARY",
-        flush=True
-    )
-
-    passed_count = sum(
-        1 for _, passed in results
-        if passed
-    )
-
-    for name, passed in results:
-
-        print(
-            name,
-            "=",
-            "PASS" if passed else "FAIL",
-            flush=True
-        )
-
-    print(
-        "UNIT 6 TESTS PASSED =",
-        passed_count,
-        "/",
-        len(results),
-        flush=True
-    )
-
-    print(
-        "UNIT 6 CONTROLLED EXCHANGE WRITE = NONE",
-        flush=True
-    )
-
-    print(
-        "UNIT 6 CONTROLLED DEMO ORDER = NONE",
-        flush=True
-    )
-
-    print(
-        "UNIT 6 CONTROLLED REAL ORDER = NONE",
-        flush=True
-    )
-
-    if passed_count != len(results):
+    if not isinstance(
+        multipliers_raw, (tuple, list)
+    ):
         raise RuntimeError(
-            "UNIT 6 CONTROLLED BRANCH TEST FAILED"
+            "UNIT 7 BACKUP MULTIPLIERS MISSING"
+        )
+
+    multipliers = tuple(
+        float(x) for x in multipliers_raw
+    )
+
+    if (
+        fixed_initial <= 0
+        or not 0 < initial_pct <= 5.0
+        or not 0 < exposure_cap_pct <= 35.0
+        or backup_buffer_pct <= 0
+        or len(multipliers) != 5
+        or any(
+            not math.isfinite(x) or x <= 0
+            for x in multipliers
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 7 INVALID SIZING BASELINE"
+        )
+
+    if int(strategy.get("max_backups", -1)) != 5:
+        raise RuntimeError(
+            "UNIT 7 BACKUP COUNT MISMATCH"
+        )
+
+    quantity_step = number(
+        precision,
+        "quantity_step"
+    )
+
+    minimum_quantity = number(
+        precision,
+        "minimum_quantity"
+    )
+
+    price_step = number(
+        precision,
+        "price_step"
+    )
+
+    if min(
+        quantity_step,
+        minimum_quantity,
+        price_step
+    ) <= 0:
+        raise RuntimeError(
+            "UNIT 7 INVALID MARKET PRECISION"
         )
 
     print(
-        "FINAL VERDICT: UNIT 6 CONTROLLED TEST PASS",
+        "PASS: UNIT 7 SIZING CONFIG VALIDATED",
         flush=True
+    )
+
+    # ========================================================
+    # 4. UNIT 6 SIGNAL HANDOVER
+    # ========================================================
+
+    execution_intent = unit_6_candidate.get(
+        "execution_intent"
+    )
+
+    qualified = unit_6_candidate.get(
+        "signal_qualified"
+    )
+
+    mode = unit_6_candidate.get(
+        "active_mode", "NONE"
+    )
+
+    side = unit_6_candidate.get(
+        "direction", "NONE"
+    )
+
+    admission_reason = str(
+        unit_6_candidate.get(
+            "admission_reason", "UNKNOWN"
+        )
+    )
+
+    unit5_reason = str(
+        unit_6_candidate.get(
+            "unit_5_reason", "UNKNOWN"
+        )
+    )
+
+    if not isinstance(execution_intent, bool):
+        raise RuntimeError(
+            "UNIT 7 INVALID EXECUTION INTENT"
+        )
+
+    if not isinstance(qualified, bool):
+        raise RuntimeError(
+            "UNIT 7 INVALID QUALIFICATION"
+        )
+
+    if execution_intent:
+
+        expected_reason = {
+            "BREAKOUT":
+                "BREAKOUT_PRELIMINARY_ADMISSION_PASS",
+
+            "STRUCTURE":
+                "STRUCTURE_PRELIMINARY_ADMISSION_PASS",
+        }
+
+        if (
+            qualified is not True
+            or mode not in expected_reason
+            or side not in ("LONG", "SHORT")
+            or admission_reason
+            != expected_reason[mode]
+        ):
+            raise RuntimeError(
+                "UNIT 7 INVALID ADMITTED SIGNAL"
+            )
+
+    else:
+
+        if (
+            mode != "NONE"
+            or side != "NONE"
+        ):
+            raise RuntimeError(
+                "UNIT 7 INVALID IDLE HANDOVER"
+            )
+
+    # ========================================================
+    # 5. ADJUSTMENT REGISTER
+    #
+    # These are candidates for later optimization.
+    # They do not change Unit 2, 5 or 6.
+    # ========================================================
+
+    tuning_register = {
+
+        "initial_fixed_usdt": fixed_initial,
+
+        "initial_margin_percent": initial_pct,
+
+        "exposure_cap_percent":
+            exposure_cap_pct,
+
+        "backup_multipliers":
+            multipliers,
+
+        "backup_buffer_percent":
+            backup_buffer_pct,
+
+        "scalp_quality_threshold":
+            number(
+                strategy,
+                "scalp_quality_threshold"
+            ),
+
+        "scalp_min_net_roi_percent":
+            number(
+                strategy,
+                "scalp_min_net_roi_percent"
+            ),
+
+        "scalp_estimated_taker_fee_percent":
+            number(
+                strategy,
+                "scalp_estimated_taker_fee_percent"
+            ),
+
+        "direction_votes_required":
+            int(
+                strategy.get(
+                    "direction_votes_required", 2
+                )
+            ),
+
+        "breakout_threshold_adjustable_later":
+            True,
+
+        "structure_threshold_adjustable_later":
+            True,
+
+        "scalp_score_weights_adjustable_later":
+            True,
+
+        "tp_parameters_adjustable_later":
+            True,
+    }
+
+    # ========================================================
+    # 6. CONTROLLED CAPITAL SCENARIOS
+    #
+    # All balances below are hypothetical.
+    # They are NOT actual WEEX account balances.
+    #
+    # We test sizing arithmetic WITHOUT assuming
+    # an exchange leverage or placing orders.
+    # ========================================================
+
+    simulated_balances = (
+        5.0,
+        10.0,
+        20.0,
+        50.0,
+    )
+
+    scenarios = []
+
+    full_multiplier = (
+        1.0 + sum(multipliers)
+    )
+
+    for balance in simulated_balances:
+
+        exposure_limit_usdt = (
+            balance * exposure_cap_pct / 100.0
+        )
+
+        percentage_initial_usdt = (
+            balance * initial_pct / 100.0
+        )
+
+        initial_usdt = min(
+            fixed_initial,
+            percentage_initial_usdt,
+            exposure_limit_usdt,
+        )
+
+        available_budget = exposure_limit_usdt
+
+        proposed_margins = []
+
+        planned_sizes = (
+            (1.0,) + multipliers
+        )
+
+        for multiplier in planned_sizes:
+
+            desired_margin = (
+                initial_usdt * multiplier
+            )
+
+            if desired_margin <= (
+                available_budget + 1e-9
+            ):
+
+                proposed_margins.append(
+                    round(desired_margin, 8)
+                )
+
+                available_budget -= desired_margin
+
+            else:
+
+                # No partial backup is assumed here.
+                # Progressive funding can later
+                # support additional eligibility
+                # checks using actual account data.
+
+                break
+
+        simulated_reserved_margin = sum(
+            proposed_margins
+        )
+
+        scenario = {
+
+            "hypothetical_balance_usdt":
+                balance,
+
+            "initial_margin_usdt":
+                round(initial_usdt, 8),
+
+            "exposure_cap_usdt":
+                round(exposure_limit_usdt, 8),
+
+            "full_ladder_margin_usdt":
+                round(
+                    initial_usdt * full_multiplier,
+                    8
+                ),
+
+            "planned_margin_legs":
+                proposed_margins,
+
+            "simulated_reserved_margin_usdt":
+                round(
+                    simulated_reserved_margin, 8
+                ),
+
+            "legs_affordable_under_cap":
+                len(proposed_margins),
+
+            "remaining_cap_usdt":
+                round(
+                    max(0.0, available_budget),
+                    8
+                ),
+
+            "balance_is_hypothetical": True,
+
+            "actual_exchange_leverage_known":
+                False,
+
+            "actual_quantity_calculated":
+                False,
+        }
+
+        if simulated_reserved_margin > (
+            exposure_limit_usdt + 1e-8
+        ):
+            raise RuntimeError(
+                "UNIT 7 EXPOSURE CAP FAILURE"
+            )
+
+        scenarios.append(scenario)
+
+        print("-" * 80, flush=True)
+
+        print(
+            "UNIT 7 SIMULATED BALANCE USDT =",
+            balance,
+            flush=True
+        )
+
+        print(
+            "UNIT 7 SIMULATED INITIAL USDT =",
+            scenario["initial_margin_usdt"],
+            flush=True
+        )
+
+        print(
+            "UNIT 7 SIMULATED FULL LADDER USDT =",
+            scenario["full_ladder_margin_usdt"],
+            flush=True
+        )
+
+        print(
+            "UNIT 7 AFFORDABLE LEGS UNDER CAP =",
+            scenario["legs_affordable_under_cap"],
+            flush=True
+        )
+
+    print(
+        "PASS: UNIT 7 CONTROLLED CAPITAL SCENARIOS",
+        flush=True
+    )
+
+    # ========================================================
+    # 7. STATUS FOR NEXT UNIT
+    # ========================================================
+
+    status = (
+        "READY_FOR_BALANCE"
+        if execution_intent
+        else "IDLE"
+    )
+
+    # No real quantity calculation can occur
+    # until authenticated exchange balance,
+    # effective leverage and precision
+    # are verified by a later controlled unit.
+
+    result = {
+
+        "status": status,
+
+        "active_mode": mode,
+
+        "direction": side,
+
+        "execution_intent": execution_intent,
+
+        "signal_qualified": qualified,
+
+        "unit_5_reason": unit5_reason,
+
+        "admission_reason": admission_reason,
+
+        "skip_reason": (
+            None if execution_intent
+            else admission_reason
+        ),
+
+        "initial_margin_percent":
+            initial_pct,
+
+        "initial_fixed_usdt":
+            fixed_initial,
+
+        "exposure_cap_percent":
+            exposure_cap_pct,
+
+        "backup_multipliers":
+            multipliers,
+
+        "backup_buffer_percent":
+            backup_buffer_pct,
+
+        "quantity_step": quantity_step,
+
+        "minimum_quantity": minimum_quantity,
+
+        "price_step": price_step,
+
+        "tuning_register": tuning_register,
+
+        "simulated_capital_scenarios":
+            scenarios,
+
+        "tuning_profiles_applied": False,
+
+        "account_balance_required":
+            execution_intent,
+
+        "position_sizing_performed": False,
+
+        "quantity_calculated": False,
+
+        "proposed_quantity": None,
+
+        "order_payload_created": False,
+
+        "leverage_source": "WEEX_EXCHANGE",
+
+        "leverage_target": None,
+
+        "exchange_leverage_verified": False,
+
+        "effective_leverage": None,
+
+        "read_only": True,
+
+        "trade_authorized": False,
+    }
+
+    # ========================================================
+    # 8. FINAL VALIDATION
+    # ========================================================
+
+    if result["proposed_quantity"] is not None:
+        raise RuntimeError(
+            "UNIT 7 INVENTED ORDER QUANTITY"
+        )
+
+    if result["order_payload_created"] is not False:
+        raise RuntimeError(
+            "UNIT 7 ORDER PAYLOAD FAILURE"
+        )
+
+    if result["trade_authorized"] is not False:
+        raise RuntimeError(
+            "UNIT 7 TRADE SAFETY FAILURE"
+        )
+
+    if result["tuning_profiles_applied"] is not False:
+        raise RuntimeError(
+            "UNIT 7 UNAUTHORIZED STRATEGY CHANGE"
+        )
+
+    # ========================================================
+    # 9. RENDER REPORT
+    # ========================================================
+
+    print("-" * 80, flush=True)
+
+    print(
+        "UNIT 7 STATUS =",
+        status,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 ACTIVE MODE =",
+        mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 DIRECTION =",
+        side,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 ADMISSION REASON =",
+        admission_reason,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 ADJUSTABLE INITIAL USDT =",
+        fixed_initial,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 INITIAL MARGIN % =",
+        initial_pct,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 BACKUP MULTIPLIERS =",
+        multipliers,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXPOSURE CAP % =",
+        exposure_cap_pct,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 SCALP QUALITY THRESHOLD =",
+        tuning_register[
+            "scalp_quality_threshold"
+        ],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 TUNING PROFILES APPLIED = FALSE",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 ACTUAL BALANCE = UNVERIFIED",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EFFECTIVE LEVERAGE = UNVERIFIED",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 ORDER QUANTITY = NOT CALCULATED",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 ORDER PAYLOAD = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 DEMO ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 REAL ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 7 "
+        "RESULT = PASS (" + status + ")"
     )
 
     print("=" * 80, flush=True)
 
-    return True
+    return result
 
 
 # ============================================================
-# RUN CONTROLLED TEST HARNESS
+# RUN UNIT 7
 # ZERO INDENTATION
 # ============================================================
 
-FRESH_RECONSTRUCTION_UNIT_6_TEST_RESULT = (
-    run_unit_6_controlled_tests()
+FRESH_RECONSTRUCTION_SIZING_CANDIDATE = (
+    fresh_reconstruction_unit_7(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE,
+    )
 )
 
 # ============================================================
-# END UNIT 6 CONTROLLED BRANCH TEST HARNESS
+# END COMPLETE REPLACEMENT - UNIT 7
 # ZERO INDENTATION
 # ============================================================
+
+
+
+
+    
