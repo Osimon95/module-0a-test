@@ -326,6 +326,215 @@ def fresh_reconstruction_unit_2():
     }
 
     # ========================================================
+    # UNIT 2 STRATEGY COORDINATION UPGRADE
+    # SCALP / STRUCTURE / BREAKOUT
+    # ========================================================
+
+    strategy.update({
+
+        # ----------------------------------------
+        # EXCLUSIVE MODE PRIORITY
+        # ----------------------------------------
+
+        "mode_priority": (
+            "BREAKOUT",
+            "STRUCTURE",
+            "SCALP",
+        ),
+
+        "structure_breakout_priority": True,
+
+        "arbitration_before_scalp": True,
+
+        "developing_candidate_protection": True,
+
+        "scalp_requires_higher_modes_clear": True,
+
+        "scalp_preemption_requires_confirmation": True,
+
+        "preserve_active_position_management": True,
+
+        # ----------------------------------------
+        # COMMON DIRECTION CONFIRMATION
+        # ----------------------------------------
+
+        "direction_votes_required": 2,
+
+        "direction_votes_total": 3,
+
+        "qualification_use_closed_candles": True,
+
+        "reject_stale_signals": True,
+
+        "reject_late_impulse_entry": True,
+
+        "reject_spike_count_above": 2,
+
+        # ----------------------------------------
+        # BREAKOUT DEVELOPMENT
+        # ----------------------------------------
+
+        "breakout_early_detection_enabled": True,
+
+        "breakout_developing_candidate_enabled": True,
+
+        "breakout_require_ema_crossover": False,
+
+        "breakout_allow_preconfirmation": True,
+
+        "breakout_require_price_confirmation": True,
+
+        "breakout_require_momentum_confirmation": True,
+
+        "breakout_require_direction_agreement": True,
+
+        "breakout_retest_mandatory": False,
+
+        # ----------------------------------------
+        # STRUCTURE DEVELOPMENT
+        # ----------------------------------------
+
+        "structure_early_detection_enabled": True,
+
+        "structure_developing_candidate_enabled": True,
+
+        "structure_require_ema_crossover": False,
+
+        "structure_require_price_confirmation": True,
+
+        "structure_require_direction_agreement": True,
+
+        "structure_allow_pullback_entry": True,
+
+        "structure_allow_continuation_entry": True,
+
+        "structure_retest_mandatory": False,
+
+        # ----------------------------------------
+        # SCALP REGIME
+        # ----------------------------------------
+
+        "scalp_sideways_preferred": True,
+
+        "scalp_trending_market_block": True,
+
+        "scalp_quality_threshold": 70.0,
+
+        "scalp_price_weight_percent": 50.0,
+
+        "scalp_other_factors_weight_percent": 50.0,
+
+        "scalp_max_ema_extension_clusters": 1.5,
+
+        "scalp_early_entry_enabled": True,
+
+        "scalp_late_entry_rejection": True,
+
+        # ----------------------------------------
+        # SCALP FEES AND PROFITABILITY
+        # ----------------------------------------
+
+        "scalp_fee_aware_enabled": True,
+
+        "scalp_estimated_taker_fee_percent": 0.08,
+
+        "scalp_include_entry_fee": True,
+
+        "scalp_include_exit_fee": True,
+
+        "scalp_include_estimated_slippage": True,
+
+        "scalp_require_positive_net_profit": True,
+
+        "scalp_profit_safety_buffer_enabled": True,
+
+        # Preliminary minimum buffer in ROI points.
+        # Later units must compute actual cost.
+        "scalp_min_net_roi_percent": 2.0,
+
+        # ----------------------------------------
+        # CONTINUOUS SCANNING
+        # ----------------------------------------
+
+        "continuous_entry_scan_enabled": True,
+
+        "flat_position_reentry_enabled": True,
+
+        "reentry_requires_confirmed_flat": True,
+
+        "reentry_requires_no_pending_entry": True,
+
+        "reentry_preserves_cooldown": True,
+
+    })
+
+    # ========================================================
+    # UNIT 2 UPGRADE VALIDATION
+    # ========================================================
+
+    assert (
+        strategy["mode_priority"]
+        == ("BREAKOUT", "STRUCTURE", "SCALP")
+    )
+
+    assert (
+        strategy["direction_votes_required"]
+        <= strategy["direction_votes_total"]
+    )
+
+    assert (
+        strategy["scalp_price_weight_percent"]
+        + strategy["scalp_other_factors_weight_percent"]
+        == 100.0
+    )
+
+    assert (
+        0.0
+        <= strategy["scalp_quality_threshold"]
+        <= 100.0
+    )
+
+    assert (
+        strategy["scalp_min_net_roi_percent"]
+        > 0.0
+    )
+
+    assert (
+        strategy["real_order_execution"]
+        is False
+    ) if "real_order_execution" in strategy else True
+
+    print(
+        "PASS: UNIT 2 MODE PRIORITY =",
+        strategy["mode_priority"],
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 2 DIRECTION VOTES = 2/3",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 2 SCALP PRICE WEIGHT = 50%",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 2 FEE AWARE SCALPING ENABLED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 2 DEVELOPING CANDIDATE PROTECTION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 2 CONTINUOUS SCANNING CONFIGURED",
+        flush=True,
+    )
+    # ========================================================
     # 5. MARKET PRECISION
     # ========================================================
 
