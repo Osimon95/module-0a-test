@@ -2769,6 +2769,437 @@ FRESH_RECONSTRUCTION_UNIT_4_SNAPSHOT = (
 
 
 # ============================================================
+# START CTC STAGE B1 - UNIT 4 EVIDENCE BRIDGE
+# ZERO INDENTATION
+#
+# INSERT AFTER UNIT 4 RUN, BEFORE UNIT 5
+#
+# OBSERVATION ONLY
+# DOES NOT MODIFY UNITS 1-7
+# DOES NOT OVERRIDE QUALIFICATIONS
+# NO EXCHANGE REQUEST
+# NO ORDER
+# ============================================================
+
+def fresh_ctc_stage_b1(
+    ctc,
+    unit4,
+):
+
+    import math
+
+    print("=" * 80, flush=True)
+    print(
+        "CTC STAGE B1 START",
+        flush=True
+    )
+
+    # ========================================================
+    # 1. VALIDATE THE CTC HANDOVER
+    # ========================================================
+
+    if not isinstance(ctc, dict):
+        raise RuntimeError(
+            "CTC B1 INVALID CTC INPUT"
+        )
+
+    if not isinstance(unit4, dict):
+        raise RuntimeError(
+            "CTC B1 INVALID UNIT 4 INPUT"
+        )
+
+    if ctc.get("profile_validated") is not True:
+        raise RuntimeError(
+            "CTC B1 PROFILE NOT VALIDATED"
+        )
+
+    if ctc.get("apply_to_strategy") is not False:
+        raise RuntimeError(
+            "CTC B1 REQUIRES OBSERVATION MODE"
+        )
+
+    if ctc.get("shadow_only") is not True:
+        raise RuntimeError(
+            "CTC B1 SHADOW MODE DISABLED"
+        )
+
+    parameters = ctc.get("parameters")
+
+    if not isinstance(parameters, dict):
+        raise RuntimeError(
+            "CTC B1 PARAMETERS MISSING"
+        )
+
+    if unit4.get("symbol") != "BTCUSDT":
+        raise RuntimeError(
+            "CTC B1 WRONG MARKET SYMBOL"
+        )
+
+    if unit4.get("read_only") is not True:
+        raise RuntimeError(
+            "CTC B1 UNSAFE UNIT 4 INPUT"
+        )
+
+    if unit4.get("trade_authorized") is not False:
+        raise RuntimeError(
+            "CTC B1 UNIT 4 TRADE AUTHORIZED"
+        )
+
+    print(
+        "PASS: CTC B1 RECEIVED CTC AND UNIT 4",
+        flush=True
+    )
+
+    # ========================================================
+    # 2. READ MARKET VALUES
+    # ========================================================
+
+    def finite_number(source, key):
+
+        try:
+            value = float(source[key])
+
+        except (KeyError, ValueError, TypeError) as exc:
+            raise RuntimeError(
+                "CTC B1 INVALID FIELD: " + key
+            ) from exc
+
+        if not math.isfinite(value):
+            raise RuntimeError(
+                "CTC B1 NONFINITE FIELD: " + key
+            )
+
+        return value
+
+    move5 = finite_number(
+        unit4,
+        "move_5m_pct"
+    )
+
+    move15 = finite_number(
+        unit4,
+        "move_15m_pct"
+    )
+
+    ema19 = finite_number(
+        unit4,
+        "ema19"
+    )
+
+    ema50 = finite_number(
+        unit4,
+        "ema50"
+    )
+
+    separation = finite_number(
+        unit4,
+        "ema19_50_separation_pct"
+    )
+
+    structure_min = finite_number(
+        parameters,
+        "structure_min_move_pct"
+    )
+
+    structure_confirm = finite_number(
+        parameters,
+        "structure_confirm_move_pct"
+    )
+
+    breakout_min5 = finite_number(
+        parameters,
+        "breakout_min_5m_move_pct"
+    )
+
+    if min(
+        ema19,
+        ema50,
+        structure_min,
+        structure_confirm,
+        breakout_min5,
+    ) <= 0:
+        raise RuntimeError(
+            "CTC B1 INVALID MARKET OR THRESHOLD"
+        )
+
+    # ========================================================
+    # 3. STRUCTURE CTC SHADOW COMPARISON
+    #
+    # These are individual threshold observations.
+    # They are NOT full Unit 5 qualifications.
+    # ========================================================
+
+    structure_long_move_pass = (
+        move15 >= structure_min
+    )
+
+    structure_short_move_pass = (
+        move15 <= -structure_min
+    )
+
+    structure_confirm_move_pass = (
+        abs(move15) >= structure_confirm
+    )
+
+    structure_ema_gap_pass = (
+        separation >= 0.035
+    )
+
+    structure_shadow_long = (
+        ema19 > ema50
+        and structure_long_move_pass
+        and structure_ema_gap_pass
+    )
+
+    structure_shadow_short = (
+        ema19 < ema50
+        and structure_short_move_pass
+        and structure_ema_gap_pass
+    )
+
+    # ========================================================
+    # 4. BREAKOUT CTC SHADOW COMPARISON
+    #
+    # Unit 5 also requires range and price checks.
+    # A momentum PASS alone is not a breakout.
+    # ========================================================
+
+    breakout_long_momentum_pass = (
+        move5 >= breakout_min5
+    )
+
+    breakout_short_momentum_pass = (
+        move5 <= -breakout_min5
+    )
+
+    # ========================================================
+    # 5. REFERENCE EXISTING UNIT 5 THRESHOLDS
+    #
+    # Observed in earlier Unit 5 source:
+    # Structure candidate 15m: 0.020%
+    # Structure EMA gap: 0.035%
+    # Structure readiness 15m: 0.035%
+    # Breakout candidate 5m: 0.015%
+    # ========================================================
+
+    reference = {
+
+        "structure_candidate_move_pct":
+            0.020,
+
+        "structure_ema_gap_pct":
+            0.035,
+
+        "structure_ready_move_pct":
+            0.035,
+
+        "breakout_candidate_5m_pct":
+            0.015,
+    }
+
+    comparison = {
+
+        "reference_structure_long_move": (
+            move15 >= 0.020
+        ),
+
+        "reference_structure_short_move": (
+            move15 <= -0.020
+        ),
+
+        "ctc_structure_long_move":
+            structure_long_move_pass,
+
+        "ctc_structure_short_move":
+            structure_short_move_pass,
+
+        "reference_breakout_long_momentum": (
+            move5 > 0.015
+        ),
+
+        "reference_breakout_short_momentum": (
+            move5 < -0.015
+        ),
+
+        "ctc_breakout_long_momentum":
+            breakout_long_momentum_pass,
+
+        "ctc_breakout_short_momentum":
+            breakout_short_momentum_pass,
+    }
+
+    # ========================================================
+    # 6. RETURN INDEPENDENT SHADOW RESULT
+    #
+    # Unit 4 snapshot is left untouched.
+    # Unit 5 receives its original inputs.
+    # ========================================================
+
+    result = {
+
+        "status": "PASS",
+
+        "profile": ctc["profile"],
+
+        "unit4_symbol": "BTCUSDT",
+
+        "move_5m_pct": move5,
+
+        "move_15m_pct": move15,
+
+        "ema19_50_separation_pct": separation,
+
+        "ctc_structure_min_move_pct":
+            structure_min,
+
+        "ctc_structure_confirm_move_pct":
+            structure_confirm,
+
+        "ctc_breakout_min_5m_move_pct":
+            breakout_min5,
+
+        "structure_shadow_long":
+            structure_shadow_long,
+
+        "structure_shadow_short":
+            structure_shadow_short,
+
+        "structure_confirm_move_pass":
+            structure_confirm_move_pass,
+
+        "breakout_long_momentum_pass":
+            breakout_long_momentum_pass,
+
+        "breakout_short_momentum_pass":
+            breakout_short_momentum_pass,
+
+        "reference_thresholds": reference,
+
+        "comparison": comparison,
+
+        "full_signal_qualified": None,
+
+        "strategy_overridden": False,
+
+        "read_only": True,
+
+        "trade_authorized": False,
+    }
+
+    # ========================================================
+    # 7. RENDER DIAGNOSTICS
+    # ========================================================
+
+    print(
+        "CTC B1 PROFILE =",
+        result["profile"],
+        flush=True
+    )
+
+    print(
+        "CTC B1 5M MOVE % =",
+        move5,
+        flush=True
+    )
+
+    print(
+        "CTC B1 15M MOVE % =",
+        move15,
+        flush=True
+    )
+
+    print(
+        "CTC B1 EMA19/50 GAP % =",
+        separation,
+        flush=True
+    )
+
+    print(
+        "CTC B1 STRUCTURE MIN MOVE % =",
+        structure_min,
+        flush=True
+    )
+
+    print(
+        "CTC B1 STRUCTURE CONFIRM MOVE % =",
+        structure_confirm,
+        flush=True
+    )
+
+    print(
+        "CTC B1 BREAKOUT MIN 5M % =",
+        breakout_min5,
+        flush=True
+    )
+
+    for name, value in comparison.items():
+
+        print(
+            "CTC B1",
+            name,
+            "=",
+            value,
+            flush=True
+        )
+
+    print(
+        "CTC B1 FULL QUALIFICATION = NOT CHANGED",
+        flush=True
+    )
+
+    print(
+        "CTC B1 STRATEGY OVERRIDE = FALSE",
+        flush=True
+    )
+
+    print(
+        "CTC B1 NETWORK REQUEST = NONE",
+        flush=True
+    )
+
+    print(
+        "CTC B1 DEMO ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "CTC B1 REAL ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "CTC B1 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "CTC STAGE B1 RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# RUN CTC STAGE B1
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_CTC_STAGE_B1_RESULT = (
+    fresh_ctc_stage_b1(
+        FRESH_CENTRAL_TUNING,
+        FRESH_RECONSTRUCTION_UNIT_4_RESULT,
+    )
+)
+
+# ============================================================
+# END CTC STAGE B1
+# ZERO INDENTATION
+# ============================================================
+
+# ============================================================
 # START COMPLETE REPLACEMENT - UNIT 5
 # ZERO INDENTATION
 # SIGNAL QUALIFICATION AND MODE ARBITRATION
