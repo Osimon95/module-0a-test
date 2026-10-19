@@ -4938,10 +4938,70 @@ def fresh_ctc_stage_b21(
             "B2.1 UNSAFE UNIT 4"
         )
 
-    if unit4.get("candle_data_fresh") is not True:
-        raise RuntimeError(
-            "B2.1 STALE MARKET EVIDENCE"
+    
+    # ========================================================
+    # B2.1 FRESHNESS DIAGNOSTIC
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    freshness_present = (
+        "candle_data_fresh" in unit4
+    )
+
+    freshness_value = unit4.get(
+        "candle_data_fresh",
+        None
+    )
+
+    candle_age = unit4.get(
+        "candle_age_seconds",
+        None
+    )
+
+    print(
+        "B2.1 FRESHNESS FIELD PRESENT =",
+        freshness_present,
+        flush=True
+    )
+
+    print(
+        "B2.1 FRESHNESS VALUE =",
+        freshness_value,
+        flush=True
+    )
+
+    print(
+        "B2.1 CANDLE AGE SECONDS =",
+        candle_age,
+        flush=True
+    )
+
+    if freshness_value is not True:
+
+        print(
+            "CTC STAGE B2.1 RESULT = SKIPPED",
+            flush=True
         )
+
+        return {
+            "status": "SKIPPED",
+            "parity_pass": False,
+            "reason": "MARKET_FRESHNESS_NOT_VERIFIED",
+            "freshness_value": freshness_value,
+            "candle_age_seconds": candle_age,
+            "strategy_overridden": False,
+            "trade_authorized": False,
+            "read_only": True,
+        }
+
+    print(
+        "PASS: B2.1 MARKET FRESHNESS VERIFIED",
+        flush=True
+    )
+
+    # ========================================================
+    # END B2.1 FRESHNESS DIAGNOSTIC
+    # ========================================================
 
     if (
         unit4.get("strategy_evidence_version")
