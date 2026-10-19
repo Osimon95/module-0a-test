@@ -12211,15 +12211,6 @@ def fresh_tp3_runtime(
         )
 
     if (
-        leverage_target
-        <=
-        Decimal("0")
-    ):
-        raise RuntimeError(
-            "UNIT 14 BLOCKED: INVALID LEVERAGE"
-        )
-
-    if (
         trailing_reference_percent
         <=
         Decimal("0")
