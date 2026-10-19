@@ -12697,105 +12697,83 @@ def fresh_tp3_runtime(
     # 6. POSITION / BALANCE / MARKET HELPERS
     # ========================================================
 
+    
+    # ========================================================
+    # UNIT 14B - STRICT DEMO POSITION READER
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
     def get_active_position():
 
         records = authenticated_get(
             "/capi/v3/sim/position/allPosition"
         )
 
-        if not isinstance(
-            records,
-            list,
-        ):
-            return None
+        if not isinstance(records, list):
+            raise RuntimeError(
+                "UNIT 14 POSITION RESPONSE INVALID"
+            )
 
         active_records = []
 
         for record in records:
 
-            if not isinstance(
-                record,
-                dict,
-            ):
-                continue
+            if not isinstance(record, dict):
+                raise RuntimeError(
+                    "UNIT 14 INVALID POSITION RECORD"
+                )
 
-            if (
-                str(
-                    record.get(
-                        "symbol",
-                        "",
-                    )
-                ).upper()
-                !=
-                demo_symbol
-            ):
+            if str(
+                record.get("symbol", "")
+            ).upper() != demo_symbol:
                 continue
 
             try:
-
                 size = Decimal(
-                    str(
-                        record.get(
-                            "size",
-                            "0",
-                        )
-                    )
+                    str(record["size"])
+                )
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+                ArithmeticError,
+            ) as exc:
+                raise RuntimeError(
+                    "UNIT 14 INVALID DEMO POSITION SIZE"
+                ) from exc
+
+            if not size.is_finite() or size < 0:
+                raise RuntimeError(
+                    "UNIT 14 NONFINITE OR NEGATIVE SIZE"
                 )
 
-            except Exception:
-
+            if size == 0:
                 continue
 
-            if (
-                size
-                >
-                Decimal("0")
-            ):
-                active_records.append(
-                    record
+            side = str(
+                record.get("side", "")
+            ).upper()
+
+            if side not in ("LONG", "SHORT"):
+                raise RuntimeError(
+                    "UNIT 14 INVALID POSITION SIDE"
                 )
+
+            active_records.append(record)
+
+        if len(active_records) > 1:
+            raise RuntimeError(
+                "UNIT 14 MULTIPLE ACTIVE DEMO POSITIONS"
+            )
 
         if not active_records:
-
             return None
 
-        directions = {
-            str(
-                record.get(
-                    "side",
-                    "",
-                )
-            ).upper()
-            for record in active_records
-        }
+        return active_records[0]
 
-        directions.discard(
-            ""
-        )
-
-        if (
-            len(directions)
-            >
-            1
-        ):
-            raise RuntimeError(
-                "UNIT 14 BLOCKED: "
-                "OPPOSING POSITIONS DETECTED"
-            )
-
-        if (
-            len(active_records)
-            >
-            1
-        ):
-            raise RuntimeError(
-                "UNIT 14 BLOCKED: "
-                "MULTIPLE ACTIVE BTCSUSDT POSITIONS"
-            )
-
-        return (
-            active_records[0]
-        )
+    # ========================================================
+    # END UNIT 14B
+    # ========================================================
 
     def get_demo_balance():
 
