@@ -5720,6 +5720,91 @@ def fresh_reconstruction_unit_6(
         )
     )
 
+    
+    # ========================================================
+    # UNIT 6 CORRECTION 1
+    # ACCEPT COORDINATED UNIT 5 CANDIDATES
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    candidate_mode = unit_5_candidate.get(
+        "candidate_mode", "NONE"
+    )
+
+    candidate_stage = unit_5_candidate.get(
+        "candidate_stage", "NONE"
+    )
+
+    higher_mode_developing = (
+        unit_5_candidate.get(
+            "higher_mode_developing", False
+        ) is True
+    )
+
+    scalp_pending = (
+        candidate_mode == "SCALP"
+        and candidate_stage == "PENDING_UNIT_6"
+        and not higher_mode_developing
+        and not signal_qualified
+        and active_mode == "NONE"
+        and direction == "NONE"
+    )
+
+    if scalp_pending:
+
+        proposed_direction = (
+            unit_4_analysis.get(
+                "direction_evidence", "NONE"
+            )
+        )
+
+        if proposed_direction in ("LONG", "SHORT"):
+
+            active_mode = "SCALP"
+            direction = proposed_direction
+
+            # Internal qualification permits existing
+            # Unit 6 quality checks to execute.
+            # It is NOT authorization for an order.
+            signal_qualified = True
+
+            qualification_reason = (
+                "SCALP_PENDING_UNIT_6_VALIDATION"
+            )
+
+    # Prevent a scalp from overriding an emerging
+    # higher-priority trading opportunity.
+
+    if (
+        higher_mode_developing
+        and active_mode == "SCALP"
+    ):
+        signal_qualified = False
+        active_mode = "NONE"
+        direction = "NONE"
+
+    print(
+        "UNIT 6 CANDIDATE MODE =",
+        candidate_mode,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 SCALP PENDING =",
+        scalp_pending,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 HIGHER MODE DEVELOPING =",
+        higher_mode_developing,
+        flush=True,
+    )
+
+    # ========================================================
+    # END CORRECTION 1
+    # ========================================================
+    
     if mode not in (
         "NONE", "SCALP", "STRUCTURE", "BREAKOUT"
     ):
