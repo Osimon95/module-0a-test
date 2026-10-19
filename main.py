@@ -4873,6 +4873,705 @@ FRESH_CTC_STAGE_B2_RESULT = (
 # ZERO INDENTATION
 # ============================================================
 
+
+# ============================================================
+# START CTC STAGE B2.1
+# OPERATIONAL BASELINE PARITY VERIFICATION
+#
+# ZERO INDENTATION
+# INSERT AFTER B2, BEFORE UNIT 6
+#
+# NO EXISTING UNIT REPLACED
+# NO STRATEGY OVERRIDE
+# NO EXCHANGE REQUEST
+# NO DEMO ORDER
+# NO REAL ORDER
+# ============================================================
+
+def fresh_ctc_stage_b21(
+    ctc,
+    unit4,
+    unit5,
+    b2,
+):
+
+    import copy
+
+    print("=" * 80, flush=True)
+    print("CTC STAGE B2.1 START", flush=True)
+
+    # ========================================================
+    # 1. INPUT VALIDATION
+    # ========================================================
+
+    if not all(
+        isinstance(item, dict)
+        for item in (ctc, unit4, unit5, b2)
+    ):
+        raise RuntimeError(
+            "B2.1 INVALID INPUT CONTRACT"
+        )
+
+    if (
+        ctc.get("profile_validated") is not True
+        or ctc.get("shadow_only") is not True
+        or ctc.get("apply_to_strategy") is not False
+        or ctc.get("exchange_write_enabled") is not False
+    ):
+        raise RuntimeError(
+            "B2.1 UNSAFE CTC CONTRACT"
+        )
+
+    if (
+        unit4.get("symbol") != "BTCUSDT"
+        or unit5.get("symbol") != "BTCUSDT"
+    ):
+        raise RuntimeError(
+            "B2.1 SYMBOL MISMATCH"
+        )
+
+    if (
+        unit4.get("read_only") is not True
+        or unit4.get("trade_authorized") is not False
+    ):
+        raise RuntimeError(
+            "B2.1 UNSAFE UNIT 4"
+        )
+
+    if unit4.get("candle_data_fresh") is not True:
+        raise RuntimeError(
+            "B2.1 STALE MARKET EVIDENCE"
+        )
+
+    if (
+        unit4.get("strategy_evidence_version")
+        != "U4_COORDINATED_V1"
+    ):
+        raise RuntimeError(
+            "B2.1 WRONG UNIT 4 EVIDENCE VERSION"
+        )
+
+    if b2.get("status") != "PASS":
+        raise RuntimeError(
+            "B2.1 B2 DID NOT PASS"
+        )
+
+    if b2.get("strategy_overridden") is not False:
+        raise RuntimeError(
+            "B2.1 B2 OVERRIDE DETECTED"
+        )
+
+    if b2.get("trade_authorized") is not False:
+        raise RuntimeError(
+            "B2.1 UNSAFE B2 OUTPUT"
+        )
+
+    # Preserve copies for mutation checks.
+
+    original4 = copy.deepcopy(unit4)
+    original5 = copy.deepcopy(unit5)
+
+    print(
+        "PASS: B2.1 INPUTS VALIDATED",
+        flush=True
+    )
+
+    # ========================================================
+    # 2. REQUIRED UNIT 4 EVIDENCE
+    # ========================================================
+
+    required_flags = (
+
+        "breakout_confirmed_long",
+        "breakout_confirmed_short",
+
+        "breakout_developing_long",
+        "breakout_developing_short",
+
+        "structure_developing_long",
+        "structure_developing_short",
+
+        "sideways_candidate",
+        "price_overextended",
+
+    )
+
+    flags = {}
+
+    for key in required_flags:
+
+        if key not in unit4:
+            raise RuntimeError(
+                "B2.1 MISSING UNIT 4 FIELD: " + key
+            )
+
+        if type(unit4[key]) is not bool:
+            raise RuntimeError(
+                "B2.1 NONBOOLEAN UNIT 4 FIELD: "
+                + key
+            )
+
+        flags[key] = unit4[key]
+
+    direction_evidence = unit4.get(
+        "direction_evidence"
+    )
+
+    if direction_evidence not in (
+        "LONG", "SHORT", "NONE"
+    ):
+        raise RuntimeError(
+            "B2.1 INVALID DIRECTION EVIDENCE"
+        )
+
+    try:
+        move5 = float(
+            unit4["move_5m_pct"]
+        )
+
+    except (KeyError, TypeError, ValueError):
+        raise RuntimeError(
+            "B2.1 INVALID FIVE MINUTE MOVEMENT"
+        )
+
+    import math
+
+    if not math.isfinite(move5):
+        raise RuntimeError(
+            "B2.1 NONFINITE FIVE MINUTE MOVEMENT"
+        )
+
+    # ========================================================
+    # 3. RECONSTRUCT OPERATIONAL EVIDENCE
+    #
+    # These conditions follow the coordinated
+    # arbitration logic in Unit 5.
+    # ========================================================
+
+    confirmed_long = flags[
+        "breakout_confirmed_long"
+    ]
+
+    confirmed_short = flags[
+        "breakout_confirmed_short"
+    ]
+
+    developing_breakout_long = flags[
+        "breakout_developing_long"
+    ]
+
+    developing_breakout_short = flags[
+        "breakout_developing_short"
+    ]
+
+    developing_structure_long = flags[
+        "structure_developing_long"
+    ]
+
+    developing_structure_short = flags[
+        "structure_developing_short"
+    ]
+
+    sideways = flags["sideways_candidate"]
+
+    overextended = flags["price_overextended"]
+
+    breakout_developing = (
+        developing_breakout_long
+        or developing_breakout_short
+    )
+
+    structure_developing = (
+        developing_structure_long
+        or developing_structure_short
+    )
+
+    higher_mode_developing = (
+        breakout_developing
+        or structure_developing
+    )
+
+    # ========================================================
+    # 4. RECONSTRUCT UNIT 5 DECISION
+    #
+    # Strict precedence:
+    #
+    # BREAKOUT confirmed
+    # STRUCTURE qualified
+    # HIGHER MODE developing
+    # SCALP pending
+    # NONE
+    #
+    # No exchange action occurs here.
+    # ========================================================
+
+    expected_mode = "NONE"
+    expected_direction = "NONE"
+    expected_qualified = False
+
+    expected_candidate = "NONE"
+    expected_stage = "NONE"
+
+    expected_reason = (
+        "NO_VALID_COORDINATED_CANDIDATE"
+    )
+
+    if (
+        confirmed_long
+        and direction_evidence == "LONG"
+        and not overextended
+    ):
+
+        expected_mode = "BREAKOUT"
+        expected_direction = "LONG"
+        expected_qualified = True
+
+        expected_candidate = "BREAKOUT"
+        expected_stage = "QUALIFIED"
+
+        expected_reason = (
+            "BREAKOUT_LONG_COORDINATED"
+        )
+
+    elif (
+        confirmed_short
+        and direction_evidence == "SHORT"
+        and not overextended
+    ):
+
+        expected_mode = "BREAKOUT"
+        expected_direction = "SHORT"
+        expected_qualified = True
+
+        expected_candidate = "BREAKOUT"
+        expected_stage = "QUALIFIED"
+
+        expected_reason = (
+            "BREAKOUT_SHORT_COORDINATED"
+        )
+
+    elif (
+        not breakout_developing
+        and developing_structure_long
+        and direction_evidence == "LONG"
+        and not overextended
+    ):
+
+        expected_mode = "STRUCTURE"
+        expected_direction = "LONG"
+        expected_qualified = True
+
+        expected_candidate = "STRUCTURE"
+        expected_stage = "QUALIFIED"
+
+        expected_reason = (
+            "STRUCTURE_LONG_COORDINATED"
+        )
+
+    elif (
+        not breakout_developing
+        and developing_structure_short
+        and direction_evidence == "SHORT"
+        and not overextended
+    ):
+
+        expected_mode = "STRUCTURE"
+        expected_direction = "SHORT"
+        expected_qualified = True
+
+        expected_candidate = "STRUCTURE"
+        expected_stage = "QUALIFIED"
+
+        expected_reason = (
+            "STRUCTURE_SHORT_COORDINATED"
+        )
+
+    elif higher_mode_developing:
+
+        expected_qualified = False
+
+        expected_candidate = (
+            "BREAKOUT"
+            if breakout_developing
+            else "STRUCTURE"
+        )
+
+        expected_stage = "DEVELOPING"
+
+        expected_reason = (
+            "HIGHER_MODE_DEVELOPING_SCALP_BLOCKED"
+        )
+
+    elif (
+        sideways
+        and not overextended
+        and direction_evidence in (
+            "LONG", "SHORT"
+        )
+        and abs(move5) >= 0.015
+    ):
+
+        expected_candidate = "SCALP"
+        expected_stage = "PENDING_UNIT_6"
+
+        expected_qualified = False
+
+        expected_reason = (
+            "SCALP_PENDING_QUALITY_AND_FEES"
+        )
+
+    # ========================================================
+    # 5. READ ACTUAL UNIT 5 OUTPUT
+    # ========================================================
+
+    required_unit5 = (
+
+        "active_mode",
+        "direction",
+        "qualified",
+        "candidate_mode",
+        "candidate_stage",
+
+    )
+
+    for key in required_unit5:
+
+        if key not in unit5:
+            raise RuntimeError(
+                "B2.1 MISSING UNIT 5 FIELD: " + key
+            )
+
+    actual = {
+
+        "active_mode":
+            unit5["active_mode"],
+
+        "direction":
+            unit5["direction"],
+
+        "qualified":
+            unit5["qualified"],
+
+        "candidate_mode":
+            unit5["candidate_mode"],
+
+        "candidate_stage":
+            unit5["candidate_stage"],
+
+    }
+
+    expected = {
+
+        "active_mode":
+            expected_mode,
+
+        "direction":
+            expected_direction,
+
+        "qualified":
+            expected_qualified,
+
+        "candidate_mode":
+            expected_candidate,
+
+        "candidate_stage":
+            expected_stage,
+
+    }
+
+    # ========================================================
+    # 6. COMPARE EVERY OUTPUT
+    # ========================================================
+
+    mismatches = []
+
+    for key, expected_value in expected.items():
+
+        actual_value = actual[key]
+
+        matched = (
+            type(actual_value)
+            is type(expected_value)
+            and actual_value == expected_value
+        )
+
+        print("-" * 80, flush=True)
+
+        print(
+            "B2.1 FIELD =",
+            key,
+            flush=True
+        )
+
+        print(
+            "B2.1 EXPECTED =",
+            expected_value,
+            flush=True
+        )
+
+        print(
+            "B2.1 ACTUAL =",
+            actual_value,
+            flush=True
+        )
+
+        print(
+            "B2.1 MATCH =",
+            matched,
+            flush=True
+        )
+
+        if not matched:
+            mismatches.append(key)
+
+    # ========================================================
+    # 7. DIAGNOSE EARLIER B2 DIFFERENCE
+    # ========================================================
+
+    b2_baseline = b2.get(
+        "profiles", {}
+    ).get("BASELINE", {})
+
+    if not isinstance(b2_baseline, dict):
+        raise RuntimeError(
+            "B2.1 BASELINE SHADOW MISSING"
+        )
+
+    print("=" * 80, flush=True)
+
+    print(
+        "B2.1 UNIT 4 BREAKOUT DEVELOPING LONG =",
+        developing_breakout_long,
+        flush=True
+    )
+
+    print(
+        "B2.1 UNIT 4 BREAKOUT DEVELOPING SHORT =",
+        developing_breakout_short,
+        flush=True
+    )
+
+    print(
+        "B2.1 UNIT 4 BREAKOUT CONFIRMED LONG =",
+        confirmed_long,
+        flush=True
+    )
+
+    print(
+        "B2.1 UNIT 4 BREAKOUT CONFIRMED SHORT =",
+        confirmed_short,
+        flush=True
+    )
+
+    print(
+        "B2.1 UNIT 4 STRUCTURE DEVELOPING LONG =",
+        developing_structure_long,
+        flush=True
+    )
+
+    print(
+        "B2.1 UNIT 4 STRUCTURE DEVELOPING SHORT =",
+        developing_structure_short,
+        flush=True
+    )
+
+    print(
+        "B2.1 DIRECTION EVIDENCE =",
+        direction_evidence,
+        flush=True
+    )
+
+    print(
+        "B2.1 PRICE OVEREXTENDED =",
+        overextended,
+        flush=True
+    )
+
+    print(
+        "B2.1 B2 BASELINE MODE =",
+        b2_baseline.get("mode"),
+        flush=True
+    )
+
+    print(
+        "B2.1 B2 BASELINE STAGE =",
+        b2_baseline.get("stage"),
+        flush=True
+    )
+
+    print(
+        "B2.1 OPERATIONAL CANDIDATE =",
+        expected_candidate,
+        flush=True
+    )
+
+    print(
+        "B2.1 OPERATIONAL STAGE =",
+        expected_stage,
+        flush=True
+    )
+
+    print(
+        "B2.1 OPERATIONAL REASON =",
+        expected_reason,
+        flush=True
+    )
+
+    b2_candidate_difference = (
+        b2_baseline.get("mode")
+        != expected_candidate
+        or (
+            b2_baseline.get("stage")
+            != expected_stage
+            and not (
+                b2_baseline.get("stage") == "REJECTED"
+                and expected_stage == "NONE"
+            )
+        )
+    )
+
+    print(
+        "B2.1 EARLIER B2 CANDIDATE DIFFERENCE =",
+        b2_candidate_difference,
+        flush=True
+    )
+
+    # ========================================================
+    # 8. CONFIRM ORIGINAL DATA UNCHANGED
+    # ========================================================
+
+    original_data_unchanged = (
+        unit4 == original4
+        and unit5 == original5
+    )
+
+    if not original_data_unchanged:
+        mismatches.append(
+            "INPUT_MUTATION"
+        )
+
+    # ========================================================
+    # 9. FINAL RESULT
+    # ========================================================
+
+    parity_pass = (
+        len(mismatches) == 0
+    )
+
+    result = {
+
+        "status": (
+            "PASS"
+            if parity_pass
+            else "MISMATCH"
+        ),
+
+        "parity_pass": parity_pass,
+
+        "expected": expected,
+
+        "actual": actual,
+
+        "mismatches": mismatches,
+
+        "b2_candidate_difference":
+            b2_candidate_difference,
+
+        "unit4_unchanged":
+            unit4 == original4,
+
+        "unit5_unchanged":
+            unit5 == original5,
+
+        "strategy_overridden": False,
+
+        "read_only": True,
+
+        "trade_authorized": False,
+
+    }
+
+    print("=" * 80, flush=True)
+
+    print(
+        "B2.1 BASELINE PARITY =",
+        "PASS" if parity_pass else "MISMATCH",
+        flush=True
+    )
+
+    print(
+        "B2.1 MISMATCH FIELDS =",
+        mismatches,
+        flush=True
+    )
+
+    print(
+        "B2.1 UNIT 4 UNCHANGED =",
+        unit4 == original4,
+        flush=True
+    )
+
+    print(
+        "B2.1 UNIT 5 UNCHANGED =",
+        unit5 == original5,
+        flush=True
+    )
+
+    print(
+        "B2.1 STRATEGY OVERRIDE = FALSE",
+        flush=True
+    )
+
+    print(
+        "B2.1 AUTHENTICATED REQUEST = NONE",
+        flush=True
+    )
+
+    print(
+        "B2.1 DEMO ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "B2.1 REAL ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "B2.1 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "CTC STAGE B2.1 RESULT =",
+        result["status"],
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# RUN CTC STAGE B2.1
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_CTC_STAGE_B21_RESULT = (
+    fresh_ctc_stage_b21(
+        FRESH_CENTRAL_TUNING,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE,
+        FRESH_CTC_STAGE_B2_RESULT,
+    )
+)
+
+# ============================================================
+# END CTC STAGE B2.1
+# ZERO INDENTATION
+# ============================================================
+
 # ============================================================
 # START COMPLETE REPLACEMENT - UNIT 6
 # ZERO INDENTATION
