@@ -4629,3 +4629,420 @@ FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
 # END COMPLETE REPLACEMENT - UNIT 6
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# START UNIT 6 CONTROLLED BRANCH TEST HARNESS
+# ZERO INDENTATION
+# TEMPORARY TEST CODE - REMOVE AFTER VERIFICATION
+# ============================================================
+
+def run_unit_6_controlled_tests():
+
+    import copy
+    import time
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 6 CONTROLLED BRANCH TEST START",
+        flush=True
+    )
+    print("-" * 80, flush=True)
+
+    config = copy.deepcopy(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    base_u4 = copy.deepcopy(
+        FRESH_RECONSTRUCTION_UNIT_4_RESULT
+    )
+
+    base_u5 = copy.deepcopy(
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+    )
+
+    results = []
+
+    # ========================================================
+    # HELPER - EXECUTE ONE BRANCH TEST
+    # ========================================================
+
+    def check_case(
+        name,
+        u4,
+        u5,
+        expected_intent,
+        expected_mode,
+        expected_reason,
+    ):
+
+        print("-" * 80, flush=True)
+        print(
+            "TEST CASE =",
+            name,
+            flush=True
+        )
+
+        try:
+
+            result = fresh_reconstruction_unit_6(
+                config,
+                u4,
+                u5,
+            )
+
+            actual_intent = result.get(
+                "execution_intent"
+            )
+
+            actual_mode = result.get(
+                "active_mode"
+            )
+
+            actual_reason = result.get(
+                "admission_reason", ""
+            )
+
+            passed = (
+                actual_intent is expected_intent
+                and actual_mode == expected_mode
+                and actual_reason == expected_reason
+                and result.get(
+                    "trade_authorized"
+                ) is False
+                and result.get(
+                    "order_payload_generated"
+                ) is False
+            )
+
+            print(
+                "TEST EXPECTED REASON =",
+                expected_reason,
+                flush=True
+            )
+
+            print(
+                "TEST ACTUAL REASON =",
+                actual_reason,
+                flush=True
+            )
+
+        except Exception as exc:
+
+            passed = False
+
+            print(
+                "TEST EXCEPTION =",
+                repr(exc),
+                flush=True
+            )
+
+        results.append((name, passed))
+
+        print(
+            "TEST RESULT =",
+            "PASS" if passed else "FAIL",
+            flush=True
+        )
+
+    # ========================================================
+    # CASE 1 - QUALIFIED BREAKOUT SHORT
+    # ========================================================
+
+    u4 = copy.deepcopy(base_u4)
+    u5 = copy.deepcopy(base_u5)
+
+    u4["breakout_confirmed_short"] = True
+    u4["breakout_confirmed_long"] = False
+    u4["price_overextended"] = False
+
+    u5.update({
+        "qualified": True,
+        "active_mode": "BREAKOUT",
+        "direction": "SHORT",
+        "candidate_mode": "BREAKOUT",
+        "candidate_stage": "QUALIFIED",
+        "direction_evidence": "SHORT",
+        "higher_mode_developing": True,
+        "qualification_reason":
+            "CONTROLLED_BREAKOUT_SHORT",
+    })
+
+    check_case(
+        "BREAKOUT_SHORT_ADMISSION",
+        u4,
+        u5,
+        True,
+        "BREAKOUT",
+        "BREAKOUT_PRELIMINARY_ADMISSION_PASS",
+    )
+
+    # ========================================================
+    # CASE 2 - QUALIFIED STRUCTURE SHORT
+    # ========================================================
+
+    u4 = copy.deepcopy(base_u4)
+    u5 = copy.deepcopy(base_u5)
+
+    u4["structure_developing_short"] = True
+    u4["structure_developing_long"] = False
+    u4["breakout_confirmed_short"] = False
+    u4["breakout_confirmed_long"] = False
+    u4["price_overextended"] = False
+    u4["move_15m_pct"] = -0.10
+
+    u5.update({
+        "qualified": True,
+        "active_mode": "STRUCTURE",
+        "direction": "SHORT",
+        "candidate_mode": "STRUCTURE",
+        "candidate_stage": "QUALIFIED",
+        "direction_evidence": "SHORT",
+        "higher_mode_developing": True,
+        "qualification_reason":
+            "CONTROLLED_STRUCTURE_SHORT",
+    })
+
+    check_case(
+        "STRUCTURE_SHORT_ADMISSION",
+        u4,
+        u5,
+        True,
+        "STRUCTURE",
+        "STRUCTURE_PRELIMINARY_ADMISSION_PASS",
+    )
+
+    # ========================================================
+    # CASE 3 - DEVELOPING STRUCTURE REJECTED
+    # ========================================================
+
+    u4 = copy.deepcopy(base_u4)
+    u5 = copy.deepcopy(base_u5)
+
+    u5.update({
+        "qualified": False,
+        "active_mode": "NONE",
+        "direction": "NONE",
+        "candidate_mode": "STRUCTURE",
+        "candidate_stage": "DEVELOPING",
+        "higher_mode_developing": True,
+        "qualification_reason":
+            "CONTROLLED_STRUCTURE_DEVELOPING",
+    })
+
+    check_case(
+        "DEVELOPING_STRUCTURE_REJECTION",
+        u4,
+        u5,
+        False,
+        "NONE",
+        "STRUCTURE_DEVELOPING_NOT_QUALIFIED",
+    )
+
+    # ========================================================
+    # HELPER - SYNTHETIC SIDEWAYS TEST CANDLES
+    #
+    # These are deliberately constructed test candles.
+    # They do NOT represent WEEX market observations.
+    # ========================================================
+
+    def make_scalp_case(highroom):
+
+        u4 = copy.deepcopy(base_u4)
+        u5 = copy.deepcopy(base_u5)
+
+        p = 82000.0
+
+        last_open_ms = int(
+            base_u4["recent_closed_klines"][-1][
+                "open_time_ms"
+            ]
+        )
+
+        synthetic = []
+
+        for i in range(60):
+
+            opening = (
+                last_open_ms
+                - (59 - i) * 60000
+            )
+
+            closing = p - (59 - i) * 2.0
+
+            opening_price = closing - 1.0
+
+            synthetic.append({
+                "open_time_ms": opening,
+                "close_time_ms":
+                    opening + 59999,
+                "open": opening_price,
+                "high": closing + highroom,
+                "low": opening_price - 1.0,
+                "close": closing,
+            })
+
+        u4["recent_closed_klines"] = synthetic
+        u4["latest_open_time_ms"] = (
+            synthetic[-1]["open_time_ms"]
+        )
+        u4["latest_close_time_ms"] = (
+            synthetic[-1]["close_time_ms"]
+        )
+
+        u4.update({
+            "latest_close": p,
+            "previous_close": p - 2.0,
+            "live_mark_price": p,
+            "ema19": p - 25.0,
+            "ema50": p - 35.0,
+            "ema100": p - 45.0,
+            "ema200": p - 55.0,
+            "atr14": 10.0,
+            "move_1m_pct": 0.00244,
+            "move_5m_pct": 0.01220,
+            "move_15m_pct": 0.03660,
+            "sideways_candidate": True,
+            "price_overextended": False,
+        })
+
+        u5.update({
+            "qualified": False,
+            "active_mode": "NONE",
+            "direction": "NONE",
+            "candidate_mode": "SCALP",
+            "candidate_stage": "PENDING_UNIT_6",
+            "higher_mode_developing": False,
+            "scalp_direction": "LONG",
+            "sideways_context": True,
+            "scalp_range_feasible": True,
+            "qualification_reason":
+                "CONTROLLED_SCALP_PENDING",
+        })
+
+        return u4, u5
+
+    # ========================================================
+    # CASE 4 - SCALP QUALITY PASSES,
+    # BUT EXECUTION STAYS DISABLED
+    # ========================================================
+
+    u4, u5 = make_scalp_case(500.0)
+
+    check_case(
+        "SCALP_QUALITY_PASS_HELD",
+        u4,
+        u5,
+        False,
+        "NONE",
+        "SCALP_QUALITY_PASS_"
+        "AWAITING_PERSISTENCE_AND_LIVE_COSTS",
+    )
+
+    # ========================================================
+    # CASE 5 - SCALP HEADROOM INSUFFICIENT
+    # ========================================================
+
+    u4, u5 = make_scalp_case(1.0)
+
+    check_case(
+        "SCALP_FEE_REJECTION",
+        u4,
+        u5,
+        False,
+        "NONE",
+        "SCALP_INSUFFICIENT_NET_HEADROOM",
+    )
+
+    # ========================================================
+    # CASE 6 - SCALP CANNOT OVERRIDE STRUCTURE
+    # ========================================================
+
+    u4, u5 = make_scalp_case(500.0)
+
+    u5["higher_mode_developing"] = True
+
+    check_case(
+        "SCALP_HIGHER_MODE_PROTECTION",
+        u4,
+        u5,
+        False,
+        "NONE",
+        "HIGHER_MODE_DEVELOPING_SCALP_BLOCKED",
+    )
+
+    # ========================================================
+    # FINAL RESULTS
+    # ========================================================
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 6 CONTROLLED TEST SUMMARY",
+        flush=True
+    )
+
+    passed_count = sum(
+        1 for _, passed in results
+        if passed
+    )
+
+    for name, passed in results:
+
+        print(
+            name,
+            "=",
+            "PASS" if passed else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 6 TESTS PASSED =",
+        passed_count,
+        "/",
+        len(results),
+        flush=True
+    )
+
+    print(
+        "UNIT 6 CONTROLLED EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 6 CONTROLLED DEMO ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 6 CONTROLLED REAL ORDER = NONE",
+        flush=True
+    )
+
+    if passed_count != len(results):
+        raise RuntimeError(
+            "UNIT 6 CONTROLLED BRANCH TEST FAILED"
+        )
+
+    print(
+        "FINAL VERDICT: UNIT 6 CONTROLLED TEST PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return True
+
+
+# ============================================================
+# RUN CONTROLLED TEST HARNESS
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_6_TEST_RESULT = (
+    run_unit_6_controlled_tests()
+)
+
+# ============================================================
+# END UNIT 6 CONTROLLED BRANCH TEST HARNESS
+# ZERO INDENTATION
+# ============================================================
