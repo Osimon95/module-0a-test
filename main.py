@@ -724,6 +724,306 @@ FRESH_RECONSTRUCTION_CONFIG = (
 
 
 # ============================================================
+# START CENTRAL TUNING CONFIGURATION - CTC V1
+# ZERO INDENTATION
+#
+# INSTALL AFTER UNIT 2, BEFORE UNIT 3
+#
+# STAGE A: READ ONLY / OBSERVATION MODE
+# NO EXCHANGE WRITE
+# NO AUTOMATIC STRATEGY CHANGES
+# ============================================================
+
+def fresh_central_tuning_config(unit_2_config):
+
+    import copy
+    import math
+    import os
+
+    print("=" * 80, flush=True)
+    print("CENTRAL TUNING CONFIG START", flush=True)
+
+    if not isinstance(unit_2_config, dict):
+        raise RuntimeError("CTC INVALID CONFIG")
+
+    strategy = unit_2_config.get("strategy")
+    safety = unit_2_config.get("safety")
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError("CTC INVALID STRATEGY")
+
+    if not isinstance(safety, dict):
+        raise RuntimeError("CTC INVALID SAFETY")
+
+    for key in (
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+    ):
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "CTC UNSAFE CONFIG: " + key
+            )
+
+    # --------------------------------------------------------
+    # 1. CONFIGURATION PROFILES
+    #
+    # These values are candidates for future testing.
+    # They are NOT proven profitable settings.
+    # --------------------------------------------------------
+
+    profiles = {
+
+        "BASELINE": {
+
+            "structure_min_move_pct": 0.020,
+            "structure_confirm_move_pct": 0.035,
+
+            "breakout_min_5m_move_pct": 0.030,
+
+            "scalp_quality_threshold": 70.0,
+            "scalp_price_weight": 50.0,
+
+            "scalp_min_net_roi_percent": 5.0,
+
+            "backup_buffer_percent": 0.30,
+            "exposure_cap_percent": 35.0,
+        },
+
+        "RESPONSIVE": {
+
+            "structure_min_move_pct": 0.015,
+            "structure_confirm_move_pct": 0.025,
+
+            "breakout_min_5m_move_pct": 0.020,
+
+            "scalp_quality_threshold": 70.0,
+            "scalp_price_weight": 50.0,
+
+            "scalp_min_net_roi_percent": 5.0,
+
+            "backup_buffer_percent": 0.30,
+            "exposure_cap_percent": 35.0,
+        },
+
+        "SELECTIVE": {
+
+            "structure_min_move_pct": 0.035,
+            "structure_confirm_move_pct": 0.050,
+
+            "breakout_min_5m_move_pct": 0.050,
+
+            "scalp_quality_threshold": 80.0,
+            "scalp_price_weight": 50.0,
+
+            "scalp_min_net_roi_percent": 10.0,
+
+            "backup_buffer_percent": 0.30,
+            "exposure_cap_percent": 25.0,
+        },
+    }
+
+    # --------------------------------------------------------
+    # 2. PROFILE SELECTION
+    #
+    # Optional Render environment setting:
+    #
+    # BOT_TUNING_PROFILE = BASELINE
+    #
+    # Other permitted values:
+    # RESPONSIVE
+    # SELECTIVE
+    # --------------------------------------------------------
+
+    profile_name = os.environ.get(
+        "BOT_TUNING_PROFILE",
+        "BASELINE"
+    ).strip().upper()
+
+    if profile_name not in profiles:
+        raise RuntimeError(
+            "CTC UNKNOWN PROFILE: " + profile_name
+        )
+
+    selected = copy.deepcopy(
+        profiles[profile_name]
+    )
+
+    # --------------------------------------------------------
+    # 3. STRICT NUMERIC VALIDATION
+    # --------------------------------------------------------
+
+    bounds = {
+
+        "structure_min_move_pct":
+            (0.005, 0.100),
+
+        "structure_confirm_move_pct":
+            (0.010, 0.150),
+
+        "breakout_min_5m_move_pct":
+            (0.010, 0.150),
+
+        "scalp_quality_threshold":
+            (70.0, 90.0),
+
+        "scalp_price_weight":
+            (30.0, 70.0),
+
+        "scalp_min_net_roi_percent":
+            (5.0, 30.0),
+
+        "backup_buffer_percent":
+            (0.10, 1.00),
+
+        "exposure_cap_percent":
+            (5.0, 35.0),
+    }
+
+    for key, limits in bounds.items():
+
+        value = float(selected[key])
+        low, high = limits
+
+        if not (
+            math.isfinite(value)
+            and low <= value <= high
+        ):
+            raise RuntimeError(
+                "CTC INVALID VALUE: " + key
+            )
+
+    if (
+        selected["structure_confirm_move_pct"]
+        <
+        selected["structure_min_move_pct"]
+    ):
+        raise RuntimeError(
+            "CTC STRUCTURE THRESHOLD ORDER"
+        )
+
+    if selected["exposure_cap_percent"] > 35.0:
+        raise RuntimeError(
+            "CTC EXPOSURE CAP EXCEEDED"
+        )
+
+    # --------------------------------------------------------
+    # 4. PRESERVE HARD SAFETY LIMITS
+    # --------------------------------------------------------
+
+    selected["mode_priority"] = (
+        "BREAKOUT",
+        "STRUCTURE",
+        "SCALP",
+    )
+
+    selected["direction_votes_required"] = 2
+
+    selected["real_order_submission_enabled"] = False
+
+    selected["demo_order_submission_enabled"] = False
+
+    # Stage A does not apply profile thresholds
+    # to the running strategy.
+
+    result = {
+
+        "version": "CTC_V1",
+
+        "profile": profile_name,
+
+        "parameters": selected,
+
+        "profile_validated": True,
+
+        "apply_to_strategy": False,
+
+        "shadow_only": True,
+
+        "auto_optimization_enabled": False,
+
+        "exchange_write_enabled": False,
+
+        "source": "CENTRAL_TUNING_CONFIG",
+    }
+
+    # --------------------------------------------------------
+    # 5. RENDER DIAGNOSTICS
+    # --------------------------------------------------------
+
+    print(
+        "CTC ACTIVE PROFILE =",
+        profile_name,
+        flush=True
+    )
+
+    for key, value in selected.items():
+
+        print(
+            "CTC PARAMETER",
+            key,
+            "=",
+            value,
+            flush=True
+        )
+
+    print(
+        "CTC PROFILE VALIDATED = TRUE",
+        flush=True
+    )
+
+    print(
+        "CTC STRATEGY OVERRIDE = FALSE",
+        flush=True
+    )
+
+    print(
+        "CTC AUTO OPTIMIZATION = FALSE",
+        flush=True
+    )
+
+    print(
+        "CTC DEMO ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "CTC REAL ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "CTC EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "CENTRAL TUNING CONFIG RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# RUN CENTRAL TUNING CONFIG
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_CENTRAL_TUNING = (
+    fresh_central_tuning_config(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+)
+
+# ============================================================
+# END CENTRAL TUNING CONFIGURATION - CTC V1
+# ZERO INDENTATION
+# ============================================================
+
+# ============================================================
 # START COMPLETE REPLACEMENT - UNIT 3
 # ZERO INDENTATION
 # WEEX V3 PUBLIC MARKET DATA VERIFICATION
