@@ -1668,3 +1668,930 @@ FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
 # ZERO INDENTATION
 # ============================================================
 
+
+# ============================================================
+# START COMPLETE REPLACEMENT - UNIT 4 V2
+# ZERO INDENTATION
+#
+# PUBLIC BTC MARKET ANALYSIS
+# CLOSED CANDLES + EMA + ATR
+# BREAKOUT / STRUCTURE / SIDEWAYS EVIDENCE
+# UNIFIED DOWNSTREAM OUTPUT CONTRACT
+#
+# NO ACCOUNT ACCESS
+# NO POSITION ACCESS
+# NO DEMO ORDER
+# NO REAL ORDER
+# NO EXCHANGE WRITE
+# ============================================================
+
+def fresh_reconstruction_unit_4():
+
+    import json
+    import math
+    import urllib.parse
+    import urllib.request
+    import urllib.error
+
+    print("=" * 80, flush=True)
+    print("FRESH RECONSTRUCTION UNIT 4 V2 START", flush=True)
+
+    # ========================================================
+    # 1. RECEIVE UNITS 2 AND 3
+    # ========================================================
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    market = FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT 4 INVALID CONFIG")
+
+    if not isinstance(market, dict):
+        raise RuntimeError("UNIT 4 INVALID MARKET SNAPSHOT")
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+    strategy = config.get("strategy", {})
+
+    if not all(
+        isinstance(x, dict)
+        for x in (exchange, safety, strategy)
+    ):
+        raise RuntimeError("UNIT 4 INVALID CONFIG SECTION")
+
+    if (
+        market.get("exchange") != "WEEX"
+        or market.get("api_version") != "V3"
+        or market.get("symbol") != "BTCUSDT"
+        or market.get("price_type") != "MARK"
+        or market.get("read_only") is not True
+    ):
+        raise RuntimeError("UNIT 4 MARKET CONTRACT FAILURE")
+
+    if (
+        exchange.get("contract_base_url")
+        != "https://api-contract.weex.com"
+        or exchange.get("market_symbol") != "BTCUSDT"
+    ):
+        raise RuntimeError("UNIT 4 EXCHANGE CONTRACT FAILURE")
+
+    # ========================================================
+    # 2. SAFETY CONTRACT
+    # ========================================================
+
+    if safety.get(
+        "public_market_data_read_enabled"
+    ) is not True:
+        raise RuntimeError("UNIT 4 PUBLIC DATA DISABLED")
+
+    forbidden = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for key in forbidden:
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 4 UNSAFE CONFIG: " + key
+            )
+
+    print("PASS: UNIT 4 READ ONLY SAFETY", flush=True)
+
+    # ========================================================
+    # 3. VALID NUMERIC HELPER
+    # ========================================================
+
+    def number(value, label):
+
+        try:
+            result = float(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RuntimeError(
+                "UNIT 4 INVALID " + label
+            ) from exc
+
+        if not math.isfinite(result):
+            raise RuntimeError(
+                "UNIT 4 NONFINITE " + label
+            )
+
+        return result
+
+    exchange_ms = int(
+        market["exchange_time_ms"]
+    )
+
+    live_mark = number(
+        market["price"], "MARK PRICE"
+    )
+
+    if exchange_ms <= 0 or live_mark <= 0:
+        raise RuntimeError("UNIT 4 INVALID MARKET DATA")
+
+    # ========================================================
+    # 4. PUBLIC WEEX CANDLE REQUEST
+    # ========================================================
+
+    endpoint = "/capi/v3/market/markPriceKlines"
+
+    query = urllib.parse.urlencode({
+        "symbol": "BTCUSDT",
+        "interval": "1m",
+        "limit": 300,
+    })
+
+    url = (
+        "https://api-contract.weex.com"
+        + endpoint
+        + "?"
+        + query
+    )
+
+    request = urllib.request.Request(
+        url,
+        method="GET",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "WEEX-Unit4-V2-ReadOnly",
+        },
+    )
+
+    if request.get_method() != "GET":
+        raise RuntimeError("UNIT 4 HTTP METHOD BLOCKED")
+
+    if request.data is not None:
+        raise RuntimeError("UNIT 4 REQUEST BODY BLOCKED")
+
+    print("UNIT 4 KLINE REQUEST START", flush=True)
+
+    try:
+        with urllib.request.urlopen(
+            request, timeout=15
+        ) as response:
+
+            status = response.getcode()
+            raw_text = response.read().decode("utf-8")
+
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            "UNIT 4 HTTP ERROR: " + str(exc.code)
+        ) from exc
+
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            "UNIT 4 CONNECTION FAILED"
+        ) from exc
+
+    print("UNIT 4 HTTP STATUS =", status, flush=True)
+
+    if status != 200:
+        raise RuntimeError("UNIT 4 HTTP NOT 200")
+
+    try:
+        payload = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "UNIT 4 INVALID WEEX JSON"
+        ) from exc
+
+    if not isinstance(payload, list):
+        raise RuntimeError(
+            "UNIT 4 UNEXPECTED KLINE RESPONSE"
+        )
+
+    if len(payload) < 200:
+        raise RuntimeError(
+            "UNIT 4 INSUFFICIENT KLINES"
+        )
+
+    # ========================================================
+    # 5. NORMALIZE AND VALIDATE KLINES
+    #
+    # WEEX FORMAT:
+    # 0 OPEN TIME
+    # 1 OPEN
+    # 2 HIGH
+    # 3 LOW
+    # 4 CLOSE
+    # 5 VOLUME
+    # 6 CLOSE TIME
+    # ========================================================
+
+    candles = []
+
+    for raw in payload:
+
+        if not isinstance(raw, (list, tuple)):
+            raise RuntimeError("UNIT 4 INVALID KLINE ENTRY")
+
+        if len(raw) < 7:
+            raise RuntimeError("UNIT 4 SHORT KLINE ENTRY")
+
+        candle = {
+            "open_time_ms": int(raw[0]),
+            "open": number(raw[1], "OPEN"),
+            "high": number(raw[2], "HIGH"),
+            "low": number(raw[3], "LOW"),
+            "close": number(raw[4], "CLOSE"),
+            "volume": number(raw[5], "VOLUME"),
+            "close_time_ms": int(raw[6]),
+        }
+
+        if not (
+            0 < candle["low"]
+            <= min(candle["open"], candle["close"])
+            <= max(candle["open"], candle["close"])
+            <= candle["high"]
+        ):
+            raise RuntimeError("UNIT 4 INVALID OHLC")
+
+        if (
+            candle["open_time_ms"] <= 0
+            or candle["close_time_ms"]
+            <= candle["open_time_ms"]
+            or candle["volume"] < 0
+        ):
+            raise RuntimeError(
+                "UNIT 4 INVALID KLINE METADATA"
+            )
+
+        candles.append(candle)
+
+    candles.sort(
+        key=lambda c: c["open_time_ms"]
+    )
+
+    for index in range(1, len(candles)):
+
+        if (
+            candles[index]["open_time_ms"]
+            <= candles[index - 1]["open_time_ms"]
+        ):
+            raise RuntimeError(
+                "UNIT 4 DUPLICATE CANDLE TIME"
+            )
+
+    # ========================================================
+    # 6. CLOSED-CANDLE FILTER
+    # ========================================================
+
+    closed = [
+        c for c in candles
+        if c["close_time_ms"] <= exchange_ms
+    ]
+
+    if len(closed) < 200:
+        raise RuntimeError(
+            "UNIT 4 INSUFFICIENT CLOSED CANDLES"
+        )
+
+    latest = closed[-1]
+    previous = closed[-2]
+
+    newest_returned_closed = (
+        candles[-1]["close_time_ms"] <= exchange_ms
+    )
+
+    age_seconds = (
+        exchange_ms - latest["close_time_ms"]
+    ) / 1000.0
+
+    candle_data_fresh = (
+        0 <= age_seconds <= 180
+    )
+
+    print(
+        "UNIT 4 RETURNED CANDLE COUNT =",
+        len(candles),
+        flush=True
+    )
+
+    print(
+        "UNIT 4 CLOSED CANDLE COUNT =",
+        len(closed),
+        flush=True
+    )
+
+    print(
+        "UNIT 4 UNFINISHED CANDLE EXCLUDED =",
+        not newest_returned_closed,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 CANDLE AGE SECONDS =",
+        round(age_seconds, 3),
+        flush=True
+    )
+
+    print(
+        "UNIT 4 CANDLE DATA FRESH =",
+        candle_data_fresh,
+        flush=True
+    )
+
+    if not candle_data_fresh:
+        raise RuntimeError(
+            "UNIT 4 CLOSED CANDLE STALE"
+        )
+
+    # ========================================================
+    # 7. EMA19 / 50 / 100 / 200
+    # ========================================================
+
+    prices = [
+        c["close"] for c in closed
+    ]
+
+    def calculate_ema(values, period):
+
+        if len(values) < period:
+            raise RuntimeError("UNIT 4 EMA HISTORY SHORT")
+
+        ema = sum(values[:period]) / period
+        multiplier = 2.0 / (period + 1.0)
+
+        for price in values[period:]:
+            ema = (
+                multiplier * price
+                + (1.0 - multiplier) * ema
+            )
+
+        return float(ema)
+
+    ema19 = calculate_ema(prices, 19)
+    ema50 = calculate_ema(prices, 50)
+    ema100 = calculate_ema(prices, 100)
+    ema200 = calculate_ema(prices, 200)
+
+    separation_pct = (
+        abs(ema19 - ema50) / ema50 * 100.0
+    )
+
+    if ema19 > ema50 > ema200:
+        ema_structure = "BULLISH"
+    elif ema19 < ema50 < ema200:
+        ema_structure = "BEARISH"
+    else:
+        ema_structure = "MIXED"
+
+    # ========================================================
+    # 8. MULTI-WINDOW CLOSED MOMENTUM
+    # ========================================================
+
+    moves = {}
+
+    for window in (1, 5, 15, 30, 60, 120):
+
+        reference = prices[-(window + 1)]
+
+        moves[window] = (
+            (latest["close"] - reference)
+            / reference * 100.0
+        )
+
+    move5 = moves[5]
+    move15 = moves[15]
+
+    # ========================================================
+    # 9. ATR14
+    # ========================================================
+
+    ranges = []
+
+    for index in range(1, len(closed)):
+
+        current = closed[index]
+        prior = closed[index - 1]
+
+        tr = max(
+            current["high"] - current["low"],
+            abs(current["high"] - prior["close"]),
+            abs(current["low"] - prior["close"]),
+        )
+
+        ranges.append(tr)
+
+    atr14 = sum(ranges[-14:]) / 14.0
+
+    if atr14 <= 0:
+        raise RuntimeError("UNIT 4 INVALID ATR14")
+
+    atr_pct = atr14 / latest["close"] * 100.0
+
+    # ========================================================
+    # 10. SUPPORT / RESISTANCE
+    # PREVIOUS 20 FULLY CLOSED CANDLES
+    # ========================================================
+
+    reference20 = closed[-21:-1]
+
+    resistance20 = max(
+        c["high"] for c in reference20
+    )
+
+    support20 = min(
+        c["low"] for c in reference20
+    )
+
+    range_atr_ratio = (
+        resistance20 - support20
+    ) / atr14
+
+    distance_resistance = (
+        resistance20 - latest["close"]
+    )
+
+    distance_support = (
+        latest["close"] - support20
+    )
+
+    near_resistance = (
+        -0.10 * atr14
+        <= distance_resistance
+        <= 0.50 * atr14
+    )
+
+    near_support = (
+        -0.10 * atr14
+        <= distance_support
+        <= 0.50 * atr14
+    )
+
+    # ========================================================
+    # 11. PRICE OVEREXTENSION
+    # ========================================================
+
+    cluster_height = max(
+        max(ema19, ema50, ema200)
+        - min(ema19, ema50, ema200),
+        atr14 * 0.10
+    )
+
+    extension = (
+        abs(latest["close"] - ema19)
+        / cluster_height
+    )
+
+    extension_limit = number(
+        strategy.get(
+            "scalp_max_ema_extension_clusters",
+            1.5
+        ),
+        "EXTENSION LIMIT"
+    )
+
+    if extension_limit <= 0:
+        raise RuntimeError(
+            "UNIT 4 INVALID EXTENSION LIMIT"
+        )
+
+    price_overextended = (
+        extension > extension_limit
+    )
+
+    # ========================================================
+    # 12. BREAKOUT DEVELOPMENT / CONFIRMATION
+    # ========================================================
+
+    bullish_momentum = (
+        move5 > 0 and move15 > 0
+    )
+
+    bearish_momentum = (
+        move5 < 0 and move15 < 0
+    )
+
+    breakout_developing_long = (
+        near_resistance
+        and bullish_momentum
+    )
+
+    breakout_developing_short = (
+        near_support
+        and bearish_momentum
+    )
+
+    breakout_confirmed_long = (
+        latest["close"]
+        > resistance20 + 0.10 * atr14
+        and bullish_momentum
+    )
+
+    breakout_confirmed_short = (
+        latest["close"]
+        < support20 - 0.10 * atr14
+        and bearish_momentum
+    )
+
+    # ========================================================
+    # 13. STRUCTURE DEVELOPMENT
+    # ========================================================
+
+    bullish_ema_context = (
+        ema19 > ema50 > ema200
+    )
+
+    bearish_ema_context = (
+        ema19 < ema50 < ema200
+    )
+
+    near_ema19 = (
+        abs(latest["close"] - ema19)
+        <= 0.75 * atr14
+    )
+
+    bullish_recovery = (
+        latest["close"] > previous["close"]
+        and latest["close"] > latest["open"]
+    )
+
+    bearish_recovery = (
+        latest["close"] < previous["close"]
+        and latest["close"] < latest["open"]
+    )
+
+    structure_developing_long = (
+        bullish_ema_context
+        and (near_ema19 or bullish_recovery)
+        and move15 > 0
+    )
+
+    structure_developing_short = (
+        bearish_ema_context
+        and (near_ema19 or bearish_recovery)
+        and move15 < 0
+    )
+
+    # ========================================================
+    # 14. SIDEWAYS REGIME
+    # ========================================================
+
+    ema_gap_atr = (
+        abs(ema19 - ema50) / atr14
+    )
+
+    sideways_candidate = (
+        ema_gap_atr <= 0.70
+        and range_atr_ratio <= 8.0
+        and abs(move15) <= 1.5 * atr_pct
+    )
+
+    # ========================================================
+    # 15. DIRECTION VOTING
+    # ========================================================
+
+    long_votes = sum((
+        ema_structure == "BULLISH",
+        move5 > 0,
+        latest["close"] > previous["close"],
+    ))
+
+    short_votes = sum((
+        ema_structure == "BEARISH",
+        move5 < 0,
+        latest["close"] < previous["close"],
+    ))
+
+    required_votes = int(
+        strategy.get(
+            "direction_votes_required",
+            2
+        )
+    )
+
+    if required_votes != 2:
+        raise RuntimeError(
+            "UNIT 4 EXPECTED 2 OF 3 VOTES"
+        )
+
+    direction_evidence = "NONE"
+
+    if (
+        long_votes >= required_votes
+        and long_votes > short_votes
+    ):
+        direction_evidence = "LONG"
+
+    elif (
+        short_votes >= required_votes
+        and short_votes > long_votes
+    ):
+        direction_evidence = "SHORT"
+
+    # ========================================================
+    # 16. COMPLETE SNAPSHOT
+    # ========================================================
+
+    result = {
+
+        "exchange": "WEEX",
+        "api_version": "V3",
+        "symbol": "BTCUSDT",
+        "interval": "1m",
+        "price_type": "MARK",
+
+        "live_mark_price": live_mark,
+
+        "previous_close": previous["close"],
+        "latest_close": latest["close"],
+
+        "latest_open_time_ms":
+            latest["open_time_ms"],
+
+        "latest_close_time_ms":
+            latest["close_time_ms"],
+
+        "exchange_time_ms": exchange_ms,
+
+        "ema19": ema19,
+        "ema50": ema50,
+        "ema100": ema100,
+        "ema200": ema200,
+
+        "ema19_50_separation_pct":
+            separation_pct,
+
+        "ema_structure": ema_structure,
+
+        "short_term_move_pct": moves[1],
+        "move_1m_pct": moves[1],
+        "move_5m_pct": moves[5],
+        "move_15m_pct": moves[15],
+        "move_30m_pct": moves[30],
+        "move_60m_pct": moves[60],
+        "move_120m_pct": moves[120],
+
+        "atr14": atr14,
+        "atr_percent": atr_pct,
+
+        "ema_cluster_height": cluster_height,
+        "price_extension_cluster": extension,
+        "price_overextended": price_overextended,
+
+        "support20": support20,
+        "resistance20": resistance20,
+        "range20_atr_ratio": range_atr_ratio,
+
+        "near_resistance": near_resistance,
+        "near_support": near_support,
+
+        "breakout_developing_long":
+            breakout_developing_long,
+
+        "breakout_developing_short":
+            breakout_developing_short,
+
+        "breakout_confirmed_long":
+            breakout_confirmed_long,
+
+        "breakout_confirmed_short":
+            breakout_confirmed_short,
+
+        "structure_developing_long":
+            structure_developing_long,
+
+        "structure_developing_short":
+            structure_developing_short,
+
+        "sideways_candidate":
+            sideways_candidate,
+
+        "direction_long_votes": long_votes,
+        "direction_short_votes": short_votes,
+        "direction_evidence": direction_evidence,
+
+        "candle_age_seconds": age_seconds,
+        "candle_data_fresh": candle_data_fresh,
+
+        "strategy_evidence_version":
+            "U4_COORDINATED_V1",
+
+        "recent_closed_klines": [
+            dict(c) for c in closed[-60:]
+        ],
+
+        "candle_count": len(candles),
+        "closed_candle_count": len(closed),
+
+        "newest_returned_candle_closed":
+            newest_returned_closed,
+
+        "source":
+            "WEEX_V3_PUBLIC_MARK_PRICE_KLINES",
+
+        "read_only": True,
+        "trade_authorized": False,
+    }
+
+    # ========================================================
+    # 17. FINAL CONTRACT VALIDATION
+    # ========================================================
+
+    required = (
+        "symbol",
+        "ema19",
+        "ema50",
+        "ema100",
+        "ema200",
+        "move_5m_pct",
+        "move_15m_pct",
+        "atr14",
+        "support20",
+        "resistance20",
+        "breakout_developing_long",
+        "breakout_developing_short",
+        "breakout_confirmed_long",
+        "breakout_confirmed_short",
+        "structure_developing_long",
+        "structure_developing_short",
+        "sideways_candidate",
+        "direction_evidence",
+        "candle_age_seconds",
+        "candle_data_fresh",
+        "strategy_evidence_version",
+    )
+
+    missing = [
+        key for key in required
+        if key not in result
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "UNIT 4 MISSING OUTPUT: " + str(missing)
+        )
+
+    if (
+        result["read_only"] is not True
+        or result["trade_authorized"] is not False
+        or result["candle_data_fresh"] is not True
+    ):
+        raise RuntimeError(
+            "UNIT 4 FINAL SAFETY CONTRACT FAILED"
+        )
+
+    # ========================================================
+    # 18. RENDER VERIFICATION
+    # ========================================================
+
+    print("-" * 80, flush=True)
+
+    for period, value in (
+        (19, ema19),
+        (50, ema50),
+        (100, ema100),
+        (200, ema200),
+    ):
+        print(
+            "UNIT 4 EMA" + str(period) + " =",
+            round(value, 6),
+            flush=True
+        )
+
+    print(
+        "UNIT 4 EMA STRUCTURE =",
+        ema_structure,
+        flush=True
+    )
+
+    for window in (1, 5, 15, 30, 60, 120):
+        print(
+            "UNIT 4 " + str(window) + "M MOVE % =",
+            round(moves[window], 6),
+            flush=True
+        )
+
+    print(
+        "UNIT 4 ATR14 =",
+        round(atr14, 6),
+        flush=True
+    )
+
+    print(
+        "UNIT 4 BREAKOUT DEVELOPING LONG =",
+        breakout_developing_long,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 BREAKOUT DEVELOPING SHORT =",
+        breakout_developing_short,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 BREAKOUT CONFIRMED LONG =",
+        breakout_confirmed_long,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 BREAKOUT CONFIRMED SHORT =",
+        breakout_confirmed_short,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 STRUCTURE DEVELOPING LONG =",
+        structure_developing_long,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 STRUCTURE DEVELOPING SHORT =",
+        structure_developing_short,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 SIDEWAYS CANDIDATE =",
+        sideways_candidate,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 DIRECTION VOTES LONG/SHORT =",
+        long_votes, "/", short_votes,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 DIRECTION EVIDENCE =",
+        direction_evidence,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 CANDLE DATA FRESH =",
+        result["candle_data_fresh"],
+        flush=True
+    )
+
+    print(
+        "UNIT 4 CANDLE AGE SECONDS =",
+        round(age_seconds, 3),
+        flush=True
+    )
+
+    print(
+        "UNIT 4 EVIDENCE VERSION =",
+        result["strategy_evidence_version"],
+        flush=True
+    )
+
+    print(
+        "UNIT 4 TRADE AUTHORIZED = FALSE",
+        flush=True
+    )
+
+    print(
+        "UNIT 4 DEMO ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 4 REAL ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 4 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 4 RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# RUN UNIT 4 V2
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
+    fresh_reconstruction_unit_4()
+)
+
+# ============================================================
+# END COMPLETE REPLACEMENT - UNIT 4 V2
+# ZERO INDENTATION
+#
+# NEXT EXISTING COMPONENT:
+# CTC STAGE B1 / UNIT 5
+# ============================================================
