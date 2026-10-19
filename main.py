@@ -5384,6 +5384,451 @@ FRESH_RECONSTRUCTION_SIZING_CANDIDATE = (
 # ============================================================
 
 
+# ============================================================
+# START UNIT 7 CONTROLLED HANDOVER TEST
+# ZERO INDENTATION
+#
+# TEMPORARY TEST HARNESS
+# NO EXCHANGE REQUEST
+# NO ORDER
+# NO CONFIGURATION MUTATION
+# ============================================================
+
+def run_unit_7_controlled_tests():
+
+    import copy
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 7 CONTROLLED TEST START",
+        flush=True
+    )
+
+    base_config = copy.deepcopy(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    base_unit6 = copy.deepcopy(
+        FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE
+    )
+
+    results = []
+
+    # ========================================================
+    # 1. TEST HELPER
+    # ========================================================
+
+    def run_case(
+        name,
+        candidate,
+        expected_status,
+        expected_mode,
+        expected_side,
+        expected_intent,
+    ):
+
+        print("-" * 80, flush=True)
+        print("UNIT 7 TEST CASE =", name, flush=True)
+
+        try:
+
+            result = fresh_reconstruction_unit_7(
+                copy.deepcopy(base_config),
+                copy.deepcopy(candidate),
+            )
+
+            checks = {
+
+                "status":
+                    result.get("status")
+                    == expected_status,
+
+                "mode":
+                    result.get("active_mode")
+                    == expected_mode,
+
+                "direction":
+                    result.get("direction")
+                    == expected_side,
+
+                "execution_intent":
+                    result.get("execution_intent")
+                    is expected_intent,
+
+                "signal_qualified":
+                    result.get("signal_qualified")
+                    is expected_intent,
+
+                "balance_unverified":
+                    result.get("effective_leverage")
+                    is None,
+
+                "quantity_unverified":
+                    result.get("proposed_quantity")
+                    is None,
+
+                "quantity_not_calculated":
+                    result.get("quantity_calculated")
+                    is False,
+
+                "sizing_not_performed":
+                    result.get(
+                        "position_sizing_performed"
+                    ) is False,
+
+                "no_order_payload":
+                    result.get(
+                        "order_payload_created"
+                    ) is False,
+
+                "trade_disabled":
+                    result.get(
+                        "trade_authorized"
+                    ) is False,
+
+                "read_only":
+                    result.get("read_only")
+                    is True,
+
+                "tuning_unchanged":
+                    result.get(
+                        "tuning_profiles_applied"
+                    ) is False,
+
+                "exchange_leverage_unverified":
+                    result.get(
+                        "exchange_leverage_verified"
+                    ) is False,
+
+                "account_requirement":
+                    result.get(
+                        "account_balance_required"
+                    ) is expected_intent,
+
+            }
+
+            # Unit 7 must not mutate its input
+            # or the globally verified config.
+
+            checks["config_unchanged"] = (
+                FRESH_RECONSTRUCTION_CONFIG
+                == base_config
+            )
+
+            checks["unit6_unchanged"] = (
+                FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE
+                == base_unit6
+            )
+
+            passed = all(checks.values())
+
+            for key, value in checks.items():
+
+                if not value:
+                    print(
+                        "FAILED CHECK =",
+                        key,
+                        flush=True
+                    )
+
+            print(
+                "ACTUAL STATUS =",
+                result.get("status"),
+                flush=True
+            )
+
+            print(
+                "ACTUAL MODE =",
+                result.get("active_mode"),
+                flush=True
+            )
+
+            print(
+                "ACTUAL DIRECTION =",
+                result.get("direction"),
+                flush=True
+            )
+
+        except Exception as exc:
+
+            passed = False
+
+            print(
+                "TEST EXCEPTION =",
+                repr(exc),
+                flush=True
+            )
+
+        results.append((name, passed))
+
+        print(
+            "UNIT 7 TEST RESULT =",
+            "PASS" if passed else "FAIL",
+            flush=True
+        )
+
+    # ========================================================
+    # 2. QUALIFIED BREAKOUT SHORT
+    # ========================================================
+
+    candidate = copy.deepcopy(base_unit6)
+
+    candidate.update({
+
+        "execution_intent": True,
+
+        "signal_qualified": True,
+
+        "active_mode": "BREAKOUT",
+
+        "direction": "SHORT",
+
+        "admission_reason":
+            "BREAKOUT_PRELIMINARY_ADMISSION_PASS",
+
+        "unit_5_reason":
+            "CONTROLLED_BREAKOUT_TEST",
+
+        "read_only": True,
+
+        "trade_authorized": False,
+
+    })
+
+    run_case(
+        "BREAKOUT_SHORT_HANDOVER",
+        candidate,
+        "READY_FOR_BALANCE",
+        "BREAKOUT",
+        "SHORT",
+        True,
+    )
+
+    # ========================================================
+    # 3. QUALIFIED STRUCTURE SHORT
+    # ========================================================
+
+    candidate = copy.deepcopy(base_unit6)
+
+    candidate.update({
+
+        "execution_intent": True,
+
+        "signal_qualified": True,
+
+        "active_mode": "STRUCTURE",
+
+        "direction": "SHORT",
+
+        "admission_reason":
+            "STRUCTURE_PRELIMINARY_ADMISSION_PASS",
+
+        "unit_5_reason":
+            "CONTROLLED_STRUCTURE_TEST",
+
+        "read_only": True,
+
+        "trade_authorized": False,
+
+    })
+
+    run_case(
+        "STRUCTURE_SHORT_HANDOVER",
+        candidate,
+        "READY_FOR_BALANCE",
+        "STRUCTURE",
+        "SHORT",
+        True,
+    )
+
+    # ========================================================
+    # 4. UNQUALIFIED SIGNAL MUST REMAIN IDLE
+    # ========================================================
+
+    candidate = copy.deepcopy(base_unit6)
+
+    candidate.update({
+
+        "execution_intent": False,
+
+        "signal_qualified": False,
+
+        "active_mode": "NONE",
+
+        "direction": "NONE",
+
+        "admission_reason":
+            "CONTROLLED_NO_QUALIFIED_SIGNAL",
+
+        "read_only": True,
+
+        "trade_authorized": False,
+
+    })
+
+    run_case(
+        "UNQUALIFIED_SIGNAL_IDLE",
+        candidate,
+        "IDLE",
+        "NONE",
+        "NONE",
+        False,
+    )
+
+    # ========================================================
+    # 5. INCONSISTENT SIGNAL MUST BE REJECTED
+    # ========================================================
+
+    print("-" * 80, flush=True)
+
+    print(
+        "UNIT 7 TEST CASE = "
+        "INCONSISTENT_SIGNAL_REJECTION",
+        flush=True
+    )
+
+    candidate = copy.deepcopy(base_unit6)
+
+    candidate.update({
+
+        "execution_intent": True,
+
+        "signal_qualified": False,
+
+        "active_mode": "BREAKOUT",
+
+        "direction": "SHORT",
+
+        "admission_reason":
+            "BREAKOUT_PRELIMINARY_ADMISSION_PASS",
+
+        "read_only": True,
+
+        "trade_authorized": False,
+
+    })
+
+    try:
+
+        fresh_reconstruction_unit_7(
+            copy.deepcopy(base_config),
+            candidate,
+        )
+
+        rejection_pass = False
+
+        print(
+            "FAILED: INVALID SIGNAL WAS ACCEPTED",
+            flush=True
+        )
+
+    except RuntimeError as exc:
+
+        rejection_pass = (
+            "UNIT 7 INVALID ADMITTED SIGNAL"
+            in str(exc)
+        )
+
+        print(
+            "UNIT 7 REJECTION REASON =",
+            str(exc),
+            flush=True
+        )
+
+    results.append((
+        "INCONSISTENT_SIGNAL_REJECTION",
+        rejection_pass,
+    ))
+
+    print(
+        "UNIT 7 TEST RESULT =",
+        "PASS" if rejection_pass else "FAIL",
+        flush=True
+    )
+
+    # ========================================================
+    # 6. FINAL TEST SUMMARY
+    # ========================================================
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 7 CONTROLLED TEST SUMMARY",
+        flush=True
+    )
+
+    passed_count = 0
+
+    for name, passed in results:
+
+        if passed:
+            passed_count += 1
+
+        print(
+            name,
+            "=",
+            "PASS" if passed else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 7 TESTS PASSED =",
+        passed_count,
+        "/",
+        len(results),
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXCHANGE REQUEST = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 DEMO ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 REAL ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    if passed_count != len(results):
+
+        raise RuntimeError(
+            "UNIT 7 CONTROLLED TEST FAILED"
+        )
+
+    print(
+        "FINAL VERDICT: "
+        "UNIT 7 CONTROLLED TEST PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return True
+
+
+# ============================================================
+# RUN UNIT 7 CONTROLLED TEST
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_7_TEST_RESULT = (
+    run_unit_7_controlled_tests()
+)
+
+# ============================================================
+# END UNIT 7 CONTROLLED HANDOVER TEST
+# ZERO INDENTATION
+# ============================================================
 
 
     
