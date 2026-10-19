@@ -2595,3 +2595,835 @@ FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
 # NEXT EXISTING COMPONENT:
 # CTC STAGE B1 / UNIT 5
 # ============================================================
+
+
+# ============================================================
+# START COMPLETE REPLACEMENT - UNIT 5 V2
+# ZERO INDENTATION
+#
+# COORDINATED SIGNAL QUALIFICATION
+#
+# PRIORITY:
+# 1. BREAKOUT
+# 2. STRUCTURE
+# 3. SCALP
+#
+# CONSUMES UNIT 4 V2 EVIDENCE ONLY
+# NO NETWORK REQUEST
+# NO AUTHENTICATED ACCESS
+# NO DEMO OR REAL ORDER
+# NO EXCHANGE WRITE
+# ============================================================
+
+def fresh_reconstruction_unit_5(
+    unit_2_config,
+    unit_4_snapshot,
+):
+
+    import math
+
+    print("=" * 80, flush=True)
+    print(
+        "FRESH RECONSTRUCTION UNIT 5 V2 START",
+        flush=True
+    )
+
+    # ========================================================
+    # 1. INPUT AND SAFETY CONTRACT
+    # ========================================================
+
+    if not isinstance(unit_2_config, dict):
+        raise RuntimeError(
+            "UNIT 5 INVALID UNIT 2 CONFIG"
+        )
+
+    if not isinstance(unit_4_snapshot, dict):
+        raise RuntimeError(
+            "UNIT 5 INVALID UNIT 4 SNAPSHOT"
+        )
+
+    strategy = unit_2_config.get(
+        "strategy", {}
+    )
+
+    safety = unit_2_config.get(
+        "safety", {}
+    )
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError(
+            "UNIT 5 INVALID STRATEGY"
+        )
+
+    if not isinstance(safety, dict):
+        raise RuntimeError(
+            "UNIT 5 INVALID SAFETY"
+        )
+
+    if strategy.get("mode_priority") != (
+        "BREAKOUT", "STRUCTURE", "SCALP"
+    ):
+        raise RuntimeError(
+            "UNIT 5 MODE PRIORITY MISMATCH"
+        )
+
+    for key in (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+    ):
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 5 UNSAFE CONFIG: " + key
+            )
+
+    if (
+        unit_4_snapshot.get("symbol") != "BTCUSDT"
+        or unit_4_snapshot.get("read_only") is not True
+        or unit_4_snapshot.get("trade_authorized") is not False
+    ):
+        raise RuntimeError(
+            "UNIT 5 UNIT 4 SAFETY FAILURE"
+        )
+
+    if (
+        unit_4_snapshot.get(
+            "strategy_evidence_version"
+        ) != "U4_COORDINATED_V1"
+    ):
+        raise RuntimeError(
+            "UNIT 5 UNIT 4 VERSION MISMATCH"
+        )
+
+    # ========================================================
+    # 2. FRESHNESS VALIDATION
+    # ========================================================
+
+    if (
+        unit_4_snapshot.get(
+            "candle_data_fresh"
+        ) is not True
+    ):
+        raise RuntimeError(
+            "UNIT 5 STALE CANDLE EVIDENCE"
+        )
+
+    try:
+        candle_age = float(
+            unit_4_snapshot["candle_age_seconds"]
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "UNIT 5 INVALID CANDLE AGE"
+        ) from exc
+
+    if (
+        not math.isfinite(candle_age)
+        or not (0 <= candle_age <= 180)
+    ):
+        raise RuntimeError(
+            "UNIT 5 CANDLE AGE OUT OF RANGE"
+        )
+
+    print(
+        "PASS: UNIT 5 FRESH CLOSED CANDLES",
+        flush=True
+    )
+
+    # ========================================================
+    # 3. REQUIRED EVIDENCE
+    # ========================================================
+
+    evidence_flags = (
+        "breakout_developing_long",
+        "breakout_developing_short",
+        "breakout_confirmed_long",
+        "breakout_confirmed_short",
+        "structure_developing_long",
+        "structure_developing_short",
+        "sideways_candidate",
+        "price_overextended",
+    )
+
+    flags = {}
+
+    for key in evidence_flags:
+
+        if key not in unit_4_snapshot:
+            raise RuntimeError(
+                "UNIT 5 MISSING EVIDENCE: " + key
+            )
+
+        value = unit_4_snapshot[key]
+
+        if type(value) is not bool:
+            raise RuntimeError(
+                "UNIT 5 INVALID EVIDENCE TYPE: " + key
+            )
+
+        flags[key] = value
+
+    direction_evidence = unit_4_snapshot.get(
+        "direction_evidence"
+    )
+
+    if direction_evidence not in (
+        "LONG", "SHORT", "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 5 INVALID DIRECTION EVIDENCE"
+        )
+
+    def numeric(key):
+
+        if key not in unit_4_snapshot:
+            raise RuntimeError(
+                "UNIT 5 MISSING " + key
+            )
+
+        try:
+            value = float(unit_4_snapshot[key])
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "UNIT 5 INVALID " + key
+            ) from exc
+
+        if not math.isfinite(value):
+            raise RuntimeError(
+                "UNIT 5 NONFINITE " + key
+            )
+
+        return value
+
+    move1 = numeric("move_1m_pct")
+    move5 = numeric("move_5m_pct")
+    move15 = numeric("move_15m_pct")
+    move30 = numeric("move_30m_pct")
+
+    latest_close = numeric("latest_close")
+    previous_close = numeric("previous_close")
+    live_mark = numeric("live_mark_price")
+
+    ema19 = numeric("ema19")
+    ema50 = numeric("ema50")
+    ema100 = numeric("ema100")
+    ema200 = numeric("ema200")
+
+    separation_pct = numeric(
+        "ema19_50_separation_pct"
+    )
+
+    atr14 = numeric("atr14")
+
+    if min(
+        latest_close,
+        previous_close,
+        live_mark,
+        ema19,
+        ema50,
+        ema100,
+        ema200,
+        atr14
+    ) <= 0:
+        raise RuntimeError(
+            "UNIT 5 NONPOSITIVE PRICE OR ATR"
+        )
+
+    # ========================================================
+    # 4. QUALIFICATION SETTINGS
+    #
+    # BASELINE VALUES FROM CENTRAL TUNING
+    # NO CTC OVERRIDE IS APPLIED.
+    # ========================================================
+
+    structure_min_move_pct = 0.020
+    structure_confirm_move_pct = 0.035
+    breakout_min_5m_move_pct = 0.030
+
+    scalp_min_move_pct = 0.015
+
+    taker_fee_per_side_pct = 0.080
+    extra_friction_pct = 0.020
+    minimum_net_price_profit_pct = 0.050
+
+    minimum_sustainable_range_pct = (
+        2.0 * taker_fee_per_side_pct
+        + extra_friction_pct
+        + minimum_net_price_profit_pct
+    )
+
+    # ========================================================
+    # 5. BREAKOUT EVIDENCE
+    # ========================================================
+
+    breakout_developing_long = flags[
+        "breakout_developing_long"
+    ]
+
+    breakout_developing_short = flags[
+        "breakout_developing_short"
+    ]
+
+    breakout_confirmed_long = flags[
+        "breakout_confirmed_long"
+    ]
+
+    breakout_confirmed_short = flags[
+        "breakout_confirmed_short"
+    ]
+
+    breakout_developing = (
+        breakout_developing_long
+        or breakout_developing_short
+    )
+
+    breakout_candidate = (
+        breakout_developing
+        or breakout_confirmed_long
+        or breakout_confirmed_short
+    )
+
+    price_overextended = flags[
+        "price_overextended"
+    ]
+
+    breakout_ready_long = (
+        breakout_confirmed_long
+        and direction_evidence == "LONG"
+        and move5 >= breakout_min_5m_move_pct
+        and move15 > 0
+        and not price_overextended
+    )
+
+    breakout_ready_short = (
+        breakout_confirmed_short
+        and direction_evidence == "SHORT"
+        and move5 <= -breakout_min_5m_move_pct
+        and move15 < 0
+        and not price_overextended
+    )
+
+    breakout_ready = (
+        breakout_ready_long
+        or breakout_ready_short
+    )
+
+    # ========================================================
+    # 6. STRUCTURE EVIDENCE
+    # ========================================================
+
+    structure_developing_long = flags[
+        "structure_developing_long"
+    ]
+
+    structure_developing_short = flags[
+        "structure_developing_short"
+    ]
+
+    structure_candidate = (
+        structure_developing_long
+        or structure_developing_short
+    )
+
+    # Structure has its own early qualification.
+    # EMA direction and 15M momentum are already
+    # represented in the Unit 4 development flag.
+
+    structure_ready_long = (
+        structure_developing_long
+        and direction_evidence == "LONG"
+        and move15 >= structure_confirm_move_pct
+        and abs(move15) >= structure_min_move_pct
+        and not price_overextended
+    )
+
+    structure_ready_short = (
+        structure_developing_short
+        and direction_evidence == "SHORT"
+        and move15 <= -structure_confirm_move_pct
+        and abs(move15) >= structure_min_move_pct
+        and not price_overextended
+    )
+
+    structure_ready = (
+        structure_ready_long
+        or structure_ready_short
+    )
+
+    higher_mode_developing = (
+        breakout_candidate
+        or structure_candidate
+    )
+
+    # ========================================================
+    # 7. SCALP SIDEWAYS AND FEE CONTEXT
+    # ========================================================
+
+    sideways = flags["sideways_candidate"]
+
+    closed_candles = unit_4_snapshot.get(
+        "recent_closed_klines", []
+    )
+
+    if not isinstance(closed_candles, list):
+        raise RuntimeError(
+            "UNIT 5 INVALID SCALP CANDLE HISTORY"
+        )
+
+    if len(closed_candles) < 20:
+        raise RuntimeError(
+            "UNIT 5 INSUFFICIENT SCALP HISTORY"
+        )
+
+    recent = closed_candles[-20:]
+
+    try:
+        high20 = max(
+            float(c["high"]) for c in recent
+        )
+
+        low20 = min(
+            float(c["low"]) for c in recent
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "UNIT 5 INVALID SCALP RANGE"
+        ) from exc
+
+    if (
+        not math.isfinite(high20)
+        or not math.isfinite(low20)
+        or low20 <= 0
+        or high20 < low20
+    ):
+        raise RuntimeError(
+            "UNIT 5 INVALID RANGE VALUES"
+        )
+
+    scalp_range_pct = (
+        (high20 - low20) / low20 * 100.0
+    )
+
+    scalp_range_feasible = (
+        scalp_range_pct
+        >= minimum_sustainable_range_pct
+    )
+
+    scalp_context = (
+        sideways
+        and not higher_mode_developing
+        and not price_overextended
+        and direction_evidence in (
+            "LONG", "SHORT"
+        )
+    )
+
+    scalp_momentum_agreement = (
+        (
+            direction_evidence == "LONG"
+            and move5 >= scalp_min_move_pct
+            and move1 > 0
+        )
+        or
+        (
+            direction_evidence == "SHORT"
+            and move5 <= -scalp_min_move_pct
+            and move1 < 0
+        )
+    )
+
+    scalp_pending = (
+        scalp_context
+        and scalp_momentum_agreement
+        and scalp_range_feasible
+    )
+
+    # Unit 6 must still validate the scalp's
+    # actual price-weighted quality score,
+    # prospective reward, spread, and fees.
+
+    # ========================================================
+    # 8. COORDINATED MODE ARBITRATION
+    # ========================================================
+
+    active_mode = "NONE"
+    direction = "NONE"
+    qualified = False
+
+    candidate_mode = "NONE"
+    candidate_stage = "NONE"
+
+    qualification_reason = (
+        "NO_ACCEPTABLE_CANDIDATE"
+    )
+
+    if breakout_ready_long:
+
+        active_mode = "BREAKOUT"
+        direction = "LONG"
+        qualified = True
+
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "QUALIFIED"
+
+        qualification_reason = (
+            "BREAKOUT_CLOSED_CANDLE_CONFIRMATION"
+        )
+
+    elif breakout_ready_short:
+
+        active_mode = "BREAKOUT"
+        direction = "SHORT"
+        qualified = True
+
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "QUALIFIED"
+
+        qualification_reason = (
+            "BREAKOUT_CLOSED_CANDLE_CONFIRMATION"
+        )
+
+    elif breakout_candidate:
+
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "DEVELOPING"
+
+        qualification_reason = (
+            "BREAKOUT_DEVELOPING_SCALP_DEFERRED"
+        )
+
+    elif structure_ready_long:
+
+        active_mode = "STRUCTURE"
+        direction = "LONG"
+        qualified = True
+
+        candidate_mode = "STRUCTURE"
+        candidate_stage = "QUALIFIED"
+
+        qualification_reason = (
+            "STRUCTURE_EARLY_QUALIFICATION"
+        )
+
+    elif structure_ready_short:
+
+        active_mode = "STRUCTURE"
+        direction = "SHORT"
+        qualified = True
+
+        candidate_mode = "STRUCTURE"
+        candidate_stage = "QUALIFIED"
+
+        qualification_reason = (
+            "STRUCTURE_EARLY_QUALIFICATION"
+        )
+
+    elif structure_candidate:
+
+        candidate_mode = "STRUCTURE"
+        candidate_stage = "DEVELOPING"
+
+        qualification_reason = (
+            "STRUCTURE_DEVELOPING_SCALP_DEFERRED"
+        )
+
+    elif scalp_pending:
+
+        candidate_mode = "SCALP"
+        candidate_stage = "PENDING_UNIT_6"
+
+        qualification_reason = (
+            "SCALP_PENDING_QUALITY_AND_FEES"
+        )
+
+    elif sideways and not scalp_range_feasible:
+
+        qualification_reason = (
+            "SCALP_HISTORICAL_RANGE_INSUFFICIENT"
+        )
+
+    elif sideways and price_overextended:
+
+        qualification_reason = (
+            "SCALP_PRICE_OVEREXTENDED"
+        )
+
+    elif sideways:
+
+        qualification_reason = (
+            "SCALP_MOMENTUM_OR_DIRECTION_REJECTED"
+        )
+
+    # ========================================================
+    # 9. INVARIANTS
+    # ========================================================
+
+    if qualified and (
+        active_mode not in ("BREAKOUT", "STRUCTURE")
+        or direction not in ("LONG", "SHORT")
+        or candidate_stage != "QUALIFIED"
+    ):
+        raise RuntimeError(
+            "UNIT 5 INVALID QUALIFICATION"
+        )
+
+    if (
+        active_mode == "SCALP"
+        or (
+            candidate_mode == "SCALP"
+            and higher_mode_developing
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 5 SCALP PRIORITY FAILURE"
+        )
+
+    # ========================================================
+    # 10. NORMALIZED UNIT 6 HANDOVER
+    # ========================================================
+
+    output = {
+
+        "symbol": "BTCUSDT",
+
+        "qualified": qualified,
+        "active_mode": active_mode,
+        "direction": direction,
+        "qualification_reason": qualification_reason,
+
+        "candidate_mode": candidate_mode,
+        "candidate_stage": candidate_stage,
+
+        "higher_mode_developing":
+            higher_mode_developing,
+
+        "breakout_candidate": breakout_candidate,
+        "breakout_ready": breakout_ready,
+
+        "structure_candidate": structure_candidate,
+        "structure_ready": structure_ready,
+
+        "sideways_context": sideways,
+        "scalp_range_pct": scalp_range_pct,
+        "scalp_range_feasible": scalp_range_feasible,
+        "scalp_ready": scalp_pending,
+
+        "direction_evidence": direction_evidence,
+
+        "live_mark_price": live_mark,
+        "latest_close": latest_close,
+        "previous_close": previous_close,
+
+        "ema19": ema19,
+        "ema50": ema50,
+        "ema100": ema100,
+        "ema200": ema200,
+
+        "ema19_50_separation_pct":
+            separation_pct,
+
+        "ema_structure": unit_4_snapshot.get(
+            "ema_structure", "MIXED"
+        ),
+
+        "ema_direction": direction_evidence,
+
+        "momentum_direction": (
+            "LONG" if move1 > 0 else
+            "SHORT" if move1 < 0 else "NONE"
+        ),
+
+        "momentum_1m_direction": (
+            "LONG" if move1 > 0 else
+            "SHORT" if move1 < 0 else "NONE"
+        ),
+
+        "momentum_5m_direction": (
+            "LONG" if move5 > 0 else
+            "SHORT" if move5 < 0 else "NONE"
+        ),
+
+        "momentum_15m_direction": (
+            "LONG" if move15 > 0 else
+            "SHORT" if move15 < 0 else "NONE"
+        ),
+
+        "short_term_move_pct": move1,
+        "absolute_short_term_move_pct": abs(move1),
+
+        "move_1m_pct": move1,
+        "move_5m_pct": move5,
+        "move_15m_pct": move15,
+        "move_30m_pct": move30,
+
+        "scalp_direction": (
+            direction_evidence if scalp_pending
+            else "NONE"
+        ),
+
+        "scalp_move_pct": abs(move5),
+
+        "price_above_ema19": live_mark > ema19,
+        "price_above_ema50": live_mark > ema50,
+        "price_above_ema200": live_mark > ema200,
+
+        "latest_close_above_previous":
+            latest_close > previous_close,
+
+        "candle_data_fresh": True,
+        "read_only": True,
+        "trade_authorized": False,
+
+        "strategy_evidence_version":
+            "U4_COORDINATED_V1",
+    }
+
+    # ========================================================
+    # 11. RENDER DIAGNOSTICS
+    # ========================================================
+
+    print("-" * 80, flush=True)
+
+    print(
+        "UNIT 5 DIRECTION EVIDENCE =",
+        direction_evidence, flush=True
+    )
+
+    print(
+        "UNIT 5 BREAKOUT CANDIDATE =",
+        breakout_candidate, flush=True
+    )
+
+    print(
+        "UNIT 5 BREAKOUT READY =",
+        breakout_ready, flush=True
+    )
+
+    print(
+        "UNIT 5 STRUCTURE CANDIDATE =",
+        structure_candidate, flush=True
+    )
+
+    print(
+        "UNIT 5 STRUCTURE READY =",
+        structure_ready, flush=True
+    )
+
+    print(
+        "UNIT 5 HIGHER MODE DEVELOPING =",
+        higher_mode_developing, flush=True
+    )
+
+    print(
+        "UNIT 5 SIDEWAYS CONTEXT =",
+        sideways, flush=True
+    )
+
+    print(
+        "UNIT 5 SCALP RANGE % =",
+        round(scalp_range_pct, 6),
+        flush=True
+    )
+
+    print(
+        "UNIT 5 MINIMUM SCALP RANGE % =",
+        minimum_sustainable_range_pct,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 SCALP RANGE FEASIBLE =",
+        scalp_range_feasible, flush=True
+    )
+
+    print(
+        "UNIT 5 SCALP READY =",
+        scalp_pending, flush=True
+    )
+
+    print(
+        "UNIT 5 CANDIDATE MODE =",
+        candidate_mode, flush=True
+    )
+
+    print(
+        "UNIT 5 CANDIDATE STAGE =",
+        candidate_stage, flush=True
+    )
+
+    print(
+        "UNIT 5 ACTIVE MODE =",
+        active_mode, flush=True
+    )
+
+    print(
+        "UNIT 5 DIRECTION =",
+        direction, flush=True
+    )
+
+    print(
+        "UNIT 5 QUALIFIED =",
+        qualified, flush=True
+    )
+
+    print(
+        "UNIT 5 QUALIFICATION REASON =",
+        qualification_reason, flush=True
+    )
+
+    print(
+        "UNIT 5 TRADE AUTHORIZED = FALSE",
+        flush=True
+    )
+
+    print(
+        "UNIT 5 NETWORK REQUEST = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 5 DEMO ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 5 REAL ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 5 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 5 RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return output
+
+
+# ============================================================
+# RUN UNIT 5 V2
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
+    fresh_reconstruction_unit_5(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+    )
+)
+
+# ============================================================
+# END COMPLETE REPLACEMENT - UNIT 5 V2
+# ZERO INDENTATION
+# ============================================================
+
