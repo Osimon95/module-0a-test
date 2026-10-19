@@ -4905,6 +4905,357 @@ def fresh_reconstruction_unit_5(
     # NO OTHER UNIT REPLACED
     # ========================================================
     
+    
+    # ========================================================
+    # UNIT 5 COORDINATED MODE ARBITRATION
+    # OVERRIDES OLD SECTION 11 SELECTION
+    # INDENTATION: 4 SPACES
+    # ========================================================
+
+    strategy = unit_2_config.get("strategy", {})
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError(
+            "UNIT 5: INVALID STRATEGY CONFIG"
+        )
+
+    if strategy.get("mode_priority") != (
+        "BREAKOUT", "STRUCTURE", "SCALP"
+    ):
+        raise RuntimeError(
+            "UNIT 5: MODE PRIORITY MISMATCH"
+        )
+
+    if (
+        unit_4_snapshot.get(
+            "strategy_evidence_version"
+        ) != "U4_COORDINATED_V1"
+    ):
+        raise RuntimeError(
+            "UNIT 5: UNIT 4 UPGRADE MISSING"
+        )
+
+    # --------------------------------------------------------
+    # 1. REQUIRE FRESH CLOSED-CANDLE EVIDENCE
+    # --------------------------------------------------------
+
+    data_fresh = (
+        unit_4_snapshot.get(
+            "candle_data_fresh"
+        ) is True
+    )
+
+    if not data_fresh:
+        raise RuntimeError(
+            "UNIT 5: STALE CANDLE EVIDENCE"
+        )
+
+    # --------------------------------------------------------
+    # 2. READ UNIT 4 CANDIDATE EVIDENCE
+    # --------------------------------------------------------
+
+    breakout_long = bool(
+        unit_4_snapshot.get(
+            "breakout_confirmed_long", False
+        )
+    )
+
+    breakout_short = bool(
+        unit_4_snapshot.get(
+            "breakout_confirmed_short", False
+        )
+    )
+
+    developing_breakout_long = bool(
+        unit_4_snapshot.get(
+            "breakout_developing_long", False
+        )
+    )
+
+    developing_breakout_short = bool(
+        unit_4_snapshot.get(
+            "breakout_developing_short", False
+        )
+    )
+
+    developing_structure_long = bool(
+        unit_4_snapshot.get(
+            "structure_developing_long", False
+        )
+    )
+
+    developing_structure_short = bool(
+        unit_4_snapshot.get(
+            "structure_developing_short", False
+        )
+    )
+
+    sideways = bool(
+        unit_4_snapshot.get(
+            "sideways_candidate", False
+        )
+    )
+
+    overextended = bool(
+        unit_4_snapshot.get(
+            "price_overextended", False
+        )
+    )
+
+    direction_evidence = (
+        unit_4_snapshot.get(
+            "direction_evidence", "NONE"
+        )
+    )
+
+    # --------------------------------------------------------
+    # 3. HIGHER-MODE DEVELOPMENT PROTECTION
+    # --------------------------------------------------------
+
+    breakout_developing = (
+        developing_breakout_long
+        or developing_breakout_short
+    )
+
+    structure_developing = (
+        developing_structure_long
+        or developing_structure_short
+    )
+
+    higher_mode_developing = (
+        breakout_developing
+        or structure_developing
+    )
+
+    # --------------------------------------------------------
+    # 4. INITIALIZE COORDINATED ARBITRATION
+    # --------------------------------------------------------
+
+    active_mode = "NONE"
+    direction = "NONE"
+    qualified = False
+
+    qualification_reason = (
+        "COORDINATED_NO_MODE_QUALIFIED"
+    )
+
+    candidate_mode = "NONE"
+    candidate_stage = "NONE"
+
+    # --------------------------------------------------------
+    # 5. BREAKOUT QUALIFICATION
+    # --------------------------------------------------------
+
+    if (
+        breakout_long
+        and direction_evidence == "LONG"
+        and not overextended
+    ):
+
+        active_mode = "BREAKOUT"
+        direction = "LONG"
+        qualified = True
+
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "QUALIFIED"
+
+        qualification_reason = (
+            "BREAKOUT_LONG_COORDINATED"
+        )
+
+    elif (
+        breakout_short
+        and direction_evidence == "SHORT"
+        and not overextended
+    ):
+
+        active_mode = "BREAKOUT"
+        direction = "SHORT"
+        qualified = True
+
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "QUALIFIED"
+
+        qualification_reason = (
+            "BREAKOUT_SHORT_COORDINATED"
+        )
+
+    # --------------------------------------------------------
+    # 6. STRUCTURE QUALIFICATION
+    # BREAKOUT DEVELOPMENT GETS PRIORITY
+    # --------------------------------------------------------
+
+    elif (
+        not breakout_developing
+        and developing_structure_long
+        and direction_evidence == "LONG"
+        and not overextended
+    ):
+
+        active_mode = "STRUCTURE"
+        direction = "LONG"
+        qualified = True
+
+        candidate_mode = "STRUCTURE"
+        candidate_stage = "QUALIFIED"
+
+        qualification_reason = (
+            "STRUCTURE_LONG_COORDINATED"
+        )
+
+    elif (
+        not breakout_developing
+        and developing_structure_short
+        and direction_evidence == "SHORT"
+        and not overextended
+    ):
+
+        active_mode = "STRUCTURE"
+        direction = "SHORT"
+        qualified = True
+
+        candidate_mode = "STRUCTURE"
+        candidate_stage = "QUALIFIED"
+
+        qualification_reason = (
+            "STRUCTURE_SHORT_COORDINATED"
+        )
+
+    # --------------------------------------------------------
+    # 7. PROTECT DEVELOPING HIGHER MODES
+    # --------------------------------------------------------
+
+    elif higher_mode_developing:
+
+        qualified = False
+
+        if breakout_developing:
+            candidate_mode = "BREAKOUT"
+        else:
+            candidate_mode = "STRUCTURE"
+
+        candidate_stage = "DEVELOPING"
+
+        qualification_reason = (
+            "HIGHER_MODE_DEVELOPING_SCALP_BLOCKED"
+        )
+
+    # --------------------------------------------------------
+    # 8. SCALP CANDIDATE
+    #
+    # UNIT 6 MUST VERIFY QUALITY AND FEES.
+    # NO QUALIFICATION HERE.
+    # --------------------------------------------------------
+
+    elif (
+        sideways
+        and not overextended
+        and direction_evidence in (
+            "LONG", "SHORT"
+        )
+        and abs(move_5m_pct)
+        >= SCALP_MIN_MOVE_PCT
+    ):
+
+        candidate_mode = "SCALP"
+        candidate_stage = "PENDING_UNIT_6"
+
+        qualified = False
+
+        qualification_reason = (
+            "SCALP_PENDING_QUALITY_AND_FEES"
+        )
+
+    # --------------------------------------------------------
+    # 9. NO SUITABLE CANDIDATE
+    # --------------------------------------------------------
+
+    else:
+
+        candidate_mode = "NONE"
+        candidate_stage = "NONE"
+
+        qualified = False
+
+        qualification_reason = (
+            "NO_VALID_COORDINATED_CANDIDATE"
+        )
+
+    # --------------------------------------------------------
+    # 10. FINAL CONSISTENCY SAFETY
+    # --------------------------------------------------------
+
+    if qualified:
+
+        if active_mode not in (
+            "BREAKOUT", "STRUCTURE"
+        ):
+            raise RuntimeError(
+                "UNIT 5: INVALID QUALIFIED MODE"
+            )
+
+        if direction not in (
+            "LONG", "SHORT"
+        ):
+            raise RuntimeError(
+                "UNIT 5: INVALID DIRECTION"
+            )
+
+    if (
+        active_mode == "SCALP"
+        or (
+            candidate_mode == "SCALP"
+            and higher_mode_developing
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 5: SCALP ARBITRATION FAILURE"
+        )
+
+    # --------------------------------------------------------
+    # 11. DIAGNOSTICS
+    # --------------------------------------------------------
+
+    print(
+        "UNIT 5 COORDINATED CANDIDATE =",
+        candidate_mode,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 CANDIDATE STAGE =",
+        candidate_stage,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 HIGHER MODE DEVELOPING =",
+        higher_mode_developing,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 SIDEWAYS REGIME =",
+        sideways,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 QUALIFIED =",
+        qualified,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 COORDINATED REASON =",
+        qualification_reason,
+        flush=True,
+    )
+
+    # ========================================================
+    # END UNIT 5 COORDINATED ARBITRATION
+    # ========================================================
+    
     # ========================================================
     # 12. PRICE RELATIONSHIP CHECKS
     # ========================================================
