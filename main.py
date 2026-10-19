@@ -1806,6 +1806,222 @@ def fresh_reconstruction_unit_3():
             "UNIT 3 SNAPSHOT READ-ONLY FAILURE"
         )
 
+    
+    # ========================================================
+    # UNIT 3 UPGRADE
+    # MARKET DATA QUALITY AND FRESHNESS
+    # ========================================================
+
+    # --------------------------------------------------------
+    # 1. VALIDATE FINITE MARKET PRICE
+    # --------------------------------------------------------
+
+    if (
+        live_price != live_price
+        or live_price == float("inf")
+        or live_price == float("-inf")
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: NON-FINITE MARKET PRICE"
+        )
+
+    print(
+        "PASS: UNIT 3 FINITE MARKET PRICE",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # 2. VALIDATE EXCHANGE TIME UNIT
+    # --------------------------------------------------------
+
+    if not (
+        1000000000000
+        <= response_time
+        < 100000000000000
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID MILLISECOND TIMESTAMP"
+        )
+
+    # --------------------------------------------------------
+    # 3. CALCULATE MARKET DATA AGE
+    # --------------------------------------------------------
+
+    received_time_ms = int(
+        datetime.now(
+            timezone.utc
+        ).timestamp() * 1000
+    )
+
+    market_age_ms = (
+        received_time_ms - response_time
+    )
+
+    market_age_seconds = (
+        market_age_ms / 1000.0
+    )
+
+    # Maximum accepted age.
+    max_market_age_seconds = 120.0
+
+    # Allow minor exchange/server clock differences.
+    future_clock_tolerance_seconds = 30.0
+
+    # --------------------------------------------------------
+    # 4. REJECT STALE OR FUTURE DATA
+    # --------------------------------------------------------
+
+    if (
+        market_age_seconds
+        > max_market_age_seconds
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: STALE MARKET DATA"
+        )
+
+    if (
+        market_age_seconds
+        < -future_clock_tolerance_seconds
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: FUTURE MARKET TIMESTAMP"
+        )
+
+    # --------------------------------------------------------
+    # 5. VALIDATE PRICE SOURCE
+    # --------------------------------------------------------
+
+    if (
+        market_snapshot.get("price_type")
+        != "MARK"
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: PRICE TYPE MISMATCH"
+        )
+
+    if (
+        market_snapshot.get("read_only")
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: READ ONLY CONTRACT FAILED"
+        )
+
+    # --------------------------------------------------------
+    # 6. ADD QUALITY METADATA
+    # WITHOUT REMOVING EXISTING FIELDS
+    # --------------------------------------------------------
+
+    market_snapshot.update({
+
+        "received_time_ms":
+            received_time_ms,
+
+        "market_age_seconds":
+            market_age_seconds,
+
+        "max_market_age_seconds":
+            max_market_age_seconds,
+
+        "market_data_fresh":
+            True,
+
+        "finite_price_validated":
+            True,
+
+        "source_type":
+            "MARK_PRICE",
+
+        "strategy_data_ready":
+            True,
+
+    })
+
+    # --------------------------------------------------------
+    # 7. UNIT 2 STRATEGY COORDINATION CHECK
+    # --------------------------------------------------------
+
+    strategy_config = config.get(
+        "strategy",
+        {}
+    )
+
+    if not isinstance(
+        strategy_config,
+        dict
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: STRATEGY CONFIG MISSING"
+        )
+
+    required_strategy_keys = (
+
+        "mode_priority",
+
+        "direction_votes_required",
+
+        "scalp_fee_aware_enabled",
+
+        "continuous_entry_scan_enabled",
+
+        "developing_candidate_protection",
+    )
+
+    for key in required_strategy_keys:
+
+        if key not in strategy_config:
+            raise RuntimeError(
+                "UNIT 3 MISSING STRATEGY CONFIG: "
+                + key
+            )
+
+    if (
+        strategy_config["mode_priority"]
+        != ("BREAKOUT", "STRUCTURE", "SCALP")
+    ):
+        raise RuntimeError(
+            "UNIT 3 MODE PRIORITY MISMATCH"
+        )
+
+    # --------------------------------------------------------
+    # 8. DIAGNOSTIC REPORT
+    # --------------------------------------------------------
+
+    print(
+        "PASS: UNIT 3 MARKET DATA FRESH",
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 MARKET AGE SECONDS =",
+        round(market_age_seconds, 3),
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 MARK PRICE VALIDATED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 MODE CONFIGURATION RECEIVED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 STRATEGY SNAPSHOT READY",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 EXISTING SNAPSHOT CONTRACT PRESERVED",
+        flush=True,
+    )
+
+    # ========================================================
+    # END UNIT 3 UPGRADE
+    # ========================================================
+    
     # --------------------------------------------------------
     # 13. FINAL SAFETY REPORT
     # --------------------------------------------------------
