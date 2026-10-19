@@ -3391,6 +3391,497 @@ def fresh_reconstruction_unit_4():
         )
 
     # ========================================================
+    # UNIT 4 COORDINATED STRATEGY INTELLIGENCE
+    # CLOSED-CANDLE EVIDENCE ONLY
+    # NO TRADE AUTHORIZATION
+    # ========================================================
+
+    import math
+
+    # --------------------------------------------------------
+    # 1. VALIDATE ANALYSIS INPUTS
+    # --------------------------------------------------------
+
+    if len(closed_klines) < 200:
+        raise RuntimeError(
+            "UNIT 4 UPGRADE: INSUFFICIENT CANDLES"
+        )
+
+    for candle in closed_klines:
+        values = [
+            candle["open"],
+            candle["high"],
+            candle["low"],
+            candle["close"],
+        ]
+
+        if not all(
+            math.isfinite(float(v)) and float(v) > 0
+            for v in values
+        ):
+            raise RuntimeError(
+                "UNIT 4 UPGRADE: INVALID OHLC"
+            )
+
+        if (
+            candle["high"] < candle["low"]
+            or candle["high"] < candle["open"]
+            or candle["high"] < candle["close"]
+            or candle["low"] > candle["open"]
+            or candle["low"] > candle["close"]
+        ):
+            raise RuntimeError(
+                "UNIT 4 UPGRADE: INCONSISTENT OHLC"
+            )
+
+    # --------------------------------------------------------
+    # 2. TRUE RANGE AND ATR14
+    # --------------------------------------------------------
+
+    true_ranges = []
+
+    for i in range(1, len(closed_klines)):
+        current = closed_klines[i]
+        previous = closed_klines[i - 1]
+
+        tr = max(
+            current["high"] - current["low"],
+            abs(current["high"] - previous["close"]),
+            abs(current["low"] - previous["close"]),
+        )
+
+        true_ranges.append(tr)
+
+    if len(true_ranges) < 14:
+        raise RuntimeError(
+            "UNIT 4 UPGRADE: INSUFFICIENT ATR"
+        )
+
+    atr14 = sum(true_ranges[-14:]) / 14.0
+
+    if not math.isfinite(atr14) or atr14 <= 0:
+        raise RuntimeError(
+            "UNIT 4 UPGRADE: INVALID ATR"
+        )
+
+    atr_percent = (
+        atr14 / latest_close * 100.0
+    )
+
+    # --------------------------------------------------------
+    # 3. EMA PRICE EXTENSION
+    # --------------------------------------------------------
+
+    ema_cluster_height = max(
+        ema19, ema50, ema200
+    ) - min(
+        ema19, ema50, ema200
+    )
+
+    ema_cluster_height = max(
+        ema_cluster_height,
+        atr14 * 0.10,
+    )
+
+    price_extension_cluster = (
+        abs(latest_close - ema19)
+        / ema_cluster_height
+    )
+
+    extension_limit = float(
+        config.get("strategy", {}).get(
+            "scalp_max_ema_extension_clusters",
+            1.5,
+        )
+    )
+
+    price_overextended = (
+        price_extension_cluster > extension_limit
+    )
+
+    # --------------------------------------------------------
+    # 4. RECENT SUPPORT AND RESISTANCE
+    # EXCLUDE LATEST CANDLE FROM REFERENCE
+    # --------------------------------------------------------
+
+    reference_candles = closed_klines[-21:-1]
+
+    resistance20 = max(
+        c["high"] for c in reference_candles
+    )
+
+    support20 = min(
+        c["low"] for c in reference_candles
+    )
+
+    range20 = resistance20 - support20
+
+    range_atr_ratio = range20 / atr14
+
+    resistance_distance = (
+        resistance20 - latest_close
+    )
+
+    support_distance = (
+        latest_close - support20
+    )
+
+    # --------------------------------------------------------
+    # 5. BREAKOUT DEVELOPMENT EVIDENCE
+    # --------------------------------------------------------
+
+    near_resistance = (
+        -0.10 * atr14
+        <= resistance_distance
+        <= 0.50 * atr14
+    )
+
+    near_support = (
+        -0.10 * atr14
+        <= support_distance
+        <= 0.50 * atr14
+    )
+
+    breakout_up = (
+        latest_close
+        > resistance20 + 0.10 * atr14
+    )
+
+    breakout_down = (
+        latest_close
+        < support20 - 0.10 * atr14
+    )
+
+    momentum5 = window_moves_pct[5]
+    momentum15 = window_moves_pct[15]
+
+    bullish_momentum = (
+        momentum5 > 0 and momentum15 > 0
+    )
+
+    bearish_momentum = (
+        momentum5 < 0 and momentum15 < 0
+    )
+
+    breakout_developing_long = (
+        near_resistance
+        and bullish_momentum
+    )
+
+    breakout_developing_short = (
+        near_support
+        and bearish_momentum
+    )
+
+    breakout_confirmed_long = (
+        breakout_up and bullish_momentum
+    )
+
+    breakout_confirmed_short = (
+        breakout_down and bearish_momentum
+    )
+
+    # --------------------------------------------------------
+    # 6. STRUCTURE DEVELOPMENT EVIDENCE
+    # --------------------------------------------------------
+
+    bullish_ema_context = (
+        ema19 > ema50 > ema200
+    )
+
+    bearish_ema_context = (
+        ema19 < ema50 < ema200
+    )
+
+    near_ema19 = (
+        abs(latest_close - ema19)
+        <= 0.75 * atr14
+    )
+
+    bullish_recovery = (
+        latest_close > previous_close
+        and latest_close > latest_candle["open"]
+    )
+
+    bearish_recovery = (
+        latest_close < previous_close
+        and latest_close < latest_candle["open"]
+    )
+
+    structure_developing_long = (
+        bullish_ema_context
+        and (
+            near_ema19
+            or bullish_recovery
+        )
+        and momentum15 > 0
+    )
+
+    structure_developing_short = (
+        bearish_ema_context
+        and (
+            near_ema19
+            or bearish_recovery
+        )
+        and momentum15 < 0
+    )
+
+    # --------------------------------------------------------
+    # 7. SIDEWAYS MARKET EVIDENCE
+    # --------------------------------------------------------
+
+    ema_gap_atr = (
+        abs(ema19 - ema50) / atr14
+    )
+
+    sideways_candidate = (
+        ema_gap_atr <= 0.70
+        and range_atr_ratio <= 8.0
+        and abs(momentum15) <= 1.5 * atr_percent
+    )
+
+    # This is only a preliminary regime classification.
+    # It is not permission for scalp entry.
+
+    # --------------------------------------------------------
+    # 8. DIRECTIONAL VOTING
+    # THREE INDEPENDENT SIGNAL CATEGORIES
+    # --------------------------------------------------------
+
+    long_votes = sum((
+
+        ema_structure == "BULLISH",
+
+        momentum5 > 0,
+
+        latest_close > previous_close,
+
+    ))
+
+    short_votes = sum((
+
+        ema_structure == "BEARISH",
+
+        momentum5 < 0,
+
+        latest_close < previous_close,
+
+    ))
+
+    required_votes = int(
+        config["strategy"].get(
+            "direction_votes_required",
+            2,
+        )
+    )
+
+    if required_votes != 2:
+        raise RuntimeError(
+            "UNIT 4 UPGRADE: EXPECTED 2 OF 3 VOTES"
+        )
+
+    if (
+        long_votes >= required_votes
+        and long_votes > short_votes
+    ):
+        direction_evidence = "LONG"
+
+    elif (
+        short_votes >= required_votes
+        and short_votes > long_votes
+    ):
+        direction_evidence = "SHORT"
+
+    else:
+        direction_evidence = "NONE"
+
+    # --------------------------------------------------------
+    # 9. DATA FRESHNESS AND STRATEGY SAFETY
+    # --------------------------------------------------------
+
+    candle_age_seconds = (
+        exchange_time_ms - latest_close_time_ms
+    ) / 1000.0
+
+    candle_data_fresh = (
+        0 <= candle_age_seconds <= 180
+    )
+
+    # No entry or mode qualification here.
+    # All results are descriptive evidence.
+
+    # --------------------------------------------------------
+    # 10. APPEND EVIDENCE TO EXISTING SNAPSHOT
+    # --------------------------------------------------------
+
+    analysis_snapshot.update({
+
+        "atr14": float(atr14),
+
+        "atr_percent": float(atr_percent),
+
+        "ema_cluster_height": float(
+            ema_cluster_height
+        ),
+
+        "price_extension_cluster": float(
+            price_extension_cluster
+        ),
+
+        "price_overextended": bool(
+            price_overextended
+        ),
+
+        "support20": float(support20),
+
+        "resistance20": float(resistance20),
+
+        "range20_atr_ratio": float(
+            range_atr_ratio
+        ),
+
+        "near_resistance": bool(
+            near_resistance
+        ),
+
+        "near_support": bool(
+            near_support
+        ),
+
+        "breakout_developing_long": bool(
+            breakout_developing_long
+        ),
+
+        "breakout_developing_short": bool(
+            breakout_developing_short
+        ),
+
+        "breakout_confirmed_long": bool(
+            breakout_confirmed_long
+        ),
+
+        "breakout_confirmed_short": bool(
+            breakout_confirmed_short
+        ),
+
+        "structure_developing_long": bool(
+            structure_developing_long
+        ),
+
+        "structure_developing_short": bool(
+            structure_developing_short
+        ),
+
+        "sideways_candidate": bool(
+            sideways_candidate
+        ),
+
+        "direction_long_votes": int(
+            long_votes
+        ),
+
+        "direction_short_votes": int(
+            short_votes
+        ),
+
+        "direction_evidence": direction_evidence,
+
+        "candle_age_seconds": float(
+            candle_age_seconds
+        ),
+
+        "candle_data_fresh": bool(
+            candle_data_fresh
+        ),
+
+        "strategy_evidence_version":
+            "U4_COORDINATED_V1",
+
+        "trade_authorized": False,
+
+    })
+
+    # --------------------------------------------------------
+    # 11. DIAGNOSTICS
+    # --------------------------------------------------------
+
+    print(
+        "UNIT 4 ATR14 =",
+        round(atr14, 4),
+        flush=True,
+    )
+
+    print(
+        "UNIT 4 EMA EXTENSION CLUSTERS =",
+        round(price_extension_cluster, 4),
+        flush=True,
+    )
+
+    print(
+        "UNIT 4 BREAKOUT DEVELOPING LONG =",
+        breakout_developing_long,
+        flush=True,
+    )
+
+    print(
+        "UNIT 4 BREAKOUT DEVELOPING SHORT =",
+        breakout_developing_short,
+        flush=True,
+    )
+
+    print(
+        "UNIT 4 STRUCTURE DEVELOPING LONG =",
+        structure_developing_long,
+        flush=True,
+    )
+
+    print(
+        "UNIT 4 STRUCTURE DEVELOPING SHORT =",
+        structure_developing_short,
+        flush=True,
+    )
+
+    print(
+        "UNIT 4 SIDEWAYS CANDIDATE =",
+        sideways_candidate,
+        flush=True,
+    )
+
+    print(
+        "UNIT 4 DIRECTION VOTES =",
+        long_votes,
+        "/",
+        short_votes,
+        flush=True,
+    )
+
+    print(
+        "UNIT 4 DIRECTION EVIDENCE =",
+        direction_evidence,
+        flush=True,
+    )
+
+    print(
+        "UNIT 4 CANDLE DATA FRESH =",
+        candle_data_fresh,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 4 COORDINATED EVIDENCE CREATED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 4 TRADE AUTHORIZED = FALSE",
+        flush=True,
+    )
+
+    # ========================================================
+    # END UNIT 4 COORDINATED UPGRADE
+    # ========================================================
+
+    # ========================================================
     # 22. FINAL SAFETY REPORT
     # ========================================================
 
