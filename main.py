@@ -139,6 +139,30 @@ if __name__ == "__main__":
 # CONFIGURATION AND SAFETY CONTRACT
 # ============================================================
 
+
+
+# ============================================================
+# UNIT 1 TO UNIT 2 VERIFICATION HANDOVER
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_1_READY = (
+    fresh_reconstruction_unit_1()
+)
+
+if FRESH_RECONSTRUCTION_UNIT_1_READY is not True:
+    raise RuntimeError(
+        "UNIT 1 TO UNIT 2 HANDOVER FAILED"
+    )
+
+print(
+    "PASS: UNIT 1 TO UNIT 2 HANDOVER VERIFIED",
+    flush=True
+)
+
+# ============================================================
+# END UNIT 1 TO UNIT 2 HANDOVER
+# ============================================================
 def fresh_reconstruction_unit_2():
 
     print("=" * 80, flush=True)
