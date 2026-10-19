@@ -9959,7 +9959,7 @@ def fresh_reconstruction_unit_13(
         raise RuntimeError(
             "UNIT 13 BLOCKED: INVALID POSITION SIDE"
         )
-        position_size = Decimal(
+    position_size = Decimal(
         str(
             position.get(
                 "size",
@@ -9973,6 +9973,11 @@ def fresh_reconstruction_unit_13(
         <=
         Decimal("0")
     ):
+        raise RuntimeError(
+            "UNIT 13 BLOCKED: INVALID POSITION SIZE"
+        )
+
+        
         
     # ========================================================
     # 9A. ACTUAL WEEX POSITION LEVERAGE
