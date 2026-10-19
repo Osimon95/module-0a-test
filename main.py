@@ -4162,6 +4162,718 @@ FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
 
 
 # ============================================================
+# START CTC STAGE B2
+# THREE PROFILE SHADOW QUALIFICATION COMPARISON
+#
+# ZERO INDENTATION
+# INSERT AFTER UNIT 5 RUN, BEFORE UNIT 6
+#
+# NO CHANGE TO UNITS 1-7
+# NO EXCHANGE REQUEST
+# NO AUTHENTICATED ACCESS
+# NO DEMO ORDER
+# NO REAL ORDER
+# NO EXCHANGE WRITE
+# ============================================================
+
+def fresh_ctc_stage_b2(
+    ctc,
+    unit4,
+):
+
+    import math
+
+    print("=" * 80, flush=True)
+    print("CTC STAGE B2 START", flush=True)
+
+    # ========================================================
+    # 1. INPUT AND SAFETY VALIDATION
+    # ========================================================
+
+    if not isinstance(ctc, dict):
+        raise RuntimeError("B2 INVALID CTC")
+
+    if not isinstance(unit4, dict):
+        raise RuntimeError("B2 INVALID UNIT 4")
+
+    if ctc.get("profile_validated") is not True:
+        raise RuntimeError("B2 UNVALIDATED CTC")
+
+    if ctc.get("shadow_only") is not True:
+        raise RuntimeError("B2 NOT SHADOW MODE")
+
+    if ctc.get("apply_to_strategy") is not False:
+        raise RuntimeError("B2 ACTIVE OVERRIDE BLOCKED")
+
+    if ctc.get("exchange_write_enabled") is not False:
+        raise RuntimeError("B2 EXCHANGE WRITE BLOCKED")
+
+    if unit4.get("symbol") != "BTCUSDT":
+        raise RuntimeError("B2 WRONG SYMBOL")
+
+    if unit4.get("read_only") is not True:
+        raise RuntimeError("B2 UNIT 4 NOT READ ONLY")
+
+    if unit4.get("trade_authorized") is not False:
+        raise RuntimeError("B2 UNIT 4 TRADE BLOCK FAILED")
+
+    # ========================================================
+    # 2. SAFE NUMERIC READER
+    # ========================================================
+
+    def number(value, name):
+
+        try:
+            output = float(value)
+
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "B2 INVALID NUMBER: " + name
+            ) from exc
+
+        if not math.isfinite(output):
+            raise RuntimeError(
+                "B2 NONFINITE: " + name
+            )
+
+        return output
+
+    def field(key):
+
+        if key not in unit4:
+            raise RuntimeError(
+                "B2 MISSING UNIT 4 FIELD: " + key
+            )
+
+        return number(unit4[key], key)
+
+    ema19 = field("ema19")
+    ema50 = field("ema50")
+    ema200 = field("ema200")
+
+    ema100 = number(
+        unit4.get("ema100", ema200),
+        "ema100"
+    )
+
+    latest_close = field("latest_close")
+    move5 = field("move_5m_pct")
+    move15 = field("move_15m_pct")
+    gap = field("ema19_50_separation_pct")
+
+    if min(
+        ema19, ema50, ema100,
+        ema200, latest_close
+    ) <= 0:
+        raise RuntimeError("B2 INVALID PRICE OR EMA")
+
+    if gap < 0:
+        raise RuntimeError("B2 NEGATIVE EMA GAP")
+
+    # ========================================================
+    # 3. READ VERIFIED CLOSED CANDLES
+    # ========================================================
+
+    candles = unit4.get("recent_closed_klines")
+
+    if not isinstance(candles, list):
+        raise RuntimeError("B2 CANDLES NOT LIST")
+
+    if len(candles) < 30:
+        raise RuntimeError("B2 INSUFFICIENT CANDLES")
+
+    candles = candles[-60:]
+
+    clean = []
+
+    for candle in candles:
+
+        if not isinstance(candle, dict):
+            raise RuntimeError("B2 INVALID CANDLE")
+
+        record = {}
+
+        for key in ("open", "high", "low", "close"):
+
+            if key not in candle:
+                raise RuntimeError(
+                    "B2 MISSING CANDLE FIELD: " + key
+                )
+
+            value = number(candle[key], key)
+
+            if value <= 0:
+                raise RuntimeError(
+                    "B2 INVALID CANDLE PRICE"
+                )
+
+            record[key] = value
+
+        if not (
+            record["low"]
+            <= min(record["open"], record["close"])
+            <= record["high"]
+        ):
+            raise RuntimeError(
+                "B2 INVALID CANDLE OHLC"
+            )
+
+        if not (
+            record["low"]
+            <= max(record["open"], record["close"])
+            <= record["high"]
+        ):
+            raise RuntimeError(
+                "B2 INVALID CANDLE RANGE"
+            )
+
+        clean.append(record)
+
+    # Exclude the newest closed candle from
+    # the 20-candle breakout reference range.
+
+    previous20 = clean[-21:-1]
+
+    range_high = max(
+        c["high"] for c in previous20
+    )
+
+    range_low = min(
+        c["low"] for c in previous20
+    )
+
+    latest_high = clean[-1]["high"]
+    latest_low = clean[-1]["low"]
+
+    upper_distance_pct = (
+        (range_high - latest_close)
+        / latest_close * 100.0
+    )
+
+    lower_distance_pct = (
+        (latest_close - range_low)
+        / latest_close * 100.0
+    )
+
+    print(
+        "B2 PREVIOUS 20 HIGH =",
+        range_high,
+        flush=True
+    )
+
+    print(
+        "B2 PREVIOUS 20 LOW =",
+        range_low,
+        flush=True
+    )
+
+    # ========================================================
+    # 4. PROFILE DEFINITIONS
+    #
+    # Must correspond to CTC V1.
+    # These are comparison candidates, not
+    # demonstrated profitable settings.
+    # ========================================================
+
+    profiles = {
+
+        "BASELINE": {
+            "structure_min_move_pct": 0.020,
+            "structure_confirm_move_pct": 0.035,
+            "breakout_min_5m_move_pct": 0.030,
+        },
+
+        "RESPONSIVE": {
+            "structure_min_move_pct": 0.015,
+            "structure_confirm_move_pct": 0.025,
+            "breakout_min_5m_move_pct": 0.020,
+        },
+
+        "SELECTIVE": {
+            "structure_min_move_pct": 0.035,
+            "structure_confirm_move_pct": 0.050,
+            "breakout_min_5m_move_pct": 0.050,
+        },
+    }
+
+    active_profile = ctc.get("profile")
+
+    if active_profile not in profiles:
+        raise RuntimeError(
+            "B2 INVALID ACTIVE PROFILE"
+        )
+
+    active_parameters = ctc.get("parameters")
+
+    if not isinstance(active_parameters, dict):
+        raise RuntimeError(
+            "B2 CTC PARAMETERS MISSING"
+        )
+
+    for key, expected in profiles[
+        active_profile
+    ].items():
+
+        actual = number(
+            active_parameters.get(key),
+            key
+        )
+
+        if not math.isclose(
+            actual,
+            expected,
+            rel_tol=0.0,
+            abs_tol=1e-10
+        ):
+            raise RuntimeError(
+                "B2 PROFILE CONFIG MISMATCH: "
+                + key
+            )
+
+    # ========================================================
+    # 5. PROFILE EVALUATION
+    # ========================================================
+
+    def evaluate(profile_name, settings):
+
+        structure_min = settings[
+            "structure_min_move_pct"
+        ]
+
+        structure_confirm = settings[
+            "structure_confirm_move_pct"
+        ]
+
+        breakout_confirm = settings[
+            "breakout_min_5m_move_pct"
+        ]
+
+        # ----------------------------------------------------
+        # STRUCTURE - EXISTING 3 FACTOR VOTING
+        # ----------------------------------------------------
+
+        long_votes = sum((
+
+            ema19 > ema50,
+
+            move5 > 0 and move15 > 0,
+
+            latest_close > ema19
+            and latest_close > ema100,
+
+        ))
+
+        short_votes = sum((
+
+            ema19 < ema50,
+
+            move5 < 0 and move15 < 0,
+
+            latest_close < ema19
+            and latest_close < ema100,
+
+        ))
+
+        structure_long_candidate = (
+            long_votes >= 2
+            and move15 >= structure_min
+            and gap >= 0.035
+            and latest_close > ema19
+        )
+
+        structure_short_candidate = (
+            short_votes >= 2
+            and move15 <= -structure_min
+            and gap >= 0.035
+            and latest_close < ema19
+        )
+
+        structure_long_ready = (
+            structure_long_candidate
+            and long_votes == 3
+            and abs(move15) >= structure_confirm
+        )
+
+        structure_short_ready = (
+            structure_short_candidate
+            and short_votes == 3
+            and abs(move15) >= structure_confirm
+        )
+
+        # ----------------------------------------------------
+        # BREAKOUT - CANDIDATE AND CONFIRMED RANGE
+        #
+        # The candidate threshold remains 0.015%.
+        # CTC V1 changes the READY threshold only.
+        # ----------------------------------------------------
+
+        breakout_long_candidate = (
+            move5 > 0.015
+            and move15 > 0
+            and latest_close > ema19
+            and upper_distance_pct <= 0.080
+        )
+
+        breakout_short_candidate = (
+            move5 < -0.015
+            and move15 < 0
+            and latest_close < ema19
+            and lower_distance_pct <= 0.080
+        )
+
+        breakout_long_ready = (
+            breakout_long_candidate
+            and latest_close > range_high
+            and latest_high > range_high
+            and move5 >= breakout_confirm
+            and move15 > 0
+        )
+
+        breakout_short_ready = (
+            breakout_short_candidate
+            and latest_close < range_low
+            and latest_low < range_low
+            and move5 <= -breakout_confirm
+            and move15 < 0
+        )
+
+        breakout_candidate = (
+            breakout_long_candidate
+            or breakout_short_candidate
+        )
+
+        breakout_ready = (
+            breakout_long_ready
+            or breakout_short_ready
+        )
+
+        structure_candidate = (
+            structure_long_candidate
+            or structure_short_candidate
+        )
+
+        structure_ready = (
+            structure_long_ready
+            or structure_short_ready
+        )
+
+        # ----------------------------------------------------
+        # STRICT PRIORITY
+        # BREAKOUT > STRUCTURE > IDLE
+        #
+        # SCALP IS NOT EVALUATED IN B2.
+        # ----------------------------------------------------
+
+        selected_mode = "NONE"
+        selected_direction = "NONE"
+        selected_stage = "REJECTED"
+
+        if breakout_ready:
+
+            selected_mode = "BREAKOUT"
+
+            selected_stage = "QUALIFIED"
+
+            selected_direction = (
+                "LONG"
+                if breakout_long_ready
+                else "SHORT"
+            )
+
+        elif structure_ready:
+
+            selected_mode = "STRUCTURE"
+
+            selected_stage = "QUALIFIED"
+
+            selected_direction = (
+                "LONG"
+                if structure_long_ready
+                else "SHORT"
+            )
+
+        elif breakout_candidate:
+
+            selected_mode = "BREAKOUT"
+
+            selected_stage = "DEVELOPING"
+
+            selected_direction = (
+                "LONG"
+                if breakout_long_candidate
+                else "SHORT"
+            )
+
+        elif structure_candidate:
+
+            selected_mode = "STRUCTURE"
+
+            selected_stage = "DEVELOPING"
+
+            selected_direction = (
+                "LONG"
+                if structure_long_candidate
+                else "SHORT"
+            )
+
+        result = {
+
+            "profile": profile_name,
+
+            "stage": selected_stage,
+
+            "mode": selected_mode,
+
+            "direction": selected_direction,
+
+            "qualified": (
+                selected_stage == "QUALIFIED"
+            ),
+
+            "breakout_candidate":
+                breakout_candidate,
+
+            "breakout_ready":
+                breakout_ready,
+
+            "structure_candidate":
+                structure_candidate,
+
+            "structure_ready":
+                structure_ready,
+
+            "structure_long_votes":
+                long_votes,
+
+            "structure_short_votes":
+                short_votes,
+
+            "breakout_long_candidate":
+                breakout_long_candidate,
+
+            "breakout_short_candidate":
+                breakout_short_candidate,
+
+            "structure_long_candidate":
+                structure_long_candidate,
+
+            "structure_short_candidate":
+                structure_short_candidate,
+
+            "breakout_long_ready":
+                breakout_long_ready,
+
+            "breakout_short_ready":
+                breakout_short_ready,
+
+            "structure_long_ready":
+                structure_long_ready,
+
+            "structure_short_ready":
+                structure_short_ready,
+
+            "trade_authorized": False,
+
+            "read_only": True,
+        }
+
+        return result
+
+    # ========================================================
+    # 6. EVALUATE ALL THREE ON ONE MARKET SNAPSHOT
+    # ========================================================
+
+    results = {}
+
+    for name, settings in profiles.items():
+
+        results[name] = evaluate(
+            name,
+            settings
+        )
+
+        item = results[name]
+
+        print("-" * 80, flush=True)
+
+        print(
+            "B2 PROFILE =",
+            name,
+            flush=True
+        )
+
+        print(
+            "B2 MODE =",
+            item["mode"],
+            flush=True
+        )
+
+        print(
+            "B2 DIRECTION =",
+            item["direction"],
+            flush=True
+        )
+
+        print(
+            "B2 STAGE =",
+            item["stage"],
+            flush=True
+        )
+
+        print(
+            "B2 STRUCTURE CANDIDATE =",
+            item["structure_candidate"],
+            flush=True
+        )
+
+        print(
+            "B2 STRUCTURE READY =",
+            item["structure_ready"],
+            flush=True
+        )
+
+        print(
+            "B2 BREAKOUT CANDIDATE =",
+            item["breakout_candidate"],
+            flush=True
+        )
+
+        print(
+            "B2 BREAKOUT READY =",
+            item["breakout_ready"],
+            flush=True
+        )
+
+    # ========================================================
+    # 7. COMPARE QUALIFICATION DIFFERENCES
+    # ========================================================
+
+    baseline = results["BASELINE"]
+
+    for name in (
+        "RESPONSIVE",
+        "SELECTIVE"
+    ):
+
+        item = results[name]
+
+        changed = (
+            item["mode"] != baseline["mode"]
+            or item["stage"] != baseline["stage"]
+            or item["direction"]
+            != baseline["direction"]
+        )
+
+        print(
+            "B2 DIFFERENCE FROM BASELINE",
+            name,
+            "=",
+            changed,
+            flush=True
+        )
+
+    # ========================================================
+    # 8. FINAL SAFE OUTPUT
+    # ========================================================
+
+    result = {
+
+        "status": "PASS",
+
+        "active_profile": active_profile,
+
+        "profiles": results,
+
+        "market_snapshot_source":
+            "UNIT_4_CLOSED_CANDLES",
+
+        "profile_count": 3,
+
+        "scalp_evaluated": False,
+
+        "full_unit6_admission_evaluated": False,
+
+        "actual_unit5_modified": False,
+
+        "strategy_overridden": False,
+
+        "automatic_optimization": False,
+
+        "trade_authorized": False,
+
+        "read_only": True,
+    }
+
+    print("=" * 80, flush=True)
+
+    print(
+        "PASS: B2 THREE PROFILES EVALUATED",
+        flush=True
+    )
+
+    print(
+        "B2 ACTUAL STRATEGY OVERRIDE = FALSE",
+        flush=True
+    )
+
+    print(
+        "B2 SCALP EVALUATION = NOT INCLUDED",
+        flush=True
+    )
+
+    print(
+        "B2 AUTO OPTIMIZATION = FALSE",
+        flush=True
+    )
+
+    print(
+        "B2 AUTHENTICATED REQUEST = NONE",
+        flush=True
+    )
+
+    print(
+        "B2 DEMO ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "B2 REAL ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "B2 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "CTC STAGE B2 RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# RUN CTC STAGE B2
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_CTC_STAGE_B2_RESULT = (
+    fresh_ctc_stage_b2(
+        FRESH_CENTRAL_TUNING,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+    )
+)
+
+# ============================================================
+# END CTC STAGE B2
+# ZERO INDENTATION
+# ============================================================
+
+# ============================================================
 # START COMPLETE REPLACEMENT - UNIT 6
 # ZERO INDENTATION
 #
