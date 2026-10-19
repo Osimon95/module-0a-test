@@ -14091,15 +14091,138 @@ def fresh_tp3_runtime(
 
             continue
 
+        # ====================================================
+        # UNIT 14C - VERIFIED FLAT POSITION HANDOFF
+        # INDENTATION: 8 SPACES
+        # ====================================================
+
         if position is None:
 
             print(
-                "-" * 80,
+                "UNIT 14 FLAT POSITION CANDIDATE",
+                flush=True,
+            )
+
+            # A single zero-position response is not
+            # sufficient to authorize re-entry.
+
+            time.sleep(2)
+
+            try:
+                second_position = get_active_position()
+
+                if second_position is not None:
+                    print(
+                        "UNIT 14 POSITION REAPPEARED",
+                        flush=True,
+                    )
+                    continue
+
+                history = get_order_history()
+
+            except Exception as exc:
+
+                print(
+                    "UNIT 14 CLOSURE VERIFICATION "
+                    "FAILED =",
+                    repr(exc),
+                    flush=True,
+                )
+
+                time.sleep(poll_seconds)
+                continue
+
+            # Check history for unresolved orders.
+            # This is supplementary verification,
+            # not proof that all pending orders
+            # are represented by order history.
+
+            pending_statuses = {
+                "NEW",
+                "PARTIALLY_FILLED",
+                "PENDING",
+                "PENDING_NEW",
+                "ACCEPTED",
+                "OPEN",
+            }
+
+            unresolved_orders = []
+
+            for order in history:
+
+                if not isinstance(order, dict):
+                    unresolved_orders.append(
+                        {"reason": "INVALID_ORDER_RECORD"}
+                    )
+                    break
+
+                if str(
+                    order.get("symbol", "")
+                ).upper() != demo_symbol:
+                    continue
+
+                status = str(
+                    order.get("status", "")
+                ).upper()
+
+                if status in pending_statuses:
+                    unresolved_orders.append({
+                        "orderId": order.get("orderId"),
+                        "clientOrderId": order.get(
+                            "clientOrderId"
+                        ),
+                        "status": status,
+                    })
+
+            if unresolved_orders:
+
+                print(
+                    "UNIT 14 REENTRY BLOCKED: "
+                    "UNRESOLVED DEMO ORDERS =",
+                    unresolved_orders[:10],
+                    flush=True,
+                )
+
+                time.sleep(poll_seconds)
+                continue
+
+            # Third position read reduces the chance
+            # of racing with an order fill during
+            # the history check.
+
+            try:
+                final_position = get_active_position()
+
+            except Exception as exc:
+
+                print(
+                    "UNIT 14 FINAL FLAT CHECK FAILED =",
+                    repr(exc),
+                    flush=True,
+                )
+
+                time.sleep(poll_seconds)
+                continue
+
+            if final_position is not None:
+
+                print(
+                    "UNIT 14 FLAT STATE REVOKED: "
+                    "POSITION FOUND",
+                    flush=True,
+                )
+
+                continue
+
+            print(
+                "UNIT 14 POSITION CLOSED = "
+                "CONFIRMED BY REPEATED POSITION READS",
                 flush=True,
             )
 
             print(
-                "UNIT 14 ACTIVE POSITION EXISTS = FALSE",
+                "UNIT 14 DEMO HISTORY PENDING "
+                "STATUS CHECK = PASS",
                 flush=True,
             )
 
@@ -14109,36 +14232,24 @@ def fresh_tp3_runtime(
             )
 
             print(
-                "PASS: UNIT 14 TP3 MANAGEMENT COMPLETE",
-                flush=True,
-            )
-
-            print(
-                "PASS: UNIT 14 BACKUP MANAGEMENT COMPLETE",
-                flush=True,
-            )
-
-            print(
-                "=" * 80,
+                "UNIT 14 RETURNING TO CONTINUOUS "
+                "ENTRY SCAN",
                 flush=True,
             )
 
             return {
-                "unit":
-                    14,
-
-                "status":
-                    "POSITION_CLOSED",
-
-                "exchange_write":
-                    False,
-
-                "real_order":
-                    False,
-
-                "sl_enabled":
-                    False,
+                "unit": 14,
+                "status": "POSITION_CLOSED",
+                "closure_position_reads": 3,
+                "history_pending_status_check": True,
+                "exchange_write": False,
+                "real_order": False,
+                "sl_enabled": False,
             }
+
+        # ====================================================
+        # END UNIT 14C
+        # ====================================================
 
         position_side = str(
             position.get(
