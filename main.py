@@ -721,3 +721,477 @@ if __name__ == "__main__":
 # ZERO INDENTATION
 # DO NOT MODIFY FROZEN UNITS 1-10
 # ============================================================
+
+
+# ============================================================
+# START UNIT 11 STANDALONE EXTENSION V1
+# ZERO INDENTATION
+#
+# PURPOSE:
+# - Simulated Unit 10 -> Unit 11 handover
+# - Continuous scan sequence simulation
+# - Closed candle continuity
+# - Duplicate rejection
+# - Signal identity preservation
+# - Signal expiry and reset
+# - Flat position safety
+# - Zero exchange writes
+#
+# FROZEN UNITS 1-10 = UNCHANGED
+# EXISTING UNIT 11 TESTS = UNCHANGED
+# REAL WEEX ACCESS = NONE
+# ============================================================
+
+def unit_11_extension_v1():
+
+    print("=" * 70, flush=True)
+    print(
+        "UNIT 11 STANDALONE EXTENSION V1 START",
+        flush=True,
+    )
+
+    passed = 0
+    failed = 0
+
+    def report(name, condition):
+
+        nonlocal passed, failed
+
+        if condition:
+            passed += 1
+            verdict = "PASS"
+        else:
+            failed += 1
+            verdict = "FAIL"
+
+        print(
+            verdict + ": " + name,
+            flush=True,
+        )
+
+    # --------------------------------------------------------
+    # SIMULATED UNIT 10 HANDOVER PROVIDER
+    # --------------------------------------------------------
+
+    def simulated_unit_10_provider(
+        scan,
+        mode="BREAKOUT",
+        direction="LONG",
+        signal_id="BREAKOUT-LONG-001",
+        candle_id=None,
+        closed=True,
+        qualified=True,
+        flat=True,
+        age_seconds=0,
+    ):
+
+        if candle_id is None:
+            candle_id = 1800000000000 + (
+                (scan - 1) * 60000
+            )
+
+        return {
+            "unit": 10,
+            "scan": scan,
+            "mode": mode,
+            "direction": direction,
+            "signal_id": signal_id,
+            "closed_candle_id": candle_id,
+            "closed": closed,
+            "qualified": qualified,
+            "position_flat_verified": flat,
+            "signal_age_seconds": age_seconds,
+            "read_only": True,
+            "trade_authorized": False,
+            "exchange_write": False,
+            "source": "SIMULATION",
+        }
+
+    # --------------------------------------------------------
+    # STANDALONE UNIT 11 CONTINUITY ENGINE
+    # NOT THE PRODUCTION UNIT 11 FUNCTION
+    # --------------------------------------------------------
+
+    def verify_sequence(records):
+
+        confirmations = 0
+        previous_candle = None
+        previous_identity = None
+
+        outputs = []
+
+        for record in records:
+
+            identity = (
+                record.get("mode"),
+                record.get("direction"),
+                record.get("signal_id"),
+            )
+
+            candle = record.get(
+                "closed_candle_id"
+            )
+
+            reason = "BLOCKED"
+            verified = False
+
+            safe = (
+                record.get("unit") == 10
+                and record.get("source") == "SIMULATION"
+                and record.get("read_only") is True
+                and record.get("trade_authorized") is False
+                and record.get("exchange_write") is False
+            )
+
+            qualified = (
+                record.get("qualified") is True
+                and record.get("closed") is True
+                and record.get("mode") in (
+                    "SCALP",
+                    "STRUCTURE",
+                    "BREAKOUT",
+                )
+                and record.get("direction") in (
+                    "LONG",
+                    "SHORT",
+                )
+                and bool(record.get("signal_id"))
+                and isinstance(candle, int)
+            )
+
+            age = record.get(
+                "signal_age_seconds"
+            )
+
+            fresh = (
+                isinstance(age, (int, float))
+                and not isinstance(age, bool)
+                and 0 <= age <= 120
+            )
+
+            if not safe:
+                confirmations = 0
+                previous_candle = None
+                previous_identity = None
+                reason = "UNSAFE_HANDOVER"
+
+            elif not qualified:
+                confirmations = 0
+                previous_candle = None
+                previous_identity = None
+                reason = "NO_VALID_SIGNAL"
+
+            elif not fresh:
+                confirmations = 0
+                previous_candle = None
+                previous_identity = None
+                reason = "SIGNAL_EXPIRED"
+
+            elif identity != previous_identity:
+                confirmations = 1
+                previous_identity = identity
+                previous_candle = candle
+                reason = "FIRST_CONFIRMATION"
+
+            elif candle == previous_candle:
+                reason = "DUPLICATE_CANDLE"
+
+            elif candle < previous_candle:
+                reason = "STALE_CANDLE"
+
+            elif candle - previous_candle != 60000:
+                confirmations = 1
+                previous_candle = candle
+                reason = "CANDLE_GAP_RESTART"
+
+            else:
+                confirmations = min(
+                    confirmations + 1,
+                    2,
+                )
+                previous_candle = candle
+
+                if confirmations >= 2:
+                    verified = True
+                    reason = "CONTINUITY_VERIFIED"
+                else:
+                    reason = "AWAITING_CONFIRMATION"
+
+            flat = (
+                record.get(
+                    "position_flat_verified"
+                ) is True
+            )
+
+            candidate_ready = (
+                verified
+                and flat
+                and safe
+                and fresh
+                and qualified
+            )
+
+            result = {
+                "scan": record.get("scan"),
+                "mode": record.get("mode"),
+                "direction": record.get("direction"),
+                "signal_id": record.get("signal_id"),
+                "reason": reason,
+                "confirmations": confirmations,
+                "continuity_verified": verified,
+                "candidate_ready": candidate_ready,
+                "trade_authorized": False,
+                "exchange_write": False,
+            }
+
+            outputs.append(result)
+
+        return outputs
+
+    # --------------------------------------------------------
+    # TEST 19: UNIT 10 HANDOVER
+    # --------------------------------------------------------
+
+    a = simulated_unit_10_provider(1)
+
+    report(
+        "19 UNIT 10 HANDOVER",
+        a["unit"] == 10
+        and a["mode"] == "BREAKOUT"
+        and a["direction"] == "LONG"
+        and a["source"] == "SIMULATION",
+    )
+
+    # --------------------------------------------------------
+    # TEST 20: CONTINUOUS SCAN SEQUENCE
+    # --------------------------------------------------------
+
+    scans = [
+        simulated_unit_10_provider(i)
+        for i in range(1, 4)
+    ]
+
+    results = verify_sequence(scans)
+
+    report(
+        "20 CONTINUOUS SCAN SIMULATION",
+        len(results) == 3
+        and results[0]["confirmations"] == 1
+        and results[1]["confirmations"] == 2
+        and results[2]["confirmations"] == 2
+        and results[2]["continuity_verified"],
+    )
+
+    # --------------------------------------------------------
+    # TEST 21: DUPLICATE CANDLE
+    # --------------------------------------------------------
+
+    duplicate = [
+        simulated_unit_10_provider(1),
+        simulated_unit_10_provider(
+            2,
+            candle_id=1800000000000,
+        ),
+    ]
+
+    duplicate_results = verify_sequence(
+        duplicate
+    )
+
+    report(
+        "21 DUPLICATE CANDLE REJECTED",
+        duplicate_results[-1]["reason"]
+        == "DUPLICATE_CANDLE"
+        and duplicate_results[-1]["confirmations"] == 1,
+    )
+
+    # --------------------------------------------------------
+    # TEST 22: MODE AND DIRECTION IDENTITY
+    # --------------------------------------------------------
+
+    changed = [
+        simulated_unit_10_provider(1),
+        simulated_unit_10_provider(
+            2,
+            mode="STRUCTURE",
+            direction="SHORT",
+            signal_id="STRUCTURE-SHORT-002",
+        ),
+    ]
+
+    changed_results = verify_sequence(
+        changed
+    )
+
+    report(
+        "22 SIGNAL IDENTITY RESET",
+        changed_results[-1]["confirmations"] == 1
+        and changed_results[-1]["reason"]
+        == "FIRST_CONFIRMATION",
+    )
+
+    # --------------------------------------------------------
+    # TEST 23: SIGNAL EXPIRY
+    # --------------------------------------------------------
+
+    expired = [
+        simulated_unit_10_provider(1),
+        simulated_unit_10_provider(
+            2,
+            age_seconds=121,
+        ),
+    ]
+
+    expired_results = verify_sequence(
+        expired
+    )
+
+    report(
+        "23 EXPIRED SIGNAL REJECTED",
+        expired_results[-1]["reason"]
+        == "SIGNAL_EXPIRED"
+        and expired_results[-1]["confirmations"] == 0,
+    )
+
+    # --------------------------------------------------------
+    # TEST 24: POSITION FLAT CHECK
+    # --------------------------------------------------------
+
+    occupied = [
+        simulated_unit_10_provider(1),
+        simulated_unit_10_provider(
+            2,
+            flat=False,
+        ),
+    ]
+
+    occupied_results = verify_sequence(
+        occupied
+    )
+
+    report(
+        "24 NON-FLAT POSITION BLOCKED",
+        occupied_results[-1][
+            "continuity_verified"
+        ] is True
+        and occupied_results[-1][
+            "candidate_ready"
+        ] is False,
+    )
+
+    # --------------------------------------------------------
+    # TEST 25: CONTINUITY CANDIDATE
+    # --------------------------------------------------------
+
+    ready = verify_sequence([
+        simulated_unit_10_provider(1),
+        simulated_unit_10_provider(2),
+    ])
+
+    report(
+        "25 VERIFIED READ ONLY CANDIDATE",
+        ready[-1]["candidate_ready"] is True
+        and ready[-1]["trade_authorized"] is False,
+    )
+
+    # --------------------------------------------------------
+    # TEST 26: ZERO EXCHANGE WRITES
+    # --------------------------------------------------------
+
+    unsafe = simulated_unit_10_provider(1)
+    unsafe["exchange_write"] = True
+
+    unsafe_results = verify_sequence([
+        unsafe
+    ])
+
+    report(
+        "26 EXCHANGE WRITE SAFETY",
+        unsafe_results[-1]["reason"]
+        == "UNSAFE_HANDOVER"
+        and unsafe_results[-1]["candidate_ready"]
+        is False
+        and all(
+            x["exchange_write"] is False
+            for x in (
+                results
+                + duplicate_results
+                + changed_results
+                + expired_results
+                + occupied_results
+                + ready
+                + unsafe_results
+            )
+        ),
+    )
+
+    # --------------------------------------------------------
+    # FINAL EXTENSION REPORT
+    # --------------------------------------------------------
+
+    print("=" * 70, flush=True)
+
+    print(
+        "UNIT 11 EXTENSION TESTS PASSED =",
+        passed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 EXTENSION TESTS FAILED =",
+        failed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 EXTENSION SOURCE = SIMULATION",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 EXTENSION REAL WEEX ACCESS = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 EXTENSION TRADE AUTHORIZED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 EXTENSION EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    verdict = (
+        "PASS" if failed == 0 else "FAIL"
+    )
+
+    print(
+        "UNIT 11 EXTENSION FINAL VERDICT =",
+        verdict,
+        flush=True,
+    )
+
+    print("=" * 70, flush=True)
+
+    return failed == 0
+
+
+# ============================================================
+# EXECUTE UNIT 11 EXTENSION
+# ZERO INDENTATION
+# ============================================================
+
+UNIT_11_EXTENSION_V1_RESULT = (
+    unit_11_extension_v1()
+)
+
+# ============================================================
+# END UNIT 11 STANDALONE EXTENSION V1
+# ZERO INDENTATION
+#
+# NO CHANGE TO UNITS 1-10
+# NO PRODUCTION UNIT 11 REPLACEMENT
+# NO EXCHANGE ORDERS
+# ============================================================
