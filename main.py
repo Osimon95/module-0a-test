@@ -10329,7 +10329,7 @@ import copy
 # ZERO INDENTATION
 # ============================================================
 
-UNIT_10_V12_TEST_ENABLED = True
+UNIT_10_V12_TEST_ENABLED = True 
 
 UNIT_10_V12_SCAN_COUNT = 3
 
@@ -10890,7 +10890,7 @@ def fresh_unit_10_v12_tests():
 # ZERO INDENTATION
 # ============================================================
 
-
+FRESH_UNIT_10_V12_ENABLED = False
 FRESH_UNIT_10_V12_RESULT = None
 
 if UNIT_10_V12_TEST_ENABLED:
@@ -11560,6 +11560,7 @@ def fresh_unit_10_v13_test():
 # ZERO INDENTATION
 # ============================================================
 
+FRESH_UNIT_10_V13_ENABLED = False
 FRESH_UNIT_10_V13_RESULT = None
 
 if UNIT_10_V13_TEST_ENABLED:
@@ -11571,5 +11572,782 @@ if UNIT_10_V13_TEST_ENABLED:
 
 # ============================================================
 # END UNIT 10 V1.3
+# ZERO INDENTATION
+# ============================================================
+
+
+# ============================================================
+# START UNIT 10 V1.4
+# ZERO INDENTATION
+#
+# SIGNAL LIFECYCLE AUDIT
+# DISTINCT CONFIRMATION EVENT COUNTING
+# REAL PUBLIC MARKET OBSERVATION
+#
+# READ ONLY
+# NO ACCOUNT OR POSITION ACCESS
+# NO ORDER SUBMISSION
+# NO EXCHANGE WRITE
+# ============================================================
+
+import time
+import copy
+
+
+# ============================================================
+# 1. SETTINGS
+# ZERO INDENTATION
+# ============================================================
+
+UNIT_10_V14_TEST_ENABLED = True
+UNIT_10_V14_REAL_SCAN_ENABLED = True
+
+UNIT_10_V14_SCAN_COUNT = 3
+UNIT_10_V14_SCAN_INTERVAL = 30.0
+
+
+# ============================================================
+# 2. INDEPENDENT LIFECYCLE STATE
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_10_v14_new_state():
+
+    return {
+        "last_status": "IDLE",
+        "last_signal_key": None,
+        "last_candle_id": None,
+        "confirmed_episode": None,
+        "new_confirmations": 0,
+        "repeated_confirmations": 0,
+        "lost_confirmations": 0,
+        "signal_replacements": 0,
+        "observations": 0,
+    }
+
+
+# ============================================================
+# 3. LIFECYCLE CLASSIFICATION
+# ZERO INDENTATION
+#
+# Does not authorize a trade.
+# Does not modify Unit 9.
+# ============================================================
+
+def fresh_unit_10_v14_classify(
+    state,
+    unit9,
+):
+
+    if not isinstance(state, dict):
+        raise RuntimeError(
+            "UNIT 10 V1.4 INVALID LIFECYCLE STATE"
+        )
+
+    if not isinstance(unit9, dict):
+        raise RuntimeError(
+            "UNIT 10 V1.4 INVALID UNIT 9 RESULT"
+        )
+
+    forbidden = (
+        "trade_authorized",
+        "exchange_write",
+        "execution_intent",
+        "reentry_authorized",
+        "order_payload_created",
+        "demo_order_submitted",
+        "real_order_submitted",
+        "position_flat_verified",
+    )
+
+    if unit9.get("read_only") is not True:
+        raise RuntimeError(
+            "UNIT 10 V1.4 READ ONLY FAILURE"
+        )
+
+    for key in forbidden:
+
+        if unit9.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 10 V1.4 UNSAFE FIELD: " + key
+            )
+
+    status = unit9.get("status")
+    mode = unit9.get("mode")
+    direction = unit9.get("direction")
+    candle_id = unit9.get("closed_candle_id")
+
+    confirmations = unit9.get("confirmations")
+    continuity = unit9.get("continuity_verified")
+
+    if status not in (
+        "IDLE",
+        "PENDING",
+        "CONFIRMED",
+        "BLOCKED",
+    ):
+        raise RuntimeError(
+            "UNIT 10 V1.4 INVALID SIGNAL STATUS"
+        )
+
+    if type(confirmations) is not int:
+        raise RuntimeError(
+            "UNIT 10 V1.4 INVALID CONFIRMATIONS"
+        )
+
+    if not 0 <= confirmations <= 2:
+        raise RuntimeError(
+            "UNIT 10 V1.4 CONFIRMATION LIMIT"
+        )
+
+    if type(continuity) is not bool:
+        raise RuntimeError(
+            "UNIT 10 V1.4 INVALID CONTINUITY FLAG"
+        )
+
+    if status == "CONFIRMED":
+
+        if (
+            confirmations != 2
+            or continuity is not True
+            or mode not in ("BREAKOUT", "STRUCTURE")
+            or direction not in ("LONG", "SHORT")
+            or type(candle_id) is not int
+            or candle_id <= 0
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.4 FALSE CONFIRMED SIGNAL"
+            )
+
+    elif continuity is True:
+        raise RuntimeError(
+            "UNIT 10 V1.4 FALSE CONTINUITY CLAIM"
+        )
+
+    signal_key = None
+
+    if status in ("PENDING", "CONFIRMED"):
+
+        if (
+            mode not in ("BREAKOUT", "STRUCTURE")
+            or direction not in ("LONG", "SHORT")
+            or type(candle_id) is not int
+            or candle_id <= 0
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.4 INVALID SIGNAL IDENTITY"
+            )
+
+        signal_key = (mode, direction)
+
+    previous_key = state["last_signal_key"]
+    previous_status = state["last_status"]
+    previous_episode = state["confirmed_episode"]
+
+    changed = (
+        signal_key is not None
+        and previous_key is not None
+        and signal_key != previous_key
+    )
+
+    if status == "CONFIRMED":
+
+        if (
+            previous_episode is not None
+            and previous_episode == signal_key
+            and not changed
+        ):
+
+            event = "CONFIRMATION_REPEATED"
+
+            state["repeated_confirmations"] += 1
+
+        else:
+
+            event = "NEW_CONFIRMATION"
+
+            state["new_confirmations"] += 1
+
+            state["confirmed_episode"] = signal_key
+
+    elif status == "PENDING":
+
+        if changed:
+            event = "SIGNAL_REPLACED"
+
+            state["signal_replacements"] += 1
+
+        else:
+            event = "PENDING"
+
+        if (
+            previous_episode is not None
+            and (
+                changed
+                or previous_status == "CONFIRMED"
+            )
+        ):
+            state["lost_confirmations"] += 1
+
+        state["confirmed_episode"] = None
+
+    elif status in ("IDLE", "BLOCKED"):
+
+        if previous_episode is not None:
+
+            event = "SIGNAL_LOST"
+
+            state["lost_confirmations"] += 1
+
+        elif status == "BLOCKED":
+
+            event = "BLOCKED"
+
+        else:
+
+            event = "IDLE"
+
+        state["confirmed_episode"] = None
+
+    else:
+
+        raise RuntimeError(
+            "UNIT 10 V1.4 UNHANDLED STATUS"
+        )
+
+    state["last_status"] = status
+    state["last_signal_key"] = signal_key
+    state["last_candle_id"] = candle_id
+    state["observations"] += 1
+
+    return {
+        "event": event,
+        "status": status,
+        "mode": mode,
+        "direction": direction,
+        "closed_candle_id": candle_id,
+        "confirmations": confirmations,
+        "new_confirmations": state[
+            "new_confirmations"
+        ],
+        "repeated_confirmations": state[
+            "repeated_confirmations"
+        ],
+        "lost_confirmations": state[
+            "lost_confirmations"
+        ],
+        "signal_replacements": state[
+            "signal_replacements"
+        ],
+        "read_only": True,
+        "trade_authorized": False,
+        "exchange_write": False,
+    }
+
+
+# ============================================================
+# 4. SYNTHETIC RESULT HELPER
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_10_v14_mock(
+    status,
+    mode="NONE",
+    direction="NONE",
+    candle_id=None,
+):
+
+    confirmed = status == "CONFIRMED"
+
+    return {
+        "status": status,
+        "mode": mode,
+        "direction": direction,
+        "closed_candle_id": candle_id,
+        "confirmations": (
+            2 if confirmed
+            else 1 if status == "PENDING"
+            else 0
+        ),
+        "continuity_verified": confirmed,
+        "read_only": True,
+        "trade_authorized": False,
+        "exchange_write": False,
+        "execution_intent": False,
+        "reentry_authorized": False,
+        "order_payload_created": False,
+        "demo_order_submitted": False,
+        "real_order_submitted": False,
+        "position_flat_verified": False,
+    }
+
+
+# ============================================================
+# 5. DETERMINISTIC CONTROLLED TESTS
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_10_v14_controlled_tests():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 10 V1.4 CONTROLLED TEST START",
+        flush=True,
+    )
+
+    state = fresh_unit_10_v14_new_state()
+
+    cases = [
+        (
+            "IDLE",
+            fresh_unit_10_v14_mock("IDLE"),
+            "IDLE",
+        ),
+        (
+            "FIRST_PENDING",
+            fresh_unit_10_v14_mock(
+                "PENDING",
+                "STRUCTURE",
+                "LONG",
+                1000,
+            ),
+            "PENDING",
+        ),
+        (
+            "FIRST_CONFIRMATION",
+            fresh_unit_10_v14_mock(
+                "CONFIRMED",
+                "STRUCTURE",
+                "LONG",
+                2000,
+            ),
+            "NEW_CONFIRMATION",
+        ),
+        (
+            "REPEATED_CONFIRMATION",
+            fresh_unit_10_v14_mock(
+                "CONFIRMED",
+                "STRUCTURE",
+                "LONG",
+                2000,
+            ),
+            "CONFIRMATION_REPEATED",
+        ),
+        (
+            "NEWER_CANDLE_SAME_SIGNAL",
+            fresh_unit_10_v14_mock(
+                "CONFIRMED",
+                "STRUCTURE",
+                "LONG",
+                3000,
+            ),
+            "CONFIRMATION_REPEATED",
+        ),
+        (
+            "CONFIRMED_SIGNAL_LOST",
+            fresh_unit_10_v14_mock("IDLE"),
+            "SIGNAL_LOST",
+        ),
+        (
+            "DIFFERENT_SIGNAL_PENDING",
+            fresh_unit_10_v14_mock(
+                "PENDING",
+                "BREAKOUT",
+                "SHORT",
+                4000,
+            ),
+            "PENDING",
+        ),
+        (
+            "DIFFERENT_SIGNAL_CONFIRMED",
+            fresh_unit_10_v14_mock(
+                "CONFIRMED",
+                "BREAKOUT",
+                "SHORT",
+                5000,
+            ),
+            "NEW_CONFIRMATION",
+        ),
+        (
+            "UPSTREAM_BLOCKED",
+            fresh_unit_10_v14_mock("BLOCKED"),
+            "SIGNAL_LOST",
+        ),
+    ]
+
+    passed = 0
+
+    for name, sample, expected in cases:
+
+        before = copy.deepcopy(sample)
+
+        output = fresh_unit_10_v14_classify(
+            state,
+            sample,
+        )
+
+        correct = (
+            output["event"] == expected
+            and sample == before
+            and output["trade_authorized"] is False
+            and output["exchange_write"] is False
+        )
+
+        print(
+            "UNIT 10 V1.4 TEST =",
+            name,
+            "| EVENT =",
+            output["event"],
+            "| RESULT =",
+            "PASS" if correct else "FAIL",
+            flush=True,
+        )
+
+        if not correct:
+            raise RuntimeError(
+                "UNIT 10 V1.4 TEST FAILED: " + name
+            )
+
+        passed += 1
+
+    if (
+        state["new_confirmations"] != 2
+        or state["repeated_confirmations"] != 2
+        or state["lost_confirmations"] != 2
+    ):
+        raise RuntimeError(
+            "UNIT 10 V1.4 EVENT COUNTERS INCORRECT"
+        )
+
+    print(
+        "UNIT 10 V1.4 CONTROLLED TEST COUNT =",
+        len(cases),
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.4 CONTROLLED TEST PASS =",
+        passed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.4 CONTROLLED RESULT = PASS",
+        flush=True,
+    )
+
+    return True
+
+
+# ============================================================
+# 6. BOUNDED REAL PUBLIC MARKET AUDIT
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_10_v14_real_audit():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 10 V1.4 REAL LIFECYCLE AUDIT START",
+        flush=True,
+    )
+
+    fresh_unit_10_validate_safety(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    if UNIT_10_CONTINUOUS_SCAN_ENABLED is not False:
+        raise RuntimeError(
+            "UNIT 10 V1.4 AUTO LOOP MUST BE DISABLED"
+        )
+
+    if (
+        UNIT_10_V14_SCAN_COUNT != 3
+        or UNIT_10_V14_SCAN_INTERVAL != 30.0
+    ):
+        raise RuntimeError(
+            "UNIT 10 V1.4 SCAN SETTINGS INVALID"
+        )
+
+    original_global = (
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    )
+
+    state = fresh_unit_10_v14_new_state()
+
+    history = []
+
+    previous_scan_id = (
+        FRESH_UNIT_10_STATE.get("last_scan_id")
+    )
+
+    for scan_number in range(
+        1,
+        UNIT_10_V14_SCAN_COUNT + 1,
+    ):
+
+        print("=" * 80, flush=True)
+
+        print(
+            "UNIT 10 V1.4 SCAN START =",
+            scan_number,
+            flush=True,
+        )
+
+        result = (
+            fresh_reconstruction_unit_10_scan(
+                fresh_unit_10_v11_refresh_provider
+            )
+        )
+
+        if (
+            not isinstance(result, dict)
+            or result.get("status") not in (
+                "IDLE",
+                "PENDING",
+                "CONFIRMED",
+                "BLOCKED",
+            )
+            or result.get("read_only") is not True
+            or result.get(
+                "trade_authorized"
+            ) is not False
+            or result.get(
+                "exchange_write"
+            ) is not False
+            or result.get(
+                "reentry_authorized"
+            ) is not False
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.4 SCAN ERROR: "
+                + str(
+                    result.get("reason")
+                    if isinstance(result, dict)
+                    else result
+                )
+            )
+
+        scan_id = result.get("scan_id")
+
+        if (
+            type(scan_id) is not int
+            or scan_id <= 0
+            or (
+                previous_scan_id is not None
+                and scan_id <= previous_scan_id
+            )
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.4 SCAN ID ERROR"
+            )
+
+        previous_scan_id = scan_id
+
+        unit9 = result.get("unit_9_result")
+
+        event = fresh_unit_10_v14_classify(
+            state,
+            unit9,
+        )
+
+        record = {
+            "scan_number": scan_number,
+            "scan_id": scan_id,
+            "event": event["event"],
+            "status": event["status"],
+            "mode": event["mode"],
+            "direction": event["direction"],
+            "closed_candle_id": event[
+                "closed_candle_id"
+            ],
+            "confirmations": event["confirmations"],
+        }
+
+        history.append(record)
+
+        print("-" * 80, flush=True)
+
+        print(
+            "UNIT 10 V1.4 SCAN NUMBER =",
+            scan_number,
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.4 LIFECYCLE EVENT =",
+            event["event"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.4 SIGNAL STATUS =",
+            event["status"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.4 MODE =",
+            event["mode"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.4 DIRECTION =",
+            event["direction"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.4 SIGNAL CANDLE =",
+            event["closed_candle_id"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.4 CONFIRMATIONS =",
+            event["confirmations"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.4 NEW CONFIRMATION EVENTS =",
+            state["new_confirmations"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.4 REPEATED CONFIRMATIONS =",
+            state["repeated_confirmations"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.4 EXCHANGE WRITE = NONE",
+            flush=True,
+        )
+
+        if scan_number < UNIT_10_V14_SCAN_COUNT:
+
+            time.sleep(
+                UNIT_10_V14_SCAN_INTERVAL
+            )
+
+    if (
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+        is not original_global
+    ):
+        raise RuntimeError(
+            "UNIT 10 V1.4 GLOBAL NOT RESTORED"
+        )
+
+    if FRESH_UNIT_10_STATE.get(
+        "scan_in_progress"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 10 V1.4 SCAN LOCK NOT RELEASED"
+        )
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 10 V1.4 SCANS COMPLETED =",
+        len(history),
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.4 NEW CONFIRMATION EVENTS =",
+        state["new_confirmations"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.4 REPEATED CONFIRMATION OBSERVATIONS =",
+        state["repeated_confirmations"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.4 LOST CONFIRMATIONS =",
+        state["lost_confirmations"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.4 ORIGINAL GLOBAL RESTORED = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.4 SCAN LOCK RELEASED = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.4 ACCOUNT ACCESS = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.4 POSITION ACCESS = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.4 DEMO ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.4 REAL ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.4 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.4 RESULT = PASS",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return {
+        "status": "PASS",
+        "scans_completed": len(history),
+        "lifecycle": copy.deepcopy(state),
+        "history": history,
+        "read_only": True,
+        "trade_authorized": False,
+        "exchange_write": False,
+    }
+
+
+# ============================================================
+# 7. RUN UNIT 10 V1.4
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_UNIT_10_V14_RESULT = None
+
+if UNIT_10_V14_TEST_ENABLED:
+
+    fresh_unit_10_v14_controlled_tests()
+
+    if UNIT_10_V14_REAL_SCAN_ENABLED:
+
+        FRESH_UNIT_10_V14_RESULT = (
+            fresh_unit_10_v14_real_audit()
+        )
+
+
+# ============================================================
+# END UNIT 10 V1.4
 # ZERO INDENTATION
 # ============================================================
