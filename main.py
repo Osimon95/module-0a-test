@@ -6931,7 +6931,8 @@ def fresh_unit_7_v11_tests():
 # ZERO INDENTATION
 # ============================================================
 
-FRESH_UNIT_7_V11_RESULT = False
+UNIT_7_V11_TEST_ENABLED = False
+
 FRESH_UNIT_7_V11_RESULT = None
 
 if UNIT_7_V11_TEST_ENABLED:
