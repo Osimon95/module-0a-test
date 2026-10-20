@@ -5688,13 +5688,21 @@ def fresh_unit_6_v11_tests():
 # ZERO INDENTATION
 # ============================================================
 
+
+# ============================================================
+# UNIT 6 V1.1 TEST SWITCH
+# ZERO INDENTATION
+# ============================================================
+
+UNIT_6_V11_TEST_ENABLED = False
+
 FRESH_UNIT_6_V11_RESULT = None
 
-if UNIT_6_V11_TEST_ENABLED = FALSE
-
+if UNIT_6_V11_TEST_ENABLED:
     FRESH_UNIT_6_V11_RESULT = (
         fresh_unit_6_v11_tests()
     )
+
 
 # ============================================================
 # END UNIT 6 V1.1
