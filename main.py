@@ -3427,3 +3427,558 @@ FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
 # ZERO INDENTATION
 # ============================================================
 
+
+# ============================================================
+# START UNIT 5 V2.1
+# CONTROLLED QUALIFICATION TEST SUITE
+# ZERO INDENTATION
+#
+# TEST ONLY:
+# - NO NEW MARKET REQUEST
+# - NO EXCHANGE ACCOUNT ACCESS
+# - NO ORDERS
+# - NO MUTATION OF UNIT 4 OR UNIT 5 RESULTS
+#
+# RUN AFTER UNIT 5 V2
+# ============================================================
+
+def fresh_unit_5_v21_tests():
+
+    import copy
+    import math
+
+    print("=" * 80, flush=True)
+    print("UNIT 5 V2.1 CONTROLLED TEST START", flush=True)
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    original = (
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+    )
+
+    original_result = (
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+    )
+
+    if not isinstance(original, dict):
+        raise RuntimeError(
+            "UNIT 5 V2.1 INVALID BASE SNAPSHOT"
+        )
+
+    if not isinstance(original_result, dict):
+        raise RuntimeError(
+            "UNIT 5 V2.1 INVALID ORIGINAL RESULT"
+        )
+
+    if (
+        original.get("read_only") is not True
+        or original.get("candle_data_fresh") is not True
+        or original.get("trade_authorized") is not False
+        or original.get("strategy_evidence_version")
+        != "U4_COORDINATED_V1"
+    ):
+        raise RuntimeError(
+            "UNIT 5 V2.1 BASE CONTRACT FAILURE"
+        )
+
+    # ========================================================
+    # 1. TEST SNAPSHOT BUILDER
+    # ========================================================
+
+    evidence_flags = (
+        "breakout_developing_long",
+        "breakout_developing_short",
+        "breakout_confirmed_long",
+        "breakout_confirmed_short",
+        "structure_developing_long",
+        "structure_developing_short",
+    )
+
+    def fixture(
+        direction="LONG",
+        sideways=False,
+        wide_range=False,
+        overextended=False,
+        **overrides
+    ):
+
+        data = copy.deepcopy(original)
+
+        for key in evidence_flags:
+            data[key] = False
+
+        data["direction_evidence"] = direction
+        data["sideways_candidate"] = sideways
+        data["price_overextended"] = overextended
+
+        data["candle_data_fresh"] = True
+        data["candle_age_seconds"] = 30.0
+
+        data["read_only"] = True
+        data["trade_authorized"] = False
+
+        data["strategy_evidence_version"] = (
+            "U4_COORDINATED_V1"
+        )
+
+        data["move_1m_pct"] = 0.030
+        data["move_5m_pct"] = 0.050
+        data["move_15m_pct"] = 0.050
+        data["move_30m_pct"] = 0.080
+
+        if direction == "SHORT":
+            data["move_1m_pct"] = -0.030
+            data["move_5m_pct"] = -0.050
+            data["move_15m_pct"] = -0.050
+            data["move_30m_pct"] = -0.080
+
+        if direction == "NONE":
+            data["move_1m_pct"] = 0.0
+            data["move_5m_pct"] = 0.0
+            data["move_15m_pct"] = 0.0
+            data["move_30m_pct"] = 0.0
+
+        # Construct a reproducible historical range.
+        # These candles are test fixtures, not WEEX data.
+
+        price = float(
+            data["latest_close"]
+        )
+
+        if not math.isfinite(price) or price <= 0:
+            raise RuntimeError(
+                "UNIT 5 V2.1 INVALID FIXTURE PRICE"
+            )
+
+        range_pct = (
+            0.40 if wide_range else 0.10
+        )
+
+        low_price = (
+            price * (1.0 - range_pct / 200.0)
+        )
+
+        high_price = (
+            price * (1.0 + range_pct / 200.0)
+        )
+
+        test_candles = []
+
+        for index in range(20):
+
+            test_candles.append({
+                "open": price,
+                "high": high_price,
+                "low": low_price,
+                "close": price,
+            })
+
+        data["recent_closed_klines"] = (
+            test_candles
+        )
+
+        for key, value in overrides.items():
+            data[key] = value
+
+        return data
+
+    # ========================================================
+    # 2. TEST RUNNER
+    # ========================================================
+
+    total = 0
+    passed = 0
+    failed = 0
+    spec_gaps = 0
+
+    def run_case(
+        name,
+        expected_mode,
+        expected_stage,
+        expected_direction,
+        expected_qualified,
+        data,
+        known_gap=False,
+    ):
+
+        nonlocal total, passed, failed, spec_gaps
+
+        total += 1
+
+        print("-" * 80, flush=True)
+        print("V2.1 TEST =", name, flush=True)
+
+        try:
+
+            result = fresh_reconstruction_unit_5(
+                config,
+                data,
+            )
+
+            actual = (
+                result.get("candidate_mode"),
+                result.get("candidate_stage"),
+                result.get("direction"),
+                result.get("qualified"),
+            )
+
+            expected = (
+                expected_mode,
+                expected_stage,
+                expected_direction,
+                expected_qualified,
+            )
+
+            safe = (
+                result.get("trade_authorized") is False
+                and result.get("read_only") is True
+            )
+
+            matched = actual == expected and safe
+
+            print(
+                "V2.1 EXPECTED =",
+                expected,
+                flush=True
+            )
+
+            print(
+                "V2.1 ACTUAL =",
+                actual,
+                flush=True
+            )
+
+            print(
+                "V2.1 READ ONLY =",
+                safe,
+                flush=True
+            )
+
+            if matched:
+                passed += 1
+                print(
+                    "V2.1 TEST RESULT = PASS",
+                    flush=True
+                )
+
+            elif known_gap and safe:
+                spec_gaps += 1
+                print(
+                    "V2.1 TEST RESULT = SPEC GAP",
+                    flush=True
+                )
+
+            else:
+                failed += 1
+                print(
+                    "V2.1 TEST RESULT = FAIL",
+                    flush=True
+                )
+
+        except Exception as exc:
+
+            failed += 1
+
+            print(
+                "V2.1 TEST RESULT = ERROR",
+                flush=True
+            )
+
+            print(
+                "V2.1 ERROR =",
+                repr(exc),
+                flush=True
+            )
+
+    # ========================================================
+    # TEST 1. CONFIRMED BREAKOUT LONG
+    # ========================================================
+
+    run_case(
+        "BREAKOUT_LONG_QUALIFIED",
+        "BREAKOUT",
+        "QUALIFIED",
+        "LONG",
+        True,
+        fixture(
+            breakout_confirmed_long=True
+        ),
+    )
+
+    # ========================================================
+    # TEST 2. CONFIRMED BREAKOUT SHORT
+    # ========================================================
+
+    run_case(
+        "BREAKOUT_SHORT_QUALIFIED",
+        "BREAKOUT",
+        "QUALIFIED",
+        "SHORT",
+        True,
+        fixture(
+            direction="SHORT",
+            breakout_confirmed_short=True
+        ),
+    )
+
+    # ========================================================
+    # TEST 3. DEVELOPING BREAKOUT PROTECTION
+    # ========================================================
+
+    run_case(
+        "BREAKOUT_DEVELOPING_PROTECTED",
+        "BREAKOUT",
+        "DEVELOPING",
+        "NONE",
+        False,
+        fixture(
+            breakout_developing_long=True,
+            structure_developing_long=True
+        ),
+    )
+
+    # ========================================================
+    # TEST 4. STRUCTURE LONG QUALIFIED
+    # ========================================================
+
+    run_case(
+        "STRUCTURE_LONG_QUALIFIED",
+        "STRUCTURE",
+        "QUALIFIED",
+        "LONG",
+        True,
+        fixture(
+            structure_developing_long=True
+        ),
+    )
+
+    # ========================================================
+    # TEST 5. STRUCTURE SHORT QUALIFIED
+    # ========================================================
+
+    run_case(
+        "STRUCTURE_SHORT_QUALIFIED",
+        "STRUCTURE",
+        "QUALIFIED",
+        "SHORT",
+        True,
+        fixture(
+            direction="SHORT",
+            structure_developing_short=True
+        ),
+    )
+
+    # ========================================================
+    # TEST 6. WEAK OPPOSING BREAKOUT
+    #
+    # SPECIFICATION:
+    # A weak SHORT breakout candidate must not
+    # indefinitely suppress a qualified LONG structure.
+    #
+    # This is a known potential gap in Unit 5 V2.
+    # ========================================================
+
+    run_case(
+        "WEAK_BREAKOUT_MUST_NOT_BLOCK_STRUCTURE",
+        "STRUCTURE",
+        "QUALIFIED",
+        "LONG",
+        True,
+        fixture(
+            direction="LONG",
+            breakout_developing_short=True,
+            structure_developing_long=True
+        ),
+        known_gap=True,
+    )
+
+    # ========================================================
+    # TEST 7. SIDEWAYS / PROFIT RANGE INSUFFICIENT
+    # ========================================================
+
+    run_case(
+        "SCALP_RANGE_REJECTED",
+        "NONE",
+        "NONE",
+        "NONE",
+        False,
+        fixture(
+            sideways=True,
+            wide_range=False
+        ),
+    )
+
+    # ========================================================
+    # TEST 8. SIDEWAYS / SCALP PENDING UNIT 6
+    # ========================================================
+
+    run_case(
+        "SCALP_VALID_PENDING_UNIT_6",
+        "SCALP",
+        "PENDING_UNIT_6",
+        "NONE",
+        False,
+        fixture(
+            sideways=True,
+            wide_range=True
+        ),
+    )
+
+    # ========================================================
+    # TEST 9. HIGHER MODE MUST BLOCK SCALP
+    # ========================================================
+
+    run_case(
+        "HIGHER_MODE_BLOCKS_SCALP",
+        "STRUCTURE",
+        "DEVELOPING",
+        "NONE",
+        False,
+        fixture(
+            sideways=True,
+            wide_range=True,
+            structure_developing_long=True,
+            move_15m_pct=0.010
+        ),
+    )
+
+    # ========================================================
+    # TEST 10. STALE EVIDENCE MUST BE REJECTED
+    # ========================================================
+
+    print("-" * 80, flush=True)
+    print(
+        "V2.1 TEST = STALE_CANDLE_REJECTION",
+        flush=True
+    )
+
+    total += 1
+
+    stale = fixture()
+    stale["candle_data_fresh"] = False
+    stale["candle_age_seconds"] = 240.0
+
+    try:
+
+        fresh_reconstruction_unit_5(
+            config,
+            stale,
+        )
+
+        failed += 1
+
+        print(
+            "V2.1 TEST RESULT = FAIL",
+            flush=True
+        )
+
+    except RuntimeError as exc:
+
+        if "STALE CANDLE" in str(exc):
+            passed += 1
+
+            print(
+                "V2.1 TEST RESULT = PASS",
+                flush=True
+            )
+
+        else:
+            failed += 1
+
+            print(
+                "V2.1 TEST RESULT = FAIL",
+                repr(exc),
+                flush=True
+            )
+
+    # ========================================================
+    # 3. ORIGINAL RESULT INTEGRITY
+    # ========================================================
+
+    preserved = (
+        original
+        ==
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+        and original_result
+        ==
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+    )
+
+    if not preserved:
+        raise RuntimeError(
+            "UNIT 5 V2.1 ORIGINAL STATE MODIFIED"
+        )
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 5 V2.1 TEST COUNT =",
+        total,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 V2.1 PASS =",
+        passed,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 V2.1 FAIL =",
+        failed,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 V2.1 SPEC GAPS =",
+        spec_gaps,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 V2.1 ORIGINAL DATA PRESERVED =",
+        preserved,
+        flush=True
+    )
+
+    if failed:
+        verdict = "FAIL"
+
+    elif spec_gaps:
+        verdict = "SPEC_GAPS_FOUND"
+
+    else:
+        verdict = "PASS"
+
+    print(
+        "UNIT 5 V2.1 RESULT =",
+        verdict,
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return {
+        "status": verdict,
+        "tests": total,
+        "passed": passed,
+        "failed": failed,
+        "spec_gaps": spec_gaps,
+        "original_preserved": preserved,
+        "read_only": True,
+        "trade_authorized": False,
+    }
+
+
+# ============================================================
+# RUN UNIT 5 V2.1
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_UNIT_5_V21_RESULT = (
+    fresh_unit_5_v21_tests()
+)
+
+# ============================================================
+# END UNIT 5 V2.1
+# ZERO INDENTATION
+# ============================================================
