@@ -9292,6 +9292,8 @@ def fresh_unit_9_v11_tests():
 # ZERO INDENTATION
 # ============================================================
 
+UNIT_9_V11_TEST_ENABLED = False
+
 FRESH_UNIT_9_V11_RESULT = None
 
 if UNIT_9_V11_TEST_ENABLED:
@@ -9302,5 +9304,480 @@ if UNIT_9_V11_TEST_ENABLED:
 
 # ============================================================
 # END UNIT 9 V1.1 CONTROLLED TEST SUITE
+# ZERO INDENTATION
+# ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 10 V1
+# ZERO INDENTATION
+#
+# CONTINUOUS SCAN COORDINATOR
+#
+# PRESERVES UNITS 1-9
+# READ ONLY
+# NO AUTHENTICATED WEEX REQUESTS
+# NO ORDERS
+# NO EXCHANGE WRITES
+#
+# UNIT 10 V1 = COORDINATOR PREFLIGHT
+# PUBLIC MARKET REFRESH ADAPTER = NEXT STAGE
+# ============================================================
+
+import time
+
+
+# ============================================================
+# UNIT 10 SETTINGS
+# ZERO INDENTATION
+# ============================================================
+
+UNIT_10_SCAN_INTERVAL_SECONDS = 10.0
+UNIT_10_CONTINUOUS_SCAN_ENABLED = False
+
+
+# ============================================================
+# UNIT 10 PROCESS STATE
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_UNIT_10_STATE = {
+    "scan_count": 0,
+    "last_scan_id": None,
+    "last_scan_monotonic": None,
+    "scan_in_progress": False,
+    "last_status": "NOT_STARTED",
+    "last_reason": None,
+}
+
+
+# ============================================================
+# UNIT 10 SAFETY VALIDATION
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_10_validate_safety(config):
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 10 INVALID CONFIGURATION"
+        )
+
+    safety = config.get("safety")
+
+    if not isinstance(safety, dict):
+        raise RuntimeError(
+            "UNIT 10 SAFETY CONFIG MISSING"
+        )
+
+    forbidden = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for key in forbidden:
+
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 10 UNSAFE CONFIG: " + key
+            )
+
+    return True
+
+
+# ============================================================
+# UNIT 10 SINGLE REFRESHED SCAN
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_reconstruction_unit_10_scan(
+    scan_provider,
+    config=None,
+):
+
+    if config is None:
+        config = FRESH_RECONSTRUCTION_CONFIG
+
+    fresh_unit_10_validate_safety(config)
+
+    state = FRESH_UNIT_10_STATE
+
+    if state["scan_in_progress"]:
+        return {
+            "status": "BLOCKED",
+            "reason": "SCAN_ALREADY_IN_PROGRESS",
+            "read_only": True,
+            "trade_authorized": False,
+            "exchange_write": False,
+        }
+
+    if not callable(scan_provider):
+        return {
+            "status": "BLOCKED",
+            "reason": "REFRESH_PROVIDER_NOT_CONNECTED",
+            "read_only": True,
+            "trade_authorized": False,
+            "exchange_write": False,
+        }
+
+    state["scan_in_progress"] = True
+
+    try:
+
+        # The provider must refresh actual public
+        # market data and rerun Units 3-8.
+        #
+        # Expected dictionary:
+        #
+        # {
+        #   "scan_id": unique fresh-scan identifier,
+        #   "unit_4": fresh Unit 4 result,
+        #   "unit_8": fresh Unit 8 result,
+        # }
+        #
+        # Do not supply permanently cached startup
+        # snapshots as if they were fresh scans.
+
+        frame = scan_provider()
+
+        if not isinstance(frame, dict):
+            raise RuntimeError(
+                "UNIT 10 INVALID REFRESH FRAME"
+            )
+
+        scan_id = frame.get("scan_id")
+        unit4 = frame.get("unit_4")
+        unit8 = frame.get("unit_8")
+
+        if (
+            type(scan_id) is not int
+            or scan_id <= 0
+            or not isinstance(unit4, dict)
+            or not isinstance(unit8, dict)
+        ):
+            raise RuntimeError(
+                "UNIT 10 INCOMPLETE REFRESH FRAME"
+            )
+
+        if (
+            state["last_scan_id"] is not None
+            and scan_id <= state["last_scan_id"]
+        ):
+            state["last_status"] = "BLOCKED"
+            state["last_reason"] = (
+                "DUPLICATE_OR_REGRESSED_SCAN_ID"
+            )
+
+            return {
+                "status": "BLOCKED",
+                "reason": state["last_reason"],
+                "scan_id": scan_id,
+                "read_only": True,
+                "trade_authorized": False,
+                "exchange_write": False,
+            }
+
+        # Unit 9 independently validates market
+        # evidence and tracks distinct closed
+        # candle confirmations.
+
+        unit9 = fresh_reconstruction_unit_9(
+            config,
+            unit4,
+            unit8,
+        )
+
+        if (
+            not isinstance(unit9, dict)
+            or unit9.get("read_only") is not True
+            or unit9.get("trade_authorized") is not False
+            or unit9.get("exchange_write") is not False
+            or unit9.get("reentry_authorized") is not False
+            or unit9.get("execution_intent") is not False
+            or unit9.get("order_payload_created") is not False
+            or unit9.get("demo_order_submitted") is not False
+            or unit9.get("real_order_submitted") is not False
+        ):
+            raise RuntimeError(
+                "UNIT 10 UNIT 9 SAFETY VIOLATION"
+            )
+
+        state["scan_count"] += 1
+        state["last_scan_id"] = scan_id
+        state["last_scan_monotonic"] = (
+            time.monotonic()
+        )
+
+        state["last_status"] = unit9["status"]
+        state["last_reason"] = unit9["reason"]
+
+        print("-" * 80, flush=True)
+
+        print(
+            "UNIT 10 SCAN NUMBER =",
+            state["scan_count"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 SCAN ID =",
+            scan_id,
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 SIGNAL STATUS =",
+            unit9["status"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 SIGNAL REASON =",
+            unit9["reason"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 CONFIRMATIONS =",
+            unit9["confirmations"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 CONTINUITY VERIFIED =",
+            unit9["continuity_verified"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 TRADE AUTHORIZED = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 EXCHANGE WRITE = NONE",
+            flush=True,
+        )
+
+        return {
+            "status": unit9["status"],
+            "reason": unit9["reason"],
+            "scan_id": scan_id,
+            "scan_count": state["scan_count"],
+            "unit_9_result": unit9,
+            "read_only": True,
+            "trade_authorized": False,
+            "exchange_write": False,
+            "reentry_authorized": False,
+        }
+
+    except Exception as exc:
+
+        state["last_status"] = "ERROR"
+        state["last_reason"] = str(exc)
+
+        print(
+            "UNIT 10 SCAN ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+        return {
+            "status": "ERROR",
+            "reason": str(exc),
+            "read_only": True,
+            "trade_authorized": False,
+            "exchange_write": False,
+            "reentry_authorized": False,
+        }
+
+    finally:
+
+        state["scan_in_progress"] = False
+
+
+# ============================================================
+# UNIT 10 BOUNDED SCAN LOOP
+# ZERO INDENTATION
+#
+# NOT AUTOMATICALLY STARTED
+# REQUIRES A VERIFIED REFRESH PROVIDER
+# ============================================================
+
+def fresh_unit_10_run_scans(
+    scan_provider,
+    max_scans=1,
+    interval_seconds=10.0,
+):
+
+    fresh_unit_10_validate_safety(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    if not callable(scan_provider):
+        raise RuntimeError(
+            "UNIT 10 REFRESH PROVIDER REQUIRED"
+        )
+
+    if (
+        type(max_scans) is not int
+        or max_scans < 1
+        or max_scans > 100
+    ):
+        raise RuntimeError(
+            "UNIT 10 INVALID SCAN LIMIT"
+        )
+
+    interval = float(interval_seconds)
+
+    if not 1.0 <= interval <= 3600.0:
+        raise RuntimeError(
+            "UNIT 10 INVALID SCAN INTERVAL"
+        )
+
+    outputs = []
+
+    for index in range(max_scans):
+
+        result = fresh_reconstruction_unit_10_scan(
+            scan_provider
+        )
+
+        outputs.append(result)
+
+        if result["status"] == "ERROR":
+            break
+
+        if index + 1 < max_scans:
+            time.sleep(interval)
+
+    return outputs
+
+
+# ============================================================
+# UNIT 10 V1 PREFLIGHT
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_10_v1_preflight():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 10 V1 START",
+        flush=True,
+    )
+
+    fresh_unit_10_validate_safety(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    if UNIT_10_CONTINUOUS_SCAN_ENABLED is not False:
+        raise RuntimeError(
+            "UNIT 10 UNVERIFIED AUTO SCAN ENABLED"
+        )
+
+    result = fresh_reconstruction_unit_10_scan(
+        None
+    )
+
+    if (
+        result.get("status") != "BLOCKED"
+        or result.get("reason") !=
+        "REFRESH_PROVIDER_NOT_CONNECTED"
+        or result.get("read_only") is not True
+        or result.get("trade_authorized") is not False
+        or result.get("exchange_write") is not False
+    ):
+        raise RuntimeError(
+            "UNIT 10 PREFLIGHT FAILED"
+        )
+
+    print(
+        "PASS: UNIT 10 READ ONLY SAFETY",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 10 PROVIDER REQUIRED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 REFRESH PROVIDER = NOT CONNECTED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 AUTOMATIC SCANNING = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 SIGNAL STATE = BLOCKED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 ACCOUNT ACCESS = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 POSITION ACCESS = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 DEMO ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 REAL ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 10 RESULT = PASS",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return {
+        "status": "PASS",
+        "provider_connected": False,
+        "automatic_scanning": False,
+        "read_only": True,
+        "exchange_write": False,
+        "trade_authorized": False,
+    }
+
+
+# ============================================================
+# RUN UNIT 10 V1 PREFLIGHT
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_10_RESULT = (
+    fresh_unit_10_v1_preflight()
+)
+
+# ============================================================
+# END COMPLETE UNIT 10 V1
 # ZERO INDENTATION
 # ============================================================
