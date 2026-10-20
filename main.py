@@ -9781,3 +9781,521 @@ FRESH_RECONSTRUCTION_UNIT_10_RESULT = (
 # END COMPLETE UNIT 10 V1
 # ZERO INDENTATION
 # ============================================================
+
+
+
+# ============================================================
+# START UNIT 10 V1.1
+# ZERO INDENTATION
+#
+# VERIFIED UNIT 3 TO UNIT 9 REFRESH ADAPTER
+#
+# ONE REAL PUBLIC MARKET REFRESH
+# NO AUTOMATIC LOOP
+# NO ACCOUNT OR POSITION ACCESS
+# NO DEMO OR REAL ORDER
+# NO EXCHANGE WRITE
+# ============================================================
+
+import copy
+import time
+
+
+# ============================================================
+# 1. REFRESH PROVIDER
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_10_v11_refresh_provider():
+
+    global FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 10 V1.1 PUBLIC REFRESH START",
+        flush=True,
+    )
+
+    fresh_unit_10_validate_safety(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    original_market_reference = (
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    )
+
+    # Keep the original Unit 3 global intact
+    # outside this controlled refresh.
+
+    try:
+
+        # ====================================================
+        # 2. REFRESH UNIT 3
+        # ====================================================
+
+        new_market = fresh_reconstruction_unit_3()
+
+        if (
+            not isinstance(new_market, dict)
+            or new_market.get("read_only") is not True
+            or new_market.get(
+                "market_data_fresh"
+            ) is not True
+            or new_market.get("symbol") != "BTCUSDT"
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.1 INVALID UNIT 3 REFRESH"
+            )
+
+        # Unit 4 reads this particular global.
+        # Temporarily replace its reference.
+
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
+            new_market
+        )
+
+        # ====================================================
+        # 3. REFRESH UNIT 4
+        # ====================================================
+
+        new_analysis = (
+            fresh_reconstruction_unit_4()
+        )
+
+        if (
+            not isinstance(new_analysis, dict)
+            or new_analysis.get(
+                "read_only"
+            ) is not True
+            or new_analysis.get(
+                "trade_authorized"
+            ) is not False
+            or new_analysis.get(
+                "candle_data_fresh"
+            ) is not True
+            or new_analysis.get(
+                "symbol"
+            ) != "BTCUSDT"
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.1 INVALID UNIT 4 REFRESH"
+            )
+
+        # Restore the original Unit 3 reference
+        # as soon as Unit 4 has finished.
+
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
+            original_market_reference
+        )
+
+        # ====================================================
+        # 4. NORMALIZE CLOSED-CANDLE IDENTIFIER
+        # ====================================================
+
+        # Unit 4 uses open_time_ms.
+        # Unit 9 expects timestamp or similar.
+        #
+        # Add a timestamp alias only to a
+        # separate copy of the refreshed result.
+
+        adapted_analysis = copy.deepcopy(
+            new_analysis
+        )
+
+        candles = adapted_analysis.get(
+            "recent_closed_klines"
+        )
+
+        if (
+            not isinstance(candles, list)
+            or not candles
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.1 CLOSED CANDLES MISSING"
+            )
+
+        previous_timestamp = None
+
+        for candle in candles:
+
+            if not isinstance(candle, dict):
+                raise RuntimeError(
+                    "UNIT 10 V1.1 INVALID CANDLE"
+                )
+
+            timestamp = candle.get(
+                "open_time_ms"
+            )
+
+            if (
+                type(timestamp) is not int
+                or timestamp <= 0
+            ):
+                raise RuntimeError(
+                    "UNIT 10 V1.1 INVALID CANDLE TIME"
+                )
+
+            if (
+                previous_timestamp is not None
+                and timestamp <= previous_timestamp
+            ):
+                raise RuntimeError(
+                    "UNIT 10 V1.1 CANDLE TIME ORDER"
+                )
+
+            if (
+                type(candle.get("close_time_ms"))
+                is not int
+                or candle["close_time_ms"]
+                <= timestamp
+            ):
+                raise RuntimeError(
+                    "UNIT 10 V1.1 INVALID CLOSE TIME"
+                )
+
+            # Add only the compatibility alias.
+            candle["timestamp"] = timestamp
+
+            previous_timestamp = timestamp
+
+        newest = candles[-1]
+
+        if (
+            newest["open_time_ms"]
+            != adapted_analysis.get(
+                "latest_open_time_ms"
+            )
+            or newest["close_time_ms"]
+            != adapted_analysis.get(
+                "latest_close_time_ms"
+            )
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.1 LATEST CANDLE MISMATCH"
+            )
+
+        if (
+            newest["close_time_ms"]
+            > adapted_analysis.get(
+                "exchange_time_ms", 0
+            )
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.1 UNCLOSED CANDLE"
+            )
+
+        print(
+            "PASS: UNIT 10 V1.1 CANDLE TIMESTAMP ADAPTER",
+            flush=True,
+        )
+
+        # ====================================================
+        # 5. RECOMPUTE UNIT 5
+        # ====================================================
+
+        new_unit5 = fresh_reconstruction_unit_5(
+            FRESH_RECONSTRUCTION_CONFIG,
+            adapted_analysis,
+        )
+
+        # ====================================================
+        # 6. RECOMPUTE UNIT 6
+        # ====================================================
+
+        new_unit6 = fresh_reconstruction_unit_6(
+            FRESH_RECONSTRUCTION_CONFIG,
+            adapted_analysis,
+            new_unit5,
+        )
+
+        # ====================================================
+        # 7. RECOMPUTE UNIT 7
+        # ====================================================
+
+        new_unit7 = fresh_reconstruction_unit_7(
+            FRESH_RECONSTRUCTION_CONFIG,
+            new_unit6,
+        )
+
+        # ====================================================
+        # 8. RECOMPUTE UNIT 8
+        # ====================================================
+
+        new_unit8 = fresh_reconstruction_unit_8(
+            FRESH_RECONSTRUCTION_CONFIG,
+            adapted_analysis,
+            new_unit7,
+        )
+
+        # ====================================================
+        # 9. VERIFY FRESH HANDOVER
+        # ====================================================
+
+        if not all(
+            isinstance(item, dict)
+            for item in (
+                new_unit5,
+                new_unit6,
+                new_unit7,
+                new_unit8,
+            )
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.1 INVALID UNIT HANDOVER"
+            )
+
+        if (
+            new_unit8.get("read_only") is not True
+            or new_unit8.get(
+                "trade_authorized"
+            ) is not False
+            or new_unit8.get(
+                "exchange_write"
+            ) is not False
+            or new_unit8.get(
+                "reentry_authorized"
+            ) is not False
+            or new_unit8.get(
+                "execution_intent"
+            ) is not False
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.1 UNSAFE UNIT 8 OUTPUT"
+            )
+
+        # Use a process-local increasing scan ID.
+        # This identifies refresh calls, NOT
+        # independent closed-candle confirmations.
+        #
+        # Unit 9 is separately responsible for
+        # detecting duplicate closed candles.
+
+        scan_id = time.monotonic_ns()
+
+        print(
+            "UNIT 10 V1.1 SCAN ID =",
+            scan_id,
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.1 LATEST CLOSED CANDLE =",
+            newest["timestamp"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.1 UNIT 8 STATUS =",
+            new_unit8.get("status"),
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.1 UNIT 8 MODE =",
+            new_unit8.get("pending_mode"),
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.1 UNIT 8 DIRECTION =",
+            new_unit8.get("pending_direction"),
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 10 V1.1 FRESH PIPELINE",
+            flush=True,
+        )
+
+        return {
+            "scan_id": scan_id,
+            "unit_4": adapted_analysis,
+            "unit_8": new_unit8,
+        }
+
+    finally:
+
+        # ====================================================
+        # 10. RESTORE ORIGINAL GLOBAL REFERENCE
+        # ====================================================
+
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
+            original_market_reference
+        )
+
+
+# ============================================================
+# 11. SINGLE-SCAN INTEGRATION TEST
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_10_v11_integration_test():
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 10 V1.1 INTEGRATION TEST START",
+        flush=True,
+    )
+
+    fresh_unit_10_validate_safety(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    if UNIT_10_CONTINUOUS_SCAN_ENABLED is not False:
+        raise RuntimeError(
+            "UNIT 10 V1.1 AUTO LOOP MUST STAY DISABLED"
+        )
+
+    original_reference = (
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    )
+
+    result = fresh_reconstruction_unit_10_scan(
+        fresh_unit_10_v11_refresh_provider
+    )
+
+    if (
+        result.get("status")
+        not in (
+            "IDLE",
+            "PENDING",
+            "CONFIRMED",
+            "BLOCKED",
+        )
+        or result.get("read_only") is not True
+        or result.get(
+            "trade_authorized"
+        ) is not False
+        or result.get(
+            "exchange_write"
+        ) is not False
+        or result.get(
+            "reentry_authorized"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 10 V1.1 SCAN INTEGRATION FAILED: "
+            + str(result.get("reason"))
+        )
+
+    if (
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+        is not original_reference
+    ):
+        raise RuntimeError(
+            "UNIT 10 V1.1 GLOBAL RESTORATION FAILED"
+        )
+
+    unit9 = result.get("unit_9_result")
+
+    if not isinstance(unit9, dict):
+        raise RuntimeError(
+            "UNIT 10 V1.1 UNIT 9 RESULT MISSING"
+        )
+
+    print(
+        "PASS: UNIT 10 V1.1 PUBLIC DATA REFRESH",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 10 V1.1 UNITS 3 TO 9 RECONNECTED",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 10 V1.1 ORIGINAL GLOBAL RESTORED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.1 STATUS =",
+        result["status"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.1 REASON =",
+        result["reason"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.1 CONFIRMATIONS =",
+        unit9.get("confirmations"),
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.1 CONTINUITY VERIFIED =",
+        unit9.get("continuity_verified"),
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.1 AUTOMATIC LOOP = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.1 ACCOUNT ACCESS = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.1 POSITION ACCESS = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.1 DEMO ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.1 REAL ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.1 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.1 RESULT = PASS",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return {
+        "status": "PASS",
+        "scan_status": result["status"],
+        "scan_reason": result["reason"],
+        "read_only": True,
+        "trade_authorized": False,
+        "exchange_write": False,
+    }
+
+
+# ============================================================
+# RUN UNIT 10 V1.1
+# ZERO INDENTATION
+# ============================================================
+
+UNIT_10_V11_TEST_ENABLED = True
+
+FRESH_UNIT_10_V11_RESULT = None
+
+if UNIT_10_V11_TEST_ENABLED:
+
+    FRESH_UNIT_10_V11_RESULT = (
+        fresh_unit_10_v11_integration_test()
+    )
+
+
+# ============================================================
+# END UNIT 10 V1.1
+# ZERO INDENTATION
+# ============================================================
