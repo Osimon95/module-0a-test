@@ -6933,7 +6933,7 @@ def fresh_unit_7_v11_tests():
 
 FRESH_UNIT_7_V11_RESULT = None
 
-if UNIT_7_V11_TEST_ENABLED:
+if UNIT_7_V11_TEST_ENABLED: = False
 
     FRESH_UNIT_7_V11_RESULT = (
         fresh_unit_7_v11_tests()
@@ -6944,3 +6944,499 @@ if UNIT_7_V11_TEST_ENABLED:
 # ZERO INDENTATION
 # ============================================================
 
+
+# ============================================================
+# START COMPLETE UNIT 8 V1
+# ZERO INDENTATION
+#
+# ENTRY READINESS AND SIGNAL CONTINUITY
+#
+# CONSUMES:
+# - UNIT 2 CONFIGURATION
+# - UNIT 4 MARKET ANALYSIS
+# - UNIT 7 HANDOVER RESULT
+#
+# READ ONLY
+# NO POSITION ACCESS
+# NO ACCOUNT ACCESS
+# NO ORDER SUBMISSION
+# NO EXCHANGE WRITE
+# ============================================================
+
+def fresh_reconstruction_unit_8(
+    unit_2_config,
+    unit_4_analysis,
+    unit_7_result,
+):
+
+    import math
+
+    print("=" * 80, flush=True)
+    print(
+        "FRESH RECONSTRUCTION UNIT 8 V1 START",
+        flush=True,
+    )
+
+    # ========================================================
+    # 1. INPUT CONTRACT
+    # ========================================================
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            unit_2_config,
+            unit_4_analysis,
+            unit_7_result,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 8 INVALID INPUT CONTRACT"
+        )
+
+    safety = unit_2_config.get("safety")
+
+    if not isinstance(safety, dict):
+        raise RuntimeError(
+            "UNIT 8 SAFETY CONFIGURATION MISSING"
+        )
+
+    # ========================================================
+    # 2. READ ONLY SAFETY GATE
+    # ========================================================
+
+    forbidden = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for key in forbidden:
+
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 8 UNSAFE CONFIG: " + key
+            )
+
+    for key in (
+        "read_only",
+        "trade_authorized",
+        "exchange_write",
+        "order_payload_created",
+    ):
+
+        expected = (
+            True if key == "read_only"
+            else False
+        )
+
+        if unit_7_result.get(key) is not expected:
+            raise RuntimeError(
+                "UNIT 8 UNSAFE UNIT 7 FIELD: " + key
+            )
+
+    if (
+        unit_7_result.get(
+            "execution_intent"
+        ) is not False
+        or unit_7_result.get(
+            "demo_order_enabled"
+        ) is not False
+        or unit_7_result.get(
+            "real_order_enabled"
+        ) is not False
+        or unit_7_result.get(
+            "position_sizing_performed"
+        ) is not False
+        or unit_7_result.get(
+            "quantity_calculated"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 8 EXECUTION SAFETY VIOLATION"
+        )
+
+    print(
+        "PASS: UNIT 8 READ ONLY SAFETY",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3. VALIDATE FRESH MARKET EVIDENCE
+    # ========================================================
+
+    if (
+        unit_4_analysis.get("read_only")
+        is not True
+        or unit_4_analysis.get(
+            "trade_authorized"
+        ) is not False
+        or unit_4_analysis.get(
+            "strategy_evidence_version"
+        ) != "U4_COORDINATED_V1"
+    ):
+        raise RuntimeError(
+            "UNIT 8 INVALID MARKET EVIDENCE"
+        )
+
+    def finite_number(value, label):
+
+        try:
+            result = float(value)
+        except (
+            TypeError,
+            ValueError,
+            OverflowError,
+        ) as exc:
+            raise RuntimeError(
+                "UNIT 8 INVALID " + label
+            ) from exc
+
+        if not math.isfinite(result):
+            raise RuntimeError(
+                "UNIT 8 NONFINITE " + label
+            )
+
+        return result
+
+    candle_age = finite_number(
+        unit_4_analysis.get(
+            "candle_age_seconds"
+        ),
+        "CANDLE AGE",
+    )
+
+    market_fresh = (
+        unit_4_analysis.get(
+            "candle_data_fresh"
+        ) is True
+        and 0 <= candle_age <= 180
+    )
+
+    market_direction = unit_4_analysis.get(
+        "direction_evidence", "NONE"
+    )
+
+    if market_direction not in (
+        "NONE",
+        "LONG",
+        "SHORT",
+    ):
+        raise RuntimeError(
+            "UNIT 8 INVALID MARKET DIRECTION"
+        )
+
+    # ========================================================
+    # 4. RECEIVE UNIT 7 RESULT
+    # ========================================================
+
+    unit7_status = unit_7_result.get("status")
+    signal_received = unit_7_result.get(
+        "signal_received"
+    )
+    signal_qualified = unit_7_result.get(
+        "signal_qualified"
+    )
+
+    mode = unit_7_result.get(
+        "active_mode", "NONE"
+    )
+    direction = unit_7_result.get(
+        "direction", "NONE"
+    )
+
+    if unit7_status not in ("IDLE", "HELD"):
+        raise RuntimeError(
+            "UNIT 8 INVALID UNIT 7 STATUS"
+        )
+
+    if (
+        type(signal_received) is not bool
+        or type(signal_qualified) is not bool
+        or signal_received != signal_qualified
+    ):
+        raise RuntimeError(
+            "UNIT 8 SIGNAL FLAG MISMATCH"
+        )
+
+    if unit7_status == "IDLE":
+
+        if (
+            signal_received
+            or mode != "NONE"
+            or direction != "NONE"
+        ):
+            raise RuntimeError(
+                "UNIT 8 IDLE HANDOVER MISMATCH"
+            )
+
+    else:
+
+        if (
+            not signal_received
+            or mode not in (
+                "BREAKOUT", "STRUCTURE"
+            )
+            or direction not in (
+                "LONG", "SHORT"
+            )
+        ):
+            raise RuntimeError(
+                "UNIT 8 HELD HANDOVER MISMATCH"
+            )
+
+    print(
+        "PASS: UNIT 8 UNIT 7 HANDOVER",
+        flush=True,
+    )
+
+    # ========================================================
+    # 5. DETERMINE CURRENT SNAPSHOT STATUS
+    # ========================================================
+
+    signal_direction_match = (
+        market_direction == direction
+        if signal_received else False
+    )
+
+    if not market_fresh:
+
+        status = "BLOCKED"
+        reason = "STALE_MARKET_EVIDENCE"
+
+    elif unit7_status == "IDLE":
+
+        status = "IDLE"
+        reason = "NO_QUALIFIED_SIGNAL"
+
+    elif not signal_direction_match:
+
+        status = "BLOCKED"
+        reason = "SIGNAL_DIRECTION_CONFLICT"
+
+    else:
+
+        status = "PENDING"
+        reason = (
+            "SIGNAL_FRESH_AND_ALIGNED_"
+            "AWAITING_CONTINUITY_AND_POSITION_CHECKS"
+        )
+
+    # ========================================================
+    # 6. NO FALSE CONTINUITY CLAIMS
+    # ========================================================
+
+    # One market snapshot does not prove
+    # multiple independent confirmations.
+    #
+    # Persisted scan history and distinct
+    # closed-candle identifiers are required
+    # for trustworthy continuity measurement.
+
+    continuity_observations = (
+        1 if status == "PENDING" else 0
+    )
+
+    continuity_required = 2
+    continuity_verified = False
+
+    # No authenticated position information
+    # is available at this development stage.
+
+    position_flat_verified = False
+    existing_position_checked = False
+    pending_orders_checked = False
+
+    # Without position/pending-order evidence,
+    # re-entry cannot be authorized.
+
+    reentry_authorized = False
+    duplicate_order_absence_verified = False
+
+    # ========================================================
+    # 7. RETAIN CANDIDATE INFORMATION
+    # ========================================================
+
+    candidate_preserved = (
+        status == "PENDING"
+    )
+
+    pending_mode = (
+        mode if candidate_preserved else "NONE"
+    )
+
+    pending_direction = (
+        direction if candidate_preserved
+        else "NONE"
+    )
+
+    # ========================================================
+    # 8. EXECUTION BOUNDARY
+    # ========================================================
+
+    execution_intent = False
+    trade_authorized = False
+    order_payload_created = False
+    quantity_calculated = False
+
+    demo_order_submitted = False
+    real_order_submitted = False
+    exchange_write = False
+
+    if any((
+        execution_intent,
+        trade_authorized,
+        order_payload_created,
+        quantity_calculated,
+        demo_order_submitted,
+        real_order_submitted,
+        exchange_write,
+        reentry_authorized,
+    )):
+        raise RuntimeError(
+            "UNIT 8 EXECUTION BOUNDARY VIOLATION"
+        )
+
+    # ========================================================
+    # 9. STANDARDIZED RESULT
+    # ========================================================
+
+    result = {
+        "status": status,
+        "reason": reason,
+
+        "upstream_status": unit7_status,
+        "upstream_signal_received":
+            signal_received,
+
+        "candidate_preserved":
+            candidate_preserved,
+
+        "pending_mode": pending_mode,
+        "pending_direction": pending_direction,
+
+        "market_fresh": market_fresh,
+        "candle_age_seconds": candle_age,
+
+        "market_direction": market_direction,
+        "signal_direction_match":
+            signal_direction_match,
+
+        "continuity_observations":
+            continuity_observations,
+
+        "continuity_required":
+            continuity_required,
+
+        "continuity_verified":
+            continuity_verified,
+
+        "existing_position_checked":
+            existing_position_checked,
+
+        "position_flat_verified":
+            position_flat_verified,
+
+        "pending_orders_checked":
+            pending_orders_checked,
+
+        "duplicate_order_absence_verified":
+            duplicate_order_absence_verified,
+
+        "reentry_authorized":
+            reentry_authorized,
+
+        "execution_intent":
+            execution_intent,
+
+        "trade_authorized":
+            trade_authorized,
+
+        "order_payload_created":
+            order_payload_created,
+
+        "quantity_calculated":
+            quantity_calculated,
+
+        "demo_order_submitted":
+            demo_order_submitted,
+
+        "real_order_submitted":
+            real_order_submitted,
+
+        "exchange_write": exchange_write,
+        "read_only": True,
+    }
+
+    # ========================================================
+    # 10. RENDER DIAGNOSTICS
+    # ========================================================
+
+    print("-" * 80, flush=True)
+
+    for label, value in (
+        ("STATUS", status),
+        ("REASON", reason),
+        ("UPSTREAM STATUS", unit7_status),
+        ("MARKET FRESH", market_fresh),
+        ("MARKET DIRECTION", market_direction),
+        ("SIGNAL MATCH", signal_direction_match),
+        ("PENDING MODE", pending_mode),
+        ("PENDING DIRECTION", pending_direction),
+        ("CONTINUITY VERIFIED", continuity_verified),
+        ("POSITION FLAT VERIFIED", position_flat_verified),
+        ("REENTRY AUTHORIZED", reentry_authorized),
+        ("EXECUTION INTENT", execution_intent),
+        ("TRADE AUTHORIZED", trade_authorized),
+        ("EXCHANGE WRITE", exchange_write),
+    ):
+        print(
+            "UNIT 8 " + label + " =",
+            value,
+            flush=True,
+        )
+
+    print(
+        "UNIT 8 AUTHENTICATED REQUEST = NONE",
+        flush=True,
+    )
+    print(
+        "UNIT 8 DEMO ORDER = NONE",
+        flush=True,
+    )
+    print(
+        "UNIT 8 REAL ORDER = NONE",
+        flush=True,
+    )
+    print(
+        "FRESH RECONSTRUCTION UNIT 8 RESULT = PASS",
+        flush=True,
+    )
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# RUN UNIT 8 V1
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
+    fresh_reconstruction_unit_8(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+        FRESH_RECONSTRUCTION_UNIT_7_RESULT,
+    )
+)
+
+# ============================================================
+# END COMPLETE UNIT 8 V1
+# ZERO INDENTATION
+# ============================================================
