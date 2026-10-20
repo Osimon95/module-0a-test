@@ -12357,48 +12357,22 @@ if UNIT_10_V14_TEST_ENABLED:
 
 
 # ============================================================
-# START COMPLETE UNIT 11
+# START COMPLETE REPLACEMENT - UNIT 11 V2
 # ZERO INDENTATION
-#
-# SUSTAINED READ-ONLY PUBLIC MARKET SCANNING
-# WEEX BTCUSDT
-#
-# REUSES VERIFIED UNIT 10 REFRESH PIPELINE
-# NO ACCOUNT ACCESS
-# NO POSITION ACCESS
-# NO ORDER SUBMISSION
-# NO EXCHANGE WRITE
+# RUN / PAUSE / TEST - MUTUALLY EXCLUSIVE
+# READ ONLY - NO EXCHANGE WRITE
 # ============================================================
 
 import os
 import time
 import signal
+import copy
 
-
-# ============================================================
-# 1. UNIT 11 CONFIGURATION
-# ZERO INDENTATION
-# ============================================================
-
-UNIT_11_MODE = os.environ.get(
-    "UNIT_11_MODE",
-    "PAUSE"
-).strip().upper()
-
+UNIT_11_MODE = os.environ.get("UNIT_11_MODE", "PAUSE").strip().upper()
 UNIT_11_SCAN_INTERVAL = 15.0
-
 UNIT_11_ERROR_RETRY_INTERVAL = 30.0
-
 UNIT_11_MAX_CONSECUTIVE_ERRORS = 5
-
-# 0 means unlimited scans.
-UNIT_11_MAX_SCANS = 0
-
-
-# ============================================================
-# 2. UNIT 11 PROCESS STATE
-# ZERO INDENTATION
-# ============================================================
+UNIT_11_MAX_SCANS = 0  # 0 = unlimited in RUN mode
 
 FRESH_UNIT_11_STATE = {
     "running": False,
@@ -12413,830 +12387,258 @@ FRESH_UNIT_11_STATE = {
 }
 
 
-# ============================================================
-# 3. SAFE STOP REQUEST
-# ZERO INDENTATION
-# ============================================================
+def fresh_unit_11_request_stop(signum=None, frame=None):
+    FRESH_UNIT_11_STATE["stop_requested"] = True
+    print("UNIT 11 CONTROLLED STOP REQUESTED", flush=True)
 
-def fresh_unit_11_request_stop(
-    signum=None,
-    frame=None,
-):
-
-    FRESH_UNIT_11_STATE[
-        "stop_requested"
-    ] = True
-
-    print(
-        "UNIT 11 CONTROLLED STOP REQUESTED",
-        flush=True,
-    )
-
-
-# ============================================================
-# 4. INTERRUPTIBLE DELAY
-# ZERO INDENTATION
-# ============================================================
 
 def fresh_unit_11_sleep(seconds):
-
     deadline = time.monotonic() + seconds
-
-    while not FRESH_UNIT_11_STATE[
-        "stop_requested"
-    ]:
-
+    while not FRESH_UNIT_11_STATE["stop_requested"]:
         remaining = deadline - time.monotonic()
-
         if remaining <= 0:
-            return
+            break
+        time.sleep(min(remaining, 1.0))
 
-        time.sleep(
-            min(remaining, 1.0)
-        )
-
-
-# ============================================================
-# 5. UNIT 11 SAFETY PREFLIGHT
-# ZERO INDENTATION
-# ============================================================
 
 def fresh_unit_11_preflight():
-
-    print("=" * 80, flush=True)
-
-    print(
-        "FRESH RECONSTRUCTION UNIT 11 START",
-        flush=True,
-    )
-
-    fresh_unit_10_validate_safety(
-        FRESH_RECONSTRUCTION_CONFIG
-    )
-
-    if UNIT_11_MODE not in (
-        "RUN",
-        "PAUSE",
-    ):
-        raise RuntimeError(
-            "UNIT 11 INVALID MODE"
-        )
-
+    fresh_unit_10_validate_safety(FRESH_RECONSTRUCTION_CONFIG)
+    if UNIT_11_MODE not in ("PAUSE", "TEST", "RUN"):
+        raise RuntimeError("UNIT 11 INVALID MODE")
     if UNIT_10_CONTINUOUS_SCAN_ENABLED is not False:
-        raise RuntimeError(
-            "UNIT 11 CONFLICTING AUTO SCAN"
-        )
-
-    if not callable(
-        fresh_reconstruction_unit_10_scan
-    ):
-        raise RuntimeError(
-            "UNIT 11 COORDINATOR UNAVAILABLE"
-        )
-
-    if not callable(
-        fresh_unit_10_v11_refresh_provider
-    ):
-        raise RuntimeError(
-            "UNIT 11 PUBLIC REFRESH UNAVAILABLE"
-        )
-
-    if UNIT_11_SCAN_INTERVAL < 5.0:
-        raise RuntimeError(
-            "UNIT 11 SCAN INTERVAL TOO SHORT"
-        )
-
-    if UNIT_11_ERROR_RETRY_INTERVAL < 5.0:
-        raise RuntimeError(
-            "UNIT 11 ERROR RETRY TOO SHORT"
-        )
-
+        raise RuntimeError("UNIT 11 CONFLICTING UNIT 10 AUTO LOOP")
+    if not callable(fresh_reconstruction_unit_10_scan):
+        raise RuntimeError("UNIT 11 COORDINATOR UNAVAILABLE")
+    if not callable(fresh_unit_10_v11_refresh_provider):
+        raise RuntimeError("UNIT 11 REFRESH PROVIDER UNAVAILABLE")
+    if UNIT_11_SCAN_INTERVAL < 5 or UNIT_11_ERROR_RETRY_INTERVAL < 5:
+        raise RuntimeError("UNIT 11 INVALID INTERVAL")
     if UNIT_11_MAX_CONSECUTIVE_ERRORS < 1:
-        raise RuntimeError(
-            "UNIT 11 ERROR LIMIT INVALID"
-        )
-
-    if (
-        type(UNIT_11_MAX_SCANS) is not int
-        or UNIT_11_MAX_SCANS < 0
-    ):
-        raise RuntimeError(
-            "UNIT 11 MAX SCANS INVALID"
-        )
-
-    print(
-        "PASS: UNIT 11 READ ONLY SAFETY",
-        flush=True,
-    )
-
-    print(
-        "PASS: UNIT 11 UNIT 10 PROVIDER CONNECTED",
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 MODE =",
-        UNIT_11_MODE,
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 SCAN INTERVAL =",
-        UNIT_11_SCAN_INTERVAL,
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 MAX SCANS =",
-        UNIT_11_MAX_SCANS,
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 EXCHANGE WRITE = NONE",
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 PREFLIGHT RESULT = PASS",
-        flush=True,
-    )
-
-    print("=" * 80, flush=True)
-
+        raise RuntimeError("UNIT 11 INVALID ERROR LIMIT")
+    if type(UNIT_11_MAX_SCANS) is not int or UNIT_11_MAX_SCANS < 0:
+        raise RuntimeError("UNIT 11 INVALID SCAN LIMIT")
+    print("UNIT 11 V2 MODE =", UNIT_11_MODE, flush=True)
+    print("UNIT 11 V2 READ ONLY SAFETY = PASS", flush=True)
+    print("UNIT 11 V2 EXCHANGE WRITE = NONE", flush=True)
     return True
 
 
-# ============================================================
-# 6. SUSTAINED SCAN ENGINE
-# ZERO INDENTATION
-# ============================================================
+def fresh_unit_11_verify_output(result):
+    if not isinstance(result, dict):
+        raise RuntimeError("UNIT 11 INVALID SCAN OUTPUT")
+    if result.get("status") not in ("IDLE", "PENDING", "CONFIRMED", "BLOCKED"):
+        raise RuntimeError("UNIT 11 INVALID STATUS: " + str(result.get("reason")))
+    for key, expected in (
+        ("read_only", True),
+        ("trade_authorized", False),
+        ("exchange_write", False),
+        ("reentry_authorized", False),
+    ):
+        if result.get(key) is not expected:
+            raise RuntimeError("UNIT 11 UNSAFE OUTPUT: " + key)
+    unit9 = result.get("unit_9_result")
+    if not isinstance(unit9, dict):
+        raise RuntimeError("UNIT 11 MISSING UNIT 9 RESULT")
+    for key, expected in (
+        ("read_only", True),
+        ("trade_authorized", False),
+        ("exchange_write", False),
+        ("reentry_authorized", False),
+        ("execution_intent", False),
+        ("order_payload_created", False),
+        ("demo_order_submitted", False),
+        ("real_order_submitted", False),
+    ):
+        if unit9.get(key) is not expected:
+            raise RuntimeError("UNIT 11 UNSAFE UNIT 9: " + key)
+    return unit9
+
+
+def fresh_unit_11_continuity_test():
+    # Runs actual Units 9 and 10 with a synthetic input provider.
+    # No live provider is invoked in TEST mode.
+    saved9 = copy.deepcopy(FRESH_UNIT_9_STATE)
+    saved10 = copy.deepcopy(FRESH_UNIT_10_STATE)
+    cases = [
+        ("FIRST", "LONG", 0, "PENDING", 1, None),
+        ("DUPLICATE", "LONG", 0, "PENDING", 1, "duplicate_candle"),
+        ("SECOND", "LONG", 60000, "CONFIRMED", 2, "continuity_verified"),
+        ("CHANGED", "SHORT", 120000, "PENDING", 1, "signal_changed"),
+        ("EXPIRED", "SHORT", 180000, "PENDING", 1, "signal_expired"),
+        ("DISAPPEARED", None, 240000, "IDLE", 0, None),
+        ("RECOVERY", "LONG", 300000, "PENDING", 1, None),
+    ]
+    passed = 0
+    print("UNIT 11 V2 CONTINUITY TEST START", flush=True)
+    try:
+        FRESH_UNIT_9_STATE.clear()
+        FRESH_UNIT_9_STATE.update({
+            "signal_key": None, "first_seen": None,
+            "last_candle_id": None, "confirmations": 0,
+            "last_status": "IDLE",
+        })
+        FRESH_UNIT_10_STATE.clear()
+        FRESH_UNIT_10_STATE.update({
+            "scan_count": 0, "last_scan_id": None,
+            "last_scan_monotonic": None, "scan_in_progress": False,
+            "last_status": "NOT_STARTED", "last_reason": None,
+        })
+        for index, case in enumerate(cases):
+            name, direction, offset, expected_status, expected_count, flag = case
+            if name == "EXPIRED":
+                FRESH_UNIT_9_STATE["first_seen"] = time.monotonic() - 121.0
+            candle_id = 1792490000000 + offset
+
+            def synthetic_provider():
+                unit8 = {
+                    "status": "PENDING" if direction else "IDLE",
+                    "reason": name,
+                    "candidate_preserved": bool(direction),
+                    "market_fresh": True,
+                    "signal_direction_match": bool(direction),
+                    "continuity_verified": False,
+                    "pending_mode": "STRUCTURE" if direction else "NONE",
+                    "pending_direction": direction or "NONE",
+                    "read_only": True,
+                    "execution_intent": False,
+                    "trade_authorized": False,
+                    "exchange_write": False,
+                    "order_payload_created": False,
+                    "reentry_authorized": False,
+                    "demo_order_submitted": False,
+                    "real_order_submitted": False,
+                }
+                unit4 = {
+                    "symbol": "BTCUSDT",
+                    "candle_data_fresh": True,
+                    "direction_evidence": direction,
+                    "recent_closed_klines": [{"timestamp": candle_id}],
+                }
+                return {
+                    "scan_id": 900000000000 + index,
+                    "unit_4": unit4,
+                    "unit_8": unit8,
+                }
+
+            result = fresh_reconstruction_unit_10_scan(synthetic_provider)
+            unit9 = fresh_unit_11_verify_output(result)
+            checks = [
+                result.get("status") == expected_status,
+                unit9.get("status") == expected_status,
+                unit9.get("confirmations") == expected_count,
+                unit9.get("continuity_verified") is (name == "SECOND"),
+            ]
+            if flag:
+                checks.append(unit9.get(flag) is True)
+            ok = all(checks)
+            print("UNIT 11 TEST CASE =", name, flush=True)
+            print("UNIT 11 TEST STATUS =", unit9.get("status"), flush=True)
+            print("UNIT 11 TEST REASON =", unit9.get("reason"), flush=True)
+            print("UNIT 11 TEST CONFIRMATIONS =", unit9.get("confirmations"), flush=True)
+            print("UNIT 11 TEST VERDICT =", "PASS" if ok else "FAIL", flush=True)
+            if not ok:
+                raise AssertionError("UNIT 11 CONTINUITY FAILED: " + name)
+            passed += 1
+        print("UNIT 11 V2 TESTS PASSED =", passed, "/", len(cases), flush=True)
+        print("UNIT 11 V2 TEST EXCHANGE WRITE = NONE", flush=True)
+        print("UNIT 11 V2 FINAL VERDICT = PASS", flush=True)
+        return {"status": "PASS", "tests_passed": passed,
+                "read_only": True, "trade_authorized": False,
+                "exchange_write": False}
+    finally:
+        FRESH_UNIT_9_STATE.clear()
+        FRESH_UNIT_9_STATE.update(saved9)
+        FRESH_UNIT_10_STATE.clear()
+        FRESH_UNIT_10_STATE.update(saved10)
+        print("UNIT 11 V2 UNIT 9/10 STATE RESTORED", flush=True)
+
 
 def fresh_reconstruction_unit_11():
-
     fresh_unit_11_preflight()
-
     state = FRESH_UNIT_11_STATE
-
     if UNIT_11_MODE == "PAUSE":
-
         state["last_status"] = "PAUSED"
-
-        print(
-            "UNIT 11 STATUS = PAUSED",
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 NO MARKET LOOP STARTED",
-            flush=True,
-        )
-
-        return {
-            "status": "PAUSED",
-            "read_only": True,
-            "exchange_write": False,
-            "trade_authorized": False,
-        }
-
+        print("UNIT 11 STATUS = PAUSED", flush=True)
+        return {"status": "PAUSED", "read_only": True,
+                "trade_authorized": False, "exchange_write": False}
+    if UNIT_11_MODE == "TEST":
+        return fresh_unit_11_continuity_test()
     if state["running"]:
-        raise RuntimeError(
-            "UNIT 11 ALREADY RUNNING"
-        )
-
-    state["running"] = True
-    state["stop_requested"] = False
-    state["start_monotonic"] = (
-        time.monotonic()
-    )
-
-    print(
-        "UNIT 11 STATUS = RUNNING",
-        flush=True,
-    )
-
+        raise RuntimeError("UNIT 11 ALREADY RUNNING")
+    state.update({
+        "running": True, "stop_requested": False,
+        "completed_scans": 0, "successful_scans": 0,
+        "failed_scans": 0, "consecutive_errors": 0,
+        "last_status": "RUNNING", "last_reason": None,
+        "start_monotonic": time.monotonic(),
+    })
+    print("UNIT 11 STATUS = RUNNING", flush=True)
     try:
-
         while not state["stop_requested"]:
-
-            if (
-                UNIT_11_MAX_SCANS > 0
-                and state["completed_scans"]
-                >= UNIT_11_MAX_SCANS
-            ):
-                print(
-                    "UNIT 11 SCAN LIMIT REACHED",
-                    flush=True,
-                )
+            if UNIT_11_MAX_SCANS and state["completed_scans"] >= UNIT_11_MAX_SCANS:
+                print("UNIT 11 SCAN LIMIT REACHED", flush=True)
                 break
-
             state["completed_scans"] += 1
-
-            scan_number = state[
-                "completed_scans"
-            ]
-
-            print("=" * 80, flush=True)
-
-            print(
-                "UNIT 11 SCAN START =",
-                scan_number,
-                flush=True,
-            )
-
+            scan_number = state["completed_scans"]
             try:
-
-                fresh_unit_10_validate_safety(
-                    FRESH_RECONSTRUCTION_CONFIG
+                fresh_unit_10_validate_safety(FRESH_RECONSTRUCTION_CONFIG)
+                result = fresh_reconstruction_unit_10_scan(
+                    fresh_unit_10_v11_refresh_provider
                 )
-
-                result = (
-                    fresh_reconstruction_unit_10_scan(
-                        fresh_unit_10_v11_refresh_provider
-                    )
-                )
-
-                if not isinstance(result, dict):
-                    raise RuntimeError(
-                        "UNIT 11 INVALID SCAN OUTPUT"
-                    )
-
-                if result.get("status") not in (
-                    "IDLE",
-                    "PENDING",
-                    "CONFIRMED",
-                    "BLOCKED",
-                ):
-                    raise RuntimeError(
-                        "UNIT 11 SCAN ERROR: "
-                        + str(result.get("reason"))
-                    )
-
-                if (
-                    result.get("read_only") is not True
-                    or result.get(
-                        "trade_authorized"
-                    ) is not False
-                    or result.get(
-                        "exchange_write"
-                    ) is not False
-                    or result.get(
-                        "reentry_authorized"
-                    ) is not False
-                ):
-                    raise RuntimeError(
-                        "UNIT 11 UNSAFE SCAN OUTPUT"
-                    )
-
-                unit9 = result.get(
-                    "unit_9_result"
-                )
-
-                if not isinstance(unit9, dict):
-                    raise RuntimeError(
-                        "UNIT 11 UNIT 9 RESULT MISSING"
-                    )
-
-                if (
-                    unit9.get("read_only") is not True
-                    or unit9.get(
-                        "trade_authorized"
-                    ) is not False
-                    or unit9.get(
-                        "exchange_write"
-                    ) is not False
-                    or unit9.get(
-                        "reentry_authorized"
-                    ) is not False
-                    or unit9.get(
-                        "execution_intent"
-                    ) is not False
-                    or unit9.get(
-                        "order_payload_created"
-                    ) is not False
-                    or unit9.get(
-                        "demo_order_submitted"
-                    ) is not False
-                    or unit9.get(
-                        "real_order_submitted"
-                    ) is not False
-                ):
-                    raise RuntimeError(
-                        "UNIT 11 UNSAFE UNIT 9 OUTPUT"
-                    )
-
+                unit9 = fresh_unit_11_verify_output(result)
                 state["successful_scans"] += 1
-
                 state["consecutive_errors"] = 0
-
-                state["last_status"] = (
-                    result["status"]
-                )
-
-                state["last_reason"] = (
-                    result.get("reason")
-                )
-
-                print(
-                    "UNIT 11 SCAN NUMBER =",
-                    scan_number,
-                    flush=True,
-                )
-
-                print(
-                    "UNIT 11 SIGNAL STATUS =",
-                    result["status"],
-                    flush=True,
-                )
-
-                print(
-                    "UNIT 11 SIGNAL REASON =",
-                    result.get("reason"),
-                    flush=True,
-                )
-
-                print(
-                    "UNIT 11 SIGNAL MODE =",
-                    unit9.get("mode"),
-                    flush=True,
-                )
-
-                print(
-                    "UNIT 11 SIGNAL DIRECTION =",
-                    unit9.get("direction"),
-                    flush=True,
-                )
-
-                print(
-                    "UNIT 11 CONFIRMATIONS =",
-                    unit9.get("confirmations"),
-                    flush=True,
-                )
-
-                print(
-                    "UNIT 11 CONTINUITY VERIFIED =",
-                    unit9.get(
-                        "continuity_verified"
-                    ),
-                    flush=True,
-                )
-
-                print(
-                    "UNIT 11 SUCCESSFUL SCANS =",
-                    state["successful_scans"],
-                    flush=True,
-                )
-
-                print(
-                    "UNIT 11 TRADE AUTHORIZED = FALSE",
-                    flush=True,
-                )
-
-                print(
-                    "UNIT 11 EXCHANGE WRITE = NONE",
-                    flush=True,
-                )
-
+                state["last_status"] = result["status"]
+                state["last_reason"] = result.get("reason")
+                print("UNIT 11 SCAN NUMBER =", scan_number, flush=True)
+                print("UNIT 11 SIGNAL STATUS =", result["status"], flush=True)
+                print("UNIT 11 SIGNAL REASON =", result.get("reason"), flush=True)
+                print("UNIT 11 SIGNAL MODE =", unit9.get("mode"), flush=True)
+                print("UNIT 11 SIGNAL DIRECTION =", unit9.get("direction"), flush=True)
+                print("UNIT 11 CONFIRMATIONS =", unit9.get("confirmations"), flush=True)
+                print("UNIT 11 CONTINUITY VERIFIED =", unit9.get("continuity_verified"), flush=True)
+                print("UNIT 11 SUCCESSFUL SCANS =", state["successful_scans"], flush=True)
                 delay = UNIT_11_SCAN_INTERVAL
-
             except Exception as exc:
-
                 state["failed_scans"] += 1
-
                 state["consecutive_errors"] += 1
-
                 state["last_status"] = "ERROR"
-
                 state["last_reason"] = str(exc)
-
-                print(
-                    "UNIT 11 SCAN ERROR =",
-                    repr(exc),
-                    flush=True,
-                )
-
-                print(
-                    "UNIT 11 CONSECUTIVE ERRORS =",
-                    state["consecutive_errors"],
-                    flush=True,
-                )
-
-                if (
-                    state["consecutive_errors"]
-                    >= UNIT_11_MAX_CONSECUTIVE_ERRORS
-                ):
-
-                    print(
-                        "UNIT 11 ERROR LIMIT REACHED",
-                        flush=True,
-                    )
-
+                print("UNIT 11 SCAN ERROR =", repr(exc), flush=True)
+                if state["consecutive_errors"] >= UNIT_11_MAX_CONSECUTIVE_ERRORS:
+                    print("UNIT 11 ERROR LIMIT REACHED", flush=True)
                     state["stop_requested"] = True
                     break
-
-                delay = (
-                    UNIT_11_ERROR_RETRY_INTERVAL
-                )
-
+                delay = UNIT_11_ERROR_RETRY_INTERVAL
             if not state["stop_requested"]:
-
-                print(
-                    "UNIT 11 NEXT SCAN DELAY =",
-                    delay,
-                    flush=True,
-                )
-
+                print("UNIT 11 NEXT SCAN DELAY =", delay, flush=True)
                 fresh_unit_11_sleep(delay)
-
     finally:
-
         state["running"] = False
-
-        print("=" * 80, flush=True)
-
-        print(
-            "UNIT 11 FINAL SCANS =",
-            state["completed_scans"],
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 SUCCESSFUL SCANS =",
-            state["successful_scans"],
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 FAILED SCANS =",
-            state["failed_scans"],
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 FINAL STATUS =",
-            state["last_status"],
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 EXCHANGE WRITE = NONE",
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 RUNNER STOPPED",
-            flush=True,
-        )
-
-        print("=" * 80, flush=True)
-
+        print("UNIT 11 FINAL SCANS =", state["completed_scans"], flush=True)
+        print("UNIT 11 SUCCESSFUL SCANS =", state["successful_scans"], flush=True)
+        print("UNIT 11 FAILED SCANS =", state["failed_scans"], flush=True)
+        print("UNIT 11 FINAL STATUS =", state["last_status"], flush=True)
+        print("UNIT 11 EXCHANGE WRITE = NONE", flush=True)
+        print("UNIT 11 RUNNER STOPPED", flush=True)
     return {
         "status": state["last_status"],
         "scans": state["completed_scans"],
-        "successful_scans":
-            state["successful_scans"],
-        "failed_scans":
-            state["failed_scans"],
-        "read_only": True,
-        "trade_authorized": False,
+        "successful_scans": state["successful_scans"],
+        "failed_scans": state["failed_scans"],
+        "read_only": True, "trade_authorized": False,
         "exchange_write": False,
     }
 
 
-# ============================================================
-# 7. UNIT 11 STARTUP
-# ZERO INDENTATION
-# ============================================================
-
 FRESH_RECONSTRUCTION_UNIT_11_RESULT = None
 
 if __name__ == "__main__":
-
-    signal.signal(
-        signal.SIGTERM,
-        fresh_unit_11_request_stop
-    )
-
-    signal.signal(
-        signal.SIGINT,
-        fresh_unit_11_request_stop
-    )
-
-    FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
-        fresh_reconstruction_unit_11()
-    )
-
+    signal.signal(signal.SIGTERM, fresh_unit_11_request_stop)
+    signal.signal(signal.SIGINT, fresh_unit_11_request_stop)
+    FRESH_RECONSTRUCTION_UNIT_11_RESULT = fresh_reconstruction_unit_11()
 
 # ============================================================
-# END COMPLETE UNIT 11
-# ZERO INDENTATION
-# ============================================================
-
-
-# ============================================================
-# START UNIT 11 V1.1 SIGNAL CONTINUITY TEST
-# ZERO INDENTATION
-# SYNTHETIC MARKET INPUTS ONLY
-# NO NEW WEEX REQUESTS
-# NO EXCHANGE WRITE
-# ============================================================
-
-import copy
-
-UNIT_11_CONTINUITY_TEST_ENABLED = True
-
-
-def fresh_unit_11_v11_continuity_test():
-
-    global UNIT_11_MODE
-    global UNIT_11_MAX_SCANS
-    global fresh_unit_10_v11_refresh_provider
-    global fresh_reconstruction_unit_10_scan
-    global fresh_unit_11_sleep
-
-    print("=" * 80, flush=True)
-    print(
-        "UNIT 11 V1.1 CONTINUITY TEST START",
-        flush=True,
-    )
-
-    if UNIT_11_MODE != "PAUSE":
-        raise RuntimeError(
-            "TEST REQUIRES UNIT_11_MODE = PAUSE"
-        )
-
-    if UNIT_10_CONTINUOUS_SCAN_ENABLED is not False:
-        raise RuntimeError(
-            "UNIT 10 AUTO SCAN MUST BE DISABLED"
-        )
-
-    original_provider = fresh_unit_10_v11_refresh_provider
-    original_coordinator = fresh_reconstruction_unit_10_scan
-    original_sleep = fresh_unit_11_sleep
-    original_mode = UNIT_11_MODE
-    original_limit = UNIT_11_MAX_SCANS
-
-    original_unit9 = copy.deepcopy(FRESH_UNIT_9_STATE)
-    original_unit10 = copy.deepcopy(FRESH_UNIT_10_STATE)
-    original_unit11 = copy.deepcopy(FRESH_UNIT_11_STATE)
-
-    base_id = 1792490000000
-
-    cases = [
-        ("FIRST", "LONG", 0, "PENDING", 1, False),
-        ("DUPLICATE", "LONG", 0, "PENDING", 1, False),
-        ("SECOND", "LONG", 60000, "CONFIRMED", 2, True),
-        ("CHANGED", "SHORT", 120000, "PENDING", 1, False),
-        ("EXPIRED", "SHORT", 180000, "PENDING", 1, False),
-        ("DISAPPEARED", None, 240000, "IDLE", 0, False),
-        ("RECOVERY", "LONG", 300000, "PENDING", 1, False),
-    ]
-
-    test_state = {
-        "index": 0,
-        "passed": 0,
-        "errors": [],
-    }
-
-    def synthetic_provider():
-
-        index = test_state["index"]
-
-        if index >= len(cases):
-            raise RuntimeError("TEST CASES EXHAUSTED")
-
-        name, direction, offset, *_ = cases[index]
-
-        if name == "EXPIRED":
-            FRESH_UNIT_9_STATE["first_seen"] = (
-                time.monotonic() - 121.0
-            )
-
-        unit4 = {
-            "symbol": "BTCUSDT",
-            "candle_data_fresh": True,
-            "direction_evidence": direction,
-            "recent_closed_klines": [
-                {
-                    "timestamp": base_id + offset,
-                }
-            ],
-        }
-
-        unit8 = {
-            "status": (
-                "PENDING" if direction else "IDLE"
-            ),
-            "reason": name,
-            "candidate_preserved": bool(direction),
-            "market_fresh": True,
-            "signal_direction_match": bool(direction),
-            "continuity_verified": False,
-            "pending_mode": (
-                "STRUCTURE" if direction else "NONE"
-            ),
-            "pending_direction": (
-                direction or "NONE"
-            ),
-            "read_only": True,
-            "execution_intent": False,
-            "trade_authorized": False,
-            "exchange_write": False,
-            "order_payload_created": False,
-            "reentry_authorized": False,
-            "demo_order_submitted": False,
-            "real_order_submitted": False,
-        }
-
-        return {
-            "scan_id": 900000000000 + index,
-            "unit_4": unit4,
-            "unit_8": unit8,
-        }
-
-    def test_coordinator(provider, config=None):
-
-        result = original_coordinator(
-            provider,
-            config,
-        )
-
-        index = test_state["index"]
-        case = cases[index]
-
-        name = case[0]
-        expected_status = case[3]
-        expected_count = case[4]
-        expected_continuity = case[5]
-
-        unit9 = result.get("unit_9_result") or {}
-
-        checks = {
-            "status":
-                result.get("status") == expected_status,
-            "confirmations":
-                unit9.get("confirmations") == expected_count,
-            "continuity":
-                unit9.get("continuity_verified")
-                is expected_continuity,
-            "read_only":
-                result.get("read_only") is True,
-            "trade_blocked":
-                result.get("trade_authorized") is False,
-            "no_exchange_write":
-                result.get("exchange_write") is False,
-            "no_reentry":
-                result.get("reentry_authorized") is False,
-            "no_order_payload":
-                unit9.get("order_payload_created") is False,
-            "no_demo_order":
-                unit9.get("demo_order_submitted") is False,
-            "no_real_order":
-                unit9.get("real_order_submitted") is False,
-        }
-
-        if name == "DUPLICATE":
-            checks["duplicate_detected"] = (
-                unit9.get("duplicate_candle") is True
-            )
-
-        if name == "CHANGED":
-            checks["change_detected"] = (
-                unit9.get("signal_changed") is True
-            )
-
-        if name == "EXPIRED":
-            checks["expiry_detected"] = (
-                unit9.get("signal_expired") is True
-            )
-
-        failed = [
-            key for key, passed in checks.items()
-            if not passed
-        ]
-
-        verdict = "PASS" if not failed else "FAIL"
-
-        print("-" * 60, flush=True)
-        print("UNIT 11 TEST CASE =", name, flush=True)
-        print("UNIT 11 TEST STATUS =", unit9.get("status"), flush=True)
-        print("UNIT 11 TEST REASON =", unit9.get("reason"), flush=True)
-        print("UNIT 11 TEST CONFIRMATIONS =", unit9.get("confirmations"), flush=True)
-        print("UNIT 11 TEST CONTINUITY =", unit9.get("continuity_verified"), flush=True)
-        print("UNIT 11 TEST VERDICT =", verdict, flush=True)
-
-        if failed:
-            test_state["errors"].append(
-                (name, failed)
-            )
-            raise AssertionError(
-                name + " FAILED: " + ", ".join(failed)
-            )
-
-        test_state["passed"] += 1
-        test_state["index"] += 1
-
-        return result
-
-    try:
-
-        FRESH_UNIT_9_STATE.update({
-            "signal_key": None,
-            "first_seen": None,
-            "last_candle_id": None,
-            "confirmations": 0,
-            "last_status": "IDLE",
-        })
-
-        FRESH_UNIT_10_STATE.update({
-            "scan_count": 0,
-            "last_scan_id": None,
-            "last_scan_monotonic": None,
-            "scan_in_progress": False,
-            "last_status": "NOT_STARTED",
-            "last_reason": None,
-        })
-
-        FRESH_UNIT_11_STATE.update({
-            "running": False,
-            "stop_requested": False,
-            "completed_scans": 0,
-            "successful_scans": 0,
-            "failed_scans": 0,
-            "consecutive_errors": 0,
-            "last_status": "NOT_STARTED",
-            "last_reason": None,
-            "start_monotonic": None,
-        })
-
-        fresh_unit_10_v11_refresh_provider = synthetic_provider
-        fresh_reconstruction_unit_10_scan = test_coordinator
-        fresh_unit_11_sleep = lambda seconds: None
-
-        UNIT_11_MODE = "RUN"
-        UNIT_11_MAX_SCANS = len(cases)
-
-        runner = fresh_reconstruction_unit_11()
-
-        all_passed = (
-            test_state["passed"] == len(cases)
-            and runner.get("successful_scans") == len(cases)
-            and runner.get("failed_scans") == 0
-            and runner.get("exchange_write") is False
-        )
-
-        if not all_passed:
-            raise AssertionError(
-                "UNIT 11 CONTINUITY TEST INCOMPLETE: "
-                + str(test_state["errors"])
-            )
-
-        print("=" * 80, flush=True)
-        print("UNIT 11 V1.1 TOTAL TESTS = 7", flush=True)
-        print("UNIT 11 V1.1 PASSED = 7", flush=True)
-        print("UNIT 11 V1.1 FAILED = 0", flush=True)
-        print("UNIT 11 V1.1 EXCHANGE WRITE = NONE", flush=True)
-        print("UNIT 11 V1.1 FINAL VERDICT = PASS", flush=True)
-
-        return True
-
-    finally:
-
-        fresh_unit_10_v11_refresh_provider = original_provider
-        fresh_reconstruction_unit_10_scan = original_coordinator
-        fresh_unit_11_sleep = original_sleep
-
-        UNIT_11_MODE = original_mode
-        UNIT_11_MAX_SCANS = original_limit
-
-        FRESH_UNIT_9_STATE.clear()
-        FRESH_UNIT_9_STATE.update(original_unit9)
-
-        FRESH_UNIT_10_STATE.clear()
-        FRESH_UNIT_10_STATE.update(original_unit10)
-
-        FRESH_UNIT_11_STATE.clear()
-        FRESH_UNIT_11_STATE.update(original_unit11)
-
-        print(
-            "UNIT 11 ORIGINAL FUNCTIONS AND STATE RESTORED",
-            flush=True,
-        )
-
-
-# ============================================================
-# EXECUTE UNIT 11 V1.1 TEST
-# ZERO INDENTATION
-# ============================================================
-
-if __name__ == "__main__" and UNIT_11_CONTINUITY_TEST_ENABLED:
-
-    FRESH_UNIT_11_V11_TEST_RESULT = (
-        fresh_unit_11_v11_continuity_test()
-    )
-
-
-# ============================================================
-# END UNIT 11 V1.1 SIGNAL CONTINUITY TEST
+# END COMPLETE REPLACEMENT - UNIT 11 V2
 # ZERO INDENTATION
 # ============================================================
