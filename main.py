@@ -3046,9 +3046,169 @@ def fresh_reconstruction_unit_5(
     # actual price-weighted quality score,
     # prospective reward, spread, and fees.
 
+    
     # ========================================================
-    # 8. COORDINATED MODE ARBITRATION
+    # UNIT 5 V2.2
+    # COMPLETE COORDINATED MODE ARBITRATION
+    # INDENTATION: 4 SPACES
+    #
+    # QUALIFIED BREAKOUT > PROMISING BREAKOUT
+    # > QUALIFIED STRUCTURE > DEVELOPING STRUCTURE
+    # > FEE-FEASIBLE SCALP
+    #
+    # WEAK OR OPPOSING BREAKOUT MUST NOT
+    # STARVE A QUALIFIED STRUCTURE.
+    #
+    # ZERO EXCHANGE WRITE
     # ========================================================
+
+    # --------------------------------------------------------
+    # 1. DETERMINE BREAKOUT EVIDENCE STRENGTH
+    # --------------------------------------------------------
+
+    confirmed_breakout_long = (
+        breakout_confirmed_long
+    )
+
+    confirmed_breakout_short = (
+        breakout_confirmed_short
+    )
+
+    confirmed_breakout = (
+        confirmed_breakout_long
+        or confirmed_breakout_short
+    )
+
+    developing_long_aligned = (
+        breakout_developing_long
+        and direction_evidence == "LONG"
+        and move5 >= breakout_min_5m_move_pct
+        and move15 > 0
+        and not price_overextended
+    )
+
+    developing_short_aligned = (
+        breakout_developing_short
+        and direction_evidence == "SHORT"
+        and move5 <= -breakout_min_5m_move_pct
+        and move15 < 0
+        and not price_overextended
+    )
+
+    breakout_promising = (
+        developing_long_aligned
+        or developing_short_aligned
+    )
+
+    # --------------------------------------------------------
+    # 2. EXPLAIN FAILED CONFIRMED BREAKOUT
+    # --------------------------------------------------------
+
+    breakout_rejection_reason = "NONE"
+
+    if confirmed_breakout and not breakout_ready:
+
+        if price_overextended:
+
+            breakout_rejection_reason = (
+                "BREAKOUT_PRICE_OVEREXTENDED"
+            )
+
+        elif (
+            confirmed_breakout_long
+            and direction_evidence != "LONG"
+        ) or (
+            confirmed_breakout_short
+            and direction_evidence != "SHORT"
+        ):
+
+            breakout_rejection_reason = (
+                "BREAKOUT_DIRECTION_NOT_CONFIRMED"
+            )
+
+        elif (
+            confirmed_breakout_long
+            and (
+                move5 < breakout_min_5m_move_pct
+                or move15 <= 0
+            )
+        ) or (
+            confirmed_breakout_short
+            and (
+                move5 > -breakout_min_5m_move_pct
+                or move15 >= 0
+            )
+        ):
+
+            breakout_rejection_reason = (
+                "BREAKOUT_MOMENTUM_INSUFFICIENT"
+            )
+
+        else:
+
+            breakout_rejection_reason = (
+                "BREAKOUT_NOT_QUALIFIED"
+            )
+
+    # --------------------------------------------------------
+    # 3. CLASSIFY STRUCTURE DEVELOPMENT
+    # --------------------------------------------------------
+
+    structure_long_aligned = (
+        structure_developing_long
+        and direction_evidence == "LONG"
+        and move15 > 0
+        and not price_overextended
+    )
+
+    structure_short_aligned = (
+        structure_developing_short
+        and direction_evidence == "SHORT"
+        and move15 < 0
+        and not price_overextended
+    )
+
+    structure_promising = (
+        structure_long_aligned
+        or structure_short_aligned
+    )
+
+    # Protective evidence can exist below qualification.
+    # Contradictory or overextended evidence must not
+    # automatically suppress every other strategy.
+
+    higher_mode_developing = (
+        breakout_ready
+        or breakout_promising
+        or structure_ready
+        or structure_promising
+    )
+
+    # --------------------------------------------------------
+    # 4. RECALCULATE SCALP ELIGIBILITY
+    # USING THE V2.2 PRIORITY CONTRACT
+    # --------------------------------------------------------
+
+    scalp_context = (
+        sideways
+        and not higher_mode_developing
+        and not breakout_candidate
+        and not structure_candidate
+        and not price_overextended
+        and direction_evidence in (
+            "LONG", "SHORT"
+        )
+    )
+
+    scalp_pending = (
+        scalp_context
+        and scalp_momentum_agreement
+        and scalp_range_feasible
+    )
+
+    # --------------------------------------------------------
+    # 5. INITIALIZE DECISION
+    # --------------------------------------------------------
 
     active_mode = "NONE"
     direction = "NONE"
@@ -3061,6 +3221,10 @@ def fresh_reconstruction_unit_5(
         "NO_ACCEPTABLE_CANDIDATE"
     )
 
+    # --------------------------------------------------------
+    # 6. PRIORITY 1: QUALIFIED BREAKOUT
+    # --------------------------------------------------------
+
     if breakout_ready_long:
 
         active_mode = "BREAKOUT"
@@ -3071,7 +3235,7 @@ def fresh_reconstruction_unit_5(
         candidate_stage = "QUALIFIED"
 
         qualification_reason = (
-            "BREAKOUT_CLOSED_CANDLE_CONFIRMATION"
+            "BREAKOUT_LONG_CONFIRMED"
         )
 
     elif breakout_ready_short:
@@ -3084,17 +3248,27 @@ def fresh_reconstruction_unit_5(
         candidate_stage = "QUALIFIED"
 
         qualification_reason = (
-            "BREAKOUT_CLOSED_CANDLE_CONFIRMATION"
+            "BREAKOUT_SHORT_CONFIRMED"
         )
 
-    elif breakout_candidate:
+    # --------------------------------------------------------
+    # 7. PRIORITY 2: PROMISING DEVELOPING BREAKOUT
+    # --------------------------------------------------------
+
+    elif breakout_promising:
 
         candidate_mode = "BREAKOUT"
         candidate_stage = "DEVELOPING"
 
         qualification_reason = (
-            "BREAKOUT_DEVELOPING_SCALP_DEFERRED"
+            "BREAKOUT_PROMISING_AWAITING_CONFIRMATION"
         )
+
+    # --------------------------------------------------------
+    # 8. PRIORITY 3: QUALIFIED STRUCTURE
+    #
+    # A weak or opposing breakout no longer blocks it.
+    # --------------------------------------------------------
 
     elif structure_ready_long:
 
@@ -3106,7 +3280,7 @@ def fresh_reconstruction_unit_5(
         candidate_stage = "QUALIFIED"
 
         qualification_reason = (
-            "STRUCTURE_EARLY_QUALIFICATION"
+            "STRUCTURE_LONG_EARLY_QUALIFICATION"
         )
 
     elif structure_ready_short:
@@ -3119,17 +3293,65 @@ def fresh_reconstruction_unit_5(
         candidate_stage = "QUALIFIED"
 
         qualification_reason = (
-            "STRUCTURE_EARLY_QUALIFICATION"
+            "STRUCTURE_SHORT_EARLY_QUALIFICATION"
         )
 
-    elif structure_candidate:
+    # --------------------------------------------------------
+    # 9. PRIORITY 4: DEVELOPING STRUCTURE
+    # --------------------------------------------------------
+
+    elif structure_promising:
 
         candidate_mode = "STRUCTURE"
         candidate_stage = "DEVELOPING"
 
         qualification_reason = (
-            "STRUCTURE_DEVELOPING_SCALP_DEFERRED"
+            "STRUCTURE_PROMISING_AWAITING_CONFIRMATION"
         )
+
+    # --------------------------------------------------------
+    # 10. REJECT FAILED CONFIRMED BREAKOUT
+    # WITHOUT AUTHORIZING THE WEAK SIGNAL
+    # --------------------------------------------------------
+
+    elif confirmed_breakout:
+
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "REJECTED"
+
+        qualification_reason = (
+            breakout_rejection_reason
+        )
+
+    # --------------------------------------------------------
+    # 11. WEAK DEVELOPING BREAKOUT
+    # --------------------------------------------------------
+
+    elif breakout_candidate:
+
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "REJECTED"
+
+        qualification_reason = (
+            "BREAKOUT_WEAK_OR_DIRECTION_CONFLICT"
+        )
+
+    # --------------------------------------------------------
+    # 12. WEAK DEVELOPING STRUCTURE
+    # --------------------------------------------------------
+
+    elif structure_candidate:
+
+        candidate_mode = "STRUCTURE"
+        candidate_stage = "REJECTED"
+
+        qualification_reason = (
+            "STRUCTURE_WEAK_OR_DIRECTION_CONFLICT"
+        )
+
+    # --------------------------------------------------------
+    # 13. PRIORITY 5: SCALP PENDING UNIT 6
+    # --------------------------------------------------------
 
     elif scalp_pending:
 
@@ -3155,9 +3377,112 @@ def fresh_reconstruction_unit_5(
     elif sideways:
 
         qualification_reason = (
-            "SCALP_MOMENTUM_OR_DIRECTION_REJECTED"
+            "SCALP_DIRECTION_OR_MOMENTUM_REJECTED"
         )
 
+    # --------------------------------------------------------
+    # 14. FINAL QUALIFICATION SAFETY
+    # --------------------------------------------------------
+
+    if qualified:
+
+        if (
+            candidate_stage != "QUALIFIED"
+            or active_mode not in (
+                "BREAKOUT", "STRUCTURE"
+            )
+            or direction not in (
+                "LONG", "SHORT"
+            )
+        ):
+            raise RuntimeError(
+                "UNIT 5 V2.2 QUALIFICATION INCONSISTENT"
+            )
+
+    else:
+
+        if (
+            active_mode != "NONE"
+            or direction != "NONE"
+        ):
+            raise RuntimeError(
+                "UNIT 5 V2.2 UNQUALIFIED MODE LEAK"
+            )
+
+    if (
+        candidate_mode == "SCALP"
+        and (
+            higher_mode_developing
+            or breakout_candidate
+            or structure_candidate
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 5 V2.2 SCALP PRIORITY FAILURE"
+        )
+
+    # --------------------------------------------------------
+    # 15. V2.2 RENDER DIAGNOSTICS
+    # --------------------------------------------------------
+
+    print(
+        "UNIT 5 V2.2 BREAKOUT PROMISING =",
+        breakout_promising,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 V2.2 BREAKOUT REJECTION =",
+        breakout_rejection_reason,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 V2.2 STRUCTURE PROMISING =",
+        structure_promising,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 V2.2 HIGHER MODE DEVELOPING =",
+        higher_mode_developing,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 V2.2 SELECTED CANDIDATE =",
+        candidate_mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 V2.2 CANDIDATE STAGE =",
+        candidate_stage,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 V2.2 QUALIFICATION REASON =",
+        qualification_reason,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 V2.2 QUALIFIED =",
+        qualified,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 V2.2 TRADE AUTHORIZED = FALSE",
+        flush=True
+    )
+
+    # ========================================================
+    # END UNIT 5 V2.2
+    # SECTION 9 INVARIANTS CONTINUES BELOW
+    # ========================================================
+    
     # ========================================================
     # 9. INVARIANTS
     # ========================================================
