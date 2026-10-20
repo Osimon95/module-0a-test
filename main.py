@@ -11599,8 +11599,8 @@ import copy
 # ZERO INDENTATION
 # ============================================================
 
-UNIT_10_V14_TEST_ENABLED = True
-UNIT_10_V14_REAL_SCAN_ENABLED = True
+UNIT_10_V14_TEST_ENABLED = False
+UNIT_10_V14_REAL_SCAN_ENABLED = False
 
 UNIT_10_V14_SCAN_COUNT = 3
 UNIT_10_V14_SCAN_INTERVAL = 30.0
