@@ -10891,7 +10891,7 @@ def fresh_unit_10_v12_tests():
 # ZERO INDENTATION
 # ============================================================
 
-UNIT_10_V12_ENABLED = False
+UNIT_10_V12_TEST_ENABLED = False
 FRESH_UNIT_10_V12_RESULT = None
 
 if UNIT_10_V12_TEST_ENABLED:
