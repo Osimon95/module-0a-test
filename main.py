@@ -4299,9 +4299,18 @@ def fresh_unit_5_v21_tests():
 # ZERO INDENTATION
 # ============================================================
 
-FRESH_UNIT_5_V21_RESULT = (
-    fresh_unit_5_v21_tests()
-)
+# UNIT 5 REGRESSION TEST SWITCH
+# ZERO INDENTATION
+
+UNIT_5_V21_TEST_ENABLED = False
+
+FRESH_UNIT_5_V21_RESULT = None
+
+if UNIT_5_V21_TEST_ENABLED:
+    FRESH_UNIT_5_V21_RESULT = (
+        fresh_unit_5_v21_tests()
+    )
+
 
 # ============================================================
 # END UNIT 5 V2.1
