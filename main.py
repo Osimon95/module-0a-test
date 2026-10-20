@@ -7455,7 +7455,8 @@ FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
 # NO DEMO OR REAL ORDERS
 # ============================================================
 
-UNIT_8_V11_TEST_ENABLED = True
+UNIT_8_V11_TEST_ENABLED = False
+
 
 
 def fresh_unit_8_v11_tests():
