@@ -12354,3 +12354,440 @@ if UNIT_10_V14_TEST_ENABLED:
 # END UNIT 10 V1.4
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# START UNIT 11 REAL HANDOVER INTEGRATION V1
+# ZERO INDENTATION
+#
+# EXISTING UNIT 11 ENGINE = PRESERVED
+# ORIGINAL 26 TESTS = PRESERVED
+# FROZEN UNITS 1-10 = UNCHANGED
+#
+# PUBLIC WEEX DATA ONLY
+# NO AUTHENTICATED ACCOUNT ACCESS
+# NO DEMO OR REAL ORDER
+# ZERO EXCHANGE WRITE
+# ============================================================
+
+import time
+
+UNIT_11_INTEGRATION_ENABLED = True
+UNIT_11_INTEGRATION_SCANS = 5
+UNIT_11_INTEGRATION_INTERVAL = 30
+
+
+def unit_11_real_handover_v1():
+
+    print("=" * 70, flush=True)
+    print(
+        "UNIT 11 REAL HANDOVER V1 START",
+        flush=True,
+    )
+
+    required_functions = (
+        "fresh_reconstruction_unit_10_scan",
+        "fresh_unit_10_v11_refresh_provider",
+        "fresh_unit_10_validate_safety",
+    )
+
+    for name in required_functions:
+
+        if not callable(globals().get(name)):
+
+            print(
+                "UNIT 11 INTEGRATION BLOCKED = "
+                "MISSING " + name,
+                flush=True,
+            )
+
+            return False
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
+    )
+
+    if not isinstance(config, dict):
+
+        print(
+            "UNIT 11 INTEGRATION BLOCKED = "
+            "FROZEN CONFIG MISSING",
+            flush=True,
+        )
+
+        return False
+
+    safety = config.get("safety")
+
+    if not isinstance(safety, dict):
+        print(
+            "UNIT 11 INTEGRATION BLOCKED = "
+            "SAFETY CONFIG MISSING",
+            flush=True,
+        )
+        return False
+
+    forbidden = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+    )
+
+    if any(
+        safety.get(key) is not False
+        for key in forbidden
+    ):
+
+        print(
+            "UNIT 11 INTEGRATION BLOCKED = "
+            "UNSAFE CONFIG",
+            flush=True,
+        )
+
+        return False
+
+    fresh_unit_10_validate_safety(config)
+
+    engine = Unit11()
+
+    completed = 0
+    blocked = 0
+    previous_scan_id = None
+
+    for scan_number in range(
+        1,
+        UNIT_11_INTEGRATION_SCANS + 1,
+    ):
+
+        print("-" * 70, flush=True)
+
+        print(
+            "UNIT 11 REAL SCAN NUMBER =",
+            scan_number,
+            flush=True,
+        )
+
+        # ----------------------------------------------------
+        # ACTUAL FROZEN UNIT 10 REFRESH
+        # ----------------------------------------------------
+
+        try:
+
+            unit10 = (
+                fresh_reconstruction_unit_10_scan(
+                    fresh_unit_10_v11_refresh_provider
+                )
+            )
+
+        except Exception as exc:
+
+            print(
+                "UNIT 11 REFRESH ERROR =",
+                repr(exc),
+                flush=True,
+            )
+
+            engine.reset()
+            blocked += 1
+            break
+
+        if not isinstance(unit10, dict):
+
+            print(
+                "UNIT 11 BLOCKED = INVALID UNIT 10",
+                flush=True,
+            )
+
+            engine.reset()
+            blocked += 1
+            break
+
+        # ----------------------------------------------------
+        # EXCHANGE WRITE SAFETY
+        # ----------------------------------------------------
+
+        if (
+            unit10.get("read_only") is not True
+            or unit10.get(
+                "trade_authorized"
+            ) is not False
+            or unit10.get(
+                "exchange_write"
+            ) is not False
+            or unit10.get(
+                "reentry_authorized"
+            ) is not False
+        ):
+
+            print(
+                "UNIT 11 BLOCKED = UNSAFE UNIT 10",
+                flush=True,
+            )
+
+            engine.reset()
+            blocked += 1
+            break
+
+        if unit10.get("status") == "ERROR":
+
+            print(
+                "UNIT 11 UNIT 10 ERROR =",
+                unit10.get("reason"),
+                flush=True,
+            )
+
+            engine.reset()
+            blocked += 1
+            break
+
+        scan_id = unit10.get("scan_id")
+
+        if (
+            type(scan_id) is not int
+            or (
+                previous_scan_id is not None
+                and scan_id <= previous_scan_id
+            )
+        ):
+
+            print(
+                "UNIT 11 BLOCKED = SCAN ID INVALID",
+                flush=True,
+            )
+
+            engine.reset()
+            blocked += 1
+            break
+
+        previous_scan_id = scan_id
+
+        unit9 = unit10.get("unit_9_result")
+
+        if not isinstance(unit9, dict):
+
+            print(
+                "UNIT 11 BLOCKED = UNIT 9 MISSING",
+                flush=True,
+            )
+
+            engine.reset()
+            blocked += 1
+            break
+
+        if (
+            unit9.get("read_only") is not True
+            or unit9.get(
+                "trade_authorized"
+            ) is not False
+            or unit9.get(
+                "exchange_write"
+            ) is not False
+            or unit9.get(
+                "reentry_authorized"
+            ) is not False
+        ):
+
+            print(
+                "UNIT 11 BLOCKED = UNSAFE UNIT 9",
+                flush=True,
+            )
+
+            engine.reset()
+            blocked += 1
+            break
+
+        # ----------------------------------------------------
+        # PRESERVE ACTUAL SIGNAL DATA
+        # NEVER INVENT SIGNAL ID OR CANDLE
+        # ----------------------------------------------------
+
+        mode = unit9.get("mode", "NONE")
+        direction = unit9.get(
+            "direction",
+            "NONE",
+        )
+
+        signal_id = unit9.get(
+            "signal_id",
+            "",
+        )
+
+        candle_id = unit9.get(
+            "closed_candle_id"
+        )
+
+        qualified = (
+            unit10.get("status")
+            in ("PENDING", "CONFIRMED")
+            and mode in VALID_MODES
+            and direction in VALID_DIRECTIONS
+            and isinstance(signal_id, str)
+            and bool(signal_id)
+        )
+
+        valid_candle = (
+            type(candle_id) is int
+            and candle_id > 0
+        )
+
+        if not valid_candle:
+
+            print(
+                "UNIT 11 BLOCKED = "
+                "CLOSED CANDLE ID UNVERIFIED",
+                flush=True,
+            )
+
+            engine.reset()
+            blocked += 1
+
+        else:
+
+            # ------------------------------------------------
+            # ACTUAL UNIT 11 ENGINE
+            # POSITION FLAT IS NOT ASSUMED
+            # ------------------------------------------------
+
+            observation = Snapshot(
+                candle_id=candle_id,
+                observed_at=time.time(),
+                mode=mode,
+                direction=direction,
+                qualified=qualified,
+                signal_id=signal_id or "",
+                candle_closed=True,
+                market_fresh=True,
+                position_flat_verified=False,
+                read_only=True,
+            )
+
+            result = engine.scan(observation)
+
+            completed += 1
+
+            print(
+                "UNIT 11 ACTUAL UNIT 10 STATUS =",
+                unit10.get("status"),
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 ACTUAL MODE =",
+                result["mode"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 ACTUAL DIRECTION =",
+                result["direction"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 ACTUAL CANDLE =",
+                result["closed_candle_id"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 ACTUAL REASON =",
+                result["reason"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 ACTUAL CONFIRMATIONS =",
+                result["confirmations"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 ACTUAL CONTINUITY =",
+                result["continuity_verified"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 POSITION FLAT VERIFIED =",
+                False,
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 TRADE AUTHORIZED = FALSE",
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 EXCHANGE WRITE = NONE",
+                flush=True,
+            )
+
+        if (
+            scan_number
+            < UNIT_11_INTEGRATION_SCANS
+        ):
+
+            time.sleep(
+                UNIT_11_INTEGRATION_INTERVAL
+            )
+
+    print("=" * 70, flush=True)
+
+    print(
+        "UNIT 11 REAL SCANS PROCESSED =",
+        completed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 INTEGRATION BLOCKS =",
+        blocked,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 ACTUAL EXCHANGE WRITE = NONE "
+        "(READ ONLY DESIGN)",
+        flush=True,
+    )
+
+    verdict = (
+        "OBSERVATION_COMPLETED"
+        if completed > 0 and blocked == 0
+        else "INTEGRATION_BLOCKED"
+    )
+
+    print(
+        "UNIT 11 INTEGRATION VERDICT =",
+        verdict,
+        flush=True,
+    )
+
+    print("=" * 70, flush=True)
+
+    return completed > 0 and blocked == 0
+
+
+# ============================================================
+# EXECUTE REAL HANDOVER INTEGRATION
+# ZERO INDENTATION
+# ============================================================
+
+if (
+    __name__ == "__main__"
+    and UNIT_11_INTEGRATION_ENABLED
+):
+
+    UNIT_11_REAL_HANDOVER_V1_RESULT = (
+        unit_11_real_handover_v1()
+    )
+
+# ============================================================
+# END UNIT 11 REAL HANDOVER INTEGRATION V1
+# ZERO INDENTATION
+# ============================================================
