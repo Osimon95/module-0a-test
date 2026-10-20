@@ -8020,6 +8020,8 @@ def fresh_unit_8_v11_tests():
 # ZERO INDENTATION
 # ============================================================
 
+FRESH_UNIT_8_V11_TEST_ENABLED = False
+
 FRESH_UNIT_8_V11_RESULT = None
 
 if UNIT_8_V11_TEST_ENABLED:
@@ -8030,5 +8032,635 @@ if UNIT_8_V11_TEST_ENABLED:
 
 # ============================================================
 # END UNIT 8 V1.1 CONTROLLED TEST SUITE
+# ZERO INDENTATION
+# ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 9 V1
+# ZERO INDENTATION
+#
+# SIGNAL CONTINUITY AND DUPLICATE PROTECTION
+#
+# READ ONLY
+# IN-MEMORY STATE ONLY
+# NO ACCOUNT OR POSITION ACCESS
+# NO ORDER CREATION
+# NO EXCHANGE WRITE
+# ============================================================
+
+import time
+
+
+# ============================================================
+# UNIT 9 PROCESS-LOCAL STATE
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_UNIT_9_STATE = {
+    "signal_key": None,
+    "first_seen": None,
+    "last_candle_id": None,
+    "confirmations": 0,
+    "last_status": "IDLE",
+}
+
+
+def fresh_reconstruction_unit_9(
+    unit_2_config,
+    unit_4_analysis,
+    unit_8_result,
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "FRESH RECONSTRUCTION UNIT 9 V1 START",
+        flush=True,
+    )
+
+    # ========================================================
+    # 1. VALIDATE INPUTS
+    # ========================================================
+
+    if not all(
+        isinstance(item, dict)
+        for item in (
+            unit_2_config,
+            unit_4_analysis,
+            unit_8_result,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 9 INVALID INPUT CONTRACT"
+        )
+
+    safety = unit_2_config.get("safety")
+
+    if not isinstance(safety, dict):
+        raise RuntimeError(
+            "UNIT 9 SAFETY CONFIG MISSING"
+        )
+
+    forbidden_flags = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for key in forbidden_flags:
+
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 9 UNSAFE CONFIG: " + key
+            )
+
+    # ========================================================
+    # 2. VERIFY UNIT 8 SAFETY
+    # ========================================================
+
+    if (
+        unit_8_result.get("read_only") is not True
+        or unit_8_result.get(
+            "execution_intent"
+        ) is not False
+        or unit_8_result.get(
+            "trade_authorized"
+        ) is not False
+        or unit_8_result.get(
+            "exchange_write"
+        ) is not False
+        or unit_8_result.get(
+            "order_payload_created"
+        ) is not False
+        or unit_8_result.get(
+            "reentry_authorized"
+        ) is not False
+        or unit_8_result.get(
+            "demo_order_submitted"
+        ) is not False
+        or unit_8_result.get(
+            "real_order_submitted"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 9 UPSTREAM SAFETY VIOLATION"
+        )
+
+    print(
+        "PASS: UNIT 9 READ ONLY SAFETY",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3. PARAMETERS
+    # ========================================================
+
+    confirmations_required = 2
+    signal_expiry_seconds = 120.0
+
+    now = time.monotonic()
+
+    upstream_status = unit_8_result.get(
+        "status"
+    )
+
+    if upstream_status not in (
+        "IDLE",
+        "PENDING",
+        "BLOCKED",
+    ):
+        raise RuntimeError(
+            "UNIT 9 INVALID UNIT 8 STATUS"
+        )
+
+    state = FRESH_UNIT_9_STATE
+
+    # ========================================================
+    # 4. DEFAULT RESULT
+    # ========================================================
+
+    status = "IDLE"
+    reason = "NO_PENDING_SIGNAL"
+
+    duplicate_candle = False
+    signal_changed = False
+    signal_expired = False
+    continuity_verified = False
+
+    candle_id = None
+
+    mode = "NONE"
+    direction = "NONE"
+
+    # ========================================================
+    # 5. RESET HELPER
+    # ========================================================
+
+    def reset_state():
+
+        state["signal_key"] = None
+        state["first_seen"] = None
+        state["last_candle_id"] = None
+        state["confirmations"] = 0
+        state["last_status"] = "IDLE"
+
+    # ========================================================
+    # 6. NONPENDING SIGNAL
+    # ========================================================
+
+    if upstream_status != "PENDING":
+
+        reset_state()
+
+        if upstream_status == "BLOCKED":
+
+            status = "BLOCKED"
+            reason = (
+                "UPSTREAM_SIGNAL_BLOCKED:"
+                + str(
+                    unit_8_result.get(
+                        "reason", "UNKNOWN"
+                    )
+                )
+            )
+
+        print(
+            "PASS: UNIT 9 NONPENDING HANDOVER",
+            flush=True,
+        )
+
+    else:
+
+        # ====================================================
+        # 7. VERIFY PENDING SIGNAL CONTRACT
+        # ====================================================
+
+        if (
+            unit_8_result.get(
+                "candidate_preserved"
+            ) is not True
+            or unit_8_result.get(
+                "market_fresh"
+            ) is not True
+            or unit_8_result.get(
+                "signal_direction_match"
+            ) is not True
+            or unit_8_result.get(
+                "continuity_verified"
+            ) is not False
+        ):
+            raise RuntimeError(
+                "UNIT 9 INVALID PENDING SIGNAL"
+            )
+
+        mode = unit_8_result.get(
+            "pending_mode"
+        )
+
+        direction = unit_8_result.get(
+            "pending_direction"
+        )
+
+        if (
+            mode not in (
+                "BREAKOUT",
+                "STRUCTURE",
+            )
+            or direction not in (
+                "LONG",
+                "SHORT",
+            )
+        ):
+            raise RuntimeError(
+                "UNIT 9 INVALID SIGNAL IDENTITY"
+            )
+
+        if (
+            unit_4_analysis.get(
+                "candle_data_fresh"
+            ) is not True
+            or unit_4_analysis.get(
+                "direction_evidence"
+            ) != direction
+        ):
+            raise RuntimeError(
+                "UNIT 9 MARKET SIGNAL MISMATCH"
+            )
+
+        symbol = unit_4_analysis.get(
+            "symbol"
+        )
+
+        if not isinstance(symbol, str) or not symbol:
+            raise RuntimeError(
+                "UNIT 9 MARKET SYMBOL INVALID"
+            )
+
+        # ====================================================
+        # 8. EXTRACT LAST CLOSED CANDLE ID
+        # ====================================================
+
+        candles = unit_4_analysis.get(
+            "recent_closed_klines"
+        )
+
+        if (
+            not isinstance(candles, list)
+            or not candles
+            or not isinstance(candles[-1], dict)
+        ):
+
+            reset_state()
+
+            status = "BLOCKED"
+            reason = "CLOSED_CANDLE_DATA_MISSING"
+
+        else:
+
+            last_candle = candles[-1]
+
+            raw_candle_id = None
+
+            for timestamp_key in (
+                "timestamp",
+                "open_time",
+                "openTime",
+                "start_time",
+                "startTime",
+                "time",
+                "ts",
+            ):
+
+                if timestamp_key in last_candle:
+                    raw_candle_id = last_candle[
+                        timestamp_key
+                    ]
+                    break
+
+            # Reject ambiguous/missing identifiers.
+            # Never substitute a price for candle time.
+
+            if (
+                raw_candle_id is None
+                or isinstance(raw_candle_id, bool)
+            ):
+
+                reset_state()
+
+                status = "BLOCKED"
+                reason = "CLOSED_CANDLE_ID_MISSING"
+
+            else:
+
+                try:
+                    candle_id = int(raw_candle_id)
+                except (
+                    TypeError,
+                    ValueError,
+                    OverflowError,
+                ):
+                    candle_id = None
+
+                if candle_id is None or candle_id <= 0:
+
+                    reset_state()
+
+                    status = "BLOCKED"
+                    reason = "INVALID_CLOSED_CANDLE_ID"
+
+                else:
+
+                    # ========================================
+                    # 9. COMPARE SIGNAL AND CANDLE IDENTITY
+                    # ========================================
+
+                    signal_key = (
+                        symbol,
+                        mode,
+                        direction,
+                    )
+
+                    previous_key = state.get(
+                        "signal_key"
+                    )
+
+                    previous_candle = state.get(
+                        "last_candle_id"
+                    )
+
+                    if (
+                        previous_key is not None
+                        and previous_key != signal_key
+                    ):
+                        signal_changed = True
+                        reset_state()
+
+                    first_seen = state.get(
+                        "first_seen"
+                    )
+
+                    if (
+                        first_seen is not None
+                        and (
+                            now - first_seen
+                        ) > signal_expiry_seconds
+                    ):
+                        signal_expired = True
+                        reset_state()
+
+                    previous_candle = state.get(
+                        "last_candle_id"
+                    )
+
+                    # ========================================
+                    # 10. DISTINCT CANDLE CONFIRMATIONS
+                    # ========================================
+
+                    if state["signal_key"] is None:
+
+                        state["signal_key"] = signal_key
+                        state["first_seen"] = now
+                        state["last_candle_id"] = candle_id
+                        state["confirmations"] = 1
+
+                        status = "PENDING"
+
+                        if signal_changed:
+                            reason = (
+                                "SIGNAL_CHANGED_RESET"
+                            )
+                        elif signal_expired:
+                            reason = (
+                                "SIGNAL_WINDOW_EXPIRED_RESET"
+                            )
+                        else:
+                            reason = (
+                                "FIRST_CLOSED_CANDLE_CONFIRMATION"
+                            )
+
+                    elif candle_id == previous_candle:
+
+                        duplicate_candle = True
+
+                        status = "PENDING"
+
+                        reason = (
+                            "DUPLICATE_CLOSED_CANDLE_IGNORED"
+                        )
+
+                    elif candle_id < previous_candle:
+
+                        reset_state()
+
+                        status = "BLOCKED"
+                        reason = (
+                            "CLOSED_CANDLE_TIME_REGRESSION"
+                        )
+
+                    else:
+
+                        state["last_candle_id"] = candle_id
+
+                        state["confirmations"] = min(
+                            state["confirmations"] + 1,
+                            confirmations_required,
+                        )
+
+                        status = "PENDING"
+                        reason = (
+                            "NEW_CLOSED_CANDLE_CONFIRMATION"
+                        )
+
+                    state["last_status"] = status
+
+                    if (
+                        status == "PENDING"
+                        and state["confirmations"]
+                        >= confirmations_required
+                    ):
+
+                        continuity_verified = True
+
+                        status = "CONFIRMED"
+                        reason = (
+                            "DISTINCT_CLOSED_CANDLE_"
+                            "CONTINUITY_VERIFIED"
+                        )
+
+                        state["last_status"] = status
+
+    # ========================================================
+    # 11. READ ONLY EXECUTION BOUNDARY
+    # ========================================================
+
+    # Continuity is not trading authorization.
+    # The bot has not verified whether the
+    # WEEX account is flat or has pending orders.
+
+    position_flat_verified = False
+    pending_orders_verified = False
+    duplicate_order_absence_verified = False
+
+    reentry_authorized = False
+    execution_intent = False
+    trade_authorized = False
+
+    quantity_calculated = False
+    order_payload_created = False
+
+    demo_order_submitted = False
+    real_order_submitted = False
+    exchange_write = False
+
+    # ========================================================
+    # 12. RESULT
+    # ========================================================
+
+    result = {
+        "status": status,
+        "reason": reason,
+
+        "upstream_status": upstream_status,
+
+        "mode": mode,
+        "direction": direction,
+
+        "closed_candle_id": candle_id,
+
+        "signal_key": (
+            list(state["signal_key"])
+            if state["signal_key"] is not None
+            else None
+        ),
+
+        "confirmations": state["confirmations"],
+        "confirmations_required":
+            confirmations_required,
+
+        "signal_expiry_seconds":
+            signal_expiry_seconds,
+
+        "duplicate_candle": duplicate_candle,
+        "signal_changed": signal_changed,
+        "signal_expired": signal_expired,
+
+        "continuity_verified":
+            continuity_verified,
+
+        "state_persistent_across_restart": False,
+
+        "position_flat_verified":
+            position_flat_verified,
+
+        "pending_orders_verified":
+            pending_orders_verified,
+
+        "duplicate_order_absence_verified":
+            duplicate_order_absence_verified,
+
+        "reentry_authorized":
+            reentry_authorized,
+
+        "execution_intent": execution_intent,
+        "trade_authorized": trade_authorized,
+
+        "quantity_calculated":
+            quantity_calculated,
+
+        "order_payload_created":
+            order_payload_created,
+
+        "demo_order_submitted":
+            demo_order_submitted,
+
+        "real_order_submitted":
+            real_order_submitted,
+
+        "exchange_write": exchange_write,
+        "read_only": True,
+    }
+
+    # ========================================================
+    # 13. RENDER DIAGNOSTICS
+    # ========================================================
+
+    print("-" * 80, flush=True)
+
+    for label, value in (
+        ("STATUS", status),
+        ("REASON", reason),
+        ("MODE", mode),
+        ("DIRECTION", direction),
+        ("CLOSED CANDLE ID", candle_id),
+        ("CONFIRMATIONS", state["confirmations"]),
+        ("REQUIRED", confirmations_required),
+        ("DUPLICATE CANDLE", duplicate_candle),
+        ("SIGNAL CHANGED", signal_changed),
+        ("SIGNAL EXPIRED", signal_expired),
+        ("CONTINUITY VERIFIED", continuity_verified),
+        ("POSITION FLAT VERIFIED", position_flat_verified),
+        ("REENTRY AUTHORIZED", reentry_authorized),
+        ("EXECUTION INTENT", execution_intent),
+        ("TRADE AUTHORIZED", trade_authorized),
+        ("EXCHANGE WRITE", exchange_write),
+    ):
+        print(
+            "UNIT 9 " + label + " =",
+            value,
+            flush=True,
+        )
+
+    print(
+        "UNIT 9 STATE STORAGE = PROCESS MEMORY",
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 AUTHENTICATED REQUEST = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 DEMO ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 REAL ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 9 RESULT = PASS",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# RUN UNIT 9 V1
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_9_RESULT = (
+    fresh_reconstruction_unit_9(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+        FRESH_RECONSTRUCTION_UNIT_8_RESULT,
+    )
+)
+
+# ============================================================
+# END COMPLETE UNIT 9 V1
 # ZERO INDENTATION
 # ============================================================
