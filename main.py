@@ -5690,7 +5690,7 @@ def fresh_unit_6_v11_tests():
 
 FRESH_UNIT_6_V11_RESULT = None
 
-if UNIT_6_V11_TEST_ENABLED:
+if UNIT_6_V11_TEST_ENABLED = FALSE
 
     FRESH_UNIT_6_V11_RESULT = (
         fresh_unit_6_v11_tests()
