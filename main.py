@@ -9161,7 +9161,7 @@ def fresh_unit_9_v11_tests():
             expected_status="BLOCKED",
             expected_confirmations=0,
             expected_reason=(
-                "UPSTREAM_SIGNAL_BLOCKED:UNKNOWN"
+                "UPSTREAM_SIGNAL_BLOCKED:NO_QUALIFIED_SIGNAL"
             ),
             expected_continuity=False,
         )
