@@ -6352,3 +6352,595 @@ FRESH_RECONSTRUCTION_UNIT_7_RESULT = (
 # END COMPLETE REPLACEMENT - UNIT 7 V1
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# START UNIT 7 V1.1 CONTROLLED TEST SUITE
+# ZERO INDENTATION
+#
+# TEST UNIT 7 V1 WITHOUT CHANGING IT
+# SYNTHETIC DATA ONLY
+# NO ACCOUNT ACCESS
+# NO NETWORK REQUEST
+# NO ORDER SUBMISSION
+# ZERO EXCHANGE WRITE
+# ============================================================
+
+UNIT_7_V11_TEST_ENABLED = True
+
+
+def fresh_unit_7_v11_tests():
+
+    import copy
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 7 V1.1 CONTROLLED TEST START",
+        flush=True
+    )
+
+    # ========================================================
+    # 1. PRESERVE ORIGINAL INPUT AND OUTPUT
+    # ========================================================
+
+    original_config = (
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    original_candidate = (
+        FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE
+    )
+
+    original_result = (
+        FRESH_RECONSTRUCTION_UNIT_7_RESULT
+    )
+
+    baseline_config = copy.deepcopy(
+        original_config
+    )
+
+    baseline_candidate = copy.deepcopy(
+        original_candidate
+    )
+
+    baseline_result = copy.deepcopy(
+        original_result
+    )
+
+    test_results = []
+
+    # ========================================================
+    # 2. NORMALIZED TEST FIXTURES
+    # ========================================================
+
+    def make_config():
+
+        return copy.deepcopy(
+            baseline_config
+        )
+
+    def make_candidate(
+        mode="NONE",
+        side="NONE",
+        qualified=False,
+        candidate_mode=None,
+        candidate_stage=None,
+    ):
+
+        data = copy.deepcopy(
+            baseline_candidate
+        )
+
+        if candidate_mode is None:
+            candidate_mode = mode
+
+        if candidate_stage is None:
+            candidate_stage = (
+                "QUALIFIED" if qualified
+                else "NONE"
+            )
+
+        data["execution_intent"] = qualified
+        data["signal_qualified"] = qualified
+
+        data["active_mode"] = mode
+        data["direction"] = side
+
+        data["candidate_mode"] = candidate_mode
+        data["candidate_stage"] = candidate_stage
+
+        data["unit_5_reason"] = (
+            "CONTROLLED_UNIT_7_TEST"
+        )
+
+        data["admission_reason"] = (
+            "CONTROLLED_UNIT_7_TEST"
+        )
+
+        data["read_only"] = True
+        data["trade_authorized"] = False
+        data["exchange_write"] = False
+
+        data["order_payload_created"] = False
+        data["demo_order_submitted"] = False
+        data["real_order_submitted"] = False
+
+        data["leverage_target"] = 100.0
+        data["exchange_leverage_verified"] = False
+        data["effective_leverage"] = None
+
+        return data
+
+    # ========================================================
+    # 3. TEST CASE RUNNER
+    # ========================================================
+
+    def run_case(
+        name,
+        config,
+        candidate,
+        expected_status=None,
+        expected_mode=None,
+        expected_direction=None,
+        expected_exception=None,
+    ):
+
+        print("-" * 80, flush=True)
+        print(
+            "UNIT 7 V1.1 TEST =",
+            name,
+            flush=True
+        )
+
+        # Preserve each individual fixture.
+        config_before = copy.deepcopy(config)
+        candidate_before = copy.deepcopy(candidate)
+
+        actual_status = None
+        actual_reason = None
+        passed = False
+
+        try:
+
+            output = fresh_reconstruction_unit_7(
+                config,
+                candidate,
+            )
+
+            actual_status = output.get("status")
+
+            actual_reason = output.get(
+                "sizing_reason"
+            )
+
+            safety_pass = (
+                output.get("read_only") is True
+                and output.get(
+                    "trade_authorized"
+                ) is False
+                and output.get(
+                    "exchange_write"
+                ) is False
+                and output.get(
+                    "order_payload_created"
+                ) is False
+                and output.get(
+                    "demo_order_enabled"
+                ) is False
+                and output.get(
+                    "real_order_enabled"
+                ) is False
+                and output.get(
+                    "execution_intent"
+                ) is False
+            )
+
+            sizing_pass = (
+                output.get(
+                    "position_sizing_performed"
+                ) is False
+                and output.get(
+                    "quantity_calculated"
+                ) is False
+                and output.get(
+                    "proposed_quantity"
+                ) is None
+                and output.get(
+                    "balance_verified"
+                ) is False
+                and output.get(
+                    "position_state_verified"
+                ) is False
+                and output.get(
+                    "exchange_leverage_verified"
+                ) is False
+                and output.get(
+                    "effective_leverage"
+                ) is None
+            )
+
+            if expected_status == "HELD":
+
+                handover_pass = (
+                    output.get(
+                        "signal_received"
+                    ) is True
+                    and output.get(
+                        "signal_qualified"
+                    ) is True
+                    and output.get(
+                        "account_balance_required"
+                    ) is True
+                )
+
+            else:
+
+                handover_pass = (
+                    output.get(
+                        "signal_received"
+                    ) is False
+                    and output.get(
+                        "signal_qualified"
+                    ) is False
+                    and output.get(
+                        "account_balance_required"
+                    ) is False
+                )
+
+            passed = (
+                expected_exception is None
+                and actual_status == expected_status
+                and output.get(
+                    "active_mode"
+                ) == expected_mode
+                and output.get(
+                    "direction"
+                ) == expected_direction
+                and safety_pass
+                and sizing_pass
+                and handover_pass
+            )
+
+        except RuntimeError as exc:
+
+            actual_reason = str(exc)
+
+            passed = (
+                expected_exception is not None
+                and expected_exception
+                in actual_reason
+            )
+
+        except Exception as exc:
+
+            actual_reason = (
+                "UNEXPECTED_EXCEPTION: "
+                + repr(exc)
+            )
+
+            passed = False
+
+        # Verify the test itself did not mutate inputs.
+        inputs_preserved = (
+            config == config_before
+            and candidate == candidate_before
+        )
+
+        passed = (
+            passed and inputs_preserved
+        )
+
+        print(
+            "UNIT 7 V1.1 EXPECTED STATUS =",
+            expected_status,
+            flush=True
+        )
+
+        print(
+            "UNIT 7 V1.1 ACTUAL STATUS =",
+            actual_status,
+            flush=True
+        )
+
+        print(
+            "UNIT 7 V1.1 EXPECTED EXCEPTION =",
+            expected_exception,
+            flush=True
+        )
+
+        print(
+            "UNIT 7 V1.1 ACTUAL REASON =",
+            actual_reason,
+            flush=True
+        )
+
+        print(
+            "UNIT 7 V1.1 INPUT PRESERVED =",
+            inputs_preserved,
+            flush=True
+        )
+
+        print(
+            "UNIT 7 V1.1 TEST RESULT =",
+            "PASS" if passed else "FAIL",
+            flush=True
+        )
+
+        test_results.append({
+            "name": name,
+            "passed": passed,
+            "reason": actual_reason,
+        })
+
+    # ========================================================
+    # TEST 1: IDLE HANDOVER
+    # ========================================================
+
+    run_case(
+        "IDLE_HANDOVER",
+        make_config(),
+        make_candidate(),
+        expected_status="IDLE",
+        expected_mode="NONE",
+        expected_direction="NONE",
+    )
+
+    # ========================================================
+    # TESTS 2-5: QUALIFIED BREAKOUT AND STRUCTURE
+    # ========================================================
+
+    for mode, side in (
+        ("BREAKOUT", "LONG"),
+        ("BREAKOUT", "SHORT"),
+        ("STRUCTURE", "LONG"),
+        ("STRUCTURE", "SHORT"),
+    ):
+
+        run_case(
+            mode + "_" + side + "_HELD",
+            make_config(),
+            make_candidate(
+                mode=mode,
+                side=side,
+                qualified=True,
+            ),
+            expected_status="HELD",
+            expected_mode=mode,
+            expected_direction=side,
+        )
+
+    # ========================================================
+    # TEST 6: SCALP NOT ADMITTED BY UNIT 6
+    # ========================================================
+
+    run_case(
+        "SCALP_PENDING_REMAINS_IDLE",
+        make_config(),
+        make_candidate(
+            mode="NONE",
+            side="NONE",
+            qualified=False,
+            candidate_mode="SCALP",
+            candidate_stage="PENDING_UNIT_6",
+        ),
+        expected_status="IDLE",
+        expected_mode="NONE",
+        expected_direction="NONE",
+    )
+
+    # ========================================================
+    # TEST 7: INCONSISTENT QUALIFICATION FLAGS
+    # ========================================================
+
+    inconsistent_flags = make_candidate(
+        mode="BREAKOUT",
+        side="LONG",
+        qualified=True,
+    )
+
+    inconsistent_flags[
+        "signal_qualified"
+    ] = False
+
+    run_case(
+        "QUALIFICATION_FLAG_MISMATCH",
+        make_config(),
+        inconsistent_flags,
+        expected_exception=(
+            "UNIT 7 SIGNAL QUALIFICATION MISMATCH"
+        ),
+    )
+
+    # ========================================================
+    # TEST 8: INVALID ACTIVE SIGNAL DIRECTION
+    # ========================================================
+
+    invalid_direction = make_candidate(
+        mode="STRUCTURE",
+        side="NONE",
+        qualified=True,
+    )
+
+    run_case(
+        "ACTIVE_DIRECTION_INVALID",
+        make_config(),
+        invalid_direction,
+        expected_exception=(
+            "UNIT 7 ACTIVE SIGNAL INCONSISTENT"
+        ),
+    )
+
+    # ========================================================
+    # TEST 9: EXCHANGE MUTATION ENABLED
+    # ========================================================
+
+    unsafe_config = make_config()
+
+    unsafe_config["safety"][
+        "exchange_mutation_enabled"
+    ] = True
+
+    run_case(
+        "UNSAFE_EXCHANGE_WRITE_PERMISSION",
+        unsafe_config,
+        make_candidate(),
+        expected_exception=(
+            "UNIT 7 UNSAFE CONFIGURATION: "
+            "exchange_mutation_enabled"
+        ),
+    )
+
+    # ========================================================
+    # TEST 10: UNEXPECTED LEVERAGE VERIFICATION
+    # ========================================================
+
+    unverified_leverage = make_candidate(
+        mode="BREAKOUT",
+        side="LONG",
+        qualified=True,
+    )
+
+    unverified_leverage[
+        "exchange_leverage_verified"
+    ] = True
+
+    unverified_leverage[
+        "effective_leverage"
+    ] = 100.0
+
+    run_case(
+        "LEVERAGE_STATE_REJECTION",
+        make_config(),
+        unverified_leverage,
+        expected_exception=(
+            "UNIT 7 UNEXPECTED LEVERAGE STATE"
+        ),
+    )
+
+    # ========================================================
+    # TEST 11: MISSING UNIT 6 INPUT
+    # ========================================================
+
+    run_case(
+        "MISSING_UNIT_6_INPUT",
+        make_config(),
+        None,
+        expected_exception=(
+            "UNIT 7 INVALID UNIT 6 CANDIDATE"
+        ),
+    )
+
+    # ========================================================
+    # TEST 12: MISSING SAFETY FLAG
+    # ========================================================
+
+    missing_safety = make_config()
+
+    missing_safety["safety"].pop(
+        "position_access_enabled",
+        None,
+    )
+
+    run_case(
+        "MISSING_SAFETY_FLAG",
+        missing_safety,
+        make_candidate(),
+        expected_exception=(
+            "UNIT 7 UNSAFE CONFIGURATION: "
+            "position_access_enabled"
+        ),
+    )
+
+    # ========================================================
+    # 4. VERIFY ORIGINAL STATE
+    # ========================================================
+
+    originals_preserved = (
+        original_config == baseline_config
+        and original_candidate == baseline_candidate
+        and original_result == baseline_result
+    )
+
+    pass_count = sum(
+        item["passed"]
+        for item in test_results
+    )
+
+    fail_count = (
+        len(test_results) - pass_count
+    )
+
+    verdict = (
+        "PASS"
+        if fail_count == 0
+        and originals_preserved
+        else "FAIL"
+    )
+
+    # ========================================================
+    # 5. SUMMARY
+    # ========================================================
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 7 V1.1 TEST COUNT =",
+        len(test_results),
+        flush=True
+    )
+
+    print(
+        "UNIT 7 V1.1 PASS =",
+        pass_count,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 V1.1 FAIL =",
+        fail_count,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 V1.1 ORIGINAL DATA PRESERVED =",
+        originals_preserved,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 V1.1 RESULT =",
+        verdict,
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return {
+        "status": verdict,
+        "test_count": len(test_results),
+        "passed": pass_count,
+        "failed": fail_count,
+        "originals_preserved":
+            originals_preserved,
+        "details": test_results,
+    }
+
+
+# ============================================================
+# RUN UNIT 7 V1.1 CONTROLLED TESTS
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_UNIT_7_V11_RESULT = None
+
+if UNIT_7_V11_TEST_ENABLED:
+
+    FRESH_UNIT_7_V11_RESULT = (
+        fresh_unit_7_v11_tests()
+    )
+
+# ============================================================
+# END UNIT 7 V1.1 CONTROLLED TEST SUITE
+# ZERO INDENTATION
+# ============================================================
+
