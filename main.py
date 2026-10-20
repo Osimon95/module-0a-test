@@ -12356,289 +12356,425 @@ if UNIT_10_V14_TEST_ENABLED:
 # ============================================================
 
 
+
 # ============================================================
-# START COMPLETE REPLACEMENT - UNIT 11 V2
+# START FRESH RECONSTRUCTION UNIT 11
 # ZERO INDENTATION
-# RUN / PAUSE / TEST - MUTUALLY EXCLUSIVE
-# READ ONLY - NO EXCHANGE WRITE
+# SIGNAL CONTINUITY ENGINE
+# FROZEN UNITS 1-10 REMAIN UNCHANGED
+# NO ACCOUNT ACCESS
+# NO DEMO OR REAL ORDER SUBMISSION
 # ============================================================
 
-import os
 import time
-import signal
-import copy
 
-UNIT_11_MODE = os.environ.get("UNIT_11_MODE", "PAUSE").strip().upper()
-UNIT_11_SCAN_INTERVAL = 15.0
-UNIT_11_ERROR_RETRY_INTERVAL = 30.0
-UNIT_11_MAX_CONSECUTIVE_ERRORS = 5
-UNIT_11_MAX_SCANS = 0  # 0 = unlimited in RUN mode
+UNIT_11_CONFIRMATIONS_REQUIRED = 2
+UNIT_11_SIGNAL_EXPIRY_SECONDS = 120
 
-FRESH_UNIT_11_STATE = {
-    "running": False,
-    "stop_requested": False,
-    "completed_scans": 0,
-    "successful_scans": 0,
-    "failed_scans": 0,
-    "consecutive_errors": 0,
-    "last_status": "NOT_STARTED",
-    "last_reason": None,
-    "start_monotonic": None,
+UNIT_11_STATE = {
+    "signal_key": None,
+    "last_candle_id": None,
+    "confirmations": 0,
+    "first_seen_monotonic": None,
 }
 
 
-def fresh_unit_11_request_stop(signum=None, frame=None):
-    FRESH_UNIT_11_STATE["stop_requested"] = True
-    print("UNIT 11 CONTROLLED STOP REQUESTED", flush=True)
+# ============================================================
+# UNIT 11 STATE RESET
+# ZERO INDENTATION
+# ============================================================
 
+def fresh_unit_11_reset():
 
-def fresh_unit_11_sleep(seconds):
-    deadline = time.monotonic() + seconds
-    while not FRESH_UNIT_11_STATE["stop_requested"]:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            break
-        time.sleep(min(remaining, 1.0))
-
-
-def fresh_unit_11_preflight():
-    fresh_unit_10_validate_safety(FRESH_RECONSTRUCTION_CONFIG)
-    if UNIT_11_MODE not in ("PAUSE", "TEST", "RUN"):
-        raise RuntimeError("UNIT 11 INVALID MODE")
-    if UNIT_10_CONTINUOUS_SCAN_ENABLED is not False:
-        raise RuntimeError("UNIT 11 CONFLICTING UNIT 10 AUTO LOOP")
-    if not callable(fresh_reconstruction_unit_10_scan):
-        raise RuntimeError("UNIT 11 COORDINATOR UNAVAILABLE")
-    if not callable(fresh_unit_10_v11_refresh_provider):
-        raise RuntimeError("UNIT 11 REFRESH PROVIDER UNAVAILABLE")
-    if UNIT_11_SCAN_INTERVAL < 5 or UNIT_11_ERROR_RETRY_INTERVAL < 5:
-        raise RuntimeError("UNIT 11 INVALID INTERVAL")
-    if UNIT_11_MAX_CONSECUTIVE_ERRORS < 1:
-        raise RuntimeError("UNIT 11 INVALID ERROR LIMIT")
-    if type(UNIT_11_MAX_SCANS) is not int or UNIT_11_MAX_SCANS < 0:
-        raise RuntimeError("UNIT 11 INVALID SCAN LIMIT")
-    print("UNIT 11 V2 MODE =", UNIT_11_MODE, flush=True)
-    print("UNIT 11 V2 READ ONLY SAFETY = PASS", flush=True)
-    print("UNIT 11 V2 EXCHANGE WRITE = NONE", flush=True)
-    return True
-
-
-def fresh_unit_11_verify_output(result):
-    if not isinstance(result, dict):
-        raise RuntimeError("UNIT 11 INVALID SCAN OUTPUT")
-    if result.get("status") not in ("IDLE", "PENDING", "CONFIRMED", "BLOCKED"):
-        raise RuntimeError("UNIT 11 INVALID STATUS: " + str(result.get("reason")))
-    for key, expected in (
-        ("read_only", True),
-        ("trade_authorized", False),
-        ("exchange_write", False),
-        ("reentry_authorized", False),
-    ):
-        if result.get(key) is not expected:
-            raise RuntimeError("UNIT 11 UNSAFE OUTPUT: " + key)
-    unit9 = result.get("unit_9_result")
-    if not isinstance(unit9, dict):
-        raise RuntimeError("UNIT 11 MISSING UNIT 9 RESULT")
-    for key, expected in (
-        ("read_only", True),
-        ("trade_authorized", False),
-        ("exchange_write", False),
-        ("reentry_authorized", False),
-        ("execution_intent", False),
-        ("order_payload_created", False),
-        ("demo_order_submitted", False),
-        ("real_order_submitted", False),
-    ):
-        if unit9.get(key) is not expected:
-            raise RuntimeError("UNIT 11 UNSAFE UNIT 9: " + key)
-    return unit9
-
-
-def fresh_unit_11_continuity_test():
-    # Runs actual Units 9 and 10 with a synthetic input provider.
-    # No live provider is invoked in TEST mode.
-    saved9 = copy.deepcopy(FRESH_UNIT_9_STATE)
-    saved10 = copy.deepcopy(FRESH_UNIT_10_STATE)
-    cases = [
-        ("FIRST", "LONG", 0, "PENDING", 1, None),
-        ("DUPLICATE", "LONG", 0, "PENDING", 1, "duplicate_candle"),
-        ("SECOND", "LONG", 60000, "CONFIRMED", 2, "continuity_verified"),
-        ("CHANGED", "SHORT", 120000, "PENDING", 1, "signal_changed"),
-        ("EXPIRED", "SHORT", 180000, "PENDING", 1, "signal_expired"),
-        ("DISAPPEARED", None, 240000, "IDLE", 0, None),
-        ("RECOVERY", "LONG", 300000, "PENDING", 1, None),
-    ]
-    passed = 0
-    print("UNIT 11 V2 CONTINUITY TEST START", flush=True)
-    try:
-        FRESH_UNIT_9_STATE.clear()
-        FRESH_UNIT_9_STATE.update({
-            "signal_key": None, "first_seen": None,
-            "last_candle_id": None, "confirmations": 0,
-            "last_status": "IDLE",
-        })
-        FRESH_UNIT_10_STATE.clear()
-        FRESH_UNIT_10_STATE.update({
-            "scan_count": 0, "last_scan_id": None,
-            "last_scan_monotonic": None, "scan_in_progress": False,
-            "last_status": "NOT_STARTED", "last_reason": None,
-        })
-        for index, case in enumerate(cases):
-            name, direction, offset, expected_status, expected_count, flag = case
-            if name == "EXPIRED":
-                FRESH_UNIT_9_STATE["first_seen"] = time.monotonic() - 121.0
-            candle_id = 1792490000000 + offset
-
-            def synthetic_provider():
-                unit8 = {
-                    "status": "PENDING" if direction else "IDLE",
-                    "reason": name,
-                    "candidate_preserved": bool(direction),
-                    "market_fresh": True,
-                    "signal_direction_match": bool(direction),
-                    "continuity_verified": False,
-                    "pending_mode": "STRUCTURE" if direction else "NONE",
-                    "pending_direction": direction or "NONE",
-                    "read_only": True,
-                    "execution_intent": False,
-                    "trade_authorized": False,
-                    "exchange_write": False,
-                    "order_payload_created": False,
-                    "reentry_authorized": False,
-                    "demo_order_submitted": False,
-                    "real_order_submitted": False,
-                }
-                unit4 = {
-                    "symbol": "BTCUSDT",
-                    "candle_data_fresh": True,
-                    "direction_evidence": direction,
-                    "recent_closed_klines": [{"timestamp": candle_id}],
-                }
-                return {
-                    "scan_id": 900000000000 + index,
-                    "unit_4": unit4,
-                    "unit_8": unit8,
-                }
-
-            result = fresh_reconstruction_unit_10_scan(synthetic_provider)
-            unit9 = fresh_unit_11_verify_output(result)
-            checks = [
-                result.get("status") == expected_status,
-                unit9.get("status") == expected_status,
-                unit9.get("confirmations") == expected_count,
-                unit9.get("continuity_verified") is (name == "SECOND"),
-            ]
-            if flag:
-                checks.append(unit9.get(flag) is True)
-            ok = all(checks)
-            print("UNIT 11 TEST CASE =", name, flush=True)
-            print("UNIT 11 TEST STATUS =", unit9.get("status"), flush=True)
-            print("UNIT 11 TEST REASON =", unit9.get("reason"), flush=True)
-            print("UNIT 11 TEST CONFIRMATIONS =", unit9.get("confirmations"), flush=True)
-            print("UNIT 11 TEST VERDICT =", "PASS" if ok else "FAIL", flush=True)
-            if not ok:
-                raise AssertionError("UNIT 11 CONTINUITY FAILED: " + name)
-            passed += 1
-        print("UNIT 11 V2 TESTS PASSED =", passed, "/", len(cases), flush=True)
-        print("UNIT 11 V2 TEST EXCHANGE WRITE = NONE", flush=True)
-        print("UNIT 11 V2 FINAL VERDICT = PASS", flush=True)
-        return {"status": "PASS", "tests_passed": passed,
-                "read_only": True, "trade_authorized": False,
-                "exchange_write": False}
-    finally:
-        FRESH_UNIT_9_STATE.clear()
-        FRESH_UNIT_9_STATE.update(saved9)
-        FRESH_UNIT_10_STATE.clear()
-        FRESH_UNIT_10_STATE.update(saved10)
-        print("UNIT 11 V2 UNIT 9/10 STATE RESTORED", flush=True)
-
-
-def fresh_reconstruction_unit_11():
-    fresh_unit_11_preflight()
-    state = FRESH_UNIT_11_STATE
-    if UNIT_11_MODE == "PAUSE":
-        state["last_status"] = "PAUSED"
-        print("UNIT 11 STATUS = PAUSED", flush=True)
-        return {"status": "PAUSED", "read_only": True,
-                "trade_authorized": False, "exchange_write": False}
-    if UNIT_11_MODE == "TEST":
-        return fresh_unit_11_continuity_test()
-    if state["running"]:
-        raise RuntimeError("UNIT 11 ALREADY RUNNING")
-    state.update({
-        "running": True, "stop_requested": False,
-        "completed_scans": 0, "successful_scans": 0,
-        "failed_scans": 0, "consecutive_errors": 0,
-        "last_status": "RUNNING", "last_reason": None,
-        "start_monotonic": time.monotonic(),
+    UNIT_11_STATE.update({
+        "signal_key": None,
+        "last_candle_id": None,
+        "confirmations": 0,
+        "first_seen_monotonic": None,
     })
-    print("UNIT 11 STATUS = RUNNING", flush=True)
-    try:
-        while not state["stop_requested"]:
-            if UNIT_11_MAX_SCANS and state["completed_scans"] >= UNIT_11_MAX_SCANS:
-                print("UNIT 11 SCAN LIMIT REACHED", flush=True)
-                break
-            state["completed_scans"] += 1
-            scan_number = state["completed_scans"]
-            try:
-                fresh_unit_10_validate_safety(FRESH_RECONSTRUCTION_CONFIG)
-                result = fresh_reconstruction_unit_10_scan(
-                    fresh_unit_10_v11_refresh_provider
-                )
-                unit9 = fresh_unit_11_verify_output(result)
-                state["successful_scans"] += 1
-                state["consecutive_errors"] = 0
-                state["last_status"] = result["status"]
-                state["last_reason"] = result.get("reason")
-                print("UNIT 11 SCAN NUMBER =", scan_number, flush=True)
-                print("UNIT 11 SIGNAL STATUS =", result["status"], flush=True)
-                print("UNIT 11 SIGNAL REASON =", result.get("reason"), flush=True)
-                print("UNIT 11 SIGNAL MODE =", unit9.get("mode"), flush=True)
-                print("UNIT 11 SIGNAL DIRECTION =", unit9.get("direction"), flush=True)
-                print("UNIT 11 CONFIRMATIONS =", unit9.get("confirmations"), flush=True)
-                print("UNIT 11 CONTINUITY VERIFIED =", unit9.get("continuity_verified"), flush=True)
-                print("UNIT 11 SUCCESSFUL SCANS =", state["successful_scans"], flush=True)
-                delay = UNIT_11_SCAN_INTERVAL
-            except Exception as exc:
-                state["failed_scans"] += 1
-                state["consecutive_errors"] += 1
-                state["last_status"] = "ERROR"
-                state["last_reason"] = str(exc)
-                print("UNIT 11 SCAN ERROR =", repr(exc), flush=True)
-                if state["consecutive_errors"] >= UNIT_11_MAX_CONSECUTIVE_ERRORS:
-                    print("UNIT 11 ERROR LIMIT REACHED", flush=True)
-                    state["stop_requested"] = True
-                    break
-                delay = UNIT_11_ERROR_RETRY_INTERVAL
-            if not state["stop_requested"]:
-                print("UNIT 11 NEXT SCAN DELAY =", delay, flush=True)
-                fresh_unit_11_sleep(delay)
-    finally:
-        state["running"] = False
-        print("UNIT 11 FINAL SCANS =", state["completed_scans"], flush=True)
-        print("UNIT 11 SUCCESSFUL SCANS =", state["successful_scans"], flush=True)
-        print("UNIT 11 FAILED SCANS =", state["failed_scans"], flush=True)
-        print("UNIT 11 FINAL STATUS =", state["last_status"], flush=True)
-        print("UNIT 11 EXCHANGE WRITE = NONE", flush=True)
-        print("UNIT 11 RUNNER STOPPED", flush=True)
-    return {
-        "status": state["last_status"],
-        "scans": state["completed_scans"],
-        "successful_scans": state["successful_scans"],
-        "failed_scans": state["failed_scans"],
-        "read_only": True, "trade_authorized": False,
-        "exchange_write": False,
-    }
 
-
-FRESH_RECONSTRUCTION_UNIT_11_RESULT = None
-
-if __name__ == "__main__":
-    signal.signal(signal.SIGTERM, fresh_unit_11_request_stop)
-    signal.signal(signal.SIGINT, fresh_unit_11_request_stop)
-    FRESH_RECONSTRUCTION_UNIT_11_RESULT = fresh_reconstruction_unit_11()
 
 # ============================================================
-# END COMPLETE REPLACEMENT - UNIT 11 V2
+# UNIT 11 SIGNAL CONTINUITY ENGINE
 # ZERO INDENTATION
+# ============================================================
+
+def fresh_reconstruction_unit_11(
+    config,
+    unit_10_result,
+    unit_4_snapshot,
+    now_monotonic=None,
+):
+
+    if now_monotonic is None:
+        now_monotonic = time.monotonic()
+
+    # ========================================================
+    # 1. VALIDATE INPUTS
+    # ========================================================
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT 11 INVALID CONFIG")
+
+    if not isinstance(unit_10_result, dict):
+        raise RuntimeError(
+            "UNIT 11 INVALID UNIT 10 RESULT"
+        )
+
+    if not isinstance(unit_4_snapshot, dict):
+        raise RuntimeError(
+            "UNIT 11 INVALID UNIT 4 SNAPSHOT"
+        )
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("demo_order_symbol") != "BTCSUSDT"
+        or unit_4_snapshot.get("read_only") is not True
+        or unit_10_result.get("read_only") is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11 SAFETY CONTRACT FAILED"
+        )
+
+    # ========================================================
+    # 2. ZERO EXCHANGE WRITE CONTRACT
+    # ========================================================
+
+    for flag in (
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    ):
+
+        if safety.get(flag) is not False:
+            raise RuntimeError(
+                "UNIT 11 UNSAFE CONFIG: " + flag
+            )
+
+    # ========================================================
+    # 3. RECEIVE FROZEN UNIT 10 SIGNAL
+    # ========================================================
+
+    candle_id = unit_4_snapshot.get(
+        "latest_close_time_ms"
+    )
+
+    market_time = unit_4_snapshot.get(
+        "exchange_time_ms"
+    )
+
+    status = unit_10_result.get("status")
+    mode = unit_10_result.get("active_mode")
+    direction = unit_10_result.get("direction")
+
+    reason = "NONE"
+    verified = False
+
+    # ========================================================
+    # 4. VERIFY UNIT 10 QUALIFICATION
+    # ========================================================
+
+    eligible = (
+        status == "READY"
+        and mode in (
+            "SCALP",
+            "STRUCTURE",
+            "BREAKOUT",
+        )
+        and direction in ("LONG", "SHORT")
+        and all(
+            unit_10_result.get(flag) is True
+            for flag in (
+                "signal_qualified",
+                "execution_intent",
+                "trade_plan_ready",
+                "execution_ready",
+                "demo_boundary_ready",
+            )
+        )
+        and isinstance(
+            unit_10_result.get("trade_plan"),
+            dict,
+        )
+        and isinstance(
+            unit_10_result.get("execution_candidate"),
+            dict,
+        )
+        and isinstance(
+            unit_10_result.get(
+                "demo_submission_instruction"
+            ),
+            dict,
+        )
+    )
+
+    # ========================================================
+    # 5. VERIFY CLOSED CANDLE
+    # ========================================================
+
+    if not eligible:
+
+        fresh_unit_11_reset()
+
+        reason = (
+            "UNIT_10_NOT_QUALIFIED: "
+            + str(
+                unit_10_result.get(
+                    "skip_reason",
+                    status,
+                )
+            )
+        )
+
+    elif (
+        not isinstance(candle_id, int)
+        or not isinstance(market_time, int)
+        or candle_id <= 0
+        or candle_id > market_time
+    ):
+
+        fresh_unit_11_reset()
+        reason = "CLOSED_CANDLE_UNVERIFIED"
+
+    else:
+
+        # ====================================================
+        # 6. IDENTIFY MODE AND DIRECTION
+        # ====================================================
+
+        plan = unit_10_result["trade_plan"]
+
+        signature = (
+            mode,
+            direction,
+            str(plan.get("active_mode")),
+            str(plan.get("direction")),
+        )
+
+        old_key = UNIT_11_STATE["signal_key"]
+
+        previous_candle = UNIT_11_STATE[
+            "last_candle_id"
+        ]
+
+        started = UNIT_11_STATE[
+            "first_seen_monotonic"
+        ]
+
+        expired = (
+            started is not None
+            and now_monotonic - started
+            > UNIT_11_SIGNAL_EXPIRY_SECONDS
+        )
+
+        # ====================================================
+        # 7. NEW SIGNAL OR EXPIRED SIGNAL
+        # ====================================================
+
+        if old_key != signature or expired:
+
+            fresh_unit_11_reset()
+
+            UNIT_11_STATE.update({
+                "signal_key": signature,
+                "last_candle_id": candle_id,
+                "confirmations": 1,
+                "first_seen_monotonic":
+                    now_monotonic,
+            })
+
+            reason = (
+                "EXPIRED_RESTARTED"
+                if expired
+                else "FIRST_CONFIRMATION"
+            )
+
+        # ====================================================
+        # 8. REJECT DUPLICATE CLOSED CANDLE
+        # ====================================================
+
+        elif candle_id == previous_candle:
+
+            reason = "DUPLICATE_CLOSED_CANDLE"
+
+        # ====================================================
+        # 9. REJECT STALE CLOSED CANDLE
+        # ====================================================
+
+        elif candle_id < previous_candle:
+
+            reason = "STALE_CLOSED_CANDLE"
+
+        # ====================================================
+        # 10. REJECT NON-CONSECUTIVE CANDLES
+        # ====================================================
+
+        elif candle_id - previous_candle != 60000:
+
+            fresh_unit_11_reset()
+
+            UNIT_11_STATE.update({
+                "signal_key": signature,
+                "last_candle_id": candle_id,
+                "confirmations": 1,
+                "first_seen_monotonic":
+                    now_monotonic,
+            })
+
+            reason = "CANDLE_GAP_RESTARTED"
+
+        # ====================================================
+        # 11. CONTINUITY CONFIRMATION
+        # ====================================================
+
+        else:
+
+            UNIT_11_STATE["confirmations"] += 1
+
+            UNIT_11_STATE["last_candle_id"] = (
+                candle_id
+            )
+
+            reason = "CONTINUITY_VERIFIED"
+
+        verified = (
+            UNIT_11_STATE["confirmations"]
+            >= UNIT_11_CONFIRMATIONS_REQUIRED
+            and reason == "CONTINUITY_VERIFIED"
+        )
+
+    # ========================================================
+    # 12. READ-ONLY RESULT
+    # ========================================================
+
+    result = {
+        "status":
+            "VERIFIED" if verified else "WAITING",
+
+        "active_mode":
+            mode if eligible else "NONE",
+
+        "direction":
+            direction if eligible else "NONE",
+
+        "closed_candle_id": candle_id,
+
+        "confirmations":
+            UNIT_11_STATE["confirmations"],
+
+        "required":
+            UNIT_11_CONFIRMATIONS_REQUIRED,
+
+        "continuity_verified": verified,
+
+        "skip_reason": reason,
+
+        "trade_authorized": False,
+
+        "payload_ready": False,
+
+        "order_payload": None,
+
+        "order_payload_created": False,
+
+        "demo_submission_requested": False,
+
+        "real_submission_requested": False,
+
+        "exchange_write": "NONE",
+
+        "read_only": True,
+    }
+
+    # ========================================================
+    # 13. RENDER DIAGNOSTICS
+    # ========================================================
+
+    print("=" * 70, flush=True)
+
+    print(
+        "UNIT 11 STATUS =",
+        result["status"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 MODE =",
+        result["active_mode"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 DIRECTION =",
+        result["direction"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 CLOSED CANDLE ID =",
+        candle_id,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 CONFIRMATIONS =",
+        result["confirmations"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 REQUIRED =",
+        result["required"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 REASON =",
+        reason,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 CONTINUITY VERIFIED =",
+        verified,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 TRADE AUTHORIZED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# RUN FRESH UNIT 11
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
+    fresh_reconstruction_unit_11(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_10_RESULT,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+    )
+)
+
+
+# ============================================================
+# END FRESH RECONSTRUCTION UNIT 11
+# ZERO INDENTATION
+# DO NOT INTEGRATE UNIT 12 YET
 # ============================================================
