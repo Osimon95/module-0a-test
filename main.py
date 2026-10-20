@@ -10285,7 +10285,7 @@ def fresh_unit_10_v11_integration_test():
 # ZERO INDENTATION
 # ============================================================
 
-UNIT_10_V11_TEST_ENABLED = True
+UNIT_10_V11_TEST_ENABLED = False 
 
 FRESH_UNIT_10_V11_RESULT = None
 
@@ -10298,5 +10298,608 @@ if UNIT_10_V11_TEST_ENABLED:
 
 # ============================================================
 # END UNIT 10 V1.1
+# ZERO INDENTATION
+# ============================================================
+
+
+# ============================================================
+# START UNIT 10 V1.2
+# ZERO INDENTATION
+#
+# BOUNDED REAL PUBLIC MARKET MULTI-SCAN TEST
+#
+# 3 SCANS
+# 30 SECOND INTERVAL
+# UNITS 3 TO 9 REFRESHED EACH SCAN
+#
+# READ ONLY
+# NO ACCOUNT ACCESS
+# NO POSITION ACCESS
+# NO DEMO ORDER
+# NO REAL ORDER
+# NO EXCHANGE WRITE
+# ============================================================
+
+import time
+import copy
+
+
+# ============================================================
+# 1. TEST SWITCHES
+# ZERO INDENTATION
+# ============================================================
+
+UNIT_10_V12_TEST_ENABLED = True
+
+UNIT_10_V12_SCAN_COUNT = 3
+
+UNIT_10_V12_SCAN_INTERVAL_SECONDS = 30.0
+
+
+# ============================================================
+# 2. MULTI-SCAN VERIFICATION FUNCTION
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_10_v12_tests():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 10 V1.2 MULTI-SCAN TEST START",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3. SAFETY AND DEPENDENCIES
+    # ========================================================
+
+    fresh_unit_10_validate_safety(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    if UNIT_10_CONTINUOUS_SCAN_ENABLED is not False:
+        raise RuntimeError(
+            "UNIT 10 V1.2 AUTO SCANNING MUST BE DISABLED"
+        )
+
+    if UNIT_10_V12_SCAN_COUNT != 3:
+        raise RuntimeError(
+            "UNIT 10 V1.2 INVALID TEST SCAN COUNT"
+        )
+
+    if UNIT_10_V12_SCAN_INTERVAL_SECONDS != 30.0:
+        raise RuntimeError(
+            "UNIT 10 V1.2 INVALID TEST INTERVAL"
+        )
+
+    if not callable(
+        fresh_unit_10_v11_refresh_provider
+    ):
+        raise RuntimeError(
+            "UNIT 10 V1.2 REFRESH PROVIDER MISSING"
+        )
+
+    if FRESH_UNIT_10_STATE.get(
+        "scan_in_progress"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 10 V1.2 SCAN ALREADY RUNNING"
+        )
+
+    original_market_reference = (
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    )
+
+    original_config = copy.deepcopy(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    print(
+        "PASS: UNIT 10 V1.2 READ ONLY SAFETY",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 10 V1.2 REFRESH PROVIDER READY",
+        flush=True,
+    )
+
+    # ========================================================
+    # 4. CONTROLLED MULTI-SCAN
+    # ========================================================
+
+    results = []
+
+    previous_scan_id = (
+        FRESH_UNIT_10_STATE.get("last_scan_id")
+    )
+
+    previous_candle_id = None
+
+    same_candle_count = 0
+    changed_candle_count = 0
+    confirmed_scan_count = 0
+
+    try:
+
+        for scan_number in range(
+            1,
+            UNIT_10_V12_SCAN_COUNT + 1,
+        ):
+
+            print("=" * 80, flush=True)
+
+            print(
+                "UNIT 10 V1.2 SCAN START =",
+                scan_number,
+                flush=True,
+            )
+
+            # Every call invokes the actual
+            # V1.1 public refresh provider.
+            #
+            # That provider reruns Units 3-8.
+            # The coordinator then runs Unit 9.
+
+            result = (
+                fresh_reconstruction_unit_10_scan(
+                    fresh_unit_10_v11_refresh_provider
+                )
+            )
+
+            if not isinstance(result, dict):
+                raise RuntimeError(
+                    "UNIT 10 V1.2 INVALID SCAN RESULT"
+                )
+
+            status = result.get("status")
+
+            if status not in (
+                "IDLE",
+                "PENDING",
+                "CONFIRMED",
+                "BLOCKED",
+            ):
+                raise RuntimeError(
+                    "UNIT 10 V1.2 SCAN FAILED: "
+                    + str(result.get("reason"))
+                )
+
+            # ================================================
+            # 5. VALIDATE SAFETY ON EACH SCAN
+            # ================================================
+
+            if (
+                result.get("read_only") is not True
+                or result.get(
+                    "trade_authorized"
+                ) is not False
+                or result.get(
+                    "exchange_write"
+                ) is not False
+                or result.get(
+                    "reentry_authorized"
+                ) is not False
+            ):
+                raise RuntimeError(
+                    "UNIT 10 V1.2 SCAN SAFETY VIOLATION"
+                )
+
+            unit9 = result.get(
+                "unit_9_result"
+            )
+
+            if not isinstance(unit9, dict):
+                raise RuntimeError(
+                    "UNIT 10 V1.2 UNIT 9 RESULT MISSING"
+                )
+
+            for key in (
+                "trade_authorized",
+                "exchange_write",
+                "execution_intent",
+                "reentry_authorized",
+                "order_payload_created",
+                "demo_order_submitted",
+                "real_order_submitted",
+                "quantity_calculated",
+                "position_flat_verified",
+                "pending_orders_verified",
+                "duplicate_order_absence_verified",
+            ):
+
+                if unit9.get(key) is not False:
+                    raise RuntimeError(
+                        "UNIT 10 V1.2 UNSAFE UNIT 9: "
+                        + key
+                    )
+
+            if unit9.get("read_only") is not True:
+                raise RuntimeError(
+                    "UNIT 10 V1.2 READ ONLY FAILURE"
+                )
+
+            # ================================================
+            # 6. VERIFY SCAN IDENTIFIER ADVANCES
+            # ================================================
+
+            scan_id = result.get("scan_id")
+
+            if (
+                type(scan_id) is not int
+                or scan_id <= 0
+            ):
+                raise RuntimeError(
+                    "UNIT 10 V1.2 INVALID SCAN ID"
+                )
+
+            if (
+                previous_scan_id is not None
+                and scan_id <= previous_scan_id
+            ):
+                raise RuntimeError(
+                    "UNIT 10 V1.2 SCAN ID DID NOT ADVANCE"
+                )
+
+            previous_scan_id = scan_id
+
+            # ================================================
+            # 7. OBSERVE CLOSED-CANDLE CONTINUITY
+            # ================================================
+
+            candle_id = unit9.get(
+                "closed_candle_id"
+            )
+
+            confirmations = unit9.get(
+                "confirmations"
+            )
+
+            duplicate = unit9.get(
+                "duplicate_candle"
+            )
+
+            continuity = unit9.get(
+                "continuity_verified"
+            )
+
+            if type(confirmations) is not int:
+                raise RuntimeError(
+                    "UNIT 10 V1.2 INVALID CONFIRMATION COUNT"
+                )
+
+            if not 0 <= confirmations <= 2:
+                raise RuntimeError(
+                    "UNIT 10 V1.2 CONFIRMATION LIMIT EXCEEDED"
+                )
+
+            if (
+                type(duplicate) is not bool
+                or type(continuity) is not bool
+            ):
+                raise RuntimeError(
+                    "UNIT 10 V1.2 INVALID CONTINUITY FLAGS"
+                )
+
+            if (
+                continuity
+                and (
+                    status != "CONFIRMED"
+                    or confirmations != 2
+                )
+            ):
+                raise RuntimeError(
+                    "UNIT 10 V1.2 FALSE CONTINUITY STATE"
+                )
+
+            if (
+                duplicate
+                and candle_id is None
+            ):
+                raise RuntimeError(
+                    "UNIT 10 V1.2 DUPLICATE WITHOUT CANDLE"
+                )
+
+            if (
+                duplicate
+                and unit9.get(
+                    "signal_changed"
+                ) is True
+            ):
+                raise RuntimeError(
+                    "UNIT 10 V1.2 DUPLICATE SIGNAL CONFLICT"
+                )
+
+            if continuity:
+                confirmed_scan_count += 1
+
+            if candle_id is not None:
+
+                if (
+                    previous_candle_id is not None
+                    and candle_id == previous_candle_id
+                ):
+                    same_candle_count += 1
+
+                elif previous_candle_id is not None:
+                    changed_candle_count += 1
+
+                previous_candle_id = candle_id
+
+            # ================================================
+            # 8. SAVE SCAN RESULT
+            # ================================================
+
+            record = {
+                "scan_number": scan_number,
+                "scan_id": scan_id,
+                "status": status,
+                "reason": result.get("reason"),
+                "mode": unit9.get("mode"),
+                "direction": unit9.get("direction"),
+                "candle_id": candle_id,
+                "confirmations": confirmations,
+                "duplicate_candle": duplicate,
+                "continuity_verified": continuity,
+                "read_only": True,
+                "trade_authorized": False,
+                "exchange_write": False,
+            }
+
+            results.append(record)
+
+            print("-" * 80, flush=True)
+
+            print(
+                "UNIT 10 V1.2 SCAN NUMBER =",
+                scan_number,
+                flush=True,
+            )
+
+            print(
+                "UNIT 10 V1.2 SCAN ID =",
+                scan_id,
+                flush=True,
+            )
+
+            print(
+                "UNIT 10 V1.2 STATUS =",
+                status,
+                flush=True,
+            )
+
+            print(
+                "UNIT 10 V1.2 MODE =",
+                unit9.get("mode"),
+                flush=True,
+            )
+
+            print(
+                "UNIT 10 V1.2 DIRECTION =",
+                unit9.get("direction"),
+                flush=True,
+            )
+
+            print(
+                "UNIT 10 V1.2 CLOSED CANDLE =",
+                candle_id,
+                flush=True,
+            )
+
+            print(
+                "UNIT 10 V1.2 CONFIRMATIONS =",
+                confirmations,
+                flush=True,
+            )
+
+            print(
+                "UNIT 10 V1.2 DUPLICATE CANDLE =",
+                duplicate,
+                flush=True,
+            )
+
+            print(
+                "UNIT 10 V1.2 CONTINUITY VERIFIED =",
+                continuity,
+                flush=True,
+            )
+
+            print(
+                "UNIT 10 V1.2 TRADE AUTHORIZED = FALSE",
+                flush=True,
+            )
+
+            print(
+                "UNIT 10 V1.2 EXCHANGE WRITE = NONE",
+                flush=True,
+            )
+
+            # ================================================
+            # 9. WAIT BETWEEN SCANS ONLY
+            # ================================================
+
+            if scan_number < UNIT_10_V12_SCAN_COUNT:
+
+                print(
+                    "UNIT 10 V1.2 NEXT SCAN DELAY =",
+                    UNIT_10_V12_SCAN_INTERVAL_SECONDS,
+                    flush=True,
+                )
+
+                time.sleep(
+                    UNIT_10_V12_SCAN_INTERVAL_SECONDS
+                )
+
+    finally:
+
+        # The V1.1 provider restores this global
+        # after each public refresh.
+        #
+        # Verify restoration even if one scan fails.
+
+        if (
+            FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+            is not original_market_reference
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.2 MARKET GLOBAL NOT RESTORED"
+            )
+
+    # ========================================================
+    # 10. FINAL VALIDATION
+    # ========================================================
+
+    original_config_preserved = (
+        FRESH_RECONSTRUCTION_CONFIG
+        == original_config
+    )
+
+    scan_count_correct = (
+        len(results)
+        == UNIT_10_V12_SCAN_COUNT
+    )
+
+    scan_lock_released = (
+        FRESH_UNIT_10_STATE.get(
+            "scan_in_progress"
+        ) is False
+    )
+
+    if not original_config_preserved:
+        raise RuntimeError(
+            "UNIT 10 V1.2 CONFIGURATION CHANGED"
+        )
+
+    if not scan_count_correct:
+        raise RuntimeError(
+            "UNIT 10 V1.2 INCOMPLETE SCAN SEQUENCE"
+        )
+
+    if not scan_lock_released:
+        raise RuntimeError(
+            "UNIT 10 V1.2 SCAN LOCK NOT RELEASED"
+        )
+
+    # ========================================================
+    # 11. FINAL RENDER SUMMARY
+    # ========================================================
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 10 V1.2 SCANS REQUESTED =",
+        UNIT_10_V12_SCAN_COUNT,
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.2 SCANS COMPLETED =",
+        len(results),
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.2 SAME CANDLE OBSERVATIONS =",
+        same_candle_count,
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.2 CHANGED CANDLE OBSERVATIONS =",
+        changed_candle_count,
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.2 CONFIRMED SCAN OBSERVATIONS =",
+        confirmed_scan_count,
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.2 ORIGINAL CONFIG PRESERVED =",
+        original_config_preserved,
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.2 SCAN LOCK RELEASED =",
+        scan_lock_released,
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.2 AUTOMATIC LOOP = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.2 ACCOUNT ACCESS = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.2 POSITION ACCESS = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.2 DEMO ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.2 REAL ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.2 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.2 RESULT = PASS",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return {
+        "status": "PASS",
+        "scans_requested": UNIT_10_V12_SCAN_COUNT,
+        "scans_completed": len(results),
+        "same_candle_observations":
+            same_candle_count,
+        "changed_candle_observations":
+            changed_candle_count,
+        "confirmed_scan_observations":
+            confirmed_scan_count,
+        "original_config_preserved":
+            original_config_preserved,
+        "read_only": True,
+        "trade_authorized": False,
+        "exchange_write": False,
+        "results": results,
+    }
+
+
+# ============================================================
+# 12. RUN UNIT 10 V1.2 TEST
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_UNIT_10_V12_RESULT = None
+
+if UNIT_10_V12_TEST_ENABLED:
+
+    FRESH_UNIT_10_V12_RESULT = (
+        fresh_unit_10_v12_tests()
+    )
+
+
+# ============================================================
+# END UNIT 10 V1.2
 # ZERO INDENTATION
 # ============================================================
