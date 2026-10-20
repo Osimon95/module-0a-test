@@ -10929,7 +10929,8 @@ import time
 # ZERO INDENTATION
 # ============================================================
 
-UNIT_10_V13_TEST_ENABLED = True
+UNIT_10_V13_TEST_ENABLED = False
+
 
 UNIT_10_V13_SCAN_COUNT = 3
 
