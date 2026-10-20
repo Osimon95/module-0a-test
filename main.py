@@ -12334,10 +12334,12 @@ def fresh_unit_10_v14_real_audit():
 # ZERO INDENTATION
 # ============================================================
 
+FRESH_UNIT_10_V14_TEST_ENABLED = False
 FRESH_UNIT_10_V14_RESULT = None
 
 if UNIT_10_V14_TEST_ENABLED:
 
+    fresh_unit_10_v14_controlled_tests() = false
     fresh_unit_10_v14_controlled_tests()
 
     if UNIT_10_V14_REAL_SCAN_ENABLED:
@@ -12351,3 +12353,581 @@ if UNIT_10_V14_TEST_ENABLED:
 # END UNIT 10 V1.4
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 11
+# ZERO INDENTATION
+#
+# SUSTAINED READ-ONLY PUBLIC MARKET SCANNING
+# WEEX BTCUSDT
+#
+# REUSES VERIFIED UNIT 10 REFRESH PIPELINE
+# NO ACCOUNT ACCESS
+# NO POSITION ACCESS
+# NO ORDER SUBMISSION
+# NO EXCHANGE WRITE
+# ============================================================
+
+import os
+import time
+import signal
+
+
+# ============================================================
+# 1. UNIT 11 CONFIGURATION
+# ZERO INDENTATION
+# ============================================================
+
+UNIT_11_MODE = os.environ.get(
+    "UNIT_11_MODE",
+    "PAUSE"
+).strip().upper()
+
+UNIT_11_SCAN_INTERVAL = 15.0
+
+UNIT_11_ERROR_RETRY_INTERVAL = 30.0
+
+UNIT_11_MAX_CONSECUTIVE_ERRORS = 5
+
+# 0 means unlimited scans.
+UNIT_11_MAX_SCANS = 0
+
+
+# ============================================================
+# 2. UNIT 11 PROCESS STATE
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_UNIT_11_STATE = {
+    "running": False,
+    "stop_requested": False,
+    "completed_scans": 0,
+    "successful_scans": 0,
+    "failed_scans": 0,
+    "consecutive_errors": 0,
+    "last_status": "NOT_STARTED",
+    "last_reason": None,
+    "start_monotonic": None,
+}
+
+
+# ============================================================
+# 3. SAFE STOP REQUEST
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_11_request_stop(
+    signum=None,
+    frame=None,
+):
+
+    FRESH_UNIT_11_STATE[
+        "stop_requested"
+    ] = True
+
+    print(
+        "UNIT 11 CONTROLLED STOP REQUESTED",
+        flush=True,
+    )
+
+
+# ============================================================
+# 4. INTERRUPTIBLE DELAY
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_11_sleep(seconds):
+
+    deadline = time.monotonic() + seconds
+
+    while not FRESH_UNIT_11_STATE[
+        "stop_requested"
+    ]:
+
+        remaining = deadline - time.monotonic()
+
+        if remaining <= 0:
+            return
+
+        time.sleep(
+            min(remaining, 1.0)
+        )
+
+
+# ============================================================
+# 5. UNIT 11 SAFETY PREFLIGHT
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_11_preflight():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 11 START",
+        flush=True,
+    )
+
+    fresh_unit_10_validate_safety(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    if UNIT_11_MODE not in (
+        "RUN",
+        "PAUSE",
+    ):
+        raise RuntimeError(
+            "UNIT 11 INVALID MODE"
+        )
+
+    if UNIT_10_CONTINUOUS_SCAN_ENABLED is not False:
+        raise RuntimeError(
+            "UNIT 11 CONFLICTING AUTO SCAN"
+        )
+
+    if not callable(
+        fresh_reconstruction_unit_10_scan
+    ):
+        raise RuntimeError(
+            "UNIT 11 COORDINATOR UNAVAILABLE"
+        )
+
+    if not callable(
+        fresh_unit_10_v11_refresh_provider
+    ):
+        raise RuntimeError(
+            "UNIT 11 PUBLIC REFRESH UNAVAILABLE"
+        )
+
+    if UNIT_11_SCAN_INTERVAL < 5.0:
+        raise RuntimeError(
+            "UNIT 11 SCAN INTERVAL TOO SHORT"
+        )
+
+    if UNIT_11_ERROR_RETRY_INTERVAL < 5.0:
+        raise RuntimeError(
+            "UNIT 11 ERROR RETRY TOO SHORT"
+        )
+
+    if UNIT_11_MAX_CONSECUTIVE_ERRORS < 1:
+        raise RuntimeError(
+            "UNIT 11 ERROR LIMIT INVALID"
+        )
+
+    if (
+        type(UNIT_11_MAX_SCANS) is not int
+        or UNIT_11_MAX_SCANS < 0
+    ):
+        raise RuntimeError(
+            "UNIT 11 MAX SCANS INVALID"
+        )
+
+    print(
+        "PASS: UNIT 11 READ ONLY SAFETY",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11 UNIT 10 PROVIDER CONNECTED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 MODE =",
+        UNIT_11_MODE,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 SCAN INTERVAL =",
+        UNIT_11_SCAN_INTERVAL,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 MAX SCANS =",
+        UNIT_11_MAX_SCANS,
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 11 PREFLIGHT RESULT = PASS",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return True
+
+
+# ============================================================
+# 6. SUSTAINED SCAN ENGINE
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_reconstruction_unit_11():
+
+    fresh_unit_11_preflight()
+
+    state = FRESH_UNIT_11_STATE
+
+    if UNIT_11_MODE == "PAUSE":
+
+        state["last_status"] = "PAUSED"
+
+        print(
+            "UNIT 11 STATUS = PAUSED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11 NO MARKET LOOP STARTED",
+            flush=True,
+        )
+
+        return {
+            "status": "PAUSED",
+            "read_only": True,
+            "exchange_write": False,
+            "trade_authorized": False,
+        }
+
+    if state["running"]:
+        raise RuntimeError(
+            "UNIT 11 ALREADY RUNNING"
+        )
+
+    state["running"] = True
+    state["stop_requested"] = False
+    state["start_monotonic"] = (
+        time.monotonic()
+    )
+
+    print(
+        "UNIT 11 STATUS = RUNNING",
+        flush=True,
+    )
+
+    try:
+
+        while not state["stop_requested"]:
+
+            if (
+                UNIT_11_MAX_SCANS > 0
+                and state["completed_scans"]
+                >= UNIT_11_MAX_SCANS
+            ):
+                print(
+                    "UNIT 11 SCAN LIMIT REACHED",
+                    flush=True,
+                )
+                break
+
+            state["completed_scans"] += 1
+
+            scan_number = state[
+                "completed_scans"
+            ]
+
+            print("=" * 80, flush=True)
+
+            print(
+                "UNIT 11 SCAN START =",
+                scan_number,
+                flush=True,
+            )
+
+            try:
+
+                fresh_unit_10_validate_safety(
+                    FRESH_RECONSTRUCTION_CONFIG
+                )
+
+                result = (
+                    fresh_reconstruction_unit_10_scan(
+                        fresh_unit_10_v11_refresh_provider
+                    )
+                )
+
+                if not isinstance(result, dict):
+                    raise RuntimeError(
+                        "UNIT 11 INVALID SCAN OUTPUT"
+                    )
+
+                if result.get("status") not in (
+                    "IDLE",
+                    "PENDING",
+                    "CONFIRMED",
+                    "BLOCKED",
+                ):
+                    raise RuntimeError(
+                        "UNIT 11 SCAN ERROR: "
+                        + str(result.get("reason"))
+                    )
+
+                if (
+                    result.get("read_only") is not True
+                    or result.get(
+                        "trade_authorized"
+                    ) is not False
+                    or result.get(
+                        "exchange_write"
+                    ) is not False
+                    or result.get(
+                        "reentry_authorized"
+                    ) is not False
+                ):
+                    raise RuntimeError(
+                        "UNIT 11 UNSAFE SCAN OUTPUT"
+                    )
+
+                unit9 = result.get(
+                    "unit_9_result"
+                )
+
+                if not isinstance(unit9, dict):
+                    raise RuntimeError(
+                        "UNIT 11 UNIT 9 RESULT MISSING"
+                    )
+
+                if (
+                    unit9.get("read_only") is not True
+                    or unit9.get(
+                        "trade_authorized"
+                    ) is not False
+                    or unit9.get(
+                        "exchange_write"
+                    ) is not False
+                    or unit9.get(
+                        "reentry_authorized"
+                    ) is not False
+                    or unit9.get(
+                        "execution_intent"
+                    ) is not False
+                    or unit9.get(
+                        "order_payload_created"
+                    ) is not False
+                    or unit9.get(
+                        "demo_order_submitted"
+                    ) is not False
+                    or unit9.get(
+                        "real_order_submitted"
+                    ) is not False
+                ):
+                    raise RuntimeError(
+                        "UNIT 11 UNSAFE UNIT 9 OUTPUT"
+                    )
+
+                state["successful_scans"] += 1
+
+                state["consecutive_errors"] = 0
+
+                state["last_status"] = (
+                    result["status"]
+                )
+
+                state["last_reason"] = (
+                    result.get("reason")
+                )
+
+                print(
+                    "UNIT 11 SCAN NUMBER =",
+                    scan_number,
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 11 SIGNAL STATUS =",
+                    result["status"],
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 11 SIGNAL REASON =",
+                    result.get("reason"),
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 11 SIGNAL MODE =",
+                    unit9.get("mode"),
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 11 SIGNAL DIRECTION =",
+                    unit9.get("direction"),
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 11 CONFIRMATIONS =",
+                    unit9.get("confirmations"),
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 11 CONTINUITY VERIFIED =",
+                    unit9.get(
+                        "continuity_verified"
+                    ),
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 11 SUCCESSFUL SCANS =",
+                    state["successful_scans"],
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 11 TRADE AUTHORIZED = FALSE",
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 11 EXCHANGE WRITE = NONE",
+                    flush=True,
+                )
+
+                delay = UNIT_11_SCAN_INTERVAL
+
+            except Exception as exc:
+
+                state["failed_scans"] += 1
+
+                state["consecutive_errors"] += 1
+
+                state["last_status"] = "ERROR"
+
+                state["last_reason"] = str(exc)
+
+                print(
+                    "UNIT 11 SCAN ERROR =",
+                    repr(exc),
+                    flush=True,
+                )
+
+                print(
+                    "UNIT 11 CONSECUTIVE ERRORS =",
+                    state["consecutive_errors"],
+                    flush=True,
+                )
+
+                if (
+                    state["consecutive_errors"]
+                    >= UNIT_11_MAX_CONSECUTIVE_ERRORS
+                ):
+
+                    print(
+                        "UNIT 11 ERROR LIMIT REACHED",
+                        flush=True,
+                    )
+
+                    state["stop_requested"] = True
+                    break
+
+                delay = (
+                    UNIT_11_ERROR_RETRY_INTERVAL
+                )
+
+            if not state["stop_requested"]:
+
+                print(
+                    "UNIT 11 NEXT SCAN DELAY =",
+                    delay,
+                    flush=True,
+                )
+
+                fresh_unit_11_sleep(delay)
+
+    finally:
+
+        state["running"] = False
+
+        print("=" * 80, flush=True)
+
+        print(
+            "UNIT 11 FINAL SCANS =",
+            state["completed_scans"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 11 SUCCESSFUL SCANS =",
+            state["successful_scans"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 11 FAILED SCANS =",
+            state["failed_scans"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 11 FINAL STATUS =",
+            state["last_status"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 11 EXCHANGE WRITE = NONE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 11 RUNNER STOPPED",
+            flush=True,
+        )
+
+        print("=" * 80, flush=True)
+
+    return {
+        "status": state["last_status"],
+        "scans": state["completed_scans"],
+        "successful_scans":
+            state["successful_scans"],
+        "failed_scans":
+            state["failed_scans"],
+        "read_only": True,
+        "trade_authorized": False,
+        "exchange_write": False,
+    }
+
+
+# ============================================================
+# 7. UNIT 11 STARTUP
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_11_RESULT = None
+
+if __name__ == "__main__":
+
+    signal.signal(
+        signal.SIGTERM,
+        fresh_unit_11_request_stop
+    )
+
+    signal.signal(
+        signal.SIGINT,
+        fresh_unit_11_request_stop
+    )
+
+    FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
+        fresh_reconstruction_unit_11()
+    )
+
+
+# ============================================================
+# END COMPLETE UNIT 11
+# ZERO INDENTATION
+# ============================================================
+
