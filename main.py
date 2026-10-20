@@ -10288,7 +10288,7 @@ def fresh_unit_10_v11_integration_test():
 
 UNIT_10_V11_TEST_ENABLED = False 
 
-FRESH_UNIT_10_V11_RESULT = None
+UNIT_10_V11_RESULT = None
 
 if UNIT_10_V11_TEST_ENABLED:
 
