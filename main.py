@@ -5179,3 +5179,524 @@ FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
 # END UNIT 6 V1
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# START UNIT 6 V1.1 CONTROLLED TEST SUITE
+# ZERO INDENTATION
+# READ ONLY - NO NETWORK - NO ORDERS
+# ============================================================
+
+UNIT_6_V11_TEST_ENABLED = True
+
+
+def fresh_unit_6_v11_tests():
+
+    import copy
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 6 V1.1 CONTROLLED TEST START",
+        flush=True
+    )
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    original_market = (
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+    )
+
+    original_signal = (
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+    )
+
+    original_execution = (
+        FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE
+    )
+
+    # Protect all original data against test changes.
+    original_market_copy = copy.deepcopy(
+        original_market
+    )
+    original_signal_copy = copy.deepcopy(
+        original_signal
+    )
+    original_execution_copy = copy.deepcopy(
+        original_execution
+    )
+
+    results = []
+
+    # ========================================================
+    # 1. SYNTHETIC MARKET SNAPSHOT
+    # ========================================================
+
+    def market_fixture():
+
+        data = copy.deepcopy(original_market)
+
+        data["symbol"] = "BTCUSDT"
+        data["read_only"] = True
+        data["trade_authorized"] = False
+        data["candle_data_fresh"] = True
+        data["candle_age_seconds"] = 30.0
+
+        data["strategy_evidence_version"] = (
+            "U4_COORDINATED_V1"
+        )
+
+        data["direction_evidence"] = "LONG"
+        data["sideways_candidate"] = True
+        data["price_overextended"] = False
+
+        data["latest_close"] = 10000.0
+        data["live_mark_price"] = 10000.0
+        data["previous_close"] = 9996.0
+        data["ema19"] = 9990.0
+        data["atr14"] = 30.0
+
+        data["support20"] = 9950.0
+        data["resistance20"] = 10080.0
+
+        data["move_1m_pct"] = 0.04
+        data["move_5m_pct"] = 0.07
+        data["move_15m_pct"] = 0.02
+
+        candles = []
+
+        for index in range(20):
+
+            candles.append({
+                "open": 9995.0,
+                "high": 10010.0,
+                "low": 9990.0,
+                "close": 10000.0,
+            })
+
+        data["recent_closed_klines"] = candles
+
+        return data
+
+    # ========================================================
+    # 2. SYNTHETIC UNIT 5 HANDOVER
+    # ========================================================
+
+    def signal_fixture(
+        mode="NONE",
+        side="NONE",
+        qualified=False,
+        stage="NONE",
+    ):
+
+        candidate_mode = (
+            mode if mode != "NONE"
+            else "NONE"
+        )
+
+        return {
+            "symbol": "BTCUSDT",
+            "read_only": True,
+            "trade_authorized": False,
+
+            "qualified": qualified,
+
+            "active_mode": (
+                mode if qualified else "NONE"
+            ),
+
+            "direction": (
+                side if qualified else "NONE"
+            ),
+
+            "candidate_mode": candidate_mode,
+            "candidate_stage": stage,
+
+            "higher_mode_developing": (
+                mode in ("BREAKOUT", "STRUCTURE")
+            ),
+
+            "scalp_range_feasible": (
+                mode == "SCALP"
+            ),
+
+            "qualification_reason": (
+                "CONTROLLED_UNIT_6_TEST"
+            ),
+        }
+
+    # ========================================================
+    # 3. TEST RUNNER
+    # ========================================================
+
+    def run_case(
+        name,
+        market,
+        signal,
+        expected_reason,
+        expected_intent=False,
+        expect_exception=False,
+    ):
+
+        print("-" * 80, flush=True)
+        print(
+            "UNIT 6 V1.1 TEST =",
+            name,
+            flush=True
+        )
+
+        actual_reason = None
+        actual_intent = None
+
+        try:
+
+            output = fresh_reconstruction_unit_6(
+                config,
+                market,
+                signal,
+            )
+
+            actual_reason = output.get(
+                "admission_reason"
+            )
+
+            actual_intent = output.get(
+                "execution_intent"
+            )
+
+            safety_pass = (
+                output.get("read_only") is True
+                and output.get(
+                    "trade_authorized"
+                ) is False
+                and output.get(
+                    "exchange_write"
+                ) is False
+                and output.get(
+                    "order_payload_created"
+                ) is False
+                and output.get(
+                    "demo_order_submitted"
+                ) is False
+                and output.get(
+                    "real_order_submitted"
+                ) is False
+            )
+
+            if actual_intent:
+                contract_pass = (
+                    output.get("signal_qualified")
+                    is True
+                    and output.get("active_mode")
+                    in ("BREAKOUT", "STRUCTURE")
+                    and output.get("direction")
+                    in ("LONG", "SHORT")
+                )
+            else:
+                contract_pass = (
+                    output.get("signal_qualified")
+                    is False
+                    and output.get("active_mode")
+                    == "NONE"
+                    and output.get("direction")
+                    == "NONE"
+                )
+
+            passed = (
+                not expect_exception
+                and actual_reason == expected_reason
+                and actual_intent == expected_intent
+                and safety_pass
+                and contract_pass
+            )
+
+        except RuntimeError as exc:
+
+            actual_reason = str(exc)
+            actual_intent = False
+
+            passed = (
+                expect_exception
+                and expected_reason in str(exc)
+            )
+
+        except Exception as exc:
+
+            actual_reason = (
+                "UNEXPECTED_EXCEPTION: "
+                + repr(exc)
+            )
+
+            passed = False
+
+        print(
+            "UNIT 6 V1.1 EXPECTED REASON =",
+            expected_reason,
+            flush=True
+        )
+
+        print(
+            "UNIT 6 V1.1 ACTUAL REASON =",
+            actual_reason,
+            flush=True
+        )
+
+        print(
+            "UNIT 6 V1.1 ACTUAL INTENT =",
+            actual_intent,
+            flush=True
+        )
+
+        print(
+            "UNIT 6 V1.1 TEST RESULT =",
+            "PASS" if passed else "FAIL",
+            flush=True
+        )
+
+        results.append({
+            "name": name,
+            "passed": passed,
+            "reason": actual_reason,
+        })
+
+    # ========================================================
+    # TESTS 1-4: BREAKOUT AND STRUCTURE
+    # ========================================================
+
+    for mode, side in (
+        ("BREAKOUT", "LONG"),
+        ("BREAKOUT", "SHORT"),
+        ("STRUCTURE", "LONG"),
+        ("STRUCTURE", "SHORT"),
+    ):
+
+        market = market_fixture()
+        market["direction_evidence"] = side
+
+        signal = signal_fixture(
+            mode=mode,
+            side=side,
+            qualified=True,
+            stage="QUALIFIED",
+        )
+
+        run_case(
+            mode + "_" + side + "_ADMISSION",
+            market,
+            signal,
+            mode + "_PRELIMINARY_ADMISSION_PASS",
+            expected_intent=True,
+        )
+
+    # ========================================================
+    # TEST 5: SCALP PASSES PRELIMINARY CHECKS
+    # BUT MUST REMAIN HELD
+    # ========================================================
+
+    scalp_signal = signal_fixture(
+        mode="SCALP",
+        stage="PENDING_UNIT_6",
+    )
+
+    run_case(
+        "SCALP_QUALITY_PASS_HELD",
+        market_fixture(),
+        scalp_signal,
+        "SCALP_PRELIMINARY_PASS_"
+        "AWAITING_VERIFIED_LIVE_COSTS",
+    )
+
+    # ========================================================
+    # TEST 6: QUALITY SCORE BELOW 70
+    # ========================================================
+
+    low_quality = market_fixture()
+
+    low_quality["move_1m_pct"] = -0.01
+    low_quality["move_5m_pct"] = -0.01
+    low_quality["move_15m_pct"] = -0.01
+
+    low_quality["recent_closed_klines"][-1] = {
+        "open": 10002.0,
+        "high": 10010.0,
+        "low": 9990.0,
+        "close": 10000.0,
+    }
+
+    run_case(
+        "SCALP_QUALITY_BELOW_70",
+        low_quality,
+        scalp_signal,
+        "SCALP_QUALITY_BELOW_THRESHOLD",
+    )
+
+    # ========================================================
+    # TEST 7: INSUFFICIENT NET HEADROOM
+    # ========================================================
+
+    low_headroom = market_fixture()
+
+    low_headroom["resistance20"] = 10001.0
+
+    run_case(
+        "SCALP_FEE_REJECTION",
+        low_headroom,
+        scalp_signal,
+        "SCALP_INSUFFICIENT_NET_HEADROOM",
+    )
+
+    # ========================================================
+    # TEST 8: EXCESSIVE PRICE SPIKE
+    # ========================================================
+
+    spike = market_fixture()
+
+    spike["recent_closed_klines"][-1] = {
+        "open": 9995.0,
+        "high": 10090.0,
+        "low": 9990.0,
+        "close": 10000.0,
+    }
+
+    run_case(
+        "SCALP_SPIKE_REJECTION",
+        spike,
+        scalp_signal,
+        "SCALP_PRICE_SPIKE_REJECTED",
+    )
+
+    # ========================================================
+    # TEST 9: INSUFFICIENT PERSISTENCE
+    # ========================================================
+
+    no_persistence = market_fixture()
+
+    for index in (-3, -2, -1):
+
+        no_persistence[
+            "recent_closed_klines"
+        ][index] = {
+            "open": 10002.0,
+            "high": 10010.0,
+            "low": 9990.0,
+            "close": 10000.0,
+        }
+
+    run_case(
+        "SCALP_PERSISTENCE_REJECTION",
+        no_persistence,
+        scalp_signal,
+        "SCALP_PERSISTENCE_REJECTED",
+    )
+
+    # ========================================================
+    # TEST 10: STALE MARKET REJECTION
+    # ========================================================
+
+    stale = market_fixture()
+    stale["candle_age_seconds"] = 240.0
+
+    run_case(
+        "STALE_MARKET_REJECTION",
+        stale,
+        signal_fixture(),
+        "UNIT 6 STALE CANDLES",
+        expect_exception=True,
+    )
+
+    # ========================================================
+    # 4. ORIGINAL STATE INTEGRITY
+    # ========================================================
+
+    originals_preserved = (
+        original_market
+        == original_market_copy
+        and original_signal
+        == original_signal_copy
+        and original_execution
+        == original_execution_copy
+    )
+
+    if not originals_preserved:
+        raise RuntimeError(
+            "UNIT 6 V1.1 ORIGINAL STATE CHANGED"
+        )
+
+    # ========================================================
+    # 5. FINAL SUMMARY
+    # ========================================================
+
+    passed_count = sum(
+        item["passed"] for item in results
+    )
+
+    failed_count = (
+        len(results) - passed_count
+    )
+
+    verdict = (
+        "PASS"
+        if failed_count == 0
+        else "FAIL"
+    )
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 6 V1.1 TEST COUNT =",
+        len(results),
+        flush=True
+    )
+
+    print(
+        "UNIT 6 V1.1 PASS =",
+        passed_count,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 V1.1 FAIL =",
+        failed_count,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 V1.1 ORIGINAL DATA PRESERVED =",
+        originals_preserved,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 V1.1 RESULT =",
+        verdict,
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return {
+        "status": verdict,
+        "total": len(results),
+        "passed": passed_count,
+        "failed": failed_count,
+        "original_preserved": originals_preserved,
+        "details": results,
+    }
+
+
+# ============================================================
+# RUN UNIT 6 V1.1
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_UNIT_6_V11_RESULT = None
+
+if UNIT_6_V11_TEST_ENABLED:
+
+    FRESH_UNIT_6_V11_RESULT = (
+        fresh_unit_6_v11_tests()
+    )
+
+# ============================================================
+# END UNIT 6 V1.1
+# ZERO INDENTATION
+# ============================================================
