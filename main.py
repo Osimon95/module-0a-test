@@ -10890,6 +10890,7 @@ def fresh_unit_10_v12_tests():
 # ZERO INDENTATION
 # ============================================================
 
+
 FRESH_UNIT_10_V12_RESULT = None
 
 if UNIT_10_V12_TEST_ENABLED:
@@ -10901,5 +10902,674 @@ if UNIT_10_V12_TEST_ENABLED:
 
 # ============================================================
 # END UNIT 10 V1.2
+# ZERO INDENTATION
+# ============================================================
+
+
+# ============================================================
+# START UNIT 10 V1.3
+# ZERO INDENTATION
+#
+# PUBLIC CLOSED-CANDLE AND SIGNAL DIAGNOSTICS
+#
+# THREE BOUNDED PUBLIC SCANS
+# 30 SECONDS BETWEEN SCANS
+# UNITS 1-9 UNCHANGED
+# NO AUTHENTICATED ACCESS
+# NO DEMO OR REAL ORDERS
+# NO EXCHANGE WRITE
+# ============================================================
+
+import time
+
+
+# ============================================================
+# 1. TEST SETTINGS
+# ZERO INDENTATION
+# ============================================================
+
+UNIT_10_V13_TEST_ENABLED = True
+
+UNIT_10_V13_SCAN_COUNT = 3
+
+UNIT_10_V13_INTERVAL_SECONDS = 30.0
+
+
+# ============================================================
+# 2. REAL PUBLIC MARKET OBSERVATION TEST
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_10_v13_test():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 10 V1.3 DIAGNOSTIC TEST START",
+        flush=True,
+    )
+
+    fresh_unit_10_validate_safety(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    if UNIT_10_CONTINUOUS_SCAN_ENABLED is not False:
+        raise RuntimeError(
+            "UNIT 10 V1.3 AUTO LOOP NOT DISABLED"
+        )
+
+    if (
+        UNIT_10_V13_SCAN_COUNT != 3
+        or UNIT_10_V13_INTERVAL_SECONDS != 30.0
+    ):
+        raise RuntimeError(
+            "UNIT 10 V1.3 TEST SETTINGS INVALID"
+        )
+
+    original_global = (
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    )
+
+    market_observations = []
+
+    scan_results = []
+
+    previous_candle = None
+    previous_scan_id = (
+        FRESH_UNIT_10_STATE.get("last_scan_id")
+    )
+
+    same_candle_count = 0
+    advanced_candle_count = 0
+    confirmed_signal_count = 0
+
+    # ========================================================
+    # 3. OBSERVING REFRESH PROVIDER
+    # ZERO INDENTATION WITHIN FUNCTION: 4 SPACES
+    # ========================================================
+
+    def observing_provider():
+
+        # Reuse verified Unit 10 V1.1 provider.
+        # Do not change Units 3-8.
+
+        frame = (
+            fresh_unit_10_v11_refresh_provider()
+        )
+
+        if not isinstance(frame, dict):
+            raise RuntimeError(
+                "UNIT 10 V1.3 INVALID FRAME"
+            )
+
+        market = frame.get("unit_4")
+
+        unit8 = frame.get("unit_8")
+
+        if (
+            not isinstance(market, dict)
+            or not isinstance(unit8, dict)
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.3 HANDOVER MISSING"
+            )
+
+        if (
+            market.get("read_only") is not True
+            or market.get(
+                "trade_authorized"
+            ) is not False
+            or market.get(
+                "candle_data_fresh"
+            ) is not True
+            or market.get("symbol") != "BTCUSDT"
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.3 INVALID MARKET"
+            )
+
+        candle_id = market.get(
+            "latest_open_time_ms"
+        )
+
+        close_time = market.get(
+            "latest_close_time_ms"
+        )
+
+        exchange_time = market.get(
+            "exchange_time_ms"
+        )
+
+        if (
+            type(candle_id) is not int
+            or type(close_time) is not int
+            or type(exchange_time) is not int
+            or candle_id <= 0
+            or close_time <= candle_id
+            or close_time > exchange_time
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.3 INVALID CLOSED CANDLE"
+            )
+
+        # Confirm the identifier refers to
+        # the last normalized closed candle.
+
+        candles = market.get(
+            "recent_closed_klines"
+        )
+
+        if (
+            not isinstance(candles, list)
+            or not candles
+            or not isinstance(candles[-1], dict)
+            or candles[-1].get(
+                "open_time_ms"
+            ) != candle_id
+            or candles[-1].get(
+                "close_time_ms"
+            ) != close_time
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.3 CANDLE ID MISMATCH"
+            )
+
+        observation = {
+            "scan_id": frame.get("scan_id"),
+            "candle_id": candle_id,
+            "close_time": close_time,
+            "exchange_time": exchange_time,
+            "candle_age_seconds": market.get(
+                "candle_age_seconds"
+            ),
+            "direction_evidence": market.get(
+                "direction_evidence"
+            ),
+            "breakout_developing_long": market.get(
+                "breakout_developing_long"
+            ),
+            "breakout_developing_short": market.get(
+                "breakout_developing_short"
+            ),
+            "breakout_confirmed_long": market.get(
+                "breakout_confirmed_long"
+            ),
+            "breakout_confirmed_short": market.get(
+                "breakout_confirmed_short"
+            ),
+            "structure_developing_long": market.get(
+                "structure_developing_long"
+            ),
+            "structure_developing_short": market.get(
+                "structure_developing_short"
+            ),
+            "sideways_candidate": market.get(
+                "sideways_candidate"
+            ),
+            "unit8_status": unit8.get("status"),
+            "unit8_reason": unit8.get("reason"),
+            "unit8_mode": unit8.get(
+                "pending_mode"
+            ),
+            "unit8_direction": unit8.get(
+                "pending_direction"
+            ),
+        }
+
+        market_observations.append(
+            observation
+        )
+
+        return frame
+
+    # ========================================================
+    # 4. THREE BOUNDED SCANS
+    # ========================================================
+
+    for scan_number in range(
+        1,
+        UNIT_10_V13_SCAN_COUNT + 1,
+    ):
+
+        print("=" * 80, flush=True)
+
+        print(
+            "UNIT 10 V1.3 SCAN START =",
+            scan_number,
+            flush=True,
+        )
+
+        result = (
+            fresh_reconstruction_unit_10_scan(
+                observing_provider
+            )
+        )
+
+        if (
+            not isinstance(result, dict)
+            or result.get("status")
+            not in (
+                "IDLE",
+                "PENDING",
+                "CONFIRMED",
+                "BLOCKED",
+            )
+            or result.get("read_only") is not True
+            or result.get(
+                "trade_authorized"
+            ) is not False
+            or result.get(
+                "exchange_write"
+            ) is not False
+            or result.get(
+                "reentry_authorized"
+            ) is not False
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.3 SCAN FAILED: "
+                + str(
+                    result.get("reason")
+                    if isinstance(result, dict)
+                    else result
+                )
+            )
+
+        if len(market_observations) != scan_number:
+            raise RuntimeError(
+                "UNIT 10 V1.3 MARKET FRAME MISSING"
+            )
+
+        observation = market_observations[-1]
+
+        scan_id = result.get("scan_id")
+
+        if (
+            type(scan_id) is not int
+            or (
+                previous_scan_id is not None
+                and scan_id <= previous_scan_id
+            )
+            or scan_id != observation["scan_id"]
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.3 SCAN ID INVALID"
+            )
+
+        previous_scan_id = scan_id
+
+        unit9 = result.get("unit_9_result")
+
+        if not isinstance(unit9, dict):
+            raise RuntimeError(
+                "UNIT 10 V1.3 UNIT 9 MISSING"
+            )
+
+        if (
+            unit9.get("read_only") is not True
+            or unit9.get(
+                "trade_authorized"
+            ) is not False
+            or unit9.get(
+                "exchange_write"
+            ) is not False
+            or unit9.get(
+                "execution_intent"
+            ) is not False
+            or unit9.get(
+                "reentry_authorized"
+            ) is not False
+            or unit9.get(
+                "order_payload_created"
+            ) is not False
+            or unit9.get(
+                "demo_order_submitted"
+            ) is not False
+            or unit9.get(
+                "real_order_submitted"
+            ) is not False
+        ):
+            raise RuntimeError(
+                "UNIT 10 V1.3 UNIT 9 SAFETY FAILURE"
+            )
+
+        candle = observation["candle_id"]
+
+        if previous_candle is None:
+
+            market_state = "FIRST_OBSERVATION"
+
+        elif candle == previous_candle:
+
+            market_state = "SAME_CLOSED_CANDLE"
+
+            same_candle_count += 1
+
+        elif candle > previous_candle:
+
+            market_state = "NEW_CLOSED_CANDLE"
+
+            advanced_candle_count += 1
+
+        else:
+
+            raise RuntimeError(
+                "UNIT 10 V1.3 MARKET CANDLE REGRESSION"
+            )
+
+        previous_candle = candle
+
+        if unit9.get(
+            "continuity_verified"
+        ) is True:
+
+            if (
+                result.get("status") != "CONFIRMED"
+                or unit9.get("confirmations") != 2
+            ):
+                raise RuntimeError(
+                    "UNIT 10 V1.3 FALSE CONFIRMATION"
+                )
+
+            confirmed_signal_count += 1
+
+        record = {
+            "scan_number": scan_number,
+            "scan_id": scan_id,
+            "market_candle_id": candle,
+            "market_candle_state": market_state,
+            "market_direction": observation[
+                "direction_evidence"
+            ],
+            "unit8_status": observation[
+                "unit8_status"
+            ],
+            "unit8_reason": observation[
+                "unit8_reason"
+            ],
+            "unit8_mode": observation[
+                "unit8_mode"
+            ],
+            "unit9_status": unit9.get("status"),
+            "unit9_confirmations": unit9.get(
+                "confirmations"
+            ),
+            "unit9_duplicate": unit9.get(
+                "duplicate_candle"
+            ),
+            "unit9_continuity": unit9.get(
+                "continuity_verified"
+            ),
+        }
+
+        scan_results.append(record)
+
+        print("-" * 80, flush=True)
+
+        print(
+            "UNIT 10 V1.3 SCAN NUMBER =",
+            scan_number,
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 MARKET CANDLE ID =",
+            candle,
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 MARKET CANDLE STATE =",
+            market_state,
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 CANDLE AGE SECONDS =",
+            observation[
+                "candle_age_seconds"
+            ],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 MARKET DIRECTION =",
+            observation[
+                "direction_evidence"
+            ],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 BREAKOUT DEVELOPING L/S =",
+            observation[
+                "breakout_developing_long"
+            ],
+            "/",
+            observation[
+                "breakout_developing_short"
+            ],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 BREAKOUT CONFIRMED L/S =",
+            observation[
+                "breakout_confirmed_long"
+            ],
+            "/",
+            observation[
+                "breakout_confirmed_short"
+            ],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 STRUCTURE DEVELOPING L/S =",
+            observation[
+                "structure_developing_long"
+            ],
+            "/",
+            observation[
+                "structure_developing_short"
+            ],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 SIDEWAYS CANDIDATE =",
+            observation[
+                "sideways_candidate"
+            ],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 UNIT 8 STATUS =",
+            observation[
+                "unit8_status"
+            ],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 UNIT 8 REASON =",
+            observation[
+                "unit8_reason"
+            ],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 UNIT 8 MODE =",
+            observation[
+                "unit8_mode"
+            ],
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 UNIT 9 STATUS =",
+            unit9.get("status"),
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 UNIT 9 CONFIRMATIONS =",
+            unit9.get("confirmations"),
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 UNIT 9 DUPLICATE =",
+            unit9.get("duplicate_candle"),
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 UNIT 9 CONTINUITY =",
+            unit9.get("continuity_verified"),
+            flush=True,
+        )
+
+        print(
+            "UNIT 10 V1.3 EXCHANGE WRITE = NONE",
+            flush=True,
+        )
+
+        if scan_number < UNIT_10_V13_SCAN_COUNT:
+
+            time.sleep(
+                UNIT_10_V13_INTERVAL_SECONDS
+            )
+
+    # ========================================================
+    # 5. FINAL SAFETY VERIFICATION
+    # ========================================================
+
+    if (
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+        is not original_global
+    ):
+        raise RuntimeError(
+            "UNIT 10 V1.3 GLOBAL NOT RESTORED"
+        )
+
+    if (
+        FRESH_UNIT_10_STATE.get(
+            "scan_in_progress"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 10 V1.3 SCAN LOCK NOT RELEASED"
+        )
+
+    if len(scan_results) != 3:
+        raise RuntimeError(
+            "UNIT 10 V1.3 INCOMPLETE SCANS"
+        )
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 10 V1.3 SCANS COMPLETED =",
+        len(scan_results),
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.3 SAME CLOSED CANDLES =",
+        same_candle_count,
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.3 NEW CLOSED CANDLES =",
+        advanced_candle_count,
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.3 SIGNAL CONTINUITY OBSERVATIONS =",
+        confirmed_signal_count,
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.3 ORIGINAL GLOBAL RESTORED = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.3 SCAN LOCK RELEASED = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.3 AUTOMATIC LOOP = DISABLED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.3 ACCOUNT ACCESS = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.3 POSITION ACCESS = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.3 DEMO ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.3 REAL ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.3 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 V1.3 RESULT = PASS",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return {
+        "status": "PASS",
+        "scans_completed": len(scan_results),
+        "same_closed_candles": same_candle_count,
+        "new_closed_candles": advanced_candle_count,
+        "signal_continuity_observations":
+            confirmed_signal_count,
+        "read_only": True,
+        "trade_authorized": False,
+        "exchange_write": False,
+        "results": scan_results,
+    }
+
+
+# ============================================================
+# 6. RUN UNIT 10 V1.3 TEST
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_UNIT_10_V13_RESULT = None
+
+if UNIT_10_V13_TEST_ENABLED:
+
+    FRESH_UNIT_10_V13_RESULT = (
+        fresh_unit_10_v13_test()
+    )
+
+
+# ============================================================
+# END UNIT 10 V1.3
 # ZERO INDENTATION
 # ============================================================
