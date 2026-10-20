@@ -709,11 +709,16 @@ def self_test():
 # ZERO INDENTATION
 # ============================================================
 
+# ============================================================
+# UNIT 11 ORIGINAL TEST EXECUTION
+# CONTINUE TO EXTENSION
+# ZERO INDENTATION
+# ============================================================
+
 if __name__ == "__main__":
 
-    raise SystemExit(
-        0 if self_test() else 1
-    )
+    UNIT_11_BASE_TEST_RESULT = self_test()
+    
 
 
 # ============================================================
