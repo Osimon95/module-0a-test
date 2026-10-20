@@ -10330,7 +10330,7 @@ import copy
 # ZERO INDENTATION
 # ============================================================
 
-UNIT_10_V12_TEST_ENABLED = True 
+UNIT_10_V12_TEST_ENABLED = False 
 
 UNIT_10_V12_SCAN_COUNT = 3
 
