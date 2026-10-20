@@ -7441,3 +7441,594 @@ FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
 # END COMPLETE UNIT 8 V1
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# START UNIT 8 V1.1 CONTROLLED TEST SUITE
+# ZERO INDENTATION
+#
+# UNIT 8 V1 REMAINS UNCHANGED
+# SYNTHETIC INPUT DATA ONLY
+# NO EXCHANGE REQUESTS
+# NO ACCOUNT OR POSITION ACCESS
+# NO DEMO OR REAL ORDERS
+# ============================================================
+
+UNIT_8_V11_TEST_ENABLED = True
+
+
+def fresh_unit_8_v11_tests():
+
+    import copy
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 8 V1.1 CONTROLLED TEST START",
+        flush=True,
+    )
+
+    # ========================================================
+    # 1. PRESERVE ORIGINAL STATE
+    # ========================================================
+
+    original_config = (
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    original_market = (
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+    )
+
+    original_unit7 = (
+        FRESH_RECONSTRUCTION_UNIT_7_RESULT
+    )
+
+    original_unit8 = (
+        FRESH_RECONSTRUCTION_UNIT_8_RESULT
+    )
+
+    saved_config = copy.deepcopy(
+        original_config
+    )
+
+    saved_market = copy.deepcopy(
+        original_market
+    )
+
+    saved_unit7 = copy.deepcopy(
+        original_unit7
+    )
+
+    saved_unit8 = copy.deepcopy(
+        original_unit8
+    )
+
+    results = []
+
+    # ========================================================
+    # 2. FRESH MARKET FIXTURE
+    # ========================================================
+
+    def make_market(direction="LONG"):
+
+        market = copy.deepcopy(saved_market)
+
+        market["read_only"] = True
+        market["trade_authorized"] = False
+
+        market["strategy_evidence_version"] = (
+            "U4_COORDINATED_V1"
+        )
+
+        market["candle_data_fresh"] = True
+        market["candle_age_seconds"] = 30.0
+
+        market["direction_evidence"] = direction
+
+        return market
+
+    # ========================================================
+    # 3. UNIT 7 SIGNAL FIXTURE
+    # ========================================================
+
+    def make_unit7(
+        mode="NONE",
+        direction="NONE",
+        qualified=False,
+    ):
+
+        data = copy.deepcopy(saved_unit7)
+
+        data["status"] = (
+            "HELD" if qualified
+            else "IDLE"
+        )
+
+        data["signal_received"] = qualified
+        data["signal_qualified"] = qualified
+
+        data["active_mode"] = mode
+        data["direction"] = direction
+
+        data["read_only"] = True
+
+        data["trade_authorized"] = False
+        data["execution_intent"] = False
+
+        data["exchange_write"] = False
+        data["order_payload_created"] = False
+
+        data["demo_order_enabled"] = False
+        data["real_order_enabled"] = False
+
+        data["position_sizing_performed"] = False
+        data["quantity_calculated"] = False
+
+        return data
+
+    # ========================================================
+    # 4. COMMON RESULT VALIDATION
+    # ========================================================
+
+    def safety_is_preserved(output):
+
+        if not isinstance(output, dict):
+            return False
+
+        return (
+            output.get("read_only") is True
+            and output.get(
+                "execution_intent"
+            ) is False
+            and output.get(
+                "trade_authorized"
+            ) is False
+            and output.get(
+                "exchange_write"
+            ) is False
+            and output.get(
+                "order_payload_created"
+            ) is False
+            and output.get(
+                "quantity_calculated"
+            ) is False
+            and output.get(
+                "demo_order_submitted"
+            ) is False
+            and output.get(
+                "real_order_submitted"
+            ) is False
+            and output.get(
+                "reentry_authorized"
+            ) is False
+            and output.get(
+                "continuity_verified"
+            ) is False
+            and output.get(
+                "position_flat_verified"
+            ) is False
+            and output.get(
+                "duplicate_order_absence_verified"
+            ) is False
+        )
+
+    # ========================================================
+    # 5. GENERAL TEST RUNNER
+    # ========================================================
+
+    def run_case(
+        name,
+        config,
+        market,
+        unit7,
+        expected_status=None,
+        expected_reason=None,
+        expected_mode="NONE",
+        expected_direction="NONE",
+        expected_exception=None,
+    ):
+
+        print("-" * 80, flush=True)
+        print(
+            "UNIT 8 V1.1 TEST =",
+            name,
+            flush=True,
+        )
+
+        config_before = copy.deepcopy(config)
+        market_before = copy.deepcopy(market)
+        unit7_before = copy.deepcopy(unit7)
+
+        passed = False
+        actual_status = None
+        actual_reason = None
+
+        try:
+
+            output = fresh_reconstruction_unit_8(
+                config,
+                market,
+                unit7,
+            )
+
+            actual_status = output.get("status")
+            actual_reason = output.get("reason")
+
+            candidate_pass = (
+                output.get(
+                    "pending_mode"
+                ) == expected_mode
+                and output.get(
+                    "pending_direction"
+                ) == expected_direction
+            )
+
+            preservation_pass = (
+                output.get(
+                    "candidate_preserved"
+                ) is (
+                    expected_status == "PENDING"
+                )
+            )
+
+            observation_pass = (
+                output.get(
+                    "continuity_observations"
+                ) == (
+                    1 if expected_status == "PENDING"
+                    else 0
+                )
+                and output.get(
+                    "continuity_required"
+                ) == 2
+            )
+
+            passed = (
+                expected_exception is None
+                and actual_status == expected_status
+                and actual_reason == expected_reason
+                and candidate_pass
+                and preservation_pass
+                and observation_pass
+                and safety_is_preserved(output)
+            )
+
+        except RuntimeError as exc:
+
+            actual_reason = str(exc)
+
+            passed = (
+                expected_exception is not None
+                and expected_exception in actual_reason
+            )
+
+        except Exception as exc:
+
+            actual_reason = (
+                "UNEXPECTED_EXCEPTION: "
+                + repr(exc)
+            )
+
+            passed = False
+
+        inputs_preserved = (
+            config == config_before
+            and market == market_before
+            and unit7 == unit7_before
+        )
+
+        passed = passed and inputs_preserved
+
+        print(
+            "UNIT 8 V1.1 EXPECTED STATUS =",
+            expected_status,
+            flush=True,
+        )
+
+        print(
+            "UNIT 8 V1.1 ACTUAL STATUS =",
+            actual_status,
+            flush=True,
+        )
+
+        print(
+            "UNIT 8 V1.1 EXPECTED REASON =",
+            expected_reason,
+            flush=True,
+        )
+
+        print(
+            "UNIT 8 V1.1 ACTUAL REASON =",
+            actual_reason,
+            flush=True,
+        )
+
+        print(
+            "UNIT 8 V1.1 INPUT PRESERVED =",
+            inputs_preserved,
+            flush=True,
+        )
+
+        print(
+            "UNIT 8 V1.1 TEST RESULT =",
+            "PASS" if passed else "FAIL",
+            flush=True,
+        )
+
+        results.append({
+            "name": name,
+            "passed": passed,
+            "actual_status": actual_status,
+            "actual_reason": actual_reason,
+        })
+
+    # ========================================================
+    # TEST 1: NORMAL IDLE
+    # ========================================================
+
+    run_case(
+        "FRESH_IDLE",
+        copy.deepcopy(saved_config),
+        make_market("LONG"),
+        make_unit7(),
+        expected_status="IDLE",
+        expected_reason="NO_QUALIFIED_SIGNAL",
+    )
+
+    # ========================================================
+    # TESTS 2-5: ALIGNED QUALIFIED SIGNALS
+    # ========================================================
+
+    for mode, side in (
+        ("BREAKOUT", "LONG"),
+        ("BREAKOUT", "SHORT"),
+        ("STRUCTURE", "LONG"),
+        ("STRUCTURE", "SHORT"),
+    ):
+
+        run_case(
+            mode + "_" + side + "_PENDING",
+            copy.deepcopy(saved_config),
+            make_market(side),
+            make_unit7(
+                mode=mode,
+                direction=side,
+                qualified=True,
+            ),
+            expected_status="PENDING",
+            expected_reason=(
+                "SIGNAL_FRESH_AND_ALIGNED_"
+                "AWAITING_CONTINUITY_AND_POSITION_CHECKS"
+            ),
+            expected_mode=mode,
+            expected_direction=side,
+        )
+
+    # ========================================================
+    # TEST 6: OPPOSING MARKET DIRECTION
+    # ========================================================
+
+    run_case(
+        "DIRECTION_CONFLICT",
+        copy.deepcopy(saved_config),
+        make_market("SHORT"),
+        make_unit7(
+            mode="BREAKOUT",
+            direction="LONG",
+            qualified=True,
+        ),
+        expected_status="BLOCKED",
+        expected_reason="SIGNAL_DIRECTION_CONFLICT",
+    )
+
+    # ========================================================
+    # TEST 7: STALE QUALIFIED SIGNAL
+    # ========================================================
+
+    stale_market = make_market("LONG")
+
+    stale_market["candle_data_fresh"] = False
+    stale_market["candle_age_seconds"] = 240.0
+
+    run_case(
+        "STALE_QUALIFIED_SIGNAL",
+        copy.deepcopy(saved_config),
+        stale_market,
+        make_unit7(
+            mode="STRUCTURE",
+            direction="LONG",
+            qualified=True,
+        ),
+        expected_status="BLOCKED",
+        expected_reason="STALE_MARKET_EVIDENCE",
+    )
+
+    # ========================================================
+    # TEST 8: STALE IDLE
+    # ========================================================
+
+    stale_idle = make_market("SHORT")
+
+    stale_idle["candle_data_fresh"] = False
+    stale_idle["candle_age_seconds"] = 240.0
+
+    run_case(
+        "STALE_IDLE_MARKET",
+        copy.deepcopy(saved_config),
+        stale_idle,
+        make_unit7(),
+        expected_status="BLOCKED",
+        expected_reason="STALE_MARKET_EVIDENCE",
+    )
+
+    # ========================================================
+    # TEST 9: SIGNAL FLAG MISMATCH
+    # ========================================================
+
+    mismatch = make_unit7(
+        mode="BREAKOUT",
+        direction="LONG",
+        qualified=True,
+    )
+
+    mismatch["signal_qualified"] = False
+
+    run_case(
+        "SIGNAL_FLAG_MISMATCH",
+        copy.deepcopy(saved_config),
+        make_market("LONG"),
+        mismatch,
+        expected_exception=(
+            "UNIT 8 SIGNAL FLAG MISMATCH"
+        ),
+    )
+
+    # ========================================================
+    # TEST 10: INVALID HELD DIRECTION
+    # ========================================================
+
+    invalid_held = make_unit7(
+        mode="STRUCTURE",
+        direction="NONE",
+        qualified=True,
+    )
+
+    run_case(
+        "HELD_DIRECTION_INVALID",
+        copy.deepcopy(saved_config),
+        make_market("LONG"),
+        invalid_held,
+        expected_exception=(
+            "UNIT 8 HELD HANDOVER MISMATCH"
+        ),
+    )
+
+    # ========================================================
+    # TEST 11: UNSAFE EXCHANGE PERMISSION
+    # ========================================================
+
+    unsafe_config = copy.deepcopy(
+        saved_config
+    )
+
+    unsafe_config["safety"][
+        "exchange_mutation_enabled"
+    ] = True
+
+    run_case(
+        "EXCHANGE_MUTATION_REJECTED",
+        unsafe_config,
+        make_market("LONG"),
+        make_unit7(),
+        expected_exception=(
+            "UNIT 8 UNSAFE CONFIG: "
+            "exchange_mutation_enabled"
+        ),
+    )
+
+    # ========================================================
+    # TEST 12: MISSING UNIT 7 RESULT
+    # ========================================================
+
+    run_case(
+        "MISSING_UNIT_7_RESULT",
+        copy.deepcopy(saved_config),
+        make_market("LONG"),
+        None,
+        expected_exception=(
+            "UNIT 8 INVALID INPUT CONTRACT"
+        ),
+    )
+
+    # ========================================================
+    # 6. ORIGINAL STATE INTEGRITY
+    # ========================================================
+
+    originals_preserved = (
+        original_config == saved_config
+        and original_market == saved_market
+        and original_unit7 == saved_unit7
+        and original_unit8 == saved_unit8
+    )
+
+    pass_count = sum(
+        item["passed"] for item in results
+    )
+
+    fail_count = (
+        len(results) - pass_count
+    )
+
+    verdict = (
+        "PASS"
+        if fail_count == 0
+        and originals_preserved
+        else "FAIL"
+    )
+
+    # ========================================================
+    # 7. FINAL REPORT
+    # ========================================================
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 8 V1.1 TEST COUNT =",
+        len(results),
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 V1.1 PASS =",
+        pass_count,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 V1.1 FAIL =",
+        fail_count,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 V1.1 ORIGINAL DATA PRESERVED =",
+        originals_preserved,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 V1.1 RESULT =",
+        verdict,
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return {
+        "status": verdict,
+        "test_count": len(results),
+        "passed": pass_count,
+        "failed": fail_count,
+        "originals_preserved":
+            originals_preserved,
+        "details": results,
+    }
+
+
+# ============================================================
+# RUN UNIT 8 V1.1 CONTROLLED TESTS
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_UNIT_8_V11_RESULT = None
+
+if UNIT_8_V11_TEST_ENABLED:
+
+    FRESH_UNIT_8_V11_RESULT = (
+        fresh_unit_8_v11_tests()
+    )
+
+# ============================================================
+# END UNIT 8 V1.1 CONTROLLED TEST SUITE
+# ZERO INDENTATION
+# ============================================================
