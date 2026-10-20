@@ -8020,7 +8020,7 @@ def fresh_unit_8_v11_tests():
 # ZERO INDENTATION
 # ============================================================
 
-FRESH_UNIT_8_V11_TEST_ENABLED = False
+UNIT_8_V11_TEST_ENABLED = False
 
 FRESH_UNIT_8_V11_RESULT = None
 
