@@ -8664,3 +8664,643 @@ FRESH_RECONSTRUCTION_UNIT_9_RESULT = (
 # END COMPLETE UNIT 9 V1
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# START UNIT 9 V1.1 CONTROLLED TEST SUITE
+# ZERO INDENTATION
+#
+# TESTS UNIT 9 V1 WITHOUT MODIFYING IT
+# SYNTHETIC CLOSED CANDLES ONLY
+# PROCESS MEMORY STATE PRESERVED AND RESTORED
+# NO WEEX ACCOUNT ACCESS
+# NO ORDER SUBMISSION
+# ZERO EXCHANGE WRITE
+# ============================================================
+
+UNIT_9_V11_TEST_ENABLED = True
+
+
+def fresh_unit_9_v11_tests():
+
+    import copy
+    import time
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 9 V1.1 CONTROLLED TEST START",
+        flush=True,
+    )
+
+    original_config = FRESH_RECONSTRUCTION_CONFIG
+    original_market = FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+    original_unit8 = FRESH_RECONSTRUCTION_UNIT_8_RESULT
+    original_unit9 = FRESH_RECONSTRUCTION_UNIT_9_RESULT
+
+    saved_config = copy.deepcopy(original_config)
+    saved_market = copy.deepcopy(original_market)
+    saved_unit8 = copy.deepcopy(original_unit8)
+    saved_unit9 = copy.deepcopy(original_unit9)
+
+    saved_state = copy.deepcopy(
+        FRESH_UNIT_9_STATE
+    )
+
+    results = []
+
+    BASE_CANDLE = 1700000000000
+    CANDLE_INTERVAL = 60000
+
+    # ========================================================
+    # 1. TEST STATE RESET
+    # ========================================================
+
+    def reset_test_state():
+
+        FRESH_UNIT_9_STATE.clear()
+
+        FRESH_UNIT_9_STATE.update({
+            "signal_key": None,
+            "first_seen": None,
+            "last_candle_id": None,
+            "confirmations": 0,
+            "last_status": "IDLE",
+        })
+
+    # ========================================================
+    # 2. MARKET FIXTURE
+    # ========================================================
+
+    def make_market(
+        candle_id=BASE_CANDLE,
+        direction="LONG",
+    ):
+
+        data = copy.deepcopy(saved_market)
+
+        data["symbol"] = "BTCUSDT"
+        data["direction_evidence"] = direction
+        data["candle_data_fresh"] = True
+
+        data["recent_closed_klines"] = [
+            {
+                "timestamp": candle_id,
+                "open": 80000.0,
+                "high": 80100.0,
+                "low": 79900.0,
+                "close": 80050.0,
+            }
+        ]
+
+        return data
+
+    # ========================================================
+    # 3. UNIT 8 FIXTURE
+    # ========================================================
+
+    def make_unit8(
+        status="PENDING",
+        mode="STRUCTURE",
+        direction="LONG",
+    ):
+
+        data = copy.deepcopy(saved_unit8)
+
+        data["status"] = status
+
+        data["read_only"] = True
+        data["execution_intent"] = False
+        data["trade_authorized"] = False
+
+        data["exchange_write"] = False
+        data["order_payload_created"] = False
+        data["reentry_authorized"] = False
+
+        data["demo_order_submitted"] = False
+        data["real_order_submitted"] = False
+
+        data["continuity_verified"] = False
+
+        if status == "PENDING":
+
+            data["candidate_preserved"] = True
+            data["market_fresh"] = True
+            data["signal_direction_match"] = True
+
+            data["pending_mode"] = mode
+            data["pending_direction"] = direction
+
+        else:
+
+            data["candidate_preserved"] = False
+            data["pending_mode"] = "NONE"
+            data["pending_direction"] = "NONE"
+
+        return data
+
+    # ========================================================
+    # 4. OUTPUT SAFETY VERIFICATION
+    # ========================================================
+
+    def output_safe(output):
+
+        return (
+            isinstance(output, dict)
+            and output.get("read_only") is True
+            and output.get("execution_intent") is False
+            and output.get("trade_authorized") is False
+            and output.get("exchange_write") is False
+            and output.get("order_payload_created") is False
+            and output.get("quantity_calculated") is False
+            and output.get("reentry_authorized") is False
+            and output.get("demo_order_submitted") is False
+            and output.get("real_order_submitted") is False
+            and output.get("position_flat_verified") is False
+            and output.get("pending_orders_verified") is False
+            and output.get(
+                "duplicate_order_absence_verified"
+            ) is False
+            and output.get(
+                "state_persistent_across_restart"
+            ) is False
+        )
+
+    # ========================================================
+    # 5. TEST RUNNER
+    # ========================================================
+
+    def run_case(
+        name,
+        market,
+        unit8,
+        expected_status=None,
+        expected_confirmations=None,
+        expected_reason=None,
+        expected_duplicate=None,
+        expected_continuity=None,
+        expected_exception=None,
+        config=None,
+    ):
+
+        print("-" * 80, flush=True)
+        print(
+            "UNIT 9 V1.1 TEST =",
+            name,
+            flush=True,
+        )
+
+        if config is None:
+            config = copy.deepcopy(saved_config)
+
+        before_config = copy.deepcopy(config)
+        before_market = copy.deepcopy(market)
+        before_unit8 = copy.deepcopy(unit8)
+
+        passed = False
+        actual_status = None
+        actual_reason = None
+        actual_confirmations = None
+
+        try:
+
+            output = fresh_reconstruction_unit_9(
+                config,
+                market,
+                unit8,
+            )
+
+            actual_status = output.get("status")
+            actual_reason = output.get("reason")
+            actual_confirmations = output.get(
+                "confirmations"
+            )
+
+            passed = (
+                expected_exception is None
+                and actual_status == expected_status
+                and actual_confirmations
+                == expected_confirmations
+                and output_safe(output)
+            )
+
+            if expected_reason is not None:
+
+                passed = (
+                    passed
+                    and actual_reason == expected_reason
+                )
+
+            if expected_duplicate is not None:
+
+                passed = (
+                    passed
+                    and output.get("duplicate_candle")
+                    is expected_duplicate
+                )
+
+            if expected_continuity is not None:
+
+                passed = (
+                    passed
+                    and output.get("continuity_verified")
+                    is expected_continuity
+                )
+
+        except RuntimeError as exc:
+
+            actual_reason = str(exc)
+
+            passed = (
+                expected_exception is not None
+                and expected_exception in actual_reason
+            )
+
+        except Exception as exc:
+
+            actual_reason = (
+                "UNEXPECTED_EXCEPTION: " + repr(exc)
+            )
+
+            passed = False
+
+        inputs_preserved = (
+            config == before_config
+            and market == before_market
+            and unit8 == before_unit8
+        )
+
+        passed = passed and inputs_preserved
+
+        print(
+            "UNIT 9 V1.1 EXPECTED STATUS =",
+            expected_status,
+            flush=True,
+        )
+
+        print(
+            "UNIT 9 V1.1 ACTUAL STATUS =",
+            actual_status,
+            flush=True,
+        )
+
+        print(
+            "UNIT 9 V1.1 EXPECTED CONFIRMATIONS =",
+            expected_confirmations,
+            flush=True,
+        )
+
+        print(
+            "UNIT 9 V1.1 ACTUAL CONFIRMATIONS =",
+            actual_confirmations,
+            flush=True,
+        )
+
+        print(
+            "UNIT 9 V1.1 ACTUAL REASON =",
+            actual_reason,
+            flush=True,
+        )
+
+        print(
+            "UNIT 9 V1.1 INPUT PRESERVED =",
+            inputs_preserved,
+            flush=True,
+        )
+
+        print(
+            "UNIT 9 V1.1 TEST RESULT =",
+            "PASS" if passed else "FAIL",
+            flush=True,
+        )
+
+        results.append({
+            "name": name,
+            "passed": passed,
+            "reason": actual_reason,
+        })
+
+    # ========================================================
+    # 6. CONTROLLED SCENARIOS
+    # ========================================================
+
+    try:
+
+        reset_test_state()
+
+        # TEST 1: IDLE
+        run_case(
+            "IDLE_RESET",
+            make_market(),
+            make_unit8(status="IDLE"),
+            expected_status="IDLE",
+            expected_confirmations=0,
+            expected_reason="NO_PENDING_SIGNAL",
+            expected_continuity=False,
+        )
+
+        # TEST 2: FIRST CLOSED CANDLE
+        run_case(
+            "FIRST_CANDLE",
+            make_market(),
+            make_unit8(),
+            expected_status="PENDING",
+            expected_confirmations=1,
+            expected_reason=(
+                "FIRST_CLOSED_CANDLE_CONFIRMATION"
+            ),
+            expected_duplicate=False,
+            expected_continuity=False,
+        )
+
+        # TEST 3: SAME CANDLE MUST NOT COUNT TWICE
+        run_case(
+            "DUPLICATE_FIRST_CANDLE",
+            make_market(),
+            make_unit8(),
+            expected_status="PENDING",
+            expected_confirmations=1,
+            expected_reason=(
+                "DUPLICATE_CLOSED_CANDLE_IGNORED"
+            ),
+            expected_duplicate=True,
+            expected_continuity=False,
+        )
+
+        # TEST 4: SECOND DISTINCT CANDLE
+        run_case(
+            "SECOND_CANDLE_CONFIRMATION",
+            make_market(
+                BASE_CANDLE + CANDLE_INTERVAL
+            ),
+            make_unit8(),
+            expected_status="CONFIRMED",
+            expected_confirmations=2,
+            expected_reason=(
+                "DISTINCT_CLOSED_CANDLE_"
+                "CONTINUITY_VERIFIED"
+            ),
+            expected_duplicate=False,
+            expected_continuity=True,
+        )
+
+        # TEST 5: REPEATED CONFIRMED CANDLE
+        run_case(
+            "DUPLICATE_CONFIRMED_CANDLE",
+            make_market(
+                BASE_CANDLE + CANDLE_INTERVAL
+            ),
+            make_unit8(),
+            expected_status="CONFIRMED",
+            expected_confirmations=2,
+            expected_reason=(
+                "DISTINCT_CLOSED_CANDLE_"
+                "CONTINUITY_VERIFIED"
+            ),
+            expected_duplicate=True,
+            expected_continuity=True,
+        )
+
+        # TEST 6: SIGNAL CHANGES LONG TO SHORT
+        run_case(
+            "SIGNAL_DIRECTION_CHANGE_RESET",
+            make_market(
+                BASE_CANDLE + 2 * CANDLE_INTERVAL,
+                "SHORT",
+            ),
+            make_unit8(
+                direction="SHORT"
+            ),
+            expected_status="PENDING",
+            expected_confirmations=1,
+            expected_reason="SIGNAL_CHANGED_RESET",
+            expected_continuity=False,
+        )
+
+        # TEST 7: EXPIRED SIGNAL WINDOW
+        FRESH_UNIT_9_STATE["first_seen"] = (
+            time.monotonic() - 121.0
+        )
+
+        run_case(
+            "SIGNAL_EXPIRY_RESET",
+            make_market(
+                BASE_CANDLE + 3 * CANDLE_INTERVAL,
+                "SHORT",
+            ),
+            make_unit8(
+                direction="SHORT"
+            ),
+            expected_status="PENDING",
+            expected_confirmations=1,
+            expected_reason=(
+                "SIGNAL_WINDOW_EXPIRED_RESET"
+            ),
+            expected_continuity=False,
+        )
+
+        # TEST 8: OLDER CANDLE MUST BE REJECTED
+        run_case(
+            "CANDLE_TIME_REGRESSION",
+            make_market(
+                BASE_CANDLE + 2 * CANDLE_INTERVAL,
+                "SHORT",
+            ),
+            make_unit8(
+                direction="SHORT"
+            ),
+            expected_status="BLOCKED",
+            expected_confirmations=0,
+            expected_reason=(
+                "CLOSED_CANDLE_TIME_REGRESSION"
+            ),
+            expected_continuity=False,
+        )
+
+        # TEST 9: MISSING TIMESTAMP
+        missing_time = make_market()
+
+        missing_time["recent_closed_klines"] = [
+            {
+                "open": 80000.0,
+                "high": 80100.0,
+                "low": 79900.0,
+                "close": 80050.0,
+            }
+        ]
+
+        run_case(
+            "MISSING_CANDLE_TIMESTAMP",
+            missing_time,
+            make_unit8(),
+            expected_status="BLOCKED",
+            expected_confirmations=0,
+            expected_reason=(
+                "CLOSED_CANDLE_ID_MISSING"
+            ),
+            expected_continuity=False,
+        )
+
+        # TEST 10: INVALID CANDLE TIMESTAMP
+        run_case(
+            "INVALID_CANDLE_TIMESTAMP",
+            make_market("invalid_timestamp"),
+            make_unit8(),
+            expected_status="BLOCKED",
+            expected_confirmations=0,
+            expected_reason=(
+                "INVALID_CLOSED_CANDLE_ID"
+            ),
+            expected_continuity=False,
+        )
+
+        # TEST 11: BLOCKED UPSTREAM RESETS
+        run_case(
+            "UPSTREAM_BLOCKED_RESET",
+            make_market(),
+            make_unit8(status="BLOCKED"),
+            expected_status="BLOCKED",
+            expected_confirmations=0,
+            expected_reason=(
+                "UPSTREAM_SIGNAL_BLOCKED:UNKNOWN"
+            ),
+            expected_continuity=False,
+        )
+
+        # TEST 12: UNSAFE CONFIGURATION REJECTED
+        unsafe_config = copy.deepcopy(
+            saved_config
+        )
+
+        unsafe_config["safety"][
+            "exchange_mutation_enabled"
+        ] = True
+
+        run_case(
+            "UNSAFE_EXCHANGE_PERMISSION",
+            make_market(),
+            make_unit8(),
+            expected_exception=(
+                "UNIT 9 UNSAFE CONFIG: "
+                "exchange_mutation_enabled"
+            ),
+            config=unsafe_config,
+        )
+
+        # TEST 13: MISSING UNIT 8 RESULT
+        run_case(
+            "MISSING_UNIT_8_RESULT",
+            make_market(),
+            None,
+            expected_exception=(
+                "UNIT 9 INVALID INPUT CONTRACT"
+            ),
+        )
+
+    finally:
+
+        # ====================================================
+        # 7. RESTORE ORIGINAL PROCESS STATE
+        # ====================================================
+
+        FRESH_UNIT_9_STATE.clear()
+        FRESH_UNIT_9_STATE.update(
+            copy.deepcopy(saved_state)
+        )
+
+    # ========================================================
+    # 8. VERIFY ORIGINAL SNAPSHOTS
+    # ========================================================
+
+    original_data_preserved = (
+        original_config == saved_config
+        and original_market == saved_market
+        and original_unit8 == saved_unit8
+        and original_unit9 == saved_unit9
+        and FRESH_UNIT_9_STATE == saved_state
+    )
+
+    pass_count = sum(
+        item["passed"]
+        for item in results
+    )
+
+    fail_count = (
+        len(results) - pass_count
+    )
+
+    verdict = (
+        "PASS"
+        if (
+            len(results) == 13
+            and fail_count == 0
+            and original_data_preserved
+        )
+        else "FAIL"
+    )
+
+    # ========================================================
+    # 9. FINAL SUMMARY
+    # ========================================================
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 9 V1.1 TEST COUNT =",
+        len(results),
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 V1.1 PASS =",
+        pass_count,
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 V1.1 FAIL =",
+        fail_count,
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 V1.1 ORIGINAL DATA PRESERVED =",
+        original_data_preserved,
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 V1.1 RESULT =",
+        verdict,
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return {
+        "status": verdict,
+        "test_count": len(results),
+        "passed": pass_count,
+        "failed": fail_count,
+        "original_data_preserved":
+            original_data_preserved,
+        "details": results,
+    }
+
+
+# ============================================================
+# RUN UNIT 9 V1.1 CONTROLLED TESTS
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_UNIT_9_V11_RESULT = None
+
+if UNIT_9_V11_TEST_ENABLED:
+
+    FRESH_UNIT_9_V11_RESULT = (
+        fresh_unit_9_v11_tests()
+    )
+
+# ============================================================
+# END UNIT 9 V1.1 CONTROLLED TEST SUITE
+# ZERO INDENTATION
+# ============================================================
