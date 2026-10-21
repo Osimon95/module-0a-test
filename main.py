@@ -955,6 +955,7 @@ print("UNITS 3-15 = PRESERVED", flush=True)
 print("DEMO ORDER EXECUTION = NOT STARTED", flush=True)
 print("=" * 80, flush=True)
 
+UNIT_2_ISOLATED_TEST = False
 if UNIT_2_ISOLATED_TEST:
     print(
         "UNIT 2 TEST COMPLETE - STOPPING BEFORE UNIT 3",
@@ -972,4 +973,443 @@ if UNIT_2_ISOLATED_TEST:
 # UNIT 2 ISOLATED TEST INCLUDED
 #
 # EXISTING UNIT 3 CONTINUES BELOW
+# ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 3 REPLACEMENT
+# ZERO INDENTATION - WEEX V3 PUBLIC MARK PRICE
+# ============================================================
+
+def fresh_reconstruction_unit_3():
+    import math
+    import time
+
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 3 START")
+
+    # 1. Receive validated Unit 2 configuration.
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: UNIT 2 CONFIG MISSING"
+        )
+
+    exchange = config.get("exchange")
+    safety = config.get("safety")
+
+    if (
+        not isinstance(exchange, dict)
+        or not isinstance(safety, dict)
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID CONFIG STRUCTURE"
+        )
+
+    if config.get("execution_environment") != "DEMO":
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: NON-DEMO ENVIRONMENT"
+        )
+
+    if (
+        exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID EXCHANGE/API VERSION"
+        )
+
+    if exchange.get("contract_base_url") != (
+        "https://api-contract.weex.com"
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID BASE URL"
+        )
+
+    if exchange.get("market_symbol") != "BTCUSDT":
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID MARKET SYMBOL"
+        )
+
+    if exchange.get("demo_order_symbol") != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID DEMO SYMBOL"
+        )
+
+    # 2. Read-only configuration safeguard.
+
+    if safety.get(
+        "public_market_data_read_enabled"
+    ) is not True:
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: MARKET READ DISABLED"
+        )
+
+    forbidden = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for name in forbidden:
+        if safety.get(name) is not False:
+            raise RuntimeError(
+                "UNIT 3 BLOCKED: UNSAFE FLAG " + name
+            )
+
+    print(
+        "PASS: UNIT 3 RECEIVED UNIT 2 CONFIGURATION",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 READ-ONLY SAFETY GATE",
+        flush=True,
+    )
+
+    # 3. Established WEEX V3 endpoint.
+
+    params = urllib.parse.urlencode({
+        "symbol": exchange["market_symbol"],
+        "priceType": "MARK",
+    })
+
+    endpoint = "/capi/v3/market/symbolPrice"
+
+    url = (
+        exchange["contract_base_url"]
+        + endpoint
+        + "?"
+        + params
+    )
+
+    request = urllib.request.Request(
+        url=url,
+        method="GET",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "WEEX-15-Unit-Demo-Unit3/1.0",
+        },
+    )
+
+    if (
+        request.get_method() != "GET"
+        or request.data is not None
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: HTTP REQUEST NOT READ ONLY"
+        )
+
+    if (
+        request.has_header("Authorization")
+        or request.has_header("ACCESS-KEY")
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: AUTH HEADER PRESENT"
+        )
+
+    print(
+        "PASS: UNIT 3 ENDPOINT = WEEX V3 SYMBOL PRICE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 PRICE TYPE = MARK",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 HTTP METHOD = GET",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 AUTHENTICATION = NONE",
+        flush=True,
+    )
+
+    # 4. Public GET only.
+
+    local_before_ms = int(time.time() * 1000)
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            http_status = response.getcode()
+            response_url = response.geturl()
+            raw_body = response.read(1024 * 1024 + 1)
+
+    except urllib.error.HTTPError as exc:
+        print(
+            "UNIT 3 HTTP ERROR =",
+            exc.code,
+            flush=True,
+        )
+        raise RuntimeError(
+            "UNIT 3 WEEX PUBLIC HTTP FAILURE"
+        ) from exc
+
+    except urllib.error.URLError as exc:
+        print(
+            "UNIT 3 CONNECTION ERROR =",
+            repr(exc.reason),
+            flush=True,
+        )
+        raise RuntimeError(
+            "UNIT 3 WEEX PUBLIC CONNECTION FAILURE"
+        ) from exc
+
+    except TimeoutError as exc:
+        raise RuntimeError(
+            "UNIT 3 WEEX PUBLIC REQUEST TIMEOUT"
+        ) from exc
+
+    local_after_ms = int(time.time() * 1000)
+
+    if http_status != 200:
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID HTTP STATUS"
+        )
+
+    if (
+        len(raw_body) == 0
+        or len(raw_body) > 1024 * 1024
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: EMPTY/OVERSIZE RESPONSE"
+        )
+
+    parsed_url = urllib.parse.urlparse(response_url)
+
+    if (
+        parsed_url.scheme,
+        parsed_url.netloc,
+        parsed_url.path,
+    ) != (
+        "https",
+        "api-contract.weex.com",
+        endpoint,
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: UNEXPECTED RESPONSE URL"
+        )
+
+    # 5. Validate the original WEEX response contract.
+
+    try:
+        payload = json.loads(
+            raw_body.decode("utf-8")
+        )
+
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID JSON RESPONSE"
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: RESPONSE IS NOT AN OBJECT"
+        )
+
+    if payload.get("symbol") != exchange["market_symbol"]:
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: RESPONSE SYMBOL MISMATCH"
+        )
+
+    try:
+        price = float(payload["price"])
+        exchange_time_ms = int(payload["time"])
+
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        OverflowError,
+    ) as exc:
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID PRICE/TIME FIELD"
+        ) from exc
+
+    if not math.isfinite(price) or price <= 0:
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID MARK PRICE"
+        )
+
+    if exchange_time_ms <= 0:
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: INVALID EXCHANGE TIMESTAMP"
+        )
+
+    if not (
+        local_before_ms - 120000
+        <= exchange_time_ms
+        <= local_after_ms + 120000
+    ):
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: STALE/FUTURE EXCHANGE TIMESTAMP"
+        )
+
+    # 6. Preserve the exact Unit 4 input interface.
+
+    market_snapshot = {
+        "exchange": "WEEX",
+        "api_version": "V3",
+        "symbol": "BTCUSDT",
+        "price": price,
+        "price_type": "MARK",
+        "exchange_time_ms": exchange_time_ms,
+        "source": "WEEX_V3_PUBLIC_MARK_PRICE",
+        "read_only": True,
+    }
+
+    print(
+        "PASS: UNIT 3 HTTP STATUS = 200",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 RESPONSE SYMBOL =",
+        market_snapshot["symbol"],
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 LIVE BTC MARK PRICE =",
+        price,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 MARKET TIMESTAMP =",
+        exchange_time_ms,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 NORMALIZED MARKET SNAPSHOT",
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 ACCOUNT ACCESS = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 DEMO ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 REAL ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 3 RESULT = PASS"
+    )
+
+    print("=" * 80, flush=True)
+
+    return market_snapshot
+
+
+# ============================================================
+# RUN UNIT 3 - ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
+    fresh_reconstruction_unit_3()
+)
+
+
+# ============================================================
+# UNIT 3 ISOLATED TEST
+# TRUE = STOP BEFORE UNIT 4
+# ============================================================
+
+UNIT_3_ISOLATED_TEST = True
+
+_required_unit_3_keys = (
+    "exchange",
+    "api_version",
+    "symbol",
+    "price",
+    "price_type",
+    "exchange_time_ms",
+    "source",
+    "read_only",
+)
+
+if not isinstance(
+    FRESH_RECONSTRUCTION_MARKET_SNAPSHOT,
+    dict,
+):
+    raise RuntimeError(
+        "UNIT 3 ISOLATED TEST FAILED: SNAPSHOT TYPE"
+    )
+
+if any(
+    key not in FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    for key in _required_unit_3_keys
+):
+    raise RuntimeError(
+        "UNIT 3 ISOLATED TEST FAILED: MISSING FIELD"
+    )
+
+if FRESH_RECONSTRUCTION_MARKET_SNAPSHOT[
+    "read_only"
+] is not True:
+    raise RuntimeError(
+        "UNIT 3 ISOLATED TEST FAILED: READ-ONLY FIELD"
+    )
+
+print(
+    "UNIT 3 ISOLATED TEST = PASS",
+    flush=True,
+)
+
+print(
+    "UNIT 3 VERIFIED = TRUE",
+    flush=True,
+)
+
+print(
+    "UNITS 4-15 EXECUTION = NOT STARTED",
+    flush=True,
+)
+
+if UNIT_3_ISOLATED_TEST:
+
+    print(
+        "UNIT 3 TEST COMPLETE - STOPPING BEFORE UNIT 4",
+        flush=True,
+    )
+
+    raise SystemExit(0)
+
+
+# ============================================================
+# END COMPLETE UNIT 3 REPLACEMENT
+# ZERO INDENTATION
 # ============================================================
