@@ -12356,6 +12356,181 @@ if UNIT_10_V14_TEST_ENABLED:
 # ============================================================
 
 
+
+# ============================================================
+# UNIT 11 V2.3 HANDOVER CLASSIFICATION CORRECTION
+# ZERO INDENTATION START
+# PLACE AFTER UNIT 10, BEFORE UNIT 11
+# FROZEN UNITS 1-10 UNCHANGED
+# ============================================================
+
+def fresh_unit_11_v23_classify_handover(unit10_result):
+
+    if not isinstance(unit10_result, dict):
+        raise RuntimeError(
+            "UNIT 11 INVALID UNIT 10 RESULT"
+        )
+
+    status = unit10_result.get("status")
+    reason = unit10_result.get("reason")
+    scan_id = unit10_result.get("scan_id")
+    unit9 = unit10_result.get("unit_9_result")
+
+    safe = (
+        unit10_result.get("read_only") is True
+        and unit10_result.get("trade_authorized") is False
+        and unit10_result.get("exchange_write") is False
+        and isinstance(unit9, dict)
+        and unit9.get("read_only") is True
+        and unit9.get("trade_authorized") is False
+        and unit9.get("exchange_write") is False
+        and unit9.get("execution_intent") is False
+        and unit9.get("reentry_authorized") is False
+        and unit9.get("order_payload_created") is False
+        and unit9.get("demo_order_submitted") is False
+        and unit9.get("real_order_submitted") is False
+    )
+
+    valid_statuses = (
+        "IDLE",
+        "PENDING",
+        "CONFIRMED",
+    )
+
+    status_valid = (
+        status in valid_statuses
+        and isinstance(unit9, dict)
+        and unit9.get("status") == status
+    )
+
+    scan_valid = (
+        type(scan_id) is int
+        and scan_id > 0
+    )
+
+    handover_verified = (
+        safe
+        and status_valid
+        and scan_valid
+    )
+
+    confirmations = 0
+    required = 2
+    duplicate = False
+    continuity = False
+
+    if isinstance(unit9, dict):
+
+        confirmations = unit9.get(
+            "confirmations", 0
+        )
+
+        required = unit9.get(
+            "confirmations_required", 2
+        )
+
+        duplicate = (
+            unit9.get("duplicate_candle") is True
+        )
+
+        continuity = (
+            unit9.get("continuity_verified") is True
+        )
+
+    confirmation_valid = (
+        type(confirmations) is int
+        and type(required) is int
+        and required >= 1
+        and 0 <= confirmations <= required
+    )
+
+    signal_verified = (
+        handover_verified
+        and confirmation_valid
+        and status == "CONFIRMED"
+        and continuity
+        and confirmations >= required
+    )
+
+    if not handover_verified:
+        classification = "BLOCKED"
+
+    elif not confirmation_valid:
+        classification = "BLOCKED"
+        handover_verified = False
+
+    elif status == "IDLE":
+        classification = "IDLE"
+
+    elif status == "PENDING":
+        classification = "PENDING"
+
+    elif signal_verified:
+        classification = "CONFIRMED"
+
+    else:
+        classification = "BLOCKED"
+
+    pending_preserved = (
+        classification == "PENDING"
+    )
+
+    result = {
+        "classification": classification,
+        "market_handover_verified": handover_verified,
+        "signal_continuity_verified": signal_verified,
+        "pending_preserved": pending_preserved,
+        "duplicate_candle_ignored": duplicate,
+        "confirmations": confirmations,
+        "required": required,
+        "unit9_status": status,
+        "unit9_reason": reason,
+        "scan_id": scan_id,
+        "read_only": True,
+        "trade_authorized": False,
+        "exchange_write": False,
+    }
+
+    print("=" * 70, flush=True)
+    print(
+        "UNIT 11 V2.3 CLASSIFICATION =",
+        classification, flush=True
+    )
+    print(
+        "UNIT 11 V2.3 HANDOVER VERIFIED =",
+        handover_verified, flush=True
+    )
+    print(
+        "UNIT 11 V2.3 PENDING PRESERVED =",
+        pending_preserved, flush=True
+    )
+    print(
+        "UNIT 11 V2.3 DUPLICATE CANDLE =",
+        duplicate, flush=True
+    )
+    print(
+        "UNIT 11 V2.3 CONFIRMATIONS =",
+        confirmations, "/", required, flush=True
+    )
+    print(
+        "UNIT 11 V2.3 CONTINUITY VERIFIED =",
+        signal_verified, flush=True
+    )
+    print(
+        "UNIT 11 V2.3 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+    print("=" * 70, flush=True)
+
+    return result
+
+
+# ============================================================
+# END UNIT 11 V2.3 HANDOVER CLASSIFIER
+# ZERO INDENTATION END
+# ============================================================
+
+
 # ============================================================
 # START COMPLETE UNIT 11 V2.2
 # ZERO INDENTATION
