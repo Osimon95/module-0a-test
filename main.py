@@ -12358,33 +12358,71 @@ if UNIT_10_V14_TEST_ENABLED:
 
 
 # ============================================================
-# START COMPLETE UNIT 11 V2.3 REPLACEMENT
+# START COMPLETE UNIT 11 V2.4 REPLACEMENT
 # ZERO INDENTATION
+# EXTENDED READ-ONLY SIGNAL MONITORING
 # FROZEN UNITS 1-10 UNCHANGED
-# NO ACCOUNT ACCESS / ORDERS / EXCHANGE WRITE
 # ============================================================
 
 import time
-
-U11_V23_SCAN_COUNT = 3
-U11_V23_SCAN_INTERVAL = 30.0
-U11_V23_RUN_TESTS = True
-U11_V23_RUN_MARKET = True
+import os
 
 
 # ============================================================
-# 1. UNIT 10 / UNIT 9 HANDOVER CLASSIFIER
+# 1. MONITORING CONFIGURATION
 # ============================================================
 
-def unit11_v23_classify(unit10, refresh):
+U11_V24_DEFAULT_SCANS = 30
+U11_V24_DEFAULT_INTERVAL = 30.0
+
+U11_V24_RUN_TESTS = True
+U11_V24_RUN_MARKET = True
+
+
+def unit11_v24_settings():
+
+    try:
+        scans = int(os.environ.get(
+            "UNIT11_MONITOR_SCANS",
+            str(U11_V24_DEFAULT_SCANS)
+        ))
+
+        interval = float(os.environ.get(
+            "UNIT11_MONITOR_INTERVAL",
+            str(U11_V24_DEFAULT_INTERVAL)
+        ))
+
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError(
+            "UNIT 11 INVALID MONITOR SETTINGS"
+        ) from exc
+
+    if not 3 <= scans <= 360:
+        raise RuntimeError(
+            "UNIT 11 SCAN COUNT OUT OF RANGE"
+        )
+
+    if not 10.0 <= interval <= 300.0:
+        raise RuntimeError(
+            "UNIT 11 INTERVAL OUT OF RANGE"
+        )
+
+    return scans, interval
+
+
+# ============================================================
+# 2. STRICT UNIT 10 / UNIT 9 CLASSIFICATION
+# ============================================================
+
+def unit11_v24_classify(unit10, refresh):
 
     def blocked(reason):
+
         return {
             "classification": "BLOCKED",
             "reason": reason,
             "handover_verified": False,
             "continuity_verified": False,
-            "read_only": True,
             "trade_authorized": False,
             "exchange_write": False,
         }
@@ -12422,12 +12460,13 @@ def unit11_v23_classify(unit10, refresh):
         isinstance(x, dict)
         for x in (unit4, unit8, unit9)
     ):
-        return blocked("MISSING_UNIT4_8_9")
+        return blocked("MISSING_UPSTREAM_RESULTS")
 
     for label, data in (
         ("UNIT8", unit8),
         ("UNIT9", unit9),
     ):
+
         if data.get("read_only") is not True:
             return blocked("UNSAFE_" + label)
 
@@ -12447,10 +12486,9 @@ def unit11_v23_classify(unit10, refresh):
         "demo_order_submitted",
         "real_order_submitted",
     ):
+
         if unit9.get(key) is not False:
             return blocked("UNSAFE_UNIT9_" + key)
-
-    # Verify the same-scan public market evidence.
 
     candles = unit4.get(
         "recent_closed_klines"
@@ -12464,25 +12502,22 @@ def unit11_v23_classify(unit10, refresh):
         or not candles
         or not isinstance(candles[-1], dict)
     ):
-        return blocked("INVALID_MARKET_EVIDENCE")
+        return blocked("INVALID_MARKET_DATA")
 
     candle = candles[-1]
 
     candle_id = candle.get("open_time_ms")
-    alias = candle.get("timestamp")
+    timestamp = candle.get("timestamp")
     close_time = candle.get("close_time_ms")
 
     if (
         type(candle_id) is not int
         or candle_id <= 0
-        or alias != candle_id
+        or timestamp != candle_id
         or type(close_time) is not int
         or close_time > int(time.time() * 1000)
     ):
         return blocked("INVALID_CLOSED_CANDLE")
-
-    # IDLE, PENDING and CONFIRMED are valid handovers.
-    # Unit 11 never awards Unit 9 confirmations.
 
     status = unit10.get("status")
 
@@ -12491,7 +12526,7 @@ def unit11_v23_classify(unit10, refresh):
         "PENDING",
         "CONFIRMED",
     ):
-        return blocked("INVALID_STATUS")
+        return blocked("INVALID_UPSTREAM_STATUS")
 
     if unit9.get("status") != status:
         return blocked("STATUS_MISMATCH")
@@ -12502,7 +12537,7 @@ def unit11_v23_classify(unit10, refresh):
 
     required = unit9.get(
         "confirmations_required",
-        2,
+        2
     )
 
     if (
@@ -12516,7 +12551,7 @@ def unit11_v23_classify(unit10, refresh):
     mode = unit9.get("mode", "NONE")
     direction = unit9.get(
         "direction",
-        "NONE",
+        "NONE"
     )
 
     if status != "IDLE":
@@ -12526,16 +12561,13 @@ def unit11_v23_classify(unit10, refresh):
             "STRUCTURE",
             "SCALP",
         ):
-            return blocked("INVALID_SIGNAL_MODE")
+            return blocked("INVALID_MODE")
 
         if direction not in (
             "LONG",
             "SHORT",
         ):
             return blocked("INVALID_DIRECTION")
-
-    # Only Unit 9 can establish confirmation.
-    # PENDING 1/2 remains PENDING even for duplicates.
 
     continuity = (
         status == "CONFIRMED"
@@ -12547,26 +12579,30 @@ def unit11_v23_classify(unit10, refresh):
 
     if status == "CONFIRMED" and not continuity:
         return blocked(
-            "UNVERIFIED_CONFIRMED_STATUS"
+            "UNVERIFIED_CONFIRMED_SIGNAL"
         )
 
     return {
         "classification": status,
-        "reason": unit9.get(
-            "reason",
-            unit10.get("reason"),
-        ),
+        "reason": unit9.get("reason"),
         "handover_verified": True,
         "continuity_verified": continuity,
+        "scan_id": scan_id,
+        "candle_id": candle_id,
         "confirmations": confirmations,
         "required": required,
+        "mode": mode,
+        "direction": direction,
         "duplicate_candle": (
             unit9.get("duplicate_candle") is True
         ),
-        "candle_id": candle_id,
-        "scan_id": scan_id,
-        "mode": mode,
-        "direction": direction,
+        "signal_changed": (
+            unit9.get("signal_changed") is True
+        ),
+        "signal_expired": (
+            unit9.get("signal_expired") is True
+        ),
+        "market_fresh": True,
         "read_only": True,
         "trade_authorized": False,
         "exchange_write": False,
@@ -12574,10 +12610,10 @@ def unit11_v23_classify(unit10, refresh):
 
 
 # ============================================================
-# 2. CONTROLLED HANDOVER SIMULATIONS
+# 3. CONTROLLED CLASSIFIER TESTS
 # ============================================================
 
-def unit11_v23_simulations():
+def unit11_v24_tests():
 
     now = int(time.time() * 1000)
 
@@ -12607,7 +12643,7 @@ def unit11_v23_simulations():
         },
     }
 
-    u9 = {
+    unit9 = {
         "read_only": True,
         "trade_authorized": False,
         "exchange_write": False,
@@ -12626,152 +12662,139 @@ def unit11_v23_simulations():
         "reason": "DUPLICATE_CLOSED_CANDLE_IGNORED",
     }
 
-    u10 = {
+    unit10 = {
         "read_only": True,
         "trade_authorized": False,
         "exchange_write": False,
         "reentry_authorized": False,
         "scan_id": 101,
         "status": "PENDING",
-        "unit_9_result": u9,
+        "unit_9_result": unit9,
     }
 
-    checks = []
+    passed = 0
+    failed = 0
 
-    def check(label, condition):
+    def check(name, condition):
 
-        passed = bool(condition)
-        checks.append(passed)
+        nonlocal passed, failed
+
+        if condition:
+            passed += 1
+            outcome = "PASS"
+        else:
+            failed += 1
+            outcome = "FAIL"
 
         print(
-            ("PASS: " if passed else "FAIL: ")
-            + label,
-            flush=True,
+            outcome + ": UNIT 11 " + name,
+            flush=True
         )
 
-    # TEST 1: PENDING handover
-
-    pending = unit11_v23_classify(
-        u10,
-        frame,
+    pending = unit11_v24_classify(
+        unit10,
+        frame
     )
 
     check(
         "PENDING ACCEPTED",
-        pending["classification"] == "PENDING",
+        pending["classification"] == "PENDING"
     )
-
-    # TEST 2: Duplicate does not become 2/2
 
     check(
-        "DUPLICATE PRESERVES 1/2",
+        "DUPLICATE RETAINS 1/2",
         pending["confirmations"] == 1
-        and pending["duplicate_candle"],
+        and pending["duplicate_candle"] is True
     )
-
-    # TEST 3: PENDING is not confirmed
 
     check(
         "PENDING NOT CONFIRMED",
-        not pending["continuity_verified"],
+        pending["continuity_verified"] is False
     )
 
-    # TEST 4: Unit 9 confirmed handover
+    unit9["status"] = "CONFIRMED"
+    unit10["status"] = "CONFIRMED"
+    unit9["confirmations"] = 2
+    unit9["continuity_verified"] = True
+    unit9["duplicate_candle"] = False
 
-    u9["status"] = "CONFIRMED"
-    u10["status"] = "CONFIRMED"
-    u9["confirmations"] = 2
-    u9["duplicate_candle"] = False
-    u9["continuity_verified"] = True
-
-    confirmed = unit11_v23_classify(
-        u10,
-        frame,
+    confirmed = unit11_v24_classify(
+        unit10,
+        frame
     )
 
     check(
         "CONFIRMED HANDOVER",
-        confirmed["continuity_verified"],
+        confirmed["continuity_verified"] is True
     )
 
-    # TEST 5: Normal IDLE
+    unit9["continuity_verified"] = False
 
-    u9["status"] = "IDLE"
-    u10["status"] = "IDLE"
-    u9["confirmations"] = 0
-    u9["continuity_verified"] = False
-
-    idle = unit11_v23_classify(
-        u10,
-        frame,
+    check(
+        "UNVERIFIED CONFIRMED BLOCKED",
+        unit11_v24_classify(
+            unit10, frame
+        )["classification"] == "BLOCKED"
     )
+
+    unit9["status"] = "IDLE"
+    unit10["status"] = "IDLE"
+    unit9["confirmations"] = 0
 
     check(
         "IDLE HANDOVER",
-        idle["classification"] == "IDLE",
+        unit11_v24_classify(
+            unit10, frame
+        )["classification"] == "IDLE"
     )
 
-    # TEST 6: Scan mismatch
-
-    u10["scan_id"] = 102
+    unit10["scan_id"] = 102
 
     check(
-        "SCAN ID MISMATCH BLOCKED",
-        unit11_v23_classify(
-            u10,
-            frame,
-        )["classification"] == "BLOCKED",
+        "SCAN MISMATCH BLOCKED",
+        unit11_v24_classify(
+            unit10, frame
+        )["classification"] == "BLOCKED"
     )
 
-    u10["scan_id"] = 101
-
-    # TEST 7: Unsafe write blocked
-
-    u10["exchange_write"] = True
+    unit10["scan_id"] = 101
+    unit10["exchange_write"] = True
 
     check(
-        "UNSAFE WRITE BLOCKED",
-        unit11_v23_classify(
-            u10,
-            frame,
-        )["classification"] == "BLOCKED",
+        "EXCHANGE WRITE BLOCKED",
+        unit11_v24_classify(
+            unit10, frame
+        )["classification"] == "BLOCKED"
     )
 
-    # Final simulated verdict
-
-    verdict = all(checks)
+    print("=" * 70, flush=True)
 
     print(
-        "UNIT 11 V2.3 TESTS PASSED =",
-        sum(checks),
-        flush=True,
+        "UNIT 11 V2.4 TESTS PASSED =",
+        passed,
+        flush=True
     )
 
     print(
-        "UNIT 11 V2.3 TESTS FAILED =",
-        len(checks) - sum(checks),
-        flush=True,
+        "UNIT 11 V2.4 TESTS FAILED =",
+        failed,
+        flush=True
     )
 
     print(
-        "UNIT 11 V2.3 TEST VERDICT =",
-        "PASS" if verdict else "FAIL",
-        flush=True,
+        "UNIT 11 V2.4 TEST VERDICT =",
+        "PASS" if failed == 0 else "FAIL",
+        flush=True
     )
 
-    print(
-        "UNIT 11 V2.3 TEST EXCHANGE WRITE = NONE",
-        flush=True,
-    )
-
-    return verdict
+    return failed == 0 and passed == 8
 
 
 # ============================================================
-# 3. ACTUAL UNIT 10 -> UNIT 11 MARKET HANDOVER
+# 4. EXTENDED REAL MARKET MONITOR
 # ============================================================
 
-def unit11_v23_real_handover():
+def unit11_v24_monitor():
 
     scanner = globals().get(
         "fresh_reconstruction_unit_10_scan"
@@ -12796,12 +12819,10 @@ def unit11_v23_real_handover():
         and isinstance(config, dict)
     ):
         print(
-            "UNIT 11 BLOCKED = MISSING UNIT 10 DEPENDENCY",
-            flush=True,
+            "UNIT 11 BLOCKED = MISSING DEPENDENCY",
+            flush=True
         )
         return False
-
-    # Prevent competing scanning loops.
 
     if globals().get(
         "UNIT_10_CONTINUOUS_SCAN_ENABLED"
@@ -12809,12 +12830,14 @@ def unit11_v23_real_handover():
 
         print(
             "UNIT 11 BLOCKED = CONFLICTING SCAN LOOP",
-            flush=True,
+            flush=True
         )
 
         return False
 
     validator(config)
+
+    scans, interval = unit11_v24_settings()
 
     counts = {
         "IDLE": 0,
@@ -12823,29 +12846,57 @@ def unit11_v23_real_handover():
         "BLOCKED": 0,
     }
 
-    last_scan_id = None
-    last_candle = None
+    developing = {
+        "BREAKOUT_LONG": 0,
+        "BREAKOUT_SHORT": 0,
+        "STRUCTURE_LONG": 0,
+        "STRUCTURE_SHORT": 0,
+        "SIDEWAYS": 0,
+    }
 
-    for number in range(
-        1,
-        U11_V23_SCAN_COUNT + 1,
-    ):
+    duplicate_count = 0
+    unique_candle_count = 0
+    signal_change_count = 0
+    signal_expiry_count = 0
+
+    previous_scan_id = None
+    previous_candle_id = None
+    previous_status = None
+    previous_mode = None
+    previous_direction = None
+    previous_confirmations = None
+
+    print("=" * 70, flush=True)
+    print(
+        "UNIT 11 V2.4 EXTENDED MONITOR START",
+        flush=True
+    )
+    print(
+        "UNIT 11 SCAN LIMIT =",
+        scans,
+        flush=True
+    )
+    print(
+        "UNIT 11 SCAN INTERVAL SECONDS =",
+        interval,
+        flush=True
+    )
+
+    for number in range(1, scans + 1):
 
         print("=" * 70, flush=True)
-
         print(
-            "UNIT 11 V2.3 REAL SCAN =",
+            "UNIT 11 V2.4 SCAN =",
             number,
-            flush=True,
+            "/",
+            scans,
+            flush=True
         )
 
         captured = {
             "calls": 0,
             "frame": None,
         }
-
-        # Capture the real Unit 10 provider response.
-        # Do not create a second scan independently.
 
         def observing_provider():
 
@@ -12856,50 +12907,67 @@ def unit11_v23_real_handover():
                     "DUPLICATE_PROVIDER_CALL"
                 )
 
-            frame = provider()
-            captured["frame"] = frame
+            result = provider()
 
-            return frame
+            if not isinstance(result, dict):
+                raise RuntimeError(
+                    "INVALID_REFRESH_FRAME"
+                )
+
+            captured["frame"] = result
+
+            return result
 
         try:
 
-            # This variable is defined BEFORE classification.
-            # Fixes the former undefined unit10_result error.
-
-            unit10_result = scanner(
+            unit10 = scanner(
                 observing_provider
             )
 
-            result = unit11_v23_classify(
-                unit10_result,
-                captured["frame"],
+            result = unit11_v24_classify(
+                unit10,
+                captured["frame"]
             )
 
             if captured["calls"] != 1:
                 raise RuntimeError(
-                    "PROVIDER_NOT_CALLED_ONCE"
+                    "INVALID_PROVIDER_CALL_COUNT"
                 )
 
             if result["classification"] != "BLOCKED":
 
+                scan_id = result["scan_id"]
+                candle_id = result["candle_id"]
+
                 if (
-                    last_scan_id is not None
-                    and result["scan_id"] <= last_scan_id
+                    previous_scan_id is not None
+                    and scan_id <= previous_scan_id
                 ):
                     raise RuntimeError(
                         "REGRESSED_SCAN_ID"
                     )
 
                 if (
-                    last_candle is not None
-                    and result["candle_id"] < last_candle
+                    previous_candle_id is not None
+                    and candle_id < previous_candle_id
                 ):
                     raise RuntimeError(
-                        "REGRESSED_CANDLE"
+                        "REGRESSED_CANDLE_ID"
                     )
 
-                last_scan_id = result["scan_id"]
-                last_candle = result["candle_id"]
+                previous_scan_id = scan_id
+
+                new_candle = (
+                    previous_candle_id != candle_id
+                )
+
+                if new_candle:
+                    unique_candle_count += 1
+
+                previous_candle_id = candle_id
+
+            else:
+                new_candle = False
 
         except Exception as exc:
 
@@ -12910,142 +12978,280 @@ def unit11_v23_real_handover():
                 "continuity_verified": False,
             }
 
+            new_candle = False
+
         category = result["classification"]
 
         counts[category] += 1
 
         print(
-            "UNIT 11 V2.3 CLASSIFICATION =",
+            "UNIT 11 CLASSIFICATION =",
             category,
-            flush=True,
+            flush=True
         )
 
         print(
-            "UNIT 11 V2.3 REASON =",
+            "UNIT 11 REASON =",
             result.get("reason"),
-            flush=True,
+            flush=True
         )
 
         print(
-            "UNIT 11 V2.3 MARKET HANDOVER =",
-            result["handover_verified"],
-            flush=True,
+            "UNIT 11 CLOSED CANDLE ID =",
+            result.get("candle_id"),
+            flush=True
         )
 
         print(
-            "UNIT 11 V2.3 CONFIRMATIONS =",
-            str(
-                result.get("confirmations", "N/A")
-            ) + "/" + str(
-                result.get("required", "N/A")
-            ),
-            flush=True,
+            "UNIT 11 NEW CLOSED CANDLE =",
+            new_candle,
+            flush=True
         )
 
         print(
-            "UNIT 11 V2.3 DUPLICATE CANDLE =",
-            result.get("duplicate_candle", False),
-            flush=True,
+            "UNIT 11 SIGNAL MODE =",
+            result.get("mode", "NONE"),
+            flush=True
         )
 
         print(
-            "UNIT 11 V2.3 SIGNAL CONTINUITY =",
+            "UNIT 11 SIGNAL DIRECTION =",
+            result.get("direction", "NONE"),
+            flush=True
+        )
+
+        print(
+            "UNIT 11 CONFIRMATIONS =",
+            str(result.get("confirmations", "N/A"))
+            + "/"
+            + str(result.get("required", "N/A")),
+            flush=True
+        )
+
+        if result.get("duplicate_candle") is True:
+            duplicate_count += 1
+
+        if result.get("signal_changed") is True:
+            signal_change_count += 1
+
+        if result.get("signal_expired") is True:
+            signal_expiry_count += 1
+
+        # Observe Unit 4 market-development flags.
+        # Unit 5 qualification logs are produced
+        # by the existing upstream refresh provider.
+
+        frame = captured["frame"]
+
+        if isinstance(frame, dict):
+
+            unit4 = frame.get("unit_4")
+
+            if isinstance(unit4, dict):
+
+                flags = {
+                    "BREAKOUT_LONG":
+                        "breakout_developing_long",
+                    "BREAKOUT_SHORT":
+                        "breakout_developing_short",
+                    "STRUCTURE_LONG":
+                        "structure_developing_long",
+                    "STRUCTURE_SHORT":
+                        "structure_developing_short",
+                    "SIDEWAYS":
+                        "sideways_candidate",
+                }
+
+                for label, key in flags.items():
+
+                    value = unit4.get(key)
+
+                    if value is True:
+                        developing[label] += 1
+
+                    print(
+                        "UNIT 11 MARKET " + label + " =",
+                        value,
+                        flush=True
+                    )
+
+        status_now = category
+        mode_now = result.get("mode", "NONE")
+        direction_now = result.get(
+            "direction",
+            "NONE"
+        )
+        confirmations_now = result.get(
+            "confirmations",
+            0
+        )
+
+        if previous_status is not None:
+
+            if (
+                status_now != previous_status
+                or mode_now != previous_mode
+                or direction_now != previous_direction
+            ):
+                print(
+                    "UNIT 11 STATE TRANSITION =",
+                    previous_status,
+                    previous_mode,
+                    previous_direction,
+                    "->",
+                    status_now,
+                    mode_now,
+                    direction_now,
+                    flush=True
+                )
+
+            if (
+                previous_confirmations is not None
+                and confirmations_now
+                != previous_confirmations
+            ):
+                print(
+                    "UNIT 11 CONFIRMATION TRANSITION =",
+                    previous_confirmations,
+                    "->",
+                    confirmations_now,
+                    flush=True
+                )
+
+        previous_status = status_now
+        previous_mode = mode_now
+        previous_direction = direction_now
+        previous_confirmations = confirmations_now
+
+        print(
+            "UNIT 11 SIGNAL CONTINUITY =",
             result["continuity_verified"],
-            flush=True,
+            flush=True
         )
 
         print(
-            "UNIT 11 V2.3 TRADE AUTHORIZED = FALSE",
-            flush=True,
+            "UNIT 11 MARKET HANDOVER =",
+            result["handover_verified"],
+            flush=True
         )
 
         print(
-            "UNIT 11 V2.3 EXCHANGE WRITE = NONE",
-            flush=True,
+            "UNIT 11 ACCOUNT ACCESS = NONE",
+            flush=True
+        )
+
+        print(
+            "UNIT 11 POSITION ACCESS = NONE",
+            flush=True
+        )
+
+        print(
+            "UNIT 11 TRADE AUTHORIZED = FALSE",
+            flush=True
+        )
+
+        print(
+            "UNIT 11 EXCHANGE WRITE = NONE",
+            flush=True
         )
 
         if category == "BLOCKED":
+            print(
+                "UNIT 11 MONITOR STOP = SAFETY BLOCK",
+                flush=True
+            )
             break
 
-        if number < U11_V23_SCAN_COUNT:
-            time.sleep(
-                U11_V23_SCAN_INTERVAL
-            )
+        if number < scans:
+            time.sleep(interval)
 
     # ========================================================
-    # 4. FINAL REAL-MARKET VERDICT
+    # 5. FINAL DIAGNOSTIC SUMMARY
     # ========================================================
 
     total = sum(counts.values())
 
-    handover_verified = (
-        total == U11_V23_SCAN_COUNT
+    verified = (
+        total == scans
         and counts["BLOCKED"] == 0
     )
 
     print("=" * 70, flush=True)
-
     print(
-        "UNIT 11 V2.3 SCANS PROCESSED =",
-        total,
-        flush=True,
+        "UNIT 11 V2.4 MONITOR SUMMARY",
+        flush=True
     )
 
-    for category, count in counts.items():
+    print(
+        "UNIT 11 TOTAL SCANS =",
+        total,
+        flush=True
+    )
+
+    print(
+        "UNIT 11 UNIQUE CLOSED CANDLES =",
+        unique_candle_count,
+        flush=True
+    )
+
+    for category, amount in counts.items():
 
         print(
-            "UNIT 11 V2.3 "
-            + category
-            + " OBSERVATIONS =",
-            count,
-            flush=True,
+            "UNIT 11 " + category + " OBSERVATIONS =",
+            amount,
+            flush=True
+        )
+
+    for label, amount in developing.items():
+
+        print(
+            "UNIT 11 " + label + " OBSERVATIONS =",
+            amount,
+            flush=True
         )
 
     print(
-        "UNIT 11 V2.3 MARKET HANDOVER VERDICT =",
-        (
-            "VERIFIED"
-            if handover_verified
-            else "NOT_VERIFIED"
-        ),
-        flush=True,
+        "UNIT 11 DUPLICATE SIGNAL CANDLES =",
+        duplicate_count,
+        flush=True
     )
 
     print(
-        "UNIT 11 V2.3 SIGNAL CONTINUITY =",
-        (
-            "OBSERVED"
-            if counts["CONFIRMED"] > 0
-            else "NOT_YET_OBSERVED"
-        ),
-        flush=True,
+        "UNIT 11 SIGNAL CHANGE FLAGS =",
+        signal_change_count,
+        flush=True
     )
 
     print(
-        "UNIT 11 V2.3 ACCOUNT ACCESS = NONE",
-        flush=True,
+        "UNIT 11 SIGNAL EXPIRY FLAGS =",
+        signal_expiry_count,
+        flush=True
     )
 
     print(
-        "UNIT 11 V2.3 POSITION ACCESS = NONE",
-        flush=True,
+        "UNIT 11 MARKET HANDOVER VERDICT =",
+        "VERIFIED" if verified else "NOT_VERIFIED",
+        flush=True
     )
 
     print(
-        "UNIT 11 V2.3 TRADE AUTHORIZED = FALSE",
-        flush=True,
+        "UNIT 11 REAL SIGNAL CONTINUITY OBSERVED =",
+        counts["CONFIRMED"] > 0,
+        flush=True
     )
 
     print(
-        "UNIT 11 V2.3 EXCHANGE WRITE = NONE",
-        flush=True,
+        "UNIT 11 EXCHANGE WRITE = NONE",
+        flush=True
     )
 
-    return handover_verified
+    print("=" * 70, flush=True)
+
+    return verified
 
 
 # ============================================================
-# 5. SINGLE UNIT 11 EXECUTION ENTRY
+# 6. SINGLE EXECUTION ENTRY
 # ZERO INDENTATION
 # ============================================================
 
@@ -13054,58 +13260,52 @@ if __name__ == "__main__":
     print("=" * 70, flush=True)
 
     print(
-        "UNIT 11 V2.3 START",
-        flush=True,
+        "UNIT 11 V2.4 START",
+        flush=True
     )
 
     tests_ok = (
-        unit11_v23_simulations()
-        if U11_V23_RUN_TESTS
+        unit11_v24_tests()
+        if U11_V24_RUN_TESTS
         else False
     )
 
     if not tests_ok:
         raise RuntimeError(
-            "UNIT 11 V2.3 SIMULATIONS FAILED"
+            "UNIT 11 V2.4 TEST FAILURE"
         )
 
-    if U11_V23_RUN_MARKET:
-
-        market_ok = unit11_v23_real_handover()
-
+    if U11_V24_RUN_MARKET:
+        market_ok = unit11_v24_monitor()
     else:
-
         market_ok = False
 
     print(
-        "UNIT 11 V2.3 TEST RESULT =",
+        "UNIT 11 V2.4 TEST RESULT =",
         tests_ok,
-        flush=True,
+        flush=True
     )
 
     print(
-        "UNIT 11 V2.3 HANDOVER RESULT =",
+        "UNIT 11 V2.4 HANDOVER RESULT =",
         market_ok,
-        flush=True,
+        flush=True
     )
 
     print(
-        "UNIT 11 V2.3 FINAL STATUS =",
+        "UNIT 11 V2.4 FINAL STATUS =",
         (
-            "READ_ONLY_MARKET_HANDOVER_VERIFIED"
+            "READ_ONLY_EXTENDED_MONITOR_VERIFIED"
             if market_ok
-            else "READ_ONLY_INTEGRATION_PENDING"
+            else "READ_ONLY_MONITOR_NOT_VERIFIED"
         ),
-        flush=True,
+        flush=True
     )
 
     print("=" * 70, flush=True)
 
 
 # ============================================================
-# END COMPLETE UNIT 11 V2.3 REPLACEMENT
-# ZERO INDENTATION END
-# FROZEN UNITS 1-10 UNCHANGED
-# NO EXCHANGE WRITE
+# END COMPLETE UNIT 11 V2.4 REPLACEMENT
+# ZERO INDENTATION
 # ============================================================
-
