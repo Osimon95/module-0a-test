@@ -12358,83 +12358,336 @@ if UNIT_10_V14_TEST_ENABLED:
 
 
 # ============================================================
-# START COMPLETE UNIT 11 V2.4 REPLACEMENT
+# START COMPLETE UNIT 11 V2.5 REPLACEMENT
+# EARLY OPPORTUNITY DETECTION ENGINE
 # ZERO INDENTATION
-# EXTENDED READ-ONLY SIGNAL MONITORING
 # FROZEN UNITS 1-10 UNCHANGED
+# PUBLIC DATA ONLY / ZERO EXCHANGE WRITES
 # ============================================================
 
 import time
 import os
+import math
+
+U11_V25_SCANS = 60
+U11_V25_INTERVAL = 30.0
 
 
 # ============================================================
-# 1. MONITORING CONFIGURATION
+# 1. DETECTION ENGINE
 # ============================================================
 
-U11_V24_DEFAULT_SCANS = 30
-U11_V24_DEFAULT_INTERVAL = 30.0
+def unit11_v25_detect(market):
 
-U11_V24_RUN_TESTS = True
-U11_V24_RUN_MARKET = True
+    if not isinstance(market, dict):
+        raise RuntimeError("UNIT11 INVALID MARKET")
 
+    if (
+        market.get("read_only") is not True
+        or market.get("candle_data_fresh") is not True
+        or market.get("symbol") != "BTCUSDT"
+    ):
+        raise RuntimeError("UNIT11 UNSAFE MARKET")
 
-def unit11_v24_settings():
+    def number(key):
+        value = market.get(key)
 
-    try:
-        scans = int(os.environ.get(
-            "UNIT11_MONITOR_SCANS",
-            str(U11_V24_DEFAULT_SCANS)
-        ))
+        if isinstance(value, bool):
+            raise RuntimeError(
+                "UNIT11 INVALID " + key
+            )
 
-        interval = float(os.environ.get(
-            "UNIT11_MONITOR_INTERVAL",
-            str(U11_V24_DEFAULT_INTERVAL)
-        ))
+        try:
+            value = float(value)
+        except (TypeError, ValueError, OverflowError):
+            raise RuntimeError(
+                "UNIT11 MISSING " + key
+            )
 
-    except (ValueError, TypeError) as exc:
+        if not math.isfinite(value):
+            raise RuntimeError(
+                "UNIT11 NONFINITE " + key
+            )
+
+        return value
+
+    price = number("latest_close")
+    atr = number("atr14")
+    support = number("support20")
+    resistance = number("resistance20")
+    ema19 = number("ema19")
+    ema50 = number("ema50")
+    ema200 = number("ema200")
+    move5 = number("move_5m_pct")
+    move15 = number("move_15m_pct")
+
+    candles = market.get(
+        "recent_closed_klines"
+    )
+
+    if (
+        price <= 0
+        or atr <= 0
+        or support <= 0
+        or resistance <= support
+        or not isinstance(candles, list)
+        or len(candles) < 5
+    ):
         raise RuntimeError(
-            "UNIT 11 INVALID MONITOR SETTINGS"
-        ) from exc
-
-    if not 3 <= scans <= 360:
-        raise RuntimeError(
-            "UNIT 11 SCAN COUNT OUT OF RANGE"
+            "UNIT11 INVALID PRICE GEOMETRY"
         )
 
-    if not 10.0 <= interval <= 300.0:
+    newest = candles[-1]
+    candle_id = newest.get("open_time_ms")
+
+    if (
+        type(candle_id) is not int
+        or candle_id <= 0
+        or newest.get("timestamp") != candle_id
+        or type(newest.get("close_time_ms"))
+        is not int
+        or newest["close_time_ms"]
+        > int(time.time() * 1000)
+    ):
         raise RuntimeError(
-            "UNIT 11 INTERVAL OUT OF RANGE"
+            "UNIT11 INVALID CLOSED CANDLE"
         )
 
-    return scans, interval
+    opportunities = []
 
+    def add(mode, side, stage, score, reason):
 
-# ============================================================
-# 2. STRICT UNIT 10 / UNIT 9 CLASSIFICATION
-# ============================================================
-
-def unit11_v24_classify(unit10, refresh):
-
-    def blocked(reason):
-
-        return {
-            "classification": "BLOCKED",
+        opportunities.append({
+            "mode": mode,
+            "side": side,
+            "stage": stage,
+            "score": round(score, 1),
             "reason": reason,
-            "handover_verified": False,
-            "continuity_verified": False,
-            "trade_authorized": False,
-            "exchange_write": False,
-        }
+            "price": price,
+            "candle_id": candle_id,
+        })
 
-    if not isinstance(unit10, dict):
-        return blocked("INVALID_UNIT10")
+    # --------------------------------------------------------
+    # 2. EARLY BREAKOUT DETECTION
+    # --------------------------------------------------------
 
-    if not isinstance(refresh, dict):
-        return blocked("INVALID_REFRESH")
+    long_distance = (
+        resistance - price
+    ) / atr
+
+    short_distance = (
+        price - support
+    ) / atr
+
+    if -0.25 <= long_distance <= 1.5:
+
+        score = 40.0
+
+        if move5 > 0:
+            score += 20.0
+
+        if move15 > 0:
+            score += 20.0
+
+        if ema19 > ema50:
+            score += 10.0
+
+        if long_distance <= 0.5:
+            score += 10.0
+
+        if score >= 50.0:
+
+            stage = (
+                "BREAKOUT_OBSERVED"
+                if price > resistance
+                else "APPROACHING_RESISTANCE"
+            )
+
+            add(
+                "BREAKOUT",
+                "LONG",
+                stage,
+                score,
+                "RESISTANCE_PRESSURE",
+            )
+
+    if -0.25 <= short_distance <= 1.5:
+
+        score = 40.0
+
+        if move5 < 0:
+            score += 20.0
+
+        if move15 < 0:
+            score += 20.0
+
+        if ema19 < ema50:
+            score += 10.0
+
+        if short_distance <= 0.5:
+            score += 10.0
+
+        if score >= 50.0:
+
+            stage = (
+                "BREAKOUT_OBSERVED"
+                if price < support
+                else "APPROACHING_SUPPORT"
+            )
+
+            add(
+                "BREAKOUT",
+                "SHORT",
+                stage,
+                score,
+                "SUPPORT_PRESSURE",
+            )
+
+    # --------------------------------------------------------
+    # 3. EARLY STRUCTURE DETECTION
+    # --------------------------------------------------------
+
+    distance_ema = abs(
+        price - ema19
+    ) / atr
+
+    if distance_ema <= 1.5:
+
+        if ema19 > ema50 and price >= ema50:
+
+            score = 50.0
+
+            if ema50 > ema200:
+                score += 15.0
+
+            if move5 > 0:
+                score += 15.0
+
+            if move15 > 0:
+                score += 15.0
+
+            if distance_ema <= 0.5:
+                score += 5.0
+
+            add(
+                "STRUCTURE",
+                "LONG",
+                "TREND_PULLBACK_WATCH",
+                score,
+                "BULLISH_EMA_PULLBACK",
+            )
+
+        if ema19 < ema50 and price <= ema50:
+
+            score = 50.0
+
+            if ema50 < ema200:
+                score += 15.0
+
+            if move5 < 0:
+                score += 15.0
+
+            if move15 < 0:
+                score += 15.0
+
+            if distance_ema <= 0.5:
+                score += 5.0
+
+            add(
+                "STRUCTURE",
+                "SHORT",
+                "TREND_PULLBACK_WATCH",
+                score,
+                "BEARISH_EMA_PULLBACK",
+            )
+
+    # --------------------------------------------------------
+    # 4. SIDEWAYS / SCALP DETECTION
+    # Detection does not override fee protection.
+    # --------------------------------------------------------
+
+    sideways = (
+        market.get("sideways_candidate")
+        is True
+    )
+
+    width_pct = (
+        resistance - support
+    ) / price * 100.0
+
+    midpoint = (
+        resistance + support
+    ) / 2.0
+
+    if sideways:
+
+        side = (
+            "LONG"
+            if price <= midpoint
+            else "SHORT"
+        )
+
+        score = 45.0
+
+        if width_pct >= 0.23:
+            score += 30.0
+
+        if abs(move5) < 0.10:
+            score += 15.0
+
+        add(
+            "SCALP",
+            side,
+            (
+                "RANGE_FEE_FEASIBLE_WATCH"
+                if width_pct >= 0.23
+                else "RANGE_TOO_NARROW"
+            ),
+            score,
+            "SIDEWAYS_RANGE_OBSERVATION",
+        )
+
+    opportunities.sort(
+        key=lambda x: (
+            -x["score"],
+            (
+                0 if x["mode"] == "BREAKOUT"
+                else 1 if x["mode"] == "STRUCTURE"
+                else 2
+            ),
+        )
+    )
+
+    return {
+        "candle_id": candle_id,
+        "price": price,
+        "atr": atr,
+        "range_width_pct": round(
+            width_pct, 4
+        ),
+        "opportunities": opportunities,
+        "read_only": True,
+    }
+
+
+# ============================================================
+# 5. HANDOVER AND SAFETY VALIDATION
+# ============================================================
+
+def unit11_v25_verify(unit10, frame):
+
+    if (
+        not isinstance(unit10, dict)
+        or not isinstance(frame, dict)
+    ):
+        raise RuntimeError(
+            "UNIT11 INVALID HANDOVER"
+        )
 
     if unit10.get("read_only") is not True:
-        return blocked("UNSAFE_UNIT10")
+        raise RuntimeError(
+            "UNIT11 UNIT10 NOT READ ONLY"
+        )
 
     for key in (
         "trade_authorized",
@@ -12442,82 +12695,80 @@ def unit11_v24_classify(unit10, refresh):
         "reentry_authorized",
     ):
         if unit10.get(key) is not False:
-            return blocked("UNSAFE_UNIT10_" + key)
+            raise RuntimeError(
+                "UNIT11 UNSAFE UNIT10 " + key
+            )
 
     scan_id = unit10.get("scan_id")
 
-    if type(scan_id) is not int or scan_id <= 0:
-        return blocked("INVALID_SCAN_ID")
+    if (
+        type(scan_id) is not int
+        or scan_id <= 0
+        or frame.get("scan_id") != scan_id
+    ):
+        raise RuntimeError(
+            "UNIT11 SCAN ID MISMATCH"
+        )
 
-    if refresh.get("scan_id") != scan_id:
-        return blocked("SCAN_ID_MISMATCH")
-
-    unit4 = refresh.get("unit_4")
-    unit8 = refresh.get("unit_8")
     unit9 = unit10.get("unit_9_result")
+    unit8 = frame.get("unit_8")
+    unit4 = frame.get("unit_4")
+    unit5 = frame.get("unit_5")
 
     if not all(
         isinstance(x, dict)
-        for x in (unit4, unit8, unit9)
+        for x in (
+            unit9,
+            unit8,
+            unit4,
+            unit5,
+        )
     ):
-        return blocked("MISSING_UPSTREAM_RESULTS")
+        raise RuntimeError(
+            "UNIT11 MISSING UPSTREAM RESULTS"
+        )
 
     for label, data in (
+        ("UNIT5", unit5),
         ("UNIT8", unit8),
         ("UNIT9", unit9),
     ):
 
         if data.get("read_only") is not True:
-            return blocked("UNSAFE_" + label)
+            raise RuntimeError(
+                "UNIT11 UNSAFE " + label
+            )
 
         for key in (
             "trade_authorized",
             "exchange_write",
-            "reentry_authorized",
         ):
             if data.get(key) is not False:
-                return blocked(
-                    "UNSAFE_" + label + "_" + key
+                raise RuntimeError(
+                    "UNIT11 UNSAFE "
+                    + label + " " + key
                 )
 
     for key in (
+        "reentry_authorized",
         "execution_intent",
         "order_payload_created",
         "demo_order_submitted",
         "real_order_submitted",
     ):
-
         if unit9.get(key) is not False:
-            return blocked("UNSAFE_UNIT9_" + key)
+            raise RuntimeError(
+                "UNIT11 UNSAFE UNIT9 " + key
+            )
 
-    candles = unit4.get(
-        "recent_closed_klines"
-    )
-
-    if (
-        unit4.get("read_only") is not True
-        or unit4.get("candle_data_fresh") is not True
-        or unit4.get("symbol") != "BTCUSDT"
-        or not isinstance(candles, list)
-        or not candles
-        or not isinstance(candles[-1], dict)
+    for key in (
+        "reentry_authorized",
+        "execution_intent",
     ):
-        return blocked("INVALID_MARKET_DATA")
-
-    candle = candles[-1]
-
-    candle_id = candle.get("open_time_ms")
-    timestamp = candle.get("timestamp")
-    close_time = candle.get("close_time_ms")
-
-    if (
-        type(candle_id) is not int
-        or candle_id <= 0
-        or timestamp != candle_id
-        or type(close_time) is not int
-        or close_time > int(time.time() * 1000)
-    ):
-        return blocked("INVALID_CLOSED_CANDLE")
+        if unit8.get(key) is not False:
+            raise RuntimeError(
+                "UNIT11 UNSAFE UNIT8 " + key
+            )
 
     status = unit10.get("status")
 
@@ -12526,275 +12777,362 @@ def unit11_v24_classify(unit10, refresh):
         "PENDING",
         "CONFIRMED",
     ):
-        return blocked("INVALID_UPSTREAM_STATUS")
+        raise RuntimeError(
+            "UNIT11 INVALID SIGNAL STATUS"
+        )
 
     if unit9.get("status") != status:
-        return blocked("STATUS_MISMATCH")
+        raise RuntimeError(
+            "UNIT11 STATUS MISMATCH"
+        )
 
-    confirmations = unit9.get(
-        "confirmations"
-    )
-
+    count = unit9.get("confirmations")
     required = unit9.get(
-        "confirmations_required",
-        2
+        "confirmations_required"
     )
 
     if (
-        type(confirmations) is not int
+        type(count) is not int
         or type(required) is not int
         or required < 1
-        or not 0 <= confirmations <= required
+        or not 0 <= count <= required
     ):
-        return blocked("INVALID_CONFIRMATIONS")
-
-    mode = unit9.get("mode", "NONE")
-    direction = unit9.get(
-        "direction",
-        "NONE"
-    )
+        raise RuntimeError(
+            "UNIT11 INVALID CONFIRMATIONS"
+        )
 
     if status != "IDLE":
 
-        if mode not in (
+        if unit9.get("mode") not in (
             "BREAKOUT",
             "STRUCTURE",
             "SCALP",
         ):
-            return blocked("INVALID_MODE")
+            raise RuntimeError(
+                "UNIT11 INVALID MODE"
+            )
 
-        if direction not in (
+        if unit9.get("direction") not in (
             "LONG",
             "SHORT",
         ):
-            return blocked("INVALID_DIRECTION")
+            raise RuntimeError(
+                "UNIT11 INVALID DIRECTION"
+            )
 
-    continuity = (
-        status == "CONFIRMED"
-        and unit9.get(
-            "continuity_verified"
-        ) is True
-        and confirmations >= required
+    if status == "CONFIRMED":
+
+        if (
+            unit9.get("continuity_verified")
+            is not True
+            or count < required
+        ):
+            raise RuntimeError(
+                "UNIT11 UNVERIFIED CONFIRMATION"
+            )
+
+    return (
+        unit4,
+        unit5,
+        unit9,
     )
 
-    if status == "CONFIRMED" and not continuity:
-        return blocked(
-            "UNVERIFIED_CONFIRMED_SIGNAL"
+
+# ============================================================
+# 6. TRACK OPPORTUNITY DEVELOPMENT
+# ============================================================
+
+def unit11_v25_track(state, detection, unit5, unit9):
+
+    candle_id = detection["candle_id"]
+    price = detection["price"]
+
+    previous = state["last_candle"]
+
+    if previous is not None and candle_id < previous:
+        raise RuntimeError(
+            "UNIT11 CANDLE REGRESSION"
         )
 
-    return {
-        "classification": status,
-        "reason": unit9.get("reason"),
-        "handover_verified": True,
-        "continuity_verified": continuity,
-        "scan_id": scan_id,
-        "candle_id": candle_id,
-        "confirmations": confirmations,
-        "required": required,
-        "mode": mode,
-        "direction": direction,
-        "duplicate_candle": (
-            unit9.get("duplicate_candle") is True
-        ),
-        "signal_changed": (
-            unit9.get("signal_changed") is True
-        ),
-        "signal_expired": (
-            unit9.get("signal_expired") is True
-        ),
-        "market_fresh": True,
-        "read_only": True,
-        "trade_authorized": False,
-        "exchange_write": False,
-    }
+    new_candle = (
+        previous != candle_id
+    )
+
+    if not new_candle:
+        state["duplicate_scans"] += 1
+        return False
+
+    state["last_candle"] = candle_id
+    state["unique_candles"] += 1
+
+    # Evaluate previously detected opportunities.
+    # Price-based outcome is hypothetical and gross.
+    # It is not an order backtest.
+
+    for key, record in list(
+        state["tracked"].items()
+    ):
+
+        old_price = record["entry_price"]
+
+        direction_factor = (
+            1.0
+            if record["side"] == "LONG"
+            else -1.0
+        )
+
+        movement = (
+            (price - old_price)
+            / old_price
+            * 100.0
+            * direction_factor
+        )
+
+        record["last_move_pct"] = round(
+            movement, 5
+        )
+
+        record["best_move_pct"] = max(
+            record["best_move_pct"],
+            movement,
+        )
+
+        record["worst_move_pct"] = min(
+            record["worst_move_pct"],
+            movement,
+        )
+
+        record["observed_candles"] += 1
+
+        # Fixed assessment horizon:
+        # 5 distinct subsequent closed candles.
+
+        if record["observed_candles"] >= 5:
+
+            print(
+                "UNIT 11 SHADOW OUTCOME =",
+                key,
+                "GROSS MOVE %",
+                record["last_move_pct"],
+                "BEST %",
+                round(
+                    record["best_move_pct"], 5
+                ),
+                "WORST %",
+                round(
+                    record["worst_move_pct"], 5
+                ),
+                "UNIT5 QUALIFIED EVER =",
+                record["qualified_ever"],
+                flush=True,
+            )
+
+            state["completed"] += 1
+
+            del state["tracked"][key]
+
+    # Current actual upstream qualification.
+    # Do not mistake developing for qualified.
+
+    qualified = (
+        unit5.get("qualified") is True
+    )
+
+    active_mode = unit5.get(
+        "active_mode",
+        "NONE",
+    )
+
+    active_side = unit5.get(
+        "direction",
+        "NONE",
+    )
+
+    for opportunity in detection["opportunities"]:
+
+        key = (
+            opportunity["mode"]
+            + "_"
+            + opportunity["side"]
+        )
+
+        if key not in state["tracked"]:
+
+            state["tracked"][key] = {
+                "entry_price": price,
+                "side": opportunity["side"],
+                "first_candle": candle_id,
+                "observed_candles": 0,
+                "best_move_pct": 0.0,
+                "worst_move_pct": 0.0,
+                "last_move_pct": 0.0,
+                "qualified_ever": False,
+            }
+
+            state["detected"] += 1
+
+            print(
+                "UNIT 11 NEW EARLY DETECTION =",
+                key,
+                "STAGE =",
+                opportunity["stage"],
+                "SCORE =",
+                opportunity["score"],
+                flush=True,
+            )
+
+        record = state["tracked"][key]
+
+        if (
+            qualified
+            and active_mode == opportunity["mode"]
+            and active_side == opportunity["side"]
+        ):
+
+            if not record["qualified_ever"]:
+                state["matched"] += 1
+
+            record["qualified_ever"] = True
+
+        print(
+            "UNIT 11 OPPORTUNITY =",
+            key,
+            "STAGE =",
+            opportunity["stage"],
+            "SCORE =",
+            opportunity["score"],
+            "UNIT5 QUALIFIED =",
+            qualified
+            and active_mode == opportunity["mode"]
+            and active_side == opportunity["side"],
+            flush=True,
+        )
+
+    return True
 
 
 # ============================================================
-# 3. CONTROLLED CLASSIFIER TESTS
+# 7. CONTROLLED DETECTOR TESTS
 # ============================================================
 
-def unit11_v24_tests():
+def unit11_v25_tests():
 
     now = int(time.time() * 1000)
 
     candle_id = (
-        (now // 60000) - 1
+        now // 60000 - 1
     ) * 60000
 
-    candle = {
-        "open_time_ms": candle_id,
-        "timestamp": candle_id,
-        "close_time_ms": candle_id + 59999,
-    }
-
-    frame = {
-        "scan_id": 101,
-        "unit_4": {
-            "read_only": True,
-            "candle_data_fresh": True,
-            "symbol": "BTCUSDT",
-            "recent_closed_klines": [candle],
-        },
-        "unit_8": {
-            "read_only": True,
-            "trade_authorized": False,
-            "exchange_write": False,
-            "reentry_authorized": False,
-        },
-    }
-
-    unit9 = {
+    fixture = {
         "read_only": True,
-        "trade_authorized": False,
-        "exchange_write": False,
-        "reentry_authorized": False,
-        "execution_intent": False,
-        "order_payload_created": False,
-        "demo_order_submitted": False,
-        "real_order_submitted": False,
-        "status": "PENDING",
-        "mode": "BREAKOUT",
-        "direction": "LONG",
-        "confirmations": 1,
-        "confirmations_required": 2,
-        "duplicate_candle": True,
-        "continuity_verified": False,
-        "reason": "DUPLICATE_CLOSED_CANDLE_IGNORED",
+        "candle_data_fresh": True,
+        "symbol": "BTCUSDT",
+        "latest_close": 10000.0,
+        "atr14": 20.0,
+        "support20": 9950.0,
+        "resistance20": 10010.0,
+        "ema19": 9998.0,
+        "ema50": 9990.0,
+        "ema200": 9980.0,
+        "move_5m_pct": 0.08,
+        "move_15m_pct": 0.12,
+        "sideways_candidate": False,
+        "recent_closed_klines": [
+            {
+                "open_time_ms":
+                    candle_id - (4-i)*60000,
+                "timestamp":
+                    candle_id - (4-i)*60000,
+                "close_time_ms":
+                    candle_id - (4-i)*60000
+                    + 59999,
+                "close": 10000.0,
+            }
+            for i in range(5)
+        ],
     }
 
-    unit10 = {
-        "read_only": True,
-        "trade_authorized": False,
-        "exchange_write": False,
-        "reentry_authorized": False,
-        "scan_id": 101,
-        "status": "PENDING",
-        "unit_9_result": unit9,
-    }
+    first = unit11_v25_detect(
+        fixture
+    )
 
-    passed = 0
-    failed = 0
+    checks = []
 
-    def check(name, condition):
+    checks.append(
+        first["read_only"] is True
+    )
 
-        nonlocal passed, failed
+    checks.append(
+        any(
+            x["mode"] == "BREAKOUT"
+            and x["side"] == "LONG"
+            for x in first["opportunities"]
+        )
+    )
 
-        if condition:
-            passed += 1
-            outcome = "PASS"
-        else:
-            failed += 1
-            outcome = "FAIL"
+    checks.append(
+        any(
+            x["mode"] == "STRUCTURE"
+            and x["side"] == "LONG"
+            for x in first["opportunities"]
+        )
+    )
+
+    fixture["sideways_candidate"] = True
+
+    second = unit11_v25_detect(
+        fixture
+    )
+
+    checks.append(
+        any(
+            x["mode"] == "SCALP"
+            for x in second["opportunities"]
+        )
+    )
+
+    fixture["read_only"] = False
+
+    try:
+        unit11_v25_detect(fixture)
+        checks.append(False)
+
+    except RuntimeError:
+        checks.append(True)
+
+    for index, passed in enumerate(checks, 1):
 
         print(
-            outcome + ": UNIT 11 " + name,
-            flush=True
+            (
+                "PASS: "
+                if passed
+                else "FAIL: "
+            )
+            + "UNIT 11 V2.5 TEST "
+            + str(index),
+            flush=True,
         )
 
-    pending = unit11_v24_classify(
-        unit10,
-        frame
-    )
-
-    check(
-        "PENDING ACCEPTED",
-        pending["classification"] == "PENDING"
-    )
-
-    check(
-        "DUPLICATE RETAINS 1/2",
-        pending["confirmations"] == 1
-        and pending["duplicate_candle"] is True
-    )
-
-    check(
-        "PENDING NOT CONFIRMED",
-        pending["continuity_verified"] is False
-    )
-
-    unit9["status"] = "CONFIRMED"
-    unit10["status"] = "CONFIRMED"
-    unit9["confirmations"] = 2
-    unit9["continuity_verified"] = True
-    unit9["duplicate_candle"] = False
-
-    confirmed = unit11_v24_classify(
-        unit10,
-        frame
-    )
-
-    check(
-        "CONFIRMED HANDOVER",
-        confirmed["continuity_verified"] is True
-    )
-
-    unit9["continuity_verified"] = False
-
-    check(
-        "UNVERIFIED CONFIRMED BLOCKED",
-        unit11_v24_classify(
-            unit10, frame
-        )["classification"] == "BLOCKED"
-    )
-
-    unit9["status"] = "IDLE"
-    unit10["status"] = "IDLE"
-    unit9["confirmations"] = 0
-
-    check(
-        "IDLE HANDOVER",
-        unit11_v24_classify(
-            unit10, frame
-        )["classification"] == "IDLE"
-    )
-
-    unit10["scan_id"] = 102
-
-    check(
-        "SCAN MISMATCH BLOCKED",
-        unit11_v24_classify(
-            unit10, frame
-        )["classification"] == "BLOCKED"
-    )
-
-    unit10["scan_id"] = 101
-    unit10["exchange_write"] = True
-
-    check(
-        "EXCHANGE WRITE BLOCKED",
-        unit11_v24_classify(
-            unit10, frame
-        )["classification"] == "BLOCKED"
-    )
-
-    print("=" * 70, flush=True)
-
     print(
-        "UNIT 11 V2.4 TESTS PASSED =",
-        passed,
-        flush=True
+        "UNIT 11 V2.5 TESTS PASSED =",
+        sum(checks),
+        flush=True,
     )
 
     print(
-        "UNIT 11 V2.4 TESTS FAILED =",
-        failed,
-        flush=True
+        "UNIT 11 V2.5 TESTS FAILED =",
+        len(checks) - sum(checks),
+        flush=True,
     )
 
-    print(
-        "UNIT 11 V2.4 TEST VERDICT =",
-        "PASS" if failed == 0 else "FAIL",
-        flush=True
-    )
-
-    return failed == 0 and passed == 8
+    return all(checks)
 
 
 # ============================================================
-# 4. EXTENDED REAL MARKET MONITOR
+# 8. LIVE PUBLIC-MARKET SHADOW MONITOR
 # ============================================================
 
-def unit11_v24_monitor():
+def unit11_v25_monitor():
 
     scanner = globals().get(
         "fresh_reconstruction_unit_10_scan"
@@ -12818,79 +13156,83 @@ def unit11_v24_monitor():
         and callable(validator)
         and isinstance(config, dict)
     ):
-        print(
-            "UNIT 11 BLOCKED = MISSING DEPENDENCY",
-            flush=True
+        raise RuntimeError(
+            "UNIT11 MISSING UPSTREAM DEPENDENCY"
         )
-        return False
 
     if globals().get(
         "UNIT_10_CONTINUOUS_SCAN_ENABLED"
     ) is not False:
-
-        print(
-            "UNIT 11 BLOCKED = CONFLICTING SCAN LOOP",
-            flush=True
+        raise RuntimeError(
+            "UNIT11 CONFLICTING SCAN LOOP"
         )
-
-        return False
 
     validator(config)
 
-    scans, interval = unit11_v24_settings()
+    scans = int(os.environ.get(
+        "UNIT11_MONITOR_SCANS",
+        str(U11_V25_SCANS),
+    ))
 
-    counts = {
-        "IDLE": 0,
-        "PENDING": 0,
-        "CONFIRMED": 0,
-        "BLOCKED": 0,
+    interval = float(os.environ.get(
+        "UNIT11_MONITOR_INTERVAL",
+        str(U11_V25_INTERVAL),
+    ))
+
+    if not 5 <= scans <= 360:
+        raise RuntimeError(
+            "UNIT11 INVALID SCAN LIMIT"
+        )
+
+    if not 10.0 <= interval <= 300.0:
+        raise RuntimeError(
+            "UNIT11 INVALID INTERVAL"
+        )
+
+    state = {
+        "last_candle": None,
+        "last_scan_id": None,
+        "unique_candles": 0,
+        "duplicate_scans": 0,
+        "detected": 0,
+        "matched": 0,
+        "completed": 0,
+        "tracked": {},
+        "statuses": {
+            "IDLE": 0,
+            "PENDING": 0,
+            "CONFIRMED": 0,
+        },
     }
 
-    developing = {
-        "BREAKOUT_LONG": 0,
-        "BREAKOUT_SHORT": 0,
-        "STRUCTURE_LONG": 0,
-        "STRUCTURE_SHORT": 0,
-        "SIDEWAYS": 0,
-    }
-
-    duplicate_count = 0
-    unique_candle_count = 0
-    signal_change_count = 0
-    signal_expiry_count = 0
-
-    previous_scan_id = None
-    previous_candle_id = None
-    previous_status = None
-    previous_mode = None
-    previous_direction = None
-    previous_confirmations = None
+    completed_scans = 0
+    failed = False
 
     print("=" * 70, flush=True)
+
     print(
-        "UNIT 11 V2.4 EXTENDED MONITOR START",
-        flush=True
+        "UNIT 11 V2.5 DETECTION MONITOR START",
+        flush=True,
     )
+
     print(
-        "UNIT 11 SCAN LIMIT =",
+        "UNIT 11 SCANS =",
         scans,
-        flush=True
-    )
-    print(
-        "UNIT 11 SCAN INTERVAL SECONDS =",
+        "INTERVAL =",
         interval,
-        flush=True
+        flush=True,
     )
 
     for number in range(1, scans + 1):
 
         print("=" * 70, flush=True)
+
         print(
-            "UNIT 11 V2.4 SCAN =",
+            "UNIT 11 SCAN =",
             number,
             "/",
             scans,
-            flush=True
+            flush=True,
         )
 
         captured = {
@@ -12904,19 +13246,14 @@ def unit11_v24_monitor():
 
             if captured["calls"] != 1:
                 raise RuntimeError(
-                    "DUPLICATE_PROVIDER_CALL"
+                    "UNIT11 DUPLICATE PROVIDER"
                 )
 
-            result = provider()
+            frame = provider()
 
-            if not isinstance(result, dict):
-                raise RuntimeError(
-                    "INVALID_REFRESH_FRAME"
-                )
+            captured["frame"] = frame
 
-            captured["frame"] = result
-
-            return result
+            return frame
 
         try:
 
@@ -12924,325 +13261,185 @@ def unit11_v24_monitor():
                 observing_provider
             )
 
-            result = unit11_v24_classify(
-                unit10,
-                captured["frame"]
-            )
-
             if captured["calls"] != 1:
                 raise RuntimeError(
-                    "INVALID_PROVIDER_CALL_COUNT"
+                    "UNIT11 PROVIDER NOT CALLED ONCE"
                 )
 
-            if result["classification"] != "BLOCKED":
+            frame = captured["frame"]
 
-                scan_id = result["scan_id"]
-                candle_id = result["candle_id"]
+            unit4, unit5, unit9 = (
+                unit11_v25_verify(
+                    unit10,
+                    frame,
+                )
+            )
 
-                if (
-                    previous_scan_id is not None
-                    and scan_id <= previous_scan_id
-                ):
-                    raise RuntimeError(
-                        "REGRESSED_SCAN_ID"
-                    )
+            scan_id = unit10["scan_id"]
 
-                if (
-                    previous_candle_id is not None
-                    and candle_id < previous_candle_id
-                ):
-                    raise RuntimeError(
-                        "REGRESSED_CANDLE_ID"
-                    )
-
-                previous_scan_id = scan_id
-
-                new_candle = (
-                    previous_candle_id != candle_id
+            if (
+                state["last_scan_id"] is not None
+                and scan_id <= state["last_scan_id"]
+            ):
+                raise RuntimeError(
+                    "UNIT11 SCAN ID REGRESSION"
                 )
 
-                if new_candle:
-                    unique_candle_count += 1
+            state["last_scan_id"] = scan_id
 
-                previous_candle_id = candle_id
+            detection = unit11_v25_detect(
+                unit4
+            )
 
-            else:
-                new_candle = False
+            is_new = unit11_v25_track(
+                state,
+                detection,
+                unit5,
+                unit9,
+            )
+
+            status = unit10["status"]
+
+            state["statuses"][status] += 1
+
+            print(
+                "UNIT 11 CLOSED CANDLE =",
+                detection["candle_id"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 NEW CANDLE =",
+                is_new,
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 DETECTED OPPORTUNITIES =",
+                len(
+                    detection["opportunities"]
+                ),
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 UPSTREAM QUALIFIED =",
+                unit5.get("qualified"),
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 UNIT5 REASON =",
+                unit5.get("qualification_reason"),
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 UNIT9 STATUS =",
+                status,
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 UNIT9 CONFIRMATIONS =",
+                unit9.get("confirmations"),
+                "/",
+                unit9.get(
+                    "confirmations_required"
+                ),
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 EXCHANGE WRITE = NONE",
+                flush=True,
+            )
+
+            completed_scans += 1
 
         except Exception as exc:
 
-            result = {
-                "classification": "BLOCKED",
-                "reason": repr(exc),
-                "handover_verified": False,
-                "continuity_verified": False,
-            }
+            failed = True
 
-            new_candle = False
-
-        category = result["classification"]
-
-        counts[category] += 1
-
-        print(
-            "UNIT 11 CLASSIFICATION =",
-            category,
-            flush=True
-        )
-
-        print(
-            "UNIT 11 REASON =",
-            result.get("reason"),
-            flush=True
-        )
-
-        print(
-            "UNIT 11 CLOSED CANDLE ID =",
-            result.get("candle_id"),
-            flush=True
-        )
-
-        print(
-            "UNIT 11 NEW CLOSED CANDLE =",
-            new_candle,
-            flush=True
-        )
-
-        print(
-            "UNIT 11 SIGNAL MODE =",
-            result.get("mode", "NONE"),
-            flush=True
-        )
-
-        print(
-            "UNIT 11 SIGNAL DIRECTION =",
-            result.get("direction", "NONE"),
-            flush=True
-        )
-
-        print(
-            "UNIT 11 CONFIRMATIONS =",
-            str(result.get("confirmations", "N/A"))
-            + "/"
-            + str(result.get("required", "N/A")),
-            flush=True
-        )
-
-        if result.get("duplicate_candle") is True:
-            duplicate_count += 1
-
-        if result.get("signal_changed") is True:
-            signal_change_count += 1
-
-        if result.get("signal_expired") is True:
-            signal_expiry_count += 1
-
-        # Observe Unit 4 market-development flags.
-        # Unit 5 qualification logs are produced
-        # by the existing upstream refresh provider.
-
-        frame = captured["frame"]
-
-        if isinstance(frame, dict):
-
-            unit4 = frame.get("unit_4")
-
-            if isinstance(unit4, dict):
-
-                flags = {
-                    "BREAKOUT_LONG":
-                        "breakout_developing_long",
-                    "BREAKOUT_SHORT":
-                        "breakout_developing_short",
-                    "STRUCTURE_LONG":
-                        "structure_developing_long",
-                    "STRUCTURE_SHORT":
-                        "structure_developing_short",
-                    "SIDEWAYS":
-                        "sideways_candidate",
-                }
-
-                for label, key in flags.items():
-
-                    value = unit4.get(key)
-
-                    if value is True:
-                        developing[label] += 1
-
-                    print(
-                        "UNIT 11 MARKET " + label + " =",
-                        value,
-                        flush=True
-                    )
-
-        status_now = category
-        mode_now = result.get("mode", "NONE")
-        direction_now = result.get(
-            "direction",
-            "NONE"
-        )
-        confirmations_now = result.get(
-            "confirmations",
-            0
-        )
-
-        if previous_status is not None:
-
-            if (
-                status_now != previous_status
-                or mode_now != previous_mode
-                or direction_now != previous_direction
-            ):
-                print(
-                    "UNIT 11 STATE TRANSITION =",
-                    previous_status,
-                    previous_mode,
-                    previous_direction,
-                    "->",
-                    status_now,
-                    mode_now,
-                    direction_now,
-                    flush=True
-                )
-
-            if (
-                previous_confirmations is not None
-                and confirmations_now
-                != previous_confirmations
-            ):
-                print(
-                    "UNIT 11 CONFIRMATION TRANSITION =",
-                    previous_confirmations,
-                    "->",
-                    confirmations_now,
-                    flush=True
-                )
-
-        previous_status = status_now
-        previous_mode = mode_now
-        previous_direction = direction_now
-        previous_confirmations = confirmations_now
-
-        print(
-            "UNIT 11 SIGNAL CONTINUITY =",
-            result["continuity_verified"],
-            flush=True
-        )
-
-        print(
-            "UNIT 11 MARKET HANDOVER =",
-            result["handover_verified"],
-            flush=True
-        )
-
-        print(
-            "UNIT 11 ACCOUNT ACCESS = NONE",
-            flush=True
-        )
-
-        print(
-            "UNIT 11 POSITION ACCESS = NONE",
-            flush=True
-        )
-
-        print(
-            "UNIT 11 TRADE AUTHORIZED = FALSE",
-            flush=True
-        )
-
-        print(
-            "UNIT 11 EXCHANGE WRITE = NONE",
-            flush=True
-        )
-
-        if category == "BLOCKED":
             print(
-                "UNIT 11 MONITOR STOP = SAFETY BLOCK",
-                flush=True
+                "UNIT 11 SAFETY/SCAN BLOCK =",
+                repr(exc),
+                flush=True,
             )
+
             break
 
         if number < scans:
             time.sleep(interval)
 
-    # ========================================================
-    # 5. FINAL DIAGNOSTIC SUMMARY
-    # ========================================================
-
-    total = sum(counts.values())
-
-    verified = (
-        total == scans
-        and counts["BLOCKED"] == 0
-    )
-
     print("=" * 70, flush=True)
-    print(
-        "UNIT 11 V2.4 MONITOR SUMMARY",
-        flush=True
-    )
 
     print(
-        "UNIT 11 TOTAL SCANS =",
-        total,
-        flush=True
+        "UNIT 11 V2.5 SUMMARY",
+        flush=True,
     )
 
-    print(
-        "UNIT 11 UNIQUE CLOSED CANDLES =",
-        unique_candle_count,
-        flush=True
-    )
-
-    for category, amount in counts.items():
+    for key in (
+        "unique_candles",
+        "duplicate_scans",
+        "detected",
+        "matched",
+        "completed",
+    ):
 
         print(
-            "UNIT 11 " + category + " OBSERVATIONS =",
-            amount,
-            flush=True
-        )
-
-    for label, amount in developing.items():
-
-        print(
-            "UNIT 11 " + label + " OBSERVATIONS =",
-            amount,
-            flush=True
+            "UNIT 11",
+            key.upper(),
+            "=",
+            state[key],
+            flush=True,
         )
 
     print(
-        "UNIT 11 DUPLICATE SIGNAL CANDLES =",
-        duplicate_count,
-        flush=True
+        "UNIT 11 UPSTREAM STATUS COUNTS =",
+        state["statuses"],
+        flush=True,
     )
 
     print(
-        "UNIT 11 SIGNAL CHANGE FLAGS =",
-        signal_change_count,
-        flush=True
+        "UNIT 11 OPEN SHADOW OBSERVATIONS =",
+        len(state["tracked"]),
+        flush=True,
     )
 
     print(
-        "UNIT 11 SIGNAL EXPIRY FLAGS =",
-        signal_expiry_count,
-        flush=True
+        "UNIT 11 ACCOUNT ACCESS = NONE",
+        flush=True,
     )
 
     print(
-        "UNIT 11 MARKET HANDOVER VERDICT =",
-        "VERIFIED" if verified else "NOT_VERIFIED",
-        flush=True
+        "UNIT 11 POSITION ACCESS = NONE",
+        flush=True,
     )
 
     print(
-        "UNIT 11 REAL SIGNAL CONTINUITY OBSERVED =",
-        counts["CONFIRMED"] > 0,
-        flush=True
+        "UNIT 11 TRADE AUTHORIZED = FALSE",
+        flush=True,
     )
 
     print(
         "UNIT 11 EXCHANGE WRITE = NONE",
-        flush=True
+        flush=True,
+    )
+
+    verified = (
+        not failed
+        and completed_scans == scans
+    )
+
+    print(
+        "UNIT 11 V2.5 VERDICT =",
+        (
+            "READ_ONLY_DETECTION_MONITOR_VERIFIED"
+            if verified
+            else "DETECTION_MONITOR_NOT_VERIFIED"
+        ),
+        flush=True,
     )
 
     print("=" * 70, flush=True)
@@ -13251,7 +13448,7 @@ def unit11_v24_monitor():
 
 
 # ============================================================
-# 6. SINGLE EXECUTION ENTRY
+# 9. SINGLE EXECUTION ENTRY
 # ZERO INDENTATION
 # ============================================================
 
@@ -13260,52 +13457,45 @@ if __name__ == "__main__":
     print("=" * 70, flush=True)
 
     print(
-        "UNIT 11 V2.4 START",
-        flush=True
+        "UNIT 11 V2.5 START",
+        flush=True,
     )
 
-    tests_ok = (
-        unit11_v24_tests()
-        if U11_V24_RUN_TESTS
-        else False
-    )
+    tests_ok = unit11_v25_tests()
 
     if not tests_ok:
         raise RuntimeError(
-            "UNIT 11 V2.4 TEST FAILURE"
+            "UNIT11 DETECTION TESTS FAILED"
         )
 
-    if U11_V24_RUN_MARKET:
-        market_ok = unit11_v24_monitor()
-    else:
-        market_ok = False
+    monitor_ok = unit11_v25_monitor()
 
     print(
-        "UNIT 11 V2.4 TEST RESULT =",
+        "UNIT 11 V2.5 TEST RESULT =",
         tests_ok,
-        flush=True
+        flush=True,
     )
 
     print(
-        "UNIT 11 V2.4 HANDOVER RESULT =",
-        market_ok,
-        flush=True
+        "UNIT 11 V2.5 MONITOR RESULT =",
+        monitor_ok,
+        flush=True,
     )
 
     print(
-        "UNIT 11 V2.4 FINAL STATUS =",
+        "UNIT 11 V2.5 FINAL STATUS =",
         (
-            "READ_ONLY_EXTENDED_MONITOR_VERIFIED"
-            if market_ok
-            else "READ_ONLY_MONITOR_NOT_VERIFIED"
+            "READ_ONLY_DETECTION_VERIFIED"
+            if monitor_ok
+            else "READ_ONLY_DETECTION_PENDING"
         ),
-        flush=True
+        flush=True,
     )
 
     print("=" * 70, flush=True)
 
 
 # ============================================================
-# END COMPLETE UNIT 11 V2.4 REPLACEMENT
+# END COMPLETE UNIT 11 V2.5 REPLACEMENT
 # ZERO INDENTATION
 # ============================================================
