@@ -209,7 +209,7 @@ FRESH_RECONSTRUCTION_UNIT_1_READY = (
 # UNIT 1 ISOLATED TEST CONTROL
 # ============================================================
 
-UNIT_1_ISOLATED_TEST = True
+UNIT_1_ISOLATED_TEST = False
 
 if FRESH_RECONSTRUCTION_UNIT_1_READY is not True:
 
