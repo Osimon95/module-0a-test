@@ -2105,6 +2105,7 @@ print("UNIT 4 VERIFIED = TRUE", flush=True)
 print("UNITS 5-15 EXECUTION = NOT STARTED", flush=True)
 print("=" * 80, flush=True)
 
+UNIT_4_ISOLATED_TEST = False
 if UNIT_4_ISOLATED_TEST:
 
     print(
@@ -2119,4 +2120,265 @@ if UNIT_4_ISOLATED_TEST:
 # END COMPLETE UNIT 4 REPLACEMENT
 # ZERO INDENTATION
 # EXISTING UNIT 5 CONTINUES BELOW
+# ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 5 REPLACEMENT - ZERO INDENTATION
+# OLD 15-UNIT HANDOVER + NEW COORDINATED ARBITRATION
+# ============================================================
+
+def fresh_reconstruction_unit_5(unit_2_config, unit_4_snapshot):
+    import math
+
+    print('=' * 80, flush=True)
+    log('FRESH RECONSTRUCTION UNIT 5 START')
+
+    if not isinstance(unit_2_config, dict) or not isinstance(unit_4_snapshot, dict):
+        raise RuntimeError('UNIT 5 INPUT CONTRACT FAILED')
+
+    strategy = unit_2_config.get('strategy', {})
+    safety = unit_2_config.get('safety', {})
+    if not isinstance(strategy, dict) or not isinstance(safety, dict):
+        raise RuntimeError('UNIT 5 CONFIG CONTRACT FAILED')
+
+    if strategy.get('mode_priority') != ('BREAKOUT', 'STRUCTURE', 'SCALP'):
+        raise RuntimeError('UNIT 5 MODE PRIORITY FAILED')
+
+    for key in ('authenticated_api_enabled', 'account_access_enabled',
+                'position_access_enabled', 'order_endpoint_access_enabled',
+                'demo_order_submission_enabled', 'real_order_submission_enabled',
+                'exchange_mutation_enabled'):
+        if safety.get(key) is not False:
+            raise RuntimeError('UNIT 5 UNSAFE FLAG: ' + key)
+
+    s = unit_4_snapshot
+    if (s.get('symbol') != 'BTCUSDT' or s.get('read_only') is not True
+            or s.get('trade_authorized') is not False
+            or s.get('candle_data_fresh') is not True
+            or s.get('strategy_evidence_version') != 'U4_OLD_NEW_ADAPTED_V1'):
+        raise RuntimeError('UNIT 5 UNIT 4 HANDOVER FAILED')
+
+    def num(key):
+        value = float(s[key])
+        if not math.isfinite(value):
+            raise RuntimeError('UNIT 5 NONFINITE FIELD: ' + key)
+        return value
+
+    live = num('live_mark_price')
+    latest = num('latest_close')
+    previous = num('previous_close')
+    e19, e50, e100, e200 = (num(k) for k in ('ema19', 'ema50', 'ema100', 'ema200'))
+    sep = num('ema19_50_separation_pct')
+    move1, move5, move15, move30 = (num(k) for k in
+                                      ('move_1m_pct', 'move_5m_pct', 'move_15m_pct', 'move_30m_pct'))
+    atr = num('atr14')
+    age = num('candle_age_seconds')
+    if min(live, latest, previous, e19, e50, e100, e200, atr) <= 0 or not 0 <= age <= 180:
+        raise RuntimeError('UNIT 5 INVALID PRICE/AGE')
+
+    direction_evidence = s.get('direction_evidence', 'NONE')
+    if direction_evidence not in ('LONG', 'SHORT', 'NONE'):
+        raise RuntimeError('UNIT 5 INVALID DIRECTION')
+
+    def signed_direction(x):
+        return 'LONG' if x > 0 else 'SHORT' if x < 0 else 'NONE'
+
+    breakout_long = bool(s.get('breakout_developing_long'))
+    breakout_short = bool(s.get('breakout_developing_short'))
+    breakout_ready_long = bool(s.get('breakout_confirmed_long'))
+    breakout_ready_short = bool(s.get('breakout_confirmed_short'))
+    structure_long = bool(s.get('structure_developing_long'))
+    structure_short = bool(s.get('structure_developing_short'))
+
+    # A confirmed or developing higher-priority candidate wins
+    # arbitration before any SCALP consideration.
+    breakout_candidate = breakout_long or breakout_short or breakout_ready_long or breakout_ready_short
+    breakout_ready = breakout_ready_long or breakout_ready_short
+    structure_candidate = structure_long or structure_short
+    structure_ready = (structure_candidate and
+                       ((structure_long and direction_evidence == 'LONG') or
+                        (structure_short and direction_evidence == 'SHORT')) and
+                       signed_direction(move15) == direction_evidence)
+    higher_mode_developing = breakout_candidate or structure_candidate
+
+    sideways = s.get('sideways_candidate') is True
+    recent = s.get('recent_closed_klines', [])
+    if not isinstance(recent, list) or len(recent) < 20:
+        raise RuntimeError('UNIT 5 CANDLE HANDOVER MISSING')
+    highs = [float(c['high']) for c in recent[-20:]]
+    lows = [float(c['low']) for c in recent[-20:]]
+    scalp_range_pct = 100.0 * (max(highs) - min(lows)) / latest
+    if not math.isfinite(scalp_range_pct) or scalp_range_pct < 0:
+        raise RuntimeError('UNIT 5 INVALID SCALP RANGE')
+
+    # Fee-aware prospective headroom: range alone is NOT a
+    # profit forecast. Unit 6 must revalidate net economics.
+    fee_each_pct = float(strategy.get('scalp_estimated_taker_fee_percent', 0.08))
+    minimum_sustainable_range_pct = 2.0 * fee_each_pct + 0.02
+    scalp_range_feasible = scalp_range_pct > minimum_sustainable_range_pct
+    extension_ok = s.get('price_overextended') is False
+    scalp_pending = (sideways and not higher_mode_developing
+                     and scalp_range_feasible and extension_ok
+                     and direction_evidence in ('LONG', 'SHORT'))
+
+    candidate_mode = 'NONE'
+    candidate_stage = 'NONE'
+    active_mode = 'NONE'
+    direction = 'NONE'
+    qualified = False
+    reason = 'NO_QUALIFIED_CANDIDATE'
+
+    if breakout_candidate:
+        candidate_mode = 'BREAKOUT'
+        if breakout_ready:
+            candidate_stage = 'PENDING_UNIT_6'
+            active_mode = 'BREAKOUT'
+            direction = 'LONG' if breakout_ready_long else 'SHORT'
+            qualified = direction == direction_evidence
+            reason = ('BREAKOUT_READY_FOR_UNIT6' if qualified
+                      else 'BREAKOUT_DIRECTION_NOT_CONFIRMED')
+        else:
+            candidate_stage = 'DEVELOPING'
+            direction = 'LONG' if breakout_long else 'SHORT'
+            reason = 'BREAKOUT_DEVELOPING_PRIORITY'
+
+    elif structure_candidate:
+        candidate_mode = 'STRUCTURE'
+        direction = 'LONG' if structure_long else 'SHORT'
+        if structure_ready:
+            candidate_stage = 'PENDING_UNIT_6'
+            active_mode = 'STRUCTURE'
+            qualified = True
+            reason = 'STRUCTURE_READY_FOR_UNIT6'
+        else:
+            candidate_stage = 'DEVELOPING'
+            reason = 'STRUCTURE_DEVELOPING_PRIORITY'
+
+    elif scalp_pending:
+        candidate_mode = 'SCALP'
+        candidate_stage = 'PENDING_UNIT_6'
+        active_mode = 'SCALP'
+        direction = direction_evidence
+        qualified = True
+        reason = 'SCALP_SIDEWAYS_FEE_PRECHECK_PASS'
+
+    elif sideways and not higher_mode_developing:
+        candidate_mode = 'SCALP'
+        candidate_stage = 'DEVELOPING'
+        direction = direction_evidence
+        reason = 'SCALP_ECONOMIC_OR_EXTENSION_BLOCK'
+
+    # ========================================================
+    # OUTPUT CONTRACT
+    # ========================================================
+
+    result = {
+        'exchange': 'WEEX',
+        'symbol': 'BTCUSDT',
+        'market_symbol': 'BTCUSDT',
+        'price_type': 'MARK',
+        'interval': '1m',
+        'market_price': live,
+        'live_mark_price': live,
+        'latest_close': latest,
+        'previous_close': previous,
+        'latest_close_time_ms': s['latest_close_time_ms'],
+        'exchange_time_ms': s['exchange_time_ms'],
+        'ema19': e19,
+        'ema50': e50,
+        'ema100': e100,
+        'ema200': e200,
+        'ema_structure': s['ema_structure'],
+        'ema19_50_separation_pct': sep,
+        'short_term_move_pct': move1,
+        'move_1m_pct': move1,
+        'move_5m_pct': move5,
+        'move_15m_pct': move15,
+        'move_30m_pct': move30,
+        'move_60m_pct': s['move_60m_pct'],
+        'move_120m_pct': s['move_120m_pct'],
+        'atr14': atr,
+        'atr_percent': s['atr_percent'],
+        'active_mode': active_mode,
+        'candidate_mode': candidate_mode,
+        'candidate_stage': candidate_stage,
+        'direction': direction,
+        'qualified': qualified,
+        'qualification_reason': reason,
+        'reason': reason,
+        'mode_priority': ('BREAKOUT', 'STRUCTURE', 'SCALP'),
+        'higher_mode_developing': higher_mode_developing,
+        'breakout_candidate': breakout_candidate,
+        'breakout_ready': breakout_ready,
+        'structure_candidate': structure_candidate,
+        'structure_ready': structure_ready,
+        'scalp_candidate': scalp_pending,
+        'scalp_sideways': sideways,
+        'scalp_range_pct': scalp_range_pct,
+        'scalp_fee_precheck_pass': scalp_range_feasible,
+        'price_overextended': not extension_ok,
+        'direction_evidence': direction_evidence,
+        'closed_candle_id': s['latest_open_time_ms'],
+        'recent_closed_klines': recent,
+        'structure_direction': 'LONG' if structure_long else 'SHORT' if structure_short else 'NONE',
+        'structure_move_pct': abs(move15),
+        'breakout_direction': 'LONG' if (breakout_long or breakout_ready_long) else 'SHORT' if (breakout_short or breakout_ready_short) else 'NONE',
+        'breakout_move_pct': abs(move30),
+        'breakout_fast_support': signed_direction(move5) == direction_evidence,
+        'candle_data_fresh': True, 'read_only': True,
+        'trade_authorized': False,
+        'strategy_evidence_version': 'U4_OLD_NEW_ADAPTED_V1',
+    }
+
+    print('UNIT 5 BREAKOUT CANDIDATE =', breakout_candidate, flush=True)
+    print('UNIT 5 STRUCTURE CANDIDATE =', structure_candidate, flush=True)
+    print('UNIT 5 HIGHER MODE DEVELOPING =', higher_mode_developing, flush=True)
+    print('UNIT 5 SIDEWAYS =', sideways, flush=True)
+    print('UNIT 5 SCALP RANGE % =', round(scalp_range_pct, 5), flush=True)
+    print('UNIT 5 CANDIDATE MODE =', candidate_mode, flush=True)
+    print('UNIT 5 CANDIDATE STAGE =', candidate_stage, flush=True)
+    print('UNIT 5 ACTIVE MODE =', active_mode, flush=True)
+    print('UNIT 5 DIRECTION =', direction, flush=True)
+    print('UNIT 5 QUALIFIED =', qualified, flush=True)
+    print('UNIT 5 REASON =', reason, flush=True)
+    print('UNIT 5 TRADE AUTHORIZED = FALSE', flush=True)
+    print('UNIT 5 EXCHANGE WRITE = NONE', flush=True)
+    log('FRESH RECONSTRUCTION UNIT 5 RESULT = PASS')
+    print('=' * 80, flush=True)
+    return result
+
+
+# ============================================================
+# RUN UNIT 5 - ZERO INDENTATION
+# ============================================================
+FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
+    fresh_reconstruction_unit_5(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+    )
+)
+
+# ============================================================
+# UNIT 5 ISOLATED TEST - STOP BEFORE UNIT 6
+# ============================================================
+UNIT_5_ISOLATED_TEST = True
+
+_u5 = FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+assert isinstance(_u5, dict)
+assert _u5['symbol'] == 'BTCUSDT'
+assert _u5['read_only'] is True
+assert _u5['trade_authorized'] is False
+assert _u5['active_mode'] in ('NONE', 'BREAKOUT', 'STRUCTURE', 'SCALP')
+assert not (_u5['active_mode'] == 'SCALP' and _u5['higher_mode_developing'])
+assert not (_u5['qualified'] and _u5['candidate_stage'] == 'DEVELOPING')
+print('UNIT 5 ISOLATED TEST = PASS', flush=True)
+print('UNIT 5 VERIFIED = TRUE', flush=True)
+print('UNITS 6-15 EXECUTION = NOT STARTED', flush=True)
+if UNIT_5_ISOLATED_TEST:
+    print('UNIT 5 TEST COMPLETE - STOPPING BEFORE UNIT 6', flush=True)
+    raise SystemExit(0)
+
+# ============================================================
+# END COMPLETE UNIT 5 REPLACEMENT - ZERO INDENTATION
 # ============================================================
