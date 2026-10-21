@@ -12358,160 +12358,124 @@ if UNIT_10_V14_TEST_ENABLED:
 
 
 # ============================================================
-# START COMPLETE UNIT 11 V2.6 REPLACEMENT
-# ZERO INDENTATION - FROZEN UNITS 1-10 UNCHANGED
-# PUBLIC READS ONLY / SHADOW DETECTION ONLY
+# START COMPLETE UNIT 11 SOURCE-ALIGNED REPLACEMENT
+# ZERO INDENTATION
+# FROZEN UNITS 1-10 UNCHANGED
+# READ ONLY - NO EXCHANGE WRITES
 # ============================================================
 
-import math
 import os
 import time
+import math
 
-U11_V26_DEFAULT_INTERVAL = 30.0
-U11_V26_DEFAULT_SCANS = 0  # 0 = continuous
-U11_V26_HORIZON_CANDLES = 5
-
-
-# ============================================================
-# 1. VALIDATE NUMERIC MARKET DATA
-# ============================================================
-
-def unit11_v26_num(data, name):
-
-    value = data.get(name)
-
-    if isinstance(value, bool):
-        raise ValueError("INVALID_" + name)
-
-    try:
-        result = float(value)
-
-    except (ValueError, TypeError, OverflowError):
-        raise ValueError("MISSING_" + name)
-
-    if not math.isfinite(result):
-        raise ValueError("NONFINITE_" + name)
-
-    return result
+UNIT11_SCAN_SECONDS = 30.0
+UNIT11_SCAN_LIMIT = 0
+UNIT11_SHADOW_CANDLES = 5
 
 
 # ============================================================
-# 2. VERIFY EXISTING UNIT 10 HANDOVER
+# 1. VERIFY FROZEN UNIT 10 HANDOVER
 # ============================================================
 
-def unit11_v26_validate(u10, frame):
+def unit11_verify_source(u10, frame):
 
-    if not isinstance(u10, dict) or not isinstance(frame, dict):
-        raise RuntimeError("INVALID_HANDOVER")
+    if not isinstance(u10, dict):
+        raise RuntimeError("INVALID_UNIT10")
 
-    if type(u10.get("scan_id")) is not int or u10["scan_id"] <= 0:
-        raise RuntimeError("INVALID_SCAN_ID")
+    if not isinstance(frame, dict):
+        raise RuntimeError("INVALID_FRAME")
 
-    if u10["scan_id"] != frame.get("scan_id"):
+    if (
+        type(u10.get("scan_id")) is not int
+        or u10["scan_id"] <= 0
+        or frame.get("scan_id") != u10["scan_id"]
+    ):
         raise RuntimeError("SCAN_ID_MISMATCH")
 
     u4 = frame.get("unit_4")
     u8 = frame.get("unit_8")
     u9 = u10.get("unit_9_result")
 
-    if not all(isinstance(v, dict) for v in (u4, u8, u9)):
-        raise RuntimeError("MISSING_UNIT4_UNIT8_OR_UNIT9")
+    if not all(
+        isinstance(x, dict)
+        for x in (u4, u8, u9)
+    ):
+        raise RuntimeError("MISSING_UPSTREAM_DATA")
 
-    for label, item in (
+    for name, data in (
         ("UNIT10", u10),
-        ("UNIT4", u4),
         ("UNIT8", u8),
         ("UNIT9", u9),
     ):
 
         if (
-            item.get("read_only") is not True
-            or item.get("trade_authorized") is not False
+            data.get("read_only") is not True
+            or data.get("trade_authorized") is not False
+            or data.get("exchange_write") is not False
+            or data.get("reentry_authorized") is not False
         ):
-            raise RuntimeError("UNSAFE_" + label)
+            raise RuntimeError("UNSAFE_" + name)
 
-    for label, item in (
-        ("UNIT10", u10),
+    if (
+        u4.get("read_only") is not True
+        or u4.get("trade_authorized") is not False
+        or u4.get("candle_data_fresh") is not True
+        or u4.get("symbol") != "BTCUSDT"
+    ):
+        raise RuntimeError("INVALID_UNIT4")
+
+    for name, data in (
         ("UNIT8", u8),
         ("UNIT9", u9),
     ):
 
-        if item.get("exchange_write") is not False:
-            raise RuntimeError("UNSAFE_WRITE_" + label)
+        if data.get("execution_intent") is not False:
+            raise RuntimeError("UNSAFE_EXECUTION_" + name)
 
-        if item.get("reentry_authorized") is not False:
-            raise RuntimeError("UNSAFE_REENTRY_" + label)
-
-    for label, item in (
-        ("UNIT8", u8),
-        ("UNIT9", u9),
-    ):
-
-        if item.get("execution_intent") is not False:
-            raise RuntimeError("UNSAFE_EXECUTION_" + label)
-
-    for name in (
+    for key in (
         "order_payload_created",
         "demo_order_submitted",
         "real_order_submitted",
     ):
 
-        if u9.get(name) is not False:
-            raise RuntimeError("UNSAFE_UNIT9_" + name)
+        if u9.get(key) is not False:
+            raise RuntimeError("UNSAFE_UNIT9_" + key)
+
+    candles = u4.get("recent_closed_klines")
 
     if (
-        u4.get("candle_data_fresh") is not True
-        or u4.get("symbol") != "BTCUSDT"
+        not isinstance(candles, list)
+        or not candles
+        or not isinstance(candles[-1], dict)
     ):
-        raise RuntimeError("UNSAFE_OR_STALE_CANDLES")
+        raise RuntimeError("NO_CLOSED_CANDLES")
 
-    klines = u4.get("recent_closed_klines")
-
-    if (
-        not isinstance(klines, list)
-        or len(klines) < 5
-        or not isinstance(klines[-1], dict)
-    ):
-        raise RuntimeError("MISSING_CLOSED_CANDLES")
-
-    current = klines[-1]
-    cid = current.get("open_time_ms")
+    candle = candles[-1]
+    cid = candle.get("open_time_ms")
 
     if (
         type(cid) is not int
         or cid <= 0
-        or current.get("timestamp") != cid
+        or candle.get("timestamp") != cid
+        or type(candle.get("close_time_ms")) is not int
+        or candle["close_time_ms"] > int(time.time() * 1000)
     ):
-        raise RuntimeError("INVALID_CANDLE_ID")
+        raise RuntimeError("INVALID_CLOSED_CANDLE")
 
-    close_ms = current.get("close_time_ms")
+    status = u9.get("status")
 
     if (
-        type(close_ms) is not int
-        or close_ms > int(time.time() * 1000)
+        status not in (
+            "IDLE",
+            "PENDING",
+            "CONFIRMED",
+            "BLOCKED",
+        )
+        or u10.get("status") != status
     ):
-        raise RuntimeError("UNFINISHED_CANDLE")
+        raise RuntimeError("STATUS_MISMATCH")
 
-    status = u10.get("status")
-
-    if (
-        status not in ("IDLE", "PENDING", "CONFIRMED")
-        or u9.get("status") != status
-    ):
-        raise RuntimeError("SIGNAL_STATUS_MISMATCH")
-
-    count = u9.get("confirmations")
-    required = u9.get("confirmations_required")
-
-    if (
-        type(count) is not int
-        or type(required) is not int
-        or required < 1
-        or not 0 <= count <= required
-    ):
-        raise RuntimeError("INVALID_CONFIRMATIONS")
-
-    if status != "IDLE":
+    if status in ("PENDING", "CONFIRMED"):
 
         if (
             u9.get("mode") not in (
@@ -12524,191 +12488,264 @@ def unit11_v26_validate(u10, frame):
                 "SHORT",
             )
         ):
-            raise RuntimeError("INVALID_PENDING_IDENTITY")
+            raise RuntimeError("INVALID_SIGNAL_IDENTITY")
 
-    if status == "CONFIRMED":
+    count = u9.get("confirmations")
+    needed = u9.get("confirmations_required")
 
-        if (
-            count < required
-            or u9.get("continuity_verified") is not True
-        ):
-            raise RuntimeError("FALSE_CONFIRMATION")
+    if (
+        type(count) is not int
+        or type(needed) is not int
+        or needed < 1
+        or not 0 <= count <= needed
+    ):
+        raise RuntimeError("INVALID_CONFIRMATIONS")
+
+    if status == "CONFIRMED" and (
+        count < needed
+        or u9.get("continuity_verified") is not True
+    ):
+        raise RuntimeError("FALSE_CONFIRMATION")
 
     return u4, u8, u9, cid
 
 
 # ============================================================
-# 3. INDEPENDENT EARLY OPPORTUNITY DETECTION
+# 2. RECOGNIZE ORIGINAL STRATEGY OPPORTUNITIES
 # ============================================================
 
-def unit11_v26_detect(u4, cid):
+def unit11_detect_original(u4, u8, u9):
 
-    p = unit11_v26_num(u4, "latest_close")
-    atr = unit11_v26_num(u4, "atr14")
-    sup = unit11_v26_num(u4, "support20")
-    res = unit11_v26_num(u4, "resistance20")
+    found = {}
 
-    e19 = unit11_v26_num(u4, "ema19")
-    e50 = unit11_v26_num(u4, "ema50")
-    e200 = unit11_v26_num(u4, "ema200")
+    def add(mode, side, stage, source):
 
-    m5 = unit11_v26_num(u4, "move_5m_pct")
-    m15 = unit11_v26_num(u4, "move_15m_pct")
+        key = mode + "_" + side
 
-    if (
-        p <= 0
-        or atr <= 0
-        or sup <= 0
-        or res <= sup
-        or min(e19, e50, e200) <= 0
-    ):
-        raise RuntimeError("INVALID_PRICE_OR_LEVELS")
+        priority = {
+            "UPSTREAM_PENDING": 5,
+            "UPSTREAM_CONFIRMED": 6,
+            "ORIGINAL_CONFIRMED": 4,
+            "ORIGINAL_DEVELOPING": 3,
+            "ORIGINAL_SIDEWAYS": 2,
+            "EARLY_WARNING": 1,
+        }
 
-    detected = []
+        existing = found.get(key)
 
-    def add(mode, side, stage, score):
+        if (
+            existing is None
+            or priority[source] > priority[existing["source"]]
+        ):
+            found[key] = {
+                "mode": mode,
+                "side": side,
+                "stage": stage,
+                "source": source,
+            }
 
-        detected.append({
-            "mode": mode,
-            "side": side,
-            "stage": stage,
-            "score": score,
-            "candle": cid,
-            "reference_price": p,
-        })
+    for side in ("LONG", "SHORT"):
 
-    # --------------------------------------------------------
-    # BREAKOUT — APPROACHING SUPPORT / RESISTANCE
-    # --------------------------------------------------------
+        suffix = side.lower()
 
-    dl = (res - p) / atr
-    ds = (p - sup) / atr
+        if u4.get(
+            "breakout_developing_" + suffix
+        ) is True:
 
-    if -0.25 <= dl <= 1.5 and (m5 > 0 or m15 > 0):
+            add(
+                "BREAKOUT",
+                side,
+                "DEVELOPING",
+                "ORIGINAL_DEVELOPING",
+            )
 
-        add(
-            "BREAKOUT",
-            "LONG",
-            (
-                "CROSSED_RESISTANCE"
-                if dl < 0
-                else "APPROACHING_RESISTANCE"
-            ),
-            40
-            + 20 * (m5 > 0)
-            + 20 * (m15 > 0)
-            + 10 * (e19 > e50)
-            + 10 * (dl <= 0.5),
-        )
+        if u4.get(
+            "breakout_confirmed_" + suffix
+        ) is True:
 
-    if -0.25 <= ds <= 1.5 and (m5 < 0 or m15 < 0):
+            add(
+                "BREAKOUT",
+                side,
+                "BREAKOUT_CONFIRMED_BY_UNIT4",
+                "ORIGINAL_CONFIRMED",
+            )
 
-        add(
-            "BREAKOUT",
-            "SHORT",
-            (
-                "CROSSED_SUPPORT"
-                if ds < 0
-                else "APPROACHING_SUPPORT"
-            ),
-            40
-            + 20 * (m5 < 0)
-            + 20 * (m15 < 0)
-            + 10 * (e19 < e50)
-            + 10 * (ds <= 0.5),
-        )
+        if u4.get(
+            "structure_developing_" + suffix
+        ) is True:
 
-    # --------------------------------------------------------
-    # STRUCTURE — TREND PULLBACK WATCH
-    # --------------------------------------------------------
+            add(
+                "STRUCTURE",
+                side,
+                "DEVELOPING",
+                "ORIGINAL_DEVELOPING",
+            )
 
-    de = abs(p - e19) / atr
-
-    if de <= 1.5 and e19 > e50 and p >= e50:
-
-        add(
-            "STRUCTURE",
-            "LONG",
-            "BULLISH_PULLBACK_WATCH",
-            50
-            + 15 * (e50 > e200)
-            + 15 * (m5 > 0)
-            + 15 * (m15 > 0)
-            + 5 * (de <= 0.5),
-        )
-
-    if de <= 1.5 and e19 < e50 and p <= e50:
-
-        add(
-            "STRUCTURE",
-            "SHORT",
-            "BEARISH_PULLBACK_WATCH",
-            50
-            + 15 * (e50 < e200)
-            + 15 * (m5 < 0)
-            + 15 * (m15 < 0)
-            + 5 * (de <= 0.5),
-        )
-
-    # --------------------------------------------------------
-    # SCALP — DETECT ONLY
-    # DOES NOT OVERRIDE FEE OR QUALIFICATION RULES
-    # --------------------------------------------------------
-
-    width = (res - sup) / p * 100
+    # Sideways context is not a qualified scalp.
+    # Observe both sides without trade authorization.
 
     if u4.get("sideways_candidate") is True:
 
-        side = (
-            "LONG"
-            if p <= (res + sup) / 2
-            else "SHORT"
-        )
+        for side in ("LONG", "SHORT"):
+
+            add(
+                "SCALP",
+                side,
+                "SIDEWAYS_WATCH",
+                "ORIGINAL_SIDEWAYS",
+            )
+
+    # Upstream validation is authoritative for
+    # the observed signal's mode and direction.
+
+    upstream_status = u9.get("status")
+
+    if upstream_status in ("PENDING", "CONFIRMED"):
+
+        mode = u9["mode"]
+        side = u9["direction"]
 
         add(
-            "SCALP",
+            mode,
             side,
+            upstream_status,
             (
-                "FEE_RANGE_WATCH"
-                if width >= 0.23
-                else "RANGE_TOO_NARROW"
+                "UPSTREAM_CONFIRMED"
+                if upstream_status == "CONFIRMED"
+                else "UPSTREAM_PENDING"
             ),
-            45
-            + 30 * (width >= 0.23)
-            + 15 * (abs(m5) < 0.10),
         )
 
-    detected.sort(
-        key=lambda x: (
-            -x["score"],
-            {
-                "BREAKOUT": 0,
-                "STRUCTURE": 1,
-                "SCALP": 2,
-            }[x["mode"]],
+    # Unit 8 may identify a pending signal even
+    # when Unit 9 blocks its confirmation.
+    # This is an observation, never a confirmation.
+
+    if u8.get("status") == "PENDING":
+
+        mode = u8.get("pending_mode")
+        side = u8.get("pending_direction")
+
+        if (
+            mode in ("BREAKOUT", "STRUCTURE", "SCALP")
+            and side in ("LONG", "SHORT")
+        ):
+
+            add(
+                mode,
+                side,
+                "AWAITING_UNIT9",
+                "ORIGINAL_DEVELOPING",
+            )
+
+    return found
+
+
+# ============================================================
+# 3. ADD EARLIER PRICE-APPROACH WARNINGS
+# ============================================================
+
+def unit11_add_early_warnings(u4, found):
+
+    def num(name):
+
+        value = u4.get(name)
+
+        if isinstance(value, bool):
+            return None
+
+        try:
+            number = float(value)
+
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+        return number if math.isfinite(number) else None
+
+    price = num("latest_close")
+    atr = num("atr14")
+    support = num("support20")
+    resistance = num("resistance20")
+
+    m5 = num("move_5m_pct")
+    m15 = num("move_15m_pct")
+
+    if any(
+        x is None
+        for x in (
+            price,
+            atr,
+            support,
+            resistance,
+            m5,
+            m15,
         )
+    ):
+        return found
+
+    if (
+        price <= 0
+        or atr <= 0
+        or support <= 0
+        or resistance <= support
+    ):
+        return found
+
+    warnings = (
+        (
+            "LONG",
+            (resistance - price) / atr,
+            "APPROACHING_RESISTANCE",
+            m5 > 0 or m15 > 0,
+        ),
+        (
+            "SHORT",
+            (price - support) / atr,
+            "APPROACHING_SUPPORT",
+            m5 < 0 or m15 < 0,
+        ),
     )
 
-    return p, detected
+    for side, distance, stage, momentum in warnings:
+
+        key = "BREAKOUT_" + side
+
+        # Use a broader early-warning window.
+        # This NEVER filters original detections.
+
+        if (
+            key not in found
+            and -1.5 <= distance <= 2.0
+            and momentum
+        ):
+
+            found[key] = {
+                "mode": "BREAKOUT",
+                "side": side,
+                "stage": stage,
+                "source": "EARLY_WARNING",
+            }
+
+    return found
 
 
 # ============================================================
-# 4. CONTINUOUS OPPORTUNITY TRACKING
+# 4. TRACK DETECTIONS ACROSS DISTINCT CLOSED CANDLES
 # ============================================================
 
-def unit11_v26_update(state, cid, price, detections, u9):
+def unit11_track_original(state, cid, price, found):
 
-    previous = state["candle"]
-
-    if previous is not None and cid < previous:
+    if (
+        state["candle"] is not None
+        and cid < state["candle"]
+    ):
         raise RuntimeError("CANDLE_REGRESSION")
 
-    if previous == cid:
+    if cid == state["candle"]:
 
-        state["duplicate_scans"] += 1
+        state["duplicates"] += 1
 
         print(
-            "UNIT 11 NEW CANDLE = False",
+            "UNIT 11 DUPLICATE CANDLE = TRUE",
             flush=True,
         )
 
@@ -12717,280 +12754,277 @@ def unit11_v26_update(state, cid, price, detections, u9):
     state["candle"] = cid
     state["new_candles"] += 1
 
-    print(
-        "UNIT 11 NEW CANDLE = True",
-        flush=True,
-    )
+    # Assess open shadow observations using
+    # hypothetical directional price movement.
+    # This is not net ROI or simulated execution.
 
-    # Evaluate existing shadow observations.
+    for key, record in list(state["tracked"].items()):
 
-    for key, rec in list(state["tracks"].items()):
-
-        move = (
-            (price / rec["entry"] - 1)
-            * 100
-            * (1 if rec["side"] == "LONG" else -1)
+        direction = (
+            1 if record["side"] == "LONG" else -1
         )
 
-        rec["age"] += 1
-        rec["best"] = max(rec["best"], move)
-        rec["worst"] = min(rec["worst"], move)
+        movement = (
+            (price / record["start_price"] - 1)
+            * 100
+            * direction
+        )
 
-        if rec["age"] >= U11_V26_HORIZON_CANDLES:
+        record["age"] += 1
+
+        record["best"] = max(
+            record["best"],
+            movement,
+        )
+
+        record["worst"] = min(
+            record["worst"],
+            movement,
+        )
+
+        if record["age"] >= UNIT11_SHADOW_CANDLES:
 
             print(
                 "UNIT 11 SHADOW COMPLETED =",
                 key,
                 "GROSS MOVE % =",
-                round(move, 5),
+                round(movement, 5),
                 "BEST % =",
-                round(rec["best"], 5),
+                round(record["best"], 5),
                 "WORST % =",
-                round(rec["worst"], 5),
-                "UPSTREAM PENDING EVER =",
-                rec["pending"],
+                round(record["worst"], 5),
                 flush=True,
             )
 
-            del state["tracks"][key]
             state["completed"] += 1
+            del state["tracked"][key]
 
-    active = {
-        (x["mode"], x["side"]): x
-        for x in detections
-    }
+    for key, item in sorted(found.items()):
 
-    for mode, side in active:
+        if key not in state["tracked"]:
 
-        x = active[(mode, side)]
-
-        key = mode + "_" + side
-
-        if key not in state["tracks"]:
-
-            state["tracks"][key] = {
-                "entry": price,
-                "side": side,
+            state["tracked"][key] = {
+                "start_price": price,
+                "side": item["side"],
                 "age": 0,
                 "best": 0.0,
                 "worst": 0.0,
-                "pending": False,
             }
 
-            state["detected"] += 1
+            state["detections"] += 1
 
             print(
-                "UNIT 11 EARLY DETECTION =",
+                "UNIT 11 NEW OPPORTUNITY =",
                 key,
-                "STAGE =",
-                x["stage"],
-                "SCORE =",
-                x["score"],
+                "SOURCE =",
+                item["source"],
                 flush=True,
             )
-
-        rec = state["tracks"][key]
-
-        if (
-            u9.get("status") in ("PENDING", "CONFIRMED")
-            and u9.get("mode") == mode
-            and u9.get("direction") == side
-        ):
-
-            if not rec["pending"]:
-                state["matched_pending"] += 1
-
-            rec["pending"] = True
 
         print(
             "UNIT 11 OPPORTUNITY =",
             key,
             "STAGE =",
-            x["stage"],
-            "SCORE =",
-            x["score"],
-            "UPSTREAM SIGNAL MATCH =",
-            rec["pending"],
+            item["stage"],
+            "SOURCE =",
+            item["source"],
             flush=True,
         )
 
 
 # ============================================================
-# 5. CONTROLLED INTEGRATION TESTS
+# 5. CONTROLLED SOURCE-ALIGNMENT TESTS
 # ============================================================
 
-def unit11_v26_tests():
+def unit11_source_tests():
 
-    cid = (
-        int(time.time() * 1000) // 60000 - 1
-    ) * 60000
-
-    u4 = {
-        "read_only": True,
-        "trade_authorized": False,
-        "symbol": "BTCUSDT",
-        "candle_data_fresh": True,
+    base = {
+        "breakout_developing_long": False,
+        "breakout_developing_short": False,
+        "breakout_confirmed_long": False,
+        "breakout_confirmed_short": False,
+        "structure_developing_long": False,
+        "structure_developing_short": False,
+        "sideways_candidate": False,
         "latest_close": 10000.0,
         "atr14": 20.0,
-        "support20": 9950.0,
-        "resistance20": 10010.0,
-        "ema19": 9998.0,
-        "ema50": 9990.0,
-        "ema200": 9980.0,
-        "move_5m_pct": 0.08,
-        "move_15m_pct": 0.12,
-        "sideways_candidate": False,
-        "recent_closed_klines": [
-            {
-                "open_time_ms": cid - i * 60000,
-                "timestamp": cid - i * 60000,
-                "close_time_ms":
-                    cid - i * 60000 + 59999,
-            }
-            for i in range(4, -1, -1)
-        ],
+        "support20": 9900.0,
+        "resistance20": 10100.0,
+        "move_5m_pct": 0.0,
+        "move_15m_pct": 0.0,
     }
 
-    u8 = {
-        "read_only": True,
-        "trade_authorized": False,
-        "exchange_write": False,
-        "reentry_authorized": False,
-        "execution_intent": False,
+    idle8 = {"status": "IDLE"}
+
+    idle9 = {"status": "IDLE"}
+
+    tests = []
+
+    # Original Unit 4 developing opportunity.
+
+    a = dict(base)
+    a["breakout_developing_short"] = True
+
+    tests.append(
+        "BREAKOUT_SHORT"
+        in unit11_detect_original(a, idle8, idle9)
+    )
+
+    # Real observed BREAKOUT SHORT PENDING.
+    # The early-warning heuristic may be empty.
+
+    a = dict(base)
+
+    pending8 = {
+        "status": "PENDING",
+        "pending_mode": "BREAKOUT",
+        "pending_direction": "SHORT",
     }
 
-    u9 = {
-        "read_only": True,
-        "trade_authorized": False,
-        "exchange_write": False,
-        "reentry_authorized": False,
-        "execution_intent": False,
-        "order_payload_created": False,
-        "demo_order_submitted": False,
-        "real_order_submitted": False,
+    pending9 = {
+        "status": "PENDING",
+        "mode": "BREAKOUT",
+        "direction": "SHORT",
+        "confirmations": 1,
+    }
+
+    detected = unit11_detect_original(
+        a,
+        pending8,
+        pending9,
+    )
+
+    detected = unit11_add_early_warnings(
+        a,
+        detected,
+    )
+
+    tests.append(
+        detected.get(
+            "BREAKOUT_SHORT", {}
+        ).get("source") == "UPSTREAM_PENDING"
+    )
+
+    # Real observed STRUCTURE LONG PENDING.
+
+    pending8 = {
+        "status": "PENDING",
+        "pending_mode": "STRUCTURE",
+        "pending_direction": "LONG",
+    }
+
+    pending9 = {
         "status": "PENDING",
         "mode": "STRUCTURE",
         "direction": "LONG",
         "confirmations": 1,
-        "confirmations_required": 2,
-        "continuity_verified": False,
     }
 
-    u10 = {
-        "read_only": True,
-        "trade_authorized": False,
-        "exchange_write": False,
-        "reentry_authorized": False,
-        "scan_id": 101,
-        "status": "PENDING",
-        "unit_9_result": u9,
-    }
-
-    frame = {
-        "scan_id": 101,
-        "unit_4": u4,
-        "unit_8": u8,
-    }
-
-    checks = []
-
-    # Test 1: PENDING STRUCTURE LONG at 1/2.
-
-    checks.append(
-        unit11_v26_validate(
-            u10, frame
-        )[2]["confirmations"] == 1
+    detected = unit11_detect_original(
+        base,
+        pending8,
+        pending9,
     )
 
-    _, found = unit11_v26_detect(u4, cid)
-
-    # Test 2: Early STRUCTURE LONG detection.
-
-    checks.append(
-        any(
-            x["mode"] == "STRUCTURE"
-            and x["side"] == "LONG"
-            for x in found
-        )
+    tests.append(
+        "STRUCTURE_LONG" in detected
     )
 
-    # Test 3: Early BREAKOUT LONG detection.
+    # Unit 4 original confirmed breakout.
 
-    checks.append(
-        any(
-            x["mode"] == "BREAKOUT"
-            and x["side"] == "LONG"
-            for x in found
-        )
+    a = dict(base)
+    a["breakout_confirmed_long"] = True
+
+    tests.append(
+        "BREAKOUT_LONG"
+        in unit11_detect_original(a, idle8, idle9)
     )
 
-    # Test 4: Unit 5 is not required
-    # in the existing Unit 10 provider frame.
+    # Original structure development.
 
-    checks.append("unit_5" not in frame)
+    a = dict(base)
+    a["structure_developing_short"] = True
 
-    # Test 5: Exchange writes are blocked.
-
-    u10["exchange_write"] = True
-
-    try:
-        unit11_v26_validate(u10, frame)
-        checks.append(False)
-
-    except RuntimeError:
-        checks.append(True)
-
-    u10["exchange_write"] = False
-
-    # Test 6: Verified CONFIRMED handover.
-
-    u9["status"] = "CONFIRMED"
-    u10["status"] = "CONFIRMED"
-    u9["confirmations"] = 2
-    u9["continuity_verified"] = True
-
-    checks.append(
-        unit11_v26_validate(
-            u10, frame
-        )[2]["status"] == "CONFIRMED"
+    tests.append(
+        "STRUCTURE_SHORT"
+        in unit11_detect_original(a, idle8, idle9)
     )
 
-    # Test 7: False confirmation blocked.
+    # Sideways observation.
 
-    u9["continuity_verified"] = False
+    a = dict(base)
+    a["sideways_candidate"] = True
 
-    try:
-        unit11_v26_validate(u10, frame)
-        checks.append(False)
+    detected = unit11_detect_original(
+        a,
+        idle8,
+        idle9,
+    )
 
-    except RuntimeError:
-        checks.append(True)
+    tests.append(
+        "SCALP_LONG" in detected
+        and "SCALP_SHORT" in detected
+    )
 
-    for i, ok in enumerate(checks, 1):
+    # Early warning must not overwrite
+    # an authoritative upstream signal.
+
+    a = dict(base)
+    a["move_5m_pct"] = -0.2
+
+    detected = unit11_detect_original(
+        a,
+        {
+            "status": "PENDING",
+            "pending_mode": "BREAKOUT",
+            "pending_direction": "SHORT",
+        },
+        {
+            "status": "PENDING",
+            "mode": "BREAKOUT",
+            "direction": "SHORT",
+        },
+    )
+
+    detected = unit11_add_early_warnings(
+        a,
+        detected,
+    )
+
+    tests.append(
+        detected["BREAKOUT_SHORT"]["source"]
+        == "UPSTREAM_PENDING"
+    )
+
+    for index, passed in enumerate(tests, 1):
 
         print(
-            ("PASS" if ok else "FAIL")
-            + ": UNIT 11 V2.6 TEST "
-            + str(i),
+            (
+                "PASS"
+                if passed
+                else "FAIL"
+            ),
+            "UNIT 11 SOURCE TEST",
+            index,
             flush=True,
         )
 
     print(
-        "UNIT 11 V2.6 TESTS PASSED =",
-        sum(checks),
+        "UNIT 11 SOURCE TESTS PASSED =",
+        sum(tests),
         "/",
-        len(checks),
+        len(tests),
         flush=True,
     )
 
-    return all(checks)
+    return all(tests)
 
 
 # ============================================================
-# 6. CONTINUOUS PUBLIC MARKET MONITOR
+# 6. CONTINUOUS SOURCE-ALIGNED SCAN
 # ============================================================
 
-def unit11_v26_monitor():
+def unit11_run_source_monitor():
 
     scanner = globals().get(
         "fresh_reconstruction_unit_10_scan"
@@ -13015,15 +13049,14 @@ def unit11_v26_monitor():
         and isinstance(config, dict)
     ):
         raise RuntimeError(
-            "MISSING_FROZEN_UNIT10_DEPENDENCIES"
+            "MISSING_FROZEN_DEPENDENCIES"
         )
 
     if globals().get(
         "UNIT_10_CONTINUOUS_SCAN_ENABLED"
     ) is not False:
-
         raise RuntimeError(
-            "CONFLICTING_UNIT10_SCAN_LOOP"
+            "CONFLICTING_SCAN_LOOP"
         )
 
     validator(config)
@@ -13031,20 +13064,21 @@ def unit11_v26_monitor():
     interval = float(
         os.environ.get(
             "UNIT11_MONITOR_INTERVAL",
-            str(U11_V26_DEFAULT_INTERVAL),
+            str(UNIT11_SCAN_SECONDS),
         )
     )
 
     limit = int(
         os.environ.get(
             "UNIT11_MONITOR_SCANS",
-            str(U11_V26_DEFAULT_SCANS),
+            str(UNIT11_SCAN_LIMIT),
         )
     )
 
-    if (
-        not 10 <= interval <= 300
-        or not 0 <= limit <= 100000
+    if not (
+        math.isfinite(interval)
+        and 10 <= interval <= 300
+        and 0 <= limit <= 100000
     ):
         raise RuntimeError(
             "INVALID_MONITOR_SETTINGS"
@@ -13054,50 +13088,45 @@ def unit11_v26_monitor():
         "candle": None,
         "scan_id": None,
         "new_candles": 0,
-        "duplicate_scans": 0,
-        "detected": 0,
-        "matched_pending": 0,
+        "duplicates": 0,
+        "detections": 0,
         "completed": 0,
-        "tracks": {},
-        "statuses": {
-            "IDLE": 0,
-            "PENDING": 0,
-            "CONFIRMED": 0,
-        },
+        "tracked": {},
     }
 
-    scan = 0
+    scan_count = 0
 
+    print("=" * 70, flush=True)
     print(
-        "UNIT 11 V2.6 CONTINUOUS READ ONLY MONITOR START",
+        "UNIT 11 SOURCE-ALIGNED MONITOR START",
         flush=True,
     )
-
     print(
-        "UNIT 11 INTERVAL SECONDS =",
+        "UNIT 11 SCAN INTERVAL =",
         interval,
-        "SCAN LIMIT =",
+        flush=True,
+    )
+    print(
+        "UNIT 11 SCAN LIMIT =",
         limit,
-        "(0=UNLIMITED)",
+        "0 MEANS CONTINUOUS",
         flush=True,
     )
 
-    while limit == 0 or scan < limit:
-
-        scan += 1
+    while limit == 0 or scan_count < limit:
 
         captured = {
-            "count": 0,
+            "calls": 0,
             "frame": None,
         }
 
         def observing_provider():
 
-            captured["count"] += 1
+            captured["calls"] += 1
 
-            if captured["count"] != 1:
+            if captured["calls"] != 1:
                 raise RuntimeError(
-                    "DOUBLE_PROVIDER_CALL"
+                    "DUPLICATE_PROVIDER_CALL"
                 )
 
             captured["frame"] = provider()
@@ -13110,55 +13139,74 @@ def unit11_v26_monitor():
                 observing_provider
             )
 
-            if captured["count"] != 1:
+            if captured["calls"] != 1:
                 raise RuntimeError(
-                    "PROVIDER_COUNT_NOT_ONE"
+                    "INVALID_PROVIDER_COUNT"
                 )
 
-            u4, u8, u9, cid = unit11_v26_validate(
-                u10,
-                captured["frame"],
+            u4, u8, u9, cid = (
+                unit11_verify_source(
+                    u10,
+                    captured["frame"],
+                )
             )
 
-            sid = u10["scan_id"]
+            scan_id = u10["scan_id"]
 
             if (
                 state["scan_id"] is not None
-                and sid <= state["scan_id"]
+                and scan_id <= state["scan_id"]
             ):
                 raise RuntimeError(
                     "SCAN_ID_REGRESSION"
                 )
 
-            state["scan_id"] = sid
+            state["scan_id"] = scan_id
 
-            price, found = unit11_v26_detect(
-                u4,
-                cid,
+            price = float(
+                u4["latest_close"]
             )
 
-            state["statuses"][u10["status"]] += 1
+            if (
+                not math.isfinite(price)
+                or price <= 0
+            ):
+                raise RuntimeError(
+                    "INVALID_MARKET_PRICE"
+                )
 
-            print("=" * 65, flush=True)
+            found = unit11_detect_original(
+                u4,
+                u8,
+                u9,
+            )
 
+            original_count = len(found)
+
+            found = unit11_add_early_warnings(
+                u4,
+                found,
+            )
+
+            scan_count += 1
+
+            print("=" * 70, flush=True)
             print(
                 "UNIT 11 SCAN =",
-                scan,
-                "CANDLE =",
-                cid,
-                "PRICE =",
-                price,
+                scan_count,
                 flush=True,
             )
 
             print(
-                "UNIT 11 SIGNAL =",
-                u10["status"],
-                "MODE =",
+                "UNIT 11 UPSTREAM SIGNAL =",
+                u9.get("status"),
                 u9.get("mode"),
-                "SIDE =",
                 u9.get("direction"),
-                "CONFIRMATIONS =",
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 UPSTREAM CONFIRMATIONS =",
                 u9.get("confirmations"),
                 "/",
                 u9.get("confirmations_required"),
@@ -13166,54 +13214,90 @@ def unit11_v26_monitor():
             )
 
             print(
-                "UNIT 11 UNIT5 DIRECT DATA = "
-                "NOT EXPOSED BY FROZEN UNIT10 PROVIDER",
+                "UNIT 11 UNIT9 REASON =",
+                u9.get("reason"),
                 flush=True,
             )
 
             print(
-                "UNIT 11 DETECTIONS =",
+                "UNIT 11 ORIGINAL OPPORTUNITIES =",
+                original_count,
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 TOTAL OPPORTUNITIES =",
                 len(found),
                 flush=True,
             )
 
-            unit11_v26_update(
+            if u9.get("status") in (
+                "PENDING",
+                "CONFIRMED",
+            ):
+
+                key = (
+                    u9["mode"]
+                    + "_"
+                    + u9["direction"]
+                )
+
+                if key not in found:
+                    raise RuntimeError(
+                        "MISSED_UPSTREAM_SIGNAL"
+                    )
+
+                print(
+                    "UNIT 11 UPSTREAM RECOGNIZED = TRUE",
+                    flush=True,
+                )
+
+            elif u9.get("status") == "BLOCKED":
+
+                print(
+                    "UNIT 11 UPSTREAM BLOCK RECOGNIZED =",
+                    u9.get("reason"),
+                    flush=True,
+                )
+
+            unit11_track_original(
                 state,
                 cid,
                 price,
                 found,
-                u9,
             )
 
             print(
-                "UNIT 11 ACCOUNT ACCESS = NONE"
-                " | EXCHANGE WRITE = NONE",
+                "UNIT 11 TRADE AUTHORIZED = FALSE",
+                flush=True,
+            )
+
+            print(
+                "UNIT 11 EXCHANGE WRITE = NONE",
                 flush=True,
             )
 
         except Exception as exc:
 
             print(
-                "UNIT 11 V2.6 BLOCKED =",
+                "UNIT 11 MONITOR BLOCKED =",
                 repr(exc),
                 flush=True,
             )
 
             print(
-                "UNIT 11 V2.6 STATUS = NOT_VERIFIED",
+                "UNIT 11 VERDICT = NOT VERIFIED",
                 flush=True,
             )
 
             return False
 
-        if limit == 0 or scan < limit:
+        if limit == 0 or scan_count < limit:
             time.sleep(interval)
 
-    # This summary runs when a finite limit is used.
-
     print(
-        "UNIT 11 V2.6 SUMMARY =",
-        state["statuses"],
+        "UNIT 11 COMPLETED SCANS =",
+        scan_count,
         flush=True,
     )
 
@@ -13225,31 +13309,25 @@ def unit11_v26_monitor():
 
     print(
         "UNIT 11 DUPLICATE SCANS =",
-        state["duplicate_scans"],
+        state["duplicates"],
         flush=True,
     )
 
     print(
-        "UNIT 11 EARLY DETECTIONS =",
-        state["detected"],
+        "UNIT 11 DETECTIONS =",
+        state["detections"],
         flush=True,
     )
 
     print(
-        "UNIT 11 MATCHED PENDING SIGNALS =",
-        state["matched_pending"],
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 COMPLETED SHADOW OBSERVATIONS =",
+        "UNIT 11 SHADOW COMPLETIONS =",
         state["completed"],
         flush=True,
     )
 
     print(
-        "UNIT 11 V2.6 FINAL STATUS = "
-        "READ_ONLY_MONITOR_VERIFIED",
+        "UNIT 11 VERDICT = "
+        "SOURCE_ALIGNED_MONITOR_COMPLETED",
         flush=True,
     )
 
@@ -13257,27 +13335,27 @@ def unit11_v26_monitor():
 
 
 # ============================================================
-# 7. SINGLE UNIT 11 EXECUTION ENTRY
+# 7. SINGLE EXECUTION ENTRY
 # ZERO INDENTATION
 # ============================================================
 
 if __name__ == "__main__":
 
     print(
-        "UNIT 11 V2.6 START",
+        "UNIT 11 SOURCE-ALIGNED START",
         flush=True,
     )
 
-    if not unit11_v26_tests():
+    if not unit11_source_tests():
         raise RuntimeError(
-            "UNIT11_V26_SELF_TEST_FAILED"
+            "UNIT11_SOURCE_TEST_FAILURE"
         )
 
-    unit11_v26_monitor()
+    unit11_run_source_monitor()
 
 
 # ============================================================
-# END COMPLETE UNIT 11 V2.6 REPLACEMENT
+# END COMPLETE UNIT 11 SOURCE-ALIGNED REPLACEMENT
 # ZERO INDENTATION
 # ============================================================
 
