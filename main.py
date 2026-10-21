@@ -13397,6 +13397,13 @@ def unit11_real_handover():
     scan_function = globals().get(
         "fresh_reconstruction_unit_10_scan"
     )
+# ============================================================
+# UNIT 11 V2.3 HANDOVER CLASSIFICATION
+# ============================================================
+
+handover_v23 = fresh_unit_11_v23_classify_handover(
+    unit10_result
+)
 
     refresh_provider = globals().get(
         "fresh_unit_10_v11_refresh_provider"
