@@ -12358,1023 +12358,409 @@ if UNIT_10_V14_TEST_ENABLED:
 
 
 # ============================================================
-# UNIT 11 V2.3 HANDOVER CLASSIFICATION CORRECTION
-# ZERO INDENTATION START
-# PLACE AFTER UNIT 10, BEFORE UNIT 11
+# START COMPLETE UNIT 11 V2.3 REPLACEMENT
+# ZERO INDENTATION
 # FROZEN UNITS 1-10 UNCHANGED
+# NO ACCOUNT ACCESS / ORDERS / EXCHANGE WRITE
 # ============================================================
 
-def fresh_unit_11_v23_classify_handover(unit10_result):
+import time
 
-    if not isinstance(unit10_result, dict):
-        raise RuntimeError(
-            "UNIT 11 INVALID UNIT 10 RESULT"
-        )
+U11_V23_SCAN_COUNT = 3
+U11_V23_SCAN_INTERVAL = 30.0
+U11_V23_RUN_TESTS = True
+U11_V23_RUN_MARKET = True
 
-    status = unit10_result.get("status")
-    reason = unit10_result.get("reason")
-    scan_id = unit10_result.get("scan_id")
-    unit9 = unit10_result.get("unit_9_result")
 
-    safe = (
-        unit10_result.get("read_only") is True
-        and unit10_result.get("trade_authorized") is False
-        and unit10_result.get("exchange_write") is False
-        and isinstance(unit9, dict)
-        and unit9.get("read_only") is True
-        and unit9.get("trade_authorized") is False
-        and unit9.get("exchange_write") is False
-        and unit9.get("execution_intent") is False
-        and unit9.get("reentry_authorized") is False
-        and unit9.get("order_payload_created") is False
-        and unit9.get("demo_order_submitted") is False
-        and unit9.get("real_order_submitted") is False
+# ============================================================
+# 1. UNIT 10 / UNIT 9 HANDOVER CLASSIFIER
+# ============================================================
+
+def unit11_v23_classify(unit10, refresh):
+
+    def blocked(reason):
+        return {
+            "classification": "BLOCKED",
+            "reason": reason,
+            "handover_verified": False,
+            "continuity_verified": False,
+            "read_only": True,
+            "trade_authorized": False,
+            "exchange_write": False,
+        }
+
+    if not isinstance(unit10, dict):
+        return blocked("INVALID_UNIT10")
+
+    if not isinstance(refresh, dict):
+        return blocked("INVALID_REFRESH")
+
+    if unit10.get("read_only") is not True:
+        return blocked("UNSAFE_UNIT10")
+
+    for key in (
+        "trade_authorized",
+        "exchange_write",
+        "reentry_authorized",
+    ):
+        if unit10.get(key) is not False:
+            return blocked("UNSAFE_UNIT10_" + key)
+
+    scan_id = unit10.get("scan_id")
+
+    if type(scan_id) is not int or scan_id <= 0:
+        return blocked("INVALID_SCAN_ID")
+
+    if refresh.get("scan_id") != scan_id:
+        return blocked("SCAN_ID_MISMATCH")
+
+    unit4 = refresh.get("unit_4")
+    unit8 = refresh.get("unit_8")
+    unit9 = unit10.get("unit_9_result")
+
+    if not all(
+        isinstance(x, dict)
+        for x in (unit4, unit8, unit9)
+    ):
+        return blocked("MISSING_UNIT4_8_9")
+
+    for label, data in (
+        ("UNIT8", unit8),
+        ("UNIT9", unit9),
+    ):
+        if data.get("read_only") is not True:
+            return blocked("UNSAFE_" + label)
+
+        for key in (
+            "trade_authorized",
+            "exchange_write",
+            "reentry_authorized",
+        ):
+            if data.get(key) is not False:
+                return blocked(
+                    "UNSAFE_" + label + "_" + key
+                )
+
+    for key in (
+        "execution_intent",
+        "order_payload_created",
+        "demo_order_submitted",
+        "real_order_submitted",
+    ):
+        if unit9.get(key) is not False:
+            return blocked("UNSAFE_UNIT9_" + key)
+
+    # Verify the same-scan public market evidence.
+
+    candles = unit4.get(
+        "recent_closed_klines"
     )
 
-    valid_statuses = (
+    if (
+        unit4.get("read_only") is not True
+        or unit4.get("candle_data_fresh") is not True
+        or unit4.get("symbol") != "BTCUSDT"
+        or not isinstance(candles, list)
+        or not candles
+        or not isinstance(candles[-1], dict)
+    ):
+        return blocked("INVALID_MARKET_EVIDENCE")
+
+    candle = candles[-1]
+
+    candle_id = candle.get("open_time_ms")
+    alias = candle.get("timestamp")
+    close_time = candle.get("close_time_ms")
+
+    if (
+        type(candle_id) is not int
+        or candle_id <= 0
+        or alias != candle_id
+        or type(close_time) is not int
+        or close_time > int(time.time() * 1000)
+    ):
+        return blocked("INVALID_CLOSED_CANDLE")
+
+    # IDLE, PENDING and CONFIRMED are valid handovers.
+    # Unit 11 never awards Unit 9 confirmations.
+
+    status = unit10.get("status")
+
+    if status not in (
         "IDLE",
         "PENDING",
         "CONFIRMED",
+    ):
+        return blocked("INVALID_STATUS")
+
+    if unit9.get("status") != status:
+        return blocked("STATUS_MISMATCH")
+
+    confirmations = unit9.get(
+        "confirmations"
     )
 
-    status_valid = (
-        status in valid_statuses
-        and isinstance(unit9, dict)
-        and unit9.get("status") == status
+    required = unit9.get(
+        "confirmations_required",
+        2,
     )
 
-    scan_valid = (
-        type(scan_id) is int
-        and scan_id > 0
+    if (
+        type(confirmations) is not int
+        or type(required) is not int
+        or required < 1
+        or not 0 <= confirmations <= required
+    ):
+        return blocked("INVALID_CONFIRMATIONS")
+
+    mode = unit9.get("mode", "NONE")
+    direction = unit9.get(
+        "direction",
+        "NONE",
     )
 
-    handover_verified = (
-        safe
-        and status_valid
-        and scan_valid
-    )
+    if status != "IDLE":
 
-    confirmations = 0
-    required = 2
-    duplicate = False
-    continuity = False
+        if mode not in (
+            "BREAKOUT",
+            "STRUCTURE",
+            "SCALP",
+        ):
+            return blocked("INVALID_SIGNAL_MODE")
 
-    if isinstance(unit9, dict):
+        if direction not in (
+            "LONG",
+            "SHORT",
+        ):
+            return blocked("INVALID_DIRECTION")
 
-        confirmations = unit9.get(
-            "confirmations", 0
-        )
+    # Only Unit 9 can establish confirmation.
+    # PENDING 1/2 remains PENDING even for duplicates.
 
-        required = unit9.get(
-            "confirmations_required", 2
-        )
-
-        duplicate = (
-            unit9.get("duplicate_candle") is True
-        )
-
-        continuity = (
-            unit9.get("continuity_verified") is True
-        )
-
-    confirmation_valid = (
-        type(confirmations) is int
-        and type(required) is int
-        and required >= 1
-        and 0 <= confirmations <= required
-    )
-
-    signal_verified = (
-        handover_verified
-        and confirmation_valid
-        and status == "CONFIRMED"
-        and continuity
+    continuity = (
+        status == "CONFIRMED"
+        and unit9.get(
+            "continuity_verified"
+        ) is True
         and confirmations >= required
     )
 
-    if not handover_verified:
-        classification = "BLOCKED"
+    if status == "CONFIRMED" and not continuity:
+        return blocked(
+            "UNVERIFIED_CONFIRMED_STATUS"
+        )
 
-    elif not confirmation_valid:
-        classification = "BLOCKED"
-        handover_verified = False
-
-    elif status == "IDLE":
-        classification = "IDLE"
-
-    elif status == "PENDING":
-        classification = "PENDING"
-
-    elif signal_verified:
-        classification = "CONFIRMED"
-
-    else:
-        classification = "BLOCKED"
-
-    pending_preserved = (
-        classification == "PENDING"
-    )
-
-    result = {
-        "classification": classification,
-        "market_handover_verified": handover_verified,
-        "signal_continuity_verified": signal_verified,
-        "pending_preserved": pending_preserved,
-        "duplicate_candle_ignored": duplicate,
+    return {
+        "classification": status,
+        "reason": unit9.get(
+            "reason",
+            unit10.get("reason"),
+        ),
+        "handover_verified": True,
+        "continuity_verified": continuity,
         "confirmations": confirmations,
         "required": required,
-        "unit9_status": status,
-        "unit9_reason": reason,
+        "duplicate_candle": (
+            unit9.get("duplicate_candle") is True
+        ),
+        "candle_id": candle_id,
         "scan_id": scan_id,
+        "mode": mode,
+        "direction": direction,
         "read_only": True,
         "trade_authorized": False,
         "exchange_write": False,
     }
 
-    print("=" * 70, flush=True)
-    print(
-        "UNIT 11 V2.3 CLASSIFICATION =",
-        classification, flush=True
-    )
-    print(
-        "UNIT 11 V2.3 HANDOVER VERIFIED =",
-        handover_verified, flush=True
-    )
-    print(
-        "UNIT 11 V2.3 PENDING PRESERVED =",
-        pending_preserved, flush=True
-    )
-    print(
-        "UNIT 11 V2.3 DUPLICATE CANDLE =",
-        duplicate, flush=True
-    )
-    print(
-        "UNIT 11 V2.3 CONFIRMATIONS =",
-        confirmations, "/", required, flush=True
-    )
-    print(
-        "UNIT 11 V2.3 CONTINUITY VERIFIED =",
-        signal_verified, flush=True
-    )
-    print(
-        "UNIT 11 V2.3 EXCHANGE WRITE = NONE",
-        flush=True
-    )
-    print("=" * 70, flush=True)
-
-    return result
-
 
 # ============================================================
-# END UNIT 11 V2.3 HANDOVER CLASSIFIER
-# ZERO INDENTATION END
+# 2. CONTROLLED HANDOVER SIMULATIONS
 # ============================================================
 
+def unit11_v23_simulations():
 
-# ============================================================
-# START COMPLETE UNIT 11 V2.2
-# ZERO INDENTATION
-#
-# FROZEN UNITS 1-10 = UNCHANGED
-# ONE COMPLETE UNIT 11 REPLACEMENT
-#
-# 26 CONTROLLED SIMULATION TESTS
-# ACTUAL UNIT 10 READ-ONLY HANDOVER
-# AUTHENTIC UNIT 4 CLOSED CANDLES
-# UNIT 9 SIGNAL CONTINUITY
-#
-# NO ACCOUNT ACCESS
-# NO POSITION ACCESS
-# NO ORDER SUBMISSION
-# NO EXCHANGE WRITES
-# ============================================================
+    now = int(time.time() * 1000)
 
-import time
-from dataclasses import dataclass
+    candle_id = (
+        (now // 60000) - 1
+    ) * 60000
 
-
-# ============================================================
-# 1. UNIT 11 CONFIGURATION
-# ============================================================
-
-U11_REQUIRED_CONFIRMATIONS = 2
-U11_CANDLE_MS = 60000
-U11_SIGNAL_EXPIRY_SECONDS = 120
-
-U11_VALID_MODES = (
-    "BREAKOUT",
-    "STRUCTURE",
-    "SCALP",
-)
-
-U11_VALID_DIRECTIONS = (
-    "LONG",
-    "SHORT",
-)
-
-U11_RUN_SIMULATIONS = True
-U11_REAL_HANDOVER_ENABLED = True
-
-U11_REAL_SCAN_COUNT = 3
-U11_REAL_SCAN_INTERVAL = 30.0
-
-
-# ============================================================
-# 2. IMMUTABLE SIGNAL SNAPSHOT
-# ============================================================
-
-@dataclass(frozen=True)
-class Unit11Snapshot:
-
-    candle_id: int
-    observed_at: float
-
-    mode: str = "NONE"
-    direction: str = "NONE"
-
-    qualified: bool = False
-    signal_id: str = ""
-
-    candle_closed: bool = False
-    market_fresh: bool = False
-
-    position_flat_verified: bool = False
-    read_only: bool = True
-
-
-# ============================================================
-# 3. UNIT 11 SIGNAL CONTINUITY ENGINE
-# ============================================================
-
-class Unit11:
-
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-
-        self.key = None
-        self.last_candle_id = None
-        self.first_seen = None
-
-        self.confirmations = 0
-        self.last_observation = None
-
-    def result(self, reason, flat=False):
-
-        verified = (
-            self.confirmations
-            >= U11_REQUIRED_CONFIRMATIONS
-            and reason == "CONTINUITY_VERIFIED"
-        )
-
-        return {
-            "status": (
-                "VERIFIED"
-                if verified
-                else "WAITING"
-            ),
-            "reason": reason,
-            "mode": (
-                self.key[0]
-                if self.key else "NONE"
-            ),
-            "direction": (
-                self.key[1]
-                if self.key else "NONE"
-            ),
-            "signal_id": (
-                self.key[2]
-                if self.key else ""
-            ),
-            "closed_candle_id":
-                self.last_candle_id,
-            "confirmations":
-                self.confirmations,
-            "required":
-                U11_REQUIRED_CONFIRMATIONS,
-            "continuity_verified":
-                verified,
-            "position_flat_verified":
-                bool(flat),
-            "reentry_candidate": (
-                verified and bool(flat)
-            ),
-            "trade_authorized": False,
-            "exchange_write": False,
-            "read_only": True,
-        }
-
-    def scan(self, x):
-
-        if not isinstance(x, Unit11Snapshot):
-            raise TypeError(
-                "UNIT 11 INVALID SNAPSHOT"
-            )
-
-        # ------------------------------------
-        # OBSERVATION ORDER
-        # ------------------------------------
-
-        if (
-            self.last_observation is not None
-            and x.observed_at
-            < self.last_observation
-        ):
-            return self.result(
-                "STALE_OBSERVATION"
-            )
-
-        self.last_observation = x.observed_at
-
-        # ------------------------------------
-        # READ-ONLY SAFETY
-        # ------------------------------------
-
-        if x.read_only is not True:
-
-            self.reset()
-
-            return self.result(
-                "UNSAFE_INPUT"
-            )
-
-        # ------------------------------------
-        # MARKET CANDLE VERIFICATION
-        # ------------------------------------
-
-        if (
-            x.market_fresh is not True
-            or x.candle_closed is not True
-            or type(x.candle_id) is not int
-            or x.candle_id <= 0
-        ):
-
-            self.reset()
-
-            return self.result(
-                "MARKET_CANDLE_UNVERIFIED"
-            )
-
-        # ------------------------------------
-        # SIGNAL QUALIFICATION
-        # ------------------------------------
-
-        if (
-            x.qualified is not True
-            or x.mode not in U11_VALID_MODES
-            or x.direction
-            not in U11_VALID_DIRECTIONS
-        ):
-
-            self.reset()
-
-            return self.result(
-                "NO_QUALIFIED_SIGNAL"
-            )
-
-        if (
-            not isinstance(x.signal_id, str)
-            or not x.signal_id
-        ):
-
-            self.reset()
-
-            return self.result(
-                "SIGNAL_ID_MISSING"
-            )
-
-        key = (
-            x.mode,
-            x.direction,
-            x.signal_id,
-        )
-
-        # ------------------------------------
-        # FIRST OR CHANGED SIGNAL
-        # ------------------------------------
-
-        if key != self.key:
-
-            self.reset()
-
-            self.key = key
-            self.first_seen = x.observed_at
-
-            self.last_observation = (
-                x.observed_at
-            )
-
-            self.last_candle_id = x.candle_id
-            self.confirmations = 1
-
-            return self.result(
-                "FIRST_CONFIRMATION"
-            )
-
-        # ------------------------------------
-        # SIGNAL EXPIRY
-        # ------------------------------------
-
-        if (
-            x.observed_at - self.first_seen
-            > U11_SIGNAL_EXPIRY_SECONDS
-        ):
-
-            self.reset()
-
-            self.key = key
-            self.first_seen = x.observed_at
-
-            self.last_observation = (
-                x.observed_at
-            )
-
-            self.last_candle_id = x.candle_id
-            self.confirmations = 1
-
-            return self.result(
-                "SIGNAL_EXPIRED_RESTART"
-            )
-
-        # ------------------------------------
-        # DUPLICATE OR STALE CANDLE
-        # ------------------------------------
-
-        if (
-            x.candle_id
-            == self.last_candle_id
-        ):
-
-            return self.result(
-                "DUPLICATE_CANDLE"
-            )
-
-        if (
-            x.candle_id
-            < self.last_candle_id
-        ):
-
-            return self.result(
-                "STALE_CANDLE"
-            )
-
-        # ------------------------------------
-        # NONCONSECUTIVE CANDLE
-        # ------------------------------------
-
-        if (
-            x.candle_id - self.last_candle_id
-            != U11_CANDLE_MS
-        ):
-
-            self.reset()
-
-            self.key = key
-            self.first_seen = x.observed_at
-
-            self.last_observation = (
-                x.observed_at
-            )
-
-            self.last_candle_id = x.candle_id
-            self.confirmations = 1
-
-            return self.result(
-                "CANDLE_GAP_RESTART"
-            )
-
-        # ------------------------------------
-        # CONSECUTIVE CONFIRMATION
-        # ------------------------------------
-
-        self.last_candle_id = x.candle_id
-
-        self.confirmations = min(
-            self.confirmations + 1,
-            U11_REQUIRED_CONFIRMATIONS,
-        )
-
-        return self.result(
-            "CONTINUITY_VERIFIED",
-            x.position_flat_verified,
-        )
-
-
-# ============================================================
-# 4. SIMULATION SNAPSHOT GENERATOR
-# ============================================================
-
-def u11_test_snapshot(
-    candle,
-    seconds,
-    **changes,
-):
-
-    fields = {
-        "candle_id": candle,
-        "observed_at": seconds,
-        "mode": "BREAKOUT",
-        "direction": "LONG",
-        "qualified": True,
-        "signal_id": "S1",
-        "candle_closed": True,
-        "market_fresh": True,
-        "position_flat_verified": False,
-        "read_only": True,
+    candle = {
+        "open_time_ms": candle_id,
+        "timestamp": candle_id,
+        "close_time_ms": candle_id + 59999,
     }
 
-    fields.update(changes)
+    frame = {
+        "scan_id": 101,
+        "unit_4": {
+            "read_only": True,
+            "candle_data_fresh": True,
+            "symbol": "BTCUSDT",
+            "recent_closed_klines": [candle],
+        },
+        "unit_8": {
+            "read_only": True,
+            "trade_authorized": False,
+            "exchange_write": False,
+            "reentry_authorized": False,
+        },
+    }
 
-    return Unit11Snapshot(**fields)
+    u9 = {
+        "read_only": True,
+        "trade_authorized": False,
+        "exchange_write": False,
+        "reentry_authorized": False,
+        "execution_intent": False,
+        "order_payload_created": False,
+        "demo_order_submitted": False,
+        "real_order_submitted": False,
+        "status": "PENDING",
+        "mode": "BREAKOUT",
+        "direction": "LONG",
+        "confirmations": 1,
+        "confirmations_required": 2,
+        "duplicate_candle": True,
+        "continuity_verified": False,
+        "reason": "DUPLICATE_CLOSED_CANDLE_IGNORED",
+    }
 
+    u10 = {
+        "read_only": True,
+        "trade_authorized": False,
+        "exchange_write": False,
+        "reentry_authorized": False,
+        "scan_id": 101,
+        "status": "PENDING",
+        "unit_9_result": u9,
+    }
 
-# ============================================================
-# 5. ALL 26 UNIT 11 SIMULATION TESTS
-# ============================================================
+    checks = []
 
-def unit11_self_tests():
+    def check(label, condition):
 
-    print("=" * 70, flush=True)
-    print(
-        "UNIT 11 V2.2 SIMULATIONS START",
-        flush=True,
-    )
-
-    passed = 0
-    failed = 0
-
-    base = 1800000000000
-    step = U11_CANDLE_MS
-
-    def run(
-        number,
-        name,
-        sequence,
-        check,
-    ):
-
-        nonlocal passed, failed
-
-        try:
-
-            engine = Unit11()
-
-            results = [
-                engine.scan(item)
-                for item in sequence
-            ]
-
-            ok = bool(check(results))
-
-        except Exception as exc:
-
-            ok = False
-
-            print(
-                "UNIT 11 TEST ERROR =",
-                number,
-                repr(exc),
-                flush=True,
-            )
-
-        if ok:
-            passed += 1
-        else:
-            failed += 1
+        passed = bool(condition)
+        checks.append(passed)
 
         print(
-            ("PASS: " if ok else "FAIL: ")
-            + str(number)
-            + " "
-            + name,
+            ("PASS: " if passed else "FAIL: ")
+            + label,
             flush=True,
         )
 
-    a = u11_test_snapshot(base, 0)
-    b = u11_test_snapshot(base + step, 60)
+    # TEST 1: PENDING handover
 
-    # TEST 1
-
-    run(
-        1, "FIRST CANDLE ONLY",
-        [a],
-        lambda r:
-            r[-1]["confirmations"] == 1
-            and not r[-1][
-                "continuity_verified"
-            ],
+    pending = unit11_v23_classify(
+        u10,
+        frame,
     )
 
-    # TEST 2
-
-    run(
-        2, "TWO CONSECUTIVE CANDLES",
-        [a, b],
-        lambda r:
-            r[-1]["continuity_verified"]
-            is True,
+    check(
+        "PENDING ACCEPTED",
+        pending["classification"] == "PENDING",
     )
 
-    # TEST 3
+    # TEST 2: Duplicate does not become 2/2
 
-    run(
-        3, "DUPLICATE CANDLE",
-        [
-            a,
-            u11_test_snapshot(base, 10),
-        ],
-        lambda r:
-            r[-1]["reason"]
-            == "DUPLICATE_CANDLE"
-            and r[-1]["confirmations"] == 1,
+    check(
+        "DUPLICATE PRESERVES 1/2",
+        pending["confirmations"] == 1
+        and pending["duplicate_candle"],
     )
 
-    # TEST 4
+    # TEST 3: PENDING is not confirmed
 
-    run(
-        4, "STALE CANDLE",
-        [
-            a,
-            u11_test_snapshot(
-                base - step, 10
-            ),
-        ],
-        lambda r:
-            r[-1]["reason"]
-            == "STALE_CANDLE",
+    check(
+        "PENDING NOT CONFIRMED",
+        not pending["continuity_verified"],
     )
 
-    # TEST 5
+    # TEST 4: Unit 9 confirmed handover
 
-    run(
-        5, "CANDLE GAP",
-        [
-            a,
-            u11_test_snapshot(
-                base + 2 * step, 60
-            ),
-        ],
-        lambda r:
-            r[-1]["reason"]
-            == "CANDLE_GAP_RESTART",
+    u9["status"] = "CONFIRMED"
+    u10["status"] = "CONFIRMED"
+    u9["confirmations"] = 2
+    u9["duplicate_candle"] = False
+    u9["continuity_verified"] = True
+
+    confirmed = unit11_v23_classify(
+        u10,
+        frame,
     )
 
-    # TEST 6
-
-    run(
-        6, "MODE CHANGE",
-        [
-            a,
-            u11_test_snapshot(
-                base + step,
-                60,
-                mode="STRUCTURE",
-            ),
-        ],
-        lambda r:
-            r[-1]["confirmations"] == 1,
+    check(
+        "CONFIRMED HANDOVER",
+        confirmed["continuity_verified"],
     )
 
-    # TEST 7
+    # TEST 5: Normal IDLE
 
-    run(
-        7, "DIRECTION CHANGE",
-        [
-            a,
-            u11_test_snapshot(
-                base + step,
-                60,
-                direction="SHORT",
-            ),
-        ],
-        lambda r:
-            r[-1]["confirmations"] == 1,
+    u9["status"] = "IDLE"
+    u10["status"] = "IDLE"
+    u9["confirmations"] = 0
+    u9["continuity_verified"] = False
+
+    idle = unit11_v23_classify(
+        u10,
+        frame,
     )
 
-    # TEST 8
-
-    run(
-        8, "SIGNAL ID CHANGE",
-        [
-            a,
-            u11_test_snapshot(
-                base + step,
-                60,
-                signal_id="S2",
-            ),
-        ],
-        lambda r:
-            r[-1]["confirmations"] == 1,
+    check(
+        "IDLE HANDOVER",
+        idle["classification"] == "IDLE",
     )
 
-    # TEST 9
+    # TEST 6: Scan mismatch
 
-    run(
-        9, "SIGNAL EXPIRY",
-        [
-            a,
-            u11_test_snapshot(
-                base + step, 121
-            ),
-        ],
-        lambda r:
-            r[-1]["reason"]
-            == "SIGNAL_EXPIRED_RESTART",
+    u10["scan_id"] = 102
+
+    check(
+        "SCAN ID MISMATCH BLOCKED",
+        unit11_v23_classify(
+            u10,
+            frame,
+        )["classification"] == "BLOCKED",
     )
 
-    # TEST 10
+    u10["scan_id"] = 101
 
-    run(
-        10, "IDLE RESET",
-        [
-            a,
-            u11_test_snapshot(
-                base + step,
-                60,
-                qualified=False,
-            ),
-        ],
-        lambda r:
-            r[-1]["confirmations"] == 0,
+    # TEST 7: Unsafe write blocked
+
+    u10["exchange_write"] = True
+
+    check(
+        "UNSAFE WRITE BLOCKED",
+        unit11_v23_classify(
+            u10,
+            frame,
+        )["classification"] == "BLOCKED",
     )
 
-    # TEST 11
+    # Final simulated verdict
 
-    run(
-        11, "UNFINISHED CANDLE",
-        [
-            u11_test_snapshot(
-                base,
-                0,
-                candle_closed=False,
-            ),
-        ],
-        lambda r:
-            r[-1]["reason"]
-            == "MARKET_CANDLE_UNVERIFIED",
-    )
-
-    # TEST 12
-
-    run(
-        12, "MISSING SIGNAL ID",
-        [
-            u11_test_snapshot(
-                base,
-                0,
-                signal_id="",
-            ),
-        ],
-        lambda r:
-            r[-1]["reason"]
-            == "SIGNAL_ID_MISSING",
-    )
-
-    # TEST 13
-
-    run(
-        13, "READ ONLY SAFETY",
-        [
-            u11_test_snapshot(
-                base,
-                0,
-                read_only=False,
-            ),
-        ],
-        lambda r:
-            r[-1]["reason"]
-            == "UNSAFE_INPUT",
-    )
-
-    # TEST 14
-
-    run(
-        14, "NO FLAT VERIFICATION",
-        [a, b],
-        lambda r:
-            r[-1]["continuity_verified"]
-            and not r[-1][
-                "reentry_candidate"
-            ],
-    )
-
-    # TEST 15
-
-    run(
-        15, "FLAT VERIFIED CANDIDATE",
-        [
-            a,
-            u11_test_snapshot(
-                base + step,
-                60,
-                position_flat_verified=True,
-            ),
-        ],
-        lambda r:
-            r[-1]["reentry_candidate"]
-            and not r[-1][
-                "trade_authorized"
-            ],
-    )
-
-    # TEST 16
-
-    run(
-        16, "SCALP CONTINUITY",
-        [
-            u11_test_snapshot(
-                base,
-                0,
-                mode="SCALP",
-            ),
-            u11_test_snapshot(
-                base + step,
-                60,
-                mode="SCALP",
-            ),
-        ],
-        lambda r:
-            r[-1]["continuity_verified"],
-    )
-
-    # TEST 17
-
-    run(
-        17, "OUT OF ORDER OBSERVATION",
-        [
-            u11_test_snapshot(base, 60),
-            u11_test_snapshot(
-                base + step, 50
-            ),
-        ],
-        lambda r:
-            r[-1]["reason"]
-            == "STALE_OBSERVATION",
-    )
-
-    # TEST 18
-
-    run(
-        18, "ZERO EXCHANGE WRITES",
-        [a, b],
-        lambda r:
-            all(
-                x["exchange_write"] is False
-                and x["trade_authorized"]
-                is False
-                for x in r
-            ),
-    )
-
-    # TEST 19
-
-    run(
-        19, "SIGNAL HANDOVER FIELDS",
-        [a],
-        lambda r:
-            r[-1]["mode"] == "BREAKOUT"
-            and r[-1]["direction"] == "LONG"
-            and r[-1]["signal_id"] == "S1",
-    )
-
-    # TEST 20
-
-    run(
-        20, "THREE SCAN CONTINUITY",
-        [
-            a,
-            b,
-            u11_test_snapshot(
-                base + 2 * step, 120
-            ),
-        ],
-        lambda r:
-            len(r) == 3
-            and r[-1][
-                "continuity_verified"
-            ],
-    )
-
-    # TEST 21
-
-    run(
-        21, "DUPLICATE DOES NOT QUALIFY",
-        [
-            a,
-            u11_test_snapshot(base, 10),
-        ],
-        lambda r:
-            not r[-1][
-                "continuity_verified"
-            ],
-    )
-
-    # TEST 22
-
-    run(
-        22, "SIGNAL IDENTITY RESET",
-        [
-            a,
-            u11_test_snapshot(
-                base + step,
-                60,
-                mode="STRUCTURE",
-                signal_id="S2",
-            ),
-        ],
-        lambda r:
-            r[-1]["reason"]
-            == "FIRST_CONFIRMATION",
-    )
-
-    # TEST 23
-
-    run(
-        23, "EXPIRED SIGNAL BLOCKED",
-        [
-            a,
-            u11_test_snapshot(
-                base + step, 121
-            ),
-        ],
-        lambda r:
-            not r[-1][
-                "continuity_verified"
-            ],
-    )
-
-    # TEST 24
-
-    run(
-        24, "NONFLAT POSITION BLOCKED",
-        [a, b],
-        lambda r:
-            not r[-1]["reentry_candidate"],
-    )
-
-    # TEST 25
-
-    run(
-        25, "READ ONLY REENTRY CANDIDATE",
-        [
-            a,
-            u11_test_snapshot(
-                base + step,
-                60,
-                position_flat_verified=True,
-            ),
-        ],
-        lambda r:
-            r[-1]["reentry_candidate"]
-            and r[-1]["trade_authorized"]
-            is False,
-    )
-
-    # TEST 26
-
-    run(
-        26, "UNSAFE HANDOVER BLOCKED",
-        [
-            u11_test_snapshot(
-                base,
-                0,
-                read_only=False,
-            ),
-        ],
-        lambda r:
-            r[-1]["reason"]
-            == "UNSAFE_INPUT"
-            and r[-1]["exchange_write"]
-            is False,
-    )
-
-    print("=" * 70, flush=True)
+    verdict = all(checks)
 
     print(
-        "UNIT 11 TESTS PASSED =",
-        passed,
+        "UNIT 11 V2.3 TESTS PASSED =",
+        sum(checks),
         flush=True,
     )
 
     print(
-        "UNIT 11 TESTS FAILED =",
-        failed,
+        "UNIT 11 V2.3 TESTS FAILED =",
+        len(checks) - sum(checks),
         flush=True,
     )
 
-    verdict = (
-        passed == 26 and failed == 0
-    )
-
     print(
-        "UNIT 11 TEST VERDICT =",
+        "UNIT 11 V2.3 TEST VERDICT =",
         "PASS" if verdict else "FAIL",
         flush=True,
     )
 
     print(
-        "UNIT 11 TEST EXCHANGE WRITE = NONE",
+        "UNIT 11 V2.3 TEST EXCHANGE WRITE = NONE",
         flush=True,
     )
 
@@ -13382,34 +12768,20 @@ def unit11_self_tests():
 
 
 # ============================================================
-# 6. ACTUAL UNIT 10 TO UNIT 11 HANDOVER
+# 3. ACTUAL UNIT 10 -> UNIT 11 MARKET HANDOVER
 # ============================================================
 
-def unit11_real_handover():
+def unit11_v23_real_handover():
 
-    print("=" * 70, flush=True)
-
-    print(
-        "UNIT 11 V2.2 REAL HANDOVER START",
-        flush=True,
-    )
-
-    scan_function = globals().get(
+    scanner = globals().get(
         "fresh_reconstruction_unit_10_scan"
     )
-    # ============================================================
-    # UNIT 11 V2.3 HANDOVER CLASSIFICATION
-    # ============================================================
 
-    handover_v23 = fresh_unit_11_v23_classify_handover(
-    unit10_result
-    )
-
-    refresh_provider = globals().get(
+    provider = globals().get(
         "fresh_unit_10_v11_refresh_provider"
     )
 
-    safety_validator = globals().get(
+    validator = globals().get(
         "fresh_unit_10_validate_safety"
     )
 
@@ -13417,691 +12789,263 @@ def unit11_real_handover():
         "FRESH_RECONSTRUCTION_CONFIG"
     )
 
-    # ------------------------------------
-    # DEPENDENCY GATE
-    # ------------------------------------
-
-    if (
-        not callable(scan_function)
-        or not callable(refresh_provider)
-        or not callable(safety_validator)
-        or not isinstance(config, dict)
+    if not (
+        callable(scanner)
+        and callable(provider)
+        and callable(validator)
+        and isinstance(config, dict)
     ):
-
         print(
-            "UNIT 11 BLOCKED = "
-            "FROZEN UNIT 10 DEPENDENCY MISSING",
+            "UNIT 11 BLOCKED = MISSING UNIT 10 DEPENDENCY",
             flush=True,
         )
-
         return False
+
+    # Prevent competing scanning loops.
 
     if globals().get(
         "UNIT_10_CONTINUOUS_SCAN_ENABLED"
     ) is not False:
 
         print(
-            "UNIT 11 BLOCKED = "
-            "UNIT 10 AUTO SCAN UNSAFE",
+            "UNIT 11 BLOCKED = CONFLICTING SCAN LOOP",
             flush=True,
         )
 
         return False
 
-    # ------------------------------------
-    # FROZEN CONFIGURATION SAFETY
-    # ------------------------------------
+    validator(config)
 
-    try:
+    counts = {
+        "IDLE": 0,
+        "PENDING": 0,
+        "CONFIRMED": 0,
+        "BLOCKED": 0,
+    }
 
-        safety_validator(config)
+    last_scan_id = None
+    last_candle = None
 
-    except Exception as exc:
-
-        print(
-            "UNIT 11 SAFETY ERROR =",
-            repr(exc),
-            flush=True,
-        )
-
-        return False
-
-    # ------------------------------------
-    # CONTINUITY ENGINE
-    # ------------------------------------
-
-    engine = Unit11()
-
-    processed = 0
-    blocked = 0
-    idle_count = 0
-    qualified_count = 0
-
-    previous_scan_id = None
-    previous_market_candle = None
-
-    # ------------------------------------
-    # BOUNDED REAL MARKET SCANNING
-    # ------------------------------------
-
-    for scan_number in range(
+    for number in range(
         1,
-        U11_REAL_SCAN_COUNT + 1,
+        U11_V23_SCAN_COUNT + 1,
     ):
 
-        print("-" * 70, flush=True)
+        print("=" * 70, flush=True)
 
         print(
-            "UNIT 11 REAL SCAN =",
-            scan_number,
+            "UNIT 11 V2.3 REAL SCAN =",
+            number,
             flush=True,
         )
 
-        # --------------------------------
-        # CAPTURE ORIGINAL UNIT 10 REFRESH
-        # --------------------------------
-
         captured = {
-            "called": False,
-            "result": None,
+            "calls": 0,
+            "frame": None,
         }
+
+        # Capture the real Unit 10 provider response.
+        # Do not create a second scan independently.
 
         def observing_provider():
 
-            if captured["called"]:
+            captured["calls"] += 1
 
+            if captured["calls"] != 1:
                 raise RuntimeError(
-                    "UNIT 11 DUPLICATE PROVIDER CALL"
+                    "DUPLICATE_PROVIDER_CALL"
                 )
 
-            captured["called"] = True
+            frame = provider()
+            captured["frame"] = frame
 
-            refresh = refresh_provider()
-
-            if not isinstance(refresh, dict):
-
-                raise RuntimeError(
-                    "UNIT 11 INVALID REFRESH RESULT"
-                )
-
-            captured["result"] = refresh
-
-            return refresh
-
-        # --------------------------------
-        # CALL ORIGINAL FROZEN UNIT 10
-        # --------------------------------
+            return frame
 
         try:
 
-            unit10 = scan_function(
+            # This variable is defined BEFORE classification.
+            # Fixes the former undefined unit10_result error.
+
+            unit10_result = scanner(
                 observing_provider
             )
 
-        except Exception as exc:
-
-            print(
-                "UNIT 11 SCAN ERROR =",
-                repr(exc),
-                flush=True,
+            result = unit11_v23_classify(
+                unit10_result,
+                captured["frame"],
             )
 
-            engine.reset()
-            blocked += 1
-            break
-
-        # --------------------------------
-        # VERIFY UNIT 10
-        # --------------------------------
-
-        if not isinstance(unit10, dict):
-
-            print(
-                "UNIT 11 BLOCK = INVALID UNIT 10",
-                flush=True,
-            )
-
-            engine.reset()
-            blocked += 1
-            break
-
-        safe10 = (
-            unit10.get("read_only") is True
-            and unit10.get(
-                "trade_authorized"
-            ) is False
-            and unit10.get(
-                "exchange_write"
-            ) is False
-            and unit10.get(
-                "reentry_authorized"
-            ) is False
-        )
-
-        if not safe10:
-
-            print(
-                "UNIT 11 BLOCK = UNSAFE UNIT 10",
-                flush=True,
-            )
-
-            engine.reset()
-            blocked += 1
-            break
-
-        status = unit10.get("status")
-
-        if status not in (
-            "IDLE",
-            "PENDING",
-            "CONFIRMED",
-        ):
-
-            print(
-                "UNIT 11 BLOCK = UNIT 10 STATUS",
-                status,
-                unit10.get("reason"),
-                flush=True,
-            )
-
-            engine.reset()
-            blocked += 1
-            break
-
-        scan_id = unit10.get("scan_id")
-
-        if (
-            type(scan_id) is not int
-            or (
-                previous_scan_id is not None
-                and scan_id <= previous_scan_id
-            )
-        ):
-
-            print(
-                "UNIT 11 BLOCK = INVALID SCAN ID",
-                flush=True,
-            )
-
-            engine.reset()
-            blocked += 1
-            break
-
-        previous_scan_id = scan_id
-
-        # --------------------------------
-        # VERIFY SAME-SCAN REFRESH
-        # --------------------------------
-
-        refresh = captured["result"]
-
-        if (
-            captured["called"] is not True
-            or not isinstance(refresh, dict)
-            or refresh.get("scan_id") != scan_id
-        ):
-
-            print(
-                "UNIT 11 BLOCK = "
-                "REFRESH SCAN ID MISMATCH",
-                flush=True,
-            )
-
-            engine.reset()
-            blocked += 1
-            break
-
-        unit4 = refresh.get("unit_4")
-        unit8 = refresh.get("unit_8")
-
-        unit9 = unit10.get(
-            "unit_9_result"
-        )
-
-        if not all(
-            isinstance(item, dict)
-            for item in (
-                unit4,
-                unit8,
-                unit9,
-            )
-        ):
-
-            print(
-                "UNIT 11 BLOCK = "
-                "UNIT 4/8/9 HANDOVER MISSING",
-                flush=True,
-            )
-
-            engine.reset()
-            blocked += 1
-            break
-
-        # --------------------------------
-        # VERIFY UNIT 8/9 SAFETY
-        # --------------------------------
-
-        for label, data in (
-            ("UNIT 8", unit8),
-            ("UNIT 9", unit9),
-        ):
-
-            if (
-                data.get("read_only") is not True
-                or data.get(
-                    "trade_authorized"
-                ) is not False
-                or data.get(
-                    "exchange_write"
-                ) is not False
-                or data.get(
-                    "reentry_authorized"
-                ) is not False
-            ):
-
-                print(
-                    "UNIT 11 BLOCK = UNSAFE",
-                    label,
-                    flush=True,
+            if captured["calls"] != 1:
+                raise RuntimeError(
+                    "PROVIDER_NOT_CALLED_ONCE"
                 )
 
-                engine.reset()
-                blocked += 1
-                break
-
-        else:
-
-            pass
-
-        if blocked:
-            break
-
-        # --------------------------------
-        # VERIFY UNIT 4 MARKET EVIDENCE
-        # --------------------------------
-
-        candles = unit4.get(
-            "recent_closed_klines"
-        )
-
-        market_verified = (
-            unit4.get("read_only") is True
-            and unit4.get(
-                "candle_data_fresh"
-            ) is True
-            and unit4.get("symbol") == "BTCUSDT"
-            and isinstance(candles, list)
-            and bool(candles)
-        )
-
-        if not market_verified:
-
-            print(
-                "UNIT 11 BLOCK = "
-                "MARKET EVIDENCE INVALID",
-                flush=True,
-            )
-
-            engine.reset()
-            blocked += 1
-            break
-
-        latest = candles[-1]
-
-        if not isinstance(latest, dict):
-
-            print(
-                "UNIT 11 BLOCK = INVALID CANDLE",
-                flush=True,
-            )
-
-            engine.reset()
-            blocked += 1
-            break
-
-        candle_id = latest.get(
-            "open_time_ms"
-        )
-
-        alias = latest.get(
-            "timestamp"
-        )
-
-        if (
-            type(candle_id) is not int
-            or candle_id <= 0
-            or type(alias) is not int
-            or alias != candle_id
-        ):
-
-            print(
-                "UNIT 11 BLOCK = "
-                "CANDLE TIMESTAMP NOT VERIFIED",
-                flush=True,
-            )
-
-            engine.reset()
-            blocked += 1
-            break
-
-        now_ms = int(
-            time.time() * 1000
-        )
-
-        candle_closed = (
-            candle_id + U11_CANDLE_MS <= now_ms
-        )
-
-        if not candle_closed:
-
-            print(
-                "UNIT 11 BLOCK = "
-                "UNFINISHED MARKET CANDLE",
-                flush=True,
-            )
-
-            engine.reset()
-            blocked += 1
-            break
-
-        if (
-            previous_market_candle is not None
-            and candle_id < previous_market_candle
-        ):
-
-            print(
-                "UNIT 11 BLOCK = "
-                "REGRESSING MARKET CANDLE",
-                flush=True,
-            )
-
-            engine.reset()
-            blocked += 1
-            break
-
-        previous_market_candle = candle_id
-
-        # --------------------------------
-        # SEPARATE SIGNAL FROM MARKET
-        # --------------------------------
-
-        mode = unit9.get(
-            "mode",
-            "NONE",
-        )
-
-        direction = unit9.get(
-            "direction",
-            "NONE",
-        )
-
-        signal_id = unit9.get(
-            "signal_id",
-            "",
-        )
-
-        has_signal = (
-            status in (
-                "PENDING",
-                "CONFIRMED",
-            )
-        )
-
-        if has_signal:
-
-            qualified = (
-                mode in U11_VALID_MODES
-                and direction
-                in U11_VALID_DIRECTIONS
-                and isinstance(signal_id, str)
-                and bool(signal_id)
-                and unit9.get(
-                    "closed_candle_id"
-                ) == candle_id
-            )
-
-            if not qualified:
-
-                print(
-                    "UNIT 11 SIGNAL BLOCK = "
-                    "IDENTITY OR SIGNAL CANDLE "
-                    "UNVERIFIED",
-                    flush=True,
-                )
-
-                engine.reset()
-                blocked += 1
-
-                print(
-                    "UNIT 11 EXCHANGE WRITE = NONE",
-                    flush=True,
-                )
+            if result["classification"] != "BLOCKED":
 
                 if (
-                    scan_number
-                    < U11_REAL_SCAN_COUNT
+                    last_scan_id is not None
+                    and result["scan_id"] <= last_scan_id
                 ):
-
-                    time.sleep(
-                        U11_REAL_SCAN_INTERVAL
+                    raise RuntimeError(
+                        "REGRESSED_SCAN_ID"
                     )
 
-                continue
+                if (
+                    last_candle is not None
+                    and result["candle_id"] < last_candle
+                ):
+                    raise RuntimeError(
+                        "REGRESSED_CANDLE"
+                    )
 
-            qualified_count += 1
+                last_scan_id = result["scan_id"]
+                last_candle = result["candle_id"]
 
-        else:
+        except Exception as exc:
 
-            qualified = False
-            mode = "NONE"
-            direction = "NONE"
-            signal_id = ""
+            result = {
+                "classification": "BLOCKED",
+                "reason": repr(exc),
+                "handover_verified": False,
+                "continuity_verified": False,
+            }
 
-            idle_count += 1
+        category = result["classification"]
 
-        # --------------------------------
-        # SEND ACTUAL DATA TO UNIT 11
-        # --------------------------------
-
-        observation = Unit11Snapshot(
-            candle_id=candle_id,
-            observed_at=time.time(),
-            mode=mode,
-            direction=direction,
-            qualified=qualified,
-            signal_id=signal_id,
-            candle_closed=True,
-            market_fresh=True,
-            position_flat_verified=False,
-            read_only=True,
-        )
-
-        result = engine.scan(
-            observation
-        )
-
-        processed += 1
-
-        # --------------------------------
-        # RENDER LOG
-        # --------------------------------
+        counts[category] += 1
 
         print(
-            "UNIT 11 MARKET SOURCE = "
-            "UNIT 10 / UNIT 4",
+            "UNIT 11 V2.3 CLASSIFICATION =",
+            category,
             flush=True,
         )
 
         print(
-            "UNIT 11 MARKET CANDLE ID =",
-            candle_id,
+            "UNIT 11 V2.3 REASON =",
+            result.get("reason"),
             flush=True,
         )
 
         print(
-            "UNIT 11 CANDLE CLOSED = TRUE",
+            "UNIT 11 V2.3 MARKET HANDOVER =",
+            result["handover_verified"],
             flush=True,
         )
 
         print(
-            "UNIT 11 MARKET FRESH = TRUE",
+            "UNIT 11 V2.3 CONFIRMATIONS =",
+            str(
+                result.get("confirmations", "N/A")
+            ) + "/" + str(
+                result.get("required", "N/A")
+            ),
             flush=True,
         )
 
         print(
-            "UNIT 11 UNIT 10 STATUS =",
-            status,
+            "UNIT 11 V2.3 DUPLICATE CANDLE =",
+            result.get("duplicate_candle", False),
             flush=True,
         )
 
         print(
-            "UNIT 11 UNIT 9 REASON =",
-            unit9.get("reason"),
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 SIGNAL QUALIFIED =",
-            qualified,
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 MODE =",
-            result["mode"],
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 DIRECTION =",
-            result["direction"],
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 REASON =",
-            result["reason"],
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 CONFIRMATIONS =",
-            result["confirmations"],
-            flush=True,
-        )
-
-        print(
-            "UNIT 11 CONTINUITY VERIFIED =",
+            "UNIT 11 V2.3 SIGNAL CONTINUITY =",
             result["continuity_verified"],
             flush=True,
         )
 
         print(
-            "UNIT 11 POSITION FLAT VERIFIED = FALSE",
+            "UNIT 11 V2.3 TRADE AUTHORIZED = FALSE",
             flush=True,
         )
 
         print(
-            "UNIT 11 TRADE AUTHORIZED = FALSE",
+            "UNIT 11 V2.3 EXCHANGE WRITE = NONE",
             flush=True,
         )
 
-        print(
-            "UNIT 11 EXCHANGE WRITE = NONE",
-            flush=True,
-        )
+        if category == "BLOCKED":
+            break
 
-        # --------------------------------
-        # CONTROLLED SCAN INTERVAL
-        # --------------------------------
-
-        if (
-            scan_number
-            < U11_REAL_SCAN_COUNT
-        ):
-
+        if number < U11_V23_SCAN_COUNT:
             time.sleep(
-                U11_REAL_SCAN_INTERVAL
+                U11_V23_SCAN_INTERVAL
             )
 
     # ========================================================
-    # 7. REAL HANDOVER FINAL REPORT
+    # 4. FINAL REAL-MARKET VERDICT
     # ========================================================
+
+    total = sum(counts.values())
+
+    handover_verified = (
+        total == U11_V23_SCAN_COUNT
+        and counts["BLOCKED"] == 0
+    )
 
     print("=" * 70, flush=True)
 
     print(
-        "UNIT 11 REAL SCANS PROCESSED =",
-        processed,
+        "UNIT 11 V2.3 SCANS PROCESSED =",
+        total,
         flush=True,
     )
 
-    print(
-        "UNIT 11 IDLE OBSERVATIONS =",
-        idle_count,
-        flush=True,
-    )
+    for category, count in counts.items():
+
+        print(
+            "UNIT 11 V2.3 "
+            + category
+            + " OBSERVATIONS =",
+            count,
+            flush=True,
+        )
 
     print(
-        "UNIT 11 QUALIFIED OBSERVATIONS =",
-        qualified_count,
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 BLOCKED OBSERVATIONS =",
-        blocked,
-        flush=True,
-    )
-
-    handover_verified = (
-        processed > 0
-        and blocked == 0
-    )
-
-    print(
-        "UNIT 11 MARKET HANDOVER VERDICT =",
+        "UNIT 11 V2.3 MARKET HANDOVER VERDICT =",
         (
-            "MARKET_HANDOVER_VERIFIED"
+            "VERIFIED"
             if handover_verified
-            else "HANDOVER_NOT_VERIFIED"
+            else "NOT_VERIFIED"
         ),
         flush=True,
     )
 
     print(
-        "UNIT 11 SIGNAL CONTINUITY STATUS = "
-        "NOT PROVEN BY IDLE SCANS",
+        "UNIT 11 V2.3 SIGNAL CONTINUITY =",
+        (
+            "OBSERVED"
+            if counts["CONFIRMED"] > 0
+            else "NOT_YET_OBSERVED"
+        ),
         flush=True,
     )
 
     print(
-        "UNIT 11 ACCOUNT ACCESS = NONE",
+        "UNIT 11 V2.3 ACCOUNT ACCESS = NONE",
         flush=True,
     )
 
     print(
-        "UNIT 11 POSITION ACCESS = NONE",
+        "UNIT 11 V2.3 POSITION ACCESS = NONE",
         flush=True,
     )
 
     print(
-        "UNIT 11 TRADE AUTHORIZED = FALSE",
+        "UNIT 11 V2.3 TRADE AUTHORIZED = FALSE",
         flush=True,
     )
 
     print(
-        "UNIT 11 EXCHANGE WRITE = NONE",
+        "UNIT 11 V2.3 EXCHANGE WRITE = NONE",
         flush=True,
     )
-
-    print("=" * 70, flush=True)
 
     return handover_verified
 
 
 # ============================================================
-# 8. SINGLE UNIT 11 EXECUTION ENTRY
+# 5. SINGLE UNIT 11 EXECUTION ENTRY
 # ZERO INDENTATION
 # ============================================================
 
@@ -14110,77 +13054,46 @@ if __name__ == "__main__":
     print("=" * 70, flush=True)
 
     print(
-        "UNIT 11 V2.2 START",
+        "UNIT 11 V2.3 START",
         flush=True,
     )
 
-    tests_passed = False
+    tests_ok = (
+        unit11_v23_simulations()
+        if U11_V23_RUN_TESTS
+        else False
+    )
 
-    if U11_RUN_SIMULATIONS:
+    if not tests_ok:
+        raise RuntimeError(
+            "UNIT 11 V2.3 SIMULATIONS FAILED"
+        )
 
-        tests_passed = unit11_self_tests()
+    if U11_V23_RUN_MARKET:
+
+        market_ok = unit11_v23_real_handover()
 
     else:
 
-        print(
-            "UNIT 11 SIMULATIONS DISABLED",
-            flush=True,
-        )
-
-    if not tests_passed:
-
-        print(
-            "UNIT 11 REAL HANDOVER BLOCKED = "
-            "26 SIMULATIONS NOT VERIFIED",
-            flush=True,
-        )
-
-        raise SystemExit(1)
-
-    if U11_REAL_HANDOVER_ENABLED:
-
-        UNIT_11_REAL_HANDOVER_RESULT = (
-            unit11_real_handover()
-        )
-
-    else:
-
-        UNIT_11_REAL_HANDOVER_RESULT = False
-
-        print(
-            "UNIT 11 REAL HANDOVER = DISABLED",
-            flush=True,
-        )
-
-    print("=" * 70, flush=True)
+        market_ok = False
 
     print(
-        "UNIT 11 V2.2 TEST RESULT =",
-        tests_passed,
+        "UNIT 11 V2.3 TEST RESULT =",
+        tests_ok,
         flush=True,
     )
 
     print(
-        "UNIT 11 V2.2 HANDOVER RESULT =",
-        UNIT_11_REAL_HANDOVER_RESULT,
+        "UNIT 11 V2.3 HANDOVER RESULT =",
+        market_ok,
         flush=True,
     )
 
     print(
-        "UNIT 11 V2.2 TRADE AUTHORIZED = FALSE",
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 V2.2 EXCHANGE WRITE = NONE",
-        flush=True,
-    )
-
-    print(
-        "UNIT 11 V2.2 FINAL STATUS =",
+        "UNIT 11 V2.3 FINAL STATUS =",
         (
             "READ_ONLY_MARKET_HANDOVER_VERIFIED"
-            if UNIT_11_REAL_HANDOVER_RESULT
+            if market_ok
             else "READ_ONLY_INTEGRATION_PENDING"
         ),
         flush=True,
@@ -14190,12 +13103,9 @@ if __name__ == "__main__":
 
 
 # ============================================================
-# END COMPLETE UNIT 11 V2.2
-# ZERO INDENTATION
-#
+# END COMPLETE UNIT 11 V2.3 REPLACEMENT
+# ZERO INDENTATION END
 # FROZEN UNITS 1-10 UNCHANGED
-# 26 UNIT 11 TESTS
-# REAL WEEX PUBLIC MARKET HANDOVER
-# NO ORDERS
 # NO EXCHANGE WRITE
 # ============================================================
+
