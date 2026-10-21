@@ -13359,3 +13359,738 @@ if __name__ == "__main__":
 # ZERO INDENTATION
 # ============================================================
 
+
+# ============================================================
+# START UNIT 12 - WEEX DEMO INITIAL ENTRY
+# ORIGINAL 15-UNIT FUNCTIONAL ALIGNMENT
+# ZERO INDENTATION
+# ============================================================
+
+import os as _xos
+import time as _xtime
+import json as _xjson
+import hmac as _xhmac
+import hashlib as _xhash
+import base64 as _xb64
+import urllib.request as _xurl
+
+from decimal import Decimal as _D
+
+_U12_SYMBOL = "BTCSUSDT"
+_U12_HOST = "https://api-contract.weex.com"
+
+_U12_S = {
+    "last": None,
+    "entry_lock": False,
+    "result": {
+        "unit": 12,
+        "status": "IDLE",
+    },
+}
+
+
+# ============================================================
+# 1. VALIDATE DECIMAL VALUES
+# ============================================================
+
+def u12_num(value):
+
+    try:
+        number = _D(str(value))
+
+        if number.is_finite():
+            return number
+
+    except (ValueError, ArithmeticError, TypeError):
+        pass
+
+    raise RuntimeError("UNIT12_INVALID_NUMBER")
+
+
+# ============================================================
+# 2. AUTHENTICATED WEEX DEMO REQUEST
+# ============================================================
+
+def u12_api(method, path, payload=None):
+
+    allowed = {
+        ("GET", "/capi/v3/sim/balance"),
+        ("GET", "/capi/v3/sim/position/allPosition"),
+        ("GET", "/capi/v3/sim/order/history"),
+        ("POST", "/capi/v3/sim/order"),
+    }
+
+    base = path.split("?")[0]
+
+    if (method, base) not in allowed:
+        raise RuntimeError("UNIT12_ENDPOINT_DENIED")
+
+    if (
+        method == "POST"
+        and path != "/capi/v3/sim/order"
+    ):
+        raise RuntimeError("UNIT12_INVALID_POST_PATH")
+
+    key = (
+        _xos.getenv("WEEX_API_KEY")
+        or _xos.getenv("API_KEY")
+    )
+
+    secret = (
+        _xos.getenv("WEEX_API_SECRET")
+        or _xos.getenv("API_SECRET")
+    )
+
+    phrase = (
+        _xos.getenv("WEEX_API_PASSPHRASE")
+        or _xos.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        raise RuntimeError(
+            "UNIT12_CREDENTIALS_MISSING"
+        )
+
+    body = (
+        ""
+        if payload is None
+        else _xjson.dumps(
+            payload,
+            separators=(",", ":"),
+        )
+    )
+
+    timestamp = str(
+        int(_xtime.time() * 1000)
+    )
+
+    prehash = (
+        timestamp
+        + method
+        + path
+        + body
+    )
+
+    signature = _xb64.b64encode(
+        _xhmac.new(
+            secret.encode(),
+            prehash.encode(),
+            _xhash.sha256,
+        ).digest()
+    ).decode()
+
+    headers = {
+        "ACCESS-KEY": key,
+        "ACCESS-SIGN": signature,
+        "ACCESS-TIMESTAMP": timestamp,
+        "ACCESS-PASSPHRASE": phrase,
+        "Content-Type": "application/json",
+    }
+
+    request = _xurl.Request(
+        _U12_HOST + path,
+        headers=headers,
+        data=(
+            body.encode()
+            if method == "POST"
+            else None
+        ),
+        method=method,
+    )
+
+    with _xurl.urlopen(
+        request,
+        timeout=15,
+    ) as response:
+
+        if response.status != 200:
+            raise RuntimeError(
+                "UNIT12_HTTP_"
+                + str(response.status)
+            )
+
+        result = _xjson.loads(
+            response.read().decode()
+        )
+
+    return result
+
+
+# ============================================================
+# 3. NORMALIZE EXCHANGE RESPONSE
+# ============================================================
+
+def u12_rows(response):
+
+    if isinstance(response, list):
+        return response
+
+    if (
+        isinstance(response, dict)
+        and isinstance(
+            response.get("data"),
+            list,
+        )
+    ):
+        return response["data"]
+
+    raise RuntimeError(
+        "UNIT12_UNRECOGNIZED_RESPONSE_SHAPE"
+    )
+
+
+# ============================================================
+# 4. VERIFY DEMO ACCOUNT AND POSITION STATE
+# ============================================================
+
+def u12_snapshot():
+
+    balances = u12_rows(
+        u12_api(
+            "GET",
+            "/capi/v3/sim/balance",
+        )
+    )
+
+    positions = u12_rows(
+        u12_api(
+            "GET",
+            "/capi/v3/sim/position/allPosition",
+        )
+    )
+
+    history = u12_rows(
+        u12_api(
+            "GET",
+            "/capi/v3/sim/order/history"
+            "?symbol=BTCSUSDT&limit=1000&page=0",
+        )
+    )
+
+    if not all(
+        isinstance(item, dict)
+        for item in balances + positions + history
+    ):
+        raise RuntimeError(
+            "UNIT12_INVALID_EXCHANGE_ROWS"
+        )
+
+    funds = [
+        item
+        for item in balances
+        if item.get("asset") == "SUSDT"
+    ]
+
+    if len(funds) != 1:
+        raise RuntimeError(
+            "UNIT12_SUSDT_BALANCE_NOT_UNIQUE"
+        )
+
+    available = u12_num(
+        funds[0].get("availableBalance")
+    )
+
+    if available <= 0:
+        raise RuntimeError(
+            "UNIT12_NO_AVAILABLE_DEMO_BALANCE"
+        )
+
+    active = []
+
+    for position in positions:
+
+        if position.get("symbol") != _U12_SYMBOL:
+            continue
+
+        size = u12_num(
+            position.get("size")
+        )
+
+        if size < 0:
+            raise RuntimeError(
+                "UNIT12_NEGATIVE_POSITION"
+            )
+
+        if size > 0:
+            active.append(position)
+
+    return available, active, history
+
+
+# ============================================================
+# 5. INITIAL ENTRY DECISION AND EXECUTION
+# ============================================================
+
+def u12_decide(u9, cid, market_price):
+
+    result = {
+        "unit": 12,
+        "status": "IDLE",
+        "order_id": None,
+        "position": None,
+        "management_path_permitted": False,
+        "demo_submission_attempted": False,
+        "real_submission_attempted": False,
+    }
+
+    if (
+        u9.get("status") != "CONFIRMED"
+        or u9.get("continuity_verified") is not True
+    ):
+        return result
+
+    mode = u9.get("mode")
+    side = u9.get("direction")
+
+    if (
+        mode not in (
+            "SCALP",
+            "STRUCTURE",
+            "BREAKOUT",
+        )
+        or side not in ("LONG", "SHORT")
+    ):
+        raise RuntimeError("UNIT12_BAD_SIGNAL")
+
+    if type(cid) is not int or cid <= 0:
+        raise RuntimeError("UNIT12_BAD_CANDLE")
+
+    if (
+        u9.get("confirmations", 0)
+        < u9.get("confirmations_required", 2)
+    ):
+        return result
+
+    # Unit 9 remains non-executing.
+    # Only Unit 12 is permitted to submit a DEMO entry.
+
+    if (
+        u9.get("exchange_write") is not False
+        or u9.get("trade_authorized") is not False
+    ):
+        raise RuntimeError(
+            "UNIT12_UPSTREAM_SAFETY_CHANGED"
+        )
+
+    signal_id = (cid, mode, side)
+
+    if _U12_S["last"] == signal_id:
+        return {
+            "unit": 12,
+            "status": "DUPLICATE_SIGNAL_IGNORED",
+        }
+
+    _U12_S["last"] = signal_id
+
+    # --------------------------------------------------------
+    # DEMO RUN / PAUSE
+    # --------------------------------------------------------
+
+    if (
+        _xos.getenv(
+            "UNIT12_DEMO_RUN",
+            "PAUSE",
+        ).strip().upper()
+        != "RUN"
+    ):
+        result["status"] = "PAUSED"
+        return result
+
+    # --------------------------------------------------------
+    # UNMANAGED DEMO POSITION ACKNOWLEDGEMENT
+    # --------------------------------------------------------
+
+    if (
+        _xos.getenv(
+            "UNIT12_UNMANAGED_DEMO_ACK",
+            "NO",
+        ).upper()
+        != "YES"
+    ):
+        result["status"] = (
+            "WAITING_FOR_UNIT13_14_OR_EXPLICIT_DEMO_ACK"
+        )
+        return result
+
+    if _U12_S["entry_lock"]:
+
+        result["status"] = (
+            "ENTRY_LOCKED_UNTIL_RESTART_AND_RECONCILIATION"
+        )
+
+        return result
+
+    # Lock before any request that could eventually
+    # submit an order. Never blindly retry a POST.
+
+    _U12_S["entry_lock"] = True
+
+    # --------------------------------------------------------
+    # DEMO BALANCE, POSITIONS AND ORDER HISTORY
+    # --------------------------------------------------------
+
+    available, active, history = u12_snapshot()
+
+    if active:
+
+        result.update(
+            status="ACTIVE_POSITION_BLOCK",
+            position=active,
+            management_path_permitted=True,
+        )
+
+        return result
+
+    if len(history) >= 1000:
+        raise RuntimeError(
+            "UNIT12_HISTORY_PAGINATION_REQUIRED"
+        )
+
+    for order in history:
+
+        if order.get("symbol") != _U12_SYMBOL:
+            continue
+
+        status = str(
+            order.get("status", "")
+        ).upper()
+
+        if status not in (
+            "FILLED",
+            "CANCELED",
+            "EXPIRED",
+            "REJECTED",
+        ):
+
+            result["status"] = (
+                "UNRESOLVED_DEMO_ORDER"
+            )
+
+            return result
+
+    # --------------------------------------------------------
+    # QUANTITY AND VERIFIED EXPOSURE LIMIT
+    # --------------------------------------------------------
+
+    price = u12_num(market_price)
+
+    quantity = u12_num(
+        _xos.getenv(
+            "UNIT12_DEMO_QTY",
+            "0.0001",
+        )
+    )
+
+    if (
+        price <= 0
+        or quantity <= 0
+        or quantity > _D("0.001")
+        or quantity % _D("0.0001") != 0
+    ):
+        raise RuntimeError(
+            "UNIT12_QTY_PRICE_INVALID"
+        )
+
+    notional = quantity * price
+
+    # Conservative initial safeguard:
+    # gross notional must be <= 35% of verified
+    # available DEMO funds, without counting
+    # on assumed leverage.
+
+    if notional > available * _D("0.35"):
+
+        result.update(
+            status="INSUFFICIENT_VERIFIED_DEMO_EXPOSURE",
+            available=str(available),
+            notional=str(notional),
+        )
+
+        return result
+
+    client_id = (
+        "u12"
+        + str(cid)
+        + mode[0].lower()
+        + side[0].lower()
+    )
+
+    if any(
+        str(order.get("clientOrderId", ""))
+        == client_id
+        for order in history
+    ):
+        result["status"] = (
+            "DUPLICATE_EXCHANGE_ORDER"
+        )
+        return result
+
+    # --------------------------------------------------------
+    # PREPARE ORIGINAL-STYLE DEMO MARKET ORDER
+    # --------------------------------------------------------
+
+    payload = {
+        "symbol": _U12_SYMBOL,
+        "side": (
+            "BUY"
+            if side == "LONG"
+            else "SELL"
+        ),
+        "positionSide": side,
+        "type": "MARKET",
+        "quantity": format(quantity, "f"),
+        "newClientOrderId": client_id,
+    }
+
+    result.update(
+        status="SUBMISSION_UNVERIFIED",
+        demo_submission_attempted=True,
+        client_id=client_id,
+        quantity=format(quantity, "f"),
+        mode=mode,
+        direction=side,
+    )
+
+    _U12_S["result"] = result
+
+    print(
+        "UNIT 12 DEMO POST START =",
+        client_id,
+        payload["side"],
+        payload["quantity"],
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # ACTUAL WEEX DEMO ORDER SUBMISSION
+    # --------------------------------------------------------
+
+    response = u12_api(
+        "POST",
+        "/capi/v3/sim/order",
+        payload,
+    )
+
+    if (
+        not isinstance(response, dict)
+        or response.get("success") is not True
+        or not response.get("orderId")
+    ):
+
+        result["status"] = (
+            "REJECTED_OR_AMBIGUOUS"
+        )
+
+        return result
+
+    result.update(
+        status="DEMO_ACCEPTED_PENDING_RECONCILIATION",
+        order_id=str(response["orderId"]),
+    )
+
+    # --------------------------------------------------------
+    # VERIFY FILL AND ACTUAL POSITION
+    # --------------------------------------------------------
+
+    try:
+
+        (
+            _available_after,
+            positions_after,
+            orders_after,
+        ) = u12_snapshot()
+
+        matching_orders = [
+            order
+            for order in orders_after
+            if str(order.get("orderId"))
+            == result["order_id"]
+        ]
+
+        if matching_orders:
+
+            record = matching_orders[0]
+
+            result["order_status"] = (
+                record.get("status")
+            )
+
+            if (
+                record.get("status") == "FILLED"
+                and u12_num(
+                    record.get("executedQty")
+                ) > 0
+                and positions_after
+            ):
+
+                result.update(
+                    status="DEMO_FILLED",
+                    position=positions_after,
+                    management_path_permitted=True,
+                )
+
+        if (
+            positions_after
+            and result["status"] != "DEMO_FILLED"
+        ):
+
+            result["position"] = positions_after
+
+            result["status"] = (
+                "POSITION_PRESENT_RECONCILIATION_REQUIRED"
+            )
+
+    except Exception as exc:
+
+        result["reconciliation_error"] = (
+            type(exc).__name__
+        )
+
+    return result
+
+
+# ============================================================
+# 6. CONNECT TO EXISTING UNIT 11 MONITOR
+# ============================================================
+
+def u12_install():
+
+    original_verify = globals().get(
+        "unit11_verify_source"
+    )
+
+    original_track = globals().get(
+        "unit11_track_original"
+    )
+
+    if not (
+        callable(original_verify)
+        and callable(original_track)
+    ):
+        raise RuntimeError(
+            "UNIT12_UNIT11_INTERFACE_MISSING"
+        )
+
+    if globals().get(
+        "_UNIT12_INSTALLED",
+        False,
+    ):
+        raise RuntimeError(
+            "UNIT12_ALREADY_INSTALLED"
+        )
+
+    context = {
+        "u9": None,
+        "cid": None,
+    }
+
+    def verify(u10, frame):
+
+        result = original_verify(
+            u10,
+            frame,
+        )
+
+        context.update(
+            u9=result[2],
+            cid=result[3],
+        )
+
+        return result
+
+    def track(state, cid, price, found):
+
+        # Preserve the working Unit 11 tracker.
+        original = original_track(
+            state,
+            cid,
+            price,
+            found,
+        )
+
+        if (
+            context["cid"] == cid
+            and isinstance(
+                context["u9"],
+                dict,
+            )
+        ):
+
+            try:
+
+                result = u12_decide(
+                    context["u9"],
+                    cid,
+                    price,
+                )
+
+                _U12_S["result"] = result
+
+                if result["status"] not in (
+                    "IDLE",
+                    "DUPLICATE_SIGNAL_IGNORED",
+                ):
+
+                    print(
+                        "UNIT 12 RESULT =",
+                        result["status"],
+                        "ORDER ID =",
+                        result.get("order_id"),
+                        "POSITION PRESENT =",
+                        bool(result.get("position")),
+                        flush=True,
+                    )
+
+            except Exception as exc:
+
+                _U12_S["entry_lock"] = True
+
+                _U12_S["result"] = {
+                    "unit": 12,
+                    "status": "BLOCKED",
+                    "reason": repr(exc),
+                }
+
+                print(
+                    "UNIT 12 BLOCKED =",
+                    repr(exc),
+                    flush=True,
+                )
+
+        return original
+
+    globals()[
+        "unit11_verify_source"
+    ] = verify
+
+    globals()[
+        "unit11_track_original"
+    ] = track
+
+    globals()[
+        "_UNIT12_INSTALLED"
+    ] = True
+
+    print(
+        "UNIT 12 INSTALLED = DEMO ENTRY ENGINE",
+        "RUN SWITCH =",
+        _xos.getenv(
+            "UNIT12_DEMO_RUN",
+            "PAUSE",
+        ),
+        flush=True,
+    )
+
+
+# ============================================================
+# 7. INSTALL BEFORE EXISTING UNIT 11 EXECUTION ENTRY
+# ZERO INDENTATION
+# ============================================================
+
+u12_install()
+
+
+# ============================================================
+# END COMPLETE UNIT 12
+# ZERO INDENTATION
+# ============================================================
