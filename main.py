@@ -5153,8 +5153,6 @@ print(
 )
 print("=" * 80, flush=True)
 
-if UNIT_8_ISOLATED_TEST:
-    
     
 # ============================================================
 # START UNIT 8 WEEX LEVERAGE LIMIT DIAGNOSTIC
@@ -5365,7 +5363,7 @@ print("=" * 80, flush=True)
 # END UNIT 8 WEEX LEVERAGE LIMIT DIAGNOSTIC
 # ZERO INDENTATION
 # ============================================================
-
+if UNIT_8_ISOLATED_TEST:
     print(
         "UNIT 8 TEST COMPLETE - STOPPING BEFORE UNIT 9",
         flush=True,
