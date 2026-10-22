@@ -5652,3 +5652,828 @@ FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
 # END UNIT 6 - HYBRID ADJUSTABLE V2.1
 # ZERO INDENTATION
 # ============================================================
+
+
+
+# ============================================================
+# START UNIT 7 - HYBRID ADJUSTABLE V2
+# ZERO INDENTATION
+#
+# ORIGINAL MODEL INTERFACE PRESERVED
+# INPUT: UNIT 2 CONFIG + UNIT 6 V2.1
+# OUTPUT: UNIT 8 SIZING PREPARATION
+#
+# NO BALANCE INVENTED
+# NO QUANTITY INVENTED
+# NO EXCHANGE WRITE
+# NO LEVERAGE MUTATION
+# ============================================================
+
+
+def fresh_reconstruction_unit_7(
+    unit_2_config,
+    unit_6_candidate,
+):
+
+    import math
+    from datetime import datetime, timezone
+
+    print("=" * 80, flush=True)
+    print(
+        datetime.now(timezone.utc).isoformat(),
+        "UNIT 7 HYBRID ADJUSTABLE V2 START",
+        flush=True
+    )
+
+    # ========================================================
+    # 1. VERIFY INPUT CONTRACT
+    # ========================================================
+
+    if not isinstance(unit_2_config, dict):
+        raise RuntimeError(
+            "UNIT 7 INVALID UNIT 2 CONFIG"
+        )
+
+    if not isinstance(unit_6_candidate, dict):
+        raise RuntimeError(
+            "UNIT 7 INVALID UNIT 6 INPUT"
+        )
+
+    strategy = unit_2_config.get("strategy")
+    safety = unit_2_config.get("safety")
+    exchange = unit_2_config.get("exchange")
+    precision = unit_2_config.get(
+        "market_precision"
+    )
+
+    if not all(
+        isinstance(section, dict)
+        for section in (
+            strategy,
+            safety,
+            exchange,
+            precision,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 7 CONFIGURATION MISSING"
+        )
+
+    required_unit6_fields = (
+        "execution_intent",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "unit_5_reason",
+        "admission_reason",
+    )
+
+    missing = [
+        name
+        for name in required_unit6_fields
+        if name not in unit_6_candidate
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "UNIT 7 UNIT 6 MISSING FIELDS: "
+            + str(missing)
+        )
+
+    if (
+        unit_6_candidate.get(
+            "strategy_evidence_version"
+        ) != "U6_HYBRID_ADJUSTABLE_V2"
+        or unit_6_candidate.get(
+            "admission_revision"
+        ) != "V2.1"
+        or unit_6_candidate.get(
+            "unit_5_classification_revision"
+        ) != "V3.1"
+    ):
+        raise RuntimeError(
+            "UNIT 7 UNIT 6 VERSION MISMATCH"
+        )
+
+    print(
+        "PASS: UNIT 7 RECEIVED UNIT 6 V2.1",
+        flush=True
+    )
+
+    # ========================================================
+    # 2. STRICT SAFETY GATE
+    # ========================================================
+
+    forbidden_capabilities = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for name in forbidden_capabilities:
+
+        if safety.get(name) is not False:
+            raise RuntimeError(
+                "UNIT 7 SAFETY CONFIGURATION FAILED: "
+                + name
+            )
+
+    for name in (
+        "read_only",
+        "order_payload_created",
+        "trade_authorized",
+        "exchange_write",
+    ):
+
+        expected = (
+            True if name == "read_only"
+            else False
+        )
+
+        if unit_6_candidate.get(name) is not expected:
+            raise RuntimeError(
+                "UNIT 7 UNIT 6 SAFETY FAILED: "
+                + name
+            )
+
+    for name in (
+        "one_direction_only",
+        "anti_duplicate_orders",
+        "exclusive_mode",
+    ):
+
+        if strategy.get(name) is not True:
+            raise RuntimeError(
+                "UNIT 7 STRATEGY SAFETY FAILED: "
+                + name
+            )
+
+    print(
+        "PASS: UNIT 7 PREPARATION SAFETY",
+        flush=True
+    )
+
+    # ========================================================
+    # 3. NUMERIC HELPERS
+    # ========================================================
+
+    def number(value, label):
+
+        if isinstance(value, bool):
+            raise RuntimeError(
+                "UNIT 7 BOOLEAN NUMBER: " + label
+            )
+
+        try:
+            value = float(value)
+
+        except (
+            TypeError,
+            ValueError,
+            OverflowError,
+        ):
+            raise RuntimeError(
+                "UNIT 7 INVALID NUMBER: " + label
+            )
+
+        if not math.isfinite(value):
+            raise RuntimeError(
+                "UNIT 7 NONFINITE NUMBER: " + label
+            )
+
+        return value
+
+    def setting(section, key):
+
+        if key not in section:
+            raise RuntimeError(
+                "UNIT 7 MISSING SETTING: " + key
+            )
+
+        return number(section[key], key)
+
+    # ========================================================
+    # 4. READ ADJUSTABLE SETTINGS
+    # ========================================================
+
+    initial_fixed_usdt = setting(
+        strategy,
+        "initial_fixed_usdt"
+    )
+
+    initial_margin_percent = setting(
+        strategy,
+        "initial_margin_percent"
+    )
+
+    leverage_reference = setting(
+        strategy,
+        "leverage_target"
+    )
+
+    exposure_cap_percent = setting(
+        strategy,
+        "exposure_cap_percent"
+    )
+
+    maximum_backups = strategy.get(
+        "max_backups"
+    )
+
+    backup_multipliers = strategy.get(
+        "backup_multipliers"
+    )
+
+    backup_buffer_percent = setting(
+        strategy,
+        "backup_buffer_percent"
+    )
+
+    quantity_step = setting(
+        precision,
+        "quantity_step"
+    )
+
+    minimum_quantity = setting(
+        precision,
+        "minimum_quantity"
+    )
+
+    price_step = setting(
+        precision,
+        "price_step"
+    )
+
+    if not (
+        initial_fixed_usdt > 0
+        and 0 < initial_margin_percent <= 100
+        and leverage_reference > 0
+        and 0 < exposure_cap_percent <= 100
+        and backup_buffer_percent >= 0
+        and quantity_step > 0
+        and minimum_quantity > 0
+        and price_step > 0
+    ):
+        raise RuntimeError(
+            "UNIT 7 INVALID SIZING SETTINGS"
+        )
+
+    if (
+        type(maximum_backups) is not int
+        or maximum_backups < 0
+        or not isinstance(
+            backup_multipliers,
+            (list, tuple)
+        )
+        or len(backup_multipliers)
+        != maximum_backups
+    ):
+        raise RuntimeError(
+            "UNIT 7 BACKUP CONFIGURATION INVALID"
+        )
+
+    multipliers = tuple(
+        number(value, "BACKUP MULTIPLIER")
+        for value in backup_multipliers
+    )
+
+    if any(value <= 0 for value in multipliers):
+        raise RuntimeError(
+            "UNIT 7 INVALID BACKUP MULTIPLIER"
+        )
+
+    # Read the exact configured numbers.
+    # No hardcoded override of the Unit 2 values.
+
+    proposed_backup_margins = tuple(
+        round(
+            initial_fixed_usdt * value,
+            8
+        )
+        for value in multipliers
+    )
+
+    proposed_full_ladder_margin = (
+        initial_fixed_usdt
+        + sum(proposed_backup_margins)
+    )
+
+    # This is only a nominal plan.
+    # No actual available balance is known here.
+    # Unit 8 and later units must verify funding.
+
+    # ========================================================
+    # 5. VERIFY EXCHANGE IDENTIFIERS
+    # ========================================================
+
+    market_symbol = exchange.get(
+        "market_symbol"
+    )
+
+    demo_symbol = exchange.get(
+        "demo_order_symbol"
+    )
+
+    if (
+        market_symbol != "BTCUSDT"
+        or demo_symbol != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 7 WEEX SYMBOL CONTRACT FAILED"
+        )
+
+    # ========================================================
+    # 6. RECEIVE EXACT UNIT 6 SIGNAL
+    # ========================================================
+
+    execution_intent = unit_6_candidate[
+        "execution_intent"
+    ]
+
+    signal_qualified = unit_6_candidate[
+        "signal_qualified"
+    ]
+
+    active_mode = unit_6_candidate[
+        "active_mode"
+    ]
+
+    direction = unit_6_candidate[
+        "direction"
+    ]
+
+    admission_reason = unit_6_candidate[
+        "admission_reason"
+    ]
+
+    unit5_reason = unit_6_candidate[
+        "unit_5_reason"
+    ]
+
+    candidate_mode = unit_6_candidate.get(
+        "candidate_mode",
+        "NONE"
+    )
+
+    candidate_stage = unit_6_candidate.get(
+        "candidate_stage",
+        "NONE"
+    )
+
+    candidate_protected = unit_6_candidate.get(
+        "candidate_protected",
+        False
+    )
+
+    if (
+        type(execution_intent) is not bool
+        or type(signal_qualified) is not bool
+        or execution_intent != signal_qualified
+    ):
+        raise RuntimeError(
+            "UNIT 7 EXECUTION INTENT CONTRADICTION"
+        )
+
+    if type(candidate_protected) is not bool:
+        raise RuntimeError(
+            "UNIT 7 CANDIDATE PROTECTION INVALID"
+        )
+
+    if (
+        not isinstance(admission_reason, str)
+        or not isinstance(unit5_reason, str)
+    ):
+        raise RuntimeError(
+            "UNIT 7 ADMISSION REASON INVALID"
+        )
+
+    # ========================================================
+    # 7. ADMISSION AND CANDIDATE-STATE GATES
+    # ========================================================
+
+    valid_admission_reasons = {
+        "BREAKOUT":
+            "BREAKOUT_PRELIMINARY_ADMISSION_PASS",
+        "STRUCTURE":
+            "STRUCTURE_PRELIMINARY_ADMISSION_PASS",
+        "SCALP":
+            "SCALP_PRELIMINARY_ADMISSION_PASS",
+    }
+
+    if execution_intent:
+
+        if (
+            active_mode not in valid_admission_reasons
+            or direction not in (
+                "LONG",
+                "SHORT",
+            )
+            or admission_reason
+            != valid_admission_reasons[
+                active_mode
+            ]
+            or candidate_protected
+            or candidate_stage not in (
+                "QUALIFIED",
+                "PENDING_UNIT_6",
+            )
+        ):
+            raise RuntimeError(
+                "UNIT 7 QUALIFIED SIGNAL CONTRACT FAILED"
+            )
+
+        status = "READY_FOR_BALANCE"
+
+    else:
+
+        if (
+            active_mode != "NONE"
+            or direction != "NONE"
+        ):
+            raise RuntimeError(
+                "UNIT 7 IDLE MODE CONTRADICTION"
+            )
+
+        status = "IDLE"
+
+    if (
+        candidate_stage == "DEVELOPING"
+        and execution_intent
+    ):
+        raise RuntimeError(
+            "UNIT 7 DEVELOPING SIGNAL EXECUTION LEAK"
+        )
+
+    # ========================================================
+    # 8. ORIGINAL UNIT 8 HANDOVER
+    #
+    # NO ACCOUNT BALANCE OR BTC QUANTITY
+    # IS CREATED IN THIS UNIT.
+    # ========================================================
+
+    needs_balance = (
+        status == "READY_FOR_BALANCE"
+    )
+
+    sizing_candidate = {
+
+        # Original interface
+
+        "status":
+            status,
+
+        "symbol":
+            market_symbol,
+
+        "demo_order_symbol":
+            demo_symbol,
+
+        "active_mode":
+            active_mode,
+
+        "direction":
+            direction,
+
+        "execution_intent":
+            execution_intent,
+
+        "signal_qualified":
+            signal_qualified,
+
+        "unit_5_reason":
+            unit5_reason,
+
+        "admission_reason":
+            admission_reason,
+
+        "initial_margin_percent":
+            initial_margin_percent,
+
+        "leverage_target":
+            leverage_reference,
+
+        "quantity_step":
+            quantity_step,
+
+        "minimum_quantity":
+            minimum_quantity,
+
+        "price_step":
+            price_step,
+
+        "account_balance_required":
+            needs_balance,
+
+        "position_sizing_performed":
+            False,
+
+        "quantity_calculated":
+            False,
+
+        "proposed_quantity":
+            None,
+
+        "order_payload_created":
+            False,
+
+        "read_only":
+            True,
+
+        "skip_reason":
+            (
+                None
+                if needs_balance
+                else admission_reason
+            ),
+
+        # Additive adjustable configuration
+
+        "initial_fixed_usdt":
+            initial_fixed_usdt,
+
+        "initial_margin_usdt":
+            None,
+
+        "margin_sizing_policy":
+            "FIXED_PREFERRED_BALANCE_VERIFIED_LATER",
+
+        "max_backups":
+            maximum_backups,
+
+        "backup_multipliers":
+            multipliers,
+
+        "backup_buffer_percent":
+            backup_buffer_percent,
+
+        "proposed_backup_margins_usdt":
+            proposed_backup_margins,
+
+        "proposed_full_ladder_margin_usdt":
+            proposed_full_ladder_margin,
+
+        "exposure_cap_percent":
+            exposure_cap_percent,
+
+        "progressive_backup_funding":
+            strategy.get(
+                "progressive_backup_funding",
+                True
+            ),
+
+        "full_ladder_reservation_required":
+            strategy.get(
+                "full_ladder_reservation_required",
+                False
+            ),
+
+        "leverage_source":
+            "WEEX_EXCHANGE_SETTING",
+
+        "leverage_verified":
+            False,
+
+        "exchange_leverage":
+            None,
+
+        "available_balance":
+            None,
+
+        "position_notional_usdt":
+            None,
+
+        "account_balance_verified":
+            False,
+
+        "position_state_verified":
+            False,
+
+        "market_precision_verified":
+            False,
+
+        "trade_authorized":
+            False,
+
+        "exchange_write":
+            False,
+
+        "candidate_mode":
+            candidate_mode,
+
+        "candidate_stage":
+            candidate_stage,
+
+        "candidate_protected":
+            candidate_protected,
+
+        "qualification_version":
+            "U6_HYBRID_ADJUSTABLE_V2",
+
+        "unit_7_revision":
+            "HYBRID_ADJUSTABLE_V2",
+    }
+
+    # ========================================================
+    # 9. OUTPUT SAFETY
+    # ========================================================
+
+    if (
+        sizing_candidate[
+            "position_sizing_performed"
+        ] is not False
+        or sizing_candidate[
+            "quantity_calculated"
+        ] is not False
+        or sizing_candidate[
+            "proposed_quantity"
+        ] is not None
+        or sizing_candidate[
+            "order_payload_created"
+        ] is not False
+        or sizing_candidate[
+            "trade_authorized"
+        ] is not False
+        or sizing_candidate[
+            "exchange_write"
+        ] is not False
+    ):
+        raise RuntimeError(
+            "UNIT 7 PREMATURE EXECUTION STATE"
+        )
+
+    if (
+        status == "IDLE"
+        and sizing_candidate[
+            "account_balance_required"
+        ] is not False
+    ):
+        raise RuntimeError(
+            "UNIT 7 IDLE BALANCE GATE FAILED"
+        )
+
+    if (
+        status == "READY_FOR_BALANCE"
+        and sizing_candidate[
+            "account_balance_required"
+        ] is not True
+    ):
+        raise RuntimeError(
+            "UNIT 7 ACTIVE BALANCE GATE FAILED"
+        )
+
+    # ========================================================
+    # 10. RENDER VERIFICATION
+    # ========================================================
+
+    print(
+        "PASS: UNIT 7 ORIGINAL UNIT 6 CONTRACT",
+        flush=True
+    )
+
+    print(
+        "PASS: UNIT 7 ORIGINAL UNIT 8 HANDOVER",
+        flush=True
+    )
+
+    print(
+        "PASS: UNIT 7 ADJUSTABLE SIZING SETTINGS",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 STATUS =",
+        status,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 CANDIDATE MODE =",
+        candidate_mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 CANDIDATE STAGE =",
+        candidate_stage,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 ACTIVE MODE =",
+        active_mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 DIRECTION =",
+        direction,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXECUTION INTENT =",
+        execution_intent,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 INITIAL FIXED USDT =",
+        initial_fixed_usdt,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 INITIAL MARGIN PERCENT =",
+        initial_margin_percent,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 BACKUP COUNT =",
+        maximum_backups,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 BACKUP MULTIPLIERS =",
+        multipliers,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXPOSURE CAP PERCENT =",
+        exposure_cap_percent,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 ACCOUNT BALANCE REQUIRED =",
+        needs_balance,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 BALANCE VERIFIED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 QUANTITY CALCULATED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 LEVERAGE SOURCE = WEEX_EXCHANGE_SETTING",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 DEMO ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 REAL ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        datetime.now(timezone.utc).isoformat(),
+        "UNIT 7 HYBRID ADJUSTABLE V2 RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return sizing_candidate
+
+
+# ============================================================
+# UNIT 7 EXECUTION / ORIGINAL UNIT 8 HANDOVER
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_SIZING_CANDIDATE = (
+    fresh_reconstruction_unit_7(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE,
+    )
+)
+
+
+# ============================================================
+# END UNIT 7 - HYBRID ADJUSTABLE V2
+# ZERO INDENTATION
+# ============================================================
