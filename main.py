@@ -8104,6 +8104,7 @@ print(
 
 print("=" * 80, flush=True)
 
+UNIT_11_ISOLATED_TEST = False
 if UNIT_11_ISOLATED_TEST:
 
     print(
@@ -8119,3 +8120,855 @@ if UNIT_11_ISOLATED_TEST:
 # ZERO INDENTATION
 # UNIT 12 CONTINUES BELOW
 # ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 12 ADAPTATION
+# ZERO INDENTATION
+# ORIGINAL 22524 + NEW 13975 MODEL
+# AUTHENTICATED WEEX DEMO POSITION VERIFICATION
+# NO POST / NO ORDER / NO EXCHANGE MUTATION
+# ============================================================
+
+def fresh_unit_12_parse_positions(raw):
+
+    if not isinstance(raw, list):
+        raise ValueError("POSITION_RESPONSE_NOT_LIST")
+
+    positions = []
+    symbol_records = 0
+
+    for record in raw:
+
+        if not isinstance(record, dict):
+            raise ValueError("INVALID_POSITION_RECORD")
+
+        if record.get("symbol") != "BTCSUSDT":
+            continue
+
+        symbol_records += 1
+
+        try:
+            raw_size = record.get("size", None)
+
+            if isinstance(raw_size, bool):
+                raise ValueError("INVALID_SIZE")
+
+            size = float(raw_size)
+
+            if not (
+                0 <= size < float("inf")
+            ):
+                raise ValueError("INVALID_SIZE")
+
+        except (ValueError, TypeError, OverflowError):
+            raise ValueError("INVALID_POSITION_SIZE")
+
+        if size == 0:
+            continue
+
+        side = str(
+            record.get("side", "")
+        ).upper()
+
+        if side not in ("LONG", "SHORT"):
+            raise ValueError("INVALID_POSITION_SIDE")
+
+        try:
+            leverage = float(
+                record.get("leverage")
+            )
+
+            if not (
+                0 < leverage < float("inf")
+            ):
+                raise ValueError("INVALID_LEVERAGE")
+
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError(
+                "INVALID_POSITION_LEVERAGE"
+            )
+
+        positions.append({
+            "symbol": "BTCSUSDT",
+            "side": side,
+            "size": size,
+            "leverage": leverage,
+            "margin_type": record.get("marginType"),
+        })
+
+    return {
+        "positions": positions,
+        "active_count": len(positions),
+        "symbol_records": symbol_records,
+        "flat": len(positions) == 0,
+    }
+
+
+def fresh_unit_12_weex_position_get():
+
+    import os
+    import json
+    import time
+    import hmac
+    import base64
+    import hashlib
+    import urllib.request
+
+    path = "/capi/v3/sim/position/allPosition"
+
+    host = "https://api-contract.weex.com"
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    passphrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, passphrase)):
+        raise RuntimeError(
+            "UNIT12_DEMO_CREDENTIALS_UNAVAILABLE"
+        )
+
+    timestamp = str(
+        int(time.time() * 1000)
+    )
+
+    signature_message = (
+        timestamp + "GET" + path
+    )
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            signature_message.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    headers = {
+        "ACCESS-KEY": key,
+        "ACCESS-SIGN": signature,
+        "ACCESS-TIMESTAMP": timestamp,
+        "ACCESS-PASSPHRASE": passphrase,
+        "Content-Type": "application/json",
+    }
+
+    request = urllib.request.Request(
+        host + path,
+        headers=headers,
+        method="GET",
+    )
+
+    class NoRedirect(
+        urllib.request.HTTPRedirectHandler
+    ):
+        def redirect_request(
+            self, req, fp, code, msg,
+            headers, newurl
+        ):
+            return None
+
+    opener = urllib.request.build_opener(
+        NoRedirect()
+    )
+
+    with opener.open(
+        request,
+        timeout=12,
+    ) as response:
+
+        if (
+            response.getcode() != 200
+            or response.geturl() != host + path
+        ):
+            raise RuntimeError(
+                "UNIT12_UNEXPECTED_HTTP_RESPONSE"
+            )
+
+        data = response.read(
+            1024 * 1024 + 1
+        )
+
+    if not data or len(data) > 1024 * 1024:
+        raise RuntimeError(
+            "UNIT12_INVALID_RESPONSE_SIZE"
+        )
+
+    return json.loads(
+        data.decode("utf-8")
+    )
+
+
+def fresh_reconstruction_unit_12(
+    config,
+    unit_11_result,
+    position_provider=None,
+):
+
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 12 START")
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 12 INVALID CONFIG"
+        )
+
+    if not isinstance(unit_11_result, dict):
+        raise RuntimeError(
+            "UNIT 12 INVALID UNIT 11 RESULT"
+        )
+
+    exchange = config.get("exchange")
+    safety = config.get("safety")
+
+    if not isinstance(exchange, dict):
+        raise RuntimeError(
+            "UNIT 12 EXCHANGE CONFIG MISSING"
+        )
+
+    if not isinstance(safety, dict):
+        raise RuntimeError(
+            "UNIT 12 SAFETY CONFIG MISSING"
+        )
+
+    if (
+        config.get("execution_environment")
+        != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("demo_order_symbol")
+        != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 12 DEMO CONTRACT FAILED"
+        )
+
+    print(
+        "PASS: UNIT 12 RECEIVED UNIT 2 CONFIG",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 12 RECEIVED UNIT 11 RESULT",
+        flush=True,
+    )
+
+    # ========================================================
+    # STRICT NO-WRITE SAFETY
+    # ========================================================
+
+    for key in (
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "order_endpoint_access_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    ):
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 12 UNSAFE CONFIG: " + key
+            )
+
+    if unit_11_result.get("read_only") is not True:
+        raise RuntimeError(
+            "UNIT 12 UPSTREAM NOT READ ONLY"
+        )
+
+    if unit_11_result.get("status") != "IDLE":
+        raise RuntimeError(
+            "UNIT 12 UNSUPPORTED EXECUTION STATE"
+        )
+
+    for key in (
+        "execution_intent",
+        "trade_plan_ready",
+        "execution_ready",
+        "demo_boundary_ready",
+        "payload_ready",
+        "demo_submission_requested",
+        "order_payload_created",
+        "trade_authorized",
+        "exchange_write",
+    ):
+        if unit_11_result.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 12 PREMATURE EXECUTION: "
+                + key
+            )
+
+    for key in (
+        "trade_plan",
+        "execution_candidate",
+        "order_payload",
+        "demo_submission_instruction",
+    ):
+        if unit_11_result.get(key) is not None:
+            raise RuntimeError(
+                "UNIT 12 UNVERIFIED PAYLOAD"
+            )
+
+    print(
+        "PASS: UNIT 12 EXECUTION SAFETY",
+        flush=True,
+    )
+
+    # ========================================================
+    # BOT MODE
+    # ========================================================
+
+    import os
+
+    bot_mode = os.getenv(
+        "BOT_MODE", "PAUSE"
+    ).strip().upper()
+
+    if bot_mode not in ("RUN", "PAUSE"):
+        raise RuntimeError(
+            "UNIT 12 INVALID BOT_MODE"
+        )
+
+    # In this isolated version BOT_MODE=RUN
+    # still cannot enable submission.
+
+    # ========================================================
+    # POSITION READ
+    # ========================================================
+
+    position_status = "UNAVAILABLE"
+    position_verified = False
+    position_flat_verified = False
+    position_check_attempted = False
+    active_positions = []
+    position_error = None
+
+    if position_provider is None:
+        position_provider = (
+            fresh_unit_12_weex_position_get
+        )
+
+    if not callable(position_provider):
+        raise RuntimeError(
+            "UNIT 12 POSITION PROVIDER INVALID"
+        )
+
+    try:
+
+        position_check_attempted = True
+
+        raw = position_provider()
+
+        parsed = fresh_unit_12_parse_positions(
+            raw
+        )
+
+        active_positions = parsed["positions"]
+
+        position_verified = True
+        position_flat_verified = parsed["flat"]
+
+        position_status = (
+            "FLAT"
+            if position_flat_verified
+            else "OCCUPIED"
+        )
+
+    except Exception as exc:
+
+        # Fail closed.
+        # Do not expose credentials or raw bodies.
+        position_status = "UNAVAILABLE"
+        position_verified = False
+        position_flat_verified = False
+
+        position_error = type(exc).__name__
+
+        active_positions = []
+
+    # ========================================================
+    # LEVERAGE INTERPRETATION
+    # ========================================================
+
+    # Active-position leverage is verified
+    # only for the associated existing position.
+    # It is NOT new-entry leverage.
+
+    existing_long_leverage = None
+    existing_short_leverage = None
+
+    if position_verified:
+
+        for position in active_positions:
+
+            if position["side"] == "LONG":
+                existing_long_leverage = (
+                    position["leverage"]
+                )
+
+            if position["side"] == "SHORT":
+                existing_short_leverage = (
+                    position["leverage"]
+                )
+
+    # New-entry leverage remains unverified.
+    entry_leverage_verified = False
+    entry_effective_leverage = None
+
+    # ========================================================
+    # DEMO EXECUTION BOUNDARY
+    # ========================================================
+
+    # Original Unit 12 contained an authenticated
+    # demo entry POST capability.
+    #
+    # No POST is used here.
+    # The current Unit 11 has no verified
+    # executable payload.
+    #
+    # Preserve a typed handover for Unit 13.
+
+    result = {
+
+        "unit": 12,
+        "status": "IDLE",
+        "read_only": True,
+        "bot_mode": bot_mode,
+
+        "upstream_status":
+            unit_11_result.get("status"),
+
+        "active_mode":
+            unit_11_result.get(
+                "active_mode", "NONE"
+            ),
+
+        "direction":
+            unit_11_result.get(
+                "direction", "NONE"
+            ),
+
+        "signal_qualified":
+            unit_11_result.get(
+                "signal_qualified"
+            ) is True,
+
+        "continuity_verified":
+            unit_11_result.get(
+                "continuity_verified"
+            ) is True,
+
+        "execution_intent": False,
+        "trade_authorized": False,
+
+        "trade_plan_ready": False,
+        "trade_plan": None,
+
+        "execution_ready": False,
+        "execution_candidate": None,
+
+        "demo_boundary_ready": False,
+        "demo_submission_instruction": None,
+
+        "order_payload_created": False,
+        "order_payload": None,
+
+        "position_check_attempted":
+            position_check_attempted,
+
+        "authenticated_request":
+            (
+                position_verified
+                and position_provider
+                is fresh_unit_12_weex_position_get
+            ),
+
+        "position_verified":
+            position_verified,
+
+        "position_status":
+            position_status,
+
+        "position_flat_verified":
+            position_flat_verified,
+
+        "active_position_count":
+            len(active_positions),
+
+        "active_positions":
+            active_positions,
+
+        "existing_long_leverage":
+            existing_long_leverage,
+
+        "existing_short_leverage":
+            existing_short_leverage,
+
+        "entry_leverage_verified":
+            entry_leverage_verified,
+
+        "effective_leverage":
+            entry_effective_leverage,
+
+        "balance_verified": False,
+        "pending_orders_verified": False,
+        "duplicate_orders_clear": False,
+
+        "position_error": position_error,
+
+        "initial_entry_authorized": False,
+        "reentry_authorized": False,
+
+        "demo_submission_attempted": False,
+        "demo_submission_completed": False,
+        "real_submission_attempted": False,
+
+        "demo_order_submitted": False,
+        "real_order_submitted": False,
+
+        "order_endpoint_access": False,
+        "exchange_write": False,
+
+        "skip_reason":
+            "EXECUTABLE_TRADE_PLAN_UNVERIFIED",
+
+        # Unit 13 must remain capable of
+        # processing existing positions later,
+        # independently of new-signal readiness.
+        "position_management_available":
+            position_verified,
+
+        "position_management_executed":
+            False,
+
+        "weex_response": None,
+        "order_id": None,
+    }
+
+    # ========================================================
+    # FINAL SAFETY ASSERTIONS
+    # ========================================================
+
+    assert result["execution_intent"] is False
+    assert result["initial_entry_authorized"] is False
+    assert result["demo_submission_attempted"] is False
+    assert result["demo_submission_completed"] is False
+    assert result["real_submission_attempted"] is False
+    assert result["order_endpoint_access"] is False
+    assert result["exchange_write"] is False
+
+    print("-" * 80, flush=True)
+
+    for label, value in (
+        ("STATUS", result["status"]),
+        ("BOT MODE", bot_mode),
+        ("POSITION READ", position_status),
+        (
+            "POSITION CHECK ATTEMPTED",
+            position_check_attempted,
+        ),
+        (
+            "POSITION VERIFIED",
+            position_verified,
+        ),
+        (
+            "POSITION FLAT VERIFIED",
+            position_flat_verified,
+        ),
+        (
+            "ACTIVE POSITIONS",
+            len(active_positions),
+        ),
+        (
+            "EXISTING LONG LEVERAGE",
+            existing_long_leverage,
+        ),
+        (
+            "EXISTING SHORT LEVERAGE",
+            existing_short_leverage,
+        ),
+        (
+            "FLAT ENTRY LEVERAGE VERIFIED",
+            False,
+        ),
+        (
+            "BALANCE VERIFIED",
+            False,
+        ),
+        (
+            "NEW ENTRY AUTHORIZED",
+            False,
+        ),
+        (
+            "POSITION MANAGEMENT AVAILABLE",
+            result["position_management_available"],
+        ),
+        (
+            "DEMO SUBMISSION ATTEMPTED",
+            False,
+        ),
+        (
+            "EXCHANGE WRITE",
+            False,
+        ),
+    ):
+
+        print(
+            "UNIT 12 " + label + " =",
+            value,
+            flush=True,
+        )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 12 RESULT = PASS"
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# RUN UNIT 12
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
+    fresh_reconstruction_unit_12(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+    )
+)
+
+
+# ============================================================
+# UNIT 12 ISOLATED TESTS
+# ZERO INDENTATION
+# ============================================================
+
+UNIT_12_ISOLATED_TEST = True
+
+_u12 = FRESH_RECONSTRUCTION_UNIT_12_RESULT
+
+if (
+    _u12["status"] != "IDLE"
+    or _u12["read_only"] is not True
+    or _u12["demo_submission_attempted"] is not False
+    or _u12["exchange_write"] is not False
+):
+    raise RuntimeError(
+        "UNIT 12 LIVE SAFETY TEST FAILED"
+    )
+
+print(
+    "PASS: UNIT 12 LIVE NO-WRITE HANDOVER",
+    flush=True,
+)
+
+# ============================================================
+# SYNTHETIC FLAT POSITION
+# ============================================================
+
+_fake_flat = fresh_reconstruction_unit_12(
+    FRESH_RECONSTRUCTION_CONFIG,
+    FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+    position_provider=lambda: [],
+)
+
+if (
+    _fake_flat["position_status"] != "FLAT"
+    or _fake_flat["position_flat_verified"]
+    is not True
+    or _fake_flat["entry_leverage_verified"]
+    is not False
+    or _fake_flat["demo_submission_attempted"]
+    is not False
+):
+    raise RuntimeError(
+        "UNIT 12 FLAT POSITION TEST FAILED"
+    )
+
+print(
+    "PASS: UNIT 12 FLAT POSITION SAFETY",
+    flush=True,
+)
+
+# ============================================================
+# SYNTHETIC OCCUPIED POSITION
+# ============================================================
+
+_fake_occupied = fresh_reconstruction_unit_12(
+    FRESH_RECONSTRUCTION_CONFIG,
+    FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+    position_provider=lambda: [{
+        "symbol": "BTCSUSDT",
+        "side": "SHORT",
+        "size": "0.0004",
+        "leverage": "20",
+        "marginType": "crossed",
+    }],
+)
+
+if (
+    _fake_occupied["position_status"] != "OCCUPIED"
+    or _fake_occupied["active_position_count"] != 1
+    or _fake_occupied["existing_short_leverage"]
+    != 20.0
+    or _fake_occupied["position_flat_verified"]
+    is not False
+    or _fake_occupied["initial_entry_authorized"]
+    is not False
+):
+    raise RuntimeError(
+        "UNIT 12 OCCUPIED POSITION TEST FAILED"
+    )
+
+print(
+    "PASS: UNIT 12 OCCUPIED POSITION SAFETY",
+    flush=True,
+)
+
+# ============================================================
+# SYNTHETIC INVALID EXCHANGE RESPONSE
+# ============================================================
+
+_fake_bad = fresh_reconstruction_unit_12(
+    FRESH_RECONSTRUCTION_CONFIG,
+    FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+    position_provider=lambda: {
+        "unexpected": "payload"
+    },
+)
+
+if (
+    _fake_bad["position_status"] != "UNAVAILABLE"
+    or _fake_bad["position_verified"] is not False
+    or _fake_bad["position_flat_verified"]
+    is not False
+    or _fake_bad["demo_submission_attempted"]
+    is not False
+):
+    raise RuntimeError(
+        "UNIT 12 MALFORMED RESPONSE TEST FAILED"
+    )
+
+print(
+    "PASS: UNIT 12 MALFORMED RESPONSE REJECTION",
+    flush=True,
+)
+
+# ============================================================
+# SYNTHETIC PREMATURE ORDER REJECTION
+# ============================================================
+
+_fake_unsafe = dict(
+    FRESH_RECONSTRUCTION_UNIT_11_RESULT
+)
+
+_fake_unsafe["demo_submission_requested"] = True
+
+try:
+
+    fresh_reconstruction_unit_12(
+        FRESH_RECONSTRUCTION_CONFIG,
+        _fake_unsafe,
+        position_provider=lambda: [],
+    )
+
+except RuntimeError:
+
+    print(
+        "PASS: UNIT 12 REJECTED PREMATURE DEMO ORDER",
+        flush=True,
+    )
+
+else:
+
+    raise RuntimeError(
+        "UNIT 12 PREMATURE ORDER REJECTION FAILED"
+    )
+
+# ============================================================
+# FINAL TEST REPORT
+# ============================================================
+
+print("=" * 80, flush=True)
+
+print(
+    "UNIT 12 ISOLATED TEST = PASS",
+    flush=True,
+)
+print(
+    "UNIT 12 VERIFIED = TRUE",
+    flush=True,
+)
+print(
+    "UNIT 12 LIVE DEMO POSITION READ =",
+    _u12["position_status"],
+    flush=True,
+)
+print(
+    "UNIT 12 FLAT POSITION TEST = PASS",
+    flush=True,
+)
+print(
+    "UNIT 12 OCCUPIED POSITION TEST = PASS",
+    flush=True,
+)
+print(
+    "UNIT 12 MALFORMED RESPONSE TEST = PASS",
+    flush=True,
+)
+print(
+    "UNIT 12 PREMATURE ORDER TEST = PASS",
+    flush=True,
+)
+print(
+    "UNIT 12 UNIT 13 HANDOVER = PRESENT",
+    flush=True,
+)
+print(
+    "UNIT 12 DEMO ORDER = NONE",
+    flush=True,
+)
+print(
+    "UNIT 12 REAL ORDER = NONE",
+    flush=True,
+)
+print(
+    "UNIT 12 EXCHANGE WRITE = NONE",
+    flush=True,
+)
+print(
+    "UNITS 13-15 EXECUTION = NOT STARTED",
+    flush=True,
+)
+
+print("=" * 80, flush=True)
+
+if UNIT_12_ISOLATED_TEST:
+
+    print(
+        "UNIT 12 TEST COMPLETE - STOPPING BEFORE UNIT 13",
+        flush=True,
+    )
+
+    raise SystemExit(0)
+
+
+# ============================================================
+# END COMPLETE UNIT 12 ADAPTATION
+# ZERO INDENTATION
+# UNIT 13 CONTINUES BELOW
+# ============================================================
+
