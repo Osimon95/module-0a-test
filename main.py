@@ -6481,26 +6481,26 @@ FRESH_RECONSTRUCTION_SIZING_CANDIDATE = (
 
 
 # ============================================================
-# START UNIT 8 - HYBRID ADJUSTABLE V2
+# START UNIT 8 - HYBRID ADJUSTABLE V2.1
 # ZERO INDENTATION
 #
-# ADAPTED FROM:
-# 22524-LINE WORKING REFERENCE:
-#   AUTHENTICATED WEEX DEMO BALANCE GET
-#   ORIGINAL UNIT 9 TRADE PLAN HANDOVER
+# TARGET: RESOLVE ACTIVE TRADE PLAN DEPENDENCY
 #
-# 12355-LINE REFERENCE:
-#   SIGNAL CONTINUITY AND SAFETY SEPARATION
+# BASE:
+# 22524 MODEL - DEMO BALANCE / TRADE PLAN
+# 12355 MODEL - SAFETY / CONTINUITY PRINCIPLES
 #
-# CURRENT FROZEN INPUT:
-# UNIT 2 HYBRID V3
-# UNIT 3 WEEX MARKET V3
-# UNIT 7 HYBRID ADJUSTABLE V2
+# CURRENT INTERFACES:
+# UNIT 2 V3
+# UNIT 3 V3
+# UNIT 7 HYBRID V2
+# UNIT 9 HYBRID V2
 #
-# BREAKOUT / STRUCTURE / SCALP ARE PRESERVED
-# SINGLE MASTER BOT_MODE REMAINS DOWNSTREAM
-# NO LEVERAGE OR MARGIN MODE MUTATION
-# NO ORDER SUBMISSION
+# BREAKOUT > STRUCTURE > SCALP
+# NO STRATEGY REQUALIFICATION
+# NO LEVERAGE SETTING BY PYTHON
+# AUTHENTICATED GET ONLY
+# NO DEMO OR LIVE ORDER POST
 # ============================================================
 
 
@@ -6512,26 +6512,33 @@ def fresh_reconstruction_unit_8(
 
     import os
     import time
-    import hmac
-    import hashlib
-    import base64
     import json
-    import math
+    import hmac
+    import base64
+    import hashlib
     import urllib.request
     import urllib.error
-    from decimal import Decimal, ROUND_DOWN
-    from datetime import datetime, timezone
+
+    from decimal import (
+        Decimal,
+        ROUND_DOWN,
+        InvalidOperation,
+    )
+
+    from datetime import (
+        datetime,
+        timezone,
+    )
 
     print("=" * 80, flush=True)
-
     print(
         datetime.now(timezone.utc).isoformat(),
-        "UNIT 8 HYBRID ADJUSTABLE V2 START",
+        "UNIT 8 HYBRID ADJUSTABLE V2.1 START",
         flush=True
     )
 
     # ========================================================
-    # 1. INPUT CONTRACT
+    # 1. VERIFY EXISTING INTERFACES
     # ========================================================
 
     if not all(
@@ -6543,7 +6550,7 @@ def fresh_reconstruction_unit_8(
         )
     ):
         raise RuntimeError(
-            "UNIT 8 INPUT CONTRACT INVALID"
+            "UNIT 8 INVALID INPUT CONTRACT"
         )
 
     exchange = config.get("exchange")
@@ -6551,9 +6558,7 @@ def fresh_reconstruction_unit_8(
     strategy = config.get("strategy")
     precision = config.get("market_precision")
     qualification = config.get("qualification")
-    market_policy = config.get(
-        "market_data_policy"
-    )
+    policy = config.get("market_data_policy")
 
     if not all(
         isinstance(x, dict)
@@ -6563,110 +6568,36 @@ def fresh_reconstruction_unit_8(
             strategy,
             precision,
             qualification,
-            market_policy,
+            policy,
         )
     ):
         raise RuntimeError(
             "UNIT 8 CONFIGURATION MISSING"
         )
 
-    if config.get(
-        "execution_environment"
-    ) != "DEMO":
-        raise RuntimeError(
-            "UNIT 8 DEMO ENVIRONMENT REQUIRED"
-        )
-
     if (
-        exchange.get("contract_base_url")
+        config.get("execution_environment")
+        != "DEMO"
+        or exchange.get("contract_base_url")
         != "https://api-contract.weex.com"
         or exchange.get("market_symbol")
         != "BTCUSDT"
         or exchange.get("demo_order_symbol")
         != "BTCSUSDT"
-    ):
-        raise RuntimeError(
-            "UNIT 8 EXCHANGE CONFIGURATION INVALID"
-        )
-
-    if (
-        unit_7_result.get("unit_7_revision")
-        != "HYBRID_ADJUSTABLE_V2"
         or unit_7_result.get(
-            "qualification_version"
-        ) != "U6_HYBRID_ADJUSTABLE_V2"
-    ):
-        raise RuntimeError(
-            "UNIT 8 UNIT 7 VERSION MISMATCH"
-        )
-
-    if (
-        market_snapshot.get("symbol")
+            "unit_7_revision"
+        ) != "HYBRID_ADJUSTABLE_V2"
+        or market_snapshot.get("symbol")
         != "BTCUSDT"
         or market_snapshot.get("read_only")
         is not True
     ):
         raise RuntimeError(
-            "UNIT 8 UNIT 3 MARKET CONTRACT FAILED"
+            "UNIT 8 VERSION OR SYMBOL MISMATCH"
         )
 
-    print(
-        "PASS: UNIT 8 RECEIVED UNITS 2, 3 AND 7",
-        flush=True
-    )
-
     # ========================================================
-    # 2. NUMERIC SAFETY
-    # ========================================================
-
-    def finite(value, label):
-
-        if isinstance(value, bool):
-            raise RuntimeError(
-                "UNIT 8 BOOLEAN NUMBER: " + label
-            )
-
-        try:
-            result = float(value)
-        except (ValueError, TypeError, OverflowError):
-            raise RuntimeError(
-                "UNIT 8 INVALID NUMBER: " + label
-            )
-
-        if not math.isfinite(result):
-            raise RuntimeError(
-                "UNIT 8 NONFINITE NUMBER: " + label
-            )
-
-        return result
-
-    def number(section, key):
-
-        if key not in section:
-            raise RuntimeError(
-                "UNIT 8 MISSING SETTING: " + key
-            )
-
-        return finite(section[key], key)
-
-    def amount_decimal(value, label):
-
-        try:
-            result = Decimal(str(value))
-        except Exception as exc:
-            raise RuntimeError(
-                "UNIT 8 INVALID DECIMAL: " + label
-            ) from exc
-
-        if not result.is_finite():
-            raise RuntimeError(
-                "UNIT 8 NONFINITE DECIMAL: " + label
-            )
-
-        return result
-
-    # ========================================================
-    # 3. EXCHANGE WRITE PROTECTION
+    # 2. STRICT READ-ONLY SAFETY
     # ========================================================
 
     for key in (
@@ -6679,317 +6610,293 @@ def fresh_reconstruction_unit_8(
     ):
         if safety.get(key) is not False:
             raise RuntimeError(
-                "UNIT 8 EXCHANGE SAFETY FAILED: " + key
-            )
-
-    for key in (
-        "read_only",
-        "order_payload_created",
-        "trade_authorized",
-        "exchange_write",
-    ):
-
-        expected = (
-            True if key == "read_only"
-            else False
-        )
-
-        if unit_7_result.get(key) is not expected:
-            raise RuntimeError(
-                "UNIT 8 UNIT 7 SAFETY FAILED: " + key
+                "UNIT 8 SAFETY BLOCK: " + key
             )
 
     if (
-        unit_7_result.get(
-            "position_sizing_performed"
+        unit_7_result.get("read_only")
+        is not True
+        or unit_7_result.get(
+            "trade_authorized"
         ) is not False
         or unit_7_result.get(
-            "quantity_calculated"
+            "order_payload_created"
         ) is not False
         or unit_7_result.get(
-            "proposed_quantity"
-        ) is not None
+            "exchange_write"
+        ) is not False
     ):
         raise RuntimeError(
-            "UNIT 8 PREMATURE SIZING DETECTED"
+            "UNIT 8 UPSTREAM SAFETY FAILURE"
         )
 
-    # ========================================================
-    # 4. ADJUSTABLE STRATEGY CONTRACT
-    # ========================================================
+    common = qualification.get("common", {})
 
-    common_cfg = qualification.get("common")
-
-    if not isinstance(common_cfg, dict):
-        raise RuntimeError(
-            "UNIT 8 QUALIFICATION CONFIG MISSING"
-        )
-
-    priority = tuple(
-        common_cfg.get("mode_priority", ())
-    )
-
-    if priority != (
+    if tuple(
+        common.get("mode_priority", ())
+    ) != (
         "BREAKOUT",
         "STRUCTURE",
         "SCALP",
     ):
         raise RuntimeError(
-            "UNIT 8 STRATEGY PRIORITY MISMATCH"
-        )
-
-    initial_fixed = number(
-        strategy,
-        "initial_fixed_usdt"
-    )
-
-    initial_percent = number(
-        strategy,
-        "initial_margin_percent"
-    )
-
-    cap_percent = number(
-        strategy,
-        "exposure_cap_percent"
-    )
-
-    max_backups = strategy.get("max_backups")
-
-    multipliers = strategy.get(
-        "backup_multipliers"
-    )
-
-    quantity_step = number(
-        precision,
-        "quantity_step"
-    )
-
-    minimum_quantity = number(
-        precision,
-        "minimum_quantity"
-    )
-
-    price_step = number(
-        precision,
-        "price_step"
-    )
-
-    if not (
-        initial_fixed > 0
-        and 0 < initial_percent <= 100
-        and 0 < cap_percent <= 100
-        and quantity_step > 0
-        and minimum_quantity > 0
-        and price_step > 0
-    ):
-        raise RuntimeError(
-            "UNIT 8 SIZING CONFIGURATION INVALID"
-        )
-
-    if (
-        type(max_backups) is not int
-        or max_backups < 0
-        or not isinstance(
-            multipliers, (tuple, list)
-        )
-        or len(multipliers) != max_backups
-    ):
-        raise RuntimeError(
-            "UNIT 8 BACKUP LADDER INVALID"
-        )
-
-    multipliers = tuple(
-        finite(x, "BACKUP MULTIPLIER")
-        for x in multipliers
-    )
-
-    if any(x <= 0 for x in multipliers):
-        raise RuntimeError(
-            "UNIT 8 BACKUP MULTIPLIER INVALID"
-        )
-
-    if not math.isclose(
-        finite(
-            unit_7_result.get(
-                "initial_fixed_usdt"
-            ),
-            "UNIT 7 INITIAL FIXED"
-        ),
-        initial_fixed,
-        abs_tol=0.00000001
-    ):
-        raise RuntimeError(
-            "UNIT 8 INITIAL MARGIN HANDOVER MISMATCH"
-        )
-
-    if tuple(
-        unit_7_result.get(
-            "backup_multipliers", ()
-        )
-    ) != multipliers:
-        raise RuntimeError(
-            "UNIT 8 BACKUP HANDOVER MISMATCH"
-        )
-
-    if not math.isclose(
-        finite(
-            unit_7_result.get(
-                "exposure_cap_percent"
-            ),
-            "UNIT 7 EXPOSURE CAP"
-        ),
-        cap_percent,
-        abs_tol=0.00000001
-    ):
-        raise RuntimeError(
-            "UNIT 8 EXPOSURE HANDOVER MISMATCH"
-        )
-
-    print(
-        "PASS: UNIT 8 ADJUSTABLE SETTINGS PRESERVED",
-        flush=True
-    )
-
-    # ========================================================
-    # 5. VERIFIED MARKET SNAPSHOT
-    # ========================================================
-
-    live_price = finite(
-        market_snapshot.get("price"),
-        "MARK PRICE"
-    )
-
-    if live_price <= 0:
-        raise RuntimeError(
-            "UNIT 8 INVALID BTC MARK PRICE"
-        )
-
-    exchange_time_ms = finite(
-        market_snapshot.get(
-            "exchange_time_ms"
-        ),
-        "MARKET TIMESTAMP"
-    )
-
-    now_ms = time.time() * 1000.0
-
-    market_age = (
-        now_ms - exchange_time_ms
-    ) / 1000.0
-
-    maximum_age = number(
-        market_policy,
-        "max_market_age_seconds"
-    )
-
-    future_tolerance = number(
-        market_policy,
-        "future_tolerance_seconds"
-    )
-
-    if not (
-        -future_tolerance
-        <= market_age
-        <= maximum_age
-    ):
-        raise RuntimeError(
-            "UNIT 8 MARKET PRICE STALE"
+            "UNIT 8 STRATEGY PRIORITY INVALID"
         )
 
     # ========================================================
-    # 6. VERIFY UNIT 7 ADMISSION
+    # 3. DECIMAL HELPERS
     # ========================================================
 
-    status7 = unit_7_result.get("status")
+    def dec(value, label):
 
-    mode = unit_7_result.get("active_mode")
-    direction = unit_7_result.get("direction")
+        if isinstance(value, bool):
+            raise RuntimeError(
+                "UNIT 8 INVALID BOOLEAN NUMBER: "
+                + label
+            )
 
-    intent = unit_7_result.get(
+        try:
+            result = Decimal(str(value))
+        except (
+            InvalidOperation,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise RuntimeError(
+                "UNIT 8 INVALID NUMBER: "
+                + label
+            ) from exc
+
+        if not result.is_finite():
+            raise RuntimeError(
+                "UNIT 8 NONFINITE NUMBER: "
+                + label
+            )
+
+        return result
+
+    def down_step(value, step):
+
+        return (
+            (value / step).to_integral_value(
+                rounding=ROUND_DOWN
+            )
+            * step
+        )
+
+    def now_iso():
+
+        return datetime.now(
+            timezone.utc
+        ).isoformat()
+
+    # ========================================================
+    # 4. VERIFY UNIT 7 ADMISSION
+    # ========================================================
+
+    incoming_status = unit_7_result.get(
+        "status"
+    )
+
+    incoming_mode = unit_7_result.get(
+        "active_mode"
+    )
+
+    incoming_direction = unit_7_result.get(
+        "direction"
+    )
+
+    incoming_intent = unit_7_result.get(
         "execution_intent"
     )
 
-    qualified = unit_7_result.get(
+    incoming_qualified = unit_7_result.get(
         "signal_qualified"
     )
 
-    candidate_stage = unit_7_result.get(
-        "candidate_stage"
-    )
-
-    candidate_protected = unit_7_result.get(
-        "candidate_protected"
-    )
-
-    admission_reason = str(
-        unit_7_result.get(
-            "admission_reason", "NONE"
-        )
-    )
-
-    if (
-        type(intent) is not bool
-        or type(qualified) is not bool
-        or intent != qualified
-        or type(candidate_protected) is not bool
+    if not (
+        type(incoming_intent) is bool
+        and type(incoming_qualified) is bool
+        and incoming_intent
+        == incoming_qualified
     ):
         raise RuntimeError(
             "UNIT 8 ADMISSION FLAGS INVALID"
         )
 
-    accepted_reasons = {
-        "BREAKOUT":
-            "BREAKOUT_PRELIMINARY_ADMISSION_PASS",
-        "STRUCTURE":
-            "STRUCTURE_PRELIMINARY_ADMISSION_PASS",
-        "SCALP":
-            "SCALP_PRELIMINARY_ADMISSION_PASS",
-    }
-
-    if intent:
+    if incoming_intent:
 
         if (
-            status7 != "READY_FOR_BALANCE"
-            or mode not in accepted_reasons
-            or direction not in ("LONG", "SHORT")
-            or admission_reason
-            != accepted_reasons[mode]
-            or candidate_protected
+            incoming_status
+            != "READY_FOR_BALANCE"
+            or incoming_mode not in (
+                "BREAKOUT",
+                "STRUCTURE",
+                "SCALP",
+            )
+            or incoming_direction not in (
+                "LONG",
+                "SHORT",
+            )
             or unit_7_result.get(
                 "account_balance_required"
             ) is not True
+            or unit_7_result.get(
+                "candidate_protected"
+            ) is not False
         ):
             raise RuntimeError(
-                "UNIT 8 ACTIVE SIGNAL CONTRACT INVALID"
+                "UNIT 8 QUALIFIED SIGNAL CONTRACT INVALID"
             )
 
     else:
 
         if (
-            status7 != "IDLE"
-            or mode != "NONE"
-            or direction != "NONE"
-            or unit_7_result.get(
-                "account_balance_required"
-            ) is not False
+            incoming_status != "IDLE"
+            or incoming_mode != "NONE"
+            or incoming_direction != "NONE"
         ):
             raise RuntimeError(
-                "UNIT 8 IDLE CONTRACT INVALID"
+                "UNIT 8 IDLE SIGNAL CONTRACT INVALID"
             )
 
     # ========================================================
-    # 7. ORIGINAL UNIT 9 NORMALIZED HANDOVER
+    # 5. ADJUSTABLE SETTINGS
+    # ========================================================
+
+    fixed_margin = dec(
+        strategy["initial_fixed_usdt"],
+        "FIXED MARGIN"
+    )
+
+    cap_pct = dec(
+        strategy["exposure_cap_percent"],
+        "EXPOSURE CAP"
+    )
+
+    step = dec(
+        precision["quantity_step"],
+        "QUANTITY STEP"
+    )
+
+    minimum_quantity = dec(
+        precision["minimum_quantity"],
+        "MINIMUM QUANTITY"
+    )
+
+    price_step = dec(
+        precision["price_step"],
+        "PRICE STEP"
+    )
+
+    multipliers = tuple(
+        dec(x, "BACKUP MULTIPLIER")
+        for x in strategy[
+            "backup_multipliers"
+        ]
+    )
+
+    backup_count = strategy["max_backups"]
+
+    if not (
+        fixed_margin > 0
+        and 0 < cap_pct <= 100
+        and step > 0
+        and minimum_quantity > 0
+        and price_step > 0
+        and type(backup_count) is int
+        and backup_count == len(multipliers)
+        and all(x > 0 for x in multipliers)
+    ):
+        raise RuntimeError(
+            "UNIT 8 INVALID ADJUSTABLE SETTINGS"
+        )
+
+    if (
+        dec(
+            unit_7_result[
+                "initial_fixed_usdt"
+            ],
+            "UNIT 7 FIXED MARGIN"
+        ) != fixed_margin
+        or dec(
+            unit_7_result[
+                "exposure_cap_percent"
+            ],
+            "UNIT 7 CAP"
+        ) != cap_pct
+        or tuple(
+            dec(x, "UNIT 7 MULTIPLIER")
+            for x in unit_7_result[
+                "backup_multipliers"
+            ]
+        ) != multipliers
+    ):
+        raise RuntimeError(
+            "UNIT 8 CONFIGURATION HANDOVER MISMATCH"
+        )
+
+    # ========================================================
+    # 6. MARKET PRICE AND FRESHNESS
+    # ========================================================
+
+    mark_price = dec(
+        market_snapshot["price"],
+        "MARK PRICE"
+    )
+
+    market_ms = dec(
+        market_snapshot[
+            "exchange_time_ms"
+        ],
+        "MARKET TIME"
+    )
+
+    current_ms = dec(
+        int(time.time() * 1000),
+        "CURRENT TIME"
+    )
+
+    market_age = (
+        current_ms - market_ms
+    ) / Decimal("1000")
+
+    max_age = dec(
+        policy["max_market_age_seconds"],
+        "MAXIMUM MARKET AGE"
+    )
+
+    future_tolerance = dec(
+        policy["future_tolerance_seconds"],
+        "FUTURE TOLERANCE"
+    )
+
+    if not (
+        mark_price > 0
+        and -future_tolerance
+        <= market_age
+        <= max_age
+    ):
+        raise RuntimeError(
+            "UNIT 8 MARKET SNAPSHOT INVALID"
+        )
+
+    # ========================================================
+    # 7. ORIGINAL UNIT 9 HANDOVER FIELDS
     # ========================================================
 
     result = {
 
         "status": "IDLE",
 
-        "active_mode": mode,
-        "direction": direction,
+        "active_mode": incoming_mode,
+        "direction": incoming_direction,
 
-        "signal_qualified": qualified,
-        "execution_intent": intent,
+        "signal_qualified":
+            incoming_qualified,
+
+        "execution_intent":
+            incoming_intent,
 
         "trade_plan_ready": False,
         "trade_plan": None,
@@ -7000,55 +6907,74 @@ def fresh_reconstruction_unit_8(
                     "skip_reason"
                 )
             )
-            if not intent
+            if not incoming_intent
             else "NONE"
         ),
 
         "read_only": True,
 
-        "candidate_stage": candidate_stage,
+        "candidate_stage":
+            unit_7_result.get(
+                "candidate_stage",
+                "NONE"
+            ),
 
         "candidate_protected":
-            candidate_protected,
+            unit_7_result.get(
+                "candidate_protected",
+                False
+            ),
 
         "market_symbol": "BTCUSDT",
         "demo_order_symbol": "BTCSUSDT",
 
         "available_balance": None,
-
         "balance_verified": False,
-        "leverage_verified": False,
 
+        "leverage_verified": False,
+        "leverage_verification_method": None,
         "exchange_leverage": None,
 
         "margin_allocation": None,
-
         "quantity_calculated": False,
         "position_sizing_performed": False,
 
-        "initial_fixed_usdt": initial_fixed,
+        "initial_fixed_usdt":
+            float(fixed_margin),
 
         "initial_margin_percent":
-            initial_percent,
+            float(
+                dec(
+                    strategy[
+                        "initial_margin_percent"
+                    ],
+                    "INITIAL MARGIN PERCENT"
+                )
+            ),
 
-        "backup_multipliers": multipliers,
-        "max_backups": max_backups,
+        "backup_multipliers":
+            tuple(float(x) for x in multipliers),
+
+        "max_backups": backup_count,
 
         "exposure_cap_percent":
-            cap_percent,
+            float(cap_pct),
 
-        "live_mark_price": live_price,
+        "live_mark_price":
+            float(mark_price),
 
-        "quantity_step": quantity_step,
-        "minimum_quantity": minimum_quantity,
+        "quantity_step": float(step),
 
-        "price_step": price_step,
+        "minimum_quantity":
+            float(minimum_quantity),
+
+        "price_step": float(price_step),
 
         "position_flat_verified": False,
+
         "pending_orders_checked": False,
 
         "order_payload_created": False,
-
         "trade_authorized": False,
         "exchange_write": False,
 
@@ -7057,12 +6983,10 @@ def fresh_reconstruction_unit_8(
     }
 
     # ========================================================
-    # 8. IDLE / DEVELOPING PATH
-    #
-    # NO AUTHENTICATED REQUEST IF NO ADMISSION.
+    # 8. IDLE PATH
     # ========================================================
 
-    if not intent:
+    if not incoming_intent:
 
         print(
             "PASS: UNIT 8 ORIGINAL IDLE HANDOVER",
@@ -7076,18 +7000,7 @@ def fresh_reconstruction_unit_8(
 
         print(
             "UNIT 8 CANDIDATE STAGE =",
-            candidate_stage,
-            flush=True
-        )
-
-        print(
-            "UNIT 8 CANDIDATE PROTECTED =",
-            candidate_protected,
-            flush=True
-        )
-
-        print(
-            "UNIT 8 TRADE PLAN READY = False",
+            result["candidate_stage"],
             flush=True
         )
 
@@ -7102,8 +7015,8 @@ def fresh_reconstruction_unit_8(
         )
 
         print(
-            datetime.now(timezone.utc).isoformat(),
-            "UNIT 8 HYBRID ADJUSTABLE V2 "
+            now_iso(),
+            "UNIT 8 HYBRID ADJUSTABLE V2.1 "
             "RESULT = PASS (IDLE)",
             flush=True
         )
@@ -7113,19 +7026,23 @@ def fresh_reconstruction_unit_8(
         return result
 
     # ========================================================
-    # 9. ACTIVE SIGNAL - SCOPED DEMO BALANCE READ
-    #
-    # ORIGINAL 22524-LINE SIGNED GET PROCEDURE.
-    #
-    # THIS GET IS NOT AN ORDER SUBMISSION.
+    # 9. READ-ONLY ACCOUNT PERMISSIONS
     # ========================================================
 
-    if safety.get(
-        "demo_account_balance_read_enabled"
-    ) is not True:
-        raise RuntimeError(
-            "UNIT 8 DEMO BALANCE READ NOT ENABLED"
+    if (
+        safety.get(
+            "demo_account_balance_read_enabled"
+        ) is not True
+    ):
+        result["status"] = (
+            "BLOCKED_READ_PERMISSION"
         )
+
+        result["skip_reason"] = (
+            "DEMO_BALANCE_READ_NOT_ENABLED"
+        )
+
+        return result
 
     api_key = (
         os.getenv("WEEX_API_KEY")
@@ -7142,88 +7059,25 @@ def fresh_reconstruction_unit_8(
         or os.getenv("API_PASSPHRASE")
     )
 
-    if not all((
-        api_key,
-        api_secret,
-        api_passphrase
-    )):
-        result["status"] = "BLOCKED_CREDENTIALS"
+    if not all(
+        (api_key, api_secret, api_passphrase)
+    ):
+
+        result["status"] = (
+            "BLOCKED_CREDENTIALS"
+        )
+
         result["skip_reason"] = (
             "DEMO_CREDENTIALS_MISSING"
         )
 
-        print(
-            "UNIT 8 STATUS = BLOCKED_CREDENTIALS",
-            flush=True
-        )
-        print(
-            "UNIT 8 EXCHANGE WRITE = NONE",
-            flush=True
-        )
-        print(
-            "UNIT 8 RESULT = PASS (BLOCKED)",
-            flush=True
-        )
-
         return result
 
-    request_path = "/capi/v3/sim/balance"
-
-    timestamp = str(
-        int(time.time() * 1000)
-    )
-
-    method = "GET"
-
-    prehash = (
-        timestamp
-        + method
-        + request_path
-    )
-
-    signature = base64.b64encode(
-        hmac.new(
-            api_secret.encode("utf-8"),
-            prehash.encode("utf-8"),
-            hashlib.sha256
-        ).digest()
-    ).decode("utf-8")
-
-    headers = {
-        "ACCESS-KEY": api_key,
-        "ACCESS-SIGN": signature,
-        "ACCESS-TIMESTAMP": timestamp,
-        "ACCESS-PASSPHRASE": api_passphrase,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-
-    url = (
-        exchange["contract_base_url"]
-        + request_path
-    )
-
-    request = urllib.request.Request(
-        url=url,
-        headers=headers,
-        method="GET",
-    )
-
-    if (
-        request.get_method() != "GET"
-        or request.data is not None
-    ):
-        raise RuntimeError(
-            "UNIT 8 AUTHENTICATED REQUEST NOT READ-ONLY"
-        )
-
-    print(
-        "UNIT 8 AUTHENTICATED DEMO BALANCE GET START",
-        flush=True
-    )
-
-    # Avoid redirecting signed requests to
-    # a different host.
+    # ========================================================
+    # 10. AUTHENTICATED GET HELPER
+    #
+    # ALLOWLIST OF TWO ENDPOINTS ONLY.
+    # ========================================================
 
     class NoRedirect(
         urllib.request.HTTPRedirectHandler
@@ -7236,7 +7090,7 @@ def fresh_reconstruction_unit_8(
             code,
             msg,
             headers,
-            newurl
+            newurl,
         ):
             return None
 
@@ -7244,66 +7098,140 @@ def fresh_reconstruction_unit_8(
         NoRedirect()
     )
 
-    try:
+    allowed_paths = (
+        "/capi/v3/sim/balance",
+        "/capi/v3/sim/position/allPosition",
+    )
+
+    def signed_get(path):
+
+        if path not in allowed_paths:
+            raise RuntimeError(
+                "UNIT 8 ENDPOINT NOT ALLOWED"
+            )
+
+        timestamp = str(
+            int(time.time() * 1000)
+        )
+
+        prehash = (
+            timestamp + "GET" + path
+        )
+
+        signature = base64.b64encode(
+            hmac.new(
+                api_secret.encode(),
+                prehash.encode(),
+                hashlib.sha256
+            ).digest()
+        ).decode()
+
+        headers = {
+
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+
+            "ACCESS-TIMESTAMP":
+                timestamp,
+
+            "ACCESS-PASSPHRASE":
+                api_passphrase,
+
+            "Content-Type":
+                "application/json",
+
+            "Accept":
+                "application/json",
+        }
+
+        request = urllib.request.Request(
+            exchange[
+                "contract_base_url"
+            ] + path,
+            headers=headers,
+            method="GET",
+        )
+
+        if (
+            request.get_method() != "GET"
+            or request.data is not None
+        ):
+            raise RuntimeError(
+                "UNIT 8 NON-GET REQUEST"
+            )
 
         with opener.open(
             request,
             timeout=15
         ) as response:
 
-            http_code = response.getcode()
+            if response.getcode() != 200:
+                raise RuntimeError(
+                    "UNIT 8 HTTP RESPONSE FAILED"
+                )
 
-            response_bytes = response.read(
-                65537
+            raw = response.read(65537)
+
+        if len(raw) > 65536:
+            raise RuntimeError(
+                "UNIT 8 RESPONSE TOO LARGE"
             )
 
-    except urllib.error.HTTPError as exc:
-
-        raise RuntimeError(
-            "UNIT 8 DEMO BALANCE HTTP ERROR: "
-            + str(exc.code)
-        ) from exc
-
-    except urllib.error.URLError as exc:
-
-        raise RuntimeError(
-            "UNIT 8 DEMO BALANCE NETWORK ERROR"
-        ) from exc
-
-    if (
-        http_code != 200
-        or len(response_bytes) > 65536
-    ):
-        raise RuntimeError(
-            "UNIT 8 DEMO BALANCE RESPONSE INVALID"
+        data = json.loads(
+            raw.decode("utf-8")
         )
+
+        if isinstance(data, dict):
+
+            # Some API failures use a
+            # code/msg wrapper rather than
+            # the expected record array.
+
+            raise RuntimeError(
+                "UNIT 8 UNEXPECTED API RESPONSE: "
+                + str(data.get(
+                    "code", "UNKNOWN"
+                ))
+            )
+
+        if not isinstance(data, list):
+            raise RuntimeError(
+                "UNIT 8 API ARRAY EXPECTED"
+            )
+
+        return data
+
+    # ========================================================
+    # 11. VERIFIED DEMO SUSDT BALANCE
+    # ========================================================
 
     try:
 
-        payload = json.loads(
-            response_bytes.decode("utf-8")
+        balances = signed_get(
+            "/capi/v3/sim/balance"
         )
 
-    except (
-        UnicodeError,
-        json.JSONDecodeError
-    ) as exc:
+    except Exception as exc:
 
-        raise RuntimeError(
-            "UNIT 8 DEMO BALANCE JSON INVALID"
-        ) from exc
-
-    # Original reference uses an array of
-    # balance objects, including asset SUSDT.
-
-    if not isinstance(payload, list):
-        raise RuntimeError(
-            "UNIT 8 DEMO BALANCE ARRAY EXPECTED"
+        result["status"] = (
+            "BLOCKED_BALANCE_READ"
         )
 
-    balance_record = None
+        result["skip_reason"] = (
+            type(exc).__name__
+        )
 
-    for item in payload:
+        print(
+            "UNIT 8 BALANCE GET FAILED:",
+            str(exc)[:180],
+            flush=True
+        )
+
+        return result
+
+    susdt = None
+
+    for item in balances:
 
         if (
             isinstance(item, dict)
@@ -7311,225 +7239,579 @@ def fresh_reconstruction_unit_8(
                 item.get("asset", "")
             ).upper() == "SUSDT"
         ):
-            balance_record = item
+            susdt = item
             break
 
-    if balance_record is None:
-        raise RuntimeError(
-            "UNIT 8 DEMO SUSDT BALANCE MISSING"
+    if susdt is None:
+        result["status"] = (
+            "BLOCKED_SUSDT_RECORD"
         )
 
-    available_decimal = amount_decimal(
-        balance_record.get(
+        result["skip_reason"] = (
+            "SUSDT_ASSET_NOT_FOUND"
+        )
+
+        return result
+
+    available = dec(
+        susdt.get(
             "availableBalance"
         ),
         "AVAILABLE SUSDT"
     )
 
-    if available_decimal < 0:
+    if available < 0:
         raise RuntimeError(
-            "UNIT 8 NEGATIVE AVAILABLE BALANCE"
+            "UNIT 8 NEGATIVE DEMO BALANCE"
         )
 
-    available_balance = float(
-        available_decimal
-    )
-
     result["available_balance"] = (
-        available_balance
+        float(available)
     )
 
     result["balance_verified"] = True
 
     print(
-        "PASS: UNIT 8 AUTHENTICATED DEMO BALANCE GET",
+        "PASS: UNIT 8 DEMO SUSDT BALANCE GET",
         flush=True
     )
+
+    # ========================================================
+    # 12. READ DEMO POSITIONS
+    #
+    # POSITION CHECK IS NOT
+    # PENDING-ORDER VERIFICATION.
+    # ========================================================
+
+    try:
+
+        positions = signed_get(
+            "/capi/v3/sim/position/allPosition"
+        )
+
+    except Exception as exc:
+
+        result["status"] = (
+            "BLOCKED_POSITION_READ"
+        )
+
+        result["skip_reason"] = (
+            type(exc).__name__
+        )
+
+        print(
+            "UNIT 8 POSITION GET FAILED:",
+            str(exc)[:180],
+            flush=True
+        )
+
+        return result
+
+    active_btc_positions = 0
+
+    for item in positions:
+
+        if not isinstance(item, dict):
+            raise RuntimeError(
+                "UNIT 8 POSITION FORMAT INVALID"
+            )
+
+        symbol = str(
+            item.get("symbol", "")
+        ).upper()
+
+        if symbol not in (
+            "BTCUSDT",
+            "BTCSUSDT",
+        ):
+            continue
+
+        size = dec(
+            item.get("size", "0"),
+            "BTC POSITION SIZE"
+        )
+
+        if size < 0:
+            raise RuntimeError(
+                "UNIT 8 POSITION SIZE INVALID"
+            )
+
+        if size > 0:
+            active_btc_positions += 1
+
+    result["position_flat_verified"] = (
+        active_btc_positions == 0
+    )
+
+    if active_btc_positions > 0:
+
+        result["status"] = (
+            "EXISTING_DEMO_POSITION"
+        )
+
+        result["skip_reason"] = (
+            "INITIAL_ENTRY_NOT_FLAT"
+        )
+
+        print(
+            "UNIT 8 EXISTING BTC POSITIONS =",
+            active_btc_positions,
+            flush=True
+        )
+
+        return result
 
     print(
-        "UNIT 8 DEMO AVAILABLE SUSDT =",
-        available_balance,
+        "PASS: UNIT 8 DEMO BTC POSITION FLAT",
         flush=True
     )
 
     # ========================================================
-    # 10. FIXED INITIAL ENTRY AND EXPOSURE
+    # 13. SIDE-SPECIFIC WEEX LEVERAGE
+    #
+    # READ MANUALLY FROM WEEX DEMO UI
+    # INTO RENDER ENVIRONMENT VARIABLES.
+    #
+    # NO API CLAIM OF FLAT LEVERAGE.
+    # NO PYTHON LEVERAGE SETTING.
     # ========================================================
 
-    fixed_margin = amount_decimal(
-        initial_fixed,
-        "FIXED INITIAL MARGIN"
+    leverage_env = (
+        "WEEX_DEMO_LONG_LEVERAGE"
+        if incoming_direction == "LONG"
+        else "WEEX_DEMO_SHORT_LEVERAGE"
     )
 
-    cap_fraction = (
-        amount_decimal(
-            cap_percent,
-            "EXPOSURE CAP"
-        ) / Decimal("100")
+    leverage_raw = os.getenv(
+        leverage_env
     )
 
-    maximum_margin = (
-        available_decimal
-        * cap_fraction
+    if not leverage_raw:
+
+        result["status"] = (
+            "AWAITING_EXCHANGE_LEVERAGE"
+        )
+
+        result["skip_reason"] = (
+            "MISSING_OPERATOR_WEEX_LEVERAGE:"
+            + leverage_env
+        )
+
+        print(
+            "UNIT 8 REQUIRED LEVERAGE INPUT =",
+            leverage_env,
+            flush=True
+        )
+
+        return result
+
+    leverage = dec(
+        leverage_raw,
+        "WEEX DEMO LEVERAGE"
     )
 
-    if available_decimal < fixed_margin:
+    if not (
+        Decimal("1")
+        <= leverage
+        <= Decimal("125")
+    ):
+        raise RuntimeError(
+            "UNIT 8 LEVERAGE VALUE INVALID"
+        )
+
+    # Operator must enter the value
+    # observed in the WEEX demo interface.
+    # This is NOT independent API proof.
+
+    result["exchange_leverage"] = (
+        float(leverage)
+    )
+
+    result["leverage_verified"] = True
+
+    result["leverage_verification_method"] = (
+        "OPERATOR_ENTERED_WEEX_DEMO_UI"
+    )
+
+    # ========================================================
+    # 14. FIXED MARGIN / EXPOSURE
+    # ========================================================
+
+    max_exposure_margin = (
+        available
+        * cap_pct
+        / Decimal("100")
+    )
+
+    if available < fixed_margin:
 
         result["status"] = (
             "INSUFFICIENT_DEMO_BALANCE"
         )
 
         result["skip_reason"] = (
-            "INITIAL_MARGIN_UNAVAILABLE"
-        )
-
-        print(
-            "UNIT 8 STATUS = INSUFFICIENT_DEMO_BALANCE",
-            flush=True
-        )
-        print(
-            "UNIT 8 EXCHANGE WRITE = NONE",
-            flush=True
+            "FIXED_MARGIN_NOT_AVAILABLE"
         )
 
         return result
 
-    if fixed_margin > maximum_margin:
+    if fixed_margin > max_exposure_margin:
 
         result["status"] = (
             "EXPOSURE_CAP_BLOCKED"
         )
 
         result["skip_reason"] = (
-            "INITIAL_MARGIN_EXCEEDS_CAP"
-        )
-
-        print(
-            "UNIT 8 STATUS = EXPOSURE_CAP_BLOCKED",
-            flush=True
-        )
-        print(
-            "UNIT 8 EXCHANGE WRITE = NONE",
-            flush=True
+            "FIXED_MARGIN_EXCEEDS_35_PERCENT_CAP"
         )
 
         return result
 
-    backup_margins = tuple(
-        float(
-            fixed_margin
-            * amount_decimal(
-                multiplier,
-                "BACKUP MULTIPLIER"
-            )
+    # ========================================================
+    # 15. QUANTITY FROM WEEX-UI LEVERAGE
+    # ========================================================
+
+    notional = (
+        fixed_margin * leverage
+    )
+
+    raw_quantity = (
+        notional / mark_price
+    )
+
+    quantity = down_step(
+        raw_quantity,
+        step
+    )
+
+    if (
+        quantity <= 0
+        or quantity < minimum_quantity
+    ):
+
+        result["status"] = (
+            "ENTRY_BELOW_MINIMUM_QUANTITY"
         )
-        for multiplier in multipliers
+
+        result["skip_reason"] = (
+            "MINIMUM_BTC_QUANTITY_NOT_MET"
+        )
+
+        return result
+
+    actual_notional = (
+        quantity * mark_price
     )
 
-    result["margin_allocation"] = float(
-        fixed_margin
+    actual_margin_estimate = (
+        actual_notional / leverage
     )
 
-    result["backup_margins_usdt"] = (
-        backup_margins
-    )
-
-    result["full_ladder_margin_usdt"] = (
-        float(fixed_margin)
-        + sum(backup_margins)
-    )
-
-    result["maximum_margin_usdt"] = float(
-        maximum_margin
-    )
+    if (
+        actual_margin_estimate
+        > fixed_margin
+        or actual_margin_estimate
+        > max_exposure_margin
+    ):
+        raise RuntimeError(
+            "UNIT 8 QUANTITY EXPOSURE INVALID"
+        )
 
     # ========================================================
-    # 11. LEVERAGE VERIFICATION BOUNDARY
+    # 16. AFFORDABLE BACKUP LADDER
     #
-    # USER REQUIREMENT:
-    # LEVERAGE IS CONTROLLED BY WEEX ONLY.
-    #
-    # DO NOT ASSUME UNIT 2 leverage_target
-    # IS THE ACTUAL EXCHANGE LEVERAGE.
-    #
-    # AN AUTHENTICATED WEEX LEVERAGE READ
-    # MUST BE VERIFIED BEFORE CREATING A
-    # FINAL EXECUTABLE BTC QUANTITY.
+    # PLAN ONLY. NO BACKUP ORDER.
     # ========================================================
 
-    result["status"] = (
-        "AWAITING_EXCHANGE_LEVERAGE"
+    remaining_cap = (
+        max_exposure_margin
+        - actual_margin_estimate
     )
 
-    result["skip_reason"] = (
-        "EXCHANGE_LEVERAGE_NOT_YET_VERIFIED"
+    backup_plan = []
+
+    for index, multiplier in enumerate(
+        multipliers,
+        start=1
+    ):
+
+        proposed_margin = (
+            fixed_margin * multiplier
+        )
+
+        if proposed_margin > remaining_cap:
+            break
+
+        backup_plan.append({
+
+            "backup_number": index,
+
+            "multiplier":
+                float(multiplier),
+
+            "planned_margin_usdt":
+                float(proposed_margin),
+
+            "order_submitted": False,
+        })
+
+        remaining_cap -= proposed_margin
+
+    allocated_backup_margin = sum(
+        (
+            dec(
+                entry["planned_margin_usdt"],
+                "BACKUP MARGIN"
+            )
+            for entry in backup_plan
+        ),
+        Decimal("0")
     )
 
-    result["leverage_verified"] = False
-    result["exchange_leverage"] = None
+    full_plan_margin = (
+        actual_margin_estimate
+        + allocated_backup_margin
+    )
 
-    result["quantity_calculated"] = False
+    if full_plan_margin > max_exposure_margin:
+        raise RuntimeError(
+            "UNIT 8 FULL EXPOSURE CAP FAILURE"
+        )
 
-    result["position_sizing_performed"] = False
+    # ========================================================
+    # 17. ORIGINAL 22524 MODEL TRADE PLAN
+    #
+    # EXACT CORE FIELDS PRESERVED.
+    # ========================================================
 
-    result["trade_plan_ready"] = False
-    result["trade_plan"] = None
+    position_sizing = {
 
-    # No synthetic WEEX order quantity.
+        "asset": "SUSDT",
+
+        "available_balance":
+            float(available),
+
+        "initial_margin_percent":
+            float(
+                dec(
+                    strategy[
+                        "initial_margin_percent"
+                    ],
+                    "INITIAL MARGIN PERCENT"
+                )
+            ),
+
+        "margin_allocation":
+            float(actual_margin_estimate),
+
+        "leverage_target":
+            float(leverage),
+
+        "leverage_source":
+            "OPERATOR_ENTERED_WEEX_DEMO_UI",
+
+        "live_mark_price":
+            float(mark_price),
+
+        "raw_quantity":
+            float(raw_quantity),
+
+        "quantity_step":
+            float(step),
+
+        "minimum_quantity":
+            float(minimum_quantity),
+
+        "quantity":
+            float(quantity),
+
+        "position_sizing_performed": True,
+
+        "quantity_calculated": True,
+
+        "source":
+            "WEEX_DEMO_BALANCE_AND_UI_LEVERAGE",
+
+        "backup_plan":
+            backup_plan,
+
+        "exposure_cap_percent":
+            float(cap_pct),
+    }
+
+    trade_plan = {
+
+        "active_mode":
+            incoming_mode,
+
+        "direction":
+            incoming_direction,
+
+        "quantity":
+            float(quantity),
+
+        "position_sizing":
+            position_sizing,
+
+        "execution_environment":
+            "DEMO",
+
+        "market_symbol":
+            "BTCUSDT",
+
+        "demo_order_symbol":
+            "BTCSUSDT",
+
+        "backup_plan":
+            backup_plan,
+    }
+
+    # ========================================================
+    # 18. READY UNIT 9 / UNIT 10 HANDOVER
+    # ========================================================
+
+    result.update({
+
+        "status": "READY",
+
+        "trade_plan_ready": True,
+
+        "trade_plan": trade_plan,
+
+        "skip_reason": "NONE",
+
+        "margin_allocation":
+            float(actual_margin_estimate),
+
+        "quantity_calculated": True,
+
+        "position_sizing_performed": True,
+
+        "planned_backup_count":
+            len(backup_plan),
+
+        "planned_full_ladder_margin":
+            float(full_plan_margin),
+
+        "maximum_exposure_margin":
+            float(max_exposure_margin),
+
+        "pending_orders_checked": False,
+
+        "trade_authorized": False,
+
+        "order_payload_created": False,
+
+        "exchange_write": False,
+    })
+
+    # ========================================================
+    # 19. FINAL SAFETY VALIDATION
+    # ========================================================
+
+    if not (
+        result["status"] == "READY"
+        and result["signal_qualified"]
+        and result["execution_intent"]
+        and result["trade_plan_ready"]
+        and result["balance_verified"]
+        and result["leverage_verified"]
+        and result["quantity_calculated"]
+        and result["position_flat_verified"]
+        and not result["pending_orders_checked"]
+        and not result["trade_authorized"]
+        and not result["order_payload_created"]
+        and not result["exchange_write"]
+    ):
+        raise RuntimeError(
+            "UNIT 8 READY OUTPUT CONTRACT FAILED"
+        )
+
+    # ========================================================
+    # 20. RENDER VERIFICATION
+    # ========================================================
 
     print(
-        "PASS: UNIT 8 ORIGINAL UNIT 9 CONTRACT",
+        "PASS: UNIT 8 ORIGINAL UNIT 9 TRADE PLAN",
         flush=True
     )
 
     print(
-        "PASS: UNIT 8 ADJUSTABLE QUALIFICATIONS PRESERVED",
+        "PASS: UNIT 8 ADJUSTABLE CONFIGURATION",
         flush=True
     )
 
     print(
-        "UNIT 8 STATUS =",
-        result["status"],
+        "UNIT 8 STATUS = READY",
         flush=True
     )
 
     print(
         "UNIT 8 ACTIVE MODE =",
-        mode,
+        incoming_mode,
         flush=True
     )
 
     print(
         "UNIT 8 DIRECTION =",
-        direction,
+        incoming_direction,
         flush=True
     )
 
     print(
-        "UNIT 8 INITIAL MARGIN SUSDT =",
-        float(fixed_margin),
+        "UNIT 8 AVAILABLE SUSDT =",
+        float(available),
         flush=True
     )
 
     print(
-        "UNIT 8 BACKUP MARGINS SUSDT =",
-        backup_margins,
+        "UNIT 8 LEVERAGE =",
+        float(leverage),
         flush=True
     )
 
     print(
-        "UNIT 8 EXPOSURE CAP PERCENT =",
-        cap_percent,
+        "UNIT 8 LEVERAGE SOURCE =",
+        result[
+            "leverage_verification_method"
+        ],
         flush=True
     )
 
     print(
-        "UNIT 8 VERIFIED EXCHANGE LEVERAGE = NONE",
+        "UNIT 8 INITIAL MARGIN =",
+        float(actual_margin_estimate),
         flush=True
     )
 
     print(
-        "UNIT 8 TRADE PLAN READY = False",
+        "UNIT 8 BTC QUANTITY =",
+        float(quantity),
+        flush=True
+    )
+
+    print(
+        "UNIT 8 AFFORDABLE BACKUPS =",
+        len(backup_plan),
+        "/",
+        backup_count,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 EXPOSURE CAP =",
+        float(cap_pct),
+        "%",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 TRADE PLAN READY = True",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 PENDING ORDERS CHECKED = False",
         flush=True
     )
 
@@ -7549,9 +7831,9 @@ def fresh_reconstruction_unit_8(
     )
 
     print(
-        datetime.now(timezone.utc).isoformat(),
-        "UNIT 8 HYBRID ADJUSTABLE V2 "
-        "RESULT = PASS (LEVERAGE PENDING)",
+        now_iso(),
+        "UNIT 8 HYBRID ADJUSTABLE V2.1 "
+        "RESULT = PASS (READY)",
         flush=True
     )
 
@@ -7561,7 +7843,8 @@ def fresh_reconstruction_unit_8(
 
 
 # ============================================================
-# UNIT 8 EXECUTION / ORIGINAL UNIT 9 HANDOVER
+# UNIT 8 EXECUTION
+# ORIGINAL UNIT 9 HANDOVER
 # ZERO INDENTATION
 # ============================================================
 
@@ -7575,10 +7858,9 @@ FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
 
 
 # ============================================================
-# END UNIT 8 - HYBRID ADJUSTABLE V2
+# END UNIT 8 - HYBRID ADJUSTABLE V2.1
 # ZERO INDENTATION
 # ============================================================
-
 
 
 # ============================================================
