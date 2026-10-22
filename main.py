@@ -4584,6 +4584,549 @@ if (
     )
 
 print("=" * 80, flush=True)
+
+
+# ============================================================
+# START UNIT 8 WEEX ACTUAL LEVERAGE EXTENSION
+# ZERO INDENTATION
+# SOURCE: ORIGINAL 15-UNIT UNIT 12 AUTHENTICATED GET
+# READ ONLY - NO EXCHANGE MUTATION
+# ============================================================
+
+def fresh_unit_8_weex_leverage_read(
+    config,
+    unit_8_result,
+):
+    import os
+    import time
+    import hmac
+    import hashlib
+    import base64
+    import json
+    import math
+    import urllib.request
+    import urllib.error
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 8 WEEX LEVERAGE READ START",
+        flush=True,
+    )
+
+    result = {
+        "status": "UNVERIFIED",
+        "source": "WEEX_DEMO_ACTIVE_POSITION",
+        "request_method": "GET",
+        "request_attempted": False,
+        "http_success": False,
+        "positions_read": False,
+        "active_position_count": 0,
+        "leverage_by_side": {
+            "LONG": None,
+            "SHORT": None,
+        },
+        "verified_by_side": {
+            "LONG": False,
+            "SHORT": False,
+        },
+        "effective_leverage": None,
+        "exchange_leverage_verified": False,
+        "reason": "NOT_CHECKED",
+        "order_submission": False,
+        "leverage_mutation": False,
+        "exchange_write": False,
+    }
+
+    if (
+        not isinstance(config, dict)
+        or not isinstance(unit_8_result, dict)
+    ):
+        raise RuntimeError(
+            "UNIT 8 LEVERAGE INPUT FAILED"
+        )
+
+    if config.get(
+        "execution_environment"
+    ) != "DEMO":
+        raise RuntimeError(
+            "UNIT 8 LEVERAGE NON-DEMO BLOCKED"
+        )
+
+    if (
+        unit_8_result.get("trade_authorized")
+        is not False
+        or unit_8_result.get("exchange_write")
+        is not False
+        or unit_8_result.get("execution_intent")
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 8 LEVERAGE SAFETY FAILED"
+        )
+
+    exchange = config.get("exchange", {})
+
+    if (
+        exchange.get("contract_base_url")
+        != "https://api-contract.weex.com"
+        or exchange.get("demo_order_symbol")
+        != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 8 LEVERAGE EXCHANGE CONFIG FAILED"
+        )
+
+    # --------------------------------------------------------
+    # EXISTING RENDER ENVIRONMENT CREDENTIALS
+    # --------------------------------------------------------
+
+    api_key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    api_secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    api_passphrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((
+        api_key,
+        api_secret,
+        api_passphrase,
+    )):
+        result["status"] = "UNAVAILABLE"
+        result["reason"] = "WEEX_CREDENTIALS_MISSING"
+
+        print(
+            "UNIT 8 WEEX LEVERAGE = UNAVAILABLE",
+            flush=True,
+        )
+
+        return result
+
+    # --------------------------------------------------------
+    # DEMO POSITION READ - NEVER USE LIVE POSITION PATH
+    # --------------------------------------------------------
+
+    request_path = (
+        "/capi/v3/sim/position/allPosition"
+    )
+
+    timestamp = str(int(time.time() * 1000))
+
+    prehash = (
+        timestamp
+        + "GET"
+        + request_path
+    )
+
+    signature = base64.b64encode(
+        hmac.new(
+            api_secret.encode("utf-8"),
+            prehash.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    request = urllib.request.Request(
+        url=(
+            "https://api-contract.weex.com"
+            + request_path
+        ),
+        method="GET",
+        headers={
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": api_passphrase,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    )
+
+    if (
+        request.get_method() != "GET"
+        or request.data is not None
+    ):
+        raise RuntimeError(
+            "UNIT 8 LEVERAGE NON-GET BLOCKED"
+        )
+
+    class Unit8NoRedirect(
+        urllib.request.HTTPRedirectHandler
+    ):
+        def redirect_request(
+            self, req, fp, code, msg,
+            headers, newurl
+        ):
+            return None
+
+    opener = urllib.request.build_opener(
+        Unit8NoRedirect()
+    )
+
+    result["request_attempted"] = True
+
+    try:
+        with opener.open(
+            request,
+            timeout=15,
+        ) as response:
+
+            http_status = response.getcode()
+            response_url = response.geturl()
+            raw = response.read(1024 * 1024 + 1)
+
+        if (
+            http_status != 200
+            or response_url != (
+                "https://api-contract.weex.com"
+                + request_path
+            )
+            or not raw
+            or len(raw) > 1024 * 1024
+        ):
+            raise RuntimeError(
+                "INVALID_WEEX_HTTP_RESPONSE"
+            )
+
+        payload = json.loads(
+            raw.decode("utf-8")
+        )
+
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        TimeoutError,
+        ValueError,
+        UnicodeError,
+        RuntimeError,
+    ) as exc:
+
+        result["status"] = "UNAVAILABLE"
+        result["reason"] = (
+            "WEEX_READ_FAILED_"
+            + type(exc).__name__
+        )
+
+        # Never print API credentials,
+        # signatures, authentication headers,
+        # or private response bodies.
+
+        print(
+            "UNIT 8 WEEX READ = FAILED",
+            flush=True,
+        )
+
+        return result
+
+    result["http_success"] = True
+
+    # Original Unit 12 expected a list.
+    # Fail closed if WEEX changes that contract.
+
+    if not isinstance(payload, list):
+
+        result["status"] = "UNVERIFIED"
+        result["reason"] = (
+            "UNEXPECTED_POSITION_RESPONSE_SHAPE"
+        )
+
+        return result
+
+    result["positions_read"] = True
+
+    seen = {
+        "LONG": [],
+        "SHORT": [],
+    }
+
+    for record in payload:
+
+        if not isinstance(record, dict):
+            result["reason"] = "MALFORMED_POSITION"
+            return result
+
+        symbol = str(
+            record.get("symbol", "")
+        ).upper()
+
+        if symbol != "BTCSUSDT":
+            continue
+
+        try:
+            size = float(record.get("size"))
+        except (
+            TypeError,
+            ValueError,
+            OverflowError,
+        ):
+            result["reason"] = "INVALID_POSITION_SIZE"
+            return result
+
+        if (
+            not math.isfinite(size)
+            or size < 0
+        ):
+            result["reason"] = "INVALID_POSITION_SIZE"
+            return result
+
+        # A zero-size position does not prove
+        # effective leverage for a future entry.
+
+        if size == 0:
+            continue
+
+        side = str(
+            record.get("side", "")
+        ).upper()
+
+        if side not in seen:
+            result["reason"] = "INVALID_POSITION_SIDE"
+            return result
+
+        try:
+            leverage = float(
+                record.get("leverage")
+            )
+        except (
+            TypeError,
+            ValueError,
+            OverflowError,
+        ):
+            result["reason"] = "INVALID_LEVERAGE"
+            return result
+
+        if (
+            not math.isfinite(leverage)
+            or leverage <= 0
+        ):
+            result["reason"] = "INVALID_LEVERAGE"
+            return result
+
+        margin_mode = str(
+            record.get("marginType", "")
+        ).upper()
+
+        if margin_mode not in (
+            "CROSSED",
+            "ISOLATED",
+        ):
+            result["reason"] = "INVALID_MARGIN_MODE"
+            return result
+
+        seen[side].append({
+            "leverage": leverage,
+            "size": size,
+            "margin_mode": margin_mode,
+        })
+
+    result["active_position_count"] = (
+        len(seen["LONG"])
+        + len(seen["SHORT"])
+    )
+
+    # Multiple positions may have different leverage.
+    # Never select one arbitrarily.
+
+    for side in ("LONG", "SHORT"):
+
+        positions = seen[side]
+
+        if not positions:
+            continue
+
+        unique_leverage = {
+            p["leverage"]
+            for p in positions
+        }
+
+        unique_margin_modes = {
+            p["margin_mode"]
+            for p in positions
+        }
+
+        if (
+            len(unique_leverage) != 1
+            or len(unique_margin_modes) != 1
+        ):
+            result["reason"] = (
+                "AMBIGUOUS_" + side + "_POSITIONS"
+            )
+            return result
+
+        result["leverage_by_side"][side] = (
+            positions[0]["leverage"]
+        )
+
+        result["verified_by_side"][side] = True
+
+    wanted_side = unit_8_result.get(
+        "pending_direction", "NONE"
+    )
+
+    # Crucial: a position's leverage describes
+    # that existing position, not necessarily
+    # a new flat-position entry.
+
+    if wanted_side in (
+        "LONG",
+        "SHORT",
+    ) and result["verified_by_side"][wanted_side]:
+
+        result["effective_leverage"] = (
+            result["leverage_by_side"][wanted_side]
+        )
+
+        result["exchange_leverage_verified"] = True
+        result["status"] = "EXISTING_POSITION_VERIFIED"
+        result["reason"] = (
+            "WEEX_ACTIVE_POSITION_LEVERAGE_READ"
+        )
+
+    elif result["active_position_count"] == 0:
+
+        result["status"] = "FLAT"
+        result["reason"] = (
+            "NO_ACTIVE_POSITION_"
+            "ENTRY_LEVERAGE_UNVERIFIED"
+        )
+
+    else:
+
+        result["status"] = "PARTIAL"
+        result["reason"] = (
+            "REQUESTED_SIDE_LEVERAGE_UNAVAILABLE"
+        )
+
+    print(
+        "UNIT 8 WEEX POSITION READ = SUCCESS",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 WEEX LONG LEVERAGE =",
+        result["leverage_by_side"]["LONG"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 WEEX SHORT LEVERAGE =",
+        result["leverage_by_side"]["SHORT"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 WEEX LEVERAGE STATUS =",
+        result["status"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 WEEX LEVERAGE REASON =",
+        result["reason"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 WEEX LEVERAGE MUTATION = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 WEEX ORDER SUBMISSION = NONE",
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# RUN LEVERAGE EXTENSION
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_8_WEEX_LEVERAGE = (
+    fresh_unit_8_weex_leverage_read(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_8_RESULT,
+    )
+)
+
+# Copy verification metadata into the existing
+# Unit 8 result. Do not enable sizing or orders.
+
+_u8_leverage = (
+    FRESH_RECONSTRUCTION_UNIT_8_WEEX_LEVERAGE
+)
+
+FRESH_RECONSTRUCTION_UNIT_8_RESULT[
+    "weex_leverage_read"
+] = _u8_leverage
+
+FRESH_RECONSTRUCTION_UNIT_8_RESULT[
+    "weex_leverage_by_side"
+] = dict(_u8_leverage["leverage_by_side"])
+
+FRESH_RECONSTRUCTION_UNIT_8_RESULT[
+    "weex_leverage_status"
+] = _u8_leverage["status"]
+
+FRESH_RECONSTRUCTION_UNIT_8_RESULT[
+    "effective_leverage"
+] = _u8_leverage["effective_leverage"]
+
+FRESH_RECONSTRUCTION_UNIT_8_RESULT[
+    "exchange_leverage_verified"
+] = _u8_leverage["exchange_leverage_verified"]
+
+# Preserve the current execution safety boundary.
+
+assert (
+    FRESH_RECONSTRUCTION_UNIT_8_RESULT[
+        "execution_intent"
+    ] is False
+)
+
+assert (
+    FRESH_RECONSTRUCTION_UNIT_8_RESULT[
+        "trade_plan_ready"
+    ] is False
+)
+
+assert (
+    FRESH_RECONSTRUCTION_UNIT_8_RESULT[
+        "exchange_write"
+    ] is False
+)
+
+print(
+    "UNIT 8 ACTUAL WEEX LEVERAGE EXTENSION = COMPLETE",
+    flush=True,
+)
+
+print(
+    "UNIT 8 EFFECTIVE LEVERAGE =",
+    _u8_leverage["effective_leverage"],
+    flush=True,
+)
+
+print(
+    "UNIT 8 NO ORDER / NO MUTATION = TRUE",
+    flush=True,
+)
+
+# ============================================================
+# END UNIT 8 WEEX LEVERAGE EXTENSION
+# ZERO INDENTATION
+# ============================================================
+
 print(
     "UNIT 8 SYNTHETIC PENDING TEST = PASS",
     flush=True,
