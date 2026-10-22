@@ -146,8 +146,31 @@ def fresh_reconstruction_unit_2():
             "UNIT 2 BLOCKED: UNIT 1 NOT READY"
         )
 
+    
+# ============================================================
+# START UNIT 2 - REVISED CONFIGURATION
+# ZERO INDENTATION
+# ORIGINAL 22525 MODEL + UNIT 3 DATA POLICY
+# ============================================================
+
+def fresh_reconstruction_unit_2():
+
+    import math
+
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 2 START")
+
     # ========================================================
-    # 2. EXCHANGE CONFIGURATION
+    # 1. UNIT 1 HANDOVER
+    # ========================================================
+
+    if FRESH_RECONSTRUCTION_UNIT_1_READY is not True:
+        raise RuntimeError(
+            "UNIT 2 BLOCKED: UNIT 1 NOT READY"
+        )
+
+    # ========================================================
+    # 2. ORIGINAL EXCHANGE CONTRACT
     # ========================================================
 
     exchange = {
@@ -164,9 +187,9 @@ def fresh_reconstruction_unit_2():
     # ========================================================
     # 3. ORIGINAL SAFETY CONTRACT
     #
-    # This is Unit 2's read-only configuration.
-    # Later execution units retain their existing
-    # authenticated WEEX demo execution mechanism.
+    # DO NOT CHANGE THESE FLAGS TO ENABLE UNIT 12.
+    # THE ORIGINAL UNIT 12 HAS ITS OWN AUTHENTICATED
+    # DEMO ORDER EXECUTION PATH.
     # ========================================================
 
     safety = {
@@ -185,17 +208,18 @@ def fresh_reconstruction_unit_2():
     }
 
     # ========================================================
-    # 4. ORIGINAL STRATEGY CONFIGURATION
+    # 4. ORIGINAL TRADING STRATEGY
+    # NO CHANGES TO ORIGINAL VALUES
     # ========================================================
 
     strategy = {
 
-        # LEVERAGE AND INITIAL ENTRY
+        # LEVERAGE AND ENTRY
         "leverage_target": 100,
         "initial_margin_percent": 5.0,
         "initial_fixed_usdt": 0.50,
 
-        # FIVE BACKUPS
+        # BACKUP LADDER CONFIGURATION
         "backup_margin_percent": 5.0,
         "backup_buffer_percent": 0.30,
         "max_backups": 5,
@@ -207,22 +231,22 @@ def fresh_reconstruction_unit_2():
             3.0,
         ),
 
-        # EXPOSURE PROTECTION
+        # EXPOSURE
         "exposure_cap_percent": 35.0,
         "progressive_backup_funding": True,
         "full_ladder_reservation_required": False,
 
-        # TAKE-PROFIT ALLOCATION
+        # TAKE PROFITS
         "tp1_allocation_percent": 10.0,
         "tp2_allocation_percent": 20.0,
         "tp3_allocation_percent": 70.0,
 
-        # NET ROI TARGETS
+        # ROI
         "tp1_net_roi_floor_percent": 5.0,
         "tp2_net_roi_floor_percent": 10.0,
         "tp1_tp2_min_roi_separation_percent": 5.0,
 
-        # TP3 DYNAMIC TRAILING
+        # DYNAMIC TRAILING
         "tp3_trailing_reference_percent": 0.20,
         "tp3_trailing_min_percent": 0.10,
         "tp3_trailing_max_percent": 0.40,
@@ -238,7 +262,7 @@ def fresh_reconstruction_unit_2():
     }
 
     # ========================================================
-    # 5. MARKET PRECISION
+    # 5. ORIGINAL MARKET PRECISION
     # ========================================================
 
     market_precision = {
@@ -248,7 +272,39 @@ def fresh_reconstruction_unit_2():
     }
 
     # ========================================================
-    # 6. ORIGINAL CONFIGURATION OUTPUT
+    # 6. NEW UNIT 3 MARKET DATA POLICY
+    #
+    # ONLY PUBLIC DATA VALIDATION PARAMETERS.
+    # NO TRADING MODE CONTROL.
+    # NO ORDER EXECUTION CONTROL.
+    # ========================================================
+
+    market_data_policy = {
+
+        # Maximum allowed age of WEEX mark price.
+        "max_market_age_seconds": 120.0,
+
+        # Tolerance for exchange/local clock difference.
+        "future_tolerance_seconds": 30.0,
+
+        # Protect against malformed large responses.
+        "max_response_bytes": 65536,
+
+        # Reject unusable numerical prices.
+        "require_finite_price": True,
+
+        # Validate the response timestamp.
+        "require_timestamp_validation": True,
+
+        # Reject stale data rather than trading on it.
+        "require_fresh_market_data": True,
+    }
+
+    # ========================================================
+    # 7. COMBINED CONFIGURATION
+    #
+    # ALL ORIGINAL KEYS PRESERVED.
+    # ONLY market_data_policy IS ADDED.
     # ========================================================
 
     config = {
@@ -257,159 +313,45 @@ def fresh_reconstruction_unit_2():
         "safety": safety,
         "strategy": strategy,
         "market_precision": market_precision,
+        "market_data_policy": market_data_policy,
     }
 
     # ========================================================
-    # 7. VALIDATION
+    # 8. VALIDATE EXCHANGE CONTRACT
     # ========================================================
 
-    errors = []
+    if exchange["name"] != "WEEX":
+        raise RuntimeError("UNIT 2 INVALID EXCHANGE")
 
-    def check(condition, label):
-        if condition:
-            print("PASS: UNIT 2 " + label, flush=True)
-        else:
-            errors.append(label)
-            print("FAIL: UNIT 2 " + label, flush=True)
+    if exchange["api_version"] != "V3":
+        raise RuntimeError("UNIT 2 INVALID API VERSION")
 
-    check(
-        exchange["name"] == "WEEX"
-        and exchange["api_version"] == "V3"
-        and exchange["contract_base_url"]
-        == "https://api-contract.weex.com",
-        "WEEX V3 CONFIGURATION"
-    )
+    if exchange["contract_base_url"] != (
+        "https://api-contract.weex.com"
+    ):
+        raise RuntimeError("UNIT 2 INVALID API URL")
 
-    check(
-        exchange["market_symbol"] == "BTCUSDT"
-        and exchange["demo_order_symbol"] == "BTCSUSDT",
-        "MARKET AND DEMO SYMBOLS"
-    )
+    if exchange["market_symbol"] != "BTCUSDT":
+        raise RuntimeError("UNIT 2 INVALID MARKET SYMBOL")
 
-    check(
-        execution_environment == "DEMO",
-        "DEMO EXECUTION ENVIRONMENT"
-    )
+    if exchange["demo_order_symbol"] != "BTCSUSDT":
+        raise RuntimeError("UNIT 2 INVALID DEMO SYMBOL")
 
-    check(
-        strategy["leverage_target"] > 0,
-        "LEVERAGE TARGET"
-    )
-
-    check(
-        0 < strategy["initial_margin_percent"] <= 5.0
-        and strategy["initial_fixed_usdt"] > 0,
-        "INITIAL ENTRY CONFIGURATION"
-    )
-
-    check(
-        strategy["max_backups"] == 5
-        and strategy["backup_multipliers"]
-        == (1.0, 1.5, 2.0, 2.5, 3.0)
-        and 0 < strategy["backup_margin_percent"] <= 5.0
-        and strategy["backup_buffer_percent"] > 0,
-        "FIVE BACKUP CONFIGURATION"
-    )
-
-    check(
-        strategy["progressive_backup_funding"] is True
-        and strategy["full_ladder_reservation_required"]
-        is False,
-        "PROGRESSIVE BACKUP FUNDING"
-    )
-
-    check(
-        0 < strategy["exposure_cap_percent"] <= 35.0,
-        "MAXIMUM EXPOSURE 35%"
-    )
-
-    full_ladder_multiplier = (
-        1.0 + sum(strategy["backup_multipliers"])
-    )
-
-    full_ladder_margin = (
-        strategy["initial_fixed_usdt"]
-        * full_ladder_multiplier
-    )
-
-    tp_total = sum(
-        strategy[key]
-        for key in (
-            "tp1_allocation_percent",
-            "tp2_allocation_percent",
-            "tp3_allocation_percent",
+    if execution_environment != "DEMO":
+        raise RuntimeError(
+            "UNIT 2 INVALID EXECUTION ENVIRONMENT"
         )
-    )
 
-    check(
-        abs(tp_total - 100.0) < 0.000001
-        and all(
-            strategy[key] > 0
-            for key in (
-                "tp1_allocation_percent",
-                "tp2_allocation_percent",
-                "tp3_allocation_percent",
-            )
-        ),
-        "TP ALLOCATION 10/20/70"
-    )
+    # ========================================================
+    # 9. VALIDATE ORIGINAL SAFETY CONTRACT
+    # ========================================================
 
-    check(
-        strategy["tp1_net_roi_floor_percent"] >= 5.0
-        and strategy["tp2_net_roi_floor_percent"] >= 10.0
-        and strategy["tp2_net_roi_floor_percent"]
-        > strategy["tp1_net_roi_floor_percent"]
-        and strategy[
-            "tp1_tp2_min_roi_separation_percent"
-        ] > 0,
-        "TP NET ROI TARGETS"
-    )
+    if safety["public_market_data_read_enabled"] is not True:
+        raise RuntimeError(
+            "UNIT 2 PUBLIC MARKET READ DISABLED"
+        )
 
-    check(
-        0 < strategy["tp3_trailing_min_percent"]
-        <= strategy["tp3_trailing_reference_percent"]
-        <= strategy["tp3_trailing_max_percent"],
-        "TP3 DYNAMIC TRAILING RANGE"
-    )
-
-    check(
-        all(
-            strategy[key] > 0
-            for key in (
-                "signal_expiry_seconds",
-                "loss_cooldown_seconds",
-                "mode_confirmations_required",
-            )
-        ),
-        "SIGNAL CONTROL"
-    )
-
-    check(
-        all(
-            strategy[key] is True
-            for key in (
-                "one_direction_only",
-                "anti_duplicate_orders",
-                "active_trade_mode_lock",
-                "exclusive_mode",
-            )
-        ),
-        "POSITION PROTECTION"
-    )
-
-    check(
-        all(
-            market_precision[key] > 0
-            for key in (
-                "quantity_step",
-                "minimum_quantity",
-                "price_step",
-            )
-        ),
-        "MARKET PRECISION"
-    )
-
-    forbidden_capabilities = (
+    forbidden = (
         "authenticated_api_enabled",
         "account_access_enabled",
         "position_access_enabled",
@@ -422,37 +364,183 @@ def fresh_reconstruction_unit_2():
         "position_mode_mutation_enabled",
     )
 
-    check(
-        safety["public_market_data_read_enabled"]
-        is True
-        and all(
-            safety[key] is False
-            for key in forbidden_capabilities
-        ),
-        "ORIGINAL UNIT 2 SAFETY CONTRACT"
-    )
+    for key in forbidden:
+        if safety[key] is not False:
+            raise RuntimeError(
+                "UNIT 2 INVALID SAFETY FLAG: " + key
+            )
 
     # ========================================================
-    # 8. CONFIGURATION RESULTS
+    # 10. VALIDATE STRATEGY
     # ========================================================
 
-    if errors:
+    if not (
+        strategy["leverage_target"] > 0
+        and 0 < strategy["initial_margin_percent"] <= 5.0
+        and strategy["initial_fixed_usdt"] > 0
+    ):
         raise RuntimeError(
-            "UNIT 2 VALIDATION FAILED: "
-            + ", ".join(errors)
+            "UNIT 2 INVALID ENTRY CONFIGURATION"
         )
 
-    print("-" * 80, flush=True)
+    multipliers = strategy["backup_multipliers"]
+
+    if not (
+        strategy["max_backups"] == 5
+        and multipliers == (1.0, 1.5, 2.0, 2.5, 3.0)
+        and strategy["backup_buffer_percent"] > 0
+        and 0 < strategy["backup_margin_percent"] <= 5.0
+    ):
+        raise RuntimeError(
+            "UNIT 2 INVALID BACKUP CONFIGURATION"
+        )
+
+    if not (
+        0 < strategy["exposure_cap_percent"] <= 35.0
+        and strategy["progressive_backup_funding"] is True
+        and strategy["full_ladder_reservation_required"]
+        is False
+    ):
+        raise RuntimeError(
+            "UNIT 2 INVALID EXPOSURE CONFIGURATION"
+        )
+
+    tp_total = sum(
+        strategy[key]
+        for key in (
+            "tp1_allocation_percent",
+            "tp2_allocation_percent",
+            "tp3_allocation_percent",
+        )
+    )
+
+    if not math.isclose(
+        tp_total, 100.0, rel_tol=0, abs_tol=0.000001
+    ):
+        raise RuntimeError(
+            "UNIT 2 TP ALLOCATION NOT 100%"
+        )
+
+    if not (
+        strategy["tp1_net_roi_floor_percent"] >= 5.0
+        and strategy["tp2_net_roi_floor_percent"] >= 10.0
+        and strategy["tp2_net_roi_floor_percent"]
+        > strategy["tp1_net_roi_floor_percent"]
+        and strategy["tp1_tp2_min_roi_separation_percent"] > 0
+    ):
+        raise RuntimeError(
+            "UNIT 2 INVALID TP ROI CONFIGURATION"
+        )
+
+    if not (
+        0 < strategy["tp3_trailing_min_percent"]
+        <= strategy["tp3_trailing_reference_percent"]
+        <= strategy["tp3_trailing_max_percent"]
+    ):
+        raise RuntimeError(
+            "UNIT 2 INVALID TP3 TRAILING"
+        )
+
+    for key in (
+        "signal_expiry_seconds",
+        "loss_cooldown_seconds",
+        "mode_confirmations_required",
+    ):
+        if strategy[key] <= 0:
+            raise RuntimeError(
+                "UNIT 2 INVALID SIGNAL CONFIG: " + key
+            )
+
+    for key in (
+        "one_direction_only",
+        "anti_duplicate_orders",
+        "active_trade_mode_lock",
+        "exclusive_mode",
+    ):
+        if strategy[key] is not True:
+            raise RuntimeError(
+                "UNIT 2 REQUIRED STRATEGY FLAG FALSE: " + key
+            )
+
+    for key in (
+        "quantity_step",
+        "minimum_quantity",
+        "price_step",
+    ):
+        if market_precision[key] <= 0:
+            raise RuntimeError(
+                "UNIT 2 INVALID PRECISION: " + key
+            )
+
+    # ========================================================
+    # 11. VALIDATE NEW MARKET DATA POLICY
+    # ========================================================
+
+    if not (
+        0 < market_data_policy["max_market_age_seconds"]
+        <= 120
+    ):
+        raise RuntimeError(
+            "UNIT 2 INVALID MARKET AGE LIMIT"
+        )
+
+    if not (
+        0 <= market_data_policy["future_tolerance_seconds"]
+        <= 30
+    ):
+        raise RuntimeError(
+            "UNIT 2 INVALID CLOCK TOLERANCE"
+        )
+
+    if not (
+        1024 <= market_data_policy["max_response_bytes"]
+        <= 65536
+    ):
+        raise RuntimeError(
+            "UNIT 2 INVALID RESPONSE LIMIT"
+        )
+
+    for key in (
+        "require_finite_price",
+        "require_timestamp_validation",
+        "require_fresh_market_data",
+    ):
+        if market_data_policy[key] is not True:
+            raise RuntimeError(
+                "UNIT 2 INVALID DATA PROTECTION: " + key
+            )
+
+    # ========================================================
+    # 12. FINISH
+    # ========================================================
 
     print(
-        "UNIT 2 INITIAL MARGIN USDT =",
-        strategy["initial_fixed_usdt"],
+        "PASS: UNIT 2 ORIGINAL CONFIGURATION PRESERVED",
         flush=True
     )
 
     print(
-        "UNIT 2 MAX BACKUPS =",
-        strategy["max_backups"],
+        "PASS: UNIT 2 UNIT 3 DATA POLICY READY",
+        flush=True
+    )
+
+    print(
+        "UNIT 2 MARKET DATA MAX AGE =",
+        market_data_policy["max_market_age_seconds"],
+        "SECONDS",
+        flush=True
+    )
+
+    print(
+        "UNIT 2 MARKET FUTURE TOLERANCE =",
+        market_data_policy["future_tolerance_seconds"],
+        "SECONDS",
+        flush=True
+    )
+
+    print(
+        "UNIT 2 INITIAL ENTRY USDT =",
+        strategy["initial_fixed_usdt"],
         flush=True
     )
 
@@ -463,24 +551,14 @@ def fresh_reconstruction_unit_2():
     )
 
     print(
-        "UNIT 2 FULL LADDER MARGIN USDT =",
-        full_ladder_margin,
-        flush=True
-    )
-
-    print(
         "UNIT 2 EXPOSURE CAP =",
         strategy["exposure_cap_percent"],
+        "%",
         flush=True
     )
 
     print(
-        "UNIT 2 TP ALLOCATION = 10/20/70",
-        flush=True
-    )
-
-    print(
-        "UNIT 2 REAL ORDER SUBMISSION = DISABLED",
+        "UNIT 2 TP ALLOCATION = 10 / 20 / 70",
         flush=True
     )
 
@@ -490,14 +568,13 @@ def fresh_reconstruction_unit_2():
     )
 
     log("FRESH RECONSTRUCTION UNIT 2 RESULT = PASS")
-
     print("=" * 80, flush=True)
 
     return config
 
 
 # ============================================================
-# UNIT 2 EXECUTION AND UNIT 3 HANDOVER
+# UNIT 2 EXECUTION AND HANDOVER
 # ZERO INDENTATION
 # ============================================================
 
@@ -509,5 +586,5 @@ FRESH_RECONSTRUCTION_CONFIG = (
 # ============================================================
 # END UNIT 2
 # ZERO INDENTATION
-# UNIT 3 CONTINUES BELOW
 # ============================================================
+     
