@@ -9730,3 +9730,838 @@ FRESH_RECONSTRUCTION_UNIT_10_RESULT = (
 # ============================================================
 
 
+
+# ============================================================
+# START UNIT 11 - HYBRID ADJUSTABLE V2
+# ZERO INDENTATION
+#
+# 22524 REFERENCE: WEEX DEMO PAYLOAD
+# 12355 REFERENCE: SIGNAL SAFETY / HANDOVER
+#
+# PRESERVES:
+# BREAKOUT > STRUCTURE > SCALP
+# UNIT 2 ADJUSTABLE QUALIFICATION
+# UNIT 10 ORIGINAL EXECUTION INTERFACE
+# UNIT 12 ORIGINAL DEMO PAYLOAD INTERFACE
+#
+# NO NETWORK ACCESS
+# NO EXCHANGE WRITE
+# NO LEVERAGE OR MARGIN MODE CHANGES
+# NO ADDITIONAL STRATEGY CONFIRMATION
+# ============================================================
+
+
+def fresh_reconstruction_unit_11(
+    config,
+    unit_10_result
+):
+
+    import math
+    import time
+    import uuid
+
+    from datetime import datetime, timezone
+    from decimal import (
+        Decimal,
+        InvalidOperation,
+        ROUND_DOWN,
+    )
+
+    print("=" * 80, flush=True)
+
+    print(
+        datetime.now(timezone.utc).isoformat(),
+        "UNIT 11 HYBRID ADJUSTABLE V2 START",
+        flush=True
+    )
+
+    # ========================================================
+    # 1. INPUT AND CONFIGURATION
+    # ========================================================
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 11 CONFIGURATION INVALID"
+        )
+
+    if not isinstance(unit_10_result, dict):
+        raise RuntimeError(
+            "UNIT 11 UNIT 10 RESULT INVALID"
+        )
+
+    exchange = config.get("exchange")
+    safety = config.get("safety")
+    strategy = config.get("strategy")
+    precision = config.get("market_precision")
+    qualification = config.get("qualification")
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            exchange,
+            safety,
+            strategy,
+            precision,
+            qualification,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 11 CONFIGURATION SECTION MISSING"
+        )
+
+    if (
+        config.get("execution_environment")
+        != "DEMO"
+        or exchange.get("market_symbol")
+        != "BTCUSDT"
+        or exchange.get("demo_order_symbol")
+        != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 11 DEMO SYMBOL CONTRACT FAILED"
+        )
+
+    if (
+        unit_10_result.get("unit_10_revision")
+        != "HYBRID_ADJUSTABLE_V2"
+    ):
+        raise RuntimeError(
+            "UNIT 11 UNIT 10 VERSION MISMATCH"
+        )
+
+    # ========================================================
+    # 2. REQUIRED ORIGINAL UNIT 10 HANDOVER
+    # ========================================================
+
+    required = (
+        "status",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "trade_plan",
+        "execution_ready",
+        "execution_candidate",
+        "demo_boundary_ready",
+        "demo_submission_instruction",
+        "skip_reason",
+        "order_payload_created",
+        "demo_submission_requested",
+        "real_submission_requested",
+        "tp_execution_requested",
+        "sl_execution_requested",
+        "backup_execution_requested",
+        "read_only",
+    )
+
+    missing = [
+        key
+        for key in required
+        if key not in unit_10_result
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "UNIT 11 UNIT 10 FIELDS MISSING: "
+            + str(missing)
+        )
+
+    print(
+        "PASS: UNIT 11 ORIGINAL UNIT 10 CONTRACT",
+        flush=True
+    )
+
+    # ========================================================
+    # 3. NUMERIC HELPERS
+    # ========================================================
+
+    def dec(value, label):
+
+        if isinstance(value, bool):
+            raise RuntimeError(
+                "UNIT 11 BOOLEAN NUMBER: " + label
+            )
+
+        try:
+            result = Decimal(str(value))
+        except (
+            InvalidOperation,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise RuntimeError(
+                "UNIT 11 INVALID NUMBER: " + label
+            ) from exc
+
+        if not result.is_finite():
+            raise RuntimeError(
+                "UNIT 11 NONFINITE NUMBER: " + label
+            )
+
+        return result
+
+    def quantity_text(value):
+
+        return format(value, "f")
+
+    # ========================================================
+    # 4. NO EXCHANGE WRITE IN UNIT 11
+    # ========================================================
+
+    if unit_10_result.get("read_only") is not True:
+        raise RuntimeError(
+            "UNIT 11 READ ONLY INPUT REQUIRED"
+        )
+
+    for key in (
+        "order_payload_created",
+        "demo_submission_requested",
+        "real_submission_requested",
+        "tp_execution_requested",
+        "sl_execution_requested",
+        "backup_execution_requested",
+        "exchange_write",
+    ):
+        if unit_10_result.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 11 PREMATURE EXECUTION: " + key
+            )
+
+    for key in (
+        "real_order_submission_enabled",
+        "order_endpoint_access_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    ):
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 11 CONFIG SAFETY FAILED: " + key
+            )
+
+    # ========================================================
+    # 5. ADJUSTABLE STRATEGY PRESERVATION
+    # ========================================================
+
+    common = qualification.get("common", {})
+
+    priority = tuple(
+        common.get("mode_priority", ())
+    )
+
+    if priority != (
+        "BREAKOUT",
+        "STRUCTURE",
+        "SCALP",
+    ):
+        raise RuntimeError(
+            "UNIT 11 MODE PRIORITY INVALID"
+        )
+
+    for mode_name in (
+        "breakout",
+        "structure",
+        "scalp",
+    ):
+        if not isinstance(
+            qualification.get(mode_name),
+            dict
+        ):
+            raise RuntimeError(
+                "UNIT 11 STRATEGY CONFIG MISSING: "
+                + mode_name
+            )
+
+    initial_margin = dec(
+        strategy["initial_fixed_usdt"],
+        "INITIAL FIXED MARGIN"
+    )
+
+    exposure_cap = dec(
+        strategy["exposure_cap_percent"],
+        "EXPOSURE CAP"
+    )
+
+    multipliers = tuple(
+        dec(x, "BACKUP MULTIPLIER")
+        for x in strategy[
+            "backup_multipliers"
+        ]
+    )
+
+    max_backups = strategy["max_backups"]
+
+    if not (
+        initial_margin > 0
+        and Decimal("0") < exposure_cap <= 100
+        and type(max_backups) is int
+        and len(multipliers) == max_backups
+        and all(x > 0 for x in multipliers)
+    ):
+        raise RuntimeError(
+            "UNIT 11 ADJUSTABLE SETTINGS INVALID"
+        )
+
+    if (
+        dec(
+            unit_10_result["initial_fixed_usdt"],
+            "UPSTREAM INITIAL MARGIN"
+        ) != initial_margin
+        or dec(
+            unit_10_result[
+                "exposure_cap_percent"
+            ],
+            "UPSTREAM EXPOSURE CAP"
+        ) != exposure_cap
+        or tuple(
+            dec(x, "UPSTREAM BACKUP MULTIPLIER")
+            for x in unit_10_result[
+                "backup_multipliers"
+            ]
+        ) != multipliers
+    ):
+        raise RuntimeError(
+            "UNIT 11 ADJUSTABLE HANDOVER CHANGED"
+        )
+
+    print(
+        "PASS: UNIT 11 ADJUSTABLE QUALIFICATIONS PRESERVED",
+        flush=True
+    )
+
+    # ========================================================
+    # 6. RESULT STRUCTURE FOR ORIGINAL UNIT 12
+    # ========================================================
+
+    result = {
+
+        "status": "IDLE",
+
+        "active_mode": "NONE",
+        "direction": "NONE",
+
+        "signal_qualified": False,
+        "execution_intent": False,
+
+        "trade_plan_ready": False,
+        "trade_plan": None,
+
+        "execution_ready": False,
+        "execution_candidate": None,
+
+        "demo_boundary_ready": False,
+        "demo_submission_instruction": None,
+
+        "payload_ready": False,
+        "order_payload": None,
+        "demo_payload": None,
+        "payload": None,
+
+        "skip_reason": str(
+            unit_10_result.get(
+                "skip_reason", "NONE"
+            )
+        ),
+
+        "order_payload_created": False,
+
+        "demo_submission_requested": False,
+        "real_submission_requested": False,
+
+        "tp_execution_requested": False,
+        "sl_execution_requested": False,
+        "backup_execution_requested": False,
+
+        "read_only": True,
+        "exchange_write": False,
+
+        "initial_fixed_usdt":
+            float(initial_margin),
+
+        "backup_multipliers":
+            tuple(float(x) for x in multipliers),
+
+        "exposure_cap_percent":
+            float(exposure_cap),
+
+        "qualification_owner":
+            "UNITS_2_TO_6",
+
+        "leverage_source":
+            "WEEX_EXCHANGE_SETTING",
+
+        "unit_11_revision":
+            "HYBRID_ADJUSTABLE_V2",
+    }
+
+    # ========================================================
+    # 7. ORIGINAL IDLE / LEVERAGE-PENDING PATH
+    # ========================================================
+
+    status10 = unit_10_result["status"]
+
+    if status10 == "IDLE":
+
+        for key in (
+            "signal_qualified",
+            "execution_intent",
+            "trade_plan_ready",
+            "execution_ready",
+            "demo_boundary_ready",
+        ):
+            if unit_10_result.get(key) is not False:
+                raise RuntimeError(
+                    "UNIT 11 IDLE CONTRADICTION: " + key
+                )
+
+        if (
+            unit_10_result.get("active_mode")
+            != "NONE"
+            or unit_10_result.get("direction")
+            != "NONE"
+            or unit_10_result.get(
+                "trade_plan"
+            ) is not None
+            or unit_10_result.get(
+                "demo_submission_instruction"
+            ) is not None
+        ):
+            raise RuntimeError(
+                "UNIT 11 IDLE SIGNAL LEAK"
+            )
+
+        print(
+            "PASS: UNIT 11 ORIGINAL IDLE HANDOVER",
+            flush=True
+        )
+
+        print(
+            "UNIT 11 STATUS = IDLE",
+            flush=True
+        )
+
+        print(
+            "UNIT 11 SKIP REASON =",
+            result["skip_reason"],
+            flush=True
+        )
+
+        print(
+            "UNIT 11 PAYLOAD READY = False",
+            flush=True
+        )
+
+        print(
+            "UNIT 11 DEMO SUBMISSION = NONE",
+            flush=True
+        )
+
+        print(
+            "UNIT 11 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        print(
+            "UNIT 11 HYBRID ADJUSTABLE V2 "
+            "RESULT = PASS (IDLE)",
+            flush=True
+        )
+
+        print("=" * 80, flush=True)
+
+        return result
+
+    if status10 != "READY":
+        raise RuntimeError(
+            "UNIT 11 UNKNOWN UNIT 10 STATUS: "
+            + str(status10)
+        )
+
+    # ========================================================
+    # 8. QUALIFIED READY PATH
+    # ========================================================
+
+    mode = unit_10_result["active_mode"]
+    direction = unit_10_result["direction"]
+
+    if mode not in priority:
+        raise RuntimeError(
+            "UNIT 11 ACTIVE MODE INVALID"
+        )
+
+    if direction not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT 11 DIRECTION INVALID"
+        )
+
+    for key in (
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "execution_ready",
+        "demo_boundary_ready",
+    ):
+        if unit_10_result.get(key) is not True:
+            raise RuntimeError(
+                "UNIT 11 READY FLAG MISSING: "
+                + key
+            )
+
+    if unit_10_result.get(
+        "candidate_protected"
+    ) is True:
+        raise RuntimeError(
+            "UNIT 11 DEVELOPING CANDIDATE BLOCKED"
+        )
+
+    trade_plan = unit_10_result["trade_plan"]
+
+    candidate = unit_10_result[
+        "execution_candidate"
+    ]
+
+    instruction = unit_10_result[
+        "demo_submission_instruction"
+    ]
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            trade_plan,
+            candidate,
+            instruction,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 11 VERIFIED PLAN MISSING"
+        )
+
+    if (
+        trade_plan.get("active_mode") != mode
+        or trade_plan.get("direction") != direction
+        or candidate.get("active_mode") != mode
+        or candidate.get("direction") != direction
+        or instruction.get("active_mode") != mode
+        or instruction.get("direction") != direction
+    ):
+        raise RuntimeError(
+            "UNIT 11 STRATEGY HANDOVER MISMATCH"
+        )
+
+    if (
+        instruction.get(
+            "execution_environment"
+        ) != "DEMO"
+        or instruction.get(
+            "demo_order_symbol"
+        ) != "BTCSUSDT"
+        or instruction.get(
+            "submission_allowed"
+        ) is not False
+        or instruction.get(
+            "payload_creation_allowed"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11 INSTRUCTION CONTRACT INVALID"
+        )
+
+    # The Unit 10 instruction prohibits
+    # premature payload creation/submission.
+    # Unit 11 builds a NEW payload in memory.
+    # It does not change the Unit 10 flags.
+
+    # ========================================================
+    # 9. REQUIRED EXCHANGE / ACCOUNT EVIDENCE
+    # ========================================================
+
+    if (
+        unit_10_result.get(
+            "balance_verified"
+        ) is not True
+        or unit_10_result.get(
+            "leverage_verified"
+        ) is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11 BALANCE OR LEVERAGE UNVERIFIED"
+        )
+
+    sizing = trade_plan.get(
+        "position_sizing"
+    )
+
+    if not isinstance(sizing, dict):
+        raise RuntimeError(
+            "UNIT 11 POSITION SIZING MISSING"
+        )
+
+    quantity = trade_plan.get(
+        "quantity"
+    )
+
+    if quantity is None:
+        quantity = sizing.get(
+            "quantity"
+        )
+
+    qty = dec(
+        quantity,
+        "INITIAL ORDER QUANTITY"
+    )
+
+    qty_step = dec(
+        precision["quantity_step"],
+        "QUANTITY STEP"
+    )
+
+    minimum_qty = dec(
+        precision["minimum_quantity"],
+        "MINIMUM QUANTITY"
+    )
+
+    if not (
+        qty_step > 0
+        and minimum_qty > 0
+        and qty >= minimum_qty
+        and qty > 0
+    ):
+        raise RuntimeError(
+            "UNIT 11 QUANTITY BELOW MINIMUM"
+        )
+
+    rounded = (
+        (qty / qty_step).to_integral_value(
+            rounding=ROUND_DOWN
+        )
+        * qty_step
+    )
+
+    if rounded != qty:
+        raise RuntimeError(
+            "UNIT 11 QUANTITY STEP INVALID"
+        )
+
+    if (
+        sizing.get(
+            "quantity_calculated"
+        ) is not True
+        or sizing.get(
+            "position_sizing_performed"
+        ) is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11 SIZING NOT VERIFIED"
+        )
+
+    if (
+        dec(
+            sizing["exposure_cap_percent"],
+            "SIZING EXPOSURE CAP"
+        ) != exposure_cap
+    ):
+        raise RuntimeError(
+            "UNIT 11 EXPOSURE CAP MISMATCH"
+        )
+
+    # ========================================================
+    # 10. CONSTRUCT ORIGINAL WEEX DEMO PAYLOAD
+    # ========================================================
+
+    if direction == "LONG":
+
+        side = "BUY"
+        position_side = "LONG"
+
+    else:
+
+        side = "SELL"
+        position_side = "SHORT"
+
+    # Unique order ID. The final submission
+    # boundary must use this same ID for
+    # duplicate detection and retries.
+
+    client_order_id = (
+        "FR11-"
+        + direction
+        + "-"
+        + str(time.time_ns())
+        + "-"
+        + uuid.uuid4().hex[:8]
+    )
+
+    if len(client_order_id) > 64:
+        raise RuntimeError(
+            "UNIT 11 CLIENT ORDER ID TOO LONG"
+        )
+
+    order_payload = {
+
+        "symbol": "BTCSUSDT",
+
+        "side": side,
+
+        "positionSide": position_side,
+
+        "type": "MARKET",
+
+        "quantity": quantity_text(qty),
+
+        "newClientOrderId":
+            client_order_id,
+    }
+
+    # ========================================================
+    # 11. FINAL PAYLOAD SAFETY
+    # ========================================================
+
+    allowed_fields = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+    }
+
+    if set(order_payload) != allowed_fields:
+        raise RuntimeError(
+            "UNIT 11 UNEXPECTED ORDER FIELD"
+        )
+
+    if not (
+        order_payload["symbol"]
+        == "BTCSUSDT"
+        and order_payload["type"]
+        == "MARKET"
+        and order_payload["side"]
+        in ("BUY", "SELL")
+        and order_payload["positionSide"]
+        == direction
+        and dec(
+            order_payload["quantity"],
+            "PAYLOAD QUANTITY"
+        ) == qty
+    ):
+        raise RuntimeError(
+            "UNIT 11 PAYLOAD VALIDATION FAILED"
+        )
+
+    result.update({
+
+        "status": "READY",
+
+        "active_mode": mode,
+        "direction": direction,
+
+        "signal_qualified": True,
+        "execution_intent": True,
+
+        "trade_plan_ready": True,
+        "trade_plan": trade_plan,
+
+        "execution_ready": True,
+        "execution_candidate": candidate,
+
+        "demo_boundary_ready": True,
+
+        "demo_submission_instruction":
+            instruction,
+
+        "payload_ready": True,
+
+        "order_payload": order_payload,
+        "demo_payload": order_payload,
+        "payload": order_payload,
+
+        "skip_reason": "NONE",
+
+        "order_payload_created": True,
+
+        "demo_submission_requested": False,
+        "real_submission_requested": False,
+
+        "read_only": True,
+
+        "exchange_write": False,
+    })
+
+    print(
+        "PASS: UNIT 11 ORIGINAL UNIT 12 PAYLOAD CONTRACT",
+        flush=True
+    )
+
+    print(
+        "PASS: UNIT 11 ADJUSTABLE QUALIFICATIONS PRESERVED",
+        flush=True
+    )
+
+    print(
+        "UNIT 11 STATUS = READY",
+        flush=True
+    )
+
+    print(
+        "UNIT 11 ACTIVE MODE =",
+        mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 11 DIRECTION =",
+        direction,
+        flush=True
+    )
+
+    print(
+        "UNIT 11 BTC QUANTITY =",
+        order_payload["quantity"],
+        flush=True
+    )
+
+    print(
+        "UNIT 11 PAYLOAD READY = True",
+        flush=True
+    )
+
+    print(
+        "UNIT 11 DEMO SUBMISSION REQUESTED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 11 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        datetime.now(timezone.utc).isoformat(),
+        "UNIT 11 HYBRID ADJUSTABLE V2 RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# UNIT 11 EXECUTION
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
+    fresh_reconstruction_unit_11(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_10_RESULT,
+    )
+)
+
+
+# ============================================================
+# END UNIT 11 - HYBRID ADJUSTABLE V2
+# ZERO INDENTATION
+# ============================================================
