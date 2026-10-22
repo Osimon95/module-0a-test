@@ -1220,3 +1220,638 @@ FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
 #
 # ORIGINAL UNIT 4 CONTINUES BELOW
 # ============================================================
+
+
+# ============================================================
+# START UNIT 4 - IMPROVED HYBRID V1
+# ZERO INDENTATION
+# ORIGINAL MARKET CONTRACT + NEW STRATEGY EVIDENCE
+# PUBLIC MARKET READ ONLY
+# ============================================================
+
+def fresh_reconstruction_unit_4():
+
+    import json
+    import math
+    import urllib.parse
+    import urllib.request
+
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 4 HYBRID START")
+
+    # ========================================================
+    # 1. RECEIVE UNITS 2 AND 3
+    # ========================================================
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+    market = FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT 4 INVALID CONFIG")
+
+    if not isinstance(market, dict):
+        raise RuntimeError("UNIT 4 INVALID MARKET")
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+
+    if (
+        exchange.get("contract_base_url")
+        != "https://api-contract.weex.com"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or market.get("symbol") != "BTCUSDT"
+        or market.get("price_type") != "MARK"
+        or market.get("read_only") is not True
+    ):
+        raise RuntimeError("UNIT 4 CONTRACT MISMATCH")
+
+    if safety.get(
+        "public_market_data_read_enabled"
+    ) is not True:
+        raise RuntimeError("UNIT 4 MARKET READ DISABLED")
+
+    for key in (
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+    ):
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 4 SAFETY CONTRACT MISMATCH"
+            )
+
+    exchange_ms = int(market["exchange_time_ms"])
+    live_mark = float(market["price"])
+
+    if not math.isfinite(live_mark) or live_mark <= 0:
+        raise RuntimeError("UNIT 4 INVALID MARK PRICE")
+
+    print("PASS: UNIT 4 RECEIVED UNITS 2 AND 3", flush=True)
+
+    # ========================================================
+    # 2. ORIGINAL WEEX PUBLIC CANDLE ENDPOINT
+    # ========================================================
+
+    endpoint = "/capi/v3/market/markPriceKlines"
+
+    query = urllib.parse.urlencode({
+        "symbol": "BTCUSDT",
+        "interval": "1m",
+        "limit": 300,
+    })
+
+    url = (
+        exchange["contract_base_url"]
+        + endpoint + "?" + query
+    )
+
+    request = urllib.request.Request(
+        url,
+        method="GET",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "WEEX-Hybrid-Unit4",
+        },
+    )
+
+    if request.get_method() != "GET":
+        raise RuntimeError("UNIT 4 INVALID HTTP METHOD")
+
+    with urllib.request.urlopen(
+        request, timeout=15
+    ) as response:
+
+        if response.getcode() != 200:
+            raise RuntimeError("UNIT 4 HTTP FAILED")
+
+        raw_body = response.read(1024 * 1024 + 1)
+
+    if not raw_body or len(raw_body) > 1024 * 1024:
+        raise RuntimeError("UNIT 4 INVALID RESPONSE SIZE")
+
+    payload = json.loads(raw_body.decode("utf-8"))
+
+    if not isinstance(payload, list):
+        raise RuntimeError("UNIT 4 INVALID KLINE RESPONSE")
+
+    # ========================================================
+    # 3. NORMALIZE MARKET CANDLES
+    # ========================================================
+
+    candles = []
+
+    for raw in payload:
+
+        if not isinstance(raw, (list, tuple)):
+            raise RuntimeError("UNIT 4 INVALID KLINE")
+
+        if len(raw) < 7:
+            raise RuntimeError("UNIT 4 SHORT KLINE")
+
+        candle = {
+            "open_time_ms": int(raw[0]),
+            "open": float(raw[1]),
+            "high": float(raw[2]),
+            "low": float(raw[3]),
+            "close": float(raw[4]),
+            "volume": float(raw[5]),
+            "close_time_ms": int(raw[6]),
+        }
+
+        if not all(
+            math.isfinite(candle[key])
+            for key in (
+                "open", "high", "low",
+                "close", "volume"
+            )
+        ):
+            raise RuntimeError("UNIT 4 NONFINITE KLINE")
+
+        if not (
+            candle["low"] > 0
+            and candle["volume"] >= 0
+            and candle["low"]
+                <= min(candle["open"], candle["close"])
+            and candle["high"]
+                >= max(candle["open"], candle["close"])
+            and candle["close_time_ms"]
+                > candle["open_time_ms"]
+        ):
+            raise RuntimeError("UNIT 4 INVALID OHLC")
+
+        candles.append(candle)
+
+    candles.sort(
+        key=lambda item: item["open_time_ms"]
+    )
+
+    for index in range(1, len(candles)):
+        if (
+            candles[index]["open_time_ms"]
+            <= candles[index - 1]["open_time_ms"]
+        ):
+            raise RuntimeError(
+                "UNIT 4 DUPLICATE CANDLE"
+            )
+
+    # ========================================================
+    # 4. USE CLOSED CANDLES ONLY
+    # ========================================================
+
+    closed = [
+        candle for candle in candles
+        if candle["close_time_ms"] <= exchange_ms
+    ]
+
+    if len(closed) < 201:
+        raise RuntimeError(
+            "UNIT 4 INSUFFICIENT CLOSED HISTORY"
+        )
+
+    latest = closed[-1]
+    previous = closed[-2]
+
+    candle_age = (
+        exchange_ms - latest["close_time_ms"]
+    ) / 1000.0
+
+    if not 0 <= candle_age <= 180:
+        raise RuntimeError(
+            "UNIT 4 STALE CLOSED CANDLES"
+        )
+
+    prices = [
+        candle["close"] for candle in closed
+    ]
+
+    print(
+        "PASS: UNIT 4 CLOSED CANDLES =",
+        len(closed),
+        flush=True
+    )
+
+    # ========================================================
+    # 5. ORIGINAL EMA ENGINE
+    # ========================================================
+
+    def calculate_ema(period):
+
+        value = sum(prices[:period]) / period
+        weight = 2.0 / (period + 1.0)
+
+        for price in prices[period:]:
+            value = (
+                price * weight
+                + value * (1.0 - weight)
+            )
+
+        return value
+
+    ema19 = calculate_ema(19)
+    ema50 = calculate_ema(50)
+    ema100 = calculate_ema(100)
+    ema200 = calculate_ema(200)
+
+    if ema19 > ema50 > ema200:
+        ema_structure = "BULLISH"
+    elif ema19 < ema50 < ema200:
+        ema_structure = "BEARISH"
+    else:
+        ema_structure = "MIXED"
+
+    ema_separation = (
+        abs(ema19 - ema50) / ema50 * 100.0
+    )
+
+    # ========================================================
+    # 6. ORIGINAL MULTI-WINDOW MOMENTUM
+    # ========================================================
+
+    moves = {}
+
+    for window in (1, 5, 15, 30, 60, 120):
+        reference_price = prices[-window - 1]
+
+        moves[window] = (
+            prices[-1] / reference_price - 1.0
+        ) * 100.0
+
+    # ========================================================
+    # 7. NEW ATR14 VOLATILITY ANALYSIS
+    # ========================================================
+
+    true_ranges = []
+
+    for index in range(1, len(closed)):
+
+        current = closed[index]
+        prior = closed[index - 1]
+
+        true_range = max(
+            current["high"] - current["low"],
+            abs(
+                current["high"] - prior["close"]
+            ),
+            abs(
+                current["low"] - prior["close"]
+            ),
+        )
+
+        true_ranges.append(true_range)
+
+    atr14 = sum(true_ranges[-14:]) / 14.0
+
+    if atr14 <= 0:
+        raise RuntimeError("UNIT 4 INVALID ATR")
+
+    atr_percent = (
+        atr14 / latest["close"] * 100.0
+    )
+
+    # ========================================================
+    # 8. NEW SUPPORT AND RESISTANCE
+    # ========================================================
+
+    reference20 = closed[-21:-1]
+
+    support20 = min(
+        candle["low"] for candle in reference20
+    )
+
+    resistance20 = max(
+        candle["high"] for candle in reference20
+    )
+
+    range_atr_ratio = (
+        resistance20 - support20
+    ) / atr14
+
+    near_resistance = (
+        -0.10 * atr14
+        <= resistance20 - latest["close"]
+        <= 0.50 * atr14
+    )
+
+    near_support = (
+        -0.10 * atr14
+        <= latest["close"] - support20
+        <= 0.50 * atr14
+    )
+
+    # ========================================================
+    # 9. NEW EMA PRICE EXTENSION EVIDENCE
+    # ========================================================
+
+    ema_cluster_height = max(
+        max(ema19, ema50, ema200)
+        - min(ema19, ema50, ema200),
+        0.10 * atr14,
+    )
+
+    price_extension_cluster = (
+        abs(latest["close"] - ema19)
+        / ema_cluster_height
+    )
+
+    price_overextended = (
+        price_extension_cluster > 1.5
+    )
+
+    # ========================================================
+    # 10. NEW BREAKOUT EVIDENCE
+    # ========================================================
+
+    bullish_momentum = (
+        moves[5] > 0 and moves[15] > 0
+    )
+
+    bearish_momentum = (
+        moves[5] < 0 and moves[15] < 0
+    )
+
+    breakout_developing_long = (
+        near_resistance and bullish_momentum
+    )
+
+    breakout_developing_short = (
+        near_support and bearish_momentum
+    )
+
+    breakout_confirmed_long = (
+        latest["close"]
+        > resistance20 + 0.10 * atr14
+        and bullish_momentum
+    )
+
+    breakout_confirmed_short = (
+        latest["close"]
+        < support20 - 0.10 * atr14
+        and bearish_momentum
+    )
+
+    # ========================================================
+    # 11. NEW EARLY STRUCTURE EVIDENCE
+    # ========================================================
+
+    near_ema19 = (
+        abs(latest["close"] - ema19)
+        <= 0.75 * atr14
+    )
+
+    bullish_recovery = (
+        latest["close"] > previous["close"]
+        and latest["close"] > latest["open"]
+    )
+
+    bearish_recovery = (
+        latest["close"] < previous["close"]
+        and latest["close"] < latest["open"]
+    )
+
+    structure_developing_long = (
+        ema19 > ema50 > ema200
+        and (near_ema19 or bullish_recovery)
+        and moves[15] > 0
+    )
+
+    structure_developing_short = (
+        ema19 < ema50 < ema200
+        and (near_ema19 or bearish_recovery)
+        and moves[15] < 0
+    )
+
+    # ========================================================
+    # 12. NEW SIDEWAYS REGIME EVIDENCE
+    # ========================================================
+
+    sideways_candidate = (
+        abs(ema19 - ema50) / atr14 <= 0.70
+        and range_atr_ratio <= 8.0
+        and abs(moves[15]) <= 1.5 * atr_percent
+    )
+
+    # ========================================================
+    # 13. NEW DIRECTIONAL EVIDENCE
+    # ========================================================
+
+    long_votes = sum((
+        ema_structure == "BULLISH",
+        moves[5] > 0,
+        latest["close"] > previous["close"],
+    ))
+
+    short_votes = sum((
+        ema_structure == "BEARISH",
+        moves[5] < 0,
+        latest["close"] < previous["close"],
+    ))
+
+    direction_evidence = "NONE"
+
+    if long_votes >= 2 and long_votes > short_votes:
+        direction_evidence = "LONG"
+
+    elif (
+        short_votes >= 2
+        and short_votes > long_votes
+    ):
+        direction_evidence = "SHORT"
+
+    # ========================================================
+    # 14. ORIGINAL UNIT 5 SNAPSHOT + NEW EVIDENCE
+    # ========================================================
+
+    analysis_snapshot = {
+
+        "exchange": "WEEX",
+        "api_version": "V3",
+        "symbol": "BTCUSDT",
+        "interval": "1m",
+        "price_type": "MARK",
+
+        "live_mark_price": live_mark,
+        "previous_close": previous["close"],
+        "latest_close": latest["close"],
+
+        "latest_open_time_ms":
+            latest["open_time_ms"],
+
+        "latest_close_time_ms":
+            latest["close_time_ms"],
+
+        "exchange_time_ms": exchange_ms,
+
+        "ema19": ema19,
+        "ema50": ema50,
+        "ema100": ema100,
+        "ema200": ema200,
+
+        "ema19_50_separation_pct":
+            ema_separation,
+
+        "short_term_move_pct": moves[1],
+
+        "move_1m_pct": moves[1],
+        "move_5m_pct": moves[5],
+        "move_15m_pct": moves[15],
+        "move_30m_pct": moves[30],
+        "move_60m_pct": moves[60],
+        "move_120m_pct": moves[120],
+
+        "ema_structure": ema_structure,
+
+        "recent_closed_klines": [
+            dict(candle)
+            for candle in closed[-60:]
+        ],
+
+        "candle_count": len(candles),
+        "closed_candle_count": len(closed),
+
+        "newest_returned_candle_closed":
+            candles[-1]["close_time_ms"]
+            <= exchange_ms,
+
+        "source":
+            "WEEX_V3_PUBLIC_MARK_PRICE_KLINES",
+
+        "read_only": True,
+
+        # NEW HYBRID ANALYSIS FIELDS
+
+        "atr14": atr14,
+        "atr_percent": atr_percent,
+
+        "ema_cluster_height":
+            ema_cluster_height,
+
+        "price_extension_cluster":
+            price_extension_cluster,
+
+        "price_overextended":
+            price_overextended,
+
+        "support20": support20,
+        "resistance20": resistance20,
+
+        "range20_atr_ratio": range_atr_ratio,
+
+        "near_resistance": near_resistance,
+        "near_support": near_support,
+
+        "breakout_developing_long":
+            breakout_developing_long,
+
+        "breakout_developing_short":
+            breakout_developing_short,
+
+        "breakout_confirmed_long":
+            breakout_confirmed_long,
+
+        "breakout_confirmed_short":
+            breakout_confirmed_short,
+
+        "structure_developing_long":
+            structure_developing_long,
+
+        "structure_developing_short":
+            structure_developing_short,
+
+        "sideways_candidate":
+            sideways_candidate,
+
+        "direction_long_votes": long_votes,
+        "direction_short_votes": short_votes,
+
+        "direction_evidence":
+            direction_evidence,
+
+        "candle_age_seconds": candle_age,
+        "candle_data_fresh": True,
+
+        "strategy_evidence_version":
+            "U4_HYBRID_V1",
+
+        "trade_authorized": False,
+    }
+
+    # ========================================================
+    # 15. FINAL HANDOVER
+    # ========================================================
+
+    print(
+        "PASS: UNIT 4 ORIGINAL UNIT 5 HANDOVER",
+        flush=True
+    )
+
+    print(
+        "UNIT 4 ATR14 =",
+        round(atr14, 4),
+        flush=True
+    )
+
+    print(
+        "UNIT 4 DIRECTION EVIDENCE =",
+        direction_evidence,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 BREAKOUT DEVELOPING LONG =",
+        breakout_developing_long,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 BREAKOUT DEVELOPING SHORT =",
+        breakout_developing_short,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 STRUCTURE DEVELOPING LONG =",
+        structure_developing_long,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 STRUCTURE DEVELOPING SHORT =",
+        structure_developing_short,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 SIDEWAYS CANDIDATE =",
+        sideways_candidate,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 4 HYBRID "
+        "RESULT = PASS"
+    )
+
+    print("=" * 80, flush=True)
+
+    return analysis_snapshot
+
+
+# ============================================================
+# UNIT 4 EXECUTION AND UNIT 5 HANDOVER
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
+    fresh_reconstruction_unit_4()
+)
+
+
+# ============================================================
+# END UNIT 4 - IMPROVED HYBRID V1
+# ZERO INDENTATION
+# UNIT 5 CONTINUES BELOW
+# ============================================================
