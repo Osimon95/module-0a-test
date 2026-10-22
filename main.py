@@ -8793,7 +8793,7 @@ FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
 # ZERO INDENTATION
 # ============================================================
 
-UNIT_12_ISOLATED_TEST = True
+UNIT_12_ISOLATED_TEST = False
 
 _u12 = FRESH_RECONSTRUCTION_UNIT_12_RESULT
 
