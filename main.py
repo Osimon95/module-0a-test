@@ -1855,3 +1855,706 @@ FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
 # ZERO INDENTATION
 # UNIT 5 CONTINUES BELOW
 # ============================================================
+
+
+# ============================================================
+# START UNIT 5 - IMPROVED HYBRID V1
+# ZERO INDENTATION
+#
+# ORIGINAL 22525-LINE MODEL INTERFACE
+# PLUS NEWER 12356-LINE SIGNAL ARBITRATION
+#
+# PRIORITY:
+# BREAKOUT -> STRUCTURE -> SCALP
+#
+# NO EXCHANGE WRITE
+# NO NEW BOT MODE
+# UNIT 12 DEMO ORDER PATH PRESERVED
+# ============================================================
+
+def fresh_reconstruction_unit_5(
+    unit_2_config,
+    unit_4_snapshot
+):
+
+    import math
+
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 5 HYBRID START")
+
+    # ========================================================
+    # 1. INPUT COMPATIBILITY
+    # ========================================================
+
+    if not isinstance(unit_2_config, dict):
+        raise RuntimeError("UNIT 5 INVALID CONFIG")
+
+    if not isinstance(unit_4_snapshot, dict):
+        raise RuntimeError("UNIT 5 INVALID ANALYSIS")
+
+    strategy = unit_2_config.get("strategy", {})
+    safety = unit_2_config.get("safety", {})
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError("UNIT 5 INVALID STRATEGY")
+
+    if not isinstance(safety, dict):
+        raise RuntimeError("UNIT 5 INVALID SAFETY")
+
+    if unit_4_snapshot.get("symbol") != "BTCUSDT":
+        raise RuntimeError("UNIT 5 SYMBOL MISMATCH")
+
+    if unit_4_snapshot.get("read_only") is not True:
+        raise RuntimeError("UNIT 5 INVALID MARKET SOURCE")
+
+    if unit_4_snapshot.get("candle_data_fresh") is not True:
+        raise RuntimeError("UNIT 5 STALE CANDLE DATA")
+
+    if unit_4_snapshot.get("trade_authorized") is not False:
+        raise RuntimeError("UNIT 5 UNEXPECTED AUTHORIZATION")
+
+    for key in (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+    ):
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 5 SAFETY MISMATCH: " + key
+            )
+
+    print(
+        "PASS: UNIT 5 RECEIVED HYBRID UNITS 2 AND 4",
+        flush=True
+    )
+
+    # ========================================================
+    # 2. REQUIRED ORIGINAL HANDOVER VALUES
+    # ========================================================
+
+    def number(key):
+
+        value = float(unit_4_snapshot[key])
+
+        if not math.isfinite(value):
+            raise RuntimeError(
+                "UNIT 5 NONFINITE VALUE: " + key
+            )
+
+        return value
+
+    required = (
+        "live_mark_price",
+        "latest_close",
+        "previous_close",
+        "ema19",
+        "ema50",
+        "ema200",
+        "ema19_50_separation_pct",
+        "short_term_move_pct",
+        "move_1m_pct",
+        "move_5m_pct",
+        "move_15m_pct",
+        "move_30m_pct",
+        "move_60m_pct",
+        "move_120m_pct",
+    )
+
+    for key in required:
+        if key not in unit_4_snapshot:
+            raise RuntimeError(
+                "UNIT 5 MISSING ORIGINAL FIELD: " + key
+            )
+
+    live_mark = number("live_mark_price")
+    latest_close = number("latest_close")
+    previous_close = number("previous_close")
+
+    ema19 = number("ema19")
+    ema50 = number("ema50")
+    ema100 = number("ema100")
+    ema200 = number("ema200")
+
+    separation_pct = number(
+        "ema19_50_separation_pct"
+    )
+
+    move1 = number("move_1m_pct")
+    move5 = number("move_5m_pct")
+    move15 = number("move_15m_pct")
+    move30 = number("move_30m_pct")
+    move60 = number("move_60m_pct")
+    move120 = number("move_120m_pct")
+
+    short_move = number("short_term_move_pct")
+
+    if min(
+        live_mark, latest_close, previous_close,
+        ema19, ema50, ema100, ema200
+    ) <= 0:
+        raise RuntimeError("UNIT 5 INVALID MARKET PRICE")
+
+    # ========================================================
+    # 3. RECEIVE NEW UNIT 4 EVIDENCE
+    # ========================================================
+
+    direction_evidence = unit_4_snapshot.get(
+        "direction_evidence", "NONE"
+    )
+
+    if direction_evidence not in (
+        "LONG", "SHORT", "NONE"
+    ):
+        raise RuntimeError("UNIT 5 INVALID DIRECTION")
+
+    breakout_developing_long = (
+        unit_4_snapshot.get(
+            "breakout_developing_long", False
+        ) is True
+    )
+
+    breakout_developing_short = (
+        unit_4_snapshot.get(
+            "breakout_developing_short", False
+        ) is True
+    )
+
+    breakout_confirmed_long = (
+        unit_4_snapshot.get(
+            "breakout_confirmed_long", False
+        ) is True
+    )
+
+    breakout_confirmed_short = (
+        unit_4_snapshot.get(
+            "breakout_confirmed_short", False
+        ) is True
+    )
+
+    structure_developing_long = (
+        unit_4_snapshot.get(
+            "structure_developing_long", False
+        ) is True
+    )
+
+    structure_developing_short = (
+        unit_4_snapshot.get(
+            "structure_developing_short", False
+        ) is True
+    )
+
+    sideways = (
+        unit_4_snapshot.get(
+            "sideways_candidate", False
+        ) is True
+    )
+
+    price_overextended = (
+        unit_4_snapshot.get(
+            "price_overextended", False
+        ) is True
+    )
+
+    atr14 = number("atr14")
+
+    if atr14 <= 0:
+        raise RuntimeError("UNIT 5 INVALID ATR")
+
+    # ========================================================
+    # 4. DIRECTION AND MOMENTUM HELPERS
+    # ========================================================
+
+    def movement_direction(value):
+
+        if value > 0:
+            return "LONG"
+
+        if value < 0:
+            return "SHORT"
+
+        return "NONE"
+
+    momentum1 = movement_direction(move1)
+    momentum5 = movement_direction(move5)
+    momentum15 = movement_direction(move15)
+    momentum30 = movement_direction(move30)
+    momentum60 = movement_direction(move60)
+    momentum120 = movement_direction(move120)
+
+    ema_direction = "NONE"
+
+    if ema19 > ema50 > ema200:
+        ema_direction = "LONG"
+
+    elif ema19 < ema50 < ema200:
+        ema_direction = "SHORT"
+
+    def votes_for(side):
+
+        if side == "LONG":
+            return int(unit_4_snapshot.get(
+                "direction_long_votes", 0
+            ))
+
+        if side == "SHORT":
+            return int(unit_4_snapshot.get(
+                "direction_short_votes", 0
+            ))
+
+        return 0
+
+    # ========================================================
+    # 5. BREAKOUT QUALIFICATION
+    # ========================================================
+
+    breakout_candidate = any((
+        breakout_developing_long,
+        breakout_developing_short,
+        breakout_confirmed_long,
+        breakout_confirmed_short,
+    ))
+
+    breakout_ready_long = (
+        breakout_confirmed_long
+        and direction_evidence == "LONG"
+        and momentum5 == "LONG"
+        and votes_for("LONG") >= 2
+    )
+
+    breakout_ready_short = (
+        breakout_confirmed_short
+        and direction_evidence == "SHORT"
+        and momentum5 == "SHORT"
+        and votes_for("SHORT") >= 2
+    )
+
+    breakout_ready = (
+        breakout_ready_long or breakout_ready_short
+    )
+
+    breakout_promising = (
+        (
+            breakout_developing_long
+            and direction_evidence == "LONG"
+            and votes_for("LONG") >= 2
+        )
+        or
+        (
+            breakout_developing_short
+            and direction_evidence == "SHORT"
+            and votes_for("SHORT") >= 2
+        )
+    )
+
+    # ========================================================
+    # 6. STRUCTURE QUALIFICATION
+    # ========================================================
+
+    structure_candidate = (
+        structure_developing_long
+        or structure_developing_short
+    )
+
+    structure_ready_long = (
+        structure_developing_long
+        and direction_evidence == "LONG"
+        and ema_direction == "LONG"
+        and votes_for("LONG") >= 2
+        and momentum15 == "LONG"
+    )
+
+    structure_ready_short = (
+        structure_developing_short
+        and direction_evidence == "SHORT"
+        and ema_direction == "SHORT"
+        and votes_for("SHORT") >= 2
+        and momentum15 == "SHORT"
+    )
+
+    structure_ready = (
+        structure_ready_long or structure_ready_short
+    )
+
+    structure_promising = (
+        structure_candidate
+        and (
+            (
+                structure_developing_long
+                and direction_evidence == "LONG"
+            )
+            or
+            (
+                structure_developing_short
+                and direction_evidence == "SHORT"
+            )
+        )
+    )
+
+    # ========================================================
+    # 7. SCALP ELIGIBILITY
+    #
+    # SCALP MUST NOT OVERRIDE PROMISING TREND.
+    # FINAL QUALITY AND PROFITABILITY REQUIRE
+    # DOWNSTREAM CONFIRMATION.
+    # ========================================================
+
+    higher_mode_developing = (
+        breakout_promising
+        or structure_promising
+    )
+
+    scalp_range_pct = (
+        atr14 / latest_close * 100.0
+    )
+
+    scalp_range_feasible = (
+        scalp_range_pct > 0
+        and math.isfinite(scalp_range_pct)
+    )
+
+    scalp_momentum_agreement = (
+        direction_evidence in ("LONG", "SHORT")
+        and (
+            momentum5 == direction_evidence
+            or momentum1 == direction_evidence
+        )
+    )
+
+    scalp_ready = (
+        sideways
+        and not price_overextended
+        and not higher_mode_developing
+        and not breakout_ready
+        and not structure_ready
+        and scalp_range_feasible
+        and scalp_momentum_agreement
+    )
+
+    # ========================================================
+    # 8. PRIORITY ARBITRATION
+    # ========================================================
+
+    qualified = False
+    active_mode = "NONE"
+    direction = "NONE"
+
+    candidate_mode = "NONE"
+    candidate_stage = "NONE"
+
+    qualification_reason = "NO_QUALIFIED_SIGNAL"
+
+    if breakout_ready_long:
+
+        qualified = True
+        active_mode = "BREAKOUT"
+        direction = "LONG"
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "QUALIFIED"
+        qualification_reason = "BREAKOUT_LONG_CONFIRMED"
+
+    elif breakout_ready_short:
+
+        qualified = True
+        active_mode = "BREAKOUT"
+        direction = "SHORT"
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "QUALIFIED"
+        qualification_reason = "BREAKOUT_SHORT_CONFIRMED"
+
+    elif breakout_promising:
+
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "DEVELOPING"
+        qualification_reason = (
+            "BREAKOUT_DEVELOPING_AWAITING_CONFIRMATION"
+        )
+
+    elif structure_ready_long:
+
+        qualified = True
+        active_mode = "STRUCTURE"
+        direction = "LONG"
+        candidate_mode = "STRUCTURE"
+        candidate_stage = "QUALIFIED"
+        qualification_reason = (
+            "STRUCTURE_LONG_EARLY_QUALIFICATION"
+        )
+
+    elif structure_ready_short:
+
+        qualified = True
+        active_mode = "STRUCTURE"
+        direction = "SHORT"
+        candidate_mode = "STRUCTURE"
+        candidate_stage = "QUALIFIED"
+        qualification_reason = (
+            "STRUCTURE_SHORT_EARLY_QUALIFICATION"
+        )
+
+    elif structure_promising:
+
+        candidate_mode = "STRUCTURE"
+        candidate_stage = "DEVELOPING"
+        qualification_reason = (
+            "STRUCTURE_DEVELOPING_AWAITING_CONFIRMATION"
+        )
+
+    elif scalp_ready:
+
+        qualified = True
+        active_mode = "SCALP"
+        direction = direction_evidence
+        candidate_mode = "SCALP"
+        candidate_stage = "PENDING_UNIT_6"
+        qualification_reason = (
+            "SCALP_SIDEWAYS_PENDING_UNIT_6_SCORE"
+        )
+
+    elif breakout_candidate:
+
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "REJECTED"
+        qualification_reason = (
+            "BREAKOUT_INSUFFICIENT_CONFIRMATION"
+        )
+
+    elif structure_candidate:
+
+        candidate_mode = "STRUCTURE"
+        candidate_stage = "REJECTED"
+        qualification_reason = (
+            "STRUCTURE_INSUFFICIENT_CONFIRMATION"
+        )
+
+    elif sideways and price_overextended:
+
+        qualification_reason = (
+            "SCALP_PRICE_OVEREXTENDED"
+        )
+
+    elif not sideways:
+
+        qualification_reason = (
+            "SCALP_REQUIRES_SIDEWAYS_CONTEXT"
+        )
+
+    # ========================================================
+    # 9. PRESERVE ORIGINAL UNIT 6 HANDOVER
+    # ========================================================
+
+    signal_candidate = {
+
+        "symbol": "BTCUSDT",
+
+        "qualified": qualified,
+        "active_mode": active_mode,
+        "direction": direction,
+        "qualification_reason": qualification_reason,
+
+        "live_mark_price": live_mark,
+
+        "ema19": ema19,
+        "ema50": ema50,
+        "ema100": ema100,
+        "ema200": ema200,
+
+        "ema19_50_separation_pct": separation_pct,
+
+        "ema_structure": unit_4_snapshot.get(
+            "ema_structure", "MIXED"
+        ),
+
+        "ema_direction": ema_direction,
+        "momentum_direction": momentum1,
+
+        "direction_agreement": (
+            direction != "NONE"
+            and direction == ema_direction
+        ),
+
+        "short_term_move_pct": short_move,
+
+        "absolute_short_term_move_pct":
+            abs(short_move),
+
+        "previous_close": previous_close,
+        "latest_close": latest_close,
+
+        "price_above_ema19": live_mark > ema19,
+        "price_above_ema50": live_mark > ema50,
+        "price_above_ema200": live_mark > ema200,
+
+        "latest_close_above_previous":
+            latest_close > previous_close,
+
+        "move_1m_pct": move1,
+        "move_5m_pct": move5,
+        "move_15m_pct": move15,
+        "move_30m_pct": move30,
+        "move_60m_pct": move60,
+        "move_120m_pct": move120,
+
+        "momentum_1m_direction": momentum1,
+        "momentum_5m_direction": momentum5,
+        "momentum_15m_direction": momentum15,
+        "momentum_30m_direction": momentum30,
+        "momentum_60m_direction": momentum60,
+        "momentum_120m_direction": momentum120,
+
+        "scalp_direction": (
+            direction if active_mode == "SCALP"
+            else "NONE"
+        ),
+
+        "scalp_move_pct": abs(move5),
+
+        "scalp_1m_support": (
+            momentum1 == direction
+            and direction != "NONE"
+        ),
+
+        "structure_direction": (
+            direction if active_mode == "STRUCTURE"
+            else "NONE"
+        ),
+
+        "structure_move_pct": abs(move15),
+
+        "breakout_direction": (
+            direction if active_mode == "BREAKOUT"
+            else "NONE"
+        ),
+
+        "breakout_move_pct": abs(move30),
+
+        "breakout_fast_support": (
+            momentum5 == direction
+            and direction != "NONE"
+        ),
+
+        # NEW HYBRID CANDIDATE EVIDENCE
+
+        "candidate_mode": candidate_mode,
+        "candidate_stage": candidate_stage,
+
+        "higher_mode_developing":
+            higher_mode_developing,
+
+        "breakout_candidate": breakout_candidate,
+        "breakout_ready": breakout_ready,
+
+        "structure_candidate": structure_candidate,
+        "structure_ready": structure_ready,
+
+        "sideways_context": sideways,
+
+        "scalp_range_pct": scalp_range_pct,
+
+        "scalp_range_feasible":
+            scalp_range_feasible,
+
+        "scalp_ready": scalp_ready,
+
+        "direction_evidence": direction_evidence,
+
+        "atr14": atr14,
+
+        "price_overextended":
+            price_overextended,
+
+        "candle_data_fresh": True,
+        "read_only": True,
+        "trade_authorized": False,
+
+        "strategy_evidence_version":
+            "U5_HYBRID_V1",
+    }
+
+    # ========================================================
+    # 10. FINAL RESULT
+    # ========================================================
+
+    print(
+        "PASS: UNIT 5 ORIGINAL UNIT 6 HANDOVER",
+        flush=True
+    )
+
+    print(
+        "UNIT 5 CANDIDATE MODE =",
+        candidate_mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 CANDIDATE STAGE =",
+        candidate_stage,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 ACTIVE MODE =",
+        active_mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 DIRECTION =",
+        direction,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 QUALIFIED =",
+        qualified,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 REASON =",
+        qualification_reason,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 HIGHER MODE DEVELOPING =",
+        higher_mode_developing,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 5 HYBRID "
+        "RESULT = PASS"
+    )
+
+    print("=" * 80, flush=True)
+
+    return signal_candidate
+
+
+# ============================================================
+# UNIT 5 EXECUTION AND UNIT 6 HANDOVER
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
+    fresh_reconstruction_unit_5(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+    )
+)
+
+
+# ============================================================
+# END UNIT 5 - IMPROVED HYBRID V1
+# ZERO INDENTATION
+# UNIT 6 CONTINUES BELOW
+# ============================================================
