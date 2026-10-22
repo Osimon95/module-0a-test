@@ -3902,6 +3902,7 @@ print(
 )
 print("=" * 80, flush=True)
 
+UNIT_7_ISOLATED_TEST = False
 if UNIT_7_ISOLATED_TEST:
     print(
         "UNIT 7 TEST COMPLETE - STOPPING BEFORE UNIT 8",
@@ -3914,4 +3915,711 @@ if UNIT_7_ISOLATED_TEST:
 # END COMPLETE UNIT 7 REPLACEMENT
 # ZERO INDENTATION
 # UNIT 8 CONTINUES BELOW
+# ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 8 REPLACEMENT
+# ZERO INDENTATION
+# OLD 15-UNIT + NEW RECONSTRUCTION ADAPTATION
+#
+# ACTUAL WEEX LEVERAGE POLICY:
+# NO CONFIGURED-LEVERAGE SUBSTITUTION
+# NO ORDER / ACCOUNT MUTATION
+# ============================================================
+
+def fresh_reconstruction_unit_8(
+    unit_2_config,
+    unit_4_analysis,
+    unit_7_result,
+):
+    import math
+
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 8 START")
+
+    # ========================================================
+    # 1. INPUT CONTRACT
+    # ========================================================
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            unit_2_config,
+            unit_4_analysis,
+            unit_7_result,
+        )
+    ):
+        raise RuntimeError("UNIT 8 INVALID INPUT")
+
+    config = unit_2_config
+    market = unit_4_analysis
+    upstream = unit_7_result
+
+    safety = config.get("safety", {})
+    strategy = config.get("strategy", {})
+    exchange = config.get("exchange", {})
+
+    if not all(
+        isinstance(x, dict)
+        for x in (safety, strategy, exchange)
+    ):
+        raise RuntimeError("UNIT 8 INVALID CONFIG")
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("demo_order_symbol") != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 8 EXCHANGE CONTRACT FAILED"
+        )
+
+    # ========================================================
+    # 2. READ-ONLY SAFETY
+    # ========================================================
+
+    forbidden = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for key in forbidden:
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 8 UNSAFE FLAG: " + key
+            )
+
+    for key, expected in (
+        ("read_only", True),
+        ("trade_authorized", False),
+        ("exchange_write", False),
+        ("order_payload_created", False),
+        ("execution_intent", False),
+        ("quantity_calculated", False),
+    ):
+        if upstream.get(key) is not expected:
+            raise RuntimeError(
+                "UNIT 8 UNSAFE UNIT 7 FIELD: " + key
+            )
+
+    if (
+        market.get("read_only") is not True
+        or market.get("trade_authorized") is not False
+        or market.get("strategy_evidence_version")
+        != "U4_OLD_NEW_ADAPTED_V1"
+    ):
+        raise RuntimeError(
+            "UNIT 8 MARKET CONTRACT FAILED"
+        )
+
+    print(
+        "PASS: UNIT 8 READ ONLY SAFETY",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3. NUMERIC VALIDATION
+    # ========================================================
+
+    def finite_number(value, label):
+        try:
+            result = float(value)
+        except (
+            ValueError,
+            TypeError,
+            OverflowError,
+        ) as exc:
+            raise RuntimeError(
+                "UNIT 8 INVALID " + label
+            ) from exc
+
+        if not math.isfinite(result):
+            raise RuntimeError(
+                "UNIT 8 NONFINITE " + label
+            )
+
+        return result
+
+    age = finite_number(
+        market.get("candle_age_seconds"),
+        "CANDLE AGE",
+    )
+
+    market_fresh = (
+        market.get("candle_data_fresh") is True
+        and 0 <= age <= 180
+    )
+
+    market_direction = market.get(
+        "direction_evidence", "NONE"
+    )
+
+    if market_direction not in (
+        "LONG", "SHORT", "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 8 INVALID MARKET DIRECTION"
+        )
+
+    # ========================================================
+    # 4. UNIT 7 HANDOVER
+    # ========================================================
+
+    upstream_status = upstream.get("status")
+    signal_received = upstream.get("signal_received")
+    signal_qualified = upstream.get("signal_qualified")
+    mode = upstream.get("active_mode", "NONE")
+    side = upstream.get("direction", "NONE")
+
+    if upstream_status not in ("IDLE", "HELD"):
+        raise RuntimeError(
+            "UNIT 8 INVALID UNIT 7 STATUS"
+        )
+
+    if (
+        type(signal_received) is not bool
+        or type(signal_qualified) is not bool
+        or signal_received != signal_qualified
+    ):
+        raise RuntimeError(
+            "UNIT 8 INVALID SIGNAL FLAGS"
+        )
+
+    if upstream_status == "HELD":
+        if (
+            not signal_received
+            or mode not in ("BREAKOUT", "STRUCTURE")
+            or side not in ("LONG", "SHORT")
+        ):
+            raise RuntimeError(
+                "UNIT 8 INVALID HELD HANDOVER"
+            )
+    else:
+        if (
+            signal_received
+            or mode != "NONE"
+            or side != "NONE"
+        ):
+            raise RuntimeError(
+                "UNIT 8 INVALID IDLE HANDOVER"
+            )
+
+    print(
+        "PASS: UNIT 8 RECEIVED UNIT 7 RESULT",
+        flush=True,
+    )
+
+    # ========================================================
+    # 5. ACTUAL WEEX LEVERAGE
+    # ========================================================
+
+    # Unit 2 contains only target/reference leverage.
+    # The reference must never become effective leverage.
+    #
+    # Real exchange leverage is side/account-specific.
+    #
+    # Unit 8 currently has no authenticated account reads.
+    # Therefore actual WEEX leverage is UNKNOWN.
+    #
+    # Do not silently fall back to the configured target.
+
+    configured_leverage_reference = finite_number(
+        strategy.get("leverage_target"),
+        "CONFIGURED LEVERAGE",
+    )
+
+    if configured_leverage_reference <= 0:
+        raise RuntimeError(
+            "UNIT 8 INVALID LEVERAGE REFERENCE"
+        )
+
+    effective_leverage = None
+    exchange_leverage_verified = False
+    exchange_leverage_source = None
+    exchange_leverage_side = None
+
+    # Future authenticated reader must independently
+    # verify leverage for the actual DEMO position side.
+    #
+    # Do not inject leverage via configuration here.
+    # Do not use guessed 100x or 20x values.
+    # Do not mutate leverage on WEEX.
+
+    position_sizing_allowed = False
+
+    # ========================================================
+    # 6. SIGNAL FRESHNESS
+    # ========================================================
+
+    signal_direction_match = (
+        signal_received
+        and market_direction == side
+    )
+
+    if not market_fresh:
+        status = "BLOCKED"
+        reason = "STALE_MARKET_EVIDENCE"
+
+    elif upstream_status == "IDLE":
+        status = "IDLE"
+        reason = "NO_QUALIFIED_SIGNAL"
+
+    elif not signal_direction_match:
+        status = "BLOCKED"
+        reason = "SIGNAL_DIRECTION_CONFLICT"
+
+    else:
+        status = "PENDING"
+        reason = (
+            "SIGNAL_ALIGNED_AWAITING_"
+            "WEEX_AND_CONTINUITY_VERIFICATION"
+        )
+
+    candidate_preserved = status == "PENDING"
+
+    pending_mode = (
+        mode if candidate_preserved else "NONE"
+    )
+
+    pending_direction = (
+        side if candidate_preserved else "NONE"
+    )
+
+    # ========================================================
+    # 7. CONTINUITY AND DUPLICATE SAFETY
+    # ========================================================
+
+    # A single startup snapshot is not sufficient
+    # to establish multiple independent confirmations.
+    #
+    # The later continuous scanner must provide
+    # distinct candle IDs across multiple scans.
+
+    continuity_required = int(
+        strategy.get(
+            "direction_confirmation_required", 2
+        )
+    )
+
+    if not 1 <= continuity_required <= 3:
+        raise RuntimeError(
+            "UNIT 8 INVALID CONTINUITY REQUIREMENT"
+        )
+
+    continuity_observations = (
+        1 if candidate_preserved else 0
+    )
+
+    continuity_verified = False
+
+    # These must come from authenticated WEEX reads
+    # or independently verified later modules.
+
+    position_flat_verified = False
+    pending_orders_checked = False
+    existing_position_checked = False
+    duplicate_order_absence_verified = False
+    reentry_authorized = False
+
+    # ========================================================
+    # 8. LEVERAGE-DEPENDENT TRADE PLAN
+    # ========================================================
+
+    # Only actual exchange leverage can support sizing.
+    # In the current read-only Unit 8 test, balance,
+    # leverage, position mode and quantity rules
+    # have not been independently verified.
+
+    balance_verified = False
+    contract_rules_verified = False
+    price_for_execution_verified = False
+
+    position_sizing = {
+        "status": "NOT_CALCULATED",
+        "reference_leverage":
+            configured_leverage_reference,
+        "effective_leverage":
+            effective_leverage,
+        "exchange_leverage_verified":
+            exchange_leverage_verified,
+        "exchange_leverage_source":
+            exchange_leverage_source,
+        "exchange_leverage_side":
+            exchange_leverage_side,
+        "available_balance": None,
+        "initial_margin_usdt": None,
+        "position_notional_usdt": None,
+        "quantity": None,
+        "position_sizing_performed": False,
+        "quantity_calculated": False,
+    }
+
+    trade_plan = None
+    trade_plan_ready = False
+    execution_intent = False
+    trade_authorized = False
+
+    if (
+        exchange_leverage_verified
+        and balance_verified
+        and contract_rules_verified
+        and price_for_execution_verified
+        and position_flat_verified
+        and pending_orders_checked
+        and continuity_verified
+    ):
+        # This branch is intentionally unreachable
+        # until independent exchange-data integrations
+        # are implemented and validated.
+        position_sizing_allowed = True
+
+    if position_sizing_allowed:
+        raise RuntimeError(
+            "UNIT 8 UNEXPECTED SIZING ENABLEMENT"
+        )
+
+    # ========================================================
+    # 9. COMPATIBLE UNIT 8 OUTPUT
+    # ========================================================
+
+    result = {
+        "status": status,
+        "reason": reason,
+        "skip_reason": reason,
+
+        # Old Unit 9 interface
+        "active_mode": pending_mode,
+        "direction": pending_direction,
+        "signal_qualified": signal_qualified,
+        "execution_intent": False,
+        "trade_plan_ready": False,
+        "trade_plan": None,
+        "read_only": True,
+
+        # Position sizing interface
+        "position_sizing": position_sizing,
+        "quantity_calculated": False,
+        "position_sizing_performed": False,
+        "effective_leverage": None,
+        "exchange_leverage_verified": False,
+        "exchange_leverage_source": None,
+        "configured_leverage_reference":
+            configured_leverage_reference,
+
+        # New continuity interface
+        "upstream_status": upstream_status,
+        "upstream_signal_received": signal_received,
+        "candidate_preserved": candidate_preserved,
+        "pending_mode": pending_mode,
+        "pending_direction": pending_direction,
+        "market_fresh": market_fresh,
+        "candle_age_seconds": age,
+        "market_direction": market_direction,
+        "signal_direction_match":
+            signal_direction_match,
+        "continuity_observations":
+            continuity_observations,
+        "continuity_required": continuity_required,
+        "continuity_verified": False,
+
+        "existing_position_checked": False,
+        "position_flat_verified": False,
+        "pending_orders_checked": False,
+        "duplicate_order_absence_verified": False,
+        "reentry_authorized": False,
+
+        "balance_verified": False,
+        "contract_rules_verified": False,
+        "price_for_execution_verified": False,
+
+        # Hard no-order boundary
+        "trade_authorized": False,
+        "order_payload_created": False,
+        "demo_order_submitted": False,
+        "real_order_submitted": False,
+        "exchange_write": False,
+    }
+
+    if (
+        result["trade_plan_ready"]
+        or result["trade_plan"] is not None
+        or result["effective_leverage"] is not None
+        or result["execution_intent"]
+        or result["trade_authorized"]
+        or result["exchange_write"]
+        or result["reentry_authorized"]
+    ):
+        raise RuntimeError(
+            "UNIT 8 EXECUTION SAFETY FAILURE"
+        )
+
+    # ========================================================
+    # 10. RENDER DIAGNOSTICS
+    # ========================================================
+
+    print(
+        "UNIT 8 STATUS =",
+        status,
+        flush=True,
+    )
+    print(
+        "UNIT 8 REASON =",
+        reason,
+        flush=True,
+    )
+    print(
+        "UNIT 8 PENDING MODE =",
+        pending_mode,
+        flush=True,
+    )
+    print(
+        "UNIT 8 PENDING DIRECTION =",
+        pending_direction,
+        flush=True,
+    )
+    print(
+        "UNIT 8 CONFIGURED LEVERAGE REFERENCE =",
+        configured_leverage_reference,
+        flush=True,
+    )
+    print(
+        "UNIT 8 WEEX EFFECTIVE LEVERAGE = UNKNOWN",
+        flush=True,
+    )
+    print(
+        "UNIT 8 EXCHANGE LEVERAGE VERIFIED = FALSE",
+        flush=True,
+    )
+    print(
+        "UNIT 8 POSITION SIZING = BLOCKED",
+        flush=True,
+    )
+    print(
+        "UNIT 8 CONTINUITY VERIFIED = FALSE",
+        flush=True,
+    )
+    print(
+        "UNIT 8 POSITION FLAT VERIFIED = FALSE",
+        flush=True,
+    )
+    print(
+        "UNIT 8 REENTRY AUTHORIZED = FALSE",
+        flush=True,
+    )
+    print(
+        "UNIT 8 TRADE PLAN READY = FALSE",
+        flush=True,
+    )
+    print(
+        "UNIT 8 DEMO ORDER = NONE",
+        flush=True,
+    )
+    print(
+        "UNIT 8 REAL ORDER = NONE",
+        flush=True,
+    )
+    print(
+        "UNIT 8 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 8 RESULT = PASS"
+    )
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# RUN UNIT 8
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
+    fresh_reconstruction_unit_8(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+        FRESH_RECONSTRUCTION_UNIT_7_RESULT,
+    )
+)
+
+
+# ============================================================
+# UNIT 8 ISOLATED TEST
+# ZERO INDENTATION
+# ============================================================
+
+UNIT_8_ISOLATED_TEST = True
+
+_u8 = FRESH_RECONSTRUCTION_UNIT_8_RESULT
+
+if not isinstance(_u8, dict):
+    raise RuntimeError(
+        "UNIT 8 OUTPUT INVALID"
+    )
+
+_required_u8 = (
+    "status",
+    "active_mode",
+    "direction",
+    "signal_qualified",
+    "execution_intent",
+    "trade_plan_ready",
+    "trade_plan",
+    "skip_reason",
+    "read_only",
+    "exchange_leverage_verified",
+    "effective_leverage",
+    "continuity_verified",
+    "position_flat_verified",
+    "reentry_authorized",
+    "exchange_write",
+)
+
+for _key in _required_u8:
+    if _key not in _u8:
+        raise RuntimeError(
+            "UNIT 8 MISSING FIELD: " + _key
+        )
+
+if _u8["status"] not in (
+    "IDLE", "PENDING", "BLOCKED"
+):
+    raise RuntimeError(
+        "UNIT 8 INVALID STATUS"
+    )
+
+if (
+    _u8["exchange_leverage_verified"] is not False
+    or _u8["effective_leverage"] is not None
+    or _u8["execution_intent"] is not False
+    or _u8["trade_plan_ready"] is not False
+    or _u8["trade_plan"] is not None
+    or _u8["continuity_verified"] is not False
+    or _u8["position_flat_verified"] is not False
+    or _u8["reentry_authorized"] is not False
+    or _u8["read_only"] is not True
+    or _u8["exchange_write"] is not False
+):
+    raise RuntimeError(
+        "UNIT 8 SAFETY TEST FAILED"
+    )
+
+# ============================================================
+# SYNTHETIC PENDING TEST
+# ============================================================
+
+_fake_market = dict(
+    FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+)
+
+_fake_market.update({
+    "direction_evidence": "LONG",
+    "candle_data_fresh": True,
+    "candle_age_seconds": 20.0,
+})
+
+_fake_u7 = dict(
+    FRESH_RECONSTRUCTION_UNIT_7_RESULT
+)
+
+_fake_u7.update({
+    "status": "HELD",
+    "signal_received": True,
+    "signal_qualified": True,
+    "active_mode": "BREAKOUT",
+    "direction": "LONG",
+})
+
+_fake_u8 = fresh_reconstruction_unit_8(
+    FRESH_RECONSTRUCTION_CONFIG,
+    _fake_market,
+    _fake_u7,
+)
+
+if (
+    _fake_u8["status"] != "PENDING"
+    or _fake_u8["pending_mode"] != "BREAKOUT"
+    or _fake_u8["effective_leverage"] is not None
+    or _fake_u8["trade_plan_ready"] is not False
+    or _fake_u8["execution_intent"] is not False
+):
+    raise RuntimeError(
+        "UNIT 8 SYNTHETIC PENDING TEST FAILED"
+    )
+
+# ============================================================
+# SYNTHETIC DIRECTION CONFLICT TEST
+# ============================================================
+
+_fake_conflict = dict(_fake_market)
+
+_fake_conflict["direction_evidence"] = "SHORT"
+
+_conflict_u8 = fresh_reconstruction_unit_8(
+    FRESH_RECONSTRUCTION_CONFIG,
+    _fake_conflict,
+    _fake_u7,
+)
+
+if (
+    _conflict_u8["status"] != "BLOCKED"
+    or _conflict_u8["reason"]
+    != "SIGNAL_DIRECTION_CONFLICT"
+):
+    raise RuntimeError(
+        "UNIT 8 DIRECTION CONFLICT TEST FAILED"
+    )
+
+print("=" * 80, flush=True)
+print(
+    "UNIT 8 SYNTHETIC PENDING TEST = PASS",
+    flush=True,
+)
+print(
+    "UNIT 8 DIRECTION CONFLICT TEST = PASS",
+    flush=True,
+)
+print(
+    "UNIT 8 EXCHANGE LEVERAGE SAFETY = PASS",
+    flush=True,
+)
+print(
+    "UNIT 8 ISOLATED TEST = PASS",
+    flush=True,
+)
+print(
+    "UNIT 8 VERIFIED = TRUE",
+    flush=True,
+)
+print(
+    "UNITS 9-15 EXECUTION = NOT STARTED",
+    flush=True,
+)
+print("=" * 80, flush=True)
+
+if UNIT_8_ISOLATED_TEST:
+    print(
+        "UNIT 8 TEST COMPLETE - STOPPING BEFORE UNIT 9",
+        flush=True,
+    )
+    raise SystemExit(0)
+
+
+# ============================================================
+# END COMPLETE UNIT 8 REPLACEMENT
+# ZERO INDENTATION
+# UNIT 9 CONTINUES BELOW
 # ============================================================
