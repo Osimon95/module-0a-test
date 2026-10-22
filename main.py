@@ -2364,7 +2364,7 @@ FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
 # ============================================================
 
 UNIT_5_ISOLATED_TEST = False
-UNIT_5_ISOLATED_TEST = True
+UNIT_5_ISOLATED_TEST = False
 
 _u5 = FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
 assert isinstance(_u5, dict)
