@@ -7320,6 +7320,7 @@ print(
 
 print("=" * 80, flush=True)
 
+UNIT_10_ISOLATED_TEST = False
 if UNIT_10_ISOLATED_TEST:
 
     print(
@@ -7334,4 +7335,787 @@ if UNIT_10_ISOLATED_TEST:
 # END COMPLETE UNIT 10 REPLACEMENT
 # ZERO INDENTATION
 # UNIT 11 CONTINUES BELOW
+# ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 11 ADAPTATION
+# ZERO INDENTATION
+# ORIGINAL 22524 + NEW 13975 MODEL
+#
+# ORIGINAL: DEMO PAYLOAD HANDOVER TO UNIT 12
+# NEW: SIGNAL SOURCE AND OPPORTUNITY MONITORING
+#
+# TEST MODE:
+# NO DEMO ORDER
+# NO REAL ORDER
+# NO EXCHANGE WRITE
+# NO CONFIGURED LEVERAGE SUBSTITUTION
+# ============================================================
+
+
+def fresh_reconstruction_unit_11(
+    config,
+    unit_10_result,
+):
+
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 11 START")
+
+    # ========================================================
+    # 1. INPUT AND CONFIGURATION
+    # ========================================================
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 11 INVALID CONFIG"
+        )
+
+    if not isinstance(unit_10_result, dict):
+        raise RuntimeError(
+            "UNIT 11 INVALID UNIT 10 RESULT"
+        )
+
+    exchange = config.get("exchange")
+    safety = config.get("safety")
+    strategy = config.get("strategy")
+    precision = config.get("market_precision")
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            exchange,
+            safety,
+            strategy,
+            precision,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 11 CONFIG SECTIONS MISSING"
+        )
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("demo_order_symbol") != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 11 EXCHANGE CONTRACT FAILED"
+        )
+
+    print(
+        "PASS: UNIT 11 RECEIVED UNIT 2 CONFIG",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 11 RECEIVED UNIT 10 RESULT",
+        flush=True,
+    )
+
+    # ========================================================
+    # 2. STRICT READ-ONLY CONFIGURATION
+    # ========================================================
+
+    forbidden = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for key in forbidden:
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 11 UNSAFE CONFIG: " + key
+            )
+
+    if (
+        strategy.get("one_direction_only") is not True
+        or strategy.get("anti_duplicate_orders") is not True
+        or strategy.get("active_trade_mode_lock") is not True
+        or strategy.get("exclusive_mode") is not True
+    ):
+        raise RuntimeError(
+            "UNIT 11 STRATEGY SAFETY DISABLED"
+        )
+
+    print(
+        "PASS: UNIT 11 STRATEGY SAFETY",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3. ORIGINAL UNIT 10 CONTRACT
+    # ========================================================
+
+    required = (
+        "status",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "trade_plan",
+        "execution_ready",
+        "execution_candidate",
+        "demo_boundary_ready",
+        "demo_submission_instruction",
+        "skip_reason",
+        "order_payload_created",
+        "demo_submission_requested",
+        "read_only",
+    )
+
+    missing = [
+        key
+        for key in required
+        if key not in unit_10_result
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "UNIT 11 UNIT 10 MISSING FIELDS: "
+            + str(missing)
+        )
+
+    # Current adapted Unit 10 must not already
+    # have submitted or constructed an order.
+
+    if unit_10_result["read_only"] is not True:
+        raise RuntimeError(
+            "UNIT 11 UPSTREAM NOT READ ONLY"
+        )
+
+    for key in (
+        "execution_intent",
+        "trade_plan_ready",
+        "execution_ready",
+        "demo_boundary_ready",
+        "demo_submission_requested",
+        "order_payload_created",
+        "trade_authorized",
+        "exchange_write",
+    ):
+        if unit_10_result.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 11 PREMATURE EXECUTION: " + key
+            )
+
+    for key in (
+        "trade_plan",
+        "execution_candidate",
+        "demo_submission_instruction",
+    ):
+        if unit_10_result.get(key) is not None:
+            raise RuntimeError(
+                "UNIT 11 PREMATURE PLAN: " + key
+            )
+
+    print(
+        "PASS: UNIT 11 ORIGINAL UNIT 10 CONTRACT",
+        flush=True,
+    )
+
+    # ========================================================
+    # 4. SIGNAL AND LIFECYCLE STATUS
+    # ========================================================
+
+    upstream_status = unit_10_result.get(
+        "status"
+    )
+
+    active_mode = unit_10_result.get(
+        "active_mode", "NONE"
+    )
+
+    direction = unit_10_result.get(
+        "direction", "NONE"
+    )
+
+    lifecycle_event = unit_10_result.get(
+        "lifecycle_event", "UNKNOWN"
+    )
+
+    continuity_verified = (
+        unit_10_result.get(
+            "continuity_verified"
+        ) is True
+    )
+
+    signal_qualified = (
+        unit_10_result.get(
+            "signal_qualified"
+        ) is True
+    )
+
+    if upstream_status not in (
+        "IDLE",
+        "PENDING",
+        "CONFIRMED",
+        "BLOCKED",
+    ):
+        raise RuntimeError(
+            "UNIT 11 INVALID SIGNAL STATUS"
+        )
+
+    if upstream_status in (
+        "PENDING",
+        "CONFIRMED",
+    ):
+
+        if (
+            active_mode not in (
+                "BREAKOUT",
+                "STRUCTURE",
+            )
+            or direction not in (
+                "LONG",
+                "SHORT",
+            )
+        ):
+            raise RuntimeError(
+                "UNIT 11 INVALID SIGNAL IDENTITY"
+            )
+
+    else:
+
+        if (
+            active_mode != "NONE"
+            or direction != "NONE"
+        ):
+            raise RuntimeError(
+                "UNIT 11 INVALID INACTIVE IDENTITY"
+            )
+
+    if upstream_status == "CONFIRMED":
+
+        if (
+            not continuity_verified
+            or not signal_qualified
+        ):
+            raise RuntimeError(
+                "UNIT 11 FALSE CONFIRMATION"
+            )
+
+    elif continuity_verified or signal_qualified:
+
+        raise RuntimeError(
+            "UNIT 11 INVALID QUALIFICATION"
+        )
+
+    # ========================================================
+    # 5. WEEX LEVERAGE AUTHORITY
+    # ========================================================
+
+    # Configured 100x is only a target/reference.
+    # Public leverage brackets are only limits.
+    # Neither is valid for new-entry sizing.
+    #
+    # Actual flat-entry WEEX leverage remains
+    # unverified in the present reconstruction.
+
+    entry_leverage_verified = (
+        unit_10_result.get(
+            "entry_leverage_verified"
+        ) is True
+    )
+
+    exchange_leverage_verified = (
+        unit_10_result.get(
+            "exchange_leverage_verified"
+        ) is True
+    )
+
+    balance_verified = (
+        unit_10_result.get(
+            "balance_verified"
+        ) is True
+    )
+
+    position_flat_verified = (
+        unit_10_result.get(
+            "position_flat_verified"
+        ) is True
+    )
+
+    pending_orders_verified = (
+        unit_10_result.get(
+            "pending_orders_verified"
+        ) is True
+    )
+
+    duplicate_orders_clear = (
+        unit_10_result.get(
+            "duplicate_orders_clear"
+        ) is True
+    )
+
+    # The current upstream execution plan is
+    # absent regardless of these individual flags.
+
+    if upstream_status == "CONFIRMED":
+
+        skip_reason = (
+            "CONFIRMED_SIGNAL_AWAITING_"
+            "VERIFIED_WEEX_EXECUTION_PLAN"
+        )
+
+    elif upstream_status == "PENDING":
+
+        skip_reason = (
+            "SIGNAL_CONTINUITY_PENDING"
+        )
+
+    elif upstream_status == "BLOCKED":
+
+        skip_reason = (
+            "UPSTREAM_SIGNAL_BLOCKED"
+        )
+
+    else:
+
+        skip_reason = (
+            "NO_QUALIFIED_SIGNAL"
+        )
+
+    # ========================================================
+    # 6. SOURCE-ALIGNED MONITORING METADATA
+    # ========================================================
+
+    # The 13975-line model contains a repeating
+    # market scan and shadow-opportunity monitor.
+    #
+    # This isolated Unit 11 consumes one verified
+    # Unit 10 snapshot. It must not start a
+    # second independent scanning loop.
+    #
+    # Continuous polling requires the upstream
+    # Units 3-10 to refresh together, so stale
+    # snapshots cannot be counted repeatedly.
+
+    source_scan_id = unit_10_result.get(
+        "scan_id"
+    )
+
+    closed_candle_id = unit_10_result.get(
+        "closed_candle_id"
+    )
+
+    repeated_confirmation = (
+        lifecycle_event
+        == "REPEATED_CONFIRMED_EPISODE"
+    )
+
+    new_confirmation = (
+        lifecycle_event
+        == "NEW_CONFIRMED_EPISODE"
+    )
+
+    source_refresh_verified = False
+
+    # No autonomous shadow performance claims.
+    shadow_opportunity_created = False
+    shadow_trade_completed = False
+
+    # ========================================================
+    # 7. ORIGINAL UNIT 11 -> UNIT 12 HANDOVER
+    # ========================================================
+
+    # UNIT 12 of the original model treats READY
+    # as a potential initial demo submission.
+    #
+    # Do not report READY when there is no valid
+    # upstream execution plan.
+    #
+    # The result remains IDLE at Unit 12's
+    # execution boundary, while preserving the
+    # market-signal state in separate fields.
+
+    result = {
+
+        "unit": 11,
+
+        # Original Unit 12 control fields.
+        "status": "IDLE",
+
+        "active_mode": active_mode,
+        "direction": direction,
+
+        "signal_qualified":
+            signal_qualified,
+
+        "execution_intent": False,
+
+        "trade_plan_ready": False,
+        "trade_plan": None,
+
+        "execution_ready": False,
+        "execution_candidate": None,
+
+        "demo_boundary_ready": False,
+        "demo_submission_instruction": None,
+
+        "payload_ready": False,
+        "order_payload": None,
+        "payload": None,
+        "demo_payload": None,
+
+        "skip_reason": skip_reason,
+
+        "order_payload_created": False,
+        "demo_submission_requested": False,
+        "real_submission_requested": False,
+
+        "tp_execution_requested": False,
+        "sl_execution_requested": False,
+        "backup_execution_requested": False,
+
+        "read_only": True,
+
+        # Safety fields.
+        "trade_authorized": False,
+        "demo_order_submitted": False,
+        "real_order_submitted": False,
+        "exchange_write": False,
+
+        # New reconstruction diagnostics.
+        "upstream_status": upstream_status,
+
+        "lifecycle_event": lifecycle_event,
+
+        "continuity_verified":
+            continuity_verified,
+
+        "closed_candle_id":
+            closed_candle_id,
+
+        "source_scan_id":
+            source_scan_id,
+
+        "source_refresh_verified":
+            source_refresh_verified,
+
+        "new_confirmation":
+            new_confirmation,
+
+        "repeated_confirmation":
+            repeated_confirmation,
+
+        "shadow_opportunity_created":
+            shadow_opportunity_created,
+
+        "shadow_trade_completed":
+            shadow_trade_completed,
+
+        # Account readiness.
+        "entry_leverage_verified":
+            entry_leverage_verified,
+
+        "exchange_leverage_verified":
+            exchange_leverage_verified,
+
+        "balance_verified":
+            balance_verified,
+
+        "position_flat_verified":
+            position_flat_verified,
+
+        "pending_orders_verified":
+            pending_orders_verified,
+
+        "duplicate_orders_clear":
+            duplicate_orders_clear,
+
+        "effective_leverage": None,
+
+        "quantity": None,
+        "quantity_calculated": False,
+    }
+
+    # ========================================================
+    # 8. FINAL EXECUTION SAFETY
+    # ========================================================
+
+    if result["status"] != "IDLE":
+        raise RuntimeError(
+            "UNIT 11 UNEXPECTED EXECUTION STATUS"
+        )
+
+    for key in (
+        "execution_intent",
+        "trade_plan_ready",
+        "execution_ready",
+        "demo_boundary_ready",
+        "payload_ready",
+        "order_payload_created",
+        "demo_submission_requested",
+        "real_submission_requested",
+        "tp_execution_requested",
+        "sl_execution_requested",
+        "backup_execution_requested",
+        "trade_authorized",
+        "demo_order_submitted",
+        "real_order_submitted",
+        "exchange_write",
+    ):
+
+        if result[key] is not False:
+            raise RuntimeError(
+                "UNIT 11 SAFETY FAILURE: " + key
+            )
+
+    if (
+        result["order_payload"] is not None
+        or result["trade_plan"] is not None
+        or result["execution_candidate"] is not None
+    ):
+        raise RuntimeError(
+            "UNIT 11 PREMATURE ORDER PAYLOAD"
+        )
+
+    # ========================================================
+    # 9. RENDER DIAGNOSTICS
+    # ========================================================
+
+    print("-" * 80, flush=True)
+
+    for label, value in (
+        ("STATUS", result["status"]),
+        ("UPSTREAM STATUS", upstream_status),
+        ("ACTIVE MODE", active_mode),
+        ("DIRECTION", direction),
+        ("LIFECYCLE", lifecycle_event),
+        ("SIGNAL QUALIFIED", signal_qualified),
+        ("CONTINUITY VERIFIED", continuity_verified),
+        ("NEW CONFIRMATION", new_confirmation),
+        ("REPEATED CONFIRMATION", repeated_confirmation),
+        ("SOURCE REFRESH VERIFIED", False),
+        ("ENTRY LEVERAGE VERIFIED", entry_leverage_verified),
+        ("BALANCE VERIFIED", balance_verified),
+        ("PAYLOAD READY", False),
+        ("ORDER PAYLOAD", "NONE"),
+        ("EXECUTION INTENT", False),
+        ("DEMO BOUNDARY READY", False),
+        ("DEMO SUBMISSION REQUESTED", False),
+        ("TRADE AUTHORIZED", False),
+        ("EXCHANGE WRITE", False),
+        ("SKIP REASON", skip_reason),
+    ):
+
+        print(
+            "UNIT 11 " + label + " =",
+            value,
+            flush=True,
+        )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 11 RESULT = PASS"
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# RUN UNIT 11
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
+    fresh_reconstruction_unit_11(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_10_RESULT,
+    )
+)
+
+
+# ============================================================
+# UNIT 11 ISOLATED TEST
+# ZERO INDENTATION
+# ============================================================
+
+UNIT_11_ISOLATED_TEST = True
+
+_u11 = FRESH_RECONSTRUCTION_UNIT_11_RESULT
+
+if not isinstance(_u11, dict):
+    raise RuntimeError(
+        "UNIT 11 RESULT INVALID"
+    )
+
+if (
+    _u11["status"] != "IDLE"
+    or _u11["read_only"] is not True
+    or _u11["execution_intent"] is not False
+    or _u11["payload_ready"] is not False
+    or _u11["order_payload"] is not None
+    or _u11["demo_submission_requested"] is not False
+    or _u11["exchange_write"] is not False
+):
+    raise RuntimeError(
+        "UNIT 11 ISOLATED SAFETY FAILED"
+    )
+
+print(
+    "PASS: UNIT 11 ORIGINAL UNIT 12 INTERFACE",
+    flush=True,
+)
+
+print(
+    "PASS: UNIT 11 NO PREMATURE DEMO PAYLOAD",
+    flush=True,
+)
+
+# ============================================================
+# SYNTHETIC CONFIRMED SIGNAL TEST
+# ============================================================
+
+_fake_u10 = dict(
+    FRESH_RECONSTRUCTION_UNIT_10_RESULT
+)
+
+_fake_u10.update({
+
+    "status": "CONFIRMED",
+
+    "active_mode": "STRUCTURE",
+
+    "direction": "SHORT",
+
+    "signal_qualified": True,
+
+    "continuity_verified": True,
+
+    "lifecycle_event":
+        "NEW_CONFIRMED_EPISODE",
+
+})
+
+_fake_u11 = fresh_reconstruction_unit_11(
+    FRESH_RECONSTRUCTION_CONFIG,
+    _fake_u10,
+)
+
+if (
+    _fake_u11["signal_qualified"] is not True
+    or _fake_u11["upstream_status"] != "CONFIRMED"
+    or _fake_u11["status"] != "IDLE"
+    or _fake_u11["order_payload"] is not None
+    or _fake_u11["execution_intent"] is not False
+):
+    raise RuntimeError(
+        "UNIT 11 CONFIRMED SIGNAL TEST FAILED"
+    )
+
+print(
+    "PASS: UNIT 11 CONFIRMED SIGNAL HELD",
+    flush=True,
+)
+
+# ============================================================
+# SYNTHETIC PREMATURE EXECUTION REJECTION
+# ============================================================
+
+_unsafe_u10 = dict(_fake_u10)
+
+_unsafe_u10["execution_intent"] = True
+
+try:
+
+    fresh_reconstruction_unit_11(
+        FRESH_RECONSTRUCTION_CONFIG,
+        _unsafe_u10,
+    )
+
+except RuntimeError:
+
+    print(
+        "PASS: UNIT 11 REJECTED PREMATURE EXECUTION",
+        flush=True,
+    )
+
+else:
+
+    raise RuntimeError(
+        "UNIT 11 ACCEPTED UNSAFE EXECUTION"
+    )
+
+
+# ============================================================
+# FINAL UNIT 11 TEST REPORT
+# ============================================================
+
+print("=" * 80, flush=True)
+
+print(
+    "UNIT 11 ISOLATED TEST = PASS",
+    flush=True,
+)
+
+print(
+    "UNIT 11 VERIFIED = TRUE",
+    flush=True,
+)
+
+print(
+    "UNIT 11 ORIGINAL UNIT 12 HANDOVER = PASS",
+    flush=True,
+)
+
+print(
+    "UNIT 11 CONFIRMED SIGNAL HELD = PASS",
+    flush=True,
+)
+
+print(
+    "UNIT 11 PREMATURE EXECUTION REJECTION = PASS",
+    flush=True,
+)
+
+print(
+    "UNIT 11 DEMO ORDER = NONE",
+    flush=True,
+)
+
+print(
+    "UNIT 11 REAL ORDER = NONE",
+    flush=True,
+)
+
+print(
+    "UNIT 11 EXCHANGE WRITE = NONE",
+    flush=True,
+)
+
+print(
+    "UNITS 12-15 EXECUTION = NOT STARTED",
+    flush=True,
+)
+
+print("=" * 80, flush=True)
+
+if UNIT_11_ISOLATED_TEST:
+
+    print(
+        "UNIT 11 TEST COMPLETE - STOPPING BEFORE UNIT 12",
+        flush=True,
+    )
+
+    raise SystemExit(0)
+
+
+# ============================================================
+# END COMPLETE UNIT 11 ADAPTATION
+# ZERO INDENTATION
+# UNIT 12 CONTINUES BELOW
 # ============================================================
