@@ -9516,7 +9516,7 @@ FRESH_RECONSTRUCTION_UNIT_12_RESULT[
 # ZERO INDENTATION
 # ============================================================
 
-UNIT_12_LIVE_VERIFICATION_TEST = True
+UNIT_12_LIVE_VERIFICATION_TEST = False
 
 if UNIT_12_LIVE_VERIFICATION_TEST:
 
@@ -9542,5 +9542,380 @@ if UNIT_12_LIVE_VERIFICATION_TEST:
 
 # ============================================================
 # END UNIT 12 WEEX LIVE READ-ONLY VERIFICATION
+# ZERO INDENTATION
+# ============================================================
+
+
+# ============================================================
+# UNIT 12 EXTENSION: MINIMUM DEMO ORDER TEST
+# ZERO INDENTATION
+# TESTS WEEX V3 DEMO SUBMISSION CONTRACT
+# POST DISABLED UNTIL FINAL ACCOUNT VERIFICATION
+# ============================================================
+
+def fresh_unit_12_minimum_demo_order_test():
+
+    import json
+    import re
+    import urllib.request
+    import urllib.parse
+    from decimal import Decimal, InvalidOperation
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 12 MINIMUM DEMO ORDER TEST START",
+        flush=True,
+    )
+
+    cfg = FRESH_RECONSTRUCTION_CONFIG
+
+    account = FRESH_RECONSTRUCTION_UNIT_12_LIVE_VERIFY
+
+    if cfg["execution_environment"] != "DEMO":
+        raise RuntimeError("DEMO_ONLY_REQUIRED")
+
+    if cfg["exchange"]["demo_order_symbol"] != "BTCSUSDT":
+        raise RuntimeError("INVALID_DEMO_SYMBOL")
+
+    # ========================================================
+    # READ PUBLIC CONTRACT LIMITS
+    # ========================================================
+
+    url = (
+        "https://api-contract.weex.com"
+        "/capi/v3/market/exchangeInfo?"
+        + urllib.parse.urlencode({
+            "symbol": "BTCUSDT"
+        })
+    )
+
+    req = urllib.request.Request(
+        url,
+        method="GET",
+        headers={"Accept": "application/json"},
+    )
+
+    class NoRedirect(
+        urllib.request.HTTPRedirectHandler
+    ):
+        def redirect_request(
+            self, req, fp, code, msg,
+            headers, newurl
+        ):
+            return None
+
+    opener = urllib.request.build_opener(
+        NoRedirect()
+    )
+
+    with opener.open(req, timeout=12) as response:
+        if (
+            response.getcode() != 200
+            or response.geturl() != url
+        ):
+            raise RuntimeError(
+                "CONTRACT_INFO_HTTP_INVALID"
+            )
+
+        raw = response.read(1024 * 1024 + 1)
+
+    if not raw or len(raw) > 1024 * 1024:
+        raise RuntimeError(
+            "CONTRACT_INFO_SIZE_INVALID"
+        )
+
+    info = json.loads(raw.decode("utf-8"))
+
+    if not isinstance(info, dict):
+        raise RuntimeError(
+            "CONTRACT_INFO_SHAPE_INVALID"
+        )
+
+    symbols = info.get("symbols")
+
+    if not isinstance(symbols, list):
+        raise RuntimeError(
+            "CONTRACT_SYMBOLS_MISSING"
+        )
+
+    matches = [
+        s for s in symbols
+        if (
+            isinstance(s, dict)
+            and s.get("symbol") == "BTCUSDT"
+        )
+    ]
+
+    if len(matches) != 1:
+        raise RuntimeError(
+            "BTC_CONTRACT_NOT_UNIQUE"
+        )
+
+    contract = matches[0]
+
+    def positive_decimal(value, name):
+        try:
+            if value is None or isinstance(value, bool):
+                raise ValueError()
+
+            result = Decimal(str(value))
+
+            if not result.is_finite() or result <= 0:
+                raise ValueError()
+
+            return result
+
+        except (
+            ValueError,
+            TypeError,
+            InvalidOperation,
+        ):
+            raise RuntimeError(
+                "INVALID_CONTRACT_" + name
+            )
+
+    minimum = positive_decimal(
+        contract.get("minOrderSize"),
+        "MIN_SIZE",
+    )
+
+    market_max = positive_decimal(
+        contract.get("marketOpenLimitSize"),
+        "MARKET_MAX",
+    )
+
+    if minimum > market_max:
+        raise RuntimeError(
+            "MIN_EXCEEDS_MARKET_LIMIT"
+        )
+
+    # Check against configured local precision.
+    # Exact exchange tick/lot increments must
+    # also be confirmed before a real submission.
+
+    step = positive_decimal(
+        cfg["market_precision"]["quantity_step"],
+        "QUANTITY_STEP",
+    )
+
+    quantity = (
+        (minimum / step).to_integral_value(
+            rounding="ROUND_CEILING"
+        ) * step
+    )
+
+    if quantity > market_max:
+        raise RuntimeError(
+            "ROUNDED_QTY_EXCEEDS_LIMIT"
+        )
+
+    # ========================================================
+    # SINGLE TEST ORDER
+    # LONG ONLY: REHEARSAL, NOT STRATEGY SIGNAL
+    # ========================================================
+
+    client_id = "weex-demo-min-test-001"
+
+    payload = {
+        "symbol": "BTCSUSDT",
+        "side": "BUY",
+        "positionSide": "LONG",
+        "type": "MARKET",
+        "quantity": format(quantity, "f"),
+        "newClientOrderId": client_id,
+    }
+
+    if not re.fullmatch(
+        r"[\w.:-]{1,36}",
+        client_id,
+        flags=re.ASCII,
+    ):
+        raise RuntimeError(
+            "INVALID_CLIENT_ORDER_ID"
+        )
+
+    # Validate serialization exactly as a POST
+    # body would require, without posting it.
+
+    encoded = json.dumps(
+        payload,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    decoded = json.loads(
+        encoded.decode("utf-8")
+    )
+
+    if decoded != payload:
+        raise RuntimeError(
+            "ORDER_PAYLOAD_SERIALIZATION_FAILED"
+        )
+
+    if (
+        payload["symbol"] != "BTCSUSDT"
+        or payload["type"] != "MARKET"
+        or Decimal(payload["quantity"]) <= 0
+    ):
+        raise RuntimeError(
+            "ORDER_PAYLOAD_VALIDATION_FAILED"
+        )
+
+    # ========================================================
+    # SIMULATED WEEX RESPONSE TEST
+    # This is explicitly NOT an exchange response.
+    # ========================================================
+
+    simulated_response = {
+        "orderId": "SIMULATION_ONLY",
+        "clientOrderId": client_id,
+        "success": True,
+        "errorCode": "",
+        "errorMessage": "",
+    }
+
+    response_contract_pass = (
+        simulated_response.get("success") is True
+        and simulated_response.get("clientOrderId")
+        == payload["newClientOrderId"]
+        and bool(simulated_response.get("orderId"))
+    )
+
+    if not response_contract_pass:
+        raise RuntimeError(
+            "SIMULATED_RESPONSE_CONTRACT_FAILED"
+        )
+
+    # ========================================================
+    # ACTUAL SUBMISSION GATE
+    # ========================================================
+
+    missing = []
+
+    if account.get("balance_verified") is not True:
+        missing.append("BALANCE_UNVERIFIED")
+
+    if account.get("position_flat_verified") is not True:
+        missing.append("POSITION_NOT_VERIFIED_FLAT")
+
+    if account.get("entry_leverage_verified") is not True:
+        missing.append("ENTRY_LEVERAGE_UNVERIFIED")
+
+    if account.get("pending_orders_verified") is not True:
+        missing.append("PENDING_ORDERS_UNVERIFIED")
+
+    if account.get("duplicate_orders_clear") is not True:
+        missing.append("DUPLICATE_ORDERS_UNVERIFIED")
+
+    # Payload is a rehearsal only.
+    # It must not set authorization to True.
+    #
+    # The confirmed signal, max margin,
+    # effective leverage, exchange quantity
+    # increments and persistent client ID
+    # still require integration.
+
+    missing.append("SIGNAL_EXECUTION_PLAN_NOT_RESTORED")
+    missing.append("ACTUAL_POST_NOT_ARMED")
+
+    result = {
+        "status": "REHEARSAL_PASS",
+        "environment": "DEMO",
+        "symbol": "BTCSUSDT",
+        "minimum_exchange_quantity":
+            format(minimum, "f"),
+        "test_quantity":
+            payload["quantity"],
+        "order_payload": payload,
+        "payload_serialization_verified": True,
+        "simulated_response_verified": True,
+        "actual_exchange_response": None,
+        "blocked_reasons": missing,
+        "ready": False,
+        "post_attempted": False,
+        "demo_order_submitted": False,
+        "real_order_submitted": False,
+        "exchange_write": False,
+    }
+
+    print(
+        "UNIT 12 MIN ORDER QUANTITY =",
+        result["test_quantity"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 DEMO ORDER PAYLOAD =",
+        json.dumps(payload, sort_keys=True),
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 SIMULATED RESPONSE = PASS",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 EXECUTION BLOCKERS =",
+        ", ".join(missing),
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 REAL DEMO POST = NOT ATTEMPTED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 REAL CASH ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 MINIMUM DEMO ORDER REHEARSAL = PASS",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+FRESH_RECONSTRUCTION_UNIT_12_MIN_ORDER_TEST = (
+    fresh_unit_12_minimum_demo_order_test()
+)
+
+
+UNIT_12_MIN_ORDER_ISOLATED_TEST = True
+
+if UNIT_12_MIN_ORDER_ISOLATED_TEST:
+
+    _min = FRESH_RECONSTRUCTION_UNIT_12_MIN_ORDER_TEST
+
+    if (
+        _min["status"] != "REHEARSAL_PASS"
+        or _min["ready"] is not False
+        or _min["post_attempted"] is not False
+        or _min["exchange_write"] is not False
+    ):
+        raise RuntimeError(
+            "UNIT 12 MIN ORDER SAFETY FAILED"
+        )
+
+    print(
+        "UNIT 12 MIN ORDER TEST COMPLETE"
+        " - STOPPING BEFORE UNIT 13",
+        flush=True,
+    )
+
+    raise SystemExit(0)
+
+
+# ============================================================
+# END UNIT 12 MINIMUM DEMO ORDER TEST
 # ZERO INDENTATION
 # ============================================================
