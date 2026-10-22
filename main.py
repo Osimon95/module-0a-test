@@ -5154,6 +5154,218 @@ print(
 print("=" * 80, flush=True)
 
 if UNIT_8_ISOLATED_TEST:
+    
+    
+# ============================================================
+# START UNIT 8 WEEX LEVERAGE LIMIT DIAGNOSTIC
+# ZERO INDENTATION
+# PUBLIC V3 GET ONLY
+# NO ORDERS - NO ACCOUNT MUTATION
+# ============================================================
+
+def fresh_unit_8_leverage_limit_diagnostic():
+    import json
+    import math
+    import urllib.request
+    import urllib.error
+
+    result = {
+        "status": "UNVERIFIED",
+        "source": "WEEX_PUBLIC_RISK_LIMITS",
+        "symbol": "BTCUSDT",
+        "bracket_count": 0,
+        "brackets": [],
+        "actual_long_leverage": None,
+        "actual_short_leverage": None,
+        "entry_leverage_verified": False,
+        "exchange_write": False,
+        "reason": "NOT_REQUESTED",
+    }
+
+    url = (
+        "https://api-contract.weex.com"
+        "/capi/v3/market/riskLimits"
+        "?symbol=BTCUSDT"
+    )
+
+    request = urllib.request.Request(
+        url,
+        method="GET",
+        headers={"Accept": "application/json"},
+    )
+
+    class NoRedirect(
+        urllib.request.HTTPRedirectHandler
+    ):
+        def redirect_request(
+            self, req, fp, code, msg,
+            headers, newurl
+        ):
+            return None
+
+    try:
+        opener = urllib.request.build_opener(
+            NoRedirect()
+        )
+
+        with opener.open(
+            request,
+            timeout=12,
+        ) as response:
+
+            if (
+                response.getcode() != 200
+                or response.geturl() != url
+            ):
+                raise ValueError("UNEXPECTED_RESPONSE")
+
+            raw = response.read(1024 * 1024 + 1)
+
+        if not raw or len(raw) > 1024 * 1024:
+            raise ValueError("INVALID_RESPONSE_SIZE")
+
+        payload = json.loads(
+            raw.decode("utf-8")
+        )
+
+        if not isinstance(payload, list):
+            raise ValueError("INVALID_PAYLOAD")
+
+        matches = [
+            record
+            for record in payload
+            if (
+                isinstance(record, dict)
+                and record.get("symbol") == "BTCUSDT"
+            )
+        ]
+
+        if len(matches) != 1:
+            raise ValueError("SYMBOL_MATCH_FAILED")
+
+        brackets = matches[0].get("brackets")
+
+        if (
+            not isinstance(brackets, list)
+            or not brackets
+        ):
+            raise ValueError("NO_VALID_BRACKETS")
+
+        for item in brackets:
+
+            if not isinstance(item, dict):
+                raise ValueError("INVALID_BRACKET")
+
+            leverage = float(
+                item.get("initialLeverage")
+            )
+
+            floor = float(
+                item.get("notionalFloor")
+            )
+
+            cap = float(
+                item.get("notionalCap")
+            )
+
+            if (
+                not all(
+                    math.isfinite(v)
+                    for v in (leverage, floor, cap)
+                )
+                or leverage <= 0
+                or floor < 0
+                or cap <= floor
+            ):
+                raise ValueError(
+                    "INVALID_BRACKET_VALUES"
+                )
+
+            result["brackets"].append({
+                "notional_floor": floor,
+                "notional_cap": cap,
+                "leverage_limit": leverage,
+            })
+
+        result["bracket_count"] = len(
+            result["brackets"]
+        )
+
+        result["status"] = "LIMITS_READ"
+        result["reason"] = (
+            "PUBLIC_LIMITS_ARE_NOT_"
+            "ACCOUNT_LEVERAGE"
+        )
+
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        ValueError,
+        TypeError,
+        OverflowError,
+        UnicodeError,
+    ) as exc:
+
+        result["status"] = "UNAVAILABLE"
+        result["reason"] = (
+            "RISK_LIMIT_READ_FAILED_"
+            + type(exc).__name__
+        )
+
+        result["brackets"] = []
+        result["bracket_count"] = 0
+
+    # Hard boundary: never use bracket leverage
+    # as the actual WEEX account setting.
+
+    assert result["actual_long_leverage"] is None
+    assert result["actual_short_leverage"] is None
+    assert result["entry_leverage_verified"] is False
+    assert result["exchange_write"] is False
+
+    return result
+
+
+FRESH_RECONSTRUCTION_UNIT_8_RISK_LIMITS = (
+    fresh_unit_8_leverage_limit_diagnostic()
+)
+
+_risk = FRESH_RECONSTRUCTION_UNIT_8_RISK_LIMITS
+
+FRESH_RECONSTRUCTION_UNIT_8_RESULT[
+    "weex_risk_limits"
+] = _risk
+
+print("=" * 80, flush=True)
+print(
+    "UNIT 8 RISK LIMIT STATUS =",
+    _risk["status"],
+    flush=True,
+)
+print(
+    "UNIT 8 RISK LIMIT BRACKETS =",
+    _risk["bracket_count"],
+    flush=True,
+)
+print(
+    "UNIT 8 FLAT ENTRY LEVERAGE VERIFIED = FALSE",
+    flush=True,
+)
+print(
+    "UNIT 8 CONFIGURED LEVERAGE SUBSTITUTION = NONE",
+    flush=True,
+)
+print(
+    "UNIT 8 RISK LIMIT EXCHANGE WRITE = NONE",
+    flush=True,
+)
+print("=" * 80, flush=True)
+
+# ============================================================
+# END UNIT 8 WEEX LEVERAGE LIMIT DIAGNOSTIC
+# ZERO INDENTATION
+# ============================================================
+
     print(
         "UNIT 8 TEST COMPLETE - STOPPING BEFORE UNIT 9",
         flush=True,
