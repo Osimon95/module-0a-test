@@ -7580,3 +7580,1173 @@ FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
 # ============================================================
 
 
+
+# ============================================================
+# START UNIT 9 - HYBRID ADJUSTABLE V2
+# ZERO INDENTATION
+#
+# ADAPTED FROM:
+# 22524-LINE MODEL - EXECUTION PREPARATION
+# 12355-LINE MODEL - SIGNAL CONTINUITY
+#
+# ADJUSTABLE:
+# BREAKOUT > STRUCTURE > SCALP
+#
+# UNIT 9 WILL NOT:
+# - REQUALIFY AN ALREADY ADMITTED STRATEGY
+# - ADD EXTRA MANDATORY ENTRY CONFIRMATIONS
+# - INVENT BALANCE, LEVERAGE OR QUANTITY
+# - SUBMIT DEMO OR LIVE ORDERS
+# - MODIFY EXCHANGE LEVERAGE
+#
+# ORIGINAL UNIT 10 HANDOVER PRESERVED
+# ============================================================
+
+
+import time
+
+
+# ============================================================
+# UNIT 9 PROCESS-LOCAL OBSERVATION STATE
+# ZERO INDENTATION
+#
+# AUDIT ONLY.
+# NOT AN EXTRA EXECUTION QUALIFICATION GATE.
+# ============================================================
+
+FRESH_UNIT_9_HYBRID_STATE = {
+    "signal_key": None,
+    "first_seen": None,
+    "last_seen": None,
+    "last_candle_id": None,
+    "distinct_candles": 0,
+    "duplicate_candle": False,
+    "last_status": "NOT_STARTED",
+}
+
+
+def fresh_reconstruction_unit_9(
+    config,
+    unit_8_result,
+    unit_4_analysis=None,
+):
+
+    from datetime import datetime, timezone
+    import math
+
+    print("=" * 80, flush=True)
+
+    print(
+        datetime.now(timezone.utc).isoformat(),
+        "UNIT 9 HYBRID ADJUSTABLE V2 START",
+        flush=True
+    )
+
+    # ========================================================
+    # 1. ORIGINAL INPUT CONTRACT
+    # ========================================================
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 9 CONFIG INVALID"
+        )
+
+    if not isinstance(unit_8_result, dict):
+        raise RuntimeError(
+            "UNIT 9 UNIT 8 RESULT INVALID"
+        )
+
+    if (
+        unit_4_analysis is not None
+        and not isinstance(unit_4_analysis, dict)
+    ):
+        raise RuntimeError(
+            "UNIT 9 UNIT 4 ANALYSIS INVALID"
+        )
+
+    strategy = config.get("strategy")
+    safety = config.get("safety")
+    exchange = config.get("exchange")
+    precision = config.get("market_precision")
+    qualification = config.get("qualification")
+
+    if not all(
+        isinstance(value, dict)
+        for value in (
+            strategy,
+            safety,
+            exchange,
+            precision,
+            qualification,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 9 CONFIGURATION SECTION MISSING"
+        )
+
+    common = qualification.get("common")
+
+    if not isinstance(common, dict):
+        raise RuntimeError(
+            "UNIT 9 COMMON QUALIFICATION MISSING"
+        )
+
+    if (
+        unit_8_result.get("unit_8_revision")
+        != "HYBRID_ADJUSTABLE_V2"
+    ):
+        raise RuntimeError(
+            "UNIT 9 UNIT 8 VERSION MISMATCH"
+        )
+
+    required_fields = (
+        "status",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "trade_plan",
+        "skip_reason",
+        "read_only",
+    )
+
+    for name in required_fields:
+
+        if name not in unit_8_result:
+            raise RuntimeError(
+                "UNIT 9 UNIT 8 FIELD MISSING: "
+                + name
+            )
+
+    print(
+        "PASS: UNIT 9 ORIGINAL UNIT 8 CONTRACT",
+        flush=True
+    )
+
+    # ========================================================
+    # 2. NUMERIC AND BOOLEAN HELPERS
+    # ========================================================
+
+    def finite(value, label):
+
+        if type(value) is bool:
+            raise RuntimeError(
+                "UNIT 9 BOOLEAN NUMBER: " + label
+            )
+
+        try:
+            result = float(value)
+
+        except (
+            TypeError,
+            ValueError,
+            OverflowError,
+        ):
+            raise RuntimeError(
+                "UNIT 9 INVALID NUMBER: " + label
+            )
+
+        if not math.isfinite(result):
+            raise RuntimeError(
+                "UNIT 9 NONFINITE NUMBER: " + label
+            )
+
+        return result
+
+    def require_bool(value, label):
+
+        if type(value) is not bool:
+            raise RuntimeError(
+                "UNIT 9 INVALID BOOLEAN: " + label
+            )
+
+        return value
+
+    # ========================================================
+    # 3. NO EXCHANGE-WRITE CAPABILITIES
+    # ========================================================
+
+    for name in (
+        "real_order_submission_enabled",
+        "order_endpoint_access_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    ):
+
+        if safety.get(name) is not False:
+            raise RuntimeError(
+                "UNIT 9 CONFIG SAFETY FAILED: "
+                + name
+            )
+
+    if unit_8_result.get("read_only") is not True:
+        raise RuntimeError(
+            "UNIT 9 UNIT 8 READ-ONLY FAILURE"
+        )
+
+    for name in (
+        "order_payload_created",
+        "trade_authorized",
+        "exchange_write",
+    ):
+
+        if unit_8_result.get(name) is not False:
+            raise RuntimeError(
+                "UNIT 9 UNIT 8 EXCHANGE SAFETY FAILED: "
+                + name
+            )
+
+    if config.get(
+        "execution_environment"
+    ) != "DEMO":
+        raise RuntimeError(
+            "UNIT 9 DEMO ENVIRONMENT REQUIRED"
+        )
+
+    if (
+        exchange.get("market_symbol")
+        != "BTCUSDT"
+        or exchange.get("demo_order_symbol")
+        != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 9 SYMBOL CONTRACT FAILED"
+        )
+
+    for name in (
+        "one_direction_only",
+        "anti_duplicate_orders",
+        "exclusive_mode",
+    ):
+
+        if strategy.get(name) is not True:
+            raise RuntimeError(
+                "UNIT 9 STRATEGY SAFETY FAILED: "
+                + name
+            )
+
+    priority = tuple(
+        common.get("mode_priority", ())
+    )
+
+    if priority != (
+        "BREAKOUT",
+        "STRUCTURE",
+        "SCALP",
+    ):
+        raise RuntimeError(
+            "UNIT 9 PRIORITY INVALID"
+        )
+
+    print(
+        "PASS: UNIT 9 EXCHANGE SAFETY",
+        flush=True
+    )
+
+    # ========================================================
+    # 4. ADJUSTABLE SIZING HANDOVER
+    #
+    # PRESERVE UNIT 2 VALUES.
+    # UNIT 9 DOES NOT RESET QUALIFICATION FIGURES.
+    # ========================================================
+
+    initial_margin = finite(
+        strategy.get("initial_fixed_usdt"),
+        "INITIAL FIXED MARGIN"
+    )
+
+    exposure_cap = finite(
+        strategy.get("exposure_cap_percent"),
+        "EXPOSURE CAP"
+    )
+
+    backup_count = strategy.get("max_backups")
+
+    multipliers = strategy.get(
+        "backup_multipliers"
+    )
+
+    if (
+        type(backup_count) is not int
+        or backup_count < 0
+        or not isinstance(
+            multipliers,
+            (tuple, list)
+        )
+        or len(multipliers) != backup_count
+    ):
+        raise RuntimeError(
+            "UNIT 9 BACKUP CONTRACT INVALID"
+        )
+
+    multipliers = tuple(
+        finite(value, "BACKUP MULTIPLIER")
+        for value in multipliers
+    )
+
+    if not (
+        initial_margin > 0
+        and 0 < exposure_cap <= 100
+        and all(
+            value > 0
+            for value in multipliers
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 9 ADJUSTABLE SIZING INVALID"
+        )
+
+    if not math.isclose(
+        finite(
+            unit_8_result.get(
+                "initial_fixed_usdt"
+            ),
+            "UNIT 8 INITIAL MARGIN"
+        ),
+        initial_margin,
+        abs_tol=0.00000001
+    ):
+        raise RuntimeError(
+            "UNIT 9 INITIAL MARGIN CHANGED"
+        )
+
+    if (
+        tuple(
+            unit_8_result.get(
+                "backup_multipliers", ()
+            )
+        ) != multipliers
+    ):
+        raise RuntimeError(
+            "UNIT 9 BACKUP MULTIPLIERS CHANGED"
+        )
+
+    if not math.isclose(
+        finite(
+            unit_8_result.get(
+                "exposure_cap_percent"
+            ),
+            "UNIT 8 EXPOSURE CAP"
+        ),
+        exposure_cap,
+        abs_tol=0.00000001
+    ):
+        raise RuntimeError(
+            "UNIT 9 EXPOSURE CAP CHANGED"
+        )
+
+    print(
+        "PASS: UNIT 9 ADJUSTABLE SETTINGS PRESERVED",
+        flush=True
+    )
+
+    # ========================================================
+    # 5. RECEIVE UNIT 8 SIGNAL
+    # ========================================================
+
+    upstream_status = unit_8_result["status"]
+
+    mode = unit_8_result["active_mode"]
+
+    direction = unit_8_result["direction"]
+
+    signal_qualified = require_bool(
+        unit_8_result["signal_qualified"],
+        "SIGNAL QUALIFIED"
+    )
+
+    upstream_intent = require_bool(
+        unit_8_result["execution_intent"],
+        "EXECUTION INTENT"
+    )
+
+    trade_plan_ready = require_bool(
+        unit_8_result["trade_plan_ready"],
+        "TRADE PLAN READY"
+    )
+
+    trade_plan = unit_8_result["trade_plan"]
+
+    candidate_stage = unit_8_result.get(
+        "candidate_stage",
+        "NONE"
+    )
+
+    candidate_protected = require_bool(
+        unit_8_result.get(
+            "candidate_protected", False
+        ),
+        "CANDIDATE PROTECTED"
+    )
+
+    skip_reason = str(
+        unit_8_result.get(
+            "skip_reason", "NONE"
+        )
+    )
+
+    if signal_qualified != upstream_intent:
+        raise RuntimeError(
+            "UNIT 9 SIGNAL / INTENT CONTRADICTION"
+        )
+
+    if candidate_protected and upstream_intent:
+        raise RuntimeError(
+            "UNIT 9 DEVELOPING CANDIDATE LEAK"
+        )
+
+    if upstream_intent:
+
+        if (
+            mode not in (
+                "BREAKOUT",
+                "STRUCTURE",
+                "SCALP",
+            )
+            or direction not in (
+                "LONG",
+                "SHORT",
+            )
+            or candidate_stage not in (
+                "QUALIFIED",
+                "PENDING_UNIT_6",
+            )
+        ):
+            raise RuntimeError(
+                "UNIT 9 QUALIFIED SIGNAL INVALID"
+            )
+
+    else:
+
+        if (
+            mode != "NONE"
+            or direction != "NONE"
+        ):
+            raise RuntimeError(
+                "UNIT 9 IDLE SIGNAL CONTRADICTION"
+            )
+
+    if (
+        trade_plan_ready
+        and not upstream_intent
+    ):
+        raise RuntimeError(
+            "UNIT 9 PLAN WITHOUT SIGNAL"
+        )
+
+    # ========================================================
+    # 6. CONTINUITY OBSERVATION
+    #
+    # FROM NEWER REFERENCE.
+    #
+    # THIS IS AN AUDIT.
+    # IT DOES NOT IMPOSE A SECOND 2-CANDLE
+    # QUALIFICATION ON UNIT 6 APPROVAL.
+    # ========================================================
+
+    state = FRESH_UNIT_9_HYBRID_STATE
+
+    now = time.monotonic()
+
+    signal_expiry = finite(
+        common.get("signal_expiry_seconds"),
+        "SIGNAL EXPIRY"
+    )
+
+    if signal_expiry <= 0:
+        raise RuntimeError(
+            "UNIT 9 SIGNAL EXPIRY INVALID"
+        )
+
+    closed_candle_id = None
+    duplicate_candle = False
+    signal_changed = False
+    signal_expired = False
+    continuity_observed = False
+
+    active_signal_key = None
+
+    if upstream_intent:
+
+        active_signal_key = (
+            exchange["market_symbol"],
+            mode,
+            direction,
+        )
+
+    if (
+        state["signal_key"] is not None
+        and state["first_seen"] is not None
+        and (
+            now - state["first_seen"]
+        ) > signal_expiry
+    ):
+
+        signal_expired = True
+
+        state.update({
+            "signal_key": None,
+            "first_seen": None,
+            "last_seen": None,
+            "last_candle_id": None,
+            "distinct_candles": 0,
+            "duplicate_candle": False,
+        })
+
+    if not upstream_intent:
+
+        state.update({
+            "signal_key": None,
+            "first_seen": None,
+            "last_seen": None,
+            "last_candle_id": None,
+            "distinct_candles": 0,
+            "duplicate_candle": False,
+        })
+
+    else:
+
+        if (
+            state["signal_key"] is not None
+            and state["signal_key"]
+            != active_signal_key
+        ):
+
+            signal_changed = True
+
+            state.update({
+                "signal_key": None,
+                "first_seen": None,
+                "last_seen": None,
+                "last_candle_id": None,
+                "distinct_candles": 0,
+                "duplicate_candle": False,
+            })
+
+        if isinstance(unit_4_analysis, dict):
+
+            if (
+                unit_4_analysis.get(
+                    "symbol"
+                ) != "BTCUSDT"
+                or unit_4_analysis.get(
+                    "strategy_evidence_version"
+                ) != "U4_HYBRID_V2"
+            ):
+                raise RuntimeError(
+                    "UNIT 9 UNIT 4 CONTRACT INVALID"
+                )
+
+            candles = unit_4_analysis.get(
+                "recent_closed_klines"
+            )
+
+            if (
+                isinstance(candles, list)
+                and len(candles) > 0
+                and isinstance(
+                    candles[-1], dict
+                )
+            ):
+
+                last_candle = candles[-1]
+
+                for timestamp_key in (
+                    "timestamp",
+                    "open_time",
+                    "openTime",
+                    "start_time",
+                    "startTime",
+                    "time",
+                    "ts",
+                ):
+
+                    raw = last_candle.get(
+                        timestamp_key
+                    )
+
+                    if raw is None:
+                        continue
+
+                    if isinstance(raw, bool):
+                        continue
+
+                    try:
+                        parsed = int(raw)
+                    except (
+                        TypeError,
+                        ValueError,
+                        OverflowError,
+                    ):
+                        continue
+
+                    if parsed > 0:
+                        closed_candle_id = parsed
+                        break
+
+        if state["signal_key"] is None:
+
+            state["signal_key"] = (
+                active_signal_key
+            )
+
+            state["first_seen"] = now
+
+            state["distinct_candles"] = (
+                1
+                if closed_candle_id is not None
+                else 0
+            )
+
+            state["last_candle_id"] = (
+                closed_candle_id
+            )
+
+        elif closed_candle_id is not None:
+
+            previous_id = state[
+                "last_candle_id"
+            ]
+
+            if previous_id is None:
+
+                state["last_candle_id"] = (
+                    closed_candle_id
+                )
+
+                state["distinct_candles"] += 1
+
+            elif closed_candle_id == previous_id:
+
+                duplicate_candle = True
+
+            elif closed_candle_id > previous_id:
+
+                state["last_candle_id"] = (
+                    closed_candle_id
+                )
+
+                state["distinct_candles"] += 1
+
+            else:
+
+                # A candle-time regression is
+                # diagnostic evidence requiring
+                # a later fresh-market check.
+
+                signal_changed = True
+
+                state["last_candle_id"] = (
+                    closed_candle_id
+                )
+
+                state["first_seen"] = now
+
+                state["distinct_candles"] = 1
+
+        state["last_seen"] = now
+
+        state["duplicate_candle"] = (
+            duplicate_candle
+        )
+
+        continuity_observed = (
+            state["distinct_candles"] >= 2
+        )
+
+    # ========================================================
+    # 7. ORIGINAL UNIT 9 EXECUTION PREPARATION
+    #
+    # ONLY A VERIFIED READY TRADE PLAN CAN
+    # CREATE AN INTERNAL EXECUTION CANDIDATE.
+    #
+    # NOT A WEEX ORDER PAYLOAD.
+    # ========================================================
+
+    execution_ready = False
+    internal_candidate = None
+
+    status = "IDLE"
+
+    downstream_intent = False
+    downstream_qualified = False
+
+    downstream_plan_ready = False
+    downstream_plan = None
+
+    if not upstream_intent:
+
+        status = "IDLE"
+
+    elif not trade_plan_ready:
+
+        # Unit 8 has admitted the strategy,
+        # but required funding or leverage
+        # information is still outstanding.
+        #
+        # Keep original Unit 10 IDLE contract.
+        # Preserve exact upstream status
+        # in diagnostics so it is not hidden.
+
+        status = "IDLE"
+
+        if upstream_status == "IDLE":
+            raise RuntimeError(
+                "UNIT 9 ACTIVE SIGNAL MARKED IDLE UPSTREAM"
+            )
+
+        if skip_reason in (
+            "NONE",
+            "None",
+            "",
+        ):
+            skip_reason = (
+                "UNIT_8_TRADE_PLAN_NOT_READY:"
+                + str(upstream_status)
+            )
+
+    else:
+
+        if upstream_status not in (
+            "READY",
+            "QUALIFIED",
+            "ACTIVE",
+        ):
+            raise RuntimeError(
+                "UNIT 9 READY PLAN STATUS INVALID: "
+                + str(upstream_status)
+            )
+
+        if not isinstance(trade_plan, dict):
+            raise RuntimeError(
+                "UNIT 9 READY TRADE PLAN MISSING"
+            )
+
+        if (
+            trade_plan.get(
+                "active_mode"
+            ) != mode
+            or trade_plan.get(
+                "direction"
+            ) != direction
+        ):
+            raise RuntimeError(
+                "UNIT 9 TRADE PLAN SIGNAL MISMATCH"
+            )
+
+        if (
+            trade_plan.get(
+                "execution_environment",
+                "DEMO"
+            ) != "DEMO"
+        ):
+            raise RuntimeError(
+                "UNIT 9 TRADE PLAN NOT DEMO"
+            )
+
+        if (
+            unit_8_result.get(
+                "balance_verified"
+            ) is not True
+            or unit_8_result.get(
+                "leverage_verified"
+            ) is not True
+            or unit_8_result.get(
+                "quantity_calculated"
+            ) is not True
+        ):
+            raise RuntimeError(
+                "UNIT 9 READY PLAN VERIFICATION MISSING"
+            )
+
+        # Do not invent a position or
+        # an executable quantity.
+        # Validate these at the later
+        # execution boundary.
+
+        internal_candidate = {
+            "active_mode": mode,
+            "direction": direction,
+            "trade_plan": trade_plan,
+            "execution_environment": "DEMO",
+        }
+
+        execution_ready = True
+
+        downstream_intent = True
+        downstream_qualified = True
+
+        downstream_plan_ready = True
+        downstream_plan = trade_plan
+
+        status = "READY"
+        skip_reason = "NONE"
+
+    # ========================================================
+    # 8. ORIGINAL UNIT 10 COMPATIBLE RESULT
+    # ========================================================
+
+    result = {
+
+        # ORIGINAL EXECUTION CANDIDATE CONTRACT
+
+        "status": status,
+
+        "active_mode": (
+            mode
+            if execution_ready
+            else "NONE"
+        ),
+
+        "direction": (
+            direction
+            if execution_ready
+            else "NONE"
+        ),
+
+        "signal_qualified":
+            downstream_qualified,
+
+        "execution_intent":
+            downstream_intent,
+
+        "trade_plan_ready":
+            downstream_plan_ready,
+
+        "trade_plan":
+            downstream_plan,
+
+        "execution_ready":
+            execution_ready,
+
+        "execution_candidate":
+            internal_candidate,
+
+        "skip_reason":
+            skip_reason,
+
+        "order_payload_created":
+            False,
+
+        "tp_execution_requested":
+            False,
+
+        "sl_execution_requested":
+            False,
+
+        "read_only":
+            True,
+
+        # CONTINUITY DIAGNOSTICS
+
+        "upstream_status":
+            upstream_status,
+
+        "upstream_signal_qualified":
+            signal_qualified,
+
+        "upstream_execution_intent":
+            upstream_intent,
+
+        "upstream_mode":
+            mode,
+
+        "upstream_direction":
+            direction,
+
+        "candidate_stage":
+            candidate_stage,
+
+        "candidate_protected":
+            candidate_protected,
+
+        "closed_candle_id":
+            closed_candle_id,
+
+        "signal_key": (
+            list(
+                state["signal_key"]
+            )
+            if state["signal_key"] is not None
+            else None
+        ),
+
+        "confirmations":
+            state["distinct_candles"],
+
+        "confirmations_required": 2,
+
+        "continuity_observed":
+            continuity_observed,
+
+        "continuity_is_entry_gate":
+            False,
+
+        "duplicate_candle":
+            duplicate_candle,
+
+        "signal_changed":
+            signal_changed,
+
+        "signal_expired":
+            signal_expired,
+
+        "signal_expiry_seconds":
+            signal_expiry,
+
+        "state_persistent_across_restart":
+            False,
+
+        # FUNDING / EXECUTION BOUNDARY
+
+        "balance_verified":
+            unit_8_result.get(
+                "balance_verified", False
+            ),
+
+        "leverage_verified":
+            unit_8_result.get(
+                "leverage_verified", False
+            ),
+
+        "position_flat_verified":
+            False,
+
+        "pending_orders_verified":
+            False,
+
+        "reentry_authorized":
+            False,
+
+        "trade_authorized":
+            False,
+
+        "exchange_write":
+            False,
+
+        "demo_order_submitted":
+            False,
+
+        "real_order_submitted":
+            False,
+
+        # ADJUSTABLE CONFIGURATION
+
+        "initial_fixed_usdt":
+            initial_margin,
+
+        "backup_multipliers":
+            multipliers,
+
+        "max_backups":
+            backup_count,
+
+        "exposure_cap_percent":
+            exposure_cap,
+
+        "mode_priority":
+            priority,
+
+        "qualification_owner":
+            "UNITS_2_TO_6",
+
+        "leverage_source":
+            "WEEX_EXCHANGE_SETTING",
+
+        "unit_9_revision":
+            "HYBRID_ADJUSTABLE_V2",
+    }
+
+    # ========================================================
+    # 9. FINAL OUTPUT SAFETY
+    # ========================================================
+
+    if execution_ready:
+
+        if not (
+            result["status"] == "READY"
+            and result["execution_intent"]
+            and result["signal_qualified"]
+            and result["trade_plan_ready"]
+            and isinstance(
+                result["execution_candidate"],
+                dict
+            )
+        ):
+            raise RuntimeError(
+                "UNIT 9 READY CONTRACT FAILURE"
+            )
+
+    else:
+
+        if (
+            result["status"] != "IDLE"
+            or result["execution_intent"]
+            or result["signal_qualified"]
+            or result["trade_plan_ready"]
+            or result["execution_candidate"]
+            is not None
+        ):
+            raise RuntimeError(
+                "UNIT 9 IDLE CONTRACT FAILURE"
+            )
+
+    if any((
+        result["order_payload_created"],
+        result["tp_execution_requested"],
+        result["sl_execution_requested"],
+        result["trade_authorized"],
+        result["exchange_write"],
+        result["demo_order_submitted"],
+        result["real_order_submitted"],
+    )):
+        raise RuntimeError(
+            "UNIT 9 EXCHANGE SAFETY FAILURE"
+        )
+
+    state["last_status"] = status
+
+    # ========================================================
+    # 10. RENDER DIAGNOSTICS
+    # ========================================================
+
+    print(
+        "PASS: UNIT 9 ORIGINAL UNIT 8 HANDOVER",
+        flush=True
+    )
+
+    print(
+        "PASS: UNIT 9 ORIGINAL UNIT 10 CONTRACT",
+        flush=True
+    )
+
+    print(
+        "PASS: UNIT 9 ADJUSTABLE QUALIFICATIONS PRESERVED",
+        flush=True
+    )
+
+    print(
+        "UNIT 9 UPSTREAM STATUS =",
+        upstream_status,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 STATUS =",
+        status,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 UPSTREAM MODE =",
+        mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 CANDIDATE STAGE =",
+        candidate_stage,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 CANDIDATE PROTECTED =",
+        candidate_protected,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 CLOSED CANDLE ID =",
+        closed_candle_id,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 DISTINCT CANDLES OBSERVED =",
+        state["distinct_candles"],
+        flush=True
+    )
+
+    print(
+        "UNIT 9 CONTINUITY OBSERVED =",
+        continuity_observed,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 ADDITIONAL CONFIRMATION GATE = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 9 TRADE PLAN READY =",
+        downstream_plan_ready,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 EXECUTION READY =",
+        execution_ready,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 SKIP REASON =",
+        skip_reason,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 POSITION FLAT VERIFIED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 9 DEMO ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 9 REAL ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 9 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        datetime.now(timezone.utc).isoformat(),
+        "UNIT 9 HYBRID ADJUSTABLE V2 RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# UNIT 9 EXECUTION / UNIT 10 HANDOVER
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_9_RESULT = (
+    fresh_reconstruction_unit_9(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_8_RESULT,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+    )
+)
+
+
+# ============================================================
+# END UNIT 9 - HYBRID ADJUSTABLE V2
+# ZERO INDENTATION
+# ============================================================
+
+
