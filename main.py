@@ -7567,6 +7567,12 @@ def fresh_reconstruction_unit_11(
             "UNIT 11 INVALID SIGNAL STATUS"
         )
 
+    
+    # ========================================================
+    # UNIT 11 SIGNAL IDENTITY VALIDATION
+    # ADAPTED FOR ORIGINAL + NEW MODEL
+    # ========================================================
+
     if upstream_status in (
         "PENDING",
         "CONFIRMED",
@@ -7583,17 +7589,48 @@ def fresh_reconstruction_unit_11(
             )
         ):
             raise RuntimeError(
-                "UNIT 11 INVALID SIGNAL IDENTITY"
+                "UNIT 11 INVALID ACTIVE SIGNAL IDENTITY"
             )
 
-    else:
+    elif upstream_status == "BLOCKED":
+
+        # A blocked signal may retain its original
+        # identity for diagnostic purposes.
+        #
+        # This must never authorize a trade.
+
+        identity_empty = (
+            active_mode == "NONE"
+            and direction == "NONE"
+        )
+
+        identity_complete = (
+            active_mode in (
+                "BREAKOUT",
+                "STRUCTURE",
+            )
+            and direction in (
+                "LONG",
+                "SHORT",
+            )
+        )
+
+        if not (
+            identity_empty
+            or identity_complete
+        ):
+            raise RuntimeError(
+                "UNIT 11 INVALID BLOCKED SIGNAL IDENTITY"
+            )
+
+    elif upstream_status == "IDLE":
 
         if (
             active_mode != "NONE"
             or direction != "NONE"
         ):
             raise RuntimeError(
-                "UNIT 11 INVALID INACTIVE IDENTITY"
+                "UNIT 11 INVALID IDLE SIGNAL IDENTITY"
             )
 
     if upstream_status == "CONFIRMED":
