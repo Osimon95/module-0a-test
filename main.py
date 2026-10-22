@@ -2362,6 +2362,8 @@ FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
 # ============================================================
 # UNIT 5 ISOLATED TEST - STOP BEFORE UNIT 6
 # ============================================================
+
+UNIT_5_ISOLATED_TEST = False
 UNIT_5_ISOLATED_TEST = True
 
 _u5 = FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
@@ -2381,4 +2383,800 @@ if UNIT_5_ISOLATED_TEST:
 
 # ============================================================
 # END COMPLETE UNIT 5 REPLACEMENT - ZERO INDENTATION
+# ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 6 REPLACEMENT
+# ZERO INDENTATION
+# OLD 15-UNIT + NEW RECONSTRUCTION
+# SIGNAL ADMISSION / QUALITY / UNIT 7 HANDOVER
+# ============================================================
+
+def fresh_reconstruction_unit_6(
+    unit_2_config,
+    unit_4_analysis,
+    unit_5_candidate,
+):
+
+    import math
+
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 6 START")
+
+    # ========================================================
+    # 1. INPUT AND SAFETY CONTRACT
+    # ========================================================
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            unit_2_config,
+            unit_4_analysis,
+            unit_5_candidate,
+        )
+    ):
+        raise RuntimeError("UNIT 6 INVALID INPUT")
+
+    strategy = unit_2_config.get("strategy", {})
+    safety = unit_2_config.get("safety", {})
+    market = unit_4_analysis
+    signal = unit_5_candidate
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError("UNIT 6 INVALID STRATEGY")
+
+    if not isinstance(safety, dict):
+        raise RuntimeError("UNIT 6 INVALID SAFETY")
+
+    forbidden = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for key in forbidden:
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 6 UNSAFE CONFIG: " + key
+            )
+
+    if (
+        market.get("read_only") is not True
+        or market.get("trade_authorized") is not False
+        or market.get("candle_data_fresh") is not True
+        or market.get("strategy_evidence_version")
+        != "U4_OLD_NEW_ADAPTED_V1"
+    ):
+        raise RuntimeError(
+            "UNIT 6 UNIT 4 CONTRACT FAILED"
+        )
+
+    if (
+        signal.get("read_only") is not True
+        or signal.get("trade_authorized") is not False
+        or signal.get("symbol") != market.get("symbol")
+    ):
+        raise RuntimeError(
+            "UNIT 6 UNIT 5 CONTRACT FAILED"
+        )
+
+    for key in (
+        "one_direction_only",
+        "anti_duplicate_orders",
+        "exclusive_mode",
+        "active_trade_mode_lock",
+    ):
+        if strategy.get(key) is not True:
+            raise RuntimeError(
+                "UNIT 6 PROTECTION DISABLED: " + key
+            )
+
+    def number(value, label):
+        try:
+            result = float(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RuntimeError(
+                "UNIT 6 INVALID " + label
+            ) from exc
+
+        if not math.isfinite(result):
+            raise RuntimeError(
+                "UNIT 6 NONFINITE " + label
+            )
+
+        return result
+
+    age = number(
+        market.get("candle_age_seconds"),
+        "CANDLE AGE",
+    )
+
+    if not 0 <= age <= 180:
+        raise RuntimeError("UNIT 6 STALE CANDLES")
+
+    print(
+        "PASS: UNIT 6 RECEIVED UNITS 2/4/5",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 6 READ ONLY SAFETY",
+        flush=True,
+    )
+
+    # ========================================================
+    # 2. VALIDATE UNIT 5 ADMISSION FIELDS
+    # ========================================================
+
+    qualified = signal.get("qualified") is True
+    mode = signal.get("active_mode", "NONE")
+    side = signal.get("direction", "NONE")
+
+    candidate_mode = signal.get(
+        "candidate_mode", "NONE"
+    )
+
+    candidate_stage = signal.get(
+        "candidate_stage", "NONE"
+    )
+
+    unit5_reason = str(
+        signal.get(
+            "qualification_reason",
+            "UNKNOWN",
+        )
+    )
+
+    higher_mode = signal.get(
+        "higher_mode_developing"
+    ) is True
+
+    if mode not in (
+        "NONE", "BREAKOUT", "STRUCTURE", "SCALP"
+    ):
+        raise RuntimeError("UNIT 6 INVALID ACTIVE MODE")
+
+    if side not in ("NONE", "LONG", "SHORT"):
+        raise RuntimeError("UNIT 6 INVALID DIRECTION")
+
+    if candidate_mode not in (
+        "NONE", "BREAKOUT", "STRUCTURE", "SCALP"
+    ):
+        raise RuntimeError("UNIT 6 INVALID CANDIDATE")
+
+    if candidate_stage not in (
+        "NONE", "DEVELOPING", "QUALIFIED",
+        "PENDING_UNIT_6", "REJECTED"
+    ):
+        raise RuntimeError("UNIT 6 INVALID STAGE")
+
+    if qualified and (
+        mode == "NONE"
+        or side == "NONE"
+        or candidate_mode != mode
+        or candidate_stage not in (
+            "QUALIFIED",
+            "PENDING_UNIT_6",
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 6 QUALIFIED SIGNAL INCONSISTENT"
+        )
+
+    if not qualified and mode != "NONE":
+        raise RuntimeError(
+            "UNIT 6 UNQUALIFIED MODE LEAK"
+        )
+
+    # ========================================================
+    # 3. LEVERAGE REFERENCE
+    # ========================================================
+
+    leverage = number(
+        strategy.get("leverage_target", 100),
+        "LEVERAGE",
+    )
+
+    if leverage <= 0:
+        raise RuntimeError("UNIT 6 INVALID LEVERAGE")
+
+    leverage_regime = (
+        "GE_100X" if leverage >= 100
+        else "50_99X" if leverage >= 50
+        else "20_49X" if leverage >= 20
+        else "11_19X" if leverage >= 11
+        else "LE_10X"
+    )
+
+    # No exchange leverage has been checked here.
+
+    # ========================================================
+    # 4. CLOSED-CANDLE DIRECTION PERSISTENCE
+    # ========================================================
+
+    candles = signal.get(
+        "recent_closed_klines", []
+    )
+
+    if not isinstance(candles, list) or len(candles) < 4:
+        raise RuntimeError(
+            "UNIT 6 INSUFFICIENT CLOSED CANDLES"
+        )
+
+    persistence_window = 3
+    persistence_required = 2
+
+    persistence_directions = []
+
+    for candle in candles[-persistence_window:]:
+
+        candle_open = number(
+            candle.get("open"),
+            "CANDLE OPEN",
+        )
+
+        candle_close = number(
+            candle.get("close"),
+            "CANDLE CLOSE",
+        )
+
+        if candle_close > candle_open:
+            persistence_directions.append("LONG")
+        elif candle_close < candle_open:
+            persistence_directions.append("SHORT")
+        else:
+            persistence_directions.append("NONE")
+
+    persistence_confirmations = (
+        persistence_directions.count(side)
+        if side in ("LONG", "SHORT")
+        else 0
+    )
+
+    persistence_pass = (
+        persistence_confirmations
+        >= persistence_required
+    )
+
+    # ========================================================
+    # 5. DIRECTION AND MOMENTUM EVIDENCE
+    # ========================================================
+
+    direction_evidence = market.get(
+        "direction_evidence", "NONE"
+    )
+
+    move5 = number(
+        market.get("move_5m_pct"),
+        "FIVE MINUTE MOVE",
+    )
+
+    move15 = number(
+        market.get("move_15m_pct"),
+        "FIFTEEN MINUTE MOVE",
+    )
+
+    sign = (
+        1 if side == "LONG"
+        else -1 if side == "SHORT"
+        else 0
+    )
+
+    fifteen_minute_support_pass = (
+        sign != 0
+        and move15 * sign >= 0
+    )
+
+    momentum_conflict = (
+        sign != 0
+        and move5 * sign < 0
+    )
+
+    sideways_regime = (
+        market.get("sideways_candidate") is True
+    )
+
+    separation = number(
+        market.get("ema19_50_separation_pct"),
+        "EMA SEPARATION",
+    )
+
+    compression_threshold_pct = 0.09
+    ema_compressed = (
+        separation <= compression_threshold_pct
+    )
+
+    # ========================================================
+    # 6. SCALP PRICE AND QUALITY PRECHECK
+    # ========================================================
+
+    scalp_quality_minimum = number(
+        strategy.get(
+            "scalp_quality_threshold", 70.0
+        ),
+        "SCALP QUALITY MINIMUM",
+    )
+
+    if not 0 < scalp_quality_minimum <= 100:
+        raise RuntimeError(
+            "UNIT 6 INVALID SCALP QUALITY FLOOR"
+        )
+
+    price_weight = number(
+        strategy.get(
+            "scalp_price_weight_percent", 50.0
+        ),
+        "SCALP PRICE WEIGHT",
+    )
+
+    if price_weight != 50.0:
+        raise RuntimeError(
+            "UNIT 6 SCALP PRICE WEIGHT NOT 50%"
+        )
+
+    extension = number(
+        market.get("price_extension_cluster"),
+        "PRICE EXTENSION",
+    )
+
+    extension_limit = number(
+        strategy.get(
+            "scalp_max_ema_extension_clusters", 1.5
+        ),
+        "EXTENSION LIMIT",
+    )
+
+    extension_pass = (
+        extension <= extension_limit
+    )
+
+    atr = number(
+        market.get("atr14"),
+        "ATR",
+    )
+
+    price = number(
+        market.get("latest_close"),
+        "LATEST PRICE",
+    )
+
+    if price <= 0 or atr <= 0:
+        raise RuntimeError("UNIT 6 INVALID PRICE/ATR")
+
+    scalp_pending = (
+        qualified
+        and mode == "SCALP"
+        and candidate_mode == "SCALP"
+    )
+
+    price_score = 0.0
+    other_score = 0.0
+    scalp_score = None
+    scalp_pass = False
+
+    if scalp_pending:
+
+        price_score = (
+            20.0 if sideways_regime else 0.0
+        )
+
+        price_score += (
+            15.0 if extension_pass else 0.0
+        )
+
+        price_score += (
+            15.0 if not momentum_conflict else 0.0
+        )
+
+        other_score = (
+            20.0 if persistence_pass else 0.0
+        )
+
+        other_score += (
+            15.0 if fifteen_minute_support_pass
+            else 0.0
+        )
+
+        other_score += (
+            15.0 if not higher_mode else 0.0
+        )
+
+        scalp_score = (
+            price_score + other_score
+        )
+
+        scalp_pass = (
+            scalp_score >= scalp_quality_minimum
+        )
+
+    # ========================================================
+    # 7. ESTIMATED SCALP ECONOMICS
+    # ========================================================
+
+    fee_side_pct = number(
+        strategy.get(
+            "scalp_estimated_taker_fee_percent",
+            0.08,
+        ),
+        "TAKER FEE",
+    )
+
+    prospective_range_pct = number(
+        signal.get("scalp_range_pct", 0.0),
+        "PROSPECTIVE RANGE",
+    )
+
+    estimated_round_trip_pct = (
+        2.0 * fee_side_pct + 0.02
+    )
+
+    estimated_net_price_pct = (
+        prospective_range_pct
+        - estimated_round_trip_pct
+    )
+
+    estimated_net_roi_pct = (
+        estimated_net_price_pct * leverage
+    )
+
+    min_net_roi = number(
+        strategy.get(
+            "scalp_min_net_roi_percent", 5.0
+        ),
+        "MIN NET ROI",
+    )
+
+    estimated_fee_pass = (
+        estimated_net_roi_pct >= min_net_roi
+    )
+
+    # Public candles do not verify order-book spread,
+    # actual slippage, funding or execution fees.
+    live_cost_verified = False
+
+    scalp_details = {
+        "price_score": price_score,
+        "other_score": other_score,
+        "extension_ratio": extension,
+        "extension_pass": extension_pass,
+        "persistence_confirmations":
+            persistence_confirmations,
+        "prospective_range_pct":
+            prospective_range_pct,
+        "estimated_round_trip_cost_pct":
+            estimated_round_trip_pct,
+        "estimated_net_price_pct":
+            estimated_net_price_pct,
+        "provisional_leveraged_roi_pct":
+            estimated_net_roi_pct,
+        "minimum_net_roi_pct": min_net_roi,
+        "estimated_fee_pass": estimated_fee_pass,
+        "live_cost_verified": False,
+    }
+
+    # ========================================================
+    # 8. ARBITRATION AND ADMISSION
+    # ========================================================
+
+    execution_intent = False
+    admitted_mode = "NONE"
+    admitted_side = "NONE"
+
+    reason = (
+        "UNIT_5_NOT_QUALIFIED:" + unit5_reason
+    )
+
+    if qualified and mode in (
+        "BREAKOUT", "STRUCTURE"
+    ):
+
+        if direction_evidence != side:
+            reason = "DIRECTION_EVIDENCE_CONFLICT"
+
+        elif mode == "BREAKOUT" and not (
+            signal.get("breakout_ready") is True
+        ):
+            reason = "BREAKOUT_NOT_CONFIRMED"
+
+        elif mode == "STRUCTURE" and not (
+            signal.get("structure_ready") is True
+        ):
+            reason = "STRUCTURE_NOT_CONFIRMED"
+
+        else:
+            execution_intent = True
+            admitted_mode = mode
+            admitted_side = side
+
+            reason = (
+                mode + "_PRELIMINARY_ADMISSION_PASS"
+            )
+
+    elif scalp_pending:
+
+        if higher_mode:
+            reason = "SCALP_BLOCKED_BY_HIGHER_MODE"
+
+        elif not sideways_regime:
+            reason = "SCALP_NOT_SIDEWAYS"
+
+        elif not extension_pass:
+            reason = "SCALP_EXTENSION_REJECTED"
+
+        elif not persistence_pass:
+            reason = "SCALP_PERSISTENCE_REJECTED"
+
+        elif not scalp_pass:
+            reason = "SCALP_QUALITY_BELOW_THRESHOLD"
+
+        elif not estimated_fee_pass:
+            reason = "SCALP_ESTIMATED_NET_ROI_TOO_LOW"
+
+        else:
+            reason = (
+                "SCALP_PRELIMINARY_PASS_"
+                "AWAITING_VERIFIED_LIVE_COSTS"
+            )
+
+        # Do not authorize SCALP from estimated costs alone.
+        execution_intent = False
+
+    elif candidate_stage == "DEVELOPING":
+        reason = (
+            "HIGHER_MODE_DEVELOPING"
+            if higher_mode
+            else "CANDIDATE_DEVELOPING"
+        )
+
+    # ========================================================
+    # 9. CONSISTENT UNIT 7 HANDOVER
+    # ========================================================
+
+    if not execution_intent:
+        admitted_mode = "NONE"
+        admitted_side = "NONE"
+
+    signal_qualified = execution_intent
+
+    if execution_intent:
+        if (
+            admitted_mode not in (
+                "BREAKOUT", "STRUCTURE"
+            )
+            or admitted_side not in (
+                "LONG", "SHORT"
+            )
+        ):
+            raise RuntimeError(
+                "UNIT 6 ADMISSION INCONSISTENT"
+            )
+
+    result = {
+
+        "execution_intent": execution_intent,
+        "signal_qualified": signal_qualified,
+
+        "active_mode": admitted_mode,
+        "direction": admitted_side,
+
+        "candidate_mode": candidate_mode,
+        "candidate_stage": candidate_stage,
+
+        "higher_mode_developing": higher_mode,
+
+        "unit_5_reason": unit5_reason,
+        "admission_reason": reason,
+
+        "leverage_target": leverage,
+        "leverage_regime": leverage_regime,
+
+        "exchange_leverage_verified": False,
+        "leverage_source": "WEEX_EXCHANGE",
+        "effective_leverage": None,
+
+        "sideways_regime": sideways_regime,
+        "ema_compressed": ema_compressed,
+        "compression_threshold_pct":
+            compression_threshold_pct,
+
+        "momentum_conflict": momentum_conflict,
+
+        "persistence_window": persistence_window,
+        "persistence_required": persistence_required,
+        "persistence_confirmations":
+            persistence_confirmations,
+        "persistence_directions":
+            persistence_directions,
+        "persistence_pass": persistence_pass,
+
+        "fifteen_minute_support_pass":
+            fifteen_minute_support_pass,
+
+        "scalp_quality_score": scalp_score,
+        "scalp_quality_minimum":
+            scalp_quality_minimum,
+        "scalp_quality_pass": scalp_pass,
+        "scalp_quality_details": scalp_details,
+
+        "live_cost_verified": live_cost_verified,
+
+        "read_only": True,
+        "trade_authorized": False,
+        "order_payload_created": False,
+        "demo_order_submitted": False,
+        "real_order_submitted": False,
+        "exchange_write": False,
+    }
+
+    print(
+        "UNIT 6 CANDIDATE MODE =",
+        candidate_mode,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 CANDIDATE STAGE =",
+        candidate_stage,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 ADMITTED MODE =",
+        admitted_mode,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 DIRECTION =",
+        admitted_side,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 EXECUTION INTENT =",
+        execution_intent,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 ADMISSION REASON =",
+        reason,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 SCALP QUALITY SCORE =",
+        scalp_score,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 SCALP EST NET ROI =",
+        round(estimated_net_roi_pct, 4),
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 LIVE COST VERIFIED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 TRADE AUTHORIZED = FALSE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 6 RESULT = PASS"
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# RUN UNIT 6
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
+    fresh_reconstruction_unit_6(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE,
+    )
+)
+
+
+# ============================================================
+# UNIT 6 ISOLATED VERIFICATION
+# ZERO INDENTATION
+# ============================================================
+
+UNIT_6_ISOLATED_TEST = True
+
+_u6 = FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE
+
+if not isinstance(_u6, dict):
+    raise RuntimeError("UNIT 6 OUTPUT NOT DICT")
+
+_required_u6 = (
+    "execution_intent",
+    "signal_qualified",
+    "active_mode",
+    "direction",
+    "admission_reason",
+    "leverage_target",
+    "persistence_confirmations",
+    "scalp_quality_score",
+    "read_only",
+    "trade_authorized",
+    "order_payload_created",
+    "demo_order_submitted",
+    "real_order_submitted",
+    "exchange_write",
+)
+
+for _key in _required_u6:
+    if _key not in _u6:
+        raise RuntimeError(
+            "UNIT 6 MISSING OUTPUT: " + _key
+        )
+
+if _u6["execution_intent"] != _u6["signal_qualified"]:
+    raise RuntimeError(
+        "UNIT 6 INTENT / QUALIFICATION MISMATCH"
+    )
+
+if not _u6["execution_intent"]:
+    if (
+        _u6["active_mode"] != "NONE"
+        or _u6["direction"] != "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 6 IDLE OUTPUT INCONSISTENT"
+        )
+
+if (
+    _u6["read_only"] is not True
+    or _u6["trade_authorized"] is not False
+    or _u6["order_payload_created"] is not False
+    or _u6["demo_order_submitted"] is not False
+    or _u6["real_order_submitted"] is not False
+    or _u6["exchange_write"] is not False
+):
+    raise RuntimeError("UNIT 6 SAFETY CONTRACT FAILED")
+
+print("=" * 80, flush=True)
+print("UNIT 6 ISOLATED TEST = PASS", flush=True)
+print("UNIT 6 VERIFIED = TRUE", flush=True)
+print("UNITS 7-15 EXECUTION = NOT STARTED", flush=True)
+print("=" * 80, flush=True)
+
+if UNIT_6_ISOLATED_TEST:
+    print(
+        "UNIT 6 TEST COMPLETE - STOPPING BEFORE UNIT 7",
+        flush=True,
+    )
+    raise SystemExit(0)
+
+
+# ============================================================
+# END COMPLETE UNIT 6 REPLACEMENT
+# ZERO INDENTATION
+# EXISTING UNIT 7 CONTINUES BELOW
 # ============================================================
