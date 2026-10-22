@@ -8993,6 +8993,7 @@ print(
 
 print("=" * 80, flush=True)
 
+UNIT_12_ISOLATED_TRST = False
 if UNIT_12_ISOLATED_TEST:
 
     print(
@@ -9009,3 +9010,537 @@ if UNIT_12_ISOLATED_TEST:
 # UNIT 13 CONTINUES BELOW
 # ============================================================
 
+
+
+# ============================================================
+# START UNIT 12 WEEX LIVE READ-ONLY VERIFICATION
+# ZERO INDENTATION
+# DEMO ACCOUNT ONLY
+# REUSE ORIGINAL UNIT 12 POSITION READER
+# NO EXCHANGE WRITE
+# ============================================================
+
+def fresh_unit_12_live_verification():
+
+    import os
+    import json
+    import time
+    import hmac
+    import base64
+    import hashlib
+    import urllib.request
+    import math
+    from decimal import Decimal, InvalidOperation
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 12 LIVE VERIFICATION START",
+        flush=True,
+    )
+
+    result = {
+        "status": "UNAVAILABLE",
+        "environment": "DEMO",
+        "asset": "SUSDT",
+        "balance_verified": False,
+        "available_balance": None,
+        "total_balance": None,
+        "frozen_balance": None,
+        "position_verified": False,
+        "position_flat_verified": False,
+        "active_position_count": None,
+        "existing_long_leverage": None,
+        "existing_short_leverage": None,
+        "entry_leverage_verified": False,
+        "effective_entry_leverage": None,
+        "pending_orders_verified": False,
+        "duplicate_orders_clear": False,
+        "new_entry_ready": False,
+        "execution_intent": False,
+        "demo_order_submitted": False,
+        "real_order_submitted": False,
+        "exchange_write": False,
+        "balance_error": None,
+        "position_error": None,
+    }
+
+    # ========================================================
+    # 1. REUSE CONFIGURATION SAFETY
+    # ========================================================
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT12 VERIFY CONFIG INVALID"
+        )
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("demo_order_symbol")
+        != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT12 VERIFY DEMO ONLY"
+        )
+
+    for name in (
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "order_endpoint_access_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+    ):
+        if safety.get(name) is not False:
+            raise RuntimeError(
+                "UNIT12 VERIFY UNSAFE: " + name
+            )
+
+    # ========================================================
+    # 2. READ-ONLY DEMO BALANCE GET
+    # ========================================================
+
+    def read_demo_balance():
+
+        key = (
+            os.getenv("WEEX_API_KEY")
+            or os.getenv("API_KEY")
+        )
+
+        secret = (
+            os.getenv("WEEX_API_SECRET")
+            or os.getenv("API_SECRET")
+        )
+
+        passphrase = (
+            os.getenv("WEEX_API_PASSPHRASE")
+            or os.getenv("API_PASSPHRASE")
+        )
+
+        if not all((key, secret, passphrase)):
+            raise RuntimeError(
+                "DEMO_CREDENTIALS_UNAVAILABLE"
+            )
+
+        path = "/capi/v3/sim/balance"
+
+        url = (
+            "https://api-contract.weex.com"
+            + path
+        )
+
+        timestamp = str(
+            int(time.time() * 1000)
+        )
+
+        message = timestamp + "GET" + path
+
+        signature = base64.b64encode(
+            hmac.new(
+                secret.encode("utf-8"),
+                message.encode("utf-8"),
+                hashlib.sha256,
+            ).digest()
+        ).decode("utf-8")
+
+        request = urllib.request.Request(
+            url,
+            method="GET",
+            headers={
+                "ACCESS-KEY": key,
+                "ACCESS-SIGN": signature,
+                "ACCESS-TIMESTAMP": timestamp,
+                "ACCESS-PASSPHRASE": passphrase,
+                "Content-Type": "application/json",
+            },
+        )
+
+        class NoRedirect(
+            urllib.request.HTTPRedirectHandler
+        ):
+            def redirect_request(
+                self, req, fp, code, msg,
+                headers, newurl
+            ):
+                return None
+
+        opener = urllib.request.build_opener(
+            NoRedirect()
+        )
+
+        with opener.open(
+            request,
+            timeout=12,
+        ) as response:
+
+            if (
+                response.getcode() != 200
+                or response.geturl() != url
+            ):
+                raise RuntimeError(
+                    "UNEXPECTED_HTTP_RESPONSE"
+                )
+
+            raw = response.read(
+                1024 * 1024 + 1
+            )
+
+        if not raw or len(raw) > 1024 * 1024:
+            raise RuntimeError(
+                "INVALID_BALANCE_RESPONSE_SIZE"
+            )
+
+        payload = json.loads(
+            raw.decode("utf-8")
+        )
+
+        if not isinstance(payload, list):
+            raise ValueError(
+                "BALANCE_RESPONSE_NOT_LIST"
+            )
+
+        matching = [
+            item for item in payload
+            if (
+                isinstance(item, dict)
+                and item.get("asset") == "SUSDT"
+            )
+        ]
+
+        if len(matching) != 1:
+            raise ValueError(
+                "SUSDT_BALANCE_RECORD_INVALID"
+            )
+
+        item = matching[0]
+
+        def amount(name):
+            value = item.get(name)
+
+            if (
+                value is None
+                or isinstance(value, bool)
+            ):
+                raise ValueError(
+                    "MISSING_" + name
+                )
+
+            try:
+                number = Decimal(str(value))
+            except InvalidOperation:
+                raise ValueError(
+                    "INVALID_" + name
+                )
+
+            if not number.is_finite():
+                raise ValueError(
+                    "NONFINITE_" + name
+                )
+
+            if number < 0:
+                raise ValueError(
+                    "NEGATIVE_" + name
+                )
+
+            return number
+
+        total = amount("balance")
+        available = amount("availableBalance")
+        frozen = amount("frozen")
+
+        if available > total:
+            raise ValueError(
+                "AVAILABLE_EXCEEDS_TOTAL"
+            )
+
+        return {
+            "total": total,
+            "available": available,
+            "frozen": frozen,
+        }
+
+    # ========================================================
+    # 3. AUTHENTICATED BALANCE VERIFICATION
+    # ========================================================
+
+    try:
+
+        balance = read_demo_balance()
+
+        result["balance_verified"] = True
+        result["total_balance"] = str(
+            balance["total"]
+        )
+        result["available_balance"] = str(
+            balance["available"]
+        )
+        result["frozen_balance"] = str(
+            balance["frozen"]
+        )
+
+    except Exception as exc:
+
+        result["balance_error"] = (
+            type(exc).__name__
+        )
+
+    # ========================================================
+    # 4. REUSE WORKING UNIT 12 POSITION READER
+    # ========================================================
+
+    try:
+
+        raw_positions = (
+            fresh_unit_12_weex_position_get()
+        )
+
+        parsed = (
+            fresh_unit_12_parse_positions(
+                raw_positions
+            )
+        )
+
+        result["position_verified"] = True
+
+        result["position_flat_verified"] = (
+            parsed["flat"]
+        )
+
+        result["active_position_count"] = (
+            parsed["active_count"]
+        )
+
+        for position in parsed["positions"]:
+
+            side = position["side"]
+            leverage = position["leverage"]
+
+            if not (
+                isinstance(leverage, (int, float))
+                and math.isfinite(leverage)
+                and leverage > 0
+            ):
+                raise ValueError(
+                    "INVALID_POSITION_LEVERAGE"
+                )
+
+            field = (
+                "existing_long_leverage"
+                if side == "LONG"
+                else "existing_short_leverage"
+            )
+
+            if (
+                result[field] is not None
+                and result[field] != leverage
+            ):
+                raise ValueError(
+                    "CONFLICTING_POSITION_LEVERAGE"
+                )
+
+            result[field] = leverage
+
+    except Exception as exc:
+
+        result["position_verified"] = False
+        result["position_flat_verified"] = False
+        result["active_position_count"] = None
+
+        result["existing_long_leverage"] = None
+        result["existing_short_leverage"] = None
+
+        result["position_error"] = (
+            type(exc).__name__
+        )
+
+    # ========================================================
+    # 5. COMBINED STATUS
+    # ========================================================
+
+    if (
+        result["balance_verified"]
+        and result["position_verified"]
+    ):
+
+        result["status"] = "READ_VERIFIED"
+
+    elif (
+        result["balance_verified"]
+        or result["position_verified"]
+    ):
+
+        result["status"] = "PARTIAL"
+
+    else:
+
+        result["status"] = "UNAVAILABLE"
+
+    # Do NOT infer new-entry leverage from:
+    # - configured 100x reference
+    # - public risk-limit brackets
+    # - existing position leverage
+    #
+    # Pending order absence is also unverified.
+    #
+    # These are deliberate execution blockers.
+
+    result["entry_leverage_verified"] = False
+    result["effective_entry_leverage"] = None
+
+    result["pending_orders_verified"] = False
+    result["duplicate_orders_clear"] = False
+
+    result["new_entry_ready"] = False
+    result["execution_intent"] = False
+
+    result["demo_order_submitted"] = False
+    result["real_order_submitted"] = False
+    result["exchange_write"] = False
+
+    # ========================================================
+    # 6. LOG RESULTS
+    # ========================================================
+
+    for label, value in (
+        ("STATUS", result["status"]),
+        (
+            "DEMO BALANCE VERIFIED",
+            result["balance_verified"],
+        ),
+        (
+            "TOTAL SUSDT",
+            result["total_balance"],
+        ),
+        (
+            "AVAILABLE SUSDT",
+            result["available_balance"],
+        ),
+        (
+            "FROZEN SUSDT",
+            result["frozen_balance"],
+        ),
+        (
+            "DEMO POSITION VERIFIED",
+            result["position_verified"],
+        ),
+        (
+            "DEMO POSITION FLAT",
+            result["position_flat_verified"],
+        ),
+        (
+            "ACTIVE POSITION COUNT",
+            result["active_position_count"],
+        ),
+        (
+            "EXISTING LONG LEVERAGE",
+            result["existing_long_leverage"],
+        ),
+        (
+            "EXISTING SHORT LEVERAGE",
+            result["existing_short_leverage"],
+        ),
+        (
+            "FLAT ENTRY LEVERAGE VERIFIED",
+            False,
+        ),
+        (
+            "PENDING ORDERS VERIFIED",
+            False,
+        ),
+        (
+            "NEW ENTRY READY",
+            False,
+        ),
+        (
+            "DEMO ORDER",
+            "NONE",
+        ),
+        (
+            "REAL ORDER",
+            "NONE",
+        ),
+        (
+            "EXCHANGE WRITE",
+            "NONE",
+        ),
+    ):
+
+        print(
+            "UNIT 12 LIVE VERIFY "
+            + label + " =",
+            value,
+            flush=True,
+        )
+
+    if result["balance_error"]:
+        print(
+            "UNIT 12 BALANCE ERROR TYPE =",
+            result["balance_error"],
+            flush=True,
+        )
+
+    if result["position_error"]:
+        print(
+            "UNIT 12 POSITION ERROR TYPE =",
+            result["position_error"],
+            flush=True,
+        )
+
+    print(
+        "UNIT 12 LIVE VERIFICATION COMPLETE",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+FRESH_RECONSTRUCTION_UNIT_12_LIVE_VERIFY = (
+    fresh_unit_12_live_verification()
+)
+
+# Keep results available to later units,
+# but do not elevate them into trade permission.
+
+FRESH_RECONSTRUCTION_UNIT_12_RESULT[
+    "live_verification"
+] = FRESH_RECONSTRUCTION_UNIT_12_LIVE_VERIFY
+
+
+# ============================================================
+# ISOLATED LIVE VERIFICATION EXIT
+# ZERO INDENTATION
+# ============================================================
+
+UNIT_12_LIVE_VERIFICATION_TEST = True
+
+if UNIT_12_LIVE_VERIFICATION_TEST:
+
+    _v = FRESH_RECONSTRUCTION_UNIT_12_LIVE_VERIFY
+
+    assert _v["new_entry_ready"] is False
+    assert _v["execution_intent"] is False
+    assert _v["exchange_write"] is False
+
+    print(
+        "UNIT 12 LIVE READ-ONLY TEST = PASS",
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 LIVE READ-ONLY TEST COMPLETE"
+        " - STOPPING BEFORE UNIT 13",
+        flush=True,
+    )
+
+    raise SystemExit(0)
+
+
+# ============================================================
+# END UNIT 12 WEEX LIVE READ-ONLY VERIFICATION
+# ZERO INDENTATION
+# ============================================================
