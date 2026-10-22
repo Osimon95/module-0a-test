@@ -588,3 +588,635 @@ FRESH_RECONSTRUCTION_CONFIG = (
 # ZERO INDENTATION
 # ============================================================
      
+
+# ============================================================
+# START UNIT 3 - IMPROVED HYBRID V3
+# ZERO INDENTATION
+#
+# SOURCE:
+# ORIGINAL 22525-LINE WORKING MODEL
+# PLUS SELECTED 12356-LINE MODEL IMPROVEMENTS
+#
+# PRESERVE:
+# - UNIT 2 CONFIGURATION INTERFACE
+# - UNIT 4 EIGHT-FIELD SNAPSHOT
+# - ORIGINAL UNITS 4 THROUGH 15
+# - UNIT 12 DEMO ORDER EXECUTION
+#
+# PUBLIC MARKET READ ONLY
+# NO ACCOUNT MUTATION
+# NO ORDER SUBMISSION
+# NO NEW BOT MODE
+# ============================================================
+
+
+def fresh_reconstruction_unit_3():
+
+    import json
+    import math
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    print("=" * 80, flush=True)
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 3 HYBRID V3 START"
+    )
+
+    # ========================================================
+    # 1. RECEIVE UNIT 2 CONFIGURATION
+    # ========================================================
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 3 INVALID UNIT 2 CONFIGURATION"
+        )
+
+    exchange = config.get("exchange")
+    safety = config.get("safety")
+    policy = config.get("market_data_policy", {})
+
+    if not isinstance(exchange, dict):
+        raise RuntimeError(
+            "UNIT 3 INVALID EXCHANGE CONFIGURATION"
+        )
+
+    if not isinstance(safety, dict):
+        raise RuntimeError(
+            "UNIT 3 INVALID SAFETY CONFIGURATION"
+        )
+
+    if not isinstance(policy, dict):
+        raise RuntimeError(
+            "UNIT 3 INVALID MARKET POLICY"
+        )
+
+    # ========================================================
+    # 2. ORIGINAL EXCHANGE CONTRACT
+    # ========================================================
+
+    if exchange.get("name") != "WEEX":
+        raise RuntimeError(
+            "UNIT 3 EXCHANGE MUST BE WEEX"
+        )
+
+    if exchange.get("api_version") != "V3":
+        raise RuntimeError(
+            "UNIT 3 API VERSION MISMATCH"
+        )
+
+    base_url = exchange.get(
+        "contract_base_url"
+    )
+
+    symbol = exchange.get(
+        "market_symbol"
+    )
+
+    demo_symbol = exchange.get(
+        "demo_order_symbol"
+    )
+
+    if base_url != "https://api-contract.weex.com":
+        raise RuntimeError(
+            "UNIT 3 INVALID WEEX API URL"
+        )
+
+    if symbol != "BTCUSDT":
+        raise RuntimeError(
+            "UNIT 3 INVALID PUBLIC SYMBOL"
+        )
+
+    if demo_symbol != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 3 INVALID DEMO SYMBOL"
+        )
+
+    if config.get(
+        "execution_environment"
+    ) != "DEMO":
+        raise RuntimeError(
+            "UNIT 3 DEMO ENVIRONMENT REQUIRED"
+        )
+
+    print(
+        "PASS: UNIT 3 ORIGINAL WEEX CONTRACT",
+        flush=True
+    )
+
+    # ========================================================
+    # 3. PRESERVE UNIT 2 SAFETY CONTRACT
+    # ========================================================
+
+    if safety.get(
+        "public_market_data_read_enabled"
+    ) is not True:
+        raise RuntimeError(
+            "UNIT 3 PUBLIC MARKET READ DISABLED"
+        )
+
+    forbidden = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for key in forbidden:
+
+        if safety.get(key) is not False:
+
+            raise RuntimeError(
+                "UNIT 3 INVALID SAFETY FLAG: " + key
+            )
+
+    print(
+        "PASS: UNIT 3 PUBLIC READ SAFETY",
+        flush=True
+    )
+
+    # ========================================================
+    # 4. USE REVISED UNIT 2 DATA POLICY
+    # ========================================================
+
+    try:
+
+        max_market_age_seconds = float(
+            policy.get(
+                "max_market_age_seconds",
+                120.0
+            )
+        )
+
+        future_tolerance_seconds = float(
+            policy.get(
+                "future_tolerance_seconds",
+                30.0
+            )
+        )
+
+        max_response_bytes = int(
+            policy.get(
+                "max_response_bytes",
+                65536
+            )
+        )
+
+    except (
+        TypeError,
+        ValueError,
+        OverflowError
+    ) as exc:
+
+        raise RuntimeError(
+            "UNIT 3 INVALID NUMERIC MARKET POLICY"
+        ) from exc
+
+    if not (
+        math.isfinite(max_market_age_seconds)
+        and 0 < max_market_age_seconds <= 120.0
+    ):
+        raise RuntimeError(
+            "UNIT 3 INVALID MAX MARKET AGE"
+        )
+
+    if not (
+        math.isfinite(future_tolerance_seconds)
+        and 0 <= future_tolerance_seconds <= 30.0
+    ):
+        raise RuntimeError(
+            "UNIT 3 INVALID CLOCK TOLERANCE"
+        )
+
+    if not (
+        1024 <= max_response_bytes <= 65536
+    ):
+        raise RuntimeError(
+            "UNIT 3 INVALID RESPONSE SIZE LIMIT"
+        )
+
+    # These protections are mandatory for the
+    # improved hybrid data-validation contract.
+
+    for key in (
+        "require_finite_price",
+        "require_timestamp_validation",
+        "require_fresh_market_data",
+    ):
+
+        if policy.get(key, True) is not True:
+
+            raise RuntimeError(
+                "UNIT 3 REQUIRED DATA PROTECTION "
+                "DISABLED: " + key
+            )
+
+    print(
+        "PASS: UNIT 3 UNIT 2 MARKET POLICY RECEIVED",
+        flush=True
+    )
+
+    # ========================================================
+    # 5. ORIGINAL WEEX PUBLIC ENDPOINT
+    # ========================================================
+
+    endpoint = "/capi/v3/market/symbolPrice"
+
+    query = urllib.parse.urlencode({
+        "symbol": symbol,
+        "priceType": "MARK",
+    })
+
+    url = (
+        base_url
+        + endpoint
+        + "?"
+        + query
+    )
+
+    request = urllib.request.Request(
+        url=url,
+        method="GET",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "WEEX-Hybrid-Unit3-V3",
+        },
+    )
+
+    if request.get_method() != "GET":
+        raise RuntimeError(
+            "UNIT 3 INVALID HTTP METHOD"
+        )
+
+    if request.data is not None:
+        raise RuntimeError(
+            "UNIT 3 UNEXPECTED REQUEST BODY"
+        )
+
+    # ========================================================
+    # 6. PROTECT AGAINST HTTP REDIRECTION
+    # ========================================================
+
+    class NoRedirect(
+        urllib.request.HTTPRedirectHandler
+    ):
+
+        def redirect_request(
+            self,
+            req,
+            fp,
+            code,
+            msg,
+            headers,
+            newurl
+        ):
+            return None
+
+    opener = urllib.request.build_opener(
+        NoRedirect()
+    )
+
+    print(
+        "UNIT 3 PUBLIC MARKET REQUEST START",
+        flush=True
+    )
+
+    # ========================================================
+    # 7. PERFORM BOUNDED PUBLIC MARKET READ
+    # ========================================================
+
+    try:
+
+        with opener.open(
+            request,
+            timeout=15
+        ) as response:
+
+            http_status = response.getcode()
+
+            raw_body = response.read(
+                max_response_bytes + 1
+            )
+
+            received_time_ms = int(
+                time.time() * 1000
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        error_body = exc.read(500).decode(
+            "utf-8",
+            errors="replace"
+        )
+
+        print(
+            "UNIT 3 HTTP ERROR CODE =",
+            exc.code,
+            flush=True
+        )
+
+        print(
+            "UNIT 3 HTTP ERROR BODY =",
+            error_body,
+            flush=True
+        )
+
+        raise RuntimeError(
+            "UNIT 3 WEEX PUBLIC HTTP FAILURE"
+        ) from exc
+
+    except urllib.error.URLError as exc:
+
+        print(
+            "UNIT 3 NETWORK ERROR =",
+            repr(exc.reason),
+            flush=True
+        )
+
+        raise RuntimeError(
+            "UNIT 3 WEEX CONNECTION FAILED"
+        ) from exc
+
+    if http_status != 200:
+        raise RuntimeError(
+            "UNIT 3 HTTP STATUS NOT 200"
+        )
+
+    if not raw_body:
+        raise RuntimeError(
+            "UNIT 3 EMPTY WEEX RESPONSE"
+        )
+
+    if len(raw_body) > max_response_bytes:
+        raise RuntimeError(
+            "UNIT 3 RESPONSE SIZE LIMIT EXCEEDED"
+        )
+
+    print(
+        "PASS: UNIT 3 WEEX RESPONSE RECEIVED",
+        flush=True
+    )
+
+    # ========================================================
+    # 8. VALIDATE RESPONSE JSON
+    # ========================================================
+
+    try:
+
+        payload = json.loads(
+            raw_body.decode("utf-8")
+        )
+
+    except (
+        ValueError,
+        UnicodeDecodeError
+    ) as exc:
+
+        raise RuntimeError(
+            "UNIT 3 INVALID WEEX JSON"
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            "UNIT 3 INVALID RESPONSE STRUCTURE"
+        )
+
+    if payload.get("symbol") != symbol:
+        raise RuntimeError(
+            "UNIT 3 RESPONSE SYMBOL MISMATCH"
+        )
+
+    print(
+        "PASS: UNIT 3 RESPONSE SYMBOL =",
+        symbol,
+        flush=True
+    )
+
+    # ========================================================
+    # 9. FINITE AND POSITIVE MARK PRICE VALIDATION
+    # ========================================================
+
+    raw_price = payload.get("price")
+
+    if isinstance(raw_price, bool):
+        raise RuntimeError(
+            "UNIT 3 BOOLEAN PRICE REJECTED"
+        )
+
+    try:
+
+        mark_price = float(raw_price)
+
+    except (
+        TypeError,
+        ValueError,
+        OverflowError
+    ) as exc:
+
+        raise RuntimeError(
+            "UNIT 3 INVALID MARK PRICE"
+        ) from exc
+
+    if not math.isfinite(mark_price):
+        raise RuntimeError(
+            "UNIT 3 NON-FINITE PRICE REJECTED"
+        )
+
+    if mark_price <= 0:
+        raise RuntimeError(
+            "UNIT 3 NON-POSITIVE PRICE REJECTED"
+        )
+
+    print(
+        "PASS: UNIT 3 BTC MARK PRICE =",
+        mark_price,
+        flush=True
+    )
+
+    # ========================================================
+    # 10. VERIFY EXCHANGE TIMESTAMP
+    # ========================================================
+
+    exchange_time_ms = payload.get("time")
+
+    if (
+        isinstance(exchange_time_ms, bool)
+        or not isinstance(exchange_time_ms, int)
+    ):
+        raise RuntimeError(
+            "UNIT 3 INVALID TIMESTAMP TYPE"
+        )
+
+    if not (
+        1000000000000
+        <= exchange_time_ms
+        < 100000000000000
+    ):
+        raise RuntimeError(
+            "UNIT 3 INVALID MILLISECOND TIMESTAMP"
+        )
+
+    market_age_seconds = (
+        received_time_ms
+        - exchange_time_ms
+    ) / 1000.0
+
+    if not math.isfinite(market_age_seconds):
+        raise RuntimeError(
+            "UNIT 3 INVALID MARKET AGE"
+        )
+
+    # ========================================================
+    # 11. MARKET DATA FRESHNESS PROTECTION
+    # ========================================================
+
+    if market_age_seconds > max_market_age_seconds:
+
+        print(
+            "UNIT 3 STALE DATA AGE =",
+            round(market_age_seconds, 3),
+            flush=True
+        )
+
+        raise RuntimeError(
+            "UNIT 3 STALE MARKET DATA"
+        )
+
+    if market_age_seconds < -future_tolerance_seconds:
+
+        print(
+            "UNIT 3 FUTURE TIMESTAMP OFFSET =",
+            round(market_age_seconds, 3),
+            flush=True
+        )
+
+        raise RuntimeError(
+            "UNIT 3 EXCHANGE CLOCK MISMATCH"
+        )
+
+    print(
+        "PASS: UNIT 3 MARKET DATA FRESH",
+        flush=True
+    )
+
+    print(
+        "UNIT 3 MARKET AGE SECONDS =",
+        round(market_age_seconds, 3),
+        flush=True
+    )
+
+    # ========================================================
+    # 12. EXACT ORIGINAL UNIT 4 SNAPSHOT CONTRACT
+    #
+    # ALL EIGHT ORIGINAL FIELDS PRESERVED
+    # NO ADDITIONAL REQUIRED DOWNSTREAM FIELDS
+    # ========================================================
+
+    market_snapshot = {
+
+        "exchange": "WEEX",
+
+        "api_version": "V3",
+
+        "symbol": symbol,
+
+        "price": mark_price,
+
+        "price_type": "MARK",
+
+        "exchange_time_ms": exchange_time_ms,
+
+        "source": "WEEX_V3_PUBLIC_MARK_PRICE",
+
+        "read_only": True,
+    }
+
+    required_fields = (
+        "exchange",
+        "api_version",
+        "symbol",
+        "price",
+        "price_type",
+        "exchange_time_ms",
+        "source",
+        "read_only",
+    )
+
+    if any(
+        key not in market_snapshot
+        for key in required_fields
+    ):
+        raise RuntimeError(
+            "UNIT 3 INCOMPLETE MARKET SNAPSHOT"
+        )
+
+    # ========================================================
+    # 13. FINAL HANDOVER
+    # ========================================================
+
+    print(
+        "PASS: UNIT 3 ORIGINAL SNAPSHOT PRESERVED",
+        flush=True
+    )
+
+    print(
+        "PASS: UNIT 3 SNAPSHOT READY FOR UNIT 4",
+        flush=True
+    )
+
+    print(
+        "UNIT 3 AUTHENTICATED API = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 3 DEMO ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 3 REAL ORDER = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 3 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 3 HYBRID V3 "
+        "RESULT = PASS"
+    )
+
+    print("=" * 80, flush=True)
+
+    return market_snapshot
+
+
+# ============================================================
+# UNIT 3 EXECUTION AND UNIT 4 HANDOVER
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
+    fresh_reconstruction_unit_3()
+)
+
+
+# ============================================================
+# END UNIT 3 - IMPROVED HYBRID V3
+# ZERO INDENTATION
+#
+# ORIGINAL UNIT 4 CONTINUES BELOW
+# ============================================================
