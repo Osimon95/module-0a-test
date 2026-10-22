@@ -6390,6 +6390,7 @@ print(
 
 print("=" * 80, flush=True)
 
+UNIT_9_ISOLATED_TEST = False
 if UNIT_9_ISOLATED_TEST:
     print(
         "UNIT 9 TEST COMPLETE - STOPPING BEFORE UNIT 10",
@@ -6402,4 +6403,935 @@ if UNIT_9_ISOLATED_TEST:
 # END COMPLETE UNIT 9 REPLACEMENT
 # ZERO INDENTATION
 # UNIT 10 CONTINUES BELOW
+# ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 10 REPLACEMENT
+# ZERO INDENTATION
+# ORIGINAL 22524 + NEW 13975 MODEL ADAPTATION
+# SIGNAL LIFECYCLE + UNIT 11 HANDOVER
+# NO ORDER SUBMISSION / NO EXCHANGE WRITE
+# ============================================================
+
+def fresh_unit_10_new_state():
+    return {
+        "last_signal_key": None,
+        "last_candle_id": None,
+        "last_status": "IDLE",
+        "confirmed_episode": None,
+        "observations": 0,
+        "new_confirmations": 0,
+        "repeated_confirmations": 0,
+        "lost_confirmations": 0,
+        "signal_replacements": 0,
+    }
+
+
+FRESH_UNIT_10_STATE = fresh_unit_10_new_state()
+
+
+def fresh_reconstruction_unit_10(
+    config,
+    unit_9_result,
+    state=None,
+):
+
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 10 START")
+
+    # ========================================================
+    # 1. INPUT VERIFICATION
+    # ========================================================
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 10 INVALID CONFIG"
+        )
+
+    if not isinstance(unit_9_result, dict):
+        raise RuntimeError(
+            "UNIT 10 INVALID UNIT 9 RESULT"
+        )
+
+    exchange = config.get("exchange")
+    safety = config.get("safety")
+    strategy = config.get("strategy")
+    precision = config.get("market_precision")
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            exchange,
+            safety,
+            strategy,
+            precision,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 10 CONFIG SECTIONS MISSING"
+        )
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("demo_order_symbol") != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 10 DEMO CONTRACT FAILED"
+        )
+
+    print(
+        "PASS: UNIT 10 RECEIVED UNIT 2 CONFIG",
+        flush=True,
+    )
+
+    # ========================================================
+    # 2. SAFETY VALIDATION
+    # ========================================================
+
+    forbidden_config = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for key in forbidden_config:
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 10 UNSAFE CONFIG: " + key
+            )
+
+    if unit_9_result.get("read_only") is not True:
+        raise RuntimeError(
+            "UNIT 10 UNIT 9 NOT READ ONLY"
+        )
+
+    forbidden_upstream = (
+        "execution_intent",
+        "execution_ready",
+        "trade_authorized",
+        "trade_plan_ready",
+        "reentry_authorized",
+        "quantity_calculated",
+        "order_payload_created",
+        "demo_order_submitted",
+        "real_order_submitted",
+        "exchange_write",
+    )
+
+    for key in forbidden_upstream:
+        if unit_9_result.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 10 UNSAFE UNIT 9: " + key
+            )
+
+    if (
+        unit_9_result.get("trade_plan") is not None
+        or unit_9_result.get(
+            "execution_candidate"
+        ) is not None
+    ):
+        raise RuntimeError(
+            "UNIT 10 PREMATURE EXECUTION DATA"
+        )
+
+    print(
+        "PASS: UNIT 10 RECEIVED UNIT 9 RESULT",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 10 READ ONLY SAFETY",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3. UNIT 9 CONTRACT
+    # ========================================================
+
+    status = unit_9_result.get("status")
+    reason = str(
+        unit_9_result.get("reason", "UNKNOWN")
+    )
+
+    mode = unit_9_result.get(
+        "active_mode", "NONE"
+    )
+
+    direction = unit_9_result.get(
+        "direction", "NONE"
+    )
+
+    candle_id = unit_9_result.get(
+        "closed_candle_id"
+    )
+
+    confirmations = unit_9_result.get(
+        "confirmations"
+    )
+
+    required = unit_9_result.get(
+        "confirmations_required"
+    )
+
+    continuity = unit_9_result.get(
+        "continuity_verified"
+    )
+
+    if status not in (
+        "IDLE",
+        "PENDING",
+        "CONFIRMED",
+        "BLOCKED",
+    ):
+        raise RuntimeError(
+            "UNIT 10 INVALID SIGNAL STATUS"
+        )
+
+    if (
+        type(confirmations) is not int
+        or type(required) is not int
+        or not 1 <= required <= 3
+        or not 0 <= confirmations <= required
+        or type(continuity) is not bool
+    ):
+        raise RuntimeError(
+            "UNIT 10 INVALID CONFIRMATIONS"
+        )
+
+    if status == "CONFIRMED":
+
+        if (
+            confirmations != required
+            or continuity is not True
+            or mode not in (
+                "BREAKOUT", "STRUCTURE"
+            )
+            or direction not in (
+                "LONG", "SHORT"
+            )
+            or type(candle_id) is not int
+            or candle_id <= 0
+        ):
+            raise RuntimeError(
+                "UNIT 10 FALSE CONFIRMED SIGNAL"
+            )
+
+    elif continuity is True:
+        raise RuntimeError(
+            "UNIT 10 FALSE CONTINUITY CLAIM"
+        )
+
+    if status == "PENDING":
+
+        if (
+            mode not in (
+                "BREAKOUT", "STRUCTURE"
+            )
+            or direction not in (
+                "LONG", "SHORT"
+            )
+            or confirmations < 1
+            or type(candle_id) is not int
+            or candle_id <= 0
+        ):
+            raise RuntimeError(
+                "UNIT 10 INVALID PENDING SIGNAL"
+            )
+
+    # ========================================================
+    # 4. LIFECYCLE STATE
+    # ========================================================
+
+    if state is None:
+        state = FRESH_UNIT_10_STATE
+
+    if not isinstance(state, dict):
+        raise RuntimeError(
+            "UNIT 10 STATE INVALID"
+        )
+
+    for key, value in fresh_unit_10_new_state().items():
+        state.setdefault(key, value)
+
+    previous_status = state["last_status"]
+    previous_key = state["last_signal_key"]
+    previous_candle = state["last_candle_id"]
+
+    signal_key = None
+
+    if status in ("PENDING", "CONFIRMED"):
+        signal_key = (
+            exchange.get("market_symbol"),
+            mode,
+            direction,
+        )
+
+    state["observations"] += 1
+
+    signal_replaced = (
+        signal_key is not None
+        and previous_key is not None
+        and signal_key != previous_key
+    )
+
+    if signal_replaced:
+        state["signal_replacements"] += 1
+        state["confirmed_episode"] = None
+
+    episode = None
+    lifecycle_event = "IDLE"
+
+    if status == "IDLE":
+
+        if previous_status == "CONFIRMED":
+            state["lost_confirmations"] += 1
+
+        lifecycle_event = "NO_SIGNAL"
+        state["confirmed_episode"] = None
+        state["last_signal_key"] = None
+        state["last_candle_id"] = None
+
+    elif status == "BLOCKED":
+
+        if previous_status == "CONFIRMED":
+            state["lost_confirmations"] += 1
+
+        lifecycle_event = "SIGNAL_BLOCKED"
+        state["confirmed_episode"] = None
+        state["last_signal_key"] = None
+        state["last_candle_id"] = None
+
+    elif status == "PENDING":
+
+        lifecycle_event = (
+            "SIGNAL_REPLACED"
+            if signal_replaced
+            else "AWAITING_CONTINUITY"
+        )
+
+        state["confirmed_episode"] = None
+        state["last_signal_key"] = signal_key
+        state["last_candle_id"] = candle_id
+
+    elif status == "CONFIRMED":
+
+        episode = (
+            signal_key,
+            candle_id,
+        )
+
+        # A duplicate observation of the same
+        # confirmed episode is not a new signal.
+
+        if (
+            state["confirmed_episode"]
+            == episode
+        ):
+
+            state["repeated_confirmations"] += 1
+            lifecycle_event = (
+                "REPEATED_CONFIRMED_EPISODE"
+            )
+
+        else:
+
+            state["new_confirmations"] += 1
+            lifecycle_event = (
+                "NEW_CONFIRMED_EPISODE"
+            )
+
+            state["confirmed_episode"] = episode
+
+        state["last_signal_key"] = signal_key
+        state["last_candle_id"] = candle_id
+
+    state["last_status"] = status
+
+    # ========================================================
+    # 5. EXCHANGE READINESS
+    # ========================================================
+
+    # Unit 8 does not yet verify leverage for
+    # a fresh entry on a flat DEMO account.
+    #
+    # Even a confirmed signal is NOT permission
+    # to construct or submit an order.
+
+    exchange_leverage_verified = (
+        unit_9_result.get(
+            "exchange_leverage_verified"
+        ) is True
+    )
+
+    entry_leverage_verified = (
+        unit_9_result.get(
+            "entry_leverage_verified"
+        ) is True
+    )
+
+    balance_verified = (
+        unit_9_result.get(
+            "balance_verified"
+        ) is True
+    )
+
+    position_flat_verified = (
+        unit_9_result.get(
+            "position_flat_verified"
+        ) is True
+    )
+
+    pending_orders_verified = (
+        unit_9_result.get(
+            "pending_orders_verified"
+        ) is True
+    )
+
+    duplicate_orders_clear = (
+        unit_9_result.get(
+            "duplicate_order_absence_verified"
+        ) is True
+    )
+
+    prerequisites_verified = all((
+        continuity,
+        exchange_leverage_verified,
+        entry_leverage_verified,
+        balance_verified,
+        position_flat_verified,
+        pending_orders_verified,
+        duplicate_orders_clear,
+    ))
+
+    # Current Unit 9 has no READY candidate
+    # or verified trade plan.
+    #
+    # Preserve the old Unit 10 -> Unit 11
+    # interface without inventing one.
+
+    trade_plan = None
+    execution_candidate = None
+
+    trade_plan_ready = False
+    execution_ready = False
+    execution_intent = False
+
+    demo_boundary_ready = False
+    demo_submission_instruction = None
+    demo_submission_requested = False
+
+    order_payload_created = False
+    trade_authorized = False
+    exchange_write = False
+
+    if status == "CONFIRMED":
+
+        skip_reason = (
+            "CONTINUITY_CONFIRMED_"
+            "WAITING_FOR_VERIFIED_EXECUTION_PLAN"
+        )
+
+    elif status == "PENDING":
+
+        skip_reason = (
+            "SIGNAL_CONTINUITY_PENDING"
+        )
+
+    elif status == "BLOCKED":
+
+        skip_reason = reason
+
+    else:
+
+        skip_reason = "NO_PENDING_SIGNAL"
+
+    # ========================================================
+    # 6. ORIGINAL UNIT 10 OUTPUT CONTRACT
+    # ========================================================
+
+    result = {
+
+        "status": status,
+
+        "active_mode": mode,
+        "direction": direction,
+
+        "signal_qualified":
+            status == "CONFIRMED",
+
+        "execution_intent":
+            execution_intent,
+
+        "trade_plan_ready":
+            trade_plan_ready,
+
+        "trade_plan":
+            trade_plan,
+
+        "execution_ready":
+            execution_ready,
+
+        "execution_candidate":
+            execution_candidate,
+
+        "demo_boundary_ready":
+            demo_boundary_ready,
+
+        "demo_submission_instruction":
+            demo_submission_instruction,
+
+        "skip_reason":
+            skip_reason,
+
+        "order_payload_created":
+            order_payload_created,
+
+        "demo_submission_requested":
+            demo_submission_requested,
+
+        "read_only": True,
+
+        "trade_authorized":
+            trade_authorized,
+
+        "exchange_write":
+            exchange_write,
+
+        # New continuity / lifecycle fields
+
+        "reason": reason,
+        "closed_candle_id": candle_id,
+
+        "confirmations":
+            confirmations,
+
+        "confirmations_required":
+            required,
+
+        "continuity_verified":
+            continuity,
+
+        "lifecycle_event":
+            lifecycle_event,
+
+        "signal_replaced":
+            signal_replaced,
+
+        "new_confirmations":
+            state["new_confirmations"],
+
+        "repeated_confirmations":
+            state["repeated_confirmations"],
+
+        "lost_confirmations":
+            state["lost_confirmations"],
+
+        "signal_replacements":
+            state["signal_replacements"],
+
+        "observations":
+            state["observations"],
+
+        "exchange_leverage_verified":
+            exchange_leverage_verified,
+
+        "entry_leverage_verified":
+            entry_leverage_verified,
+
+        "balance_verified":
+            balance_verified,
+
+        "position_flat_verified":
+            position_flat_verified,
+
+        "pending_orders_verified":
+            pending_orders_verified,
+
+        "duplicate_orders_clear":
+            duplicate_orders_clear,
+
+        "prerequisites_verified":
+            prerequisites_verified,
+
+        "reentry_authorized": False,
+
+        "quantity_calculated": False,
+
+        "demo_order_submitted": False,
+        "real_order_submitted": False,
+
+        "state_persistent_across_restart":
+            False,
+    }
+
+    # ========================================================
+    # 7. FINAL SAFETY
+    # ========================================================
+
+    for key in (
+        "execution_intent",
+        "trade_plan_ready",
+        "execution_ready",
+        "demo_boundary_ready",
+        "demo_submission_requested",
+        "order_payload_created",
+        "trade_authorized",
+        "exchange_write",
+        "reentry_authorized",
+        "quantity_calculated",
+        "demo_order_submitted",
+        "real_order_submitted",
+    ):
+        if result[key] is not False:
+            raise RuntimeError(
+                "UNIT 10 SAFETY FAILED: " + key
+            )
+
+    if (
+        result["trade_plan"] is not None
+        or result["execution_candidate"] is not None
+        or result["demo_submission_instruction"]
+        is not None
+    ):
+        raise RuntimeError(
+            "UNIT 10 PREMATURE DEMO EXECUTION"
+        )
+
+    # ========================================================
+    # 8. RENDER LOGS
+    # ========================================================
+
+    print("-" * 80, flush=True)
+
+    for label, value in (
+        ("STATUS", status),
+        ("REASON", reason),
+        ("MODE", mode),
+        ("DIRECTION", direction),
+        ("LIFECYCLE", lifecycle_event),
+        ("CONFIRMATIONS", confirmations),
+        ("CONTINUITY VERIFIED", continuity),
+        (
+            "NEW CONFIRMATIONS",
+            state["new_confirmations"],
+        ),
+        (
+            "REPEATED CONFIRMATIONS",
+            state["repeated_confirmations"],
+        ),
+        (
+            "EXCHANGE LEVERAGE VERIFIED",
+            exchange_leverage_verified,
+        ),
+        (
+            "PREREQUISITES VERIFIED",
+            prerequisites_verified,
+        ),
+        ("EXECUTION READY", execution_ready),
+        ("DEMO BOUNDARY READY", demo_boundary_ready),
+        ("ORDER PAYLOAD CREATED", order_payload_created),
+        ("DEMO SUBMISSION REQUESTED", False),
+        ("TRADE AUTHORIZED", trade_authorized),
+        ("EXCHANGE WRITE", exchange_write),
+    ):
+        print(
+            "UNIT 10 " + label + " =",
+            value,
+            flush=True,
+        )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 10 RESULT = PASS"
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# RUN UNIT 10
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_10_RESULT = (
+    fresh_reconstruction_unit_10(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_9_RESULT,
+    )
+)
+
+
+# ============================================================
+# UNIT 10 ISOLATED TEST
+# ZERO INDENTATION
+# ============================================================
+
+UNIT_10_ISOLATED_TEST = True
+
+_u10 = FRESH_RECONSTRUCTION_UNIT_10_RESULT
+
+if not isinstance(_u10, dict):
+    raise RuntimeError(
+        "UNIT 10 OUTPUT INVALID"
+    )
+
+_original_fields = (
+    "status",
+    "active_mode",
+    "direction",
+    "signal_qualified",
+    "execution_intent",
+    "trade_plan_ready",
+    "trade_plan",
+    "execution_ready",
+    "execution_candidate",
+    "demo_boundary_ready",
+    "demo_submission_instruction",
+    "skip_reason",
+    "order_payload_created",
+    "demo_submission_requested",
+    "read_only",
+)
+
+for _field in _original_fields:
+
+    if _field not in _u10:
+        raise RuntimeError(
+            "UNIT 10 OLD INTERFACE MISSING: "
+            + _field
+        )
+
+if (
+    _u10["read_only"] is not True
+    or _u10["execution_ready"] is not False
+    or _u10["execution_intent"] is not False
+    or _u10["exchange_write"] is not False
+):
+    raise RuntimeError(
+        "UNIT 10 LIVE SAFETY FAILED"
+    )
+
+print(
+    "PASS: UNIT 10 ORIGINAL INTERFACE",
+    flush=True,
+)
+
+print(
+    "PASS: UNIT 10 LIVE READ ONLY HANDOVER",
+    flush=True,
+)
+
+# ============================================================
+# SYNTHETIC LIFECYCLE TEST
+# NO WEEX ORDERS / NO NETWORK REQUESTS
+# ============================================================
+
+_u10_state = fresh_unit_10_new_state()
+
+_u9_base = dict(
+    FRESH_RECONSTRUCTION_UNIT_9_RESULT
+)
+
+# ------------------------------------------------------------
+# FIRST PENDING SIGNAL
+# ------------------------------------------------------------
+
+_u9_pending = dict(_u9_base)
+
+_u9_pending.update({
+    "status": "PENDING",
+    "reason": "FIRST_CLOSED_CANDLE",
+    "active_mode": "BREAKOUT",
+    "direction": "LONG",
+    "closed_candle_id": 1792630000000,
+    "confirmations": 1,
+    "confirmations_required": 2,
+    "continuity_verified": False,
+    "signal_qualified": False,
+})
+
+_u10_pending = fresh_reconstruction_unit_10(
+    FRESH_RECONSTRUCTION_CONFIG,
+    _u9_pending,
+    state=_u10_state,
+)
+
+if (
+    _u10_pending["status"] != "PENDING"
+    or _u10_pending["execution_ready"] is not False
+):
+    raise RuntimeError(
+        "UNIT 10 PENDING TEST FAILED"
+    )
+
+# ------------------------------------------------------------
+# NEW CONFIRMED EPISODE
+# ------------------------------------------------------------
+
+_u9_confirmed = dict(_u9_pending)
+
+_u9_confirmed.update({
+    "status": "CONFIRMED",
+    "reason":
+        "DISTINCT_CLOSED_CANDLE_CONTINUITY_VERIFIED",
+    "closed_candle_id": 1792630060000,
+    "confirmations": 2,
+    "continuity_verified": True,
+    "signal_qualified": True,
+})
+
+_u10_confirmed = fresh_reconstruction_unit_10(
+    FRESH_RECONSTRUCTION_CONFIG,
+    _u9_confirmed,
+    state=_u10_state,
+)
+
+if (
+    _u10_confirmed["lifecycle_event"]
+    != "NEW_CONFIRMED_EPISODE"
+    or _u10_confirmed["new_confirmations"] != 1
+    or _u10_confirmed["execution_ready"] is not False
+):
+    raise RuntimeError(
+        "UNIT 10 CONFIRMED TEST FAILED"
+    )
+
+# ------------------------------------------------------------
+# REPEATED CONFIRMED EPISODE
+# ------------------------------------------------------------
+
+_u10_repeat = fresh_reconstruction_unit_10(
+    FRESH_RECONSTRUCTION_CONFIG,
+    _u9_confirmed,
+    state=_u10_state,
+)
+
+if (
+    _u10_repeat["lifecycle_event"]
+    != "REPEATED_CONFIRMED_EPISODE"
+    or _u10_repeat["repeated_confirmations"] != 1
+):
+    raise RuntimeError(
+        "UNIT 10 REPEAT TEST FAILED"
+    )
+
+# ------------------------------------------------------------
+# SIGNAL LOST
+# ------------------------------------------------------------
+
+_u9_idle = dict(_u9_base)
+
+_u9_idle.update({
+    "status": "IDLE",
+    "reason": "NO_PENDING_SIGNAL",
+    "active_mode": "NONE",
+    "direction": "NONE",
+    "closed_candle_id": None,
+    "confirmations": 0,
+    "continuity_verified": False,
+    "signal_qualified": False,
+})
+
+_u10_idle = fresh_reconstruction_unit_10(
+    FRESH_RECONSTRUCTION_CONFIG,
+    _u9_idle,
+    state=_u10_state,
+)
+
+if (
+    _u10_idle["status"] != "IDLE"
+    or _u10_idle["lost_confirmations"] != 1
+):
+    raise RuntimeError(
+        "UNIT 10 SIGNAL LOSS TEST FAILED"
+    )
+
+# ------------------------------------------------------------
+# FINAL UNIT 10 CONFIRMATION
+# ------------------------------------------------------------
+
+print("=" * 80, flush=True)
+
+print(
+    "UNIT 10 ISOLATED TEST = PASS",
+    flush=True,
+)
+
+print(
+    "UNIT 10 VERIFIED = TRUE",
+    flush=True,
+)
+
+print(
+    "UNIT 10 PENDING TEST = PASS",
+    flush=True,
+)
+
+print(
+    "UNIT 10 NEW CONFIRMATION TEST = PASS",
+    flush=True,
+)
+
+print(
+    "UNIT 10 REPEATED CONFIRMATION TEST = PASS",
+    flush=True,
+)
+
+print(
+    "UNIT 10 SIGNAL LOSS TEST = PASS",
+    flush=True,
+)
+
+print(
+    "UNIT 10 ORIGINAL UNIT 11 HANDOVER = PRESENT",
+    flush=True,
+)
+
+print(
+    "UNIT 10 DEMO ORDER = NONE",
+    flush=True,
+)
+
+print(
+    "UNIT 10 REAL ORDER = NONE",
+    flush=True,
+)
+
+print(
+    "UNIT 10 EXCHANGE WRITE = NONE",
+    flush=True,
+)
+
+print(
+    "UNITS 11-15 EXECUTION = NOT STARTED",
+    flush=True,
+)
+
+print("=" * 80, flush=True)
+
+if UNIT_10_ISOLATED_TEST:
+
+    print(
+        "UNIT 10 TEST COMPLETE - STOPPING BEFORE UNIT 11",
+        flush=True,
+    )
+
+    raise SystemExit(0)
+
+
+# ============================================================
+# END COMPLETE UNIT 10 REPLACEMENT
+# ZERO INDENTATION
+# UNIT 11 CONTINUES BELOW
 # ============================================================
