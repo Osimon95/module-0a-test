@@ -10558,3 +10558,1288 @@ FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
 # END UNIT 11 - HYBRID ADJUSTABLE V2
 # ZERO INDENTATION
 # ============================================================
+
+
+
+# ============================================================
+# START UNIT 12 - HYBRID ADJUSTABLE V2.1
+# ZERO INDENTATION
+#
+# BASE: ORIGINAL 22524-LINE WORKING UNIT 12
+#
+# FUNCTION:
+# 1. RECEIVE UNIT 11 DEMO PAYLOAD
+# 2. CHECK SINGLE BOT_MODE
+# 3. VALIDATE DEMO ORDER
+# 4. CHECK ACTUAL DEMO POSITION
+# 5. CHECK RECENT SUBMISSION JOURNAL
+# 6. SUBMIT TO WEEX DEMO
+# 7. VALIDATE SUCCESS + ORDER ID
+# 8. HAND OVER TO UNITS 13-14
+#
+# NO REAL-CASH ORDERS
+# NO LEVERAGE SETTING
+# NO MARGIN-MODE SETTING
+# NO POSITION-MODE SETTING
+# ============================================================
+
+
+def fresh_reconstruction_unit_12(
+    config,
+    unit_11_result,
+):
+
+    import os
+    import re
+    import json
+    import time
+    import hmac
+    import base64
+    import hashlib
+    import urllib.request
+    import urllib.error
+    import fcntl
+
+    from decimal import Decimal
+    from datetime import datetime, timezone
+
+    def log(*values):
+        print(*values, flush=True)
+
+    def D(value, name):
+        if isinstance(value, bool):
+            raise ValueError(name + " BOOLEAN")
+        x = Decimal(str(value))
+        if not x.is_finite():
+            raise ValueError(name + " NONFINITE")
+        return x
+
+    log("=" * 80)
+    log(
+        datetime.now(timezone.utc).isoformat(),
+        "UNIT 12 HYBRID ADJUSTABLE V2.1 START"
+    )
+
+    # ========================================================
+    # 1. ORIGINAL INPUT CONTRACT
+    # ========================================================
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 12 CONFIG INVALID"
+        )
+
+    if not isinstance(unit_11_result, dict):
+        raise RuntimeError(
+            "UNIT 12 UNIT 11 INVALID"
+        )
+
+    if unit_11_result.get(
+        "unit_11_revision"
+    ) != "HYBRID_ADJUSTABLE_V2":
+        raise RuntimeError(
+            "UNIT 12 UNIT 11 VERSION INVALID"
+        )
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+    precision = config.get("market_precision", {})
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("demo_order_symbol") != "BTCSUSDT"
+        or exchange.get("contract_base_url")
+        != "https://api-contract.weex.com"
+    ):
+        raise RuntimeError(
+            "UNIT 12 DEMO ENVIRONMENT INVALID"
+        )
+
+    if unit_11_result.get("read_only") is not True:
+        raise RuntimeError(
+            "UNIT 12 UNIT 11 SAFETY FAILED"
+        )
+
+    for key in (
+        "real_order_submission_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    ):
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 12 UNSAFE CONFIG " + key
+            )
+
+    log(
+        "PASS: UNIT 12 ORIGINAL UNIT 11 CONTRACT"
+    )
+
+    # ========================================================
+    # 2. ORIGINAL DOWNSTREAM RESULT CONTRACT
+    # ========================================================
+
+    result = {
+
+        "unit": 12,
+        "unit_12_revision":
+            "HYBRID_ADJUSTABLE_V2.1",
+
+        "status": "IDLE",
+        "read_only": False,
+
+        "active_mode": unit_11_result.get(
+            "active_mode", "NONE"
+        ),
+
+        "direction": unit_11_result.get(
+            "direction", "NONE"
+        ),
+
+        "signal_qualified": False,
+        "execution_intent": False,
+
+        "position_check_attempted": False,
+        "position_check_completed": False,
+        "position_endpoint_access": False,
+        "position_http_status": None,
+
+        "active_position_exists": False,
+        "active_positions": [],
+
+        "initial_entry_permitted": False,
+        "duplicate_initial_entry_blocked": False,
+
+        "management_path_permitted": False,
+        "tp_management_permitted": False,
+        "backup_management_permitted": False,
+
+        "demo_submission_attempted": False,
+        "demo_submission_completed": False,
+
+        "real_submission_attempted": False,
+
+        "authenticated_request": False,
+        "order_endpoint_access": False,
+        "exchange_write": False,
+
+        "request_path": None,
+        "request_payload": None,
+
+        "http_status": None,
+        "weex_response": None,
+        "order_id": None,
+
+        "skip_reason": unit_11_result.get(
+            "skip_reason", "NONE"
+        ),
+    }
+
+    def finish(status, reason):
+
+        result["status"] = status
+        result["skip_reason"] = str(reason)
+
+        log("UNIT 12 STATUS =", status)
+        log("UNIT 12 REASON =", reason)
+
+        log(
+            "UNIT 12 DEMO SUBMISSION ATTEMPTED =",
+            result["demo_submission_attempted"]
+        )
+
+        log(
+            "UNIT 12 DEMO SUBMISSION COMPLETED =",
+            result["demo_submission_completed"]
+        )
+
+        log(
+            "UNIT 12 EXCHANGE WRITE =",
+            result["exchange_write"]
+        )
+
+        log(
+            "UNIT 12 HYBRID ADJUSTABLE V2.1 "
+            "RESULT =",
+            status
+        )
+
+        log("=" * 80)
+
+        return result
+
+    # ========================================================
+    # 3. SINGLE BOT_MODE
+    # ========================================================
+
+    bot_mode = str(
+        os.getenv("BOT_MODE", "PAUSE")
+    ).strip().upper()
+
+    if bot_mode not in ("RUN", "PAUSE"):
+        raise RuntimeError(
+            "UNIT 12 INVALID BOT_MODE"
+        )
+
+    log(
+        "UNIT 12 MASTER BOT_MODE =",
+        bot_mode
+    )
+
+    # ========================================================
+    # 4. ORIGINAL IDLE PATH
+    # ========================================================
+
+    status11 = str(
+        unit_11_result.get(
+            "status", "IDLE"
+        )
+    ).upper()
+
+    if status11 == "IDLE":
+
+        for key in (
+            "signal_qualified",
+            "execution_intent",
+            "trade_plan_ready",
+            "execution_ready",
+            "payload_ready",
+        ):
+            if unit_11_result.get(key) is not False:
+                raise RuntimeError(
+                    "UNIT 12 IDLE CONTRACT INVALID: "
+                    + key
+                )
+
+        log(
+            "PASS: UNIT 12 ORIGINAL IDLE HANDOVER"
+        )
+
+        return finish(
+            "IDLE",
+            result["skip_reason"]
+        )
+
+    if status11 != "READY":
+        return finish(
+            "BLOCKED",
+            "UNIT_11_NOT_READY"
+        )
+
+    if bot_mode == "PAUSE":
+        return finish(
+            "PAUSED",
+            "BOT_MODE_PAUSE"
+        )
+
+    # ========================================================
+    # 5. UNIT 11 READY QUALIFICATION
+    # ========================================================
+
+    for key in (
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "execution_ready",
+        "demo_boundary_ready",
+        "payload_ready",
+        "order_payload_created",
+    ):
+        if unit_11_result.get(key) is not True:
+            return finish(
+                "BLOCKED",
+                "UNIT_11_READY_FLAG_MISSING:"
+                + key
+            )
+
+    mode = unit_11_result.get("active_mode")
+    direction = unit_11_result.get("direction")
+
+    if mode not in (
+        "BREAKOUT",
+        "STRUCTURE",
+        "SCALP",
+    ):
+        return finish(
+            "BLOCKED",
+            "INVALID_STRATEGY"
+        )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+    ):
+        return finish(
+            "BLOCKED",
+            "INVALID_DIRECTION"
+        )
+
+    result["active_mode"] = mode
+    result["direction"] = direction
+
+    result["signal_qualified"] = True
+    result["execution_intent"] = True
+
+    log(
+        "PASS: UNIT 12 QUALIFIED EXECUTION CONTRACT"
+    )
+
+    # ========================================================
+    # 6. ORIGINAL UNIT 11 PAYLOAD
+    # ========================================================
+
+    payload = (
+        unit_11_result.get("demo_payload")
+        or unit_11_result.get("payload")
+        or unit_11_result.get("order_payload")
+    )
+
+    if not isinstance(payload, dict):
+        return finish(
+            "BLOCKED",
+            "UNIT_11_DEMO_PAYLOAD_MISSING"
+        )
+
+    required = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+    }
+
+    if set(payload) != required:
+        return finish(
+            "BLOCKED",
+            "PAYLOAD_FIELD_MISMATCH"
+        )
+
+    expected_side = (
+        "BUY" if direction == "LONG"
+        else "SELL"
+    )
+
+    if not (
+        payload.get("symbol") == "BTCSUSDT"
+        and payload.get("type") == "MARKET"
+        and payload.get("side") == expected_side
+        and payload.get("positionSide") == direction
+    ):
+        return finish(
+            "BLOCKED",
+            "DEMO_PAYLOAD_DIRECTION_INVALID"
+        )
+
+    client_id = str(
+        payload.get("newClientOrderId", "")
+    )
+
+    if not re.fullmatch(
+        r"[A-Za-z0-9_.-]{1,64}",
+        client_id
+    ):
+        return finish(
+            "BLOCKED",
+            "CLIENT_ORDER_ID_INVALID"
+        )
+
+    # ========================================================
+    # 7. STEP-AWARE QUANTITY
+    # ========================================================
+
+    try:
+
+        qty = D(
+            payload["quantity"], "BTC QTY"
+        )
+
+        qty_step = D(
+            precision["quantity_step"],
+            "QTY STEP"
+        )
+
+        min_qty = D(
+            precision["minimum_quantity"],
+            "MIN QTY"
+        )
+
+        if not (
+            qty >= min_qty
+            and qty_step > 0
+            and min_qty > 0
+            and qty % qty_step == 0
+        ):
+            return finish(
+                "BLOCKED",
+                "BTC_QUANTITY_PRECISION_INVALID"
+            )
+
+        trade_plan = unit_11_result.get(
+            "trade_plan"
+        )
+
+        if not isinstance(trade_plan, dict):
+            return finish(
+                "BLOCKED",
+                "TRADE_PLAN_MISSING"
+            )
+
+        planned_qty = D(
+            trade_plan["quantity"],
+            "TRADE PLAN QTY"
+        )
+
+        if qty != planned_qty:
+            return finish(
+                "BLOCKED",
+                "UNIT_11_QUANTITY_MISMATCH"
+            )
+
+        sizing = trade_plan.get(
+            "position_sizing", {}
+        )
+
+        if not (
+            sizing.get(
+                "position_sizing_performed"
+            ) is True
+            and sizing.get(
+                "quantity_calculated"
+            ) is True
+        ):
+            return finish(
+                "BLOCKED",
+                "POSITION_SIZING_NOT_READY"
+            )
+
+    except Exception as exc:
+
+        log(
+            "UNIT 12 SIZING ERROR =",
+            type(exc).__name__
+        )
+
+        return finish(
+            "BLOCKED",
+            "POSITION_SIZING_INVALID"
+        )
+
+    log(
+        "PASS: UNIT 12 ORIGINAL DEMO PAYLOAD"
+    )
+
+    log(
+        "UNIT 12 STRATEGY =", mode
+    )
+
+    log(
+        "UNIT 12 DIRECTION =", direction
+    )
+
+    log(
+        "UNIT 12 BTC QUANTITY =", qty
+    )
+
+    # ========================================================
+    # 8. DEMO LEVERAGE DIAGNOSTIC
+    #
+    # ORIGINAL 22524 PATH DID NOT HAVE
+    # AN ADDITIONAL DEMO SCOPE FLAG.
+    #
+    # RECORD THE REMAINING UNCERTAINTY.
+    # DO NOT CLAIM DEMO SCOPE VERIFIED.
+    # ========================================================
+
+    log(
+        "UNIT 12 WEEX LEVERAGE SOURCE =",
+        sizing.get("leverage_source")
+    )
+
+    log(
+        "UNIT 12 DEMO LEVERAGE SCOPE CONFIRMED =",
+        sizing.get(
+            "demo_leverage_scope_confirmed",
+            False
+        )
+    )
+
+    # ========================================================
+    # 9. AUTHENTICATED WEEX DEMO CONNECTION
+    # ========================================================
+
+    api_key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    api_secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    api_passphrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((
+        api_key,
+        api_secret,
+        api_passphrase,
+    )):
+        return finish(
+            "BLOCKED",
+            "WEEX_CREDENTIALS_MISSING"
+        )
+
+    base_url = (
+        "https://api-contract.weex.com"
+    )
+
+    class NoRedirect(
+        urllib.request.HTTPRedirectHandler
+    ):
+        def redirect_request(
+            self, req, fp, code,
+            msg, headers, newurl
+        ):
+            return None
+
+    opener = urllib.request.build_opener(
+        NoRedirect()
+    )
+
+    def authenticated_request(
+        method,
+        path,
+        body=None,
+    ):
+
+        allowed = {
+            (
+                "GET",
+                "/capi/v3/sim/position/allPosition"
+            ),
+            (
+                "POST",
+                "/capi/v3/sim/order"
+            ),
+        }
+
+        if (method, path) not in allowed:
+            raise RuntimeError(
+                "UNIT 12 ENDPOINT NOT APPROVED"
+            )
+
+        if method == "GET" and body is not None:
+            raise RuntimeError(
+                "UNIT 12 GET BODY NOT ALLOWED"
+            )
+
+        if method == "POST" and body is None:
+            raise RuntimeError(
+                "UNIT 12 POST BODY MISSING"
+            )
+
+        body_text = (
+            ""
+            if body is None
+            else json.dumps(
+                body,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+        )
+
+        timestamp = str(
+            int(time.time() * 1000)
+        )
+
+        prehash = (
+            timestamp
+            + method
+            + path
+            + body_text
+        )
+
+        signature = base64.b64encode(
+            hmac.new(
+                api_secret.encode("utf-8"),
+                prehash.encode("utf-8"),
+                hashlib.sha256
+            ).digest()
+        ).decode()
+
+        headers = {
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": api_passphrase,
+            "Content-Type": "application/json",
+        }
+
+        request = urllib.request.Request(
+            base_url + path,
+            headers=headers,
+            data=(
+                None if body is None
+                else body_text.encode("utf-8")
+            ),
+            method=method,
+        )
+
+        try:
+
+            with opener.open(
+                request, timeout=15
+            ) as response:
+
+                code = response.getcode()
+
+                raw = response.read(
+                    65537
+                )
+
+        except urllib.error.HTTPError as exc:
+
+            code = exc.code
+            raw = exc.read(65537)
+
+        if len(raw) > 65536:
+            raise RuntimeError(
+                "UNIT 12 RESPONSE TOO LARGE"
+            )
+
+        data = json.loads(
+            raw.decode(
+                "utf-8", errors="replace"
+            )
+        )
+
+        return code, data
+
+    # ========================================================
+    # 10. LOCAL DUPLICATE-SUBMISSION JOURNAL
+    #
+    # ONLY COVERS THIS RENDER FILESYSTEM.
+    # NOT CROSS-INSTANCE OR CROSS-DEPLOY
+    # PROTECTION UNLESS THE PATH IS ON
+    # PERSISTENT SHARED STORAGE.
+    #
+    # NO AUTOMATIC RETRY AFTER A POST.
+    # ========================================================
+
+    journal_path = os.getenv(
+        "WEEX_DEMO_ENTRY_JOURNAL",
+        "/tmp/weex_demo_entry_v21.json"
+    )
+
+    lock_path = (
+        journal_path + ".lock"
+    )
+
+    try:
+
+        lock_file = open(
+            lock_path, "a+"
+        )
+
+        fcntl.flock(
+            lock_file.fileno(),
+            fcntl.LOCK_EX
+            | fcntl.LOCK_NB
+        )
+
+    except Exception as exc:
+
+        log(
+            "UNIT 12 LOCK ERROR =",
+            type(exc).__name__
+        )
+
+        return finish(
+            "BLOCKED",
+            "ENTRY_SUBMISSION_LOCK_UNAVAILABLE"
+        )
+
+    try:
+
+        # ====================================================
+        # 11. ORIGINAL POSITION-AWARE ENTRY GATE
+        # ====================================================
+
+        result[
+            "position_check_attempted"
+        ] = True
+
+        result[
+            "authenticated_request"
+        ] = True
+
+        try:
+
+            position_http, positions = (
+                authenticated_request(
+                    "GET",
+                    "/capi/v3/sim/position/allPosition"
+                )
+            )
+
+        except Exception as exc:
+
+            log(
+                "UNIT 12 POSITION GET ERROR =",
+                type(exc).__name__
+            )
+
+            return finish(
+                "BLOCKED",
+                "DEMO_POSITION_GET_FAILED"
+            )
+
+        result[
+            "position_endpoint_access"
+        ] = True
+
+        result[
+            "position_http_status"
+        ] = position_http
+
+        if (
+            position_http != 200
+            or not isinstance(
+                positions, list
+            )
+        ):
+            return finish(
+                "BLOCKED",
+                "DEMO_POSITION_RESPONSE_INVALID"
+            )
+
+        active_positions = []
+
+        try:
+
+            for item in positions:
+
+                if not isinstance(item, dict):
+                    raise ValueError(
+                        "POSITION_RECORD_NOT_DICT"
+                    )
+
+                symbol = str(
+                    item.get(
+                        "symbol", ""
+                    )
+                ).upper()
+
+                if symbol not in (
+                    "BTCUSDT",
+                    "BTCSUSDT",
+                ):
+                    continue
+
+                if "size" not in item:
+                    raise ValueError(
+                        "POSITION_SIZE_MISSING"
+                    )
+
+                size = D(
+                    item["size"],
+                    "POSITION SIZE"
+                )
+
+                if size < 0:
+                    raise ValueError(
+                        "NEGATIVE_POSITION_SIZE"
+                    )
+
+                if size > 0:
+
+                    active_positions.append({
+                        "symbol": symbol,
+                        "side": item.get(
+                            "side"
+                        ),
+                        "size": float(size),
+                        "leverage": item.get(
+                            "leverage"
+                        ),
+                    })
+
+        except Exception as exc:
+
+            log(
+                "UNIT 12 POSITION PARSE ERROR =",
+                str(exc)[:100]
+            )
+
+            return finish(
+                "BLOCKED",
+                "DEMO_POSITION_DATA_INVALID"
+            )
+
+        result[
+            "position_check_completed"
+        ] = True
+
+        result[
+            "active_positions"
+        ] = active_positions
+
+        if active_positions:
+
+            result[
+                "active_position_exists"
+            ] = True
+
+            result[
+                "duplicate_initial_entry_blocked"
+            ] = True
+
+            result[
+                "management_path_permitted"
+            ] = True
+
+            result[
+                "tp_management_permitted"
+            ] = True
+
+            result[
+                "backup_management_permitted"
+            ] = True
+
+            log(
+                "PASS: UNIT 12 EXISTING DEMO "
+                "POSITION DETECTED"
+            )
+
+            log(
+                "UNIT 12 MANAGEMENT PATH = PERMITTED"
+            )
+
+            return finish(
+                "ACTIVE_POSITION_BLOCK",
+                "INITIAL_ENTRY_ALREADY_OPEN"
+            )
+
+        log(
+            "PASS: UNIT 12 ZERO DEMO BTC POSITION"
+        )
+
+        # ====================================================
+        # 12. LOCAL JOURNAL REPLAY PROTECTION
+        # ====================================================
+
+        journal = {}
+
+        try:
+
+            with open(
+                journal_path, "r"
+            ) as handle:
+
+                journal = json.load(handle)
+
+        except FileNotFoundError:
+            journal = {}
+
+        except Exception:
+            return finish(
+                "BLOCKED",
+                "SUBMISSION_JOURNAL_UNREADABLE"
+            )
+
+        if not isinstance(journal, dict):
+            return finish(
+                "BLOCKED",
+                "SUBMISSION_JOURNAL_INVALID"
+            )
+
+        previous_status = journal.get(
+            "status"
+        )
+
+        previous_time = journal.get(
+            "timestamp", 0
+        )
+
+        try:
+            previous_age = (
+                time.time()
+                - float(previous_time)
+            )
+        except Exception:
+            previous_age = -1
+
+        # A previous uncertain or successful
+        # submission requires reconciliation,
+        # not an automatic resubmission.
+
+        if previous_status in (
+            "POST_STARTED",
+            "POST_UNKNOWN",
+            "POST_ACCEPTED",
+        ):
+            return finish(
+                "BLOCKED",
+                "PREVIOUS_DEMO_SUBMISSION_REQUIRES_RECONCILIATION"
+            )
+
+        # Avoid repeatedly opening entries
+        # immediately after a recent attempt.
+
+        if (
+            previous_status == "COOLDOWN"
+            and previous_age < 300
+        ):
+            return finish(
+                "BLOCKED",
+                "RECENT_ENTRY_COOLDOWN"
+            )
+
+        # ====================================================
+        # 13. PRE-SUBMISSION PAYLOAD
+        # ====================================================
+
+        final_payload = dict(payload)
+
+        result[
+            "initial_entry_permitted"
+        ] = True
+
+        result[
+            "request_path"
+        ] = "/capi/v3/sim/order"
+
+        result[
+            "request_payload"
+        ] = final_payload
+
+        log(
+            "PASS: UNIT 12 ORIGINAL DEMO ENTRY PATH"
+        )
+
+        log(
+            "UNIT 12 SYMBOL = BTCSUSDT"
+        )
+
+        log(
+            "UNIT 12 SIDE =",
+            final_payload["side"]
+        )
+
+        log(
+            "UNIT 12 POSITION SIDE =",
+            final_payload["positionSide"]
+        )
+
+        log(
+            "UNIT 12 QUANTITY =",
+            final_payload["quantity"]
+        )
+
+        # ====================================================
+        # 14. WRITE JOURNAL BEFORE WEEX POST
+        # ====================================================
+
+        journal = {
+            "status": "POST_STARTED",
+            "timestamp": time.time(),
+            "client_order_id": client_id,
+            "mode": mode,
+            "direction": direction,
+            "quantity": str(qty),
+        }
+
+        temp_path = (
+            journal_path + ".tmp"
+        )
+
+        try:
+
+            with open(
+                temp_path, "w"
+            ) as handle:
+
+                json.dump(
+                    journal,
+                    handle
+                )
+
+                handle.flush()
+                os.fsync(
+                    handle.fileno()
+                )
+
+            os.replace(
+                temp_path,
+                journal_path
+            )
+
+        except Exception as exc:
+
+            log(
+                "UNIT 12 JOURNAL ERROR =",
+                type(exc).__name__
+            )
+
+            return finish(
+                "BLOCKED",
+                "JOURNAL_WRITE_FAILED"
+            )
+
+        # ====================================================
+        # 15. ORIGINAL WEEX DEMO ORDER POST
+        # ====================================================
+
+        log(
+            "UNIT 12 SENDING ONE WEEX "
+            "DEMO INITIAL ENTRY"
+        )
+
+        result[
+            "demo_submission_attempted"
+        ] = True
+
+        result[
+            "order_endpoint_access"
+        ] = True
+
+        # From this point, a failed network
+        # response does not prove that WEEX
+        # did not receive the order.
+
+        result["exchange_write"] = True
+
+        try:
+
+            http_status, response = (
+                authenticated_request(
+                    "POST",
+                    "/capi/v3/sim/order",
+                    final_payload
+                )
+            )
+
+        except Exception as exc:
+
+            log(
+                "UNIT 12 POST ERROR TYPE =",
+                type(exc).__name__
+            )
+
+            journal["status"] = (
+                "POST_UNKNOWN"
+            )
+
+            journal["timestamp"] = (
+                time.time()
+            )
+
+            try:
+
+                with open(
+                    journal_path, "w"
+                ) as handle:
+
+                    json.dump(
+                        journal,
+                        handle
+                    )
+
+            except Exception:
+                pass
+
+            return finish(
+                "SUBMISSION_OUTCOME_UNKNOWN",
+                "CHECK_WEEX_BEFORE_RETRY"
+            )
+
+        result[
+            "http_status"
+        ] = http_status
+
+        result[
+            "weex_response"
+        ] = response
+
+        if not isinstance(response, dict):
+
+            journal["status"] = (
+                "POST_UNKNOWN"
+            )
+
+            return finish(
+                "SUBMISSION_OUTCOME_UNKNOWN",
+                "WEEX_RESPONSE_NOT_OBJECT"
+            )
+
+        # ====================================================
+        # 16. ORIGINAL RESPONSE VALIDATION
+        # ====================================================
+
+        if not (
+            200 <= int(http_status) < 300
+            and response.get("success") is True
+        ):
+
+            journal["status"] = (
+                "POST_UNKNOWN"
+            )
+
+            try:
+
+                with open(
+                    journal_path, "w"
+                ) as handle:
+
+                    json.dump(
+                        journal,
+                        handle
+                    )
+
+            except Exception:
+                pass
+
+            log(
+                "UNIT 12 WEEX HTTP STATUS =",
+                http_status
+            )
+
+            log(
+                "UNIT 12 WEEX SUCCESS =",
+                response.get("success")
+            )
+
+            return finish(
+                "SUBMISSION_UNCONFIRMED",
+                "WEEX_DID_NOT_CONFIRM_ACCEPTANCE"
+            )
+
+        order_id = response.get(
+            "orderId"
+        )
+
+        if not order_id:
+
+            journal["status"] = (
+                "POST_UNKNOWN"
+            )
+
+            try:
+
+                with open(
+                    journal_path, "w"
+                ) as handle:
+
+                    json.dump(
+                        journal,
+                        handle
+                    )
+
+            except Exception:
+                pass
+
+            return finish(
+                "SUBMISSION_UNCONFIRMED",
+                "WEEX_ORDER_ID_MISSING"
+            )
+
+        # ====================================================
+        # 17. SUCCESSFUL DEMO SUBMISSION
+        # ====================================================
+
+        journal.update({
+            "status": "POST_ACCEPTED",
+            "order_id": str(order_id),
+            "timestamp": time.time(),
+        })
+
+        try:
+
+            with open(
+                journal_path, "w"
+            ) as handle:
+
+                json.dump(
+                    journal,
+                    handle
+                )
+
+        except Exception as exc:
+
+            log(
+                "UNIT 12 ACCEPTED JOURNAL ERROR =",
+                type(exc).__name__
+            )
+
+        result[
+            "demo_submission_completed"
+        ] = True
+
+        result["order_id"] = order_id
+
+        result[
+            "management_path_permitted"
+        ] = True
+
+        result[
+            "tp_management_permitted"
+        ] = True
+
+        result[
+            "backup_management_permitted"
+        ] = True
+
+        log(
+            "PASS: UNIT 12 WEEX DEMO RESPONSE SUCCESS"
+        )
+
+        log(
+            "PASS: UNIT 12 WEEX ORDER ID =",
+            order_id
+        )
+
+        log(
+            "UNIT 12 REAL ORDER = NONE"
+        )
+
+        log(
+            "UNIT 12 LEVERAGE MUTATION = NONE"
+        )
+
+        return finish(
+            "DEMO_SUBMITTED",
+            "WEEX_ORDER_ACCEPTED"
+        )
+
+    finally:
+
+        fcntl.flock(
+            lock_file.fileno(),
+            fcntl.LOCK_UN
+        )
+
+        lock_file.close()
+
+
+# ============================================================
+# UNIT 12 EXECUTION
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
+    fresh_reconstruction_unit_12(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+    )
+)
+
+
+# ============================================================
+# END UNIT 12 - HYBRID ADJUSTABLE V2.1
+# ZERO INDENTATION
+# ============================================================
