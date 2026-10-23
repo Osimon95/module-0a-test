@@ -10562,26 +10562,39 @@ FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
 
 
 # ============================================================
-# START UNIT 12 - HYBRID ADJUSTABLE V2.5
+# START UNIT 12 - HYBRID ADJUSTABLE V2.6
 # ZERO INDENTATION
 #
-# ORIGINAL 15-UNIT ARCHITECTURE
+# ORIGINAL 15 UNIT RECONSTRUCTION
+# UNIT 12 = INITIAL DEMO ENTRY ONLY
 #
-# NEW:
-# - STANDALONE SIMULATED READY DIAGNOSTIC
-# - REAL AUTHENTICATED WEEX DEMO GET TESTS
-# - WORKS EVEN WHEN UNIT 11 IS IDLE
-# - CLIENT ID / QUANTITY TEST
-# - HISTORY / POSITION / JOURNAL INSPECTION
+# VERIFIED DIAGNOSTIC ADAPTATION:
+# - UNIT 11 ORIGINAL READY HANDOVER
+# - CLIENT ORDER ID NORMALIZATION
+# - QUANTITY STEP VALIDATION
+# - WEEX DEMO POSITION GET
+# - WEEX DEMO ORDER HISTORY GET
+# - PREVIOUS JOURNAL RECONCILIATION
+# - COOLDOWN
 #
-# ABSOLUTE SAFETY:
-# - NO POST IN DIAGNOSTIC MODE
-# - NO JOURNAL MODIFICATION
-# - NO REAL-CASH API
-# - NO LEVERAGE OR MARGIN MUTATION
-# - SIMULATED SIGNAL NEVER FORWARDED
+# RESTORED:
+# - ORIGINAL DEMO MARKET ORDER POST
+# - ORIGINAL ORDER ID RESPONSE HANDOVER
+# - ORIGINAL MANAGEMENT FLAGS
 #
-# SINGLE MASTER BOT_MODE
+# SAFETY:
+# - MASTER BOT_MODE ONLY
+# - PAUSE NEVER SUBMITS
+# - NO REAL CASH ORDERS
+# - NO LEVERAGE MUTATION
+# - NO MARGIN MUTATION
+# - NO POSITION MODE MUTATION
+# - NO SIMULATED TEST ORDER SUBMISSION
+#
+# IMPORTANT:
+# DEMO-SCOPE OPEN ORDER AND LEVERAGE
+# VERIFICATION MUST BE RESOLVED
+# BEFORE AUTOMATED POST IS AUTHORIZED.
 # ============================================================
 
 
@@ -10597,6 +10610,8 @@ def fresh_reconstruction_unit_12(
     import hmac
     import base64
     import hashlib
+    import fcntl
+    import tempfile
     import urllib.request
     import urllib.error
     import urllib.parse
@@ -10604,99 +10619,124 @@ def fresh_reconstruction_unit_12(
     from decimal import Decimal
     from datetime import datetime, timezone
 
-    def log(*items):
-        print(*items, flush=True)
+    def log(*values):
+        print(*values, flush=True)
 
     def decimal(value):
 
         if isinstance(value, bool):
-            raise ValueError("BOOLEAN INVALID")
+            raise ValueError("BOOLEAN_INVALID")
 
-        number = Decimal(str(value))
+        value = Decimal(str(value))
 
-        if not number.is_finite():
-            raise ValueError("NONFINITE VALUE")
+        if not value.is_finite():
+            raise ValueError("NONFINITE_VALUE")
 
-        return number
+        return value
+
+    def milliseconds():
+        return int(time.time() * 1000)
 
     log("=" * 80)
 
     log(
         datetime.now(timezone.utc).isoformat(),
-        "UNIT 12 HYBRID ADJUSTABLE V2.5 START"
+        "UNIT 12 HYBRID ADJUSTABLE V2.6 START"
     )
 
     # ========================================================
-    # 1. MASTER CONFIGURATION AND SAFETY
+    # 1. CONFIGURATION
     # ========================================================
 
     if not isinstance(config, dict):
         raise RuntimeError(
-            "UNIT 12 CONFIG INVALID"
+            "UNIT12_CONFIG_INVALID"
         )
 
     if not isinstance(unit_11_result, dict):
         raise RuntimeError(
-            "UNIT 12 UNIT 11 INVALID"
+            "UNIT12_UNIT11_INVALID"
         )
 
     if unit_11_result.get(
         "unit_11_revision"
     ) != "HYBRID_ADJUSTABLE_V2":
+
         raise RuntimeError(
-            "UNIT 12 UNIT 11 REVISION INVALID"
+            "UNIT12_UNIT11_REVISION_INVALID"
         )
 
     bot_mode = str(
         os.getenv("BOT_MODE", "PAUSE")
     ).strip().upper()
 
-    if bot_mode not in ("RUN", "PAUSE"):
+    if bot_mode not in (
+        "PAUSE",
+        "RUN"
+    ):
         raise RuntimeError(
-            "UNIT 12 BOT_MODE INVALID"
+            "UNIT12_BOT_MODE_INVALID"
         )
 
-    exchange = config.get("exchange", {})
-    safety = config.get("safety", {})
+    exchange = config.get(
+        "exchange", {}
+    )
+
+    safety = config.get(
+        "safety", {}
+    )
+
     precision = config.get(
         "market_precision", {}
     )
 
     if not all(
         isinstance(x, dict)
-        for x in (exchange, safety, precision)
+        for x in (
+            exchange,
+            safety,
+            precision
+        )
     ):
         raise RuntimeError(
-            "UNIT 12 CONFIG SECTIONS INVALID"
+            "UNIT12_CONFIG_SECTION_INVALID"
         )
 
     if not (
-        config.get("execution_environment")
-        == "DEMO"
-        and exchange.get("market_symbol")
-        == "BTCUSDT"
-        and exchange.get("demo_order_symbol")
-        == "BTCSUSDT"
-        and exchange.get("contract_base_url")
-        == "https://api-contract.weex.com"
-        and unit_11_result.get("read_only")
-        is True
-        and unit_11_result.get("exchange_write")
-        is False
+        config.get(
+            "execution_environment"
+        ) == "DEMO"
+        and exchange.get(
+            "market_symbol"
+        ) == "BTCUSDT"
+        and exchange.get(
+            "demo_order_symbol"
+        ) == "BTCSUSDT"
+        and exchange.get(
+            "contract_base_url"
+        ) == "https://api-contract.weex.com"
+        and unit_11_result.get(
+            "read_only"
+        ) is True
+        and unit_11_result.get(
+            "exchange_write"
+        ) is False
     ):
         raise RuntimeError(
-            "UNIT 12 EXCHANGE SAFETY INVALID"
+            "UNIT12_DEMO_BOUNDARY_INVALID"
         )
 
     for key in (
         "real_order_submission_enabled",
         "leverage_mutation_enabled",
         "margin_mode_mutation_enabled",
-        "position_mode_mutation_enabled",
+        "position_mode_mutation_enabled"
     ):
+
         if safety.get(key) is not False:
+
             raise RuntimeError(
-                "UNIT 12 UNSAFE CONFIG " + key
+                "UNIT12_UNSAFE_CONFIG:" + key
             )
 
     log(
@@ -10705,29 +10745,32 @@ def fresh_reconstruction_unit_12(
     )
 
     # ========================================================
-    # 2. ORIGINAL RESULT CONTRACT
+    # 2. RESULT CONTRACT
     # ========================================================
-
-    original_status = str(
-        unit_11_result.get("status", "IDLE")
-    ).upper()
 
     result = {
 
         "unit": 12,
+
         "unit_12_revision":
-            "HYBRID_ADJUSTABLE_V2.5",
+            "HYBRID_ADJUSTABLE_V2.6",
 
         "status": "IDLE",
-        "read_only": True,
 
-        "active_mode": unit_11_result.get(
-            "active_mode", "NONE"
-        ),
+        "read_only":
+            bot_mode == "PAUSE",
 
-        "direction": unit_11_result.get(
-            "direction", "NONE"
-        ),
+        "active_mode":
+            unit_11_result.get(
+                "active_mode",
+                "NONE"
+            ),
+
+        "direction":
+            unit_11_result.get(
+                "direction",
+                "NONE"
+            ),
 
         "signal_qualified": False,
         "execution_intent": False,
@@ -10741,6 +10784,7 @@ def fresh_reconstruction_unit_12(
         "active_positions": [],
 
         "initial_entry_permitted": False,
+
         "duplicate_initial_entry_blocked": False,
 
         "management_path_permitted": False,
@@ -10756,12 +10800,18 @@ def fresh_reconstruction_unit_12(
         "journal_reconciled": False,
         "reconciliation_status": "NOT_CHECKED",
 
-        "diagnostic_mode": True,
+        "diagnostic_mode":
+            bot_mode == "PAUSE",
+
         "diagnostics_completed": False,
         "diagnostics_passed": False,
 
+        "demo_leverage_scope_verified": False,
+        "demo_open_orders_verified": False,
+
         "demo_submission_attempted": False,
         "demo_submission_completed": False,
+
         "real_submission_attempted": False,
 
         "authenticated_request": False,
@@ -10770,27 +10820,29 @@ def fresh_reconstruction_unit_12(
 
         "request_path": None,
         "request_payload": None,
+
         "http_status": None,
         "weex_response": None,
         "order_id": None,
 
-        "skip_reason": unit_11_result.get(
-            "skip_reason", "NONE"
-        ),
+        "skip_reason":
+            unit_11_result.get(
+                "skip_reason",
+                "NONE"
+            )
     }
 
-    diagnostic_checks = {}
+    checks = {}
 
-    def check(name, success, detail=""):
+    def check(name, passed):
 
-        diagnostic_checks[name] = bool(success)
+        checks[name] = bool(passed)
 
         log(
-            "UNIT 12 TEST",
+            "UNIT 12 CHECK",
             name,
             "=",
-            "PASS" if success else "FAIL",
-            detail
+            "PASS" if passed else "FAIL"
         )
 
     def finish(status, reason):
@@ -10798,25 +10850,14 @@ def fresh_reconstruction_unit_12(
         result["status"] = status
         result["skip_reason"] = str(reason)
 
-        log("-" * 80)
-
-        log("UNIT 12 STATUS =", status)
-        log("UNIT 12 REASON =", reason)
-
         log(
-            "UNIT 12 DIAGNOSTIC TESTS =",
-            len(diagnostic_checks)
+            "UNIT 12 STATUS =",
+            status
         )
 
         log(
-            "UNIT 12 TESTS PASSED =",
-            sum(diagnostic_checks.values())
-        )
-
-        log(
-            "UNIT 12 TESTS FAILED =",
-            len(diagnostic_checks)
-            - sum(diagnostic_checks.values())
+            "UNIT 12 REASON =",
+            reason
         )
 
         log(
@@ -10830,8 +10871,23 @@ def fresh_reconstruction_unit_12(
         )
 
         log(
+            "UNIT 12 DEMO OPEN ORDERS VERIFIED =",
+            result["demo_open_orders_verified"]
+        )
+
+        log(
+            "UNIT 12 DEMO LEVERAGE VERIFIED =",
+            result["demo_leverage_scope_verified"]
+        )
+
+        log(
             "UNIT 12 DEMO SUBMISSION ATTEMPTED =",
             result["demo_submission_attempted"]
+        )
+
+        log(
+            "UNIT 12 DEMO SUBMISSION COMPLETED =",
+            result["demo_submission_completed"]
         )
 
         log(
@@ -10840,8 +10896,7 @@ def fresh_reconstruction_unit_12(
         )
 
         log(
-            "UNIT 12 HYBRID ADJUSTABLE V2.5 "
-            "RESULT =",
+            "UNIT 12 HYBRID ADJUSTABLE V2.6 RESULT =",
             status
         )
 
@@ -10849,247 +10904,324 @@ def fresh_reconstruction_unit_12(
 
         return result
 
-    # ========================================================
-    # 3. PRESERVE ORIGINAL UNIT 11
-    # ========================================================
-
-    if original_status not in ("IDLE", "READY"):
+    def stop(reason):
 
         return finish(
-            "BLOCKED",
-            "UNIT_11_STATUS_INVALID"
+            "DIAGNOSTIC_BLOCKED"
+            if bot_mode == "PAUSE"
+            else "BLOCKED",
+            reason
         )
 
-    actual_ready = original_status == "READY"
-
-    log(
-        "UNIT 12 ORIGINAL UNIT 11 STATUS =",
-        original_status
-    )
-
-    log(
-        "UNIT 12 ACTUAL SIGNAL READY =",
-        actual_ready
-    )
-
     # ========================================================
-    # 4. TEST MODE
-    #
-    # RUN STANDALONE DIAGNOSTIC WHEN
-    # MASTER BOT_MODE IS PAUSE.
-    #
-    # IN RUN MODE, KEEP THIS VERSION
-    # NON-SUBMITTING UNTIL THE VERIFIED
-    # EXECUTION ADAPTER IS RESTORED.
+    # 3. ORIGINAL IDLE HANDOVER
     # ========================================================
 
-    if bot_mode != "PAUSE":
-
-        log(
-            "UNIT 12 DEMO POST = DISABLED IN V2.5"
+    status11 = str(
+        unit_11_result.get(
+            "status",
+            "IDLE"
         )
+    ).upper()
+
+    if status11 == "IDLE":
+
+        check(
+            "ORIGINAL_IDLE_HANDOVER",
+            unit_11_result.get(
+                "payload_ready"
+            ) is False
+        )
+
+        if not checks[
+            "ORIGINAL_IDLE_HANDOVER"
+        ]:
+            return stop(
+                "UNIT11_IDLE_CONTRACT_INVALID"
+            )
 
         return finish(
-            "BLOCKED",
-            "V2_5_DIAGNOSTIC_ONLY_SET_BOT_MODE_PAUSE"
+            "IDLE",
+            result["skip_reason"]
+        )
+
+    if status11 != "READY":
+
+        return stop(
+            "UNIT11_STATUS_INVALID"
         )
 
     # ========================================================
-    # 5. SIMULATED READY PAYLOAD
-    #
-    # NO MODIFICATION OF UNIT 11 RESULT.
-    # NO SIMULATED ORDER SENT TO WEEX.
+    # 4. ORIGINAL READY HANDOVER
     # ========================================================
 
-    test_price = Decimal("80000")
-
-    test_margin = Decimal("0.50")
-
-    test_leverage = Decimal("100")
-
-    test_quantity = Decimal("0.0006")
-
-    test_direction = "LONG"
-
-    test_mode = "STRUCTURE"
-
-    test_original_id = (
-        "SIMULATED_UNIT12_READY_PAYLOAD_"
-        "CLIENT_IDENTIFIER_LONGER_THAN_WEEX_LIMIT"
+    required = (
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "execution_ready",
+        "demo_boundary_ready",
+        "payload_ready",
+        "order_payload_created"
     )
 
-    simulated_payload = {
-        "symbol": "BTCSUSDT",
-        "side": "BUY",
-        "positionSide": "LONG",
-        "type": "MARKET",
-        "quantity": str(test_quantity),
-        "newClientOrderId": test_original_id,
-    }
+    ready_ok = all(
+        unit_11_result.get(x) is True
+        for x in required
+    )
 
     check(
-        "SIMULATED_READY_CREATED",
-        simulated_payload["symbol"]
-        == "BTCSUSDT"
-        and test_mode == "STRUCTURE"
-        and test_direction == "LONG"
+        "ORIGINAL_READY_HANDOVER",
+        ready_ok
     )
 
+    if not ready_ok:
+
+        return stop(
+            "UNIT11_READY_CONTRACT_INVALID"
+        )
+
+    mode = unit_11_result.get(
+        "active_mode"
+    )
+
+    direction = unit_11_result.get(
+        "direction"
+    )
+
+    if not (
+        mode in (
+            "BREAKOUT",
+            "STRUCTURE",
+            "SCALP"
+        )
+        and direction in (
+            "LONG",
+            "SHORT"
+        )
+    ):
+
+        return stop(
+            "STRATEGY_DIRECTION_INVALID"
+        )
+
+    result["active_mode"] = mode
+    result["direction"] = direction
+
+    result["signal_qualified"] = True
+    result["execution_intent"] = True
+
+    payload = (
+        unit_11_result.get("demo_payload")
+        or unit_11_result.get("payload")
+        or unit_11_result.get("order_payload")
+    )
+
+    trade_plan = (
+        unit_11_result.get("trade_plan")
+    )
+
+    if not (
+        isinstance(payload, dict)
+        and isinstance(trade_plan, dict)
+    ):
+
+        return stop(
+            "UNIT11_PAYLOAD_MISSING"
+        )
+
+    expected_fields = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId"
+    }
+
+    correct_side = (
+        "BUY"
+        if direction == "LONG"
+        else "SELL"
+    )
+
+    payload_ok = (
+        set(payload) == expected_fields
+        and payload.get("symbol")
+        == "BTCSUSDT"
+        and payload.get("side")
+        == correct_side
+        and payload.get("positionSide")
+        == direction
+        and payload.get("type")
+        == "MARKET"
+    )
+
+    check(
+        "ORIGINAL_DEMO_PAYLOAD",
+        payload_ok
+    )
+
+    if not payload_ok:
+
+        return stop(
+            "DEMO_PAYLOAD_INVALID"
+        )
+
     # ========================================================
-    # 6. CLIENT ORDER ID NORMALIZATION TEST
+    # 5. CLIENT ORDER ID ADAPTATION
     # ========================================================
 
-    valid_pattern = (
+    source_id = payload.get(
+        "newClientOrderId"
+    )
+
+    if not isinstance(
+        source_id,
+        str
+    ):
+
+        return stop(
+            "CLIENT_ORDER_ID_NOT_STRING"
+        )
+
+    source_id = source_id.strip()
+
+    if not source_id:
+
+        return stop(
+            "CLIENT_ORDER_ID_EMPTY"
+        )
+
+    allowed_pattern = (
         r"[A-Za-z0-9_.:/-]{1,36}"
     )
 
     if re.fullmatch(
-        valid_pattern,
-        test_original_id
+        allowed_pattern,
+        source_id
     ):
 
-        test_client_id = test_original_id
-
-        adapted = False
+        client_id = source_id
 
     else:
 
         digest = hashlib.sha256(
-            test_original_id.encode("utf-8")
+            source_id.encode("utf-8")
         ).hexdigest()[:24]
 
-        test_client_id = "FR12-" + digest
+        client_id = (
+            "FR12-" + digest
+        )
 
-        adapted = True
+        result[
+            "client_order_id_adapted"
+        ] = True
 
-    deterministic_repeat = (
-        "FR12-"
-        + hashlib.sha256(
-            test_original_id.encode("utf-8")
-        ).hexdigest()[:24]
-    )
-
-    id_ok = (
+    client_ok = (
         re.fullmatch(
-            valid_pattern,
-            test_client_id
+            allowed_pattern,
+            client_id
         ) is not None
-        and len(test_client_id) <= 36
-        and test_client_id
-        == deterministic_repeat
     )
 
     check(
-        "CLIENT_ORDER_ID_ADAPTATION",
-        id_ok,
-        "ADAPTED=" + str(adapted)
+        "CLIENT_ORDER_ID",
+        client_ok
     )
 
-    if not id_ok:
+    if not client_ok:
 
-        return finish(
-            "DIAGNOSTIC_FAILED",
-            "CLIENT_ID_ADAPTATION_FAILED"
+        return stop(
+            "CLIENT_ORDER_ID_INVALID"
         )
 
     result[
         "client_order_id_validated"
     ] = True
 
-    result[
-        "client_order_id_adapted"
-    ] = adapted
+    final_payload = dict(
+        payload
+    )
 
-    simulated_payload[
+    final_payload[
         "newClientOrderId"
-    ] = test_client_id
+    ] = client_id
 
     # ========================================================
-    # 7. PRECISION AND SIZING TEST
+    # 6. ORIGINAL QUANTITY CHECK
     # ========================================================
 
     try:
+
+        quantity = decimal(
+            final_payload["quantity"]
+        )
+
+        planned_quantity = decimal(
+            trade_plan["quantity"]
+        )
 
         qty_step = decimal(
             precision["quantity_step"]
         )
 
-        minimum_qty = decimal(
+        minimum = decimal(
             precision["minimum_quantity"]
         )
 
-        calculated_notional = (
-            test_margin * test_leverage
-        )
-
-        calculation_price = test_price
-
-        unrounded_quantity = (
-            calculated_notional
-            / calculation_price
-        )
-
-        normalized_quantity = (
-            unrounded_quantity // qty_step
-        ) * qty_step
+        sizing = trade_plan[
+            "position_sizing"
+        ]
 
         quantity_ok = (
             qty_step > 0
-            and minimum_qty > 0
-            and test_quantity >= minimum_qty
-            and test_quantity % qty_step == 0
-            and normalized_quantity
-            == test_quantity
+            and minimum > 0
+            and quantity >= minimum
+            and quantity == planned_quantity
+            and quantity % qty_step == 0
+            and isinstance(sizing, dict)
+            and sizing.get(
+                "position_sizing_performed"
+            ) is True
+            and sizing.get(
+                "quantity_calculated"
+            ) is True
         )
 
     except Exception:
 
         quantity_ok = False
+        sizing = {}
 
     check(
-        "SIMULATED_QUANTITY_PRECISION",
+        "BTC_QUANTITY_VALIDATION",
         quantity_ok
     )
 
     if not quantity_ok:
 
-        return finish(
-            "DIAGNOSTIC_FAILED",
-            "SIMULATED_QUANTITY_INVALID"
+        return stop(
+            "BTC_QUANTITY_INVALID"
         )
 
-    # ========================================================
-    # 8. VERIFY SIMULATION CANNOT BE SUBMITTED
-    # ========================================================
-
-    simulated_payload_isolation = (
-        actual_ready is False
-        or simulated_payload is not
-        unit_11_result.get("demo_payload")
+    log(
+        "UNIT 12 STRATEGY =",
+        mode
     )
 
-    check(
-        "SIMULATION_ISOLATION",
-        simulated_payload_isolation
+    log(
+        "UNIT 12 DIRECTION =",
+        direction
     )
 
-    # The simulated payload is never
-    # assigned to the result request fields.
-
-    result["request_payload"] = None
-
-    result["initial_entry_permitted"] = False
-
-    check(
-        "SIMULATED_ORDER_SUBMISSION_DISABLED",
-        result["request_payload"] is None
-        and result["exchange_write"] is False
-        and result["demo_submission_attempted"]
-        is False
+    log(
+        "UNIT 12 BTC QUANTITY =",
+        quantity
     )
 
     # ========================================================
-    # 9. AUTHENTICATED DEMO GET CONNECTION
+    # 7. DEMO CREDENTIALS
     # ========================================================
 
     api_key = (
@@ -11110,18 +11242,17 @@ def fresh_reconstruction_unit_12(
     credentials_ok = all((
         api_key,
         api_secret,
-        api_passphrase,
+        api_passphrase
     ))
 
     check(
-        "WEEX_CREDENTIALS_PRESENT",
+        "WEEX_CREDENTIALS",
         credentials_ok
     )
 
     if not credentials_ok:
 
-        return finish(
-            "DIAGNOSTIC_FAILED",
+        return stop(
             "WEEX_CREDENTIALS_MISSING"
         )
 
@@ -11129,13 +11260,28 @@ def fresh_reconstruction_unit_12(
         "https://api-contract.weex.com"
     )
 
+    # ========================================================
+    # 8. SIGNED API REQUEST
+    #
+    # ONLY TWO ALLOWED GET ENDPOINTS
+    # AND ONE DEMO POST ENDPOINT.
+    #
+    # PAUSE PROHIBITS POST INSIDE
+    # THIS FUNCTION.
+    # ========================================================
+
     class NoRedirect(
         urllib.request.HTTPRedirectHandler
     ):
 
         def redirect_request(
-            self, req, fp, code,
-            msg, headers, newurl
+            self,
+            req,
+            fp,
+            code,
+            msg,
+            headers,
+            newurl
         ):
             return None
 
@@ -11143,47 +11289,92 @@ def fresh_reconstruction_unit_12(
         NoRedirect()
     )
 
-    def demo_get(path, query=None):
+    def signed_request(
+        method,
+        path,
+        query=None,
+        body=None
+    ):
 
-        # Hardcoded GET-only allowlist.
-        # No POST path exists in V2.5.
-
-        if path not in (
+        allowed_get = (
             "/capi/v3/sim/position/allPosition",
-            "/capi/v3/sim/order/history",
-        ):
+            "/capi/v3/sim/order/history"
+        )
+
+        allowed_post = (
+            "/capi/v3/sim/order"
+        )
+
+        if method == "GET":
+
+            if (
+                path not in allowed_get
+                or body is not None
+            ):
+
+                raise RuntimeError(
+                    "GET_ENDPOINT_FORBIDDEN"
+                )
+
+        elif method == "POST":
+
+            if not (
+                path == allowed_post
+                and bot_mode == "RUN"
+                and isinstance(body, dict)
+                and not query
+            ):
+
+                raise RuntimeError(
+                    "DEMO_POST_FORBIDDEN"
+                )
+
+        else:
 
             raise RuntimeError(
-                "DIAGNOSTIC_ENDPOINT_FORBIDDEN"
+                "HTTP_METHOD_FORBIDDEN"
             )
 
-        query_text = (
-            urllib.parse.urlencode(query)
+        query_string = (
+            urllib.parse.urlencode(
+                query
+            )
             if query else ""
         )
 
         signed_path = (
             path
             + (
-                "?" + query_text
-                if query_text else ""
+                "?" + query_string
+                if query_string else ""
+            )
+        )
+
+        body_text = (
+            ""
+            if body is None
+            else json.dumps(
+                body,
+                separators=(",", ":"),
+                ensure_ascii=False
             )
         )
 
         timestamp = str(
-            int(time.time() * 1000)
+            milliseconds()
         )
 
-        signature_text = (
+        prehash = (
             timestamp
-            + "GET"
+            + method
             + signed_path
+            + body_text
         )
 
         signature = base64.b64encode(
             hmac.new(
                 api_secret.encode("utf-8"),
-                signature_text.encode("utf-8"),
+                prehash.encode("utf-8"),
                 hashlib.sha256
             ).digest()
         ).decode()
@@ -11192,15 +11383,25 @@ def fresh_reconstruction_unit_12(
             "ACCESS-KEY": api_key,
             "ACCESS-SIGN": signature,
             "ACCESS-TIMESTAMP": timestamp,
-            "ACCESS-PASSPHRASE": api_passphrase,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
+            "ACCESS-PASSPHRASE":
+                api_passphrase,
+            "Content-Type":
+                "application/json",
+            "Accept":
+                "application/json"
         }
 
         request = urllib.request.Request(
             base_url + signed_path,
             headers=headers,
-            method="GET",
+            method=method,
+            data=(
+                None
+                if body is None
+                else body_text.encode(
+                    "utf-8"
+                )
+            )
         )
 
         try:
@@ -11210,13 +11411,17 @@ def fresh_reconstruction_unit_12(
                 timeout=15
             ) as response:
 
-                code = response.getcode()
-                raw = response.read(65537)
+                http = response.getcode()
+                raw = response.read(
+                    65537
+                )
 
         except urllib.error.HTTPError as exc:
 
-            code = exc.code
-            raw = exc.read(65537)
+            http = exc.code
+            raw = exc.read(
+                65537
+            )
 
         if len(raw) > 65536:
 
@@ -11225,158 +11430,927 @@ def fresh_reconstruction_unit_12(
             )
 
         return (
-            code,
+            http,
             json.loads(
                 raw.decode("utf-8")
-            ),
-        )
-
-    # ========================================================
-    # 10. REAL DEMO POSITION GET
-    # ========================================================
-
-    result[
-        "position_check_attempted"
-    ] = True
-
-    result[
-        "authenticated_request"
-    ] = True
-
-    try:
-
-        position_http, positions = (
-            demo_get(
-                "/capi/v3/sim/position/allPosition"
             )
         )
 
-    except Exception as exc:
+    # ========================================================
+    # 9. JOURNAL PATH - PRESERVE V2.1
+    # ========================================================
 
-        log(
-            "UNIT 12 POSITION GET ERROR =",
-            type(exc).__name__
-        )
-
-        return finish(
-            "DIAGNOSTIC_FAILED",
-            "DEMO_POSITION_GET_FAILED"
-        )
-
-    result[
-        "position_http_status"
-    ] = position_http
-
-    result[
-        "position_endpoint_access"
-    ] = True
-
-    response_ok = (
-        position_http == 200
-        and isinstance(positions, list)
+    journal_path = os.getenv(
+        "WEEX_DEMO_ENTRY_JOURNAL",
+        "/tmp/weex_demo_entry_v21.json"
     )
 
-    check(
-        "REAL_DEMO_POSITION_GET",
-        response_ok
+    journal_dir = os.path.dirname(
+        os.path.abspath(
+            journal_path
+        )
     )
 
-    if not response_ok:
+    if not os.path.isdir(
+        journal_dir
+    ):
 
-        log(
-            "UNIT 12 POSITION HTTP =",
-            position_http
+        return stop(
+            "JOURNAL_DIRECTORY_INVALID"
         )
 
-        log(
-            "UNIT 12 POSITION RESPONSE TYPE =",
-            type(positions).__name__
+    def write_journal(record):
+
+        fd, temp_path = (
+            tempfile.mkstemp(
+                prefix=".unit12_",
+                dir=journal_dir,
+                text=True
+            )
         )
 
-        return finish(
-            "DIAGNOSTIC_FAILED",
-            "DEMO_POSITION_RESPONSE_INVALID"
-        )
+        try:
 
-    active_positions = []
+            with os.fdopen(
+                fd,
+                "w"
+            ) as output:
 
-    try:
-
-        for item in positions:
-
-            if not isinstance(item, dict):
-                raise ValueError(
-                    "INVALID_POSITION_RECORD"
+                json.dump(
+                    record,
+                    output
                 )
 
-            symbol = str(
-                item.get("symbol", "")
-            ).upper()
+                output.flush()
 
-            if symbol not in (
-                "BTCUSDT",
-                "BTCSUSDT",
+                os.fsync(
+                    output.fileno()
+                )
+
+            os.replace(
+                temp_path,
+                journal_path
+            )
+
+            dir_fd = os.open(
+                journal_dir,
+                os.O_RDONLY
+            )
+
+            try:
+
+                os.fsync(
+                    dir_fd
+                )
+
+            finally:
+
+                os.close(
+                    dir_fd
+                )
+
+        finally:
+
+            if os.path.exists(
+                temp_path
             ):
-                continue
 
-            if "size" not in item:
-                raise ValueError(
-                    "POSITION_SIZE_MISSING"
+                os.unlink(
+                    temp_path
                 )
 
-            size = decimal(
-                item["size"]
+    lock = None
+
+    try:
+
+        lock = open(
+            journal_path + ".lock",
+            "a+"
+        )
+
+        fcntl.flock(
+            lock.fileno(),
+            fcntl.LOCK_EX
+            | fcntl.LOCK_NB
+        )
+
+    except Exception:
+
+        if lock is not None:
+
+            lock.close()
+
+        return stop(
+            "JOURNAL_LOCK_UNAVAILABLE"
+        )
+
+    try:
+
+        # ====================================================
+        # 10. PREVIOUS JOURNAL READ
+        # ====================================================
+
+        try:
+
+            with open(
+                journal_path,
+                "r"
+            ) as handle:
+
+                journal = json.load(
+                    handle
+                )
+
+        except FileNotFoundError:
+
+            journal = {}
+
+        except Exception:
+
+            return stop(
+                "JOURNAL_READ_FAILED"
             )
 
-            if size < 0:
-                raise ValueError(
-                    "NEGATIVE_POSITION_SIZE"
-                )
+        if not isinstance(
+            journal,
+            dict
+        ):
 
-            if size > 0:
+            return stop(
+                "JOURNAL_INVALID"
+            )
 
-                active_positions.append({
-                    "symbol": symbol,
-                    "side": item.get("side"),
-                    "size": str(size),
-                    "leverage": item.get(
-                        "leverage"
-                    ),
-                })
+        previous_status = str(
+            journal.get(
+                "status",
+                ""
+            )
+        ).upper()
 
-    except Exception as exc:
-
-        log(
-            "UNIT 12 POSITION PARSE ERROR =",
-            type(exc).__name__
+        previous_id = str(
+            journal.get(
+                "order_id"
+            ) or ""
         )
 
-        return finish(
-            "DIAGNOSTIC_FAILED",
-            "DEMO_POSITION_PARSE_FAILED"
+        previous_client_id = str(
+            journal.get(
+                "client_order_id"
+            ) or ""
         )
 
-    result[
-        "position_check_completed"
-    ] = True
-
-    result[
-        "active_positions"
-    ] = active_positions
-
-    result[
-        "active_position_exists"
-    ] = bool(active_positions)
-
-    log(
-        "UNIT 12 ACTIVE DEMO BTC POSITIONS =",
-        len(active_positions)
-    )
-
-    if active_positions:
+        # ====================================================
+        # 11. LIVE DEMO POSITION GET
+        # ====================================================
 
         result[
-            "duplicate_initial_entry_blocked"
+            "position_check_attempted"
+        ] = True
+
+        result[
+            "authenticated_request"
+        ] = True
+
+        try:
+
+            position_http, positions = (
+                signed_request(
+                    "GET",
+                    "/capi/v3/sim/position/allPosition"
+                )
+            )
+
+        except Exception as exc:
+
+            log(
+                "UNIT 12 POSITION GET ERROR =",
+                type(exc).__name__
+            )
+
+            return stop(
+                "DEMO_POSITION_GET_FAILED"
+            )
+
+        result[
+            "position_http_status"
+        ] = position_http
+
+        result[
+            "position_endpoint_access"
+        ] = True
+
+        position_ok = (
+            position_http == 200
+            and isinstance(
+                positions,
+                list
+            )
+        )
+
+        check(
+            "DEMO_POSITION_GET",
+            position_ok
+        )
+
+        if not position_ok:
+
+            return stop(
+                "DEMO_POSITION_RESPONSE_INVALID"
+            )
+
+        active_positions = []
+
+        try:
+
+            for position in positions:
+
+                if not isinstance(
+                    position,
+                    dict
+                ):
+
+                    raise ValueError(
+                        "POSITION_NOT_DICT"
+                    )
+
+                symbol = str(
+                    position.get(
+                        "symbol",
+                        ""
+                    )
+                ).upper()
+
+                if symbol not in (
+                    "BTCSUSDT",
+                    "BTCUSDT"
+                ):
+                    continue
+
+                size = decimal(
+                    position["size"]
+                )
+
+                if size < 0:
+
+                    raise ValueError(
+                        "NEGATIVE_POSITION_SIZE"
+                    )
+
+                if size > 0:
+
+                    active_positions.append({
+                        "symbol": symbol,
+                        "side":
+                            position.get(
+                                "side"
+                            ),
+                        "size": str(size)
+                    })
+
+        except Exception:
+
+            return stop(
+                "DEMO_POSITION_PARSE_FAILED"
+            )
+
+        result[
+            "position_check_completed"
+        ] = True
+
+        result[
+            "active_positions"
+        ] = active_positions
+
+        result[
+            "active_position_exists"
+        ] = bool(
+            active_positions
+        )
+
+        if active_positions:
+
+            result[
+                "duplicate_initial_entry_blocked"
+            ] = True
+
+            result[
+                "management_path_permitted"
+            ] = True
+
+            result[
+                "tp_management_permitted"
+            ] = True
+
+            result[
+                "backup_management_permitted"
+            ] = True
+
+            return finish(
+                "ACTIVE_POSITION_BLOCK",
+                "INITIAL_ENTRY_ALREADY_OPEN"
+            )
+
+        check(
+            "DEMO_POSITION_FLAT",
+            True
+        )
+
+        # ====================================================
+        # 12. VERIFIED DEMO HISTORY PAGINATION
+        # ====================================================
+
+        orders = []
+        history_complete = False
+
+        for page in range(20):
+
+            try:
+
+                http, rows = (
+                    signed_request(
+                        "GET",
+                        "/capi/v3/sim/order/history",
+                        query={
+                            "symbol":
+                                "BTCSUSDT",
+                            "limit": 1000,
+                            "page": page
+                        }
+                    )
+                )
+
+            except Exception as exc:
+
+                log(
+                    "UNIT 12 HISTORY ERROR =",
+                    type(exc).__name__
+                )
+
+                return stop(
+                    "DEMO_HISTORY_GET_FAILED"
+                )
+
+            if not (
+                http == 200
+                and isinstance(
+                    rows,
+                    list
+                )
+                and all(
+                    isinstance(x, dict)
+                    for x in rows
+                )
+            ):
+
+                return stop(
+                    "DEMO_HISTORY_RESPONSE_INVALID"
+                )
+
+            orders.extend(
+                rows
+            )
+
+            if len(rows) < 1000:
+
+                history_complete = True
+
+                break
+
+        result[
+            "history_checked"
+        ] = True
+
+        result[
+            "history_complete"
+        ] = history_complete
+
+        check(
+            "DEMO_HISTORY_COMPLETE",
+            history_complete
+        )
+
+        if not history_complete:
+
+            return stop(
+                "DEMO_HISTORY_INCOMPLETE"
+            )
+
+        log(
+            "UNIT 12 HISTORY RECORDS =",
+            len(orders)
+        )
+
+        # ====================================================
+        # 13. HISTORY STATUS CLASSIFICATION
+        # ====================================================
+
+        pending_states = {
+            "NEW",
+            "OPEN",
+            "PENDING",
+            "PENDING_NEW",
+            "ACCEPTED",
+            "PARTIALLY_FILLED",
+            "PARTIALLYFILLED"
+        }
+
+        terminal_states = {
+            "FILLED",
+            "CANCELED",
+            "CANCELLED",
+            "EXPIRED",
+            "REJECTED"
+        }
+
+        pending = False
+        unknown = False
+
+        for order in orders:
+
+            if str(
+                order.get(
+                    "symbol",
+                    ""
+                )
+            ).upper() != "BTCSUSDT":
+
+                continue
+
+            state = str(
+                order.get(
+                    "status",
+                    ""
+                )
+            ).upper()
+
+            if state in pending_states:
+
+                pending = True
+
+            elif state not in terminal_states:
+
+                unknown = True
+
+        check(
+            "NO_HISTORY_PENDING",
+            not pending
+        )
+
+        check(
+            "KNOWN_HISTORY_STATUSES",
+            not unknown
+        )
+
+        if pending or unknown:
+
+            return stop(
+                "HISTORY_HAS_UNRESOLVED_ORDER"
+            )
+
+        # ====================================================
+        # 14. PREVIOUS JOURNAL RECONCILIATION
+        # ====================================================
+
+        unresolved = previous_status in (
+            "POST_STARTED",
+            "POST_UNKNOWN",
+            "POST_ACCEPTED"
+        )
+
+        if unresolved:
+
+            if not (
+                previous_id
+                or previous_client_id
+            ):
+
+                return stop(
+                    "PREVIOUS_ORDER_ID_MISSING"
+                )
+
+            matches = []
+
+            for order in orders:
+
+                order_id = str(
+                    order.get(
+                        "orderId"
+                    ) or ""
+                )
+
+                order_client_id = str(
+                    order.get(
+                        "clientOrderId"
+                    )
+                    or order.get(
+                        "newClientOrderId"
+                    )
+                    or ""
+                )
+
+                if (
+                    previous_id
+                    and previous_id == order_id
+                ) or (
+                    previous_client_id
+                    and previous_client_id
+                    == order_client_id
+                ):
+
+                    matches.append(
+                        order
+                    )
+
+            if len(matches) != 1:
+
+                return stop(
+                    "PREVIOUS_ORDER_NOT_UNIQUELY_RECONCILED"
+                )
+
+            state = str(
+                matches[0].get(
+                    "status",
+                    ""
+                )
+            ).upper()
+
+            if state not in terminal_states:
+
+                return stop(
+                    "PREVIOUS_ORDER_NOT_TERMINAL"
+                )
+
+            try:
+
+                age = (
+                    time.time()
+                    - float(
+                        journal["timestamp"]
+                    )
+                )
+
+            except Exception:
+
+                return stop(
+                    "JOURNAL_TIMESTAMP_INVALID"
+                )
+
+            if age < 0:
+
+                return stop(
+                    "JOURNAL_TIMESTAMP_FUTURE"
+                )
+
+            if age < 300:
+
+                return finish(
+                    "COOLDOWN",
+                    "PREVIOUS_ORDER_COOLDOWN"
+                )
+
+            result[
+                "reconciliation_status"
+            ] = "MATCHED_TERMINAL"
+
+        elif previous_status in (
+            "",
+            "RECONCILED",
+            "COOLDOWN"
+        ):
+
+            result[
+                "reconciliation_status"
+            ] = "NO_UNRESOLVED_JOURNAL"
+
+        else:
+
+            return stop(
+                "UNKNOWN_JOURNAL_STATUS"
+            )
+
+        result[
+            "journal_reconciled"
+        ] = True
+
+        check(
+            "JOURNAL_RECONCILIATION",
+            True
+        )
+
+        # ====================================================
+        # 15. EXCHANGE ORDER COOLDOWN
+        # ====================================================
+
+        recent = False
+
+        for order in orders:
+
+            if str(
+                order.get(
+                    "symbol",
+                    ""
+                )
+            ).upper() != "BTCSUSDT":
+
+                continue
+
+            try:
+
+                order_time = int(
+                    order.get(
+                        "time"
+                    ) or 0
+                )
+
+            except Exception:
+
+                return stop(
+                    "ORDER_TIME_INVALID"
+                )
+
+            if (
+                order_time > 0
+                and 0 <= (
+                    milliseconds()
+                    - order_time
+                ) < 300000
+            ):
+
+                recent = True
+
+                break
+
+        check(
+            "ENTRY_COOLDOWN_CLEAR",
+            not recent
+        )
+
+        if recent:
+
+            return finish(
+                "COOLDOWN",
+                "RECENT_DEMO_ORDER"
+            )
+
+        # ====================================================
+        # 16. COMPLETED VERIFIED DIAGNOSTICS
+        # ====================================================
+
+        result[
+            "diagnostics_completed"
+        ] = True
+
+        result[
+            "diagnostics_passed"
+        ] = all(
+            checks.values()
+        )
+
+        log(
+            "UNIT 12 VERIFIED CHECKS =",
+            len(checks)
+        )
+
+        log(
+            "UNIT 12 VERIFIED PASSES =",
+            sum(checks.values())
+        )
+
+        # Two outstanding account-scope checks:
+        #
+        # Existing Unit 8 leverage GET does
+        # not independently confirm simulated
+        # account leverage.
+        #
+        # A documented standard futures
+        # /capi/v3/openOrders GET does not
+        # independently prove demo scope.
+        #
+        # Do not set these booleans to True
+        # without actual demo-scoped evidence.
+
+        result[
+            "demo_leverage_scope_verified"
+        ] = False
+
+        result[
+            "demo_open_orders_verified"
+        ] = False
+
+        # ====================================================
+        # 17. MASTER PAUSE HANDOVER
+        # ====================================================
+
+        if bot_mode == "PAUSE":
+
+            log(
+                "PASS: UNIT 12 GET-ONLY "
+                "DIAGNOSTICS COMPLETED"
+            )
+
+            log(
+                "UNIT 12 DEMO POST = PROHIBITED"
+            )
+
+            log(
+                "UNIT 12 JOURNAL WRITE = NONE"
+            )
+
+            return finish(
+                "DIAGNOSTIC_PASS",
+                "MASTER_BOT_MODE_PAUSE"
+            )
+
+        # ====================================================
+        # 18. RUN EXECUTION SAFETY
+        # ====================================================
+
+        if not result[
+            "diagnostics_passed"
+        ]:
+
+            return stop(
+                "PRE_SUBMISSION_CHECKS_FAILED"
+            )
+
+        if not result[
+            "demo_leverage_scope_verified"
+        ]:
+
+            return stop(
+                "DEMO_LEVERAGE_SCOPE_UNVERIFIED"
+            )
+
+        if not result[
+            "demo_open_orders_verified"
+        ]:
+
+            return stop(
+                "DEMO_OPEN_ORDERS_UNVERIFIED"
+            )
+
+        # ====================================================
+        # 19. DEMO ORDER POST RESTORED
+        #
+        # THE CODE BELOW IS NOT REACHABLE
+        # UNTIL BOTH ACCOUNT-SCOPE CHECKS
+        # ABOVE ARE IMPLEMENTED AND PASS.
+        # ====================================================
+
+        result[
+            "request_path"
+        ] = "/capi/v3/sim/order"
+
+        result[
+            "request_payload"
+        ] = dict(
+            final_payload
+        )
+
+        journal_record = {
+            "status": "POST_STARTED",
+            "timestamp": time.time(),
+            "client_order_id": client_id,
+            "mode": mode,
+            "direction": direction,
+            "quantity": str(quantity)
+        }
+
+        try:
+
+            write_journal(
+                journal_record
+            )
+
+        except Exception:
+
+            return stop(
+                "PREPOST_JOURNAL_SAVE_FAILED"
+            )
+
+        result[
+            "initial_entry_permitted"
+        ] = True
+
+        result[
+            "demo_submission_attempted"
+        ] = True
+
+        result[
+            "order_endpoint_access"
+        ] = True
+
+        result[
+            "exchange_write"
+        ] = True
+
+        try:
+
+            order_http, response = (
+                signed_request(
+                    "POST",
+                    "/capi/v3/sim/order",
+                    body=final_payload
+                )
+            )
+
+        except Exception as exc:
+
+            log(
+                "UNIT 12 DEMO POST ERROR TYPE =",
+                type(exc).__name__
+            )
+
+            journal_record[
+                "status"
+            ] = "POST_UNKNOWN"
+
+            try:
+
+                write_journal(
+                    journal_record
+                )
+
+            except Exception:
+
+                pass
+
+            return finish(
+                "SUBMISSION_OUTCOME_UNKNOWN",
+                "VERIFY_WEEX_BEFORE_RETRY"
+            )
+
+        result[
+            "http_status"
+        ] = order_http
+
+        result[
+            "weex_response"
+        ] = response
+
+        accepted = (
+            200 <= order_http < 300
+            and isinstance(response, dict)
+            and response.get(
+                "success"
+            ) is True
+            and bool(
+                response.get(
+                    "orderId"
+                )
+            )
+        )
+
+        if not accepted:
+
+            journal_record[
+                "status"
+            ] = "POST_UNKNOWN"
+
+            try:
+
+                write_journal(
+                    journal_record
+                )
+
+            except Exception:
+
+                pass
+
+            return finish(
+                "SUBMISSION_UNCONFIRMED",
+                "WEEX_ACCEPTANCE_UNCONFIRMED"
+            )
+
+        order_id = response[
+            "orderId"
+        ]
+
+        result[
+            "order_id"
+        ] = order_id
+
+        journal_record.update({
+            "status": "POST_ACCEPTED",
+            "timestamp": time.time(),
+            "order_id": str(order_id)
+        })
+
+        try:
+
+            write_journal(
+                journal_record
+            )
+
+        except Exception:
+
+            log(
+                "WARNING: ACCEPTED ORDER "
+                "JOURNAL SAVE FAILED"
+            )
+
+        result[
+            "demo_submission_completed"
         ] = True
 
         result[
@@ -11391,381 +12365,29 @@ def fresh_reconstruction_unit_12(
             "backup_management_permitted"
         ] = True
 
-    check(
-        "REAL_DEMO_POSITION_PARSED",
-        True
-    )
-
-    # ========================================================
-    # 11. REAL DEMO ORDER HISTORY GET
-    # ========================================================
-
-    orders = []
-
-    history_complete = False
-
-    page_limit = 1000
-
-    for page in range(20):
-
-        try:
-
-            history_http, rows = demo_get(
-                "/capi/v3/sim/order/history",
-                query={
-                    "symbol": "BTCSUSDT",
-                    "limit": page_limit,
-                    "page": page,
-                },
-            )
-
-        except Exception as exc:
-
-            log(
-                "UNIT 12 HISTORY GET ERROR =",
-                type(exc).__name__
-            )
-
-            return finish(
-                "DIAGNOSTIC_FAILED",
-                "DEMO_HISTORY_GET_FAILED"
-            )
-
-        if not (
-            history_http == 200
-            and isinstance(rows, list)
-            and all(
-                isinstance(row, dict)
-                for row in rows
-            )
-        ):
-
-            log(
-                "UNIT 12 HISTORY HTTP =",
-                history_http
-            )
-
-            log(
-                "UNIT 12 HISTORY RESPONSE TYPE =",
-                type(rows).__name__
-            )
-
-            return finish(
-                "DIAGNOSTIC_FAILED",
-                "DEMO_HISTORY_RESPONSE_INVALID"
-            )
-
-        orders.extend(rows)
-
-        if len(rows) < page_limit:
-            history_complete = True
-            break
-
-    result[
-        "history_checked"
-    ] = True
-
-    result[
-        "history_complete"
-    ] = history_complete
-
-    check(
-        "REAL_DEMO_HISTORY_GET",
-        history_complete
-    )
-
-    log(
-        "UNIT 12 DEMO HISTORY RECORDS =",
-        len(orders)
-    )
-
-    if not history_complete:
-
-        return finish(
-            "DIAGNOSTIC_FAILED",
-            "DEMO_HISTORY_PAGINATION_INCOMPLETE"
+        log(
+            "PASS: UNIT 12 WEEX DEMO "
+            "ORDER ACCEPTED"
         )
-
-    # ========================================================
-    # 12. CLASSIFY EXCHANGE ORDER STATUSES
-    # ========================================================
-
-    pending_states = {
-        "NEW",
-        "OPEN",
-        "PENDING",
-        "PENDING_NEW",
-        "ACCEPTED",
-        "PARTIALLY_FILLED",
-        "PARTIALLYFILLED",
-    }
-
-    terminal_states = {
-        "FILLED",
-        "CANCELED",
-        "CANCELLED",
-        "EXPIRED",
-        "REJECTED",
-    }
-
-    pending_count = 0
-    unknown_count = 0
-
-    observed_statuses = {}
-
-    for order in orders:
-
-        if str(
-            order.get("symbol", "")
-        ).upper() != "BTCSUSDT":
-            continue
-
-        status = str(
-            order.get("status", "")
-        ).upper()
-
-        observed_statuses[status] = (
-            observed_statuses.get(
-                status, 0
-            ) + 1
-        )
-
-        if status in pending_states:
-            pending_count += 1
-
-        elif status not in terminal_states:
-            unknown_count += 1
-
-    log(
-        "UNIT 12 DEMO ORDER STATUSES =",
-        observed_statuses
-    )
-
-    log(
-        "UNIT 12 HISTORY PENDING COUNT =",
-        pending_count
-    )
-
-    log(
-        "UNIT 12 UNKNOWN STATUS COUNT =",
-        unknown_count
-    )
-
-    check(
-        "ORDER_STATUS_FORMAT_RECOGNIZED",
-        unknown_count == 0
-    )
-
-    check(
-        "NO_HISTORY_PENDING_ORDERS",
-        pending_count == 0
-    )
-
-    # ========================================================
-    # 13. READ PREVIOUS JOURNAL
-    # NO JOURNAL WRITES PERMITTED
-    # ========================================================
-
-    journal_path = os.getenv(
-        "WEEX_DEMO_ENTRY_JOURNAL",
-        "/tmp/weex_demo_entry_v21.json"
-    )
-
-    try:
-
-        with open(
-            journal_path, "r"
-        ) as handle:
-
-            journal = json.load(handle)
-
-    except FileNotFoundError:
-
-        journal = {}
-
-    except Exception as exc:
 
         log(
-            "UNIT 12 JOURNAL ERROR =",
-            type(exc).__name__
+            "UNIT 12 WEEX ORDER ID =",
+            order_id
         )
 
         return finish(
-            "DIAGNOSTIC_FAILED",
-            "JOURNAL_READ_FAILED"
+            "DEMO_SUBMITTED",
+            "WEEX_ORDER_ACCEPTED"
         )
 
-    if not isinstance(journal, dict):
+    finally:
 
-        return finish(
-            "DIAGNOSTIC_FAILED",
-            "JOURNAL_NOT_OBJECT"
+        fcntl.flock(
+            lock.fileno(),
+            fcntl.LOCK_UN
         )
 
-    prior_state = str(
-        journal.get("status", "")
-    ).upper()
-
-    prior_order_id = str(
-        journal.get("order_id") or ""
-    )
-
-    prior_client_id = str(
-        journal.get("client_order_id") or ""
-    )
-
-    log(
-        "UNIT 12 PRIOR JOURNAL STATUS =",
-        prior_state or "EMPTY"
-    )
-
-    unresolved = prior_state in (
-        "POST_STARTED",
-        "POST_UNKNOWN",
-        "POST_ACCEPTED",
-    )
-
-    journal_ok = False
-
-    if unresolved:
-
-        matches = []
-
-        for order in orders:
-
-            exchange_id = str(
-                order.get("orderId") or ""
-            )
-
-            exchange_client_id = str(
-                order.get("clientOrderId")
-                or order.get("newClientOrderId")
-                or ""
-            )
-
-            if (
-                prior_order_id
-                and prior_order_id == exchange_id
-            ) or (
-                prior_client_id
-                and prior_client_id
-                == exchange_client_id
-            ):
-
-                matches.append(order)
-
-        if len(matches) == 1:
-
-            matched_state = str(
-                matches[0].get("status", "")
-            ).upper()
-
-            journal_ok = (
-                matched_state in terminal_states
-            )
-
-            result[
-                "reconciliation_status"
-            ] = (
-                "MATCHED_" + matched_state
-            )
-
-        elif len(matches) == 0:
-
-            result[
-                "reconciliation_status"
-            ] = "PREVIOUS_ORDER_NOT_FOUND"
-
-        else:
-
-            result[
-                "reconciliation_status"
-            ] = "MULTIPLE_MATCHES"
-
-    elif prior_state in (
-        "",
-        "RECONCILED",
-        "COOLDOWN",
-    ):
-
-        journal_ok = True
-
-        result[
-            "reconciliation_status"
-        ] = "NO_UNRESOLVED_JOURNAL"
-
-    else:
-
-        result[
-            "reconciliation_status"
-        ] = "UNKNOWN_JOURNAL_STATE"
-
-    result[
-        "journal_reconciled"
-    ] = journal_ok
-
-    check(
-        "JOURNAL_RECONCILIATION",
-        journal_ok,
-        result["reconciliation_status"]
-    )
-
-    # ========================================================
-    # 14. FINAL GET-ONLY DIAGNOSTIC SUMMARY
-    # ========================================================
-
-    result[
-        "diagnostics_completed"
-    ] = True
-
-    result[
-        "diagnostics_passed"
-    ] = all(
-        diagnostic_checks.values()
-    )
-
-    log(
-        "UNIT 12 AUTHORITATIVE "
-        "OPEN ORDERS VERIFIED = False"
-    )
-
-    log(
-        "UNIT 12 DEMO LEVERAGE "
-        "SCOPE VERIFIED = False"
-    )
-
-    log(
-        "UNIT 12 JOURNAL MODIFICATION = NONE"
-    )
-
-    log(
-        "UNIT 12 POST REQUEST = NONE"
-    )
-
-    if not result[
-        "diagnostics_passed"
-    ]:
-
-        return finish(
-            "DIAGNOSTIC_FAILED",
-            "ONE_OR_MORE_CHECKS_FAILED"
-        )
-
-    # Preserve actual Unit 11 IDLE.
-    # Do not turn the synthetic test
-    # into a qualifying trade.
-
-    if not actual_ready:
-
-        return finish(
-            "IDLE",
-            "STANDALONE_DIAGNOSTIC_PASS"
-        )
-
-    return finish(
-        "DIAGNOSTIC_PASS",
-        "REAL_READY_GET_TEST_PASSED"
-    )
+        lock.close()
 
 
 # ============================================================
@@ -11776,12 +12398,13 @@ def fresh_reconstruction_unit_12(
 FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
     fresh_reconstruction_unit_12(
         FRESH_RECONSTRUCTION_CONFIG,
-        FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_11_RESULT
     )
 )
 
 
 # ============================================================
-# END UNIT 12 - HYBRID ADJUSTABLE V2.5
+# END UNIT 12 - HYBRID ADJUSTABLE V2.6
 # ZERO INDENTATION
 # ============================================================
+
