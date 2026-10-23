@@ -12568,8 +12568,8 @@ def fresh_reconstruction_unit_13(
         and qty_step > 0
         and min_qty > 0
         and price_step > 0
-        and 0.1 <= trailing_min <= trailing_ref
-        <= trailing_max <= 0.4
+        and Decimal("0.1") <= trailing_min <= trailing_ref
+        <= trailing_max <= Decimal("0.4")
     ):
         raise RuntimeError(
             "UNIT13_TP_CONTRACT_INVALID"
