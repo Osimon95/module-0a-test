@@ -16702,3 +16702,657 @@ FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
 # END COMPLETE UNIT 14D REPLACEMENT
 # ZERO INDENTATION
 # ============================================================
+
+
+
+# ============================================================
+# START COMPLETE UNIT 14E
+# ZERO INDENTATION
+#
+# ADAPTED FROM ORIGINAL 22524-LINE MODEL
+#
+# DYNAMIC TP3 TRAILING:
+# REFERENCE = 0.20%
+# MINIMUM   = 0.10%
+# MAXIMUM   = 0.40%
+#
+# ORIGINAL COMPONENTS:
+# ATR CONTRIBUTION         = MIN(ATR%, 0.30) * 0.25
+# TREND CONTRIBUTION       = TREND STRENGTH * 0.08
+# MOMENTUM DETERIORATION   = DETERIORATION * 0.12
+#
+# UNIT 14E:
+# - PRESERVES TP3 CALCULATION
+# - TRACKS BEST FAVORABLE MARK WITHIN THIS PROCESS
+# - COORDINATES WITH UNIT 13 AND UNIT 14D
+# - NEVER SUBMITS AN ORDER
+# - DOES NOT ALTER BOT_MODE
+# ============================================================
+
+
+def fresh_unit_14e_dynamic_tp3(
+    config,
+    unit_14d_result,
+    unit_13_result
+):
+
+    from decimal import Decimal
+    from datetime import datetime, timezone
+
+    def log(*values):
+        print(*values, flush=True)
+
+    def D(value):
+        if value is None or isinstance(value, bool):
+            raise ValueError("INVALID_DECIMAL")
+        number = Decimal(str(value))
+        if not number.is_finite():
+            raise ValueError("NONFINITE_DECIMAL")
+        return number
+
+    def clamp(value, low, high):
+        return max(low, min(value, high))
+
+    log("=" * 72)
+    log(
+        datetime.now(timezone.utc).isoformat(),
+        "UNIT 14E ORIGINAL DYNAMIC TP3 START"
+    )
+
+    log("UNIT 14E BOT_MODE DEPENDENCY = NONE")
+    log("UNIT 14E EXCHANGE WRITE = NONE")
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT14E_CONFIG_INVALID")
+
+    if not isinstance(unit_14d_result, dict):
+        raise RuntimeError("UNIT14E_14D_INVALID")
+
+    if not isinstance(unit_13_result, dict):
+        raise RuntimeError("UNIT14E_13_INVALID")
+
+    if unit_14d_result.get("subunit") != "14D":
+        raise RuntimeError("UNIT14E_REQUIRES_14D")
+
+    strategy = config.get("strategy", {})
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError("UNIT14E_STRATEGY_INVALID")
+
+    reference = D(
+        strategy.get(
+            "tp3_trailing_reference_percent",
+            unit_13_result.get(
+                "tp3_trailing_reference_percent",
+                "0.20"
+            )
+        )
+    )
+
+    minimum_callback = D(
+        strategy.get(
+            "tp3_trailing_min_percent",
+            unit_13_result.get(
+                "tp3_trailing_min_percent",
+                "0.10"
+            )
+        )
+    )
+
+    maximum_callback = D(
+        strategy.get(
+            "tp3_trailing_max_percent",
+            unit_13_result.get(
+                "tp3_trailing_max_percent",
+                "0.40"
+            )
+        )
+    )
+
+    if not (
+        Decimal("0") < minimum_callback
+        <= reference <= maximum_callback
+        and minimum_callback == Decimal("0.10")
+        and maximum_callback == Decimal("0.40")
+    ):
+        raise RuntimeError(
+            "UNIT14E_TRAILING_CONFIGURATION_INVALID"
+        )
+
+    # ========================================================
+    # ORIGINAL DYNAMIC CALLBACK FORMULA
+    # ========================================================
+
+    def calculate_dynamic_callback(
+        atr_percent,
+        trend_strength,
+        deterioration
+    ):
+
+        atr_percent = max(
+            Decimal("0"),
+            D(atr_percent)
+        )
+
+        trend_strength = clamp(
+            D(trend_strength),
+            Decimal("0"),
+            Decimal("1")
+        )
+
+        deterioration = clamp(
+            D(deterioration),
+            Decimal("0"),
+            Decimal("1")
+        )
+
+        volatility_adjustment = (
+            min(atr_percent, Decimal("0.30"))
+            * Decimal("0.25")
+        )
+
+        trend_adjustment = (
+            trend_strength * Decimal("0.08")
+        )
+
+        deterioration_adjustment = (
+            deterioration * Decimal("0.12")
+        )
+
+        calculated = (
+            reference
+            + volatility_adjustment
+            + trend_adjustment
+            - deterioration_adjustment
+        )
+
+        return clamp(
+            calculated,
+            minimum_callback,
+            maximum_callback
+        )
+
+    # ========================================================
+    # INTERNAL FORMULA TESTS
+    # ========================================================
+
+    tests = {
+        "REFERENCE": reference == Decimal("0.20"),
+        "MINIMUM": minimum_callback == Decimal("0.10"),
+        "MAXIMUM": maximum_callback == Decimal("0.40"),
+        "HEALTHY": (
+            calculate_dynamic_callback(0, 0, 0)
+            == reference
+        ),
+        "TREND_WIDENS": (
+            calculate_dynamic_callback(0, 1, 0)
+            > reference
+        ),
+        "VOLATILITY_WIDENS": (
+            calculate_dynamic_callback(0.30, 0, 0)
+            > reference
+        ),
+        "DETERIORATION_TIGHTENS": (
+            calculate_dynamic_callback(0, 0, 1)
+            <= reference
+        ),
+        "CLAMP": (
+            minimum_callback
+            <= calculate_dynamic_callback(
+                10, 10, 0
+            )
+            <= maximum_callback
+        ),
+    }
+
+    for name, passed in tests.items():
+        log(
+            "UNIT 14E CHECK",
+            name,
+            "=",
+            "PASS" if passed else "FAIL"
+        )
+
+    if not all(tests.values()):
+        raise RuntimeError("UNIT14E_SELF_TEST_FAILED")
+
+    log("PASS: UNIT 14E SELF TEST = 8/8")
+
+    result = dict(unit_14d_result)
+
+    result.update({
+        "subunit": "14E",
+        "revision": "ORIGINAL_DYNAMIC_TP3_V1",
+        "status": "STARTING",
+        "skip_reason": "NONE",
+
+        "tp3_reference_percent": str(reference),
+        "tp3_min_percent": str(minimum_callback),
+        "tp3_max_percent": str(maximum_callback),
+
+        "tp3_armed": False,
+        "tp3_best_mark": None,
+        "tp3_current_mark": None,
+        "tp3_dynamic_callback_percent": None,
+        "tp3_trailing_trigger": None,
+        "tp3_callback_reached": False,
+
+        "tp3_close_authorized": False,
+        "tp3_close_attempted": False,
+        "tp3_close_confirmed": False,
+
+        "backup_order_unresolved": False,
+        "exchange_write": False,
+        "next_subunit": "14F",
+    })
+
+    def finish(status, reason):
+
+        result["status"] = status
+        result["skip_reason"] = reason
+
+        log("-" * 72)
+        log("UNIT 14E STATUS =", status)
+        log("UNIT 14E REASON =", reason)
+
+        log(
+            "UNIT 14E TP3 ARMED =",
+            result["tp3_armed"]
+        )
+
+        log(
+            "UNIT 14E DYNAMIC CALLBACK =",
+            result["tp3_dynamic_callback_percent"]
+        )
+
+        log(
+            "UNIT 14E BEST MARK =",
+            result["tp3_best_mark"]
+        )
+
+        log(
+            "UNIT 14E TRAILING TRIGGER =",
+            result["tp3_trailing_trigger"]
+        )
+
+        log(
+            "UNIT 14E CALLBACK REACHED =",
+            result["tp3_callback_reached"]
+        )
+
+        log(
+            "UNIT 14E CLOSE AUTHORIZED = False"
+        )
+
+        log(
+            "UNIT 14E EXCHANGE WRITE = False"
+        )
+
+        log(
+            "UNIT 14E ORIGINAL DYNAMIC TP3 RESULT =",
+            status
+        )
+
+        log("=" * 72)
+
+        return result
+
+    # ========================================================
+    # UNIT 14D BACKUP COORDINATION
+    # ========================================================
+
+    blocking_14d_statuses = {
+        "BACKUP_SUBMITTED_AWAITING_FILL",
+        "BACKUP_SUBMISSION_UNCERTAIN",
+        "BACKUP_SUBMISSION_UNCONFIRMED",
+        "RECONCILIATION_WAIT",
+    }
+
+    backup_status = str(
+        unit_14d_result.get("status", "")
+    ).upper()
+
+    result["backup_order_unresolved"] = (
+        backup_status in blocking_14d_statuses
+        or bool(
+            unit_14d_result.get(
+                "backup_execution_attempted",
+                False
+            )
+        )
+    )
+
+    # ========================================================
+    # UNIT 13 TP3 HANDOVER
+    # ========================================================
+
+    if not unit_14d_result.get(
+        "demo_position_verified",
+        False
+    ):
+        return finish(
+            "BLOCKED",
+            "POSITION_NOT_VERIFIED"
+        )
+
+    if not unit_14d_result.get(
+        "active_position_exists",
+        False
+    ):
+        return finish(
+            "IDLE_NO_POSITION",
+            "NO_ACTIVE_DEMO_POSITION"
+        )
+
+    if result["backup_order_unresolved"]:
+        return finish(
+            "WAITING_BACKUP_RECONCILIATION",
+            "BACKUP_ORDER_UNRESOLVED"
+        )
+
+    side = str(
+        unit_14d_result.get(
+            "position_side", ""
+        )
+    ).upper()
+
+    if side not in ("LONG", "SHORT"):
+        return finish(
+            "BLOCKED",
+            "POSITION_SIDE_INVALID"
+        )
+
+    tp3_armed = (
+        unit_13_result.get("tp3_armed") is True
+    )
+
+    result["tp3_armed"] = tp3_armed
+
+    if not tp3_armed:
+        return finish(
+            "TP3_NOT_ARMED",
+            "AWAITING_UNIT13_TP_CONFIRMATION"
+        )
+
+    # ========================================================
+    # MARKET INPUTS
+    #
+    # THESE MUST BE FRESH VERIFIED INPUTS,
+    # NOT INVENTED CONSTANTS.
+    #
+    # UNIT 14F WILL CONNECT THE ORIGINAL
+    # MARKET-CANDLE ANALYSIS PROVIDER.
+    # ========================================================
+
+    analysis = unit_14d_result.get(
+        "tp3_market_analysis"
+    )
+
+    mark_raw = unit_14d_result.get(
+        "tp3_current_mark"
+    )
+
+    if not isinstance(analysis, dict):
+        return finish(
+            "AWAITING_MARKET_ANALYSIS",
+            "ATR_TREND_MOMENTUM_NOT_AVAILABLE"
+        )
+
+    if mark_raw is None:
+        return finish(
+            "AWAITING_MARKET_MARK",
+            "CURRENT_MARK_NOT_AVAILABLE"
+        )
+
+    try:
+
+        mark = D(mark_raw)
+
+        atr_percent = D(
+            analysis["atr_percent"]
+        )
+
+        trend_strength = D(
+            analysis["trend_strength"]
+        )
+
+        earlier_move = D(
+            analysis["earlier_move"]
+        )
+
+        recent_move = D(
+            analysis["recent_move"]
+        )
+
+        if mark <= 0:
+            raise ValueError("INVALID_MARK")
+
+        if side == "LONG":
+
+            earlier_favorable = max(
+                earlier_move,
+                Decimal("0")
+            )
+
+            recent_favorable = max(
+                recent_move,
+                Decimal("0")
+            )
+
+            if recent_move < 0:
+                deterioration = Decimal("1")
+
+            elif earlier_favorable > 0:
+                deterioration = (
+                    Decimal("1")
+                    - min(
+                        recent_favorable
+                        / earlier_favorable,
+                        Decimal("1")
+                    )
+                )
+
+            else:
+                deterioration = Decimal("0")
+
+        else:
+
+            earlier_favorable = max(
+                -earlier_move,
+                Decimal("0")
+            )
+
+            recent_favorable = max(
+                -recent_move,
+                Decimal("0")
+            )
+
+            if recent_move > 0:
+                deterioration = Decimal("1")
+
+            elif earlier_favorable > 0:
+                deterioration = (
+                    Decimal("1")
+                    - min(
+                        recent_favorable
+                        / earlier_favorable,
+                        Decimal("1")
+                    )
+                )
+
+            else:
+                deterioration = Decimal("0")
+
+        callback = calculate_dynamic_callback(
+            atr_percent,
+            trend_strength,
+            deterioration
+        )
+
+    except Exception as exc:
+
+        log(
+            "UNIT 14E MARKET VALIDATION ERROR =",
+            type(exc).__name__
+        )
+
+        return finish(
+            "BLOCKED",
+            "MARKET_ANALYSIS_INVALID"
+        )
+
+    # ========================================================
+    # BEST FAVORABLE MARK
+    #
+    # IN-PROCESS MEMORY ONLY.
+    # RESTART DOES NOT CERTIFY A HISTORICAL PEAK.
+    # ========================================================
+
+    global FRESH_UNIT14E_TRAIL_MEMORY
+
+    if not isinstance(
+        globals().get(
+            "FRESH_UNIT14E_TRAIL_MEMORY"
+        ),
+        dict
+    ):
+        FRESH_UNIT14E_TRAIL_MEMORY = {}
+
+    memory = FRESH_UNIT14E_TRAIL_MEMORY
+
+    identity = (
+        "BTCSUSDT|"
+        + side
+        + "|"
+        + str(
+            unit_14d_result.get(
+                "position_size", ""
+            )
+        )
+    )
+
+    if memory.get("identity") != identity:
+
+        memory.clear()
+
+        memory.update({
+            "identity": identity,
+            "best_mark": str(mark),
+            "observations": 1,
+        })
+
+    else:
+
+        previous_best = D(
+            memory["best_mark"]
+        )
+
+        if side == "LONG":
+            best = max(previous_best, mark)
+        else:
+            best = min(previous_best, mark)
+
+        memory["best_mark"] = str(best)
+
+        memory["observations"] = int(
+            memory.get("observations", 0)
+        ) + 1
+
+    best_mark = D(
+        memory["best_mark"]
+    )
+
+    callback_fraction = (
+        callback / Decimal("100")
+    )
+
+    if side == "LONG":
+
+        trigger = (
+            best_mark
+            * (
+                Decimal("1")
+                - callback_fraction
+            )
+        )
+
+        reached = mark <= trigger
+
+    else:
+
+        trigger = (
+            best_mark
+            * (
+                Decimal("1")
+                + callback_fraction
+            )
+        )
+
+        reached = mark >= trigger
+
+    result.update({
+        "tp3_current_mark": str(mark),
+        "tp3_best_mark": str(best_mark),
+        "tp3_dynamic_callback_percent": str(
+            callback
+        ),
+        "tp3_trailing_trigger": str(trigger),
+        "tp3_callback_reached": reached,
+        "tp3_memory_observations": memory[
+            "observations"
+        ],
+    })
+
+    log(
+        "UNIT 14E ATR PERCENT =",
+        atr_percent
+    )
+
+    log(
+        "UNIT 14E TREND STRENGTH =",
+        trend_strength
+    )
+
+    log(
+        "UNIT 14E MOMENTUM DETERIORATION =",
+        deterioration
+    )
+
+    # No TP3 order is authorized in 14E.
+    # Unit 14F must reconcile position and history.
+
+    if reached:
+
+        return finish(
+            "TP3_CALLBACK_REACHED",
+            "AWAITING_UNIT14F_EXECUTION_CHECKS"
+        )
+
+    return finish(
+        "TP3_TRAILING_ACTIVE",
+        "TRAILING_TRIGGER_NOT_REACHED"
+    )
+
+
+# ============================================================
+# EXECUTE UNIT 14E
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_14D_RESULT = (
+    FRESH_RECONSTRUCTION_UNIT_14_RESULT
+)
+
+FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
+    fresh_unit_14e_dynamic_tp3(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_14D_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_13_RESULT
+    )
+)
+
+
+# ============================================================
+# END COMPLETE UNIT 14E
+# ZERO INDENTATION
+# ============================================================
