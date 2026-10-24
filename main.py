@@ -12410,879 +12410,510 @@ FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
 
 
 
+
 # ============================================================
 # START COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 13
-# HYBRID ADJUSTABLE V2 - ORIGINAL EXECUTABLE ADAPTATION
-# ZERO INDENTATION
-#
-# SOURCE: ORIGINAL 22524-LINE WORKING MAIN.PY
-#
-# PRESERVED:
-# - INDEPENDENT EXISTING POSITION MANAGEMENT
-# - WEEX DEMO POSITION GET
-# - TP1 / TP2 EXECUTABLE MARKET CLOSE
-# - STEP-AWARE 10 / 20 / 70 ALLOCATION
-# - FEE-AWARE NET ROI TARGETS
-# - DYNAMIC TP3 HANDOFF TO UNIT 14
-#
-# TARGETED IMPROVEMENTS:
-# - CORRECT POST-ORDER VARIABLE NAMES
-# - NEVER EQUATE ACCEPTANCE WITH FILL
-# - PREVENT DUPLICATE TP SUBMISSIONS
-# - USE LEVERAGE FROM DEMO POSITION
-# - PRESERVE EXCHANGE RESPONSE HANDOVER
-#
-# BOT_MODE IS NOT USED IN UNIT 13.
-# BOT_MODE BELONGS STRICTLY TO UNIT 12.
-#
-# DEMO TRADING ONLY. NO REAL CASH ORDERS.
+# ZERO INDENTATION - DEMO TP EXECUTION + AUTO RECONCILIATION
+# BOT_MODE ONLY CONTROLS UNIT 12; NOT USED HERE
 # ============================================================
 
-
 def fresh_reconstruction_unit_13(config, unit_12_result):
-
     import os
+    import re
     import json
     import time
     import hmac
     import base64
     import hashlib
+    import tempfile
+    import fcntl
+    import urllib.parse
     import urllib.request
     import urllib.error
-    import fcntl
-
     from decimal import Decimal, ROUND_DOWN, ROUND_UP
-    from datetime import datetime, timezone
 
-    def log(*parts):
-        print(*parts, flush=True)
+    def log(*args):
+        print(*args, flush=True)
 
-    def D(value):
-        if isinstance(value, bool):
-            raise ValueError("BOOLEAN_VALUE_INVALID")
-        number = Decimal(str(value))
-        if not number.is_finite():
-            raise ValueError("NONFINITE_VALUE")
-        return number
+    def dec(value):
+        if isinstance(value, bool) or value is None:
+            raise ValueError('INVALID_DECIMAL')
+        d = Decimal(str(value))
+        if not d.is_finite():
+            raise ValueError('NONFINITE_DECIMAL')
+        return d
 
-    def iso_now():
-        return datetime.now(timezone.utc).isoformat()
+    def down(value, step):
+        return (dec(value) / step).to_integral_value(
+            rounding=ROUND_DOWN
+        ) * step
 
-    log("=" * 80)
-    log(iso_now(), "UNIT 13 HYBRID ADJUSTABLE V2 START")
+    def up(value, step):
+        return (dec(value) / step).to_integral_value(
+            rounding=ROUND_UP
+        ) * step
 
-    # ========================================================
-    # 1. ORIGINAL CONFIGURATION CONTRACT
-    # ========================================================
+    log('=' * 72)
+    log('UNIT 13 HYBRID ADJUSTABLE V3 AUTO RECONCILIATION START')
+    log('UNIT 13 BOT_MODE DEPENDENCY = NONE')
 
-    if not isinstance(config, dict):
-        raise RuntimeError("UNIT13_CONFIG_INVALID")
+    if not isinstance(config, dict) or not isinstance(
+        unit_12_result, dict
+    ):
+        raise RuntimeError('UNIT13_INPUT_CONTRACT_INVALID')
 
-    if not isinstance(unit_12_result, dict):
-        raise RuntimeError("UNIT13_UNIT12_RESULT_INVALID")
-
-    upstream = str(
-        unit_12_result.get("status", "UNKNOWN")
-    ).upper()
-
-    log("PASS: UNIT 13 RECEIVED UNIT 12 RESULT")
-    log("UNIT 13 RECEIVED UNIT 12 STATUS =", upstream)
-    log("PASS: UNIT 13 MANAGEMENT INDEPENDENT OF NEW SIGNAL")
-    log("UNIT 13 BOT_MODE DEPENDENCY = NONE")
-
-    strategy = config.get("strategy", {})
-    exchange = config.get("exchange", {})
-    precision = config.get("market_precision", {})
-    safety = config.get("safety", {})
+    exchange = config.get('exchange', {})
+    strategy = config.get('strategy', {})
+    precision = config.get('market_precision', {})
+    safety = config.get('safety', {})
 
     if not all(
         isinstance(x, dict)
-        for x in (strategy, exchange, precision, safety)
+        for x in (exchange, strategy, precision, safety)
     ):
-        raise RuntimeError("UNIT13_CONFIG_SECTIONS_INVALID")
+        raise RuntimeError('UNIT13_CONFIG_INVALID')
 
     if not (
-        config.get("execution_environment") == "DEMO"
-        and exchange.get("demo_order_symbol") == "BTCSUSDT"
-        and exchange.get("market_symbol") == "BTCUSDT"
-        and exchange.get("contract_base_url")
-        == "https://api-contract.weex.com"
+        config.get('execution_environment') == 'DEMO'
+        and exchange.get('demo_order_symbol') == 'BTCSUSDT'
+        and exchange.get('market_symbol') == 'BTCUSDT'
+        and exchange.get('contract_base_url')
+        == 'https://api-contract.weex.com'
     ):
-        raise RuntimeError("UNIT13_DEMO_SCOPE_INVALID")
+        raise RuntimeError('UNIT13_DEMO_SCOPE_INVALID')
 
-    for key in (
-        "real_order_submission_enabled",
-        "leverage_mutation_enabled",
-        "margin_mode_mutation_enabled",
-        "position_mode_mutation_enabled",
+    for name in (
+        'real_order_submission_enabled',
+        'leverage_mutation_enabled',
+        'margin_mode_mutation_enabled',
+        'position_mode_mutation_enabled'
     ):
-        if safety.get(key) is not False:
-            raise RuntimeError(
-                "UNIT13_UNSAFE_CONFIG_" + key
-            )
+        if safety.get(name) is not False:
+            raise RuntimeError('UNIT13_UNSAFE_' + name)
 
-    # ========================================================
-    # 2. ORIGINAL TP CONFIGURATION
-    # ========================================================
-
-    tp1_alloc = D(
-        strategy.get("tp1_allocation_percent", 10)
+    tp1_pct = dec(
+        strategy.get('tp1_allocation_percent', 10)
     )
-    tp2_alloc = D(
-        strategy.get("tp2_allocation_percent", 20)
+    tp2_pct = dec(
+        strategy.get('tp2_allocation_percent', 20)
     )
-    tp3_alloc = D(
-        strategy.get("tp3_allocation_percent", 70)
+    tp3_pct = dec(
+        strategy.get('tp3_allocation_percent', 70)
     )
 
-    tp1_floor = D(
-        strategy.get("tp1_net_roi_floor_percent", 5)
+    floor1 = dec(
+        strategy.get('tp1_net_roi_floor_percent', 5)
     )
-    tp2_floor = D(
-        strategy.get("tp2_net_roi_floor_percent", 10)
+    floor2 = dec(
+        strategy.get('tp2_net_roi_floor_percent', 10)
     )
 
-    separation = D(
+    fee = dec(
+        strategy.get('futures_taker_fee_percent', 0.08)
+    )
+    separation = dec(
         strategy.get(
-            "tp1_tp2_min_roi_separation_percent", 5
+            'tp1_tp2_min_roi_separation_percent', 5
         )
     )
 
-    taker_fee = D(
-        strategy.get("futures_taker_fee_percent", 0.08)
+    trail_min = dec(
+        strategy.get('tp3_trailing_min_percent', 0.1)
+    )
+    trail_ref = dec(
+        strategy.get('tp3_trailing_reference_percent', 0.2)
+    )
+    trail_max = dec(
+        strategy.get('tp3_trailing_max_percent', 0.4)
     )
 
-    trailing_reference = D(
-        strategy.get("tp3_trailing_reference_percent", 0.2)
+    step = dec(
+        precision.get('quantity_step', '0.0001')
     )
-    trailing_min = D(
-        strategy.get("tp3_trailing_min_percent", 0.1)
+    minimum = dec(
+        precision.get('minimum_quantity', '0.0001')
     )
-    trailing_max = D(
-        strategy.get("tp3_trailing_max_percent", 0.4)
-    )
-
-    quantity_step = D(
-        precision.get("quantity_step", "0.0001")
-    )
-    minimum_quantity = D(
-        precision.get("minimum_quantity", "0.0001")
-    )
-    price_step = D(
-        precision.get("price_step", "0.1")
+    price_step = dec(
+        precision.get('price_step', '0.1')
     )
 
     if not (
-        tp1_alloc == 10
-        and tp2_alloc == 20
-        and tp3_alloc == 70
-        and tp1_floor >= 5
-        and tp2_floor >= 10
-        and tp2_floor > tp1_floor
+        tp1_pct == 10
+        and tp2_pct == 20
+        and tp3_pct == 70
+        and floor1 >= 5
+        and floor2 >= 10
         and separation >= 0
-        and taker_fee >= 0
-        and quantity_step > 0
-        and minimum_quantity > 0
+        and fee >= 0
+        and step > 0
+        and minimum > 0
         and price_step > 0
-        and Decimal("0.1") <= trailing_min
-        <= trailing_reference
-        <= trailing_max <= Decimal("0.4")
+        and Decimal('0.1')
+        <= trail_min
+        <= trail_ref
+        <= trail_max
+        <= Decimal('0.4')
     ):
-        raise RuntimeError("UNIT13_TP_CONFIGURATION_INVALID")
-
-    log("PASS: UNIT 13 TP ALLOCATION = 10 / 20 / 70")
-    log("PASS: UNIT 13 TP1 NET ROI FLOOR =", tp1_floor)
-    log("PASS: UNIT 13 TP2 NET ROI FLOOR =", tp2_floor)
-    log("PASS: UNIT 13 TP3 TRAILING =",
-        trailing_min, "/", trailing_reference,
-        "/", trailing_max)
-    log("PASS: UNIT 13 EXECUTABLE DEMO TP ENGINE CONFIGURED")
-
-    # ========================================================
-    # 3. QUANTITY / PRICE HELPERS
-    # ========================================================
-
-    def quantity_down(value):
-        value = D(value)
-        if value <= 0:
-            return Decimal("0")
-        return (
-            (value / quantity_step).to_integral_value(
-                rounding=ROUND_DOWN
-            ) * quantity_step
-        )
-
-    def price_down(value):
-        return (
-            (D(value) / price_step).to_integral_value(
-                rounding=ROUND_DOWN
-            ) * price_step
-        )
-
-    def price_up(value):
-        return (
-            (D(value) / price_step).to_integral_value(
-                rounding=ROUND_UP
-            ) * price_step
-        )
-
-    def allocate_steps(total):
-        if total <= 0:
-            return (0, 0, 0)
-
-        if total == 1:
-            return (0, 0, 1)
-
-        if total == 2:
-            return (1, 0, 1)
-
-        n1 = max(
-            1, int(Decimal(total) * tp1_alloc / 100)
-        )
-        n2 = max(
-            1, int(Decimal(total) * tp2_alloc / 100)
-        )
-
-        while n1 + n2 > total - 1:
-            if n2 > 1:
-                n2 -= 1
-            elif n1 > 1:
-                n1 -= 1
-            else:
-                break
-
-        return (n1, n2, total - n1 - n2)
-
-    for count in (1, 2, 4, 10, 24):
-        a, b, c = allocate_steps(count)
-
-        if (
-            a + b + c != count
-            or min(a, b, c) < 0
-            or c < 1
-        ):
-            raise RuntimeError(
-                "UNIT13_STEP_ALLOCATION_TEST_FAILED"
-            )
-
-    log("PASS: UNIT 13 STEP-AWARE SELF TEST = 5/5")
-
-    # ========================================================
-    # 4. ORIGINAL RESULT HANDOVER
-    # ========================================================
+        raise RuntimeError('UNIT13_TP_SETTINGS_INVALID')
 
     result = {
-        "unit": 13,
-        "unit_13_revision": "HYBRID_ADJUSTABLE_V2",
-        "status": "IDLE_NO_POSITION",
-        "read_only": False,
-        "unit_12_status": upstream,
-
-        "active_position_exists": False,
-        "position_exists": False,
-        "tp_management_required": False,
-
-        "position_side": "NONE",
-        "position_size": "0",
-        "average_entry_price": None,
-        "mark_price": None,
-        "leverage": None,
-
-        "total_executable_steps": 0,
-        "tp_target_allocation": "10/20/70",
-
-        "tp1_quantity": "0",
-        "tp2_quantity": "0",
-        "tp3_quantity": "0",
-
-        "tp1_target": None,
-        "tp2_target": None,
-        "tp1_target_price": None,
-        "tp2_target_price": None,
-
-        "tp1_completed": False,
-        "tp2_completed": False,
-        "tp3_armed": False,
-
-        "tp3_trailing_percent": float(
-            trailing_reference
-        ),
-        "tp3_trailing_reference_percent": float(
-            trailing_reference
-        ),
-        "tp3_trailing_min_percent": float(
-            trailing_min
-        ),
-        "tp3_trailing_max_percent": float(
-            trailing_max
-        ),
-        "tp3_trailing_dynamic": True,
-
-        "tp_action": "NONE",
-        "tp_close_quantity": "0",
-        "tp_order_id": None,
-        "tp_execution_attempted": False,
-        "tp_execution_completed": False,
-        "tp_submission_accepted": False,
-        "tp_fill_confirmed": False,
-
-        "demo_order_executed": False,
-        "real_order": False,
-        "sl_enabled": False,
-
-        "sl_execution_attempted": False,
-        "backup_execution_attempted": False,
-        "real_submission_attempted": False,
-
-        "exchange_write": False,
-        "skip_reason": "NONE",
+        'unit': 13,
+        'unit_13_revision': 'HYBRID_ADJUSTABLE_V3',
+        'status': 'IDLE_NO_POSITION',
+        'read_only': False,
+        'unit_12_status': unit_12_result.get('status'),
+        'active_position_exists': False,
+        'position_exists': False,
+        'tp_management_required': False,
+        'position_side': 'NONE',
+        'position_size': '0',
+        'average_entry_price': None,
+        'mark_price': None,
+        'leverage': None,
+        'total_executable_steps': 0,
+        'tp_target_allocation': '10/20/70',
+        'tp1_quantity': '0',
+        'tp2_quantity': '0',
+        'tp3_quantity': '0',
+        'tp1_target': None,
+        'tp2_target': None,
+        'tp1_target_price': None,
+        'tp2_target_price': None,
+        'tp1_completed': False,
+        'tp2_completed': False,
+        'tp3_armed': False,
+        'tp3_trailing_percent': float(trail_ref),
+        'tp3_trailing_reference_percent': float(trail_ref),
+        'tp3_trailing_min_percent': float(trail_min),
+        'tp3_trailing_max_percent': float(trail_max),
+        'tp3_trailing_dynamic': True,
+        'tp_action': 'NONE',
+        'tp_close_quantity': '0',
+        'tp_order_id': None,
+        'tp_execution_attempted': False,
+        'tp_execution_completed': False,
+        'tp_submission_accepted': False,
+        'tp_fill_confirmed': False,
+        'demo_order_executed': False,
+        'real_order': False,
+        'sl_enabled': False,
+        'sl_execution_attempted': False,
+        'backup_execution_attempted': False,
+        'real_submission_attempted': False,
+        'exchange_write': False,
+        'journal_reconciled': False,
+        'reconciliation_status': 'NOT_CHECKED',
+        'skip_reason': 'NONE',
     }
 
     def finish(status, reason):
+        result['status'] = status
+        result['skip_reason'] = reason
 
-        result["status"] = status
-        result["skip_reason"] = reason
-
-        log("-" * 80)
-        log("UNIT 13 STATUS =", status)
-        log("UNIT 13 REASON =", reason)
-        log("UNIT 13 TP1 QTY =", result["tp1_quantity"])
-        log("UNIT 13 TP2 QTY =", result["tp2_quantity"])
-        log("UNIT 13 TP3 QTY =", result["tp3_quantity"])
-        log("UNIT 13 TP ACTION =", result["tp_action"])
-        log("UNIT 13 TP3 ARMED =", result["tp3_armed"])
-        log("UNIT 13 TP SUBMITTED =",
-            result["tp_execution_attempted"])
-        log("UNIT 13 TP ACCEPTED =",
-            result["tp_submission_accepted"])
-        log("UNIT 13 TP FILL CONFIRMED =",
-            result["tp_fill_confirmed"])
-        log("UNIT 13 EXCHANGE WRITE =",
-            result["exchange_write"])
+        log('UNIT 13 STATUS =', status)
+        log('UNIT 13 REASON =', reason)
+        log('UNIT 13 TP ACTION =', result['tp_action'])
         log(
-            iso_now(),
-            "UNIT 13 HYBRID ADJUSTABLE V2 RESULT =",
+            'UNIT 13 JOURNAL RECONCILED =',
+            result['journal_reconciled']
+        )
+        log(
+            'UNIT 13 RECONCILIATION =',
+            result['reconciliation_status']
+        )
+        log(
+            'UNIT 13 TP3 ARMED =',
+            result['tp3_armed']
+        )
+        log(
+            'UNIT 13 TP FILL CONFIRMED =',
+            result['tp_fill_confirmed']
+        )
+        log(
+            'UNIT 13 EXCHANGE WRITE =',
+            result['exchange_write']
+        )
+        log(
+            'UNIT 13 HYBRID ADJUSTABLE V3 RESULT =',
             status
         )
-        log("=" * 80)
+        log('=' * 72)
 
         return result
 
     # ========================================================
-    # 5. ORIGINAL SIGNED WEEX DEMO REQUESTS
+    # STEP-AWARE TP ALLOCATION
+    # ========================================================
+
+    def alloc(n):
+        if n <= 0:
+            return 0, 0, 0
+
+        if n == 1:
+            return 0, 0, 1
+
+        if n == 2:
+            return 1, 0, 1
+
+        a = max(
+            1, int(Decimal(n) * tp1_pct / 100)
+        )
+        b = max(
+            1, int(Decimal(n) * tp2_pct / 100)
+        )
+
+        while a + b > n - 1:
+            if b > 1:
+                b -= 1
+            elif a > 1:
+                a -= 1
+            else:
+                break
+
+        return a, b, n - a - b
+
+    assert all(
+        sum(alloc(n)) == n
+        and min(alloc(n)) >= 0
+        for n in (1, 2, 4, 10, 24)
+    )
+
+    log('PASS: UNIT 13 ALLOCATION SELF TEST 5/5')
+
+    # ========================================================
+    # WEEX DEMO API CONNECTION
     # ========================================================
 
     key = (
-        os.getenv("WEEX_API_KEY")
-        or os.getenv("API_KEY")
+        os.getenv('WEEX_API_KEY')
+        or os.getenv('API_KEY')
     )
     secret = (
-        os.getenv("WEEX_API_SECRET")
-        or os.getenv("API_SECRET")
+        os.getenv('WEEX_API_SECRET')
+        or os.getenv('API_SECRET')
     )
     passphrase = (
-        os.getenv("WEEX_API_PASSPHRASE")
-        or os.getenv("API_PASSPHRASE")
+        os.getenv('WEEX_API_PASSPHRASE')
+        or os.getenv('API_PASSPHRASE')
     )
 
     if not all((key, secret, passphrase)):
         return finish(
-            "BLOCKED",
-            "WEEX_CREDENTIALS_MISSING"
+            'BLOCKED',
+            'CREDENTIALS_MISSING'
         )
 
-    base = "https://api-contract.weex.com"
+    base = 'https://api-contract.weex.com'
 
-    position_path = "/capi/v3/sim/position/allPosition"
-    mark_path = "/capi/v3/market/symbolPrice"
-    close_path = "/capi/v3/sim/order"
+    position_path = '/capi/v3/sim/position/allPosition'
+    history_path = '/capi/v3/sim/order/history'
+    post_path = '/capi/v3/sim/order'
 
-    def signed_request(method, path, body=None):
+    class NoRedirect(
+        urllib.request.HTTPRedirectHandler
+    ):
+        def redirect_request(
+            self, req, fp, code,
+            msg, headers, newurl
+        ):
+            return None
 
-        if method == "GET":
-            if path != position_path or body is not None:
-                raise RuntimeError(
-                    "UNIT13_GET_ENDPOINT_NOT_ALLOWED"
+    opener = urllib.request.build_opener(
+        NoRedirect()
+    )
+
+    def signed(method, path, query=None, body=None):
+
+        if method == 'GET':
+
+            if (
+                path not in (
+                    position_path,
+                    history_path
                 )
-
-        elif method == "POST":
-            if path != close_path or not isinstance(
-                body, dict
+                or body is not None
             ):
                 raise RuntimeError(
-                    "UNIT13_POST_ENDPOINT_NOT_ALLOWED"
+                    'GET_SCOPE_INVALID'
+                )
+
+        elif method == 'POST':
+
+            if (
+                path != post_path
+                or not isinstance(body, dict)
+                or query
+            ):
+                raise RuntimeError(
+                    'POST_SCOPE_INVALID'
                 )
 
         else:
-            raise RuntimeError("UNIT13_METHOD_NOT_ALLOWED")
+            raise RuntimeError('METHOD_INVALID')
 
-        body_text = (
-            ""
+        qs = (
+            urllib.parse.urlencode(query)
+            if query
+            else ''
+        )
+
+        target = path + (
+            '?' + qs if qs else ''
+        )
+
+        payload = (
+            ''
             if body is None
             else json.dumps(
                 body,
-                separators=(",", ":"),
+                separators=(',', ':'),
                 ensure_ascii=False
             )
         )
 
-        timestamp = str(int(time.time() * 1000))
-
-        prehash = (
-            timestamp + method + path + body_text
+        timestamp = str(
+            int(time.time() * 1000)
         )
 
-        signature = base64.b64encode(
+        sig = base64.b64encode(
             hmac.new(
-                secret.encode("utf-8"),
-                prehash.encode("utf-8"),
+                secret.encode(),
+                (
+                    timestamp + method + target + payload
+                ).encode(),
                 hashlib.sha256
             ).digest()
-        ).decode("utf-8")
+        ).decode()
 
         headers = {
-            "ACCESS-KEY": key,
-            "ACCESS-SIGN": signature,
-            "ACCESS-TIMESTAMP": timestamp,
-            "ACCESS-PASSPHRASE": passphrase,
-            "Content-Type": "application/json",
+            'ACCESS-KEY': key,
+            'ACCESS-SIGN': sig,
+            'ACCESS-TIMESTAMP': timestamp,
+            'ACCESS-PASSPHRASE': passphrase,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
         }
 
-        request = urllib.request.Request(
-            base + path,
+        req = urllib.request.Request(
+            base + target,
             headers=headers,
             method=method,
             data=(
-                body_text.encode("utf-8")
-                if body is not None
-                else None
+                None
+                if body is None
+                else payload.encode()
             )
         )
 
         try:
-            with urllib.request.urlopen(
-                request, timeout=15
-            ) as response:
+            with opener.open(
+                req, timeout=15
+            ) as resp:
+                code = resp.getcode()
+                raw = resp.read(65537)
 
-                status = response.getcode()
-                raw = response.read(65537)
-
-        except urllib.error.HTTPError as exc:
-            status = exc.code
-            raw = exc.read(65537)
+        except urllib.error.HTTPError as ex:
+            code = ex.code
+            raw = ex.read(65537)
 
         if len(raw) > 65536:
             raise RuntimeError(
-                "UNIT13_RESPONSE_TOO_LARGE"
+                'API_RESPONSE_TOO_LARGE'
             )
 
-        return (
-            status,
-            json.loads(raw.decode("utf-8"))
+        return code, json.loads(
+            raw.decode()
         )
 
     # ========================================================
-    # 6. INDEPENDENT DEMO POSITION GET
+    # POSITION AND HISTORY FETCH
     # ========================================================
 
-    try:
-        position_http, positions = signed_request(
-            "GET", position_path
+    def get_positions():
+
+        http, rows = signed(
+            'GET',
+            position_path
         )
 
-    except Exception as exc:
-        log(
-            "UNIT 13 POSITION GET ERROR =",
-            type(exc).__name__
-        )
-        return finish(
-            "BLOCKED",
-            "DEMO_POSITION_GET_FAILED"
-        )
+        if (
+            http != 200
+            or not isinstance(rows, list)
+        ):
+            raise RuntimeError(
+                'DEMO_POSITION_RESPONSE_INVALID'
+            )
 
-    if position_http != 200 or not isinstance(
-        positions, list
-    ):
-        return finish(
-            "BLOCKED",
-            "DEMO_POSITION_RESPONSE_INVALID"
-        )
+        found = []
 
-    log("PASS: UNIT 13 DEMO POSITION GET")
+        for row in rows:
 
-    active = []
-
-    try:
-        for item in positions:
-
-            if not isinstance(item, dict):
-                raise ValueError("INVALID_POSITION_RECORD")
+            if not isinstance(row, dict):
+                raise ValueError(
+                    'POSITION_RECORD_INVALID'
+                )
 
             if str(
-                item.get("symbol", "")
-            ).upper() != "BTCSUSDT":
+                row.get('symbol', '')
+            ).upper() != 'BTCSUSDT':
                 continue
 
-            size = D(item.get("size", "0"))
+            size = dec(
+                row.get('size', '0')
+            )
 
             if size < 0:
-                raise ValueError("NEGATIVE_POSITION_SIZE")
+                raise ValueError('NEGATIVE_SIZE')
 
             if size > 0:
-                active.append(item)
+                found.append(row)
 
-    except Exception:
-        return finish(
-            "BLOCKED",
-            "DEMO_POSITION_PARSE_FAILED"
-        )
+        return found
 
-    if not active:
-        log("PASS: UNIT 13 NO OPEN DEMO POSITION")
-        return finish(
-            "IDLE_NO_POSITION",
-            "NO_ACTIVE_BTCSUSDT_POSITION"
-        )
+    def get_history():
 
-    if len(active) != 1:
-        return finish(
-            "BLOCKED",
-            "MULTIPLE_ACTIVE_DEMO_POSITIONS"
-        )
+        all_rows = []
 
-    # ========================================================
-    # 7. ORIGINAL POSITION FINANCIALS
-    # ========================================================
+        for page in range(20):
 
-    position = active[0]
-    side = str(position.get("side", "")).upper()
-
-    if side not in ("LONG", "SHORT"):
-        return finish(
-            "BLOCKED",
-            "DEMO_POSITION_SIDE_INVALID"
-        )
-
-    try:
-        size = D(position["size"])
-        open_value = D(position["openValue"])
-
-        cum_open = D(
-            position.get("cumOpenSize", size)
-        )
-        cum_close = D(
-            position.get("cumCloseSize", "0")
-        )
-
-        leverage = D(position["leverage"])
-
-        if not (
-            size > 0
-            and open_value > 0
-            and cum_open >= size
-            and cum_close >= 0
-            and leverage > 0
-        ):
-            raise ValueError(
-                "POSITION_FINANCIALS_INVALID"
+            code, rows = signed(
+                'GET',
+                history_path,
+                {
+                    'symbol': 'BTCSUSDT',
+                    'limit': 1000,
+                    'page': page,
+                }
             )
 
-        entry = open_value / size
-
-        if entry <= 0:
-            raise ValueError("ENTRY_INVALID")
-
-    except Exception:
-        return finish(
-            "BLOCKED",
-            "DEMO_POSITION_FINANCIALS_INVALID"
-        )
-
-    result.update({
-        "active_position_exists": True,
-        "position_exists": True,
-        "tp_management_required": True,
-        "position_side": side,
-        "position_size": str(size),
-        "average_entry_price": str(entry),
-        "leverage": str(leverage),
-    })
-
-    log("UNIT 13 DEMO POSITION SIDE =", side)
-    log("UNIT 13 DEMO POSITION SIZE =", size)
-    log("UNIT 13 ENTRY PRICE =", entry)
-    log("UNIT 13 DEMO POSITION LEVERAGE =", leverage)
-
-    # ========================================================
-    # 8. ORIGINAL STEP-AWARE TP QUANTITIES
-    # ========================================================
-
-    steps = int(
-        quantity_down(cum_open) / quantity_step
-    )
-
-    if steps < 1:
-        return finish(
-            "BLOCKED",
-            "POSITION_BELOW_MINIMUM_STEP"
-        )
-
-    n1, n2, n3 = allocate_steps(steps)
-
-    q1 = D(n1) * quantity_step
-    q2 = D(n2) * quantity_step
-    q3 = D(n3) * quantity_step
-
-    if q1 + q2 + q3 != (
-        D(steps) * quantity_step
-    ):
-        return finish(
-            "BLOCKED",
-            "TP_ALLOCATION_MISMATCH"
-        )
-
-    result.update({
-        "total_executable_steps": steps,
-        "tp1_quantity": str(q1),
-        "tp2_quantity": str(q2),
-        "tp3_quantity": str(q3),
-    })
-
-    log("UNIT 13 TOTAL EXECUTABLE STEPS =", steps)
-    log("UNIT 13 TP1 QUANTITY =", q1)
-    log("UNIT 13 TP2 QUANTITY =", q2)
-    log("UNIT 13 TP3 QUANTITY =", q3)
-
-    # ========================================================
-    # 9. ORIGINAL FEE-AWARE TP PRICES
-    # USE ACTUAL DEMO POSITION LEVERAGE
-    # ========================================================
-
-    fee_drag = taker_fee * Decimal("2") * leverage
-
-    gross_roi1 = tp1_floor + fee_drag
-    gross_roi2 = tp2_floor + fee_drag
-
-    gross_roi2 = max(
-        gross_roi2,
-        gross_roi1 + separation
-    )
-
-    move1 = gross_roi1 / leverage / 100
-    move2 = gross_roi2 / leverage / 100
-
-    if side == "LONG":
-
-        tp1 = price_up(
-            entry * (Decimal("1") + move1)
-        )
-
-        tp2 = price_up(
-            entry * (Decimal("1") + move2)
-        )
-
-        if tp2 <= tp1:
-            tp2 = tp1 + price_step
-
-        close_side = "SELL"
-
-    else:
-
-        tp1 = price_down(
-            entry * (Decimal("1") - move1)
-        )
-
-        tp2 = price_down(
-            entry * (Decimal("1") - move2)
-        )
-
-        if tp2 >= tp1:
-            tp2 = tp1 - price_step
-
-        close_side = "BUY"
-
-    if tp1 <= 0 or tp2 <= 0:
-        return finish(
-            "BLOCKED",
-            "TP_TARGET_INVALID"
-        )
-
-    result.update({
-        "tp1_target": float(tp1),
-        "tp2_target": float(tp2),
-        "tp1_target_price": str(tp1),
-        "tp2_target_price": str(tp2),
-    })
-
-    log("UNIT 13 FEE ROI DRAG =", fee_drag, "%")
-    log("UNIT 13 TP1 TARGET =", tp1)
-    log("UNIT 13 TP2 TARGET =", tp2)
-
-    # ========================================================
-    # 10. ORIGINAL PUBLIC MARKET MARK GET
-    # ========================================================
-
-    query = urllib.parse.urlencode({
-        "symbol": "BTCUSDT",
-        "priceType": "MARK",
-    })
-
-    mark_request = urllib.request.Request(
-        base + mark_path + "?" + query,
-        method="GET"
-    )
-
-    try:
-        with urllib.request.urlopen(
-            mark_request, timeout=15
-        ) as response:
-
-            raw = response.read(65537)
-
-        if len(raw) > 65536:
-            raise ValueError("MARK_RESPONSE_TOO_LARGE")
-
-        mark_json = json.loads(
-            raw.decode("utf-8")
-        )
-
-        mark = D(mark_json["price"])
-
-        if mark <= 0:
-            raise ValueError("MARK_INVALID")
-
-    except Exception as exc:
-        log(
-            "UNIT 13 MARK GET ERROR =",
-            type(exc).__name__
-        )
-        return finish(
-            "BLOCKED",
-            "PUBLIC_MARK_GET_FAILED"
-        )
-
-    result["mark_price"] = str(mark)
-
-    # ========================================================
-    # 11. ORIGINAL TP QUALIFICATION
-    # ========================================================
-
-    tp1_done = (
-        q1 == 0 or cum_close >= q1
-    )
-
-    tp2_done = (
-        tp1_done if q2 == 0
-        else cum_close >= q1 + q2
-    )
-
-    if side == "LONG":
-        tp1_reached = mark >= tp1
-        tp2_reached = mark >= tp2
-    else:
-        tp1_reached = mark <= tp1
-        tp2_reached = mark <= tp2
-
-    result["tp1_completed"] = tp1_done
-    result["tp2_completed"] = tp2_done
-
-    log("UNIT 13 CURRENT MARK =", mark)
-    log("UNIT 13 TP1 DONE =", tp1_done)
-    log("UNIT 13 TP2 DONE =", tp2_done)
-    log("UNIT 13 TP1 REACHED =", tp1_reached)
-    log("UNIT 13 TP2 REACHED =", tp2_reached)
-
-    # ========================================================
-    # 12. ORIGINAL TP ACTION PRIORITY
-    # ========================================================
-
-    action = "NONE"
-    close_quantity = Decimal("0")
-
-    if q2 > 0 and tp2_reached and not tp2_done:
-
-        outstanding = (
-            q1 + q2 - cum_close
-        )
-
-        close_quantity = quantity_down(
-            min(size, max(Decimal("0"), outstanding))
-        )
-
-        if close_quantity >= minimum_quantity:
-            action = "TP2"
-
-    elif q1 > 0 and tp1_reached and not tp1_done:
-
-        outstanding = q1 - cum_close
-
-        close_quantity = quantity_down(
-            min(size, max(Decimal("0"), outstanding))
-        )
-
-        if close_quantity >= minimum_quantity:
-            action = "TP1"
-
-    result["tp_action"] = action
-    result["tp_close_quantity"] = str(close_quantity)
-
-    if action == "NONE":
-
-        tp3_armed = (
-            tp1_done
-            and tp2_done
-            and q3 > 0
-            and size > 0
-        )
-
-        result["tp3_armed"] = tp3_armed
-
-        if tp3_armed:
-            log(
-                "PASS: UNIT 13 TP3 HANDOFF "
-                "TO UNIT 14 = READY"
-            )
-
-            return finish(
-                "TP3_ARMED",
-                "DYNAMIC_TP3_RUNTIME_REQUIRED"
-            )
-
-        return finish(
-            "MONITORING",
-            "TP_TARGET_NOT_REACHED"
+            if (
+                code != 200
+                or not isinstance(rows, list)
+                or not all(
+                    isinstance(x, dict)
+                    for x in rows
+                )
+            ):
+                raise RuntimeError(
+                    'DEMO_HISTORY_RESPONSE_INVALID'
+                )
+
+            all_rows.extend(rows)
+
+            if len(rows) < 1000:
+                return all_rows
+
+        raise RuntimeError(
+            'DEMO_HISTORY_INCOMPLETE'
         )
 
     # ========================================================
-    # 13. ORIGINAL DEMO CLOSING PAYLOAD
-    # ========================================================
-
-    quantity_text = format(
-        close_quantity, "f"
-    )
-
-    if (
-        close_quantity < minimum_quantity
-        or close_quantity > size
-        or close_quantity % quantity_step != 0
-    ):
-        return finish(
-            "BLOCKED",
-            "TP_CLOSE_QUANTITY_INVALID"
-        )
-
-    # ========================================================
-    # 14. DUPLICATE-CLOSE JOURNAL
-    #
-    # IMPROVEMENT:
-    # AT MOST ONE UNRECONCILED TP SUBMISSION.
-    # THE JOURNAL MUST BE PERSISTENT ON RENDER
-    # FOR RESTART-SAFE DEDUPLICATION.
+    # JOURNAL AND PERSISTENCE
     # ========================================================
 
     journal_path = os.getenv(
-        "WEEX_DEMO_TP_JOURNAL",
-        "/tmp/weex_demo_tp_unit13.json"
+        'WEEX_DEMO_TP_JOURNAL',
+        '/tmp/weex_demo_tp_unit13.json'
     )
 
     directory = os.path.dirname(
@@ -13291,16 +12922,59 @@ def fresh_reconstruction_unit_13(config, unit_12_result):
 
     if not os.path.isdir(directory):
         return finish(
-            "BLOCKED",
-            "TP_JOURNAL_DIRECTORY_MISSING"
+            'BLOCKED',
+            'JOURNAL_DIRECTORY_MISSING'
         )
+
+    def save_journal(record):
+
+        fd, temporary = tempfile.mkstemp(
+            dir=directory,
+            prefix='.unit13_',
+            text=True
+        )
+
+        try:
+            with os.fdopen(
+                fd, 'w'
+            ) as fh:
+
+                json.dump(
+                    record,
+                    fh,
+                    separators=(',', ':')
+                )
+
+                fh.flush()
+                os.fsync(
+                    fh.fileno()
+                )
+
+            os.replace(
+                temporary,
+                journal_path
+            )
+
+            dfd = os.open(
+                directory,
+                os.O_RDONLY
+            )
+
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
+
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
 
     lock = None
 
     try:
         lock = open(
-            journal_path + ".lock",
-            "a+"
+            journal_path + '.lock',
+            'a+'
         )
 
         fcntl.flock(
@@ -13309,304 +12983,995 @@ def fresh_reconstruction_unit_13(config, unit_12_result):
         )
 
     except Exception:
-        if lock is not None:
+        if lock:
             lock.close()
 
         return finish(
-            "BLOCKED",
-            "TP_JOURNAL_LOCK_UNAVAILABLE"
+            'BLOCKED',
+            'JOURNAL_LOCK_BUSY'
         )
 
     try:
 
         try:
-            with open(
-                journal_path, "r"
-            ) as handle:
-                previous = json.load(handle)
+            with open(journal_path) as fh:
+                journal = json.load(fh)
 
         except FileNotFoundError:
-            previous = {}
+            journal = {}
 
         except Exception:
             return finish(
-                "BLOCKED",
-                "TP_JOURNAL_READ_FAILED"
+                'BLOCKED',
+                'JOURNAL_UNREADABLE'
             )
 
-        if not isinstance(previous, dict):
+        if not isinstance(journal, dict):
             return finish(
-                "BLOCKED",
-                "TP_JOURNAL_INVALID"
+                'BLOCKED',
+                'JOURNAL_INVALID'
             )
 
-        previous_state = str(
-            previous.get("status", "")
+        try:
+            active = get_positions()
+
+        except Exception as ex:
+            log(
+                'UNIT 13 POSITION GET ERROR =',
+                type(ex).__name__
+            )
+
+            return finish(
+                'BLOCKED',
+                'DEMO_POSITION_GET_FAILED'
+            )
+
+        log('PASS: UNIT 13 DEMO POSITION GET')
+
+        if len(active) > 1:
+            return finish(
+                'BLOCKED',
+                'MULTIPLE_DEMO_POSITIONS'
+            )
+
+        # ====================================================
+        # RECONCILE ANY PREVIOUS SUBMITTED TP ORDER
+        # EVEN WHEN THE POSITION IS NOW FLAT.
+        # ====================================================
+
+        pending_states = {
+            'NEW',
+            'OPEN',
+            'PENDING',
+            'PENDING_NEW',
+            'ACCEPTED',
+            'PARTIALLY_FILLED',
+            'PARTIALLYFILLED'
+        }
+
+        terminal_states = {
+            'FILLED',
+            'CANCELED',
+            'CANCELLED',
+            'EXPIRED',
+            'REJECTED'
+        }
+
+        journal_status = str(
+            journal.get('status', '')
         ).upper()
 
-        if previous_state in (
-            "SUBMISSION_STARTED",
-            "SUBMISSION_UNKNOWN",
-            "SUBMISSION_ACCEPTED",
-        ):
+        if journal_status in {
+            'SUBMISSION_STARTED',
+            'SUBMISSION_UNKNOWN',
+            'SUBMISSION_ACCEPTED'
+        }:
 
-            previous_closed = D(
-                previous.get("baseline_closed", "0")
-            )
+            try:
+                rows = get_history()
 
-            previous_requested = D(
-                previous.get("quantity", "0")
-            )
+            except Exception as ex:
 
-            if previous_requested <= 0:
-                return finish(
-                    "BLOCKED",
-                    "PRIOR_TP_QUANTITY_INVALID"
+                log(
+                    'UNIT 13 HISTORY ERROR =',
+                    type(ex).__name__
                 )
 
-            # A position quantity change alone
-            # is insufficient to identify the
-            # exact closing order. Keep the
-            # submission blocked until exchange
-            # history reconciliation is added.
+                return finish(
+                    'RECONCILIATION_WAIT',
+                    'DEMO_HISTORY_UNAVAILABLE'
+                )
 
-            log(
-                "UNIT 13 PREVIOUS TP JOURNAL =",
-                previous_state
+            prior_id = str(
+                journal.get('order_id') or ''
             )
 
-            log(
-                "UNIT 13 PREVIOUS BASELINE CLOSED =",
-                previous_closed
+            prior_cid = str(
+                journal.get('client_order_id') or ''
             )
 
+            if not prior_id and not prior_cid:
+                return finish(
+                    'RECONCILIATION_WAIT',
+                    'JOURNAL_ORDER_IDENTIFIERS_MISSING'
+                )
+
+            matches = []
+
+            for row in rows:
+
+                if str(
+                    row.get('symbol', '')
+                ).upper() != 'BTCSUSDT':
+                    continue
+
+                rid = str(
+                    row.get('orderId') or ''
+                )
+
+                cid = str(
+                    row.get('clientOrderId')
+                    or row.get('newClientOrderId')
+                    or ''
+                )
+
+                if (
+                    prior_id and rid == prior_id
+                ) or (
+                    prior_cid and cid == prior_cid
+                ):
+                    matches.append(row)
+
+            if len(matches) != 1:
+                return finish(
+                    'RECONCILIATION_WAIT',
+                    'ORDER_NOT_UNIQUELY_FOUND'
+                )
+
+            matched = matches[0]
+
+            state = str(
+                matched.get('status', '')
+            ).upper()
+
+            result[
+                'reconciliation_status'
+            ] = state
+
+            if state in pending_states:
+                return finish(
+                    'RECONCILIATION_WAIT',
+                    'ORDER_STILL_OPEN_OR_PARTIAL'
+                )
+
+            if state not in terminal_states:
+                return finish(
+                    'RECONCILIATION_WAIT',
+                    'UNKNOWN_EXCHANGE_ORDER_STATE'
+                )
+
+            # Never assume a terminal order
+            # was fully filled.
+
+            try:
+                executed = dec(
+                    matched['executedQty']
+                )
+
+                requested = dec(
+                    journal['quantity']
+                )
+
+                original = dec(
+                    matched['origQty']
+                )
+
+                if not (
+                    Decimal('0')
+                    <= executed
+                    <= original
+                    and original == requested
+                ):
+                    raise ValueError(
+                        'EXECUTION_QUANTITY_MISMATCH'
+                    )
+
+            except Exception:
+                return finish(
+                    'RECONCILIATION_WAIT',
+                    'EXECUTED_QUANTITY_UNVERIFIED'
+                )
+
+            if (
+                state == 'FILLED'
+                and executed != requested
+            ):
+                return finish(
+                    'RECONCILIATION_WAIT',
+                    'FILLED_STATUS_QTY_MISMATCH'
+                )
+
+            # Verify the position has not
+            # changed incompatibly.
+
+            try:
+                side_j = str(
+                    journal['position_side']
+                ).upper()
+
+                prior_size = dec(
+                    journal['baseline_size']
+                )
+
+                prior_closed = dec(
+                    journal['baseline_closed']
+                )
+
+                if len(active) == 1:
+
+                    pos = active[0]
+
+                    if str(
+                        pos.get('side', '')
+                    ).upper() != side_j:
+                        raise ValueError('SIDE_CHANGED')
+
+                    current_size = dec(
+                        pos['size']
+                    )
+
+                    current_closed = dec(
+                        pos['cumCloseSize']
+                    )
+
+                    if (
+                        current_size > prior_size
+                        or current_closed
+                        < prior_closed + executed
+                    ):
+                        raise ValueError(
+                            'POSITION_NOT_RECONCILED'
+                        )
+
+                elif (
+                    executed < requested
+                    and len(active) == 0
+                ):
+                    # The position is flat;
+                    # no further close needed.
+                    pass
+
+            except Exception:
+                return finish(
+                    'RECONCILIATION_WAIT',
+                    'POSITION_NOT_RECONCILED'
+                )
+
+            journal['status'] = 'RECONCILED'
+            journal[
+                'verified_executed_qty'
+            ] = str(executed)
+
+            journal[
+                'verified_order_status'
+            ] = state
+
+            journal[
+                'reconciled_at'
+            ] = time.time()
+
+            try:
+                save_journal(journal)
+
+            except Exception:
+                return finish(
+                    'RECONCILIATION_WAIT',
+                    'JOURNAL_SAVE_FAILED'
+                )
+
+            result[
+                'journal_reconciled'
+            ] = True
+
+            result[
+                'tp_fill_confirmed'
+            ] = executed > 0
+
             log(
-                "UNIT 13 CURRENT CLOSED =",
-                cum_close
+                'PASS: UNIT 13 VERIFIED ORDER',
+                state,
+                'EXECUTED',
+                executed
             )
 
             return finish(
-                "TP_RECONCILIATION_REQUIRED",
-                "PREVIOUS_TP_ORDER_MUST_BE_VERIFIED"
+                'TP_RECONCILED',
+                'RESCAN_FOR_NEXT_TP'
             )
 
-        if previous_state not in (
-            "",
-            "RECONCILED",
+        elif journal_status in (
+            '',
+            'RECONCILED'
+        ):
+            result[
+                'journal_reconciled'
+            ] = True
+
+            result[
+                'reconciliation_status'
+            ] = 'NO_PENDING_ORDER'
+
+        else:
+            return finish(
+                'BLOCKED',
+                'UNKNOWN_JOURNAL_STATE'
+            )
+
+        # ====================================================
+        # NO OPEN POSITION
+        # ====================================================
+
+        if not active:
+
+            log(
+                'PASS: UNIT 13 NO OPEN DEMO POSITION'
+            )
+
+            return finish(
+                'IDLE_NO_POSITION',
+                'NO_ACTIVE_BTCSUSDT_POSITION'
+            )
+
+        pos = active[0]
+
+        side = str(
+            pos.get('side', '')
+        ).upper()
+
+        if side not in (
+            'LONG',
+            'SHORT'
         ):
             return finish(
-                "BLOCKED",
-                "UNKNOWN_TP_JOURNAL_STATE"
+                'BLOCKED',
+                'POSITION_SIDE_INVALID'
             )
 
-        order_id_seed = (
-            side + "|" + action + "|"
-            + str(cum_open) + "|"
-            + str(cum_close) + "|"
-            + str(close_quantity) + "|"
-            + str(int(time.time() * 1000000))
+        # ====================================================
+        # POSITION FINANCIALS
+        # ====================================================
+
+        try:
+            size = dec(
+                pos['size']
+            )
+
+            cumulative_open = dec(
+                pos.get('cumOpenSize', size)
+            )
+
+            cumulative_closed = dec(
+                pos.get('cumCloseSize', '0')
+            )
+
+            leverage = dec(
+                pos['leverage']
+            )
+
+            entry = (
+                dec(pos['openValue'])
+                / size
+            )
+
+            if not (
+                size >= minimum
+                and leverage > 0
+                and entry > 0
+                and cumulative_open >= size
+                and cumulative_closed >= 0
+            ):
+                raise ValueError(
+                    'POSITION_INVALID'
+                )
+
+        except Exception:
+            return finish(
+                'BLOCKED',
+                'POSITION_FINANCIALS_INVALID'
+            )
+
+        steps = int(
+            down(
+                cumulative_open,
+                step
+            ) / step
         )
 
-        client_id = (
-            "FR13-"
+        q1_steps, q2_steps, q3_steps = (
+            alloc(steps)
+        )
+
+        q1, q2, q3 = (
+            Decimal(n) * step
+            for n in (
+                q1_steps,
+                q2_steps,
+                q3_steps
+            )
+        )
+
+        if (
+            steps < 1
+            or q1 + q2 + q3
+            != Decimal(steps) * step
+        ):
+            return finish(
+                'BLOCKED',
+                'ALLOCATION_INVALID'
+            )
+
+        # ====================================================
+        # FEE-AWARE TP TARGETS
+        # ====================================================
+
+        fee_drag = (
+            fee
+            * Decimal('2')
+            * leverage
+        )
+
+        gross1 = floor1 + fee_drag
+
+        gross2 = max(
+            floor2 + fee_drag,
+            gross1 + separation
+        )
+
+        movement1 = (
+            gross1 / leverage / 100
+        )
+
+        movement2 = (
+            gross2 / leverage / 100
+        )
+
+        if side == 'LONG':
+
+            tp1 = up(
+                entry * (1 + movement1),
+                price_step
+            )
+
+            tp2 = max(
+                tp1 + price_step,
+                up(
+                    entry * (1 + movement2),
+                    price_step
+                )
+            )
+
+            close_side = 'SELL'
+
+        else:
+
+            tp1 = down(
+                entry * (1 - movement1),
+                price_step
+            )
+
+            tp2 = min(
+                tp1 - price_step,
+                down(
+                    entry * (1 - movement2),
+                    price_step
+                )
+            )
+
+            close_side = 'BUY'
+
+        if tp1 <= 0 or tp2 <= 0:
+            return finish(
+                'BLOCKED',
+                'TP_PRICE_INVALID'
+            )
+
+        result.update({
+            'active_position_exists': True,
+            'position_exists': True,
+            'tp_management_required': True,
+            'position_side': side,
+            'position_size': str(size),
+            'average_entry_price': str(entry),
+            'leverage': str(leverage),
+            'total_executable_steps': steps,
+            'tp1_quantity': str(q1),
+            'tp2_quantity': str(q2),
+            'tp3_quantity': str(q3),
+            'tp1_target': float(tp1),
+            'tp2_target': float(tp2),
+            'tp1_target_price': str(tp1),
+            'tp2_target_price': str(tp2),
+        })
+
+        # ====================================================
+        # PUBLIC MARK PRICE GET
+        # ====================================================
+
+        try:
+            q = urllib.parse.urlencode({
+                'symbol': 'BTCUSDT',
+                'priceType': 'MARK'
+            })
+
+            req = urllib.request.Request(
+                base
+                + '/capi/v3/market/symbolPrice?'
+                + q,
+                method='GET'
+            )
+
+            with opener.open(
+                req,
+                timeout=15
+            ) as resp:
+                raw = resp.read(65537)
+
+            if len(raw) > 65536:
+                raise ValueError(
+                    'MARK_TOO_LARGE'
+                )
+
+            mark = dec(
+                json.loads(
+                    raw.decode()
+                )['price']
+            )
+
+            if mark <= 0:
+                raise ValueError(
+                    'MARK_INVALID'
+                )
+
+        except Exception as ex:
+
+            log(
+                'UNIT 13 MARK ERROR =',
+                type(ex).__name__
+            )
+
+            return finish(
+                'BLOCKED',
+                'MARK_GET_FAILED'
+            )
+
+        result[
+            'mark_price'
+        ] = str(mark)
+
+        # ====================================================
+        # TP COMPLETION AND PRICE CONDITIONS
+        # ====================================================
+
+        tp1_done = (
+            q1 == 0
+            or cumulative_closed >= q1
+        )
+
+        tp2_done = (
+            tp1_done
+            if q2 == 0
+            else cumulative_closed
+            >= q1 + q2
+        )
+
+        result[
+            'tp1_completed'
+        ] = tp1_done
+
+        result[
+            'tp2_completed'
+        ] = tp2_done
+
+        reached1 = (
+            mark >= tp1
+            if side == 'LONG'
+            else mark <= tp1
+        )
+
+        reached2 = (
+            mark >= tp2
+            if side == 'LONG'
+            else mark <= tp2
+        )
+
+        action = 'NONE'
+        amount = Decimal('0')
+
+        if (
+            q2 > 0
+            and reached2
+            and not tp2_done
+        ):
+
+            amount = down(
+                min(
+                    size,
+                    max(
+                        Decimal('0'),
+                        q1 + q2
+                        - cumulative_closed
+                    )
+                ),
+                step
+            )
+
+            if amount >= minimum:
+                action = 'TP2'
+
+        elif (
+            q1 > 0
+            and reached1
+            and not tp1_done
+        ):
+
+            amount = down(
+                min(
+                    size,
+                    max(
+                        Decimal('0'),
+                        q1 - cumulative_closed
+                    )
+                ),
+                step
+            )
+
+            if amount >= minimum:
+                action = 'TP1'
+
+        result['tp_action'] = action
+        result[
+            'tp_close_quantity'
+        ] = str(amount)
+
+        result['tp3_armed'] = bool(
+            tp1_done
+            and tp2_done
+            and q3 > 0
+            and size > 0
+        )
+
+        log(
+            'UNIT 13 POSITION',
+            side,
+            'SIZE',
+            size,
+            'MARK',
+            mark
+        )
+
+        log(
+            'UNIT 13 TP1',
+            tp1,
+            'DONE',
+            tp1_done,
+            'TP2',
+            tp2,
+            'DONE',
+            tp2_done
+        )
+
+        if action == 'NONE':
+
+            if result['tp3_armed']:
+
+                return finish(
+                    'TP3_ARMED',
+                    'HANDOFF_TO_UNIT14'
+                )
+
+            return finish(
+                'MONITORING',
+                'AWAITING_TP_TARGET'
+            )
+
+        # ====================================================
+        # RECHECK POSITION BEFORE SUBMISSION
+        # ====================================================
+
+        try:
+            again = get_positions()
+
+            if len(again) != 1:
+                return finish(
+                    'BLOCKED',
+                    'POSITION_CHANGED_BEFORE_TP'
+                )
+
+            latest = again[0]
+
+            if (
+                str(
+                    latest.get('side', '')
+                ).upper() != side
+                or dec(
+                    latest['size']
+                ) != size
+                or dec(
+                    latest.get(
+                        'cumCloseSize',
+                        '0'
+                    )
+                ) != cumulative_closed
+            ):
+                return finish(
+                    'BLOCKED',
+                    'POSITION_CHANGED_BEFORE_TP'
+                )
+
+        except Exception:
+            return finish(
+                'BLOCKED',
+                'PREPOST_POSITION_RECHECK_FAILED'
+            )
+
+        if (
+            amount < minimum
+            or amount > size
+            or amount % step != 0
+        ):
+            return finish(
+                'BLOCKED',
+                'CLOSE_QUANTITY_INVALID'
+            )
+
+        # ====================================================
+        # CHECK DEMO HISTORY BEFORE NEW TP
+        # ====================================================
+
+        try:
+            before_rows = get_history()
+
+            pending = {
+                'NEW',
+                'OPEN',
+                'PENDING',
+                'PENDING_NEW',
+                'ACCEPTED',
+                'PARTIALLY_FILLED',
+                'PARTIALLYFILLED'
+            }
+
+            unknown = False
+
+            for row in before_rows:
+
+                if str(
+                    row.get('symbol', '')
+                ).upper() != 'BTCSUSDT':
+                    continue
+
+                state = str(
+                    row.get('status', '')
+                ).upper()
+
+                if (
+                    state in pending
+                    or state not in (
+                        pending
+                        | {
+                            'FILLED',
+                            'CANCELED',
+                            'CANCELLED',
+                            'EXPIRED',
+                            'REJECTED'
+                        }
+                    )
+                ):
+                    unknown = True
+                    break
+
+            if unknown:
+                return finish(
+                    'BLOCKED',
+                    'OPEN_OR_UNKNOWN_DEMO_ORDER'
+                )
+
+        except Exception:
+            return finish(
+                'BLOCKED',
+                'PREPOST_HISTORY_FAILED'
+            )
+
+        # ====================================================
+        # DEMO TP CLOSING PAYLOAD
+        # ====================================================
+
+        seed = (
+            f'{side}|{action}|'
+            f'{cumulative_open}|'
+            f'{cumulative_closed}|'
+            f'{amount}|{time.time_ns()}'
+        )
+
+        cid = (
+            'FR13-'
             + action
-            + "-"
+            + '-'
             + hashlib.sha256(
-                order_id_seed.encode("utf-8")
+                seed.encode()
             ).hexdigest()[:20]
         )
 
         payload = {
-            "symbol": "BTCSUSDT",
-            "side": close_side,
-            "positionSide": side,
-            "type": "MARKET",
-            "quantity": quantity_text,
-            "newClientOrderId": client_id,
+            'symbol': 'BTCSUSDT',
+            'side': close_side,
+            'positionSide': side,
+            'type': 'MARKET',
+            'quantity': format(
+                amount,
+                'f'
+            ),
+            'newClientOrderId': cid,
         }
 
-        if set(payload) != {
-            "symbol",
-            "side",
-            "positionSide",
-            "type",
-            "quantity",
-            "newClientOrderId",
-        }:
+        if not re.fullmatch(
+            r'[A-Za-z0-9_.:/-]{1,36}',
+            cid
+        ):
             return finish(
-                "BLOCKED",
-                "TP_PAYLOAD_FIELDS_INVALID"
+                'BLOCKED',
+                'CLIENT_ID_INVALID'
             )
 
-        journal_record = {
-            "status": "SUBMISSION_STARTED",
-            "timestamp": time.time(),
-            "symbol": "BTCSUSDT",
-            "position_side": side,
-            "tp_action": action,
-            "quantity": str(close_quantity),
-            "baseline_closed": str(cum_close),
-            "client_order_id": client_id,
+        new_journal = {
+            'status': 'SUBMISSION_STARTED',
+            'timestamp': time.time(),
+            'symbol': 'BTCSUSDT',
+            'position_side': side,
+            'tp_action': action,
+            'quantity': str(amount),
+            'baseline_size': str(size),
+            'baseline_closed': str(
+                cumulative_closed
+            ),
+            'client_order_id': cid,
         }
-
-        def save_journal(record):
-
-            import tempfile
-
-            fd, temp_path = tempfile.mkstemp(
-                prefix=".unit13_",
-                dir=directory,
-                text=True
-            )
-
-            try:
-                with os.fdopen(
-                    fd, "w"
-                ) as handle:
-
-                    json.dump(record, handle)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-
-                os.replace(
-                    temp_path,
-                    journal_path
-                )
-
-            finally:
-                if os.path.exists(temp_path):
-                    os.unlink(temp_path)
 
         try:
-            save_journal(journal_record)
+            save_journal(
+                new_journal
+            )
 
         except Exception:
             return finish(
-                "BLOCKED",
-                "TP_PREPOST_JOURNAL_WRITE_FAILED"
+                'BLOCKED',
+                'PREPOST_JOURNAL_FAILED'
             )
 
         # ====================================================
-        # 15. ORIGINAL EXECUTABLE DEMO POST
-        #
-        # NO BOT_MODE GATE.
-        # EXISTING POSITION ONLY.
-        # NO REAL-CASH ENDPOINT.
+        # EXECUTABLE WEEX DEMO TP ORDER
+        # NO BOT_MODE DEPENDENCY
         # ====================================================
 
-        log("UNIT 13 EXECUTION ENVIRONMENT = DEMO")
-        log("UNIT 13 TP ACTION =", action)
-        log("UNIT 13 CLOSE SIDE =", close_side)
-        log("UNIT 13 CLOSE QUANTITY =", quantity_text)
+        result[
+            'tp_execution_attempted'
+        ] = True
 
-        result["tp_execution_attempted"] = True
-        result["exchange_write"] = True
+        result[
+            'exchange_write'
+        ] = True
 
         try:
-            http, response = signed_request(
-                "POST",
-                close_path,
+            http, reply = signed(
+                'POST',
+                post_path,
                 body=payload
             )
 
-        except Exception as exc:
+        except Exception as ex:
 
-            journal_record[
-                "status"
-            ] = "SUBMISSION_UNKNOWN"
+            log(
+                'UNIT 13 TP POST ERROR =',
+                type(ex).__name__
+            )
+
+            new_journal[
+                'status'
+            ] = 'SUBMISSION_UNKNOWN'
 
             try:
-                save_journal(journal_record)
+                save_journal(
+                    new_journal
+                )
             except Exception:
                 pass
 
-            log(
-                "UNIT 13 POST ERROR =",
-                type(exc).__name__
-            )
-
             return finish(
-                "TP_SUBMISSION_UNKNOWN",
-                "VERIFY_WEEX_BEFORE_RETRY"
+                'TP_SUBMISSION_UNKNOWN',
+                'RECONCILE_BEFORE_RETRY'
             )
-
-        result["tp_http_status"] = http
-        result["tp_weex_response"] = response
 
         accepted = (
             200 <= http < 300
-            and isinstance(response, dict)
-            and response.get("success") is True
-            and bool(response.get("orderId"))
+            and isinstance(
+                reply,
+                dict
+            )
+            and reply.get('success') is True
+            and bool(
+                reply.get('orderId')
+            )
         )
 
         if not accepted:
 
-            journal_record[
-                "status"
-            ] = "SUBMISSION_UNKNOWN"
+            new_journal[
+                'status'
+            ] = 'SUBMISSION_UNKNOWN'
 
             try:
-                save_journal(journal_record)
+                save_journal(
+                    new_journal
+                )
             except Exception:
                 pass
 
             return finish(
-                "TP_SUBMISSION_UNCONFIRMED",
-                "WEEX_ACCEPTANCE_UNCONFIRMED"
+                'TP_SUBMISSION_UNCONFIRMED',
+                'RECONCILE_BEFORE_RETRY'
             )
 
         order_id = str(
-            response["orderId"]
+            reply['orderId']
         )
 
-        result["tp_order_id"] = order_id
-        result["tp_submission_accepted"] = True
-        result["demo_order_executed"] = True
+        result[
+            'tp_order_id'
+        ] = order_id
 
-        journal_record.update({
-            "status": "SUBMISSION_ACCEPTED",
-            "order_id": order_id,
-        })
+        result[
+            'tp_submission_accepted'
+        ] = True
+
+        # Submitted does not mean filled.
+        result[
+            'demo_order_executed'
+        ] = True
+
+        new_journal[
+            'status'
+        ] = 'SUBMISSION_ACCEPTED'
+
+        new_journal[
+            'order_id'
+        ] = order_id
 
         try:
-            save_journal(journal_record)
+            save_journal(
+                new_journal
+            )
 
         except Exception:
             log(
-                "WARNING: UNIT 13 ACCEPTANCE "
-                "JOURNAL WRITE FAILED"
+                'WARNING: TP ACCEPTANCE '
+                'JOURNAL SAVE FAILED'
             )
 
-        log("PASS: UNIT 13 DEMO TP ORDER ACCEPTED")
-        log("UNIT 13 DEMO TP ORDER ID =", order_id)
-
-        # ====================================================
-        # 16. FILL CONFIRMATION POLICY
-        #
-        # DO NOT MARK TP COMPLETE JUST
-        # BECAUSE THE EXCHANGE ACCEPTED IT.
-        #
-        # TP3 HANDOFF REQUIRES VERIFIED
-        # FILLS ON A SUBSEQUENT SCAN.
-        # ====================================================
-
-        result["tp_execution_completed"] = False
-        result["tp_fill_confirmed"] = False
-        result["tp3_armed"] = False
+        log(
+            'PASS: UNIT 13 TP ORDER ACCEPTED =',
+            order_id
+        )
 
         return finish(
-            "TP_SUBMITTED_AWAITING_FILL",
-            "EXCHANGE_FILL_RECONCILIATION_REQUIRED"
+            'TP_SUBMITTED_AWAITING_FILL',
+            'AUTO_RECONCILE_ON_NEXT_SCAN'
         )
 
     finally:
-
         fcntl.flock(
             lock.fileno(),
             fcntl.LOCK_UN
         )
-
         lock.close()
 
 
@@ -13618,8 +13983,12 @@ def fresh_reconstruction_unit_13(config, unit_12_result):
 FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
     fresh_reconstruction_unit_13(
         FRESH_RECONSTRUCTION_CONFIG,
-        FRESH_RECONSTRUCTION_UNIT_12_RESULT
+        FRESH_RECONSTRUCTION_UNIT_12_RESULT,
     )
 )
 
 
+# ============================================================
+# END COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 13
+# ZERO INDENTATION
+# ============================================================
