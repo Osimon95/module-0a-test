@@ -18018,6 +18018,410 @@ import traceback
 from datetime import datetime, timezone
 
 
+
+# ============================================================
+# START CONTINUOUS STRATEGY DIAGNOSTIC V1
+# ZERO INDENTATION
+#
+# ORIGINAL 22524-LINE STRATEGY PROGRESSION MONITOR
+#
+# READ ONLY
+# NO WEEX API CALLS
+# NO EXCHANGE WRITES
+# NO TRADING QUALIFICATION CHANGES
+# NO NEW BOT_MODE
+# NO FILE STORAGE
+# ============================================================
+
+
+FRESH_STRATEGY_PROGRESS_STATE = {
+    "scans": 0,
+    "candidate_scans": 0,
+    "developing_scans": 0,
+    "qualified_scans": 0,
+    "execution_ready_scans": 0,
+    "payload_ready_scans": 0,
+    "pause_blocked_scans": 0,
+    "execution_blocked_scans": 0,
+    "demo_attempt_scans": 0,
+    "demo_completed_scans": 0,
+    "unqualified_scans": 0,
+    "modes": {
+        "BREAKOUT": 0,
+        "STRUCTURE": 0,
+        "SCALP": 0,
+        "NONE": 0
+    },
+    "reasons": {}
+}
+
+
+def fresh_strategy_progress_diagnostic(
+    unit5,
+    unit9,
+    unit10,
+    unit11,
+    unit12,
+    report_every=20
+):
+
+    import os
+
+    state = FRESH_STRATEGY_PROGRESS_STATE
+
+    sources = (
+        unit5,
+        unit9,
+        unit10,
+        unit11,
+        unit12
+    )
+
+    if not all(
+        isinstance(x, dict)
+        for x in sources
+    ):
+        print(
+            "STRATEGY DIAGNOSTIC = INVALID_HANDOVER",
+            flush=True
+        )
+        return False
+
+    def text_value(source, *keys):
+
+        for key in keys:
+            value = source.get(key)
+
+            if value is not None:
+                return str(value).upper()
+
+        return "NONE"
+
+    def is_true(source, key):
+        return source.get(key) is True
+
+    def yes(value):
+        return "YES" if value else "NO"
+
+    def show(*args):
+        print(*args, flush=True)
+
+    state["scans"] += 1
+
+    scan = state["scans"]
+
+    mode = text_value(
+        unit5,
+        "candidate_mode",
+        "active_mode"
+    )
+
+    if mode not in (
+        "BREAKOUT",
+        "STRUCTURE",
+        "SCALP"
+    ):
+        mode = "NONE"
+
+    stage = text_value(
+        unit5,
+        "candidate_stage"
+    )
+
+    reason = text_value(
+        unit12,
+        "skip_reason"
+    )
+
+    if reason == "NONE":
+        reason = text_value(
+            unit10,
+            "skip_reason"
+        )
+
+    if reason == "NONE":
+        reason = text_value(
+            unit5,
+            "qualification_reason",
+            "reason"
+        )
+
+    qualified = (
+        is_true(unit10, "signal_qualified")
+    )
+
+    execution_ready = (
+        is_true(unit9, "execution_ready")
+        or (
+            qualified
+            and is_true(
+                unit10,
+                "demo_boundary_ready"
+            )
+        )
+    )
+
+    payload_ready = (
+        is_true(unit11, "payload_ready")
+        or is_true(
+            unit11,
+            "order_payload_created"
+        )
+    )
+
+    attempted = (
+        is_true(
+            unit12,
+            "demo_submission_attempted"
+        )
+    )
+
+    completed = (
+        is_true(
+            unit12,
+            "demo_submission_completed"
+        )
+    )
+
+    bot_mode = str(
+        os.getenv("BOT_MODE", "PAUSE")
+    ).strip().upper()
+
+    has_candidate = (
+        mode != "NONE"
+        and stage != "NONE"
+    )
+
+    developing = (
+        stage == "DEVELOPING"
+    )
+
+    pause_blocked = (
+        bot_mode == "PAUSE"
+        and qualified
+        and payload_ready
+    )
+
+    execution_blocked = (
+        qualified
+        and payload_ready
+        and not attempted
+        and bot_mode == "RUN"
+    )
+
+    state["modes"][mode] += 1
+
+    for name, matched in (
+        ("candidate_scans", has_candidate),
+        ("developing_scans", developing),
+        ("qualified_scans", qualified),
+        ("execution_ready_scans", execution_ready),
+        ("payload_ready_scans", payload_ready),
+        ("pause_blocked_scans", pause_blocked),
+        ("execution_blocked_scans", execution_blocked),
+        ("demo_attempt_scans", attempted),
+        ("demo_completed_scans", completed),
+        (
+            "unqualified_scans",
+            not qualified
+        )
+    ):
+
+        if matched:
+            state[name] += 1
+
+    state["reasons"][reason] = (
+        state["reasons"].get(reason, 0) + 1
+    )
+
+    # ========================================================
+    # EVERY SCAN: COMPACT PROGRESSION
+    # ========================================================
+
+    show("=" * 68)
+
+    show(
+        "STRATEGY PROGRESSION SCAN =",
+        scan
+    )
+
+    show(
+        "STRATEGY CANDIDATE MODE =",
+        mode
+    )
+
+    show(
+        "STRATEGY CANDIDATE STAGE =",
+        stage
+    )
+
+    show(
+        "STRATEGY SIGNAL QUALIFIED =",
+        yes(qualified)
+    )
+
+    show(
+        "STRATEGY EXECUTION READY =",
+        yes(execution_ready)
+    )
+
+    show(
+        "STRATEGY PAYLOAD READY =",
+        yes(payload_ready)
+    )
+
+    show(
+        "STRATEGY BOT_MODE =",
+        bot_mode
+    )
+
+    show(
+        "STRATEGY PAUSE BLOCKED =",
+        yes(pause_blocked)
+    )
+
+    show(
+        "STRATEGY EXECUTION BLOCKED =",
+        yes(execution_blocked)
+    )
+
+    show(
+        "STRATEGY DEMO ATTEMPTED =",
+        yes(attempted)
+    )
+
+    show(
+        "STRATEGY DEMO COMPLETED =",
+        yes(completed)
+    )
+
+    show(
+        "STRATEGY SKIP REASON =",
+        reason
+    )
+
+    # ========================================================
+    # PERIODIC SUMMARY
+    #
+    # ALL FIGURES COUNT SCANS, NOT UNIQUE TRADES.
+    # ========================================================
+
+    if (
+        type(report_every) is int
+        and report_every > 0
+        and scan % report_every == 0
+    ):
+
+        show("=" * 68)
+        show("CONTINUOUS STRATEGY PROGRESSION SUMMARY")
+        show("=" * 68)
+
+        show("TOTAL SCANS =", state["scans"])
+
+        show(
+            "BREAKOUT CANDIDATE SCANS =",
+            state["modes"]["BREAKOUT"]
+        )
+
+        show(
+            "STRUCTURE CANDIDATE SCANS =",
+            state["modes"]["STRUCTURE"]
+        )
+
+        show(
+            "SCALP CANDIDATE SCANS =",
+            state["modes"]["SCALP"]
+        )
+
+        show(
+            "NO CANDIDATE SCANS =",
+            state["modes"]["NONE"]
+        )
+
+        show(
+            "CANDIDATE DETECTED SCANS =",
+            state["candidate_scans"]
+        )
+
+        show(
+            "DEVELOPING SCANS =",
+            state["developing_scans"]
+        )
+
+        show(
+            "QUALIFIED SCANS =",
+            state["qualified_scans"]
+        )
+
+        show(
+            "EXECUTION READY SCANS =",
+            state["execution_ready_scans"]
+        )
+
+        show(
+            "PAYLOAD READY SCANS =",
+            state["payload_ready_scans"]
+        )
+
+        show(
+            "PAUSE BLOCKED SCANS =",
+            state["pause_blocked_scans"]
+        )
+
+        show(
+            "OTHER EXECUTION BLOCKED SCANS =",
+            state["execution_blocked_scans"]
+        )
+
+        show(
+            "DEMO SUBMISSION ATTEMPT SCANS =",
+            state["demo_attempt_scans"]
+        )
+
+        show(
+            "DEMO SUBMISSION COMPLETED SCANS =",
+            state["demo_completed_scans"]
+        )
+
+        show(
+            "UNQUALIFIED SCANS =",
+            state["unqualified_scans"]
+        )
+
+        show("-" * 68)
+
+        show("TOP SKIP REASONS:")
+
+        top_reasons = sorted(
+            state["reasons"].items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:8]
+
+        for reason_name, count in top_reasons:
+
+            show(
+                "  ",
+                reason_name,
+                "=",
+                count
+            )
+
+        show("=" * 68)
+        show(
+            "NOTE: COUNTS ARE PER SCAN,"
+            " NOT UNIQUE TRADING OPPORTUNITIES"
+        )
+        show("=" * 68)
+
+    return True
+
+
+# ============================================================
+# END CONTINUOUS STRATEGY DIAGNOSTIC V1
+# ZERO INDENTATION
+# ============================================================
+
 def fresh_original_continuous_controller():
 
     global FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
