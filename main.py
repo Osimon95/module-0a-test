@@ -17985,3 +17985,604 @@ FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
 # END COMPLETE UNIT 14F
 # ZERO INDENTATION
 # ============================================================
+
+
+
+# ============================================================
+# START ORIGINAL CONTINUOUS CYCLE RESTORATION
+# ZERO INDENTATION
+#
+# 22524-LINE MODEL BEHAVIOUR ADAPTATION
+#
+# FLAT POSITION:
+#   REFRESH UNITS 3 THROUGH 12
+#   VERIFY POSITION THROUGH UNITS 13-14F
+#
+# OPEN POSITION:
+#   REFRESH UNIT 13
+#   REFRESH UNITS 14A THROUGH 14F
+#   REPEAT AT FIVE-SECOND INTERVALS
+#
+# POSITION CLOSES:
+#   RETURN TO FRESH MARKET SCANNING
+#
+# SINGLE BOT_MODE FROM UNIT 12
+# NO SECOND SUBMISSION ENGINE
+# NO SECOND BACKUP ENGINE
+# NO SECOND TP ENGINE
+# ============================================================
+
+import os
+import time
+import traceback
+from datetime import datetime, timezone
+
+
+def fresh_original_continuous_controller():
+
+    global FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    global FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+    global FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+    global FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE
+    global FRESH_RECONSTRUCTION_SIZING_CANDIDATE
+
+    global FRESH_RECONSTRUCTION_UNIT_8_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_9_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_10_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_11_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_12_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_13_RESULT
+
+    global FRESH_RECONSTRUCTION_UNIT_14A_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_14B_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_14C_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_14D_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_14E_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_14_RESULT
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "CONTINUOUS_CONFIG_INVALID"
+        )
+
+    if (
+        config.get("execution_environment")
+        != "DEMO"
+    ):
+        raise RuntimeError(
+            "CONTINUOUS_DEMO_ONLY"
+        )
+
+    exchange = config.get("exchange", {})
+
+    if (
+        exchange.get("demo_order_symbol")
+        != "BTCSUSDT"
+        or exchange.get("contract_base_url")
+        != "https://api-contract.weex.com"
+    ):
+        raise RuntimeError(
+            "CONTINUOUS_EXCHANGE_SCOPE_INVALID"
+        )
+
+    ENTRY_SCAN_SECONDS = 30
+    POSITION_POLL_SECONDS = 5
+    ERROR_RETRY_SECONDS = 10
+
+    cycles = 0
+    entry_scans = 0
+    position_scans = 0
+    previous_active = None
+    safety_hold = False
+
+    # A failed or uncertain trading cycle is not
+    # automatically retried through submission units.
+    # Subsequent polling on a safety hold is GET-only.
+
+    def log(*parts):
+        print(*parts, flush=True)
+
+    def current_mode():
+
+        mode = str(
+            os.getenv("BOT_MODE", "PAUSE")
+        ).strip().upper()
+
+        if mode not in ("RUN", "PAUSE"):
+            raise RuntimeError(
+                "CONTINUOUS_BOT_MODE_INVALID"
+            )
+
+        return mode
+
+    def read_position():
+
+        return fresh_unit_14f_coordinator(
+            config,
+            FRESH_RECONSTRUCTION_UNIT_13_RESULT,
+            FRESH_RECONSTRUCTION_UNIT_14E_RESULT
+        )
+
+    def checked_result(name, value):
+
+        if not isinstance(value, dict):
+            raise RuntimeError(
+                name + "_RESULT_NOT_DICTIONARY"
+            )
+
+        return value
+
+    def run_market_scan():
+
+        global FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+        global FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+        global FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+        global FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE
+        global FRESH_RECONSTRUCTION_SIZING_CANDIDATE
+
+        global FRESH_RECONSTRUCTION_UNIT_8_RESULT
+        global FRESH_RECONSTRUCTION_UNIT_9_RESULT
+        global FRESH_RECONSTRUCTION_UNIT_10_RESULT
+        global FRESH_RECONSTRUCTION_UNIT_11_RESULT
+        global FRESH_RECONSTRUCTION_UNIT_12_RESULT
+
+        # ----------------------------------------------------
+        # UNIT 3: FRESH WEEX PUBLIC PRICE
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
+            fresh_reconstruction_unit_3()
+        )
+
+        # ----------------------------------------------------
+        # UNIT 4: FRESH CANDLES / ATR / EMA
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
+            fresh_reconstruction_unit_4()
+        )
+
+        # ----------------------------------------------------
+        # UNIT 5: SIGNAL CANDIDATES
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
+            fresh_reconstruction_unit_5(
+                config,
+                FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+            )
+        )
+
+        # ----------------------------------------------------
+        # UNIT 6: SIGNAL QUALIFICATION
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
+            fresh_reconstruction_unit_6(
+                config,
+                FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+                FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+            )
+        )
+
+        # ----------------------------------------------------
+        # UNIT 7: SIZING
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_SIZING_CANDIDATE = (
+            fresh_reconstruction_unit_7(
+                config,
+                FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE
+            )
+        )
+
+        # ----------------------------------------------------
+        # UNIT 8: EXCHANGE PREPARATION
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
+            fresh_reconstruction_unit_8(
+                config,
+                FRESH_RECONSTRUCTION_SIZING_CANDIDATE,
+                FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+            )
+        )
+
+        # ----------------------------------------------------
+        # UNIT 9: QUALIFICATION CONTINUITY
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_UNIT_9_RESULT = (
+            fresh_reconstruction_unit_9(
+                config,
+                FRESH_RECONSTRUCTION_UNIT_8_RESULT,
+                FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+            )
+        )
+
+        # ----------------------------------------------------
+        # UNIT 10: AUTHORIZATION HANDOVER
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_UNIT_10_RESULT = (
+            fresh_reconstruction_unit_10(
+                config,
+                FRESH_RECONSTRUCTION_UNIT_9_RESULT
+            )
+        )
+
+        # ----------------------------------------------------
+        # UNIT 11: DEMO ENTRY PAYLOAD
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
+            fresh_reconstruction_unit_11(
+                config,
+                FRESH_RECONSTRUCTION_UNIT_10_RESULT
+            )
+        )
+
+        # ----------------------------------------------------
+        # UNIT 12: EXISTING SINGLE BOT_MODE CONTROL
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
+            checked_result(
+                "UNIT12",
+                fresh_reconstruction_unit_12(
+                    config,
+                    FRESH_RECONSTRUCTION_UNIT_11_RESULT
+                )
+            )
+        )
+
+        log(
+            "CONTINUOUS UNIT 12 STATUS =",
+            FRESH_RECONSTRUCTION_UNIT_12_RESULT.get(
+                "status"
+            )
+        )
+
+    def run_position_management():
+
+        global FRESH_RECONSTRUCTION_UNIT_13_RESULT
+
+        global FRESH_RECONSTRUCTION_UNIT_14A_RESULT
+        global FRESH_RECONSTRUCTION_UNIT_14B_RESULT
+        global FRESH_RECONSTRUCTION_UNIT_14C_RESULT
+        global FRESH_RECONSTRUCTION_UNIT_14D_RESULT
+        global FRESH_RECONSTRUCTION_UNIT_14E_RESULT
+        global FRESH_RECONSTRUCTION_UNIT_14_RESULT
+
+        # ----------------------------------------------------
+        # UNIT 13: EXISTING TP1 / TP2 MECHANISM
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
+            checked_result(
+                "UNIT13",
+                fresh_reconstruction_unit_13(
+                    config,
+                    FRESH_RECONSTRUCTION_UNIT_12_RESULT
+                )
+            )
+        )
+
+        # ----------------------------------------------------
+        # UNIT 14A: POSITION MONITOR
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_UNIT_14A_RESULT = (
+            checked_result(
+                "UNIT14A",
+                fresh_tp3_runtime(
+                    config,
+                    FRESH_RECONSTRUCTION_UNIT_13_RESULT
+                )
+            )
+        )
+
+        # ----------------------------------------------------
+        # UNIT 14B: BACKUP SIZING
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_UNIT_14B_RESULT = (
+            checked_result(
+                "UNIT14B",
+                fresh_unit_14b_backup_sizing(
+                    config,
+                    FRESH_RECONSTRUCTION_UNIT_14A_RESULT
+                )
+            )
+        )
+
+        # ----------------------------------------------------
+        # UNIT 14C: LIQUIDATION TRIGGERS
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_UNIT_14C_RESULT = (
+            checked_result(
+                "UNIT14C",
+                fresh_unit_14c_liquidation_triggers(
+                    config,
+                    FRESH_RECONSTRUCTION_UNIT_14B_RESULT
+                )
+            )
+        )
+
+        # ----------------------------------------------------
+        # UNIT 14D: ORIGINAL FIVE BACKUPS
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_UNIT_14D_RESULT = (
+            checked_result(
+                "UNIT14D",
+                fresh_unit_14d_progressive_backups(
+                    config,
+                    FRESH_RECONSTRUCTION_UNIT_14C_RESULT
+                )
+            )
+        )
+
+        # ----------------------------------------------------
+        # UNIT 14E: DYNAMIC TP3
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_UNIT_14E_RESULT = (
+            checked_result(
+                "UNIT14E",
+                fresh_unit_14e_dynamic_tp3(
+                    config,
+                    FRESH_RECONSTRUCTION_UNIT_14D_RESULT,
+                    FRESH_RECONSTRUCTION_UNIT_13_RESULT
+                )
+            )
+        )
+
+        # ----------------------------------------------------
+        # UNIT 14F: FINAL POSITION VERIFICATION
+        # ----------------------------------------------------
+
+        FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
+            checked_result(
+                "UNIT14F",
+                fresh_unit_14f_coordinator(
+                    config,
+                    FRESH_RECONSTRUCTION_UNIT_13_RESULT,
+                    FRESH_RECONSTRUCTION_UNIT_14E_RESULT
+                )
+            )
+        )
+
+        log(
+            "CONTINUOUS UNIT 13 STATUS =",
+            FRESH_RECONSTRUCTION_UNIT_13_RESULT.get(
+                "status"
+            )
+        )
+
+        log(
+            "CONTINUOUS UNIT 14D STATUS =",
+            FRESH_RECONSTRUCTION_UNIT_14D_RESULT.get(
+                "status"
+            )
+        )
+
+        log(
+            "CONTINUOUS UNIT 14E STATUS =",
+            FRESH_RECONSTRUCTION_UNIT_14E_RESULT.get(
+                "status"
+            )
+        )
+
+        log(
+            "CONTINUOUS UNIT 14F STATUS =",
+            FRESH_RECONSTRUCTION_UNIT_14_RESULT.get(
+                "status"
+            )
+        )
+
+    log("=" * 80)
+    log("ORIGINAL CONTINUOUS TRADING CYCLE = ENABLED")
+    log("CONTINUOUS CONTROLLER VERSION = FINAL RESTORATION V1")
+    log("CONTINUOUS PYTHON PID =", os.getpid())
+    log("CONTINUOUS ENTRY SCAN INTERVAL =", ENTRY_SCAN_SECONDS)
+    log("CONTINUOUS POSITION POLL =", POSITION_POLL_SECONDS)
+    log("CONTINUOUS SAFETY HOLD = False")
+    log("CONTINUOUS BOT_MODE =", current_mode())
+    log("=" * 80)
+
+    while True:
+
+        cycles += 1
+
+        log("-" * 80)
+        log(
+            "CONTINUOUS CYCLE =", cycles,
+            "| PID =", os.getpid(),
+            "| UTC =", datetime.now(
+                timezone.utc
+            ).isoformat()
+        )
+
+        log(
+            "CONTINUOUS BOT_MODE =",
+            current_mode()
+        )
+
+        try:
+
+            # -----------------------------------------------
+            # ALWAYS CHECK WEEX POSITION FIRST.
+            # -----------------------------------------------
+
+            checkpoint = checked_result(
+                "POSITION_CHECKPOINT",
+                read_position()
+            )
+
+            state = str(
+                checkpoint.get("status", "")
+            ).upper()
+
+            if state not in (
+                "IDLE_NO_POSITION",
+                "POSITION_MANAGEMENT_ACTIVE"
+            ):
+
+                log(
+                    "CONTINUOUS RECONCILIATION WAIT =",
+                    state
+                )
+
+                time.sleep(ERROR_RETRY_SECONDS)
+                continue
+
+            active = (
+                state == "POSITION_MANAGEMENT_ACTIVE"
+            )
+
+            if previous_active is not None:
+
+                if previous_active and not active:
+
+                    log("=" * 80)
+                    log(
+                        "CONTINUOUS POSITION CLOSED = TRUE"
+                    )
+                    log(
+                        "CONTINUOUS RETURN TO FRESH "
+                        "MARKET SCANNING"
+                    )
+                    log("=" * 80)
+
+            previous_active = active
+
+            # -----------------------------------------------
+            # SAFETY HOLD
+            #
+            # KEEP PROCESS ALIVE, BUT DO NOT REPEAT
+            # ANY ORDER-CAPABLE UNIT AFTER UNKNOWN ERROR.
+            # -----------------------------------------------
+
+            if safety_hold:
+
+                log(
+                    "CONTINUOUS STATUS = SAFETY_HOLD"
+                )
+
+                log(
+                    "CONTINUOUS POSITION ACTIVE =",
+                    active
+                )
+
+                log(
+                    "CONTINUOUS ORDERS = SUSPENDED"
+                )
+
+                time.sleep(ERROR_RETRY_SECONDS)
+                continue
+
+            # -----------------------------------------------
+            # ACTIVE POSITION: REPEAT MANAGEMENT.
+            # NO FRESH INITIAL ENTRY.
+            # -----------------------------------------------
+
+            if active:
+
+                position_scans += 1
+
+                log(
+                    "CONTINUOUS POSITION SCAN =",
+                    position_scans
+                )
+
+                log(
+                    "CONTINUOUS NEW INITIAL ENTRY = BLOCKED"
+                )
+
+                run_position_management()
+
+                time.sleep(POSITION_POLL_SECONDS)
+                continue
+
+            # -----------------------------------------------
+            # FLAT ACCOUNT: REFRESH NEW MARKET SIGNALS.
+            # UNIT 12 ENFORCES BOT_MODE AND CHECKS.
+            # -----------------------------------------------
+
+            entry_scans += 1
+
+            log(
+                "CONTINUOUS ENTRY SCAN =",
+                entry_scans
+            )
+
+            run_market_scan()
+
+            # Unit 12 may have opened a new position.
+            # Refresh management immediately afterward.
+
+            run_position_management()
+
+            log(
+                "CONTINUOUS CYCLE COMPLETED =",
+                cycles
+            )
+
+            time.sleep(ENTRY_SCAN_SECONDS)
+
+        except KeyboardInterrupt:
+
+            log(
+                "CONTINUOUS STOP REQUESTED"
+            )
+
+            raise
+
+        except Exception as error:
+
+            log(
+                "CONTINUOUS ERROR TYPE =",
+                type(error).__name__
+            )
+
+            log(
+                "CONTINUOUS ERROR DETAILS =",
+                str(error)
+            )
+
+            traceback.print_exc()
+
+            # Fail closed. Automatic retry of potentially
+            # uncertain order submissions is not safe.
+            safety_hold = True
+
+            log(
+                "CONTINUOUS SAFETY HOLD = TRUE"
+            )
+
+            log(
+                "CONTINUOUS ORDER-CAPABLE CYCLES "
+                "= SUSPENDED"
+            )
+
+            time.sleep(ERROR_RETRY_SECONDS)
+
+
+# ============================================================
+# START CONTINUOUS CONTROLLER
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_ORIGINAL_CONTINUOUS_CONTROLLER_RESULT = (
+    fresh_original_continuous_controller()
+)
+
+
+# ============================================================
+# END ORIGINAL CONTINUOUS CYCLE RESTORATION
+# ZERO INDENTATION
+# ============================================================
