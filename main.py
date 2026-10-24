@@ -14542,3 +14542,482 @@ FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
 # END UNIT 14A - ORIGINAL POSITION MONITORING ADAPTATION
 # ZERO INDENTATION
 # ============================================================
+
+
+
+# ============================================================
+# START UNIT 14B - FIVE BACKUP SIZING AND EXPOSURE
+# ZERO INDENTATION
+#
+# ADAPTATION OF ORIGINAL 15-UNIT MODEL
+#
+# INPUT:
+#   UNIT 14A RESULT
+#   ORIGINAL UNIT 2 CONFIGURATION
+#
+# OUTPUT:
+#   UPDATED UNIT 14 RESULT
+#
+# FIVE BACKUPS:
+#   B1 = INITIAL x 1.0
+#   B2 = INITIAL x 1.5
+#   B3 = INITIAL x 2.0
+#   B4 = INITIAL x 2.5
+#   B5 = INITIAL x 3.0
+#
+# EXPOSURE CAP = 35%
+#
+# NO EXCHANGE WRITES
+# NO ORDER SUBMISSIONS
+# NO BOT_MODE DEPENDENCY
+# ============================================================
+
+
+def fresh_unit_14b_backup_sizing(
+    config,
+    unit_14a_result
+):
+
+    from decimal import Decimal, ROUND_DOWN
+
+    def log(*values):
+        print(*values, flush=True)
+
+    def D(value):
+
+        if isinstance(value, bool) or value is None:
+            raise ValueError(
+                "UNIT14B_INVALID_NUMBER"
+            )
+
+        number = Decimal(str(value))
+
+        if not number.is_finite():
+            raise ValueError(
+                "UNIT14B_NONFINITE_NUMBER"
+            )
+
+        return number
+
+    def money(value):
+
+        return str(
+            D(value).quantize(
+                Decimal("0.00000001"),
+                rounding=ROUND_DOWN
+            )
+        )
+
+    log("=" * 72)
+    log(
+        "UNIT 14B FIVE BACKUP "
+        "SIZING AND EXPOSURE START"
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT14B_CONFIG_INVALID"
+        )
+
+    if not isinstance(unit_14a_result, dict):
+        raise RuntimeError(
+            "UNIT14B_INPUT_INVALID"
+        )
+
+    if unit_14a_result.get("subunit") != "14A":
+        raise RuntimeError(
+            "UNIT14B_REQUIRES_VERIFIED_14A"
+        )
+
+    strategy = config.get("strategy", {})
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError(
+            "UNIT14B_STRATEGY_INVALID"
+        )
+
+    # ========================================================
+    # 1. CONFIGURATION
+    # ========================================================
+
+    initial_margin = D(
+        strategy.get(
+            "initial_entry_fixed_usdt",
+            strategy.get(
+                "entry_fixed_usdt",
+                "0.5"
+            )
+        )
+    )
+
+    exposure_cap = D(
+        strategy.get(
+            "maximum_exposure_percent",
+            strategy.get(
+                "max_exposure_percent",
+                "35"
+            )
+        )
+    )
+
+    multipliers = (
+        Decimal("1.0"),
+        Decimal("1.5"),
+        Decimal("2.0"),
+        Decimal("2.5"),
+        Decimal("3.0"),
+    )
+
+    if initial_margin <= 0:
+        raise RuntimeError(
+            "UNIT14B_INITIAL_MARGIN_INVALID"
+        )
+
+    if not (
+        Decimal("0")
+        < exposure_cap
+        <= Decimal("35")
+    ):
+        raise RuntimeError(
+            "UNIT14B_EXPOSURE_CAP_INVALID"
+        )
+
+    if len(multipliers) != 5:
+        raise RuntimeError(
+            "UNIT14B_BACKUP_COUNT_INVALID"
+        )
+
+    # ========================================================
+    # 2. CONSTRUCT FIVE BACKUPS
+    # ========================================================
+
+    backups = []
+
+    for index, multiplier in enumerate(
+        multipliers,
+        start=1
+    ):
+
+        margin = initial_margin * multiplier
+
+        backups.append({
+            "number": index,
+            "label": "B" + str(index),
+            "multiplier": str(multiplier),
+            "planned_margin_susdt": money(margin),
+            "actual_filled_margin_susdt": None,
+            "execution_confirmed": False,
+            "affordability_verified": False,
+            "execution_authorized": False,
+        })
+
+    backup_total = sum(
+        (
+            D(item["planned_margin_susdt"])
+            for item in backups
+        ),
+        Decimal("0")
+    )
+
+    full_ladder_margin = (
+        initial_margin + backup_total
+    )
+
+    minimum_equity_for_full_ladder = (
+        full_ladder_margin
+        / (exposure_cap / Decimal("100"))
+    )
+
+    log(
+        "UNIT 14B INITIAL MARGIN SUSDT =",
+        money(initial_margin)
+    )
+
+    for item in backups:
+
+        log(
+            "UNIT 14B",
+            item["label"],
+            "MULTIPLIER =",
+            item["multiplier"],
+            "PLANNED MARGIN =",
+            item["planned_margin_susdt"]
+        )
+
+    log(
+        "UNIT 14B BACKUP TOTAL SUSDT =",
+        money(backup_total)
+    )
+
+    log(
+        "UNIT 14B FULL LADDER MARGIN SUSDT =",
+        money(full_ladder_margin)
+    )
+
+    log(
+        "UNIT 14B EXPOSURE CAP =",
+        exposure_cap,
+        "%"
+    )
+
+    log(
+        "UNIT 14B MINIMUM EQUITY "
+        "FOR FULL LADDER SUSDT =",
+        money(minimum_equity_for_full_ladder)
+    )
+
+    # ========================================================
+    # 3. INTERNAL SIZING SELF-TESTS
+    # ========================================================
+
+    checks = {}
+
+    checks["FIVE_BACKUPS"] = (
+        len(backups) == 5
+    )
+
+    checks["MULTIPLIERS"] = tuple(
+        item["multiplier"]
+        for item in backups
+    ) == (
+        "1.0",
+        "1.5",
+        "2.0",
+        "2.5",
+        "3.0",
+    )
+
+    checks["BACKUP_TOTAL"] = (
+        backup_total
+        == initial_margin * Decimal("10")
+    )
+
+    checks["FULL_LADDER"] = (
+        full_ladder_margin
+        == initial_margin * Decimal("11")
+    )
+
+    checks["CAP"] = (
+        Decimal("0")
+        < exposure_cap
+        <= Decimal("35")
+    )
+
+    checks["INITIAL_POSITIVE"] = (
+        initial_margin > 0
+    )
+
+    for name, passed in checks.items():
+
+        log(
+            "UNIT 14B CHECK",
+            name,
+            "=",
+            "PASS" if passed else "FAIL"
+        )
+
+    if not all(checks.values()):
+        raise RuntimeError(
+            "UNIT14B_SIZING_SELF_TEST_FAILED"
+        )
+
+    log(
+        "PASS: UNIT 14B SELF TEST =",
+        str(len(checks)) + "/"
+        + str(len(checks))
+    )
+
+    # ========================================================
+    # 4. POSITION HANDOVER FROM UNIT 14A
+    # ========================================================
+
+    upstream_status = str(
+        unit_14a_result.get("status", "")
+    )
+
+    position_verified = bool(
+        unit_14a_result.get(
+            "demo_position_verified",
+            False
+        )
+    )
+
+    active_position = bool(
+        unit_14a_result.get(
+            "active_position_exists",
+            False
+        )
+    )
+
+    # NOTE:
+    # VERIFIED EQUITY, CURRENT MARGIN USAGE,
+    # RESERVED MARGIN AND FILLED BACKUP COUNT
+    # ARE NOT YET PRESENT IN UNIT 14A.
+    #
+    # THEREFORE THIS STAGE MUST NOT DECLARE
+    # ANY BACKUP EXECUTION AUTHORIZED.
+    #
+    # LIVE BALANCE / EXPOSURE RECONCILIATION
+    # WILL BE INTEGRATED BEFORE 14D EXECUTION.
+
+    verified_equity = None
+    verified_margin_usage = None
+    verified_available_balance = None
+
+    affordability_verified = False
+    execution_authorized = False
+
+    if not position_verified:
+
+        status = "BLOCKED"
+        reason = "UNIT14A_POSITION_NOT_VERIFIED"
+
+    elif not active_position:
+
+        status = "IDLE_NO_POSITION"
+        reason = "NO_ACTIVE_DEMO_POSITION"
+
+    else:
+
+        status = "BACKUP_PLAN_PREPARED"
+
+        reason = (
+            "AWAITING_VERIFIED_EQUITY_"
+            "AND_FILLED_BACKUP_HISTORY"
+        )
+
+    # ========================================================
+    # 5. ORIGINAL UNIT 14 RESULT HANDOVER
+    # ========================================================
+
+    result = dict(unit_14a_result)
+
+    result.update({
+        "subunit": "14B",
+        "revision": "FIVE_BACKUP_EXPOSURE_V1",
+
+        "status": status,
+        "skip_reason": reason,
+
+        "initial_margin_susdt": money(
+            initial_margin
+        ),
+
+        "backup_count_target": 5,
+        "backup_multipliers": (
+            1.0, 1.5, 2.0, 2.5, 3.0
+        ),
+
+        "backups": backups,
+
+        "planned_backup_margin_susdt": money(
+            backup_total
+        ),
+
+        "planned_total_margin_susdt": money(
+            full_ladder_margin
+        ),
+
+        "minimum_equity_full_ladder_susdt": money(
+            minimum_equity_for_full_ladder
+        ),
+
+        "exposure_cap_percent": float(
+            exposure_cap
+        ),
+
+        "verified_account_equity_susdt":
+            verified_equity,
+
+        "verified_margin_usage_susdt":
+            verified_margin_usage,
+
+        "verified_available_balance_susdt":
+            verified_available_balance,
+
+        "affordability_verified":
+            affordability_verified,
+
+        "backup_execution_authorized":
+            execution_authorized,
+
+        "backup_management_ready": False,
+
+        "tp3_management_ready": False,
+
+        "backup_execution_attempted": False,
+
+        "exchange_write": False,
+
+        "next_subunit": "14C",
+    })
+
+    log("-" * 72)
+
+    log(
+        "UNIT 14B UNIT 14A STATUS =",
+        upstream_status
+    )
+
+    log(
+        "UNIT 14B ACTIVE DEMO POSITION =",
+        active_position
+    )
+
+    log(
+        "UNIT 14B AFFORDABILITY VERIFIED =",
+        affordability_verified
+    )
+
+    log(
+        "UNIT 14B BACKUP EXECUTION "
+        "AUTHORIZED =",
+        execution_authorized
+    )
+
+    log(
+        "UNIT 14B STATUS =",
+        status
+    )
+
+    log(
+        "UNIT 14B REASON =",
+        reason
+    )
+
+    log(
+        "UNIT 14B EXCHANGE WRITE = False"
+    )
+
+    log(
+        "UNIT 14B FIVE BACKUP "
+        "ADAPTATION RESULT =",
+        status
+    )
+
+    log("=" * 72)
+
+    return result
+
+
+# ============================================================
+# EXECUTE UNIT 14B
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_14A_RESULT = (
+    FRESH_RECONSTRUCTION_UNIT_14_RESULT
+)
+
+FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
+    fresh_unit_14b_backup_sizing(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_14A_RESULT
+    )
+)
+
+
+# ============================================================
+# END UNIT 14B - FIVE BACKUP SIZING AND EXPOSURE
+# ZERO INDENTATION
+# ============================================================
