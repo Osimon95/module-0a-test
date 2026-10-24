@@ -18928,8 +18928,24 @@ def fresh_original_continuous_controller():
 
             # Unit 12 may have opened a new position.
             # Refresh management immediately afterward.
-
             run_position_management()
+
+            
+            # ================================================
+            # STRATEGY PROGRESSION MONITOR
+            # READ ONLY - NO TRADING CHANGES
+            # ================================================
+
+            fresh_strategy_progress_diagnostic(
+                FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE,
+                FRESH_RECONSTRUCTION_UNIT_9_RESULT,
+                FRESH_RECONSTRUCTION_UNIT_10_RESULT,
+                FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+                FRESH_RECONSTRUCTION_UNIT_12_RESULT,
+                report_every=20
+            )
+
+
 
             log(
                 "CONTINUOUS CYCLE COMPLETED =",
