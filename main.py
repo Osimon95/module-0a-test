@@ -15021,3 +15021,428 @@ FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
 # END UNIT 14B - FIVE BACKUP SIZING AND EXPOSURE
 # ZERO INDENTATION
 # ============================================================
+
+
+
+# ============================================================
+# START UNIT 14C - ORIGINAL LIQUIDATION BACKUP TRIGGERS
+# ZERO INDENTATION
+#
+# ORIGINAL 22524-LINE MODEL:
+# LONG  = LIQUIDATION * (1 + BUFFER)
+# SHORT = LIQUIDATION * (1 - BUFFER)
+#
+# CURRENT CONFIGURATION:
+# BUFFER = 0.3 PERCENT
+# BACKUPS = B1 TO B5
+#
+# IMPORTANT:
+# A NEW LIQUIDATION PRICE MUST BE READ AFTER EACH
+# CONFIRMED BACKUP FILL BEFORE CALCULATING THE NEXT.
+#
+# NO ORDERS / NO EXCHANGE WRITES
+# NO BOT_MODE DEPENDENCY
+# ============================================================
+
+
+def fresh_unit_14c_liquidation_triggers(
+    config,
+    unit_14b_result
+):
+
+    from decimal import Decimal, ROUND_DOWN, ROUND_UP
+
+    def log(*values):
+        print(*values, flush=True)
+
+    def D(value):
+
+        if value is None or isinstance(value, bool):
+            raise ValueError("UNIT14C_INVALID_NUMBER")
+
+        number = Decimal(str(value))
+
+        if not number.is_finite():
+            raise ValueError("UNIT14C_NONFINITE_NUMBER")
+
+        return number
+
+    def trigger_price(side, liquidation, buffer_pct, tick):
+
+        liquidation = D(liquidation)
+        buffer_pct = D(buffer_pct)
+        tick = D(tick)
+
+        if not (
+            side in ("LONG", "SHORT")
+            and liquidation > 0
+            and Decimal("0") < buffer_pct < Decimal("100")
+            and tick > 0
+        ):
+            raise ValueError("UNIT14C_TRIGGER_INPUT_INVALID")
+
+        buffer = buffer_pct / Decimal("100")
+
+        if side == "LONG":
+
+            raw = liquidation * (
+                Decimal("1") + buffer
+            )
+
+            rounded = (
+                raw / tick
+            ).to_integral_value(
+                rounding=ROUND_UP
+            ) * tick
+
+        else:
+
+            raw = liquidation * (
+                Decimal("1") - buffer
+            )
+
+            rounded = (
+                raw / tick
+            ).to_integral_value(
+                rounding=ROUND_DOWN
+            ) * tick
+
+        if rounded <= 0:
+            raise ValueError("UNIT14C_TRIGGER_INVALID")
+
+        return rounded
+
+    log("=" * 72)
+    log("UNIT 14C LIQUIDATION BACKUP TRIGGER START")
+    log("UNIT 14C BOT_MODE DEPENDENCY = NONE")
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT14C_CONFIG_INVALID")
+
+    if not isinstance(unit_14b_result, dict):
+        raise RuntimeError("UNIT14C_INPUT_INVALID")
+
+    if unit_14b_result.get("subunit") != "14B":
+        raise RuntimeError("UNIT14C_REQUIRES_UNIT14B")
+
+    strategy = config.get("strategy", {})
+    precision = config.get("market_precision", {})
+
+    if not (
+        isinstance(strategy, dict)
+        and isinstance(precision, dict)
+    ):
+        raise RuntimeError("UNIT14C_CONFIG_SECTION_INVALID")
+
+    buffer_pct = D(
+        strategy.get("backup_buffer_percent", "0.3")
+    )
+
+    price_tick = D(
+        precision.get("price_step", "0.1")
+    )
+
+    if not (
+        buffer_pct == Decimal("0.3")
+        and price_tick > 0
+    ):
+        raise RuntimeError("UNIT14C_TRIGGER_CONFIG_INVALID")
+
+    backups = unit_14b_result.get("backups")
+
+    if not isinstance(backups, list) or len(backups) != 5:
+        raise RuntimeError("UNIT14C_BACKUP_LADDER_INVALID")
+
+    expected_multipliers = (
+        Decimal("1"),
+        Decimal("1.5"),
+        Decimal("2"),
+        Decimal("2.5"),
+        Decimal("3"),
+    )
+
+    for index, item in enumerate(backups):
+
+        if not isinstance(item, dict):
+            raise RuntimeError("UNIT14C_BACKUP_RECORD_INVALID")
+
+        if (
+            item.get("number") != index + 1
+            or D(item.get("multiplier"))
+            != expected_multipliers[index]
+        ):
+            raise RuntimeError("UNIT14C_BACKUP_SEQUENCE_INVALID")
+
+    # ========================================================
+    # 1. ORIGINAL TRIGGER FORMULA SELF-TESTS
+    # ========================================================
+
+    sample_liq = Decimal("80000")
+
+    sample_long = trigger_price(
+        "LONG",
+        sample_liq,
+        buffer_pct,
+        price_tick
+    )
+
+    sample_short = trigger_price(
+        "SHORT",
+        sample_liq,
+        buffer_pct,
+        price_tick
+    )
+
+    tests = {
+        "LONG_FORMULA": (
+            sample_long == Decimal("80240.0")
+        ),
+        "SHORT_FORMULA": (
+            sample_short == Decimal("79760.0")
+        ),
+        "LONG_ABOVE_LIQ": (
+            sample_long > sample_liq
+        ),
+        "SHORT_BELOW_LIQ": (
+            sample_short < sample_liq
+        ),
+        "FIVE_BACKUPS": (
+            len(backups) == 5
+        ),
+        "FRESH_LIQUIDATION_REQUIRED": True,
+    }
+
+    for name, passed in tests.items():
+
+        log(
+            "UNIT 14C CHECK",
+            name,
+            "=",
+            "PASS" if passed else "FAIL"
+        )
+
+    if not all(tests.values()):
+        raise RuntimeError("UNIT14C_SELF_TEST_FAILED")
+
+    log("PASS: UNIT 14C SELF TEST = 6/6")
+
+    # ========================================================
+    # 2. PRESERVE UNIT 14B RESULT
+    # ========================================================
+
+    result = dict(unit_14b_result)
+
+    result.update({
+        "subunit": "14C",
+        "revision": "LIQUIDATION_BACKUP_V1",
+
+        "backup_buffer_percent": str(buffer_pct),
+        "backup_trigger_price": None,
+        "backup_trigger_reached": False,
+        "next_backup_number": None,
+
+        "liquidation_source": "UNIT14A_WEEX_DEMO",
+        "fresh_liquidation_required": True,
+        "liquidation_refresh_after_fill": True,
+
+        "backup_trigger_calculated": False,
+        "backup_execution_authorized": False,
+        "backup_management_ready": False,
+
+        "exchange_write": False,
+        "next_subunit": "14D",
+    })
+
+    active = bool(
+        unit_14b_result.get(
+            "active_position_exists", False
+        )
+    )
+
+    if not bool(
+        unit_14b_result.get(
+            "demo_position_verified", False
+        )
+    ):
+
+        status = "BLOCKED"
+        reason = "UNIT14A_POSITION_UNVERIFIED"
+
+    elif not active:
+
+        status = "IDLE_NO_POSITION"
+        reason = "NO_ACTIVE_DEMO_POSITION"
+
+    else:
+
+        side = str(
+            unit_14b_result.get(
+                "position_side", ""
+            )
+        ).upper()
+
+        liquidation_raw = unit_14b_result.get(
+            "liquidation_price"
+        )
+
+        if side not in ("LONG", "SHORT"):
+
+            status = "BLOCKED"
+            reason = "POSITION_DIRECTION_INVALID"
+
+        elif liquidation_raw in (
+            None, "", "0", 0
+        ):
+
+            status = "AWAITING_LIQUIDATION_PRICE"
+            reason = "EXCHANGE_LIQUIDATION_UNAVAILABLE"
+
+        else:
+
+            try:
+
+                liquidation = D(liquidation_raw)
+
+                calculated = trigger_price(
+                    side,
+                    liquidation,
+                    buffer_pct,
+                    price_tick
+                )
+
+                entry = D(
+                    unit_14b_result[
+                        "average_entry_price"
+                    ]
+                )
+
+                # A usable backup trigger must lie
+                # between the original entry and
+                # the liquidation boundary.
+                #
+                # LONG:  liquidation < trigger < entry
+                # SHORT: entry < trigger < liquidation
+
+                if side == "LONG":
+
+                    boundary_valid = (
+                        liquidation < calculated < entry
+                    )
+
+                else:
+
+                    boundary_valid = (
+                        entry < calculated < liquidation
+                    )
+
+                if not boundary_valid:
+
+                    status = "BLOCKED"
+                    reason = "TRIGGER_OUTSIDE_ENTRY_LIQ_RANGE"
+
+                else:
+
+                    result["backup_trigger_price"] = str(
+                        calculated
+                    )
+
+                    result["backup_trigger_calculated"] = True
+
+                    # This stage has no verified
+                    # filled-backup count.
+                    #
+                    # Do not guess which of B1-B5
+                    # is next and do not authorize
+                    # a submission.
+
+                    status = "TRIGGER_CALCULATED"
+                    reason = (
+                        "AWAITING_VERIFIED_FILLED_BACKUPS_"
+                        "AND_EXPOSURE"
+                    )
+
+            except Exception:
+
+                status = "BLOCKED"
+                reason = "LIQUIDATION_TRIGGER_INVALID"
+
+    result["status"] = status
+    result["skip_reason"] = reason
+
+    # ========================================================
+    # 3. OUTPUT FOR UNIT 14D
+    # ========================================================
+
+    log("-" * 72)
+
+    log(
+        "UNIT 14C POSITION SIDE =",
+        result.get("position_side")
+    )
+
+    log(
+        "UNIT 14C LIQUIDATION PRICE =",
+        result.get("liquidation_price")
+    )
+
+    log(
+        "UNIT 14C BUFFER PERCENT =",
+        buffer_pct
+    )
+
+    log(
+        "UNIT 14C BACKUP TRIGGER =",
+        result["backup_trigger_price"]
+    )
+
+    log(
+        "UNIT 14C NEXT BACKUP =",
+        result["next_backup_number"]
+    )
+
+    log(
+        "UNIT 14C FRESH LIQUIDATION AFTER FILL =",
+        result["liquidation_refresh_after_fill"]
+    )
+
+    log(
+        "UNIT 14C EXECUTION AUTHORIZED =",
+        result["backup_execution_authorized"]
+    )
+
+    log("UNIT 14C STATUS =", status)
+    log("UNIT 14C REASON =", reason)
+    log("UNIT 14C EXCHANGE WRITE = False")
+
+    log(
+        "UNIT 14C LIQUIDATION TRIGGER RESULT =",
+        status
+    )
+
+    log("=" * 72)
+
+    return result
+
+
+# ============================================================
+# EXECUTE UNIT 14C
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_14B_RESULT = (
+    FRESH_RECONSTRUCTION_UNIT_14_RESULT
+)
+
+FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
+    fresh_unit_14c_liquidation_triggers(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_14B_RESULT
+    )
+)
+
+
+# ============================================================
+# END UNIT 14C - ORIGINAL LIQUIDATION BACKUP TRIGGERS
+# ZERO INDENTATION
+# ============================================================
+
