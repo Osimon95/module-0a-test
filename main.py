@@ -13992,3 +13992,553 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 # END COMPLETE REPLACEMENT - FRESH RECONSTRUCTION UNIT 13
 # ZERO INDENTATION
 # ============================================================
+
+
+
+# ============================================================
+# START UNIT 14A - ORIGINAL POSITION MONITORING ADAPTATION
+# ZERO INDENTATION
+#
+# REFERENCE: ORIGINAL 22524-LINE MAIN.PY
+# ORIGINAL FUNCTION: fresh_tp3_runtime
+#
+# STAGE 14A:
+# 1. PRESERVE ORIGINAL FUNCTION INTERFACE
+# 2. READ WEEX DEMO POSITION INDEPENDENTLY
+# 3. VALIDATE POSITION SIDE, SIZE AND LEVERAGE
+# 4. PRESERVE UNIT 13 HANDOVER
+# 5. PREPARE INPUT FOR UNITS 14B-14F
+#
+# EXCHANGE WRITE: NONE
+# BOT_MODE DEPENDENCY: NONE
+# NO CONTINUOUS LOOP AT THIS STAGE
+# ============================================================
+
+
+def fresh_tp3_runtime(config, unit_13_result):
+
+    import os
+    import json
+    import time
+    import hmac
+    import base64
+    import hashlib
+    import urllib.request
+    import urllib.error
+
+    from decimal import Decimal
+    from datetime import datetime, timezone
+
+    def log(*values):
+        print(*values, flush=True)
+
+    def decimal_value(value):
+
+        if value is None or isinstance(value, bool):
+            raise ValueError("INVALID_DECIMAL")
+
+        number = Decimal(str(value))
+
+        if not number.is_finite():
+            raise ValueError("NONFINITE_DECIMAL")
+
+        return number
+
+    log("=" * 72)
+    log(
+        datetime.now(timezone.utc).isoformat(),
+        "UNIT 14A ORIGINAL DEMO POSITION MONITOR START"
+    )
+
+    log("UNIT 14A BOT_MODE DEPENDENCY = NONE")
+    log("UNIT 14A EXCHANGE WRITE = NONE")
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT14A_CONFIG_INVALID"
+        )
+
+    if not isinstance(unit_13_result, dict):
+        raise RuntimeError(
+            "UNIT14A_UNIT13_RESULT_INVALID"
+        )
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+    strategy = config.get("strategy", {})
+
+    if not all(
+        isinstance(item, dict)
+        for item in (exchange, safety, strategy)
+    ):
+        raise RuntimeError(
+            "UNIT14A_CONFIG_SECTION_INVALID"
+        )
+
+    if not (
+        config.get("execution_environment") == "DEMO"
+        and exchange.get("demo_order_symbol") == "BTCSUSDT"
+        and exchange.get("market_symbol") == "BTCUSDT"
+        and exchange.get("contract_base_url")
+        == "https://api-contract.weex.com"
+    ):
+        raise RuntimeError(
+            "UNIT14A_DEMO_SCOPE_INVALID"
+        )
+
+    for setting in (
+        "real_order_submission_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled"
+    ):
+
+        if safety.get(setting) is not False:
+            raise RuntimeError(
+                "UNIT14A_UNSAFE_SETTING_" + setting
+            )
+
+    result = {
+        "unit": 14,
+        "subunit": "14A",
+        "revision": "ORIGINAL_POSITION_MONITOR_V1",
+
+        "status": "NOT_STARTED",
+        "skip_reason": "NONE",
+
+        "unit_13_status": str(
+            unit_13_result.get("status", "UNKNOWN")
+        ),
+
+        "unit_13_tp3_armed": bool(
+            unit_13_result.get("tp3_armed", False)
+        ),
+
+        "active_position_exists": False,
+        "position_exists": False,
+
+        "position_side": "NONE",
+        "position_size": "0",
+        "average_entry_price": None,
+        "leverage": None,
+
+        "liquidation_price": None,
+        "cumulative_open_size": None,
+        "cumulative_close_size": None,
+
+        "demo_position_verified": False,
+        "multiple_positions_detected": False,
+
+        "backup_count_target": 5,
+        "backup_multipliers": (
+            1.0, 1.5, 2.0, 2.5, 3.0
+        ),
+        "exposure_cap_percent": 35.0,
+
+        "backup_management_ready": False,
+        "tp3_management_ready": False,
+
+        "backup_execution_attempted": False,
+        "tp3_execution_attempted": False,
+
+        "demo_order_executed": False,
+        "real_order": False,
+        "exchange_write": False,
+
+        "next_subunit": "14B",
+    }
+
+    def finish(status, reason):
+
+        result["status"] = status
+        result["skip_reason"] = reason
+
+        log("-" * 72)
+        log("UNIT 14A STATUS =", status)
+        log("UNIT 14A REASON =", reason)
+
+        log(
+            "UNIT 14A UNIT 13 STATUS =",
+            result["unit_13_status"]
+        )
+
+        log(
+            "UNIT 14A POSITION VERIFIED =",
+            result["demo_position_verified"]
+        )
+
+        log(
+            "UNIT 14A POSITION SIDE =",
+            result["position_side"]
+        )
+
+        log(
+            "UNIT 14A POSITION SIZE =",
+            result["position_size"]
+        )
+
+        log(
+            "UNIT 14A TP3 ARM FROM UNIT 13 =",
+            result["unit_13_tp3_armed"]
+        )
+
+        log(
+            "UNIT 14A BACKUP TARGET =",
+            result["backup_count_target"]
+        )
+
+        log(
+            "UNIT 14A BACKUP MULTIPLIERS =",
+            result["backup_multipliers"]
+        )
+
+        log(
+            "UNIT 14A EXPOSURE CAP =",
+            result["exposure_cap_percent"]
+        )
+
+        log("UNIT 14A EXCHANGE WRITE = False")
+
+        log(
+            "UNIT 14A ORIGINAL ADAPTATION RESULT =",
+            status
+        )
+
+        log("=" * 72)
+
+        return result
+
+    # ========================================================
+    # ORIGINAL WEEX DEMO CREDENTIALS
+    # ========================================================
+
+    api_key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    api_secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    api_phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all(
+        (api_key, api_secret, api_phrase)
+    ):
+        return finish(
+            "BLOCKED",
+            "WEEX_CREDENTIALS_MISSING"
+        )
+
+    # ========================================================
+    # ORIGINAL AUTHENTICATED WEEX DEMO POSITION GET
+    # ========================================================
+
+    base_url = "https://api-contract.weex.com"
+
+    position_path = (
+        "/capi/v3/sim/position/allPosition"
+    )
+
+    timestamp = str(int(time.time() * 1000))
+
+    signature_input = (
+        timestamp
+        + "GET"
+        + position_path
+    )
+
+    signature = base64.b64encode(
+        hmac.new(
+            api_secret.encode("utf-8"),
+            signature_input.encode("utf-8"),
+            hashlib.sha256
+        ).digest()
+    ).decode("utf-8")
+
+    headers = {
+        "ACCESS-KEY": api_key,
+        "ACCESS-SIGN": signature,
+        "ACCESS-TIMESTAMP": timestamp,
+        "ACCESS-PASSPHRASE": api_phrase,
+        "Content-Type": "application/json",
+    }
+
+    request = urllib.request.Request(
+        base_url + position_path,
+        headers=headers,
+        method="GET"
+    )
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15
+        ) as response:
+
+            http_status = response.getcode()
+            raw = response.read(65537)
+
+        if len(raw) > 65536:
+            raise RuntimeError(
+                "POSITION_RESPONSE_TOO_LARGE"
+            )
+
+        positions = json.loads(
+            raw.decode("utf-8")
+        )
+
+        if (
+            http_status != 200
+            or not isinstance(positions, list)
+        ):
+            raise RuntimeError(
+                "DEMO_POSITION_RESPONSE_INVALID"
+            )
+
+    except Exception as exc:
+
+        log(
+            "UNIT 14A POSITION GET ERROR =",
+            type(exc).__name__
+        )
+
+        return finish(
+            "BLOCKED",
+            "DEMO_POSITION_GET_FAILED"
+        )
+
+    log("PASS: UNIT 14A WEEX DEMO POSITION GET")
+
+    # ========================================================
+    # ORIGINAL ACTIVE POSITION FILTER
+    # ========================================================
+
+    active = []
+
+    try:
+
+        for record in positions:
+
+            if not isinstance(record, dict):
+                raise ValueError(
+                    "INVALID_POSITION_RECORD"
+                )
+
+            symbol = str(
+                record.get("symbol", "")
+            ).upper()
+
+            if symbol != "BTCSUSDT":
+                continue
+
+            size = decimal_value(
+                record.get("size", "0")
+            )
+
+            if size < 0:
+                raise ValueError(
+                    "NEGATIVE_POSITION_SIZE"
+                )
+
+            if size > 0:
+                active.append(record)
+
+    except Exception:
+
+        return finish(
+            "BLOCKED",
+            "DEMO_POSITION_PARSE_FAILED"
+        )
+
+    result["demo_position_verified"] = True
+
+    if not active:
+
+        log(
+            "PASS: UNIT 14A NO OPEN DEMO POSITION"
+        )
+
+        return finish(
+            "IDLE_NO_POSITION",
+            "NO_ACTIVE_BTCSUSDT_POSITION"
+        )
+
+    if len(active) != 1:
+
+        result[
+            "multiple_positions_detected"
+        ] = True
+
+        return finish(
+            "BLOCKED",
+            "MULTIPLE_ACTIVE_DEMO_POSITIONS"
+        )
+
+    # ========================================================
+    # EXISTING POSITION DETAILS FOR UNIT 14B
+    # ========================================================
+
+    position = active[0]
+
+    try:
+
+        side = str(
+            position.get("side", "")
+        ).upper()
+
+        size = decimal_value(
+            position["size"]
+        )
+
+        leverage = decimal_value(
+            position["leverage"]
+        )
+
+        open_value = decimal_value(
+            position["openValue"]
+        )
+
+        cumulative_open = decimal_value(
+            position.get("cumOpenSize", size)
+        )
+
+        cumulative_close = decimal_value(
+            position.get("cumCloseSize", "0")
+        )
+
+        if not (
+            side in ("LONG", "SHORT")
+            and size > 0
+            and leverage > 0
+            and open_value > 0
+            and cumulative_open >= size
+            and cumulative_close >= 0
+        ):
+            raise ValueError(
+                "POSITION_FINANCIALS_INVALID"
+            )
+
+        entry_price = open_value / size
+
+        liquidation_raw = position.get(
+            "liquidationPrice",
+            position.get("liqPrice")
+        )
+
+        liquidation_price = None
+
+        if liquidation_raw not in (
+            None, "", "0", 0
+        ):
+
+            liquidation_value = decimal_value(
+                liquidation_raw
+            )
+
+            if liquidation_value > 0:
+                liquidation_price = str(
+                    liquidation_value
+                )
+
+    except Exception as exc:
+
+        log(
+            "UNIT 14A POSITION VALIDATION =",
+            type(exc).__name__
+        )
+
+        return finish(
+            "BLOCKED",
+            "POSITION_FINANCIALS_INVALID"
+        )
+
+    result.update({
+        "active_position_exists": True,
+        "position_exists": True,
+        "position_side": side,
+        "position_size": str(size),
+
+        "average_entry_price": str(
+            entry_price
+        ),
+
+        "leverage": str(leverage),
+
+        "liquidation_price": liquidation_price,
+
+        "cumulative_open_size": str(
+            cumulative_open
+        ),
+
+        "cumulative_close_size": str(
+            cumulative_close
+        ),
+
+        "backup_management_ready": False,
+        "tp3_management_ready": False,
+    })
+
+    log(
+        "PASS: UNIT 14A ACTIVE DEMO POSITION FOUND"
+    )
+
+    log(
+        "UNIT 14A ENTRY PRICE =",
+        entry_price
+    )
+
+    log(
+        "UNIT 14A LEVERAGE =",
+        leverage
+    )
+
+    log(
+        "UNIT 14A LIQUIDATION PRICE =",
+        liquidation_price
+    )
+
+    log(
+        "UNIT 14A CUMULATIVE OPEN =",
+        cumulative_open
+    )
+
+    log(
+        "UNIT 14A CUMULATIVE CLOSE =",
+        cumulative_close
+    )
+
+    log(
+        "UNIT 14A POSITION MANAGEMENT = "
+        "AWAITING SUBUNITS 14B-14F"
+    )
+
+    return finish(
+        "POSITION_VERIFIED",
+        "READY_FOR_BACKUP_AND_TP3_CALCULATIONS"
+    )
+
+
+# ============================================================
+# EXECUTE UNIT 14A
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
+    fresh_tp3_runtime(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_13_RESULT
+    )
+)
+
+
+# ============================================================
+# END UNIT 14A - ORIGINAL POSITION MONITORING ADAPTATION
+# ZERO INDENTATION
+# ============================================================
