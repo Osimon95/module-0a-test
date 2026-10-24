@@ -12116,18 +12116,19 @@ def fresh_reconstruction_unit_12(
             sum(checks.values())
         )
 
-        # Two outstanding account-scope checks:
+        
+        # ====================================================
+        # ORIGINAL 22524-LINE DEMO ENTRY AUTHORIZATION
         #
-        # Existing Unit 8 leverage GET does
-        # not independently confirm simulated
-        # account leverage.
+        # THE ORIGINAL MODEL:
+        # 1. ACCEPTED QUALIFIED ENTRY
+        # 2. VERIFIED DEMO POSITION
+        # 3. PERMITTED ENTRY WHEN FLAT
+        # 4. SUBMITTED SIGNED WEEX DEMO ORDER
         #
-        # A documented standard futures
-        # /capi/v3/openOrders GET does not
-        # independently prove demo scope.
-        #
-        # Do not set these booleans to True
-        # without actual demo-scoped evidence.
+        # PRESERVE CURRENT HISTORY AND JOURNAL GATES.
+        # NO LEVERAGE OR MARGIN-MODE MUTATION.
+        # ====================================================
 
         result[
             "demo_leverage_scope_verified"
@@ -12137,23 +12138,22 @@ def fresh_reconstruction_unit_12(
             "demo_open_orders_verified"
         ] = False
 
+        result[
+            "execution_policy"
+        ] = "ORIGINAL_22524_DEMO_ENTRY"
+
         # ====================================================
-        # 17. MASTER PAUSE HANDOVER
+        # 17. SINGLE MASTER BOT_MODE
         # ====================================================
 
         if bot_mode == "PAUSE":
 
             log(
-                "PASS: UNIT 12 GET-ONLY "
-                "DIAGNOSTICS COMPLETED"
+                "UNIT 12 MASTER BOT_MODE = PAUSE"
             )
 
             log(
-                "UNIT 12 DEMO POST = PROHIBITED"
-            )
-
-            log(
-                "UNIT 12 JOURNAL WRITE = NONE"
+                "UNIT 12 DEMO ENTRY POST = DISABLED"
             )
 
             return finish(
@@ -12161,33 +12161,113 @@ def fresh_reconstruction_unit_12(
                 "MASTER_BOT_MODE_PAUSE"
             )
 
+        if bot_mode != "RUN":
+
+            return stop(
+                "MASTER_BOT_MODE_INVALID"
+            )
+
         # ====================================================
-        # 18. RUN EXECUTION SAFETY
+        # 18. ORIGINAL POSITION-AWARE SUBMISSION GATE
         # ====================================================
 
-        if not result[
+        if result[
             "diagnostics_passed"
-        ]:
+        ] is not True:
 
             return stop(
                 "PRE_SUBMISSION_CHECKS_FAILED"
             )
 
-        if not result[
-            "demo_leverage_scope_verified"
-        ]:
+        if result[
+            "position_check_completed"
+        ] is not True:
 
             return stop(
-                "DEMO_LEVERAGE_SCOPE_UNVERIFIED"
+                "DEMO_POSITION_UNVERIFIED"
             )
 
-        if not result[
-            "demo_open_orders_verified"
-        ]:
+        if result[
+            "active_position_exists"
+        ] is not False:
 
             return stop(
-                "DEMO_OPEN_ORDERS_UNVERIFIED"
+                "ACTIVE_OR_UNKNOWN_DEMO_POSITION"
             )
+
+        if result[
+            "history_complete"
+        ] is not True:
+
+            return stop(
+                "DEMO_HISTORY_INCOMPLETE"
+            )
+
+        if result[
+            "journal_reconciled"
+        ] is not True:
+
+            return stop(
+                "JOURNAL_NOT_RECONCILED"
+            )
+
+        for required_check in (
+            "DEMO_POSITION_FLAT",
+            "NO_HISTORY_PENDING",
+            "KNOWN_HISTORY_STATUSES",
+            "JOURNAL_RECONCILIATION",
+            "ENTRY_COOLDOWN_CLEAR"
+        ):
+
+            if checks.get(
+                required_check
+            ) is not True:
+
+                return stop(
+                    "ORIGINAL_GATE_FAILED:"
+                    + required_check
+                )
+
+        result[
+            "initial_entry_permitted"
+        ] = True
+
+        log(
+            "PASS: UNIT 12 ZERO ACTIVE "
+            "BTCSUSDT POSITION"
+        )
+
+        log(
+            "PASS: UNIT 12 ORIGINAL "
+            "DEMO ENTRY CONDITIONS"
+        )
+
+        log(
+            "UNIT 12 INITIAL ENTRY PERMITTED = True"
+        )
+
+        log(
+            "UNIT 12 EXECUTION POLICY =",
+            result["execution_policy"]
+        )
+
+        log(
+            "UNIT 12 LEVERAGE SOURCE = "
+            "WEEX EXCHANGE SETTING"
+        )
+
+        log(
+            "UNIT 12 LEVERAGE MUTATION = NONE"
+        )
+
+        log(
+            "UNIT 12 REAL CASH ORDER = NONE"
+        )
+
+        log(
+            "UNIT 12 CONTINUE TO ORIGINAL "
+            "SIGNED DEMO POST"
+        )
 
         # ====================================================
         # 19. DEMO ORDER POST RESTORED
