@@ -14507,9 +14507,13 @@ def fresh_tp3_runtime(config, unit_13_result):
 
         entry_price = open_value / size
 
+        
         liquidation_raw = position.get(
-            "liquidationPrice",
-            position.get("liqPrice")
+            "liquidatePrice",
+            position.get(
+                "liquidationPrice",
+                position.get("liqPrice")
+            )
         )
 
         liquidation_price = None
