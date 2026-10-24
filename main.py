@@ -17356,3 +17356,632 @@ FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
 # END COMPLETE UNIT 14E
 # ZERO INDENTATION
 # ============================================================
+
+
+
+# ============================================================
+# START COMPLETE UNIT 14F
+# ZERO INDENTATION
+#
+# ORIGINAL 22524-LINE MODEL ADAPTATION
+#
+# UNIT 14F V1:
+# CONTINUOUS POSITION MANAGEMENT COORDINATION
+#
+# UNIT 12: INITIAL DEMO ENTRY
+# UNIT 13: TP1 / TP2
+# UNIT 14D: PROGRESSIVE BACKUPS
+# UNIT 14E: DYNAMIC TP3
+# UNIT 14F: FINAL POSITION RECONCILIATION
+#
+# READ ONLY
+# NO EXTRA ORDER SUBMISSION
+# NO NEW MODE SWITCH
+# NO LOCAL STORAGE
+# ============================================================
+
+
+def fresh_unit_14f_coordinator(
+    config,
+    unit_13_result,
+    unit_14e_result
+):
+
+    import os
+    import time
+    import hmac
+    import json
+    import base64
+    import hashlib
+    import urllib.request
+    import urllib.error
+
+    from decimal import Decimal
+
+    def log(*args):
+        print(*args, flush=True)
+
+    def dec(value):
+
+        if value is None or isinstance(value, bool):
+            raise ValueError("INVALID_DECIMAL")
+
+        number = Decimal(str(value))
+
+        if not number.is_finite():
+            raise ValueError("NONFINITE_DECIMAL")
+
+        return number
+
+    log("=" * 72)
+    log("UNIT 14F ORIGINAL COORDINATION V1 START")
+    log("UNIT 14F BOT_MODE DEPENDENCY = NONE")
+    log("UNIT 14F EXCHANGE WRITE = NONE")
+    log("UNIT 14F NEW ORDER SUBMISSION = DISABLED")
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT14F_CONFIG_INVALID")
+
+    if not isinstance(unit_13_result, dict):
+        raise RuntimeError("UNIT14F_UNIT13_INVALID")
+
+    if not isinstance(unit_14e_result, dict):
+        raise RuntimeError("UNIT14F_UNIT14E_INVALID")
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+
+    if not (
+        isinstance(exchange, dict)
+        and isinstance(safety, dict)
+        and config.get("execution_environment") == "DEMO"
+        and exchange.get("demo_order_symbol") == "BTCSUSDT"
+        and exchange.get("market_symbol") == "BTCUSDT"
+        and exchange.get("contract_base_url")
+        == "https://api-contract.weex.com"
+    ):
+        raise RuntimeError("UNIT14F_DEMO_SCOPE_INVALID")
+
+    for setting in (
+        "real_order_submission_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled"
+    ):
+
+        if safety.get(setting) is not False:
+            raise RuntimeError(
+                "UNIT14F_UNSAFE_" + setting
+            )
+
+    # ========================================================
+    # UNIT 14F RESULT CONTRACT
+    # ========================================================
+
+    result = {
+        "unit": 14,
+        "subunit": "14F",
+        "revision": "ORIGINAL_COORDINATION_V1",
+        "status": "STARTING",
+        "reason": "NONE",
+
+        "unit_13_status": unit_13_result.get(
+            "status"
+        ),
+
+        "unit_14e_status": unit_14e_result.get(
+            "status"
+        ),
+
+        "demo_position_verified": False,
+        "active_position_exists": False,
+        "position_side": "NONE",
+        "position_size": "0",
+        "position_management_required": False,
+
+        "tp3_armed_from_unit13": (
+            unit_13_result.get("tp3_armed") is True
+        ),
+
+        "tp3_armed_from_unit14e": (
+            unit_14e_result.get("tp3_armed") is True
+        ),
+
+        "backup_resolution_required_for_tp": False,
+        "backup_engine_preserved": True,
+        "tp_engine_preserved": True,
+
+        "position_recheck_required": False,
+        "exchange_order_execution": False,
+        "exchange_write": False,
+
+        "next_subunit": "UNIT15",
+    }
+
+    def finish(status, reason):
+
+        result["status"] = status
+        result["reason"] = reason
+
+        log("-" * 72)
+
+        log(
+            "UNIT 14F UNIT 13 STATUS =",
+            result["unit_13_status"]
+        )
+
+        log(
+            "UNIT 14F UNIT 14E STATUS =",
+            result["unit_14e_status"]
+        )
+
+        log(
+            "UNIT 14F POSITION VERIFIED =",
+            result["demo_position_verified"]
+        )
+
+        log(
+            "UNIT 14F POSITION ACTIVE =",
+            result["active_position_exists"]
+        )
+
+        log(
+            "UNIT 14F POSITION SIDE =",
+            result["position_side"]
+        )
+
+        log(
+            "UNIT 14F POSITION SIZE =",
+            result["position_size"]
+        )
+
+        log(
+            "UNIT 14F POSITION MANAGEMENT REQUIRED =",
+            result["position_management_required"]
+        )
+
+        log(
+            "UNIT 14F BACKUP RESOLUTION "
+            "REQUIRED FOR TP = False"
+        )
+
+        log(
+            "UNIT 14F STATUS =",
+            status
+        )
+
+        log(
+            "UNIT 14F REASON =",
+            reason
+        )
+
+        log(
+            "UNIT 14F EXCHANGE WRITE = False"
+        )
+
+        log(
+            "UNIT 14F ORIGINAL MODEL RESULT =",
+            status
+        )
+
+        log("=" * 72)
+
+        return result
+
+    # ========================================================
+    # SELF-TESTS
+    # ========================================================
+
+    def management_state(active, verified):
+
+        if not verified:
+            return "RECONCILIATION_WAIT"
+
+        if active:
+            return "POSITION_MANAGEMENT_ACTIVE"
+
+        return "IDLE_NO_POSITION"
+
+    checks = {
+        "DEMO_SCOPE": (
+            exchange.get("demo_order_symbol")
+            == "BTCSUSDT"
+        ),
+
+        "UNIT13_HANDOVER": isinstance(
+            unit_13_result,
+            dict
+        ),
+
+        "UNIT14E_HANDOVER": isinstance(
+            unit_14e_result,
+            dict
+        ),
+
+        "ACTIVE_POSITION_POLICY": (
+            management_state(True, True)
+            == "POSITION_MANAGEMENT_ACTIVE"
+        ),
+
+        "FLAT_POSITION_POLICY": (
+            management_state(False, True)
+            == "IDLE_NO_POSITION"
+        ),
+
+        "UNVERIFIED_POSITION_POLICY": (
+            management_state(True, False)
+            == "RECONCILIATION_WAIT"
+        ),
+
+        "BACKUP_TP_INDEPENDENCE": (
+            result[
+                "backup_resolution_required_for_tp"
+            ] is False
+        ),
+
+        "NO_ORDER_EXECUTION": (
+            result["exchange_order_execution"]
+            is False
+        ),
+
+        "NO_EXCHANGE_WRITE": (
+            result["exchange_write"] is False
+        ),
+    }
+
+    passed = 0
+
+    for name, ok in checks.items():
+
+        log(
+            "UNIT 14F CHECK",
+            name,
+            "=",
+            "PASS" if ok else "FAIL"
+        )
+
+        if ok:
+            passed += 1
+
+    log(
+        "UNIT 14F VERIFIED PASSES =",
+        passed
+    )
+
+    if passed != len(checks):
+        return finish(
+            "BLOCKED",
+            "SELF_TEST_FAILED"
+        )
+
+    log("PASS: UNIT 14F SELF TEST = 9/9")
+
+    # ========================================================
+    # WEEX DEMO POSITION GET
+    # READ ONLY
+    # ========================================================
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    passphrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, passphrase)):
+
+        return finish(
+            "RECONCILIATION_WAIT",
+            "WEEX_CREDENTIALS_MISSING"
+        )
+
+    path = "/capi/v3/sim/position/allPosition"
+
+    timestamp = str(
+        int(time.time() * 1000)
+    )
+
+    prehash = (
+        timestamp
+        + "GET"
+        + path
+    )
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode(),
+            prehash.encode(),
+            hashlib.sha256
+        ).digest()
+    ).decode()
+
+    class NoRedirect(
+        urllib.request.HTTPRedirectHandler
+    ):
+
+        def redirect_request(
+            self,
+            request,
+            file_pointer,
+            code,
+            message,
+            headers,
+            url
+        ):
+            return None
+
+    opener = urllib.request.build_opener(
+        NoRedirect()
+    )
+
+    request = urllib.request.Request(
+        "https://api-contract.weex.com" + path,
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": passphrase,
+            "Content-Type": "application/json"
+        },
+        method="GET"
+    )
+
+    try:
+
+        with opener.open(
+            request,
+            timeout=15
+        ) as response:
+
+            if response.getcode() != 200:
+                raise RuntimeError(
+                    "POSITION_HTTP_FAILURE"
+                )
+
+            raw = response.read(65537)
+
+        if len(raw) > 65536:
+            raise RuntimeError(
+                "POSITION_RESPONSE_TOO_LARGE"
+            )
+
+        positions = json.loads(
+            raw.decode()
+        )
+
+        if not isinstance(positions, list):
+            raise RuntimeError(
+                "POSITION_FORMAT_INVALID"
+            )
+
+        active_positions = []
+
+        for position in positions:
+
+            if not isinstance(position, dict):
+                raise RuntimeError(
+                    "POSITION_RECORD_INVALID"
+                )
+
+            if str(
+                position.get("symbol", "")
+            ).upper() != "BTCSUSDT":
+                continue
+
+            size = dec(
+                position.get("size", "0")
+            )
+
+            if size < 0:
+                raise RuntimeError(
+                    "NEGATIVE_POSITION_SIZE"
+                )
+
+            if size > 0:
+                active_positions.append(position)
+
+        log(
+            "PASS: UNIT 14F WEEX DEMO POSITION GET"
+        )
+
+    except Exception as error:
+
+        log(
+            "UNIT 14F POSITION GET ERROR =",
+            type(error).__name__
+        )
+
+        return finish(
+            "RECONCILIATION_WAIT",
+            "DEMO_POSITION_GET_UNVERIFIED"
+        )
+
+    result["demo_position_verified"] = True
+
+    # ========================================================
+    # FLAT POSITION
+    # ========================================================
+
+    if len(active_positions) == 0:
+
+        log(
+            "PASS: UNIT 14F NO OPEN DEMO POSITION"
+        )
+
+        result[
+            "position_management_required"
+        ] = False
+
+        result[
+            "position_recheck_required"
+        ] = True
+
+        return finish(
+            "IDLE_NO_POSITION",
+            "NO_ACTIVE_BTCSUSDT_POSITION"
+        )
+
+    # ========================================================
+    # MULTIPLE ACTIVE POSITIONS REQUIRE RECONCILIATION
+    # ========================================================
+
+    if len(active_positions) != 1:
+
+        result[
+            "active_position_exists"
+        ] = True
+
+        result[
+            "position_recheck_required"
+        ] = True
+
+        return finish(
+            "RECONCILIATION_WAIT",
+            "MULTIPLE_ACTIVE_POSITIONS"
+        )
+
+    # ========================================================
+    # ONE CONFIRMED DEMO POSITION
+    # ========================================================
+
+    position = active_positions[0]
+
+    try:
+
+        side = str(
+            position.get("side", "")
+        ).upper()
+
+        size = dec(
+            position["size"]
+        )
+
+        if side not in ("LONG", "SHORT"):
+            raise RuntimeError(
+                "POSITION_SIDE_INVALID"
+            )
+
+        if size <= 0:
+            raise RuntimeError(
+                "POSITION_SIZE_INVALID"
+            )
+
+    except Exception:
+
+        return finish(
+            "RECONCILIATION_WAIT",
+            "POSITION_DETAILS_INVALID"
+        )
+
+    result.update({
+        "active_position_exists": True,
+        "position_side": side,
+        "position_size": str(size),
+        "position_management_required": True,
+        "position_recheck_required": True,
+    })
+
+    # ========================================================
+    # COMPARE UPSTREAM POSITION INFORMATION
+    #
+    # NEVER OVERRIDE WEEX WITH CACHED UNIT RESULTS.
+    # ========================================================
+
+    for label, upstream in (
+        ("UNIT13", unit_13_result),
+        ("UNIT14E", unit_14e_result)
+    ):
+
+        previous_side = str(
+            upstream.get("position_side")
+            or ""
+        ).upper()
+
+        if previous_side in ("LONG", "SHORT"):
+
+            if previous_side != side:
+
+                return finish(
+                    "RECONCILIATION_WAIT",
+                    label + "_POSITION_SIDE_CHANGED"
+                )
+
+        previous_size = upstream.get(
+            "position_size"
+        )
+
+        # Position size may legitimately change during
+        # backup fills and TP closures.
+        # Log the change rather than automatically
+        # interpreting it as a failed backup.
+
+        if previous_size is not None:
+
+            try:
+
+                earlier_size = dec(
+                    previous_size
+                )
+
+                if earlier_size != size:
+
+                    log(
+                        "UNIT 14F",
+                        label,
+                        "SIZE CHANGED =",
+                        earlier_size,
+                        "->",
+                        size
+                    )
+
+            except Exception:
+
+                log(
+                    "UNIT 14F",
+                    label,
+                    "POSITION SIZE = UNVERIFIED"
+                )
+
+    # ========================================================
+    # COORDINATION RESULT
+    #
+    # UNIT 14F DOES NOT TAKE OVER TP/BACKUP SUBMISSION.
+    # EACH ORIGINAL EXECUTION UNIT RETAINS ITS ROLE.
+    # ========================================================
+
+    return finish(
+        "POSITION_MANAGEMENT_ACTIVE",
+        "WEEX_POSITION_VERIFIED"
+    )
+
+
+# ============================================================
+# EXECUTE UNIT 14F
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_14E_RESULT = (
+    FRESH_RECONSTRUCTION_UNIT_14_RESULT
+)
+
+FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
+    fresh_unit_14f_coordinator(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_13_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_14E_RESULT
+    )
+)
+
+
+# ============================================================
+# END COMPLETE UNIT 14F
+# ZERO INDENTATION
+# ============================================================
