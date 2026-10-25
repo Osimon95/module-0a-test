@@ -18882,6 +18882,159 @@ def fresh_original_continuous_controller():
     log("CONTINUOUS BOT_MODE =", current_mode())
     log("=" * 80)
 
+    
+    # ========================================================
+    # CONTINUOUS CONTROLLER STARTUP RECOVERY V1
+    #
+    # RECOVER EXISTING WEEX DEMO POSITION BEFORE
+    # ANY NEW INITIAL-ENTRY SCAN.
+    #
+    # NO SECOND TRADING ENGINE
+    # NO NEW BOT_MODE
+    # NO LEVERAGE MUTATION
+    # NO LIVE-CASH ORDERS
+    # ========================================================
+
+    print("=" * 72, flush=True)
+    print(
+        "CONTINUOUS STARTUP RECOVERY = BEGIN",
+        flush=True
+    )
+
+    recovery_result = fresh_unit_14f_coordinator(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_13_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_14E_RESULT
+    )
+
+    if not isinstance(recovery_result, dict):
+        raise RuntimeError(
+            "STARTUP_RECOVERY_INVALID_POSITION_RESULT"
+        )
+
+    recovery_status = str(
+        recovery_result.get("status") or ""
+    ).upper()
+
+    recovery_verified = (
+        recovery_result.get(
+            "demo_position_verified"
+        ) is True
+    )
+
+    recovery_active = (
+        recovery_result.get(
+            "active_position_exists"
+        ) is True
+    )
+
+    print(
+        "CONTINUOUS RECOVERY STATUS =",
+        recovery_status,
+        flush=True
+    )
+
+    print(
+        "CONTINUOUS RECOVERY VERIFIED =",
+        recovery_verified,
+        flush=True
+    )
+
+    print(
+        "CONTINUOUS RECOVERY ACTIVE =",
+        recovery_active,
+        flush=True
+    )
+
+    if (
+        recovery_status == "POSITION_MANAGEMENT_ACTIVE"
+        and recovery_verified
+        and recovery_active
+    ):
+
+        print(
+            "PASS: EXISTING WEEX DEMO POSITION RECOVERED",
+            flush=True
+        )
+
+        print(
+            "CONTINUOUS RECOVERED SIDE =",
+            recovery_result.get("position_side"),
+            flush=True
+        )
+
+        print(
+            "CONTINUOUS RECOVERED SIZE =",
+            recovery_result.get("position_size"),
+            flush=True
+        )
+
+        print(
+            "CONTINUOUS INITIAL ENTRY = BLOCKED",
+            flush=True
+        )
+
+        print(
+            "CONTINUOUS MANAGEMENT = RESUMING",
+            flush=True
+        )
+
+        # Use the SAME existing Unit 13-14F manager.
+        # No new order executor is introduced.
+
+        run_position_management()
+
+        print(
+            "PASS: RECOVERED POSITION "
+            "MANAGEMENT INVOKED",
+            flush=True
+        )
+
+    elif (
+        recovery_status == "IDLE_NO_POSITION"
+        and recovery_verified
+        and not recovery_active
+    ):
+
+        print(
+            "PASS: WEEX DEMO ACCOUNT VERIFIED FLAT",
+            flush=True
+        )
+
+        print(
+            "CONTINUOUS MANAGEMENT = NOT REQUIRED",
+            flush=True
+        )
+
+        print(
+            "CONTINUOUS INITIAL ENTRY = "
+            "SUBJECT TO NORMAL BOT_MODE AND SAFETY",
+            flush=True
+        )
+
+    else:
+
+        print(
+            "BLOCKED: STARTUP POSITION "
+            "RECONCILIATION INCOMPLETE",
+            flush=True
+        )
+
+        print(
+            "CONTINUOUS INITIAL ENTRY = PROHIBITED",
+            flush=True
+        )
+
+        raise RuntimeError(
+            "STARTUP_DEMO_POSITION_UNVERIFIED"
+        )
+
+    print(
+        "CONTINUOUS STARTUP RECOVERY = COMPLETE",
+        flush=True
+    )
+    print("=" * 72, flush=True)
+
     while True:
 
         cycles += 1
