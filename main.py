@@ -19622,6 +19622,291 @@ def unit15_report(
 # EXISTING TELEGRAM COMMANDS CONTINUE BELOW
 # ============================================================
 
+
+# ============================================================
+# UNIT 15 VOLUNTARY TELEGRAM COMMANDS
+# ============================================================
+
+def unit15_poll_commands():
+
+    global _UNIT15_OFFSET
+    global _UNIT15_POLL_STARTED
+
+    if not UNIT15_ON_DEMAND:
+        return []
+
+    token = _u15_os.getenv(
+        "TELEGRAM_BOT_TOKEN", ""
+    ).strip()
+
+    chat_id = _u15_os.getenv(
+        "TELEGRAM_CHAT_ID", ""
+    ).strip()
+
+    if not token or not chat_id:
+        return []
+
+    params = {
+        "timeout": 0,
+        "limit": 50,
+        "allowed_updates":
+            _u15_json.dumps(["message"]),
+    }
+
+    if _UNIT15_OFFSET is not None:
+        params["offset"] = _UNIT15_OFFSET
+
+    elif not _UNIT15_POLL_STARTED:
+        params["offset"] = -1
+
+    url = (
+        "https://api.telegram.org/bot"
+        + token
+        + "/getUpdates?"
+        + _u15_parse.urlencode(params)
+    )
+
+    req = _u15_request.Request(
+        url,
+        method="GET",
+    )
+
+    with _u15_request.urlopen(
+        req,
+        timeout=12,
+    ) as response:
+
+        payload = _u15_json.loads(
+            response.read().decode()
+        )
+
+    if not payload.get("ok"):
+        return []
+
+    updates = payload.get(
+        "result", []
+    )
+
+    choices = []
+
+    for update in updates:
+
+        uid = update.get(
+            "update_id"
+        )
+
+        if isinstance(uid, int):
+
+            _UNIT15_OFFSET = max(
+                uid + 1,
+                _UNIT15_OFFSET or 0,
+            )
+
+        if not _UNIT15_POLL_STARTED:
+            continue
+
+        msg = (
+            update.get("message")
+            or {}
+        )
+
+        if str(
+            (
+                msg.get("chat")
+                or {}
+            ).get("id", "")
+        ) != chat_id:
+            continue
+
+        parts = str(
+            msg.get("text", "")
+        ).strip().lower().split()
+
+        if (
+            not parts
+            or parts[0].split("@")[0]
+            != "/report"
+        ):
+            continue
+
+        choice = (
+            parts[1]
+            if len(parts) > 1
+            else "8h"
+        )
+
+        if choice in (
+            "1h",
+            "8h",
+            "24h",
+            "all",
+        ):
+            choices.append(choice)
+
+    _UNIT15_POLL_STARTED = True
+
+    return choices
+
+
+# ============================================================
+# UNIT 15 SCHEDULED REPORTING WORKER
+# ============================================================
+
+def unit15_worker():
+
+    global _UNIT15_LAST_SLOT
+
+    print(
+        "UNIT 15 WORKER LOOP ENTERED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 INTERVALS = 1H / 8H / 24H",
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 SCHEDULE = "
+        "05:00 / 13:00 / 21:00 WAT",
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 STARTUP REPORT = DISABLED",
+        flush=True,
+    )
+
+    while True:
+
+        try:
+
+            now = _U15_DT.now(
+                _UNIT15_ZONE
+            )
+
+            key = now.strftime(
+                "%Y-%m-%d %H:%M"
+            )
+
+            if (
+                UNIT15_8H_ENABLED
+                and (
+                    now.hour,
+                    now.minute
+                ) in _UNIT15_SLOTS
+                and key != _UNIT15_LAST_SLOT
+            ):
+
+                _UNIT15_LAST_SLOT = key
+
+                close = now.replace(
+                    second=0,
+                    microsecond=0,
+                )
+
+                unit15_report(
+                    8,
+                    "SCHEDULED_8H",
+                    close,
+                )
+
+        except Exception as exc:
+
+            print(
+                "UNIT 15 SCHEDULE ERROR =",
+                repr(exc),
+                flush=True,
+            )
+
+        try:
+
+            for choice in unit15_poll_commands():
+
+                hours_list = (
+                    (1, 8, 24)
+                    if choice == "all"
+                    else (
+                        int(choice[:-1]),
+                    )
+                )
+
+                for hours in hours_list:
+
+                    if (
+                        hours == 8
+                        and not UNIT15_8H_ENABLED
+                    ):
+                        continue
+
+                    unit15_report(
+                        hours,
+                        "ON_DEMAND",
+                    )
+
+        except Exception as exc:
+
+            print(
+                "UNIT 15 COMMAND ERROR =",
+                type(exc).__name__,
+                flush=True,
+            )
+
+        _u15_time.sleep(10)
+
+
+# ============================================================
+# UNIT 15 SINGLE WORKER ACTIVATION
+# ============================================================
+
+if UNIT15_ENABLED:
+
+    prior = globals().get(
+        "_UNIT15_THREAD"
+    )
+
+    if (
+        prior is None
+        or not prior.is_alive()
+    ):
+
+        _UNIT15_THREAD = (
+            _u15_threading.Thread(
+                target=unit15_worker,
+                name="WEEX-UNIT15-PERFORMANCE",
+                daemon=True,
+            )
+        )
+
+        _UNIT15_THREAD.start()
+
+        print(
+            "PASS: UNIT 15 REPORTING WORKER STARTED",
+            flush=True,
+        )
+
+    print(
+        "PASS: UNIT 15 EXCHANGE READ ONLY",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNITS 1-14 PRESERVED",
+        flush=True,
+    )
+
+else:
+
+    print(
+        "UNIT 15 DISABLED",
+        flush=True,
+    )
+
+
+# ============================================================
+# END COMPLETE UNIT 15 REPLACEMENT
+
+
 # ============================================================
 # START ORIGINAL CONTINUOUS CYCLE RESTORATION
 # ZERO INDENTATION
