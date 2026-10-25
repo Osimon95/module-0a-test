@@ -18072,6 +18072,368 @@ FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
 
 
 
+# START COMPLETE UNIT 15 REPLACEMENT
+# ZERO INDENTATION - DEMO READ ONLY
+# REPLACE ENTIRE OLD UNIT 15, NOT UNITS 1-14
+# ============================================================
+
+import os as _u15_os
+import time as _u15_time
+import json as _u15_json
+import hmac as _u15_hmac
+import base64 as _u15_base64
+import hashlib as _u15_hashlib
+import threading as _u15_threading
+import urllib.request as _u15_request
+import urllib.parse as _u15_parse
+
+from decimal import Decimal as _U15_D
+from datetime import datetime as _U15_DT
+from datetime import timedelta as _U15_DELTA
+from zoneinfo import ZoneInfo as _U15_ZoneInfo
+from collections import Counter as _U15_Counter
+
+
+# ============================================================
+# UNIT 15 CONFIGURATION
+# ============================================================
+
+UNIT15_ENABLED = (
+    _u15_os.getenv(
+        "UNIT15_ENABLED", "TRUE"
+    ).upper() == "TRUE"
+)
+
+UNIT15_REPORT_HOURS = int(
+    _u15_os.getenv(
+        "UNIT15_REPORT_HOURS", "24"
+    )
+)
+
+UNIT15_8H_ENABLED = (
+    _u15_os.getenv(
+        "UNIT15_8H_ENABLED", "TRUE"
+    ).upper() == "TRUE"
+)
+
+UNIT15_8H_HOURS = int(
+    _u15_os.getenv(
+        "UNIT15_8H_HOURS", "8"
+    )
+)
+
+UNIT15_ON_DEMAND = (
+    _u15_os.getenv(
+        "UNIT15_ON_DEMAND_ENABLED", "TRUE"
+    ).upper() == "TRUE"
+)
+
+UNIT15_MAX_PAGES = 20
+UNIT15_PAGE_LIMIT = 1000
+
+_UNIT15_ZERO = _U15_D("0")
+_UNIT15_LOCK = _u15_threading.Lock()
+
+_UNIT15_ZONE = _U15_ZoneInfo(
+    _u15_os.getenv(
+        "UNIT15_TIMEZONE", "Africa/Lagos"
+    )
+)
+
+_UNIT15_HIST_PATH = "/capi/v3/sim/order/history"
+
+_UNIT15_OFFSET = None
+_UNIT15_LAST_SLOT = None
+_UNIT15_LAST_REPORT = None
+_UNIT15_POLL_STARTED = False
+
+if UNIT15_8H_HOURS != 8:
+    raise ValueError(
+        "UNIT15_8H_HOURS MUST BE 8"
+    )
+
+if UNIT15_REPORT_HOURS <= 0:
+    raise ValueError(
+        "UNIT15_REPORT_HOURS MUST BE POSITIVE"
+    )
+
+_UNIT15_SLOTS = set()
+
+for _clock in _u15_os.getenv(
+    "UNIT15_TELEGRAM_SCHEDULE",
+    "05:00,13:00,21:00"
+).split(","):
+
+    _hour, _minute = (
+        int(x)
+        for x in _clock.strip().split(":")
+    )
+
+    if not (
+        0 <= _hour <= 23
+        and 0 <= _minute <= 59
+    ):
+        raise ValueError(
+            "INVALID UNIT 15 SCHEDULE"
+        )
+
+    _UNIT15_SLOTS.add(
+        (_hour, _minute)
+    )
+
+
+# ============================================================
+# UNIT 15 SAFE NUMERIC CONVERSION
+# ============================================================
+
+def unit15_decimal(value):
+
+    try:
+        number = _U15_D(str(value))
+
+        return (
+            number
+            if number.is_finite()
+            else None
+        )
+
+    except (
+        TypeError,
+        ValueError,
+        ArithmeticError,
+    ):
+        return None
+
+
+def unit15_value(record, *keys):
+
+    if not isinstance(record, dict):
+        return None
+
+    for key in keys:
+
+        if (
+            record.get(key) is not None
+            and record.get(key) != ""
+        ):
+            return record[key]
+
+    return None
+
+
+# ============================================================
+# UNIT 15 TIMESTAMP NORMALIZATION
+# ============================================================
+
+def unit15_timestamp(value):
+
+    if (
+        value is None
+        or isinstance(value, bool)
+    ):
+        return None
+
+    try:
+
+        if (
+            isinstance(value, str)
+            and (
+                "T" in value
+                or "-" in value
+            )
+        ):
+
+            dt = _U15_DT.fromisoformat(
+                value.strip().replace(
+                    "Z", "+00:00"
+                )
+            )
+
+            return (
+                int(dt.timestamp() * 1000)
+                if dt.tzinfo
+                else None
+            )
+
+        value = unit15_decimal(value)
+
+        if value is None:
+            return None
+
+        if value >= _U15_D(
+            "100000000000000"
+        ):
+            value /= 1000
+
+        elif value < _U15_D(
+            "100000000000"
+        ):
+            value *= 1000
+
+        ts = int(value)
+
+        return (
+            ts
+            if 946684800000
+            <= ts
+            <= 4102444800000
+            else None
+        )
+
+    except (
+        ValueError,
+        TypeError,
+        OverflowError,
+    ):
+        return None
+
+
+# ============================================================
+# UNIT 15 READ-ONLY WEEX HISTORY
+# ============================================================
+
+def unit15_history_get():
+
+    key = (
+        _u15_os.getenv("WEEX_API_KEY")
+        or _u15_os.getenv("API_KEY")
+    )
+
+    secret = (
+        _u15_os.getenv("WEEX_API_SECRET")
+        or _u15_os.getenv("API_SECRET")
+    )
+
+    phrase = (
+        _u15_os.getenv("WEEX_API_PASSPHRASE")
+        or _u15_os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        raise RuntimeError(
+            "UNIT 15 READ CREDENTIALS MISSING"
+        )
+
+    exchange = (
+        FRESH_RECONSTRUCTION_CONFIG[
+            "exchange"
+        ]
+    )
+
+    base = exchange[
+        "contract_base_url"
+    ]
+
+    symbol = exchange[
+        "demo_order_symbol"
+    ]
+
+    if (
+        base != "https://api-contract.weex.com"
+        or symbol != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 15 DEMO EXCHANGE SAFETY FAILED"
+        )
+
+    orders = []
+    ids = set()
+    complete = False
+
+    for page in range(UNIT15_MAX_PAGES):
+
+        query = _u15_parse.urlencode({
+            "symbol": symbol,
+            "limit": UNIT15_PAGE_LIMIT,
+            "page": page,
+        })
+
+        timestamp = str(
+            int(_u15_time.time() * 1000)
+        )
+
+        message = (
+            timestamp
+            + "GET"
+            + _UNIT15_HIST_PATH
+            + "?"
+            + query
+        )
+
+        sign = _u15_base64.b64encode(
+            _u15_hmac.new(
+                secret.encode(),
+                message.encode(),
+                _u15_hashlib.sha256,
+            ).digest()
+        ).decode()
+
+        request = _u15_request.Request(
+            base
+            + _UNIT15_HIST_PATH
+            + "?"
+            + query,
+            method="GET",
+            headers={
+                "ACCESS-KEY": key,
+                "ACCESS-SIGN": sign,
+                "ACCESS-TIMESTAMP": timestamp,
+                "ACCESS-PASSPHRASE": phrase,
+                "Content-Type": "application/json",
+            },
+        )
+
+        if (
+            request.get_method() != "GET"
+            or request.data is not None
+        ):
+            raise RuntimeError(
+                "UNIT 15 WRITE BLOCKED"
+            )
+
+        with _u15_request.urlopen(
+            request,
+            timeout=20,
+        ) as response:
+
+            data = _u15_json.loads(
+                response.read().decode()
+            )
+
+        if not isinstance(data, list):
+            raise RuntimeError(
+                "UNIT 15 INVALID HISTORY RESPONSE"
+            )
+
+        for order in data:
+
+            oid = unit15_value(
+                order,
+                "orderId",
+                "id",
+                "clientOrderId",
+            )
+
+            if (
+                oid is not None
+                and str(oid) not in ids
+            ):
+
+                ids.add(str(oid))
+                orders.append(order)
+
+        if len(data) < UNIT15_PAGE_LIMIT:
+            complete = True
+            break
+
+    return orders, complete
+
+
+# ============================================================
+# UNIT 15 ORDER NORMALIZATION
+# CONTINUES IN PART 2
+# ============================================================
+
 # ============================================================
 # START ORIGINAL CONTINUOUS CYCLE RESTORATION
 # ZERO INDENTATION
