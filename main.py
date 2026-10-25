@@ -18434,6 +18434,404 @@ def unit15_history_get():
 # CONTINUES IN PART 2
 # ============================================================
 
+
+# ============================================================
+# UNIT 15 ORDER NORMALIZATION
+# ============================================================
+
+def unit15_parse(order):
+
+    if not isinstance(order, dict):
+        return None, "INVALID_RECORD"
+
+    status = str(
+        unit15_value(
+            order,
+            "status",
+            "state",
+            "orderStatus",
+        ) or ""
+    ).upper()
+
+    if status not in (
+        "FILLED",
+        "FULLY_FILLED",
+        "FULL_FILLED",
+        "FULLFILL",
+    ):
+        return None, "NOT_FULLY_FILLED"
+
+    ts = unit15_timestamp(
+        unit15_value(
+            order,
+            "createdTime",
+            "createTime",
+            "cTime",
+            "ctime",
+            "createdAt",
+            "timestamp",
+            "time",
+            "updateTime",
+            "updatedAt",
+        )
+    )
+
+    if (
+        ts is None
+        or ts > int(
+            _u15_time.time() * 1000
+        )
+    ):
+        return None, "INVALID_TIMESTAMP"
+
+    qty = unit15_decimal(
+        unit15_value(
+            order,
+            "executedQty",
+            "filledQty",
+            "filledSize",
+            "executedQuantity",
+            "dealSize",
+        )
+    )
+
+    price = unit15_decimal(
+        unit15_value(
+            order,
+            "avgPrice",
+            "averagePrice",
+            "fillPrice",
+            "priceAvg",
+            "executedPrice",
+        )
+    )
+
+    if qty is None or qty <= 0:
+        return None, "INVALID_QUANTITY"
+
+    if price is None or price <= 0:
+        return None, "INVALID_PRICE"
+
+    side = str(
+        unit15_value(
+            order,
+            "side",
+            "orderSide",
+        ) or ""
+    ).upper()
+
+    direction = str(
+        unit15_value(
+            order,
+            "positionSide",
+            "holdSide",
+            "posSide",
+        ) or ""
+    ).upper()
+
+    action = str(
+        unit15_value(
+            order,
+            "tradeSide",
+            "tradeType",
+            "offset",
+        ) or ""
+    ).upper()
+
+    if (
+        direction in ("LONG", "SHORT")
+        and action in ("OPEN", "CLOSE")
+    ):
+        pass
+
+    elif (
+        direction in ("LONG", "SHORT")
+        and side in ("BUY", "SELL")
+    ):
+
+        action = (
+            "OPEN"
+            if (
+                (direction == "LONG")
+                == (side == "BUY")
+            )
+            else "CLOSE"
+        )
+
+    else:
+
+        combined = side + "_" + action
+
+        matched = next(
+            (
+                (d, a)
+                for d in ("LONG", "SHORT")
+                for a in ("OPEN", "CLOSE")
+                if a + "_" + d in combined
+            ),
+            None,
+        )
+
+        if matched is None:
+            return (
+                None,
+                "UNRESOLVED_DIRECTION",
+            )
+
+        direction, action = matched
+
+    oid = unit15_value(
+        order,
+        "orderId",
+        "id",
+        "clientOrderId",
+    )
+
+    if oid is None:
+        return None, "MISSING_ORDER_ID"
+
+    return {
+        "id": str(oid),
+        "time": ts,
+        "quantity": qty,
+        "price": price,
+        "direction": direction,
+        "action": action,
+    }, None
+
+
+# ============================================================
+# UNIT 15 PERFORMANCE RECONSTRUCTION
+# ============================================================
+
+def unit15_analyze(
+    orders,
+    history_complete,
+    start_ms,
+    end_ms,
+):
+
+    reasons = _U15_Counter()
+    fills = []
+    seen = set()
+
+    for record in orders:
+
+        fill, problem = unit15_parse(record)
+
+        if problem:
+            reasons[problem] += 1
+
+        elif fill["id"] in seen:
+            reasons["DUPLICATE_ID"] += 1
+
+        else:
+            fills.append(fill)
+            seen.add(fill["id"])
+
+    fills.sort(
+        key=lambda x: (
+            x["time"],
+            x["id"],
+        )
+    )
+
+    positions = {
+        d: {
+            "qty": _UNIT15_ZERO,
+            "cost": _UNIT15_ZERO,
+            "pnl": _UNIT15_ZERO,
+            "unknown": False,
+        }
+        for d in ("LONG", "SHORT")
+    }
+
+    completed = []
+    unmatched = []
+
+    for fill in fills:
+
+        p = positions[
+            fill["direction"]
+        ]
+
+        qty = fill["quantity"]
+        price = fill["price"]
+
+        if fill["action"] == "OPEN":
+
+            p["qty"] += qty
+            p["cost"] += qty * price
+
+            continue
+
+        available = p["qty"]
+
+        if (
+            available <= 0
+            or qty > available
+        ):
+
+            reasons["UNMATCHED_CLOSE"] += 1
+            p["unknown"] = True
+
+            unmatched.append({
+                "order_id": fill["id"],
+                "time": fill["time"],
+                "direction": fill["direction"],
+                "quantity": str(qty),
+                "available": str(available),
+                "price": str(price),
+                "reason": (
+                    "NO_OPEN_POSITION"
+                    if available <= 0
+                    else "CLOSE_EXCEEDS_OPEN"
+                ),
+            })
+
+            continue
+
+        average = (
+            p["cost"] / p["qty"]
+        )
+
+        gain = (
+            (
+                price - average
+            )
+            if fill["direction"] == "LONG"
+            else (
+                average - price
+            )
+        ) * qty
+
+        p["pnl"] += gain
+        p["qty"] -= qty
+        p["cost"] -= average * qty
+
+        if p["qty"] == 0:
+
+            if (
+                not p["unknown"]
+                and start_ms
+                <= fill["time"]
+                < end_ms
+            ):
+
+                completed.append(
+                    p["pnl"]
+                )
+
+            elif p["unknown"]:
+
+                reasons[
+                    "CYCLE_INCOMPLETE_HISTORY"
+                ] += 1
+
+            p.update(
+                qty=_UNIT15_ZERO,
+                cost=_UNIT15_ZERO,
+                pnl=_UNIT15_ZERO,
+                unknown=False,
+            )
+
+    wins = sum(
+        x > 0
+        for x in completed
+    )
+
+    losses = sum(
+        x < 0
+        for x in completed
+    )
+
+    even = sum(
+        x == 0
+        for x in completed
+    )
+
+    gross_win = sum(
+        (
+            x
+            for x in completed
+            if x > 0
+        ),
+        _UNIT15_ZERO,
+    )
+
+    gross_loss = sum(
+        (
+            -x
+            for x in completed
+            if x < 0
+        ),
+        _UNIT15_ZERO,
+    )
+
+    problem_fields = (
+        "CYCLE_INCOMPLETE_HISTORY",
+        "INVALID_TIMESTAMP",
+        "UNRESOLVED_DIRECTION",
+        "INVALID_QUANTITY",
+        "INVALID_PRICE",
+        "MISSING_ORDER_ID",
+        "INVALID_RECORD",
+    )
+
+    provisional = (
+        not history_complete
+        or bool(unmatched)
+        or any(
+            reasons[k]
+            for k in problem_fields
+        )
+    )
+
+    return {
+        "orders": len(orders),
+        "fills": len(fills),
+        "completed": len(completed),
+        "winners": wins,
+        "losers": losses,
+        "breakeven": even,
+        "gross_win": gross_win,
+        "gross_loss": gross_loss,
+        "gross_pnl": gross_win - gross_loss,
+        "open_qty": {
+            d: str(p["qty"])
+            for d, p in positions.items()
+        },
+        "reasons": dict(reasons),
+        "unmatched": unmatched,
+        "history_complete": history_complete,
+        "provisional": provisional,
+    }
+
+
+# ============================================================
+# UNIT 15 PERCENTAGE CALCULATION
+# ============================================================
+
+def unit15_percent(
+    numerator,
+    denominator,
+):
+
+    if not denominator:
+        return "N/A"
+
+    return (
+        f"{float(numerator) * 100 / float(denominator):.2f}%"
+    )
+
+
+# ============================================================
+# UNIT 15 EQUITY SNAPSHOT TRACKING
+# ZERO INDENTATION
+# READ-ONLY DEMO ACCOUNT
+# CONTINUES IN PART 3
+# ============================================================
+
 # ============================================================
 # START ORIGINAL CONTINUOUS CYCLE RESTORATION
 # ZERO INDENTATION
