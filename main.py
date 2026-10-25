@@ -19859,6 +19859,13 @@ def unit15_worker():
 # UNIT 15 SINGLE WORKER ACTIVATION
 # ============================================================
 
+
+print(
+    "UNIT 15 BOOTSTRAP REACHED | ENABLED =",
+    UNIT15_ENABLED,
+    flush=True,
+)
+
 if UNIT15_ENABLED:
 
     prior = globals().get(
