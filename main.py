@@ -19105,6 +19105,523 @@ def unit15_equity_change(
 # CONTINUES IN PART 4
 # ============================================================
 
+
+
+# ============================================================
+# UNIT 15 TELEGRAM NOTIFICATION
+# ============================================================
+
+def unit15_telegram(message):
+
+    token = _u15_os.getenv(
+        "TELEGRAM_BOT_TOKEN", ""
+    ).strip()
+
+    chat = _u15_os.getenv(
+        "TELEGRAM_CHAT_ID", ""
+    ).strip()
+
+    if not token or not chat:
+
+        print(
+            "UNIT 15 TELEGRAM NOT CONFIGURED",
+            flush=True,
+        )
+
+        return False
+
+    payload = _u15_parse.urlencode({
+        "chat_id": chat,
+        "text": message,
+    }).encode()
+
+    req = _u15_request.Request(
+        "https://api.telegram.org/bot"
+        + token
+        + "/sendMessage",
+        data=payload,
+        method="POST",
+    )
+
+    try:
+
+        with _u15_request.urlopen(
+            req,
+            timeout=15,
+        ) as response:
+
+            result = _u15_json.loads(
+                response.read().decode()
+            )
+
+        good = bool(
+            result.get("ok")
+        )
+
+        print(
+            "UNIT 15 TELEGRAM SENT =",
+            good,
+            flush=True,
+        )
+
+        return good
+
+    except Exception as exc:
+
+        print(
+            "UNIT 15 TELEGRAM ERROR =",
+            type(exc).__name__,
+            flush=True,
+        )
+
+        return False
+
+
+# ============================================================
+# UNIT 15 COMPLETED EIGHT-HOUR WINDOW
+# ============================================================
+
+def unit15_latest_8h_end(now):
+
+    candidates = []
+
+    for days_back in (0, 1):
+
+        day = (
+            now - _U15_DELTA(
+                days=days_back
+            )
+        ).date()
+
+        for hour, minute in _UNIT15_SLOTS:
+
+            end = _U15_DT(
+                day.year,
+                day.month,
+                day.day,
+                hour,
+                minute,
+                tzinfo=_UNIT15_ZONE,
+            )
+
+            if end <= now:
+                candidates.append(end)
+
+    return (
+        max(candidates)
+        if candidates
+        else None
+    )
+
+
+# ============================================================
+# UNIT 15 PERFORMANCE REPORT
+# INTERVAL + PREVIOUS 8H + CUMULATIVE PERFORMANCE
+# ZERO INDENTATION
+# PRESERVES EXISTING WORKER AND TELEGRAM COMMANDS
+# ============================================================
+
+def unit15_report(
+    hours=8,
+    reason="ON_DEMAND",
+    end=None,
+):
+
+    global _UNIT15_LAST_REPORT
+
+    if hours not in (1, 8, 24):
+        raise ValueError(
+            "UNIT 15 UNSUPPORTED REPORT INTERVAL"
+        )
+
+    with _UNIT15_LOCK:
+
+        now = _U15_DT.now(
+            _UNIT15_ZONE
+        )
+
+        if end is None:
+
+            end = (
+                unit15_latest_8h_end(now)
+                if hours == 8
+                else now
+            )
+
+        if end is None:
+            raise RuntimeError(
+                "UNIT 15 NO COMPLETED WINDOW"
+            )
+
+        start = (
+            end - _U15_DELTA(
+                hours=hours
+            )
+        )
+
+        start_ms = int(
+            start.timestamp() * 1000
+        )
+
+        end_ms = int(
+            end.timestamp() * 1000
+        )
+
+        
+        # ----------------------------------------------------
+        # UNIT 15 EQUITY SNAPSHOT
+        # INDENTATION: 8 SPACES
+        # ----------------------------------------------------
+
+        equity_snapshot = None
+        equity_error = None
+
+        try:
+
+            equity_snapshot = (
+                unit15_read_equity()
+            )
+
+            unit15_save_equity(
+                equity_snapshot
+            )
+
+            print(
+                "UNIT 15 EQUITY SNAPSHOT =",
+                equity_snapshot,
+                flush=True,
+            )
+
+        except Exception as exc:
+
+            equity_error = str(exc)
+
+            print(
+                "UNIT 15 EQUITY READ UNAVAILABLE =",
+                equity_error,
+                flush=True,
+            )
+
+        equity_result = (
+            unit15_equity_change(
+                start_ms,
+                end_ms,
+            )
+        )
+        # ----------------------------------------------------
+        # FETCH EXCHANGE HISTORY ONCE
+        # ----------------------------------------------------
+
+        orders, complete = (
+            unit15_history_get()
+        )
+
+        # ----------------------------------------------------
+        # CURRENT SELECTED INTERVAL
+        # ----------------------------------------------------
+
+        result = unit15_analyze(
+            orders,
+            complete,
+            start_ms,
+            end_ms,
+        )
+
+        # ----------------------------------------------------
+        # CUMULATIVE AVAILABLE HISTORY
+        # ----------------------------------------------------
+
+        cumulative = unit15_analyze(
+            orders,
+            complete,
+            0,
+            end_ms,
+        )
+
+        # ----------------------------------------------------
+        # PREVIOUS 8H INTERVAL
+        # ----------------------------------------------------
+
+        previous = None
+
+        if hours == 8:
+
+            previous_start_ms = (
+                start_ms - 8 * 3600000
+            )
+
+            previous = unit15_analyze(
+                orders,
+                complete,
+                previous_start_ms,
+                start_ms,
+            )
+
+        # ----------------------------------------------------
+        # CURRENT INTERVAL RESULTS
+        # ----------------------------------------------------
+
+        wins = result["winners"]
+        losses = result["losers"]
+
+        amount = (
+            result["gross_win"]
+            + result["gross_loss"]
+        )
+
+        # ----------------------------------------------------
+        # CUMULATIVE RESULTS
+        # ----------------------------------------------------
+
+        cumulative_wins = (
+            cumulative["winners"]
+        )
+
+        cumulative_losses = (
+            cumulative["losers"]
+        )
+
+        cumulative_count = (
+            cumulative["completed"]
+        )
+
+        cumulative_gross_profit = (
+            cumulative["gross_win"]
+        )
+
+        cumulative_gross_loss = (
+            cumulative["gross_loss"]
+        )
+
+        cumulative_gross_pnl = (
+            cumulative["gross_pnl"]
+        )
+
+        # ----------------------------------------------------
+        # BUILD MAIN REPORT
+        # ----------------------------------------------------
+
+        report = (
+            "WEEX DEMO TRADING PERFORMANCE\n"
+            "================================\n"
+            f"Notification: {reason}\n"
+            f"Period: {hours}h\n"
+            f"Window: {start:%Y-%m-%d %H:%M} to "
+            f"{end:%Y-%m-%d %H:%M} WAT\n"
+            f"History orders: {result['orders']}\n"
+            f"Fully filled: {result['fills']}\n"
+            f"Completed cycles: {result['completed']}\n"
+            f"Winning cycles: {wins}\n"
+            f"Losing cycles: {losses}\n"
+            f"Break-even: {result['breakeven']}\n"
+            f"Gross win rate: "
+            f"{unit15_percent(wins, wins + losses)}\n"
+            f"Gross loss rate: "
+            f"{unit15_percent(losses, wins + losses)}\n"
+            f"Winning amount share: "
+            f"{unit15_percent(result['gross_win'], amount)}\n"
+            f"Losing amount share: "
+            f"{unit15_percent(result['gross_loss'], amount)}\n"
+            f"Gross profit: {result['gross_win']:.4f} USDT\n"
+            f"Gross loss: {result['gross_loss']:.4f} USDT\n"
+            f"Gross P&L: {result['gross_pnl']:+.4f} USDT\n"
+            f"Unmatched closes: {len(result['unmatched'])}\n"
+            f"History complete: {result['history_complete']}\n"
+            f"Provisional: {result['provisional']}\n"
+            "Net ROI: N/A\n"
+            "Fees/funding/margin: Unverified\n"
+            "Close cause: Unverified\n"
+        )
+
+        
+        # ----------------------------------------------------
+        # UNIT 15 EQUITY PERFORMANCE REPORT
+        # INDENTATION: 8 SPACES
+        # ----------------------------------------------------
+
+        report += (
+            "\nEQUITY-BASED PERFORMANCE\n"
+            "================================\n"
+        )
+
+        if equity_result is None:
+
+            report += (
+                "Starting equity: N/A\n"
+                "Ending equity: N/A\n"
+                "Equity change: N/A\n"
+                "Equity ROI: N/A\n"
+                "Reason: Matching historical "
+                "equity snapshots unavailable\n"
+            )
+
+        else:
+
+            report += (
+                f"Starting equity: "
+                f"{equity_result['start']:.4f} SUSDT\n"
+                f"Ending equity: "
+                f"{equity_result['end']:.4f} SUSDT\n"
+                f"Equity change: "
+                f"{equity_result['change']:+.4f} SUSDT\n"
+            )
+
+            if equity_result["roi"] is None:
+
+                report += (
+                    "Equity ROI: N/A\n"
+                )
+
+            else:
+
+                report += (
+                    f"Equity ROI: "
+                    f"{equity_result['roi']:+.2f}%\n"
+                )
+
+        report += (
+            "Net trading profit: Unverified\n"
+            "Deposits/transfers: Unverified\n"
+            "Exchange writes: FALSE\n"
+        )
+        # ----------------------------------------------------
+        # ADD PREVIOUS 8H COMPARISON
+        # ----------------------------------------------------
+
+        if previous is not None:
+
+            combined_profit = (
+                previous["gross_pnl"]
+                + result["gross_pnl"]
+            )
+
+            combined_wins = (
+                previous["winners"]
+                + result["winners"]
+            )
+
+            combined_losses = (
+                previous["losers"]
+                + result["losers"]
+            )
+
+            report += (
+                "\nPREVIOUS 8H COMPARISON\n"
+                "================================\n"
+                f"Previous 8H P&L: "
+                f"{previous['gross_pnl']:+.4f} USDT\n"
+                f"Current 8H P&L: "
+                f"{result['gross_pnl']:+.4f} USDT\n"
+                f"Combined 16H P&L: "
+                f"{combined_profit:+.4f} USDT\n"
+                f"Combined winning cycles: "
+                f"{combined_wins}\n"
+                f"Combined losing cycles: "
+                f"{combined_losses}\n"
+            )
+
+        # ----------------------------------------------------
+        # ADD CUMULATIVE PERFORMANCE
+        # ----------------------------------------------------
+
+        report += (
+            "\nCUMULATIVE PERFORMANCE\n"
+            "================================\n"
+            "Scope: Available exchange history\n"
+            f"Completed cycles: {cumulative_count}\n"
+            f"Winning cycles: {cumulative_wins}\n"
+            f"Losing cycles: {cumulative_losses}\n"
+            f"Break-even: {cumulative['breakeven']}\n"
+            f"Gross win rate: "
+            f"{unit15_percent(cumulative_wins, cumulative_wins + cumulative_losses)}\n"
+            f"Gross profit: "
+            f"{cumulative_gross_profit:.4f} USDT\n"
+            f"Gross loss: "
+            f"{cumulative_gross_loss:.4f} USDT\n"
+            f"Gross P&L: "
+            f"{cumulative_gross_pnl:+.4f} USDT\n"
+            f"Unmatched closes: "
+            f"{len(cumulative['unmatched'])}\n"
+            f"History complete: "
+            f"{cumulative['history_complete']}\n"
+            f"Provisional: "
+            f"{cumulative['provisional']}\n"
+            "Net profit: PENDING\n"
+            "Net ROI: PENDING\n"
+            "Exchange writes: FALSE\n"
+            "================================"
+        )
+
+        # ----------------------------------------------------
+        # DIAGNOSTICS
+        # ----------------------------------------------------
+
+        print(
+            "UNIT 15 REPORT START\n"
+            + report,
+            flush=True,
+        )
+
+        print(
+            "UNIT 15 OPEN QUANTITIES =",
+            result["open_qty"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 15 DIAGNOSTICS =",
+            result["reasons"],
+            flush=True,
+        )
+
+        for item in result["unmatched"][:20]:
+
+            print(
+                "UNIT 15 UNMATCHED CLOSE =",
+                item,
+                flush=True,
+            )
+
+        if result["provisional"]:
+
+            print(
+                "WARNING: UNIT 15 INTERVAL "
+                "RECONSTRUCTION PROVISIONAL",
+                flush=True,
+            )
+
+        if cumulative["provisional"]:
+
+            print(
+                "WARNING: UNIT 15 CUMULATIVE "
+                "RECONSTRUCTION PROVISIONAL",
+                flush=True,
+            )
+
+        # ----------------------------------------------------
+        # SAVE LATEST RESULT IN MEMORY
+        # ----------------------------------------------------
+
+        _UNIT15_LAST_REPORT = {
+            "interval": result,
+            "cumulative": cumulative,
+            "previous_8h": previous,
+        }
+
+        # ----------------------------------------------------
+        # TELEGRAM DELIVERY
+        # ----------------------------------------------------
+
+        unit15_telegram(report)
+
+        return _UNIT15_LAST_REPORT
+
+
+# ============================================================
+# END UNIT 15 PERFORMANCE REPORT REPLACEMENT
+# EXISTING TELEGRAM COMMANDS CONTINUE BELOW
+# ============================================================
+
 # ============================================================
 # START ORIGINAL CONTINUOUS CYCLE RESTORATION
 # ZERO INDENTATION
