@@ -5909,3 +5909,509 @@ FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
 # UNIT 9 STARTS BELOW
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 9 + HYBRID ADJUSTABLE ADAPTER
+# ZERO INDENTATION
+# REPLACE OLD UNIT 9 FUNCTION AND INVOCATION
+# ============================================================
+
+def fresh_reconstruction_unit_9(
+    config,
+    unit_8_result,
+):
+    import math
+    from datetime import datetime, timezone
+
+    print("=" * 80, flush=True)
+    print(
+        datetime.now(timezone.utc).isoformat(),
+        "FRESH RECONSTRUCTION UNIT 9 START",
+        flush=True
+    )
+
+    # ========================================================
+    # 1. INPUT CONTRACT
+    # ========================================================
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 9 CONFIGURATION MUST BE DICTIONARY"
+        )
+
+    if not isinstance(unit_8_result, dict):
+        raise RuntimeError(
+            "UNIT 9 UNIT 8 RESULT MUST BE DICTIONARY"
+        )
+
+    required_fields = (
+        "status",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "trade_plan",
+        "skip_reason",
+        "read_only",
+    )
+
+    missing = [
+        key for key in required_fields
+        if key not in unit_8_result
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "UNIT 9 MISSING UNIT 8 FIELDS: "
+            + str(missing)
+        )
+
+    print(
+        "PASS: UNIT 9 RECEIVED UNIT 8 RESULT",
+        flush=True
+    )
+
+    # ========================================================
+    # 2. READ-ONLY PREPARATION GATE
+    # ========================================================
+
+    if unit_8_result["read_only"] is not True:
+        raise RuntimeError(
+            "UNIT 9 NON-READ-ONLY INPUT REJECTED"
+        )
+
+    if config.get("execution_environment") != "DEMO":
+        raise RuntimeError(
+            "UNIT 9 DEMO ENVIRONMENT REQUIRED"
+        )
+
+    exchange = config.get("exchange", {})
+    strategy = config.get("strategy", {})
+
+    if not isinstance(exchange, dict):
+        raise RuntimeError("UNIT 9 EXCHANGE CONFIG INVALID")
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError("UNIT 9 STRATEGY CONFIG INVALID")
+
+    if exchange.get("market_symbol") != "BTCUSDT":
+        raise RuntimeError(
+            "UNIT 9 MARKET SYMBOL INVALID"
+        )
+
+    if exchange.get("demo_order_symbol") != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 9 DEMO ORDER SYMBOL INVALID"
+        )
+
+    print(
+        "PASS: UNIT 9 READ-ONLY PREPARATION",
+        flush=True
+    )
+
+    # ========================================================
+    # 3. NORMALIZE UNIT 8 OUTPUT
+    # ========================================================
+
+    status = unit_8_result["status"]
+    mode = unit_8_result["active_mode"]
+    direction = unit_8_result["direction"]
+
+    qualified = unit_8_result["signal_qualified"]
+    intent = unit_8_result["execution_intent"]
+    plan_ready = unit_8_result["trade_plan_ready"]
+
+    trade_plan = unit_8_result["trade_plan"]
+
+    skip_reason = str(
+        unit_8_result["skip_reason"]
+    )
+
+    for name, value in (
+        ("signal_qualified", qualified),
+        ("execution_intent", intent),
+        ("trade_plan_ready", plan_ready),
+    ):
+        if type(value) is not bool:
+            raise RuntimeError(
+                "UNIT 9 INVALID BOOLEAN: " + name
+            )
+
+    if qualified != intent:
+        raise RuntimeError(
+            "UNIT 9 QUALIFICATION INTENT MISMATCH"
+        )
+
+    # ========================================================
+    # 4. ORIGINAL UNIT 9 OUTPUT CONSTRUCTOR
+    # ========================================================
+
+    def make_output(
+        output_status,
+        output_mode,
+        output_direction,
+        output_qualified,
+        output_intent,
+        output_plan,
+        output_candidate,
+        output_reason,
+    ):
+        ready = output_status == "READY"
+
+        return {
+            "status": output_status,
+            "active_mode": output_mode,
+            "direction": output_direction,
+            "signal_qualified": output_qualified,
+            "execution_intent": output_intent,
+            "trade_plan_ready": ready,
+            "trade_plan": output_plan,
+            "execution_ready": ready,
+            "execution_candidate": output_candidate,
+            "skip_reason": output_reason,
+            "order_payload_created": False,
+            "tp_execution_requested": False,
+            "sl_execution_requested": False,
+            "read_only": True,
+        }
+
+    # ========================================================
+    # 5. NORMAL IDLE PATH
+    # ========================================================
+
+    if status == "IDLE":
+
+        if (
+            mode != "NONE"
+            or direction != "NONE"
+            or qualified is not False
+            or intent is not False
+            or plan_ready is not False
+            or trade_plan is not None
+        ):
+            raise RuntimeError(
+                "UNIT 9 CONTRADICTORY IDLE STATE"
+            )
+
+        result = make_output(
+            "IDLE",
+            "NONE",
+            "NONE",
+            False,
+            False,
+            None,
+            None,
+            skip_reason,
+        )
+
+        print("UNIT 9 STATUS = IDLE", flush=True)
+        print(
+            "UNIT 9 SKIP REASON =",
+            skip_reason,
+            flush=True
+        )
+        print(
+            "UNIT 9 EXECUTION READY = False",
+            flush=True
+        )
+        print(
+            "UNIT 9 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+        print(
+            "FRESH RECONSTRUCTION UNIT 9 RESULT = PASS (IDLE)",
+            flush=True
+        )
+        print("=" * 80, flush=True)
+
+        return result
+
+    # ========================================================
+    # 6. READY STATE CONTRACT
+    # ========================================================
+
+    if status not in ("READY", "QUALIFIED", "ACTIVE"):
+        raise RuntimeError(
+            "UNIT 9 UNRECOGNIZED UNIT 8 STATUS"
+        )
+
+    if not (
+        qualified is True
+        and intent is True
+        and plan_ready is True
+    ):
+        raise RuntimeError(
+            "UNIT 9 INCOMPLETE EXECUTION READINESS"
+        )
+
+    if mode not in (
+        "SCALP", "STRUCTURE", "BREAKOUT"
+    ):
+        raise RuntimeError(
+            "UNIT 9 INVALID QUALIFIED MODE"
+        )
+
+    if direction not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT 9 INVALID QUALIFIED DIRECTION"
+        )
+
+    if not isinstance(trade_plan, dict):
+        raise RuntimeError(
+            "UNIT 9 TRADE PLAN MISSING"
+        )
+
+    if trade_plan.get("active_mode") != mode:
+        raise RuntimeError(
+            "UNIT 9 TRADE PLAN MODE MISMATCH"
+        )
+
+    if trade_plan.get("direction") != direction:
+        raise RuntimeError(
+            "UNIT 9 TRADE PLAN DIRECTION MISMATCH"
+        )
+
+    if trade_plan.get("execution_environment") != "DEMO":
+        raise RuntimeError(
+            "UNIT 9 TRADE PLAN NOT DEMO"
+        )
+
+    # ========================================================
+    # 7. VERIFIED SIZING CONTRACT
+    # NO NEW POSITION SIZING IS PERFORMED HERE
+    # ========================================================
+
+    sizing = trade_plan.get("position_sizing")
+
+    if not isinstance(sizing, dict):
+        raise RuntimeError(
+            "UNIT 9 POSITION SIZING MISSING"
+        )
+
+    if sizing.get("position_sizing_performed") is not True:
+        raise RuntimeError(
+            "UNIT 9 POSITION SIZING UNVERIFIED"
+        )
+
+    if sizing.get("quantity_calculated") is not True:
+        raise RuntimeError(
+            "UNIT 9 QUANTITY NOT CALCULATED"
+        )
+
+    try:
+        quantity = float(trade_plan.get("quantity"))
+        sized_quantity = float(sizing.get("quantity"))
+        step = float(sizing.get("quantity_step"))
+        minimum = float(sizing.get("minimum_quantity"))
+    except (TypeError, ValueError, OverflowError):
+        raise RuntimeError(
+            "UNIT 9 INVALID QUANTITY FIELDS"
+        )
+
+    if not all(
+        math.isfinite(x) and x > 0
+        for x in (
+            quantity,
+            sized_quantity,
+            step,
+            minimum,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 9 INVALID QUANTITY VALUE"
+        )
+
+    if not math.isclose(
+        quantity,
+        sized_quantity,
+        rel_tol=1e-10,
+        abs_tol=1e-12,
+    ):
+        raise RuntimeError(
+            "UNIT 9 QUANTITY DOES NOT MATCH SIZING"
+        )
+
+    if quantity < minimum:
+        raise RuntimeError(
+            "UNIT 9 QUANTITY BELOW EXCHANGE MINIMUM"
+        )
+
+    step_count = round(quantity / step)
+
+    if not math.isclose(
+        quantity,
+        step_count * step,
+        rel_tol=1e-10,
+        abs_tol=1e-12,
+    ):
+        raise RuntimeError(
+            "UNIT 9 QUANTITY STEP MISMATCH"
+        )
+
+    # ========================================================
+    # 8. PRESERVE HYBRID MODE
+    # NO SECOND STRATEGY QUALIFICATION
+    # ========================================================
+
+    print(
+        "UNIT 9 HYBRID MODE PRESERVED =",
+        mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 HYBRID DIRECTION PRESERVED =",
+        direction,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 QUANTITY VALIDATED =",
+        quantity,
+        flush=True
+    )
+
+    # ========================================================
+    # 9. ORIGINAL INTERNAL EXECUTION CANDIDATE
+    # THIS IS NOT A WEEX ORDER PAYLOAD
+    # ========================================================
+
+    normalized_execution_candidate = {
+        "active_mode": mode,
+        "direction": direction,
+        "trade_plan": trade_plan,
+        "execution_environment": "DEMO",
+    }
+
+    result = make_output(
+        "READY",
+        mode,
+        direction,
+        True,
+        True,
+        trade_plan,
+        normalized_execution_candidate,
+        "NONE",
+    )
+
+    # ========================================================
+    # 10. FINAL CONTRACT VALIDATION
+    # ========================================================
+
+    if (
+        result["execution_ready"] is not True
+        or result["trade_plan_ready"] is not True
+        or result["execution_candidate"] is None
+    ):
+        raise RuntimeError(
+            "UNIT 9 EXECUTION CANDIDATE INVALID"
+        )
+
+    if (
+        result["order_payload_created"] is not False
+        or result["tp_execution_requested"] is not False
+        or result["sl_execution_requested"] is not False
+    ):
+        raise RuntimeError(
+            "UNIT 9 UNAUTHORIZED EXECUTION ACTIVITY"
+        )
+
+    print("UNIT 9 STATUS = READY", flush=True)
+    print("UNIT 9 ACTIVE MODE =", mode, flush=True)
+    print("UNIT 9 DIRECTION =", direction, flush=True)
+    print(
+        "UNIT 9 EXECUTION READY = True",
+        flush=True
+    )
+    print(
+        "UNIT 9 INTERNAL EXECUTION CANDIDATE = READY",
+        flush=True
+    )
+    print(
+        "UNIT 9 ORDER PAYLOAD CREATED = False",
+        flush=True
+    )
+    print(
+        "UNIT 9 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+    print(
+        "FRESH RECONSTRUCTION UNIT 9 RESULT = PASS",
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# UNIT 9 HYBRID EXECUTION ADAPTER
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_9_hybrid_adapter(
+    execution_config,
+    unit_8_result,
+):
+    if not isinstance(execution_config, dict):
+        raise RuntimeError(
+            "UNIT 9 ADAPTER EXECUTION CONFIG MISSING"
+        )
+
+    if not isinstance(unit_8_result, dict):
+        raise RuntimeError(
+            "UNIT 9 ADAPTER UNIT 8 RESULT MISSING"
+        )
+
+    result = fresh_reconstruction_unit_9(
+        execution_config,
+        unit_8_result,
+    )
+
+    if result["status"] == "READY":
+        if (
+            result["active_mode"]
+            != unit_8_result["active_mode"]
+            or result["direction"]
+            != unit_8_result["direction"]
+        ):
+            raise RuntimeError(
+                "UNIT 9 ADAPTER CHANGED HYBRID SIGNAL"
+            )
+
+    print(
+        "UNIT 9 HYBRID ADAPTER STATUS =",
+        result["status"],
+        flush=True
+    )
+
+    print(
+        "UNIT 9 HYBRID ADAPTER RESULT = PASS",
+        flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# RUN UNIT 9 + ADAPTER
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_9_RESULT = (
+    fresh_unit_9_hybrid_adapter(
+        FRESH_RECONSTRUCTION_EXECUTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_8_RESULT,
+    )
+)
+
+
+# ============================================================
+# END COMPLETE UNIT 9 + HYBRID ADAPTER
+# UNIT 10 STARTS BELOW
+# ZERO INDENTATION
+# ============================================================
+
+
