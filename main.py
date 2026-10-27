@@ -5891,9 +5891,14 @@ if not isinstance(
 # ZERO INDENTATION
 # ============================================================
 
+# ============================================================
+# RUN UNIT 8
+# ZERO INDENTATION
+# ============================================================
+
 FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
     fresh_reconstruction_unit_8(
-        FRESH_RECONSTRUCTION_UNIT_7_CONFIG,
+        FRESH_RECONSTRUCTION_EXECUTION_CONFIG,
         FRESH_RECONSTRUCTION_SIZING_CANDIDATE,
         FRESH_RECONSTRUCTION_MARKET_SNAPSHOT,
     )
