@@ -2403,6 +2403,521 @@ FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
 
 
 # ============================================================
+# START UNIT 4 HYBRID ADJUSTABLE EVIDENCE ADAPTER
+# ZERO INDENTATION
+# PLACE AFTER UNIT 4, BEFORE UNIT 5
+# ============================================================
+
+def fresh_unit_4_hybrid_adjustable_adapter(config, snapshot):
+
+    import math
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT 4 ADAPTER INVALID CONFIG")
+
+    if not isinstance(snapshot, dict):
+        raise RuntimeError("UNIT 4 ADAPTER INVALID SNAPSHOT")
+
+    qualification = config.get("qualification")
+
+    if not isinstance(qualification, dict):
+        raise RuntimeError(
+            "UNIT 4 ADAPTER QUALIFICATION CONFIG MISSING"
+        )
+
+    try:
+        common = qualification["common"]
+        breakout = qualification["breakout"]
+        structure = qualification["structure"]
+        scalp = qualification["scalp"]
+    except KeyError as exc:
+        raise RuntimeError(
+            "UNIT 4 ADAPTER MISSING QUALIFICATION SECTION"
+        ) from exc
+
+    if not all(
+        isinstance(x, dict)
+        for x in (common, breakout, structure, scalp)
+    ):
+        raise RuntimeError(
+            "UNIT 4 ADAPTER INVALID QUALIFICATION SECTION"
+        )
+
+    if snapshot.get("read_only") is not True:
+        raise RuntimeError("UNIT 4 ADAPTER INVALID MARKET SOURCE")
+
+    if snapshot.get("symbol") != "BTCUSDT":
+        raise RuntimeError("UNIT 4 ADAPTER SYMBOL MISMATCH")
+
+    candles = snapshot.get("recent_closed_klines")
+
+    if not isinstance(candles, list) or len(candles) < 35:
+        raise RuntimeError(
+            "UNIT 4 ADAPTER INSUFFICIENT CLOSED CANDLES"
+        )
+
+    def number(value, name):
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "UNIT 4 ADAPTER INVALID " + name
+            ) from exc
+
+        if not math.isfinite(value):
+            raise RuntimeError(
+                "UNIT 4 ADAPTER NONFINITE " + name
+            )
+
+        return value
+
+    normalized = []
+
+    for item in candles:
+
+        if not isinstance(item, dict):
+            raise RuntimeError("UNIT 4 ADAPTER INVALID CANDLE")
+
+        candle = {
+            "open": number(item.get("open"), "OPEN"),
+            "high": number(item.get("high"), "HIGH"),
+            "low": number(item.get("low"), "LOW"),
+            "close": number(item.get("close"), "CLOSE"),
+        }
+
+        if not (
+            0 < candle["low"]
+            <= min(candle["open"], candle["close"])
+            <= max(candle["open"], candle["close"])
+            <= candle["high"]
+        ):
+            raise RuntimeError("UNIT 4 ADAPTER INVALID OHLC")
+
+        normalized.append(candle)
+
+    latest = normalized[-1]
+    closes = [item["close"] for item in normalized]
+
+    ema19 = number(snapshot.get("ema19"), "EMA19")
+    ema50 = number(snapshot.get("ema50"), "EMA50")
+    ema100 = number(snapshot.get("ema100"), "EMA100")
+    ema200 = number(snapshot.get("ema200"), "EMA200")
+
+    move5 = number(snapshot.get("move_5m_pct"), "MOVE5")
+    move15 = number(snapshot.get("move_15m_pct"), "MOVE15")
+
+    separation = number(
+        snapshot.get("ema19_50_separation_pct"),
+        "EMA SEPARATION"
+    )
+
+    # ========================================================
+    # 1. ATR14 FROM VERIFIED CLOSED CANDLES
+    # ========================================================
+
+    true_ranges = []
+
+    for index in range(1, len(normalized)):
+
+        current = normalized[index]
+        previous_close = normalized[index - 1]["close"]
+
+        true_ranges.append(
+            max(
+                current["high"] - current["low"],
+                abs(current["high"] - previous_close),
+                abs(current["low"] - previous_close),
+            )
+        )
+
+    atr14 = sum(true_ranges[-14:]) / 14.0
+
+    if atr14 <= 0:
+        raise RuntimeError("UNIT 4 ADAPTER ATR14 INVALID")
+
+    atr_percent = atr14 / latest["close"] * 100.0
+
+    # ========================================================
+    # 2. ADJUSTABLE SUPPORT AND RESISTANCE
+    # ========================================================
+
+    lookback = int(breakout["support_resistance_lookback"])
+
+    if lookback < 2 or len(normalized) < lookback + 15:
+        raise RuntimeError(
+            "UNIT 4 ADAPTER INVALID BREAKOUT LOOKBACK"
+        )
+
+    prior = normalized[-lookback - 1:-1]
+
+    support = min(c["low"] for c in prior)
+    resistance = max(c["high"] for c in prior)
+
+    range20_atr_ratio = (
+        resistance - support
+    ) / atr14
+
+    latest_close = latest["close"]
+
+    # ========================================================
+    # 3. DIRECTION EVIDENCE: 2 OF 3 VOTES
+    # ========================================================
+
+    ema_vote = (
+        "LONG" if ema19 > ema50
+        else "SHORT" if ema19 < ema50
+        else "NONE"
+    )
+
+    momentum_sum = move5 + move15
+
+    momentum_vote = (
+        "LONG" if momentum_sum > 0
+        else "SHORT" if momentum_sum < 0
+        else "NONE"
+    )
+
+    price_vote = (
+        "LONG" if latest_close > ema19
+        else "SHORT" if latest_close < ema19
+        else "NONE"
+    )
+
+    votes = (ema_vote, momentum_vote, price_vote)
+
+    long_votes = votes.count("LONG")
+    short_votes = votes.count("SHORT")
+
+    required_votes = int(
+        common["direction_votes_required"]
+    )
+
+    if long_votes >= required_votes and long_votes > short_votes:
+        direction_evidence = "LONG"
+
+    elif short_votes >= required_votes and short_votes > long_votes:
+        direction_evidence = "SHORT"
+
+    else:
+        direction_evidence = "NONE"
+
+    # ========================================================
+    # 4. BREAKOUT: DEVELOPING AND CONFIRMED
+    # ========================================================
+
+    proximity_atr = number(
+        breakout["developing_proximity_atr"],
+        "BREAKOUT PROXIMITY"
+    )
+
+    confirmation_atr = number(
+        breakout["confirmation_distance_atr"],
+        "BREAKOUT CONFIRMATION"
+    )
+
+    maximum_breakout_extension = number(
+        breakout["max_price_extension_atr"],
+        "BREAKOUT EXTENSION"
+    )
+
+    near_resistance = (
+        latest_close >= resistance - proximity_atr * atr14
+    )
+
+    near_support = (
+        latest_close <= support + proximity_atr * atr14
+    )
+
+    long_extension = max(
+        0.0, (latest_close - resistance) / atr14
+    )
+
+    short_extension = max(
+        0.0, (support - latest_close) / atr14
+    )
+
+    breakout_developing_long = bool(
+        breakout["enabled"]
+        and breakout["developing_candidate_enabled"]
+        and near_resistance
+        and direction_evidence == "LONG"
+        and move5 > 0
+        and long_extension <= maximum_breakout_extension
+    )
+
+    breakout_developing_short = bool(
+        breakout["enabled"]
+        and breakout["developing_candidate_enabled"]
+        and near_support
+        and direction_evidence == "SHORT"
+        and move5 < 0
+        and short_extension <= maximum_breakout_extension
+    )
+
+    breakout_confirmed_long = bool(
+        breakout["enabled"]
+        and latest_close > resistance + confirmation_atr * atr14
+        and long_extension <= maximum_breakout_extension
+    )
+
+    breakout_confirmed_short = bool(
+        breakout["enabled"]
+        and latest_close < support - confirmation_atr * atr14
+        and short_extension <= maximum_breakout_extension
+    )
+
+    # ========================================================
+    # 5. EARLY STRUCTURE EVIDENCE
+    # ========================================================
+
+    structure_separation_min = number(
+        structure["minimum_ema_separation_percent"],
+        "STRUCTURE SEPARATION"
+    )
+
+    pullback_tolerance = number(
+        structure["pullback_tolerance_atr"],
+        "STRUCTURE PULLBACK"
+    )
+
+    structure_max_extension = number(
+        structure["max_price_extension_atr"],
+        "STRUCTURE EXTENSION"
+    )
+
+    distance_atr = (
+        latest_close - ema19
+    ) / atr14
+
+    pullback_near_ema = (
+        abs(distance_atr) <= pullback_tolerance
+    )
+
+    separation_ok = (
+        abs(separation) >= structure_separation_min
+    )
+
+    structure_developing_long = bool(
+        structure["enabled"]
+        and separation_ok
+        and ema19 > ema50 > ema200
+        and direction_evidence == "LONG"
+        and move15 > 0
+        and distance_atr <= structure_max_extension
+        and (
+            pullback_near_ema
+            or (
+                structure["allow_continuation_entry"]
+                and latest_close > ema19
+            )
+        )
+    )
+
+    structure_developing_short = bool(
+        structure["enabled"]
+        and separation_ok
+        and ema19 < ema50 < ema200
+        and direction_evidence == "SHORT"
+        and move15 < 0
+        and -distance_atr <= structure_max_extension
+        and (
+            pullback_near_ema
+            or (
+                structure["allow_continuation_entry"]
+                and latest_close < ema19
+            )
+        )
+    )
+
+    # ========================================================
+    # 6. SCALP SIDEWAYS-MARKET EVIDENCE
+    # ========================================================
+
+    ema_cluster_height = (
+        max(ema19, ema50, ema100, ema200)
+        - min(ema19, ema50, ema100, ema200)
+    )
+
+    ema_compression_atr = (
+        ema_cluster_height / atr14
+    )
+
+    price_extension_cluster = (
+        abs(latest_close - ema19)
+        / max(ema_cluster_height, atr14 * 0.01)
+    )
+
+    momentum15_atr_ratio = (
+        abs(latest_close - closes[-16]) / atr14
+    )
+
+    sideways_candidate = bool(
+        scalp["enabled"]
+        and ema_compression_atr
+        <= number(
+            scalp["ema_compression_atr_max"],
+            "SCALP COMPRESSION"
+        )
+        and range20_atr_ratio
+        <= number(
+            scalp["range20_atr_max"],
+            "SCALP RANGE"
+        )
+        and momentum15_atr_ratio
+        <= number(
+            scalp["momentum15_atr_multiplier_max"],
+            "SCALP MOMENTUM"
+        )
+        and not (
+            breakout_developing_long
+            or breakout_developing_short
+            or structure_developing_long
+            or structure_developing_short
+        )
+    )
+
+    price_overextended = bool(
+        price_extension_cluster
+        > number(
+            scalp["max_ema_extension_clusters"],
+            "SCALP EXTENSION"
+        )
+    )
+
+    # ========================================================
+    # 7. PRESERVE ORIGINAL UNIT 4 SNAPSHOT
+    # ADD HYBRID EVIDENCE ONLY
+    # ========================================================
+
+    original_fields = dict(snapshot)
+
+    additions = {
+        "atr14": atr14,
+        "atr_percent": atr_percent,
+
+        "support20": support,
+        "resistance20": resistance,
+        "range20_atr_ratio": range20_atr_ratio,
+
+        "near_resistance": bool(near_resistance),
+        "near_support": bool(near_support),
+
+        "breakout_developing_long": breakout_developing_long,
+        "breakout_developing_short": breakout_developing_short,
+        "breakout_confirmed_long": breakout_confirmed_long,
+        "breakout_confirmed_short": breakout_confirmed_short,
+
+        "structure_developing_long": structure_developing_long,
+        "structure_developing_short": structure_developing_short,
+
+        "sideways_candidate": sideways_candidate,
+
+        "direction_long_votes": long_votes,
+        "direction_short_votes": short_votes,
+        "direction_evidence": direction_evidence,
+
+        "ema_cluster_height": ema_cluster_height,
+        "ema_compression_atr": ema_compression_atr,
+
+        "price_extension_cluster": price_extension_cluster,
+        "price_overextended": price_overextended,
+
+        "strategy_evidence_version": "U4_HYBRID_V2",
+
+        "qualification_settings": {
+            "breakout_lookback": lookback,
+            "breakout_proximity_atr": proximity_atr,
+            "breakout_confirmation_atr": confirmation_atr,
+            "structure_pullback_atr": pullback_tolerance,
+            "structure_max_extension_atr": structure_max_extension,
+            "scalp_compression_atr":
+                scalp["ema_compression_atr_max"],
+            "scalp_range_atr": scalp["range20_atr_max"],
+            "scalp_momentum_atr":
+                scalp["momentum15_atr_multiplier_max"],
+        },
+
+        "trade_authorized": False,
+        "order_payload_created": False,
+    }
+
+    # Do not overwrite original market-analysis fields.
+
+    if set(original_fields).intersection(additions):
+        raise RuntimeError(
+            "UNIT 4 ADAPTER FIELD COLLISION"
+        )
+
+    result = dict(original_fields)
+    result.update(additions)
+
+    for key, value in original_fields.items():
+        if result[key] != value:
+            raise RuntimeError(
+                "UNIT 4 ADAPTER ALTERED ORIGINAL FIELD: " + key
+            )
+
+    print("=" * 80, flush=True)
+    print("UNIT 4 HYBRID ADJUSTABLE EVIDENCE ADAPTER", flush=True)
+
+    print("UNIT 4 ORIGINAL FIELDS = PRESERVED", flush=True)
+    print("UNIT 4 ATR14 =", round(atr14, 4), flush=True)
+    print("UNIT 4 DIRECTION =", direction_evidence, flush=True)
+
+    print(
+        "UNIT 4 BREAKOUT DEVELOPING LONG =",
+        breakout_developing_long,
+        flush=True
+    )
+    print(
+        "UNIT 4 BREAKOUT DEVELOPING SHORT =",
+        breakout_developing_short,
+        flush=True
+    )
+    print(
+        "UNIT 4 STRUCTURE DEVELOPING LONG =",
+        structure_developing_long,
+        flush=True
+    )
+    print(
+        "UNIT 4 STRUCTURE DEVELOPING SHORT =",
+        structure_developing_short,
+        flush=True
+    )
+    print(
+        "UNIT 4 SIDEWAYS CANDIDATE =",
+        sideways_candidate,
+        flush=True
+    )
+
+    print("UNIT 4 EXCHANGE WRITE = NONE", flush=True)
+    print(
+        "FRESH RECONSTRUCTION UNIT 4 ADAPTER RESULT = PASS",
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# RUN UNIT 4 ADAPTER — ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
+    fresh_unit_4_hybrid_adjustable_adapter(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+    )
+)
+
+# ============================================================
+# END UNIT 4 HYBRID ADJUSTABLE EVIDENCE ADAPTER
+# UNIT 5 FOLLOWS
+# ============================================================
+
+
+# ============================================================
 # START COMPLETE UNIT 5 REPLACEMENT
 # SOURCE: PROVEN 22524-LINE MODEL
 # ZERO INDENTATION
