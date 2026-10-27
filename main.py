@@ -5361,7 +5361,7 @@ def fresh_reconstruction_unit_8(
 
     # ============================================================
     # END CONFIGURATION COMPATIBILITY
-   b# ============================================================
+    # ============================================================
     if not all(
         isinstance(item, dict)
         for item in (config, unit_7_result, market_snapshot)
