@@ -4728,4 +4728,355 @@ FRESH_RECONSTRUCTION_VERIFIED_DEMO_LEVERAGE = globals().get(
 # ZERO INDENTATION
 # ============================================================
 
+# ============================================================
+# START UNIT 7 HYBRID-TO-ORIGINAL EXECUTION ADAPTER
+# ZERO INDENTATION
+# ORIGINAL UNIT 7 FUNCTION MUST BE DEFINED ABOVE
+# ============================================================
+
+def fresh_unit_7_hybrid_execution_adapter(
+    permanent_config,
+    execution_config,
+    execution_candidate,
+):
+    import copy
+    import math
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 7 HYBRID-TO-ORIGINAL ADAPTER START",
+        flush=True
+    )
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            permanent_config,
+            execution_config,
+            execution_candidate,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 7 ADAPTER INVALID INPUT"
+        )
+
+    if not isinstance(
+        execution_config.get("strategy"), dict
+    ):
+        raise RuntimeError(
+            "UNIT 7 ADAPTER STRATEGY MISSING"
+        )
+
+    if not callable(
+        globals().get("fresh_reconstruction_unit_7")
+    ):
+        raise RuntimeError(
+            "UNIT 7 ORIGINAL FUNCTION MISSING"
+        )
+
+    # Never modify the permanent Unit 2 configuration.
+    config = copy.deepcopy(execution_config)
+    candidate = dict(execution_candidate)
+
+    required_fields = (
+        "execution_intent",
+        "signal_qualified",
+        "active_mode",
+        "direction",
+        "unit_5_reason",
+        "admission_reason",
+    )
+
+    missing = [
+        key for key in required_fields
+        if key not in candidate
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "UNIT 7 ADAPTER MISSING FIELDS: "
+            + str(missing)
+        )
+
+    intent = candidate["execution_intent"]
+    qualified = candidate["signal_qualified"]
+
+    if type(intent) is not bool or type(qualified) is not bool:
+        raise RuntimeError(
+            "UNIT 7 ADAPTER INVALID BOOLEAN CONTRACT"
+        )
+
+    if intent != qualified:
+        raise RuntimeError(
+            "UNIT 7 ADAPTER SIGNAL CONTRADICTION"
+        )
+
+    # ========================================================
+    # NORMAL IDLE PATH
+    # ========================================================
+
+    if intent is False:
+
+        if (
+            candidate["active_mode"] != "NONE"
+            or candidate["direction"] != "NONE"
+        ):
+            raise RuntimeError(
+                "UNIT 7 ADAPTER IDLE STATE CONTRADICTION"
+            )
+
+        config["strategy"].pop(
+            "leverage_target", None
+        )
+
+        config["strategy"].pop(
+            "exchange_leverage_verified", None
+        )
+
+        print(
+            "UNIT 7 ADAPTER STATUS = IDLE",
+            flush=True
+        )
+
+        print(
+            "UNIT 7 ADAPTER REASON =",
+            candidate["admission_reason"],
+            flush=True
+        )
+
+        return config, candidate
+
+    # ========================================================
+    # QUALIFIED HYBRID SIGNAL
+    # ========================================================
+
+    mode = candidate["active_mode"]
+    direction = candidate["direction"]
+
+    if mode not in (
+        "SCALP", "STRUCTURE", "BREAKOUT"
+    ):
+        raise RuntimeError(
+            "UNIT 7 ADAPTER INVALID MODE"
+        )
+
+    if direction not in (
+        "LONG", "SHORT"
+    ):
+        raise RuntimeError(
+            "UNIT 7 ADAPTER INVALID DIRECTION"
+        )
+
+    if candidate.get("higher_mode_protected") is True:
+        raise RuntimeError(
+            "UNIT 7 ADAPTER PROTECTED DEVELOPING SIGNAL"
+        )
+
+    if mode == "SCALP":
+
+        if (
+            candidate.get("candidate_stage")
+            != "PENDING_UNIT_6"
+            or candidate.get("scalp_quality_pass") is not True
+            or candidate.get("fee_coverage_pass") is not True
+        ):
+            raise RuntimeError(
+                "UNIT 7 ADAPTER SCALP ADMISSION INCOMPLETE"
+            )
+
+    else:
+
+        if candidate.get("candidate_stage") != "QUALIFIED":
+            raise RuntimeError(
+                "UNIT 7 ADAPTER HIGHER MODE NOT QUALIFIED"
+            )
+
+    # ========================================================
+    # VERIFIED DIRECTIONAL LEVERAGE
+    # ========================================================
+
+    strategy = config["strategy"]
+
+    if strategy.get(
+        "exchange_leverage_verified"
+    ) is not True:
+        raise RuntimeError(
+            "UNIT 7 ADAPTER LEVERAGE NOT VERIFIED"
+        )
+
+    raw_leverage = strategy.get("leverage_target")
+
+    if isinstance(raw_leverage, bool):
+        raise RuntimeError(
+            "UNIT 7 ADAPTER INVALID LEVERAGE"
+        )
+
+    try:
+        leverage = float(raw_leverage)
+    except (TypeError, ValueError, OverflowError):
+        raise RuntimeError(
+            "UNIT 7 ADAPTER INVALID LEVERAGE"
+        )
+
+    if not (
+        math.isfinite(leverage)
+        and 1 <= leverage <= 1000
+        and leverage == int(leverage)
+    ):
+        raise RuntimeError(
+            "UNIT 7 ADAPTER INVALID LEVERAGE"
+        )
+
+    if (
+        "leverage_target" in candidate
+        and int(leverage)
+        != candidate["leverage_target"]
+    ):
+        raise RuntimeError(
+            "UNIT 7 ADAPTER LEVERAGE MISMATCH"
+        )
+
+    # ========================================================
+    # ORIGINAL UNIT 7 ADMISSION CONTRACT
+    # ========================================================
+
+    previous_reason = candidate["admission_reason"]
+
+    if previous_reason != "QUALIFIED_SIGNAL_ADMITTED":
+
+        candidate["hybrid_admission_reason"] = (
+            previous_reason
+        )
+
+        candidate["admission_reason"] = (
+            "QUALIFIED_SIGNAL_ADMITTED"
+        )
+
+    candidate["execution_intent"] = True
+    candidate["signal_qualified"] = True
+    candidate["leverage_target"] = int(leverage)
+
+    print(
+        "UNIT 7 ADAPTER MODE =",
+        mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 ADAPTER DIRECTION =",
+        direction,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 ADAPTER VERIFIED LEVERAGE =",
+        int(leverage),
+        flush=True
+    )
+
+    print(
+        "UNIT 7 ADAPTER STATUS = READY_FOR_ORIGINAL_UNIT_7",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return config, candidate
+
+
+# ============================================================
+# RUN UNIT 7 ADAPTER — ZERO INDENTATION
+# ============================================================
+
+(
+    FRESH_RECONSTRUCTION_UNIT_7_CONFIG,
+    FRESH_RECONSTRUCTION_UNIT_7_CANDIDATE,
+) = fresh_unit_7_hybrid_execution_adapter(
+    FRESH_RECONSTRUCTION_CONFIG,
+    FRESH_RECONSTRUCTION_EXECUTION_CONFIG,
+    FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE,
+)
+
+
+# ============================================================
+# RUN ORIGINAL UNIT 7 — ZERO INDENTATION
+# REPLACES THE OLD UNIT 7 INVOCATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_SIZING_CANDIDATE = (
+    fresh_reconstruction_unit_7(
+        FRESH_RECONSTRUCTION_UNIT_7_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_7_CANDIDATE,
+    )
+)
+
+
+# ============================================================
+# VERIFY ORIGINAL UNIT 7 OUTPUT
+# ============================================================
+
+if not isinstance(
+    FRESH_RECONSTRUCTION_SIZING_CANDIDATE, dict
+):
+    raise RuntimeError(
+        "UNIT 7 ADAPTER INVALID SIZING RESULT"
+    )
+
+unit_7_status = (
+    FRESH_RECONSTRUCTION_SIZING_CANDIDATE.get("status")
+)
+
+if unit_7_status not in (
+    "IDLE",
+    "READY_FOR_BALANCE",
+):
+    raise RuntimeError(
+        "UNIT 7 ADAPTER UNEXPECTED STATUS: "
+        + str(unit_7_status)
+    )
+
+if (
+    unit_7_status == "READY_FOR_BALANCE"
+    and FRESH_RECONSTRUCTION_UNIT_7_CANDIDATE[
+        "execution_intent"
+    ] is not True
+):
+    raise RuntimeError(
+        "UNIT 7 ADAPTER UNAUTHORIZED SIZING STATE"
+    )
+
+print("=" * 80, flush=True)
+print(
+    "UNIT 7 ORIGINAL SIZING STATUS =",
+    unit_7_status,
+    flush=True
+)
+print(
+    "UNIT 7 ORIGINAL MODE =",
+    FRESH_RECONSTRUCTION_SIZING_CANDIDATE.get(
+        "active_mode", "NONE"
+    ),
+    flush=True
+)
+print(
+    "UNIT 7 ORIGINAL DIRECTION =",
+    FRESH_RECONSTRUCTION_SIZING_CANDIDATE.get(
+        "direction", "NONE"
+    ),
+    flush=True
+)
+print(
+    "UNIT 7 ADAPTER FINAL RESULT = PASS",
+    flush=True
+)
+print("=" * 80, flush=True)
+
+
+# ============================================================
+# END UNIT 7 HYBRID-TO-ORIGINAL ADAPTER
+# UNIT 8 STARTS BELOW
+# ZERO INDENTATION
+# ============================================================
+
+
 
