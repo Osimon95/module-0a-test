@@ -5870,7 +5870,7 @@ def fresh_reconstruction_unit_8(
 # ============================================================
 
 if not isinstance(
-    FRESH_RECONSTRUCTION_UNIT_7_CONFIG,
+    FRESH_RECONSTRUCTION_EXECUTION_CONFIG,
     dict
 ):
     raise RuntimeError(
