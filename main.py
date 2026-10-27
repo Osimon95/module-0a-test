@@ -3433,3 +3433,479 @@ FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
 # UNIT 6 CONTINUES BELOW
 # ZERO INDENTATION
 # ============================================================
+
+# ============================================================
+# START UNIT 5 HYBRID ADJUSTABLE ADAPTER
+# ZERO INDENTATION
+# PLACE AFTER EXISTING UNIT 5, BEFORE UNIT 6
+# ============================================================
+
+def fresh_unit_5_hybrid_adjustable_adapter(
+    config,
+    analysis,
+    original_candidate,
+):
+    import math
+
+    if not all(
+        isinstance(x, dict)
+        for x in (config, analysis, original_candidate)
+    ):
+        raise RuntimeError("UNIT 5 ADAPTER INVALID INPUT")
+
+    qualification = config.get("qualification", {})
+
+    try:
+        common = qualification["common"]
+        breakout = qualification["breakout"]
+        structure = qualification["structure"]
+        scalp = qualification["scalp"]
+    except (KeyError, TypeError):
+        raise RuntimeError(
+            "UNIT 5 ADAPTER QUALIFICATION CONFIG MISSING"
+        )
+
+    if analysis.get("strategy_evidence_version") != "U4_HYBRID_V2":
+        raise RuntimeError(
+            "UNIT 5 ADAPTER HYBRID UNIT 4 EVIDENCE MISSING"
+        )
+
+    if tuple(common["mode_priority"]) != (
+        "BREAKOUT", "STRUCTURE", "SCALP"
+    ):
+        raise RuntimeError("UNIT 5 ADAPTER INVALID PRIORITY")
+
+    def number(key, default=None):
+        value = analysis.get(key, default)
+        if isinstance(value, bool):
+            raise RuntimeError("INVALID NUMBER: " + key)
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            raise RuntimeError("INVALID NUMBER: " + key)
+        if not math.isfinite(value):
+            raise RuntimeError("NONFINITE NUMBER: " + key)
+        return value
+
+    def flag(key):
+        value = analysis.get(key)
+        if type(value) is not bool:
+            raise RuntimeError("INVALID EVIDENCE FLAG: " + key)
+        return value
+
+    atr = number("atr14")
+    close = number("latest_close")
+    ema19 = number("ema19")
+    ema50 = number("ema50")
+    ema200 = number("ema200")
+    move1 = number("move_1m_pct")
+    move5 = number("move_5m_pct")
+    move15 = number("move_15m_pct")
+    support = number("support20")
+    resistance = number("resistance20")
+    separation = abs(number("ema19_50_separation_pct"))
+
+    direction = analysis.get("direction_evidence", "NONE")
+    long_votes = int(number("direction_long_votes"))
+    short_votes = int(number("direction_short_votes"))
+
+    if (
+        atr <= 0
+        or close <= 0
+        or support <= 0
+        or resistance <= support
+        or direction not in ("LONG", "SHORT", "NONE")
+        or long_votes < 0
+        or short_votes < 0
+        or long_votes + short_votes > 3
+    ):
+        raise RuntimeError("UNIT 5 INVALID MARKET EVIDENCE")
+
+    # Freshness from exchange timestamps, not an
+    # unverified success flag.
+
+    exchange_ms = number("exchange_time_ms")
+    close_ms = number("latest_close_time_ms")
+
+    age_seconds = (exchange_ms - close_ms) / 1000.0
+
+    max_age = float(
+        config.get("market_data_policy", {}).get(
+            "max_market_age_seconds", 120.0
+        )
+    )
+
+    if not 0 <= age_seconds <= max_age:
+        raise RuntimeError(
+            "UNIT 5 ADAPTER STALE MARKET EVIDENCE"
+        )
+
+    def votes_ok(side, settings):
+        required = int(settings["direction_votes_required"])
+        if side == "LONG":
+            return (
+                direction == "LONG"
+                and long_votes >= required
+            )
+        return (
+            direction == "SHORT"
+            and short_votes >= required
+        )
+
+    def fresh(settings):
+        expiry = float(settings["candidate_expiry_seconds"])
+        return age_seconds <= min(expiry, max_age)
+
+    def state(side):
+        if side == "LONG":
+            return (
+                close - resistance,
+                move5 > 0 and move15 > 0
+            )
+        return (
+            support - close,
+            move5 < 0 and move15 < 0
+        )
+
+    # ========================================================
+    # BREAKOUT QUALIFICATION
+    # ========================================================
+
+    breakout_candidates = (
+        flag("breakout_developing_long")
+        or flag("breakout_developing_short")
+        or flag("breakout_confirmed_long")
+        or flag("breakout_confirmed_short")
+    )
+
+    breakout_ready = "NONE"
+    breakout_developing = False
+
+    if breakout["enabled"] and fresh(breakout):
+        for side in ("LONG", "SHORT"):
+            distance, momentum_ok = state(side)
+
+            extension_ok = (
+                max(0.0, distance / atr)
+                <= float(breakout["max_price_extension_atr"])
+            )
+
+            direction_ok = votes_ok(side, breakout)
+
+            confirmed = flag(
+                "breakout_confirmed_" + side.lower()
+            )
+
+            developing = flag(
+                "breakout_developing_" + side.lower()
+            )
+
+            min_atr_ok = (
+                number("atr_percent")
+                >= float(breakout["minimum_atr_percent"])
+            )
+
+            quality_ok = (
+                direction_ok
+                and extension_ok
+                and min_atr_ok
+                and (
+                    not breakout["require_momentum_confirmation"]
+                    or momentum_ok
+                )
+            )
+
+            if confirmed and quality_ok:
+                breakout_ready = side
+                break
+
+            if (
+                developing
+                and breakout["early_detection_enabled"]
+                and breakout["developing_candidate_enabled"]
+                and direction_ok
+                and extension_ok
+                and (move5 > 0 if side == "LONG" else move5 < 0)
+            ):
+                breakout_developing = True
+
+    # ========================================================
+    # STRUCTURE QUALIFICATION
+    # ========================================================
+
+    structure_candidates = (
+        flag("structure_developing_long")
+        or flag("structure_developing_short")
+    )
+
+    structure_ready = "NONE"
+    structure_developing = False
+
+    if structure["enabled"] and fresh(structure):
+        for side in ("LONG", "SHORT"):
+
+            developing = flag(
+                "structure_developing_" + side.lower()
+            )
+
+            trend_ok = (
+                ema19 > ema50 > ema200
+                if side == "LONG"
+                else ema19 < ema50 < ema200
+            )
+
+            extension = (
+                (close - ema19) / atr
+                if side == "LONG"
+                else (ema19 - close) / atr
+            )
+
+            base_ok = (
+                developing
+                and trend_ok
+                and votes_ok(side, structure)
+                and extension
+                    <= float(structure["max_price_extension_atr"])
+                and separation
+                    >= float(
+                        structure["minimum_ema_separation_percent"]
+                    )
+            )
+
+            momentum_ok = (
+                move5 > 0 and move15 > 0
+                if side == "LONG"
+                else move5 < 0 and move15 < 0
+            )
+
+            if base_ok:
+                structure_developing = True
+
+            if base_ok and momentum_ok:
+                structure_ready = side
+                break
+
+    # ========================================================
+    # SCALP ELIGIBILITY
+    # ========================================================
+
+    sideways = flag("sideways_candidate")
+    overextended = flag("price_overextended")
+
+    higher_mode_developing = (
+        breakout_developing
+        or structure_developing
+    )
+
+    fee_sides = (
+        int(scalp["include_entry_fee"] is True)
+        + int(scalp["include_exit_fee"] is True)
+    )
+
+    friction = (
+        float(scalp["estimated_taker_fee_percent"])
+        * fee_sides
+        + float(scalp["estimated_slippage_percent"])
+    )
+
+    minimum_range = (
+        friction
+        * float(scalp["minimum_fee_coverage_multiplier"])
+    )
+
+    range_percent = (
+        (resistance - support) / close * 100.0
+    )
+
+    scalp_direction_ok = (
+        direction in ("LONG", "SHORT")
+        and votes_ok(direction, scalp)
+    )
+
+    scalp_momentum_ok = (
+        (direction == "LONG" and move1 > 0)
+        or (direction == "SHORT" and move1 < 0)
+    )
+
+    scalp_pending = (
+        scalp["enabled"] is True
+        and (
+            sideways
+            or scalp["require_sideways_market"] is False
+        )
+        and not higher_mode_developing
+        and not overextended
+        and number("price_extension_cluster")
+            <= float(scalp["max_ema_extension_clusters"])
+        and scalp_direction_ok
+        and scalp_momentum_ok
+        and (
+            scalp["fee_aware_enabled"] is False
+            or range_percent >= minimum_range
+        )
+    )
+
+    # ========================================================
+    # EXCLUSIVE ARBITRATION
+    # ========================================================
+
+    active_mode = "NONE"
+    admitted_direction = "NONE"
+    qualified = False
+    candidate_mode = "NONE"
+    candidate_stage = "NONE"
+    reason = "NO_ACCEPTABLE_CANDIDATE"
+
+    if breakout_ready != "NONE":
+        active_mode = "BREAKOUT"
+        admitted_direction = breakout_ready
+        qualified = True
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "QUALIFIED"
+        reason = "BREAKOUT_CONFIRMED"
+
+    elif breakout_developing:
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "DEVELOPING"
+        reason = "BREAKOUT_DEVELOPING_AWAITING_CONFIRMATION"
+
+    elif structure_ready != "NONE":
+        active_mode = "STRUCTURE"
+        admitted_direction = structure_ready
+        qualified = True
+        candidate_mode = "STRUCTURE"
+        candidate_stage = "QUALIFIED"
+        reason = "STRUCTURE_EARLY_QUALIFICATION"
+
+    elif structure_developing:
+        candidate_mode = "STRUCTURE"
+        candidate_stage = "DEVELOPING"
+        reason = "STRUCTURE_DEVELOPING_AWAITING_CONFIRMATION"
+
+    elif scalp_pending:
+        # SCALP is deliberately pending Unit 6.
+        # It is NOT prematurely trade-authorized.
+        candidate_mode = "SCALP"
+        candidate_stage = "PENDING_UNIT_6"
+        reason = "SCALP_PENDING_QUALITY_AND_FEES"
+
+    elif breakout_candidates:
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "REJECTED"
+        reason = "BREAKOUT_EVIDENCE_NOT_QUALIFIED"
+
+    elif structure_candidates:
+        candidate_mode = "STRUCTURE"
+        candidate_stage = "REJECTED"
+        reason = "STRUCTURE_EVIDENCE_NOT_QUALIFIED"
+
+    # ========================================================
+    # ORIGINAL UNIT 5 CONTRACT + HYBRID FIELDS
+    # ========================================================
+
+    result = dict(original_candidate)
+
+    # Preserve unrelated fields. Update classification
+    # fields to reflect the hybrid decision.
+
+    result.update({
+        "qualified": qualified,
+        "active_mode": active_mode,
+        "direction": admitted_direction,
+        "qualification_reason": reason,
+        "candidate_mode": candidate_mode,
+        "candidate_stage": candidate_stage,
+        "higher_mode_developing": higher_mode_developing,
+        "breakout_candidate": breakout_candidates,
+        "structure_candidate": structure_candidates,
+        "breakout_ready": breakout_ready != "NONE",
+        "structure_ready": structure_ready != "NONE",
+        "scalp_ready": scalp_pending,
+        "sideways_context": sideways,
+        "direction_evidence": direction,
+        "scalp_quality_minimum":
+            float(scalp["quality_threshold"]),
+        "scalp_price_weight_percent":
+            float(scalp["price_action_weight_percent"]),
+        "estimated_round_trip_fee_pct": friction,
+        "scalp_minimum_fee_coverage":
+            float(scalp["minimum_fee_coverage_multiplier"]),
+        "candle_data_fresh": True,
+        "read_only": True,
+        "trade_authorized": False,
+        "order_payload_created": False,
+        "strategy_evidence_version":
+            "U5_HYBRID_ADJUSTABLE_V3",
+        "unit_4_evidence_version": "U4_HYBRID_V2",
+        "classification_revision": "V3.1",
+        "candidate_protected":
+            candidate_stage == "DEVELOPING",
+        "candidate_age_seconds": age_seconds,
+    })
+
+    # All original candidate fields remain available.
+
+    if not set(original_candidate).issubset(result):
+        raise RuntimeError(
+            "UNIT 5 ADAPTER ORIGINAL CONTRACT LOST"
+        )
+
+    if candidate_stage == "DEVELOPING" and qualified:
+        raise RuntimeError(
+            "UNIT 5 ADAPTER DEVELOPING SIGNAL AUTHORIZED"
+        )
+
+    if candidate_mode == "SCALP" and higher_mode_developing:
+        raise RuntimeError(
+            "UNIT 5 ADAPTER PRIORITY VIOLATION"
+        )
+
+    print("=" * 80, flush=True)
+    print("UNIT 5 HYBRID ADJUSTABLE ADAPTER", flush=True)
+    print("UNIT 5 MODE =", candidate_mode, flush=True)
+    print("UNIT 5 STAGE =", candidate_stage, flush=True)
+    print("UNIT 5 ACTIVE MODE =", active_mode, flush=True)
+    print("UNIT 5 DIRECTION =", admitted_direction, flush=True)
+    print("UNIT 5 QUALIFIED =", qualified, flush=True)
+    print("UNIT 5 REASON =", reason, flush=True)
+    print(
+        "UNIT 5 HIGHER MODE DEVELOPING =",
+        higher_mode_developing,
+        flush=True
+    )
+    print(
+        "UNIT 5 ORIGINAL FIELDS RETAINED = TRUE",
+        flush=True
+    )
+    print(
+        "UNIT 5 ADAPTER EXCHANGE WRITE = NONE",
+        flush=True
+    )
+    print(
+        "FRESH RECONSTRUCTION UNIT 5 ADAPTER RESULT = PASS",
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# RUN UNIT 5 HYBRID ADJUSTABLE ADAPTER
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
+    fresh_unit_5_hybrid_adjustable_adapter(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE,
+    )
+)
+
+# ============================================================
+# END UNIT 5 HYBRID ADJUSTABLE ADAPTER
+# UNIT 6 FOLLOWS
+# ============================================================
+
+
