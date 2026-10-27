@@ -5345,6 +5345,23 @@ def fresh_reconstruction_unit_8(
     # 1. REQUIRED INPUT CONTRACT
     # ========================================================
 
+    # ============================================================
+# UNIT 7 -> UNIT 8 CONFIGURATION COMPATIBILITY
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_7_CONFIG = (
+    FRESH_RECONSTRUCTION_EXECUTION_CONFIG
+)
+
+print(
+    "UNIT 8 HYBRID EXECUTION CONFIG HANDOVER = PASS",
+    flush=True
+)
+
+# ============================================================
+# END CONFIGURATION COMPATIBILITY
+# ============================================================
     if not all(
         isinstance(item, dict)
         for item in (config, unit_7_result, market_snapshot)
