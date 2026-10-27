@@ -748,6 +748,226 @@ FRESH_RECONSTRUCTION_CONFIG = (
 # ============================================================
 
 
+
+# ============================================================
+# START UNIT 2 HYBRID ADJUSTABLE V3 ADAPTER
+# ZERO INDENTATION
+# PLACE AFTER EXISTING UNIT 2, BEFORE UNIT 3
+# ============================================================
+
+def fresh_unit_2_hybrid_adjustable_adapter(config):
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 2 ADAPTER: INVALID CONFIGURATION"
+        )
+
+    if not isinstance(config.get("strategy"), dict):
+        raise RuntimeError(
+            "UNIT 2 ADAPTER: STRATEGY MISSING"
+        )
+
+    qualification = {
+
+        # ====================================================
+        # COMMON QUALIFICATION
+        # ====================================================
+
+        "common": {
+            "mode_priority": (
+                "BREAKOUT", "STRUCTURE", "SCALP"
+            ),
+            "direction_votes_required": 2,
+            "direction_votes_total": 3,
+            "use_closed_candles": True,
+            "protect_developing_candidates": True,
+            "arbitrate_before_scalp": True,
+            "scalp_requires_higher_modes_clear": True,
+            "signal_expiry_seconds": 120,
+            "candidate_expiry_seconds": 120,
+            "spike_count_rejection_above": 2,
+            "reject_late_impulse_entry": True,
+        },
+
+        # ====================================================
+        # BREAKOUT - HYBRID ADJUSTABLE DEFAULTS
+        # ====================================================
+
+        "breakout": {
+            "enabled": True,
+            "priority": 1,
+            "early_detection_enabled": True,
+            "developing_candidate_enabled": True,
+            "support_resistance_lookback": 20,
+            "developing_proximity_atr": 0.50,
+            "confirmation_distance_atr": 0.10,
+            "direction_votes_required": 2,
+            "momentum_lookback_fast": 5,
+            "momentum_lookback_slow": 15,
+            "require_momentum_confirmation": True,
+            "require_direction_agreement": True,
+            "require_ema_crossover": False,
+            "retest_mandatory": False,
+            "allow_preconfirmation": True,
+            "minimum_atr_percent": 0.0,
+            "max_price_extension_atr": 3.0,
+            "spike_rejection_enabled": True,
+            "max_spike_count": 2,
+            "false_breakout_rejection": True,
+            "volume_confirmation_enabled": False,
+            "minimum_volume_ratio": 1.20,
+            "candidate_expiry_seconds": 120,
+        },
+
+        # ====================================================
+        # STRUCTURE - HYBRID ADJUSTABLE DEFAULTS
+        # ====================================================
+
+        "structure": {
+            "enabled": True,
+            "priority": 2,
+            "early_detection_enabled": True,
+            "developing_candidate_enabled": True,
+            "ema_fast_period": 19,
+            "ema_middle_period": 50,
+            "ema_slow_period": 200,
+            "direction_votes_required": 2,
+            "momentum_lookback_minutes": 15,
+            "require_direction_agreement": True,
+            "require_ema_crossover": False,
+            "allow_pullback_entry": True,
+            "allow_continuation_entry": True,
+            "pullback_tolerance_atr": 0.75,
+            "max_price_extension_atr": 2.0,
+            "minimum_ema_separation_percent": 0.0,
+            "retest_mandatory": False,
+            "reject_trend_exhaustion": True,
+            "candidate_expiry_seconds": 120,
+        },
+
+        # ====================================================
+        # SCALP - HYBRID ADJUSTABLE DEFAULTS
+        # ====================================================
+
+        "scalp": {
+            "enabled": True,
+            "priority": 3,
+            "sideways_preferred": True,
+            "require_sideways_market": True,
+            "protect_developing_higher_modes": True,
+            "quality_threshold": 70.0,
+            "price_action_weight_percent": 50.0,
+            "other_factors_weight_percent": 50.0,
+            "direction_votes_required": 2,
+            "direction_votes_total": 3,
+            "max_ema_extension_clusters": 1.5,
+            "max_spike_count": 2,
+            "reject_late_impulse": True,
+            "early_entry_enabled": True,
+            "ema_compression_atr_max": 0.70,
+            "range20_atr_max": 8.0,
+            "momentum15_atr_multiplier_max": 1.5,
+            "fee_aware_enabled": True,
+            "estimated_taker_fee_percent": 0.08,
+            "estimated_slippage_percent": 0.0,
+            "include_entry_fee": True,
+            "include_exit_fee": True,
+            "minimum_fee_coverage_multiplier": 2.0,
+            "require_positive_estimated_net": True,
+            "minimum_net_roi_percent": 2.0,
+        },
+    }
+
+    # Add the complete qualification configuration
+    # without replacing existing Unit 2 settings.
+
+    config["qualification"] = qualification
+
+    # Preserve exchange-controlled leverage.
+    # Do not create a permanent leverage_target.
+
+    config["strategy"].pop("leverage_target", None)
+
+    # ========================================================
+    # CONFIGURATION VERIFICATION
+    # ========================================================
+
+    assert tuple(
+        qualification["common"]["mode_priority"]
+    ) == ("BREAKOUT", "STRUCTURE", "SCALP")
+
+    assert qualification["scalp"]["quality_threshold"] == 70.0
+    assert qualification["breakout"]["developing_proximity_atr"] == 0.50
+    assert qualification["breakout"]["confirmation_distance_atr"] == 0.10
+    assert qualification["structure"]["pullback_tolerance_atr"] == 0.75
+
+    assert qualification["scalp"]["fee_aware_enabled"] is True
+    assert qualification["common"]["protect_developing_candidates"] is True
+
+    assert "leverage_target" not in config["strategy"]
+
+    print("=" * 80, flush=True)
+    print("UNIT 2 HYBRID ADJUSTABLE V3 ADAPTER", flush=True)
+    print("UNIT 2 ORIGINAL CONFIGURATION = RETAINED", flush=True)
+
+    print(
+        "UNIT 2 MODE PRIORITY =",
+        qualification["common"]["mode_priority"],
+        flush=True
+    )
+
+    print(
+        "UNIT 2 SCALP QUALITY DEFAULT =",
+        qualification["scalp"]["quality_threshold"],
+        flush=True
+    )
+
+    print(
+        "UNIT 2 STRUCTURE PULLBACK ATR =",
+        qualification["structure"]["pullback_tolerance_atr"],
+        flush=True
+    )
+
+    print(
+        "UNIT 2 BREAKOUT PROXIMITY ATR =",
+        qualification["breakout"]["developing_proximity_atr"],
+        flush=True
+    )
+
+    print(
+        "UNIT 2 BREAKOUT CONFIRMATION ATR =",
+        qualification["breakout"]["confirmation_distance_atr"],
+        flush=True
+    )
+
+    print("UNIT 2 REJECTED HIGHER MODE = NOT A SCALP LOCK", flush=True)
+    print("UNIT 2 DEVELOPING HIGHER MODE = PROTECTED", flush=True)
+    print("UNIT 2 EXCHANGE LEVERAGE CONTROL = WEEX ONLY", flush=True)
+    print("UNIT 2 FIXED PYTHON LEVERAGE = NONE", flush=True)
+    print("UNIT 2 EXCHANGE WRITE = NONE", flush=True)
+    print("FRESH RECONSTRUCTION UNIT 2 ADAPTER RESULT = PASS", flush=True)
+    print("=" * 80, flush=True)
+
+    return config
+
+
+# ============================================================
+# RUN UNIT 2 HYBRID ADJUSTABLE ADAPTER
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_CONFIG = (
+    fresh_unit_2_hybrid_adjustable_adapter(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+)
+
+# ============================================================
+# END UNIT 2 HYBRID ADJUSTABLE ADAPTER
+# UNIT 3 FOLLOWS
+# ============================================================
+
+
 # ============================================================
 # RECONSTRUCTION UNIT 3
 # WEEX V3 PUBLIC READ-ONLY MARKET DATA
