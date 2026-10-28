@@ -5767,268 +5767,872 @@ print(
 # ZERO INDENTATION
 # ============================================================
 
+
 # ============================================================
-# START UNIT 6 -> UNIT 7 EXECUTION HANDOVER SIMULATION V1
-# SIMULATION ONLY - NO EXCHANGE ORDERS
+# START COMPLETE UNIT 8 V3 + HYBRID EXECUTION ADAPTER
+# AUTHENTICATED READS + VERIFIED DEMO SIZING
 # ZERO INDENTATION
 # ============================================================
 
-def test_unit_6_to_7_execution_handover():
-
-    import copy
+def fresh_reconstruction_unit_8(
+    config,
+    unit_7_result,
+    market_snapshot,
+):
+    import os
+    import time
+    import hmac
+    import base64
+    import hashlib
+    import json
+    import math
+    import urllib.request
+    import urllib.error
+    import urllib.parse
+    from decimal import Decimal, ROUND_DOWN
 
     print("=" * 80, flush=True)
+    print("UNIT 8 V3 AUTHENTICATED SIZING START", flush=True)
+
+    # ========================================================
+    # 1. INPUT VALIDATION
+    # ========================================================
+
+    if not all(
+        isinstance(x, dict)
+        for x in (config, unit_7_result, market_snapshot)
+    ):
+        raise RuntimeError("UNIT 8 INVALID INPUT CONTRACT")
+
+    exchange = config.get("exchange", {})
+    strategy = config.get("strategy", {})
+    safety = config.get("safety", {})
+
+    if not all(
+        isinstance(x, dict)
+        for x in (exchange, strategy, safety)
+    ):
+        raise RuntimeError("UNIT 8 CONFIGURATION INVALID")
+
+    if config.get("execution_environment") != "DEMO":
+        raise RuntimeError("UNIT 8 DEMO REQUIRED")
+
+    if (
+        exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("demo_order_symbol") != "BTCSUSDT"
+        or exchange.get("contract_base_url")
+        != "https://api-contract.weex.com"
+    ):
+        raise RuntimeError("UNIT 8 EXCHANGE CONTRACT INVALID")
+
+    def positive(value, label):
+        if isinstance(value, bool):
+            raise RuntimeError("UNIT 8 INVALID " + label)
+        try:
+            result = float(value)
+        except (TypeError, ValueError, OverflowError):
+            raise RuntimeError("UNIT 8 INVALID " + label)
+        if not math.isfinite(result) or result <= 0:
+            raise RuntimeError("UNIT 8 NONPOSITIVE " + label)
+        return result
+
+    status = unit_7_result.get("status")
+    mode = unit_7_result.get("active_mode")
+    direction = unit_7_result.get("direction")
+    intent = unit_7_result.get("execution_intent")
+    qualified = unit_7_result.get("signal_qualified")
+
+    if (
+        type(intent) is not bool
+        or type(qualified) is not bool
+        or intent != qualified
+    ):
+        raise RuntimeError("UNIT 8 SIGNAL CONTRADICTION")
+
+    # ========================================================
+    # 2. ORIGINAL IDLE PATH
+    # ========================================================
+
+    if intent is False:
+
+        if (
+            status != "IDLE"
+            or mode != "NONE"
+            or direction != "NONE"
+        ):
+            raise RuntimeError("UNIT 8 INVALID IDLE STATE")
+
+        result = {
+            "status": "IDLE",
+            "active_mode": "NONE",
+            "direction": "NONE",
+            "signal_qualified": False,
+            "execution_intent": False,
+            "trade_plan_ready": False,
+            "trade_plan": None,
+            "skip_reason": str(
+                unit_7_result.get("skip_reason", "NONE")
+            ),
+            "read_only": True,
+        }
+
+        print("UNIT 8 STATUS = IDLE", flush=True)
+        print(
+            "UNIT 8 AUTHENTICATED REQUEST = NONE",
+            flush=True
+        )
+        print("UNIT 8 EXCHANGE WRITE = NONE", flush=True)
+        print(
+            "FRESH RECONSTRUCTION UNIT 8 RESULT = PASS (IDLE)",
+            flush=True
+        )
+        return result
+
+    # ========================================================
+    # 3. QUALIFIED UNIT 7 HANDOVER
+    # ========================================================
+
+    if (
+        status != "READY_FOR_BALANCE"
+        or intent is not True
+        or qualified is not True
+        or mode not in ("BREAKOUT", "STRUCTURE", "SCALP")
+        or direction not in ("LONG", "SHORT")
+        or unit_7_result.get("account_balance_required") is not True
+        or unit_7_result.get("leverage_target") is not None
+        or unit_7_result.get("quantity_calculated") is not False
+    ):
+        raise RuntimeError(
+            "UNIT 8 QUALIFIED UNIT 7 HANDOVER INVALID"
+        )
+
+    if market_snapshot.get("symbol") != "BTCUSDT":
+        raise RuntimeError("UNIT 8 MARKET SYMBOL MISMATCH")
+
+    live_price = positive(
+        market_snapshot.get("price"),
+        "LIVE MARK PRICE"
+    )
+
+    margin_percent = positive(
+        unit_7_result.get("initial_margin_percent"),
+        "INITIAL MARGIN PERCENT"
+    )
+
+    quantity_step = positive(
+        unit_7_result.get("quantity_step"),
+        "QUANTITY STEP"
+    )
+
+    minimum_quantity = positive(
+        unit_7_result.get("minimum_quantity"),
+        "MINIMUM QUANTITY"
+    )
+
+    # ========================================================
+    # 4. SCOPED AUTHENTICATED READ SAFETY
+    # ========================================================
+
+    if safety.get("demo_account_balance_read_enabled") is not True:
+        raise RuntimeError(
+            "UNIT 8 DEMO ACCOUNT BALANCE READ DISABLED"
+        )
+
+    for key in (
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    ):
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 8 UNSAFE CAPABILITY: " + key
+            )
+
+    # ========================================================
+    # 5. EXISTING WEEX AUTHENTICATION
+    # ========================================================
+
+    api_key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    api_secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    api_passphrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((api_key, api_secret, api_passphrase)):
+        raise RuntimeError(
+            "UNIT 8 WEEX CREDENTIALS MISSING"
+        )
+
+    base_url = exchange["contract_base_url"]
+
+    def authenticated_get(path):
+
+        if not isinstance(path, str):
+            raise RuntimeError("UNIT 8 INVALID REQUEST PATH")
+
+        if not path.startswith((
+            "/capi/v3/account/symbolConfig?",
+            "/capi/v3/sim/balance",
+        )):
+            raise RuntimeError(
+                "UNIT 8 UNAUTHORIZED READ ENDPOINT"
+            )
+
+        timestamp = str(int(time.time() * 1000))
+
+        prehash = timestamp + "GET" + path
+
+        signature = base64.b64encode(
+            hmac.new(
+                api_secret.encode("utf-8"),
+                prehash.encode("utf-8"),
+                hashlib.sha256,
+            ).digest()
+        ).decode("utf-8")
+
+        headers = {
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": api_passphrase,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "Fresh-WEEX-Unit8-V3",
+        }
+
+        request = urllib.request.Request(
+            base_url + path,
+            headers=headers,
+            method="GET",
+        )
+
+        if (
+            request.get_method() != "GET"
+            or request.data is not None
+        ):
+            raise RuntimeError(
+                "UNIT 8 NON-READ-ONLY REQUEST"
+            )
+
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=15,
+            ) as response:
+
+                http_status = response.getcode()
+
+                response_body = response.read().decode(
+                    "utf-8",
+                    errors="replace",
+                )
+
+        except urllib.error.HTTPError as exc:
+            raise RuntimeError(
+                "UNIT 8 AUTHENTICATED HTTP ERROR "
+                + str(exc.code)
+            ) from exc
+
+        except urllib.error.URLError as exc:
+            raise RuntimeError(
+                "UNIT 8 AUTHENTICATED CONNECTION FAILED"
+            ) from exc
+
+        if http_status != 200:
+            raise RuntimeError(
+                "UNIT 8 AUTHENTICATED HTTP STATUS "
+                + str(http_status)
+            )
+
+        try:
+            data = json.loads(response_body)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                "UNIT 8 INVALID AUTHENTICATED JSON"
+            ) from exc
+
+        print(
+            "UNIT 8 AUTHENTICATED HTTP STATUS =",
+            http_status,
+            flush=True
+        )
+
+        return data
+
+    # ========================================================
+    # 6. READ WEEX ACCOUNT LEVERAGE CONFIGURATION
+    # ========================================================
+
     print(
-        "UNIT 6 TO 7 QUALIFIED HANDOVER TEST START",
+        "UNIT 8 WEEX LEVERAGE READER START",
+        flush=True
+    )
+
+    query = urllib.parse.urlencode({
+        "symbol": "BTCUSDT"
+    })
+
+    leverage_payload = authenticated_get(
+        "/capi/v3/account/symbolConfig?" + query
+    )
+
+    if not isinstance(leverage_payload, list):
+        raise RuntimeError(
+            "UNIT 8 INVALID SYMBOL CONFIG RESPONSE"
+        )
+
+    matches = [
+        item
+        for item in leverage_payload
+        if isinstance(item, dict)
+        and item.get("symbol") == "BTCUSDT"
+    ]
+
+    if len(matches) != 1:
+        raise RuntimeError(
+            "UNIT 8 SYMBOL CONFIG NOT UNIQUE"
+        )
+
+    symbol_config = matches[0]
+
+    margin_mode = str(
+        symbol_config.get("marginType", "")
+    ).upper()
+
+    if margin_mode not in ("ISOLATED", "CROSSED"):
+        raise RuntimeError(
+            "UNIT 8 MARGIN MODE UNVERIFIED"
+        )
+
+    if margin_mode == "ISOLATED":
+
+        long_leverage = positive(
+            symbol_config.get("isolatedLongLeverage"),
+            "LONG LEVERAGE"
+        )
+
+        short_leverage = positive(
+            symbol_config.get("isolatedShortLeverage"),
+            "SHORT LEVERAGE"
+        )
+
+    else:
+
+        cross_leverage = positive(
+            symbol_config.get("crossLeverage"),
+            "CROSS LEVERAGE"
+        )
+
+        long_leverage = cross_leverage
+        short_leverage = cross_leverage
+
+    if not all(
+        value == int(value)
+        for value in (long_leverage, short_leverage)
+    ):
+        raise RuntimeError(
+            "UNIT 8 NONINTEGER EXCHANGE LEVERAGE"
+        )
+
+    print(
+        "UNIT 8 ACCOUNT MARGIN MODE =",
+        margin_mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 ACCOUNT LONG LEVERAGE =",
+        long_leverage,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 ACCOUNT SHORT LEVERAGE =",
+        short_leverage,
         flush=True
     )
 
     # ========================================================
-    # 1. CREATE ISOLATED SIMULATED UNIT 6 RESULT
+    # 7. VERIFY AGAINST ACTUAL WEEX DEMO SETTINGS
     # ========================================================
 
-    test_config = copy.deepcopy(
-        FRESH_RECONSTRUCTION_CONFIG
+    # symbolConfig is not documented as SIM-specific.
+    # Do not assume its values automatically apply
+    # to the WEEX demo account.
+
+    demo_confirmed = str(
+        os.getenv(
+            "WEEX_DEMO_SETTINGS_CONFIRMED",
+            ""
+        )
+    ).strip().upper()
+
+    if demo_confirmed != "YES":
+        raise RuntimeError(
+            "UNIT 8 DEMO SETTINGS NOT CONFIRMED"
+        )
+
+    demo_margin_mode = str(
+        os.getenv(
+            "WEEX_DEMO_MARGIN_MODE",
+            ""
+        )
+    ).strip().upper()
+
+    demo_long = positive(
+        os.getenv("WEEX_DEMO_LONG_LEVERAGE"),
+        "CONFIRMED DEMO LONG LEVERAGE"
     )
 
-    simulated_unit_6_result = {
-        "execution_intent": True,
-        "signal_qualified": True,
+    demo_short = positive(
+        os.getenv("WEEX_DEMO_SHORT_LEVERAGE"),
+        "CONFIRMED DEMO SHORT LEVERAGE"
+    )
 
-        "active_mode": "BREAKOUT",
-        "direction": "SHORT",
+    if (
+        demo_margin_mode != margin_mode
+        or demo_long != long_leverage
+        or demo_short != short_leverage
+    ):
+        raise RuntimeError(
+            "UNIT 8 DEMO/ACCOUNT LEVERAGE MISMATCH"
+        )
 
-        "candidate_mode": "BREAKOUT",
-        "candidate_stage": "QUALIFIED",
+    leverage = (
+        demo_long
+        if direction == "LONG"
+        else demo_short
+    )
 
-        "higher_mode_protected": False,
-        "candidate_protected": False,
-        "higher_mode_developing": False,
+    print(
+        "UNIT 8 LEVERAGE VERIFICATION = PASS",
+        flush=True
+    )
 
-        "unit_5_reason": "BREAKOUT_CONFIRMED",
+    print(
+        "UNIT 8 SELECTED LEVERAGE =",
+        leverage,
+        flush=True
+    )
 
-        "admission_reason":
-            "BREAKOUT_CONFIRMED_ADMITTED",
+    print(
+        "UNIT 8 LEVERAGE MUTATION = NONE",
+        flush=True
+    )
 
-        "scalp_quality_pass": None,
-        "fee_coverage_pass": False,
+    # ========================================================
+    # 8. AUTHENTICATED SUSDT DEMO BALANCE
+    # ========================================================
+
+    print(
+        "UNIT 8 READING WEEX SUSDT DEMO BALANCE",
+        flush=True
+    )
+
+    balance_payload = authenticated_get(
+        "/capi/v3/sim/balance"
+    )
+
+    if not isinstance(balance_payload, list):
+        raise RuntimeError(
+            "UNIT 8 INVALID DEMO BALANCE RESPONSE"
+        )
+
+    susdt_records = [
+        item
+        for item in balance_payload
+        if isinstance(item, dict)
+        and str(item.get("asset", "")).upper() == "SUSDT"
+    ]
+
+    if len(susdt_records) != 1:
+        raise RuntimeError(
+            "UNIT 8 SUSDT DEMO BALANCE NOT UNIQUE"
+        )
+
+    available_balance = positive(
+        susdt_records[0].get("availableBalance"),
+        "AVAILABLE SUSDT"
+    )
+
+    print(
+        "UNIT 8 AVAILABLE SUSDT =",
+        available_balance,
+        flush=True
+    )
+
+    # ========================================================
+    # 9. FIVE BACKUPS AND EXPOSURE LIMIT
+    # ========================================================
+
+    max_backups = strategy.get("max_backups")
+
+    multipliers = tuple(
+        strategy.get("backup_multipliers", ())
+    )
+
+    exposure_cap = positive(
+        strategy.get("exposure_cap_percent"),
+        "EXPOSURE CAP"
+    )
+
+    if max_backups != 5:
+        raise RuntimeError(
+            "UNIT 8 EXPECTED FIVE BACKUPS"
+        )
+
+    if multipliers != (
+        1.0, 1.5, 2.0, 2.5, 3.0
+    ):
+        raise RuntimeError(
+            "UNIT 8 BACKUP MULTIPLIERS MISMATCH"
+        )
+
+    if exposure_cap > 35.0:
+        raise RuntimeError(
+            "UNIT 8 EXPOSURE CAP EXCEEDS 35%"
+        )
+
+    # ========================================================
+    # 10. INITIAL MARGIN AND POSITION QUANTITY
+    # ========================================================
+
+    entry_fixed_usdt = positive(
+        os.getenv(
+            "ENTRY_FIXED_USDT",
+            str(strategy.get("initial_fixed_usdt", 0.50))
+        ),
+        "INITIAL ENTRY USDT"
+    )
+
+    max_margin = (
+        available_balance * exposure_cap / 100.0
+    )
+
+    if entry_fixed_usdt > max_margin:
+        raise RuntimeError(
+            "UNIT 8 INITIAL ENTRY EXCEEDS EXPOSURE CAP"
+        )
+
+    if entry_fixed_usdt > available_balance:
+        raise RuntimeError(
+            "UNIT 8 INSUFFICIENT DEMO BALANCE"
+        )
+
+    margin_allocation = entry_fixed_usdt
+
+    leveraged_notional = (
+        margin_allocation * leverage
+    )
+
+    raw_quantity = (
+        leveraged_notional / live_price
+    )
+
+    raw_decimal = Decimal(str(raw_quantity))
+    step_decimal = Decimal(str(quantity_step))
+
+    executable_decimal = (
+        (raw_decimal / step_decimal)
+        .to_integral_value(rounding=ROUND_DOWN)
+        * step_decimal
+    )
+
+    executable_quantity = float(
+        executable_decimal
+    )
+
+    if executable_quantity < minimum_quantity:
+        raise RuntimeError(
+            "UNIT 8 QUANTITY BELOW WEEX MINIMUM"
+        )
+
+    # Rounding must never increase margin exposure.
+
+    actual_notional = (
+        executable_quantity * live_price
+    )
+
+    actual_margin = (
+        actual_notional / leverage
+    )
+
+    if actual_margin > margin_allocation + 1e-9:
+        raise RuntimeError(
+            "UNIT 8 ROUNDED QUANTITY EXCEEDS MARGIN"
+        )
+
+    # ========================================================
+    # 11. PRESERVE ORIGINAL UNIT 9 TRADE-PLAN CONTRACT
+    # ========================================================
+
+    position_sizing = {
+        "asset": "SUSDT",
+        "available_balance": available_balance,
+
+        "initial_margin_percent":
+            margin_percent,
+
+        "margin_allocation":
+            margin_allocation,
+
+        "leverage_target": leverage,
+        "exchange_leverage_verified": True,
+
+        "live_mark_price": live_price,
+
+        "raw_quantity": raw_quantity,
+        "quantity_step": quantity_step,
+        "minimum_quantity": minimum_quantity,
+
+        "quantity": executable_quantity,
+
+        "position_sizing_performed": True,
+        "quantity_calculated": True,
+
+        "source": "WEEX_V3_DEMO_BALANCE",
+        "leverage_source":
+            "ACCOUNT_CONFIG_MATCHED_CONFIRMED_DEMO",
 
         "read_only": True,
-        "trade_authorized": False,
-        "order_payload_created": False,
-        "exchange_write": False,
+    }
 
-        "strategy_evidence_version":
-            "U6_HYBRID_ADJUSTABLE_V2",
+    trade_plan = {
+        "active_mode": mode,
+        "direction": direction,
+        "quantity": executable_quantity,
 
-        "admission_revision": "V2.1",
+        "position_sizing": position_sizing,
+
+        "execution_environment": "DEMO",
+    }
+
+    result = {
+        "status": "READY",
+        "active_mode": mode,
+        "direction": direction,
+
+        "signal_qualified": True,
+        "execution_intent": True,
+
+        "trade_plan_ready": True,
+        "trade_plan": trade_plan,
+
+        "skip_reason": "NONE",
+        "read_only": True,
     }
 
     # ========================================================
-    # 2. CALL ACTUAL UNIT 6 EXECUTION ADAPTER
-    # ========================================================
-
-    (
-        test_execution_config,
-        test_execution_candidate,
-    ) = fresh_unit_6_original_execution_adapter(
-        test_config,
-        simulated_unit_6_result,
-        None,
-    )
-
-    # ========================================================
-    # 3. VALIDATE UNIT 6 OUTPUT
-    # ========================================================
-
-    unit_6_checks = {
-        "EXECUTION_INTENT_PRESERVED":
-            test_execution_candidate.get(
-                "execution_intent"
-            ) is True,
-
-        "SIGNAL_QUALIFIED_PRESERVED":
-            test_execution_candidate.get(
-                "signal_qualified"
-            ) is True,
-
-        "MODE_PRESERVED":
-            test_execution_candidate.get(
-                "active_mode"
-            ) == "BREAKOUT",
-
-        "DIRECTION_PRESERVED":
-            test_execution_candidate.get(
-                "direction"
-            ) == "SHORT",
-
-        "LEVERAGE_DEFERRED":
-            test_execution_candidate.get(
-                "leverage_target"
-            ) is None,
-
-        "HANDOVER_STATUS":
-            test_execution_candidate.get(
-                "execution_handover_status"
-            ) == "QUALIFIED_AWAITING_LEVERAGE",
-
-        "NO_EXCHANGE_WRITE":
-            test_execution_candidate.get(
-                "exchange_write"
-            ) is False,
-    }
-
-    for name, passed in unit_6_checks.items():
-        print(
-            "UNIT 6 SIMULATION",
-            name,
-            "=",
-            "PASS" if passed else "FAIL",
-            flush=True
-        )
-
-    if not all(unit_6_checks.values()):
-        raise RuntimeError(
-            "UNIT 6 EXECUTION ADAPTER SIMULATION FAILED"
-        )
-
-    # ========================================================
-    # 4. PASS ADAPTER OUTPUT INTO ACTUAL UNIT 7
-    # ========================================================
-
-    test_unit_7_result = (
-        fresh_unit_7_hybrid_execution_adapter(
-            test_execution_config,
-            test_execution_candidate,
-        )
-    )
-
-    # ========================================================
-    # 5. VERIFY UNIT 7 EXECUTION HANDOVER
-    # ========================================================
-
-    unit_7_checks = {
-        "READY_FOR_BALANCE":
-            test_unit_7_result.get(
-                "status"
-            ) == "READY_FOR_BALANCE",
-
-        "MODE_PRESERVED":
-            test_unit_7_result.get(
-                "active_mode"
-            ) == "BREAKOUT",
-
-        "DIRECTION_PRESERVED":
-            test_unit_7_result.get(
-                "direction"
-            ) == "SHORT",
-
-        "EXECUTION_INTENT":
-            test_unit_7_result.get(
-                "execution_intent"
-            ) is True,
-
-        "SIGNAL_QUALIFIED":
-            test_unit_7_result.get(
-                "signal_qualified"
-            ) is True,
-
-        "ACCOUNT_BALANCE_REQUIRED":
-            test_unit_7_result.get(
-                "account_balance_required"
-            ) is True,
-
-        "LEVERAGE_DEFERRED":
-            test_unit_7_result.get(
-                "leverage_target"
-            ) is None,
-
-        "POSITION_SIZING_NOT_PERFORMED":
-            test_unit_7_result.get(
-                "position_sizing_performed"
-            ) is False,
-
-        "QUANTITY_NOT_CALCULATED":
-            test_unit_7_result.get(
-                "quantity_calculated"
-            ) is False,
-
-        "NO_ORDER_PAYLOAD":
-            test_unit_7_result.get(
-                "order_payload_created"
-            ) is False,
-
-        "NO_EXCHANGE_WRITE":
-            test_unit_7_result.get(
-                "exchange_write"
-            ) is False,
-    }
-
-    for name, passed in unit_7_checks.items():
-        print(
-            "UNIT 7 SIMULATION",
-            name,
-            "=",
-            "PASS" if passed else "FAIL",
-            flush=True
-        )
-
-    if not all(unit_7_checks.values()):
-        raise RuntimeError(
-            "UNIT 7 EXECUTION HANDOVER SIMULATION FAILED"
-        )
-
-    # ========================================================
-    # 6. CONFIRM REAL EXECUTION GLOBALS UNCHANGED
+    # 12. FINAL VALIDATION
     # ========================================================
 
     if (
-        FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE
-        is test_execution_candidate
+        result["status"] != "READY"
+        or trade_plan["quantity"] <= 0
+        or position_sizing["quantity_calculated"] is not True
+        or position_sizing["exchange_leverage_verified"] is not True
+        or trade_plan["execution_environment"] != "DEMO"
     ):
         raise RuntimeError(
-            "SIMULATION LEAKED INTO LIVE SIGNAL"
-        )
-
-    if (
-        FRESH_RECONSTRUCTION_SIZING_CANDIDATE
-        is test_unit_7_result
-    ):
-        raise RuntimeError(
-            "SIMULATION LEAKED INTO NORMAL UNIT 7"
+            "UNIT 8 FINAL TRADE PLAN INVALID"
         )
 
     print(
-        "UNIT 6 -> 7 SIMULATION SIGNAL ISOLATION = PASS",
+        "UNIT 8 STATUS = READY",
         flush=True
     )
 
     print(
-        "UNIT 6 -> 7 SIMULATION EXCHANGE WRITE = NONE",
+        "UNIT 8 ACTIVE MODE =",
+        mode,
         flush=True
     )
 
     print(
-        "UNIT 6 -> 7 QUALIFIED HANDOVER TEST = PASS",
+        "UNIT 8 DIRECTION =",
+        direction,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 VERIFIED LEVERAGE =",
+        leverage,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 INITIAL MARGIN USDT =",
+        margin_allocation,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 EXECUTION QUANTITY =",
+        executable_quantity,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 TRADE PLAN READY = True",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 ORDER PAYLOAD CREATED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 8 RESULT = PASS",
         flush=True
     )
 
     print("=" * 80, flush=True)
 
-    return True
+    return result
 
 
 # ============================================================
-# RUN SIMULATION
+# UNIT 8 HYBRID EXECUTION ADAPTER
 # ZERO INDENTATION
 # ============================================================
 
-UNIT_6_TO_7_SIMULATION_PASSED = (
-    test_unit_6_to_7_execution_handover()
+def fresh_unit_8_hybrid_execution_adapter(
+    execution_config,
+    sizing_candidate,
+    market_snapshot,
+):
+
+    result = fresh_reconstruction_unit_8(
+        execution_config,
+        sizing_candidate,
+        market_snapshot,
+    )
+
+    if result.get("status") not in (
+        "IDLE",
+        "READY",
+    ):
+        raise RuntimeError(
+            "UNIT 8 ADAPTER INVALID STATUS"
+        )
+
+    if result.get("read_only") is not True:
+        raise RuntimeError(
+            "UNIT 8 ADAPTER READ SAFETY FAILED"
+        )
+
+    if result["status"] == "READY":
+
+        plan = result.get("trade_plan")
+
+        if not isinstance(plan, dict):
+            raise RuntimeError(
+                "UNIT 8 ADAPTER TRADE PLAN MISSING"
+            )
+
+        if (
+            result.get("active_mode")
+            != sizing_candidate.get("active_mode")
+            or result.get("direction")
+            != sizing_candidate.get("direction")
+            or result.get("execution_intent") is not True
+            or result.get("signal_qualified") is not True
+            or result.get("trade_plan_ready") is not True
+            or plan.get("execution_environment") != "DEMO"
+            or plan.get("quantity", 0) <= 0
+        ):
+            raise RuntimeError(
+                "UNIT 8 ADAPTER READY HANDOVER FAILED"
+            )
+
+    print(
+        "UNIT 8 HYBRID ADAPTER STATUS =",
+        result["status"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 HYBRID ADAPTER RESULT = PASS",
+        flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# UNIT 8 INPUT VALIDATION
+# ZERO INDENTATION
+# ============================================================
+
+if not isinstance(
+    FRESH_RECONSTRUCTION_EXECUTION_CONFIG,
+    dict
+):
+    raise RuntimeError(
+        "UNIT 8 EXECUTION CONFIG MISSING"
+    )
+
+if not isinstance(
+    FRESH_RECONSTRUCTION_SIZING_CANDIDATE,
+    dict
+):
+    raise RuntimeError(
+        "UNIT 8 SIZING CANDIDATE MISSING"
+    )
+
+if not isinstance(
+    FRESH_RECONSTRUCTION_MARKET_SNAPSHOT,
+    dict
+):
+    raise RuntimeError(
+        "UNIT 8 MARKET SNAPSHOT MISSING"
+    )
+
+
+# ============================================================
+# RUN UNIT 8 + HYBRID ADAPTER
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
+    fresh_unit_8_hybrid_execution_adapter(
+        FRESH_RECONSTRUCTION_EXECUTION_CONFIG,
+        FRESH_RECONSTRUCTION_SIZING_CANDIDATE,
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT,
+    )
 )
 
+print(
+    "UNIT 8 FINAL STATUS =",
+    FRESH_RECONSTRUCTION_UNIT_8_RESULT["status"],
+    flush=True
+)
+
+
 # ============================================================
-# END UNIT 6 -> UNIT 7 SIMULATION
-# UNIT 8 CONTINUES BELOW
+# END COMPLETE UNIT 8 V3 + HYBRID EXECUTION ADAPTER
+# UNIT 9 CONTINUES BELOW
 # ZERO INDENTATION
 # ============================================================
+
