@@ -6599,3 +6599,517 @@ FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
 # NEXT UNIT = UNIT 9
 # ============================================================
 
+
+# ============================================================
+# UNIT 9 — ORIGINAL REQUIREMENTS RESTORED
+# 22524-LINE WORKING REFERENCE COMPATIBILITY
+# NO ADDITIONAL LEVERAGE OR SIZING RESTRICTIONS
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_reconstruction_unit_9(
+    config,
+    unit_8_result,
+):
+    from datetime import datetime, timezone
+
+    print("=" * 80, flush=True)
+    print(
+        datetime.now(timezone.utc).isoformat(),
+        "FRESH RECONSTRUCTION UNIT 9 START",
+        flush=True,
+    )
+
+    # ========================================================
+    # 1. ORIGINAL INPUT VALIDATION
+    # ========================================================
+
+    if not isinstance(config, dict):
+        raise TypeError(
+            "UNIT 9 CONFIGURATION MUST BE A DICTIONARY"
+        )
+
+    if not isinstance(unit_8_result, dict):
+        raise TypeError(
+            "UNIT 9 UNIT 8 RESULT MUST BE A DICTIONARY"
+        )
+
+    print(
+        "PASS: UNIT 9 RECEIVED UNIT 2 CONFIGURATION",
+        flush=True,
+    )
+    print(
+        "PASS: UNIT 9 RECEIVED UNIT 8 RESULT",
+        flush=True,
+    )
+
+    # ========================================================
+    # 2. ORIGINAL NINE-FIELD UNIT 8 CONTRACT
+    # ========================================================
+
+    required_fields = (
+        "status",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "trade_plan",
+        "skip_reason",
+        "read_only",
+    )
+
+    missing = [
+        field for field in required_fields
+        if field not in unit_8_result
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "UNIT 9 MISSING UNIT 8 FIELDS: "
+            + ", ".join(missing)
+        )
+
+    print(
+        "PASS: UNIT 9 UNIT 8 CONTRACT VALIDATED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3. ORIGINAL READ-ONLY GATE
+    # ========================================================
+
+    if unit_8_result.get("read_only") is not True:
+        raise RuntimeError(
+            "UNIT 9 REJECTED NON-READ-ONLY UNIT 8 RESULT"
+        )
+
+    print(
+        "PASS: UNIT 9 READ-ONLY SAFETY GATE",
+        flush=True,
+    )
+
+    # ========================================================
+    # 4. ORIGINAL STATE NORMALIZATION
+    # ========================================================
+
+    status = str(
+        unit_8_result.get("status", "IDLE")
+    ).upper()
+
+    active_mode = unit_8_result.get("active_mode")
+
+    direction = unit_8_result.get("direction")
+
+    signal_qualified = bool(
+        unit_8_result.get("signal_qualified", False)
+    )
+
+    execution_intent = bool(
+        unit_8_result.get("execution_intent", False)
+    )
+
+    trade_plan_ready = bool(
+        unit_8_result.get("trade_plan_ready", False)
+    )
+
+    trade_plan = unit_8_result.get("trade_plan")
+
+    skip_reason = str(
+        unit_8_result.get("skip_reason", "NONE")
+    )
+
+    # ========================================================
+    # 5. ORIGINAL NORMAL IDLE PATH
+    # ========================================================
+
+    if (
+        status == "IDLE"
+        or not signal_qualified
+        or not execution_intent
+        or not trade_plan_ready
+    ):
+
+        result = {
+            "status": "IDLE",
+            "active_mode": active_mode,
+            "direction": direction,
+            "signal_qualified": signal_qualified,
+            "execution_intent": False,
+            "trade_plan_ready": False,
+            "trade_plan": None,
+            "execution_ready": False,
+            "execution_candidate": None,
+            "skip_reason": skip_reason,
+            "order_payload_created": False,
+            "tp_execution_requested": False,
+            "sl_execution_requested": False,
+            "read_only": True,
+        }
+
+        print("UNIT 9 STATUS = IDLE", flush=True)
+        print(
+            "UNIT 9 ACTIVE MODE =",
+            active_mode,
+            flush=True,
+        )
+        print(
+            "UNIT 9 DIRECTION =",
+            direction,
+            flush=True,
+        )
+        print(
+            "UNIT 9 SIGNAL QUALIFIED =",
+            signal_qualified,
+            flush=True,
+        )
+        print(
+            "UNIT 9 EXECUTION INTENT = False",
+            flush=True,
+        )
+        print(
+            "UNIT 9 TRADE PLAN READY = False",
+            flush=True,
+        )
+        print(
+            "UNIT 9 EXECUTION READY = False",
+            flush=True,
+        )
+        print(
+            "UNIT 9 EXECUTION CANDIDATE = NONE",
+            flush=True,
+        )
+        print(
+            "UNIT 9 SKIP REASON =",
+            skip_reason,
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 9 NORMAL NO-TRADE STATE",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 9 NO EXECUTION CANDIDATE GENERATED",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 9 NO NETWORK REQUEST",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 9 NO ORDER PAYLOAD GENERATED",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 9 NO TP EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 9 NO SL EXECUTION",
+            flush=True,
+        )
+
+        print(
+            "PASS: UNIT 9 TP / SL CAPABILITIES REMAIN INDEPENDENT",
+            flush=True,
+        )
+
+        print(
+            "ZERO AUTHENTICATED API ACCESS = TRUE",
+            flush=True,
+        )
+        print(
+            "ZERO ACCOUNT ACCESS = TRUE",
+            flush=True,
+        )
+        print(
+            "ZERO POSITION ACCESS = TRUE",
+            flush=True,
+        )
+        print(
+            "ZERO ORDER ENDPOINT ACCESS = TRUE",
+            flush=True,
+        )
+        print(
+            "ZERO DEMO ORDER = TRUE",
+            flush=True,
+        )
+        print(
+            "ZERO REAL ORDER = TRUE",
+            flush=True,
+        )
+        print(
+            "ZERO EXCHANGE WRITE = TRUE",
+            flush=True,
+        )
+        print(
+            "ZERO LEVERAGE MUTATION = TRUE",
+            flush=True,
+        )
+        print(
+            "ZERO MARGIN MODE MUTATION = TRUE",
+            flush=True,
+        )
+        print(
+            "ZERO POSITION MODE MUTATION = TRUE",
+            flush=True,
+        )
+
+        print(
+            "FRESH RECONSTRUCTION UNIT 9 RESULT = PASS (IDLE)",
+            flush=True,
+        )
+        print("=" * 80, flush=True)
+
+        return result
+
+    # ========================================================
+    # 6. ORIGINAL ACTIONABLE STATUS VALIDATION
+    # ========================================================
+
+    if status not in (
+        "READY",
+        "QUALIFIED",
+        "ACTIVE",
+    ):
+        raise RuntimeError(
+            "UNIT 9 ACTIONABLE UNIT 8 RESULT HAS "
+            "INVALID STATUS: " + status
+        )
+
+    if not isinstance(trade_plan, dict):
+        raise RuntimeError(
+            "UNIT 9 ACTIONABLE RESULT REQUIRES "
+            "A TRADE PLAN DICTIONARY"
+        )
+
+    if active_mode not in (
+        "SCALP",
+        "STRUCTURE",
+        "BREAKOUT",
+    ):
+        raise RuntimeError(
+            "UNIT 9 INVALID ACTIVE MODE: "
+            + str(active_mode)
+        )
+
+    print(
+        "PASS: UNIT 9 ACTIVE MODE VALIDATED",
+        flush=True,
+    )
+
+    if direction not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT 9 INVALID DIRECTION: "
+            + str(direction)
+        )
+
+    print(
+        "PASS: UNIT 9 DIRECTION VALIDATED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 7. ORIGINAL TRADE PLAN IDENTITY CHECK
+    # ========================================================
+
+    if trade_plan.get("active_mode") != active_mode:
+        raise RuntimeError(
+            "UNIT 9 TRADE PLAN MODE DOES NOT MATCH "
+            "UNIT 8 ACTIVE MODE"
+        )
+
+    if trade_plan.get("direction") != direction:
+        raise RuntimeError(
+            "UNIT 9 TRADE PLAN DIRECTION DOES NOT MATCH "
+            "UNIT 8 DIRECTION"
+        )
+
+    print(
+        "PASS: UNIT 9 TRADE PLAN IDENTITY VALIDATED",
+        flush=True,
+    )
+
+    # ========================================================
+    # 8. ORIGINAL INTERNAL EXECUTION CANDIDATE
+    # DO NOT MODIFY QUANTITY OR LEVERAGE
+    # ========================================================
+
+    normalized_execution_candidate = {
+        "active_mode": active_mode,
+        "direction": direction,
+        "trade_plan": trade_plan,
+        "execution_environment": trade_plan.get(
+            "execution_environment",
+            config.get(
+                "execution_environment",
+                "DEMO",
+            ),
+        ),
+    }
+
+    # ========================================================
+    # 9. ORIGINAL UNIT 10 OUTPUT CONTRACT
+    # ========================================================
+
+    result = {
+        "status": "READY",
+        "active_mode": active_mode,
+        "direction": direction,
+        "signal_qualified": True,
+        "execution_intent": True,
+        "trade_plan_ready": True,
+        "trade_plan": trade_plan,
+        "execution_ready": True,
+        "execution_candidate": (
+            normalized_execution_candidate
+        ),
+        "skip_reason": "NONE",
+        "order_payload_created": False,
+        "tp_execution_requested": False,
+        "sl_execution_requested": False,
+        "read_only": True,
+    }
+
+    # ========================================================
+    # 10. ORIGINAL READ-ONLY DIAGNOSTICS
+    # ========================================================
+
+    print("UNIT 9 STATUS = READY", flush=True)
+    print(
+        "UNIT 9 ACTIVE MODE =",
+        active_mode,
+        flush=True,
+    )
+    print(
+        "UNIT 9 DIRECTION =",
+        direction,
+        flush=True,
+    )
+    print(
+        "UNIT 9 SIGNAL QUALIFIED = True",
+        flush=True,
+    )
+    print(
+        "UNIT 9 EXECUTION INTENT = True",
+        flush=True,
+    )
+    print(
+        "UNIT 9 TRADE PLAN READY = True",
+        flush=True,
+    )
+    print(
+        "UNIT 9 EXECUTION READY = True",
+        flush=True,
+    )
+    print(
+        "UNIT 9 INTERNAL EXECUTION CANDIDATE = READY",
+        flush=True,
+    )
+    print(
+        "UNIT 9 ORDER PAYLOAD CREATED = False",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 9 VALIDATED EXECUTION PREPARATION",
+        flush=True,
+    )
+    print(
+        "PASS: UNIT 9 INTERNAL EXECUTION CANDIDATE GENERATED",
+        flush=True,
+    )
+    print(
+        "PASS: UNIT 9 NO NETWORK REQUEST",
+        flush=True,
+    )
+    print(
+        "PASS: UNIT 9 NO ORDER PAYLOAD GENERATED",
+        flush=True,
+    )
+    print(
+        "PASS: UNIT 9 NO TP EXECUTION",
+        flush=True,
+    )
+    print(
+        "PASS: UNIT 9 NO SL EXECUTION",
+        flush=True,
+    )
+    print(
+        "PASS: UNIT 9 TP / SL CAPABILITIES REMAIN INDEPENDENT",
+        flush=True,
+    )
+
+    print(
+        "ZERO AUTHENTICATED API ACCESS = TRUE",
+        flush=True,
+    )
+    print(
+        "ZERO ACCOUNT ACCESS = TRUE",
+        flush=True,
+    )
+    print(
+        "ZERO POSITION ACCESS = TRUE",
+        flush=True,
+    )
+    print(
+        "ZERO ORDER ENDPOINT ACCESS = TRUE",
+        flush=True,
+    )
+    print(
+        "ZERO DEMO ORDER = TRUE",
+        flush=True,
+    )
+    print(
+        "ZERO REAL ORDER = TRUE",
+        flush=True,
+    )
+    print(
+        "ZERO EXCHANGE WRITE = TRUE",
+        flush=True,
+    )
+    print(
+        "ZERO LEVERAGE MUTATION = TRUE",
+        flush=True,
+    )
+    print(
+        "ZERO MARGIN MODE MUTATION = TRUE",
+        flush=True,
+    )
+    print(
+        "ZERO POSITION MODE MUTATION = TRUE",
+        flush=True,
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 9 RESULT = PASS",
+        flush=True,
+    )
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# UNIT 9 EXECUTION — ORIGINAL INTERFACE
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_9_RESULT = (
+    fresh_reconstruction_unit_9(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_8_RESULT,
+    )
+)
+
+# ============================================================
+# END UNIT 9
+# NEXT UNIT = UNIT 10
+# ============================================================
+
