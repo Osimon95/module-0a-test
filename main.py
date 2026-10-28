@@ -8959,3 +8959,596 @@ FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
 # END UNIT 12 + ADAPTER
 # UNIT 13 FOLLOWS
 # ============================================================
+
+
+
+# ============================================================
+# UNIT 13 + HYBRID ADAPTER
+# WEEX DEMO EXISTING-POSITION TP MANAGEMENT
+# ZERO INDENTATION — SINGLE EXECUTION CALL
+# ============================================================
+
+def fresh_reconstruction_unit_13(config, unit_12_result):
+    import os
+    import json
+    import time
+    import hmac
+    import hashlib
+    import base64
+    import urllib.request
+    import urllib.parse
+    from decimal import Decimal, ROUND_DOWN, ROUND_UP
+
+    print("=" * 80, flush=True)
+    print("FRESH RECONSTRUCTION UNIT 13 START", flush=True)
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT 13 CONFIG MISSING")
+    if not isinstance(unit_12_result, dict):
+        raise RuntimeError("UNIT 13 UNIT 12 RESULT MISSING")
+
+    print("PASS: UNIT 13 RECEIVED UNIT 12 RESULT", flush=True)
+    print(
+        "UNIT 13 RECEIVED UNIT 12 STATUS =",
+        unit_12_result.get("status"),
+        flush=True
+    )
+    print(
+        "PASS: UNIT 13 POSITION MANAGEMENT INDEPENDENT "
+        "OF NEW SIGNAL AND BOT_MODE",
+        flush=True
+    )
+
+    ex = config.get("exchange", {})
+    st = config.get("strategy", {})
+    pr = config.get("market_precision", {})
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or ex.get("name") != "WEEX"
+        or ex.get("demo_order_symbol") != "BTCSUSDT"
+    ):
+        raise RuntimeError("UNIT 13 DEMO CONTRACT FAILURE")
+
+    def D(value):
+        number = Decimal(str(value))
+        if not number.is_finite():
+            raise RuntimeError("UNIT 13 NONFINITE NUMBER")
+        return number
+
+    step = D(pr["quantity_step"])
+    minimum = D(pr["minimum_quantity"])
+    price_step = D(pr["price_step"])
+
+    if min(step, minimum, price_step) <= 0:
+        raise RuntimeError("UNIT 13 INVALID PRECISION")
+
+    tp1_floor = D(st.get("tp1_net_roi_floor_percent", 5))
+    tp2_floor = D(st.get("tp2_net_roi_floor_percent", 10))
+    fee = D(st.get("futures_taker_fee_percent", "0.08"))
+
+    trail_ref = D(st.get("tp3_trailing_reference_percent", "0.20"))
+    trail_min = D(st.get("tp3_trailing_min_percent", "0.10"))
+    trail_max = D(st.get("tp3_trailing_max_percent", "0.40"))
+
+    if (
+        tp1_floor < 5
+        or tp2_floor < 10
+        or tp2_floor <= tp1_floor
+        or fee < 0
+        or not (0 < trail_min <= trail_ref <= trail_max)
+    ):
+        raise RuntimeError("UNIT 13 TP CONFIGURATION INVALID")
+
+    print(
+        "PASS: UNIT 13 TARGET TP ALLOCATION = 10 / 20 / 70",
+        flush=True
+    )
+    print(
+        "PASS: UNIT 13 TP QUANTITY MODE = STEP-AWARE",
+        flush=True
+    )
+    print(
+        "PASS: UNIT 13 TP1 NET ROI FLOOR =", tp1_floor,
+        flush=True
+    )
+    print(
+        "PASS: UNIT 13 TP2 NET ROI FLOOR =", tp2_floor,
+        flush=True
+    )
+
+    key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+    passphrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, passphrase)):
+        raise RuntimeError("UNIT 13 DEMO API CREDENTIALS MISSING")
+
+    base = "https://api-contract.weex.com"
+
+    def signed_request(method, path, body=None):
+        allowed = {
+            ("GET", "/capi/v3/sim/position/allPosition"),
+            ("POST", "/capi/v3/sim/order"),
+        }
+        if (method, path) not in allowed:
+            raise RuntimeError("UNIT 13 NON-DEMO ENDPOINT")
+
+        body_text = (
+            json.dumps(body, separators=(",", ":"))
+            if body is not None else ""
+        )
+        timestamp = str(int(time.time() * 1000))
+        prehash = timestamp + method + path + body_text
+        signature = base64.b64encode(
+            hmac.new(
+                secret.encode(),
+                prehash.encode(),
+                hashlib.sha256
+            ).digest()
+        ).decode()
+
+        headers = {
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": passphrase,
+            "Content-Type": "application/json",
+        }
+
+        request = urllib.request.Request(
+            base + path,
+            headers=headers,
+            data=(
+                body_text.encode()
+                if method == "POST" else None
+            ),
+            method=method,
+        )
+
+        # No automatic retry of any ambiguous POST.
+        with urllib.request.urlopen(
+            request, timeout=15
+        ) as response:
+            status_code = response.getcode()
+            data = json.loads(
+                response.read().decode("utf-8")
+            )
+
+        if not 200 <= status_code < 300:
+            raise RuntimeError(
+                "UNIT 13 WEEX HTTP STATUS "
+                + str(status_code)
+            )
+        return data
+
+    def base_result(status, reason):
+        return {
+            "unit": 13,
+            "status": status,
+            "read_only": False,
+            "unit_12_status": unit_12_result.get("status"),
+            "active_position_exists": False,
+            "tp_management_required": False,
+            "tp_execution_attempted": False,
+            "tp_execution_completed": False,
+            "tp3_armed": False,
+            "sl_execution_attempted": False,
+            "backup_execution_attempted": False,
+            "real_submission_attempted": False,
+            "exchange_write": False,
+            "skip_reason": reason,
+        }
+
+    # ========================================================
+    # ALWAYS CHECK OPEN POSITION, EVEN WHEN BOT_MODE=PAUSE
+    # ========================================================
+
+    positions = signed_request(
+        "GET",
+        "/capi/v3/sim/position/allPosition"
+    )
+
+    if not isinstance(positions, list):
+        raise RuntimeError(
+            "UNIT 13 POSITION RESPONSE NOT LIST"
+        )
+
+    active = []
+    for p in positions:
+        if not isinstance(p, dict):
+            continue
+        if str(p.get("symbol", "")).upper() != "BTCSUSDT":
+            continue
+        if D(p.get("size", 0)) > 0:
+            active.append(p)
+
+    if not active:
+        result = base_result(
+            "IDLE_NO_POSITION",
+            "NO_ACTIVE_BTCSUSDT_POSITION"
+        )
+        print("UNIT 13 STATUS = IDLE_NO_POSITION", flush=True)
+        print(
+            "FRESH RECONSTRUCTION UNIT 13 RESULT = "
+            "PASS (IDLE_NO_POSITION)",
+            flush=True
+        )
+        return result
+
+    if len(active) != 1:
+        raise RuntimeError(
+            "UNIT 13 MULTIPLE ACTIVE DEMO POSITIONS"
+        )
+
+    p = active[0]
+    side = str(p.get("side", "")).upper()
+    size = D(p["size"])
+    open_value = D(p.get("openValue", 0))
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError("UNIT 13 INVALID POSITION SIDE")
+    if open_value <= 0:
+        raise RuntimeError("UNIT 13 OPEN VALUE INVALID")
+
+    entry = open_value / size
+
+    # Exchange-reported cumulative fields are essential.
+    # Never assume previous TP closes are zero.
+    if "cumOpenSize" not in p or "cumCloseSize" not in p:
+        raise RuntimeError(
+            "UNIT 13 CUMULATIVE POSITION HISTORY "
+            "UNAVAILABLE — NO TP ORDER SENT"
+        )
+
+    cum_open = D(p["cumOpenSize"])
+    cum_close = D(p["cumCloseSize"])
+
+    if (
+        cum_open < size
+        or cum_close < 0
+        or cum_close > cum_open
+    ):
+        raise RuntimeError(
+            "UNIT 13 POSITION HISTORY INCONSISTENT"
+        )
+
+    total_steps = int(
+        (cum_open / step).to_integral_value(
+            rounding=ROUND_DOWN
+        )
+    )
+
+    if total_steps <= 0:
+        raise RuntimeError("UNIT 13 NO EXECUTABLE STEPS")
+
+    # ========================================================
+    # ORIGINAL SMALL-POSITION STEP ALLOCATION
+    # ========================================================
+
+    if total_steps == 1:
+        s1, s2, s3 = 0, 0, 1
+    elif total_steps == 2:
+        s1, s2, s3 = 1, 0, 1
+    else:
+        s1 = max(1, int(total_steps * 0.10))
+        s2 = max(1, int(total_steps * 0.20))
+
+        while s1 + s2 >= total_steps:
+            if s2 > 1:
+                s2 -= 1
+            elif s1 > 1:
+                s1 -= 1
+            else:
+                raise RuntimeError(
+                    "UNIT 13 INVALID TP ALLOCATION"
+                )
+
+        s3 = total_steps - s1 - s2
+
+    q1, q2, q3 = (
+        D(s1) * step,
+        D(s2) * step,
+        D(s3) * step
+    )
+
+    # ========================================================
+    # PRICE TARGETS: NET ROI AFTER ESTIMATED TAKER FEES
+    # ========================================================
+
+    leverage = D(p.get("leverage", 0))
+    if leverage <= 0:
+        raise RuntimeError(
+            "UNIT 13 ACTIVE POSITION LEVERAGE INVALID"
+        )
+
+    roundtrip_fee_roi = D(2) * fee * leverage
+    move1 = (tp1_floor + roundtrip_fee_roi) / leverage
+    move2 = (tp2_floor + roundtrip_fee_roi) / leverage
+
+    # move1 and move2 are percentages of entry price.
+    if side == "LONG":
+        raw1 = entry * (1 + move1 / 100)
+        raw2 = entry * (1 + move2 / 100)
+        t1 = (
+            (raw1 / price_step).to_integral_value(
+                rounding=ROUND_UP
+            ) * price_step
+        )
+        t2 = (
+            (raw2 / price_step).to_integral_value(
+                rounding=ROUND_UP
+            ) * price_step
+        )
+        if t2 <= t1:
+            t2 = t1 + price_step
+        close_side = "SELL"
+    else:
+        raw1 = entry * (1 - move1 / 100)
+        raw2 = entry * (1 - move2 / 100)
+        t1 = (
+            (raw1 / price_step).to_integral_value(
+                rounding=ROUND_DOWN
+            ) * price_step
+        )
+        t2 = (
+            (raw2 / price_step).to_integral_value(
+                rounding=ROUND_DOWN
+            ) * price_step
+        )
+        if t2 >= t1:
+            t2 = t1 - price_step
+        close_side = "BUY"
+
+    if min(t1, t2) <= 0:
+        raise RuntimeError("UNIT 13 INVALID TP TARGET")
+
+    # ========================================================
+    # FRESH PUBLIC MARK PRICE
+    # ========================================================
+
+    query = urllib.parse.urlencode({
+        "symbol": "BTCUSDT",
+        "priceType": "MARK",
+    })
+    market_request = urllib.request.Request(
+        base + "/capi/v3/market/symbolPrice?" + query,
+        method="GET"
+    )
+
+    with urllib.request.urlopen(
+        market_request, timeout=15
+    ) as response:
+        market = json.loads(
+            response.read().decode("utf-8")
+        )
+
+    mark = D(market["price"])
+    if market.get("symbol") != "BTCUSDT" or mark <= 0:
+        raise RuntimeError("UNIT 13 MARKET RESPONSE INVALID")
+
+    done1 = q1 == 0 or cum_close >= q1
+    done2 = (
+        done1 if q2 == 0
+        else cum_close >= q1 + q2
+    )
+
+    reached1 = (
+        mark >= t1 if side == "LONG" else mark <= t1
+    )
+    reached2 = (
+        mark >= t2 if side == "LONG" else mark <= t2
+    )
+
+    action = "NONE"
+    close_qty = D(0)
+
+    if q2 > 0 and reached2 and not done2:
+        action = "TP2"
+        close_qty = q1 + q2 - cum_close
+    elif q1 > 0 and reached1 and not done1:
+        action = "TP1"
+        close_qty = q1 - cum_close
+
+    close_qty = (
+        (min(close_qty, size) / step)
+        .to_integral_value(rounding=ROUND_DOWN)
+        * step
+    )
+
+    armed = (
+        done1 and done2
+        and q3 > 0 and size > 0
+    )
+
+    result = base_result(
+        "TP3_ARMED" if armed else "MONITORING",
+        (
+            "DYNAMIC_TP3_RUNTIME_REQUIRED"
+            if armed else "DYNAMIC_TP_TARGET_NOT_REACHED"
+        )
+    )
+
+    result.update({
+        "active_position_exists": True,
+        "position_exists": True,
+        "tp_management_required": True,
+        "position_side": side,
+        "position_size": float(size),
+        "average_entry_price": float(entry),
+        "mark_price": float(mark),
+        "tp_target_allocation": "10/20/70",
+        "tp1_target": float(t1),
+        "tp2_target": float(t2),
+        "tp1_target_price": str(t1),
+        "tp2_target_price": str(t2),
+        "tp1_quantity": float(q1),
+        "tp2_quantity": float(q2),
+        "tp3_quantity": float(q3),
+        "tp1_completed": done1,
+        "tp2_completed": done2,
+        "tp3_armed": armed,
+        "tp3_trailing_percent": float(trail_ref),
+        "tp3_trailing_reference_percent": float(trail_ref),
+        "tp3_trailing_min_percent": float(trail_min),
+        "tp3_trailing_max_percent": float(trail_max),
+        "tp3_trailing_dynamic": True,
+        "tp1_net_roi_floor_percent": float(tp1_floor),
+        "tp2_net_roi_floor_percent": float(tp2_floor),
+        "tp_action": action,
+    })
+
+    # ========================================================
+    # EXECUTE AT MOST ONE DEMO TP CLOSE PER PASS
+    # ========================================================
+
+    if action != "NONE" and close_qty >= minimum:
+
+        # A restart or new scan must never duplicate a TP
+        # solely because a previous HTTP response was lost.
+        # Confirm pending orders/order history separately
+        # before relying on this path unattended.
+
+        client_id = (
+            "FR13-" + action + "-"
+            + str(time.time_ns())
+        )[:36]
+
+        order = {
+            "symbol": "BTCSUSDT",
+            "side": close_side,
+            "positionSide": side,
+            "type": "MARKET",
+            "quantity": format(close_qty, "f"),
+            "newClientOrderId": client_id,
+        }
+
+        print(
+            "UNIT 13 DEMO TP ACTION =", action,
+            flush=True
+        )
+        print(
+            "UNIT 13 DEMO CLOSE QUANTITY =",
+            order["quantity"],
+            flush=True
+        )
+
+        result["tp_execution_attempted"] = True
+
+        # Actual WEEX demo write, not a dry run.
+        reply = signed_request(
+            "POST",
+            "/capi/v3/sim/order",
+            order
+        )
+
+        if not isinstance(reply, dict):
+            raise RuntimeError(
+                "UNIT 13 DEMO TP RESPONSE INVALID"
+            )
+        if reply.get("success") is not True:
+            raise RuntimeError(
+                "UNIT 13 DEMO TP NOT ACKNOWLEDGED: "
+                + str(reply)[:400]
+            )
+        if not reply.get("orderId"):
+            raise RuntimeError(
+                "UNIT 13 TP ACK MISSING ORDER ID"
+            )
+
+        result.update({
+            "status": "TP_EXECUTED",
+            "skip_reason": "NONE",
+            "tp_execution_completed": True,
+            "demo_order_executed": True,
+            "tp_order_id": str(reply["orderId"]),
+            "tp_close_quantity": str(close_qty),
+            "exchange_write": True,
+        })
+
+    print(
+        "UNIT 13 STATUS =", result["status"],
+        flush=True
+    )
+    print(
+        "UNIT 13 TP3 ARMED =",
+        result["tp3_armed"],
+        flush=True
+    )
+    print(
+        "UNIT 13 EXCHANGE WRITE =",
+        result["exchange_write"],
+        flush=True
+    )
+    print(
+        "FRESH RECONSTRUCTION UNIT 13 RESULT = PASS",
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# UNIT 13 HYBRID ADAPTER
+# ============================================================
+
+def fresh_unit_13_hybrid_adapter(config, unit_12_result):
+
+    result = fresh_reconstruction_unit_13(
+        config,
+        unit_12_result
+    )
+
+    if not isinstance(result, dict):
+        raise RuntimeError("UNIT 13 ADAPTER INVALID RESULT")
+
+    if result.get("real_submission_attempted") is not False:
+        raise RuntimeError(
+            "UNIT 13 REAL ORDER PROHIBITION FAILED"
+        )
+
+    if result.get("sl_execution_attempted") is not False:
+        raise RuntimeError(
+            "UNIT 13 UNEXPECTED SL EXECUTION"
+        )
+
+    if result.get("backup_execution_attempted") is not False:
+        raise RuntimeError(
+            "UNIT 13 UNEXPECTED BACKUP EXECUTION"
+        )
+
+    print(
+        "UNIT 13 HYBRID ADAPTER STATUS =",
+        result.get("status"),
+        flush=True
+    )
+    print(
+        "UNIT 13 HYBRID ADAPTER RESULT = PASS",
+        flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# UNIT 13 EXECUTION CALL — EXACTLY ONCE
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
+    fresh_unit_13_hybrid_adapter(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_12_RESULT,
+    )
+)
+
+# ============================================================
+# END UNIT 13 + HYBRID ADAPTER
+# UNIT 14 FOLLOWS
+# ============================================================
