@@ -7594,3 +7594,746 @@ UNIT 11 PAYLOAD READY = False
 FRESH RECONSTRUCTION UNIT 11 RESULT = PASS (IDLE)
 UNIT 11 HYBRID ADAPTER STATUS = IDLE
 UNIT 11 HYBRID ADAPTER RESULT = PASS
+
+
+
+# ============================================================
+# UNIT 12 + ADAPTER — COMPLETE REPLACEMENT V3
+# ORIGINAL WEEX DEMO EXECUTION MECHANISM
+#
+# BOT_MODE CONTROLS NEW INITIAL ENTRIES ONLY
+# UNIT 13 AND UNIT 14 REMAIN INDEPENDENT
+# NO REAL-CASH ORDER ENDPOINT
+# NO LEVERAGE OR MARGIN MODE MUTATION
+# ============================================================
+
+def fresh_reconstruction_unit_12(config, unit_11_result):
+    import os
+    import json
+    import time
+    import hmac
+    import base64
+    import hashlib
+    import urllib.request
+    import urllib.error
+    from decimal import Decimal, InvalidOperation
+    from datetime import datetime, timezone
+
+    print("=" * 80, flush=True)
+    print(
+        datetime.now(timezone.utc).isoformat(),
+        "FRESH RECONSTRUCTION UNIT 12 START",
+        flush=True
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT 12 INVALID CONFIG")
+
+    if not isinstance(unit_11_result, dict):
+        raise RuntimeError("UNIT 12 INVALID UNIT 11 RESULT")
+
+    exchange = config.get("exchange", {})
+    precision = config.get("market_precision", {})
+
+    if not isinstance(exchange, dict):
+        raise RuntimeError("UNIT 12 EXCHANGE CONFIG MISSING")
+
+    if not isinstance(precision, dict):
+        raise RuntimeError("UNIT 12 PRECISION CONFIG MISSING")
+
+    if (
+        exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("demo_order_symbol") != "BTCSUSDT"
+        or config.get("execution_environment") != "DEMO"
+    ):
+        raise RuntimeError(
+            "UNIT 12 DEMO ENVIRONMENT CONTRACT FAILED"
+        )
+
+    if unit_11_result.get("read_only") is not True:
+        raise RuntimeError(
+            "UNIT 12 UNIT 11 LOCAL BOUNDARY INVALID"
+        )
+
+    mode = os.getenv(
+        "BOT_MODE", "PAUSE"
+    ).strip().upper()
+
+    if mode not in ("RUN", "PAUSE"):
+        raise RuntimeError(
+            "BOT_MODE MUST BE RUN OR PAUSE"
+        )
+
+    print("UNIT 12 BOT_MODE =", mode, flush=True)
+
+    # ========================================================
+    # ORIGINAL RESULT CONTRACT
+    # ========================================================
+
+    def result_base(status, reason):
+        return {
+            "unit": 12,
+            "status": status,
+            "read_only": False,
+            "active_mode": unit_11_result.get("active_mode"),
+            "direction": unit_11_result.get("direction"),
+            "signal_qualified": (
+                unit_11_result.get("signal_qualified") is True
+            ),
+            "execution_intent": (
+                unit_11_result.get("execution_intent") is True
+            ),
+            "position_check_attempted": False,
+            "position_check_completed": False,
+            "position_endpoint_access": False,
+            "position_http_status": None,
+            "active_position_exists": False,
+            "active_positions": [],
+            "initial_entry_permitted": False,
+            "duplicate_initial_entry_blocked": False,
+            "management_path_permitted": True,
+            "tp_management_permitted": True,
+            "backup_management_permitted": True,
+            "demo_submission_attempted": False,
+            "demo_submission_completed": False,
+            "real_submission_attempted": False,
+            "authenticated_request": False,
+            "order_endpoint_access": False,
+            "exchange_write": False,
+            "skip_reason": reason,
+        }
+
+    # ========================================================
+    # BOT_MODE PAUSE — NEW ENTRIES ONLY
+    # ========================================================
+
+    if mode == "PAUSE":
+        result = result_base(
+            "IDLE", "BOT_MODE_PAUSE"
+        )
+
+        print(
+            "UNIT 12 INITIAL ENTRY = PAUSED",
+            flush=True
+        )
+        print(
+            "UNIT 12 POSITION MANAGEMENT = INDEPENDENT",
+            flush=True
+        )
+        print(
+            "UNIT 12 DEMO SUBMISSION ATTEMPTED = False",
+            flush=True
+        )
+        print(
+            "FRESH RECONSTRUCTION UNIT 12 RESULT = "
+            "PASS (PAUSED)",
+            flush=True
+        )
+        return result
+
+    # ========================================================
+    # NORMAL IDLE — NO QUALIFIED CANDIDATE
+    # ========================================================
+
+    status = str(
+        unit_11_result.get("status", "IDLE")
+    ).upper()
+
+    if status == "IDLE":
+        result = result_base(
+            "IDLE",
+            unit_11_result.get(
+                "skip_reason", "UNIT_11_IDLE"
+            )
+        )
+
+        print(
+            "UNIT 12 STATUS = IDLE",
+            flush=True
+        )
+        print(
+            "UNIT 12 SKIP REASON =",
+            result["skip_reason"],
+            flush=True
+        )
+        print(
+            "UNIT 12 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+        print(
+            "FRESH RECONSTRUCTION UNIT 12 RESULT = "
+            "PASS (IDLE)",
+            flush=True
+        )
+        return result
+
+    # ========================================================
+    # ACTIONABLE UNIT 11 CONTRACT
+    # ========================================================
+
+    if status != "READY":
+        raise RuntimeError(
+            "UNIT 12 INVALID UNIT 11 STATUS: " + status
+        )
+
+    for key in (
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "execution_ready",
+        "demo_boundary_ready",
+        "payload_ready",
+        "order_payload_created",
+    ):
+        if unit_11_result.get(key) is not True:
+            raise RuntimeError(
+                "UNIT 12 READY CONTRACT FAILED: " + key
+            )
+
+    if (
+        unit_11_result.get("demo_submission_requested")
+        is not False
+        or unit_11_result.get("real_submission_requested")
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 12 UNEXPECTED PRIOR SUBMISSION"
+        )
+
+    active_mode = str(
+        unit_11_result.get("active_mode", "NONE")
+    ).upper()
+
+    direction = str(
+        unit_11_result.get("direction", "NONE")
+    ).upper()
+
+    if active_mode not in (
+        "SCALP", "STRUCTURE", "BREAKOUT"
+    ):
+        raise RuntimeError("UNIT 12 INVALID ACTIVE MODE")
+
+    if direction not in ("LONG", "SHORT"):
+        raise RuntimeError("UNIT 12 INVALID DIRECTION")
+
+    payload = unit_11_result.get("order_payload")
+
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            "UNIT 12 ORDER PAYLOAD MISSING"
+        )
+
+    required_payload = {
+        "symbol",
+        "side",
+        "positionSide",
+        "type",
+        "quantity",
+        "newClientOrderId",
+    }
+
+    if set(payload) != required_payload:
+        raise RuntimeError(
+            "UNIT 12 UNEXPECTED ORDER PAYLOAD FIELDS"
+        )
+
+    expected_side = (
+        "BUY" if direction == "LONG" else "SELL"
+    )
+
+    if (
+        payload.get("symbol") != "BTCSUSDT"
+        or payload.get("type") != "MARKET"
+        or payload.get("side") != expected_side
+        or payload.get("positionSide") != direction
+        or not payload.get("newClientOrderId")
+    ):
+        raise RuntimeError(
+            "UNIT 12 DEMO ORDER IDENTITY INVALID"
+        )
+
+    # ========================================================
+    # PRESERVE UNIT 8 BTC QUANTITY
+    # NO LEVERAGE RECALCULATION
+    # ========================================================
+
+    try:
+        quantity = Decimal(
+            str(payload["quantity"])
+        )
+        minimum = Decimal(
+            str(precision["minimum_quantity"])
+        )
+        step = Decimal(
+            str(precision["quantity_step"])
+        )
+    except (InvalidOperation, KeyError, ValueError) as exc:
+        raise RuntimeError(
+            "UNIT 12 INVALID QUANTITY PRECISION"
+        ) from exc
+
+    if (
+        not quantity.is_finite()
+        or not minimum.is_finite()
+        or not step.is_finite()
+        or quantity < minimum
+        or step <= 0
+        or quantity % step != 0
+    ):
+        raise RuntimeError(
+            "UNIT 12 QUANTITY BELOW MINIMUM "
+            "OR NOT STEP ALIGNED"
+        )
+
+    print(
+        "UNIT 12 BTC QUANTITY =",
+        format(quantity, "f"),
+        flush=True
+    )
+
+    # ========================================================
+    # ORIGINAL WEEX V3 DEMO AUTHENTICATION
+    # ========================================================
+
+    api_key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    api_secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    api_passphrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((api_key, api_secret, api_passphrase)):
+        raise RuntimeError(
+            "UNIT 12 WEEX DEMO CREDENTIALS MISSING"
+        )
+
+    base_url = "https://api-contract.weex.com"
+
+    def authenticated_request(method, path, body=None):
+        if path not in (
+            "/capi/v3/sim/position/allPosition",
+            "/capi/v3/sim/order",
+        ):
+            raise RuntimeError(
+                "UNIT 12 NON-DEMO ENDPOINT BLOCKED"
+            )
+
+        if method == "GET" and body is not None:
+            raise RuntimeError(
+                "UNIT 12 GET REQUEST MUST NOT HAVE BODY"
+            )
+
+        if method == "POST" and (
+            path != "/capi/v3/sim/order"
+            or not isinstance(body, dict)
+        ):
+            raise RuntimeError(
+                "UNIT 12 INVALID DEMO POST"
+            )
+
+        body_text = (
+            json.dumps(
+                body,
+                separators=(",", ":"),
+                ensure_ascii=False
+            )
+            if body is not None
+            else ""
+        )
+
+        timestamp = str(int(time.time() * 1000))
+
+        prehash = (
+            timestamp + method + path + body_text
+        )
+
+        signature = base64.b64encode(
+            hmac.new(
+                api_secret.encode("utf-8"),
+                prehash.encode("utf-8"),
+                hashlib.sha256
+            ).digest()
+        ).decode("utf-8")
+
+        headers = {
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": api_passphrase,
+            "Content-Type": "application/json",
+        }
+
+        request = urllib.request.Request(
+            url=base_url + path,
+            data=(
+                body_text.encode("utf-8")
+                if method == "POST"
+                else None
+            ),
+            headers=headers,
+            method=method,
+        )
+
+        try:
+            with urllib.request.urlopen(
+                request, timeout=15
+            ) as response:
+                http_status = response.getcode()
+                response_text = response.read().decode(
+                    "utf-8", errors="replace"
+                )
+
+        except urllib.error.HTTPError as exc:
+            error_text = exc.read().decode(
+                "utf-8", errors="replace"
+            )
+            raise RuntimeError(
+                "UNIT 12 WEEX HTTP ERROR "
+                + str(exc.code)
+                + ": "
+                + error_text[:500]
+            ) from exc
+
+        # Network errors intentionally propagate.
+        # A POST timeout may have executed at WEEX.
+        # Never blindly retry an ambiguous order.
+
+        if not 200 <= http_status < 300:
+            raise RuntimeError(
+                "UNIT 12 NONSUCCESS HTTP STATUS"
+            )
+
+        try:
+            response_json = json.loads(response_text)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "UNIT 12 WEEX RESPONSE INVALID JSON"
+            ) from exc
+
+        return http_status, response_json
+
+    # ========================================================
+    # ORIGINAL NONZERO-POSITION ENTRY BLOCK
+    # ========================================================
+
+    print(
+        "UNIT 12 PRE-SUBMISSION POSITION CHECK START",
+        flush=True
+    )
+
+    position_path = (
+        "/capi/v3/sim/position/allPosition"
+    )
+
+    position_http_status, positions = (
+        authenticated_request(
+            "GET", position_path
+        )
+    )
+
+    if not isinstance(positions, list):
+        raise RuntimeError(
+            "UNIT 12 WEEX DEMO POSITIONS NOT A LIST"
+        )
+
+    active_positions = []
+
+    for position in positions:
+        if not isinstance(position, dict):
+            raise RuntimeError(
+                "UNIT 12 MALFORMED POSITION RECORD"
+            )
+
+        if str(
+            position.get("symbol", "")
+        ).upper() != "BTCSUSDT":
+            continue
+
+        try:
+            size = Decimal(
+                str(position["size"])
+            )
+        except (
+            KeyError,
+            InvalidOperation,
+            ValueError,
+        ) as exc:
+            raise RuntimeError(
+                "UNIT 12 POSITION SIZE INVALID"
+            ) from exc
+
+        if not size.is_finite() or size < 0:
+            raise RuntimeError(
+                "UNIT 12 POSITION SIZE NEGATIVE "
+                "OR NONFINITE"
+            )
+
+        if size > 0:
+            side = str(
+                position.get("side", "")
+            ).upper()
+
+            if side not in ("LONG", "SHORT"):
+                raise RuntimeError(
+                    "UNIT 12 ACTIVE POSITION SIDE INVALID"
+                )
+
+            active_positions.append({
+                "id": position.get("id"),
+                "symbol": "BTCSUSDT",
+                "side": side,
+                "size": float(size),
+                "leverage": position.get("leverage"),
+                "marginType": position.get("marginType"),
+                "separatedMode": position.get(
+                    "separatedMode"
+                ),
+            })
+
+    print(
+        "UNIT 12 ACTIVE BTC POSITION COUNT =",
+        len(active_positions),
+        flush=True
+    )
+
+    if active_positions:
+        result = result_base(
+            "ACTIVE_POSITION_BLOCK",
+            "NON_ZERO_POSITION_BLOCK_INITIAL_ENTRY"
+        )
+
+        result.update({
+            "position_check_attempted": True,
+            "position_check_completed": True,
+            "position_endpoint_access": True,
+            "position_http_status": position_http_status,
+            "active_position_exists": True,
+            "active_positions": active_positions,
+            "duplicate_initial_entry_blocked": True,
+            "authenticated_request": True,
+        })
+
+        print(
+            "UNIT 12 INITIAL ENTRY BLOCKED: "
+            "ACTIVE POSITION",
+            flush=True
+        )
+        print(
+            "UNIT 12 MANAGEMENT PATH PERMITTED = True",
+            flush=True
+        )
+        print(
+            "FRESH RECONSTRUCTION UNIT 12 RESULT = "
+            "PASS (ACTIVE POSITION BLOCK)",
+            flush=True
+        )
+
+        return result
+
+    # ========================================================
+    # FLAT POSITION — ACTUAL DEMO ENTRY
+    # ========================================================
+
+    print(
+        "UNIT 12 ZERO BTC POSITION VERIFIED",
+        flush=True
+    )
+    print(
+        "UNIT 12 EXECUTION ENVIRONMENT = DEMO",
+        flush=True
+    )
+    print(
+        "UNIT 12 ACTIVE MODE =",
+        active_mode,
+        flush=True
+    )
+    print(
+        "UNIT 12 DIRECTION =",
+        direction,
+        flush=True
+    )
+    print(
+        "UNIT 12 SENDING ACTUAL DEMO MARKET ORDER",
+        flush=True
+    )
+
+    order_path = "/capi/v3/sim/order"
+
+    # This is the original WEEX demo order write.
+    # It is NOT a simulation or dry-run.
+
+    try:
+        order_http_status, response_json = (
+            authenticated_request(
+                "POST",
+                order_path,
+                payload,
+            )
+        )
+
+    except Exception:
+        print(
+            "UNIT 12 DEMO ORDER RESULT UNCERTAIN "
+            "OR REJECTED — NO AUTOMATIC RETRY",
+            flush=True
+        )
+        print(
+            "UNIT 12 VERIFY WEEX ORDER HISTORY "
+            "BEFORE RESUBMITTING",
+            flush=True
+        )
+        raise
+
+    if not isinstance(response_json, dict):
+        raise RuntimeError(
+            "UNIT 12 DEMO ORDER RESPONSE NOT OBJECT"
+        )
+
+    if response_json.get("success") is not True:
+        raise RuntimeError(
+            "UNIT 12 WEEX DID NOT CONFIRM SUCCESS: "
+            + str(response_json)[:500]
+        )
+
+    order_id = response_json.get("orderId")
+
+    if not order_id:
+        raise RuntimeError(
+            "UNIT 12 WEEX SUCCESS RESPONSE "
+            "MISSING ORDER ID"
+        )
+
+    result = result_base(
+        "DEMO_SUBMITTED", "NONE"
+    )
+
+    result.update({
+        "position_check_attempted": True,
+        "position_check_completed": True,
+        "position_endpoint_access": True,
+        "position_http_status": position_http_status,
+        "initial_entry_permitted": True,
+        "demo_submission_attempted": True,
+        "demo_submission_completed": True,
+        "authenticated_request": True,
+        "order_endpoint_access": True,
+        "exchange_write": True,
+        "request_path": order_path,
+        "request_payload": dict(payload),
+        "http_status": order_http_status,
+        "weex_response": response_json,
+        "order_id": order_id,
+    })
+
+    print(
+        "UNIT 12 HTTP STATUS =",
+        order_http_status,
+        flush=True
+    )
+    print(
+        "UNIT 12 WEEX ORDER ID =",
+        order_id,
+        flush=True
+    )
+    print(
+        "UNIT 12 DEMO SUBMISSION COMPLETED = True",
+        flush=True
+    )
+    print(
+        "UNIT 12 REAL SUBMISSION ATTEMPTED = False",
+        flush=True
+    )
+    print(
+        "FRESH RECONSTRUCTION UNIT 12 RESULT = "
+        "PASS (DEMO SUBMITTED)",
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# UNIT 12 HYBRID EXECUTION ADAPTER
+# ORIGINAL SUBMISSION PATH PRESERVED
+# NO SECOND ORDER SUBMISSION
+# ============================================================
+
+def fresh_unit_12_hybrid_execution_adapter(
+    execution_config,
+    unit_11_result,
+):
+
+    if not isinstance(execution_config, dict):
+        raise RuntimeError(
+            "UNIT 12 ADAPTER INVALID CONFIG"
+        )
+
+    if not isinstance(unit_11_result, dict):
+        raise RuntimeError(
+            "UNIT 12 ADAPTER INVALID UNIT 11 RESULT"
+        )
+
+    result = fresh_reconstruction_unit_12(
+        execution_config,
+        unit_11_result,
+    )
+
+    if not isinstance(result, dict):
+        raise RuntimeError(
+            "UNIT 12 ADAPTER RESULT INVALID"
+        )
+
+    if result.get("real_submission_attempted") is not False:
+        raise RuntimeError(
+            "UNIT 12 REAL ORDER SAFETY FAILURE"
+        )
+
+    if result.get("status") == "DEMO_SUBMITTED":
+        if (
+            result.get("demo_submission_completed") is not True
+            or not result.get("order_id")
+        ):
+            raise RuntimeError(
+                "UNIT 12 DEMO SUBMISSION CONTRACT FAILURE"
+            )
+
+    print(
+        "UNIT 12 HYBRID ADAPTER STATUS =",
+        result.get("status"),
+        flush=True
+    )
+
+    print(
+        "UNIT 12 HYBRID ADAPTER RESULT = PASS",
+        flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# UNIT 12 EXECUTION — ONE CALL ONLY
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
+    fresh_unit_12_hybrid_execution_adapter(
+        FRESH_RECONSTRUCTION_EXECUTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+    )
+)
+
+# ============================================================
+# END UNIT 12 + ADAPTER
+# UNIT 13 FOLLOWS
+# ============================================================
