@@ -5160,3 +5160,609 @@ FRESH_RECONSTRUCTION_HYBRID_UNIT_6_RESULT = (
 # ORIGINAL UNIT 7 CONTINUES BELOW
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 7 EXECUTION HANDOVER V2
+# ORIGINAL CONTRACT + HYBRID ADAPTER
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_reconstruction_unit_7(
+    unit_2_config,
+    unit_6_candidate,
+):
+    import math
+    from datetime import datetime, timezone
+
+    print("=" * 80, flush=True)
+    print(
+        datetime.now(timezone.utc).isoformat(),
+        "FRESH RECONSTRUCTION UNIT 7 START",
+        flush=True
+    )
+
+    # ========================================================
+    # 1. INPUT CONTRACT
+    # ========================================================
+
+    if not isinstance(unit_2_config, dict):
+        raise RuntimeError(
+            "UNIT 7 CONFIGURATION INVALID"
+        )
+
+    if not isinstance(unit_6_candidate, dict):
+        raise RuntimeError(
+            "UNIT 7 SIGNAL INPUT INVALID"
+        )
+
+    config = unit_2_config
+    candidate = unit_6_candidate
+
+    strategy = config.get("strategy")
+    precision = config.get("market_precision")
+    safety = config.get("safety")
+    exchange = config.get("exchange")
+
+    for name, section in (
+        ("STRATEGY", strategy),
+        ("PRECISION", precision),
+        ("SAFETY", safety),
+        ("EXCHANGE", exchange),
+    ):
+        if not isinstance(section, dict):
+            raise RuntimeError(
+                "UNIT 7 INVALID " + name
+            )
+
+    if config.get("execution_environment") != "DEMO":
+        raise RuntimeError(
+            "UNIT 7 DEMO ENVIRONMENT REQUIRED"
+        )
+
+    if (
+        exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("demo_order_symbol") != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 7 EXCHANGE CONTRACT FAILED"
+        )
+
+    # ========================================================
+    # 2. ORIGINAL UNIT 6 SIGNAL CONTRACT
+    # ========================================================
+
+    required = (
+        "execution_intent",
+        "signal_qualified",
+        "active_mode",
+        "direction",
+        "unit_5_reason",
+        "admission_reason",
+    )
+
+    for field in required:
+        if field not in candidate:
+            raise RuntimeError(
+                "UNIT 7 MISSING SIGNAL FIELD: " + field
+            )
+
+    execution_intent = candidate["execution_intent"]
+    signal_qualified = candidate["signal_qualified"]
+    active_mode = candidate["active_mode"]
+    direction = candidate["direction"]
+
+    unit_5_reason = str(
+        candidate["unit_5_reason"]
+    )
+
+    admission_reason = str(
+        candidate["admission_reason"]
+    )
+
+    if (
+        type(execution_intent) is not bool
+        or type(signal_qualified) is not bool
+    ):
+        raise RuntimeError(
+            "UNIT 7 INVALID SIGNAL BOOLEAN"
+        )
+
+    if execution_intent != signal_qualified:
+        raise RuntimeError(
+            "UNIT 7 SIGNAL QUALIFICATION CONTRADICTION"
+        )
+
+    # ========================================================
+    # 3. UNIT-LOCAL SAFETY
+    # ========================================================
+
+    # Unit 7 does not perform authenticated requests.
+    # These settings must not disable execution in
+    # later authorized WEEX demo units.
+
+    forbidden = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for key in forbidden:
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 7 UNSAFE LOCAL CAPABILITY: " + key
+            )
+
+    print(
+        "PASS: UNIT 7 UNIT-LOCAL SAFETY",
+        flush=True
+    )
+
+    # ========================================================
+    # 4. IDLE PATH
+    # ========================================================
+
+    if execution_intent is False:
+
+        if (
+            active_mode != "NONE"
+            or direction != "NONE"
+        ):
+            raise RuntimeError(
+                "UNIT 7 CONTRADICTORY IDLE SIGNAL"
+            )
+
+        result = {
+            "status": "IDLE",
+            "symbol": "BTCUSDT",
+            "demo_order_symbol": "BTCSUSDT",
+
+            "active_mode": "NONE",
+            "direction": "NONE",
+
+            "execution_intent": False,
+            "signal_qualified": False,
+
+            "unit_5_reason": unit_5_reason,
+            "admission_reason": admission_reason,
+
+            "initial_margin_percent": None,
+            "leverage_target": None,
+            "exchange_leverage_verified": False,
+            "leverage_verification_deferred": False,
+
+            "quantity_step": None,
+            "minimum_quantity": None,
+            "price_step": None,
+
+            "account_balance_required": False,
+            "position_sizing_performed": False,
+            "quantity_calculated": False,
+            "proposed_quantity": None,
+
+            "order_payload_created": False,
+            "read_only": True,
+            "exchange_write": False,
+
+            "skip_reason": admission_reason,
+        }
+
+        print(
+            "UNIT 7 STATUS = IDLE",
+            flush=True
+        )
+        print(
+            "UNIT 7 SKIP REASON =",
+            admission_reason,
+            flush=True
+        )
+        print(
+            "UNIT 7 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+        print(
+            "FRESH RECONSTRUCTION UNIT 7 RESULT = PASS (IDLE)",
+            flush=True
+        )
+        print("=" * 80, flush=True)
+
+        return result
+
+    # ========================================================
+    # 5. QUALIFIED SIGNAL VALIDATION
+    # ========================================================
+
+    if active_mode not in (
+        "BREAKOUT",
+        "STRUCTURE",
+        "SCALP",
+    ):
+        raise RuntimeError(
+            "UNIT 7 INVALID ACTIVE MODE"
+        )
+
+    if direction not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT 7 INVALID DIRECTION"
+        )
+
+    if candidate.get("higher_mode_protected") is True:
+        raise RuntimeError(
+            "UNIT 7 PROTECTED DEVELOPING SIGNAL"
+        )
+
+    if candidate.get("candidate_protected") is True:
+        raise RuntimeError(
+            "UNIT 7 DEVELOPING SIGNAL CANNOT EXECUTE"
+        )
+
+    stage = candidate.get("candidate_stage")
+
+    if active_mode == "SCALP":
+
+        if stage != "PENDING_UNIT_6":
+            raise RuntimeError(
+                "UNIT 7 SCALP STAGE INVALID"
+            )
+
+        if candidate.get("scalp_quality_pass") is not True:
+            raise RuntimeError(
+                "UNIT 7 SCALP QUALITY FAILED"
+            )
+
+        if candidate.get("fee_coverage_pass") is not True:
+            raise RuntimeError(
+                "UNIT 7 SCALP FEE COVERAGE FAILED"
+            )
+
+    else:
+
+        if stage != "QUALIFIED":
+            raise RuntimeError(
+                "UNIT 7 HIGHER MODE NOT QUALIFIED"
+            )
+
+    if admission_reason != "QUALIFIED_SIGNAL_ADMITTED":
+        raise RuntimeError(
+            "UNIT 7 SIGNAL NOT ADMITTED"
+        )
+
+    # ========================================================
+    # 6. LEVERAGE DEPENDENCY CORRECTION
+    # ========================================================
+
+    # Leverage is NOT required for signal handover.
+    #
+    # Unit 8 must retrieve and verify WEEX leverage
+    # before calculating the order quantity.
+    #
+    # Never substitute an assumed leverage here.
+
+    if (
+        strategy.get("exchange_leverage_verified") is True
+        or strategy.get("leverage_target") is not None
+        or candidate.get("exchange_leverage_verified") is True
+        or candidate.get("leverage_target") is not None
+    ):
+        raise RuntimeError(
+            "UNIT 7 UNEXPECTED PREVERIFIED LEVERAGE"
+        )
+
+    leverage_target = None
+
+    print(
+        "UNIT 7 LEVERAGE SOURCE = UNIT 8",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 LEVERAGE VERIFICATION = DEFERRED",
+        flush=True
+    )
+
+    # ========================================================
+    # 7. ORIGINAL SIZING PARAMETERS
+    # ========================================================
+
+    def positive(section, key):
+        value = section.get(key)
+
+        if isinstance(value, bool):
+            raise RuntimeError(
+                "UNIT 7 INVALID " + key
+            )
+
+        try:
+            value = float(value)
+        except (TypeError, ValueError, OverflowError):
+            raise RuntimeError(
+                "UNIT 7 INVALID " + key
+            )
+
+        if not math.isfinite(value) or value <= 0:
+            raise RuntimeError(
+                "UNIT 7 NONPOSITIVE " + key
+            )
+
+        return value
+
+    initial_margin_percent = positive(
+        strategy,
+        "initial_margin_percent"
+    )
+
+    quantity_step = positive(
+        precision,
+        "quantity_step"
+    )
+
+    minimum_quantity = positive(
+        precision,
+        "minimum_quantity"
+    )
+
+    price_step = positive(
+        precision,
+        "price_step"
+    )
+
+    # ========================================================
+    # 8. EXECUTION HANDOVER CONTRACT
+    # ========================================================
+
+    result = {
+        "status": "READY_FOR_BALANCE",
+
+        "symbol": exchange["market_symbol"],
+        "demo_order_symbol":
+            exchange["demo_order_symbol"],
+
+        "active_mode": active_mode,
+        "direction": direction,
+
+        "execution_intent": True,
+        "signal_qualified": True,
+
+        "unit_5_reason": unit_5_reason,
+        "admission_reason": admission_reason,
+
+        "initial_margin_percent":
+            initial_margin_percent,
+
+        "leverage_target": leverage_target,
+        "exchange_leverage_verified": False,
+        "leverage_verification_deferred": True,
+
+        "quantity_step": quantity_step,
+        "minimum_quantity": minimum_quantity,
+        "price_step": price_step,
+
+        "account_balance_required": True,
+
+        "position_sizing_performed": False,
+        "quantity_calculated": False,
+        "proposed_quantity": None,
+
+        "order_payload_created": False,
+
+        "read_only": True,
+        "exchange_write": False,
+
+        "skip_reason": "NONE",
+    }
+
+    # ========================================================
+    # 9. FINAL VALIDATION
+    # ========================================================
+
+    if (
+        result["status"] != "READY_FOR_BALANCE"
+        or result["execution_intent"] is not True
+        or result["signal_qualified"] is not True
+        or result["active_mode"] != active_mode
+        or result["direction"] != direction
+        or result["account_balance_required"] is not True
+        or result["leverage_target"] is not None
+        or result["position_sizing_performed"] is not False
+        or result["quantity_calculated"] is not False
+        or result["proposed_quantity"] is not None
+        or result["order_payload_created"] is not False
+    ):
+        raise RuntimeError(
+            "UNIT 7 EXECUTION HANDOVER INVALID"
+        )
+
+    print(
+        "UNIT 7 STATUS = READY_FOR_BALANCE",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 ACTIVE MODE =",
+        active_mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 DIRECTION =",
+        direction,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXECUTION INTENT = True",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 SIGNAL QUALIFIED = True",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 LEVERAGE VERIFICATION = DEFERRED TO UNIT 8",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 ACCOUNT BALANCE REQUIRED = True",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 QUANTITY CALCULATED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 7 RESULT = PASS (READY_FOR_BALANCE)",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# UNIT 7 HYBRID EXECUTION ADAPTER
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_unit_7_hybrid_execution_adapter(
+    execution_config,
+    execution_candidate,
+):
+
+    if not isinstance(execution_config, dict):
+        raise RuntimeError(
+            "UNIT 7 ADAPTER CONFIG INVALID"
+        )
+
+    if not isinstance(execution_candidate, dict):
+        raise RuntimeError(
+            "UNIT 7 ADAPTER SIGNAL INVALID"
+        )
+
+    result = fresh_reconstruction_unit_7(
+        execution_config,
+        execution_candidate,
+    )
+
+    if result["status"] not in (
+        "IDLE",
+        "READY_FOR_BALANCE",
+    ):
+        raise RuntimeError(
+            "UNIT 7 ADAPTER STATUS INVALID"
+        )
+
+    if result.get("read_only") is not True:
+        raise RuntimeError(
+            "UNIT 7 ADAPTER LOCAL SAFETY FAILED"
+        )
+
+    if result.get("exchange_write") is not False:
+        raise RuntimeError(
+            "UNIT 7 UNAUTHORIZED EXCHANGE WRITE"
+        )
+
+    if result["status"] == "READY_FOR_BALANCE":
+
+        if (
+            result.get("active_mode")
+            != execution_candidate.get("active_mode")
+            or result.get("direction")
+            != execution_candidate.get("direction")
+            or result.get("execution_intent") is not True
+            or result.get("signal_qualified") is not True
+            or result.get("leverage_target") is not None
+            or result.get("account_balance_required") is not True
+        ):
+            raise RuntimeError(
+                "UNIT 7 QUALIFIED HANDOVER FAILED"
+            )
+
+    print(
+        "UNIT 7 HYBRID ADAPTER STATUS =",
+        result["status"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 HYBRID ADAPTER RESULT = PASS",
+        flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# UNIT 7 CONFIGURATION VALIDATION
+# ZERO INDENTATION
+# ============================================================
+
+if not isinstance(
+    FRESH_RECONSTRUCTION_EXECUTION_CONFIG,
+    dict
+):
+    raise RuntimeError(
+        "UNIT 7 EXECUTION CONFIG MISSING"
+    )
+
+if not isinstance(
+    FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE,
+    dict
+):
+    raise RuntimeError(
+        "UNIT 7 EXECUTION CANDIDATE MISSING"
+    )
+
+
+# ============================================================
+# RUN UNIT 7 + ADAPTER
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_SIZING_CANDIDATE = (
+    fresh_unit_7_hybrid_execution_adapter(
+        FRESH_RECONSTRUCTION_EXECUTION_CONFIG,
+        FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE,
+    )
+)
+
+UNIT_7_FINAL_STATUS = (
+    FRESH_RECONSTRUCTION_SIZING_CANDIDATE["status"]
+)
+
+print(
+    "UNIT 7 FINAL STATUS =",
+    UNIT_7_FINAL_STATUS,
+    flush=True
+)
+
+print(
+    "UNIT 7 HYBRID ORIGINAL INTEGRATION = PASS",
+    flush=True
+)
+
+
+# ============================================================
+# END COMPLETE UNIT 7 + HYBRID ADAPTER V2
+# UNIT 8 STARTS BELOW
+# ZERO INDENTATION
+# ============================================================
