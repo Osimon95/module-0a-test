@@ -4070,6 +4070,7 @@ def fresh_reconstruction_unit_6(
                     "BREAKOUT_CONFIRMATION_REJECTED"
                 )
 
+        
         elif candidate_mode == "STRUCTURE":
 
             evidence_key = (
@@ -4078,23 +4079,49 @@ def fresh_reconstruction_unit_6(
                 else "structure_developing_short"
             )
 
-            if (
+            original_confirmed = (
+                unit_5_candidate.get(
+                    "classification_source"
+                ) == "ORIGINAL_UNIT5"
+                and unit_5_candidate.get(
+                    "structure_ready"
+                ) is True
+                and unit_5_candidate.get(
+                    "qualified"
+                ) is True
+                and unit_5_candidate.get(
+                    "active_mode"
+                ) == "STRUCTURE"
+                and unit_5_candidate.get(
+                    "direction"
+                ) == direction
+            )
+
+            hybrid_confirmed = (
                 unit_4_analysis.get(evidence_key) is True
                 and unit_5_candidate.get(
                     "structure_ready"
                 ) is True
-            ):
+            )
+
+            if original_confirmed or hybrid_confirmed:
+
                 execution_intent = True
                 admitted_mode = "STRUCTURE"
                 admitted_direction = direction
+
                 admission_reason = (
-                    "STRUCTURE_QUALIFIED_ADMITTED"
+                    "ORIGINAL_STRUCTURE_QUALIFIED_ADMITTED"
+                    if original_confirmed
+                    else "HYBRID_STRUCTURE_QUALIFIED_ADMITTED"
                 )
+
             else:
                 admission_reason = (
                     "STRUCTURE_CONFIRMATION_REJECTED"
                 )
 
+        
     # ========================================================
     # DEVELOPING HIGHER MODES
     # ========================================================
