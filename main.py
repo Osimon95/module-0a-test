@@ -4053,12 +4053,24 @@ def fresh_reconstruction_unit_6(
                 else "breakout_confirmed_short"
             )
 
-            if (
-                unit_4_analysis.get(evidence_key) is True
-                and unit_5_candidate.get(
-                    "breakout_ready"
-                ) is True
+                        if (
+                (
+                    unit_5_candidate.get("classification_source")
+                    == "ORIGINAL_UNIT5"
+                    and unit_5_candidate.get("qualified") is True
+                    and unit_5_candidate.get("breakout_ready") is True
+                    and unit_5_candidate.get("active_mode") == "BREAKOUT"
+                    and unit_5_candidate.get("direction") == direction
+                )
+                or
+                (
+                    unit_4_analysis.get(evidence_key) is True
+                    and unit_5_candidate.get("breakout_ready") is True
+                    and unit_5_candidate.get("qualified") is True
+                    and unit_5_candidate.get("direction") == direction
+                )
             ):
+            
                 execution_intent = True
                 admitted_mode = "BREAKOUT"
                 admitted_direction = direction
