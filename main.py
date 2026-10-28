@@ -4045,6 +4045,7 @@ def fresh_reconstruction_unit_6(
                 "QUALIFIED_DIRECTION_CONFLICT"
             )
 
+        
         elif candidate_mode == "BREAKOUT":
 
             evidence_key = (
@@ -4053,29 +4054,34 @@ def fresh_reconstruction_unit_6(
                 else "breakout_confirmed_short"
             )
 
-        if (
-                    unit_5_candidate.get("classification_source")
-                    == "ORIGINAL_UNIT5"
-                    and unit_5_candidate.get("qualified") is True
-                    and unit_5_candidate.get("breakout_ready") is True
-                    and unit_5_candidate.get("active_mode") == "BREAKOUT"
-                    and unit_5_candidate.get("direction") == direction
-                )
-                or
-                (
-                    unit_4_analysis.get(evidence_key) is True
-                    and unit_5_candidate.get("breakout_ready") is True
-                    and unit_5_candidate.get("qualified") is True
-                    and unit_5_candidate.get("direction") == direction
-                )
-            ):
-            
+            original_confirmed = (
+                unit_5_candidate.get("classification_source")
+                == "ORIGINAL_UNIT5"
+                and unit_5_candidate.get("qualified") is True
+                and unit_5_candidate.get("breakout_ready") is True
+                and unit_5_candidate.get("active_mode") == "BREAKOUT"
+                and unit_5_candidate.get("direction") == direction
+            )
+
+            hybrid_confirmed = (
+                unit_4_analysis.get(evidence_key) is True
+                and unit_5_candidate.get("breakout_ready") is True
+                and unit_5_candidate.get("qualified") is True
+                and unit_5_candidate.get("direction") == direction
+            )
+
+            if original_confirmed or hybrid_confirmed:
+
                 execution_intent = True
                 admitted_mode = "BREAKOUT"
                 admitted_direction = direction
+
                 admission_reason = (
-                    "BREAKOUT_CONFIRMED_ADMITTED"
+                    "ORIGINAL_BREAKOUT_QUALIFIED_ADMITTED"
+                    if original_confirmed
+                    else "HYBRID_BREAKOUT_CONFIRMED_ADMITTED"
                 )
+
             else:
                 admission_reason = (
                     "BREAKOUT_CONFIRMATION_REJECTED"
