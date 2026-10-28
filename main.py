@@ -10768,3 +10768,1021 @@ FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
 # END UNIT 14 + ADAPTER
 # UNIT 15 FOLLOWS
 # ============================================================
+
+
+
+# ============================================================
+# UNIT 15 + HYBRID ADAPTER
+# WEEX DEMO PERFORMANCE / EQUITY / TELEGRAM
+# ZERO INDENTATION
+# NO WEEX EXCHANGE WRITES
+# ============================================================
+
+import os as _u15_os
+import time as _u15_time
+import json as _u15_json
+import hmac as _u15_hmac
+import base64 as _u15_b64
+import hashlib as _u15_hashlib
+import threading as _u15_threading
+import urllib.request as _u15_http
+import urllib.parse as _u15_url
+from decimal import Decimal as _U15_D
+from datetime import datetime as _U15_DT
+from datetime import timedelta as _U15_TD
+from zoneinfo import ZoneInfo as _U15_Zone
+from collections import Counter as _U15_Counter
+
+# ------------------------------------------------------------
+# CONFIGURATION
+# ------------------------------------------------------------
+
+UNIT15_ENABLED = (
+    _u15_os.getenv("UNIT15_ENABLED", "TRUE").upper()
+    == "TRUE"
+)
+
+UNIT15_8H_ENABLED = (
+    _u15_os.getenv("UNIT15_8H_ENABLED", "TRUE").upper()
+    == "TRUE"
+)
+
+UNIT15_ON_DEMAND = (
+    _u15_os.getenv(
+        "UNIT15_ON_DEMAND_ENABLED", "TRUE"
+    ).upper() == "TRUE"
+)
+
+_UNIT15_TZ = _U15_Zone("Africa/Lagos")
+_UNIT15_ZERO = _U15_D("0")
+_UNIT15_LOCK = _u15_threading.Lock()
+_UNIT15_BASE = "https://api-contract.weex.com"
+_UNIT15_SYMBOL = "BTCSUSDT"
+
+_UNIT15_HISTORY_PATH = "/capi/v3/sim/order/history"
+_UNIT15_BALANCE_PATH = "/capi/v3/sim/balance"
+
+_UNIT15_SLOTS = {(5, 0), (13, 0), (21, 0)}
+_UNIT15_LAST_SLOT = None
+_UNIT15_LAST_REPORT = None
+_UNIT15_TELEGRAM_OFFSET = None
+
+_UNIT15_EQUITY_SNAPSHOTS = []
+_UNIT15_EQUITY_INTERVAL = 300
+_UNIT15_LAST_EQUITY_POLL = 0
+
+# ------------------------------------------------------------
+# SAFETY / VALUE HELPERS
+# ------------------------------------------------------------
+
+def unit15_num(value):
+    try:
+        if value is None or value == "":
+            return None
+        x = _U15_D(str(value))
+        return x if x.is_finite() else None
+    except (ValueError, TypeError, ArithmeticError):
+        return None
+
+
+def unit15_value(record, *names):
+    for name in names:
+        value = record.get(name)
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def unit15_milliseconds(value):
+    try:
+        n = int(_U15_D(str(value)))
+        if n < 100000000000:
+            n *= 1000
+        if n <= 0:
+            return None
+        return n
+    except (ValueError, TypeError, ArithmeticError):
+        return None
+
+
+def unit15_configuration_check():
+    config = FRESH_RECONSTRUCTION_CONFIG
+    ex = config["exchange"]
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or ex.get("name") != "WEEX"
+        or ex.get("demo_order_symbol") != _UNIT15_SYMBOL
+        or ex.get("contract_base_url") != _UNIT15_BASE
+    ):
+        raise RuntimeError(
+            "UNIT 15 WEEX DEMO CONTRACT FAILED"
+        )
+
+
+# ------------------------------------------------------------
+# AUTHENTICATED READ-ONLY REQUEST
+# ------------------------------------------------------------
+
+def unit15_get(path, query=""):
+
+    unit15_configuration_check()
+
+    if path not in (
+        _UNIT15_HISTORY_PATH,
+        _UNIT15_BALANCE_PATH,
+    ):
+        raise RuntimeError(
+            "UNIT 15 NON-REPORTING ENDPOINT BLOCKED"
+        )
+
+    key = (
+        _u15_os.getenv("WEEX_API_KEY")
+        or _u15_os.getenv("API_KEY")
+    )
+    secret = (
+        _u15_os.getenv("WEEX_API_SECRET")
+        or _u15_os.getenv("API_SECRET")
+    )
+    phrase = (
+        _u15_os.getenv("WEEX_API_PASSPHRASE")
+        or _u15_os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        raise RuntimeError(
+            "UNIT 15 WEEX CREDENTIALS MISSING"
+        )
+
+    timestamp = str(int(_u15_time.time() * 1000))
+    request_path = path + ("?" + query if query else "")
+    prehash = timestamp + "GET" + request_path
+
+    signature = _u15_b64.b64encode(
+        _u15_hmac.new(
+            secret.encode(),
+            prehash.encode(),
+            _u15_hashlib.sha256
+        ).digest()
+    ).decode()
+
+    request = _u15_http.Request(
+        _UNIT15_BASE + request_path,
+        method="GET",
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": phrase,
+            "Content-Type": "application/json",
+        }
+    )
+
+    if request.get_method() != "GET" or request.data:
+        raise RuntimeError(
+            "UNIT 15 EXCHANGE WRITE BLOCKED"
+        )
+
+    with _u15_http.urlopen(
+        request, timeout=20
+    ) as response:
+        data = _u15_json.loads(
+            response.read().decode()
+        )
+
+    return data
+
+
+# ------------------------------------------------------------
+# COMPLETE ORDER HISTORY
+# ------------------------------------------------------------
+
+def unit15_history():
+
+    orders = []
+    seen = set()
+    complete = False
+
+    for page in range(20):
+
+        query = _u15_url.urlencode({
+            "symbol": _UNIT15_SYMBOL,
+            "limit": 1000,
+            "page": page,
+        })
+
+        batch = unit15_get(
+            _UNIT15_HISTORY_PATH, query
+        )
+
+        if not isinstance(batch, list):
+            raise RuntimeError(
+                "UNIT 15 HISTORY RESPONSE INVALID"
+            )
+
+        for record in batch:
+            if not isinstance(record, dict):
+                continue
+
+            oid = unit15_value(
+                record,
+                "orderId", "id", "clientOrderId"
+            )
+
+            if oid is not None and str(oid) not in seen:
+                seen.add(str(oid))
+                orders.append(record)
+
+        if len(batch) < 1000:
+            complete = True
+            break
+
+    print(
+        "UNIT 15 HISTORY RECORDS =", len(orders),
+        flush=True
+    )
+    print(
+        "UNIT 15 HISTORY COMPLETE =", complete,
+        flush=True
+    )
+
+    return orders, complete
+
+
+# ------------------------------------------------------------
+# ORDER NORMALIZATION
+# ------------------------------------------------------------
+
+def unit15_parse_order(order):
+
+    status = str(
+        unit15_value(
+            order, "status", "state", "orderStatus"
+        ) or ""
+    ).upper()
+
+    if status not in (
+        "FILLED", "FULLY_FILLED",
+        "FULL_FILLED", "FULLFILL"
+    ):
+        return None, "NOT_FULLY_FILLED"
+
+    qty = unit15_num(
+        unit15_value(
+            order,
+            "executedQty", "filledQty",
+            "filledSize", "executedQuantity",
+            "dealSize"
+        )
+    )
+
+    price = unit15_num(
+        unit15_value(
+            order,
+            "avgPrice", "averagePrice",
+            "fillPrice", "priceAvg",
+            "executedPrice"
+        )
+    )
+
+    ts = unit15_milliseconds(
+        unit15_value(
+            order,
+            "createdTime", "createTime",
+            "cTime", "ctime", "createdAt",
+            "timestamp", "time",
+            "updateTime", "updatedAt"
+        )
+    )
+
+    if qty is None or qty <= 0:
+        return None, "INVALID_QUANTITY"
+
+    if price is None or price <= 0:
+        return None, "INVALID_PRICE"
+
+    if ts is None:
+        return None, "INVALID_TIMESTAMP"
+
+    oid = unit15_value(
+        order, "orderId", "id", "clientOrderId"
+    )
+
+    if oid is None:
+        return None, "MISSING_ORDER_ID"
+
+    side = str(
+        unit15_value(order, "side", "orderSide") or ""
+    ).upper()
+
+    direction = str(
+        unit15_value(
+            order,
+            "positionSide", "holdSide", "posSide"
+        ) or ""
+    ).upper()
+
+    action = str(
+        unit15_value(
+            order,
+            "tradeSide", "tradeType", "offset"
+        ) or ""
+    ).upper()
+
+    if (
+        direction in ("LONG", "SHORT")
+        and action not in ("OPEN", "CLOSE")
+        and side in ("BUY", "SELL")
+    ):
+        action = (
+            "OPEN"
+            if (
+                (direction == "LONG") == (side == "BUY")
+            )
+            else "CLOSE"
+        )
+
+    if (
+        direction not in ("LONG", "SHORT")
+        or action not in ("OPEN", "CLOSE")
+    ):
+        return None, "UNRESOLVED_DIRECTION"
+
+    return {
+        "id": str(oid),
+        "time": ts,
+        "qty": qty,
+        "price": price,
+        "direction": direction,
+        "action": action,
+    }, None
+
+
+# ------------------------------------------------------------
+# COMPLETED-CYCLE RECONSTRUCTION
+# ------------------------------------------------------------
+
+def unit15_analyze(
+    orders, history_complete, start_ms, end_ms
+):
+
+    reasons = _U15_Counter()
+    fills = []
+
+    for order in orders:
+        normalized, error = unit15_parse_order(order)
+        if normalized is None:
+            reasons[error] += 1
+        else:
+            fills.append(normalized)
+
+    fills.sort(key=lambda x: (x["time"], x["id"]))
+
+    positions = {
+        side: {
+            "qty": _UNIT15_ZERO,
+            "cost": _UNIT15_ZERO,
+            "pnl": _UNIT15_ZERO,
+            "unknown": False,
+        }
+        for side in ("LONG", "SHORT")
+    }
+
+    cycles = []
+    unmatched = 0
+
+    for fill in fills:
+
+        p = positions[fill["direction"]]
+        qty = fill["qty"]
+        price = fill["price"]
+
+        if fill["action"] == "OPEN":
+            p["qty"] += qty
+            p["cost"] += qty * price
+            continue
+
+        if qty > p["qty"] or p["qty"] <= 0:
+            unmatched += 1
+            p["unknown"] = True
+            reasons["UNMATCHED_CLOSE"] += 1
+            continue
+
+        average = p["cost"] / p["qty"]
+
+        pnl = (
+            (price - average) * qty
+            if fill["direction"] == "LONG"
+            else (average - price) * qty
+        )
+
+        p["pnl"] += pnl
+        p["qty"] -= qty
+        p["cost"] -= average * qty
+
+        if p["qty"] == 0:
+
+            if (
+                not p["unknown"]
+                and start_ms <= fill["time"] < end_ms
+            ):
+                cycles.append(p["pnl"])
+
+            p.update({
+                "qty": _UNIT15_ZERO,
+                "cost": _UNIT15_ZERO,
+                "pnl": _UNIT15_ZERO,
+                "unknown": False,
+            })
+
+    winners = sum(x > 0 for x in cycles)
+    losers = sum(x < 0 for x in cycles)
+    breakeven = sum(x == 0 for x in cycles)
+
+    gross_profit = sum(
+        (x for x in cycles if x > 0),
+        _UNIT15_ZERO
+    )
+    gross_loss = sum(
+        (-x for x in cycles if x < 0),
+        _UNIT15_ZERO
+    )
+
+    provisional = (
+        not history_complete
+        or unmatched > 0
+        or any(
+            reasons[name] > 0
+            for name in (
+                "INVALID_QUANTITY",
+                "INVALID_PRICE",
+                "INVALID_TIMESTAMP",
+                "UNRESOLVED_DIRECTION",
+                "MISSING_ORDER_ID",
+            )
+        )
+    )
+
+    return {
+        "orders": len(orders),
+        "fully_filled": len(fills),
+        "cycles": len(cycles),
+        "wins": winners,
+        "losses": losers,
+        "breakeven": breakeven,
+        "gross_profit": gross_profit,
+        "gross_loss": gross_loss,
+        "gross_pnl": gross_profit - gross_loss,
+        "unmatched": unmatched,
+        "history_complete": history_complete,
+        "provisional": provisional,
+        "diagnostics": dict(reasons),
+        "open_quantities": {
+            d: str(p["qty"])
+            for d, p in positions.items()
+        },
+    }
+
+
+# ------------------------------------------------------------
+# EQUITY SNAPSHOT
+# ------------------------------------------------------------
+
+def unit15_equity_snapshot():
+
+    rows = unit15_get(_UNIT15_BALANCE_PATH)
+
+    if not isinstance(rows, list):
+        raise RuntimeError(
+            "UNIT 15 BALANCE RESPONSE INVALID"
+        )
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+
+        if str(row.get("asset", "")).upper() != "SUSDT":
+            continue
+
+        for field in (
+            "equity", "accountEquity",
+            "totalEquity", "marginBalance"
+        ):
+            equity = unit15_num(row.get(field))
+
+            if equity is not None and equity >= 0:
+                snapshot = {
+                    "time_ms": int(
+                        _u15_time.time() * 1000
+                    ),
+                    "equity": equity,
+                    "field": field,
+                }
+
+                _UNIT15_EQUITY_SNAPSHOTS.append(
+                    snapshot
+                )
+
+                return snapshot
+
+    raise RuntimeError(
+        "UNIT 15 EXPLICIT EQUITY FIELD NOT FOUND"
+    )
+
+
+def unit15_equity_change(start_ms, end_ms):
+
+    # Snapshot pairs must correspond to the interval.
+    # We do not substitute wallet balance for equity.
+
+    start = [
+        s for s in _UNIT15_EQUITY_SNAPSHOTS
+        if s["time_ms"] <= start_ms
+    ]
+
+    end = [
+        s for s in _UNIT15_EQUITY_SNAPSHOTS
+        if s["time_ms"] <= end_ms
+    ]
+
+    if not start or not end:
+        return None
+
+    a = max(start, key=lambda x: x["time_ms"])
+    b = max(end, key=lambda x: x["time_ms"])
+
+    if (
+        a["time_ms"] == b["time_ms"]
+        or a["field"] != b["field"]
+    ):
+        return None
+
+    return {
+        "starting": a["equity"],
+        "ending": b["equity"],
+        "change": b["equity"] - a["equity"],
+    }
+
+
+# ------------------------------------------------------------
+# TELEGRAM DELIVERY
+# ------------------------------------------------------------
+
+def unit15_telegram(message):
+
+    token = _u15_os.getenv(
+        "TELEGRAM_BOT_TOKEN", ""
+    ).strip()
+
+    chat_id = _u15_os.getenv(
+        "TELEGRAM_CHAT_ID", ""
+    ).strip()
+
+    if not token or not chat_id:
+        print(
+            "UNIT 15 TELEGRAM NOT CONFIGURED",
+            flush=True
+        )
+        return False
+
+    payload = _u15_url.urlencode({
+        "chat_id": chat_id,
+        "text": message,
+    }).encode()
+
+    request = _u15_http.Request(
+        "https://api.telegram.org/bot"
+        + token + "/sendMessage",
+        method="POST",
+        data=payload,
+    )
+
+    try:
+        with _u15_http.urlopen(
+            request, timeout=15
+        ) as response:
+            reply = _u15_json.loads(
+                response.read().decode()
+            )
+
+        return reply.get("ok") is True
+
+    except Exception as exc:
+        print(
+            "UNIT 15 TELEGRAM DELIVERY ERROR =",
+            type(exc).__name__,
+            flush=True
+        )
+        return False
+
+
+# ------------------------------------------------------------
+# REPORT GENERATION
+# ------------------------------------------------------------
+
+def unit15_report(
+    hours=8,
+    notification="ON_DEMAND",
+    end=None
+):
+
+    global _UNIT15_LAST_REPORT
+
+    if hours not in (1, 8, 24):
+        raise ValueError(
+            "UNIT 15 REPORT MUST BE 1H / 8H / 24H"
+        )
+
+    if not _UNIT15_LOCK.acquire(blocking=False):
+        print(
+            "UNIT 15 REPORT ALREADY RUNNING",
+            flush=True
+        )
+        return None
+
+    try:
+        now = _U15_DT.now(_UNIT15_TZ)
+        end = end or now
+        start = end - _U15_TD(hours=hours)
+
+        start_ms = int(start.timestamp() * 1000)
+        end_ms = int(end.timestamp() * 1000)
+
+        orders, complete = unit15_history()
+
+        summary = unit15_analyze(
+            orders, complete, start_ms, end_ms
+        )
+
+        count = summary["cycles"]
+        wins = summary["wins"]
+        losses = summary["losses"]
+
+        winrate = (
+            f"{100 * wins / count:.2f}%"
+            if count else "N/A"
+        )
+
+        equity = unit15_equity_change(
+            start_ms, end_ms
+        )
+
+        if equity is None:
+            equity_text = (
+                "Starting equity: N/A\n"
+                "Ending equity: N/A\n"
+                "Equity change: N/A\n"
+                "Equity ROI: N/A\n"
+                "Reason: Matching historical equity "
+                "snapshots unavailable"
+            )
+        else:
+            a = equity["starting"]
+            b = equity["ending"]
+            change = equity["change"]
+
+            roi = (
+                f"{change * 100 / a:.2f}%"
+                if a > 0 else "N/A"
+            )
+
+            equity_text = (
+                f"Starting equity: {a} SUSDT\n"
+                f"Ending equity: {b} SUSDT\n"
+                f"Equity change: {change:+f} SUSDT\n"
+                f"Equity ROI: {roi}\n"
+                "Cash-flow adjustment: Unverified\n"
+                "Net trading profit: Unverified"
+            )
+
+        text = (
+            "WEEX DEMO TRADING PERFORMANCE\n"
+            "================================\n"
+            f"Notification: {notification}\n"
+            f"Period: {hours}h\n"
+            f"Window: {start:%Y-%m-%d %H:%M} "
+            f"to {end:%Y-%m-%d %H:%M} WAT\n"
+            f"History orders: {summary['orders']}\n"
+            f"Fully filled: {summary['fully_filled']}\n"
+            f"Completed cycles: {count}\n"
+            f"Winning cycles: {wins}\n"
+            f"Losing cycles: {losses}\n"
+            f"Break-even: {summary['breakeven']}\n"
+            f"Gross win rate: {winrate}\n"
+            f"Gross profit: "
+            f"{summary['gross_profit']:.4f} SUSDT\n"
+            f"Gross loss: "
+            f"{summary['gross_loss']:.4f} SUSDT\n"
+            f"Gross P&L: "
+            f"{summary['gross_pnl']:+.4f} SUSDT\n"
+            f"Unmatched closes: "
+            f"{summary['unmatched']}\n"
+            f"History complete: "
+            f"{summary['history_complete']}\n"
+            f"Provisional: "
+            f"{summary['provisional']}\n"
+            "Net ROI: N/A\n"
+            "Fees/funding/margin: Unverified\n"
+            "Close cause: Unverified\n"
+            "\nEQUITY-BASED PERFORMANCE\n"
+            "================================\n"
+            + equity_text
+        )
+
+        print(text, flush=True)
+
+        delivered = unit15_telegram(text)
+
+        print(
+            "UNIT 15 TELEGRAM SENT =",
+            delivered,
+            flush=True
+        )
+
+        _UNIT15_LAST_REPORT = summary
+        return summary
+
+    finally:
+        _UNIT15_LOCK.release()
+
+
+# ------------------------------------------------------------
+# EQUITY POLLING
+# ------------------------------------------------------------
+
+def unit15_poll_equity():
+
+    global _UNIT15_LAST_EQUITY_POLL
+
+    now = _u15_time.time()
+
+    if (
+        now - _UNIT15_LAST_EQUITY_POLL
+        < _UNIT15_EQUITY_INTERVAL
+    ):
+        return
+
+    _UNIT15_LAST_EQUITY_POLL = now
+
+    try:
+        snapshot = unit15_equity_snapshot()
+        print(
+            "UNIT 15 EQUITY SNAPSHOT =",
+            snapshot["equity"],
+            flush=True
+        )
+    except Exception as exc:
+        print(
+            "UNIT 15 EQUITY READ UNAVAILABLE =",
+            str(exc)[:200],
+            flush=True
+        )
+
+
+# ------------------------------------------------------------
+# TELEGRAM ON-DEMAND COMMANDS
+# ------------------------------------------------------------
+
+def unit15_poll_commands():
+
+    global _UNIT15_TELEGRAM_OFFSET
+
+    if not UNIT15_ON_DEMAND:
+        return []
+
+    token = _u15_os.getenv(
+        "TELEGRAM_BOT_TOKEN", ""
+    ).strip()
+
+    chat_id = _u15_os.getenv(
+        "TELEGRAM_CHAT_ID", ""
+    ).strip()
+
+    if not token or not chat_id:
+        return []
+
+    query_args = {"timeout": 0}
+
+    if _UNIT15_TELEGRAM_OFFSET is not None:
+        query_args["offset"] = _UNIT15_TELEGRAM_OFFSET
+
+    url = (
+        "https://api.telegram.org/bot"
+        + token
+        + "/getUpdates?"
+        + _u15_url.urlencode(query_args)
+    )
+
+    with _u15_http.urlopen(
+        url, timeout=15
+    ) as response:
+        payload = _u15_json.loads(
+            response.read().decode()
+        )
+
+    commands = []
+
+    for update in payload.get("result", []):
+
+        uid = update.get("update_id")
+
+        if uid is not None:
+            _UNIT15_TELEGRAM_OFFSET = max(
+                _UNIT15_TELEGRAM_OFFSET or 0,
+                int(uid) + 1
+            )
+
+        msg = (
+            update.get("message")
+            or update.get("edited_message")
+            or {}
+        )
+
+        chat = msg.get("chat") or {}
+
+        if str(chat.get("id")) != str(chat_id):
+            continue
+
+        command = str(
+            msg.get("text", "")
+        ).strip().split(" ", 1)[0].lower()
+
+        aliases = {
+            "/report": 8,
+            "/report8h": 8,
+            "/report24h": 24,
+            "/report1h": 1,
+        }
+
+        if "@" in command:
+            command = command.split("@", 1)[0]
+
+        if command in aliases:
+            commands.append(aliases[command])
+
+    return commands
+
+
+# ------------------------------------------------------------
+# SCHEDULED REPORTING WORKER
+# ------------------------------------------------------------
+
+def unit15_worker():
+
+    global _UNIT15_LAST_SLOT
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 15 REPORTING WORKER STARTED",
+        flush=True
+    )
+    print(
+        "UNIT 15 SCHEDULE = 05:00 / 13:00 / 21:00 WAT",
+        flush=True
+    )
+    print(
+        "UNIT 15 INTERVALS = 1H / 8H / 24H",
+        flush=True
+    )
+    print(
+        "UNIT 15 STARTUP REPORT = DISABLED",
+        flush=True
+    )
+    print(
+        "UNIT 15 WEEX EXCHANGE WRITE = NONE",
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    # Do not send a historical report immediately
+    # just because Render restarts.
+
+    while True:
+        try:
+            unit15_poll_equity()
+
+            now = _U15_DT.now(_UNIT15_TZ)
+
+            slot = now.strftime("%Y-%m-%d %H:%M")
+
+            if (
+                UNIT15_8H_ENABLED
+                and (now.hour, now.minute)
+                in _UNIT15_SLOTS
+                and slot != _UNIT15_LAST_SLOT
+            ):
+                _UNIT15_LAST_SLOT = slot
+
+                end = now.replace(
+                    second=0, microsecond=0
+                )
+
+                unit15_report(
+                    8, "SCHEDULED_8H", end
+                )
+
+        except Exception as exc:
+            print(
+                "UNIT 15 SCHEDULE ERROR =",
+                repr(exc),
+                flush=True
+            )
+
+        try:
+            for hours in unit15_poll_commands():
+                unit15_report(
+                    hours, "ON_DEMAND"
+                )
+
+        except Exception as exc:
+            print(
+                "UNIT 15 COMMAND ERROR =",
+                repr(exc),
+                flush=True
+            )
+
+        _u15_time.sleep(10)
+
+
+# ------------------------------------------------------------
+# HYBRID ADAPTER AND SINGLE ACTIVATION
+# ------------------------------------------------------------
+
+def fresh_unit_15_hybrid_adapter(
+    config, unit_14_result
+):
+
+    if not isinstance(unit_14_result, dict):
+        raise RuntimeError(
+            "UNIT 15 UNIT 14 RESULT MISSING"
+        )
+
+    unit15_configuration_check()
+
+    print(
+        "UNIT 15 RECEIVED UNIT 14 STATUS =",
+        unit_14_result.get("status"),
+        flush=True
+    )
+
+    if UNIT15_ENABLED:
+
+        prior = globals().get("_UNIT15_THREAD")
+
+        if prior is None or not prior.is_alive():
+
+            thread = _u15_threading.Thread(
+                target=unit15_worker,
+                name="WEEX-UNIT15-PERFORMANCE",
+                daemon=True,
+            )
+
+            globals()["_UNIT15_THREAD"] = thread
+            thread.start()
+
+        status = "RUNNING"
+
+    else:
+        status = "DISABLED"
+
+    print(
+        "UNIT 15 EXCHANGE READ ONLY = TRUE",
+        flush=True
+    )
+    print(
+        "UNIT 15 HYBRID ADAPTER STATUS =",
+        status,
+        flush=True
+    )
+    print(
+        "UNIT 15 HYBRID ADAPTER RESULT = PASS",
+        flush=True
+    )
+
+    return {
+        "unit": 15,
+        "status": status,
+        "unit_14_status": unit_14_result.get("status"),
+        "exchange_write": False,
+        "real_cash_execution": False,
+        "scheduled_8h_enabled": UNIT15_8H_ENABLED,
+        "on_demand_enabled": UNIT15_ON_DEMAND,
+        "performance_report_hours": (1, 8, 24),
+        "timezone": "Africa/Lagos",
+    }
+
+
+# ------------------------------------------------------------
+# UNIT 15 EXECUTION CALL — EXACTLY ONCE
+# ------------------------------------------------------------
+
+FRESH_RECONSTRUCTION_UNIT_15_RESULT = (
+    fresh_unit_15_hybrid_adapter(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_14_RESULT,
+    )
+)
+
+# ============================================================
+# END UNIT 15 — COMPLETE 15-UNIT RECONSTRUCTION
+# ============================================================
