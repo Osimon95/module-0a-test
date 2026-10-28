@@ -4053,7 +4053,7 @@ def fresh_reconstruction_unit_6(
                 else "breakout_confirmed_short"
             )
 
-                if (
+        if (
                     unit_5_candidate.get("classification_source")
                     == "ORIGINAL_UNIT5"
                     and unit_5_candidate.get("qualified") is True
