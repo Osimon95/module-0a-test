@@ -5766,3 +5766,269 @@ print(
 # UNIT 8 STARTS BELOW
 # ZERO INDENTATION
 # ============================================================
+
+# ============================================================
+# START UNIT 6 -> UNIT 7 EXECUTION HANDOVER SIMULATION V1
+# SIMULATION ONLY - NO EXCHANGE ORDERS
+# ZERO INDENTATION
+# ============================================================
+
+def test_unit_6_to_7_execution_handover():
+
+    import copy
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 6 TO 7 QUALIFIED HANDOVER TEST START",
+        flush=True
+    )
+
+    # ========================================================
+    # 1. CREATE ISOLATED SIMULATED UNIT 6 RESULT
+    # ========================================================
+
+    test_config = copy.deepcopy(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    simulated_unit_6_result = {
+        "execution_intent": True,
+        "signal_qualified": True,
+
+        "active_mode": "BREAKOUT",
+        "direction": "SHORT",
+
+        "candidate_mode": "BREAKOUT",
+        "candidate_stage": "QUALIFIED",
+
+        "higher_mode_protected": False,
+        "candidate_protected": False,
+        "higher_mode_developing": False,
+
+        "unit_5_reason": "BREAKOUT_CONFIRMED",
+
+        "admission_reason":
+            "BREAKOUT_CONFIRMED_ADMITTED",
+
+        "scalp_quality_pass": None,
+        "fee_coverage_pass": False,
+
+        "read_only": True,
+        "trade_authorized": False,
+        "order_payload_created": False,
+        "exchange_write": False,
+
+        "strategy_evidence_version":
+            "U6_HYBRID_ADJUSTABLE_V2",
+
+        "admission_revision": "V2.1",
+    }
+
+    # ========================================================
+    # 2. CALL ACTUAL UNIT 6 EXECUTION ADAPTER
+    # ========================================================
+
+    (
+        test_execution_config,
+        test_execution_candidate,
+    ) = fresh_unit_6_original_execution_adapter(
+        test_config,
+        simulated_unit_6_result,
+        None,
+    )
+
+    # ========================================================
+    # 3. VALIDATE UNIT 6 OUTPUT
+    # ========================================================
+
+    unit_6_checks = {
+        "EXECUTION_INTENT_PRESERVED":
+            test_execution_candidate.get(
+                "execution_intent"
+            ) is True,
+
+        "SIGNAL_QUALIFIED_PRESERVED":
+            test_execution_candidate.get(
+                "signal_qualified"
+            ) is True,
+
+        "MODE_PRESERVED":
+            test_execution_candidate.get(
+                "active_mode"
+            ) == "BREAKOUT",
+
+        "DIRECTION_PRESERVED":
+            test_execution_candidate.get(
+                "direction"
+            ) == "SHORT",
+
+        "LEVERAGE_DEFERRED":
+            test_execution_candidate.get(
+                "leverage_target"
+            ) is None,
+
+        "HANDOVER_STATUS":
+            test_execution_candidate.get(
+                "execution_handover_status"
+            ) == "QUALIFIED_AWAITING_LEVERAGE",
+
+        "NO_EXCHANGE_WRITE":
+            test_execution_candidate.get(
+                "exchange_write"
+            ) is False,
+    }
+
+    for name, passed in unit_6_checks.items():
+        print(
+            "UNIT 6 SIMULATION",
+            name,
+            "=",
+            "PASS" if passed else "FAIL",
+            flush=True
+        )
+
+    if not all(unit_6_checks.values()):
+        raise RuntimeError(
+            "UNIT 6 EXECUTION ADAPTER SIMULATION FAILED"
+        )
+
+    # ========================================================
+    # 4. PASS ADAPTER OUTPUT INTO ACTUAL UNIT 7
+    # ========================================================
+
+    test_unit_7_result = (
+        fresh_unit_7_hybrid_execution_adapter(
+            test_execution_config,
+            test_execution_candidate,
+        )
+    )
+
+    # ========================================================
+    # 5. VERIFY UNIT 7 EXECUTION HANDOVER
+    # ========================================================
+
+    unit_7_checks = {
+        "READY_FOR_BALANCE":
+            test_unit_7_result.get(
+                "status"
+            ) == "READY_FOR_BALANCE",
+
+        "MODE_PRESERVED":
+            test_unit_7_result.get(
+                "active_mode"
+            ) == "BREAKOUT",
+
+        "DIRECTION_PRESERVED":
+            test_unit_7_result.get(
+                "direction"
+            ) == "SHORT",
+
+        "EXECUTION_INTENT":
+            test_unit_7_result.get(
+                "execution_intent"
+            ) is True,
+
+        "SIGNAL_QUALIFIED":
+            test_unit_7_result.get(
+                "signal_qualified"
+            ) is True,
+
+        "ACCOUNT_BALANCE_REQUIRED":
+            test_unit_7_result.get(
+                "account_balance_required"
+            ) is True,
+
+        "LEVERAGE_DEFERRED":
+            test_unit_7_result.get(
+                "leverage_target"
+            ) is None,
+
+        "POSITION_SIZING_NOT_PERFORMED":
+            test_unit_7_result.get(
+                "position_sizing_performed"
+            ) is False,
+
+        "QUANTITY_NOT_CALCULATED":
+            test_unit_7_result.get(
+                "quantity_calculated"
+            ) is False,
+
+        "NO_ORDER_PAYLOAD":
+            test_unit_7_result.get(
+                "order_payload_created"
+            ) is False,
+
+        "NO_EXCHANGE_WRITE":
+            test_unit_7_result.get(
+                "exchange_write"
+            ) is False,
+    }
+
+    for name, passed in unit_7_checks.items():
+        print(
+            "UNIT 7 SIMULATION",
+            name,
+            "=",
+            "PASS" if passed else "FAIL",
+            flush=True
+        )
+
+    if not all(unit_7_checks.values()):
+        raise RuntimeError(
+            "UNIT 7 EXECUTION HANDOVER SIMULATION FAILED"
+        )
+
+    # ========================================================
+    # 6. CONFIRM REAL EXECUTION GLOBALS UNCHANGED
+    # ========================================================
+
+    if (
+        FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE
+        is test_execution_candidate
+    ):
+        raise RuntimeError(
+            "SIMULATION LEAKED INTO LIVE SIGNAL"
+        )
+
+    if (
+        FRESH_RECONSTRUCTION_SIZING_CANDIDATE
+        is test_unit_7_result
+    ):
+        raise RuntimeError(
+            "SIMULATION LEAKED INTO NORMAL UNIT 7"
+        )
+
+    print(
+        "UNIT 6 -> 7 SIMULATION SIGNAL ISOLATION = PASS",
+        flush=True
+    )
+
+    print(
+        "UNIT 6 -> 7 SIMULATION EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 6 -> 7 QUALIFIED HANDOVER TEST = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return True
+
+
+# ============================================================
+# RUN SIMULATION
+# ZERO INDENTATION
+# ============================================================
+
+UNIT_6_TO_7_SIMULATION_PASSED = (
+    test_unit_6_to_7_execution_handover()
+)
+
+# ============================================================
+# END UNIT 6 -> UNIT 7 SIMULATION
+# UNIT 8 CONTINUES BELOW
+# ZERO INDENTATION
+# ============================================================
