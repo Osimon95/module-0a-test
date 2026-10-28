@@ -4776,298 +4776,243 @@ def fresh_reconstruction_unit_6(
 # ZERO INDENTATION
 # ============================================================
 
+
+
+# ============================================================
+# UNIT 6 EXECUTION ADAPTER — COMPLETE REPLACEMENT V3
+# RENDER-MANUAL WEEX DEMO LEVERAGE COMPATIBILITY
+# ORIGINAL UNIT 7 INTERFACE PRESERVED
+# ZERO INDENTATION
+# ============================================================
+
 def fresh_unit_6_original_execution_adapter(
     unit_2_config,
     unit_6_result,
     exchange_leverage_result=None,
 ):
+    import os
     import copy
-
-    print("=" * 80, flush=True)
-    print("UNIT 6 EXECUTION ADAPTER V2 START", flush=True)
+    from decimal import Decimal, InvalidOperation
 
     if not isinstance(unit_2_config, dict):
-        raise RuntimeError(
-            "UNIT 6 ADAPTER INVALID CONFIG"
-        )
+        raise RuntimeError("UNIT 6 ADAPTER INVALID CONFIG")
 
     if not isinstance(unit_6_result, dict):
-        raise RuntimeError(
-            "UNIT 6 ADAPTER INVALID SIGNAL"
-        )
+        raise RuntimeError("UNIT 6 ADAPTER INVALID RESULT")
 
     config = copy.deepcopy(unit_2_config)
     result = dict(unit_6_result)
 
-    strategy = config.get("strategy")
+    if not isinstance(config.get("strategy"), dict):
+        raise RuntimeError("UNIT 6 STRATEGY MISSING")
 
-    if not isinstance(strategy, dict):
-        raise RuntimeError(
-            "UNIT 6 ADAPTER STRATEGY MISSING"
-        )
-
-    if config.get("execution_environment") != "DEMO":
-        raise RuntimeError(
-            "UNIT 6 ADAPTER DEMO REQUIRED"
-        )
+    # Never inherit the original hardcoded 100x value.
+    config["strategy"].pop("leverage_target", None)
 
     # ========================================================
-    # 1. LEVERAGE POLICY
+    # READ LONG AND SHORT LEVERAGE FROM RENDER
     # ========================================================
 
-    # Do not invent leverage.
-    # Do not modify WEEX exchange settings.
-    # Leverage verification belongs to the authenticated
-    # account preparation pathway in Unit 8.
+    def read_leverage(key):
+        value = os.getenv(key)
 
-    strategy.pop("leverage_target", None)
-    strategy.pop("exchange_leverage_verified", None)
-
-    # ========================================================
-    # 2. ORIGINAL UNIT 7 REQUIRED FIELDS
-    # ========================================================
-
-    if "unit_5_reason" not in result:
-        result["unit_5_reason"] = str(
-            result.get(
-                "admission_reason",
-                "NONE"
+        if value is None or not value.strip():
+            raise RuntimeError(
+                "UNIT 6 MISSING RENDER VARIABLE: " + key
             )
-        )
 
-    intent = result.get("execution_intent")
-    qualified = result.get("signal_qualified")
+        try:
+            leverage = Decimal(value.strip())
+        except InvalidOperation as exc:
+            raise RuntimeError(
+                "UNIT 6 INVALID LEVERAGE: " + key
+            ) from exc
 
-    if type(intent) is not bool:
-        raise RuntimeError(
-            "UNIT 6 INVALID EXECUTION INTENT"
-        )
+        if not leverage.is_finite() or leverage < 1:
+            raise RuntimeError(
+                "UNIT 6 LEVERAGE OUT OF RANGE: " + key
+            )
 
-    if type(qualified) is not bool:
-        raise RuntimeError(
-            "UNIT 6 INVALID SIGNAL QUALIFICATION"
-        )
+        return leverage
 
-    if intent != qualified:
-        raise RuntimeError(
-            "UNIT 6 SIGNAL/INTENT CONTRADICTION"
-        )
+    long_leverage = read_leverage(
+        "WEEX_DEMO_LONG_LEVERAGE"
+    )
+
+    short_leverage = read_leverage(
+        "WEEX_DEMO_SHORT_LEVERAGE"
+    )
+
+    print(
+        "UNIT 6 ADAPTER LONG LEVERAGE =",
+        long_leverage, flush=True
+    )
+    print(
+        "UNIT 6 ADAPTER SHORT LEVERAGE =",
+        short_leverage, flush=True
+    )
+    print(
+        "UNIT 6 LEVERAGE SOURCE = RENDER_MANUAL_WEEX_DEMO",
+        flush=True
+    )
+
+    config["strategy"]["exchange_leverage_verified"] = False
+    config["strategy"]["leverage_source"] = (
+        "RENDER_MANUAL_WEEX_DEMO"
+    )
 
     # ========================================================
-    # 3. IDLE / REJECTED / DEVELOPING SIGNAL
+    # PRESERVE UNIT 6 IDLE RESULT
     # ========================================================
 
-    if intent is False:
+    if result.get("execution_intent") is not True:
 
         result["execution_intent"] = False
         result["signal_qualified"] = False
         result["active_mode"] = "NONE"
         result["direction"] = "NONE"
 
-        result["execution_handover_status"] = "IDLE"
-        result["leverage_verification_deferred"] = False
-
         print(
             "UNIT 6 ADAPTER STATUS = IDLE",
             flush=True
         )
-
         print(
             "UNIT 6 ADAPTER REASON =",
             result.get("admission_reason"),
             flush=True
         )
 
-        print(
-            "UNIT 6 EXCHANGE WRITE = NONE",
-            flush=True
-        )
-
-        print(
-            "UNIT 6 EXECUTION ADAPTER V2 RESULT = PASS",
-            flush=True
-        )
-
-        print("=" * 80, flush=True)
-
         return config, result
 
     # ========================================================
-    # 4. QUALIFIED SIGNAL VALIDATION
+    # VALIDATE ORIGINAL UNIT 6 QUALIFICATION
     # ========================================================
 
-    mode = result.get("active_mode")
-    direction = result.get("direction")
-    stage = result.get("candidate_stage")
-
-    if mode not in (
-        "BREAKOUT",
-        "STRUCTURE",
-        "SCALP",
-    ):
+    if result.get("signal_qualified") is not True:
         raise RuntimeError(
-            "UNIT 6 ADAPTER INVALID ACTIVE MODE"
+            "UNIT 6 ADAPTER CONTRADICTORY SIGNAL"
         )
+
+    mode = str(
+        result.get("active_mode", "NONE")
+    ).upper()
+
+    direction = str(
+        result.get("direction", "NONE")
+    ).upper()
+
+    stage = str(
+        result.get("candidate_stage", "NONE")
+    ).upper()
+
+    if mode not in ("BREAKOUT", "STRUCTURE", "SCALP"):
+        raise RuntimeError("UNIT 6 INVALID MODE")
 
     if direction not in ("LONG", "SHORT"):
-        raise RuntimeError(
-            "UNIT 6 ADAPTER INVALID DIRECTION"
-        )
-
-    if result.get("higher_mode_protected") is True:
-        raise RuntimeError(
-            "UNIT 6 DEVELOPING MODE NOT EXECUTABLE"
-        )
-
-    # ========================================================
-    # 5. MODE-SPECIFIC QUALIFICATION
-    # ========================================================
+        raise RuntimeError("UNIT 6 INVALID DIRECTION")
 
     if mode == "SCALP":
 
-        if stage != "PENDING_UNIT_6":
+        if (
+            stage != "PENDING_UNIT_6"
+            or result.get("scalp_quality_pass") is not True
+            or result.get("fee_coverage_pass") is not True
+        ):
             raise RuntimeError(
-                "UNIT 6 SCALP STAGE INVALID"
+                "UNIT 6 SCALP QUALIFICATION INCOMPLETE"
             )
 
-        if result.get("scalp_quality_pass") is not True:
-            raise RuntimeError(
-                "UNIT 6 SCALP QUALITY NOT PASSED"
-            )
-
-        if result.get("fee_coverage_pass") is not True:
-            raise RuntimeError(
-                "UNIT 6 SCALP FEE COVERAGE NOT PASSED"
-            )
-
-    else:
-
-        if stage != "QUALIFIED":
-            raise RuntimeError(
-                "UNIT 6 HIGHER MODE NOT QUALIFIED"
-            )
-
-    # ========================================================
-    # 6. PRESERVE HYBRID ADMISSION
-    # ========================================================
-
-    original_reason = str(
-        result.get(
-            "admission_reason",
-            "NONE"
+    elif stage != "QUALIFIED":
+        raise RuntimeError(
+            "UNIT 6 HIGHER MODE NOT QUALIFIED"
         )
+
+    # ========================================================
+    # SELECT MANUALLY CONFIGURED DIRECTIONAL LEVERAGE
+    # ========================================================
+
+    leverage = (
+        long_leverage
+        if direction == "LONG"
+        else short_leverage
     )
 
+    # Carry directional leverage forward for compatibility
+    # with the pre-existing Unit 7.
+    #
+    # It is a manually synchronized planning value,
+    # NOT an independently verified WEEX account setting.
+
+    config["strategy"]["leverage_target"] = float(leverage)
+
     result["hybrid_admission_reason"] = (
-        original_reason
+        result.get("admission_reason")
     )
 
     result["admission_reason"] = (
         "QUALIFIED_SIGNAL_ADMITTED"
     )
 
-    result["execution_intent"] = True
-    result["signal_qualified"] = True
+    result["leverage_target"] = float(leverage)
 
-    result["active_mode"] = mode
-    result["direction"] = direction
-
-    # ========================================================
-    # 7. LEVERAGE VERIFICATION HANDOVER
-    # ========================================================
-
-    # Missing leverage must not erase a legitimately
-    # qualified Hybrid signal.
-    #
-    # This does NOT mean leverage has been verified.
-    # Unit 8 must authenticate and verify leverage
-    # before calculating the order quantity.
-
-    result["leverage_verification_deferred"] = True
-    result["exchange_leverage_verified"] = False
-
-    result["execution_handover_status"] = (
-        "QUALIFIED_AWAITING_LEVERAGE"
+    result["leverage_source"] = (
+        "RENDER_MANUAL_WEEX_DEMO"
     )
 
-    result["leverage_target"] = None
-
-    # ========================================================
-    # 8. FINAL VERIFICATION
-    # ========================================================
-
-    if (
-        result["execution_intent"] is not True
-        or result["signal_qualified"] is not True
-        or result["active_mode"] != mode
-        or result["direction"] != direction
-    ):
-        raise RuntimeError(
-            "UNIT 6 EXECUTION HANDOVER FAILED"
-        )
+    result["exchange_leverage_verified"] = False
 
     print(
         "UNIT 6 ADAPTER MODE =",
-        mode,
-        flush=True
+        mode, flush=True
     )
-
     print(
         "UNIT 6 ADAPTER DIRECTION =",
-        direction,
-        flush=True
+        direction, flush=True
     )
-
     print(
-        "UNIT 6 ADAPTER HYBRID REASON =",
-        original_reason,
-        flush=True
+        "UNIT 6 ADAPTER SELECTED LEVERAGE =",
+        leverage, flush=True
     )
-
     print(
-        "UNIT 6 ADAPTER EXECUTION INTENT = True",
+        "UNIT 6 ADAPTER STATUS = READY_FOR_UNIT_7",
         flush=True
     )
-
-    print(
-        "UNIT 6 ADAPTER SIGNAL QUALIFIED = True",
-        flush=True
-    )
-
-    print(
-        "UNIT 6 ADAPTER STATUS = QUALIFIED_AWAITING_LEVERAGE",
-        flush=True
-    )
-
-    print(
-        "UNIT 6 ADAPTER LEVERAGE VERIFIED = False",
-        flush=True
-    )
-
-    print(
-        "UNIT 6 ADAPTER SIGNAL PRESERVED = True",
-        flush=True
-    )
-
-    print(
-        "UNIT 6 ADAPTER EXCHANGE WRITE = NONE",
-        flush=True
-    )
-
-    print(
-        "UNIT 6 EXECUTION ADAPTER V2 RESULT = PASS",
-        flush=True
-    )
-
-    print("=" * 80, flush=True)
 
     return config, result
 
 
 # ============================================================
-# RUN UNIT 6 AND EXECUTION ADAPTER
+# UNIT 6 + ADAPTER EXECUTION
 # ZERO INDENTATION
 # ============================================================
+
+FRESH_RECONSTRUCTION_HYBRID_UNIT_6_RESULT = (
+    fresh_reconstruction_unit_6(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE,
+    )
+)
+
+(
+    FRESH_RECONSTRUCTION_EXECUTION_CONFIG,
+    FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE,
+) = fresh_unit_6_original_execution_adapter(
+    FRESH_RECONSTRUCTION_CONFIG,
+    FRESH_RECONSTRUCTION_HYBRID_UNIT_6_RESULT,
+)
+
+# ============================================================
+# END UNIT 6 EXECUTION ADAPTER
+# ORIGINAL UNIT 7 FOLLOWS
+# ============================================================
+
+
+            
+
+    
+
+    ==============================
 
 FRESH_RECONSTRUCTION_HYBRID_UNIT_6_RESULT = (
     fresh_reconstruction_unit_6(
