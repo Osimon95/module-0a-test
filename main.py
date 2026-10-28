@@ -5008,36 +5008,6 @@ FRESH_RECONSTRUCTION_HYBRID_UNIT_6_RESULT = (
 # ============================================================
 
 
-            
-
-    
-
-
-
-FRESH_RECONSTRUCTION_HYBRID_UNIT_6_RESULT = (
-    fresh_reconstruction_unit_6(
-        FRESH_RECONSTRUCTION_CONFIG,
-        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
-        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE,
-    )
-)
-
-(
-    FRESH_RECONSTRUCTION_EXECUTION_CONFIG,
-    FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE,
-) = fresh_unit_6_original_execution_adapter(
-    FRESH_RECONSTRUCTION_CONFIG,
-    FRESH_RECONSTRUCTION_HYBRID_UNIT_6_RESULT,
-    None,
-)
-
-
-# ============================================================
-# END UNIT 6 + EXECUTION ADAPTER
-# ORIGINAL UNIT 7 CONTINUES BELOW
-# ZERO INDENTATION
-# ============================================================
-
 
 # ============================================================
 # START COMPLETE UNIT 7 EXECUTION HANDOVER V2
