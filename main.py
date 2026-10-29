@@ -6453,7 +6453,7 @@ def unit_7_validation_v8():
             )
 
             passed = ()
-                result["status"] == expected_status
+            result["status"] == expected_status
                 and result[
                     "order_payload_created"
                 ] is False
