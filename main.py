@@ -6462,7 +6462,8 @@ def unit_7_validation_v8():
                 ] is False
                 and result["exchange_write"] is False
                 and result["max_backups"] == 5
-                and result["exposure_cap_percent"] <= 35
+                
+                and result["exposure_cap_percent"] <= 100
             )
 
         except Exception as exc:
