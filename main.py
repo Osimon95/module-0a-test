@@ -4720,15 +4720,36 @@ def fresh_reconstruction_unit_6(
             "UNIT 6 INPUT SAFETY VIOLATION"
         )
 
-    if (
-        config.get("anti_duplicate_orders")
-        is not True
-        or config.get("one_direction_only")
-        is not True
-    ):
+    
+        # ========================================================
+    # UNIT 6 POSITION SAFETY POLICY
+    # USE ORIGINAL UNIT 2 STRATEGY CONFIGURATION
+    # ========================================================
+
+    strategy = config.get("strategy")
+
+    if not isinstance(strategy, dict):
         raise RuntimeError(
-            "UNIT 6 POSITION SAFETY POLICY INVALID"
+            "UNIT 6 STRATEGY CONFIG MISSING"
         )
+
+    for key in (
+        "anti_duplicate_orders",
+        "one_direction_only",
+        "active_trade_mode_lock",
+        "exclusive_mode",
+    ):
+        if strategy.get(key) is not True:
+            raise RuntimeError(
+                "UNIT 6 REQUIRED SAFETY DISABLED: "
+                + key
+            )
+
+    print(
+        "PASS: UNIT 6 ORIGINAL POSITION SAFETY POLICY",
+        flush=True
+    )
+
 
     # ========================================================
     # UNIT 5 CANDIDATE STATE
