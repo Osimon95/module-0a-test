@@ -356,6 +356,12 @@ def fresh_reconstruction_unit_2():
     )
 
     require(
+        0 < strategy['exposure_cap_percent']
+        <= strategy['exposure_cap_max_percent']
+        <= 100.0,
+        'EXPOSURE CAP MUST BE BETWEEN 0 AND 100%'
+    )
+    require(
         strategy["exposure_cap_percent"] == 35.0,
         "INVALID EXPOSURE CAP"
     )
