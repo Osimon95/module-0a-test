@@ -232,6 +232,7 @@ def fresh_reconstruction_unit_2():
         ),
 
         "exposure_cap_percent": 35.0,
+        'exposure_cap_max_percent': 100.0,
 
         "progressive_backup_funding": True,
         "full_ladder_reservation_required": False,
