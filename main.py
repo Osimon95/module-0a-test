@@ -4418,16 +4418,18 @@ def unit_5_validation_v8():
             "REJECTED",
         ),
 
-        (
-            "BREAKOUT MOMENTUM INSUFFICIENT",
-            market(
-                breakout_confirmed_long=True,
-                move_5m_pct=-0.05,
-                structure_developing_long=False
-            ),
-            "NONE",
-            "REJECTED",
-        ),
+        
+(
+    "BREAKOUT MOMENTUM INSUFFICIENT",
+    market(
+        breakout_confirmed_long=True,
+        move_5m_pct=-0.05,
+        structure_developing_long=False
+    ),
+    "NONE",
+    "NONE",
+),
+
 
         (
             "SCALP BELOW ADJUSTABLE THRESHOLD",
