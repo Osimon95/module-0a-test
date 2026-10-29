@@ -5873,3 +5873,748 @@ FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
 # UNIT 7 FOLLOWS
 # ZERO INDENTATION
 # ============================================================
+
+
+
+# ============================================================
+# START COMPLETE UNIT 7 V8 REPLACEMENT
+# WEEX DEMO - PROGRESSIVE POSITION SIZING PREPARATION
+# UNIT 2 + UNIT 6 V9 -> UNIT 7 -> UNIT 8
+# ZERO INDENTATION / SINGLE EXECUTION
+# ============================================================
+
+from decimal import Decimal, InvalidOperation
+import copy
+
+
+def unit_7_v8_decimal(value, label, zero=False):
+    if isinstance(value, bool):
+        raise RuntimeError("UNIT 7 INVALID " + label)
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise RuntimeError(
+            "UNIT 7 INVALID " + label
+        ) from exc
+    if not number.is_finite():
+        raise RuntimeError(
+            "UNIT 7 NONFINITE " + label
+        )
+    if number < 0 or (number == 0 and not zero):
+        raise RuntimeError(
+            "UNIT 7 INVALID RANGE " + label
+        )
+    return number
+
+
+def fresh_reconstruction_unit_7(
+    unit_2_config,
+    unit_6_candidate,
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 7 V8 PROGRESSIVE SIZING START",
+        flush=True
+    )
+
+    if not isinstance(unit_2_config, dict):
+        raise RuntimeError("UNIT 7 CONFIG INVALID")
+
+    if not isinstance(unit_6_candidate, dict):
+        raise RuntimeError("UNIT 7 SIGNAL INVALID")
+
+    config = unit_2_config
+    signal = unit_6_candidate
+
+    strategy = config.get("strategy")
+    precision = config.get("market_precision")
+    exchange = config.get("exchange")
+    safety = config.get("safety")
+
+    if not all(isinstance(item, dict) for item in (
+        strategy, precision, exchange, safety
+    )):
+        raise RuntimeError(
+            "UNIT 7 REQUIRED CONFIG SECTIONS MISSING"
+        )
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("demo_order_symbol") != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 7 DEMO EXCHANGE CONFIG INVALID"
+        )
+
+    # ========================================================
+    # VALIDATE UNIT 6 V9 HANDOVER
+    # ========================================================
+
+    required = (
+        "execution_intent",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "unit_5_reason",
+        "admission_reason",
+    )
+
+    missing = [
+        key for key in required if key not in signal
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "UNIT 7 MISSING UNIT 6 FIELDS: "
+            + str(missing)
+        )
+
+    intent = signal["execution_intent"]
+    qualified = signal["signal_qualified"]
+    mode = signal["active_mode"]
+    direction = signal["direction"]
+    reason = signal["admission_reason"]
+
+    if type(intent) is not bool or type(qualified) is not bool:
+        raise RuntimeError(
+            "UNIT 7 INVALID SIGNAL FLAGS"
+        )
+
+    if intent != qualified:
+        raise RuntimeError(
+            "UNIT 7 INTENT QUALIFICATION CONFLICT"
+        )
+
+    if (
+        signal.get("order_payload_created") is not False
+        or signal.get("exchange_write") is not False
+    ):
+        raise RuntimeError(
+            "UNIT 7 UPSTREAM ORDER BOUNDARY INVALID"
+        )
+
+    if signal.get("classification_version") not in (
+        "UNIT6_V9_ADJUSTABLE",
+    ):
+        raise RuntimeError(
+            "UNIT 7 UNIT 6 V9 CONTRACT MISSING"
+        )
+
+    # ========================================================
+    # ORIGINAL POSITION SAFETY
+    # ========================================================
+
+    for key in (
+        "anti_duplicate_orders",
+        "one_direction_only",
+        "active_trade_mode_lock",
+        "exclusive_mode",
+    ):
+        if strategy.get(key) is not True:
+            raise RuntimeError(
+                "UNIT 7 SAFETY POLICY MISSING: " + key
+            )
+
+    # Unit 7 itself must never submit orders.
+    # These configuration flags describe Unit 7's
+    # available local capabilities, not the eventual
+    # authorization of Unit 12 to submit demo orders.
+
+    for key in (
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    ):
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 7 UNSAFE CAPABILITY: " + key
+            )
+
+    # ========================================================
+    # MARGIN AND MARKET PRECISION
+    # ========================================================
+
+    initial_usdt = unit_7_v8_decimal(
+        strategy.get("initial_fixed_usdt"),
+        "INITIAL FIXED USDT"
+    )
+
+    initial_percent = unit_7_v8_decimal(
+        strategy.get("initial_margin_percent"),
+        "INITIAL MARGIN PERCENT"
+    )
+
+    if initial_percent > 100:
+        raise RuntimeError(
+            "UNIT 7 INITIAL MARGIN PERCENT ABOVE 100"
+        )
+
+    quantity_step = unit_7_v8_decimal(
+        precision.get("quantity_step"),
+        "QUANTITY STEP"
+    )
+
+    minimum_quantity = unit_7_v8_decimal(
+        precision.get("minimum_quantity"),
+        "MINIMUM QUANTITY"
+    )
+
+    price_step = unit_7_v8_decimal(
+        precision.get("price_step"),
+        "PRICE STEP"
+    )
+
+    if (
+        minimum_quantity / quantity_step
+    ) % 1 != 0:
+        raise RuntimeError(
+            "UNIT 7 MINIMUM QUANTITY NOT STEP ALIGNED"
+        )
+
+    # ========================================================
+    # FIVE PROGRESSIVE BACKUPS
+    # ========================================================
+
+    backup_count = strategy.get("max_backups")
+
+    if type(backup_count) is not int or backup_count != 5:
+        raise RuntimeError(
+            "UNIT 7 BACKUP COUNT MUST BE FIVE"
+        )
+
+    raw_multipliers = strategy.get(
+        "backup_multipliers"
+    )
+
+    if not isinstance(raw_multipliers, (list, tuple)):
+        raise RuntimeError(
+            "UNIT 7 BACKUP MULTIPLIERS MISSING"
+        )
+
+    multipliers = tuple(
+        unit_7_v8_decimal(
+            value, "BACKUP MULTIPLIER"
+        )
+        for value in raw_multipliers
+    )
+
+    if len(multipliers) != backup_count:
+        raise RuntimeError(
+            "UNIT 7 BACKUP MULTIPLIER COUNT MISMATCH"
+        )
+
+    if multipliers != tuple(map(
+        Decimal,
+        ("1.0", "1.5", "2.0", "2.5", "3.0")
+    )):
+        raise RuntimeError(
+            "UNIT 7 BACKUP MULTIPLIERS MISMATCH"
+        )
+
+    cap_pct = unit_7_v8_decimal(
+        strategy.get("exposure_cap_percent"),
+        "EXPOSURE CAP"
+    )
+
+    if cap_pct > 35:
+        raise RuntimeError(
+            "UNIT 7 EXPOSURE CAP ABOVE 35%"
+        )
+
+    if (
+        strategy.get("progressive_backup_funding")
+        is not True
+        or strategy.get(
+            "full_ladder_reservation_required"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 7 PROGRESSIVE FUNDING POLICY INVALID"
+        )
+
+    backup_margin_percent = unit_7_v8_decimal(
+        strategy.get("backup_margin_percent"),
+        "BACKUP MARGIN PERCENT"
+    )
+
+    backup_buffer_percent = unit_7_v8_decimal(
+        strategy.get("backup_buffer_percent"),
+        "BACKUP BUFFER PERCENT",
+        zero=True
+    )
+
+    backup_usdt = tuple(
+        initial_usdt * multiplier
+        for multiplier in multipliers
+    )
+
+    full_ladder_usdt = (
+        initial_usdt + sum(backup_usdt, Decimal("0"))
+    )
+
+    # Planning reference only. Nothing is reserved.
+    # Available account balance is not yet known.
+
+    # ========================================================
+    # COMMON OUTPUT
+    # ========================================================
+
+    output = {
+        "status": "IDLE",
+        "symbol": "BTCUSDT",
+        "demo_order_symbol": "BTCSUSDT",
+        "active_mode": "NONE",
+        "direction": "NONE",
+        "execution_intent": False,
+        "signal_qualified": False,
+
+        "unit_5_reason": signal["unit_5_reason"],
+        "admission_reason": reason,
+        "skip_reason": reason,
+
+        "initial_margin_percent": float(
+            initial_percent
+        ),
+        "initial_fixed_usdt": float(initial_usdt),
+
+        "backup_margin_percent": float(
+            backup_margin_percent
+        ),
+        "backup_buffer_percent": float(
+            backup_buffer_percent
+        ),
+
+        "max_backups": backup_count,
+        "backup_multipliers": tuple(
+            float(v) for v in multipliers
+        ),
+        "backup_margin_usdt": tuple(
+            float(v) for v in backup_usdt
+        ),
+        "full_ladder_margin_usdt": float(
+            full_ladder_usdt
+        ),
+
+        "exposure_cap_percent": float(cap_pct),
+        "progressive_backup_funding": True,
+        "full_ladder_reservation_required": False,
+
+        "quantity_step": float(quantity_step),
+        "minimum_quantity": float(
+            minimum_quantity
+        ),
+        "price_step": float(price_step),
+
+        "leverage_target": None,
+        "leverage_source":
+            "WEEX_EXCHANGE_SETTING",
+        "exchange_leverage_verified": False,
+
+        "account_balance_required": False,
+        "position_sizing_performed": False,
+        "quantity_calculated": False,
+        "proposed_quantity": None,
+
+        "order_payload_created": False,
+        "exchange_write": False,
+        "trade_authorized": False,
+        "read_only": True,
+
+        "source_unit_6":
+            "UNIT6_V9_ADJUSTABLE",
+        "unit_7_version":
+            "UNIT7_V8_PROGRESSIVE",
+
+        "candidate_stage": signal.get(
+            "candidate_stage", "NONE"
+        ),
+        "candidate_age_seconds": signal.get(
+            "candidate_age_seconds"
+        ),
+    }
+
+    # ========================================================
+    # NORMAL IDLE PATH
+    # ========================================================
+
+    if not intent:
+
+        if mode != "NONE" or direction != "NONE":
+            raise RuntimeError(
+                "UNIT 7 IDLE MODE OR DIRECTION INVALID"
+            )
+
+        print("UNIT 7 STATUS = IDLE", flush=True)
+        print(
+            "UNIT 7 SKIP REASON =",
+            reason,
+            flush=True
+        )
+        print(
+            "UNIT 7 EXECUTION INTENT = False",
+            flush=True
+        )
+        print(
+            "UNIT 7 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+        print(
+            "FRESH RECONSTRUCTION UNIT 7 RESULT = PASS",
+            flush=True
+        )
+        print("=" * 80, flush=True)
+
+        return output
+
+    # ========================================================
+    # QUALIFIED PATH
+    # ========================================================
+
+    admission_reasons = {
+        "BREAKOUT":
+            "BREAKOUT_QUALIFIED_FOR_NEXT_UNITS",
+        "STRUCTURE":
+            "STRUCTURE_QUALIFIED_FOR_NEXT_UNITS",
+        "SCALP":
+            "SCALP_QUALIFIED_FOR_NEXT_UNITS",
+    }
+
+    if mode not in admission_reasons:
+        raise RuntimeError(
+            "UNIT 7 INVALID QUALIFIED MODE"
+        )
+
+    if direction not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT 7 INVALID QUALIFIED DIRECTION"
+        )
+
+    if reason != admission_reasons[mode]:
+        raise RuntimeError(
+            "UNIT 7 ADMISSION REASON MISMATCH"
+        )
+
+    if (
+        signal.get("candidate_stage") == "DEVELOPING"
+        or (
+            mode == "SCALP"
+            and signal.get(
+                "higher_mode_developing"
+            ) is True
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 7 DEVELOPING MODE SAFETY VIOLATION"
+        )
+
+    # Unit 6 has already performed quality arbitration.
+    # Unit 7 must not impose additional EMA, ATR, or
+    # momentum thresholds.
+
+    output.update({
+        "status": "READY_FOR_BALANCE",
+        "active_mode": mode,
+        "direction": direction,
+        "execution_intent": True,
+        "signal_qualified": True,
+        "account_balance_required": True,
+        "skip_reason": None,
+    })
+
+    # ========================================================
+    # OUTPUT VALIDATION
+    # ========================================================
+
+    if (
+        output["quantity_calculated"] is not False
+        or output["proposed_quantity"] is not None
+        or output["order_payload_created"] is not False
+        or output["exchange_write"] is not False
+    ):
+        raise RuntimeError(
+            "UNIT 7 UNVERIFIED EXECUTION DATA"
+        )
+
+    print(
+        "UNIT 7 STATUS = READY_FOR_BALANCE",
+        flush=True
+    )
+    print(
+        "UNIT 7 ACTIVE MODE =",
+        mode,
+        flush=True
+    )
+    print(
+        "UNIT 7 DIRECTION =",
+        direction,
+        flush=True
+    )
+    print(
+        "UNIT 7 INITIAL FIXED USDT =",
+        initial_usdt,
+        flush=True
+    )
+    print(
+        "UNIT 7 INITIAL MARGIN PERCENT =",
+        initial_percent,
+        flush=True
+    )
+    print(
+        "UNIT 7 BACKUPS =",
+        backup_count,
+        flush=True
+    )
+    print(
+        "UNIT 7 BACKUP MULTIPLIERS =",
+        output["backup_multipliers"],
+        flush=True
+    )
+    print(
+        "UNIT 7 FULL LADDER REFERENCE USDT =",
+        full_ladder_usdt,
+        flush=True
+    )
+    print(
+        "UNIT 7 EXPOSURE CAP % =",
+        cap_pct,
+        flush=True
+    )
+    print(
+        "UNIT 7 PROGRESSIVE FUNDING = TRUE",
+        flush=True
+    )
+    print(
+        "UNIT 7 LEVERAGE = DEFERRED TO WEEX",
+        flush=True
+    )
+    print(
+        "UNIT 7 QUANTITY CALCULATED = FALSE",
+        flush=True
+    )
+    print(
+        "UNIT 7 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+    print(
+        "FRESH RECONSTRUCTION UNIT 7 RESULT = PASS",
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    return output
+
+
+# ============================================================
+# UNIT 7 V8 SYNTHETIC VALIDATION
+# NO WEEX ACCOUNT REQUEST OR ORDER
+# ============================================================
+
+def unit_7_validation_v8():
+
+    print("=" * 80, flush=True)
+    print("UNIT 7 VALIDATION V8 START", flush=True)
+
+    config = copy.deepcopy(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    base = copy.deepcopy(
+        FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE
+    )
+
+    tests = []
+
+    def check(name, changes, expected_status):
+
+        signal = copy.deepcopy(base)
+        signal.update(changes)
+
+        try:
+            result = fresh_reconstruction_unit_7(
+                config, signal
+            )
+
+            passed = (
+                result["status"] == expected_status
+                and result[
+                    "order_payload_created"
+                ] is False
+                and result[
+                    "quantity_calculated"
+                ] is False
+                and result["exchange_write"] is False
+                and result["max_backups"] == 5
+                and result["exposure_cap_percent"] <= 35
+            )
+
+        except Exception as exc:
+            print(
+                "UNIT 7 TEST ERROR =",
+                name, repr(exc),
+                flush=True
+            )
+            passed = False
+
+        tests.append((name, passed))
+
+    check(
+        "NORMAL IDLE",
+        {
+            "execution_intent": False,
+            "signal_qualified": False,
+            "active_mode": "NONE",
+            "direction": "NONE",
+            "admission_reason":
+                "NO_ACCEPTABLE_CANDIDATE",
+            "candidate_stage": "NONE",
+        },
+        "IDLE"
+    )
+
+    check(
+        "QUALIFIED STRUCTURE LONG",
+        {
+            "execution_intent": True,
+            "signal_qualified": True,
+            "active_mode": "STRUCTURE",
+            "direction": "LONG",
+            "admission_reason":
+                "STRUCTURE_QUALIFIED_FOR_NEXT_UNITS",
+            "candidate_stage": "QUALIFIED",
+        },
+        "READY_FOR_BALANCE"
+    )
+
+    check(
+        "QUALIFIED BREAKOUT SHORT",
+        {
+            "execution_intent": True,
+            "signal_qualified": True,
+            "active_mode": "BREAKOUT",
+            "direction": "SHORT",
+            "admission_reason":
+                "BREAKOUT_QUALIFIED_FOR_NEXT_UNITS",
+            "candidate_stage": "QUALIFIED",
+        },
+        "READY_FOR_BALANCE"
+    )
+
+    check(
+        "QUALIFIED SCALP LONG",
+        {
+            "execution_intent": True,
+            "signal_qualified": True,
+            "active_mode": "SCALP",
+            "direction": "LONG",
+            "admission_reason":
+                "SCALP_QUALIFIED_FOR_NEXT_UNITS",
+            "candidate_stage": "PENDING_UNIT_6",
+            "higher_mode_developing": False,
+        },
+        "READY_FOR_BALANCE"
+    )
+
+    check(
+        "DEVELOPING STRUCTURE IDLE",
+        {
+            "execution_intent": False,
+            "signal_qualified": False,
+            "active_mode": "NONE",
+            "direction": "NONE",
+            "candidate_stage": "DEVELOPING",
+            "admission_reason":
+                "DEVELOPING_HIGHER_MODE_PROTECTED",
+        },
+        "IDLE"
+    )
+
+    check(
+        "DEVELOPING BREAKOUT IDLE",
+        {
+            "execution_intent": False,
+            "signal_qualified": False,
+            "active_mode": "NONE",
+            "direction": "NONE",
+            "candidate_stage": "DEVELOPING",
+            "admission_reason":
+                "DEVELOPING_HIGHER_MODE_PROTECTED",
+        },
+        "IDLE"
+    )
+
+    # Independently verify the actual Unit 6 result.
+    actual = fresh_reconstruction_unit_7(
+        config, base
+    )
+
+    tests.append((
+        "ACTUAL UNIT 6 V9 HANDOVER",
+        actual["status"] in (
+            "IDLE", "READY_FOR_BALANCE"
+        )
+        and actual["exchange_write"] is False
+    ))
+
+    passed = sum(ok for _, ok in tests)
+    failed = len(tests) - passed
+
+    for name, ok in tests:
+        print(
+            "UNIT 7 TEST:",
+            name,
+            "=",
+            "PASS" if ok else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 7 TESTS PASSED =",
+        passed,
+        flush=True
+    )
+    print(
+        "UNIT 7 TESTS FAILED =",
+        failed,
+        flush=True
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT 7 V8 VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 7 VALIDATION V8 RESULT = PASS",
+        flush=True
+    )
+
+    return True
+
+
+# ============================================================
+# SINGLE UNIT 7 EXECUTION SEQUENCE
+# ============================================================
+
+FRESH_UNIT_7_VALIDATION_READY = (
+    unit_7_validation_v8()
+)
+
+FRESH_RECONSTRUCTION_SIZING_CANDIDATE = (
+    fresh_reconstruction_unit_7(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE,
+    )
+)
+
+
+# ============================================================
+# END COMPLETE UNIT 7 V8 REPLACEMENT
+# UNIT 8 FOLLOWS
+# ZERO INDENTATION
+# ============================================================
