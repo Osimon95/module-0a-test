@@ -1767,3 +1767,575 @@ FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
 # UNIT 4 FOLLOWS
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# START UNIT 4 OPTIMIZED CORE V3
+# WEEX V3 CLOSED-CANDLE MARKET ANALYSIS
+# PRESERVES ORIGINAL UNIT 4 OUTPUT CONTRACT
+# ZERO INDENTATION
+# ============================================================
+
+import math
+import time
+
+
+def unit_4_validate_candles_v3(raw_klines, exchange_time_ms):
+
+    if not isinstance(raw_klines, list):
+        raise RuntimeError(
+            "UNIT 4 INVALID KLINE RESPONSE TYPE"
+        )
+
+    if len(raw_klines) < 200:
+        raise RuntimeError(
+            "UNIT 4 INSUFFICIENT RETURNED KLINES"
+        )
+
+    candles = []
+
+    for raw in raw_klines:
+
+        if not isinstance(raw, (list, tuple)):
+            raise RuntimeError("UNIT 4 INVALID CANDLE")
+
+        if len(raw) < 7:
+            raise RuntimeError(
+                "UNIT 4 INCOMPLETE CANDLE"
+            )
+
+        try:
+            candle = {
+                "open_time_ms": int(raw[0]),
+                "open": float(raw[1]),
+                "high": float(raw[2]),
+                "low": float(raw[3]),
+                "close": float(raw[4]),
+                "volume": float(raw[5]),
+                "close_time_ms": int(raw[6]),
+            }
+
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RuntimeError(
+                "UNIT 4 INVALID CANDLE VALUE"
+            ) from exc
+
+        prices = (
+            candle["open"],
+            candle["high"],
+            candle["low"],
+            candle["close"],
+        )
+
+        if not all(
+            math.isfinite(value) and value > 0
+            for value in prices
+        ):
+            raise RuntimeError(
+                "UNIT 4 INVALID NONFINITE CANDLE PRICE"
+            )
+
+        if (
+            not math.isfinite(candle["volume"])
+            or candle["volume"] < 0
+        ):
+            raise RuntimeError(
+                "UNIT 4 INVALID CANDLE VOLUME"
+            )
+
+        if not (
+            candle["low"]
+            <= min(candle["open"], candle["close"])
+            <= max(candle["open"], candle["close"])
+            <= candle["high"]
+        ):
+            raise RuntimeError(
+                "UNIT 4 INVALID OHLC RELATIONSHIP"
+            )
+
+        if (
+            candle["open_time_ms"] <= 0
+            or candle["close_time_ms"]
+            <= candle["open_time_ms"]
+        ):
+            raise RuntimeError(
+                "UNIT 4 INVALID CANDLE TIME"
+            )
+
+        candles.append(candle)
+
+    candles.sort(
+        key=lambda item: item["open_time_ms"]
+    )
+
+    for index in range(1, len(candles)):
+
+        difference = (
+            candles[index]["open_time_ms"]
+            - candles[index - 1]["open_time_ms"]
+        )
+
+        if difference != 60000:
+            raise RuntimeError(
+                "UNIT 4 DUPLICATE OR MISSING 1M CANDLE"
+            )
+
+    closed = [
+        candle for candle in candles
+        if candle["close_time_ms"]
+        <= exchange_time_ms
+    ]
+
+    if len(closed) < 200:
+        raise RuntimeError(
+            "UNIT 4 INSUFFICIENT CLOSED CANDLES"
+        )
+
+    latest_closed = closed[-1]
+
+    age_ms = (
+        exchange_time_ms
+        - latest_closed["close_time_ms"]
+    )
+
+    if age_ms < 0 or age_ms > 120000:
+        raise RuntimeError(
+            "UNIT 4 STALE CLOSED CANDLE"
+        )
+
+    return candles, closed
+
+
+def unit_4_calculate_ema_v3(prices, period):
+
+    if len(prices) < period:
+        raise RuntimeError(
+            "UNIT 4 INSUFFICIENT EMA HISTORY"
+        )
+
+    value = sum(prices[:period]) / period
+    multiplier = 2.0 / (period + 1.0)
+
+    for price in prices[period:]:
+        value = (
+            price * multiplier
+            + value * (1.0 - multiplier)
+        )
+
+    if not math.isfinite(value) or value <= 0:
+        raise RuntimeError(
+            "UNIT 4 INVALID EMA RESULT"
+        )
+
+    return float(value)
+
+
+def fresh_reconstruction_unit_4():
+
+    print("=" * 80, flush=True)
+    log("FRESH RECONSTRUCTION UNIT 4 START")
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+    snapshot = FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 4 INVALID UNIT 2 CONFIG"
+        )
+
+    if not isinstance(snapshot, dict):
+        raise RuntimeError(
+            "UNIT 4 INVALID UNIT 3 SNAPSHOT"
+        )
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+
+    if not isinstance(exchange, dict):
+        raise RuntimeError(
+            "UNIT 4 EXCHANGE CONFIG INVALID"
+        )
+
+    if not isinstance(safety, dict):
+        raise RuntimeError(
+            "UNIT 4 SAFETY CONFIG INVALID"
+        )
+
+    if (
+        snapshot.get("exchange") != "WEEX"
+        or snapshot.get("api_version") != "V3"
+        or snapshot.get("symbol") != "BTCUSDT"
+        or snapshot.get("price_type") != "MARK"
+        or snapshot.get("read_only") is not True
+    ):
+        raise RuntimeError(
+            "UNIT 4 UNIT 3 SNAPSHOT CONTRACT FAILED"
+        )
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("market_symbol") != "BTCUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 4 UNIT 2 CONTRACT FAILED"
+        )
+
+    if (
+        safety.get("public_market_data_read_enabled")
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 4 PUBLIC MARKET READ DISABLED"
+        )
+
+    forbidden = (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    )
+
+    for key in forbidden:
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 4 UNSAFE CONFIGURATION: " + key
+            )
+
+    exchange_time_ms = int(
+        snapshot["exchange_time_ms"]
+    )
+
+    live_mark_price = float(
+        snapshot["price"]
+    )
+
+    if (
+        not math.isfinite(live_mark_price)
+        or live_mark_price <= 0
+        or exchange_time_ms <= 0
+    ):
+        raise RuntimeError(
+            "UNIT 4 INVALID UNIT 3 MARKET DATA"
+        )
+
+    # Verify that the Unit 3 observation is still fresh
+    # before retrieving new candle data.
+
+    now_ms = int(time.time() * 1000)
+
+    if (
+        exchange_time_ms < now_ms - 120000
+        or exchange_time_ms > now_ms + 15000
+    ):
+        raise RuntimeError(
+            "UNIT 4 STALE UNIT 3 SNAPSHOT"
+        )
+
+    base_url = exchange.get("contract_base_url")
+
+    if base_url != "https://api-contract.weex.com":
+        raise RuntimeError(
+            "UNIT 4 INVALID CONTRACT BASE URL"
+        )
+
+    interval = "1m"
+    candle_limit = 300
+
+    endpoint = "/capi/v3/market/markPriceKlines"
+
+    query = urllib.parse.urlencode({
+        "symbol": "BTCUSDT",
+        "interval": interval,
+        "limit": candle_limit,
+    })
+
+    url = base_url + endpoint + "?" + query
+
+    request = urllib.request.Request(
+        url=url,
+        method="GET",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "WEEX-Hybrid-Unit4-V3",
+        },
+    )
+
+    if (
+        request.get_method() != "GET"
+        or request.data is not None
+    ):
+        raise RuntimeError(
+            "UNIT 4 NON-READ-ONLY REQUEST"
+        )
+
+    start = time.monotonic()
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=15
+        ) as response:
+
+            http_status = response.getcode()
+            raw_body = (
+                response.read().decode("utf-8")
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        error_body = ""
+
+        try:
+            error_body = (
+                exc.read().decode("utf-8")
+            )
+        except Exception:
+            pass
+
+        print(
+            "UNIT 4 HTTP ERROR BODY =",
+            error_body[:500],
+            flush=True
+        )
+
+        raise RuntimeError(
+            "UNIT 4 WEEX KLINE HTTP ERROR"
+        ) from exc
+
+    except urllib.error.URLError as exc:
+
+        raise RuntimeError(
+            "UNIT 4 WEEX KLINE CONNECTION FAILED"
+        ) from exc
+
+    latency_ms = (
+        time.monotonic() - start
+    ) * 1000.0
+
+    if http_status != 200 or not raw_body:
+        raise RuntimeError(
+            "UNIT 4 INVALID KLINE HTTP RESPONSE"
+        )
+
+    try:
+        raw_klines = json.loads(raw_body)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "UNIT 4 INVALID KLINE JSON"
+        ) from exc
+
+    # Use the validated Unit 3 exchange timestamp
+    # as the authoritative candle-closing boundary.
+
+    candles, closed = unit_4_validate_candles_v3(
+        raw_klines,
+        exchange_time_ms
+    )
+
+    close_prices = [
+        candle["close"] for candle in closed
+    ]
+
+    ema19 = unit_4_calculate_ema_v3(
+        close_prices, 19
+    )
+    ema50 = unit_4_calculate_ema_v3(
+        close_prices, 50
+    )
+    ema100 = unit_4_calculate_ema_v3(
+        close_prices, 100
+    )
+    ema200 = unit_4_calculate_ema_v3(
+        close_prices, 200
+    )
+
+    ema_separation = (
+        abs(ema19 - ema50) / ema50 * 100.0
+    )
+
+    if ema19 > ema50 > ema200:
+        ema_structure = "BULLISH"
+    elif ema19 < ema50 < ema200:
+        ema_structure = "BEARISH"
+    else:
+        ema_structure = "MIXED"
+
+    latest = closed[-1]
+    previous = closed[-2]
+
+    latest_close = latest["close"]
+    previous_close = previous["close"]
+
+    movements = {}
+
+    for minutes in (1, 5, 15, 30, 60, 120):
+
+        reference = close_prices[-(minutes + 1)]
+
+        movements[minutes] = (
+            (latest_close - reference)
+            / reference * 100.0
+        )
+
+    short_term_move_pct = movements[1]
+
+    newest_returned_is_closed = (
+        candles[-1]["close_time_ms"]
+        <= exchange_time_ms
+    )
+
+    # ========================================================
+    # PRESERVED ORIGINAL UNIT 4 OUTPUT CONTRACT
+    # ========================================================
+
+    analysis_snapshot = {
+        "exchange": "WEEX",
+        "api_version": "V3",
+        "symbol": "BTCUSDT",
+        "interval": interval,
+        "price_type": "MARK",
+        "live_mark_price": live_mark_price,
+        "previous_close": previous_close,
+        "latest_close": latest_close,
+        "latest_open_time_ms":
+            latest["open_time_ms"],
+        "latest_close_time_ms":
+            latest["close_time_ms"],
+        "exchange_time_ms": exchange_time_ms,
+
+        "ema19": ema19,
+        "ema50": ema50,
+        "ema100": ema100,
+        "ema200": ema200,
+        "ema19_50_separation_pct": ema_separation,
+
+        "short_term_move_pct": short_term_move_pct,
+
+        "move_1m_pct": movements[1],
+        "move_5m_pct": movements[5],
+        "move_15m_pct": movements[15],
+        "move_30m_pct": movements[30],
+        "move_60m_pct": movements[60],
+        "move_120m_pct": movements[120],
+
+        "ema_structure": ema_structure,
+
+        "recent_closed_klines": [
+            dict(candle) for candle in closed[-60:]
+        ],
+
+        "candle_count": len(candles),
+        "closed_candle_count": len(closed),
+        "newest_returned_candle_closed":
+            newest_returned_is_closed,
+
+        "source":
+            "WEEX_V3_PUBLIC_MARK_PRICE_KLINES",
+        "read_only": True,
+    }
+
+    print(
+        "UNIT 4 HTTP STATUS =",
+        http_status,
+        flush=True
+    )
+    print(
+        "UNIT 4 REQUEST LATENCY MS =",
+        round(latency_ms, 2),
+        flush=True
+    )
+    print(
+        "UNIT 4 CLOSED CANDLES =",
+        len(closed),
+        flush=True
+    )
+    print(
+        "UNIT 4 LATEST CLOSED CANDLE AGE MS =",
+        exchange_time_ms
+        - latest["close_time_ms"],
+        flush=True
+    )
+    print(
+        "UNIT 4 EMA19 =",
+        round(ema19, 6),
+        flush=True
+    )
+    print(
+        "UNIT 4 EMA50 =",
+        round(ema50, 6),
+        flush=True
+    )
+    print(
+        "UNIT 4 EMA100 =",
+        round(ema100, 6),
+        flush=True
+    )
+    print(
+        "UNIT 4 EMA200 =",
+        round(ema200, 6),
+        flush=True
+    )
+    print(
+        "UNIT 4 EMA STRUCTURE =",
+        ema_structure,
+        flush=True
+    )
+
+    for minutes in (1, 5, 15, 30, 60, 120):
+        print(
+            "UNIT 4",
+            str(minutes) + "M MOVE % =",
+            round(movements[minutes], 6),
+            flush=True
+        )
+
+    print(
+        "PASS: UNIT 4 CLOSED-CANDLE VALIDATION",
+        flush=True
+    )
+    print(
+        "PASS: UNIT 4 ORIGINAL SNAPSHOT CONTRACT",
+        flush=True
+    )
+    print(
+        "PASS: UNIT 4 HANDOVER READY FOR HYBRID ADAPTER",
+        flush=True
+    )
+    print(
+        "UNIT 4 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 4 RESULT = PASS"
+    )
+    print("=" * 80, flush=True)
+
+    return analysis_snapshot
+
+
+# ============================================================
+# RUN UNIT 4 ORIGINAL CORE
+# PRESERVE ORIGINAL HANDOVER NAME
+# ============================================================
+
+FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
+    fresh_reconstruction_unit_4()
+)
+
+
+# ============================================================
+# END UNIT 4 OPTIMIZED CORE V3
+# EXISTING UNIT 4 HYBRID ADAPTER FOLLOWS
+# DO NOT DELETE THE ADAPTER
+# ============================================================
+
+
