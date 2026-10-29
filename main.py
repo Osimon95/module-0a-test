@@ -2339,7 +2339,18 @@ FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
 # ============================================================
 
 
+# ============================================================
+# RUN UNIT 4 HYBRID EVIDENCE ADAPTER
+# AFTER UNIT 4 CORE, BEFORE UNIT 5
+# ZERO INDENTATION
+# ============================================================
 
+FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
+    fresh_unit_4_hybrid_adjustable_adapter(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+    )
+)
 # ============================================================
 # START COMPLETE UNIT 5 REPLACEMENT V6
 # ORIGINAL 42-FIELD CLASSIFIER + HYBRID ARBITRATION
