@@ -6452,7 +6452,7 @@ def unit_7_validation_v8():
                 config, signal
             )
 
-            passed = (
+            passed = ()
                 result["status"] == expected_status
                 and result[
                     "order_payload_created"
