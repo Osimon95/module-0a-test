@@ -6427,6 +6427,7 @@ def fresh_reconstruction_unit_7(
 # NO WEEX ACCOUNT REQUEST OR ORDER
 # ============================================================
 
+
 def unit_7_validation_v8():
 
     print("=" * 80, flush=True)
@@ -6449,29 +6450,33 @@ def unit_7_validation_v8():
 
         try:
             result = fresh_reconstruction_unit_7(
-                config, signal
+                config,
+                signal
             )
 
-            passed = ()
-            result["status"] == expected_status
-                and result[
-                    "order_payload_created"
-                ] is False
-                and result[
-                    "quantity_calculated"
-                ] is False
+            max_cap = config["strategy"].get(
+                "exposure_cap_max_percent",
+                100.0
+            )
+
+            passed = (
+                result["status"] == expected_status
+                and result["order_payload_created"] is False
+                and result["quantity_calculated"] is False
                 and result["exchange_write"] is False
                 and result["max_backups"] == 5
-                and result["exposure_cap_percent"] <= config["strategy"
-                ]["exposure_cap_max_percent"]
-                
+                and result["exposure_cap_percent"] <= max_cap
+            )
 
         except Exception as exc:
+
             print(
                 "UNIT 7 TEST ERROR =",
-                name, repr(exc),
+                name,
+                repr(exc),
                 flush=True
             )
+
             passed = False
 
         tests.append((name, passed))
@@ -6483,8 +6488,7 @@ def unit_7_validation_v8():
             "signal_qualified": False,
             "active_mode": "NONE",
             "direction": "NONE",
-            "admission_reason":
-                "NO_ACCEPTABLE_CANDIDATE",
+            "admission_reason": "NO_ACCEPTABLE_CANDIDATE",
             "candidate_stage": "NONE",
         },
         "IDLE"
@@ -6561,23 +6565,41 @@ def unit_7_validation_v8():
         "IDLE"
     )
 
-    # Independently verify the actual Unit 6 result.
-    actual = fresh_reconstruction_unit_7(
-        config, base
-    )
+    try:
+        actual = fresh_reconstruction_unit_7(
+            config,
+            base
+        )
+
+        actual_pass = (
+            actual["status"] in ("IDLE", "READY_FOR_BALANCE")
+            and actual["exchange_write"] is False
+            and actual["order_payload_created"] is False
+        )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 7 ACTUAL HANDOVER ERROR =",
+            repr(exc),
+            flush=True
+        )
+
+        actual_pass = False
 
     tests.append((
         "ACTUAL UNIT 6 V9 HANDOVER",
-        actual["status"] in (
-            "IDLE", "READY_FOR_BALANCE"
-        )
-        and actual["exchange_write"] is False
+        actual_pass
     ))
 
-    passed = sum(ok for _, ok in tests)
-    failed = len(tests) - passed
+    passed_count = sum(
+        1 for _, ok in tests if ok
+    )
+
+    failed_count = len(tests) - passed_count
 
     for name, ok in tests:
+
         print(
             "UNIT 7 TEST:",
             name,
@@ -6588,16 +6610,17 @@ def unit_7_validation_v8():
 
     print(
         "UNIT 7 TESTS PASSED =",
-        passed,
-        flush=True
-    )
-    print(
-        "UNIT 7 TESTS FAILED =",
-        failed,
+        passed_count,
         flush=True
     )
 
-    if failed:
+    print(
+        "UNIT 7 TESTS FAILED =",
+        failed_count,
+        flush=True
+    )
+
+    if failed_count:
         raise RuntimeError(
             "UNIT 7 V8 VALIDATION FAILED"
         )
