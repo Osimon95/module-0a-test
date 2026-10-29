@@ -6129,9 +6129,14 @@ def fresh_reconstruction_unit_7(
         "EXPOSURE CAP"
     )
 
-    if cap_pct > 35:
+    max_cap_pct = unit_7_v8_decimal(
+    strategy.get("exposure_cap_max_percent", 100.0),
+    "MAXIMUM EXPOSURE CAP"
+    )
+
+    if max_cap_pct > 100 or cap_pct > max_cap_pct:
         raise RuntimeError(
-            "UNIT 7 EXPOSURE CAP ABOVE 35%"
+            "UNIT 7 EXPOSURE CAP ABOVE CONFIGURED MAXIMUM"
         )
 
     if (
