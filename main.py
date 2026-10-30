@@ -16619,11 +16619,29 @@ def scan_idle_unit12_result(reason):
 def scan_refresh_entry_pipeline():
 
     config = FRESH_RECONSTRUCTION_CONFIG
+    
+    # UNIT 3 -> UNIT 4 FRESH MARKET HANDOVER
+    # Unit 4 reads this global snapshot directly.
 
-    # Unit 3: fresh public market price
-    market = fresh_reconstruction_unit_3()
+    global FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
 
-    # Unit 4: fresh candles and analysis
+    FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
+        fresh_reconstruction_unit_3()
+    )
+
+    market = FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+
+    if not isinstance(market, dict):
+        raise RuntimeError(
+            "SCAN UNIT 3 SNAPSHOT INVALID"
+        )
+
+    print(
+        "SCAN FRESH MARKET TIMESTAMP =",
+        market.get("exchange_time_ms"),
+        flush=True
+    )
+
     analysis = fresh_reconstruction_unit_4()
 
     # Unit 5: strategy classification
