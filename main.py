@@ -11113,13 +11113,24 @@ def unit_12_v4_validate_payload(
         "newClientOrderId"
     )
 
-    if (
-        not isinstance(client_id, str)
-        or not client_id.strip()
-    ):
-        raise RuntimeError(
-            "UNIT 12 CLIENT ORDER ID MISSING"
-        )
+    import re
+
+if (
+    not isinstance(client_id, str)
+    or re.fullmatch(
+        r"[.A-Za-z0-9_:/-]{1,36}",
+        client_id
+    ) is None
+):
+    raise RuntimeError(
+        "UNIT 12 WEEX CLIENT ORDER ID INVALID"
+    )
+
+print(
+    "UNIT 12 CLIENT ORDER ID VALID = True",
+    flush=True
+)
+    
 
     quantity = unit_12_v4_decimal(
         payload.get("quantity"),
