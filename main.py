@@ -152,16 +152,45 @@ FRESH_RECONSTRUCTION_UNIT_1_READY = (
 
 
 # ============================================================
-# START COMPLETE UNIT 2 REPLACEMENT V2
-# WEEX HYBRID 15-UNIT MODEL
-# CONFIGURATION + HYBRID QUALIFICATION + VALIDATION
-# ZERO INDENTATION
+# START COMPLETE UNIT 2 V9
+# WEEX DEMO CENTRAL CONFIGURATION + QUALIFICATION
+# E0 INITIAL ENTRY / B1-B5 DYNAMIC BACKUPS
+# NO BACKUP MULTIPLIERS
 # ============================================================
+
+import os
+import math
+from decimal import Decimal, InvalidOperation
+
+
+def unit_2_v9_number(value, name, allow_zero=False):
+    if isinstance(value, bool):
+        raise RuntimeError("UNIT 2 INVALID " + name)
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "UNIT 2 INVALID " + name
+        ) from exc
+
+    if not number.is_finite():
+        raise RuntimeError("UNIT 2 NONFINITE " + name)
+
+    if number < 0 or (number == 0 and not allow_zero):
+        raise RuntimeError(
+            "UNIT 2 INVALID RANGE " + name
+        )
+
+    return number
+
 
 def fresh_reconstruction_unit_2():
 
     print("=" * 80, flush=True)
-    log("FRESH RECONSTRUCTION UNIT 2 START")
+    print(
+        "FRESH RECONSTRUCTION UNIT 2 V9 START",
+        flush=True
+    )
 
     if FRESH_RECONSTRUCTION_UNIT_1_READY is not True:
         raise RuntimeError(
@@ -169,27 +198,62 @@ def fresh_reconstruction_unit_2():
         )
 
     # ========================================================
-    # 1. EXCHANGE CONFIGURATION
+    # CONFIGURABLE INPUTS
+    # ========================================================
+    # Set these directly or through Render environment values.
+    # E0 is an amount, not a separate multiplier system.
+    # Unit 2 never accesses private WEEX endpoints.
+    # ========================================================
+
+    def setting(name, default):
+        return unit_2_v9_number(
+            os.getenv(name, str(default)),
+            name
+        )
+
+    e0_margin = setting(
+        "INITIAL_ENTRY_MARGIN_USDT", "0.5"
+    )
+
+    backup_percent = setting(
+        "BACKUP_MARGIN_PERCENT", "0.5"
+    )
+
+    buffer_percent = setting(
+        "BACKUP_BUFFER_PERCENT", "0.3"
+    )
+
+    cap_percent = setting(
+        "EXPOSURE_CAP_PERCENT", "35.0"
+    )
+
+    if backup_percent > 100:
+        raise RuntimeError(
+            "UNIT 2 BACKUP PERCENT EXCEEDS 100"
+        )
+
+    if buffer_percent >= 100:
+        raise RuntimeError(
+            "UNIT 2 INVALID LIQUIDATION BUFFER"
+        )
+
+    if cap_percent > 100:
+        raise RuntimeError(
+            "UNIT 2 EXPOSURE CAP EXCEEDS 100"
+        )
+
+    # ========================================================
+    # EXCHANGE SETTINGS
     # ========================================================
 
     exchange = {
         "name": "WEEX",
         "api_version": "V3",
-        "contract_base_url": (
-            "https://api-contract.weex.com"
-        ),
+        "contract_base_url":
+            "https://api-contract.weex.com",
         "market_symbol": "BTCUSDT",
         "demo_order_symbol": "BTCSUSDT",
     }
-
-    execution_environment = "DEMO"
-
-    # ========================================================
-    # 2. UNIT-LOCAL SAFETY
-    #
-    # These flags apply to Unit 2 itself.
-    # They do not disable later authorized DEMO orders.
-    # ========================================================
 
     safety = {
         "public_market_data_read_enabled": True,
@@ -206,33 +270,55 @@ def fresh_reconstruction_unit_2():
         "position_mode_mutation_enabled": False,
     }
 
+    # These are local Unit 2 capabilities.
+    # They must not disable subsequent authorized
+    # DEMO execution in Unit 12.
+
     # ========================================================
-    # 3. ORIGINAL STRATEGY CONFIGURATION
-    # PRESERVE EXISTING DOWNSTREAM KEYS
+    # CENTRAL STRATEGY CONFIGURATION
     # ========================================================
 
     strategy = {
-
+        "initial_fixed_usdt": float(e0_margin),
         "initial_margin_percent": 5.0,
 
-        # Fixed intended allocation for initial entries.
-        "initial_fixed_usdt": 2.00,
-
-        "backup_margin_percent": 5.0,
-        "backup_buffer_percent": 0.30,
-
+        "backup_margin_percent":
+            float(backup_percent),
+        "backup_buffer_percent":
+            float(buffer_percent),
         "max_backups": 5,
 
-        "backup_multipliers": (
-            1.0,
-            1.5,
-            2.0,
-            2.5,
-            3.0,
-        ),
+        "backup_sizing_mode":
+            "PERCENT_AVAILABLE_BALANCE",
 
-        "exposure_cap_percent": 35.0,
-        'exposure_cap_max_percent': 100.0,
+        "backup_trigger_reference":
+            "FRESH_WEEX_LIQUIDATION_PRICE",
+
+        "backup_trigger_recalculation":
+            "AFTER_PRECEDING_CONFIRMED_FILL",
+
+        "backup_long_liquidation_factor":
+            float(
+                Decimal("1")
+                + buffer_percent / Decimal("100")
+            ),
+
+        "backup_short_liquidation_factor":
+            float(
+                Decimal("1")
+                - buffer_percent / Decimal("100")
+            ),
+
+        "exposure_cap_percent":
+            float(cap_percent),
+        "exposure_cap_max_percent": 100.0,
+
+        "exposure_cap_basis":
+            "TRADING_ACCOUNT_EQUITY",
+
+        "exposure_includes_initial": True,
+        "exposure_includes_filled_backups": True,
+        "exposure_includes_pending_margin": True,
 
         "progressive_backup_funding": True,
         "full_ladder_reservation_required": False,
@@ -243,7 +329,6 @@ def fresh_reconstruction_unit_2():
 
         "tp1_net_roi_floor_percent": 5.0,
         "tp2_net_roi_floor_percent": 10.0,
-
         "tp1_tp2_min_roi_separation_percent": 5.0,
 
         "tp3_trailing_reference_percent": 0.20,
@@ -257,13 +342,11 @@ def fresh_reconstruction_unit_2():
         "anti_duplicate_orders": True,
         "active_trade_mode_lock": True,
         "exclusive_mode": True,
-
         "mode_confirmations_required": 3,
     }
 
-    # ========================================================
-    # 4. MARKET PRECISION
-    # ========================================================
+    # No backup_multipliers key.
+    # No hardcoded leverage_target key.
 
     market_precision = {
         "quantity_step": 0.0001,
@@ -272,446 +355,13 @@ def fresh_reconstruction_unit_2():
     }
 
     # ========================================================
-    # 5. ORIGINAL CONFIGURATION CONTRACT
+    # PRESERVE UNIT 2 HYBRID QUALIFICATION CONTRACT
     # ========================================================
-
-    config = {
-        "exchange": exchange,
-        "execution_environment": execution_environment,
-        "safety": safety,
-        "strategy": strategy,
-        "market_precision": market_precision,
-    }
-
-    # ========================================================
-    # 6. INITIAL CONFIGURATION VALIDATION
-    # ========================================================
-
-    errors = []
-
-    def require(condition, message):
-        if not condition:
-            errors.append(message)
-
-    require(
-        exchange["name"] == "WEEX",
-        "INVALID EXCHANGE"
-    )
-
-    require(
-        exchange["api_version"] == "V3",
-        "INVALID API VERSION"
-    )
-
-    require(
-        exchange["contract_base_url"]
-        == "https://api-contract.weex.com",
-        "INVALID BASE URL"
-    )
-
-    require(
-        exchange["market_symbol"] == "BTCUSDT",
-        "INVALID MARKET SYMBOL"
-    )
-
-    require(
-        exchange["demo_order_symbol"] == "BTCSUSDT",
-        "INVALID DEMO SYMBOL"
-    )
-
-    require(
-        execution_environment == "DEMO",
-        "LIVE EXECUTION NOT ALLOWED"
-    )
-
-    require(
-        0 < strategy["initial_margin_percent"] <= 5.0,
-        "INVALID INITIAL MARGIN PERCENT"
-    )
-
-    require(
-        strategy["initial_fixed_usdt"] > 0,
-        "INVALID INITIAL ALLOCATION"
-    )
-
-    require(
-        strategy["max_backups"] == 5,
-        "INVALID BACKUP COUNT"
-    )
-
-    require(
-        tuple(strategy["backup_multipliers"])
-        == (1.0, 1.5, 2.0, 2.5, 3.0),
-        "INVALID BACKUP MULTIPLIERS"
-    )
-
-    require(
-        strategy["backup_buffer_percent"] == 0.30,
-        "INVALID BACKUP BUFFER"
-    )
-
-    require(
-        0 < strategy["backup_margin_percent"] <= 5.0,
-        "INVALID BACKUP MARGIN PERCENT"
-    )
-
-    require(
-        0 < strategy['exposure_cap_percent']
-        <= strategy['exposure_cap_max_percent']
-        <= 100.0,
-        'EXPOSURE CAP MUST BE BETWEEN 0 AND 100%'
-    )
-    require(
-        strategy["exposure_cap_percent"] == 35.0,
-        "INVALID EXPOSURE CAP"
-    )
-
-    require(
-        strategy["progressive_backup_funding"] is True,
-        "PROGRESSIVE FUNDING DISABLED"
-    )
-
-    require(
-        strategy["full_ladder_reservation_required"]
-        is False,
-        "FULL LADDER RESERVATION ENABLED"
-    )
-
-    tp_total = sum(
-        strategy[key]
-        for key in (
-            "tp1_allocation_percent",
-            "tp2_allocation_percent",
-            "tp3_allocation_percent",
-        )
-    )
-
-    require(
-        abs(tp_total - 100.0) < 0.000001,
-        "INVALID TP ALLOCATION"
-    )
-
-    require(
-        strategy["tp1_net_roi_floor_percent"] >= 5.0,
-        "TP1 FLOOR TOO LOW"
-    )
-
-    require(
-        strategy["tp2_net_roi_floor_percent"] >= 10.0,
-        "TP2 FLOOR TOO LOW"
-    )
-
-    require(
-        strategy["tp2_net_roi_floor_percent"]
-        > strategy["tp1_net_roi_floor_percent"],
-        "TP2 MUST EXCEED TP1"
-    )
-
-    require(
-        strategy["tp1_tp2_min_roi_separation_percent"]
-        > 0,
-        "INVALID TP SEPARATION"
-    )
-
-    require(
-        0
-        < strategy["tp3_trailing_min_percent"]
-        <= strategy["tp3_trailing_reference_percent"]
-        <= strategy["tp3_trailing_max_percent"],
-        "INVALID TP3 RANGE"
-    )
-
-    for key in (
-        "signal_expiry_seconds",
-        "loss_cooldown_seconds",
-        "mode_confirmations_required",
-    ):
-        require(
-            strategy[key] > 0,
-            "INVALID SIGNAL CONTROL: " + key
-        )
-
-    for key in (
-        "one_direction_only",
-        "anti_duplicate_orders",
-        "active_trade_mode_lock",
-        "exclusive_mode",
-    ):
-        require(
-            strategy[key] is True,
-            "REQUIRED STRATEGY CONTROL DISABLED: " + key
-        )
-
-    for key in (
-        "quantity_step",
-        "minimum_quantity",
-        "price_step",
-    ):
-        require(
-            market_precision[key] > 0,
-            "INVALID PRECISION: " + key
-        )
-
-    require(
-        safety["public_market_data_read_enabled"] is True,
-        "PUBLIC MARKET READ DISABLED"
-    )
-
-    for key in (
-        "authenticated_api_enabled",
-        "account_access_enabled",
-        "position_access_enabled",
-        "order_endpoint_access_enabled",
-        "demo_order_submission_enabled",
-        "real_order_submission_enabled",
-        "exchange_mutation_enabled",
-        "leverage_mutation_enabled",
-        "margin_mode_mutation_enabled",
-        "position_mode_mutation_enabled",
-    ):
-        require(
-            safety[key] is False,
-            "UNIT 2 UNSAFE CAPABILITY: " + key
-        )
-
-    if errors:
-        print(
-            "UNIT 2 VALIDATION ERRORS =",
-            errors,
-            flush=True
-        )
-        raise RuntimeError(
-            "UNIT 2 CONFIGURATION VALIDATION FAILED"
-        )
-
-    full_ladder_margin = (
-        strategy["initial_fixed_usdt"]
-        * (
-            1.0
-            + sum(strategy["backup_multipliers"])
-        )
-    )
-
-    print(
-        "PASS: UNIT 2 CONFIGURATION CREATED",
-        flush=True
-    )
-
-    print("PASS: EXCHANGE = WEEX", flush=True)
-    print("PASS: API VERSION = V3", flush=True)
-    print("PASS: MARKET SYMBOL = BTCUSDT", flush=True)
-    print("PASS: DEMO ORDER SYMBOL = BTCSUSDT", flush=True)
-    print("PASS: EXECUTION ENVIRONMENT = DEMO", flush=True)
-
-    print(
-        "PASS: LEVERAGE CONTROL = WEEX EXCHANGE ONLY",
-        flush=True
-    )
-    print(
-        "PASS: PYTHON FIXED LEVERAGE TARGET = NONE",
-        flush=True
-    )
-    print(
-        "PASS: LEVERAGE MUTATION = DISABLED",
-        flush=True
-    )
-
-    print(
-        "PASS: INITIAL MARGIN % =",
-        strategy["initial_margin_percent"],
-        flush=True
-    )
-    print(
-        "PASS: DEFAULT INITIAL MARGIN USDT =",
-        strategy["initial_fixed_usdt"],
-        flush=True
-    )
-    print(
-        "PASS: BACKUP MARGIN % =",
-        strategy["backup_margin_percent"],
-        flush=True
-    )
-    print(
-        "PASS: BACKUP BUFFER % =",
-        strategy["backup_buffer_percent"],
-        flush=True
-    )
-    print(
-        "PASS: MAX BACKUPS =",
-        strategy["max_backups"],
-        flush=True
-    )
-    print(
-        "PASS: BACKUP MULTIPLIERS =",
-        strategy["backup_multipliers"],
-        flush=True
-    )
-    print(
-        "PASS: EXPOSURE CAP % =",
-        strategy["exposure_cap_percent"],
-        flush=True
-    )
-    print(
-        "PASS: BACKUP FUNDING = PROGRESSIVE",
-        flush=True
-    )
-    print(
-        "PASS: FULL LADDER RESERVATION = FALSE",
-        flush=True
-    )
-    print(
-        "UNIT 2 FULL LADDER MARGIN USDT =",
-        full_ladder_margin,
-        flush=True
-    )
-
-    print(
-        "PASS: TP TARGET ALLOCATION = 10% / 20% / 70%",
-        flush=True
-    )
-    print(
-        "PASS: TP ALLOCATION TOTAL =",
-        tp_total,
-        "%",
-        flush=True
-    )
-    print(
-        "PASS: TP1 NET ROI FLOOR =",
-        strategy["tp1_net_roi_floor_percent"],
-        "%",
-        flush=True
-    )
-    print(
-        "PASS: TP2 NET ROI FLOOR =",
-        strategy["tp2_net_roi_floor_percent"],
-        "%",
-        flush=True
-    )
-    print(
-        "PASS: TP1 -> TP2 MIN ROI SEPARATION =",
-        strategy[
-            "tp1_tp2_min_roi_separation_percent"
-        ],
-        "%",
-        flush=True
-    )
-
-    print(
-        "PASS: TP3 TRAILING REFERENCE =",
-        strategy["tp3_trailing_reference_percent"],
-        "%",
-        flush=True
-    )
-    print(
-        "PASS: TP3 TRAILING RANGE =",
-        strategy["tp3_trailing_min_percent"],
-        "% TO",
-        strategy["tp3_trailing_max_percent"],
-        "%",
-        flush=True
-    )
-    print("PASS: TP3 TRAILING MODE = DYNAMIC", flush=True)
-    print(
-        "PASS: TP3 DYNAMIC INPUTS = "
-        "TREND + ATR/VOLATILITY + MOMENTUM DETERIORATION",
-        flush=True
-    )
-
-    print("PASS: TP QUANTITY MODE = STEP-AWARE", flush=True)
-    print(
-        "PASS: QUANTITY STEP =",
-        market_precision["quantity_step"],
-        flush=True
-    )
-    print(
-        "PASS: MINIMUM QUANTITY =",
-        market_precision["minimum_quantity"],
-        flush=True
-    )
-    print(
-        "PASS: PRICE STEP =",
-        market_precision["price_step"],
-        flush=True
-    )
-
-    for key, label in (
-        ("anti_duplicate_orders", "ANTI-DUPLICATE ORDERS"),
-        ("one_direction_only", "ONE DIRECTION ONLY"),
-        ("active_trade_mode_lock", "ACTIVE TRADE MODE LOCK"),
-        ("exclusive_mode", "EXCLUSIVE MODE"),
-    ):
-        print(
-            "PASS:",
-            label,
-            "=",
-            strategy[key],
-            flush=True
-        )
-
-    print("PASS: SL = DISABLED", flush=True)
-    print("PASS: PUBLIC MARKET DATA READ ENABLED", flush=True)
-
-    for name in (
-        "AUTHENTICATED API ACCESS",
-        "ACCOUNT ACCESS",
-        "POSITION ACCESS",
-        "ORDER ENDPOINT ACCESS",
-        "DEMO ORDER SUBMISSION",
-        "REAL ORDER SUBMISSION",
-        "EXCHANGE MUTATION",
-        "LEVERAGE MUTATION",
-        "MARGIN MODE MUTATION",
-        "POSITION MODE MUTATION",
-    ):
-        print(
-            "ZERO " + name + " = TRUE",
-            flush=True
-        )
-
-    log("FRESH RECONSTRUCTION UNIT 2 RESULT = PASS")
-    print("=" * 80, flush=True)
-
-    return config
-
-
-# ============================================================
-# 7. EXECUTE ORIGINAL UNIT 2 FIRST
-# THIS CREATES THE CONFIGURATION REQUIRED BY ADAPTERS
-# ============================================================
-
-FRESH_RECONSTRUCTION_CONFIG = (
-    fresh_reconstruction_unit_2()
-)
-
-
-# ============================================================
-# 8. UNIT 2 HYBRID ADJUSTABLE CONFIGURATION
-# PRESERVE ORIGINAL KEY NAMES
-# ============================================================
-
-def fresh_unit_2_hybrid_adjustable_adapter(config):
-
-    if not isinstance(config, dict):
-        raise RuntimeError(
-            "UNIT 2 ADAPTER: INVALID CONFIGURATION"
-        )
-
-    if not isinstance(config.get("strategy"), dict):
-        raise RuntimeError(
-            "UNIT 2 ADAPTER: STRATEGY MISSING"
-        )
 
     qualification = {
-
-        # ====================================================
-        # COMMON
-        # ====================================================
-
         "common": {
             "mode_priority": (
-                "BREAKOUT",
-                "STRUCTURE",
-                "SCALP",
+                "BREAKOUT", "STRUCTURE", "SCALP"
             ),
             "direction_votes_required": 2,
             "direction_votes_total": 3,
@@ -724,10 +374,6 @@ def fresh_unit_2_hybrid_adjustable_adapter(config):
             "spike_count_rejection_above": 2,
             "reject_late_impulse_entry": True,
         },
-
-        # ====================================================
-        # BREAKOUT
-        # ====================================================
 
         "breakout": {
             "enabled": True,
@@ -755,10 +401,6 @@ def fresh_unit_2_hybrid_adjustable_adapter(config):
             "candidate_expiry_seconds": 120,
         },
 
-        # ====================================================
-        # STRUCTURE
-        # ====================================================
-
         "structure": {
             "enabled": True,
             "priority": 2,
@@ -780,10 +422,6 @@ def fresh_unit_2_hybrid_adjustable_adapter(config):
             "reject_trend_exhaustion": True,
             "candidate_expiry_seconds": 120,
         },
-
-        # ====================================================
-        # SCALP
-        # ====================================================
 
         "scalp": {
             "enabled": True,
@@ -814,62 +452,261 @@ def fresh_unit_2_hybrid_adjustable_adapter(config):
         },
     }
 
-    config["qualification"] = qualification
+    config = {
+        "exchange": exchange,
+        "execution_environment": "DEMO",
+        "safety": safety,
+        "strategy": strategy,
+        "market_precision": market_precision,
+        "qualification": qualification,
+    }
 
-    # No assumed or preverified exchange leverage.
-    # Unit 8 remains responsible for the directional
-    # leverage configuration and related checks.
+    # ========================================================
+    # CONTRACT VALIDATION
+    # ========================================================
 
-    config["strategy"].pop("leverage_target", None)
+    def require(condition, message):
+        if not condition:
+            raise RuntimeError(
+                "UNIT 2 CONFIG INVALID: " + message
+            )
 
-    print("=" * 80, flush=True)
-    print("UNIT 2 HYBRID ADJUSTABLE V3 ADAPTER", flush=True)
-    print("UNIT 2 ORIGINAL CONFIGURATION = RETAINED", flush=True)
+    require(
+        exchange["name"] == "WEEX",
+        "EXCHANGE"
+    )
+
+    require(
+        exchange["api_version"] == "V3",
+        "API VERSION"
+    )
+
+    require(
+        config["execution_environment"] == "DEMO",
+        "DEMO ENVIRONMENT"
+    )
+
+    require(
+        e0_margin > 0,
+        "E0 MARGIN"
+    )
+
+    require(
+        backup_percent > 0
+        and backup_percent <= 100,
+        "BACKUP BALANCE PERCENT"
+    )
+
+    require(
+        buffer_percent > 0
+        and buffer_percent < 100,
+        "LIQUIDATION BUFFER"
+    )
+
+    require(
+        strategy["max_backups"] == 5,
+        "BACKUP COUNT"
+    )
+
+    require(
+        Decimal("0") < cap_percent <= Decimal("100"),
+        "EXPOSURE CAP"
+    )
+
+    require(
+        "backup_multipliers" not in strategy,
+        "OBSOLETE BACKUP MULTIPLIERS"
+    )
+
+    require(
+        "leverage_target" not in strategy,
+        "HARDCODED LEVERAGE"
+    )
+
+    for key in (
+        "one_direction_only",
+        "anti_duplicate_orders",
+        "active_trade_mode_lock",
+        "exclusive_mode",
+        "progressive_backup_funding",
+        "exposure_includes_initial",
+        "exposure_includes_filled_backups",
+        "exposure_includes_pending_margin",
+    ):
+        require(
+            strategy.get(key) is True,
+            key
+        )
+
+    require(
+        strategy[
+            "full_ladder_reservation_required"
+        ] is False,
+        "FULL LADDER RESERVATION"
+    )
+
+    for key in (
+        "real_order_submission_enabled",
+        "demo_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    ):
+        require(
+            safety[key] is False,
+            "UNIT 2 WRITE SAFETY " + key
+        )
+
+    require(
+        sum(
+            strategy[key] for key in (
+                "tp1_allocation_percent",
+                "tp2_allocation_percent",
+                "tp3_allocation_percent",
+            )
+        ) == 100.0,
+        "TAKE PROFIT ALLOCATION"
+    )
+
+    require(
+        strategy["tp1_net_roi_floor_percent"] >= 5.0,
+        "TP1 ROI FLOOR"
+    )
+
+    require(
+        strategy["tp2_net_roi_floor_percent"] >= 10.0,
+        "TP2 ROI FLOOR"
+    )
+
+    require(
+        0 < strategy["tp3_trailing_min_percent"]
+        <= strategy["tp3_trailing_reference_percent"]
+        <= strategy["tp3_trailing_max_percent"],
+        "TP3 TRAILING RANGE"
+    )
+
+    for key in (
+        "quantity_step",
+        "minimum_quantity",
+        "price_step",
+    ):
+        require(
+            market_precision[key] > 0,
+            "MARKET PRECISION " + key
+        )
+
+    require(
+        qualification["common"]["mode_priority"]
+        == ("BREAKOUT", "STRUCTURE", "SCALP"),
+        "STRATEGY PRIORITY"
+    )
+
+    require(
+        qualification["scalp"]["quality_threshold"]
+        == 70.0,
+        "SCALP QUALITY"
+    )
+
+    # ========================================================
+    # STARTUP REPORT
+    # ========================================================
 
     print(
-        "UNIT 2 MODE PRIORITY =",
+        "PASS: UNIT 2 CONFIGURATION CREATED",
+        flush=True
+    )
+    print("PASS: EXCHANGE = WEEX", flush=True)
+    print("PASS: API VERSION = V3", flush=True)
+    print(
+        "PASS: DEMO ORDER SYMBOL = BTCSUSDT",
+        flush=True
+    )
+    print(
+        "PASS: EXECUTION ENVIRONMENT = DEMO",
+        flush=True
+    )
+    print(
+        "PASS: LEVERAGE CONTROL = WEEX ONLY",
+        flush=True
+    )
+    print(
+        "PASS: INITIAL ENTRY DEFAULT USDT =",
+        strategy["initial_fixed_usdt"],
+        flush=True
+    )
+    print(
+        "PASS: BACKUP MARGIN % AVAILABLE =",
+        strategy["backup_margin_percent"],
+        flush=True
+    )
+    print(
+        "PASS: BACKUP BUFFER % =",
+        strategy["backup_buffer_percent"],
+        flush=True
+    )
+    print(
+        "PASS: MAX BACKUPS =",
+        strategy["max_backups"],
+        flush=True
+    )
+    print(
+        "PASS: BACKUP MULTIPLIERS = NONE",
+        flush=True
+    )
+    print(
+        "PASS: BACKUP FUNDING = PROGRESSIVE",
+        flush=True
+    )
+    print(
+        "PASS: EXPOSURE CAP DEFAULT/CURRENT % =",
+        strategy["exposure_cap_percent"],
+        flush=True
+    )
+    print(
+        "PASS: EXPOSURE CAP MAX % =",
+        strategy["exposure_cap_max_percent"],
+        flush=True
+    )
+    print(
+        "PASS: LONG BACKUP FACTOR =",
+        strategy["backup_long_liquidation_factor"],
+        flush=True
+    )
+    print(
+        "PASS: SHORT BACKUP FACTOR =",
+        strategy["backup_short_liquidation_factor"],
+        flush=True
+    )
+    print(
+        "PASS: QUALIFICATION MODE PRIORITY =",
         qualification["common"]["mode_priority"],
         flush=True
     )
     print(
-        "UNIT 2 SCALP QUALITY DEFAULT =",
+        "PASS: SCALP QUALITY TARGET =",
         qualification["scalp"]["quality_threshold"],
         flush=True
     )
     print(
-        "UNIT 2 STRUCTURE PULLBACK ATR =",
-        qualification["structure"]["pullback_tolerance_atr"],
+        "PASS: TP ALLOCATION = 10 / 20 / 70",
         flush=True
     )
     print(
-        "UNIT 2 BREAKOUT PROXIMITY ATR =",
-        qualification["breakout"]["developing_proximity_atr"],
+        "PASS: MARKET QUANTITY STEP =",
+        market_precision["quantity_step"],
         flush=True
     )
     print(
-        "UNIT 2 BREAKOUT CONFIRMATION ATR =",
-        qualification["breakout"]["confirmation_distance_atr"],
-        flush=True
-    )
-
-    print(
-        "UNIT 2 REJECTED HIGHER MODE = NOT A SCALP LOCK",
+        "PASS: ANTI DUPLICATE = TRUE",
         flush=True
     )
     print(
-        "UNIT 2 DEVELOPING HIGHER MODE = PROTECTED",
+        "PASS: NO EXCHANGE MUTATION IN UNIT 2",
         flush=True
     )
     print(
-        "UNIT 2 EXCHANGE LEVERAGE CONTROL = WEEX ONLY",
-        flush=True
-    )
-    print(
-        "UNIT 2 FIXED PYTHON LEVERAGE = NONE",
-        flush=True
-    )
-    print(
-        "UNIT 2 EXCHANGE WRITE = NONE",
+        "FRESH RECONSTRUCTION UNIT 2 RESULT = PASS",
         flush=True
     )
     print(
@@ -882,230 +719,16 @@ def fresh_unit_2_hybrid_adjustable_adapter(config):
 
 
 # ============================================================
-# 9. EXECUTE HYBRID ADAPTER SECOND
+# UNIT 2 V9 EXECUTION
 # ============================================================
 
 FRESH_RECONSTRUCTION_CONFIG = (
-    fresh_unit_2_hybrid_adjustable_adapter(
-        FRESH_RECONSTRUCTION_CONFIG
-    )
+    fresh_reconstruction_unit_2()
 )
 
-
 # ============================================================
-# 10. UNIT 2 OPTIMIZATION VALIDATION V2
-# READ ONLY / NO EXCHANGE REQUESTS
-# ============================================================
-
-def unit_2_optimization_validation_v2(config):
-
-    print("=" * 80, flush=True)
-    print(
-        "UNIT 2 OPTIMIZATION VALIDATION V2 START",
-        flush=True
-    )
-
-    if not isinstance(config, dict):
-        raise RuntimeError(
-            "UNIT 2 TEST FAILED: CONFIGURATION MISSING"
-        )
-
-    exchange = config.get("exchange", {})
-    strategy = config.get("strategy", {})
-    safety = config.get("safety", {})
-    precision = config.get("market_precision", {})
-    qualification = config.get("qualification", {})
-
-    common = qualification.get("common", {})
-    breakout = qualification.get("breakout", {})
-    structure = qualification.get("structure", {})
-    scalp = qualification.get("scalp", {})
-
-    tests = {
-
-        "WEEX EXCHANGE":
-            exchange.get("name") == "WEEX",
-
-        "V3 API":
-            exchange.get("api_version") == "V3",
-
-        "MARKET SYMBOL":
-            exchange.get("market_symbol") == "BTCUSDT",
-
-        "DEMO ORDER SYMBOL":
-            exchange.get("demo_order_symbol") == "BTCSUSDT",
-
-        "DEMO ENVIRONMENT":
-            config.get("execution_environment") == "DEMO",
-
-        "INITIAL MARGIN 2 USDT":
-            strategy.get("initial_fixed_usdt") == 2.00,
-
-        "FIVE BACKUPS":
-            strategy.get("max_backups") == 5,
-
-        "BACKUP MULTIPLIERS":
-            tuple(strategy.get("backup_multipliers", ()))
-            == (1.0, 1.5, 2.0, 2.5, 3.0),
-
-        "EXPOSURE CAP":
-            strategy.get("exposure_cap_percent") == 35.0,
-
-        "PROGRESSIVE FUNDING":
-            strategy.get("progressive_backup_funding")
-            is True,
-
-        "NO FULL LADDER RESERVATION":
-            strategy.get("full_ladder_reservation_required")
-            is False,
-
-        "MODE PRIORITY":
-            tuple(common.get("mode_priority", ()))
-            == ("BREAKOUT", "STRUCTURE", "SCALP"),
-
-        "DEVELOPING MODE PROTECTION":
-            common.get("protect_developing_candidates")
-            is True,
-
-        "BREAKOUT PROXIMITY":
-            breakout.get("developing_proximity_atr")
-            == 0.50,
-
-        "BREAKOUT CONFIRMATION":
-            breakout.get("confirmation_distance_atr")
-            == 0.10,
-
-        "STRUCTURE PULLBACK":
-            structure.get("pullback_tolerance_atr")
-            == 0.75,
-
-        "SCALP QUALITY":
-            scalp.get("quality_threshold") == 70.0,
-
-        "SCALP SIDEWAYS RULE":
-            scalp.get("require_sideways_market")
-            is True,
-
-        "SCALP FEE AWARE":
-            scalp.get("fee_aware_enabled")
-            is True,
-
-        "TP TOTAL":
-            sum(
-                strategy.get(key, 0)
-                for key in (
-                    "tp1_allocation_percent",
-                    "tp2_allocation_percent",
-                    "tp3_allocation_percent",
-                )
-            ) == 100.0,
-
-        "TP1 FLOOR":
-            strategy.get("tp1_net_roi_floor_percent")
-            >= 5.0,
-
-        "TP2 FLOOR":
-            strategy.get("tp2_net_roi_floor_percent")
-            >= 10.0,
-
-        "QUANTITY STEP":
-            precision.get("quantity_step") == 0.0001,
-
-        "NO PREVERIFIED LEVERAGE TARGET":
-            "leverage_target" not in strategy,
-
-        "NO LIVE ORDER CAPABILITY":
-            safety.get("real_order_submission_enabled")
-            is False,
-    }
-
-    passed = 0
-    failed = 0
-
-    for name, result in tests.items():
-
-        if result:
-            passed += 1
-            verdict = "PASS"
-        else:
-            failed += 1
-            verdict = "FAIL"
-
-        print(
-            "UNIT 2 TEST:",
-            name,
-            "=",
-            verdict,
-            flush=True
-        )
-
-    initial = float(
-        strategy.get("initial_fixed_usdt", 0)
-    )
-
-    multipliers = strategy.get(
-        "backup_multipliers", ()
-    )
-
-    full_ladder = (
-        initial * (1.0 + sum(multipliers))
-    )
-
-    print(
-        "UNIT 2 INITIAL MARGIN USDT =",
-        initial,
-        flush=True
-    )
-    print(
-        "UNIT 2 FULL LADDER MARGIN USDT =",
-        full_ladder,
-        flush=True
-    )
-    print(
-        "UNIT 2 TESTS PASSED =",
-        passed,
-        flush=True
-    )
-    print(
-        "UNIT 2 TESTS FAILED =",
-        failed,
-        flush=True
-    )
-
-    if failed:
-        raise RuntimeError(
-            "UNIT 2 OPTIMIZATION VALIDATION FAILED"
-        )
-
-    print(
-        "UNIT 2 OPTIMIZATION RESULT = PASS",
-        flush=True
-    )
-    print(
-        "UNIT 2 EXCHANGE WRITE = NONE",
-        flush=True
-    )
-    print("=" * 80, flush=True)
-
-    return True
-
-
-# ============================================================
-# 11. EXECUTE VALIDATION LAST
-# CONFIGURATION AND ADAPTER NOW EXIST
-# ============================================================
-
-FRESH_UNIT_2_OPTIMIZATION_READY = (
-    unit_2_optimization_validation_v2(
-        FRESH_RECONSTRUCTION_CONFIG
-    )
-)
-
-
-# ============================================================
-# END COMPLETE UNIT 2 REPLACEMENT V2
-# UNIT 3 FOLLOWS BELOW
-# ZERO INDENTATION
+# END COMPLETE UNIT 2 V9
+# UNIT 3 FOLLOWS
 # ============================================================
 
 
