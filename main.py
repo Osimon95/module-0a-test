@@ -6297,16 +6297,34 @@ def unit_7_validation_v8():
 # SINGLE UNIT 7 EXECUTION SEQUENCE
 # ============================================================
 
+# 1. Decimal validation helper
+def unit_7_v9_decimal(value, name, zero=False):
+    ...
+
+# 2. Unit 7 execution preparation
+def fresh_reconstruction_unit_7(
+    unit_2_config,
+    unit_6_candidate,
+):
+    ...
+
+# 3. Unit 7 V9 validation
+def unit_7_validation_v9():
+    ...
+
+# 4. Execute validation
 FRESH_UNIT_7_VALIDATION_READY = (
     unit_7_validation_v9()
 )
 
+# 5. Prepare actual Unit 6 handover
 FRESH_RECONSTRUCTION_SIZING_CANDIDATE = (
     fresh_reconstruction_unit_7(
         FRESH_RECONSTRUCTION_CONFIG,
         FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE,
     )
 )
+
 
 
 
