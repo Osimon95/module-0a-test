@@ -9747,7 +9747,7 @@ def unit_10_validation_v3():
         flush=True
     )
 
-    config = FRESH_RECONSTRUCTION_EXECUTION_CONFIG
+    config = FRESH_RECONSTRUCTION_CONFIG
     actual = FRESH_RECONSTRUCTION_UNIT_9_RESULT
 
     tests = []
