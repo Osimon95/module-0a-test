@@ -13174,6 +13174,124 @@ def fresh_reconstruction_unit_13(
         "tp_action": action,
     })
 
+    
+    # ========================================================
+    # UNIT 13 - ENTRY PRICE AND UNREALIZED PNL REPORT
+    # READS EXISTING WEEX POSITION AND MARK PRICE
+    # NO ADDITIONAL EXCHANGE REQUEST
+    # NO ORDER SUBMISSION
+    # ========================================================
+
+    entry_notional = entry * size
+
+    unrealized_pnl = (
+        (mark - entry) * size
+        if side == "LONG"
+        else (entry - mark) * size
+    )
+
+    estimated_margin = (
+        entry_notional / leverage
+    )
+
+    unrealized_roi = (
+        unrealized_pnl
+        / estimated_margin
+        * Decimal("100")
+    )
+
+    price_change_percent = (
+        (mark - entry)
+        / entry
+        * Decimal("100")
+    )
+
+    if side == "SHORT":
+        price_change_percent = -price_change_percent
+
+    result.update({
+        "entry_price": float(entry),
+        "average_entry_price": float(entry),
+        "entry_notional_susdt":
+            float(entry_notional),
+        "estimated_position_margin_susdt":
+            float(estimated_margin),
+        "estimated_unrealized_pnl_susdt":
+            float(unrealized_pnl),
+        "estimated_unrealized_roi_percent":
+            float(unrealized_roi),
+        "favorable_price_change_percent":
+            float(price_change_percent),
+    })
+
+    print(
+        "UNIT 13 ENTRY PRICE =",
+        entry,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 AVERAGE ENTRY PRICE =",
+        entry,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 POSITION LEVERAGE =",
+        leverage,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 ENTRY NOTIONAL SUSDT =",
+        round(entry_notional, 6),
+        flush=True
+    )
+
+    print(
+        "UNIT 13 ESTIMATED POSITION MARGIN SUSDT =",
+        round(estimated_margin, 6),
+        flush=True
+    )
+
+    print(
+        "UNIT 13 CURRENT MARK PRICE =",
+        mark,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 ESTIMATED UNREALIZED PNL SUSDT =",
+        round(unrealized_pnl, 6),
+        flush=True
+    )
+
+    print(
+        "UNIT 13 ESTIMATED UNREALIZED ROI % =",
+        round(unrealized_roi, 4),
+        flush=True
+    )
+
+    print(
+        "UNIT 13 FAVORABLE PRICE CHANGE % =",
+        round(price_change_percent, 4),
+        flush=True
+    )
+
+    print(
+        "UNIT 13 PNL BASIS = MARK-TO-MARKET",
+        flush=True
+    )
+
+    print(
+        "UNIT 13 PNL FEES/FUNDING = EXCLUDED",
+        flush=True
+    )
+
+    # ========================================================
+    # END ENTRY PRICE AND UNREALIZED PNL REPORT
+    # ========================================================
+
     print(
         "UNIT 13 POSITION SIDE =",
         side,
