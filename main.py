@@ -8075,3 +8075,727 @@ print(
 # ============================================================
 
 
+
+# ============================================================
+# START COMPLETE UNIT 9 V3
+# WEEX DEMO EXECUTION PREPARATION
+# RENDER ENTRY MARGIN AUTHORITATIVE
+# UNIT 8 V6 -> UNIT 9 V3 -> UNIT 10
+# ZERO INDENTATION
+#
+# NO HARDCODED ENTRY AMOUNT
+# NO LEVERAGE MUTATION
+# NO ORDER SUBMISSION
+# NO NETWORK REQUESTS
+# ============================================================
+
+import os
+from decimal import Decimal, InvalidOperation
+
+
+def unit_9_v3_number(value, name, zero=False):
+
+    if isinstance(value, bool):
+        raise ValueError(name + "_BOOLEAN")
+
+    try:
+        result = Decimal(str(value))
+    except (ValueError, TypeError, InvalidOperation):
+        raise ValueError(name + "_INVALID")
+
+    if not result.is_finite():
+        raise ValueError(name + "_NONFINITE")
+
+    if result < 0 or (result == 0 and not zero):
+        raise ValueError(name + "_NONPOSITIVE")
+
+    return result
+
+
+def unit_9_v3_render_entry():
+
+    # One authoritative Render variable.
+    # No default, fallback or fixed Python amount.
+    raw = os.environ.get("INITIAL_ENTRY_MARGIN_USDT")
+
+    if raw is None or not raw.strip():
+        raise ValueError(
+            "INITIAL_ENTRY_MARGIN_USDT_MISSING"
+        )
+
+    return unit_9_v3_number(
+        raw.strip(), "RENDER_ENTRY_MARGIN"
+    )
+
+
+def fresh_reconstruction_unit_9(config, unit_8_result):
+
+    print("=" * 80, flush=True)
+    print("UNIT 9 V3 START", flush=True)
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT9_CONFIG_INVALID")
+
+    if not isinstance(unit_8_result, dict):
+        raise RuntimeError("UNIT9_UNIT8_INVALID")
+
+    exchange = config.get("exchange", {})
+    strategy = config.get("strategy", {})
+    safety = config.get("safety", {})
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("demo_order_symbol") != "BTCSUSDT"
+        or safety.get("real_order_submission_enabled")
+            is not False
+    ):
+        raise RuntimeError("UNIT9_DEMO_CONTRACT_FAILED")
+
+    if (
+        strategy.get("max_backups") != 5
+        or "backup_multipliers" in strategy
+    ):
+        raise RuntimeError(
+            "UNIT9_DYNAMIC_BACKUP_POLICY_FAILED"
+        )
+
+    required = (
+        "status",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "trade_plan",
+        "skip_reason",
+        "read_only",
+    )
+
+    if any(k not in unit_8_result for k in required):
+        raise RuntimeError(
+            "UNIT9_UNIT8_INTERFACE_INCOMPLETE"
+        )
+
+    if (
+        unit_8_result.get("unit_8_version")
+            != "UNIT8_V6_RENDER_LEVERAGE"
+        or unit_8_result["read_only"] is not True
+        or unit_8_result.get("exchange_write")
+            is not False
+        or unit_8_result.get("order_payload_created")
+            is not False
+    ):
+        raise RuntimeError(
+            "UNIT9_UPSTREAM_SAFETY_FAILED"
+        )
+
+    mode = str(
+        unit_8_result["active_mode"]
+    ).upper()
+
+    direction = str(
+        unit_8_result["direction"]
+    ).upper()
+
+    status = str(
+        unit_8_result["status"]
+    ).upper()
+
+    result = {
+        "status": "IDLE",
+        "active_mode": mode,
+        "direction": direction,
+        "signal_qualified": (
+            unit_8_result["signal_qualified"] is True
+        ),
+        "execution_intent": False,
+        "trade_plan_ready": False,
+        "trade_plan": None,
+        "execution_ready": False,
+        "execution_candidate": None,
+        "skip_reason": "NONE",
+        "order_payload_created": False,
+        "tp_execution_requested": False,
+        "sl_execution_requested": False,
+        "read_only": True,
+
+        "unit_9_version":
+            "UNIT9_V3_RENDER_ENTRY",
+
+        "entry_margin_source":
+            "RENDER_INITIAL_ENTRY_MARGIN_USDT",
+        "entry_margin_usdt": None,
+        "entry_margin_verified": False,
+        "leverage_source":
+            "RENDER_MANUAL_WEEX_DEMO",
+        "exchange_leverage_verified": False,
+        "trade_authorized": False,
+        "exchange_write": False,
+    }
+
+    def finish(state, reason):
+        result["status"] = state
+        result["skip_reason"] = reason
+
+        print("UNIT 9 STATUS =", state, flush=True)
+        print("UNIT 9 REASON =", reason, flush=True)
+        print(
+            "UNIT 9 EXECUTION READY =",
+            result["execution_ready"],
+            flush=True
+        )
+        print(
+            "UNIT 9 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+        print("=" * 80, flush=True)
+
+        return result
+
+    # ========================================================
+    # 1. READ CURRENT RENDER SETTING ON EVERY CALL
+    # ========================================================
+
+    try:
+        render_entry = unit_9_v3_render_entry()
+    except ValueError as exc:
+        print(
+            "UNIT 9 ENTRY CONFIG ERROR =",
+            str(exc),
+            flush=True
+        )
+        return finish(
+            "BLOCKED",
+            "RENDER_ENTRY_MARGIN_INVALID_OR_MISSING"
+        )
+
+    result["entry_margin_usdt"] = str(render_entry)
+
+    print(
+        "UNIT 9 RENDER ENTRY MARGIN SUSDT =",
+        render_entry,
+        flush=True
+    )
+    print(
+        "UNIT 9 ENTRY SOURCE = INITIAL_ENTRY_MARGIN_USDT",
+        flush=True
+    )
+
+    # ========================================================
+    # 2. PRESERVE NORMAL NO-TRADE STATES
+    # ========================================================
+
+    if status == "BLOCKED":
+        return finish(
+            "BLOCKED",
+            unit_8_result.get("skip_reason")
+            or "UNIT8_BLOCKED"
+        )
+
+    if status == "IDLE":
+        return finish(
+            "IDLE",
+            unit_8_result.get("skip_reason")
+            or "NO_EXECUTION_INTENT"
+        )
+
+    if status != "READY":
+        return finish(
+            "BLOCKED",
+            "UNIT8_STATUS_INVALID"
+        )
+
+    if not all((
+        unit_8_result["signal_qualified"] is True,
+        unit_8_result["execution_intent"] is True,
+        unit_8_result["trade_plan_ready"] is True,
+        unit_8_result.get("demo_balance_verified")
+            is True,
+        unit_8_result.get("demo_positions_verified")
+            is True,
+        unit_8_result.get("position_flat_verified")
+            is True,
+        unit_8_result.get("leverage_configured")
+            is True,
+    )):
+        return finish(
+            "BLOCKED",
+            "UNIT8_READY_CONTRACT_INCOMPLETE"
+        )
+
+    if (
+        mode not in ("BREAKOUT", "STRUCTURE", "SCALP")
+        or direction not in ("LONG", "SHORT")
+    ):
+        return finish(
+            "BLOCKED",
+            "MODE_OR_DIRECTION_INVALID"
+        )
+
+    # ========================================================
+    # 3. VALIDATE ORIGINAL TRADE PLAN IDENTITY
+    # ========================================================
+
+    plan = unit_8_result.get("trade_plan")
+
+    if not isinstance(plan, dict):
+        return finish(
+            "BLOCKED",
+            "TRADE_PLAN_MISSING"
+        )
+
+    if (
+        plan.get("active_mode") != mode
+        or plan.get("direction") != direction
+        or plan.get("execution_environment") != "DEMO"
+    ):
+        return finish(
+            "BLOCKED",
+            "TRADE_PLAN_IDENTITY_MISMATCH"
+        )
+
+    sizing = plan.get("position_sizing")
+
+    if not isinstance(sizing, dict):
+        return finish(
+            "BLOCKED",
+            "POSITION_SIZING_MISSING"
+        )
+
+    # ========================================================
+    # 4. CRITICAL RENDER MARGIN SYNCHRONIZATION
+    # ========================================================
+
+    try:
+        plan_margin = unit_9_v3_number(
+            sizing.get("margin_allocation"),
+            "UNIT8_PLAN_MARGIN"
+        )
+    except ValueError:
+        return finish(
+            "BLOCKED",
+            "UNIT8_PLAN_MARGIN_INVALID"
+        )
+
+    if plan_margin != render_entry:
+        print(
+            "UNIT 9 RENDER MARGIN =",
+            render_entry,
+            flush=True
+        )
+        print(
+            "UNIT 9 UNIT 8 PLAN MARGIN =",
+            plan_margin,
+            flush=True
+        )
+        return finish(
+            "BLOCKED",
+            "RENDER_UNIT8_ENTRY_MARGIN_MISMATCH"
+        )
+
+    result["entry_margin_verified"] = True
+
+    # ========================================================
+    # 5. VALIDATE QUANTITY AND LEVERAGE
+    # WITHOUT RESIZING OR CHANGING THEM
+    # ========================================================
+
+    try:
+        quantity = unit_9_v3_number(
+            plan.get("quantity"),
+            "PLAN_QUANTITY"
+        )
+        sized_quantity = unit_9_v3_number(
+            sizing.get("quantity"),
+            "SIZING_QUANTITY"
+        )
+        minimum = unit_9_v3_number(
+            sizing.get("minimum_quantity"),
+            "MINIMUM_BTC"
+        )
+        step = unit_9_v3_number(
+            sizing.get("quantity_step"),
+            "QUANTITY_STEP"
+        )
+        leverage = unit_9_v3_number(
+            sizing.get("leverage_target"),
+            "PLAN_LEVERAGE"
+        )
+        price = unit_9_v3_number(
+            sizing.get("live_mark_price"),
+            "MARK_PRICE"
+        )
+        available = unit_9_v3_number(
+            unit_8_result.get("available_balance"),
+            "AVAILABLE_BALANCE",
+            zero=True
+        )
+        equity = unit_9_v3_number(
+            unit_8_result.get("account_equity"),
+            "ACCOUNT_EQUITY",
+            zero=True
+        )
+        cap = unit_9_v3_number(
+            unit_8_result.get("exposure_cap_percent"),
+            "EXPOSURE_CAP"
+        )
+    except ValueError as exc:
+        print(
+            "UNIT 9 PLAN ERROR =",
+            str(exc),
+            flush=True
+        )
+        return finish(
+            "BLOCKED",
+            "TRADE_PLAN_NUMERIC_ERROR"
+        )
+
+    if (
+        quantity != sized_quantity
+        or quantity < minimum
+        or quantity % step != 0
+    ):
+        return finish(
+            "BLOCKED",
+            "QUANTITY_PRECISION_OR_MINIMUM_FAILED"
+        )
+
+    render_leverage = (
+        unit_8_result.get("weex_demo_long_leverage")
+        if direction == "LONG"
+        else unit_8_result.get("weex_demo_short_leverage")
+    )
+
+    try:
+        configured_leverage = unit_9_v3_number(
+            render_leverage,
+            "RENDER_DIRECTIONAL_LEVERAGE"
+        )
+    except ValueError:
+        return finish(
+            "BLOCKED",
+            "RENDER_DIRECTIONAL_LEVERAGE_INVALID"
+        )
+
+    if leverage != configured_leverage:
+        return finish(
+            "BLOCKED",
+            "LEVERAGE_PLAN_MISMATCH"
+        )
+
+    if (
+        sizing.get("leverage_source")
+            != "RENDER_MANUAL_WEEX_DEMO"
+        or unit_8_result.get("leverage_source")
+            != "RENDER_MANUAL_WEEX_DEMO"
+    ):
+        return finish(
+            "BLOCKED",
+            "LEVERAGE_SOURCE_MISMATCH"
+        )
+
+    # ========================================================
+    # 6. AVAILABLE BALANCE AND EXPOSURE
+    # PRELIMINARY CHECK ONLY
+    # ========================================================
+
+    if cap > Decimal("100"):
+        return finish(
+            "BLOCKED",
+            "EXPOSURE_CAP_INVALID"
+        )
+
+    if render_entry > available:
+        return finish(
+            "BLOCKED",
+            "INSUFFICIENT_DEMO_BALANCE"
+        )
+
+    if render_entry > (
+        equity * cap / Decimal("100")
+    ):
+        return finish(
+            "BLOCKED",
+            "ENTRY_EXCEEDS_EXPOSURE_CAP"
+        )
+
+    if (
+        quantity * price / leverage
+    ) > render_entry + Decimal("0.00000001"):
+        return finish(
+            "BLOCKED",
+            "NOTIONAL_EXCEEDS_RENDER_ENTRY_MARGIN"
+        )
+
+    # ========================================================
+    # 7. FIVE DYNAMIC BACKUPS
+    # NO FIXED MULTIPLIERS OR FULL-LADDER RESERVE
+    # ========================================================
+
+    if (
+        unit_8_result.get("max_backups") != 5
+        or sizing.get("max_backups") != 5
+        or sizing.get("backup_sizing_mode")
+            != "PERCENT_AVAILABLE_BALANCE"
+        or sizing.get("backup_margin_reserved")
+            is not False
+    ):
+        return finish(
+            "BLOCKED",
+            "DYNAMIC_BACKUP_CONTRACT_FAILED"
+        )
+
+    # ========================================================
+    # 8. ORIGINAL UNIT 10 HANDOVER
+    # ========================================================
+
+    execution_candidate = {
+        "active_mode": mode,
+        "direction": direction,
+        "trade_plan": plan,
+        "execution_environment": "DEMO",
+    }
+
+    result.update({
+        "status": "READY",
+        "signal_qualified": True,
+        "execution_intent": True,
+        "trade_plan_ready": True,
+        "trade_plan": plan,
+        "execution_ready": True,
+        "execution_candidate": execution_candidate,
+        "skip_reason": "NONE",
+
+        "quantity": float(quantity),
+        "selected_leverage": float(leverage),
+
+        "margin_budget_prechecked": True,
+        "margin_budget_fresh_verified": False,
+
+        "trade_authorized": False,
+        "exchange_write": False,
+    })
+
+    print(
+        "UNIT 9 RENDER ENTRY MARGIN =",
+        render_entry,
+        flush=True
+    )
+    print(
+        "UNIT 9 BTC QUANTITY =",
+        quantity,
+        flush=True
+    )
+    print(
+        "UNIT 9 LEVERAGE =",
+        leverage,
+        flush=True
+    )
+    print(
+        "UNIT 9 ENTRY MARGIN VERIFIED = True",
+        flush=True
+    )
+    print(
+        "UNIT 9 EXECUTION READY = True",
+        flush=True
+    )
+    print(
+        "UNIT 9 TRADE AUTHORIZED = False",
+        flush=True
+    )
+    print(
+        "UNIT 9 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+    print(
+        "FRESH RECONSTRUCTION UNIT 9 RESULT = PASS",
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# UNIT 9 V3 VALIDATION
+# ============================================================
+
+def unit_9_validation_v3():
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 9 V3 VALIDATION START",
+        flush=True
+    )
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+    actual = FRESH_RECONSTRUCTION_UNIT_8_RESULT
+
+    tests = []
+
+    def record(name, condition):
+        tests.append((name, bool(condition)))
+
+    record(
+        "UNIT 8 V6 INPUT",
+        actual.get("unit_8_version")
+        == "UNIT8_V6_RENDER_LEVERAGE"
+    )
+
+    record(
+        "DEMO ONLY",
+        config.get("execution_environment") == "DEMO"
+    )
+
+    record(
+        "NO FIXED BACKUP MULTIPLIERS",
+        "backup_multipliers"
+        not in config["strategy"]
+    )
+
+    record(
+        "RENDER ENTRY VARIABLE PRESENT",
+        bool(
+            os.getenv(
+                "INITIAL_ENTRY_MARGIN_USDT", ""
+            ).strip()
+        )
+    )
+
+    try:
+        margin = unit_9_v3_render_entry()
+        record(
+            "RENDER ENTRY POSITIVE",
+            margin > 0
+        )
+    except ValueError:
+        record(
+            "RENDER ENTRY POSITIVE",
+            False
+        )
+
+    record(
+        "UNIT 8 NO EXCHANGE WRITE",
+        actual.get("exchange_write") is False
+    )
+
+    record(
+        "UNIT 8 LONG LEVERAGE PRESENT",
+        actual.get("weex_demo_long_leverage")
+        is not None
+    )
+
+    record(
+        "UNIT 8 SHORT LEVERAGE PRESENT",
+        actual.get("weex_demo_short_leverage")
+        is not None
+    )
+
+    # Test an idle handover without fabricating a trade.
+    idle = dict(actual)
+    idle.update({
+        "status": "IDLE",
+        "active_mode": "NONE",
+        "direction": "NONE",
+        "signal_qualified": False,
+        "execution_intent": False,
+        "trade_plan_ready": False,
+        "trade_plan": None,
+        "skip_reason": "NO_ACCEPTABLE_CANDIDATE",
+    })
+
+    idle_result = fresh_reconstruction_unit_9(
+        config, idle
+    )
+
+    record(
+        "IDLE HANDOVER",
+        idle_result["status"] == "IDLE"
+    )
+
+    record(
+        "ORIGINAL UNIT 10 CONTRACT",
+        all(
+            key in idle_result
+            for key in (
+                "status",
+                "active_mode",
+                "direction",
+                "signal_qualified",
+                "execution_intent",
+                "trade_plan_ready",
+                "trade_plan",
+                "execution_ready",
+                "execution_candidate",
+                "skip_reason",
+                "order_payload_created",
+                "tp_execution_requested",
+                "sl_execution_requested",
+                "read_only",
+            )
+        )
+    )
+
+    passed = sum(ok for _, ok in tests)
+    failed = len(tests) - passed
+
+    for name, ok in tests:
+        print(
+            "UNIT 9 TEST:",
+            name,
+            "=",
+            "PASS" if ok else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 9 TESTS PASSED =",
+        passed,
+        flush=True
+    )
+    print(
+        "UNIT 9 TESTS FAILED =",
+        failed,
+        flush=True
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT 9 V3 VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 9 V3 VALIDATION RESULT = PASS",
+        flush=True
+    )
+
+    return True
+
+
+# ============================================================
+# EXECUTE UNIT 9 V3
+# ============================================================
+
+FRESH_UNIT_9_VALIDATION_READY = (
+    unit_9_validation_v3()
+)
+
+FRESH_RECONSTRUCTION_UNIT_9_RESULT = (
+    fresh_reconstruction_unit_9(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_8_RESULT,
+    )
+)
+
+print(
+    "FRESH RECONSTRUCTION UNIT 9 V3 READY =",
+    FRESH_UNIT_9_VALIDATION_READY,
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 9 V3
+# UNIT 10 FOLLOWS
+# ============================================================
