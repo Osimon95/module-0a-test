@@ -5544,135 +5544,314 @@ FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
 
 
 # ============================================================
-# START COMPLETE UNIT 7 V8 REPLACEMENT
-# WEEX DEMO - PROGRESSIVE POSITION SIZING PREPARATION
-# UNIT 2 + UNIT 6 V9 -> UNIT 7 -> UNIT 8
-# ZERO INDENTATION / SINGLE EXECUTION
+# START COMPLETE UNIT 7 V10
+# WEEX DEMO DYNAMIC SIZING POLICY
+# UNIT 2 V9 -> UNIT 6 V9 -> UNIT 7 V10 -> UNIT 8
+#
+# E0: ADJUSTABLE FIXED USDT
+# B1-B5: 0.5% OF FRESH AVAILABLE BALANCE
+# TRIGGER: 0.3% BEFORE FRESH WEEX LIQUIDATION PRICE
+# EXPOSURE: 35% DEFAULT, MAXIMUM 100%
+# NO BACKUP MULTIPLIERS
+# NO EXCHANGE WRITE IN UNIT 7
 # ============================================================
 
-from decimal import Decimal, InvalidOperation
 import copy
+from decimal import Decimal, InvalidOperation
 
 
-def unit_7_v8_decimal(value, label, zero=False):
+# ============================================================
+# UNIT 7 DECIMAL VALIDATION
+# ============================================================
+
+def unit_7_v10_decimal(value, name, allow_zero=False):
+
     if isinstance(value, bool):
-        raise RuntimeError("UNIT 7 INVALID " + label)
+        raise RuntimeError(
+            "UNIT 7 INVALID BOOLEAN: " + name
+        )
+
     try:
         number = Decimal(str(value))
-    except (InvalidOperation, ValueError, TypeError) as exc:
+
+    except (InvalidOperation, TypeError, ValueError) as exc:
         raise RuntimeError(
-            "UNIT 7 INVALID " + label
+            "UNIT 7 INVALID NUMBER: " + name
         ) from exc
+
     if not number.is_finite():
         raise RuntimeError(
-            "UNIT 7 NONFINITE " + label
+            "UNIT 7 NONFINITE NUMBER: " + name
         )
-    if number < 0 or (number == 0 and not zero):
+
+    if number < 0:
         raise RuntimeError(
-            "UNIT 7 INVALID RANGE " + label
+            "UNIT 7 NEGATIVE NUMBER: " + name
         )
+
+    if number == 0 and not allow_zero:
+        raise RuntimeError(
+            "UNIT 7 ZERO NOT ALLOWED: " + name
+        )
+
     return number
 
 
+# ============================================================
+# UNIT 7 DYNAMIC BACKUP MARGIN FORMULA
+# REQUIRES FRESH AVAILABLE BALANCE FROM WEEX
+# DOES NOT SUBMIT ORDERS
+# ============================================================
+
+def unit_7_v10_backup_margin(
+    available_balance,
+    backup_percent
+):
+
+    balance = unit_7_v10_decimal(
+        available_balance,
+        "AVAILABLE TRADING BALANCE",
+        allow_zero=True
+    )
+
+    percent = unit_7_v10_decimal(
+        backup_percent,
+        "BACKUP MARGIN PERCENT"
+    )
+
+    if percent > Decimal("100"):
+        raise RuntimeError(
+            "UNIT 7 BACKUP PERCENT ABOVE 100"
+        )
+
+    return (
+        balance * percent / Decimal("100")
+    )
+
+
+# ============================================================
+# UNIT 7 BACKUP TRIGGER FORMULA
+# REQUIRES FRESH WEEX LIQUIDATION PRICE
+# DOES NOT SUBMIT ORDERS
+# ============================================================
+
+def unit_7_v10_backup_trigger(
+    liquidation_price,
+    direction,
+    buffer_percent
+):
+
+    liquidation = unit_7_v10_decimal(
+        liquidation_price,
+        "WEEX LIQUIDATION PRICE"
+    )
+
+    buffer_pct = unit_7_v10_decimal(
+        buffer_percent,
+        "LIQUIDATION BUFFER PERCENT"
+    )
+
+    if buffer_pct >= Decimal("100"):
+        raise RuntimeError(
+            "UNIT 7 LIQUIDATION BUFFER INVALID"
+        )
+
+    buffer = buffer_pct / Decimal("100")
+
+    if direction == "LONG":
+        return liquidation * (
+            Decimal("1") + buffer
+        )
+
+    if direction == "SHORT":
+        return liquidation * (
+            Decimal("1") - buffer
+        )
+
+    raise RuntimeError(
+        "UNIT 7 INVALID BACKUP DIRECTION"
+    )
+
+
+# ============================================================
+# UNIT 7 TOTAL MARGIN CAP FORMULA
+# INCLUDES INITIAL + FILLED BACKUPS + RESERVED MARGIN
+# REQUIRES VERIFIED ACCOUNT VALUES
+# ============================================================
+
+def unit_7_v10_remaining_margin_capacity(
+    account_equity,
+    committed_margin,
+    reserved_margin,
+    exposure_cap_percent
+):
+
+    equity = unit_7_v10_decimal(
+        account_equity,
+        "TRADING ACCOUNT EQUITY"
+    )
+
+    committed = unit_7_v10_decimal(
+        committed_margin,
+        "ALREADY COMMITTED MARGIN",
+        allow_zero=True
+    )
+
+    reserved = unit_7_v10_decimal(
+        reserved_margin,
+        "OUTSTANDING RESERVED MARGIN",
+        allow_zero=True
+    )
+
+    cap_pct = unit_7_v10_decimal(
+        exposure_cap_percent,
+        "EXPOSURE CAP PERCENT"
+    )
+
+    if cap_pct > Decimal("100"):
+        raise RuntimeError(
+            "UNIT 7 EXPOSURE CAP ABOVE 100"
+        )
+
+    maximum_margin = (
+        equity * cap_pct / Decimal("100")
+    )
+
+    remaining = (
+        maximum_margin - committed - reserved
+    )
+
+    return max(
+        Decimal("0"),
+        remaining
+    )
+
+
+# ============================================================
+# UNIT 7 MAIN DYNAMIC POLICY HANDOVER
+# ============================================================
+
 def fresh_reconstruction_unit_7(
     unit_2_config,
-    unit_6_candidate,
+    unit_6_candidate
 ):
 
     print("=" * 80, flush=True)
     print(
-        "UNIT 7 V8 PROGRESSIVE SIZING START",
+        "UNIT 7 V10 DYNAMIC SIZING START",
         flush=True
     )
 
     if not isinstance(unit_2_config, dict):
-        raise RuntimeError("UNIT 7 CONFIG INVALID")
+        raise RuntimeError(
+            "UNIT 7 UNIT 2 CONFIG MISSING"
+        )
 
     if not isinstance(unit_6_candidate, dict):
-        raise RuntimeError("UNIT 7 SIGNAL INVALID")
+        raise RuntimeError(
+            "UNIT 7 UNIT 6 CANDIDATE MISSING"
+        )
 
     config = unit_2_config
     signal = unit_6_candidate
 
     strategy = config.get("strategy")
-    precision = config.get("market_precision")
     exchange = config.get("exchange")
+    precision = config.get("market_precision")
     safety = config.get("safety")
 
-    if not all(isinstance(item, dict) for item in (
-        strategy, precision, exchange, safety
-    )):
-        raise RuntimeError(
-            "UNIT 7 REQUIRED CONFIG SECTIONS MISSING"
-        )
-
-    if (
-        config.get("execution_environment") != "DEMO"
-        or exchange.get("name") != "WEEX"
-        or exchange.get("api_version") != "V3"
-        or exchange.get("market_symbol") != "BTCUSDT"
-        or exchange.get("demo_order_symbol") != "BTCSUSDT"
+    for name, section in (
+        ("STRATEGY", strategy),
+        ("EXCHANGE", exchange),
+        ("PRECISION", precision),
+        ("SAFETY", safety),
     ):
+        if not isinstance(section, dict):
+            raise RuntimeError(
+                "UNIT 7 MISSING CONFIG SECTION: " + name
+            )
+
+    # ========================================================
+    # EXCHANGE CONTRACT
+    # ========================================================
+
+    if config.get("execution_environment") != "DEMO":
         raise RuntimeError(
-            "UNIT 7 DEMO EXCHANGE CONFIG INVALID"
+            "UNIT 7 NON-DEMO ENVIRONMENT"
+        )
+
+    if exchange.get("name") != "WEEX":
+        raise RuntimeError(
+            "UNIT 7 EXCHANGE IS NOT WEEX"
+        )
+
+    if exchange.get("market_symbol") != "BTCUSDT":
+        raise RuntimeError(
+            "UNIT 7 MARKET SYMBOL INVALID"
+        )
+
+    if exchange.get("demo_order_symbol") != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 7 DEMO SYMBOL INVALID"
         )
 
     # ========================================================
-    # VALIDATE UNIT 6 V9 HANDOVER
+    # UPSTREAM UNIT 6 CONTRACT
     # ========================================================
 
-    required = (
+    required_signal_fields = (
         "execution_intent",
+        "signal_qualified",
         "active_mode",
         "direction",
-        "signal_qualified",
-        "unit_5_reason",
         "admission_reason",
     )
 
-    missing = [
-        key for key in required if key not in signal
-    ]
+    for key in required_signal_fields:
+        if key not in signal:
+            raise RuntimeError(
+                "UNIT 7 MISSING UNIT 6 FIELD: " + key
+            )
 
-    if missing:
+    if signal.get("classification_version") != (
+        "UNIT6_V9_ADJUSTABLE"
+    ):
         raise RuntimeError(
-            "UNIT 7 MISSING UNIT 6 FIELDS: "
-            + str(missing)
+            "UNIT 7 REQUIRES UNIT 6 V9 HANDOVER"
         )
 
     intent = signal["execution_intent"]
     qualified = signal["signal_qualified"]
+
     mode = signal["active_mode"]
     direction = signal["direction"]
-    reason = signal["admission_reason"]
+    admission = signal["admission_reason"]
 
-    if type(intent) is not bool or type(qualified) is not bool:
+    if (
+        type(intent) is not bool
+        or type(qualified) is not bool
+    ):
         raise RuntimeError(
-            "UNIT 7 INVALID SIGNAL FLAGS"
+            "UNIT 7 INVALID SIGNAL BOOLEAN"
         )
 
     if intent != qualified:
         raise RuntimeError(
-            "UNIT 7 INTENT QUALIFICATION CONFLICT"
+            "UNIT 7 SIGNAL FLAGS MISMATCH"
         )
 
-    if (
-        signal.get("order_payload_created") is not False
-        or signal.get("exchange_write") is not False
-    ):
+    if signal.get("exchange_write") is not False:
         raise RuntimeError(
-            "UNIT 7 UPSTREAM ORDER BOUNDARY INVALID"
+            "UNIT 7 UPSTREAM EXCHANGE WRITE DETECTED"
         )
 
-    if signal.get("classification_version") not in (
-        "UNIT6_V9_ADJUSTABLE",
-    ):
+    if signal.get("order_payload_created") is not False:
         raise RuntimeError(
-            "UNIT 7 UNIT 6 V9 CONTRACT MISSING"
+            "UNIT 7 UPSTREAM ORDER PAYLOAD DETECTED"
         )
 
     # ========================================================
-    # ORIGINAL POSITION SAFETY
+    # TRADING SAFETY CONTRACT
     # ========================================================
 
     for key in (
@@ -5683,225 +5862,231 @@ def fresh_reconstruction_unit_7(
     ):
         if strategy.get(key) is not True:
             raise RuntimeError(
-                "UNIT 7 SAFETY POLICY MISSING: " + key
+                "UNIT 7 REQUIRED SAFETY MISSING: " + key
             )
 
-    # Unit 7 itself must never submit orders.
-    # These configuration flags describe Unit 7's
-    # available local capabilities, not the eventual
-    # authorization of Unit 12 to submit demo orders.
+    if safety.get(
+        "real_order_submission_enabled"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 7 LIVE-CASH SAFETY FAILED"
+        )
 
-    for key in (
-        "real_order_submission_enabled",
-        "exchange_mutation_enabled",
-        "leverage_mutation_enabled",
-        "margin_mode_mutation_enabled",
-        "position_mode_mutation_enabled",
-    ):
-        if safety.get(key) is not False:
-            raise RuntimeError(
-                "UNIT 7 UNSAFE CAPABILITY: " + key
-            )
+    if safety.get(
+        "exchange_mutation_enabled"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 7 CONFIGURATION MUST BE READ-ONLY"
+        )
 
     # ========================================================
-    # MARGIN AND MARKET PRECISION
+    # E0 INITIAL ENTRY
     # ========================================================
 
-    initial_usdt = unit_7_v8_decimal(
+    initial_margin = unit_7_v10_decimal(
         strategy.get("initial_fixed_usdt"),
-        "INITIAL FIXED USDT"
+        "E0 INITIAL USDT"
     )
 
-    initial_percent = unit_7_v8_decimal(
-        strategy.get("initial_margin_percent"),
-        "INITIAL MARGIN PERCENT"
-    )
-
-    if initial_percent > 100:
-        raise RuntimeError(
-            "UNIT 7 INITIAL MARGIN PERCENT ABOVE 100"
-        )
-
-    quantity_step = unit_7_v8_decimal(
-        precision.get("quantity_step"),
-        "QUANTITY STEP"
-    )
-
-    minimum_quantity = unit_7_v8_decimal(
-        precision.get("minimum_quantity"),
-        "MINIMUM QUANTITY"
-    )
-
-    price_step = unit_7_v8_decimal(
-        precision.get("price_step"),
-        "PRICE STEP"
-    )
-
-    if (
-        minimum_quantity / quantity_step
-    ) % 1 != 0:
-        raise RuntimeError(
-            "UNIT 7 MINIMUM QUANTITY NOT STEP ALIGNED"
-        )
+    # E0 default comes from Unit 2.
+    # It may be adjusted upward by its configuration.
+    # No predefined E0 multiplier is used.
 
     # ========================================================
-    # FIVE PROGRESSIVE BACKUPS
+    # BACKUP POLICY
     # ========================================================
 
     backup_count = strategy.get("max_backups")
 
-    if type(backup_count) is not int or backup_count != 5:
-        raise RuntimeError(
-            "UNIT 7 BACKUP COUNT MUST BE FIVE"
-        )
-
-    raw_multipliers = strategy.get(
-        "backup_multipliers"
-    )
-
-    if not isinstance(raw_multipliers, (list, tuple)):
-        raise RuntimeError(
-            "UNIT 7 BACKUP MULTIPLIERS MISSING"
-        )
-
-    multipliers = tuple(
-        unit_7_v8_decimal(
-            value, "BACKUP MULTIPLIER"
-        )
-        for value in raw_multipliers
-    )
-
-    if len(multipliers) != backup_count:
-        raise RuntimeError(
-            "UNIT 7 BACKUP MULTIPLIER COUNT MISMATCH"
-        )
-
-    if multipliers != tuple(map(
-        Decimal,
-        ("1.0", "1.5", "2.0", "2.5", "3.0")
-    )):
-        raise RuntimeError(
-            "UNIT 7 BACKUP MULTIPLIERS MISMATCH"
-        )
-
-    cap_pct = unit_7_v8_decimal(
-        strategy.get("exposure_cap_percent"),
-        "EXPOSURE CAP"
-    )
-
-    max_cap_pct = unit_7_v8_decimal(
-    strategy.get("exposure_cap_max_percent", 100.0),
-    "MAXIMUM EXPOSURE CAP"
-    )
-
-    if max_cap_pct > 100 or cap_pct > max_cap_pct:
-        raise RuntimeError(
-            "UNIT 7 EXPOSURE CAP ABOVE CONFIGURED MAXIMUM"
-        )
-
     if (
-        strategy.get("progressive_backup_funding")
-        is not True
-        or strategy.get(
-            "full_ladder_reservation_required"
-        ) is not False
+        type(backup_count) is not int
+        or backup_count != 5
     ):
         raise RuntimeError(
-            "UNIT 7 PROGRESSIVE FUNDING POLICY INVALID"
+            "UNIT 7 MAX BACKUPS MUST BE FIVE"
         )
 
-    backup_margin_percent = unit_7_v8_decimal(
+    backup_percent = unit_7_v10_decimal(
         strategy.get("backup_margin_percent"),
         "BACKUP MARGIN PERCENT"
     )
 
-    backup_buffer_percent = unit_7_v8_decimal(
+    buffer_percent = unit_7_v10_decimal(
         strategy.get("backup_buffer_percent"),
-        "BACKUP BUFFER PERCENT",
-        zero=True
+        "BACKUP BUFFER PERCENT"
     )
 
-    backup_usdt = tuple(
-        initial_usdt * multiplier
-        for multiplier in multipliers
-    )
+    if backup_percent > Decimal("100"):
+        raise RuntimeError(
+            "UNIT 7 BACKUP PERCENT TOO HIGH"
+        )
 
-    full_ladder_usdt = (
-        initial_usdt + sum(backup_usdt, Decimal("0"))
-    )
+    if buffer_percent >= Decimal("100"):
+        raise RuntimeError(
+            "UNIT 7 BUFFER PERCENT TOO HIGH"
+        )
 
-    # Planning reference only. Nothing is reserved.
-    # Available account balance is not yet known.
+    if "backup_multipliers" in strategy:
+        raise RuntimeError(
+            "UNIT 7 OBSOLETE BACKUP MULTIPLIERS"
+        )
+
+    if strategy.get("backup_sizing_mode") != (
+        "PERCENT_AVAILABLE_BALANCE"
+    ):
+        raise RuntimeError(
+            "UNIT 7 BACKUP SIZING MODE INVALID"
+        )
+
+    if strategy.get(
+        "backup_trigger_reference"
+    ) != "FRESH_WEEX_LIQUIDATION_PRICE":
+        raise RuntimeError(
+            "UNIT 7 BACKUP TRIGGER SOURCE INVALID"
+        )
+
+    if strategy.get(
+        "backup_trigger_recalculation"
+    ) != "AFTER_PRECEDING_CONFIRMED_FILL":
+        raise RuntimeError(
+            "UNIT 7 BACKUP RECALCULATION INVALID"
+        )
+
+    if strategy.get(
+        "progressive_backup_funding"
+    ) is not True:
+        raise RuntimeError(
+            "UNIT 7 PROGRESSIVE FUNDING REQUIRED"
+        )
+
+    if strategy.get(
+        "full_ladder_reservation_required"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 7 FULL LADDER RESERVATION FORBIDDEN"
+        )
 
     # ========================================================
-    # COMMON OUTPUT
+    # EXPOSURE CAP
+    # ========================================================
+
+    exposure_cap = unit_7_v10_decimal(
+        strategy.get("exposure_cap_percent"),
+        "CURRENT EXPOSURE CAP"
+    )
+
+    exposure_max = unit_7_v10_decimal(
+        strategy.get("exposure_cap_max_percent"),
+        "MAX EXPOSURE CAP"
+    )
+
+    if (
+        exposure_cap > exposure_max
+        or exposure_max > Decimal("100")
+    ):
+        raise RuntimeError(
+            "UNIT 7 EXPOSURE LIMIT INVALID"
+        )
+
+    if strategy.get("exposure_cap_basis") != (
+        "TRADING_ACCOUNT_EQUITY"
+    ):
+        raise RuntimeError(
+            "UNIT 7 EXPOSURE EQUITY BASIS INVALID"
+        )
+
+    for key in (
+        "exposure_includes_initial",
+        "exposure_includes_filled_backups",
+        "exposure_includes_pending_margin",
+    ):
+        if strategy.get(key) is not True:
+            raise RuntimeError(
+                "UNIT 7 EXPOSURE POLICY INVALID: " + key
+            )
+
+    # ========================================================
+    # MARKET PRECISION
+    # ========================================================
+
+    qty_step = unit_7_v10_decimal(
+        precision.get("quantity_step"),
+        "QUANTITY STEP"
+    )
+
+    min_qty = unit_7_v10_decimal(
+        precision.get("minimum_quantity"),
+        "MINIMUM QUANTITY"
+    )
+
+    price_step = unit_7_v10_decimal(
+        precision.get("price_step"),
+        "PRICE STEP"
+    )
+
+    if min_qty % qty_step != 0:
+        raise RuntimeError(
+            "UNIT 7 QUANTITY PRECISION INVALID"
+        )
+
+    # ========================================================
+    # VERIFY BUFFER FACTORS
+    # ========================================================
+
+    long_factor = (
+        Decimal("1")
+        + buffer_percent / Decimal("100")
+    )
+
+    short_factor = (
+        Decimal("1")
+        - buffer_percent / Decimal("100")
+    )
+
+    configured_long = unit_7_v10_decimal(
+        strategy.get(
+            "backup_long_liquidation_factor"
+        ),
+        "LONG BUFFER FACTOR"
+    )
+
+    configured_short = unit_7_v10_decimal(
+        strategy.get(
+            "backup_short_liquidation_factor"
+        ),
+        "SHORT BUFFER FACTOR"
+    )
+
+    tolerance = Decimal("0.000000001")
+
+    if abs(long_factor - configured_long) > tolerance:
+        raise RuntimeError(
+            "UNIT 7 LONG BUFFER FACTOR MISMATCH"
+        )
+
+    if abs(short_factor - configured_short) > tolerance:
+        raise RuntimeError(
+            "UNIT 7 SHORT BUFFER FACTOR MISMATCH"
+        )
+
+    # ========================================================
+    # OUTPUT FOR UNIT 8
     # ========================================================
 
     output = {
+        "unit_7_version": "UNIT7_V10_DYNAMIC",
+
         "status": "IDLE",
-        "symbol": "BTCUSDT",
-        "demo_order_symbol": "BTCSUSDT",
+        "skip_reason": admission,
+
         "active_mode": "NONE",
         "direction": "NONE",
+
         "execution_intent": False,
         "signal_qualified": False,
 
-        "unit_5_reason": signal["unit_5_reason"],
-        "admission_reason": reason,
-        "skip_reason": reason,
-
-        "initial_margin_percent": float(
-            initial_percent
-        ),
-        "initial_fixed_usdt": float(initial_usdt),
-
-        "backup_margin_percent": float(
-            backup_margin_percent
-        ),
-        "backup_buffer_percent": float(
-            backup_buffer_percent
-        ),
-
-        "max_backups": backup_count,
-        "backup_multipliers": tuple(
-            float(v) for v in multipliers
-        ),
-        "backup_margin_usdt": tuple(
-            float(v) for v in backup_usdt
-        ),
-        "full_ladder_margin_usdt": float(
-            full_ladder_usdt
-        ),
-
-        "exposure_cap_percent": float(cap_pct),
-        "progressive_backup_funding": True,
-        "full_ladder_reservation_required": False,
-
-        "quantity_step": float(quantity_step),
-        "minimum_quantity": float(
-            minimum_quantity
-        ),
-        "price_step": float(price_step),
-
-        "leverage_target": None,
-        "leverage_source":
-            "WEEX_EXCHANGE_SETTING",
-        "exchange_leverage_verified": False,
-
-        "account_balance_required": False,
-        "position_sizing_performed": False,
-        "quantity_calculated": False,
-        "proposed_quantity": None,
-
-        "order_payload_created": False,
-        "exchange_write": False,
-        "trade_authorized": False,
-        "read_only": True,
-
-        "source_unit_6":
-            "UNIT6_V9_ADJUSTABLE",
-        "unit_7_version":
-            "UNIT7_V8_PROGRESSIVE",
+        "unit_5_reason": signal.get("unit_5_reason"),
+        "admission_reason": admission,
 
         "candidate_stage": signal.get(
             "candidate_stage", "NONE"
@@ -5909,55 +6094,137 @@ def fresh_reconstruction_unit_7(
         "candidate_age_seconds": signal.get(
             "candidate_age_seconds"
         ),
+
+        "symbol": "BTCUSDT",
+        "demo_order_symbol": "BTCSUSDT",
+
+        "initial_fixed_usdt": float(initial_margin),
+
+        "initial_margin_percent": float(
+            unit_7_v10_decimal(
+                strategy.get("initial_margin_percent"),
+                "INITIAL MARGIN PERCENT"
+            )
+        ),
+
+        "max_backups": backup_count,
+
+        "backup_margin_percent": float(backup_percent),
+        "backup_buffer_percent": float(buffer_percent),
+
+        "backup_sizing_mode":
+            "PERCENT_AVAILABLE_BALANCE",
+
+        "backup_trigger_reference":
+            "FRESH_WEEX_LIQUIDATION_PRICE",
+
+        "backup_trigger_recalculation":
+            "AFTER_PRECEDING_CONFIRMED_FILL",
+
+        "backup_long_liquidation_factor":
+            float(long_factor),
+
+        "backup_short_liquidation_factor":
+            float(short_factor),
+
+        "backup_margin_usdt": None,
+        "full_ladder_margin_usdt": None,
+
+        "exposure_cap_percent": float(exposure_cap),
+        "exposure_cap_max_percent": float(exposure_max),
+
+        "exposure_cap_basis":
+            "TRADING_ACCOUNT_EQUITY",
+
+        "exposure_includes_initial": True,
+        "exposure_includes_filled_backups": True,
+        "exposure_includes_pending_margin": True,
+
+        "progressive_backup_funding": True,
+        "full_ladder_reservation_required": False,
+
+        "quantity_step": float(qty_step),
+        "minimum_quantity": float(min_qty),
+        "price_step": float(price_step),
+
+        "leverage_target": None,
+        "leverage_source": "WEEX_EXCHANGE_SETTING",
+        "exchange_leverage_verified": False,
+
+        "account_balance_required": False,
+
+        "position_sizing_performed": False,
+        "quantity_calculated": False,
+        "proposed_quantity": None,
+
+        "backup_margin_calculated": False,
+        "backup_trigger_calculated": False,
+
+        "trade_authorized": False,
+        "order_payload_created": False,
+        "exchange_write": False,
+        "read_only": True,
+
+        "source_unit_6": "UNIT6_V9_ADJUSTABLE",
     }
 
     # ========================================================
-    # NORMAL IDLE PATH
+    # IDLE HANDOVER
     # ========================================================
 
-    if not intent:
+    if intent is False:
 
         if mode != "NONE" or direction != "NONE":
             raise RuntimeError(
-                "UNIT 7 IDLE MODE OR DIRECTION INVALID"
+                "UNIT 7 INVALID IDLE MODE OR DIRECTION"
             )
 
-        print("UNIT 7 STATUS = IDLE", flush=True)
         print(
-            "UNIT 7 SKIP REASON =",
-            reason,
+            "UNIT 7 STATUS = IDLE",
             flush=True
         )
+
+        print(
+            "UNIT 7 SKIP REASON =",
+            admission,
+            flush=True
+        )
+
         print(
             "UNIT 7 EXECUTION INTENT = False",
             flush=True
         )
+
         print(
             "UNIT 7 EXCHANGE WRITE = NONE",
             flush=True
         )
+
         print(
             "FRESH RECONSTRUCTION UNIT 7 RESULT = PASS",
             flush=True
         )
+
         print("=" * 80, flush=True)
 
         return output
 
     # ========================================================
-    # QUALIFIED PATH
+    # QUALIFIED HANDOVER
     # ========================================================
 
-    admission_reasons = {
+    approved_admissions = {
         "BREAKOUT":
             "BREAKOUT_QUALIFIED_FOR_NEXT_UNITS",
+
         "STRUCTURE":
             "STRUCTURE_QUALIFIED_FOR_NEXT_UNITS",
+
         "SCALP":
             "SCALP_QUALIFIED_FOR_NEXT_UNITS",
     }
 
-    if mode not in admission_reasons:
+    if mode not in approved_admissions:
         raise RuntimeError(
             "UNIT 7 INVALID QUALIFIED MODE"
         )
@@ -5967,131 +6234,148 @@ def fresh_reconstruction_unit_7(
             "UNIT 7 INVALID QUALIFIED DIRECTION"
         )
 
-    if reason != admission_reasons[mode]:
+    if admission != approved_admissions[mode]:
         raise RuntimeError(
-            "UNIT 7 ADMISSION REASON MISMATCH"
+            "UNIT 7 QUALIFICATION REASON MISMATCH"
+        )
+
+    if signal.get("candidate_stage") == "DEVELOPING":
+        raise RuntimeError(
+            "UNIT 7 DEVELOPING SIGNAL CANNOT EXECUTE"
         )
 
     if (
-        signal.get("candidate_stage") == "DEVELOPING"
-        or (
-            mode == "SCALP"
-            and signal.get(
-                "higher_mode_developing"
-            ) is True
-        )
+        mode == "SCALP"
+        and signal.get("higher_mode_developing") is True
     ):
         raise RuntimeError(
-            "UNIT 7 DEVELOPING MODE SAFETY VIOLATION"
+            "UNIT 7 SCALP BLOCKED BY HIGHER MODE"
         )
-
-    # Unit 6 has already performed quality arbitration.
-    # Unit 7 must not impose additional EMA, ATR, or
-    # momentum thresholds.
 
     output.update({
         "status": "READY_FOR_BALANCE",
+        "skip_reason": None,
+
         "active_mode": mode,
         "direction": direction,
+
         "execution_intent": True,
         "signal_qualified": True,
+
         "account_balance_required": True,
-        "skip_reason": None,
     })
-
-    # ========================================================
-    # OUTPUT VALIDATION
-    # ========================================================
-
-    if (
-        output["quantity_calculated"] is not False
-        or output["proposed_quantity"] is not None
-        or output["order_payload_created"] is not False
-        or output["exchange_write"] is not False
-    ):
-        raise RuntimeError(
-            "UNIT 7 UNVERIFIED EXECUTION DATA"
-        )
 
     print(
         "UNIT 7 STATUS = READY_FOR_BALANCE",
         flush=True
     )
+
     print(
         "UNIT 7 ACTIVE MODE =",
         mode,
         flush=True
     )
+
     print(
         "UNIT 7 DIRECTION =",
         direction,
         flush=True
     )
+
     print(
-        "UNIT 7 INITIAL FIXED USDT =",
-        initial_usdt,
+        "UNIT 7 E0 INITIAL USDT =",
+        initial_margin,
         flush=True
     )
+
     print(
-        "UNIT 7 INITIAL MARGIN PERCENT =",
-        initial_percent,
-        flush=True
-    )
-    print(
-        "UNIT 7 BACKUPS =",
+        "UNIT 7 MAX BACKUPS =",
         backup_count,
         flush=True
     )
+
     print(
-        "UNIT 7 BACKUP MULTIPLIERS =",
-        output["backup_multipliers"],
+        "UNIT 7 BACKUP AVAILABLE BALANCE % =",
+        backup_percent,
         flush=True
     )
+
     print(
-        "UNIT 7 FULL LADDER REFERENCE USDT =",
-        full_ladder_usdt,
+        "UNIT 7 BACKUP BUFFER % =",
+        buffer_percent,
         flush=True
     )
+
+    print(
+        "UNIT 7 BACKUP MULTIPLIERS = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 LONG TRIGGER FACTOR =",
+        long_factor,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 SHORT TRIGGER FACTOR =",
+        short_factor,
+        flush=True
+    )
+
     print(
         "UNIT 7 EXPOSURE CAP % =",
-        cap_pct,
+        exposure_cap,
         flush=True
     )
+
     print(
-        "UNIT 7 PROGRESSIVE FUNDING = TRUE",
+        "UNIT 7 EXPOSURE MAX % =",
+        exposure_max,
         flush=True
     )
+
+    print(
+        "UNIT 7 BACKUP AMOUNTS = DEFERRED",
+        flush=True
+    )
+
     print(
         "UNIT 7 LEVERAGE = DEFERRED TO WEEX",
         flush=True
     )
+
     print(
         "UNIT 7 QUANTITY CALCULATED = FALSE",
         flush=True
     )
+
     print(
         "UNIT 7 EXCHANGE WRITE = NONE",
         flush=True
     )
+
     print(
         "FRESH RECONSTRUCTION UNIT 7 RESULT = PASS",
         flush=True
     )
+
     print("=" * 80, flush=True)
 
     return output
 
 
 # ============================================================
-# UNIT 7 V8 SYNTHETIC VALIDATION
-# NO WEEX ACCOUNT REQUEST OR ORDER
+# UNIT 7 V10 COMPLETE VALIDATION
 # ============================================================
 
-
-def unit_7_validation_v8():
+def unit_7_validation_v10():
 
     print("=" * 80, flush=True)
-    print("UNIT 7 VALIDATION V8 START", flush=True)
+    print(
+        "UNIT 7 VALIDATION V10 START",
+        flush=True
+    )
 
     config = copy.deepcopy(
         FRESH_RECONSTRUCTION_CONFIG
@@ -6105,27 +6389,30 @@ def unit_7_validation_v8():
 
     def check(name, changes, expected_status):
 
-        signal = copy.deepcopy(base)
-        signal.update(changes)
+        candidate = copy.deepcopy(base)
+        candidate.update(changes)
 
         try:
             result = fresh_reconstruction_unit_7(
                 config,
-                signal
+                candidate
             )
 
-            max_cap = config["strategy"].get(
-                "exposure_cap_max_percent",
-                100.0
-            )
+            strategy = config["strategy"]
 
             passed = (
                 result["status"] == expected_status
+                and result["max_backups"] == 5
+                and result["backup_margin_percent"]
+                    == strategy["backup_margin_percent"]
+                and result["full_ladder_margin_usdt"] is None
+                and "backup_multipliers" not in result
                 and result["order_payload_created"] is False
                 and result["quantity_calculated"] is False
                 and result["exchange_write"] is False
-                and result["max_backups"] == 5
-                and result["exposure_cap_percent"] <= max_cap
+                and result["exposure_cap_percent"]
+                    <= result["exposure_cap_max_percent"]
+                    <= 100.0
             )
 
         except Exception as exc:
@@ -6141,6 +6428,10 @@ def unit_7_validation_v8():
 
         tests.append((name, passed))
 
+    # --------------------------------------------------------
+    # TEST 1: NORMAL IDLE
+    # --------------------------------------------------------
+
     check(
         "NORMAL IDLE",
         {
@@ -6148,11 +6439,15 @@ def unit_7_validation_v8():
             "signal_qualified": False,
             "active_mode": "NONE",
             "direction": "NONE",
-            "admission_reason": "NO_ACCEPTABLE_CANDIDATE",
             "candidate_stage": "NONE",
+            "admission_reason": "NO_ACCEPTABLE_CANDIDATE",
         },
         "IDLE"
     )
+
+    # --------------------------------------------------------
+    # TEST 2: STRUCTURE LONG
+    # --------------------------------------------------------
 
     check(
         "QUALIFIED STRUCTURE LONG",
@@ -6161,12 +6456,16 @@ def unit_7_validation_v8():
             "signal_qualified": True,
             "active_mode": "STRUCTURE",
             "direction": "LONG",
+            "candidate_stage": "QUALIFIED",
             "admission_reason":
                 "STRUCTURE_QUALIFIED_FOR_NEXT_UNITS",
-            "candidate_stage": "QUALIFIED",
         },
         "READY_FOR_BALANCE"
     )
+
+    # --------------------------------------------------------
+    # TEST 3: BREAKOUT SHORT
+    # --------------------------------------------------------
 
     check(
         "QUALIFIED BREAKOUT SHORT",
@@ -6175,12 +6474,16 @@ def unit_7_validation_v8():
             "signal_qualified": True,
             "active_mode": "BREAKOUT",
             "direction": "SHORT",
+            "candidate_stage": "QUALIFIED",
             "admission_reason":
                 "BREAKOUT_QUALIFIED_FOR_NEXT_UNITS",
-            "candidate_stage": "QUALIFIED",
         },
         "READY_FOR_BALANCE"
     )
+
+    # --------------------------------------------------------
+    # TEST 4: SCALP LONG
+    # --------------------------------------------------------
 
     check(
         "QUALIFIED SCALP LONG",
@@ -6189,13 +6492,17 @@ def unit_7_validation_v8():
             "signal_qualified": True,
             "active_mode": "SCALP",
             "direction": "LONG",
-            "admission_reason":
-                "SCALP_QUALIFIED_FOR_NEXT_UNITS",
             "candidate_stage": "PENDING_UNIT_6",
             "higher_mode_developing": False,
+            "admission_reason":
+                "SCALP_QUALIFIED_FOR_NEXT_UNITS",
         },
         "READY_FOR_BALANCE"
     )
+
+    # --------------------------------------------------------
+    # TEST 5: DEVELOPING STRUCTURE
+    # --------------------------------------------------------
 
     check(
         "DEVELOPING STRUCTURE IDLE",
@@ -6211,6 +6518,10 @@ def unit_7_validation_v8():
         "IDLE"
     )
 
+    # --------------------------------------------------------
+    # TEST 6: DEVELOPING BREAKOUT
+    # --------------------------------------------------------
+
     check(
         "DEVELOPING BREAKOUT IDLE",
         {
@@ -6225,46 +6536,155 @@ def unit_7_validation_v8():
         "IDLE"
     )
 
+    # --------------------------------------------------------
+    # TEST 7: ACTUAL UNIT 6 HANDOVER
+    # --------------------------------------------------------
+
+    check(
+        "ACTUAL UNIT 6 V9 HANDOVER",
+        {},
+        (
+            "READY_FOR_BALANCE"
+            if base.get("execution_intent") is True
+            else "IDLE"
+        )
+    )
+
+    # --------------------------------------------------------
+    # TEST 8: DYNAMIC BACKUP MARGIN
+    # --------------------------------------------------------
+
     try:
-        actual = fresh_reconstruction_unit_7(
-            config,
+        percentage = config["strategy"][
+            "backup_margin_percent"
+        ]
+
+        amount = unit_7_v10_backup_margin(
+            Decimal("100"),
+            percentage
+        )
+
+        expected_amount = (
+            Decimal("100")
+            * Decimal(str(percentage))
+            / Decimal("100")
+        )
+
+        margin_pass = amount == expected_amount
+
+    except Exception:
+        margin_pass = False
+
+    tests.append((
+        "DYNAMIC BACKUP AVAILABLE BALANCE",
+        margin_pass
+    ))
+
+    # --------------------------------------------------------
+    # TEST 9: LONG/SHORT BACKUP TRIGGERS
+    # --------------------------------------------------------
+
+    try:
+        buffer = config["strategy"][
+            "backup_buffer_percent"
+        ]
+
+        long_trigger = unit_7_v10_backup_trigger(
+            Decimal("80000"),
+            "LONG",
+            buffer
+        )
+
+        short_trigger = unit_7_v10_backup_trigger(
+            Decimal("80000"),
+            "SHORT",
+            buffer
+        )
+
+        fraction = Decimal(
+            str(buffer)
+        ) / Decimal("100")
+
+        trigger_pass = (
+            long_trigger
+                == Decimal("80000")
+                * (Decimal("1") + fraction)
+            and short_trigger
+                == Decimal("80000")
+                * (Decimal("1") - fraction)
+        )
+
+    except Exception:
+        trigger_pass = False
+
+    tests.append((
+        "FRESH LIQUIDATION TRIGGER FORMULAS",
+        trigger_pass
+    ))
+
+    # --------------------------------------------------------
+    # TEST 10: ADJUSTABLE 100% CAP
+    # --------------------------------------------------------
+
+    try:
+        modified_config = copy.deepcopy(config)
+
+        modified_config["strategy"][
+            "exposure_cap_percent"
+        ] = 100.0
+
+        result = fresh_reconstruction_unit_7(
+            modified_config,
             base
         )
 
-        actual_pass = (
-            actual["status"] in ("IDLE", "READY_FOR_BALANCE")
-            and actual["exchange_write"] is False
-            and actual["order_payload_created"] is False
+        remaining = (
+            unit_7_v10_remaining_margin_capacity(
+                Decimal("100"),
+                Decimal("34.7"),
+                Decimal("0"),
+                Decimal("35")
+            )
+        )
+
+        cap_pass = (
+            result["exposure_cap_percent"] == 100.0
+            and remaining == Decimal("0.3")
+            and result["exchange_write"] is False
         )
 
     except Exception as exc:
 
         print(
-            "UNIT 7 ACTUAL HANDOVER ERROR =",
+            "UNIT 7 CAP TEST ERROR =",
             repr(exc),
             flush=True
         )
 
-        actual_pass = False
+        cap_pass = False
 
     tests.append((
-        "ACTUAL UNIT 6 V9 HANDOVER",
-        actual_pass
+        "ADJUSTABLE EXPOSURE CAP",
+        cap_pass
     ))
 
+    # ========================================================
+    # FINAL VALIDATION SUMMARY
+    # ========================================================
+
     passed_count = sum(
-        1 for _, ok in tests if ok
+        1 for _, passed in tests if passed
     )
 
     failed_count = len(tests) - passed_count
 
-    for name, ok in tests:
+    for name, passed in tests:
 
         print(
             "UNIT 7 TEST:",
             name,
             "=",
-            "PASS" if ok else "FAIL",
+            "PASS" if passed else "FAIL",
             flush=True
         )
 
@@ -6282,54 +6702,43 @@ def unit_7_validation_v8():
 
     if failed_count:
         raise RuntimeError(
-            "UNIT 7 V8 VALIDATION FAILED"
+            "UNIT 7 V10 VALIDATION FAILED"
         )
 
     print(
-        "UNIT 7 VALIDATION V8 RESULT = PASS",
+        "UNIT 7 VALIDATION V10 RESULT = PASS",
         flush=True
     )
+
+    print("=" * 80, flush=True)
 
     return True
 
 
 # ============================================================
-# SINGLE UNIT 7 EXECUTION SEQUENCE
+# UNIT 7 V10 EXECUTION
+# KEEP THESE CALLS AFTER ALL UNIT 7 FUNCTION DEFINITIONS
 # ============================================================
 
-# 1. Decimal validation helper
-def unit_7_v9_decimal(value, name, zero=False):
-    ...
-
-# 2. Unit 7 execution preparation
-def fresh_reconstruction_unit_7(
-    unit_2_config,
-    unit_6_candidate,
-):
-    ...
-
-# 3. Unit 7 V9 validation
-def unit_7_validation_v9():
-    ...
-
-# 4. Execute validation
 FRESH_UNIT_7_VALIDATION_READY = (
-    unit_7_validation_v9()
+    unit_7_validation_v10()
 )
 
-# 5. Prepare actual Unit 6 handover
 FRESH_RECONSTRUCTION_SIZING_CANDIDATE = (
     fresh_reconstruction_unit_7(
         FRESH_RECONSTRUCTION_CONFIG,
-        FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE,
+        FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE
     )
 )
 
-
-
+print(
+    "FRESH RECONSTRUCTION UNIT 7 V10 READY =",
+    FRESH_UNIT_7_VALIDATION_READY,
+    flush=True
+)
 
 # ============================================================
-# END COMPLETE UNIT 7 V8 REPLACEMENT
+# END COMPLETE UNIT 7 V10
 # UNIT 8 FOLLOWS
-# ZERO INDENTATION
 # ============================================================
+
