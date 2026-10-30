@@ -6743,16 +6743,17 @@ print(
 # ============================================================
 
 
+
 # ============================================================
-# START COMPLETE UNIT 8 V5
-# WEEX DEMO ACCOUNT AND LEVERAGE INSPECTION
+# START COMPLETE UNIT 8 V6
+# WEEX DEMO + RENDER MANUAL LEVERAGE
+# UNIT 7 V10 COMPATIBLE
+# ZERO INDENTATION
 #
-# UNIT 2 V9 + UNIT 7 V10 -> UNIT 8 V5 -> UNIT 9
-#
-# AUTHENTICATED GET REQUESTS ONLY
-# NO ORDER SUBMISSION
+# AUTHENTICATED DEMO GET REQUESTS ONLY
+# NO LEVERAGE API REQUIRED
 # NO LEVERAGE MUTATION
-# NO LIVE BALANCE USED FOR DEMO SIZING
+# NO ORDER SUBMISSION
 # ============================================================
 
 import os
@@ -6763,34 +6764,86 @@ import hashlib
 import base64
 import urllib.request
 import urllib.error
-from decimal import Decimal, InvalidOperation
+
+from decimal import (
+    Decimal,
+    InvalidOperation,
+    ROUND_FLOOR,
+    ROUND_CEILING,
+)
 from urllib.parse import urlencode
 
 
-def unit_8_v5_decimal(value, label, allow_zero=False):
+# ============================================================
+# UNIT 8 NUMERIC VALIDATION
+# ============================================================
+
+def unit_8_v6_decimal(
+    value,
+    name,
+    allow_zero=False,
+):
     if isinstance(value, bool):
-        raise ValueError("BOOLEAN VALUE: " + label)
+        raise RuntimeError(
+            "UNIT 8 INVALID BOOLEAN: " + name
+        )
 
     try:
         result = Decimal(str(value))
-    except (InvalidOperation, ValueError, TypeError) as exc:
-        raise ValueError("INVALID " + label) from exc
+    except (
+        InvalidOperation,
+        ValueError,
+        TypeError,
+    ) as exc:
+        raise RuntimeError(
+            "UNIT 8 INVALID NUMBER: " + name
+        ) from exc
 
     if not result.is_finite():
-        raise ValueError("NONFINITE " + label)
+        raise RuntimeError(
+            "UNIT 8 NONFINITE NUMBER: " + name
+        )
 
-    if result < 0 or (result == 0 and not allow_zero):
-        raise ValueError("INVALID RANGE " + label)
+    if result < 0:
+        raise RuntimeError(
+            "UNIT 8 NEGATIVE NUMBER: " + name
+        )
+
+    if result == 0 and not allow_zero:
+        raise RuntimeError(
+            "UNIT 8 ZERO NOT ALLOWED: " + name
+        )
 
     return result
 
 
-def unit_8_v5_credentials():
-    key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
+# ============================================================
+# UNIT 8 SIGNED WEEX DEMO GET
+# ALLOWED ENDPOINTS ONLY
+# ============================================================
+
+def unit_8_v6_signed_get(path, params=None):
+
+    allowed = {
+        "/capi/v3/sim/balance",
+        "/capi/v3/sim/position/allPosition",
+    }
+
+    if path not in allowed:
+        raise RuntimeError(
+            "UNIT 8 NON-DEMO ENDPOINT REJECTED"
+        )
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
     secret = (
         os.getenv("WEEX_API_SECRET")
         or os.getenv("API_SECRET")
     )
+
     passphrase = (
         os.getenv("WEEX_API_PASSPHRASE")
         or os.getenv("API_PASSPHRASE")
@@ -6798,96 +6851,73 @@ def unit_8_v5_credentials():
 
     if not all((key, secret, passphrase)):
         raise RuntimeError(
-            "WEEX_API_CREDENTIALS_MISSING"
+            "UNIT 8 API CREDENTIALS MISSING"
         )
 
-    return key, secret, passphrase
+    query = urlencode(params or {})
 
-
-def unit_8_v5_signed_get(path, params=None):
-
-    # Only these three audited read endpoints are allowed.
-    allowed = {
-        "/capi/v3/sim/balance",
-        "/capi/v3/sim/position/allPosition",
-        "/capi/v3/account/symbolConfig",
-    }
-
-    if path not in allowed:
-        raise RuntimeError(
-            "UNIT8_GET_ENDPOINT_NOT_ALLOWED"
-        )
-
-    params = params or {}
-    query = urlencode(params)
-    request_target = path + (
+    target = path + (
         "?" + query if query else ""
     )
 
-    key, secret, passphrase = unit_8_v5_credentials()
-
     timestamp = str(int(time.time() * 1000))
 
-    prehash = (
-        timestamp + "GET" + request_target
-    )
+    message = timestamp + "GET" + target
 
     signature = base64.b64encode(
         hmac.new(
             secret.encode("utf-8"),
-            prehash.encode("utf-8"),
-            hashlib.sha256
+            message.encode("utf-8"),
+            hashlib.sha256,
         ).digest()
     ).decode("utf-8")
 
-    url = (
-        "https://api-contract.weex.com"
-        + request_target
-    )
-
-    headers = {
-        "ACCESS-KEY": key,
-        "ACCESS-SIGN": signature,
-        "ACCESS-PASSPHRASE": passphrase,
-        "ACCESS-TIMESTAMP": timestamp,
-        "Content-Type": "application/json",
-        "locale": "en-US",
-        "User-Agent": "WEEX-Demo-Unit8-V5",
-    }
-
     request = urllib.request.Request(
-        url,
-        headers=headers,
+        url=(
+            "https://api-contract.weex.com"
+            + target
+        ),
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-PASSPHRASE": passphrase,
+            "ACCESS-TIMESTAMP": timestamp,
+            "Content-Type": "application/json",
+            "locale": "en-US",
+        },
         method="GET",
     )
 
     try:
         with urllib.request.urlopen(
-            request, timeout=12
+            request,
+            timeout=12,
         ) as response:
             payload = json.loads(
                 response.read().decode("utf-8")
             )
 
     except urllib.error.HTTPError as exc:
-        # Never print authentication material or
-        # complete signed request headers.
         raise RuntimeError(
-            "WEEX_HTTP_" + str(exc.code)
+            "UNIT 8 WEEX HTTP " + str(exc.code)
         ) from exc
 
     except Exception as exc:
         raise RuntimeError(
-            "WEEX_READ_FAILED_" + type(exc).__name__
+            "UNIT 8 WEEX REQUEST FAILED: "
+            + type(exc).__name__
         ) from exc
 
     if isinstance(payload, dict):
         code = payload.get("code")
+
         if code is not None and str(code) not in (
-            "0", "200", "00000"
+            "0",
+            "200",
+            "00000",
         ):
             raise RuntimeError(
-                "WEEX_RESPONSE_CODE_" + str(code)
+                "UNIT 8 WEEX API CODE: " + str(code)
             )
 
         if "data" in payload:
@@ -6896,17 +6926,113 @@ def unit_8_v5_signed_get(path, params=None):
     return payload
 
 
-def unit_8_v5_rows(payload, label):
-    if isinstance(payload, list):
-        return payload
+# ============================================================
+# UNIT 8 RENDER LEVERAGE
+# ALWAYS READ BOTH, INCLUDING FLAT POSITION
+# ============================================================
 
-    if isinstance(payload, dict):
-        return [payload]
+def unit_8_v6_render_leverage():
 
-    raise RuntimeError(
-        "UNIT8_INVALID_" + label + "_RESPONSE"
+    def read(name):
+        raw = os.environ.get(name)
+
+        if not raw or not raw.strip():
+            raise RuntimeError(
+                "UNIT 8 MISSING RENDER VARIABLE: "
+                + name
+            )
+
+        leverage = unit_8_v6_decimal(
+            raw.strip(),
+            name,
+        )
+
+        if leverage > Decimal("200"):
+            raise RuntimeError(
+                "UNIT 8 LEVERAGE OUTSIDE LOCAL LIMIT"
+            )
+
+        return leverage
+
+    return (
+        read("WEEX_DEMO_LONG_LEVERAGE"),
+        read("WEEX_DEMO_SHORT_LEVERAGE"),
     )
 
+
+# ============================================================
+# UNIT 8 MINIMUM QUANTITY CALCULATION
+# NO SILENT INCREASE OF ENTRY MARGIN
+# ============================================================
+
+def unit_8_v6_quantity(
+    margin,
+    leverage,
+    price,
+    quantity_step,
+    minimum_quantity,
+):
+
+    margin = unit_8_v6_decimal(
+        margin, "MARGIN"
+    )
+
+    leverage = unit_8_v6_decimal(
+        leverage, "LEVERAGE"
+    )
+
+    price = unit_8_v6_decimal(
+        price, "MARK PRICE"
+    )
+
+    step = unit_8_v6_decimal(
+        quantity_step, "QUANTITY STEP"
+    )
+
+    minimum = unit_8_v6_decimal(
+        minimum_quantity, "MINIMUM QUANTITY"
+    )
+
+    raw_quantity = (
+        margin * leverage / price
+    )
+
+    steps = (
+        raw_quantity / step
+    ).to_integral_value(
+        rounding=ROUND_FLOOR
+    )
+
+    normalized = steps * step
+
+    minimum_steps = (
+        minimum / step
+    ).to_integral_value(
+        rounding=ROUND_CEILING
+    )
+
+    executable_minimum = (
+        minimum_steps * step
+    )
+
+    required_margin = (
+        executable_minimum * price / leverage
+    )
+
+    return {
+        "raw_quantity": raw_quantity,
+        "quantity": normalized,
+        "minimum_quantity": executable_minimum,
+        "minimum_margin_required": required_margin,
+        "minimum_quantity_pass": (
+            normalized >= executable_minimum
+        ),
+    }
+
+
+# ============================================================
+# UNIT 8 MAIN
+# ============================================================
 
 def fresh_reconstruction_unit_8(
     config,
@@ -6916,641 +7042,347 @@ def fresh_reconstruction_unit_8(
 
     print("=" * 80, flush=True)
     print(
-        "UNIT 8 V5 WEEX ACCOUNT INSPECTION START",
+        "UNIT 8 V6 RENDER LEVERAGE START",
         flush=True
     )
 
     if not isinstance(config, dict):
-        raise RuntimeError("UNIT8_CONFIG_MISSING")
+        raise RuntimeError(
+            "UNIT 8 CONFIG INVALID"
+        )
 
     if not isinstance(unit_7_result, dict):
-        raise RuntimeError("UNIT8_UNIT7_MISSING")
+        raise RuntimeError(
+            "UNIT 8 UNIT 7 RESULT INVALID"
+        )
 
     if unit_7_result.get(
         "unit_7_version"
     ) != "UNIT7_V10_DYNAMIC":
         raise RuntimeError(
-            "UNIT8_REQUIRES_UNIT7_V10"
+            "UNIT 8 REQUIRES UNIT 7 V10"
         )
 
-    strategy = config["strategy"]
+    exchange = config.get("exchange", {})
+    strategy = config.get("strategy", {})
+    safety = config.get("safety", {})
 
     if config.get(
         "execution_environment"
     ) != "DEMO":
         raise RuntimeError(
-            "UNIT8_DEMO_ONLY"
+            "UNIT 8 DEMO ONLY"
         )
 
-    if config["exchange"].get(
-        "demo_order_symbol"
-    ) != "BTCSUSDT":
+    if (
+        exchange.get("name") != "WEEX"
+        or exchange.get("market_symbol")
+            != "BTCUSDT"
+        or exchange.get("demo_order_symbol")
+            != "BTCSUSDT"
+    ):
         raise RuntimeError(
-            "UNIT8_DEMO_SYMBOL_MISMATCH"
+            "UNIT 8 SYMBOL CONTRACT INVALID"
         )
-
-    # Nine-field interface retained for Unit 9.
-    output = {
-        "status": "IDLE",
-        "active_mode": unit_7_result.get(
-            "active_mode", "NONE"
-        ),
-        "direction": unit_7_result.get(
-            "direction", "NONE"
-        ),
-        "signal_qualified": bool(
-            unit_7_result.get("signal_qualified")
-        ),
-        "execution_intent": bool(
-            unit_7_result.get("execution_intent")
-        ),
-        "trade_plan_ready": False,
-        "trade_plan": None,
-        "skip_reason": "ACCOUNT_INSPECTION_PENDING",
-        "read_only": True,
-
-        "unit_8_version": "UNIT8_V5_WEEX_READ",
-        "demo_symbol": "BTCSUSDT",
-        "market_symbol": "BTCUSDT",
-
-        "demo_balance_verified": False,
-        "demo_positions_verified": False,
-        "symbol_config_verified": False,
-        "demo_leverage_verified": False,
-
-        "available_balance": None,
-        "account_equity": None,
-        "frozen_balance": None,
-
-        "position_flat_verified": False,
-        "positions": [],
-
-        "long_leverage": None,
-        "short_leverage": None,
-        "leverage_source": "UNVERIFIED",
-
-        "initial_fixed_usdt":
-            unit_7_result.get("initial_fixed_usdt"),
-        "backup_margin_percent":
-            unit_7_result.get("backup_margin_percent"),
-        "max_backups":
-            unit_7_result.get("max_backups"),
-        "exposure_cap_percent":
-            unit_7_result.get("exposure_cap_percent"),
-
-        "quantity_calculated": False,
-        "execution_quantity": None,
-        "order_payload_created": False,
-        "exchange_write": False,
-    }
 
     if (
         unit_7_result.get("max_backups") != 5
-        or strategy.get("max_backups") != 5
         or "backup_multipliers" in strategy
     ):
         raise RuntimeError(
-            "UNIT8_DYNAMIC_BACKUP_POLICY_MISMATCH"
+            "UNIT 8 BACKUP POLICY MISMATCH"
         )
 
     if (
-        unit_7_result.get("exchange_write") is not False
+        unit_7_result.get("exchange_write")
+            is not False
         or unit_7_result.get(
             "order_payload_created"
         ) is not False
     ):
         raise RuntimeError(
-            "UNIT8_UPSTREAM_WRITE_SAFETY"
+            "UNIT 8 UNIT 7 WRITE SAFETY FAILED"
+        )
+
+    if safety.get(
+        "real_order_submission_enabled"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 8 REAL CASH DISABLED REQUIRED"
         )
 
     # ========================================================
-    # A. READ ACTUAL DEMO BALANCE
+    # 1. LEVERAGE ALWAYS READ FIRST
+    # ========================================================
+
+    leverage_error = None
+    long_leverage = None
+    short_leverage = None
+
+    try:
+        (
+            long_leverage,
+            short_leverage,
+        ) = unit_8_v6_render_leverage()
+
+        print(
+            "UNIT 8 RENDER LONG LEVERAGE =",
+            long_leverage,
+            flush=True
+        )
+
+        print(
+            "UNIT 8 RENDER SHORT LEVERAGE =",
+            short_leverage,
+            flush=True
+        )
+
+    except Exception as exc:
+        leverage_error = str(exc)
+
+        print(
+            "UNIT 8 LEVERAGE CONFIG ERROR =",
+            leverage_error,
+            flush=True
+        )
+
+    # ========================================================
+    # 2. PRESERVE UNIT 9 NINE-FIELD CONTRACT
+    # ========================================================
+
+    mode = unit_7_result.get(
+        "active_mode", "NONE"
+    )
+
+    direction = unit_7_result.get(
+        "direction", "NONE"
+    )
+
+    qualified = (
+        unit_7_result.get("signal_qualified")
+        is True
+    )
+
+    intent = (
+        unit_7_result.get("execution_intent")
+        is True
+    )
+
+    output = {
+        "status": "IDLE",
+        "active_mode": mode,
+        "direction": direction,
+        "signal_qualified": qualified,
+        "execution_intent": False,
+        "trade_plan_ready": False,
+        "trade_plan": None,
+        "skip_reason": "NONE",
+        "read_only": True,
+
+        "unit_8_version":
+            "UNIT8_V6_RENDER_LEVERAGE",
+
+        "demo_symbol": "BTCSUSDT",
+
+        "weex_demo_long_leverage": (
+            float(long_leverage)
+            if long_leverage is not None
+            else None
+        ),
+
+        "weex_demo_short_leverage": (
+            float(short_leverage)
+            if short_leverage is not None
+            else None
+        ),
+
+        "long_leverage": (
+            str(long_leverage)
+            if long_leverage is not None
+            else None
+        ),
+
+        "short_leverage": (
+            str(short_leverage)
+            if short_leverage is not None
+            else None
+        ),
+
+        "selected_leverage": None,
+
+        "leverage_source":
+            "RENDER_MANUAL_WEEX_DEMO",
+
+        "leverage_configured": (
+            leverage_error is None
+        ),
+
+        "exchange_leverage_verified": False,
+        "demo_leverage_verified": False,
+
+        "demo_balance_verified": False,
+        "demo_positions_verified": False,
+        "position_flat_verified": False,
+
+        "available_balance": None,
+        "account_equity": None,
+        "account_equity_source": None,
+
+        "positions": [],
+        "quantity_calculated": False,
+        "execution_quantity": None,
+
+        "max_backups": 5,
+        "backup_margin_percent":
+            unit_7_result.get(
+                "backup_margin_percent"
+            ),
+        "backup_buffer_percent":
+            unit_7_result.get(
+                "backup_buffer_percent"
+            ),
+        "exposure_cap_percent":
+            unit_7_result.get(
+                "exposure_cap_percent"
+            ),
+
+        "order_payload_created": False,
+        "exchange_write": False,
+    }
+
+    def finish(status, reason):
+
+        output["status"] = status
+        output["skip_reason"] = reason
+
+        print(
+            "UNIT 8 STATUS =",
+            status,
+            flush=True
+        )
+
+        print(
+            "UNIT 8 REASON =",
+            reason,
+            flush=True
+        )
+
+        print(
+            "UNIT 8 TRADE PLAN READY =",
+            output["trade_plan_ready"],
+            flush=True
+        )
+
+        print(
+            "UNIT 8 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        print("=" * 80, flush=True)
+
+        return output
+
+    # ========================================================
+    # 3. READ DEMO BALANCE EVEN DURING IDLE
     # ========================================================
 
     try:
-        balances = unit_8_v5_rows(
-            unit_8_v5_signed_get(
-                "/capi/v3/sim/balance"
-            ),
-            "DEMO_BALANCE"
+        balances = unit_8_v6_signed_get(
+            "/capi/v3/sim/balance"
         )
 
-        demo_asset = next(
+        if isinstance(balances, dict):
+            balances = [balances]
+
+        if not isinstance(balances, list):
+            raise RuntimeError(
+                "INVALID DEMO BALANCE FORMAT"
+            )
+
+        asset = next(
             (
-                item for item in balances
-                if isinstance(item, dict)
-                and item.get("asset") == "SUSDT"
+                record
+                for record in balances
+                if isinstance(record, dict)
+                and str(
+                    record.get("asset", "")
+                ).upper() == "SUSDT"
             ),
             None
         )
 
-        if demo_asset is None:
+        if asset is None:
             raise RuntimeError(
-                "SUSDT_ASSET_NOT_FOUND"
+                "SUSDT ASSET NOT FOUND"
             )
 
-        available = unit_8_v5_decimal(
-            demo_asset.get("availableBalance"),
+        available = unit_8_v6_decimal(
+            asset.get("availableBalance"),
             "AVAILABLE SUSDT",
             allow_zero=True
         )
 
-        balance = unit_8_v5_decimal(
-            demo_asset.get("balance"),
-            "DEMO BALANCE",
-            allow_zero=True
+        output["available_balance"] = str(
+            available
         )
 
-        frozen = unit_8_v5_decimal(
-            demo_asset.get("frozen"),
-            "FROZEN BALANCE",
-            allow_zero=True
-        )
+        output["demo_balance_verified"] = True
 
-        pnl_value = Decimal(
-            str(demo_asset.get("unrealizePnl", "0"))
-        )
-
-        if not pnl_value.is_finite():
-            raise RuntimeError(
-                "INVALID_UNREALIZED_PNL"
-            )
-
-        # Provisional equity calculation, explicitly
-        # distinguished from verified exchange equity.
-        provisional_equity = balance + pnl_value
-
-        if provisional_equity < 0:
-            raise RuntimeError(
-                "INVALID_PROVISIONAL_EQUITY"
-            )
-
-        output.update({
-            "demo_balance_verified": True,
-            "available_balance": str(available),
-            "account_balance": str(balance),
-            "frozen_balance": str(frozen),
-            "unrealized_pnl": str(pnl_value),
-            "account_equity": str(
-                provisional_equity
-            ),
-            "account_equity_source":
-                "BALANCE_PLUS_UNREALIZED_PNL_PROVISIONAL",
-        })
-
-        print(
-            "UNIT 8 DEMO BALANCE = VERIFIED",
-            flush=True
-        )
-        print(
-            "UNIT 8 AVAILABLE SUSDT =",
-            available,
-            flush=True
-        )
-        print(
-            "UNIT 8 PROVISIONAL EQUITY =",
-            provisional_equity,
-            flush=True
-        )
-
-    except Exception as exc:
-        print(
-            "UNIT 8 DEMO BALANCE = UNVERIFIED",
-            type(exc).__name__,
-            str(exc),
-            flush=True
-        )
-
-    # ========================================================
-    # B. READ DEMO POSITIONS REGARDLESS OF SIGNAL
-    # ========================================================
-
-    try:
-        positions_raw = unit_8_v5_rows(
-            unit_8_v5_signed_get(
-                "/capi/v3/sim/position/allPosition"
-            ),
-            "DEMO_POSITIONS"
-        )
-
-        btc_positions = [
-            p for p in positions_raw
-            if isinstance(p, dict)
-            and p.get("symbol") in (
-                "BTCSUSDT",
-                "BTCUSDT"
-            )
-        ]
-
-        open_positions = []
-
-        for position in btc_positions:
-            size = unit_8_v5_decimal(
-                position.get("size", "0"),
-                "POSITION SIZE",
+        # Equity is used only if the exchange supplied
+        # values required for a reliable calculation.
+        if (
+            asset.get("equity") is not None
+        ):
+            equity = unit_8_v6_decimal(
+                asset["equity"],
+                "DEMO EQUITY",
                 allow_zero=True
             )
 
-            if size > 0:
-                open_positions.append(position)
-
-        output["demo_positions_verified"] = True
-        output["position_flat_verified"] = (
-            len(open_positions) == 0
-        )
-
-        # Raw position data is retained for downstream
-        # management, but never treated as an order command.
-        output["positions"] = open_positions
-
-        print(
-            "UNIT 8 DEMO POSITIONS = VERIFIED",
-            flush=True
-        )
-        print(
-            "UNIT 8 OPEN BTC POSITIONS =",
-            len(open_positions),
-            flush=True
-        )
-        print(
-            "UNIT 8 POSITION FLAT =",
-            output["position_flat_verified"],
-            flush=True
-        )
-
-    except Exception as exc:
-        print(
-            "UNIT 8 DEMO POSITIONS = UNVERIFIED",
-            type(exc).__name__,
-            str(exc),
-            flush=True
-        )
-
-    # ========================================================
-    # C. QUERY BOTH CONFIGURED LEVERAGES
-    # THIS GET IS NOT A DEMO-SPECIFIC API ENDPOINT.
-    # NEVER MISLABEL IT AS VERIFIED DEMO LEVERAGE.
-    # ========================================================
-
-    try:
-        symbol_response = unit_8_v5_rows(
-            unit_8_v5_signed_get(
-                "/capi/v3/account/symbolConfig",
-                {"symbol": "BTCUSDT"}
-            ),
-            "SYMBOL_CONFIG"
-        )
-
-        config_row = next(
-            (
-                p for p in symbol_response
-                if isinstance(p, dict)
-                and p.get("symbol") == "BTCUSDT"
-            ),
-            None
-        )
-
-        if config_row is None:
-            raise RuntimeError(
-                "BTCUSDT_CONFIG_NOT_FOUND"
+            output["account_equity"] = str(equity)
+            output["account_equity_source"] = (
+                "WEEX_REPORTED_EQUITY"
             )
 
-        margin_type = config_row.get("marginType")
-
-        if margin_type == "ISOLATED":
-            long_lev = unit_8_v5_decimal(
-                config_row.get(
-                    "isolatedLongLeverage"
-                ),
-                "ISOLATED LONG LEVERAGE"
-            )
-            short_lev = unit_8_v5_decimal(
-                config_row.get(
-                    "isolatedShortLeverage"
-                ),
-                "ISOLATED SHORT LEVERAGE"
+        elif (
+            asset.get("balance") is not None
+            and asset.get("unrealizePnl")
+                is not None
+        ):
+            balance = unit_8_v6_decimal(
+                asset["balance"],
+                "BALANCE",
+                allow_zero=True
             )
 
-        elif margin_type == "CROSSED":
-            cross_lev = unit_8_v5_decimal(
-                config_row.get("crossLeverage"),
-                "CROSS LEVERAGE"
-            )
-            long_lev = cross_lev
-            short_lev = cross_lev
-
-        else:
-            raise RuntimeError(
-                "UNKNOWN_MARGIN_TYPE"
+            pnl = Decimal(
+                str(asset["unrealizePnl"])
             )
 
-        output.update({
-    "symbol_config_verified": True,
+            if not pnl.is_finite():
+                raise RuntimeError(
+                    "INVALID UNREALIZED PNL"
+                )
 
-    # Regular account settings, NOT demo leverage
-    "regular_long_leverage": str(long_lev),
-    "regular_short_leverage": str(short_lev),
-    "margin_type": margin_type,
+            equity = balance + pnl
 
-    # Do not use regular leverage for demo sizing
-    "long_leverage": None,
-    "short_leverage": None,
-    "demo_leverage_verified": False,
+            if equity < 0:
+                raise RuntimeError(
+                    "NEGATIVE EQUITY"
+                )
 
-    "leverage_source":
-        "DEMO_LEVERAGE_UNVERIFIED",
-})
-    
-
-        print(
-            "UNIT 8 SYMBOL CONFIG = VERIFIED",
-            flush=True
-        )
-        print(
-            "UNIT 8 CONFIG LONG LEVERAGE =",
-            long_lev,
-            flush=True
-        )
-        print(
-            "UNIT 8 CONFIG SHORT LEVERAGE =",
-            short_lev,
-            flush=True
-        )
-        print(
-            "UNIT 8 DEMO LEVERAGE = NOT YET VERIFIED",
-            flush=True
-        )
-
-    except Exception as exc:
-        print(
-            "UNIT 8 SYMBOL CONFIG = UNVERIFIED",
-            type(exc).__name__,
-            str(exc),
-            flush=True
-        )
-
-    # ========================================================
-    # D. VALIDATE LEVERAGE ON AN OPEN DEMO POSITION
-    # NO ACTIVE POSITION IS REQUIRED FOR THE GET ABOVE.
-    # ========================================================
-
-    positions = output["positions"]
-
-    for p in positions:
-        side = p.get("side")
-        if side not in ("LONG", "SHORT"):
-            continue
-
-        try:
-            observed = unit_8_v5_decimal(
-                p.get("leverage"),
-                "DEMO POSITION LEVERAGE"
+            output["account_equity"] = str(equity)
+            output["account_equity_source"] = (
+                "PROVISIONAL_BALANCE_PLUS_PNL"
             )
-        except Exception:
-            continue
-
-        p["unit8_verified_position_leverage"] = (
-            str(observed)
-        )
 
         print(
-            "UNIT 8 DEMO POSITION LEVERAGE",
-            side,
-            "=",
-            observed,
+            "UNIT 8 DEMO BALANCE VERIFIED = True",
             flush=True
         )
 
-    # Flat demo positions do not prevent symbolConfig
-    # retrieval; they do limit independent verification
-    # that the result belongs to the demo environment.
-
-    # ========================================================
-    # E. STRICT DOWNSTREAM DECISION
-    # ========================================================
-
-    if not output["demo_balance_verified"]:
-        output["status"] = "BLOCKED"
-        output["skip_reason"] = (
-            "DEMO_BALANCE_UNVERIFIED"
-        )
-
-    elif not output["demo_positions_verified"]:
-        output["status"] = "BLOCKED"
-        output["skip_reason"] = (
-            "DEMO_POSITIONS_UNVERIFIED"
-        )
-
-    elif not output["position_flat_verified"]:
-        output["status"] = "IDLE"
-        output["skip_reason"] = (
-            "EXISTING_DEMO_POSITION"
-        )
-
-    elif not output["symbol_config_verified"]:
-        output["status"] = "BLOCKED"
-        output["skip_reason"] = (
-            "ACCOUNT_LEVERAGE_CONFIG_UNVERIFIED"
-        )
-
-    elif not output["execution_intent"]:
-        output["status"] = "IDLE"
-        output["skip_reason"] = (
-            unit_7_result.get("skip_reason")
-            or "NO_QUALIFIED_SIGNAL"
-        )
-
-    else:
-        # Do not authorize orders until leverage settings
-        # are shown applicable to DEMO and executable sizing
-        # is independently validated downstream.
-        output["status"] = "READY_FOR_SIZING_CHECK"
-        output["skip_reason"] = (
-            "DEMO_LEVERAGE_APPLICABILITY_UNVERIFIED"
-        )
-
-    # Unit 8 intentionally creates no executable quantity.
-    output["trade_plan_ready"] = False
-    output["trade_plan"] = None
-    output["exchange_write"] = False
-
-    print(
-        "UNIT 8 STATUS =",
-        output["status"],
-        flush=True
-    )
-    print(
-        "UNIT 8 REASON =",
-        output["skip_reason"],
-        flush=True
-    )
-    print(
-        "UNIT 8 LONG LEVERAGE SOURCE =",
-        output["leverage_source"],
-        flush=True
-    )
-    print(
-        "UNIT 8 QUANTITY CALCULATED = FALSE",
-        flush=True
-    )
-    print(
-        "UNIT 8 DEMO ORDER SUBMISSION = NONE",
-        flush=True
-    )
-    print(
-        "UNIT 8 REAL ORDER SUBMISSION = NONE",
-        flush=True
-    )
-    print(
-        "UNIT 8 EXCHANGE WRITE = NONE",
-        flush=True
-    )
-    print(
-        "FRESH RECONSTRUCTION UNIT 8 RESULT = PASS",
-        flush=True
-    )
-    print("=" * 80, flush=True)
-
-    return output
-
-
-# ============================================================
-# UNIT 8 V5 VALIDATION
-# PURE FORMULA AND CONTRACT TESTS
-# NO NETWORK CALLS IN VALIDATION
-# ============================================================
-
-def unit_8_validation_v5():
-
-    print("=" * 80, flush=True)
-    print(
-        "UNIT 8 V5 VALIDATION START",
-        flush=True
-    )
-
-    tests = []
-
-    cfg = FRESH_RECONSTRUCTION_CONFIG
-    incoming = FRESH_RECONSTRUCTION_SIZING_CANDIDATE
-
-    tests.append((
-        "UNIT 7 V10 VERSION",
-        incoming.get("unit_7_version")
-        == "UNIT7_V10_DYNAMIC"
-    ))
-
-    tests.append((
-        "DEMO ENVIRONMENT",
-        cfg.get("execution_environment") == "DEMO"
-    ))
-
-    tests.append((
-        "NO BACKUP MULTIPLIERS",
-        "backup_multipliers" not in cfg["strategy"]
-    ))
-
-    tests.append((
-        "FIVE BACKUPS",
-        incoming.get("max_backups") == 5
-    ))
-
-    tests.append((
-        "EXPOSURE CAP ADJUSTABLE",
-        0 < incoming.get(
-            "exposure_cap_percent", 0
-        ) <= 100
-    ))
-
-    tests.append((
-        "INITIAL MARGIN POSITIVE",
-        unit_8_v5_decimal(
-            incoming.get("initial_fixed_usdt"),
-            "E0"
-        ) > 0
-    ))
-
-    tests.append((
-        "DEMO ACCOUNT READ ENDPOINT",
-        "/capi/v3/sim/balance"
-        != "/capi/v3/account/balance"
-    ))
-
-    tests.append((
-        "DEMO POSITION READ ENDPOINT",
-        "/capi/v3/sim/position/allPosition"
-        != "/capi/v3/account/position/allPosition"
-    ))
-
-    tests.append((
-        "CONFIG LEVERAGE READ ONLY",
-        "/capi/v3/account/symbolConfig"
-        != "/capi/v3/account/leverage"
-    ))
-
-    tests.append((
-        "UPSTREAM EXCHANGE WRITE NONE",
-        incoming.get("exchange_write") is False
-    ))
-
-    passed = sum(bool(ok) for _, ok in tests)
-    failed = len(tests) - passed
-
-    for name, ok in tests:
         print(
-            "UNIT 8 TEST:",
-            name,
-            "=",
-            "PASS" if ok else "FAIL",
-            flush=True
-        )
-
-    print(
-        "UNIT 8 TESTS PASSED =",
-        passed,
-        flush=True
-    )
-    print(
-        "UNIT 8 TESTS FAILED =",
-        failed,
-        flush=True
-    )
-
-    if failed:
-        raise RuntimeError(
-            "UNIT 8 V5 VALIDATION FAILED"
-        )
-
-    print(
-        "UNIT 8 V5 VALIDATION RESULT = PASS",
-        flush=True
-    )
-    return True
+            "UNIT 8
 
 
-# ============================================================
-# UNIT 8 V5 EXECUTION
-# ============================================================
-
-FRESH_UNIT_8_VALIDATION_READY = (
-    unit_8_validation_v5()
-)
-
-FRESH_RECONSTRUCTION_ACCOUNT_CANDIDATE = (
-    fresh_reconstruction_unit_8(
-        FRESH_RECONSTRUCTION_CONFIG,
-        FRESH_RECONSTRUCTION_SIZING_CANDIDATE,
-    )
-)
-
-print(
-    "FRESH RECONSTRUCTION UNIT 8 V5 READY =",
-    FRESH_UNIT_8_VALIDATION_READY,
-    flush=True
-)
-
-# ============================================================
-# END COMPLETE UNIT 8 V5
-# UNIT 9 FOLLOWS
-# ============================================================
-
-
+            
