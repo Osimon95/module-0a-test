@@ -7382,7 +7382,696 @@ def fresh_reconstruction_unit_8(
         )
 
         print(
-            "UNIT 8
+            "UNIT 8 AVAILABLE SUSDT =",
+            available,
+            flush=True
+        )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 8 DEMO BALANCE ERROR =",
+            str(exc),
+            flush=True
+        )
+
+        return finish(
+            "BLOCKED",
+            "DEMO_BALANCE_UNVERIFIED"
+        )
+
+    # ========================================================
+    # 4. READ DEMO POSITIONS EVEN DURING IDLE
+    # ========================================================
+
+    try:
+        positions = unit_8_v6_signed_get(
+            "/capi/v3/sim/position/allPosition"
+        )
+
+        if isinstance(positions, dict):
+            positions = [positions]
+
+        if not isinstance(positions, list):
+            raise RuntimeError(
+                "INVALID DEMO POSITIONS FORMAT"
+            )
+
+        open_positions = []
+
+        for position in positions:
+
+            if not isinstance(position, dict):
+                continue
+
+            if position.get("symbol") not in (
+                "BTCSUSDT",
+                "BTCUSDT"
+            ):
+                continue
+
+            size = unit_8_v6_decimal(
+                position.get("size", "0"),
+                "POSITION SIZE",
+                allow_zero=True
+            )
+
+            if size > 0:
+                open_positions.append(position)
+
+        output["positions"] = open_positions
+        output["demo_positions_verified"] = True
+
+        output["position_flat_verified"] = (
+            len(open_positions) == 0
+        )
+
+        print(
+            "UNIT 8 OPEN DEMO POSITIONS =",
+            len(open_positions),
+            flush=True
+        )
+
+        print(
+            "UNIT 8 POSITION FLAT =",
+            output["position_flat_verified"],
+            flush=True
+        )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 8 DEMO POSITION ERROR =",
+            str(exc),
+            flush=True
+        )
+
+        return finish(
+            "BLOCKED",
+            "DEMO_POSITIONS_UNVERIFIED"
+        )
+
+    # ========================================================
+    # 5. BLOCK INVALID LEVERAGE CONFIGURATION
+    # ========================================================
+
+    if leverage_error is not None:
+        return finish(
+            "BLOCKED",
+            "RENDER_DEMO_LEVERAGE_MISSING_OR_INVALID"
+        )
+
+    # ========================================================
+    # 6. INDEPENDENT OPEN POSITION SAFETY
+    # ========================================================
+
+    if not output["position_flat_verified"]:
+        return finish(
+            "IDLE",
+            "EXISTING_DEMO_POSITION"
+        )
+
+    # ========================================================
+    # 7. NO QUALIFIED SIGNAL
+    # ========================================================
+
+    if not intent:
+        return finish(
+            "IDLE",
+            unit_7_result.get("skip_reason")
+            or "NO_QUALIFIED_SIGNAL"
+        )
+
+    if (
+        not qualified
+        or unit_7_result.get("status")
+            != "READY_FOR_BALANCE"
+    ):
+        return finish(
+            "BLOCKED",
+            "UNIT_7_NOT_QUALIFIED"
+        )
+
+    if (
+        mode not in (
+            "BREAKOUT",
+            "STRUCTURE",
+            "SCALP",
+        )
+        or direction not in (
+            "LONG",
+            "SHORT",
+        )
+    ):
+        return finish(
+            "BLOCKED",
+            "INVALID_TRADE_DIRECTION_OR_MODE"
+        )
+
+    # ========================================================
+    # 8. SELECT RENDER LEVERAGE
+    # ========================================================
+
+    leverage = (
+        long_leverage
+        if direction == "LONG"
+        else short_leverage
+    )
+
+    output["selected_leverage"] = float(
+        leverage
+    )
+
+    # ========================================================
+    # 9. MARKET SNAPSHOT
+    # ========================================================
+
+    if market_snapshot is None:
+        market_snapshot = globals().get(
+            "FRESH_RECONSTRUCTION_MARKET_SNAPSHOT"
+        )
+
+    if not isinstance(market_snapshot, dict):
+        return finish(
+            "BLOCKED",
+            "MARKET_SNAPSHOT_MISSING"
+        )
+
+    if (
+        market_snapshot.get("symbol")
+        != "BTCUSDT"
+    ):
+        return finish(
+            "BLOCKED",
+            "MARKET_SYMBOL_MISMATCH"
+        )
+
+    try:
+        price = unit_8_v6_decimal(
+            market_snapshot.get("price"),
+            "MARK PRICE"
+        )
+
+    except Exception:
+        return finish(
+            "BLOCKED",
+            "INVALID_MARK_PRICE"
+        )
+
+    # ========================================================
+    # 10. INITIAL ENTRY MARGIN
+    # ========================================================
+
+    raw_margin = os.getenv(
+        "INITIAL_ENTRY_MARGIN_USDT"
+    )
+
+    if raw_margin is None or not raw_margin.strip():
+        raw_margin = os.getenv(
+            "ENTRY_FIXED_USDT"
+        )
+
+    if raw_margin is None or not raw_margin.strip():
+        raw_margin = str(
+            unit_7_result.get(
+                "initial_fixed_usdt", "0.5"
+            )
+        )
+
+    try:
+        margin = unit_8_v6_decimal(
+            raw_margin,
+            "INITIAL ENTRY MARGIN"
+        )
+
+        available = unit_8_v6_decimal(
+            output["available_balance"],
+            "AVAILABLE BALANCE",
+            allow_zero=True
+        )
+
+        cap = unit_8_v6_decimal(
+            unit_7_result.get(
+                "exposure_cap_percent"
+            ),
+            "EXPOSURE CAP"
+        )
+
+        if cap > Decimal("100"):
+            raise RuntimeError(
+                "EXPOSURE CAP TOO HIGH"
+            )
+
+    except Exception as exc:
+        print(
+            "UNIT 8 MARGIN CONFIG ERROR =",
+            str(exc),
+            flush=True
+        )
+
+        return finish(
+            "BLOCKED",
+            "INVALID_MARGIN_CONFIGURATION"
+        )
+
+    if margin > available:
+        return finish(
+            "BLOCKED",
+            "INSUFFICIENT_DEMO_BALANCE"
+        )
+
+    if output["account_equity"] is None:
+        return finish(
+            "BLOCKED",
+            "DEMO_EQUITY_UNVERIFIED"
+        )
+
+    equity = unit_8_v6_decimal(
+        output["account_equity"],
+        "ACCOUNT EQUITY",
+        allow_zero=True
+    )
+
+    exposure_budget = (
+        equity * cap / Decimal("100")
+    )
+
+    # Conservative preparation only.
+    # Unit 9 must refresh actual committed and
+    # reserved margin before authorizing submission.
+    if margin > exposure_budget:
+        return finish(
+            "BLOCKED",
+            "INITIAL_ENTRY_EXCEEDS_EXPOSURE_CAP"
+        )
+
+    # ========================================================
+    # 11. STEP-AWARE BTC QUANTITY
+    # ========================================================
+
+    try:
+        sizing = unit_8_v6_quantity(
+            margin=margin,
+            leverage=leverage,
+            price=price,
+            quantity_step=unit_7_result[
+                "quantity_step"
+            ],
+            minimum_quantity=unit_7_result[
+                "minimum_quantity"
+            ],
+        )
+
+    except Exception as exc:
+        print(
+            "UNIT 8 SIZING ERROR =",
+            str(exc),
+            flush=True
+        )
+
+        return finish(
+            "BLOCKED",
+            "INVALID_QUANTITY_CALCULATION"
+        )
+
+    print(
+        "UNIT 8 ENTRY MARGIN =",
+        margin,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 SELECTED LEVERAGE =",
+        leverage,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 RAW BTC QUANTITY =",
+        sizing["raw_quantity"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 MINIMUM BTC QUANTITY =",
+        sizing["minimum_quantity"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 MINIMUM REQUIRED MARGIN =",
+        sizing["minimum_margin_required"],
+        flush=True
+    )
+
+    if not sizing["minimum_quantity_pass"]:
+        return finish(
+            "BLOCKED",
+            "QUANTITY_BELOW_EXCHANGE_MINIMUM"
+        )
+
+    quantity = sizing["quantity"]
+
+    # Reject any accidental over-allocation
+    # caused by contract rounding or conversions.
+    required_margin = (
+        quantity * price / leverage
+    )
+
+    if required_margin > margin:
+        return finish(
+            "BLOCKED",
+            "NORMALIZED_ORDER_MARGIN_EXCEEDS_E0"
+        )
+
+    # ========================================================
+    # 12. PRESERVE ORIGINAL POSITION SIZING CONTRACT
+    # ========================================================
+
+    position_sizing = {
+        "asset": "SUSDT",
+        "available_balance": float(available),
+
+        "initial_margin_percent": float(
+            unit_7_result.get(
+                "initial_margin_percent"
+            )
+        ),
+
+        "margin_allocation": float(margin),
+        "leverage_target": float(leverage),
+        "live_mark_price": float(price),
+
+        "raw_quantity": float(
+            sizing["raw_quantity"]
+        ),
+
+        "quantity_step": float(
+            unit_7_result["quantity_step"]
+        ),
+
+        "minimum_quantity": float(
+            sizing["minimum_quantity"]
+        ),
+
+        "quantity": float(quantity),
+
+        "position_sizing_performed": True,
+        "quantity_calculated": True,
+
+        "source": "WEEX_V3_DEMO_BALANCE",
+        "read_only": True,
+
+        "leverage_source":
+            "RENDER_MANUAL_WEEX_DEMO",
+
+        "long_leverage": float(
+            long_leverage
+        ),
+
+        "short_leverage": float(
+            short_leverage
+        ),
+
+        "exchange_leverage_verified": False,
+
+        "exposure_cap_percent": float(cap),
+        "exposure_budget": float(exposure_budget),
+
+        "max_backups": 5,
+
+        "backup_margin_percent": float(
+            unit_7_result[
+                "backup_margin_percent"
+            ]
+        ),
+
+        "backup_sizing_mode":
+            "PERCENT_AVAILABLE_BALANCE",
+
+        "backup_margin_reserved": False,
+    }
+
+    # ========================================================
+    # 13. PRESERVE ORIGINAL UNIT 9 TRADE PLAN
+    # ========================================================
+
+    trade_plan = {
+        "active_mode": mode,
+        "direction": direction,
+        "quantity": float(quantity),
+        "position_sizing": position_sizing,
+        "execution_environment": "DEMO",
+    }
+
+    output.update({
+        "status": "READY",
+        "execution_intent": True,
+        "trade_plan_ready": True,
+        "trade_plan": trade_plan,
+        "skip_reason": "NONE",
+
+        "quantity_calculated": True,
+        "execution_quantity": str(quantity),
+
+        "trade_authorized": False,
+        "order_payload_created": False,
+        "exchange_write": False,
+    })
+
+    print(
+        "UNIT 8 STATUS = READY",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DIRECTION =",
+        direction,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 EXECUTABLE QUANTITY =",
+        quantity,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 TRADE PLAN READY = TRUE",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 TRADE AUTHORIZED = FALSE",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 LEVERAGE SOURCE = RENDER",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 LEVERAGE API VERIFIED = FALSE",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 V6 RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return output
 
 
-            
+# ============================================================
+# UNIT 8 V6 VALIDATION
+# PURE LOCAL CHECKS - NO NETWORK CALLS
+# ============================================================
+
+def unit_8_validation_v6():
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 8 V6 VALIDATION START",
+        flush=True
+    )
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+    incoming = (
+        FRESH_RECONSTRUCTION_SIZING_CANDIDATE
+    )
+
+    tests = []
+
+    tests.append((
+        "UNIT 7 V10 HANDOVER",
+        incoming.get("unit_7_version")
+        == "UNIT7_V10_DYNAMIC"
+    ))
+
+    tests.append((
+        "DEMO ENVIRONMENT",
+        config.get("execution_environment")
+        == "DEMO"
+    ))
+
+    tests.append((
+        "FIVE DYNAMIC BACKUPS",
+        incoming.get("max_backups") == 5
+        and "backup_multipliers"
+            not in config["strategy"]
+    ))
+
+    tests.append((
+        "EXPOSURE CAP VALID",
+        Decimal("0")
+        < Decimal(str(
+            incoming["exposure_cap_percent"]
+        ))
+        <= Decimal("100")
+    ))
+
+    tests.append((
+        "RENDER LEVERAGE CONFIGURED",
+        all(
+            os.getenv(name, "").strip()
+            for name in (
+                "WEEX_DEMO_LONG_LEVERAGE",
+                "WEEX_DEMO_SHORT_LEVERAGE",
+            )
+        )
+    ))
+
+    tests.append((
+        "UNIT 8 UPSTREAM NO WRITE",
+        incoming.get("exchange_write")
+        is False
+    ))
+
+    tests.append((
+        "MINIMUM BTC NORMALIZATION",
+        unit_8_v6_quantity(
+            "1",
+            "10",
+            "75000",
+            "0.0001",
+            "0.0001",
+        )["minimum_quantity_pass"]
+        is True
+    ))
+
+    tests.append((
+        "BELOW MINIMUM REJECTED",
+        unit_8_v6_quantity(
+            "0.5",
+            "10",
+            "75000",
+            "0.0001",
+            "0.0001",
+        )["minimum_quantity_pass"]
+        is False
+    ))
+
+    tests.append((
+        "LONG SHORT LEVERAGE INDEPENDENT",
+        (
+            unit_8_v6_quantity(
+                "1", "10", "75000",
+                "0.0001", "0.0001"
+            )["quantity"]
+            <
+            unit_8_v6_quantity(
+                "1", "20", "75000",
+                "0.0001", "0.0001"
+            )["quantity"]
+        )
+    ))
+
+    tests.append((
+        "UNIT 8 NO BACKUP MULTIPLIER",
+        incoming.get("backup_sizing_mode")
+        == "PERCENT_AVAILABLE_BALANCE"
+    ))
+
+    passed = sum(
+        1 for _, ok in tests if ok
+    )
+
+    failed = len(tests) - passed
+
+    for name, ok in tests:
+        print(
+            "UNIT 8 TEST:",
+            name,
+            "=",
+            "PASS" if ok else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 8 TESTS PASSED =",
+        passed,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 TESTS FAILED =",
+        failed,
+        flush=True
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT 8 V6 VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 8 V6 VALIDATION RESULT = PASS",
+        flush=True
+    )
+
+    return True
+
+
+# ============================================================
+# UNIT 8 V6 EXECUTION
+# KEEP THESE CALLS BELOW ALL DEFINITIONS
+# ============================================================
+
+FRESH_UNIT_8_VALIDATION_READY = (
+    unit_8_validation_v6()
+)
+
+FRESH_RECONSTRUCTION_ACCOUNT_CANDIDATE = (
+    fresh_reconstruction_unit_8(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_SIZING_CANDIDATE,
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT,
+    )
+)
+
+# Original model-compatible Unit 9 input name
+FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
+    FRESH_RECONSTRUCTION_ACCOUNT_CANDIDATE
+)
+
+print(
+    "FRESH RECONSTRUCTION UNIT 8 V6 READY =",
+    FRESH_UNIT_8_VALIDATION_READY,
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 8 V6
+# UNIT 9 FOLLOWS
+# ============================================================
+
+
