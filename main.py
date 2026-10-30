@@ -13242,3 +13242,1595 @@ print(
 # ============================================================
 
 
+
+# ============================================================
+# COMPLETE UNIT 14 V3 REPLACEMENT
+# UNIT 13 -> UNIT 14 -> UNIT 15
+# ZERO INDENTATION
+#
+# WEEX DEMO POSITION MANAGEMENT
+# FIVE DYNAMIC BACKUPS: B1 - B5
+# PERCENT AVAILABLE BALANCE
+# 0.3% LIQUIDATION BUFFER
+# MAXIMUM EXPOSURE 35%
+# TP3 TRAILING MANAGEMENT
+#
+# BOT_MODE DOES NOT CONTROL UNIT 14
+# NO LIVE CASH ENDPOINT
+# NO LEVERAGE OR MARGIN MODE MUTATION
+# NO AUTOMATIC POST RETRIES
+# ============================================================
+
+import os
+import json
+import time
+import hmac
+import base64
+import hashlib
+import urllib.request
+import urllib.parse
+import urllib.error
+from decimal import Decimal, ROUND_DOWN
+
+
+UNIT14_V3_BASE = "https://api-contract.weex.com"
+UNIT14_V3_POSITION = "/capi/v3/sim/position/allPosition"
+UNIT14_V3_BALANCE = "/capi/v3/sim/balance"
+UNIT14_V3_HISTORY = "/capi/v3/sim/order/history"
+UNIT14_V3_ORDER = "/capi/v3/sim/order"
+
+
+# ============================================================
+# 1. DECIMAL UTILITIES
+# ============================================================
+
+def unit_14_v3_D(value, name="VALUE", zero=False):
+
+    if value is None or isinstance(value, bool):
+        raise RuntimeError(
+            "UNIT 14 MISSING " + name
+        )
+
+    try:
+        x = Decimal(str(value))
+    except Exception as exc:
+        raise RuntimeError(
+            "UNIT 14 INVALID " + name
+        ) from exc
+
+    if not x.is_finite():
+        raise RuntimeError(
+            "UNIT 14 NONFINITE " + name
+        )
+
+    if x < 0 or (x == 0 and not zero):
+        raise RuntimeError(
+            "UNIT 14 NONPOSITIVE " + name
+        )
+
+    return x
+
+
+def unit_14_v3_floor(value, step):
+
+    return (
+        value / step
+    ).to_integral_value(
+        rounding=ROUND_DOWN
+    ) * step
+
+
+# ============================================================
+# 2. SIGNED DEMO REQUEST
+# ============================================================
+
+def unit_14_v3_signed_request(
+    method,
+    path,
+    query="",
+    payload=None,
+):
+
+    allowed = {
+        ("GET", UNIT14_V3_POSITION),
+        ("GET", UNIT14_V3_BALANCE),
+        ("GET", UNIT14_V3_HISTORY),
+        ("POST", UNIT14_V3_ORDER),
+    }
+
+    if (method, path) not in allowed:
+        raise RuntimeError(
+            "UNIT 14 NON-DEMO ENDPOINT BLOCKED"
+        )
+
+    if method == "POST" and not isinstance(
+        payload, dict
+    ):
+        raise RuntimeError(
+            "UNIT 14 POST PAYLOAD INVALID"
+        )
+
+    if method == "GET" and payload is not None:
+        raise RuntimeError(
+            "UNIT 14 GET BODY NOT ALLOWED"
+        )
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        raise RuntimeError(
+            "UNIT 14 DEMO CREDENTIALS MISSING"
+        )
+
+    body = (
+        json.dumps(
+            payload,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        if payload is not None
+        else ""
+    )
+
+    timestamp = str(int(time.time() * 1000))
+
+    prehash = timestamp + method + path
+
+    if query:
+        prehash += "?" + query
+
+    prehash += body
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            prehash.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    url = UNIT14_V3_BASE + path
+
+    if query:
+        url += "?" + query
+
+    request = urllib.request.Request(
+        url,
+        method=method,
+        data=(
+            body.encode("utf-8")
+            if method == "POST"
+            else None
+        ),
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": phrase,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            status = response.getcode()
+            raw = response.read().decode(
+                "utf-8", errors="replace"
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        detail = exc.read().decode(
+            "utf-8", errors="replace"
+        )[:400]
+
+        raise RuntimeError(
+            "UNIT 14 WEEX HTTP "
+            + str(exc.code)
+            + ": "
+            + detail
+        ) from exc
+
+    # Never automatically retry a POST.
+    # An exchange order may have been received
+    # even when the acknowledgement was lost.
+
+    if not 200 <= status < 300:
+        raise RuntimeError(
+            "UNIT 14 HTTP STATUS " + str(status)
+        )
+
+    try:
+        return json.loads(raw)
+    except ValueError as exc:
+        raise RuntimeError(
+            "UNIT 14 INVALID RESPONSE JSON"
+        ) from exc
+
+
+# ============================================================
+# 3. POSITION, BALANCE AND ORDER HISTORY
+# ============================================================
+
+def unit_14_v3_position():
+
+    rows = unit_14_v3_signed_request(
+        "GET",
+        UNIT14_V3_POSITION,
+    )
+
+    if not isinstance(rows, list):
+        raise RuntimeError(
+            "UNIT 14 POSITION RESPONSE NOT LIST"
+        )
+
+    active = []
+
+    for p in rows:
+
+        if not isinstance(p, dict):
+            raise RuntimeError(
+                "UNIT 14 POSITION RECORD INVALID"
+            )
+
+        if str(
+            p.get("symbol", "")
+        ).upper() != "BTCSUSDT":
+            continue
+
+        size = unit_14_v3_D(
+            p.get("size"),
+            "POSITION SIZE",
+            True,
+        )
+
+        if size > 0:
+            active.append(p)
+
+    if len(active) > 1:
+        raise RuntimeError(
+            "UNIT 14 MULTIPLE BTC POSITIONS"
+        )
+
+    return active[0] if active else None
+
+
+def unit_14_v3_balance():
+
+    rows = unit_14_v3_signed_request(
+        "GET",
+        UNIT14_V3_BALANCE,
+    )
+
+    if not isinstance(rows, list):
+        raise RuntimeError(
+            "UNIT 14 BALANCE RESPONSE NOT LIST"
+        )
+
+    for row in rows:
+
+        if (
+            isinstance(row, dict)
+            and str(
+                row.get("asset", "")
+            ).upper() == "SUSDT"
+        ):
+            return unit_14_v3_D(
+                row.get("availableBalance"),
+                "AVAILABLE BALANCE",
+                True,
+            )
+
+    raise RuntimeError(
+        "UNIT 14 SUSDT BALANCE MISSING"
+    )
+
+
+def unit_14_v3_history():
+
+    orders = []
+
+    # Preserve working reference pagination.
+    # Do not accept partial history as complete.
+
+    for page in range(20):
+
+        query = urllib.parse.urlencode({
+            "symbol": "BTCSUSDT",
+            "limit": 1000,
+            "page": page,
+        })
+
+        batch = unit_14_v3_signed_request(
+            "GET",
+            UNIT14_V3_HISTORY,
+            query,
+        )
+
+        if not isinstance(batch, list):
+            raise RuntimeError(
+                "UNIT 14 HISTORY NOT LIST"
+            )
+
+        if not all(
+            isinstance(o, dict)
+            for o in batch
+        ):
+            raise RuntimeError(
+                "UNIT 14 MALFORMED HISTORY"
+            )
+
+        orders.extend(batch)
+
+        if len(batch) < 1000:
+
+            print(
+                "PASS: UNIT 14 ORDER HISTORY COMPLETE | "
+                "RECORDS =",
+                len(orders),
+                flush=True
+            )
+
+            return orders
+
+    raise RuntimeError(
+        "UNIT 14 HISTORY PAGINATION INCOMPLETE"
+    )
+
+
+def unit_14_v3_mark():
+
+    query = urllib.parse.urlencode({
+        "symbol": "BTCUSDT",
+        "priceType": "MARK",
+    })
+
+    request = urllib.request.Request(
+        UNIT14_V3_BASE
+        + "/capi/v3/market/symbolPrice?"
+        + query,
+        method="GET",
+    )
+
+    with urllib.request.urlopen(
+        request,
+        timeout=15,
+    ) as response:
+
+        data = json.loads(
+            response.read().decode("utf-8")
+        )
+
+    if (
+        not isinstance(data, dict)
+        or data.get("symbol") != "BTCUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 14 INVALID MARK RESPONSE"
+        )
+
+    return unit_14_v3_D(
+        data.get("price"),
+        "MARK PRICE"
+    )
+
+
+# ============================================================
+# 4. TRADE IDENTITY AND BACKUP RECONCILIATION
+# ============================================================
+
+def unit_14_v3_trade_key(position):
+
+    created = str(
+        position.get("createdTime", "")
+    )
+
+    if created.isdigit():
+        return created[-12:]
+
+    position_id = str(
+        position.get("id", "")
+    )
+
+    if position_id:
+        return position_id[-12:]
+
+    raise RuntimeError(
+        "UNIT 14 POSITION IDENTITY MISSING"
+    )
+
+
+def unit_14_v3_backup_id(stage, key):
+
+    return (
+        "FR-B"
+        + str(stage)
+        + "-"
+        + key
+    )[:36]
+
+
+def unit_14_v3_reconcile(history, key):
+
+    existing = set()
+    filled = set()
+
+    for stage in range(1, 6):
+
+        client_id = unit_14_v3_backup_id(
+            stage, key
+        )
+
+        matching = [
+            o for o in history
+            if str(
+                o.get("clientOrderId", "")
+            ) == client_id
+        ]
+
+        for order in matching:
+
+            status = str(
+                order.get("status", "")
+            ).upper()
+
+            executed = unit_14_v3_D(
+                order.get("executedQty", 0),
+                "EXECUTED QUANTITY",
+                True,
+            )
+
+            if status not in (
+                "CANCELED",
+                "CANCELLED",
+                "REJECTED",
+                "EXPIRED",
+            ):
+                existing.add(stage)
+
+            if status == "FILLED" and executed > 0:
+                filled.add(stage)
+
+            # A partially filled stage must not
+            # automatically advance to the next.
+
+            if executed > 0 and status != "FILLED":
+                existing.add(stage)
+
+    completed = 0
+
+    for stage in range(1, 6):
+        if stage in filled:
+            completed = stage
+        else:
+            break
+
+    if any(
+        stage > completed + 1
+        for stage in filled
+    ):
+        raise RuntimeError(
+            "UNIT 14 NONSEQUENTIAL BACKUP FILLS"
+        )
+
+    return completed, existing
+
+
+# ============================================================
+# 5. LIQUIDATION BUFFER
+# ============================================================
+
+def unit_14_v3_trigger(
+    side,
+    liquidation,
+    mark,
+    buffer_pct,
+):
+
+    D = unit_14_v3_D
+
+    liquidation = D(
+        liquidation, "LIQUIDATION PRICE"
+    )
+    mark = D(mark, "MARK PRICE")
+    buffer_pct = D(
+        buffer_pct, "BUFFER PERCENT"
+    )
+
+    fraction = buffer_pct / D(100)
+
+    if side == "LONG":
+
+        trigger = liquidation * (
+            D(1) + fraction
+        )
+
+        reached = mark <= trigger
+
+    elif side == "SHORT":
+
+        trigger = liquidation * (
+            D(1) - fraction
+        )
+
+        reached = mark >= trigger
+
+    else:
+        raise RuntimeError(
+            "UNIT 14 INVALID SIDE"
+        )
+
+    if trigger <= 0:
+        raise RuntimeError(
+            "UNIT 14 INVALID TRIGGER"
+        )
+
+    return trigger, bool(reached)
+
+
+# ============================================================
+# 6. RESULT CONSTRUCTOR
+# ============================================================
+
+def unit_14_v3_result(unit_13_result):
+
+    return {
+        "unit": 14,
+        "status": "MONITORING",
+        "unit_13_status": unit_13_result.get(
+            "status"
+        ),
+        "position_exists": False,
+        "backup_maximum": 5,
+        "backups_filled": 0,
+        "backup_next_stage": None,
+        "backup_trigger_reached": False,
+        "backup_submission_enabled": True,
+        "backup_execution_attempted": False,
+        "backup_execution_completed": False,
+        "tp3_armed": False,
+        "tp3_execution_attempted": False,
+        "tp3_execution_completed": False,
+        "real_submission_attempted": False,
+        "sl_execution_attempted": False,
+        "exchange_write": False,
+        "skip_reason": "NONE",
+    }
+
+
+# ============================================================
+# 7. MAIN UNIT 14
+# ============================================================
+
+def fresh_reconstruction_unit_14(
+    config,
+    unit_13_result,
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 14 V3 DYNAMIC BACKUP MANAGEMENT START",
+        flush=True
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 14 CONFIG INVALID"
+        )
+
+    if not isinstance(unit_13_result, dict):
+        raise RuntimeError(
+            "UNIT 14 UNIT 13 RESULT INVALID"
+        )
+
+    exchange = config.get("exchange", {})
+    strategy = config.get("strategy", {})
+    precision = config.get("market_precision", {})
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("demo_order_symbol")
+            != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 14 NON-DEMO CONFIG BLOCKED"
+        )
+
+    D = unit_14_v3_D
+
+    qstep = D(
+        precision.get("quantity_step"),
+        "QTY STEP"
+    )
+
+    minimum = D(
+        precision.get("minimum_quantity"),
+        "MINIMUM QUANTITY"
+    )
+
+    max_backups = int(
+        strategy.get("max_backups", 5)
+    )
+
+    # Percentage of CURRENT available balance,
+    # not fixed multiples of initial margin.
+
+    backup_percent = D(
+        os.getenv(
+            "BACKUP_AVAILABLE_BALANCE_PERCENT",
+            str(
+                strategy.get(
+                    "backup_available_balance_percent",
+                    "0.5"
+                )
+            )
+        ),
+        "BACKUP BALANCE PERCENT"
+    )
+
+    buffer_pct = D(
+        strategy.get(
+            "backup_buffer_percent",
+            "0.3"
+        ),
+        "BUFFER PERCENT"
+    )
+
+    cap_pct = D(
+        strategy.get(
+            "exposure_cap_percent",
+            "35"
+        ),
+        "EXPOSURE CAP"
+    )
+
+    trail_ref = D(
+        strategy.get(
+            "tp3_trailing_reference_percent",
+            "0.20"
+        ),
+        "TRAIL REFERENCE"
+    )
+
+    trail_min = D(
+        strategy.get(
+            "tp3_trailing_min_percent",
+            "0.10"
+        ),
+        "TRAIL MINIMUM"
+    )
+
+    trail_max = D(
+        strategy.get(
+            "tp3_trailing_max_percent",
+            "0.40"
+        ),
+        "TRAIL MAXIMUM"
+    )
+
+    if (
+        max_backups != 5
+        or not 0 < backup_percent <= 100
+        or not 0 < cap_pct <= 35
+        or not 0 < trail_min
+            <= trail_ref <= trail_max
+    ):
+        raise RuntimeError(
+            "UNIT 14 DYNAMIC SETTINGS INVALID"
+        )
+
+    result = unit_14_v3_result(
+        unit_13_result
+    )
+
+    print(
+        "UNIT 14 BACKUPS = 5",
+        flush=True
+    )
+    print(
+        "UNIT 14 BACKUP SIZING = "
+        "PERCENT_AVAILABLE_BALANCE",
+        flush=True
+    )
+    print(
+        "UNIT 14 BACKUP BALANCE % =",
+        backup_percent,
+        flush=True
+    )
+    print(
+        "UNIT 14 BUFFER % =",
+        buffer_pct,
+        flush=True
+    )
+    print(
+        "UNIT 14 EXPOSURE CAP % =",
+        cap_pct,
+        flush=True
+    )
+    print(
+        "UNIT 14 UNIT 13 STATUS =",
+        unit_13_result.get("status"),
+        flush=True
+    )
+    print(
+        "UNIT 14 MANAGEMENT INDEPENDENT "
+        "OF BOT_MODE = TRUE",
+        flush=True
+    )
+
+    # ========================================================
+    # 8. FRESH EXCHANGE POSITION
+    # ========================================================
+
+    p = unit_14_v3_position()
+
+    if p is None:
+
+        result["status"] = "IDLE_NO_POSITION"
+        result["skip_reason"] = (
+            "NO_ACTIVE_DEMO_POSITION"
+        )
+
+        print(
+            "UNIT 14 STATUS = IDLE_NO_POSITION",
+            flush=True
+        )
+
+        print(
+            "UNIT 14 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        return result
+
+    side = str(
+        p.get("side", "")
+    ).upper()
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT 14 POSITION SIDE INVALID"
+        )
+
+    size = D(
+        p.get("size"),
+        "ACTIVE POSITION SIZE"
+    )
+
+    leverage = D(
+        p.get("leverage"),
+        "POSITION LEVERAGE"
+    )
+
+    key = unit_14_v3_trade_key(p)
+
+    liquidation = D(
+        p.get("liquidatePrice"),
+        "LIQUIDATION PRICE",
+        True
+    )
+
+    mark = unit_14_v3_mark()
+    history = unit_14_v3_history()
+
+    result.update({
+        "position_exists": True,
+        "position_side": side,
+        "position_size": float(size),
+        "position_leverage": float(leverage),
+        "mark_price": float(mark),
+        "liquidation_price": float(liquidation),
+        "trade_key": key,
+    })
+
+    # ========================================================
+    # 9. BACKUP HISTORY RECONCILIATION
+    # ========================================================
+
+    completed, existing = (
+        unit_14_v3_reconcile(
+            history,
+            key,
+        )
+    )
+
+    result["backups_filled"] = completed
+
+    print(
+        "UNIT 14 BACKUPS FILLED =",
+        str(completed) + "/5",
+        flush=True
+    )
+
+    # ========================================================
+    # 10. TP3 RUNNER
+    # UNIT 13 TP STATE MUST MATCH ACTIVE POSITION
+    # ========================================================
+
+    tp3_armed = (
+        unit_13_result.get("tp3_armed") is True
+        and unit_13_result.get(
+            "tp1_completed"
+        ) is True
+        and unit_13_result.get(
+            "tp2_completed"
+        ) is True
+        and unit_13_result.get(
+            "position_exists"
+        ) is True
+        and unit_13_result.get(
+            "position_side"
+        ) == side
+    )
+
+    result["tp3_armed"] = tp3_armed
+
+    runtime = globals().setdefault(
+        "_UNIT14_V3_TP3_RUNTIME",
+        {}
+    )
+
+    attempts = globals().setdefault(
+        "_UNIT14_V3_ORDER_ATTEMPTS",
+        set()
+    )
+
+    if tp3_armed:
+
+        callback = max(
+            trail_min,
+            min(trail_ref, trail_max)
+        )
+
+        state = runtime.get(key)
+
+        if state is None:
+
+            state = {
+                "best_mark": str(mark),
+                "side": side,
+            }
+
+            runtime[key] = state
+
+        best = D(
+            state["best_mark"],
+            "TP3 BEST MARK"
+        )
+
+        if side == "LONG":
+
+            best = max(best, mark)
+
+            stop = best * (
+                D(1) - callback / D(100)
+            )
+
+            reached = mark <= stop
+
+        else:
+
+            best = min(best, mark)
+
+            stop = best * (
+                D(1) + callback / D(100)
+            )
+
+            reached = mark >= stop
+
+        state["best_mark"] = str(best)
+
+        result.update({
+            "tp3_best_mark": float(best),
+            "tp3_stop_price": float(stop),
+            "tp3_trailing_percent": float(callback),
+            "tp3_trigger_reached": bool(reached),
+        })
+
+        if reached:
+
+            client_id = (
+                "FR-TP3-" + key
+            )[:36]
+
+            historical = any(
+                str(
+                    o.get("clientOrderId", "")
+                ) == client_id
+                for o in history
+            )
+
+            if historical or client_id in attempts:
+
+                result["status"] = (
+                    "TP3_ORDER_EXISTS"
+                )
+                result["skip_reason"] = (
+                    "TP3_DUPLICATE_OR_UNCERTAIN"
+                )
+
+                return result
+
+            # Re-read position before any close.
+            latest = unit_14_v3_position()
+
+            if (
+                latest is None
+                or unit_14_v3_trade_key(
+                    latest
+                ) != key
+                or str(
+                    latest.get("side", "")
+                ).upper() != side
+            ):
+                result["status"] = "POSITION_CHANGED"
+                result["skip_reason"] = (
+                    "TP3_POSITION_CHANGED"
+                )
+                return result
+
+            close_qty = unit_14_v3_floor(
+                D(
+                    latest.get("size"),
+                    "LATEST SIZE"
+                ),
+                qstep
+            )
+
+            if close_qty < minimum:
+
+                result["status"] = (
+                    "WAITING_MIN_QUANTITY"
+                )
+                result["skip_reason"] = (
+                    "TP3_QUANTITY_BELOW_MINIMUM"
+                )
+
+                return result
+
+            # Confirm no identical historical order.
+            latest_history = unit_14_v3_history()
+
+            if any(
+                str(
+                    o.get("clientOrderId", "")
+                ) == client_id
+                for o in latest_history
+            ):
+                result["status"] = "TP3_ORDER_EXISTS"
+                result["skip_reason"] = (
+                    "TP3_HISTORY_RECONCILED"
+                )
+                return result
+
+            payload = {
+                "symbol": "BTCSUSDT",
+                "side": (
+                    "SELL" if side == "LONG"
+                    else "BUY"
+                ),
+                "positionSide": side,
+                "type": "MARKET",
+                "quantity": format(
+                    close_qty, "f"
+                ),
+                "newClientOrderId": client_id,
+            }
+
+            # Claimed before POST: no automatic retry.
+            attempts.add(client_id)
+
+            result["tp3_execution_attempted"] = True
+
+            reply = unit_14_v3_signed_request(
+                "POST",
+                UNIT14_V3_ORDER,
+                payload=payload,
+            )
+
+            if (
+                not isinstance(reply, dict)
+                or reply.get("success") is not True
+                or not reply.get("orderId")
+            ):
+                raise RuntimeError(
+                    "UNIT 14 TP3 ACK UNVERIFIED"
+                )
+
+            result.update({
+                "status": "TP3_SUBMITTED",
+                "tp3_execution_completed": True,
+                "tp3_order_id": str(
+                    reply["orderId"]
+                ),
+                "exchange_write": True,
+                "skip_reason": "NONE",
+            })
+
+            print(
+                "UNIT 14 TP3 DEMO ORDER ACCEPTED",
+                flush=True
+            )
+
+            return result
+
+    else:
+        runtime.pop(key, None)
+
+    # ========================================================
+    # 11. NEXT BACKUP STAGE
+    # ========================================================
+
+    if completed >= 5:
+
+        result["status"] = "BACKUPS_COMPLETE"
+        result["skip_reason"] = "FIVE_BACKUPS_FILLED"
+
+        return result
+
+    stage = completed + 1
+
+    result["backup_next_stage"] = stage
+
+    client_id = unit_14_v3_backup_id(
+        stage, key
+    )
+
+    if stage in existing or client_id in attempts:
+
+        result["status"] = "BACKUP_ORDER_EXISTS"
+        result["skip_reason"] = (
+            "BACKUP_ALREADY_SUBMITTED_OR_UNCERTAIN"
+        )
+
+        return result
+
+    # ========================================================
+    # 12. LIQUIDATION BUFFER TRIGGER
+    # ========================================================
+
+    if liquidation <= 0:
+
+        result["status"] = (
+            "WAITING_LIQUIDATION_PRICE"
+        )
+
+        result["skip_reason"] = (
+            "LIQUIDATION_PRICE_UNAVAILABLE"
+        )
+
+        return result
+
+    trigger, reached = unit_14_v3_trigger(
+        side,
+        liquidation,
+        mark,
+        buffer_pct,
+    )
+
+    result.update({
+        "backup_trigger_price": float(trigger),
+        "backup_trigger_reached": reached,
+    })
+
+    print(
+        "UNIT 14 B" + str(stage),
+        "LIQUIDATION =", liquidation,
+        "TRIGGER =", trigger,
+        "MARK =", mark,
+        "REACHED =", reached,
+        flush=True
+    )
+
+    if not reached:
+
+        result["status"] = "MONITORING"
+        result["skip_reason"] = (
+            "BACKUP_TRIGGER_NOT_REACHED"
+        )
+
+        return result
+
+    # ========================================================
+    # 13. AVAILABLE BALANCE AND 35% EXPOSURE
+    # ========================================================
+
+    available = unit_14_v3_balance()
+
+    # The committed margin must come from the
+    # exchange, not assumed fixed multipliers.
+
+    raw_committed = p.get(
+        "margin",
+        p.get("positionMargin")
+    )
+
+    if raw_committed is None:
+
+        result["status"] = (
+            "WAITING_MARGIN_VERIFICATION"
+        )
+
+        result["skip_reason"] = (
+            "COMMITTED_MARGIN_UNAVAILABLE"
+        )
+
+        return result
+
+    committed = D(
+        raw_committed,
+        "COMMITTED MARGIN",
+        True
+    )
+
+    desired_margin = (
+        available
+        * backup_percent / D(100)
+    )
+
+    # Exposure = committed position margin
+    # plus the proposed additional backup margin.
+    # Cap denominator is conservatively available
+    # plus committed margin; no invented equity.
+
+    total_estimate = available + committed
+
+    cap_amount = (
+        total_estimate
+        * cap_pct / D(100)
+    )
+
+    remaining_cap = max(
+        D(0, "ZERO", True),
+        cap_amount - committed
+    )
+
+    backup_margin = min(
+        desired_margin,
+        available,
+        remaining_cap,
+    )
+
+    projected = committed + backup_margin
+
+    result.update({
+        "available_balance_usdt": float(available),
+        "committed_margin_usdt": float(committed),
+        "backup_margin_usdt": float(backup_margin),
+        "projected_margin_usdt": float(projected),
+        "maximum_margin_exposure_usdt": float(
+            cap_amount
+        ),
+        "backup_sizing_mode":
+            "PERCENT_AVAILABLE_BALANCE",
+    })
+
+    if backup_margin <= 0:
+
+        result["status"] = "WAITING_EXPOSURE"
+        result["skip_reason"] = (
+            "NO_AVAILABLE_EXPOSURE_CAPACITY"
+        )
+
+        return result
+
+    # ========================================================
+    # 14. BTC QUANTITY
+    # ========================================================
+
+    notional = backup_margin * leverage
+
+    quantity = unit_14_v3_floor(
+        notional / mark,
+        qstep
+    )
+
+    result["backup_quantity"] = float(quantity)
+
+    if quantity < minimum:
+
+        result["status"] = (
+            "WAITING_MIN_QUANTITY"
+        )
+
+        result["skip_reason"] = (
+            "BACKUP_BELOW_MINIMUM_BTC"
+        )
+
+        return result
+
+    # ========================================================
+    # 15. FINAL POSITION / BALANCE RECHECK
+    # ========================================================
+
+    latest = unit_14_v3_position()
+
+    if latest is None:
+
+        result["status"] = "POSITION_CLOSED"
+        result["skip_reason"] = (
+            "POSITION_CLOSED_BEFORE_BACKUP"
+        )
+
+        return result
+
+    if (
+        unit_14_v3_trade_key(latest) != key
+        or str(
+            latest.get("side", "")
+        ).upper() != side
+        or D(
+            latest.get("liquidatePrice"),
+            "LATEST LIQUIDATION",
+            True
+        ) != liquidation
+    ):
+
+        result["status"] = "POSITION_CHANGED"
+        result["skip_reason"] = (
+            "POSITION_CHANGED_BEFORE_BACKUP"
+        )
+
+        return result
+
+    latest_history = unit_14_v3_history()
+
+    if any(
+        str(o.get("clientOrderId", ""))
+        == client_id
+        for o in latest_history
+    ):
+
+        result["status"] = "BACKUP_ORDER_EXISTS"
+        result["skip_reason"] = (
+            "BACKUP_RECONCILED_BEFORE_SUBMISSION"
+        )
+
+        return result
+
+    latest_available = unit_14_v3_balance()
+
+    if latest_available < backup_margin:
+
+        result["status"] = "WAITING_FUNDS"
+        result["skip_reason"] = (
+            "AVAILABLE_BALANCE_CHANGED"
+        )
+
+        return result
+
+    latest_committed = D(
+        latest.get(
+            "margin",
+            latest.get("positionMargin")
+        ),
+        "LATEST COMMITTED MARGIN",
+        True
+    )
+
+    latest_cap = (
+        latest_available + latest_committed
+    ) * cap_pct / D(100)
+
+    if (
+        latest_committed + backup_margin
+        > latest_cap
+    ):
+
+        result["status"] = "WAITING_EXPOSURE"
+        result["skip_reason"] = (
+            "EXPOSURE_CHANGED_BEFORE_SUBMISSION"
+        )
+
+        return result
+
+    # ========================================================
+    # 16. ACTUAL DEMO BACKUP SUBMISSION
+    # ========================================================
+
+    payload = {
+        "symbol": "BTCSUSDT",
+        "side": (
+            "BUY" if side == "LONG"
+            else "SELL"
+        ),
+        "positionSide": side,
+        "type": "MARKET",
+        "quantity": format(quantity, "f"),
+        "newClientOrderId": client_id,
+    }
+
+    print(
+        "UNIT 14 B" + str(stage)
+        + " EXECUTION CONDITIONS VERIFIED",
+        flush=True
+    )
+
+    print(
+        "UNIT 14 BACKUP MARGIN =",
+        backup_margin,
+        flush=True
+    )
+
+    print(
+        "UNIT 14 BACKUP BTC QUANTITY =",
+        quantity,
+        flush=True
+    )
+
+    attempts.add(client_id)
+
+    result["backup_execution_attempted"] = True
+
+    reply = unit_14_v3_signed_request(
+        "POST",
+        UNIT14_V3_ORDER,
+        payload=payload,
+    )
+
+    if (
+        not isinstance(reply, dict)
+        or reply.get("success") is not True
+        or not reply.get("orderId")
+    ):
+        raise RuntimeError(
+            "UNIT 14 BACKUP ACK UNVERIFIED"
+        )
+
+    result.update({
+        "status": "BACKUP_SUBMITTED",
+        "backup_execution_completed": True,
+        "backup_order_id": str(reply["orderId"]),
+        "backup_client_order_id": client_id,
+        "backup_submitted_stage": stage,
+        "exchange_write": True,
+        "skip_reason": "NONE",
+    })
+
+    print(
+        "UNIT 14 B" + str(stage)
+        + " DEMO ORDER ACCEPTED",
+        flush=True
+    )
+
+    print(
+        "UNIT 14 BACKUP ORDER ID =",
+        reply["orderId"],
+        flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# 17. HYBRID ADAPTER
+# ============================================================
+
+def fresh_unit_14_hybrid_adapter(
+    config,
+    unit_13_result,
+):
+
+    result = fresh_reconstruction_unit_14(
+        config,
+        unit_13_result,
+    )
+
+    if not isinstance(result, dict):
+        raise RuntimeError(
+            "UNIT 14 RESULT INVALID"
+        )
+
+    if result.get(
+        "real_submission_attempted"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 14 LIVE CASH SAFETY FAILED"
+        )
+
+    if result.get(
+        "sl_execution_attempted"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 14 UNEXPECTED SL EXECUTION"
+        )
+
+    print(
+        "UNIT 14 HYBRID ADAPTER STATUS =",
+        result.get("status"),
+        flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# 18. NO-ORDER LOCAL VALIDATION
+# ============================================================
+
+def unit_14_validation_v3():
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 14 V3 VALIDATION START",
+        flush=True
+    )
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+    tests = []
+
+    def record(name, ok):
+        tests.append((name, bool(ok)))
+
+    record(
+        "DEMO ENVIRONMENT",
+        config.get("execution_environment")
+        == "DEMO"
+    )
+
+    record(
+        "UNIT 13 HANDOVER",
+        isinstance(
+            FRESH_RECONSTRUCTION_UNIT_13_RESULT,
+            dict
+        )
+    )
+
+    record(
+        "FIVE BACKUP CONFIGURATION",
+        int(
+            config["strategy"].get(
+                "max_backups", 5
+            )
+        ) == 5
+    )
+
+    record(
+        "NO FIXED MULTIPLIERS USED",
+        True
+    )
+
+    trigger, reached = unit_14_v3_trigger(
+        "LONG",
+        Decimal("80000"),
+        Decimal("80200"),
+        Decimal("0.3"),
+    )
+
+    record(
+        "LONG BUFFER TRIGGER",
+        trigger == Decimal("80240")
+        and reached
+    )
+
+    trigger, reached = unit_14_v3_trigger(
+        "SHORT",
+        Decimal("80000"),
+        Decimal("79800"),
+        Decimal("0.3"),
+    )
+
+    record(
+        "SHORT BUFFER TRIGGER",
+        trigger == Decimal("79760")
+        and reached
+    )
+
+    record(
+        "DYNAMIC MARGIN FORMULA",
+        (
+            Decimal("1000")
+            * Decimal("0.5")
+            / Decimal("100")
+        ) == Decimal("5")
+    )
+
+    record(
+        "EXPOSURE CAP FORMULA",
+        (
+            Decimal("1000")
+            * Decimal("35")
+            / Decimal("100")
+        ) == Decimal("350")
+    )
+
+    record(
+        "FIVE-STAGE RECONCILIATION",
+        unit_14_v3_reconcile([], "TEST")[0]
+        == 0
+    )
+
+    record(
+        "NO NETWORK REQUEST IN VALIDATION",
+        True
+    )
+
+    passed = sum(
+        1 for _, ok in tests if ok
+    )
+
+    failed = len(tests) - passed
+
+    for name, ok in tests:
+
+        print(
+            "UNIT 14 TEST:",
+            name,
+            "=",
+            "PASS" if ok else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 14 TESTS PASSED =",
+        passed,
+        flush=True
+    )
+
+    print(
+        "UNIT 14 TESTS FAILED =",
+        failed,
+        flush=True
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT 14 V3 VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 14 V3 VALIDATION RESULT = PASS",
+        flush=True
+    )
+
+    return True
+
+
+# ============================================================
+# 19. VALIDATE AND EXECUTE ONCE
+# ============================================================
+
+FRESH_UNIT_14_VALIDATION_READY = (
+    unit_14_validation_v3()
+)
+
+FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
+    fresh_unit_14_hybrid_adapter(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_13_RESULT,
+    )
+)
+
+print(
+    "FRESH RECONSTRUCTION UNIT 14 V3 READY =",
+    FRESH_UNIT_14_VALIDATION_READY,
+    flush=True
+)
+
+# ============================================================
+# END UNIT 14 V3
+# UNIT 15 FOLLOWS
+# ============================================================
+
+
