@@ -10441,21 +10441,23 @@ def fresh_reconstruction_unit_11(
         side = "SELL"
         position_side = "SHORT"
 
-    # WEEX DEMO CLIENT ORDER ID
-# MAXIMUM 36 CHARACTERS
-# VALID CHARACTERS ONLY
 
-client_order_id = (
-    "FR11"
-    + ("L" if direction == "LONG" else "S")
-    + uuid.uuid4().hex[:24]
-)
+    # ========================================================
+    # UNIT 11 - VALID WEEX DEMO CLIENT ORDER ID
+    # MAXIMUM 36 CHARACTERS
+    # ========================================================
 
-if len(client_order_id) > 36:
-    raise RuntimeError(
-        "UNIT 11 CLIENT ORDER ID TOO LONG"
+    client_order_id = (
+        "FR11"
+        + ("L" if direction == "LONG" else "S")
+        + uuid.uuid4().hex[:24]
     )
-    
+
+    if len(client_order_id) > 36:
+        raise RuntimeError(
+            "UNIT 11 CLIENT ORDER ID TOO LONG"
+        )
+
 
     # ========================================================
     # 8. ORIGINAL SIX-FIELD DEMO ORDER PAYLOAD
