@@ -16540,3 +16540,423 @@ print(
 # ============================================================
 
 
+
+# ============================================================
+# CONTINUOUS SCAN CONTROLLER V1
+# SINGLE MAIN.PY / ZERO INDENTATION
+#
+# REFRESHES UNITS 3-12
+# MONITORS OPEN POSITIONS WITH UNITS 13-14
+# PRESERVES UNIT 15 REPORTING WORKER
+#
+# UNIT 12 BOT_MODE = NEW INITIAL ENTRIES ONLY
+# UNIT 13/14 = POSITION MANAGEMENT
+# NO LIVE CASH ENDPOINTS
+# ============================================================
+
+import os as _scan_os
+import time as _scan_time
+import threading as _scan_thread
+import traceback as _scan_traceback
+from datetime import datetime as _SCAN_DT
+from zoneinfo import ZoneInfo as _SCAN_Zone
+
+
+SCAN_INTERVAL_SECONDS = int(
+    _scan_os.getenv(
+        "SCAN_INTERVAL_SECONDS",
+        "30"
+    )
+)
+
+if not 30 <= SCAN_INTERVAL_SECONDS <= 60:
+    raise RuntimeError(
+        "SCAN INTERVAL MUST BE 30-60 SECONDS"
+    )
+
+SCAN_TZ = _SCAN_Zone("Africa/Lagos")
+SCAN_LOCK = _scan_thread.Lock()
+SCAN_NUMBER = 0
+
+SCAN_LAST_MARKET_SUCCESS = None
+SCAN_LAST_MANAGEMENT_SUCCESS = None
+SCAN_LAST_STATUS = "NOT_STARTED"
+
+
+# ============================================================
+# 1. POSITION MANAGEMENT FALLBACK RESULT
+#
+# Used when the new-entry pipeline fails.
+# Does not authorize a new initial entry.
+# ============================================================
+
+def scan_idle_unit12_result(reason):
+
+    return {
+        "unit": 12,
+        "status": "IDLE",
+        "skip_reason": str(reason),
+        "active_mode": "NONE",
+        "direction": "NONE",
+        "signal_qualified": False,
+        "execution_intent": False,
+        "position_exists": False,
+        "demo_submission_attempted": False,
+        "demo_submission_completed": False,
+        "real_submission_attempted": False,
+        "exchange_write": False,
+        "management_path_permitted": True,
+    }
+
+
+# ============================================================
+# 2. REFRESH MARKET AND EXECUTION PIPELINE
+#
+# Uses the existing validated unit functions.
+# Does not rerun unit validation tests.
+# ============================================================
+
+def scan_refresh_entry_pipeline():
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    # Unit 3: fresh public market price
+    market = fresh_reconstruction_unit_3()
+
+    # Unit 4: fresh candles and analysis
+    analysis = fresh_reconstruction_unit_4()
+
+    # Unit 5: strategy classification
+    candidate = fresh_reconstruction_unit_5(
+        config,
+        analysis,
+    )
+
+    # Unit 6: strategy arbitration
+    execution = fresh_reconstruction_unit_6(
+        config,
+        analysis,
+        candidate,
+    )
+
+    # Unit 7: dynamic sizing policy
+    sizing = fresh_reconstruction_unit_7(
+        config,
+        execution,
+    )
+
+    # Unit 8: account and leverage context
+    account = fresh_reconstruction_unit_8(
+        config,
+        sizing,
+        market,
+    )
+
+    # Unit 9: entry sizing
+    entry = fresh_reconstruction_unit_9(
+        config,
+        account,
+    )
+
+    # Unit 10: demo execution boundary
+    boundary = fresh_unit_10_hybrid_adapter(
+        config,
+        entry,
+    )
+
+    # Unit 11: verified demo order payload
+    prepared = fresh_unit_11_hybrid_adapter(
+        config,
+        boundary,
+    )
+
+    # Unit 12: only unit permitted to
+    # submit a NEW initial demo entry.
+    submission = (
+        fresh_unit_12_hybrid_execution_adapter(
+            config,
+            prepared,
+        )
+    )
+
+    return submission
+
+
+# ============================================================
+# 3. EXISTING POSITION MANAGEMENT
+#
+# Runs regardless of BOT_MODE.
+# Unit 13 manages TP1/TP2.
+# Unit 14 manages TP3 and five backups.
+# ============================================================
+
+def scan_manage_position(unit12_result):
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    unit13 = fresh_unit_13_hybrid_adapter(
+        config,
+        unit12_result,
+    )
+
+    unit14 = fresh_unit_14_hybrid_adapter(
+        config,
+        unit13,
+    )
+
+    return unit13, unit14
+
+
+# ============================================================
+# 4. ONE SCAN CYCLE
+# ============================================================
+
+def scan_one_cycle():
+
+    global SCAN_NUMBER
+    global SCAN_LAST_MARKET_SUCCESS
+    global SCAN_LAST_MANAGEMENT_SUCCESS
+    global SCAN_LAST_STATUS
+
+    if not SCAN_LOCK.acquire(blocking=False):
+        print(
+            "SCAN OVERLAP BLOCKED",
+            flush=True
+        )
+        return
+
+    try:
+
+        SCAN_NUMBER += 1
+
+        now = _SCAN_DT.now(SCAN_TZ)
+
+        print("=" * 80, flush=True)
+        print(
+            "CONTINUOUS SCAN NUMBER =",
+            SCAN_NUMBER,
+            flush=True
+        )
+        print(
+            "SCAN TIME WAT =",
+            now.isoformat(),
+            flush=True
+        )
+        print(
+            "SCAN BOT_MODE =",
+            _scan_os.getenv(
+                "BOT_MODE", "PAUSE"
+            ),
+            flush=True
+        )
+
+        # --------------------------------------------
+        # NEW-ENTRY PIPELINE
+        # --------------------------------------------
+
+        submission = None
+        entry_ok = False
+
+        try:
+
+            submission = (
+                scan_refresh_entry_pipeline()
+            )
+
+            entry_ok = True
+
+            SCAN_LAST_MARKET_SUCCESS = (
+                _scan_time.time()
+            )
+
+            print(
+                "SCAN UNIT 12 STATUS =",
+                submission.get("status"),
+                flush=True
+            )
+
+        except Exception as exc:
+
+            SCAN_LAST_STATUS = (
+                "ENTRY_PIPELINE_ERROR"
+            )
+
+            print(
+                "SCAN ENTRY PIPELINE ERROR =",
+                repr(exc),
+                flush=True
+            )
+
+            _scan_traceback.print_exc()
+
+            # A signal-processing failure does
+            # not automatically suspend
+            # management of an existing position.
+            submission = scan_idle_unit12_result(
+                "ENTRY_PIPELINE_ERROR"
+            )
+
+        # --------------------------------------------
+        # EXISTING POSITION MANAGEMENT
+        # --------------------------------------------
+
+        try:
+
+            unit13, unit14 = (
+                scan_manage_position(
+                    submission
+                )
+            )
+
+            SCAN_LAST_MANAGEMENT_SUCCESS = (
+                _scan_time.time()
+            )
+
+            print(
+                "SCAN UNIT 13 STATUS =",
+                unit13.get("status"),
+                flush=True
+            )
+
+            print(
+                "SCAN UNIT 14 STATUS =",
+                unit14.get("status"),
+                flush=True
+            )
+
+            SCAN_LAST_STATUS = (
+                "PASS"
+                if entry_ok
+                else "MANAGEMENT_ONLY"
+            )
+
+        except Exception as exc:
+
+            SCAN_LAST_STATUS = (
+                "POSITION_MANAGEMENT_ERROR"
+            )
+
+            print(
+                "SCAN POSITION MANAGEMENT ERROR =",
+                repr(exc),
+                flush=True
+            )
+
+            _scan_traceback.print_exc()
+
+        print(
+            "SCAN FINAL STATUS =",
+            SCAN_LAST_STATUS,
+            flush=True
+        )
+
+        print(
+            "SCAN EXCHANGE ENVIRONMENT = DEMO",
+            flush=True
+        )
+
+        print(
+            "SCAN CONTINUES = TRUE",
+            flush=True
+        )
+
+    finally:
+        SCAN_LOCK.release()
+
+
+# ============================================================
+# 5. CONTINUOUS MONITORING LOOP
+# ============================================================
+
+def scan_forever():
+
+    print("=" * 80, flush=True)
+    print(
+        "CONTINUOUS SCAN CONTROLLER V1 STARTED",
+        flush=True
+    )
+    print(
+        "SCAN INTERVAL SECONDS =",
+        SCAN_INTERVAL_SECONDS,
+        flush=True
+    )
+    print(
+        "UNIT 12 CONTROLS NEW ENTRIES ONLY",
+        flush=True
+    )
+    print(
+        "UNIT 13 AND 14 MANAGEMENT = ALWAYS ACTIVE",
+        flush=True
+    )
+    print(
+        "UNIT 15 TELEGRAM = INDEPENDENT",
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    # The original startup sequence has already
+    # executed once before reaching this point.
+    # Avoid immediately repeating that execution.
+
+    _scan_time.sleep(
+        SCAN_INTERVAL_SECONDS
+    )
+
+    while True:
+
+        started = _scan_time.monotonic()
+
+        try:
+
+            scan_one_cycle()
+
+        except Exception as exc:
+
+            print(
+                "SCAN SUPERVISOR ERROR =",
+                repr(exc),
+                flush=True
+            )
+
+            _scan_traceback.print_exc()
+
+        elapsed = (
+            _scan_time.monotonic()
+            - started
+        )
+
+        # Maintain a minimum pause and avoid
+        # overlapping scans if requests run long.
+
+        sleep_for = max(
+            5.0,
+            SCAN_INTERVAL_SECONDS - elapsed,
+        )
+
+        print(
+            "SCAN ELAPSED SECONDS =",
+            round(elapsed, 2),
+            flush=True
+        )
+
+        print(
+            "SCAN NEXT SLEEP SECONDS =",
+            round(sleep_for, 2),
+            flush=True
+        )
+
+        _scan_time.sleep(sleep_for)
+
+
+# ============================================================
+# 6. START CONTINUOUS SCANNING
+#
+# Runs on the main thread.
+# Unit 15's reporting thread remains independent.
+# ============================================================
+
+scan_forever()
+
+# ============================================================
+# END CONTINUOUS SCAN CONTROLLER V1
+# ============================================================
