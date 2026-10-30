@@ -11109,11 +11109,15 @@ def unit_12_v4_validate_payload(
             "UNIT 12 PAYLOAD IDENTITY INVALID"
         )
 
+    
+    # Validate WEEX client order identifier.
+    # Keep all lines inside unit_12_v4_validate_payload().
+
+    import re
+
     client_id = payload.get(
         "newClientOrderId"
     )
-
-    import re
 
     if (
         not isinstance(client_id, str)
@@ -11123,14 +11127,13 @@ def unit_12_v4_validate_payload(
         ) is None
     ):
         raise RuntimeError(
-        "UNIT 12 WEEX CLIENT ORDER ID INVALID"
+            "UNIT 12 WEEX CLIENT ORDER ID INVALID"
         )
 
-print(
-    "UNIT 12 CLIENT ORDER ID VALID = True",
-    flush=True
-)
-    
+    print(
+        "UNIT 12 CLIENT ORDER ID VALID = True",
+        flush=True
+    )
 
     quantity = unit_12_v4_decimal(
         payload.get("quantity"),
