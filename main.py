@@ -9064,3 +9064,866 @@ print(
 # ============================================================
 
 
+
+# ============================================================
+# COMPLETE UNIT 10 V3 REPLACEMENT
+# WEEX DEMO EXECUTION BOUNDARY
+# UNIT 9 V4 -> UNIT 10 V3 -> UNIT 11
+# ZERO INDENTATION
+#
+# PRESERVE ORIGINAL 19-FIELD OUTPUT CONTRACT
+# ENTRY MARGIN: UNIT 9 / RENDER
+# LEVERAGE: UNIT 9 / RENDER
+# QUANTITY: UNIT 9 / UNIT 8
+#
+# NO ENTRY MARGIN OVERRIDE
+# NO LEVERAGE RECALCULATION
+# NO BTC QUANTITY RECALCULATION
+# NO ORDER PAYLOAD
+# NO EXCHANGE WRITE
+# ============================================================
+
+from decimal import Decimal, InvalidOperation
+
+
+# ============================================================
+# 1. DECIMAL VALIDATOR
+# ============================================================
+
+def unit_10_v3_decimal(value, name):
+
+    if value is None or isinstance(value, bool):
+        raise RuntimeError(
+            "UNIT 10 INVALID " + name
+        )
+
+    try:
+        number = Decimal(str(value))
+    except (
+        InvalidOperation,
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise RuntimeError(
+            "UNIT 10 INVALID " + name
+        ) from exc
+
+    if not number.is_finite() or number <= 0:
+        raise RuntimeError(
+            "UNIT 10 NONPOSITIVE " + name
+        )
+
+    return number
+
+
+# ============================================================
+# 2. UNIT 10 MAIN
+# ============================================================
+
+def fresh_reconstruction_unit_10(
+    config,
+    unit_9_result,
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 10 V3 DEMO BOUNDARY START",
+        flush=True
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 10 CONFIG INVALID"
+        )
+
+    if not isinstance(unit_9_result, dict):
+        raise RuntimeError(
+            "UNIT 10 UNIT 9 RESULT INVALID"
+        )
+
+    exchange = config.get("exchange")
+    strategy = config.get("strategy")
+    safety = config.get("safety")
+    precision = config.get("market_precision")
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            exchange,
+            strategy,
+            safety,
+            precision,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 10 CONFIG SECTIONS MISSING"
+        )
+
+    # ========================================================
+    # 3. ORIGINAL WEEX DEMO CONFIGURATION
+    # ========================================================
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("demo_order_symbol")
+            != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 10 WEEX DEMO CONFIG INVALID"
+        )
+
+    # These safety switches describe preparation
+    # units only. Unit 12 independently controls
+    # authorized DEMO order submissions.
+
+    for key in (
+        "authenticated_api_enabled",
+        "account_access_enabled",
+        "position_access_enabled",
+        "order_endpoint_access_enabled",
+        "demo_order_submission_enabled",
+        "real_order_submission_enabled",
+        "exchange_mutation_enabled",
+        "leverage_mutation_enabled",
+        "margin_mode_mutation_enabled",
+        "position_mode_mutation_enabled",
+    ):
+        if safety.get(key) is not False:
+            raise RuntimeError(
+                "UNIT 10 UNIT-LOCAL SAFETY FAILED: "
+                + key
+            )
+
+    for key in (
+        "anti_duplicate_orders",
+        "one_direction_only",
+        "active_trade_mode_lock",
+    ):
+        if strategy.get(key) is not True:
+            raise RuntimeError(
+                "UNIT 10 SAFETY FLAG MISSING: "
+                + key
+            )
+
+    # ========================================================
+    # 4. ORIGINAL UNIT 9 INPUT CONTRACT
+    # ========================================================
+
+    required = (
+        "status",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "trade_plan",
+        "execution_ready",
+        "execution_candidate",
+        "skip_reason",
+        "order_payload_created",
+        "tp_execution_requested",
+        "sl_execution_requested",
+        "read_only",
+    )
+
+    missing = [
+        key for key in required
+        if key not in unit_9_result
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "UNIT 10 UNIT 9 FIELDS MISSING: "
+            + str(missing)
+        )
+
+    if unit_9_result.get(
+        "unit_9_version"
+    ) != "UNIT9_V4_DYNAMIC_ENTRY":
+        raise RuntimeError(
+            "UNIT 10 REQUIRES UNIT 9 V4"
+        )
+
+    if unit_9_result["read_only"] is not True:
+        raise RuntimeError(
+            "UNIT 10 READ ONLY CONTRACT FAILED"
+        )
+
+    for key in (
+        "order_payload_created",
+        "tp_execution_requested",
+        "sl_execution_requested",
+    ):
+        if unit_9_result[key] is not False:
+            raise RuntimeError(
+                "UNIT 10 UNEXPECTED UPSTREAM ACTION: "
+                + key
+            )
+
+    if unit_9_result.get(
+        "exchange_write"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 10 UPSTREAM EXCHANGE WRITE"
+        )
+
+    print(
+        "PASS: UNIT 10 RECEIVED UNIT 9 V4",
+        flush=True
+    )
+
+    # ========================================================
+    # 5. NORMALIZE UNIT 9 RESULT
+    # ========================================================
+
+    status = str(
+        unit_9_result["status"]
+    ).upper()
+
+    mode = str(
+        unit_9_result["active_mode"]
+    ).upper()
+
+    direction = str(
+        unit_9_result["direction"]
+    ).upper()
+
+    qualified = (
+        unit_9_result["signal_qualified"] is True
+    )
+
+    intent = (
+        unit_9_result["execution_intent"] is True
+    )
+
+    plan_ready = (
+        unit_9_result["trade_plan_ready"] is True
+    )
+
+    execution_ready = (
+        unit_9_result["execution_ready"] is True
+    )
+
+    plan = unit_9_result["trade_plan"]
+    candidate = unit_9_result["execution_candidate"]
+
+    skip_reason = str(
+        unit_9_result.get("skip_reason")
+        or "NONE"
+    )
+
+    # ========================================================
+    # 6. ORIGINAL 19-FIELD UNIT 11 HANDOVER
+    # ========================================================
+
+    def make_result(
+        state,
+        result_mode,
+        result_direction,
+        result_qualified,
+        result_intent,
+        result_plan,
+        result_candidate,
+        result_instruction,
+        reason,
+    ):
+
+        ready = (state == "READY")
+
+        return {
+            "status": state,
+            "active_mode": result_mode,
+            "direction": result_direction,
+            "signal_qualified": result_qualified,
+            "execution_intent": result_intent,
+            "trade_plan_ready": ready,
+            "trade_plan": result_plan,
+            "execution_ready": ready,
+            "execution_candidate": result_candidate,
+            "demo_boundary_ready": ready,
+            "demo_submission_instruction":
+                result_instruction,
+            "skip_reason": reason,
+            "order_payload_created": False,
+            "demo_submission_requested": False,
+            "real_submission_requested": False,
+            "tp_execution_requested": False,
+            "sl_execution_requested": False,
+            "backup_execution_requested": False,
+            "read_only": True,
+        }
+
+    # ========================================================
+    # 7. IDLE AND BLOCKED HANDOVER
+    # ========================================================
+
+    if status in ("IDLE", "BLOCKED"):
+
+        if (
+            intent
+            or plan_ready
+            or execution_ready
+            or plan is not None
+            or candidate is not None
+        ):
+            raise RuntimeError(
+                "UNIT 10 CONTRADICTORY NON-READY STATE"
+            )
+
+        result = make_result(
+            status,
+            mode,
+            direction,
+            qualified,
+            False,
+            None,
+            None,
+            None,
+            skip_reason,
+        )
+
+        print(
+            "UNIT 10 STATUS =",
+            status,
+            flush=True
+        )
+
+        print(
+            "UNIT 10 SKIP REASON =",
+            skip_reason,
+            flush=True
+        )
+
+        print(
+            "UNIT 10 EXECUTION READY = False",
+            flush=True
+        )
+
+        print(
+            "UNIT 10 DEMO BOUNDARY READY = False",
+            flush=True
+        )
+
+        print(
+            "UNIT 10 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        print(
+            "FRESH RECONSTRUCTION UNIT 10 RESULT = PASS",
+            flush=True
+        )
+
+        print("=" * 80, flush=True)
+
+        return result
+
+    # ========================================================
+    # 8. ACTIONABLE READY CONTRACT
+    # ========================================================
+
+    if status != "READY":
+        raise RuntimeError(
+            "UNIT 10 UNKNOWN STATUS: " + status
+        )
+
+    if not all((
+        qualified,
+        intent,
+        plan_ready,
+        execution_ready,
+    )):
+        raise RuntimeError(
+            "UNIT 10 READY STATE INCOMPLETE"
+        )
+
+    if mode not in (
+        "BREAKOUT",
+        "STRUCTURE",
+        "SCALP",
+    ):
+        raise RuntimeError(
+            "UNIT 10 INVALID ACTIVE MODE"
+        )
+
+    if direction not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT 10 INVALID DIRECTION"
+        )
+
+    if not isinstance(plan, dict):
+        raise RuntimeError(
+            "UNIT 10 TRADE PLAN MISSING"
+        )
+
+    if not isinstance(candidate, dict):
+        raise RuntimeError(
+            "UNIT 10 EXECUTION CANDIDATE MISSING"
+        )
+
+    if (
+        plan.get("active_mode") != mode
+        or plan.get("direction") != direction
+        or plan.get("execution_environment")
+            != "DEMO"
+        or candidate.get("active_mode") != mode
+        or candidate.get("direction") != direction
+        or candidate.get("execution_environment")
+            != "DEMO"
+    ):
+        raise RuntimeError(
+            "UNIT 10 PLAN IDENTITY MISMATCH"
+        )
+
+    if candidate.get("trade_plan") is not plan:
+        raise RuntimeError(
+            "UNIT 10 TRADE PLAN IDENTITY CHANGED"
+        )
+
+    # ========================================================
+    # 9. PRESERVE QUANTITY AND LEVERAGE
+    # ========================================================
+
+    sizing = plan.get("position_sizing")
+
+    if not isinstance(sizing, dict):
+        raise RuntimeError(
+            "UNIT 10 POSITION SIZING MISSING"
+        )
+
+    quantity = unit_10_v3_decimal(
+        plan.get("quantity"),
+        "PLAN QUANTITY"
+    )
+
+    sized_quantity = unit_10_v3_decimal(
+        sizing.get("quantity"),
+        "SIZING QUANTITY"
+    )
+
+    margin = unit_10_v3_decimal(
+        sizing.get("margin_allocation"),
+        "INITIAL MARGIN"
+    )
+
+    leverage = unit_10_v3_decimal(
+        sizing.get("leverage_target"),
+        "LEVERAGE"
+    )
+
+    entry_margin = unit_10_v3_decimal(
+        unit_9_result.get("entry_margin_usdt"),
+        "UNIT 9 ENTRY MARGIN"
+    )
+
+    if quantity != sized_quantity:
+        raise RuntimeError(
+            "UNIT 10 QUANTITY CHANGED"
+        )
+
+    if margin != entry_margin:
+        raise RuntimeError(
+            "UNIT 10 ENTRY MARGIN MISMATCH"
+        )
+
+    if unit_9_result.get(
+        "entry_margin_verified"
+    ) is not True:
+        raise RuntimeError(
+            "UNIT 10 ENTRY CONFIG NOT VERIFIED"
+        )
+
+    if leverage != unit_10_v3_decimal(
+        unit_9_result.get("selected_leverage"),
+        "UNIT 9 SELECTED LEVERAGE"
+    ):
+        raise RuntimeError(
+            "UNIT 10 LEVERAGE CHANGED"
+        )
+
+    if sizing.get(
+        "leverage_source"
+    ) != "RENDER_MANUAL_WEEX_DEMO":
+        raise RuntimeError(
+            "UNIT 10 LEVERAGE SOURCE INVALID"
+        )
+
+    print(
+        "UNIT 10 ENTRY MARGIN PRESERVED =",
+        margin,
+        flush=True
+    )
+
+    print(
+        "UNIT 10 ENTRY MARGIN SOURCE =",
+        unit_9_result.get(
+            "entry_margin_source"
+        ),
+        flush=True
+    )
+
+    print(
+        "UNIT 10 LEVERAGE PRESERVED =",
+        leverage,
+        flush=True
+    )
+
+    print(
+        "UNIT 10 BTC QUANTITY PRESERVED =",
+        quantity,
+        flush=True
+    )
+
+    # ========================================================
+    # 10. DYNAMIC BACKUP POLICY
+    # ========================================================
+
+    if (
+        sizing.get("max_backups") != 5
+        or sizing.get("backup_sizing_mode")
+            != "PERCENT_AVAILABLE_BALANCE"
+        or sizing.get("backup_margin_reserved")
+            is not False
+        or "backup_multipliers" in strategy
+    ):
+        raise RuntimeError(
+            "UNIT 10 BACKUP POLICY MISMATCH"
+        )
+
+    # ========================================================
+    # 11. ORIGINAL UNIT 11 DEMO INSTRUCTION
+    #
+    # INTERNAL DICTIONARY, NOT AN ORDER PAYLOAD.
+    # ========================================================
+
+    instruction = {
+        "exchange": "WEEX",
+        "api_version": "V3",
+        "execution_environment": "DEMO",
+        "market_symbol": "BTCUSDT",
+        "demo_order_symbol": "BTCSUSDT",
+        "active_mode": mode,
+        "direction": direction,
+        "trade_plan": plan,
+        "execution_candidate": candidate,
+        "anti_duplicate_required": True,
+        "one_direction_only_required": True,
+        "active_trade_mode_lock_required": True,
+        "payload_creation_allowed": False,
+        "submission_allowed": False,
+        "read_only": True,
+    }
+
+    # ========================================================
+    # 12. FINAL READY RESULT
+    # ========================================================
+
+    result = make_result(
+        "READY",
+        mode,
+        direction,
+        True,
+        True,
+        plan,
+        candidate,
+        instruction,
+        "NONE",
+    )
+
+    if (
+        result["demo_boundary_ready"] is not True
+        or result["execution_ready"] is not True
+    ):
+        raise RuntimeError(
+            "UNIT 10 DEMO BOUNDARY FAILED"
+        )
+
+    print(
+        "UNIT 10 STATUS = READY",
+        flush=True
+    )
+
+    print(
+        "UNIT 10 ACTIVE MODE =",
+        mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 10 DIRECTION =",
+        direction,
+        flush=True
+    )
+
+    print(
+        "UNIT 10 EXECUTION READY = True",
+        flush=True
+    )
+
+    print(
+        "UNIT 10 DEMO BOUNDARY READY = True",
+        flush=True
+    )
+
+    print(
+        "UNIT 10 ORDER PAYLOAD CREATED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 10 DEMO SUBMISSION REQUESTED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 10 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 10 RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# 13. UNIT 10 HYBRID ADAPTER
+# PRESERVE ORIGINAL CALL INTERFACE
+# ============================================================
+
+def fresh_unit_10_hybrid_adapter(
+    execution_config,
+    unit_9_result,
+):
+
+    result = fresh_reconstruction_unit_10(
+        execution_config,
+        unit_9_result,
+    )
+
+    if result["status"] == "READY":
+
+        if (
+            result["trade_plan"]
+            is not unit_9_result["trade_plan"]
+        ):
+            raise RuntimeError(
+                "UNIT 10 ADAPTER CHANGED TRADE PLAN"
+            )
+
+        if (
+            result["execution_candidate"]
+            is not unit_9_result["execution_candidate"]
+        ):
+            raise RuntimeError(
+                "UNIT 10 ADAPTER CHANGED CANDIDATE"
+            )
+
+    print(
+        "UNIT 10 HYBRID ADAPTER STATUS =",
+        result["status"],
+        flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# 14. UNIT 10 VALIDATION
+# ============================================================
+
+def unit_10_validation_v3():
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 10 VALIDATION V3 START",
+        flush=True
+    )
+
+    config = FRESH_RECONSTRUCTION_EXECUTION_CONFIG
+    actual = FRESH_RECONSTRUCTION_UNIT_9_RESULT
+
+    tests = []
+
+    def record(name, condition):
+        tests.append((name, bool(condition)))
+
+    record(
+        "UNIT 9 V4 HANDOVER",
+        actual.get("unit_9_version")
+        == "UNIT9_V4_DYNAMIC_ENTRY"
+    )
+
+    record(
+        "WEEX DEMO CONFIGURATION",
+        config.get("execution_environment")
+        == "DEMO"
+        and config.get("exchange", {}).get(
+            "demo_order_symbol"
+        ) == "BTCSUSDT"
+    )
+
+    record(
+        "ORIGINAL UNIT 9 INPUT CONTRACT",
+        all(
+            key in actual
+            for key in (
+                "status",
+                "active_mode",
+                "direction",
+                "trade_plan",
+                "execution_candidate",
+                "execution_ready",
+                "read_only",
+            )
+        )
+    )
+
+    record(
+        "NO FIXED BACKUP MULTIPLIERS",
+        "backup_multipliers"
+        not in config.get("strategy", {})
+    )
+
+    record(
+        "NO UPSTREAM ORDER",
+        actual.get("exchange_write") is False
+        and actual.get(
+            "order_payload_created"
+        ) is False
+    )
+
+    # Use actual Unit 9 state without fabricating
+    # an actionable signal or order.
+
+    output = fresh_unit_10_hybrid_adapter(
+        config,
+        actual,
+    )
+
+    record(
+        "ACTUAL UNIT 9 HANDOVER",
+        output.get("status")
+        == actual.get("status")
+    )
+
+    original_fields = (
+        "status",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "trade_plan",
+        "execution_ready",
+        "execution_candidate",
+        "demo_boundary_ready",
+        "demo_submission_instruction",
+        "skip_reason",
+        "order_payload_created",
+        "demo_submission_requested",
+        "real_submission_requested",
+        "tp_execution_requested",
+        "sl_execution_requested",
+        "backup_execution_requested",
+        "read_only",
+    )
+
+    record(
+        "ORIGINAL 19 FIELD UNIT 11 CONTRACT",
+        all(
+            key in output
+            for key in original_fields
+        )
+    )
+
+    record(
+        "NO UNIT 10 ORDER PAYLOAD",
+        output.get("order_payload_created")
+        is False
+    )
+
+    record(
+        "NO UNIT 10 DEMO SUBMISSION",
+        output.get("demo_submission_requested")
+        is False
+    )
+
+    record(
+        "NO UNIT 10 REAL SUBMISSION",
+        output.get("real_submission_requested")
+        is False
+    )
+
+    passed = sum(
+        1 for _, ok in tests if ok
+    )
+
+    failed = len(tests) - passed
+
+    for name, ok in tests:
+        print(
+            "UNIT 10 TEST:",
+            name,
+            "=",
+            "PASS" if ok else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 10 TESTS PASSED =",
+        passed,
+        flush=True
+    )
+
+    print(
+        "UNIT 10 TESTS FAILED =",
+        failed,
+        flush=True
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT 10 V3 VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 10 VALIDATION V3 RESULT = PASS",
+        flush=True
+    )
+
+    return True
+
+
+# ============================================================
+# 15. VALIDATE AND EXECUTE UNIT 10
+# ============================================================
+
+FRESH_UNIT_10_VALIDATION_READY = (
+    unit_10_validation_v3()
+)
+
+FRESH_RECONSTRUCTION_UNIT_10_RESULT = (
+    fresh_unit_10_hybrid_adapter(
+        FRESH_RECONSTRUCTION_EXECUTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_9_RESULT,
+    )
+)
+
+print(
+    "FRESH RECONSTRUCTION UNIT 10 V3 READY =",
+    FRESH_UNIT_10_VALIDATION_READY,
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 10 V3
+# UNIT 11 FOLLOWS
+# ============================================================
