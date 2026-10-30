@@ -730,7 +730,44 @@ FRESH_RECONSTRUCTION_CONFIG = (
 # END COMPLETE UNIT 2 V9
 # UNIT 3 FOLLOWS
 # ============================================================
+# ============================================================
+# UNIT 2 V9 -> UNIT 3 COMPATIBILITY
+# RESTORE ORIGINAL OPTIMIZATION READINESS CONTRACT
+# ============================================================
 
+FRESH_UNIT_2_OPTIMIZATION_READY = (
+    isinstance(FRESH_RECONSTRUCTION_CONFIG, dict)
+    and FRESH_RECONSTRUCTION_CONFIG.get(
+        "execution_environment"
+    ) == "DEMO"
+    and isinstance(
+        FRESH_RECONSTRUCTION_CONFIG.get("strategy"),
+        dict
+    )
+    and isinstance(
+        FRESH_RECONSTRUCTION_CONFIG.get("qualification"),
+        dict
+    )
+    and FRESH_RECONSTRUCTION_CONFIG[
+        "strategy"
+    ].get("anti_duplicate_orders") is True
+    and FRESH_RECONSTRUCTION_CONFIG[
+        "strategy"
+    ].get("max_backups") == 5
+)
+
+if not FRESH_UNIT_2_OPTIMIZATION_READY:
+    raise RuntimeError(
+        "UNIT 2 V9 OPTIMIZATION READINESS FAILED"
+    )
+
+print(
+    "UNIT 2 V9 OPTIMIZATION READY =",
+    FRESH_UNIT_2_OPTIMIZATION_READY,
+    flush=True
+)
+
+    
 
 # ============================================================
 # START COMPLETE UNIT 3 REPLACEMENT V2
