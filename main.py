@@ -3204,13 +3204,54 @@ def fresh_reconstruction_unit_5(
         and votes_pass(breakout_side, b)
     )
 
+    
+    # BREAKOUT ADMISSION
+    # Preserve Unit 4 confirmed breakout evidence.
+    # Do not apply STRUCTURE overextension
+    # to BREAKOUT qualification.
+
     breakout_qualified = bool(
         breakout_enabled
         and breakout_side != "NONE"
         and breakout_side == direction_evidence
         and breakout_votes_ok
         and breakout_momentum_ok
-        and not overextended
+    )
+
+    print(
+        "UNIT 5 BREAKOUT CONFIRMED =",
+        breakout_side != "NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 5 BREAKOUT DIRECTION PASS =",
+        breakout_side == direction_evidence,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 BREAKOUT VOTES PASS =",
+        breakout_votes_ok,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 BREAKOUT MOMENTUM PASS =",
+        breakout_momentum_ok,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 STRUCTURE OVEREXTENSION =",
+        overextended,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 BREAKOUT ADMISSION =",
+        breakout_qualified,
+        flush=True
     )
 
     # ========================================================
