@@ -7245,13 +7245,22 @@ def fresh_reconstruction_unit_8(
             )
 
         output.update({
-            "symbol_config_verified": True,
-            "long_leverage": str(long_lev),
-            "short_leverage": str(short_lev),
-            "margin_type": margin_type,
-            "leverage_source":
-                "WEEX_ACCOUNT_SYMBOL_CONFIG_NOT_DEMO_VERIFIED",
-        })
+    "symbol_config_verified": True,
+
+    # Regular account settings, NOT demo leverage
+    "regular_long_leverage": str(long_lev),
+    "regular_short_leverage": str(short_lev),
+    "margin_type": margin_type,
+
+    # Do not use regular leverage for demo sizing
+    "long_leverage": None,
+    "short_leverage": None,
+    "demo_leverage_verified": False,
+
+    "leverage_source":
+        "DEMO_LEVERAGE_UNVERIFIED",
+})
+    
 
         print(
             "UNIT 8 SYMBOL CONFIG = VERIFIED",
