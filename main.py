@@ -3492,6 +3492,75 @@ def fresh_reconstruction_unit_5(
         candidate_stage = "REJECTED"
 
         reason = "SCALP_NOT_SIDEWAYS_MARKET"
+        
+
+    # ========================================================
+    # UNIT 5: PRIORITY-AWARE REJECTION DIAGNOSTICS
+    # BREAKOUT -> STRUCTURE -> SCALP
+    # Does not change actual qualification conditions.
+    # ========================================================
+
+    breakout_rejection_reason = "NOT_CONFIRMED"
+    structure_rejection_reason = "NOT_QUALIFIED"
+    scalp_rejection_reason = "NOT_EVALUATED"
+
+    if breakout_qualified:
+        breakout_rejection_reason = "NONE"
+
+    elif breakout_side != "NONE":
+        if breakout_side != direction_evidence:
+            breakout_rejection_reason = "DIRECTION_MISMATCH"
+        elif not breakout_votes_ok:
+            breakout_rejection_reason = "INSUFFICIENT_VOTES"
+        elif not breakout_momentum_ok:
+            breakout_rejection_reason = "MOMENTUM_FAILED"
+        else:
+            breakout_rejection_reason = "ADMISSION_FAILED_OTHER"
+
+    elif breakout_developing:
+        breakout_rejection_reason = "DEVELOPING"
+
+    if structure_qualified:
+        structure_rejection_reason = "NONE"
+    elif structure_developing:
+        structure_rejection_reason = "DEVELOPING"
+
+    if scalp_preliminary:
+        scalp_rejection_reason = (
+            "PENDING_UNIT_6"
+            if scalp_sideways_ok
+            else "NOT_SIDEWAYS_MARKET"
+        )
+    else:
+        scalp_rejection_reason = "PRELIMINARY_FAILED"
+
+    # A higher-priority confirmed breakout must not
+    # be hidden by a later scalp rejection.
+    if (
+        not qualified
+        and candidate_stage == "REJECTED"
+        and breakout_side != "NONE"
+    ):
+        reason = (
+            "BREAKOUT_REJECTED_"
+            + breakout_rejection_reason
+        )
+
+    print(
+        "UNIT 5 BREAKOUT REJECTION =",
+        breakout_rejection_reason,
+        flush=True
+    )
+    print(
+        "UNIT 5 STRUCTURE REJECTION =",
+        structure_rejection_reason,
+        flush=True
+    )
+    print(
+        "UNIT 5 SCALP REJECTION =",
+        scalp_rejection_reason,
+        flush=True
+    )
 
     # ========================================================
     # 5.10 SCALP COST ESTIMATE
