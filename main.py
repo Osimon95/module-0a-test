@@ -14405,16 +14405,51 @@ def fresh_reconstruction_unit_14(
         "TRAIL MAXIMUM"
     )
 
-    if (
-        max_backups != 5
-        or not 0 < backup_percent <= 100
-        or not 0 < cap_pct <= 35
-        or not 0 < trail_min
-            <= trail_ref <= trail_max
-    ):
+     
+    # ========================================================
+    # UNIT 14 V3 - DYNAMIC SETTINGS VALIDATION
+    # ALIGNED WITH UNIT 2 V9
+    # ORIGINAL FIVE-BACKUP ENGINE PRESERVED
+    # ========================================================
+
+    if max_backups != 5:
         raise RuntimeError(
-            "UNIT 14 DYNAMIC SETTINGS INVALID"
+            "UNIT 14 INVALID BACKUP COUNT: "
+            + str(max_backups)
         )
+
+    if not 0 < backup_percent <= 100:
+        raise RuntimeError(
+            "UNIT 14 INVALID BACKUP BALANCE PERCENT: "
+            + str(backup_percent)
+        )
+
+    if not 0 < cap_pct <= 100:
+        raise RuntimeError(
+            "UNIT 14 INVALID EXPOSURE CAP PERCENT: "
+            + str(cap_pct)
+        )
+
+    if not 0 < trail_min <= trail_ref <= trail_max:
+        raise RuntimeError(
+            "UNIT 14 INVALID TP3 TRAILING RANGE: "
+            + str((
+                trail_min,
+                trail_ref,
+                trail_max
+            ))
+        )
+
+    print(
+        "UNIT 14 DYNAMIC CONFIG VALIDATION = PASS",
+        flush=True
+    )
+
+    print(
+        "UNIT 14 EXPOSURE CAP % =",
+        cap_pct,
+        flush=True
+    )
 
     result = unit_14_v3_result(
         unit_13_result
