@@ -4930,3 +4930,960 @@ def fresh_reconstruction_unit_6(
     move_15m = a("move_15m_pct")
 
     atr_pct = atr / price * 100.0
+    
+    candle_age = c(
+        "candidate_age_seconds"
+    )
+
+    max_age = unit_6_v9_number(
+        config.get(
+            "market_data_policy", {}
+        ).get("max_market_age_seconds", 120),
+        "MAX CANDLE AGE"
+    )
+
+    fresh = (
+        candidate.get("candle_data_fresh") is True
+        and 0 <= candle_age <= max_age
+    )
+
+    # ========================================================
+    # HIGHER STRATEGY PRIORITY
+    # ========================================================
+
+    higher_developing = unit_6_v9_bool(
+        candidate.get("higher_mode_developing"),
+        "HIGHER MODE DEVELOPING"
+    )
+
+    breakout_ready = unit_6_v9_bool(
+        candidate.get("breakout_ready"),
+        "BREAKOUT READY"
+    )
+
+    structure_ready = unit_6_v9_bool(
+        candidate.get("structure_ready"),
+        "STRUCTURE READY"
+    )
+
+    scalp_ready = unit_6_v9_bool(
+        candidate.get("scalp_ready"),
+        "SCALP READY"
+    )
+
+    if sum((
+        breakout_ready,
+        structure_ready,
+        scalp_ready
+    )) > 1:
+        raise RuntimeError(
+            "UNIT 6 CONFLICTING READY STRATEGIES"
+        )
+
+    # ========================================================
+    # QUALITY CONFIGURATION
+    # ========================================================
+
+    scalp_minimum = unit_6_v9_number(
+        scalp.get("quality_threshold", 70),
+        "SCALP QUALITY MINIMUM"
+    )
+
+    if not 0 <= scalp_minimum <= 100:
+        raise RuntimeError(
+            "UNIT 6 INVALID SCALP QUALITY MINIMUM"
+        )
+
+    fee_coverage = unit_6_v9_number(
+        scalp.get(
+            "minimum_fee_coverage_multiplier", 2
+        ),
+        "FEE COVERAGE MULTIPLIER"
+    )
+
+    if fee_coverage < 1:
+        raise RuntimeError(
+            "UNIT 6 INVALID FEE COVERAGE MULTIPLIER"
+        )
+
+    estimated_fee = c(
+        "estimated_round_trip_fee_pct"
+    )
+
+    if estimated_fee < 0:
+        raise RuntimeError(
+            "UNIT 6 INVALID FEE ESTIMATE"
+        )
+
+    fee_estimate_verified = (
+        scalp.get("include_entry_fee") is True
+        and scalp.get("include_exit_fee") is True
+        and unit_6_v9_number(
+            scalp.get(
+                "estimated_taker_fee_percent", 0
+            ),
+            "TAKER FEE"
+        ) > 0
+        and estimated_fee > 0
+    )
+
+    # ========================================================
+    # SCALP SIDEWAYS POLICY
+    # ========================================================
+
+    sideways = unit_6_v9_bool(
+        analysis.get("sideways_candidate"),
+        "SIDEWAYS EVIDENCE"
+    )
+
+    sideways_required = unit_6_v9_bool(
+        scalp.get("require_sideways_market", True),
+        "SIDEWAYS REQUIRED"
+    )
+
+    sideways_pass = (
+        sideways or not sideways_required
+    )
+
+    # ========================================================
+    # SCALP DIRECTION AND PERSISTENCE
+    # ========================================================
+
+    scalp_side = candidate.get(
+        "scalp_direction_candidate", "NONE"
+    )
+
+    if scalp_side not in (
+        "LONG", "SHORT", "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 6 SCALP DIRECTION INVALID"
+        )
+
+    direction_1m = unit_6_v9_side(move_1m)
+    direction_5m = unit_6_v9_side(move_5m)
+    direction_15m = unit_6_v9_side(move_15m)
+
+    persistence_directions = (
+        direction_1m,
+        direction_5m,
+        direction_15m,
+    )
+
+    persistence_window = 3
+    persistence_required = 2
+
+    persistence_confirmations = sum(
+        d == scalp_side
+        for d in persistence_directions
+    ) if scalp_side != "NONE" else 0
+
+    persistence_pass = (
+        persistence_confirmations
+        >= persistence_required
+    )
+
+    fifteen_minute_support_pass = (
+        direction_15m == scalp_side
+    )
+
+    momentum_conflict = (
+        scalp_side != "NONE"
+        and direction_5m not in (
+            scalp_side, "NONE"
+        )
+    )
+
+    # ========================================================
+    # SCALP QUALITY SCORING / MAXIMUM 100 POINTS
+    #
+    # PRICE ACTION                 30
+    # DIRECTION PERSISTENCE        20
+    # EMA LOCATION                 15
+    # EMA QUALITY                  15
+    # VOLATILITY AND EXHAUSTION    20
+    # ========================================================
+
+    price_action_score = 0.0
+    persistence_score = 0.0
+    location_score = 0.0
+    ema_score = 0.0
+    volatility_score = 0.0
+
+    ema_separation_pct = abs(
+        ema19 - ema50
+    ) / ema50 * 100.0
+
+    compression_limit = unit_6_v9_number(
+        scalp.get(
+            "ema_compression_atr_max", 0.7
+        ),
+        "EMA COMPRESSION LIMIT"
+    )
+
+    compression_atr = a(
+        "ema_compression_atr"
+    )
+
+    ema_compressed = (
+        compression_atr <= compression_limit
+    )
+
+    extension_atr = abs(
+        price - ema19
+    ) / atr
+
+    extreme_extension = (
+        extension_atr > 1.5
+    )
+
+    spike_ratio = (
+        abs(move_1m) /
+        max(abs(move_5m) / 5.0, 0.000001)
+    )
+
+    extreme_spike = spike_ratio > 2.0
+
+    late_impulse = (
+        extreme_extension and extreme_spike
+    )
+
+    if scalp_side != "NONE":
+
+        if direction_5m == scalp_side:
+            price_action_score += 15
+
+        if direction_1m == scalp_side:
+            price_action_score += 10
+
+        if abs(move_5m) >= unit_6_v9_number(
+            scalp.get(
+                "preliminary_move_5m_percent",
+                0.015
+            ),
+            "SCALP MOVE MINIMUM"
+        ):
+            price_action_score += 5
+
+        persistence_score = (
+            20.0
+            * persistence_confirmations
+            / persistence_window
+        )
+
+        location_pass = (
+            price >= ema19
+            if scalp_side == "LONG"
+            else price <= ema19
+        )
+
+        if location_pass:
+            location_score += 10
+
+        if (
+            ema100 <= price
+            if scalp_side == "LONG"
+            else ema100 >= price
+        ):
+            location_score += 5
+
+        if ema_compressed:
+            ema_score += 10
+
+        if (
+            (ema19 >= ema50 and scalp_side == "LONG")
+            or
+            (ema19 <= ema50 and scalp_side == "SHORT")
+        ):
+            ema_score += 5
+
+        if not extreme_extension:
+            volatility_score += 10
+
+        if not extreme_spike:
+            volatility_score += 5
+
+        if not late_impulse:
+            volatility_score += 5
+
+    quality_score = round(
+        unit_6_v9_clamp(
+            price_action_score
+            + persistence_score
+            + location_score
+            + ema_score
+            + volatility_score,
+            0, 100
+        ),
+        2
+    )
+
+    quality_pass = (
+        quality_score >= scalp_minimum
+    )
+
+    # ========================================================
+    # FEE COVERAGE
+    # ========================================================
+
+    projected_move_pct = min(
+        abs(move_5m),
+        atr_pct
+    )
+
+    required_move_pct = (
+        estimated_fee * fee_coverage
+    )
+
+    fee_coverage_pass = bool(
+        fee_estimate_verified
+        and projected_move_pct
+        >= required_move_pct
+    )
+
+    # ========================================================
+    # FINAL ADMISSION ARBITRATION
+    # ========================================================
+
+    execution_intent = False
+    signal_qualified = False
+
+    active_mode = "NONE"
+    direction = "NONE"
+
+    admission_reason = (
+        "NO_ACCEPTABLE_CANDIDATE"
+    )
+
+    if not fresh:
+
+        admission_reason = (
+            "MARKET_EVIDENCE_STALE"
+        )
+
+    elif stage == "QUALIFIED":
+
+        if (
+            qualified
+            and mode == "BREAKOUT"
+            and breakout_ready
+            and incoming_direction in (
+                "LONG", "SHORT"
+            )
+            and candidate.get(
+                "hybrid_breakout_qualified"
+            ) is True
+        ):
+
+            execution_intent = True
+            signal_qualified = True
+
+            active_mode = "BREAKOUT"
+            direction = incoming_direction
+
+            admission_reason = (
+                "BREAKOUT_QUALIFIED_FOR_NEXT_UNITS"
+            )
+
+        elif (
+            qualified
+            and mode == "STRUCTURE"
+            and structure_ready
+            and incoming_direction in (
+                "LONG", "SHORT"
+            )
+            and candidate.get(
+                "hybrid_structure_qualified"
+            ) is True
+        ):
+
+            execution_intent = True
+            signal_qualified = True
+
+            active_mode = "STRUCTURE"
+            direction = incoming_direction
+
+            admission_reason = (
+                "STRUCTURE_QUALIFIED_FOR_NEXT_UNITS"
+            )
+
+        else:
+
+            admission_reason = (
+                "QUALIFIED_STATE_INCONSISTENT"
+            )
+
+    elif stage == "DEVELOPING":
+
+        admission_reason = (
+            "DEVELOPING_HIGHER_MODE_PROTECTED"
+        )
+
+    elif (
+        stage == "PENDING_UNIT_6"
+        and mode == "SCALP"
+    ):
+
+        if higher_developing:
+
+            admission_reason = (
+                "SCALP_BLOCKED_HIGHER_MODE_DEVELOPING"
+            )
+
+        elif not scalp_ready:
+
+            admission_reason = (
+                "SCALP_NOT_READY"
+            )
+
+        elif scalp_side == "NONE":
+
+            admission_reason = (
+                "SCALP_DIRECTION_MISSING"
+            )
+
+        elif not sideways_pass:
+
+            admission_reason = (
+                "SCALP_SIDEWAYS_REQUIREMENT_FAILED"
+            )
+
+        elif momentum_conflict:
+
+            admission_reason = (
+                "SCALP_MOMENTUM_CONFLICT"
+            )
+
+        elif not persistence_pass:
+
+            admission_reason = (
+                "SCALP_PERSISTENCE_INSUFFICIENT"
+            )
+
+        elif late_impulse:
+
+            admission_reason = (
+                "SCALP_LATE_IMPULSE_REJECTED"
+            )
+
+        elif not quality_pass:
+
+            admission_reason = (
+                "SCALP_QUALITY_BELOW_THRESHOLD"
+            )
+
+        elif not fee_estimate_verified:
+
+            admission_reason = (
+                "SCALP_FEES_NOT_VERIFIED"
+            )
+
+        elif not fee_coverage_pass:
+
+            admission_reason = (
+                "SCALP_ESTIMATED_FEE_COVERAGE_FAILED"
+            )
+
+        else:
+
+            execution_intent = True
+            signal_qualified = True
+
+            active_mode = "SCALP"
+            direction = scalp_side
+
+            admission_reason = (
+                "SCALP_QUALIFIED_FOR_NEXT_UNITS"
+            )
+
+    else:
+
+        admission_reason = str(
+            candidate.get(
+                "qualification_reason",
+                "NO_ACCEPTABLE_CANDIDATE"
+            )
+        )
+
+    # ========================================================
+    # FINAL INVARIANTS
+    # ========================================================
+
+    if execution_intent != signal_qualified:
+        raise RuntimeError(
+            "UNIT 6 EXECUTION INTENT MISMATCH"
+        )
+
+    if execution_intent:
+
+        if (
+            active_mode not in (
+                "BREAKOUT", "STRUCTURE", "SCALP"
+            )
+            or direction not in (
+                "LONG", "SHORT"
+            )
+        ):
+            raise RuntimeError(
+                "UNIT 6 INVALID ADMITTED SIGNAL"
+            )
+
+    else:
+
+        if (
+            active_mode != "NONE"
+            or direction != "NONE"
+        ):
+            raise RuntimeError(
+                "UNIT 6 INVALID IDLE SIGNAL"
+            )
+
+    if active_mode == "SCALP" and (
+        higher_developing
+        or breakout_ready
+        or structure_ready
+    ):
+        raise RuntimeError(
+            "UNIT 6 SCALP PRIORITY VIOLATION"
+        )
+
+    # ========================================================
+    # OUTPUT TO UNIT 7
+    # ========================================================
+
+    quality_details = {
+        "price_action_score": price_action_score,
+        "persistence_score": round(
+            persistence_score, 2
+        ),
+        "ema_location_score": location_score,
+        "ema_quality_score": ema_score,
+        "volatility_score": volatility_score,
+        "extreme_extension": extreme_extension,
+        "extreme_spike": extreme_spike,
+        "late_impulse": late_impulse,
+        "estimated_move_pct": projected_move_pct,
+        "estimated_round_trip_fee_pct":
+            estimated_fee,
+        "required_move_pct": required_move_pct,
+        "fee_coverage_pass": fee_coverage_pass,
+        "fee_estimate_verified":
+            fee_estimate_verified,
+    }
+
+    execution_candidate = {
+
+        "execution_intent": execution_intent,
+        "active_mode": active_mode,
+        "direction": direction,
+        "signal_qualified": signal_qualified,
+        "unit_5_reason": candidate.get(
+            "qualification_reason", "UNKNOWN"
+        ),
+        "admission_reason": admission_reason,
+
+        "leverage_target": None,
+        "leverage_regime":
+            "WEEX_EXCHANGE_SETTING",
+
+        "sideways_regime": sideways,
+        "ema_compressed": ema_compressed,
+        "compression_threshold_pct":
+            compression_limit,
+
+        "momentum_conflict":
+            momentum_conflict,
+
+        "persistence_window":
+            persistence_window,
+        "persistence_required":
+            persistence_required,
+        "persistence_confirmations":
+            persistence_confirmations,
+        "persistence_directions":
+            persistence_directions,
+        "persistence_pass":
+            persistence_pass,
+
+        "fifteen_minute_support_pass":
+            fifteen_minute_support_pass,
+
+        "scalp_quality_score": quality_score,
+        "scalp_quality_minimum":
+            scalp_minimum,
+        "scalp_quality_pass": quality_pass,
+        "scalp_quality_details":
+            quality_details,
+
+        "candidate_mode": mode,
+        "candidate_stage": stage,
+        "higher_mode_developing":
+            higher_developing,
+        "unit_5_evidence_version":
+            candidate.get(
+                "strategy_evidence_version"
+            ),
+        "unit_4_evidence_version":
+            analysis.get(
+                "strategy_evidence_version"
+            ),
+
+        "classification_version":
+            "UNIT6_V9_ADJUSTABLE",
+
+        "market_data_fresh": fresh,
+
+        "position_sizing_performed": False,
+        "order_payload_created": False,
+        "exchange_write": False,
+        "read_only": True,
+        "trade_authorized": False,
+    }
+
+    # ========================================================
+    # RENDER REPORT
+    # ========================================================
+
+    print(
+        "UNIT 6 INPUT CANDIDATE MODE =",
+        mode,
+        flush=True
+    )
+    print(
+        "UNIT 6 INPUT STAGE =",
+        stage,
+        flush=True
+    )
+    print(
+        "UNIT 6 HIGHER MODE DEVELOPING =",
+        higher_developing,
+        flush=True
+    )
+    print(
+        "UNIT 6 SIDEWAYS REGIME =",
+        sideways,
+        flush=True
+    )
+    print(
+        "UNIT 6 SCALP DIRECTION =",
+        scalp_side,
+        flush=True
+    )
+    print(
+        "UNIT 6 SCALP QUALITY SCORE =",
+        quality_score,
+        flush=True
+    )
+    print(
+        "UNIT 6 SCALP QUALITY MINIMUM =",
+        scalp_minimum,
+        flush=True
+    )
+    print(
+        "UNIT 6 SCALP QUALITY PASS =",
+        quality_pass,
+        flush=True
+    )
+    print(
+        "UNIT 6 SCALP PERSISTENCE =",
+        persistence_confirmations,
+        "/",
+        persistence_required,
+        flush=True
+    )
+    print(
+        "UNIT 6 ESTIMATED PRICE MOVE % =",
+        round(projected_move_pct, 5),
+        flush=True
+    )
+    print(
+        "UNIT 6 ESTIMATED ROUND TRIP FEE % =",
+        round(estimated_fee, 5),
+        flush=True
+    )
+    print(
+        "UNIT 6 REQUIRED FEE COVERAGE MOVE % =",
+        round(required_move_pct, 5),
+        flush=True
+    )
+    print(
+        "UNIT 6 FEE COVERAGE PASS =",
+        fee_coverage_pass,
+        flush=True
+    )
+    print(
+        "UNIT 6 ACTIVE MODE =",
+        active_mode,
+        flush=True
+    )
+    print(
+        "UNIT 6 DIRECTION =",
+        direction,
+        flush=True
+    )
+    print(
+        "UNIT 6 SIGNAL QUALIFIED =",
+        signal_qualified,
+        flush=True
+    )
+    print(
+        "UNIT 6 EXECUTION INTENT =",
+        execution_intent,
+        flush=True
+    )
+    print(
+        "UNIT 6 ADMISSION REASON =",
+        admission_reason,
+        flush=True
+    )
+    print(
+        "UNIT 6 LEVERAGE CONTROL = WEEX ONLY",
+        flush=True
+    )
+    print(
+        "UNIT 6 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+    print(
+        "FRESH RECONSTRUCTION UNIT 6 RESULT = PASS",
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    return execution_candidate
+
+
+# ============================================================
+# 6.3 VALIDATION
+# ============================================================
+
+def unit_6_validation_v9():
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 6 VALIDATION V9 START",
+        flush=True
+    )
+
+    config = copy.deepcopy(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+    analysis = copy.deepcopy(
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+    )
+    original = copy.deepcopy(
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+    )
+
+    tests = []
+
+    def scenario(
+        name,
+        modifications,
+        expected_intent,
+        expected_mode
+    ):
+
+        local = copy.deepcopy(original)
+        local.update(modifications)
+
+        result = fresh_reconstruction_unit_6(
+            config,
+            analysis,
+            local
+        )
+
+        passed = (
+            result["execution_intent"]
+            is expected_intent
+            and result["active_mode"]
+            == expected_mode
+            and result["exchange_write"] is False
+            and result["order_payload_created"]
+            is False
+        )
+
+        tests.append((name, passed))
+
+    scenario(
+        "NORMAL IDLE",
+        {
+            "qualified": False,
+            "active_mode": "NONE",
+            "direction": "NONE",
+            "candidate_mode": "NONE",
+            "candidate_stage": "NONE",
+            "breakout_ready": False,
+            "structure_ready": False,
+            "scalp_ready": False,
+            "higher_mode_developing": False,
+        },
+        False,
+        "NONE"
+    )
+
+    scenario(
+        "DEVELOPING BREAKOUT PROTECTED",
+        {
+            "qualified": False,
+            "active_mode": "NONE",
+            "direction": "NONE",
+            "candidate_mode": "BREAKOUT",
+            "candidate_stage": "DEVELOPING",
+            "breakout_ready": False,
+            "structure_ready": False,
+            "scalp_ready": False,
+            "higher_mode_developing": True,
+        },
+        False,
+        "NONE"
+    )
+
+    scenario(
+        "DEVELOPING STRUCTURE PROTECTED",
+        {
+            "qualified": False,
+            "active_mode": "NONE",
+            "direction": "NONE",
+            "candidate_mode": "STRUCTURE",
+            "candidate_stage": "DEVELOPING",
+            "breakout_ready": False,
+            "structure_ready": False,
+            "scalp_ready": False,
+            "higher_mode_developing": True,
+        },
+        False,
+        "NONE"
+    )
+
+    scenario(
+        "QUALIFIED BREAKOUT HANDOVER",
+        {
+            "qualified": True,
+            "active_mode": "BREAKOUT",
+            "direction": "LONG",
+            "candidate_mode": "BREAKOUT",
+            "candidate_stage": "QUALIFIED",
+            "breakout_ready": True,
+            "structure_ready": False,
+            "scalp_ready": False,
+            "hybrid_breakout_qualified": True,
+        },
+        True,
+        "BREAKOUT"
+    )
+
+    scenario(
+        "QUALIFIED STRUCTURE HANDOVER",
+        {
+            "qualified": True,
+            "active_mode": "STRUCTURE",
+            "direction": "SHORT",
+            "candidate_mode": "STRUCTURE",
+            "candidate_stage": "QUALIFIED",
+            "breakout_ready": False,
+            "structure_ready": True,
+            "scalp_ready": False,
+            "hybrid_structure_qualified": True,
+        },
+        True,
+        "STRUCTURE"
+    )
+
+    scenario(
+        "SCALP BLOCKED BY DEVELOPING MODE",
+        {
+            "qualified": False,
+            "active_mode": "NONE",
+            "direction": "NONE",
+            "candidate_mode": "SCALP",
+            "candidate_stage": "PENDING_UNIT_6",
+            "breakout_ready": False,
+            "structure_ready": False,
+            "scalp_ready": True,
+            "higher_mode_developing": True,
+        },
+        False,
+        "NONE"
+    )
+
+    live_result = fresh_reconstruction_unit_6(
+        config,
+        analysis,
+        original
+    )
+
+    live_pass = (
+        isinstance(
+            live_result["execution_intent"], bool
+        )
+        and live_result["exchange_write"] is False
+        and live_result["order_payload_created"]
+        is False
+    )
+
+    tests.append((
+        "ACTUAL UNIT 5 V8 HANDOVER",
+        live_pass
+    ))
+
+    passed_count = sum(
+        success for _, success in tests
+    )
+
+    for name, passed in tests:
+
+        print(
+            "UNIT 6 TEST:",
+            name,
+            "=",
+            "PASS" if passed else "FAIL",
+            flush=True
+        )
+
+    failed_count = len(tests) - passed_count
+
+    print(
+        "UNIT 6 TESTS PASSED =",
+        passed_count,
+        flush=True
+    )
+    print(
+        "UNIT 6 TESTS FAILED =",
+        failed_count,
+        flush=True
+    )
+
+    if failed_count:
+        raise RuntimeError(
+            "UNIT 6 V9 VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 6 VALIDATION V9 RESULT = PASS",
+        flush=True
+    )
+
+    return True
+
+
+# ============================================================
+# 6.4 SINGLE EXECUTION SEQUENCE
+# ============================================================
+
+FRESH_UNIT_6_VALIDATION_READY = (
+    unit_6_validation_v9()
+)
+
+FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
+    fresh_reconstruction_unit_6(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE,
+    )
+)
+
+
+# ============================================================
+# END COMPLETE UNIT 6 V9 REPLACEMENT
+
