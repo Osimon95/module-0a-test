@@ -2381,3 +2381,631 @@ def fresh_reconstruction_unit_4():
             and slow_ok
             and atr_percent >= breakout_atr_min
         )
+        
+    breakout_long_eligible = breakout_eligible("LONG")
+    breakout_short_eligible = breakout_eligible("SHORT")
+
+    long_breakout_distance = (
+        latest_close - resistance
+    ) / atr14
+
+    short_breakout_distance = (
+        support - latest_close
+    ) / atr14
+
+    breakout_confirmed_long = bool(
+        breakout_long_eligible
+        and long_breakout_distance > confirmation
+        and long_breakout_distance
+        <= breakout_max_extension
+    )
+
+    breakout_confirmed_short = bool(
+        breakout_short_eligible
+        and short_breakout_distance > confirmation
+        and short_breakout_distance
+        <= breakout_max_extension
+    )
+
+    breakout_developing_long = bool(
+        b["developing_candidate_enabled"]
+        and breakout_long_eligible
+        and -proximity
+        <= long_breakout_distance
+        <= confirmation
+    )
+
+    breakout_developing_short = bool(
+        b["developing_candidate_enabled"]
+        and breakout_short_eligible
+        and -proximity
+        <= short_breakout_distance
+        <= confirmation
+    )
+
+    # ========================================================
+    # ADJUSTABLE STRUCTURE
+    # ========================================================
+
+    alignment = str(
+        s["ema_alignment_mode"]
+    ).upper()
+
+    if alignment not in ("STRICT", "EARLY"):
+        raise RuntimeError(
+            "UNIT 4 INVALID STRUCTURE ALIGNMENT MODE"
+        )
+
+    structure_side = "NONE"
+
+    if alignment == "STRICT":
+
+        if ema19 > ema50 > ema200:
+            structure_side = "LONG"
+
+        elif ema19 < ema50 < ema200:
+            structure_side = "SHORT"
+
+    else:
+
+        if ema19 > ema50:
+            structure_side = "LONG"
+
+        elif ema19 < ema50:
+            structure_side = "SHORT"
+
+    structure_min_separation = unit_4_v5_positive(
+        s["minimum_ema_separation_percent"],
+        "STRUCTURE MIN EMA SEPARATION"
+    )
+
+    structure_pullback = unit_4_v5_positive(
+        s["pullback_tolerance_atr"],
+        "STRUCTURE PULLBACK"
+    )
+
+    structure_max_extension = unit_4_v5_positive(
+        s["maximum_extension_atr"],
+        "STRUCTURE MAX EXTENSION",
+        False
+    )
+
+    fast_structure_move = momentum_at(
+        s["fast_momentum_minutes"]
+    )
+
+    slow_structure_move = momentum_at(
+        s["slow_momentum_minutes"]
+    )
+
+    def structure_eligible(side):
+
+        fast_ok = (
+            not s["require_fast_momentum"]
+            or unit_4_v5_same_direction(
+                fast_structure_move, side
+            )
+        )
+
+        slow_ok = (
+            not s["require_slow_momentum"]
+            or unit_4_v5_same_direction(
+                slow_structure_move, side
+            )
+        )
+
+        signed_distance = (
+            latest_close - ema19
+            if side == "LONG"
+            else ema19 - latest_close
+        ) / atr14
+
+        # Pullback entries are permitted near EMA19.
+        # Continuation entries must remain on the
+        # correct side of EMA19 and within extension.
+
+        pullback_ok = (
+            abs(signed_distance) <= structure_pullback
+        )
+
+        continuation_ok = (
+            s["allow_continuation_entry"]
+            and 0 <= signed_distance
+            <= structure_max_extension
+        )
+
+        return bool(
+            s["enabled"]
+            and structure_side == side
+            and direction == side
+            and votes_sufficient(
+                side, s["direction_votes_required"]
+            )
+            and fast_ok
+            and slow_ok
+            and separation >= structure_min_separation
+            and abs(signed_distance)
+            <= structure_max_extension
+            and (pullback_ok or continuation_ok)
+        )
+
+    structure_developing_long = (
+        structure_eligible("LONG")
+    )
+
+    structure_developing_short = (
+        structure_eligible("SHORT")
+    )
+
+    structure_fast_confirmed = (
+        unit_4_v5_same_direction(
+            fast_structure_move, structure_side
+        )
+    )
+
+    structure_slow_confirmed = (
+        unit_4_v5_same_direction(
+            slow_structure_move, structure_side
+        )
+    )
+
+    # ========================================================
+    # ADJUSTABLE SCALP / SIDEWAYS EVIDENCE
+    # ========================================================
+
+    scalp_lookback = unit_4_v5_integer(
+        p["range_lookback_candles"],
+        "SCALP LOOKBACK",
+        2, 45
+    )
+
+    scalp_history = closed[
+        -scalp_lookback - 1:-1
+    ]
+
+    scalp_high = max(
+        item["high"] for item in scalp_history
+    )
+
+    scalp_low = min(
+        item["low"] for item in scalp_history
+    )
+
+    ema_cluster = (
+        max(ema19, ema50, ema100, ema200)
+        - min(ema19, ema50, ema100, ema200)
+    )
+
+    compression_atr = ema_cluster / atr14
+    scalp_range_atr = (
+        scalp_high - scalp_low
+    ) / atr14
+
+    momentum15_atr = (
+        abs(latest_close - prices[-16])
+        / atr14
+    )
+
+    higher_mode_developing = any((
+        breakout_confirmed_long,
+        breakout_confirmed_short,
+        breakout_developing_long,
+        breakout_developing_short,
+        structure_developing_long,
+        structure_developing_short,
+    ))
+
+    sideways_candidate = bool(
+        p["enabled"]
+        and compression_atr <= unit_4_v5_positive(
+            p["ema_compression_atr_max"],
+            "SCALP EMA COMPRESSION"
+        )
+        and scalp_range_atr <= unit_4_v5_positive(
+            p["range_atr_max"],
+            "SCALP RANGE"
+        )
+        and momentum15_atr <= unit_4_v5_positive(
+            p["momentum_atr_max"],
+            "SCALP MOMENTUM"
+        )
+        and not higher_mode_developing
+    )
+
+    # Price extension is diagnostic and still
+    # retained as the existing Unit 5 evidence flag.
+
+    price_extension_atr = (
+        abs(latest_close - ema19) / atr14
+    )
+
+    price_overextended = bool(
+        price_extension_atr > structure_max_extension
+    )
+
+    # ========================================================
+    # PROPAGATE CENTRAL TUNING FOR UNITS 5 AND 6
+    # ========================================================
+
+    common_cfg = qualification["common"]
+    breakout_cfg = qualification["breakout"]
+    structure_cfg = qualification["structure"]
+    scalp_cfg = qualification["scalp"]
+
+    common_cfg["direction_votes_required"] = (
+        common_votes_required
+    )
+
+    breakout_cfg.update({
+        "enabled": bool(b["enabled"]),
+        "developing_candidate_enabled": bool(
+            b["developing_candidate_enabled"]
+        ),
+        "support_resistance_lookback":
+            breakout_lookback,
+        "developing_proximity_atr": proximity,
+        "confirmation_distance_atr": confirmation,
+        "max_price_extension_atr":
+            breakout_max_extension,
+        "minimum_atr_percent": breakout_atr_min,
+        "direction_votes_required":
+            b["direction_votes_required"],
+        "fast_momentum_minutes":
+            b["fast_momentum_minutes"],
+        "slow_momentum_minutes":
+            b["slow_momentum_minutes"],
+        "require_fast_momentum":
+            b["require_fast_momentum"],
+        "require_slow_momentum":
+            b["require_slow_momentum"],
+    })
+
+    structure_cfg.update({
+        "enabled": bool(s["enabled"]),
+        "ema_alignment_mode": alignment,
+        "direction_votes_required":
+            s["direction_votes_required"],
+        "minimum_ema_separation_percent":
+            structure_min_separation,
+        "pullback_tolerance_atr":
+            structure_pullback,
+        "allow_continuation_entry": bool(
+            s["allow_continuation_entry"]
+        ),
+        "max_price_extension_atr":
+            structure_max_extension,
+        "fast_momentum_minutes":
+            s["fast_momentum_minutes"],
+        "slow_momentum_minutes":
+            s["slow_momentum_minutes"],
+        "require_fast_momentum":
+            s["require_fast_momentum"],
+        "require_slow_momentum":
+            s["require_slow_momentum"],
+    })
+
+    scalp_cfg.update({
+        "enabled": bool(p["enabled"]),
+        "require_sideways_market": bool(
+            p["require_sideways_market"]
+        ),
+        "ema_compression_atr_max":
+            p["ema_compression_atr_max"],
+        "range20_atr_max": p["range_atr_max"],
+        "momentum15_atr_multiplier_max":
+            p["momentum_atr_max"],
+        "preliminary_ema_separation_percent":
+            p["preliminary_ema_separation_percent"],
+        "preliminary_move_5m_percent":
+            p["preliminary_move_5m_percent"],
+        "quality_threshold":
+            p["quality_threshold"],
+        "minimum_fee_coverage_multiplier":
+            p["minimum_fee_coverage_multiplier"],
+    })
+
+    # ========================================================
+    # BUILD UNIT 4 -> UNIT 5 SNAPSHOT
+    # ========================================================
+
+    snapshot = {
+        "exchange": "WEEX",
+        "api_version": "V3",
+        "symbol": "BTCUSDT",
+        "interval": "1m",
+        "price_type": "MARK",
+
+        "live_mark_price": live_mark,
+        "previous_close": previous_close,
+        "latest_close": latest_close,
+
+        "latest_open_time_ms":
+            latest["open_time_ms"],
+        "latest_close_time_ms":
+            latest["close_time_ms"],
+        "exchange_time_ms": market_time_ms,
+
+        "ema19": ema19,
+        "ema50": ema50,
+        "ema100": ema100,
+        "ema200": ema200,
+
+        "ema19_50_separation_pct": separation,
+        "ema_structure": ema_structure,
+
+        "short_term_move_pct": moves[1],
+        "move_1m_pct": moves[1],
+        "move_5m_pct": moves[5],
+        "move_15m_pct": moves[15],
+        "move_30m_pct": moves[30],
+        "move_60m_pct": moves[60],
+        "move_120m_pct": moves[120],
+
+        "recent_closed_klines": [
+            dict(item) for item in closed[-60:]
+        ],
+        "candle_count": len(candles),
+        "closed_candle_count": len(closed),
+        "newest_returned_candle_closed": (
+            candles[-1]["close_time_ms"]
+            <= market_time_ms
+        ),
+        "source":
+            "WEEX_V3_PUBLIC_MARK_PRICE_KLINES",
+
+        "atr14": atr14,
+        "atr_percent": atr_percent,
+
+        "support20": support,
+        "resistance20": resistance,
+        "range20_atr_ratio": (
+            resistance - support
+        ) / atr14,
+
+        "near_resistance": bool(
+            latest_close >= resistance - proximity * atr14
+        ),
+        "near_support": bool(
+            latest_close <= support + proximity * atr14
+        ),
+
+        "breakout_confirmed_long":
+            breakout_confirmed_long,
+        "breakout_confirmed_short":
+            breakout_confirmed_short,
+        "breakout_developing_long":
+            breakout_developing_long,
+        "breakout_developing_short":
+            breakout_developing_short,
+
+        "structure_developing_long":
+            structure_developing_long,
+        "structure_developing_short":
+            structure_developing_short,
+
+        "structure_trend_direction":
+            structure_side,
+        "structure_ema_alignment_mode":
+            alignment,
+        "structure_momentum_fast_confirmed":
+            structure_fast_confirmed,
+        "structure_momentum_slow_confirmed":
+            structure_slow_confirmed,
+
+        "sideways_candidate": sideways_candidate,
+
+        "direction_long_votes": long_votes,
+        "direction_short_votes": short_votes,
+        "direction_evidence": direction,
+
+        "ema_cluster_height": ema_cluster,
+        "ema_compression_atr": compression_atr,
+        "scalp_range_atr": scalp_range_atr,
+        "scalp_momentum_atr": momentum15_atr,
+
+        "scalp_preliminary_ema_min_pct":
+            p["preliminary_ema_separation_percent"],
+        "scalp_preliminary_move_min_pct":
+            p["preliminary_move_5m_percent"],
+
+        "price_extension_cluster": (
+            price_extension_atr
+        ),
+        "price_overextended": price_overextended,
+
+        "strategy_evidence_version":
+            "U4_HYBRID_V2",
+        "qualification_tuning_revision":
+            "UNIT4_V5_FULLY_INTEGRATED",
+
+        "qualification_settings": {
+            "breakout_lookback": breakout_lookback,
+            "breakout_proximity_atr": proximity,
+            "breakout_confirmation_atr": confirmation,
+            "structure_pullback_atr":
+                structure_pullback,
+            "structure_max_extension_atr":
+                structure_max_extension,
+            "structure_ema_alignment_mode":
+                alignment,
+            "scalp_compression_atr":
+                p["ema_compression_atr_max"],
+            "scalp_range_atr":
+                p["range_atr_max"],
+            "scalp_momentum_atr":
+                p["momentum_atr_max"],
+        },
+
+        "read_only": True,
+        "trade_authorized": False,
+        "order_payload_created": False,
+    }
+
+    # ========================================================
+    # VERIFY DOWNSTREAM INPUTS
+    # ========================================================
+
+    required_fields = (
+        "strategy_evidence_version",
+        "exchange_time_ms",
+        "latest_close_time_ms",
+        "latest_close",
+        "ema19",
+        "ema50",
+        "ema200",
+        "atr14",
+        "move_5m_pct",
+        "move_15m_pct",
+        "direction_evidence",
+        "direction_long_votes",
+        "direction_short_votes",
+        "breakout_confirmed_long",
+        "breakout_confirmed_short",
+        "breakout_developing_long",
+        "breakout_developing_short",
+        "structure_developing_long",
+        "structure_developing_short",
+        "sideways_candidate",
+        "price_overextended",
+        "structure_trend_direction",
+        "scalp_preliminary_ema_min_pct",
+        "scalp_preliminary_move_min_pct",
+    )
+
+    missing = [
+        key for key in required_fields
+        if key not in snapshot
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "UNIT 4 HANDOVER MISSING: " + str(missing)
+        )
+
+    # ========================================================
+    # RENDER LOG REPORT
+    # ========================================================
+
+    print("UNIT 4 HTTP STATUS =", http_status, flush=True)
+    print(
+        "UNIT 4 REQUEST LATENCY MS =",
+        round(latency_ms, 2),
+        flush=True
+    )
+    print(
+        "UNIT 4 CLOSED CANDLES =",
+        len(closed),
+        flush=True
+    )
+    print("UNIT 4 ATR14 =", round(atr14, 4), flush=True)
+    print("UNIT 4 DIRECTION =", direction, flush=True)
+    print(
+        "UNIT 4 DIRECTION VOTES =",
+        long_votes, "/", short_votes,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 BREAKOUT PROXIMITY ATR =",
+        proximity, flush=True
+    )
+    print(
+        "UNIT 4 BREAKOUT CONFIRMATION ATR =",
+        confirmation, flush=True
+    )
+    print(
+        "UNIT 4 BREAKOUT CONFIRMED LONG =",
+        breakout_confirmed_long, flush=True
+    )
+    print(
+        "UNIT 4 BREAKOUT CONFIRMED SHORT =",
+        breakout_confirmed_short, flush=True
+    )
+    print(
+        "UNIT 4 BREAKOUT DEVELOPING LONG =",
+        breakout_developing_long, flush=True
+    )
+    print(
+        "UNIT 4 BREAKOUT DEVELOPING SHORT =",
+        breakout_developing_short, flush=True
+    )
+
+    print(
+        "UNIT 4 STRUCTURE EMA MODE =",
+        alignment, flush=True
+    )
+    print(
+        "UNIT 4 STRUCTURE TREND SIDE =",
+        structure_side, flush=True
+    )
+    print(
+        "UNIT 4 STRUCTURE DEVELOPING LONG =",
+        structure_developing_long, flush=True
+    )
+    print(
+        "UNIT 4 STRUCTURE DEVELOPING SHORT =",
+        structure_developing_short, flush=True
+    )
+
+    print(
+        "UNIT 4 SCALP QUALITY TARGET =",
+        p["quality_threshold"], flush=True
+    )
+    print(
+        "UNIT 4 SCALP SIDEWAYS =",
+        sideways_candidate, flush=True
+    )
+    print(
+        "UNIT 4 SCALP MIN MOVE 5M % =",
+        p["preliminary_move_5m_percent"],
+        flush=True
+    )
+
+    print(
+        "UNIT 4 PRICE OVEREXTENDED =",
+        price_overextended, flush=True
+    )
+    print(
+        "UNIT 4 EVIDENCE VERSION =",
+        snapshot["strategy_evidence_version"],
+        flush=True
+    )
+    print(
+        "UNIT 4 TUNING REVISION =",
+        snapshot["qualification_tuning_revision"],
+        flush=True
+    )
+    print(
+        "PASS: UNIT 4 COMPLETE CORE AND ADAPTER",
+        flush=True
+    )
+    print(
+        "PASS: UNIT 4 TO UNIT 5 HANDOVER",
+        flush=True
+    )
+    print("UNIT 4 EXCHANGE WRITE = NONE", flush=True)
+    print(
+        "FRESH RECONSTRUCTION UNIT 4 RESULT = PASS",
+        flush=True
+    )
+    print(
+        "FRESH RECONSTRUCTION UNIT 4 ADAPTER RESULT = PASS",
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    return snapshot
+
+
+# ============================================================
+# 4.5 SINGLE EXECUTION CALL
+# ============================================================
+
+FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
+    fresh_reconstruction_unit_4()
+)
+
+
+# ============================================================
+# END COMPLETE UNIT 4 V5 REPLACEMENT
+
