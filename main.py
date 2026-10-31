@@ -3009,3 +3009,517 @@ FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
 # ============================================================
 # END COMPLETE UNIT 4 V5 REPLACEMENT
 
+
+# ============================================================
+# START COMPLETE UNIT 5 V8 REPLACEMENT
+# FULLY ADJUSTABLE HYBRID CLASSIFICATION
+# WEEX DEMO / ZERO INDENTATION
+# UNIT 4 V5 -> UNIT 5 V8 -> UNIT 6
+# ============================================================
+
+import math
+
+
+# ============================================================
+# 5.1 HELPERS
+# ============================================================
+
+def unit_5_v8_number(value, name):
+
+    if isinstance(value, bool):
+        raise RuntimeError("UNIT 5 INVALID " + name)
+
+    try:
+        value = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError(
+            "UNIT 5 INVALID " + name
+        ) from exc
+
+    if not math.isfinite(value):
+        raise RuntimeError(
+            "UNIT 5 NONFINITE " + name
+        )
+
+    return value
+
+
+def unit_5_v8_direction(value):
+
+    if value > 0:
+        return "LONG"
+    if value < 0:
+        return "SHORT"
+    return "NONE"
+
+
+def unit_5_v8_side_matches(value, side):
+
+    return (
+        value > 0 if side == "LONG"
+        else value < 0 if side == "SHORT"
+        else False
+    )
+
+
+def unit_5_v8_settings(config, group):
+
+    section = config.get("qualification", {})
+
+    if not isinstance(section, dict):
+        raise RuntimeError(
+            "UNIT 5 QUALIFICATION CONFIG INVALID"
+        )
+
+    result = section.get(group)
+
+    if not isinstance(result, dict):
+        raise RuntimeError(
+            "UNIT 5 MISSING CONFIG: " + group
+        )
+
+    return result
+
+
+# ============================================================
+# 5.2 COMPLETE CLASSIFICATION
+# ============================================================
+
+def fresh_reconstruction_unit_5(
+    unit_2_config,
+    unit_4_snapshot
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 5 COMPLETE ADJUSTABLE V8 START",
+        flush=True
+    )
+
+    if not isinstance(unit_2_config, dict):
+        raise RuntimeError("UNIT 5 CONFIG INVALID")
+
+    if not isinstance(unit_4_snapshot, dict):
+        raise RuntimeError("UNIT 5 SNAPSHOT INVALID")
+
+    config = unit_2_config
+    analysis = unit_4_snapshot
+
+    common = unit_5_v8_settings(config, "common")
+    b = unit_5_v8_settings(config, "breakout")
+    s = unit_5_v8_settings(config, "structure")
+    p = unit_5_v8_settings(config, "scalp")
+
+    if tuple(common.get("mode_priority", ())) != (
+        "BREAKOUT", "STRUCTURE", "SCALP"
+    ):
+        raise RuntimeError(
+            "UNIT 5 STRATEGY PRIORITY INVALID"
+        )
+
+    if analysis.get(
+        "strategy_evidence_version"
+    ) != "U4_HYBRID_V2":
+        raise RuntimeError(
+            "UNIT 5 UNIT 4 EVIDENCE MISSING"
+        )
+
+    if analysis.get(
+        "qualification_tuning_revision"
+    ) != "UNIT4_V5_FULLY_INTEGRATED":
+        raise RuntimeError(
+            "UNIT 5 ADJUSTABLE UNIT 4 V5 REQUIRED"
+        )
+
+    if (
+        analysis.get("exchange") != "WEEX"
+        or analysis.get("api_version") != "V3"
+        or analysis.get("symbol") != "BTCUSDT"
+        or analysis.get("price_type") != "MARK"
+        or analysis.get("read_only") is not True
+    ):
+        raise RuntimeError(
+            "UNIT 5 MARKET CONTRACT INVALID"
+        )
+
+    def n(key):
+        return unit_5_v8_number(
+            analysis.get(key), key
+        )
+
+    def flag(key):
+
+        result = analysis.get(key)
+
+        if type(result) is not bool:
+            raise RuntimeError(
+                "UNIT 5 FLAG INVALID: " + key
+            )
+
+        return result
+
+    def setting_number(section, key, fallback=None):
+
+        value = section.get(key, fallback)
+
+        if value is None:
+            raise RuntimeError(
+                "UNIT 5 SETTING MISSING: " + key
+            )
+
+        return unit_5_v8_number(value, key)
+
+    def setting_bool(section, key, fallback=None):
+
+        value = section.get(key, fallback)
+
+        if type(value) is not bool:
+            raise RuntimeError(
+                "UNIT 5 BOOLEAN SETTING INVALID: " + key
+            )
+
+        return value
+
+    # ========================================================
+    # 5.3 MARKET INPUTS
+    # ========================================================
+
+    exchange_ms = n("exchange_time_ms")
+    close_ms = n("latest_close_time_ms")
+
+    candle_age = (
+        exchange_ms - close_ms
+    ) / 1000.0
+
+    market_policy = config.get(
+        "market_data_policy", {}
+    )
+
+    if not isinstance(market_policy, dict):
+        raise RuntimeError(
+            "UNIT 5 MARKET POLICY INVALID"
+        )
+
+    max_age = unit_5_v8_number(
+        market_policy.get(
+            "max_market_age_seconds", 120
+        ),
+        "MAX MARKET AGE"
+    )
+
+    if not 0 <= candle_age <= max_age:
+        raise RuntimeError(
+            "UNIT 5 CANDLE EVIDENCE STALE"
+        )
+
+    live_price = n("live_mark_price")
+    previous_close = n("previous_close")
+    latest_close = n("latest_close")
+
+    ema19 = n("ema19")
+    ema50 = n("ema50")
+    ema200 = n("ema200")
+    atr14 = n("atr14")
+
+    separation = abs(
+        n("ema19_50_separation_pct")
+    )
+
+    if min(
+        live_price, previous_close, latest_close,
+        ema19, ema50, ema200, atr14
+    ) <= 0:
+        raise RuntimeError(
+            "UNIT 5 INVALID MARKET INDICATOR"
+        )
+
+    periods = (1, 5, 15, 30, 60, 120)
+
+    moves = {
+        period: n("move_%dm_pct" % period)
+        for period in periods
+    }
+
+    directions = {
+        period: unit_5_v8_direction(moves[period])
+        for period in periods
+    }
+
+    short_move = n("short_term_move_pct")
+
+    ema_structure = str(
+        analysis.get("ema_structure", "MIXED")
+    ).upper()
+
+    if ema_structure not in (
+        "BULLISH", "BEARISH", "MIXED"
+    ):
+        raise RuntimeError(
+            "UNIT 5 EMA STRUCTURE INVALID"
+        )
+
+    # Diagnostic EMA direction from original classifier.
+    # This does NOT override adjustable STRUCTURE mode.
+
+    bullish = ema19 > ema50 > ema200
+    bearish = ema19 < ema50 < ema200
+
+    ema_direction = (
+        "LONG" if bullish
+        else "SHORT" if bearish
+        else "NONE"
+    )
+
+    if (
+        (bullish and ema_structure != "BULLISH")
+        or (bearish and ema_structure != "BEARISH")
+    ):
+        raise RuntimeError(
+            "UNIT 5 EMA STRUCTURE INCONSISTENT"
+        )
+
+    direction_evidence = str(
+        analysis.get("direction_evidence", "NONE")
+    ).upper()
+
+    if direction_evidence not in (
+        "LONG", "SHORT", "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 5 DIRECTION EVIDENCE INVALID"
+        )
+
+    long_votes = n("direction_long_votes")
+    short_votes = n("direction_short_votes")
+
+    if (
+        long_votes < 0 or short_votes < 0
+        or long_votes + short_votes > 3
+    ):
+        raise RuntimeError(
+            "UNIT 5 DIRECTION VOTES INVALID"
+        )
+
+    def votes_pass(side, section):
+
+        required = setting_number(
+            section,
+            "direction_votes_required",
+            common.get("direction_votes_required", 2)
+        )
+
+        if (
+            required != int(required)
+            or not 1 <= required <= 3
+        ):
+            raise RuntimeError(
+                "UNIT 5 VOTE THRESHOLD INVALID"
+            )
+
+        actual = (
+            long_votes if side == "LONG"
+            else short_votes
+        )
+
+        return actual >= required
+
+    def momentum_pass(side, section):
+
+        fast = int(setting_number(
+            section, "fast_momentum_minutes", 5
+        ))
+
+        slow = int(setting_number(
+            section, "slow_momentum_minutes", 15
+        ))
+
+        if fast not in moves or slow not in moves:
+            raise RuntimeError(
+                "UNIT 5 MOMENTUM WINDOW UNSUPPORTED"
+            )
+
+        require_fast = setting_bool(
+            section, "require_fast_momentum", True
+        )
+
+        require_slow = setting_bool(
+            section, "require_slow_momentum", True
+        )
+
+        return (
+            (
+                not require_fast
+                or unit_5_v8_side_matches(
+                    moves[fast], side
+                )
+            )
+            and (
+                not require_slow
+                or unit_5_v8_side_matches(
+                    moves[slow], side
+                )
+            )
+        )
+
+    # ========================================================
+    # 5.4 STRATEGY EVIDENCE FROM UNIT 4
+    # ========================================================
+
+    b_long = flag("breakout_confirmed_long")
+    b_short = flag("breakout_confirmed_short")
+
+    bd_long = flag("breakout_developing_long")
+    bd_short = flag("breakout_developing_short")
+
+    sd_long = flag("structure_developing_long")
+    sd_short = flag("structure_developing_short")
+
+    sideways_evidence = flag("sideways_candidate")
+    overextended = flag("price_overextended")
+
+    if b_long and b_short:
+        raise RuntimeError(
+            "UNIT 5 CONFLICTING BREAKOUT EVIDENCE"
+        )
+
+    if bd_long and bd_short:
+        raise RuntimeError(
+            "UNIT 5 CONFLICTING DEVELOPING BREAKOUT"
+        )
+
+    if sd_long and sd_short:
+        raise RuntimeError(
+            "UNIT 5 CONFLICTING STRUCTURE EVIDENCE"
+        )
+
+    structure_trend = str(
+        analysis.get(
+            "structure_trend_direction", "NONE"
+        )
+    ).upper()
+
+    structure_ema_mode = str(
+        analysis.get(
+            "structure_ema_alignment_mode", ""
+        )
+    ).upper()
+
+    configured_ema_mode = str(
+        s.get("ema_alignment_mode", "")
+    ).upper()
+
+    if configured_ema_mode not in (
+        "EARLY", "STRICT"
+    ):
+        raise RuntimeError(
+            "UNIT 5 STRUCTURE EMA MODE INVALID"
+        )
+
+    if structure_ema_mode != configured_ema_mode:
+        raise RuntimeError(
+            "UNIT 5 STRUCTURE TUNING NOT SYNCHRONIZED"
+        )
+
+    if structure_trend not in (
+        "LONG", "SHORT", "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 5 STRUCTURE DIRECTION INVALID"
+        )
+
+    # ========================================================
+    # 5.5 ORIGINAL 42-FIELD CLASSIFIER
+    # ========================================================
+
+    scalp_direction = "NONE"
+
+    if ema19 > ema50 and moves[5] > 0:
+        scalp_direction = "LONG"
+
+    elif ema19 < ema50 and moves[5] < 0:
+        scalp_direction = "SHORT"
+
+    scalp_move = abs(moves[5])
+
+    scalp_1m_support = (
+        scalp_direction in ("LONG", "SHORT")
+        and directions[1] == scalp_direction
+    )
+
+    structure_direction = "NONE"
+
+    if (
+        ema_direction != "NONE"
+        and directions[15] == ema_direction
+    ):
+        structure_direction = ema_direction
+
+    structure_move = abs(moves[15])
+
+    breakout_primary = directions[30]
+
+    breakout_fast_support = (
+        breakout_primary != "NONE"
+        and breakout_primary in (
+            directions[5], directions[15]
+        )
+    )
+
+    breakout_direction = "NONE"
+
+    if (
+        breakout_primary == "LONG"
+        and breakout_fast_support
+        and ema19 > ema50
+        and latest_close > ema19
+        and latest_close > ema200
+    ):
+        breakout_direction = "LONG"
+
+    elif (
+        breakout_primary == "SHORT"
+        and breakout_fast_support
+        and ema19 < ema50
+        and latest_close < ema19
+        and latest_close < ema200
+    ):
+        breakout_direction = "SHORT"
+
+    breakout_move = abs(moves[30])
+
+    # ========================================================
+    # 5.6 ADJUSTABLE BREAKOUT QUALIFICATION
+    # ========================================================
+
+    breakout_side = (
+        "LONG" if b_long
+        else "SHORT" if b_short
+        else "NONE"
+    )
+
+    breakout_enabled = setting_bool(
+        b, "enabled", True
+    )
+
+    breakout_momentum_ok = (
+        breakout_side != "NONE"
+        and momentum_pass(breakout_side, b)
+    )
+
+    breakout_votes_ok = (
+        breakout_side != "NONE"
+        and votes_pass(breakout_side, b)
+    )
+
+    # BREAKOUT ADMISSION
+    # Preserve Unit 4 confirmed breakout evidence.
+    # Do not apply STRUCTURE overextension
+    # to BREAKOUT qualification.
+
+    breakout_qualified = bool(
+        breakout_enabled
+        and breakout_side != "NONE"
+        and breakout_side == direction_evidence
+        and breakout_votes_ok
+        and breakout_momentum_ok
+    )
