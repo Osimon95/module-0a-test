@@ -6515,3 +6515,835 @@ def unit_7_v11_reject_message(
 # END UNIT 7 V11 PART 1
 # NEXT PART STARTS AT ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# UNIT 7 V11 PART 2
+# MAIN HEDGE SIZING POLICY
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_reconstruction_unit_7(
+    unit_2_config,
+    unit_6_candidate,
+    unit_4_snapshot=None,
+    send_notifications=True,
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 7 V11 REVERSIBLE HEDGE SIZING START",
+        flush=True
+    )
+
+    if not isinstance(unit_2_config, dict):
+        raise RuntimeError(
+            "UNIT 7 CONFIG INVALID"
+        )
+
+    if not isinstance(unit_6_candidate, dict):
+        raise RuntimeError(
+            "UNIT 7 SIGNAL INVALID"
+        )
+
+    config = unit_2_config
+    signal = unit_6_candidate
+
+    if unit_4_snapshot is None:
+        unit_4_snapshot = (
+            FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+        )
+
+    if not isinstance(unit_4_snapshot, dict):
+        raise RuntimeError(
+            "UNIT 7 UNIT 4 SNAPSHOT INVALID"
+        )
+
+    exchange = config.get("exchange", {})
+    strategy = config.get("strategy", {})
+    safety = config.get("safety", {})
+    precision = config.get("market_precision", {})
+
+    for name, section in (
+        ("EXCHANGE", exchange),
+        ("STRATEGY", strategy),
+        ("SAFETY", safety),
+        ("PRECISION", precision),
+    ):
+
+        if not isinstance(section, dict):
+            raise RuntimeError(
+                "UNIT 7 CONFIG MISSING " + name
+            )
+
+    if config.get(
+        "execution_environment"
+    ) != "DEMO":
+        raise RuntimeError(
+            "UNIT 7 DEMO ENVIRONMENT REQUIRED"
+        )
+
+    if (
+        exchange.get("name") != "WEEX"
+        or exchange.get(
+            "market_symbol"
+        ) != "BTCUSDT"
+        or exchange.get(
+            "demo_order_symbol"
+        ) != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 7 WEEX SYMBOL CONTRACT INVALID"
+        )
+
+    if safety.get(
+        "real_order_submission_enabled"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 7 REAL CASH MUST REMAIN DISABLED"
+        )
+
+    if signal.get(
+        "classification_version"
+    ) != "UNIT6_V9_ADJUSTABLE":
+        raise RuntimeError(
+            "UNIT 7 REQUIRES UNIT 6 V9"
+        )
+
+    if (
+        signal.get("exchange_write") is not False
+        or signal.get(
+            "order_payload_created"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 7 UPSTREAM WRITE VIOLATION"
+        )
+
+    intent = signal.get("execution_intent")
+    qualified = signal.get("signal_qualified")
+
+    if (
+        type(intent) is not bool
+        or type(qualified) is not bool
+        or intent != qualified
+    ):
+        raise RuntimeError(
+            "UNIT 7 SIGNAL FLAGS INVALID"
+        )
+
+    active_mode = signal.get(
+        "active_mode", "NONE"
+    )
+
+    direction = signal.get(
+        "direction", "NONE"
+    )
+
+    if active_mode not in (
+        "NONE", "BREAKOUT", "STRUCTURE", "SCALP"
+    ):
+        raise RuntimeError(
+            "UNIT 7 INVALID ACTIVE MODE"
+        )
+
+    if direction not in (
+        "NONE", "LONG", "SHORT"
+    ):
+        raise RuntimeError(
+            "UNIT 7 INVALID DIRECTION"
+        )
+
+    if intent and (
+        active_mode == "NONE"
+        or direction == "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 7 INCONSISTENT QUALIFIED SIGNAL"
+        )
+
+    if not intent and (
+        active_mode != "NONE"
+        or direction != "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 7 INCONSISTENT IDLE SIGNAL"
+        )
+
+    initial_margin, margin_source = (
+        unit_7_v11_initial_margin(config)
+    )
+
+    exposure_cap = unit_7_v11_decimal(
+        strategy.get(
+            "exposure_cap_percent",
+            os.getenv(
+                "EXPOSURE_CAP_PERCENT", "100"
+            )
+        ),
+        "EXPOSURE_CAP",
+        True
+    )
+
+    if exposure_cap > Decimal("100"):
+        raise RuntimeError(
+            "UNIT 7 EXPOSURE CAP ABOVE 100%"
+        )
+
+    minimum_quantity = unit_7_v11_decimal(
+        precision.get("minimum_quantity"),
+        "MINIMUM_BTC"
+    )
+
+    quantity_step = unit_7_v11_decimal(
+        precision.get("quantity_step"),
+        "QUANTITY_STEP"
+    )
+
+    price_step = unit_7_v11_decimal(
+        precision.get("price_step"),
+        "PRICE_STEP"
+    )
+
+    market_price = unit_7_v11_decimal(
+        unit_4_snapshot.get(
+            "live_mark_price"
+        ),
+        "MARK_PRICE"
+    )
+
+    atr14 = unit_7_v11_decimal(
+        unit_4_snapshot.get("atr14"),
+        "ATR14"
+    )
+
+    if (
+        unit_4_snapshot.get(
+            "strategy_evidence_version"
+        ) != "U4_HYBRID_V2"
+    ):
+        raise RuntimeError(
+            "UNIT 7 UNIT 4 V5 REQUIRED"
+        )
+
+    if (
+        unit_4_snapshot.get(
+            "read_only"
+        ) is not True
+    ):
+        raise RuntimeError(
+            "UNIT 7 INVALID UNIT 4 SAFETY STATE"
+        )
+
+    # --------------------------------------------------------
+    # BASE HANDOVER
+    # --------------------------------------------------------
+
+    output = {
+
+        "unit_7_version":
+            "UNIT7_V11_REVERSIBLE_ATR_HEDGE",
+
+        "status": "IDLE",
+        "skip_reason": signal.get(
+            "admission_reason",
+            "NO_ACCEPTABLE_CANDIDATE"
+        ),
+
+        "active_mode": "NONE",
+        "direction": "NONE",
+
+        "execution_intent": False,
+        "signal_qualified": False,
+
+        "unit_5_reason": signal.get(
+            "unit_5_reason"
+        ),
+
+        "admission_reason": signal.get(
+            "admission_reason"
+        ),
+
+        "symbol": "BTCUSDT",
+        "demo_order_symbol": "BTCSUSDT",
+
+        "initial_fixed_usdt":
+            float(initial_margin),
+
+        "initial_margin_source":
+            margin_source,
+
+        "exposure_cap_percent":
+            float(exposure_cap),
+
+        "exposure_cap_max_percent": 100.0,
+
+        "exposure_cap_basis":
+            "TRADING_ACCOUNT_EQUITY",
+
+        "initial_margin_usdt":
+            unit_7_v11_format(initial_margin),
+
+        "market_price":
+            unit_7_v11_format(market_price),
+
+        "atr14_current":
+            unit_7_v11_format(atr14),
+
+        "hedge_mode":
+            "REVERSIBLE_ATR_TWO_STAGE",
+
+        "hedge_stage_h1_atr": 1.0,
+        "hedge_stage_h2_atr": 2.0,
+        "recovery_stage_r1_atr": 1.0,
+        "recovery_stage_r2_atr": 0.0,
+
+        "h1_original_percent": 50,
+        "h1_opposite_percent": 50,
+
+        "h2_original_percent": 0,
+        "h2_opposite_percent": 100,
+
+        "r1_original_percent": 50,
+        "r1_opposite_percent": 50,
+
+        "r2_original_percent": 100,
+        "r2_opposite_percent": 0,
+
+        "frozen_entry_price": None,
+        "frozen_entry_atr14": None,
+
+        "original_quantity": None,
+        "half_quantity": None,
+
+        "minimum_quantity":
+            unit_7_v11_format(
+                minimum_quantity
+            ),
+
+        "quantity_step":
+            unit_7_v11_format(
+                quantity_step
+            ),
+
+        "price_step":
+            unit_7_v11_format(
+                price_step
+            ),
+
+        "quantity_compliant": False,
+        "half_quantity_compliant": False,
+
+        "initial_entry_rejected": False,
+        "notification_status":
+            "NOT_REQUESTED",
+
+        "account_capacity_verified": False,
+        "dual_side_mode_verified": False,
+
+        "hedge_transition_orders_enabled": False,
+
+        "position_sizing_performed": False,
+        "order_payload_created": False,
+        "exchange_write": False,
+        "read_only": True,
+        "trade_authorized": False,
+    }
+
+    # --------------------------------------------------------
+    # NO QUALIFIED CANDIDATE
+    # --------------------------------------------------------
+
+    if not intent:
+
+        print(
+            "UNIT 7 SIGNAL = IDLE",
+            flush=True
+        )
+
+        print(
+            "UNIT 7 SKIP REASON =",
+            output["skip_reason"],
+            flush=True
+        )
+
+        print(
+            "UNIT 7 INITIAL MARGIN USDT =",
+            initial_margin,
+            flush=True
+        )
+
+        print(
+            "UNIT 7 EXPOSURE CAP PERCENT =",
+            exposure_cap,
+            flush=True
+        )
+
+        print(
+            "UNIT 7 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        print(
+            "FRESH RECONSTRUCTION UNIT 7 RESULT = PASS",
+            flush=True
+        )
+
+        return output
+
+    # --------------------------------------------------------
+    # QUALIFIED CANDIDATE
+    # --------------------------------------------------------
+
+    output["active_mode"] = active_mode
+    output["direction"] = direction
+
+    leverage = unit_7_v11_leverage(
+        config, direction
+    )
+
+    output["leverage_source"] = (
+        "RENDER_MANUAL"
+    )
+
+    output["leverage"] = (
+        unit_7_v11_format(leverage)
+    )
+
+    sizing = unit_7_v11_hedge_quantity(
+        initial_margin,
+        market_price,
+        leverage,
+        quantity_step,
+        minimum_quantity,
+    )
+
+    output["raw_quantity"] = (
+        unit_7_v11_format(
+            sizing["raw_quantity"]
+        )
+    )
+
+    output["original_quantity"] = (
+        unit_7_v11_format(
+            sizing["original_quantity"]
+        )
+    )
+
+    output["half_quantity"] = (
+        unit_7_v11_format(
+            sizing["half_quantity"]
+        )
+    )
+
+    output["opposite_quantity"] = (
+        unit_7_v11_format(
+            sizing["opposite_quantity"]
+        )
+    )
+
+    output["minimum_full_quantity"] = (
+        unit_7_v11_format(
+            sizing["minimum_full_quantity"]
+        )
+    )
+
+    output["actual_initial_margin_usdt"] = (
+        unit_7_v11_format(
+            sizing["actual_initial_margin_usdt"]
+        )
+    )
+
+    output["required_minimum_margin_usdt"] = (
+        unit_7_v11_format(
+            sizing[
+                "required_minimum_margin_usdt"
+            ]
+        )
+    )
+
+    output["position_sizing_performed"] = True
+
+    output["quantity_compliant"] = (
+        sizing["feasible"]
+    )
+
+    output["half_quantity_compliant"] = all((
+        sizing["half_step_valid"],
+        sizing["minimum_valid"],
+    ))
+
+    if not sizing["feasible"]:
+
+        reason = sizing["reason"]
+
+        output["status"] = "REJECTED"
+        output["skip_reason"] = reason
+
+        output["initial_entry_rejected"] = True
+
+        message = unit_7_v11_reject_message(
+            direction,
+            reason,
+            initial_margin,
+            market_price,
+            leverage,
+            sizing,
+        )
+
+        alert_key = (
+            "UNIT7:QTY:"
+            + direction
+            + ":"
+            + unit_7_v11_format(
+                initial_margin
+            )
+            + ":"
+            + unit_7_v11_format(
+                leverage
+            )
+            + ":"
+            + reason
+        )
+
+        output["notification_status"] = (
+            unit_7_v11_notify(
+                message,
+                alert_key,
+                enabled=send_notifications,
+            )
+        )
+
+        print(
+            "UNIT 7 INITIAL ENTRY = REJECTED",
+            flush=True
+        )
+
+        print(
+            "UNIT 7 REJECTION REASON =",
+            reason,
+            flush=True
+        )
+
+        print(
+            "UNIT 7 NOTIFICATION =",
+            output["notification_status"],
+            flush=True
+        )
+
+        print(
+            "UNIT 7 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        print(
+            "FRESH RECONSTRUCTION UNIT 7 RESULT = PASS",
+            flush=True
+        )
+
+        return output
+
+    # --------------------------------------------------------
+    # EXACT HEDGE SPLIT IS FEASIBLE
+    # --------------------------------------------------------
+
+    output["status"] = "SIZING_READY"
+    output["skip_reason"] = "NONE"
+
+    output["execution_intent"] = True
+    output["signal_qualified"] = True
+
+    # Freeze ATR14 and entry price only after
+    # a confirmed original demo order fill.
+    # These are current planning references,
+    # not the frozen values of an active cycle.
+
+    output["planning_atr14"] = (
+        unit_7_v11_format(atr14)
+    )
+
+    output["planning_mark_price"] = (
+        unit_7_v11_format(
+            market_price
+        )
+    )
+
+    # Account capacity and dual-side mode must
+    # be verified through the downstream
+    # account/position integration.
+    #
+    # Unit 7 does not falsely claim either.
+    #
+    # The next units must independently check
+    # the current free margin, total exposure
+    # and actual WEEX demo contract rules.
+
+    print(
+        "UNIT 7 INITIAL MARGIN SOURCE =",
+        margin_source,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 INITIAL MARGIN USDT =",
+        initial_margin,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 MANUAL LEVERAGE =",
+        leverage,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 RAW BTC =",
+        output["raw_quantity"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 COMPLIANT BTC =",
+        output["original_quantity"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXACT HALF BTC =",
+        output["half_quantity"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 QUANTITY COMPLIANT =",
+        output["quantity_compliant"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 HALF QUANTITY COMPLIANT =",
+        output["half_quantity_compliant"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 HEDGE MODE =",
+        output["hedge_mode"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 ACCOUNT CAPACITY VERIFIED =",
+        False,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 DUAL SIDE VERIFIED =",
+        False,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 STATUS = SIZING_READY",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 7 RESULT = PASS",
+        flush=True
+    )
+
+    return output
+
+
+# ============================================================
+# UNIT 7 V11 DETERMINISTIC SIZING TESTS
+# NO TELEGRAM / NO EXCHANGE WRITE
+# ============================================================
+
+def unit_7_validation_v11():
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 7 VALIDATION V11 START",
+        flush=True
+    )
+
+    tests = []
+
+    def test_case(
+        name,
+        margin,
+        price,
+        leverage,
+        expected_quantity,
+        expected_pass,
+    ):
+
+        result = unit_7_v11_hedge_quantity(
+            margin,
+            price,
+            leverage,
+            "0.0001",
+            "0.0001",
+        )
+
+        success = (
+            result["feasible"] is expected_pass
+            and result["original_quantity"]
+            == Decimal(expected_quantity)
+        )
+
+        tests.append((name, success))
+
+    test_case(
+        "EXACT TWO STEPS",
+        "2",
+        "100000",
+        "10",
+        "0.0002",
+        True,
+    )
+
+    test_case(
+        "EXACT FOUR STEPS",
+        "4",
+        "100000",
+        "10",
+        "0.0004",
+        True,
+    )
+
+    test_case(
+        "ODD STEPS ROUND DOWN",
+        "3",
+        "100000",
+        "10",
+        "0.0002",
+        True,
+    )
+
+    test_case(
+        "BELOW MINIMUM SPLIT",
+        "1",
+        "100000",
+        "10",
+        "0",
+        False,
+    )
+
+    test_case(
+        "INSUFFICIENT MARGIN",
+        "0.5",
+        "100000",
+        "10",
+        "0",
+        False,
+    )
+
+    test_case(
+        "HIGHER BTC PRICE",
+        "2",
+        "120000",
+        "10",
+        "0",
+        False,
+    )
+
+    test_case(
+        "ADJUSTABLE MARGIN",
+        "6",
+        "100000",
+        "10",
+        "0.0006",
+        True,
+    )
+
+    capacity = unit_7_v11_margin_capacity(
+        equity="10",
+        committed_margin="2",
+        reserved_margin="1",
+        exposure_cap_percent="100",
+    )
+
+    tests.append((
+        "EXPOSURE CAP HELPER",
+        capacity == Decimal("7")
+    ))
+
+    passed = sum(
+        int(success)
+        for _, success in tests
+    )
+
+    failed = len(tests) - passed
+
+    for name, success in tests:
+
+        print(
+            "UNIT 7 TEST:",
+            name,
+            "=",
+            "PASS" if success else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 7 TESTS PASSED =",
+        passed,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 TESTS FAILED =",
+        failed,
+        flush=True
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT 7 V11 VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 7 VALIDATION V11 RESULT = PASS",
+        flush=True
+    )
+
+    return True
+
+
+# ============================================================
+# UNIT 7 V11 EXECUTION
+# ============================================================
+
+FRESH_UNIT_7_VALIDATION_READY = (
+    unit_7_validation_v11()
+)
+
+FRESH_RECONSTRUCTION_SIZING_POLICY = (
+    fresh_reconstruction_unit_7(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+        send_notifications=True,
+    )
+)
+
+print(
+    "FRESH RECONSTRUCTION UNIT 7 V11 READY =",
+    FRESH_UNIT_7_VALIDATION_READY,
+    flush=True
+)
+
+
+# ============================================================
+# END COMPLETE UNIT 7 V11
+# UNIT 8 FOLLOWS
+# ============================================================
