@@ -7669,8 +7669,16 @@ def unit_8_v7_balance():
     }
 
 
+
 # ============================================================
-# 8.5 READ ACTUAL DEMO POSITIONS
+# UNIT 8 V7 - AUTOMATIC POSITION IDENTIFICATION
+# REPLACEMENT FOR unit_8_v7_positions()
+#
+# WEEX DEMO POSITION ENDPOINT
+# READS LONG AND SHORT AUTOMATICALLY
+# PRESERVES INDIVIDUAL POSITION RECORDS
+# NO API WRITE
+# ZERO INDENTATION
 # ============================================================
 
 def unit_8_v7_positions():
@@ -7698,20 +7706,25 @@ def unit_8_v7_positions():
 
         symbol = str(
             item.get("symbol", "")
-        ).upper()
+        ).strip().upper()
 
         if symbol not in (
-            "BTCSUSDT", "BTCUSDT"
+            "BTCSUSDT",
+            "BTCUSDT",
         ):
             continue
 
-        # Reject ambiguous size schemas rather than
-        # treating an unrecognized position as flat.
+        # ----------------------------------------------------
+        # EXTRACT ACTUAL POSITION QUANTITY
+        # ----------------------------------------------------
 
         size_field = next(
             (
-                field for field in (
-                    "size", "total", "holdVol"
+                field
+                for field in (
+                    "size",
+                    "total",
+                    "holdVol",
                 )
                 if item.get(field) is not None
             ),
@@ -7729,28 +7742,200 @@ def unit_8_v7_positions():
             allow_zero=True,
         )
 
-        if size <= 0:
+        if size == 0:
             continue
 
-        side = str(
-            item.get(
-                "positionSide",
-                item.get("holdSide", "")
+        # ----------------------------------------------------
+        # AUTOMATIC POSITION SIDE IDENTIFICATION
+        #
+        # WEEX V3 PRIMARY FIELD: side
+        #
+        # Also recognize compatible alternative fields.
+        # Never infer direction from BUY/SELL alone.
+        # ----------------------------------------------------
+
+        detected = []
+
+        for field in (
+            "side",
+            "positionSide",
+            "holdSide",
+        ):
+
+            value = item.get(field)
+
+            if value is None:
+                continue
+
+            normalized = str(
+                value
+            ).strip().upper()
+
+            if normalized in ("LONG", "SHORT"):
+
+                detected.append(
+                    (field, normalized)
+                )
+
+            elif normalized not in ("", "NONE"):
+
+                print(
+                    "UNIT 8 UNRECOGNIZED SIDE FIELD =",
+                    field,
+                    normalized,
+                    flush=True
+                )
+
+        if not detected:
+
+            print(
+                "UNIT 8 POSITION SIDE = UNVERIFIED",
+                flush=True
             )
-        ).upper()
 
-        if side not in ("LONG", "SHORT"):
-            side = "UNVERIFIED"
+            print(
+                "UNIT 8 POSITION SYMBOL =",
+                symbol,
+                flush=True
+            )
 
-        positions.append({
+            print(
+                "UNIT 8 POSITION SIZE =",
+                unit_8_v7_str(size),
+                flush=True
+            )
+
+            raise RuntimeError(
+                "UNIT 8 POSITION DIRECTION UNKNOWN"
+            )
+
+        sides = {
+            value
+            for field, value in detected
+        }
+
+        if len(sides) != 1:
+
+            raise RuntimeError(
+                "UNIT 8 CONFLICTING POSITION SIDES"
+            )
+
+        side = sides.pop()
+
+        source_field = detected[0][0]
+
+        # ----------------------------------------------------
+        # OPTIONAL POSITION DETAILS
+        # ----------------------------------------------------
+
+        leverage = item.get("leverage")
+
+        if leverage is not None:
+
+            leverage = unit_8_v7_str(
+                unit_8_v7_decimal(
+                    leverage,
+                    "POSITION LEVERAGE",
+                )
+            )
+
+        margin_type = str(
+            item.get("marginType", "")
+        ).strip().upper()
+
+        separated_mode = str(
+            item.get("separatedMode", "")
+        ).strip().upper()
+
+        record = {
             "symbol": symbol,
             "positionSide": side,
             "size": unit_8_v7_str(size),
             "size_field": size_field,
-        })
+
+            "side_source": source_field,
+            "leverage": leverage,
+
+            "marginType": margin_type,
+            "separatedMode": separated_mode,
+
+            "position_id": item.get("id"),
+
+            "read_only": True,
+        }
+
+        positions.append(record)
+
+    # --------------------------------------------------------
+    # INDEPENDENT LONG / SHORT TOTALS
+    # --------------------------------------------------------
+
+    long_total = Decimal("0")
+    short_total = Decimal("0")
+
+    for position in positions:
+
+        quantity = unit_8_v7_decimal(
+            position["size"],
+            "POSITION QUANTITY",
+            allow_zero=True,
+        )
+
+        if position["positionSide"] == "LONG":
+
+            long_total += quantity
+
+        elif position["positionSide"] == "SHORT":
+
+            short_total += quantity
+
+        else:
+
+            raise RuntimeError(
+                "UNIT 8 POSITION SIDE NOT VERIFIED"
+            )
+
+    print(
+        "UNIT 8 AUTO POSITION IDENTIFICATION = PASS",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 LONG POSITION TOTAL BTC =",
+        unit_8_v7_str(long_total),
+        flush=True
+    )
+
+    print(
+        "UNIT 8 SHORT POSITION TOTAL BTC =",
+        unit_8_v7_str(short_total),
+        flush=True
+    )
+
+    print(
+        "UNIT 8 ACTIVE POSITION RECORDS =",
+        len(positions),
+        flush=True
+    )
+
+    print(
+        "UNIT 8 POSITION DETECTION SOURCE = WEEX DEMO",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 POSITION EXCHANGE WRITE = NONE",
+        flush=True
+    )
 
     return positions
 
+
+# ============================================================
+# END UNIT 8 AUTOMATIC POSITION IDENTIFICATION
+# NEXT EXISTING FUNCTION:
+# def unit_8_v7_capacity(...)
+# ============================================================
 
 # ============================================================
 # 8.6 ACCOUNT MARGIN CAPACITY
