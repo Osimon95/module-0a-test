@@ -5887,3 +5887,631 @@ FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
 # ============================================================
 # END COMPLETE UNIT 6 V9 REPLACEMENT
 
+
+
+# ============================================================
+# START COMPLETE UNIT 7 V11
+# REVERSIBLE ATR14 HEDGE SIZING
+# NO BACKUP LADDER
+# UNIT 6 V9 -> UNIT 7 V11 -> UNIT 8
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import json
+import time
+import copy
+import math
+import urllib.request
+import urllib.parse
+import urllib.error
+
+from decimal import (
+    Decimal,
+    InvalidOperation,
+    ROUND_FLOOR,
+    ROUND_CEILING,
+)
+
+
+# ============================================================
+# 7.1 STRICT DECIMAL VALIDATION
+# ============================================================
+
+def unit_7_v11_decimal(
+    value,
+    label,
+    allow_zero=False,
+):
+
+    if isinstance(value, bool):
+        raise ValueError(
+            "INVALID_BOOLEAN_" + label
+        )
+
+    try:
+        result = Decimal(str(value))
+    except (
+        InvalidOperation,
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise ValueError(
+            "INVALID_NUMBER_" + label
+        ) from exc
+
+    if not result.is_finite():
+        raise ValueError(
+            "NONFINITE_NUMBER_" + label
+        )
+
+    if result < 0:
+        raise ValueError(
+            "NEGATIVE_NUMBER_" + label
+        )
+
+    if result == 0 and not allow_zero:
+        raise ValueError(
+            "ZERO_NOT_ALLOWED_" + label
+        )
+
+    return result
+
+
+def unit_7_v11_format(value):
+
+    number = Decimal(str(value))
+
+    if number == 0:
+        return "0"
+
+    return format(
+        number.normalize(),
+        "f"
+    )
+
+
+# ============================================================
+# 7.2 ADJUSTABLE INITIAL MARGIN
+# ============================================================
+
+def unit_7_v11_initial_margin(config):
+
+    strategy = config.get("strategy", {})
+
+    if not isinstance(strategy, dict):
+        raise ValueError(
+            "STRATEGY_CONFIG_MISSING"
+        )
+
+    primary = os.getenv(
+        "INITIAL_ENTRY_MARGIN_USDT", ""
+    ).strip()
+
+    fallback = os.getenv(
+        "ENTRY_FIXED_USDT", ""
+    ).strip()
+
+    if primary:
+        raw = primary
+        source = "INITIAL_ENTRY_MARGIN_USDT"
+
+    elif fallback:
+        raw = fallback
+        source = "ENTRY_FIXED_USDT"
+
+    elif strategy.get(
+        "initial_fixed_usdt"
+    ) is not None:
+        raw = strategy["initial_fixed_usdt"]
+        source = "UNIT_2_CONFIG"
+
+    else:
+        raw = "0.5"
+        source = "DEFAULT_0.5"
+
+    margin = unit_7_v11_decimal(
+        raw, "INITIAL_MARGIN"
+    )
+
+    return margin, source
+
+
+# ============================================================
+# 7.3 READ MANUAL WEEX LEVERAGE CONFIGURATION
+# NO LEVERAGE API READ OR WRITE
+# ============================================================
+
+def unit_7_v11_leverage(
+    config,
+    direction,
+):
+
+    if direction not in ("LONG", "SHORT"):
+        raise ValueError(
+            "INVALID_ENTRY_DIRECTION"
+        )
+
+    env_name = (
+        "WEEX_DEMO_LONG_LEVERAGE"
+        if direction == "LONG"
+        else "WEEX_DEMO_SHORT_LEVERAGE"
+    )
+
+    raw = os.getenv(env_name, "").strip()
+
+    if not raw:
+
+        strategy = config.get("strategy", {})
+
+        if not isinstance(strategy, dict):
+            raise ValueError(
+                "STRATEGY_CONFIG_MISSING"
+            )
+
+        key = (
+            "long_leverage"
+            if direction == "LONG"
+            else "short_leverage"
+        )
+
+        raw = strategy.get(key)
+
+    if raw is None or raw == "":
+        raise ValueError(
+            "MANUAL_LEVERAGE_MISSING_" + direction
+        )
+
+    leverage = unit_7_v11_decimal(
+        raw, "LEVERAGE_" + direction
+    )
+
+    return leverage
+
+
+# ============================================================
+# 7.4 QUANTITY STEP OPERATIONS
+# ============================================================
+
+def unit_7_v11_floor_step(
+    quantity,
+    step,
+):
+
+    quantity = unit_7_v11_decimal(
+        quantity, "QUANTITY", True
+    )
+
+    step = unit_7_v11_decimal(
+        step, "QUANTITY_STEP"
+    )
+
+    steps = (
+        quantity / step
+    ).to_integral_value(
+        rounding=ROUND_FLOOR
+    )
+
+    return steps * step
+
+
+def unit_7_v11_ceil_step(
+    quantity,
+    step,
+):
+
+    quantity = unit_7_v11_decimal(
+        quantity, "QUANTITY", True
+    )
+
+    step = unit_7_v11_decimal(
+        step, "QUANTITY_STEP"
+    )
+
+    steps = (
+        quantity / step
+    ).to_integral_value(
+        rounding=ROUND_CEILING
+    )
+
+    return steps * step
+
+
+# ============================================================
+# 7.5 EXACT 50/50-COMPATIBLE QUANTITY
+# ============================================================
+#
+# For 0.0001 BTC step:
+#
+# 0.0001 -> REJECT, cannot split
+# 0.0002 -> 0.0001 + 0.0001
+# 0.0003 -> round DOWN to 0.0002
+# 0.0004 -> 0.0002 + 0.0002
+#
+# Never increase quantity to meet a target.
+# ============================================================
+
+def unit_7_v11_hedge_quantity(
+    margin_usdt,
+    price,
+    leverage,
+    quantity_step,
+    minimum_quantity,
+):
+
+    margin = unit_7_v11_decimal(
+        margin_usdt, "MARGIN"
+    )
+
+    mark = unit_7_v11_decimal(
+        price, "MARK_PRICE"
+    )
+
+    lev = unit_7_v11_decimal(
+        leverage, "LEVERAGE"
+    )
+
+    step = unit_7_v11_decimal(
+        quantity_step, "QUANTITY_STEP"
+    )
+
+    minimum = unit_7_v11_decimal(
+        minimum_quantity, "MINIMUM_QUANTITY"
+    )
+
+    raw_quantity = (
+        margin * lev / mark
+    )
+
+    # Full position must consist of an even
+    # number of quantity steps for exact halves.
+
+    raw_steps = (
+        raw_quantity / step
+    ).to_integral_value(
+        rounding=ROUND_FLOOR
+    )
+
+    even_steps = (
+        raw_steps // 2
+    ) * 2
+
+    quantity = even_steps * step
+
+    half = quantity / Decimal("2")
+
+    executable_minimum_half = (
+        unit_7_v11_ceil_step(
+            minimum, step
+        )
+    )
+
+    minimum_full_quantity = (
+        executable_minimum_half
+        * Decimal("2")
+    )
+
+    minimum_margin_required = (
+        minimum_full_quantity * mark / lev
+    )
+
+    actual_margin = (
+        quantity * mark / lev
+    )
+
+    quantity_step_valid = (
+        quantity > 0
+        and quantity % step == 0
+    )
+
+    half_step_valid = (
+        half > 0
+        and half % step == 0
+    )
+
+    minimum_valid = (
+        quantity >= minimum_full_quantity
+        and half >= minimum
+    )
+
+    margin_valid = (
+        actual_margin <= margin
+    )
+
+    feasible = all((
+        quantity_step_valid,
+        half_step_valid,
+        minimum_valid,
+        margin_valid,
+    ))
+
+    if feasible:
+        reason = "HEDGE_SPLIT_COMPLIANT"
+
+    elif raw_quantity < minimum_full_quantity:
+        reason = (
+            "INSUFFICIENT_MARGIN_FOR_50_50_SPLIT"
+        )
+
+    elif not half_step_valid:
+        reason = (
+            "HALF_QUANTITY_STEP_INVALID"
+        )
+
+    elif not minimum_valid:
+        reason = (
+            "HALF_QUANTITY_BELOW_MINIMUM"
+        )
+
+    elif not margin_valid:
+        reason = (
+            "CALCULATED_MARGIN_EXCEEDED_ALLOCATION"
+        )
+
+    else:
+        reason = "QUANTITY_NOT_COMPLIANT"
+
+    return {
+        "feasible": feasible,
+        "reason": reason,
+
+        "configured_margin_usdt": margin,
+        "required_minimum_margin_usdt":
+            minimum_margin_required,
+
+        "raw_quantity": raw_quantity,
+        "original_quantity": quantity,
+        "half_quantity": half,
+        "opposite_quantity": half,
+
+        "minimum_full_quantity":
+            minimum_full_quantity,
+
+        "actual_initial_margin_usdt":
+            actual_margin,
+
+        "quantity_step": step,
+        "minimum_quantity": minimum,
+
+        "quantity_step_valid":
+            quantity_step_valid,
+
+        "half_step_valid":
+            half_step_valid,
+
+        "minimum_valid":
+            minimum_valid,
+
+        "margin_valid":
+            margin_valid,
+    }
+
+
+# ============================================================
+# 7.6 EXPOSURE CAP CHECK
+# ============================================================
+#
+# This helper requires verified account values.
+# Unit 7 does not invent equity or available balance.
+# ============================================================
+
+def unit_7_v11_margin_capacity(
+    equity,
+    committed_margin,
+    reserved_margin,
+    exposure_cap_percent,
+):
+
+    equity = unit_7_v11_decimal(
+        equity, "ACCOUNT_EQUITY"
+    )
+
+    committed = unit_7_v11_decimal(
+        committed_margin,
+        "COMMITTED_MARGIN",
+        True
+    )
+
+    reserved = unit_7_v11_decimal(
+        reserved_margin,
+        "RESERVED_MARGIN",
+        True
+    )
+
+    cap = unit_7_v11_decimal(
+        exposure_cap_percent,
+        "EXPOSURE_CAP_PERCENT",
+        True
+    )
+
+    if cap > 100:
+        raise ValueError(
+            "EXPOSURE_CAP_ABOVE_100"
+        )
+
+    ceiling = (
+        equity * cap / Decimal("100")
+    )
+
+    remaining = (
+        ceiling - committed - reserved
+    )
+
+    return max(
+        Decimal("0"),
+        remaining
+    )
+
+
+# ============================================================
+# 7.7 TELEGRAM NOTIFICATION
+# ============================================================
+#
+# Existing environment variables:
+# TELEGRAM_BOT_TOKEN
+# TELEGRAM_CHAT_ID
+#
+# No credentials are printed.
+# Network failure does not crash Unit 7.
+# ============================================================
+
+UNIT_7_V11_ALERT_CACHE = set()
+
+
+def unit_7_v11_notify(
+    message,
+    alert_key,
+    enabled=True,
+):
+
+    if not enabled:
+        return "NOT_REQUESTED"
+
+    if alert_key in UNIT_7_V11_ALERT_CACHE:
+        return "ALREADY_NOTIFIED"
+
+    token = os.getenv(
+        "TELEGRAM_BOT_TOKEN", ""
+    ).strip()
+
+    chat_id = os.getenv(
+        "TELEGRAM_CHAT_ID", ""
+    ).strip()
+
+    if not token or not chat_id:
+
+        print(
+            "UNIT 7 TELEGRAM = NOT_CONFIGURED",
+            flush=True
+        )
+
+        return "NOT_CONFIGURED"
+
+    url = (
+        "https://api.telegram.org/bot"
+        + token
+        + "/sendMessage"
+    )
+
+    encoded = urllib.parse.urlencode({
+        "chat_id": chat_id,
+        "text": message,
+    }).encode("utf-8")
+
+    request = urllib.request.Request(
+        url,
+        data=encoded,
+        method="POST",
+    )
+
+    try:
+
+        with urllib.request.urlopen(
+            request, timeout=10
+        ) as response:
+
+            body = json.loads(
+                response.read().decode("utf-8")
+            )
+
+            if (
+                response.getcode() == 200
+                and body.get("ok") is True
+            ):
+
+                UNIT_7_V11_ALERT_CACHE.add(
+                    alert_key
+                )
+
+                print(
+                    "UNIT 7 TELEGRAM = SENT",
+                    flush=True
+                )
+
+                return "SENT"
+
+    except Exception as exc:
+
+        print(
+            "UNIT 7 TELEGRAM = FAILED",
+            type(exc).__name__,
+            flush=True
+        )
+
+        return "FAILED"
+
+    return "FAILED"
+
+
+# ============================================================
+# 7.8 REJECTION MESSAGE
+# ============================================================
+
+def unit_7_v11_reject_message(
+    direction,
+    reason,
+    margin,
+    price,
+    leverage,
+    sizing=None,
+):
+
+    lines = [
+        "WEEX DEMO - INITIAL ENTRY REJECTED",
+        "Unit: 7 V11",
+        "Symbol: BTCSUSDT",
+        "Direction: " + str(direction),
+        "Reason: " + str(reason),
+        "Configured margin: "
+        + unit_7_v11_format(margin)
+        + " USDT",
+        "Mark price: "
+        + unit_7_v11_format(price),
+        "Leverage: "
+        + unit_7_v11_format(leverage)
+        + "x",
+    ]
+
+    if isinstance(sizing, dict):
+
+        lines.extend([
+            "Calculated BTC: "
+            + unit_7_v11_format(
+                sizing["raw_quantity"]
+            ),
+
+            "Compliant BTC: "
+            + unit_7_v11_format(
+                sizing["original_quantity"]
+            ),
+
+            "50% BTC: "
+            + unit_7_v11_format(
+                sizing["half_quantity"]
+            ),
+
+            "Minimum full BTC: "
+            + unit_7_v11_format(
+                sizing["minimum_full_quantity"]
+            ),
+
+            "Minimum margin required: "
+            + unit_7_v11_format(
+                sizing[
+                    "required_minimum_margin_usdt"
+                ]
+            )
+            + " USDT",
+        ])
+
+    lines.append(
+        "No demo entry order submitted."
+    )
+
+    return "\n".join(lines)
+
+
+# ============================================================
+# END UNIT 7 V11 PART 1
+# NEXT PART STARTS AT ZERO INDENTATION
+# ============================================================
