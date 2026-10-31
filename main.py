@@ -1746,3 +1746,638 @@ FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
 # END COMPLETE UNIT 3 V3
 # UNIT 4 FOLLOWS
 # ============================================================
+
+
+
+# START COMPLETE UNIT 4 V5 REPLACEMENT
+# WEEX MARK DATA + EMA + ATR + ADJUSTABLE STRATEGIES
+# ONE COMPLETE UNIT / ZERO INDENTATION
+# NO SEPARATE ADAPTER / NO ORDER SUBMISSION
+# ============================================================
+
+import json
+import math
+import time
+import urllib.parse
+import urllib.request
+import urllib.error
+
+
+# ============================================================
+# 4.1 CENTRAL ADJUSTABLE QUALIFICATION PARAMETERS
+# ============================================================
+# Change values here to tune strategy sensitivity.
+# These settings are also published into Unit 2's
+# qualification configuration for downstream units.
+#
+# EARLY structure uses EMA19/50 direction.
+# STRICT structure uses EMA19/50/200 alignment.
+#
+# SCALP remains subordinate to developing or qualified
+# BREAKOUT and STRUCTURE candidates.
+# ============================================================
+
+UNIT_4_V5_TUNING = {
+
+    "common": {
+        "direction_votes_required": 2,
+        "market_age_seconds_max": 120.0,
+        "candle_age_seconds_max": 120.0,
+    },
+
+    "breakout": {
+        "enabled": True,
+        "developing_candidate_enabled": True,
+        "lookback_candles": 20,
+        "proximity_atr": 0.50,
+        "confirmation_atr": 0.10,
+        "maximum_extension_atr": 3.0,
+        "minimum_atr_percent": 0.0,
+        "direction_votes_required": 2,
+        "fast_momentum_minutes": 5,
+        "slow_momentum_minutes": 15,
+        "require_fast_momentum": True,
+        "require_slow_momentum": False,
+    },
+
+    "structure": {
+        "enabled": True,
+        "ema_alignment_mode": "EARLY",
+        "direction_votes_required": 2,
+        "minimum_ema_separation_percent": 0.0,
+        "pullback_tolerance_atr": 0.75,
+        "allow_continuation_entry": True,
+        "maximum_extension_atr": 2.0,
+        "fast_momentum_minutes": 5,
+        "slow_momentum_minutes": 15,
+        "require_fast_momentum": True,
+        "require_slow_momentum": True,
+    },
+
+    "scalp": {
+        "enabled": True,
+        "require_sideways_market": True,
+        "range_lookback_candles": 20,
+        "ema_compression_atr_max": 0.70,
+        "range_atr_max": 8.0,
+        "momentum_atr_max": 1.50,
+        "preliminary_ema_separation_percent": 0.03,
+        "preliminary_move_5m_percent": 0.015,
+        "quality_threshold": 70.0,
+        "minimum_fee_coverage_multiplier": 2.0,
+    },
+}
+
+
+# ============================================================
+# 4.2 GENERAL VALIDATION HELPERS
+# ============================================================
+
+def unit_4_v5_number(value, name):
+
+    if isinstance(value, bool):
+        raise RuntimeError(
+            "UNIT 4 INVALID NUMBER: " + name
+        )
+
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError(
+            "UNIT 4 INVALID NUMBER: " + name
+        ) from exc
+
+    if not math.isfinite(result):
+        raise RuntimeError(
+            "UNIT 4 NONFINITE NUMBER: " + name
+        )
+
+    return result
+
+
+def unit_4_v5_positive(value, name, allow_zero=True):
+
+    result = unit_4_v5_number(value, name)
+
+    if result < 0 or (result == 0 and not allow_zero):
+        raise RuntimeError(
+            "UNIT 4 INVALID RANGE: " + name
+        )
+
+    return result
+
+
+def unit_4_v5_integer(value, name, minimum, maximum):
+
+    result = unit_4_v5_number(value, name)
+
+    if (
+        not result.is_integer()
+        or not minimum <= result <= maximum
+    ):
+        raise RuntimeError(
+            "UNIT 4 INVALID INTEGER: " + name
+        )
+
+    return int(result)
+
+
+def unit_4_v5_ema(prices, period):
+
+    if len(prices) < period:
+        raise RuntimeError(
+            "UNIT 4 INSUFFICIENT EMA HISTORY"
+        )
+
+    current = sum(prices[:period]) / period
+    alpha = 2.0 / (period + 1.0)
+
+    for price in prices[period:]:
+        current = alpha * price + (1 - alpha) * current
+
+    return current
+
+
+def unit_4_v5_same_direction(move, direction):
+
+    if direction == "LONG":
+        return move > 0
+
+    if direction == "SHORT":
+        return move < 0
+
+    return False
+
+
+# ============================================================
+# 4.3 VALIDATE CLOSED WEEX CANDLES
+# ============================================================
+
+def unit_4_v5_normalize_candles(rows, market_time_ms):
+
+    if not isinstance(rows, list):
+        raise RuntimeError(
+            "UNIT 4 INVALID KLINE RESPONSE"
+        )
+
+    candles = []
+
+    for row in rows:
+
+        if not isinstance(row, (list, tuple)):
+            raise RuntimeError(
+                "UNIT 4 INVALID KLINE ROW"
+            )
+
+        if len(row) < 7:
+            raise RuntimeError(
+                "UNIT 4 INCOMPLETE KLINE ROW"
+            )
+
+        candle = {
+            "open_time_ms": int(row[0]),
+            "open": unit_4_v5_number(row[1], "OPEN"),
+            "high": unit_4_v5_number(row[2], "HIGH"),
+            "low": unit_4_v5_number(row[3], "LOW"),
+            "close": unit_4_v5_number(row[4], "CLOSE"),
+            "volume": unit_4_v5_number(row[5], "VOLUME"),
+            "close_time_ms": int(row[6]),
+        }
+
+        if not (
+            0 < candle["low"]
+            <= min(candle["open"], candle["close"])
+            <= max(candle["open"], candle["close"])
+            <= candle["high"]
+        ):
+            raise RuntimeError(
+                "UNIT 4 INVALID OHLC DATA"
+            )
+
+        if (
+            candle["volume"] < 0
+            or candle["close_time_ms"]
+            <= candle["open_time_ms"]
+        ):
+            raise RuntimeError(
+                "UNIT 4 INVALID CANDLE DATA"
+            )
+
+        candles.append(candle)
+
+    candles.sort(
+        key=lambda item: item["open_time_ms"]
+    )
+
+    for i in range(1, len(candles)):
+
+        if (
+            candles[i]["open_time_ms"]
+            - candles[i - 1]["open_time_ms"]
+        ) != 60000:
+            raise RuntimeError(
+                "UNIT 4 CANDLE GAP OR DUPLICATE"
+            )
+
+    closed = [
+        c for c in candles
+        if c["close_time_ms"] <= market_time_ms
+    ]
+
+    if len(closed) < 200:
+        raise RuntimeError(
+            "UNIT 4 INSUFFICIENT CLOSED HISTORY"
+        )
+
+    return candles, closed
+
+
+# ============================================================
+# 4.4 COMPLETE UNIT 4 MARKET ANALYSIS
+# ============================================================
+
+def fresh_reconstruction_unit_4():
+
+    print("=" * 80, flush=True)
+    print("UNIT 4 COMPLETE ADJUSTABLE V5 START", flush=True)
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+    market = FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    tuning = UNIT_4_V5_TUNING
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT 4 CONFIG MISSING")
+
+    if not isinstance(market, dict):
+        raise RuntimeError("UNIT 4 MARKET SNAPSHOT MISSING")
+
+    if (
+        market.get("exchange") != "WEEX"
+        or market.get("api_version") != "V3"
+        or market.get("symbol") != "BTCUSDT"
+        or market.get("price_type") != "MARK"
+        or market.get("read_only") is not True
+    ):
+        raise RuntimeError(
+            "UNIT 4 UNIT 3 HANDOVER INVALID"
+        )
+
+    exchange = config.get("exchange", {})
+    qualification = config.get("qualification", {})
+    safety = config.get("safety", {})
+
+    if not all(
+        isinstance(section, dict)
+        for section in (exchange, qualification, safety)
+    ):
+        raise RuntimeError(
+            "UNIT 4 CONFIG STRUCTURE INVALID"
+        )
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or safety.get(
+            "public_market_data_read_enabled"
+        ) is not True
+    ):
+        raise RuntimeError(
+            "UNIT 4 EXCHANGE CONFIG INVALID"
+        )
+
+    if tuple(
+        qualification.get("common", {}).get(
+            "mode_priority", ()
+        )
+    ) != ("BREAKOUT", "STRUCTURE", "SCALP"):
+        raise RuntimeError(
+            "UNIT 4 MODE PRIORITY INVALID"
+        )
+
+    b = tuning["breakout"]
+    s = tuning["structure"]
+    p = tuning["scalp"]
+    c = tuning["common"]
+
+    max_age = unit_4_v5_positive(
+        c["market_age_seconds_max"],
+        "MARKET AGE LIMIT",
+        False
+    )
+
+    max_candle_age = unit_4_v5_positive(
+        c["candle_age_seconds_max"],
+        "CANDLE AGE LIMIT",
+        False
+    )
+
+    market_time_ms = int(
+        unit_4_v5_positive(
+            market["exchange_time_ms"],
+            "MARKET TIMESTAMP",
+            False
+        )
+    )
+
+    live_mark = unit_4_v5_positive(
+        market["price"], "MARK PRICE", False
+    )
+
+    current_time_ms = int(time.time() * 1000)
+
+    if not (
+        0 <= current_time_ms - market_time_ms
+        <= max_age * 1000
+    ):
+        raise RuntimeError(
+            "UNIT 4 STALE UNIT 3 MARK PRICE"
+        )
+
+    base_url = exchange.get("contract_base_url")
+
+    if base_url != "https://api-contract.weex.com":
+        raise RuntimeError(
+            "UNIT 4 WEEX BASE URL INVALID"
+        )
+
+    # ========================================================
+    # LIVE PUBLIC MARK-PRICE CANDLES
+    # ========================================================
+
+    endpoint = "/capi/v3/market/markPriceKlines"
+
+    query = urllib.parse.urlencode({
+        "symbol": "BTCUSDT",
+        "interval": "1m",
+        "limit": 300,
+    })
+
+    request = urllib.request.Request(
+        base_url + endpoint + "?" + query,
+        method="GET",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "WEEX-Unit4-Adjustable-V5",
+        }
+    )
+
+    started = time.monotonic()
+
+    try:
+        with urllib.request.urlopen(
+            request, timeout=15
+        ) as response:
+            http_status = response.getcode()
+            payload = response.read().decode("utf-8")
+
+    except (urllib.error.HTTPError,
+            urllib.error.URLError) as exc:
+        raise RuntimeError(
+            "UNIT 4 WEEX CANDLE REQUEST FAILED"
+        ) from exc
+
+    latency_ms = (
+        time.monotonic() - started
+    ) * 1000.0
+
+    if http_status != 200:
+        raise RuntimeError(
+            "UNIT 4 WEEX HTTP STATUS NOT 200"
+        )
+
+    try:
+        rows = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "UNIT 4 WEEX JSON INVALID"
+        ) from exc
+
+    candles, closed = unit_4_v5_normalize_candles(
+        rows, market_time_ms
+    )
+
+    latest = closed[-1]
+    previous = closed[-2]
+
+    candle_age_seconds = (
+        market_time_ms - latest["close_time_ms"]
+    ) / 1000.0
+
+    if not (
+        0 <= candle_age_seconds <= max_candle_age
+    ):
+        raise RuntimeError(
+            "UNIT 4 CLOSED CANDLE STALE"
+        )
+
+    prices = [item["close"] for item in closed]
+
+    ema19 = unit_4_v5_ema(prices, 19)
+    ema50 = unit_4_v5_ema(prices, 50)
+    ema100 = unit_4_v5_ema(prices, 100)
+    ema200 = unit_4_v5_ema(prices, 200)
+
+    latest_close = latest["close"]
+    previous_close = previous["close"]
+
+    separation = abs(
+        ema19 - ema50
+    ) / ema50 * 100.0
+
+    if ema19 > ema50 > ema200:
+        ema_structure = "BULLISH"
+
+    elif ema19 < ema50 < ema200:
+        ema_structure = "BEARISH"
+
+    else:
+        ema_structure = "MIXED"
+
+    moves = {}
+
+    for period in (1, 5, 15, 30, 60, 120):
+
+        reference = prices[-period - 1]
+
+        moves[period] = (
+            latest_close - reference
+        ) / reference * 100.0
+
+    # ========================================================
+    # ATR14
+    # ========================================================
+
+    true_ranges = []
+
+    for i in range(1, len(closed)):
+
+        item = closed[i]
+        previous_price = closed[i - 1]["close"]
+
+        true_ranges.append(max(
+            item["high"] - item["low"],
+            abs(item["high"] - previous_price),
+            abs(item["low"] - previous_price)
+        ))
+
+    atr14 = sum(true_ranges[-14:]) / 14.0
+
+    if atr14 <= 0:
+        raise RuntimeError(
+            "UNIT 4 ATR14 INVALID"
+        )
+
+    atr_percent = (
+        atr14 / latest_close
+    ) * 100.0
+
+    # ========================================================
+    # DIRECTION VOTES
+    # ========================================================
+
+    ema_vote = (
+        "LONG" if ema19 > ema50
+        else "SHORT" if ema19 < ema50
+        else "NONE"
+    )
+
+    momentum_sum = moves[5] + moves[15]
+
+    momentum_vote = (
+        "LONG" if momentum_sum > 0
+        else "SHORT" if momentum_sum < 0
+        else "NONE"
+    )
+
+    price_vote = (
+        "LONG" if latest_close > ema19
+        else "SHORT" if latest_close < ema19
+        else "NONE"
+    )
+
+    votes = (ema_vote, momentum_vote, price_vote)
+
+    long_votes = votes.count("LONG")
+    short_votes = votes.count("SHORT")
+
+    common_votes_required = unit_4_v5_integer(
+        c["direction_votes_required"],
+        "COMMON DIRECTION VOTES",
+        1, 3
+    )
+
+    direction = "NONE"
+
+    if (
+        long_votes >= common_votes_required
+        and long_votes > short_votes
+    ):
+        direction = "LONG"
+
+    elif (
+        short_votes >= common_votes_required
+        and short_votes > long_votes
+    ):
+        direction = "SHORT"
+
+    def votes_sufficient(side, required):
+
+        count = (
+            long_votes if side == "LONG"
+            else short_votes
+        )
+
+        return count >= unit_4_v5_integer(
+            required,
+            "STRATEGY DIRECTION VOTES",
+            1, 3
+        )
+
+    def momentum_at(period):
+
+        period = unit_4_v5_integer(
+            period,
+            "MOMENTUM PERIOD",
+            1, 120
+        )
+
+        if period not in moves:
+            raise RuntimeError(
+                "UNIT 4 UNSUPPORTED MOMENTUM PERIOD"
+            )
+
+        return moves[period]
+
+    # ========================================================
+    # ADJUSTABLE BREAKOUT
+    # ========================================================
+
+    breakout_lookback = unit_4_v5_integer(
+        b["lookback_candles"],
+        "BREAKOUT LOOKBACK",
+        2, 45
+    )
+
+    reference_candles = closed[
+        -breakout_lookback - 1:-1
+    ]
+
+    support = min(
+        item["low"] for item in reference_candles
+    )
+
+    resistance = max(
+        item["high"] for item in reference_candles
+    )
+
+    proximity = unit_4_v5_positive(
+        b["proximity_atr"],
+        "BREAKOUT PROXIMITY"
+    )
+
+    confirmation = unit_4_v5_positive(
+        b["confirmation_atr"],
+        "BREAKOUT CONFIRMATION"
+    )
+
+    breakout_max_extension = unit_4_v5_positive(
+        b["maximum_extension_atr"],
+        "BREAKOUT EXTENSION",
+        False
+    )
+
+    breakout_atr_min = unit_4_v5_positive(
+        b["minimum_atr_percent"],
+        "BREAKOUT MIN ATR"
+    )
+
+    def breakout_eligible(side):
+
+        fast_ok = (
+            not b["require_fast_momentum"]
+            or unit_4_v5_same_direction(
+                momentum_at(b["fast_momentum_minutes"]),
+                side
+            )
+        )
+
+        slow_ok = (
+            not b["require_slow_momentum"]
+            or unit_4_v5_same_direction(
+                momentum_at(b["slow_momentum_minutes"]),
+                side
+            )
+        )
+
+        return bool(
+            b["enabled"]
+            and direction == side
+            and votes_sufficient(
+                side, b["direction_votes_required"]
+            )
+            and fast_ok
+            and slow_ok
+            and atr_percent >= breakout_atr_min
+        )
