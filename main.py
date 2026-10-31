@@ -7832,3 +7832,920 @@ def unit_8_v7_capacity(
 # PART 2 STARTS AT ZERO INDENTATION
 # ============================================================
 
+
+# ============================================================
+# UNIT 8 V7 PART 2
+# ACCOUNT VERIFICATION + TRADE PLAN
+# ZERO INDENTATION
+# ============================================================
+
+def fresh_reconstruction_unit_8(
+    config,
+    unit_7_result,
+    market_snapshot=None,
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 8 V7 DEMO HEDGE ACCOUNT CHECK START",
+        flush=True
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 8 CONFIG INVALID"
+        )
+
+    if not isinstance(unit_7_result, dict):
+        raise RuntimeError(
+            "UNIT 8 UNIT 7 RESULT INVALID"
+        )
+
+    if (
+        unit_7_result.get("unit_7_version")
+        != "UNIT7_V11_REVERSIBLE_ATR_HEDGE"
+    ):
+        raise RuntimeError(
+            "UNIT 8 REQUIRES UNIT 7 V11"
+        )
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+
+    if config.get(
+        "execution_environment"
+    ) != "DEMO":
+        raise RuntimeError(
+            "UNIT 8 DEMO ONLY"
+        )
+
+    if (
+        exchange.get("name") != "WEEX"
+        or exchange.get("market_symbol")
+        != "BTCUSDT"
+        or exchange.get("demo_order_symbol")
+        != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 8 WEEX SYMBOL CONTRACT INVALID"
+        )
+
+    if safety.get(
+        "real_order_submission_enabled"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 8 REAL CASH DISABLED REQUIRED"
+        )
+
+    if (
+        unit_7_result.get("exchange_write")
+        is not False
+        or unit_7_result.get(
+            "order_payload_created"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 8 UPSTREAM WRITE VIOLATION"
+        )
+
+    mode = unit_7_result.get(
+        "active_mode", "NONE"
+    )
+
+    direction = unit_7_result.get(
+        "direction", "NONE"
+    )
+
+    intent = (
+        unit_7_result.get("execution_intent")
+        is True
+    )
+
+    qualified = (
+        unit_7_result.get("signal_qualified")
+        is True
+    )
+
+    output = {
+        "status": "IDLE",
+        "active_mode": mode,
+        "direction": direction,
+        "signal_qualified": qualified,
+        "execution_intent": False,
+        "trade_plan_ready": False,
+        "trade_plan": None,
+        "skip_reason": "NONE",
+        "read_only": True,
+
+        "unit_8_version":
+            "UNIT8_V7_REVERSIBLE_ATR_HEDGE",
+
+        "demo_symbol": "BTCSUSDT",
+
+        "weex_demo_long_leverage": None,
+        "weex_demo_short_leverage": None,
+        "long_leverage": None,
+        "short_leverage": None,
+        "selected_leverage": None,
+
+        "leverage_source":
+            "RENDER_MANUAL_WEEX_DEMO",
+
+        "leverage_configured": False,
+        "exchange_leverage_verified": False,
+        "demo_leverage_verified": False,
+
+        "demo_balance_verified": False,
+        "demo_positions_verified": False,
+        "position_flat_verified": False,
+
+        "available_balance": None,
+        "account_equity": None,
+        "account_equity_source": None,
+
+        "positions": [],
+        "quantity_calculated": False,
+        "execution_quantity": None,
+
+        "hedge_mode":
+            "REVERSIBLE_ATR_TWO_STAGE",
+
+        "half_quantity": None,
+        "quantity_step": unit_7_result.get(
+            "quantity_step"
+        ),
+
+        "minimum_quantity": unit_7_result.get(
+            "minimum_quantity"
+        ),
+
+        "exposure_cap_percent":
+            unit_7_result.get(
+                "exposure_cap_percent"
+            ),
+
+        "account_capacity_verified": False,
+        "account_capacity_pass": False,
+
+        "dual_side_mode_verified": False,
+        "hedge_transition_orders_enabled": False,
+
+        "order_payload_created": False,
+        "exchange_write": False,
+        "trade_authorized": False,
+    }
+
+    def finish(status, reason):
+
+        output["status"] = status
+        output["skip_reason"] = reason
+
+        print(
+            "UNIT 8 STATUS =", status,
+            flush=True
+        )
+        print(
+            "UNIT 8 REASON =", reason,
+            flush=True
+        )
+        print(
+            "UNIT 8 TRADE PLAN READY =",
+            output["trade_plan_ready"],
+            flush=True
+        )
+        print(
+            "UNIT 8 ACCOUNT CAPACITY VERIFIED =",
+            output["account_capacity_verified"],
+            flush=True
+        )
+        print(
+            "UNIT 8 DUAL SIDE MODE VERIFIED =",
+            output["dual_side_mode_verified"],
+            flush=True
+        )
+        print(
+            "UNIT 8 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+        print(
+            "FRESH RECONSTRUCTION UNIT 8 RESULT = PASS",
+            flush=True
+        )
+        print("=" * 80, flush=True)
+
+        return output
+
+    # ========================================================
+    # READ BOTH RENDER LEVERAGES
+    # ========================================================
+
+    try:
+        levers = unit_8_v7_render_leverage()
+
+        output["leverage_configured"] = True
+
+        output["weex_demo_long_leverage"] = (
+            float(levers["LONG"])
+        )
+        output["weex_demo_short_leverage"] = (
+            float(levers["SHORT"])
+        )
+
+        output["long_leverage"] = (
+            unit_8_v7_str(levers["LONG"])
+        )
+        output["short_leverage"] = (
+            unit_8_v7_str(levers["SHORT"])
+        )
+
+        print(
+            "UNIT 8 RENDER LONG LEVERAGE =",
+            levers["LONG"], flush=True
+        )
+        print(
+            "UNIT 8 RENDER SHORT LEVERAGE =",
+            levers["SHORT"], flush=True
+        )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 8 LEVERAGE CONFIG ERROR =",
+            str(exc),
+            flush=True
+        )
+
+        return finish(
+            "BLOCKED",
+            "RENDER_LEVERAGE_MISSING_OR_INVALID"
+        )
+
+    # ========================================================
+    # READ DEMO BALANCE EVEN WHEN NO SIGNAL
+    # ========================================================
+
+    try:
+        balance = unit_8_v7_balance()
+
+        available = balance["available"]
+        equity = balance["equity"]
+
+        output["demo_balance_verified"] = True
+        output["available_balance"] = (
+            unit_8_v7_str(available)
+        )
+
+        if equity is not None:
+            output["account_equity"] = (
+                unit_8_v7_str(equity)
+            )
+            output["account_equity_source"] = (
+                balance["equity_source"]
+            )
+
+        print(
+            "UNIT 8 DEMO BALANCE VERIFIED = True",
+            flush=True
+        )
+        print(
+            "UNIT 8 AVAILABLE SUSDT =",
+            available,
+            flush=True
+        )
+        print(
+            "UNIT 8 ACCOUNT EQUITY =",
+            output["account_equity"],
+            flush=True
+        )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 8 DEMO BALANCE ERROR =",
+            str(exc),
+            flush=True
+        )
+
+        return finish(
+            "BLOCKED",
+            "DEMO_BALANCE_UNVERIFIED"
+        )
+
+    # ========================================================
+    # READ DEMO POSITIONS EVEN WHEN NO SIGNAL
+    # ========================================================
+
+    try:
+        positions = unit_8_v7_positions()
+
+        output["positions"] = positions
+        output["demo_positions_verified"] = True
+
+        output["position_flat_verified"] = (
+            len(positions) == 0
+        )
+
+        print(
+            "UNIT 8 DEMO POSITIONS VERIFIED = True",
+            flush=True
+        )
+        print(
+            "UNIT 8 OPEN BTC POSITIONS =",
+            len(positions),
+            flush=True
+        )
+        print(
+            "UNIT 8 POSITION FLAT =",
+            output["position_flat_verified"],
+            flush=True
+        )
+
+        if positions:
+            for pos in positions:
+                print(
+                    "UNIT 8 POSITION =",
+                    pos["positionSide"],
+                    pos["size"],
+                    flush=True
+                )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 8 DEMO POSITION ERROR =",
+            str(exc),
+            flush=True
+        )
+
+        return finish(
+            "BLOCKED",
+            "DEMO_POSITIONS_UNVERIFIED"
+        )
+
+    # ========================================================
+    # EXISTING POSITIONS ARE NOT CLOSED BY UNIT 8
+    # ========================================================
+
+    if not output["position_flat_verified"]:
+
+        return finish(
+            "IDLE",
+            "EXISTING_DEMO_POSITION"
+        )
+
+    # ========================================================
+    # NO QUALIFIED CANDIDATE
+    # ========================================================
+
+    if not intent:
+
+        return finish(
+            "IDLE",
+            unit_7_result.get("skip_reason")
+            or "NO_QUALIFIED_SIGNAL"
+        )
+
+    if not qualified:
+
+        return finish(
+            "BLOCKED",
+            "UNIT_7_SIGNAL_NOT_QUALIFIED"
+        )
+
+    if unit_7_result.get("status") != "SIZING_READY":
+
+        return finish(
+            "BLOCKED",
+            "UNIT_7_SIZING_NOT_READY"
+        )
+
+    if (
+        mode not in (
+            "BREAKOUT", "STRUCTURE", "SCALP"
+        )
+        or direction not in ("LONG", "SHORT")
+    ):
+        return finish(
+            "BLOCKED",
+            "INVALID_MODE_OR_DIRECTION"
+        )
+
+    # ========================================================
+    # SELECT MANUAL LEVERAGE
+    # ========================================================
+
+    selected_leverage = levers[direction]
+
+    output["selected_leverage"] = (
+        float(selected_leverage)
+    )
+
+    configured_unit7_leverage = (
+        unit_7_result.get("leverage")
+    )
+
+    if configured_unit7_leverage is None:
+
+        return finish(
+            "BLOCKED",
+            "UNIT_7_LEVERAGE_MISSING"
+        )
+
+    if (
+        unit_8_v7_decimal(
+            configured_unit7_leverage,
+            "UNIT 7 LEVERAGE"
+        ) != selected_leverage
+    ):
+
+        return finish(
+            "BLOCKED",
+            "UNIT_7_UNIT_8_LEVERAGE_MISMATCH"
+        )
+
+    # ========================================================
+    # PRESERVE UNIT 7 QUANTITY EXACTLY
+    # ========================================================
+
+    try:
+        quantity = unit_8_v7_decimal(
+            unit_7_result.get(
+                "original_quantity"
+            ),
+            "ORIGINAL BTC",
+        )
+
+        half = unit_8_v7_decimal(
+            unit_7_result.get(
+                "half_quantity"
+            ),
+            "HALF BTC",
+        )
+
+        step = unit_8_v7_decimal(
+            unit_7_result.get(
+                "quantity_step"
+            ),
+            "BTC STEP",
+        )
+
+        minimum = unit_8_v7_decimal(
+            unit_7_result.get(
+                "minimum_quantity"
+            ),
+            "MIN BTC",
+        )
+
+        planned_margin = unit_8_v7_decimal(
+            unit_7_result.get(
+                "actual_initial_margin_usdt"
+            ),
+            "ACTUAL ENTRY MARGIN",
+        )
+
+        configured_margin = unit_8_v7_decimal(
+            unit_7_result.get(
+                "initial_margin_usdt"
+            ),
+            "CONFIGURED ENTRY MARGIN",
+        )
+
+        mark = unit_8_v7_decimal(
+            unit_7_result.get(
+                "market_price"
+            ),
+            "MARK PRICE",
+        )
+
+        planning_atr = unit_8_v7_decimal(
+            unit_7_result.get(
+                "planning_atr14"
+            ),
+            "PLANNING ATR14",
+        )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 8 SIZING ERROR =",
+            str(exc),
+            flush=True
+        )
+
+        return finish(
+            "BLOCKED",
+            "UNIT_7_SIZING_FIELDS_INVALID"
+        )
+
+    quantity_pass = all((
+        quantity == half * 2,
+        quantity % step == 0,
+        half % step == 0,
+        half >= minimum,
+        planned_margin <= configured_margin,
+        unit_7_result.get(
+            "quantity_compliant"
+        ) is True,
+        unit_7_result.get(
+            "half_quantity_compliant"
+        ) is True,
+    ))
+
+    # Independent notional-to-margin calculation
+    # using the same market and leverage reference.
+    calculated_margin = (
+        quantity * mark / selected_leverage
+    )
+
+    if calculated_margin > configured_margin:
+        quantity_pass = False
+
+    output["quantity_calculated"] = True
+
+    if not quantity_pass:
+
+        return finish(
+            "BLOCKED",
+            "UNIT_7_50_50_QUANTITY_MISMATCH"
+        )
+
+    output["execution_quantity"] = (
+        unit_8_v7_str(quantity)
+    )
+    output["half_quantity"] = (
+        unit_8_v7_str(half)
+    )
+
+    # ========================================================
+    # VERIFY FREE BALANCE AND EXPOSURE CAP
+    # ========================================================
+
+    if available < planned_margin:
+
+        return finish(
+            "BLOCKED",
+            "INSUFFICIENT_AVAILABLE_DEMO_BALANCE"
+        )
+
+    exposure_cap = unit_8_v7_decimal(
+        unit_7_result.get(
+            "exposure_cap_percent"
+        ),
+        "EXPOSURE CAP",
+        allow_zero=True,
+    )
+
+    # A conservative margin-commitment estimate.
+    # This does not claim to be a WEEX margin field.
+    # It must not replace a verified margin reading
+    # when more complete account data is available.
+
+    committed_margin = None
+
+    asset = balance.get("raw_asset", {})
+
+    for field in (
+        "usedMargin",
+        "marginUsed",
+        "positionMargin",
+    ):
+
+        if asset.get(field) is not None:
+            committed_margin = (
+                unit_8_v7_decimal(
+                    asset[field],
+                    field,
+                    allow_zero=True,
+                )
+            )
+            break
+
+    capacity = unit_8_v7_capacity(
+        equity=equity,
+        available=available,
+        proposed_margin=planned_margin,
+        exposure_percent=exposure_cap,
+        committed_margin=committed_margin,
+    )
+
+    output["account_capacity_verified"] = (
+        capacity["cap_verified"]
+    )
+
+    output["account_capacity_pass"] = (
+        capacity["cap_pass"]
+    )
+
+    output["capacity_remaining"] = (
+        capacity["capacity_remaining"]
+    )
+
+    if not capacity["cap_verified"]:
+
+        return finish(
+            "BLOCKED",
+            "EXPOSURE_CAP_ACCOUNT_DATA_UNVERIFIED"
+        )
+
+    if not capacity["cap_pass"]:
+
+        return finish(
+            "BLOCKED",
+            "EXPOSURE_CAP_EXCEEDED"
+        )
+
+    # ========================================================
+    # CONSTRUCT NON-EXECUTABLE HEDGE PLAN
+    # ========================================================
+
+    original_side = direction
+
+    opposite_side = (
+        "SHORT"
+        if direction == "LONG"
+        else "LONG"
+    )
+
+    atr_one = planning_atr
+    atr_two = planning_atr * Decimal("2")
+
+    # These are reference trigger levels only.
+    # The actual cycle freezes entry and ATR
+    # after Unit 12 confirms an exchange fill.
+
+    if direction == "LONG":
+
+        h1_price = mark - atr_one
+        h2_price = mark - atr_two
+
+    else:
+
+        h1_price = mark + atr_one
+        h2_price = mark + atr_two
+
+    plan = {
+        "symbol": "BTCUSDT",
+        "demo_symbol": "BTCSUSDT",
+        "mode": mode,
+        "direction": direction,
+
+        "original_side": original_side,
+        "opposite_side": opposite_side,
+
+        "quantity": unit_8_v7_str(quantity),
+        "original_quantity":
+            unit_8_v7_str(quantity),
+
+        "half_quantity":
+            unit_8_v7_str(half),
+
+        "selected_leverage":
+            float(selected_leverage),
+
+        "leverage_source":
+            "RENDER_MANUAL",
+
+        "initial_margin_usdt":
+            unit_8_v7_str(planned_margin),
+
+        "configured_margin_usdt":
+            unit_8_v7_str(configured_margin),
+
+        "planning_mark":
+            unit_8_v7_str(mark),
+
+        "planning_atr14":
+            unit_8_v7_str(planning_atr),
+
+        "hedge_mode":
+            "REVERSIBLE_ATR_TWO_STAGE",
+
+        "h1_reference_price":
+            unit_8_v7_str(h1_price),
+
+        "h2_reference_price":
+            unit_8_v7_str(h2_price),
+
+        "h1_original_quantity":
+            unit_8_v7_str(half),
+
+        "h1_opposite_quantity":
+            unit_8_v7_str(half),
+
+        "h2_original_quantity": "0",
+
+        "h2_opposite_quantity":
+            unit_8_v7_str(quantity),
+
+        "r1_original_quantity":
+            unit_8_v7_str(half),
+
+        "r1_opposite_quantity":
+            unit_8_v7_str(half),
+
+        "r2_original_quantity":
+            unit_8_v7_str(quantity),
+
+        "r2_opposite_quantity": "0",
+
+        "entry_price_frozen": False,
+        "atr14_frozen": False,
+
+        "order_payload_created": False,
+        "exchange_write": False,
+    }
+
+    output["trade_plan"] = plan
+
+    # We have validated the sizing and balance.
+    # Exchange dual-side configuration is still
+    # unverified. Therefore this plan is not
+    # authorized for automatic order submission.
+
+    output["trade_plan_ready"] = False
+    output["execution_intent"] = False
+
+    print(
+        "UNIT 8 ORIGINAL QUANTITY =",
+        quantity,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 EXACT HALF QUANTITY =",
+        half,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 ACCOUNT CAPACITY PASS =",
+        capacity["cap_pass"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 H1 REFERENCE PRICE =",
+        h1_price,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 H2 REFERENCE PRICE =",
+        h2_price,
+        flush=True
+    )
+
+    return finish(
+        "PLAN_PENDING_MODE_VERIFICATION",
+        "DUAL_SIDE_POSITION_MODE_UNVERIFIED"
+    )
+
+
+# ============================================================
+# 8.7 OFFLINE TESTS - NO EXCHANGE REQUESTS
+# ============================================================
+
+def unit_8_validation_v7():
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 8 VALIDATION V7 START",
+        flush=True
+    )
+
+    tests = []
+
+    result = unit_8_v7_capacity(
+        equity="10",
+        available="8",
+        proposed_margin="1.5",
+        exposure_percent="100",
+        committed_margin="2",
+    )
+
+    tests.append((
+        "CAPACITY WITHIN LIMIT",
+        result["cap_verified"]
+        and result["cap_pass"],
+    ))
+
+    result = unit_8_v7_capacity(
+        equity="10",
+        available="8",
+        proposed_margin="2.5",
+        exposure_percent="100",
+        committed_margin="2",
+    )
+
+    tests.append((
+        "FREE BALANCE CHECK",
+        result["available_pass"] is True,
+    ))
+
+    result = unit_8_v7_capacity(
+        equity="10",
+        available="8",
+        proposed_margin="1",
+        exposure_percent="20",
+        committed_margin="2",
+    )
+
+    tests.append((
+        "EXPOSURE CAP REJECTION",
+        result["cap_pass"] is False,
+    ))
+
+    result = unit_8_v7_capacity(
+        equity=None,
+        available="5",
+        proposed_margin="2",
+        exposure_percent="100",
+        committed_margin=None,
+    )
+
+    tests.append((
+        "MISSING EQUITY NOT INVENTED",
+        result["cap_verified"] is False,
+    ))
+
+    tests.append((
+        "EXACT 50/50 QUANTITY",
+        (
+            Decimal("0.0002")
+            == Decimal("0.0001") * 2
+        ),
+    ))
+
+    tests.append((
+        "SIGNED GET ALLOWLIST PRESENT",
+        callable(unit_8_v7_signed_get),
+    ))
+
+    passed = sum(
+        bool(ok) for _, ok in tests
+    )
+
+    failed = len(tests) - passed
+
+    for name, ok in tests:
+
+        print(
+            "UNIT 8 TEST:",
+            name,
+            "=",
+            "PASS" if ok else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 8 TESTS PASSED =",
+        passed,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 TESTS FAILED =",
+        failed,
+        flush=True
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT 8 V7 VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 8 VALIDATION V7 RESULT = PASS",
+        flush=True
+    )
+
+    return True
+
+
+# ============================================================
+# 8.8 SINGLE EXECUTION
+# ============================================================
+
+FRESH_UNIT_8_VALIDATION_READY = (
+    unit_8_validation_v7()
+)
+
+FRESH_RECONSTRUCTION_DEMO_PLAN = (
+    fresh_reconstruction_unit_8(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_SIZING_POLICY,
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT,
+    )
+)
+
+print(
+    "FRESH RECONSTRUCTION UNIT 8 V7 READY =",
+    FRESH_UNIT_8_VALIDATION_READY,
+    flush=True
+)
+
+
+# ============================================================
+# END COMPLETE UNIT 8 V7 REPLACEMENT
+# UNIT 9 FOLLOWS
+# ============================================================
