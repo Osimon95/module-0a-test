@@ -4606,3 +4606,327 @@ FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
 # ============================================================
 # END COMPLETE UNIT 5 V8 REPLACEMENT
 
+
+# ============================================================
+# START COMPLETE UNIT 6 V9 REPLACEMENT
+# WEEX DEMO STRATEGY ARBITRATION AND QUALITY
+# INTEGRATED WITH UNIT 4 V5 AND UNIT 5 V8
+# PRESERVES UNIT 7 OUTPUT CONTRACT
+# ZERO INDENTATION / ONE EXECUTION CALL
+# ============================================================
+
+import copy
+import math
+
+
+# ============================================================
+# 6.1 VALIDATION HELPERS
+# ============================================================
+
+def unit_6_v9_number(value, label):
+
+    if isinstance(value, bool):
+        raise RuntimeError(
+            "UNIT 6 INVALID NUMBER: " + label
+        )
+
+    try:
+        value = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError(
+            "UNIT 6 INVALID NUMBER: " + label
+        ) from exc
+
+    if not math.isfinite(value):
+        raise RuntimeError(
+            "UNIT 6 NONFINITE NUMBER: " + label
+        )
+
+    return value
+
+
+def unit_6_v9_bool(value, label):
+
+    if type(value) is not bool:
+        raise RuntimeError(
+            "UNIT 6 INVALID BOOLEAN: " + label
+        )
+
+    return value
+
+
+def unit_6_v9_clamp(value, minimum, maximum):
+
+    return max(minimum, min(maximum, value))
+
+
+def unit_6_v9_side(value):
+
+    if value > 0:
+        return "LONG"
+
+    if value < 0:
+        return "SHORT"
+
+    return "NONE"
+
+
+# ============================================================
+# 6.2 MAIN CLASSIFICATION AND ADMISSION
+# ============================================================
+
+def fresh_reconstruction_unit_6(
+    unit_2_config,
+    unit_4_analysis,
+    unit_5_candidate
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 6 COMPLETE ADJUSTABLE V9 START",
+        flush=True
+    )
+
+    # ========================================================
+    # INPUT CONTRACT
+    # ========================================================
+
+    if not isinstance(unit_2_config, dict):
+        raise RuntimeError(
+            "UNIT 6 UNIT 2 CONFIG INVALID"
+        )
+
+    if not isinstance(unit_4_analysis, dict):
+        raise RuntimeError(
+            "UNIT 6 UNIT 4 ANALYSIS INVALID"
+        )
+
+    if not isinstance(unit_5_candidate, dict):
+        raise RuntimeError(
+            "UNIT 6 UNIT 5 CANDIDATE INVALID"
+        )
+
+    config = unit_2_config
+    analysis = unit_4_analysis
+    candidate = unit_5_candidate
+
+    qualification = config.get("qualification")
+
+    if not isinstance(qualification, dict):
+        raise RuntimeError(
+            "UNIT 6 QUALIFICATION CONFIG MISSING"
+        )
+
+    common = qualification.get("common")
+    breakout = qualification.get("breakout")
+    structure = qualification.get("structure")
+    scalp = qualification.get("scalp")
+
+    for name, section in (
+        ("COMMON", common),
+        ("BREAKOUT", breakout),
+        ("STRUCTURE", structure),
+        ("SCALP", scalp),
+    ):
+        if not isinstance(section, dict):
+            raise RuntimeError(
+                "UNIT 6 CONFIG MISSING: " + name
+            )
+
+    if tuple(common.get("mode_priority", ())) != (
+        "BREAKOUT",
+        "STRUCTURE",
+        "SCALP"
+    ):
+        raise RuntimeError(
+            "UNIT 6 MODE PRIORITY INVALID"
+        )
+
+    if (
+        analysis.get("strategy_evidence_version")
+        != "U4_HYBRID_V2"
+        or analysis.get(
+            "qualification_tuning_revision"
+        ) != "UNIT4_V5_FULLY_INTEGRATED"
+    ):
+        raise RuntimeError(
+            "UNIT 6 UNIT 4 V5 EVIDENCE MISSING"
+        )
+
+    if (
+        candidate.get("strategy_evidence_version")
+        != "U5_HYBRID_ADJUSTABLE_V3"
+        or candidate.get(
+            "qualification_tuning_revision"
+        ) != "UNIT5_V8_FULLY_ADJUSTABLE"
+    ):
+        raise RuntimeError(
+            "UNIT 6 UNIT 5 V8 EVIDENCE MISSING"
+        )
+
+    if (
+        candidate.get("symbol") != "BTCUSDT"
+        or analysis.get("symbol") != "BTCUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 6 SYMBOL MISMATCH"
+        )
+
+    if (
+        analysis.get("read_only") is not True
+        or candidate.get("read_only") is not True
+        or candidate.get(
+            "trade_authorized"
+        ) is not False
+        or candidate.get(
+            "order_payload_created"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 6 INPUT SAFETY VIOLATION"
+        )
+
+    # ========================================================
+    # UNIT 6 POSITION SAFETY POLICY
+    # USE ORIGINAL UNIT 2 STRATEGY CONFIGURATION
+    # ========================================================
+
+    strategy = config.get("strategy")
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError(
+            "UNIT 6 STRATEGY CONFIG MISSING"
+        )
+
+    for key in (
+        "anti_duplicate_orders",
+        "one_direction_only",
+        "active_trade_mode_lock",
+        "exclusive_mode",
+    ):
+        if strategy.get(key) is not True:
+            raise RuntimeError(
+                "UNIT 6 REQUIRED SAFETY DISABLED: "
+                + key
+            )
+
+    print(
+        "PASS: UNIT 6 ORIGINAL POSITION SAFETY POLICY",
+        flush=True
+    )
+
+    # ========================================================
+    # UNIT 5 CANDIDATE STATE
+    # ========================================================
+
+    stage = candidate.get(
+        "candidate_stage", "NONE"
+    )
+
+    mode = candidate.get(
+        "candidate_mode", "NONE"
+    )
+
+    incoming_active_mode = candidate.get(
+        "active_mode", "NONE"
+    )
+
+    incoming_direction = candidate.get(
+        "direction", "NONE"
+    )
+
+    qualified = unit_6_v9_bool(
+        candidate.get("qualified"),
+        "UNIT 5 QUALIFIED"
+    )
+
+    if mode not in (
+        "NONE", "BREAKOUT", "STRUCTURE", "SCALP"
+    ):
+        raise RuntimeError(
+            "UNIT 6 INVALID CANDIDATE MODE"
+        )
+
+    if stage not in (
+        "NONE",
+        "REJECTED",
+        "DEVELOPING",
+        "QUALIFIED",
+        "PENDING_UNIT_6",
+    ):
+        raise RuntimeError(
+            "UNIT 6 INVALID CANDIDATE STAGE"
+        )
+
+    if incoming_active_mode not in (
+        "NONE", "BREAKOUT", "STRUCTURE"
+    ):
+        raise RuntimeError(
+            "UNIT 6 INVALID ACTIVE MODE"
+        )
+
+    if incoming_direction not in (
+        "NONE", "LONG", "SHORT"
+    ):
+        raise RuntimeError(
+            "UNIT 6 INVALID DIRECTION"
+        )
+
+    if qualified != (stage == "QUALIFIED"):
+        raise RuntimeError(
+            "UNIT 6 CONTRADICTORY UNIT 5 STATE"
+        )
+
+    if qualified and (
+        mode != incoming_active_mode
+        or incoming_direction == "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 6 QUALIFIED STATE MISMATCH"
+        )
+
+    if not qualified and (
+        incoming_active_mode != "NONE"
+        or incoming_direction != "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 6 UNQUALIFIED ACTIVE STATE"
+        )
+
+    # ========================================================
+    # MARKET AND FRESHNESS
+    # ========================================================
+
+    def a(key):
+        return unit_6_v9_number(
+            analysis.get(key), key
+        )
+
+    def c(key):
+        return unit_6_v9_number(
+            candidate.get(key), key
+        )
+
+    price = a("latest_close")
+    live_price = a("live_mark_price")
+
+    ema19 = a("ema19")
+    ema50 = a("ema50")
+    ema100 = a("ema100")
+    ema200 = a("ema200")
+
+    atr = a("atr14")
+
+    if min(
+        price, live_price, ema19, ema50,
+        ema100, ema200, atr
+    ) <= 0:
+        raise RuntimeError(
+            "UNIT 6 MARKET INDICATORS INVALID"
+        )
+
+    move_1m = a("move_1m_pct")
+    move_5m = a("move_5m_pct")
+    move_15m = a("move_15m_pct")
+
+    atr_pct = atr / price * 100.0
