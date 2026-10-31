@@ -17190,6 +17190,39 @@ def scan_forever():
         try:
 
             scan_one_cycle()
+            
+    # ========================================================
+    # UNIT 15 WORKER HEALTH CHECK
+    # READ ONLY - DOES NOT RESTART WORKER
+    # ========================================================
+
+    unit15_thread = globals().get(
+        "_UNIT15_THREAD"
+    )
+
+    unit15_alive = bool(
+        unit15_thread is not None
+        and unit15_thread.is_alive()
+    )
+
+    print(
+        "SCAN UNIT 15 THREAD ALIVE =",
+        unit15_alive,
+        flush=True
+    )
+
+    print(
+        "SCAN UNIT 15 REPORTING ENABLED =",
+        UNIT15_ENABLED,
+        flush=True
+    )
+
+    print(
+        "SCAN UNIT 15 SCHEDULED 8H =",
+        UNIT15_8H_ENABLED,
+        flush=True
+    )
+
 
         except Exception as exc:
 
