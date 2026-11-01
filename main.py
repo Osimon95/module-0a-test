@@ -10269,3 +10269,1248 @@ print(
 # END COMPLETE UNIT 9 V5
 # UNIT 10 FOLLOWS
 # ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 10 V1
+# WEEX DEMO - REVERSIBLE ATR HEDGE
+#
+# UNIT 9 V5 -> UNIT 10 V1 -> UNIT 11
+#
+# EXISTING POSITION CONTINUITY
+# HEDGE CYCLE REGISTRATION GATE
+# ENTRY CANDIDATE VERIFICATION
+# NO BACKUP ORDERS
+# NO ORDER SUBMISSION
+# NO CASH TRADING
+# ZERO INDENTATION
+# ============================================================
+
+from decimal import Decimal, InvalidOperation
+import time
+
+
+UNIT_10_V1_VERSION = (
+    "UNIT10_V1_REVERSIBLE_ATR_HEDGE"
+)
+
+
+# ============================================================
+# 10.1 STRICT DECIMAL HANDLING
+# ============================================================
+
+def unit_10_v1_decimal(
+    value,
+    label,
+    allow_zero=False,
+):
+
+    if value is None or isinstance(value, bool):
+        raise ValueError(
+            "UNIT 10 MISSING OR INVALID " + label
+        )
+
+    try:
+        result = Decimal(str(value))
+    except (
+        InvalidOperation,
+        ValueError,
+        TypeError,
+    ) as exc:
+        raise ValueError(
+            "UNIT 10 INVALID " + label
+        ) from exc
+
+    if not result.is_finite():
+        raise ValueError(
+            "UNIT 10 NONFINITE " + label
+        )
+
+    if result < 0 or (
+        result == 0 and not allow_zero
+    ):
+        raise ValueError(
+            "UNIT 10 INVALID RANGE " + label
+        )
+
+    return result
+
+
+def unit_10_v1_str(value):
+
+    number = Decimal(str(value))
+
+    if number == 0:
+        return "0"
+
+    return format(number.normalize(), "f")
+
+
+# ============================================================
+# 10.2 VERIFY EXACT POSITION SNAPSHOT
+# ============================================================
+
+def unit_10_v1_verify_positions(handover):
+
+    if not isinstance(handover, dict):
+        raise ValueError(
+            "UNIT 10 POSITION HANDOVER INVALID"
+        )
+
+    positions = handover.get("positions")
+
+    if not isinstance(positions, list):
+        raise ValueError(
+            "UNIT 10 POSITIONS NOT LIST"
+        )
+
+    long_total = Decimal("0")
+    short_total = Decimal("0")
+
+    normalized = []
+
+    for position in positions:
+
+        if not isinstance(position, dict):
+            raise ValueError(
+                "UNIT 10 POSITION ITEM INVALID"
+            )
+
+        side = position.get("positionSide")
+
+        if side not in ("LONG", "SHORT"):
+            raise ValueError(
+                "UNIT 10 POSITION SIDE UNKNOWN"
+            )
+
+        symbol = str(
+            position.get("symbol", "")
+        ).upper()
+
+        if symbol not in (
+            "BTCUSDT",
+            "BTCSUSDT",
+        ):
+            raise ValueError(
+                "UNIT 10 POSITION SYMBOL INVALID"
+            )
+
+        quantity = unit_10_v1_decimal(
+            position.get("size"),
+            "POSITION SIZE",
+        )
+
+        if side == "LONG":
+            long_total += quantity
+        else:
+            short_total += quantity
+
+        normalized.append(dict(position))
+
+    expected_long = unit_10_v1_decimal(
+        handover.get("long_quantity"),
+        "HANDOVER LONG",
+        allow_zero=True,
+    )
+
+    expected_short = unit_10_v1_decimal(
+        handover.get("short_quantity"),
+        "HANDOVER SHORT",
+        allow_zero=True,
+    )
+
+    if (
+        expected_long != long_total
+        or expected_short != short_total
+    ):
+        raise ValueError(
+            "UNIT 10 POSITION TOTAL MISMATCH"
+        )
+
+    return {
+        "verified": True,
+        "positions": normalized,
+        "long_quantity":
+            unit_10_v1_str(long_total),
+        "short_quantity":
+            unit_10_v1_str(short_total),
+        "position_flat":
+            long_total == 0 and short_total == 0,
+        "position_count": len(normalized),
+    }
+
+
+# ============================================================
+# 10.3 REGISTERED HEDGE CYCLE VALIDATOR
+#
+# DO NOT INVENT CYCLE DATA.
+#
+# FUTURE UNIT 12 FILLS MUST PROVIDE
+# ORIGINAL SIDE / ORIGINAL QUANTITY
+# FROZEN ACTUAL ENTRY / FROZEN ATR14
+# VERIFIED CYCLE ID AND FILL EVIDENCE.
+# ============================================================
+
+def unit_10_v1_validate_cycle(
+    cycle,
+    position_snapshot,
+):
+
+    result = {
+        "cycle_registered": False,
+        "cycle_id": None,
+        "original_side": None,
+        "original_quantity": None,
+        "original_entry_price": None,
+        "frozen_atr14": None,
+        "hedge_stage": "UNREGISTERED",
+        "cycle_evidence_verified": False,
+        "position_allocation_verified": False,
+        "automatic_transition_authorized": False,
+        "reason": "NO_REGISTERED_CYCLE",
+    }
+
+    if not isinstance(cycle, dict):
+        return result
+
+    if cycle.get("cycle_registered") is not True:
+        return result
+
+    if cycle.get("fill_evidence_verified") is not True:
+        result["reason"] = (
+            "CYCLE_FILL_EVIDENCE_UNVERIFIED"
+        )
+        return result
+
+    cycle_id = cycle.get("cycle_id")
+    original_side = cycle.get("original_side")
+    stage = cycle.get("hedge_stage")
+
+    if not isinstance(cycle_id, str) or not cycle_id:
+        result["reason"] = "CYCLE_ID_MISSING"
+        return result
+
+    if original_side not in ("LONG", "SHORT"):
+        result["reason"] = "CYCLE_SIDE_INVALID"
+        return result
+
+    if stage not in (
+        "INITIAL",
+        "H1",
+        "H2",
+        "R1",
+        "R2",
+    ):
+        result["reason"] = "CYCLE_STAGE_INVALID"
+        return result
+
+    try:
+        original_qty = unit_10_v1_decimal(
+            cycle.get("original_quantity"),
+            "ORIGINAL CYCLE QUANTITY",
+        )
+
+        entry = unit_10_v1_decimal(
+            cycle.get("original_entry_price"),
+            "FROZEN ORIGINAL ENTRY",
+        )
+
+        atr = unit_10_v1_decimal(
+            cycle.get("frozen_atr14"),
+            "FROZEN ATR14",
+        )
+
+        minimum = unit_10_v1_decimal(
+            cycle.get("minimum_quantity", "0.0001"),
+            "CYCLE MINIMUM QUANTITY",
+        )
+
+        step = unit_10_v1_decimal(
+            cycle.get("quantity_step", "0.0001"),
+            "CYCLE QUANTITY STEP",
+        )
+
+    except (ValueError, TypeError):
+        result["reason"] = (
+            "CYCLE_NUMERIC_EVIDENCE_INVALID"
+        )
+        return result
+
+    if (
+        original_qty % step != 0
+        or original_qty < minimum * 2
+        or original_qty / 2 < minimum
+        or (original_qty / 2) % step != 0
+    ):
+        result["reason"] = (
+            "CYCLE_QUANTITY_NOT_SPLITTABLE"
+        )
+        return result
+
+    half = original_qty / 2
+
+    # Required position allocation by stage.
+    if stage in ("INITIAL", "R2"):
+        own_expected = original_qty
+        opposite_expected = Decimal("0")
+
+    elif stage in ("H1", "R1"):
+        own_expected = half
+        opposite_expected = half
+
+    else:
+        own_expected = Decimal("0")
+        opposite_expected = original_qty
+
+    long_qty = unit_10_v1_decimal(
+        position_snapshot["long_quantity"],
+        "ACTUAL LONG",
+        allow_zero=True,
+    )
+
+    short_qty = unit_10_v1_decimal(
+        position_snapshot["short_quantity"],
+        "ACTUAL SHORT",
+        allow_zero=True,
+    )
+
+    if original_side == "LONG":
+        actual_own = long_qty
+        actual_opposite = short_qty
+    else:
+        actual_own = short_qty
+        actual_opposite = long_qty
+
+    if (
+        actual_own != own_expected
+        or actual_opposite != opposite_expected
+    ):
+        result["reason"] = (
+            "CYCLE_POSITION_ALLOCATION_MISMATCH"
+        )
+        return result
+
+    result.update({
+        "cycle_registered": True,
+        "cycle_id": cycle_id,
+        "original_side": original_side,
+        "original_quantity":
+            unit_10_v1_str(original_qty),
+        "original_entry_price":
+            unit_10_v1_str(entry),
+        "frozen_atr14":
+            unit_10_v1_str(atr),
+        "hedge_stage": stage,
+        "cycle_evidence_verified": True,
+        "position_allocation_verified": True,
+        "automatic_transition_authorized": False,
+        "reason":
+            "CYCLE_VERIFIED_EXECUTION_GATE_PENDING",
+    })
+
+    return result
+
+
+# ============================================================
+# 10.4 MAIN UNIT 10
+# ============================================================
+
+def fresh_reconstruction_unit_10(
+    config,
+    unit_9_result,
+    unit_8_result,
+    registered_cycle=None,
+):
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 10 V1 HEDGE CONTINUITY START",
+        flush=True
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 10 CONFIG INVALID"
+        )
+
+    if not isinstance(unit_9_result, dict):
+        raise RuntimeError(
+            "UNIT 10 UNIT 9 INVALID"
+        )
+
+    if not isinstance(unit_8_result, dict):
+        raise RuntimeError(
+            "UNIT 10 UNIT 8 INVALID"
+        )
+
+    if (
+        unit_9_result.get("unit_9_version")
+        != "UNIT9_V5_REVERSIBLE_ATR_HEDGE"
+    ):
+        raise RuntimeError(
+            "UNIT 10 REQUIRES UNIT 9 V5"
+        )
+
+    if (
+        unit_8_result.get("unit_8_version")
+        != "UNIT8_V8_REVERSIBLE_ATR_HEDGE"
+    ):
+        raise RuntimeError(
+            "UNIT 10 REQUIRES UNIT 8 V8"
+        )
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("demo_order_symbol")
+        != "BTCSUSDT"
+        or safety.get(
+            "real_order_submission_enabled"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 10 DEMO SAFETY CONTRACT FAILED"
+        )
+
+    for upstream in (
+        unit_8_result,
+        unit_9_result,
+    ):
+        if (
+            upstream.get("exchange_write") is not False
+            or upstream.get(
+                "order_payload_created"
+            ) is not False
+        ):
+            raise RuntimeError(
+                "UNIT 10 UPSTREAM EXCHANGE WRITE"
+            )
+
+    output = {
+        "unit_10_version": UNIT_10_V1_VERSION,
+        "status": "IDLE",
+        "reason": "NONE",
+
+        "demo_symbol": "BTCSUSDT",
+
+        "active_mode":
+            unit_9_result.get(
+                "active_mode", "NONE"
+            ),
+        "direction":
+            unit_9_result.get(
+                "direction", "NONE"
+            ),
+
+        "signal_qualified":
+            unit_9_result.get(
+                "signal_qualified"
+            ) is True,
+
+        "signal_continuity_verified":
+            unit_9_result.get(
+                "signal_continuity_verified"
+            ) is True,
+
+        "confirmations":
+            unit_9_result.get(
+                "confirmations", 0
+            ),
+
+        "position_reconciled": False,
+        "position_flat_verified": False,
+        "positions": [],
+
+        "long_position_quantity": "0",
+        "short_position_quantity": "0",
+
+        "existing_position_management_required":
+            False,
+
+        "position_management_independent":
+            True,
+
+        "position_management_handover": None,
+
+        "hedge_mode":
+            "REVERSIBLE_ATR_TWO_STAGE",
+
+        "cycle_registered": False,
+        "cycle_id": None,
+        "cycle_state": None,
+
+        "original_entry_price": None,
+        "frozen_atr14": None,
+        "hedge_stage": "UNREGISTERED",
+
+        "cycle_evidence_verified": False,
+        "position_allocation_verified": False,
+        "automatic_transition_authorized": False,
+
+        "account_dual_side_enabled":
+            unit_8_result.get(
+                "account_dual_side_enabled"
+            ),
+
+        "demo_dual_side_mode_verified":
+            unit_8_result.get(
+                "demo_dual_side_mode_verified"
+            ) is True,
+
+        "entry_margin_usdt":
+            unit_9_result.get(
+                "entry_margin_usdt"
+            ),
+
+        "exposure_cap_percent":
+            unit_9_result.get(
+                "exposure_cap_percent"
+            ),
+
+        "new_entry_permitted": False,
+        "entry_candidate_ready": False,
+        "entry_candidate": None,
+
+        "trade_plan_ready": False,
+        "trade_plan": None,
+        "execution_intent": False,
+        "execution_ready": False,
+
+        "trade_authorized": False,
+        "hedge_order_authorized": False,
+        "order_payload_created": False,
+        "exchange_write": False,
+        "read_only": True,
+    }
+
+    def finish(status, reason):
+
+        output["status"] = status
+        output["reason"] = reason
+
+        print(
+            "UNIT 10 STATUS =", status,
+            flush=True
+        )
+
+        print(
+            "UNIT 10 REASON =", reason,
+            flush=True
+        )
+
+        print(
+            "UNIT 10 POSITION RECONCILED =",
+            output["position_reconciled"],
+            flush=True
+        )
+
+        print(
+            "UNIT 10 LONG BTC =",
+            output["long_position_quantity"],
+            flush=True
+        )
+
+        print(
+            "UNIT 10 SHORT BTC =",
+            output["short_position_quantity"],
+            flush=True
+        )
+
+        print(
+            "UNIT 10 MANAGEMENT REQUIRED =",
+            output[
+                "existing_position_management_required"
+            ],
+            flush=True
+        )
+
+        print(
+            "UNIT 10 CYCLE REGISTERED =",
+            output["cycle_registered"],
+            flush=True
+        )
+
+        print(
+            "UNIT 10 CYCLE STAGE =",
+            output["hedge_stage"],
+            flush=True
+        )
+
+        print(
+            "UNIT 10 AUTOMATIC TRANSITION AUTHORIZED =",
+            output[
+                "automatic_transition_authorized"
+            ],
+            flush=True
+        )
+
+        print(
+            "UNIT 10 NEW ENTRY PERMITTED =",
+            output["new_entry_permitted"],
+            flush=True
+        )
+
+        print(
+            "UNIT 10 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        print(
+            "FRESH RECONSTRUCTION UNIT 10 RESULT = PASS",
+            flush=True
+        )
+
+        print("=" * 80, flush=True)
+
+        return output
+
+    # ========================================================
+    # 10.5 REQUIRE UNIT 9 RECONCILIATION
+    # ========================================================
+
+    if (
+        unit_9_result.get(
+            "position_reconciled"
+        ) is not True
+        or not isinstance(
+            unit_9_result.get(
+                "position_management_handover"
+            ),
+            dict,
+        )
+    ):
+        return finish(
+            "BLOCKED",
+            "UNIT_9_POSITION_HANDOVER_INVALID"
+        )
+
+    try:
+        position_state = (
+            unit_10_v1_verify_positions(
+                unit_9_result[
+                    "position_management_handover"
+                ]
+            )
+        )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 10 POSITION ERROR =",
+            str(exc),
+            flush=True
+        )
+
+        return finish(
+            "BLOCKED",
+            "POSITION_RECONCILIATION_FAILED"
+        )
+
+    # Verify the Unit 9 handover still agrees
+    # with the Unit 8 snapshot taken upstream.
+    if (
+        position_state["long_quantity"]
+        != unit_8_result.get(
+            "long_position_quantity"
+        )
+        or position_state["short_quantity"]
+        != unit_8_result.get(
+            "short_position_quantity"
+        )
+    ):
+        return finish(
+            "BLOCKED",
+            "UNIT_8_UNIT_9_POSITION_MISMATCH"
+        )
+
+    output["position_reconciled"] = True
+
+    output["position_flat_verified"] = (
+        position_state["position_flat"]
+    )
+
+    output["positions"] = (
+        position_state["positions"]
+    )
+
+    output["long_position_quantity"] = (
+        position_state["long_quantity"]
+    )
+
+    output["short_position_quantity"] = (
+        position_state["short_quantity"]
+    )
+
+    has_position = not position_state[
+        "position_flat"
+    ]
+
+    output[
+        "existing_position_management_required"
+    ] = has_position
+
+    # ========================================================
+    # 10.6 REGISTERED CYCLE VALIDATION
+    # ========================================================
+
+    cycle_state = unit_10_v1_validate_cycle(
+        registered_cycle,
+        position_state,
+    )
+
+    output["cycle_state"] = cycle_state
+
+    output["cycle_registered"] = (
+        cycle_state["cycle_registered"]
+    )
+
+    output["cycle_id"] = (
+        cycle_state["cycle_id"]
+    )
+
+    output["original_entry_price"] = (
+        cycle_state["original_entry_price"]
+    )
+
+    output["frozen_atr14"] = (
+        cycle_state["frozen_atr14"]
+    )
+
+    output["hedge_stage"] = (
+        cycle_state["hedge_stage"]
+    )
+
+    output["cycle_evidence_verified"] = (
+        cycle_state["cycle_evidence_verified"]
+    )
+
+    output["position_allocation_verified"] = (
+        cycle_state["position_allocation_verified"]
+    )
+
+    # ========================================================
+    # 10.7 PREPARE INDEPENDENT MANAGEMENT HANDOVER
+    # ========================================================
+
+    output["position_management_handover"] = {
+        "symbol": "BTCUSDT",
+        "demo_symbol": "BTCSUSDT",
+
+        "positions": [
+            dict(p)
+            for p in position_state["positions"]
+        ],
+
+        "long_quantity":
+            position_state["long_quantity"],
+
+        "short_quantity":
+            position_state["short_quantity"],
+
+        "position_reconciled": True,
+
+        "management_required": has_position,
+        "bot_mode_independent": True,
+
+        "hedge_mode":
+            "REVERSIBLE_ATR_TWO_STAGE",
+
+        "cycle_state": dict(cycle_state),
+
+        "cycle_registered":
+            cycle_state["cycle_registered"],
+
+        "cycle_id": cycle_state["cycle_id"],
+
+        "original_side":
+            cycle_state["original_side"],
+
+        "original_quantity":
+            cycle_state["original_quantity"],
+
+        "original_entry_price":
+            cycle_state["original_entry_price"],
+
+        "frozen_atr14":
+            cycle_state["frozen_atr14"],
+
+        "hedge_stage":
+            cycle_state["hedge_stage"],
+
+        "account_dual_side_enabled":
+            output["account_dual_side_enabled"],
+
+        "demo_dual_side_mode_verified":
+            output["demo_dual_side_mode_verified"],
+
+        "automatic_transition_authorized": False,
+        "exchange_write": False,
+    }
+
+    # ========================================================
+    # 10.8 EXISTING POSITION MANAGEMENT
+    #
+    # INDEPENDENT OF BOT_MODE
+    # INDEPENDENT OF SIGNAL QUALIFICATION
+    # ========================================================
+
+    if has_position:
+
+        if not cycle_state["cycle_registered"]:
+
+            return finish(
+                "POSITION_MANAGEMENT_PENDING_CYCLE",
+                cycle_state["reason"]
+            )
+
+        if not output[
+            "demo_dual_side_mode_verified"
+        ]:
+
+            return finish(
+                "POSITION_MANAGEMENT_PENDING_MODE",
+                "DEMO_HEDGE_MODE_UNVERIFIED"
+            )
+
+        # Even a validated cycle still requires:
+        # current exchange reconciliation,
+        # durable state and execution controls
+        # in the later management units.
+
+        return finish(
+            "POSITION_MANAGEMENT_PREPARED",
+            "CYCLE_VERIFIED_EXECUTION_PENDING"
+        )
+
+    # ========================================================
+    # 10.9 FLAT ACCOUNT: NEW ENTRY VERIFICATION
+    # ========================================================
+
+    if unit_9_result.get(
+        "status"
+    ) != "ENTRY_CANDIDATE_READY":
+
+        return finish(
+            "IDLE",
+            unit_9_result.get(
+                "skip_reason"
+            ) or "NO_ENTRY_CANDIDATE"
+        )
+
+    if (
+        unit_9_result.get(
+            "new_entry_permitted"
+        ) is not True
+        or unit_9_result.get(
+            "signal_continuity_verified"
+        ) is not True
+        or unit_9_result.get(
+            "trade_plan_ready"
+        ) is not True
+    ):
+
+        return finish(
+            "BLOCKED",
+            "UNIT_9_ENTRY_VERIFICATION_FAILED"
+        )
+
+    if not output[
+        "demo_dual_side_mode_verified"
+    ]:
+
+        return finish(
+            "BLOCKED",
+            "DEMO_DUAL_SIDE_SCOPE_UNVERIFIED"
+        )
+
+    candidate = unit_9_result.get(
+        "execution_candidate"
+    )
+
+    if not isinstance(candidate, dict):
+
+        return finish(
+            "BLOCKED",
+            "ENTRY_CANDIDATE_MISSING"
+        )
+
+    if candidate.get(
+        "demo_symbol"
+    ) != "BTCSUSDT":
+
+        return finish(
+            "BLOCKED",
+            "ENTRY_SYMBOL_MISMATCH"
+        )
+
+    try:
+        quantity = unit_10_v1_decimal(
+            candidate.get("original_quantity"),
+            "ENTRY QUANTITY"
+        )
+
+        half = unit_10_v1_decimal(
+            candidate.get("half_quantity"),
+            "ENTRY HALF QUANTITY"
+        )
+
+        margin = unit_10_v1_decimal(
+            candidate.get(
+                "initial_margin_usdt"
+            ),
+            "ENTRY MARGIN"
+        )
+
+    except ValueError:
+
+        return finish(
+            "BLOCKED",
+            "ENTRY_NUMERIC_FIELDS_INVALID"
+        )
+
+    if (
+        quantity != half * 2
+        or half < Decimal("0.0001")
+    ):
+        return finish(
+            "BLOCKED",
+            "ENTRY_HEDGE_SPLIT_INVALID"
+        )
+
+    output["entry_candidate"] = dict(
+        candidate
+    )
+
+    output["trade_plan"] = dict(
+        candidate
+    )
+
+    output["entry_candidate_ready"] = True
+    output["trade_plan_ready"] = True
+
+    # This is verified handover, NOT
+    # authorization to execute an order.
+    output["new_entry_permitted"] = True
+    output["execution_intent"] = True
+    output["execution_ready"] = False
+
+    print(
+        "UNIT 10 CANDIDATE BTC =",
+        unit_10_v1_str(quantity),
+        flush=True
+    )
+
+    print(
+        "UNIT 10 CANDIDATE MARGIN =",
+        unit_10_v1_str(margin),
+        flush=True
+    )
+
+    return finish(
+        "ENTRY_HANDOVER_READY",
+        "UNIT_11_REVIEW_REQUIRED"
+    )
+
+
+# ============================================================
+# 10.10 OFFLINE VALIDATION
+# NO WEEX API CALLS
+# ============================================================
+
+def unit_10_validation_v1():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 10 VALIDATION V1 START",
+        flush=True
+    )
+
+    tests = []
+
+    def check(name, ok):
+        tests.append((name, bool(ok)))
+
+    snapshot = {
+        "positions": [
+            {
+                "symbol": "BTCSUSDT",
+                "positionSide": "LONG",
+                "size": "0.0002",
+            }
+        ],
+        "long_quantity": "0.0002",
+        "short_quantity": "0",
+    }
+
+    checked = unit_10_v1_verify_positions(
+        snapshot
+    )
+
+    check(
+        "EXISTING LONG RECONCILIATION",
+        checked["verified"]
+        and checked["long_quantity"] == "0.0002"
+        and checked["short_quantity"] == "0",
+    )
+
+    check(
+        "NONFLAT MANAGEMENT DETECTION",
+        checked["position_flat"] is False,
+    )
+
+    unknown_cycle = (
+        unit_10_v1_validate_cycle(
+            None,
+            checked,
+        )
+    )
+
+    check(
+        "UNREGISTERED CYCLE BLOCKED",
+        not unknown_cycle["cycle_registered"]
+        and not unknown_cycle[
+            "automatic_transition_authorized"
+        ],
+    )
+
+    sample_cycle = {
+        "cycle_registered": True,
+        "fill_evidence_verified": True,
+        "cycle_id": "OFFLINE_TEST_CYCLE",
+        "original_side": "LONG",
+        "original_quantity": "0.0002",
+        "original_entry_price": "78000",
+        "frozen_atr14": "100",
+        "hedge_stage": "INITIAL",
+        "minimum_quantity": "0.0001",
+        "quantity_step": "0.0001",
+    }
+
+    registered = (
+        unit_10_v1_validate_cycle(
+            sample_cycle,
+            checked,
+        )
+    )
+
+    check(
+        "VALID INITIAL CYCLE",
+        registered["cycle_registered"]
+        and registered[
+            "position_allocation_verified"
+        ],
+    )
+
+    sample_cycle["hedge_stage"] = "H1"
+
+    mismatched = (
+        unit_10_v1_validate_cycle(
+            sample_cycle,
+            checked,
+        )
+    )
+
+    check(
+        "H1 ALLOCATION MISMATCH BLOCKED",
+        not mismatched["cycle_registered"],
+    )
+
+    sample_cycle["hedge_stage"] = "INITIAL"
+    sample_cycle["frozen_atr14"] = None
+
+    missing_atr = (
+        unit_10_v1_validate_cycle(
+            sample_cycle,
+            checked,
+        )
+    )
+
+    check(
+        "UNVERIFIED ATR REJECTED",
+        not missing_atr["cycle_registered"],
+    )
+
+    two_sides = {
+        "positions": [
+            {
+                "symbol": "BTCSUSDT",
+                "positionSide": "LONG",
+                "size": "0.0001",
+            },
+            {
+                "symbol": "BTCSUSDT",
+                "positionSide": "SHORT",
+                "size": "0.0001",
+            },
+        ],
+        "long_quantity": "0.0001",
+        "short_quantity": "0.0001",
+    }
+
+    dual_snapshot = (
+        unit_10_v1_verify_positions(
+            two_sides
+        )
+    )
+
+    check(
+        "LONG SHORT SIMULTANEOUS RECONCILIATION",
+        dual_snapshot["verified"],
+    )
+
+    sample_cycle["frozen_atr14"] = "100"
+    sample_cycle["hedge_stage"] = "H1"
+
+    h1_cycle = (
+        unit_10_v1_validate_cycle(
+            sample_cycle,
+            dual_snapshot,
+        )
+    )
+
+    check(
+        "H1 EXACT HALF ALLOCATION",
+        h1_cycle["cycle_registered"],
+    )
+
+    check(
+        "H1 CANNOT EXECUTE IN UNIT 10",
+        not h1_cycle[
+            "automatic_transition_authorized"
+        ],
+    )
+
+    flat = unit_10_v1_verify_positions({
+        "positions": [],
+        "long_quantity": "0",
+        "short_quantity": "0",
+    })
+
+    check(
+        "FLAT POSITION DETECTION",
+        flat["position_flat"],
+    )
+
+    try:
+        unit_10_v1_verify_positions({
+            "positions": [
+                {
+                    "symbol": "BTCSUSDT",
+                    "positionSide": "LONG",
+                    "size": "0.0002",
+                }
+            ],
+            "long_quantity": "0.0001",
+            "short_quantity": "0",
+        })
+        rejected = False
+    except ValueError:
+        rejected = True
+
+    check(
+        "INCONSISTENT SNAPSHOT REJECTED",
+        rejected,
+    )
+
+    passed = sum(
+        int(ok) for _, ok in tests
+    )
+
+    failed = len(tests) - passed
+
+    for name, ok in tests:
+        print(
+            "UNIT 10 TEST:",
+            name,
+            "=",
+            "PASS" if ok else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 10 TESTS PASSED =",
+        passed,
+        flush=True
+    )
+
+    print(
+        "UNIT 10 TESTS FAILED =",
+        failed,
+        flush=True
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT 10 V1 VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 10 VALIDATION V1 RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return True
+
+
+# ============================================================
+# 10.11 RUN UNIT 10
+# ============================================================
+
+FRESH_UNIT_10_VALIDATION_READY = (
+    unit_10_validation_v1()
+)
+
+# Do not register an existing cycle without
+# exchange-verified fill/ATR evidence.
+#
+# The current previously-opened LONG is
+# deliberately passed as unregistered.
+
+FRESH_RECONSTRUCTION_UNIT_10_RESULT = (
+    fresh_reconstruction_unit_10(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_9_RESULT,
+        FRESH_RECONSTRUCTION_DEMO_PLAN,
+        registered_cycle=None,
+    )
+)
+
+# Downstream Unit 11 alias
+FRESH_RECONSTRUCTION_CONTINUITY_POLICY = (
+    FRESH_RECONSTRUCTION_UNIT_10_RESULT
+)
+
+FRESH_UNIT_10_V1_READY = all((
+    FRESH_UNIT_10_VALIDATION_READY is True,
+
+    FRESH_RECONSTRUCTION_UNIT_10_RESULT.get(
+        "position_reconciled"
+    ) is True,
+
+    FRESH_RECONSTRUCTION_UNIT_10_RESULT.get(
+        "unit_10_version"
+    ) == UNIT_10_V1_VERSION,
+))
+
+print(
+    "FRESH RECONSTRUCTION UNIT 10 V1 READY =",
+    FRESH_UNIT_10_V1_READY,
+    flush=True
+)
+
+print(
+    "UNIT 10 EXCHANGE WRITE = NONE",
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 10 V1
+# UNIT 11 FOLLOWS
+# ============================================================
