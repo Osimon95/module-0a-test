@@ -14000,3 +14000,1347 @@ print(
 # END COMPLETE UNIT 12 V1
 # UNIT 13 FOLLOWS
 # ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 13 V1 REPLACEMENT
+# WEEX DEMO ATR ADOPTION + TP MANAGEMENT
+#
+# EXISTING POSITION REGISTRATION
+# ADJUSTABLE NET ROI TAKE PROFITS
+# STEP-AWARE TP QUANTITY PLANNING
+# BOT_MODE-INDEPENDENT MANAGEMENT
+#
+# NO LIVE CASH ORDERS
+# NO WEEX ORDER SUBMISSIONS IN UNIT 13 V1
+# ============================================================
+
+import os
+import json
+import time
+import hashlib
+
+from pathlib import Path
+from decimal import (
+    Decimal,
+    InvalidOperation,
+    ROUND_DOWN,
+)
+
+
+UNIT_13_V1_VERSION = (
+    "UNIT13_V1_ATR_ADOPTION_ADJUSTABLE_TP"
+)
+
+
+# ============================================================
+# 13.1 STRICT NUMERIC HELPERS
+# ============================================================
+
+def unit_13_v1_num(value, label, zero=False):
+
+    if value is None or isinstance(value, bool):
+        raise ValueError(
+            "UNIT 13 INVALID " + label
+        )
+
+    try:
+        number = Decimal(str(value))
+    except (
+        ValueError,
+        TypeError,
+        InvalidOperation,
+    ) as exc:
+        raise ValueError(
+            "UNIT 13 INVALID " + label
+        ) from exc
+
+    if not number.is_finite():
+        raise ValueError(
+            "UNIT 13 NONFINITE " + label
+        )
+
+    if number < 0 or (
+        number == 0 and not zero
+    ):
+        raise ValueError(
+            "UNIT 13 INVALID RANGE " + label
+        )
+
+    return number
+
+
+def unit_13_v1_fmt(value):
+
+    number = Decimal(str(value))
+
+    if number == 0:
+        return "0"
+
+    return format(number.normalize(), "f")
+
+
+def unit_13_v1_env_num(
+    name,
+    default,
+    zero=False,
+):
+
+    return unit_13_v1_num(
+        os.getenv(name, str(default)),
+        name,
+        zero=zero,
+    )
+
+
+# ============================================================
+# 13.2 ADJUSTABLE TAKE-PROFIT CONFIGURATION
+# ============================================================
+
+def unit_13_v1_tp_config():
+
+    tp1 = unit_13_v1_env_num(
+        "TP1_NET_ROI_PERCENT", "5"
+    )
+
+    tp2 = unit_13_v1_env_num(
+        "TP2_NET_ROI_PERCENT", "10"
+    )
+
+    a1 = unit_13_v1_env_num(
+        "TP1_ALLOCATION_PERCENT", "10",
+        zero=True,
+    )
+
+    a2 = unit_13_v1_env_num(
+        "TP2_ALLOCATION_PERCENT", "20",
+        zero=True,
+    )
+
+    a3 = unit_13_v1_env_num(
+        "TP3_ALLOCATION_PERCENT", "70",
+        zero=True,
+    )
+
+    fee = unit_13_v1_env_num(
+        "WEEX_TAKER_FEE_PERCENT", "0.08",
+        zero=True,
+    )
+
+    trailing = unit_13_v1_env_num(
+        "TP3_TRAILING_PERCENT", "0.2"
+    )
+
+    if tp2 <= tp1:
+        raise RuntimeError(
+            "UNIT 13 TP2 MUST EXCEED TP1"
+        )
+
+    if a1 + a2 + a3 != 100:
+        raise RuntimeError(
+            "UNIT 13 TP ALLOCATIONS MUST TOTAL 100"
+        )
+
+    if fee >= 10:
+        raise RuntimeError(
+            "UNIT 13 FEE CONFIG INVALID"
+        )
+
+    if trailing > 10:
+        raise RuntimeError(
+            "UNIT 13 TRAILING CONFIG INVALID"
+        )
+
+    return {
+        "tp1_net_roi_percent":
+            unit_13_v1_fmt(tp1),
+
+        "tp2_net_roi_percent":
+            unit_13_v1_fmt(tp2),
+
+        "tp1_allocation_percent":
+            unit_13_v1_fmt(a1),
+
+        "tp2_allocation_percent":
+            unit_13_v1_fmt(a2),
+
+        "tp3_allocation_percent":
+            unit_13_v1_fmt(a3),
+
+        "taker_fee_percent":
+            unit_13_v1_fmt(fee),
+
+        "tp3_trailing_percent":
+            unit_13_v1_fmt(trailing),
+
+        "tp_allocation_verified": True,
+    }
+
+
+# ============================================================
+# 13.3 TP PRICE CALCULATION
+#
+# APPROXIMATE NET ROI ON INITIAL MARGIN:
+#
+# LONG:
+# PRICE MOVE = TARGET ROI / LEVERAGE
+#              + ROUND-TRIP FEE FRACTION
+#
+# SHORT:
+# PRICE MOVE = TARGET ROI / LEVERAGE
+#              + ROUND-TRIP FEE FRACTION
+#
+# ASSUMES TWO TAKER-SIDE FEES AT NOTIONAL.
+# FUNDING AND SLIPPAGE ARE NOT VERIFIED.
+# ============================================================
+
+def unit_13_v1_target_price(
+    entry,
+    leverage,
+    roi_percent,
+    fee_percent,
+    side,
+):
+
+    entry = unit_13_v1_num(
+        entry, "ENTRY"
+    )
+
+    leverage = unit_13_v1_num(
+        leverage, "LEVERAGE"
+    )
+
+    roi = unit_13_v1_num(
+        roi_percent, "NET ROI"
+    ) / 100
+
+    fee = unit_13_v1_num(
+        fee_percent, "TAKER FEE",
+        zero=True,
+    ) / 100
+
+    estimated_move = (
+        roi / leverage + fee * 2
+    )
+
+    if side == "LONG":
+        target = entry * (
+            1 + estimated_move
+        )
+
+    elif side == "SHORT":
+        target = entry * (
+            1 - estimated_move
+        )
+
+    else:
+        raise ValueError(
+            "UNIT 13 SIDE INVALID"
+        )
+
+    if target <= 0:
+        raise ValueError(
+            "UNIT 13 TARGET PRICE INVALID"
+        )
+
+    return unit_13_v1_fmt(target)
+
+
+# ============================================================
+# 13.4 STEP-AWARE TP QUANTITY PLAN
+#
+# DOES NOT INVENT INVALID PARTIAL ORDERS.
+# SUBMINIMUM ALLOCATIONS ARE DEFERRED.
+# THEY MAY BE ASSIGNED TO TP3 AS A PLANNING
+# POLICY, SUBJECT TO LATER EXECUTION REVIEW.
+# ============================================================
+
+def unit_13_v1_tp_quantities(
+    quantity,
+    config,
+    minimum="0.0001",
+    step="0.0001",
+):
+
+    qty = unit_13_v1_num(
+        quantity, "POSITION QUANTITY"
+    )
+
+    minimum = unit_13_v1_num(
+        minimum, "MINIMUM BTC"
+    )
+
+    step = unit_13_v1_num(
+        step, "STEP BTC"
+    )
+
+    if qty % step != 0:
+        raise ValueError(
+            "UNIT 13 POSITION NOT STEP ALIGNED"
+        )
+
+    def floor_step(number):
+
+        return (
+            number / step
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        ) * step
+
+    pct1 = unit_13_v1_num(
+        config["tp1_allocation_percent"],
+        "TP1 ALLOCATION",
+        zero=True,
+    )
+
+    pct2 = unit_13_v1_num(
+        config["tp2_allocation_percent"],
+        "TP2 ALLOCATION",
+        zero=True,
+    )
+
+    nominal1 = qty * pct1 / 100
+    nominal2 = qty * pct2 / 100
+
+    executable1 = floor_step(nominal1)
+    executable2 = floor_step(nominal2)
+
+    if executable1 < minimum:
+        executable1 = Decimal("0")
+
+    if executable2 < minimum:
+        executable2 = Decimal("0")
+
+    remaining = (
+        qty - executable1 - executable2
+    )
+
+    if remaining < minimum:
+        # Do not return an invalid TP3 quantity.
+        return {
+            "plan_valid": False,
+            "reason": "TP3_BELOW_MINIMUM",
+            "tp1_btc": "0",
+            "tp2_btc": "0",
+            "tp3_btc": "0",
+            "tp1_deferred": True,
+            "tp2_deferred": True,
+            "requires_execution_coordination": True,
+        }
+
+    return {
+        "plan_valid": True,
+
+        "reason": (
+            "STEP_ADJUSTED"
+            if (
+                executable1 != nominal1
+                or executable2 != nominal2
+            )
+            else "EXACT"
+        ),
+
+        "tp1_btc":
+            unit_13_v1_fmt(executable1),
+
+        "tp2_btc":
+            unit_13_v1_fmt(executable2),
+
+        "tp3_btc":
+            unit_13_v1_fmt(remaining),
+
+        "tp1_deferred":
+            executable1 == 0,
+
+        "tp2_deferred":
+            executable2 == 0,
+
+        "requires_execution_coordination": True,
+    }
+
+
+# ============================================================
+# 13.5 IDENTIFY THE VERIFIED EXISTING POSITION
+# ============================================================
+
+def unit_13_v1_existing_position(
+    handover,
+):
+
+    if not isinstance(handover, dict):
+        raise ValueError(
+            "UNIT 13 HANDOVER INVALID"
+        )
+
+    records = handover.get("positions")
+
+    if not isinstance(records, list):
+        raise ValueError(
+            "UNIT 13 POSITION LIST INVALID"
+        )
+
+    active = []
+
+    for item in records:
+
+        if not isinstance(item, dict):
+            raise ValueError(
+                "UNIT 13 POSITION RECORD INVALID"
+            )
+
+        quantity = unit_13_v1_num(
+            item.get("size"),
+            "POSITION SIZE",
+            zero=True,
+        )
+
+        if quantity > 0:
+            active.append(item)
+
+    if len(active) != 1:
+        return None
+
+    position = active[0]
+
+    side = position.get("positionSide")
+
+    if side not in ("LONG", "SHORT"):
+        raise ValueError(
+            "UNIT 13 POSITION SIDE INVALID"
+        )
+
+    quantity = unit_13_v1_num(
+        position.get("size"),
+        "POSITION SIZE"
+    )
+
+    # Accept only actual exchange-provided
+    # average entry fields, never market price.
+    entry = None
+
+    for key in (
+        "averageEntryPrice",
+        "avgEntryPrice",
+        "entryPrice",
+    ):
+
+        candidate = position.get(key)
+
+        if candidate is not None:
+            entry = unit_13_v1_num(
+                candidate,
+                "EXCHANGE ENTRY PRICE"
+            )
+            break
+
+    return {
+        "side": side,
+        "quantity": unit_13_v1_fmt(
+            quantity
+        ),
+        "exchange_entry_price": (
+            unit_13_v1_fmt(entry)
+            if entry is not None
+            else None
+        ),
+        "position_record": dict(position),
+    }
+
+
+# ============================================================
+# 13.6 ADOPTION ATR SNAPSHOT
+#
+# EXPLICIT OPT-IN REQUIRED.
+# ATR MUST BE SUPPLIED WITH A RECENT TIMESTAMP
+# FROM AN ACTUAL MARKET-CALCULATION SOURCE.
+#
+# THIS IS NOT HISTORICAL ENTRY-TIME ATR.
+# ============================================================
+
+def unit_13_v1_adoption_atr():
+
+    enabled = os.getenv(
+        "UNIT13_ADOPT_EXISTING_POSITION",
+        "false"
+    ).strip().lower() == "true"
+
+    if not enabled:
+        return {
+            "verified": False,
+            "reason": "ADOPTION_NOT_ENABLED",
+        }
+
+    raw_value = os.getenv(
+        "UNIT13_ATR14_ADOPTION_VALUE",
+        ""
+    ).strip()
+
+    raw_timestamp = os.getenv(
+        "UNIT13_ATR14_ADOPTION_TIMESTAMP_MS",
+        ""
+    ).strip()
+
+    if not raw_value or not raw_timestamp:
+        return {
+            "verified": False,
+            "reason": "ADOPTION_ATR_NOT_PROVIDED",
+        }
+
+    try:
+        value = unit_13_v1_num(
+            raw_value, "ADOPTION ATR14"
+        )
+
+        timestamp = int(raw_timestamp)
+
+    except (ValueError, TypeError):
+        return {
+            "verified": False,
+            "reason": "ADOPTION_ATR_INVALID",
+        }
+
+    now_ms = int(time.time() * 1000)
+
+    age_ms = now_ms - timestamp
+
+    if age_ms < 0 or age_ms > 120000:
+        return {
+            "verified": False,
+            "reason": "ADOPTION_ATR_STALE",
+        }
+
+    return {
+        "verified": True,
+        "reason": "ADOPTION_ATR_PROVIDED",
+        "atr14": unit_13_v1_fmt(value),
+        "timestamp_ms": timestamp,
+        "age_ms": age_ms,
+        "reference_type": "ADOPTION_TIME",
+        "historical_entry_atr_verified": False,
+    }
+
+
+# ============================================================
+# 13.7 DURABLE REGISTRATION
+#
+# REQUIRES A GENUINELY PERSISTENT VOLUME.
+# WILL NOT OVERWRITE EXISTING CYCLE RECORDS.
+# ============================================================
+
+def unit_13_v1_save_cycle(cycle):
+
+    directory_name = (
+        os.getenv("UNIT13_STATE_DIR")
+        or os.getenv("UNIT12_STATE_DIR")
+        or ""
+    ).strip()
+
+    confirmed = os.getenv(
+        "UNIT12_PERSISTENT_DISK_CONFIRMED",
+        "false"
+    ).strip().lower() == "true"
+
+    if not directory_name or not confirmed:
+        raise RuntimeError(
+            "PERSISTENT_STORAGE_UNVERIFIED"
+        )
+
+    directory = Path(
+        directory_name
+    ).resolve()
+
+    if not directory.is_dir():
+        raise RuntimeError(
+            "PERSISTENT_DIRECTORY_MISSING"
+        )
+
+    path = directory / (
+        "unit13_adopted_cycle.json"
+    )
+
+    # Fail closed on any existing cycle or
+    # unresolved initial order attempt.
+    if path.exists():
+        raise RuntimeError(
+            "EXISTING_ADOPTION_REQUIRES_RECOVERY"
+        )
+
+    if list(directory.glob(
+        "unit12_attempt_*.json"
+    )):
+        raise RuntimeError(
+            "UNRESOLVED_UNIT12_ATTEMPT"
+        )
+
+    if list(directory.glob(
+        "unit12_cycle_*.json"
+    )):
+        raise RuntimeError(
+            "EXISTING_UNIT12_CYCLE"
+        )
+
+    temporary = directory / (
+        "unit13_"
+        + hashlib.sha256(
+            os.urandom(32)
+        ).hexdigest()[:16]
+        + ".tmp"
+    )
+
+    try:
+        with open(
+            temporary, "x", encoding="utf-8"
+        ) as handle:
+
+            json.dump(
+                cycle,
+                handle,
+                sort_keys=True
+            )
+
+            handle.flush()
+            os.fsync(handle.fileno())
+
+        os.link(
+            str(temporary),
+            str(path)
+        )
+
+        directory_fd = os.open(
+            str(directory),
+            os.O_RDONLY
+        )
+
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+    return str(path)
+
+
+# ============================================================
+# 13.8 MAIN UNIT 13
+# ============================================================
+
+def fresh_reconstruction_unit_13(
+    config,
+    unit_12_result,
+    unit_11_result,
+    unit_10_result,
+    unit_8_result,
+):
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 13 V1 ATR REGISTRATION AND TP START",
+        flush=True
+    )
+
+    if not all(
+        isinstance(item, dict)
+        for item in (
+            config,
+            unit_12_result,
+            unit_11_result,
+            unit_10_result,
+            unit_8_result,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 13 INPUT CONTRACT INVALID"
+        )
+
+    if (
+        config.get("execution_environment")
+        != "DEMO"
+        or config.get(
+            "safety", {}
+        ).get(
+            "real_order_submission_enabled"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 13 DEMO SAFETY FAILED"
+        )
+
+    if (
+        unit_12_result.get(
+            "unit_12_version"
+        ) != "UNIT12_V1_DEMO_EXECUTABLE"
+        or unit_11_result.get(
+            "unit_11_version"
+        ) != "UNIT11_V1_ATR_CYCLE_RECOVERY"
+        or unit_10_result.get(
+            "unit_10_version"
+        ) != "UNIT10_V1_REVERSIBLE_ATR_HEDGE"
+    ):
+        raise RuntimeError(
+            "UNIT 13 UPSTREAM VERSION INVALID"
+        )
+
+    tp = unit_13_v1_tp_config()
+
+    output = {
+        "unit_13_version":
+            UNIT_13_V1_VERSION,
+
+        "status": "IDLE",
+        "reason": "NONE",
+
+        "bot_mode_independent": True,
+        "demo_symbol": "BTCSUSDT",
+
+        "existing_position_detected": False,
+
+        "position_side": None,
+        "position_quantity": "0",
+
+        "entry_price": None,
+        "entry_evidence_verified": False,
+
+        "atr14_registered": False,
+        "atr14_reference": None,
+        "atr_reference_type": None,
+
+        "cycle_registered": False,
+        "cycle_id": None,
+        "cycle_state": None,
+        "cycle_storage_path": None,
+
+        "tp_configuration": tp,
+        "tp1_target_price": None,
+        "tp2_target_price": None,
+
+        "tp1_net_roi_percent":
+            tp["tp1_net_roi_percent"],
+
+        "tp2_net_roi_percent":
+            tp["tp2_net_roi_percent"],
+
+        "tp_quantity_plan": None,
+
+        "tp_execution_authorized": False,
+        "hedge_execution_authorized": False,
+
+        "order_payload_created": False,
+        "exchange_write": False,
+        "real_cash_order": False,
+    }
+
+    def finish(status, reason):
+
+        output["status"] = status
+        output["reason"] = reason
+
+        print(
+            "UNIT 13 STATUS =", status,
+            flush=True
+        )
+
+        print(
+            "UNIT 13 REASON =", reason,
+            flush=True
+        )
+
+        print(
+            "UNIT 13 POSITION SIDE =",
+            output["position_side"],
+            flush=True
+        )
+
+        print(
+            "UNIT 13 POSITION BTC =",
+            output["position_quantity"],
+            flush=True
+        )
+
+        print(
+            "UNIT 13 ENTRY PRICE =",
+            output["entry_price"],
+            flush=True
+        )
+
+        print(
+            "UNIT 13 ATR14 REGISTERED =",
+            output["atr14_registered"],
+            flush=True
+        )
+
+        print(
+            "UNIT 13 CYCLE REGISTERED =",
+            output["cycle_registered"],
+            flush=True
+        )
+
+        print(
+            "UNIT 13 TP1 NET ROI =",
+            output["tp1_net_roi_percent"],
+            flush=True
+        )
+
+        print(
+            "UNIT 13 TP2 NET ROI =",
+            output["tp2_net_roi_percent"],
+            flush=True
+        )
+
+        print(
+            "UNIT 13 TP QUANTITY PLAN =",
+            output["tp_quantity_plan"],
+            flush=True
+        )
+
+        print(
+            "UNIT 13 TP EXECUTION AUTHORIZED = False",
+            flush=True
+        )
+
+        print(
+            "UNIT 13 HEDGE EXECUTION AUTHORIZED = False",
+            flush=True
+        )
+
+        print(
+            "UNIT 13 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        print(
+            "FRESH RECONSTRUCTION UNIT 13 RESULT = PASS",
+            flush=True
+        )
+
+        print("=" * 80, flush=True)
+
+        return output
+
+    # --------------------------------------------------------
+    # RECONCILED CURRENT POSITION REQUIRED
+    # --------------------------------------------------------
+
+    if (
+        unit_11_result.get(
+            "position_reconciled"
+        ) is not True
+        or unit_10_result.get(
+            "position_reconciled"
+        ) is not True
+        or unit_8_result.get(
+            "demo_positions_verified"
+        ) is not True
+    ):
+        return finish(
+            "BLOCKED",
+            "POSITION_RECONCILIATION_UNVERIFIED"
+        )
+
+    handover = unit_11_result.get(
+        "position_management_handover"
+    )
+
+    position = unit_13_v1_existing_position(
+        handover
+    )
+
+    if position is None:
+        return finish(
+            "IDLE_OR_MULTIPLE_POSITIONS",
+            "SINGLE_EXISTING_POSITION_NOT_AVAILABLE"
+        )
+
+    output["existing_position_detected"] = True
+    output["position_side"] = position["side"]
+    output["position_quantity"] = (
+        position["quantity"]
+    )
+
+    # --------------------------------------------------------
+    # LEVERAGE FROM RENDER, NOT WEEX API
+    # --------------------------------------------------------
+
+    if position["side"] == "LONG":
+        leverage = unit_13_v1_env_num(
+            "WEEX_LEVERAGE_LONG",
+            os.getenv(
+                "WEEX_DEMO_LONG_LEVERAGE", "10"
+            )
+        )
+    else:
+        leverage = unit_13_v1_env_num(
+            "WEEX_LEVERAGE_SHORT",
+            os.getenv(
+                "WEEX_DEMO_SHORT_LEVERAGE", "10"
+            )
+        )
+
+    # --------------------------------------------------------
+    # EXCHANGE ENTRY EVIDENCE + HISTORY MATCH
+    # --------------------------------------------------------
+
+    entry_str = position[
+        "exchange_entry_price"
+    ]
+
+    if entry_str is None:
+        return finish(
+            "PENDING_ENTRY_EVIDENCE",
+            "EXCHANGE_AVERAGE_ENTRY_MISSING"
+        )
+
+    entry = unit_13_v1_num(
+        entry_str,
+        "ENTRY PRICE"
+    )
+
+    output["entry_price"] = (
+        unit_13_v1_fmt(entry)
+    )
+
+    history_candidates = (
+        unit_11_result.get(
+            "entry_evidence_candidates",
+            []
+        )
+    )
+
+    matches = []
+
+    for candidate in history_candidates:
+
+        if not isinstance(candidate, dict):
+            continue
+
+        if candidate.get(
+            "position_side"
+        ) != position["side"]:
+            continue
+
+        try:
+            candidate_price = (
+                unit_13_v1_num(
+                    candidate.get(
+                        "average_fill_price"
+                    ),
+                    "HISTORY FILL PRICE"
+                )
+            )
+
+            candidate_qty = (
+                unit_13_v1_num(
+                    candidate.get("quantity"),
+                    "HISTORY FILL QUANTITY"
+                )
+            )
+
+        except ValueError:
+            continue
+
+        if (
+            candidate_qty == unit_13_v1_num(
+                position["quantity"],
+                "CURRENT QUANTITY"
+            )
+            and candidate_price == entry
+        ):
+            matches.append(candidate)
+
+    # This simple reconciliation permits
+    # a single matching candidate only.
+    # It does not certify complete order history.
+    if len(matches) != 1:
+        return finish(
+            "PENDING_ENTRY_EVIDENCE",
+            "UNAMBIGUOUS_FILL_MATCH_NOT_FOUND"
+        )
+
+    output["entry_evidence_verified"] = True
+
+    # --------------------------------------------------------
+    # TP TARGETS AND EXCHANGE-SIZED QUANTITIES
+    # --------------------------------------------------------
+
+    output["tp1_target_price"] = (
+        unit_13_v1_target_price(
+            entry,
+            leverage,
+            tp["tp1_net_roi_percent"],
+            tp["taker_fee_percent"],
+            position["side"],
+        )
+    )
+
+    output["tp2_target_price"] = (
+        unit_13_v1_target_price(
+            entry,
+            leverage,
+            tp["tp2_net_roi_percent"],
+            tp["taker_fee_percent"],
+            position["side"],
+        )
+    )
+
+    output["tp_quantity_plan"] = (
+        unit_13_v1_tp_quantities(
+            position["quantity"],
+            tp,
+        )
+    )
+
+    # --------------------------------------------------------
+    # REGISTER EXPLICIT ADOPTION ATR
+    # --------------------------------------------------------
+
+    atr = unit_13_v1_adoption_atr()
+
+    if not atr["verified"]:
+        return finish(
+            "TP_PLANNED_ATR_ADOPTION_PENDING",
+            atr["reason"]
+        )
+
+    output["atr14_reference"] = (
+        atr["atr14"]
+    )
+
+    output["atr_reference_type"] = (
+        atr["reference_type"]
+    )
+
+    # We need a splittable original position.
+    quantity = unit_13_v1_num(
+        position["quantity"],
+        "HEDGE ORIGINAL QUANTITY"
+    )
+
+    if (
+        quantity < Decimal("0.0002")
+        or quantity % Decimal("0.0002") != 0
+    ):
+        return finish(
+            "ATR_ADOPTION_BLOCKED",
+            "ORIGINAL_QUANTITY_NOT_SPLITTABLE"
+        )
+
+    # --------------------------------------------------------
+    # CREATE RESTART-RECOVERABLE CYCLE RECORD
+    # --------------------------------------------------------
+
+    cycle_id = (
+        "adopt-"
+        + hashlib.sha256(
+            (
+                "BTCSUSDT|"
+                + position["side"]
+                + "|"
+                + position["quantity"]
+                + "|"
+                + entry_str
+                + "|"
+                + str(matches[0].get("order_id"))
+            ).encode("utf-8")
+        ).hexdigest()[:24]
+    )
+
+    cycle = {
+        "cycle_id": cycle_id,
+        "cycle_registered": True,
+
+        "execution_environment": "DEMO",
+        "symbol": "BTCSUSDT",
+
+        "original_side": position["side"],
+        "original_quantity":
+            position["quantity"],
+
+        "original_entry_price":
+            unit_13_v1_fmt(entry),
+
+        "entry_order_id":
+            matches[0].get("order_id"),
+
+        "frozen_atr14":
+            atr["atr14"],
+
+        "atr_reference_type":
+            "ADOPTION_TIME",
+
+        "historical_entry_atr_verified":
+            False,
+
+        "atr_snapshot_timestamp_ms":
+            atr["timestamp_ms"],
+
+        "hedge_stage": "INITIAL",
+
+        "minimum_quantity": "0.0001",
+        "quantity_step": "0.0001",
+
+        "entry_fill_evidence_verified": True,
+        "atr_snapshot_evidence_verified": True,
+
+        "durably_persisted": True,
+
+        "tp_configuration": dict(tp),
+
+        "tp_execution_authorized": False,
+        "hedge_execution_authorized": False,
+
+        "requires_fresh_exchange_reconciliation":
+            True,
+    }
+
+    try:
+        saved_path = (
+            unit_13_v1_save_cycle(
+                cycle
+            )
+        )
+
+    except Exception as exc:
+        return finish(
+            "ATR_ADOPTION_STORAGE_PENDING",
+            str(exc)
+        )
+
+    output["cycle_registered"] = True
+    output["atr14_registered"] = True
+
+    output["cycle_id"] = cycle_id
+    output["cycle_state"] = cycle
+
+    output["cycle_storage_path"] = (
+        saved_path
+    )
+
+    return finish(
+        "ATR_CYCLE_ADOPTED_TP_PLANNED",
+        "UNIT_14_EXECUTION_RECONCILIATION_REQUIRED"
+    )
+
+
+# ============================================================
+# 13.9 OFFLINE VALIDATION
+# ============================================================
+
+def unit_13_validation_v1():
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 13 VALIDATION V1 START",
+        flush=True
+    )
+
+    tests = []
+
+    def check(name, ok):
+        tests.append((name, bool(ok)))
+
+    config = unit_13_v1_tp_config()
+
+    check(
+        "TP ALLOCATIONS SUM TO 100",
+        sum(Decimal(
+            config[key]
+        ) for key in (
+            "tp1_allocation_percent",
+            "tp2_allocation_percent",
+            "tp3_allocation_percent",
+        )) == 100
+    )
+
+    check(
+        "TP2 TARGET EXCEEDS TP1",
+        Decimal(
+            config["tp2_net_roi_percent"]
+        ) > Decimal(
+            config["tp1_net_roi_percent"]
+        )
+    )
+
+    long_tp1 = Decimal(
+        unit_13_v1_target_price(
+            "78000", "10", "5",
+            "0.08", "LONG"
+        )
+    )
+
+    long_tp2 = Decimal(
+        unit_13_v1_target_price(
+            "78000", "10", "10",
+            "0.08", "LONG"
+        )
+    )
+
+    check(
+        "LONG TP1 PRICE",
+        long_tp1 > Decimal("78000")
+    )
+
+    check(
+        "LONG TP2 ABOVE TP1",
+        long_tp2 > long_tp1
+    )
+
+    short_tp1 = Decimal(
+        unit_13_v1_target_price(
+            "78000", "10", "5",
+            "0.08", "SHORT"
+        )
+    )
+
+    short_tp2 = Decimal(
+        unit_13_v1_target_price(
+            "78000", "10", "10",
+            "0.08", "SHORT"
+        )
+    )
+
+    check(
+        "SHORT TP1 BELOW ENTRY",
+        short_tp1 < Decimal("78000")
+    )
+
+    check(
+        "SHORT TP2 BELOW TP1",
+        short_tp2 < short_tp1
+    )
+
+    tiny = unit_13_v1_tp_quantities(
+        "0.0002",
+        config,
+    )
+
+    check(
+        "MINIMUM POSITION TP1 DEFERRED",
+        tiny["tp1_deferred"]
+    )
+
+    check(
+        "MINIMUM POSITION TP2 DEFERRED",
+        tiny["tp2_deferred"]
+    )
+
+    check(
+        "MINIMUM POSITION RETAINED",
+        Decimal(
+            tiny["tp3_btc"]
+        ) == Decimal("0.0002")
+    )
+
+    larger = unit_13_v1_tp_quantities(
+        "0.01",
+        config,
+    )
+
+    check(
+        "LARGER POSITION QUANTITY CONSERVED",
+        sum(
+            Decimal(larger[key])
+            for key in (
+                "tp1_btc",
+                "tp2_btc",
+                "tp3_btc",
+            )
+        ) == Decimal("0.01")
+    )
+
+    check(
+        "EXECUTION DEFERRED TO LATER UNITS",
+        tiny[
+            "requires_execution_coordination"
+        ] is True
+    )
+
+    passed = sum(
+        int(ok) for _, ok in tests
+    )
+
+    failed = len(tests) - passed
+
+    for name, ok in tests:
+
+        print(
+            "UNIT 13 TEST:",
+            name,
+            "=",
+            "PASS" if ok else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 13 TESTS PASSED =",
+        passed,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TESTS FAILED =",
+        failed,
+        flush=True
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT 13 VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 13 VALIDATION V1 RESULT = PASS",
+        flush=True
+    )
+
+    return True
+
+
+# ============================================================
+# 13.10 RUN UNIT 13
+# ============================================================
+
+FRESH_UNIT_13_VALIDATION_READY = (
+    unit_13_validation_v1()
+)
+
+FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
+    fresh_reconstruction_unit_13(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_12_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_10_RESULT,
+        FRESH_RECONSTRUCTION_DEMO_PLAN,
+    )
+)
+
+FRESH_RECONSTRUCTION_TP_POLICY = (
+    FRESH_RECONSTRUCTION_UNIT_13_RESULT
+)
+
+FRESH_UNIT_13_V1_READY = (
+    FRESH_UNIT_13_VALIDATION_READY is True
+    and FRESH_RECONSTRUCTION_UNIT_13_RESULT.get(
+        "unit_13_version"
+    ) == UNIT_13_V1_VERSION
+)
+
+print(
+    "FRESH RECONSTRUCTION UNIT 13 V1 READY =",
+    FRESH_UNIT_13_V1_READY,
+    flush=True
+)
+
+print(
+    "UNIT 13 EXCHANGE WRITE = NONE",
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 13 V1
+# UNIT 14 FOLLOWS
+# ============================================================
