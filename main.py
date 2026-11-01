@@ -7350,6 +7350,659 @@ print(
 
 
 # ============================================================
+# START COMPLETE UNIT 8 V8 REPLACEMENT
+# WEEX DEMO ACCOUNT + AUTOMATIC HEDGE MODE VERIFICATION
+#
+# UNIT 7 V11 -> UNIT 8 V8 -> UNIT 9
+#
+# PRESERVES ALL WORKING UNIT 7 HANDOVER FIELDS
+# NO BACKUPS
+# NO LEVERAGE API REQUESTS
+# NO ORDERS OR ACCOUNT MUTATIONS
+# REAL CASH ORDER SUBMISSION DISABLED
+#
+# PART 1 OF 2 - ZERO INDENTATION
+# ============================================================
+
+import os
+import json
+import time
+import hmac
+import hashlib
+import base64
+import urllib.request
+import urllib.error
+from urllib.parse import urlencode
+from decimal import Decimal, InvalidOperation
+
+
+# ============================================================
+# 8.1 SAFE NUMERIC CONVERSION
+# ============================================================
+
+def unit_8_v8_decimal(
+    value,
+    name,
+    allow_zero=False,
+    allow_negative=False,
+):
+    if isinstance(value, bool):
+        raise ValueError(
+            "UNIT 8 BOOLEAN NOT VALID: " + name
+        )
+
+    try:
+        result = Decimal(str(value))
+    except (
+        InvalidOperation,
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise ValueError(
+            "UNIT 8 INVALID NUMBER: " + name
+        ) from exc
+
+    if not result.is_finite():
+        raise ValueError(
+            "UNIT 8 NONFINITE NUMBER: " + name
+        )
+
+    if result < 0 and not allow_negative:
+        raise ValueError(
+            "UNIT 8 NEGATIVE NUMBER: " + name
+        )
+
+    if result == 0 and not allow_zero:
+        raise ValueError(
+            "UNIT 8 ZERO NUMBER: " + name
+        )
+
+    return result
+
+
+def unit_8_v8_format(value):
+    value = Decimal(str(value))
+    if value == 0:
+        return "0"
+    return format(value.normalize(), "f")
+
+
+# ============================================================
+# 8.2 AUTHENTICATED WEEX GET
+# EXPLICIT THREE-ENDPOINT ALLOWLIST
+# ============================================================
+
+UNIT_8_V8_ALLOWED_ENDPOINTS = frozenset((
+    "/capi/v3/sim/balance",
+    "/capi/v3/sim/position/allPosition",
+    "/capi/v3/account/accountConfig",
+))
+
+
+def unit_8_v8_signed_get(path, params=None):
+
+    if path not in UNIT_8_V8_ALLOWED_ENDPOINTS:
+        raise RuntimeError(
+            "UNIT 8 ENDPOINT NOT ALLOWED"
+        )
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    passphrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, passphrase)):
+        raise RuntimeError(
+            "UNIT 8 API CREDENTIALS MISSING"
+        )
+
+    query = urlencode(params or {})
+    target = path + ("?" + query if query else "")
+
+    timestamp = str(int(time.time() * 1000))
+    signed_message = timestamp + "GET" + target
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            signed_message.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    request = urllib.request.Request(
+        "https://api-contract.weex.com" + target,
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-PASSPHRASE": passphrase,
+            "ACCESS-TIMESTAMP": timestamp,
+            "Content-Type": "application/json",
+            "locale": "en-US",
+        },
+        method="GET",
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=12
+        ) as response:
+            if response.getcode() != 200:
+                raise RuntimeError(
+                    "UNIT 8 HTTP NOT 200"
+                )
+
+            payload = json.loads(
+                response.read().decode("utf-8")
+            )
+
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            "UNIT 8 HTTP ERROR " + str(exc.code)
+        ) from exc
+
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            "UNIT 8 NETWORK ERROR"
+        ) from exc
+
+    except Exception as exc:
+        raise RuntimeError(
+            "UNIT 8 GET FAILED: "
+            + type(exc).__name__
+        ) from exc
+
+    if isinstance(payload, dict):
+
+        code = payload.get("code")
+
+        if (
+            code is not None
+            and str(code) not in ("0", "200", "00000")
+        ):
+            raise RuntimeError(
+                "UNIT 8 API CODE " + str(code)
+            )
+
+        if "data" in payload:
+            return payload["data"]
+
+    return payload
+
+
+# ============================================================
+# 8.3 MANUAL RENDER LEVERAGE
+# NO WEEX LEVERAGE API READ OR WRITE
+# ============================================================
+
+def unit_8_v8_render_leverage():
+
+    result = {}
+
+    for side, variable in (
+        ("LONG", "WEEX_DEMO_LONG_LEVERAGE"),
+        ("SHORT", "WEEX_DEMO_SHORT_LEVERAGE"),
+    ):
+        raw = os.getenv(variable, "").strip()
+
+        if not raw:
+            raise RuntimeError(
+                "UNIT 8 MISSING " + variable
+            )
+
+        leverage = unit_8_v8_decimal(
+            raw, variable
+        )
+
+        if leverage > Decimal("200"):
+            raise RuntimeError(
+                "UNIT 8 LEVERAGE ABOVE 200"
+            )
+
+        result[side] = leverage
+
+    return result
+
+
+# ============================================================
+# 8.4 VERIFIED WEEX DEMO BALANCE
+# ============================================================
+
+def unit_8_v8_balance():
+
+    raw = unit_8_v8_signed_get(
+        "/capi/v3/sim/balance"
+    )
+
+    if isinstance(raw, dict):
+        raw = [raw]
+
+    if not isinstance(raw, list):
+        raise RuntimeError(
+            "UNIT 8 BALANCE RESPONSE INVALID"
+        )
+
+    asset = next(
+        (
+            item for item in raw
+            if isinstance(item, dict)
+            and str(
+                item.get("asset", "")
+            ).upper() == "SUSDT"
+        ),
+        None
+    )
+
+    if asset is None:
+        raise RuntimeError(
+            "UNIT 8 SUSDT ASSET MISSING"
+        )
+
+    available = unit_8_v8_decimal(
+        asset.get("availableBalance"),
+        "AVAILABLE SUSDT",
+        allow_zero=True,
+    )
+
+    equity = None
+    equity_source = None
+
+    if asset.get("equity") is not None:
+
+        equity = unit_8_v8_decimal(
+            asset["equity"],
+            "ACCOUNT EQUITY",
+            allow_zero=True,
+        )
+
+        equity_source = "WEEX_REPORTED_EQUITY"
+
+    elif (
+        asset.get("balance") is not None
+        and asset.get("unrealizePnl") is not None
+    ):
+
+        balance_amount = unit_8_v8_decimal(
+            asset["balance"],
+            "ACCOUNT BALANCE",
+            allow_zero=True,
+        )
+
+        pnl = unit_8_v8_decimal(
+            asset["unrealizePnl"],
+            "UNREALIZED PNL",
+            allow_zero=True,
+            allow_negative=True,
+        )
+
+        equity = balance_amount + pnl
+
+        if equity < 0:
+            raise RuntimeError(
+                "UNIT 8 NEGATIVE ACCOUNT EQUITY"
+            )
+
+        equity_source = (
+            "BALANCE_PLUS_UNREALIZED_PNL"
+        )
+
+    # Do not invent occupied margin if unavailable.
+    used_margin = None
+    used_margin_field = None
+
+    for field in (
+        "usedMargin",
+        "marginUsed",
+        "positionMargin",
+    ):
+        if asset.get(field) is not None:
+            used_margin = unit_8_v8_decimal(
+                asset[field],
+                "USED MARGIN",
+                allow_zero=True,
+            )
+            used_margin_field = field
+            break
+
+    return {
+        "available": available,
+        "equity": equity,
+        "equity_source": equity_source,
+        "used_margin": used_margin,
+        "used_margin_field": used_margin_field,
+    }
+
+
+# ============================================================
+# 8.5 AUTOMATIC LONG/SHORT IDENTIFICATION
+# DEMO POSITIONS MAY INCLUDE BOTH DIRECTIONS
+# ============================================================
+
+def unit_8_v8_normalize_positions(raw):
+
+    if isinstance(raw, dict):
+        raw = [raw]
+
+    if not isinstance(raw, list):
+        raise RuntimeError(
+            "UNIT 8 POSITION RESPONSE INVALID"
+        )
+
+    positions = []
+    totals = {
+        "LONG": Decimal("0"),
+        "SHORT": Decimal("0"),
+    }
+
+    for item in raw:
+
+        if not isinstance(item, dict):
+            raise RuntimeError(
+                "UNIT 8 POSITION RECORD INVALID"
+            )
+
+        symbol = str(
+            item.get("symbol", "")
+        ).strip().upper()
+
+        if symbol not in ("BTCUSDT", "BTCSUSDT"):
+            continue
+
+        quantity_field = next(
+            (
+                field for field in (
+                    "size",
+                    "total",
+                    "holdVol",
+                )
+                if item.get(field) is not None
+            ),
+            None
+        )
+
+        if quantity_field is None:
+            raise RuntimeError(
+                "UNIT 8 POSITION SIZE MISSING"
+            )
+
+        quantity = unit_8_v8_decimal(
+            item[quantity_field],
+            "POSITION SIZE",
+            allow_zero=True,
+        )
+
+        if quantity == 0:
+            continue
+
+        identified = []
+
+        for field in (
+            "side",
+            "positionSide",
+            "holdSide",
+        ):
+            value = item.get(field)
+
+            if value is None:
+                continue
+
+            normalized = str(
+                value
+            ).strip().upper()
+
+            if normalized in ("LONG", "SHORT"):
+                identified.append(
+                    (field, normalized)
+                )
+
+        if not identified:
+            raise RuntimeError(
+                "UNIT 8 POSITION DIRECTION UNKNOWN"
+            )
+
+        directions = {
+            value for _, value in identified
+        }
+
+        if len(directions) != 1:
+            raise RuntimeError(
+                "UNIT 8 POSITION DIRECTION CONFLICT"
+            )
+
+        side = directions.pop()
+        totals[side] += quantity
+
+        leverage = None
+
+        if item.get("leverage") is not None:
+            leverage = unit_8_v8_format(
+                unit_8_v8_decimal(
+                    item["leverage"],
+                    "POSITION LEVERAGE",
+                )
+            )
+
+        positions.append({
+            "symbol": symbol,
+            "positionSide": side,
+            "size": unit_8_v8_format(quantity),
+            "size_field": quantity_field,
+            "side_source": identified[0][0],
+            "leverage": leverage,
+            "position_id": item.get("id"),
+            "marginType": item.get("marginType"),
+            "separatedMode":
+                item.get("separatedMode"),
+            "read_only": True,
+        })
+
+    return positions, totals
+
+
+def unit_8_v8_positions():
+
+    raw = unit_8_v8_signed_get(
+        "/capi/v3/sim/position/allPosition"
+    )
+
+    positions, totals = (
+        unit_8_v8_normalize_positions(raw)
+    )
+
+    print(
+        "UNIT 8 AUTO POSITION IDENTIFICATION = PASS",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 LONG POSITION TOTAL BTC =",
+        unit_8_v8_format(totals["LONG"]),
+        flush=True
+    )
+
+    print(
+        "UNIT 8 SHORT POSITION TOTAL BTC =",
+        unit_8_v8_format(totals["SHORT"]),
+        flush=True
+    )
+
+    print(
+        "UNIT 8 ACTIVE POSITION RECORDS =",
+        len(positions),
+        flush=True
+    )
+
+    return positions, totals
+
+
+# ============================================================
+# 8.6 AUTOMATIC ACCOUNT-LEVEL DUAL-SIDE VERIFICATION
+# READ ONLY, EVEN IF EXISTING POSITIONS ARE OPEN
+# ============================================================
+
+def unit_8_v8_parse_account_mode(payload):
+
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            "UNIT 8 ACCOUNT CONFIG INVALID"
+        )
+
+    enabled = payload.get("dualSidePosition")
+
+    if type(enabled) is not bool:
+        raise RuntimeError(
+            "UNIT 8 DUAL SIDE FIELD INVALID"
+        )
+
+    can_trade = payload.get("canTrade")
+
+    if type(can_trade) is not bool:
+        can_trade = None
+
+    return {
+        "account_config_verified": True,
+        "account_dual_side_enabled": enabled,
+        "account_can_trade": can_trade,
+        "account_config_update_time":
+            payload.get("updateTime"),
+        "source": "WEEX_V3_ACCOUNT_CONFIG",
+        "demo_scope_verified": False,
+    }
+
+
+def unit_8_v8_account_mode():
+
+    payload = unit_8_v8_signed_get(
+        "/capi/v3/account/accountConfig"
+    )
+
+    result = unit_8_v8_parse_account_mode(
+        payload
+    )
+
+    print(
+        "UNIT 8 ACCOUNT CONFIG VERIFIED = True",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 ACCOUNT DUAL SIDE ENABLED =",
+        result["account_dual_side_enabled"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 ACCOUNT CAN TRADE =",
+        result["account_can_trade"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DEMO MODE SCOPE VERIFIED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 POSITION MODE CHANGE = NONE",
+        flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# 8.7 ADJUSTABLE EXPOSURE-CAP CHECK
+# ============================================================
+
+def unit_8_v8_capacity(
+    equity,
+    available,
+    proposed_margin,
+    exposure_percent,
+    committed_margin=None,
+):
+
+    available = unit_8_v8_decimal(
+        available,
+        "AVAILABLE BALANCE",
+        allow_zero=True,
+    )
+
+    proposed = unit_8_v8_decimal(
+        proposed_margin,
+        "PROPOSED MARGIN",
+    )
+
+    exposure = unit_8_v8_decimal(
+        exposure_percent,
+        "EXPOSURE CAP",
+        allow_zero=True,
+    )
+
+    if exposure > 100:
+        raise RuntimeError(
+            "UNIT 8 EXPOSURE CAP ABOVE 100"
+        )
+
+    result = {
+        "available_pass": available >= proposed,
+        "cap_verified": False,
+        "cap_pass": False,
+        "committed_margin": None,
+        "capacity_remaining": None,
+    }
+
+    if equity is None or committed_margin is None:
+        return result
+
+    equity = unit_8_v8_decimal(
+        equity,
+        "ACCOUNT EQUITY",
+        allow_zero=True,
+    )
+
+    committed = unit_8_v8_decimal(
+        committed_margin,
+        "COMMITTED MARGIN",
+        allow_zero=True,
+    )
+
+    remaining = max(
+        Decimal("0"),
+        equity * exposure / Decimal("100")
+        - committed
+    )
+
+    result.update({
+        "cap_verified": True,
+        "cap_pass": remaining >= proposed,
+        "committed_margin":
+            unit_8_v8_format(committed),
+        "capacity_remaining":
+            unit_8_v8_format(remaining),
+    })
+
+    return result
+
+
+# ============================================================
+# END UNIT 8 V8 PART 1
+# PART 2 STARTS AT ZERO INDENTATION
+# ============================================================
+
+
+# ============================================================
 # START COMPLETE UNIT 8 V7 REPLACEMENT
 # WEEX DEMO ACCOUNT + REVERSIBLE ATR HEDGE HANDOVER
 # UNIT 7 V11 -> UNIT 8 V7 -> UNIT 9
@@ -8934,3 +9587,5 @@ print(
 # END COMPLETE UNIT 8 V7 REPLACEMENT
 # UNIT 9 FOLLOWS
 # ============================================================
+
+
