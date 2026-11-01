@@ -2094,3 +2094,1209 @@ print(
 # UNIT 3 FOLLOWS
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# UNIVERSAL WEEX 15-UNIT HYBRID TRADING BOT
+# COMPLETE UNIT 3 V1 REPLACEMENT
+#
+# ADAPTED FROM:
+# 17248-LINE WORKING MODEL UNIT 3
+# 16414-LINE ATR HEDGE MODEL UNIT 3
+#
+# UNIVERSAL COIN MARKET PRICE
+# SELECTED SYMBOL FROM UNIT 2
+# WEEX V3 PUBLIC MARK PRICE
+# FRESHNESS AND RESPONSE VALIDATION
+# COIN-EQUIVALENT MARGIN CONVERSION
+# ORIGINAL 8-FIELD SNAPSHOT PRESERVED
+#
+# PUBLIC GET REQUEST ONLY
+# NO AUTHENTICATED API
+# NO DEMO OR REAL ORDER
+# ZERO INDENTATION AT UNIT BOUNDARY
+# ============================================================
+
+import json
+import math
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+from decimal import Decimal, InvalidOperation
+
+
+# ============================================================
+# 3.1 MARKET RESPONSE VALIDATION
+# PURE FUNCTION
+# ============================================================
+
+def unit_3_validate_mark_payload(
+    payload,
+    expected_symbol,
+    received_time_ms,
+    max_age_ms=120000,
+    future_tolerance_ms=15000,
+):
+
+    if not isinstance(payload, dict):
+
+        raise RuntimeError(
+            "UNIT 3 INVALID RESPONSE TYPE"
+        )
+
+    if payload.get("symbol") != expected_symbol:
+
+        raise RuntimeError(
+            "UNIT 3 RESPONSE SYMBOL MISMATCH"
+        )
+
+    try:
+
+        price = float(
+            payload.get("price")
+        )
+
+    except (
+        TypeError,
+        ValueError,
+        OverflowError,
+    ) as exc:
+
+        raise RuntimeError(
+            "UNIT 3 INVALID MARKET PRICE"
+        ) from exc
+
+    if not math.isfinite(price) or price <= 0:
+
+        raise RuntimeError(
+            "UNIT 3 NON-FINITE OR NON-POSITIVE PRICE"
+        )
+
+    timestamp = payload.get("time")
+
+    if (
+        not isinstance(timestamp, int)
+        or isinstance(timestamp, bool)
+        or timestamp <= 0
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 INVALID MARKET TIMESTAMP"
+        )
+
+    age_ms = (
+        int(received_time_ms) - timestamp
+    )
+
+    if age_ms < -future_tolerance_ms:
+
+        raise RuntimeError(
+            "UNIT 3 MARKET TIMESTAMP TOO FAR IN FUTURE"
+        )
+
+    if age_ms > max_age_ms:
+
+        raise RuntimeError(
+            "UNIT 3 STALE MARKET DATA"
+        )
+
+    return {
+
+        "price": price,
+
+        "exchange_time_ms": timestamp,
+
+        "market_age_ms": age_ms,
+    }
+
+
+# ============================================================
+# 3.2 COIN-EQUIVALENT MARGIN CONVERSION
+#
+# USE DECIMAL FOR PRICE * COIN QUANTITY.
+#
+# THE SELECTED COIN PRICE IS A REFERENCE
+# FOR INITIAL USDT MARGIN.
+#
+# THIS DOES NOT CALCULATE CONTRACT QUANTITY.
+# ============================================================
+
+def unit_3_resolve_initial_margin(
+    config,
+    market_price,
+):
+
+    if not isinstance(config, dict):
+
+        raise RuntimeError(
+            "UNIT 3 INVALID CONFIG FOR MARGIN"
+        )
+
+    margin = config.get("margin")
+
+    if not isinstance(margin, dict):
+
+        raise RuntimeError(
+            "UNIT 3 MARGIN CONFIG MISSING"
+        )
+
+    mode = margin.get("mode")
+
+    try:
+
+        price = Decimal(
+            str(market_price)
+        )
+
+    except (
+        InvalidOperation,
+        TypeError,
+        ValueError,
+    ) as exc:
+
+        raise RuntimeError(
+            "UNIT 3 INVALID CONVERSION PRICE"
+        ) from exc
+
+    if not price.is_finite() or price <= 0:
+
+        raise RuntimeError(
+            "UNIT 3 INVALID CONVERSION PRICE"
+        )
+
+    if mode == "COIN_EQUIVALENT":
+
+        try:
+
+            coin_amount = Decimal(
+                str(
+                    margin[
+                        "coin_equivalent_amount"
+                    ]
+                )
+            )
+
+        except (
+            InvalidOperation,
+            TypeError,
+            ValueError,
+            KeyError,
+        ) as exc:
+
+            raise RuntimeError(
+                "UNIT 3 INVALID COIN MARGIN"
+            ) from exc
+
+        if (
+            not coin_amount.is_finite()
+            or coin_amount <= 0
+        ):
+
+            raise RuntimeError(
+                "UNIT 3 INVALID COIN AMOUNT"
+            )
+
+        resolved = (
+            coin_amount * price
+        )
+
+        source = (
+            "VERIFIED_MARK_PRICE_COIN_CONVERSION"
+        )
+
+    elif mode == "FIXED_USDT":
+
+        try:
+
+            resolved = Decimal(
+                str(margin["fixed_usdt"])
+            )
+
+        except (
+            InvalidOperation,
+            TypeError,
+            ValueError,
+            KeyError,
+        ) as exc:
+
+            raise RuntimeError(
+                "UNIT 3 INVALID FIXED MARGIN"
+            ) from exc
+
+        source = "RENDER_FIXED_USDT"
+
+    else:
+
+        raise RuntimeError(
+            "UNIT 3 UNSUPPORTED MARGIN MODE"
+        )
+
+    if (
+        not resolved.is_finite()
+        or resolved <= 0
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 INVALID RESOLVED MARGIN"
+        )
+
+    return {
+
+        "mode": mode,
+
+        "margin_usdt": resolved,
+
+        "source": source,
+
+        "market_price": price,
+    }
+
+
+# ============================================================
+# 3.3 DETERMINISTIC VALIDATION TESTS
+#
+# NO WEEX REQUESTS IN THESE TESTS.
+# NO ORDER SUBMISSION.
+# ============================================================
+
+def unit_3_validation_tests_v2():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 3 UNIVERSAL VALIDATION START",
+        flush=True,
+    )
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    if not isinstance(config, dict):
+
+        raise RuntimeError(
+            "UNIT 3 TEST CONFIG MISSING"
+        )
+
+    exchange = config.get("exchange", {})
+
+    symbol = exchange.get("market_symbol")
+
+    if not isinstance(symbol, str) or not symbol:
+
+        raise RuntimeError(
+            "UNIT 3 TEST SYMBOL MISSING"
+        )
+
+    now_ms = 1800000000000
+
+    valid_payload = {
+
+        "symbol": symbol,
+
+        "price": "2.5000",
+
+        "time": now_ms - 1000,
+    }
+
+    passed = 0
+    failed = 0
+
+    def check(name, condition):
+
+        nonlocal passed, failed
+
+        if condition:
+
+            passed += 1
+
+            verdict = "PASS"
+
+        else:
+
+            failed += 1
+
+            verdict = "FAIL"
+
+        print(
+            "UNIT 3 TEST:",
+            name,
+            "=",
+            verdict,
+            flush=True,
+        )
+
+    def rejected(payload, expected_error):
+
+        try:
+
+            unit_3_validate_mark_payload(
+                payload,
+                symbol,
+                now_ms,
+            )
+
+        except RuntimeError as exc:
+
+            return str(exc) == expected_error
+
+        return False
+
+    validated = unit_3_validate_mark_payload(
+        valid_payload,
+        symbol,
+        now_ms,
+    )
+
+    check(
+        "VALID SYMBOL",
+        valid_payload["symbol"] == symbol,
+    )
+
+    check(
+        "VALID MARK PRICE",
+        validated["price"] == 2.5,
+    )
+
+    check(
+        "VALID EXCHANGE TIMESTAMP",
+        validated["exchange_time_ms"]
+        == now_ms - 1000,
+    )
+
+    check(
+        "VALID MARKET AGE",
+        validated["market_age_ms"] == 1000,
+    )
+
+    check(
+        "REJECT WRONG SYMBOL",
+        rejected(
+            {
+                **valid_payload,
+                "symbol": "INVALID_SYMBOL",
+            },
+            "UNIT 3 RESPONSE SYMBOL MISMATCH",
+        ),
+    )
+
+    check(
+        "REJECT ZERO PRICE",
+        rejected(
+            {
+                **valid_payload,
+                "price": "0",
+            },
+            "UNIT 3 NON-FINITE OR NON-POSITIVE PRICE",
+        ),
+    )
+
+    check(
+        "REJECT NEGATIVE PRICE",
+        rejected(
+            {
+                **valid_payload,
+                "price": "-1",
+            },
+            "UNIT 3 NON-FINITE OR NON-POSITIVE PRICE",
+        ),
+    )
+
+    check(
+        "REJECT NONNUMERIC PRICE",
+        rejected(
+            {
+                **valid_payload,
+                "price": "invalid",
+            },
+            "UNIT 3 INVALID MARKET PRICE",
+        ),
+    )
+
+    check(
+        "REJECT NONFINITE PRICE",
+        rejected(
+            {
+                **valid_payload,
+                "price": "nan",
+            },
+            "UNIT 3 NON-FINITE OR NON-POSITIVE PRICE",
+        ),
+    )
+
+    check(
+        "REJECT STALE DATA",
+        rejected(
+            {
+                **valid_payload,
+                "time": now_ms - 130000,
+            },
+            "UNIT 3 STALE MARKET DATA",
+        ),
+    )
+
+    check(
+        "REJECT FUTURE TIMESTAMP",
+        rejected(
+            {
+                **valid_payload,
+                "time": now_ms + 20000,
+            },
+            "UNIT 3 MARKET TIMESTAMP TOO FAR IN FUTURE",
+        ),
+    )
+
+    check(
+        "REJECT MISSING TIMESTAMP",
+        rejected(
+            {
+                "symbol": symbol,
+                "price": "2.5",
+            },
+            "UNIT 3 INVALID MARKET TIMESTAMP",
+        ),
+    )
+
+    check(
+        "REJECT INVALID PAYLOAD",
+        rejected(
+            [],
+            "UNIT 3 INVALID RESPONSE TYPE",
+        ),
+    )
+
+    # --------------------------------------------------------
+    # MARGIN CONVERSION VALIDATION
+    # --------------------------------------------------------
+
+    synthetic_config = {
+
+        "margin": {
+
+            "mode": "COIN_EQUIVALENT",
+
+            "coin_equivalent_amount": 1.0,
+
+            "fixed_usdt": 2.0,
+        }
+    }
+
+    converted = unit_3_resolve_initial_margin(
+        synthetic_config,
+        "2.50",
+    )
+
+    check(
+        "ONE COIN MARGIN CONVERSION",
+        converted["margin_usdt"]
+        == Decimal("2.50"),
+    )
+
+    synthetic_config["margin"][
+        "coin_equivalent_amount"
+    ] = 2.0
+
+    converted_two = unit_3_resolve_initial_margin(
+        synthetic_config,
+        "2.50",
+    )
+
+    check(
+        "TWO COIN MARGIN CONVERSION",
+        converted_two["margin_usdt"]
+        == Decimal("5.00"),
+    )
+
+    synthetic_config["margin"]["mode"] = (
+        "FIXED_USDT"
+    )
+
+    fixed_result = unit_3_resolve_initial_margin(
+        synthetic_config,
+        "2.50",
+    )
+
+    check(
+        "FIXED USDT MARGIN",
+        fixed_result["margin_usdt"]
+        == Decimal("2.0"),
+    )
+
+    print(
+        "UNIT 3 TESTS PASSED =",
+        passed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 TESTS FAILED =",
+        failed,
+        flush=True,
+    )
+
+    if failed:
+
+        raise RuntimeError(
+            "UNIT 3 UNIVERSAL VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 3 OPTIMIZATION VALIDATION RESULT = PASS",
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 TEST EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return True
+
+
+# ============================================================
+# 3.4 ACTUAL WEEX PUBLIC MARKET DATA
+# ============================================================
+
+def fresh_reconstruction_unit_3():
+
+    print("=" * 80, flush=True)
+
+    log(
+        "UNIVERSAL WEEX UNIT 3 V1 START"
+    )
+
+    if FRESH_RECONSTRUCTION_UNIT_1_READY is not True:
+
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: UNIT 1 NOT READY"
+        )
+
+    if FRESH_UNIT_2_OPTIMIZATION_READY is not True:
+
+        raise RuntimeError(
+            "UNIT 3 BLOCKED: UNIT 2 NOT READY"
+        )
+
+    if FRESH_UNIT_3_OPTIMIZATION_READY is not True:
+
+        raise RuntimeError(
+            "UNIT 3 TEST VALIDATION NOT READY"
+        )
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    if not isinstance(config, dict):
+
+        raise RuntimeError(
+            "UNIT 3 INVALID UNIT 2 CONFIG"
+        )
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+
+    if not isinstance(exchange, dict):
+
+        raise RuntimeError(
+            "UNIT 3 INVALID EXCHANGE CONFIG"
+        )
+
+    if not isinstance(safety, dict):
+
+        raise RuntimeError(
+            "UNIT 3 INVALID SAFETY CONFIG"
+        )
+
+    # ========================================================
+    # 3.5 EXCHANGE CONFIGURATION VALIDATION
+    # ========================================================
+
+    if exchange.get("name") != "WEEX":
+
+        raise RuntimeError(
+            "UNIT 3 INVALID EXCHANGE"
+        )
+
+    if exchange.get("api_version") != "V3":
+
+        raise RuntimeError(
+            "UNIT 3 INVALID API VERSION"
+        )
+
+    base_url = exchange.get(
+        "contract_base_url"
+    )
+
+    if base_url != "https://api-contract.weex.com":
+
+        raise RuntimeError(
+            "UNIT 3 INVALID CONTRACT BASE URL"
+        )
+
+    market_symbol = exchange.get(
+        "market_symbol"
+    )
+
+    if (
+        not isinstance(market_symbol, str)
+        or not market_symbol
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 MARKET SYMBOL MISSING"
+        )
+
+    # Confirm symbol has not changed between
+    # Unit 2 initialization and Unit 3 startup.
+
+    if market_symbol != os.getenv(
+        "TRADING_SYMBOL",
+        "",
+    ).strip().upper():
+
+        raise RuntimeError(
+            "UNIT 3 SYMBOL ENVIRONMENT MISMATCH"
+        )
+
+    if config.get(
+        "execution_environment"
+    ) != "DEMO":
+
+        raise RuntimeError(
+            "UNIT 3 INVALID EXECUTION ENVIRONMENT"
+        )
+
+    if safety.get(
+        "public_market_data_read_enabled"
+    ) is not True:
+
+        raise RuntimeError(
+            "UNIT 3 PUBLIC MARKET READ DISABLED"
+        )
+
+    # --------------------------------------------------------
+    # PRESERVE ORIGINAL UNIT-LOCAL SAFETY GATE
+    # --------------------------------------------------------
+
+    forbidden = (
+
+        "authenticated_api_enabled",
+
+        "account_access_enabled",
+
+        "position_access_enabled",
+
+        "order_endpoint_access_enabled",
+
+        "demo_order_submission_enabled",
+
+        "real_order_submission_enabled",
+
+        "exchange_mutation_enabled",
+
+        "leverage_mutation_enabled",
+
+        "margin_mode_mutation_enabled",
+
+        "position_mode_mutation_enabled",
+    )
+
+    for key in forbidden:
+
+        if safety.get(key) is not False:
+
+            raise RuntimeError(
+                "UNIT 3 UNSAFE CONFIGURATION: "
+                + key
+            )
+
+    print(
+        "PASS: UNIT 3 RECEIVED UNIT 2 V2 CONFIG",
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 SELECTED SYMBOL =",
+        market_symbol,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 READ-ONLY SAFETY GATE",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3.6 WEEX V3 PUBLIC MARK PRICE REQUEST
+    #
+    # SAME PUBLIC ENDPOINT AS REFERENCE MODELS.
+    # ONLY THE SYMBOL IS NOW DYNAMIC.
+    # ========================================================
+
+    endpoint = "/capi/v3/market/symbolPrice"
+
+    price_type = "MARK"
+
+    query = urllib.parse.urlencode({
+
+        "symbol": market_symbol,
+
+        "priceType": price_type,
+    })
+
+    request_url = (
+        base_url + endpoint + "?" + query
+    )
+
+    request = urllib.request.Request(
+
+        url=request_url,
+
+        method="GET",
+
+        headers={
+
+            "Accept": "application/json",
+
+            "User-Agent":
+                "WEEX-Universal-Market-Data-V1",
+        },
+    )
+
+    if (
+        request.get_method() != "GET"
+        or request.data is not None
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 NON-READ-ONLY HTTP REQUEST"
+        )
+
+    print(
+        "PASS: UNIT 3 ENDPOINT = WEEX V3 SYMBOL PRICE",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 HTTP METHOD = GET",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 PRICE TYPE = MARK",
+        flush=True,
+    )
+
+    # ========================================================
+    # 3.7 PERFORM PUBLIC MARKET REQUEST
+    # ========================================================
+
+    started = time.monotonic()
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            http_status = response.getcode()
+
+            raw_body = (
+                response.read()
+                .decode("utf-8")
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        error_body = ""
+
+        try:
+
+            error_body = (
+                exc.read()
+                .decode("utf-8")
+            )
+
+        except Exception:
+
+            pass
+
+        print(
+            "UNIT 3 HTTP ERROR CODE =",
+            exc.code,
+            flush=True,
+        )
+
+        print(
+            "UNIT 3 HTTP ERROR BODY =",
+            error_body[:500],
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 3 WEEX MARKET HTTP ERROR"
+        ) from exc
+
+    except urllib.error.URLError as exc:
+
+        print(
+            "UNIT 3 CONNECTION ERROR =",
+            repr(exc.reason),
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "UNIT 3 WEEX CONNECTION FAILED"
+        ) from exc
+
+    except Exception as exc:
+
+        print(
+            "UNIT 3 UNEXPECTED REQUEST ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+        raise
+
+    received_time_ms = int(
+        time.time() * 1000
+    )
+
+    latency_ms = round(
+        (
+            time.monotonic() - started
+        ) * 1000,
+        2,
+    )
+
+    if http_status != 200:
+
+        raise RuntimeError(
+            "UNIT 3 INVALID HTTP STATUS"
+        )
+
+    if not raw_body:
+
+        raise RuntimeError(
+            "UNIT 3 EMPTY MARKET RESPONSE"
+        )
+
+    try:
+
+        payload = json.loads(raw_body)
+
+    except json.JSONDecodeError as exc:
+
+        raise RuntimeError(
+            "UNIT 3 INVALID MARKET JSON"
+        ) from exc
+
+    # ========================================================
+    # 3.8 VERIFY LIVE MARKET PRICE AND TIMESTAMP
+    # ========================================================
+
+    validated = unit_3_validate_mark_payload(
+
+        payload=payload,
+
+        expected_symbol=market_symbol,
+
+        received_time_ms=received_time_ms,
+    )
+
+    live_price = validated["price"]
+
+    exchange_time_ms = validated[
+        "exchange_time_ms"
+    ]
+
+    market_age_ms = validated[
+        "market_age_ms"
+    ]
+
+    # ========================================================
+    # 3.9 PRESERVE ORIGINAL UNIT 3 -> UNIT 4 CONTRACT
+    #
+    # EXACT ORIGINAL EIGHT SNAPSHOT FIELDS.
+    # ========================================================
+
+    market_snapshot = {
+
+        "exchange": "WEEX",
+
+        "api_version": "V3",
+
+        "symbol": market_symbol,
+
+        "price": live_price,
+
+        "price_type": "MARK",
+
+        "exchange_time_ms":
+            exchange_time_ms,
+
+        "source":
+            "WEEX_V3_PUBLIC_MARK_PRICE",
+
+        "read_only": True,
+    }
+
+    required_fields = (
+
+        "exchange",
+
+        "api_version",
+
+        "symbol",
+
+        "price",
+
+        "price_type",
+
+        "exchange_time_ms",
+
+        "source",
+
+        "read_only",
+    )
+
+    if any(
+        key not in market_snapshot
+        for key in required_fields
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 MARKET SNAPSHOT INCOMPLETE"
+        )
+
+    # ========================================================
+    # 3.10 RESOLVE INITIAL MARGIN
+    #
+    # ONCE PRICE IS VERIFIED, CONVERT ANY
+    # COIN-EQUIVALENT MARGIN TO USDT.
+    #
+    # PRESERVE UNIT 2 CONFIG AND LEGACY
+    # STRATEGY INTERFACE FOR LATER UNITS.
+    # ========================================================
+
+    resolved = unit_3_resolve_initial_margin(
+        config,
+        live_price,
+    )
+
+    resolved_margin_usdt = float(
+        resolved["margin_usdt"]
+    )
+
+    if (
+        not math.isfinite(resolved_margin_usdt)
+        or resolved_margin_usdt <= 0
+    ):
+
+        raise RuntimeError(
+            "UNIT 3 RESOLVED MARGIN NOT REPRESENTABLE"
+        )
+
+    config["margin"][
+        "resolved_initial_margin_usdt"
+    ] = resolved_margin_usdt
+
+    config["margin"][
+        "resolved_market_price"
+    ] = live_price
+
+    config["margin"][
+        "resolved_price_time_ms"
+    ] = exchange_time_ms
+
+    config["margin"][
+        "resolved_margin_source"
+    ] = resolved["source"]
+
+    strategy = config.get("strategy")
+
+    if not isinstance(strategy, dict):
+
+        raise RuntimeError(
+            "UNIT 3 STRATEGY CONFIG MISSING"
+        )
+
+    # Maintain the legacy value for later units.
+    # This is a proposed margin, not permission
+    # to submit an order.
+
+    strategy[
+        "initial_fixed_usdt"
+    ] = resolved_margin_usdt
+
+    # ========================================================
+    # 3.11 FINAL REPORT
+    # ========================================================
+
+    print(
+        "UNIT 3 HTTP STATUS =",
+        http_status,
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 SELECTED SYMBOL =",
+        market_symbol,
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 LIVE MARK PRICE =",
+        live_price,
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 MARKET TIMESTAMP =",
+        exchange_time_ms,
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 MARKET AGE MS =",
+        market_age_ms,
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 REQUEST LATENCY MS =",
+        latency_ms,
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 MARKET DATA FRESHNESS = TRUE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 INITIAL MARGIN MODE =",
+        resolved["mode"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 RESOLVED INITIAL MARGIN USDT =",
+        resolved_margin_usdt,
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 MARGIN SOURCE =",
+        resolved["source"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 CONTRACT PRECISION VERIFIED =",
+        config.get(
+            "market_precision",
+            {},
+        ).get(
+            "precision_verified",
+            False,
+        ),
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 NORMALIZED MARKET SNAPSHOT",
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 3 HANDOVER READY FOR UNIT 4",
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 AUTHENTICATED API = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 DEMO ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 REAL ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 3 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    log(
+        "FRESH RECONSTRUCTION UNIT 3 RESULT = PASS"
+    )
+
+    print("=" * 80, flush=True)
+
+    return market_snapshot
+
+
+# ============================================================
+# 3.12 RUN VALIDATION TESTS FIRST
+# ============================================================
+
+FRESH_UNIT_3_OPTIMIZATION_READY = (
+    unit_3_validation_tests_v2()
+)
+
+
+# ============================================================
+# 3.13 RUN REAL WEEX PUBLIC MARKET READ
+# ============================================================
+
+FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
+    fresh_reconstruction_unit_3()
+)
+
+
+# ============================================================
+# 3.14 FINAL UNIT 3 READINESS
+# ============================================================
+
+if (
+    not isinstance(
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT,
+        dict,
+    )
+    or FRESH_RECONSTRUCTION_MARKET_SNAPSHOT.get(
+        "read_only"
+    ) is not True
+    or FRESH_RECONSTRUCTION_MARKET_SNAPSHOT.get(
+        "symbol"
+    ) != FRESH_RECONSTRUCTION_CONFIG[
+        "exchange"
+    ]["market_symbol"]
+):
+
+    raise RuntimeError(
+        "UNIT 3 MARKET HANDOVER NOT READY"
+    )
+
+
+print(
+    "UNIVERSAL UNIT 3 OPTIMIZATION READY =",
+    FRESH_UNIT_3_OPTIMIZATION_READY,
+    flush=True,
+)
+
+
+# ============================================================
+# END COMPLETE UNIVERSAL UNIT 3 V1
+# UNIT 4 FOLLOWS
+# ZERO INDENTATION
+# ============================================================
