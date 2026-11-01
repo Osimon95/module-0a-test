@@ -11514,3 +11514,1293 @@ print(
 # END COMPLETE UNIT 10 V1
 # UNIT 11 FOLLOWS
 # ============================================================
+
+# ============================================================
+# START COMPLETE UNIT 11 V1
+# WEEX EXECUTABLE DEMO FUTURES ARCHITECTURE
+#
+# UNIT 10 V1 -> UNIT 11 V1 -> UNIT 12
+#
+# EXISTING POSITION RECOVERY
+# DEMO ORDER HISTORY EVIDENCE
+# RECONCILED HEDGE CYCLE HANDOVER
+# ATR14 FREEZE VALIDATION
+#
+# NO BACKUP ORDERS
+# NO ACCOUNT CONFIGURATION CHANGE
+# NO ORDER SUBMISSION
+# NO LIVE CASH TRADING
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import json
+import time
+import hmac
+import base64
+import hashlib
+import urllib.request
+import urllib.error
+from urllib.parse import urlencode
+from decimal import Decimal, InvalidOperation
+
+
+UNIT_11_V1_VERSION = "UNIT11_V1_ATR_CYCLE_RECOVERY"
+
+UNIT_11_V1_HISTORY_PATH = (
+    "/capi/v3/sim/order/history"
+)
+
+
+# ============================================================
+# 11.1 STRICT NUMBER PARSING
+# ============================================================
+
+def unit_11_v1_decimal(value, label, zero=False):
+
+    if value is None or isinstance(value, bool):
+        raise ValueError(
+            "UNIT 11 INVALID " + label
+        )
+
+    try:
+        result = Decimal(str(value))
+    except (
+        InvalidOperation,
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise ValueError(
+            "UNIT 11 INVALID " + label
+        ) from exc
+
+    if not result.is_finite():
+        raise ValueError(
+            "UNIT 11 NONFINITE " + label
+        )
+
+    if result < 0 or (result == 0 and not zero):
+        raise ValueError(
+            "UNIT 11 INVALID RANGE " + label
+        )
+
+    return result
+
+
+def unit_11_v1_str(value):
+
+    value = Decimal(str(value))
+
+    if value == 0:
+        return "0"
+
+    return format(value.normalize(), "f")
+
+
+# ============================================================
+# 11.2 SIGNED DEMO ORDER HISTORY GET
+#
+# SEPARATE FROM UNIT 8 ALLOWLIST.
+# NO LIVE ACCOUNT ORDERS.
+# ============================================================
+
+def unit_11_v1_history_get(
+    symbol="BTCSUSDT",
+    page=0,
+    limit=100,
+):
+
+    if symbol != "BTCSUSDT":
+        raise RuntimeError(
+            "UNIT 11 DEMO SYMBOL REQUIRED"
+        )
+
+    if not isinstance(page, int) or page < 0:
+        raise RuntimeError(
+            "UNIT 11 HISTORY PAGE INVALID"
+        )
+
+    if not isinstance(limit, int):
+        raise RuntimeError(
+            "UNIT 11 HISTORY LIMIT INVALID"
+        )
+
+    if not 1 <= limit <= 1000:
+        raise RuntimeError(
+            "UNIT 11 HISTORY LIMIT OUT OF RANGE"
+        )
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    passphrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, passphrase)):
+        raise RuntimeError(
+            "UNIT 11 API CREDENTIALS MISSING"
+        )
+
+    query = urlencode({
+        "symbol": symbol,
+        "limit": limit,
+        "page": page,
+    })
+
+    target = (
+        UNIT_11_V1_HISTORY_PATH
+        + "?"
+        + query
+    )
+
+    timestamp = str(int(time.time() * 1000))
+
+    message = timestamp + "GET" + target
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            message.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    request = urllib.request.Request(
+        "https://api-contract.weex.com" + target,
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-PASSPHRASE": passphrase,
+            "ACCESS-TIMESTAMP": timestamp,
+            "Content-Type": "application/json",
+            "locale": "en-US",
+        },
+        method="GET",
+    )
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=12
+        ) as response:
+
+            payload = json.loads(
+                response.read().decode("utf-8")
+            )
+
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            "UNIT 11 DEMO HISTORY HTTP "
+            + str(exc.code)
+        ) from exc
+
+    except Exception as exc:
+        raise RuntimeError(
+            "UNIT 11 HISTORY GET FAILED: "
+            + type(exc).__name__
+        ) from exc
+
+    if isinstance(payload, dict):
+
+        code = payload.get("code")
+
+        if (
+            code is not None
+            and str(code) not in (
+                "0", "200", "00000"
+            )
+        ):
+            raise RuntimeError(
+                "UNIT 11 HISTORY API CODE "
+                + str(code)
+            )
+
+        if "data" in payload:
+            payload = payload["data"]
+
+    if not isinstance(payload, list):
+        raise RuntimeError(
+            "UNIT 11 HISTORY RESPONSE NOT LIST"
+        )
+
+    return payload
+
+
+# ============================================================
+# 11.3 NORMALIZE DEMO HISTORY
+#
+# PRESERVE FILLED ORDERS AS EVIDENCE.
+# A HISTORICAL ORDER IS NOT AUTOMATICALLY
+# THE BASIS OF THE CURRENT OPEN POSITION.
+# ============================================================
+
+def unit_11_v1_normalize_history(records):
+
+    if not isinstance(records, list):
+        raise ValueError(
+            "UNIT 11 HISTORY INVALID"
+        )
+
+    normalized = []
+
+    for item in records:
+
+        if not isinstance(item, dict):
+            raise ValueError(
+                "UNIT 11 ORDER RECORD INVALID"
+            )
+
+        symbol = str(
+            item.get("symbol", "")
+        ).upper()
+
+        if symbol != "BTCSUSDT":
+            continue
+
+        status = str(
+            item.get("status", "")
+        ).upper()
+
+        if status != "FILLED":
+            continue
+
+        side = str(
+            item.get("side", "")
+        ).upper()
+
+        position_side = str(
+            item.get("positionSide", "")
+        ).upper()
+
+        if side not in ("BUY", "SELL"):
+            continue
+
+        if position_side not in (
+            "LONG", "SHORT"
+        ):
+            continue
+
+        try:
+            qty = unit_11_v1_decimal(
+                item.get("executedQty"),
+                "EXECUTED QUANTITY"
+            )
+
+            avg = unit_11_v1_decimal(
+                item.get("avgPrice"),
+                "AVERAGE FILL PRICE"
+            )
+
+        except ValueError:
+            continue
+
+        order_id = item.get("orderId")
+
+        if order_id is None:
+            continue
+
+        timestamp = item.get("time")
+
+        normalized.append({
+            "order_id": str(order_id),
+            "client_order_id": item.get(
+                "clientOrderId"
+            ),
+            "symbol": symbol,
+            "side": side,
+            "position_side": position_side,
+            "quantity": unit_11_v1_str(qty),
+            "average_fill_price":
+                unit_11_v1_str(avg),
+            "time": timestamp,
+            "status": "FILLED",
+        })
+
+    return normalized
+
+
+# ============================================================
+# 11.4 FIND ENTRY EVIDENCE CANDIDATES
+#
+# BUY + LONG = LONG OPEN DIRECTION
+# SELL + SHORT = SHORT OPEN DIRECTION
+#
+# CANNOT INFER CURRENT COST BASIS FROM
+# AN ISOLATED HISTORICAL FILL.
+# ============================================================
+
+def unit_11_v1_find_candidates(
+    history,
+    long_quantity,
+    short_quantity,
+):
+
+    long_qty = unit_11_v1_decimal(
+        long_quantity,
+        "CURRENT LONG",
+        zero=True,
+    )
+
+    short_qty = unit_11_v1_decimal(
+        short_quantity,
+        "CURRENT SHORT",
+        zero=True,
+    )
+
+    candidates = []
+
+    for record in history:
+
+        side = record["position_side"]
+        direction = record["side"]
+
+        opening = (
+            (side == "LONG" and direction == "BUY")
+            or
+            (side == "SHORT" and direction == "SELL")
+        )
+
+        if not opening:
+            continue
+
+        current_qty = (
+            long_qty if side == "LONG"
+            else short_qty
+        )
+
+        if current_qty == 0:
+            continue
+
+        record_qty = unit_11_v1_decimal(
+            record["quantity"],
+            "HISTORY QUANTITY"
+        )
+
+        candidates.append({
+            "order_id": record["order_id"],
+            "position_side": side,
+            "quantity": record["quantity"],
+            "average_fill_price":
+                record["average_fill_price"],
+            "time": record["time"],
+            "quantity_matches_current":
+                record_qty == current_qty,
+            "current_position_basis_verified": False,
+        })
+
+    return candidates
+
+
+# ============================================================
+# 11.5 VERIFY DURABLE CYCLE EVIDENCE
+#
+# REQUIRE EXTERNAL PERSISTED CYCLE DATA.
+# NO ATR INFERENCE FROM ORDER HISTORY.
+# NO ADOPTION OF UNRELATED MANUAL POSITIONS.
+# ============================================================
+
+def unit_11_v1_verify_cycle(
+    cycle,
+    position_state,
+):
+
+    if not isinstance(cycle, dict):
+        return {
+            "registered": False,
+            "reason": "DURABLE_CYCLE_NOT_PROVIDED",
+            "cycle": None,
+        }
+
+    if cycle.get("durably_persisted") is not True:
+        return {
+            "registered": False,
+            "reason": "DURABLE_STORAGE_UNVERIFIED",
+            "cycle": None,
+        }
+
+    if cycle.get(
+        "entry_fill_evidence_verified"
+    ) is not True:
+        return {
+            "registered": False,
+            "reason": "ENTRY_FILL_UNVERIFIED",
+            "cycle": None,
+        }
+
+    if cycle.get(
+        "atr_snapshot_evidence_verified"
+    ) is not True:
+        return {
+            "registered": False,
+            "reason": "FROZEN_ATR_UNVERIFIED",
+            "cycle": None,
+        }
+
+    if not cycle.get("cycle_id"):
+        return {
+            "registered": False,
+            "reason": "CYCLE_ID_MISSING",
+            "cycle": None,
+        }
+
+    if not cycle.get("entry_order_id"):
+        return {
+            "registered": False,
+            "reason": "ENTRY_ORDER_ID_MISSING",
+            "cycle": None,
+        }
+
+    try:
+
+        original_qty = unit_11_v1_decimal(
+            cycle.get("original_quantity"),
+            "ORIGINAL QUANTITY",
+        )
+
+        entry = unit_11_v1_decimal(
+            cycle.get("original_entry_price"),
+            "ENTRY PRICE",
+        )
+
+        atr = unit_11_v1_decimal(
+            cycle.get("frozen_atr14"),
+            "FROZEN ATR14",
+        )
+
+    except ValueError:
+        return {
+            "registered": False,
+            "reason": "CYCLE_NUMERIC_FIELDS_INVALID",
+            "cycle": None,
+        }
+
+    side = cycle.get("original_side")
+
+    if side not in ("LONG", "SHORT"):
+        return {
+            "registered": False,
+            "reason": "ORIGINAL_SIDE_INVALID",
+            "cycle": None,
+        }
+
+    # Delegate stage allocation checking to
+    # existing verified Unit 10 logic.
+    unit10_cycle = {
+        "cycle_registered": True,
+        "fill_evidence_verified": True,
+        "cycle_id": str(cycle["cycle_id"]),
+        "original_side": side,
+        "original_quantity":
+            unit_11_v1_str(original_qty),
+        "original_entry_price":
+            unit_11_v1_str(entry),
+        "frozen_atr14":
+            unit_11_v1_str(atr),
+        "hedge_stage":
+            cycle.get("hedge_stage"),
+        "minimum_quantity":
+            cycle.get(
+                "minimum_quantity", "0.0001"
+            ),
+        "quantity_step":
+            cycle.get(
+                "quantity_step", "0.0001"
+            ),
+    }
+
+    checked = unit_10_v1_validate_cycle(
+        unit10_cycle,
+        position_state,
+    )
+
+    if not checked["cycle_registered"]:
+        return {
+            "registered": False,
+            "reason": checked["reason"],
+            "cycle": None,
+        }
+
+    return {
+        "registered": True,
+        "reason": "CYCLE_EVIDENCE_RECONCILED",
+        "cycle": dict(cycle),
+    }
+
+
+# ============================================================
+# 11.6 MAIN UNIT 11
+# ============================================================
+
+def fresh_reconstruction_unit_11(
+    config,
+    unit_10_result,
+    unit_9_result,
+    unit_8_result,
+    persisted_cycle=None,
+    history_provider=None,
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 11 V1 DEMO CYCLE RECOVERY START",
+        flush=True
+    )
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            config,
+            unit_10_result,
+            unit_9_result,
+            unit_8_result,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 11 INPUT CONTRACT INVALID"
+        )
+
+    if (
+        unit_10_result.get("unit_10_version")
+        != "UNIT10_V1_REVERSIBLE_ATR_HEDGE"
+        or unit_9_result.get("unit_9_version")
+        != "UNIT9_V5_REVERSIBLE_ATR_HEDGE"
+        or unit_8_result.get("unit_8_version")
+        != "UNIT8_V8_REVERSIBLE_ATR_HEDGE"
+    ):
+        raise RuntimeError(
+            "UNIT 11 UPSTREAM VERSION MISMATCH"
+        )
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+
+    if (
+        config.get("execution_environment")
+        != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("demo_order_symbol")
+        != "BTCSUSDT"
+        or safety.get(
+            "real_order_submission_enabled"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 11 DEMO SAFETY INVALID"
+        )
+
+    for upstream in (
+        unit_8_result,
+        unit_9_result,
+        unit_10_result,
+    ):
+        if (
+            upstream.get("exchange_write")
+            is not False
+            or upstream.get(
+                "order_payload_created"
+            ) is not False
+        ):
+            raise RuntimeError(
+                "UNIT 11 UPSTREAM WRITE DETECTED"
+            )
+
+    output = {
+        "unit_11_version": UNIT_11_V1_VERSION,
+        "status": "IDLE",
+        "reason": "NONE",
+        "demo_symbol": "BTCSUSDT",
+
+        "position_reconciled": False,
+        "positions": [],
+        "long_position_quantity": "0",
+        "short_position_quantity": "0",
+
+        "existing_position_management_required":
+            False,
+        "existing_position_management_independent":
+            True,
+
+        "history_read_verified": False,
+        "history_records_received": 0,
+        "filled_history_records": 0,
+        "entry_evidence_candidates": [],
+
+        "cycle_registered": False,
+        "cycle_id": None,
+        "cycle_state": None,
+        "cycle_registration_reason": None,
+
+        "original_side": None,
+        "original_entry_price": None,
+        "frozen_atr14": None,
+        "hedge_stage": "UNREGISTERED",
+
+        "account_dual_side_enabled":
+            unit_8_result.get(
+                "account_dual_side_enabled"
+            ),
+
+        "demo_dual_side_mode_verified":
+            unit_8_result.get(
+                "demo_dual_side_mode_verified"
+            ) is True,
+
+        "position_management_handover": None,
+
+        "new_entry_permitted":
+            unit_10_result.get(
+                "new_entry_permitted"
+            ) is True,
+
+        "entry_candidate":
+            unit_10_result.get(
+                "entry_candidate"
+            ),
+
+        "entry_candidate_ready":
+            unit_10_result.get(
+                "entry_candidate_ready"
+            ) is True,
+
+        "execution_ready": False,
+        "automatic_hedge_execution_authorized":
+            False,
+
+        "order_payload_created": False,
+        "trade_authorized": False,
+        "exchange_write": False,
+        "read_only": True,
+    }
+
+    def finish(status, reason):
+
+        output["status"] = status
+        output["reason"] = reason
+
+        print(
+            "UNIT 11 STATUS =", status,
+            flush=True
+        )
+
+        print(
+            "UNIT 11 REASON =", reason,
+            flush=True
+        )
+
+        print(
+            "UNIT 11 HISTORY READ VERIFIED =",
+            output["history_read_verified"],
+            flush=True
+        )
+
+        print(
+            "UNIT 11 FILLED HISTORY RECORDS =",
+            output["filled_history_records"],
+            flush=True
+        )
+
+        print(
+            "UNIT 11 ENTRY CANDIDATES =",
+            len(
+                output[
+                    "entry_evidence_candidates"
+                ]
+            ),
+            flush=True
+        )
+
+        print(
+            "UNIT 11 CYCLE REGISTERED =",
+            output["cycle_registered"],
+            flush=True
+        )
+
+        print(
+            "UNIT 11 FROZEN ATR14 =",
+            output["frozen_atr14"],
+            flush=True
+        )
+
+        print(
+            "UNIT 11 EXISTING MANAGEMENT =",
+            output[
+                "existing_position_management_required"
+            ],
+            flush=True
+        )
+
+        print(
+            "UNIT 11 AUTOMATIC HEDGE AUTHORIZED =",
+            output[
+                "automatic_hedge_execution_authorized"
+            ],
+            flush=True
+        )
+
+        print(
+            "UNIT 11 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        print(
+            "FRESH RECONSTRUCTION UNIT 11 RESULT = PASS",
+            flush=True
+        )
+
+        print("=" * 80, flush=True)
+
+        return output
+
+    # ========================================================
+    # 11.7 RECONCILE UNIT 10 POSITION HANDOVER
+    # ========================================================
+
+    handover = unit_10_result.get(
+        "position_management_handover"
+    )
+
+    if (
+        unit_10_result.get(
+            "position_reconciled"
+        ) is not True
+        or not isinstance(handover, dict)
+    ):
+        return finish(
+            "BLOCKED",
+            "UNIT_10_POSITION_HANDOVER_INVALID"
+        )
+
+    try:
+        position_state = (
+            unit_10_v1_verify_positions(
+                handover
+            )
+        )
+    except Exception as exc:
+        print(
+            "UNIT 11 POSITION ERROR =",
+            str(exc),
+            flush=True
+        )
+        return finish(
+            "BLOCKED",
+            "POSITION_RECONCILIATION_FAILED"
+        )
+
+    if (
+        position_state["long_quantity"]
+        != unit_8_result.get(
+            "long_position_quantity"
+        )
+        or position_state["short_quantity"]
+        != unit_8_result.get(
+            "short_position_quantity"
+        )
+    ):
+        return finish(
+            "BLOCKED",
+            "UNIT_8_POSITION_MISMATCH"
+        )
+
+    output["position_reconciled"] = True
+    output["positions"] = [
+        dict(p) for p in position_state["positions"]
+    ]
+
+    output["long_position_quantity"] = (
+        position_state["long_quantity"]
+    )
+
+    output["short_position_quantity"] = (
+        position_state["short_quantity"]
+    )
+
+    existing = not position_state[
+        "position_flat"
+    ]
+
+    output[
+        "existing_position_management_required"
+    ] = existing
+
+    # ========================================================
+    # 11.8 FETCH ACTUAL DEMO ORDER HISTORY
+    # ========================================================
+
+    provider = (
+        history_provider
+        if history_provider is not None
+        else unit_11_v1_history_get
+    )
+
+    try:
+        raw_history = provider(
+            symbol="BTCSUSDT",
+            page=0,
+            limit=100,
+        )
+
+        history = (
+            unit_11_v1_normalize_history(
+                raw_history
+            )
+        )
+
+        output["history_read_verified"] = True
+
+        output["history_records_received"] = (
+            len(raw_history)
+        )
+
+        output["filled_history_records"] = (
+            len(history)
+        )
+
+        output["entry_evidence_candidates"] = (
+            unit_11_v1_find_candidates(
+                history,
+                position_state[
+                    "long_quantity"
+                ],
+                position_state[
+                    "short_quantity"
+                ],
+            )
+        )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 11 DEMO HISTORY ERROR =",
+            str(exc),
+            flush=True
+        )
+
+        # Preserve the position handover, but do
+        # not misrepresent the history as verified.
+
+    # ========================================================
+    # 11.9 OPTIONAL DURABLE CYCLE VERIFICATION
+    # ========================================================
+
+    cycle_result = (
+        unit_11_v1_verify_cycle(
+            persisted_cycle,
+            position_state,
+        )
+    )
+
+    output["cycle_registration_reason"] = (
+        cycle_result["reason"]
+    )
+
+    output["cycle_registered"] = (
+        cycle_result["registered"]
+    )
+
+    if cycle_result["registered"]:
+
+        cycle = cycle_result["cycle"]
+
+        output["cycle_id"] = cycle["cycle_id"]
+        output["cycle_state"] = dict(cycle)
+
+        output["original_side"] = (
+            cycle["original_side"]
+        )
+
+        output["original_entry_price"] = (
+            cycle["original_entry_price"]
+        )
+
+        output["frozen_atr14"] = (
+            cycle["frozen_atr14"]
+        )
+
+        output["hedge_stage"] = (
+            cycle["hedge_stage"]
+        )
+
+    # ========================================================
+    # 11.10 POSITION MANAGEMENT HANDOVER
+    # ========================================================
+
+    output["position_management_handover"] = {
+        "symbol": "BTCUSDT",
+        "demo_symbol": "BTCSUSDT",
+
+        "positions": [
+            dict(p)
+            for p in position_state["positions"]
+        ],
+
+        "long_quantity":
+            position_state["long_quantity"],
+
+        "short_quantity":
+            position_state["short_quantity"],
+
+        "management_required": existing,
+        "bot_mode_independent": True,
+
+        "history_read_verified":
+            output["history_read_verified"],
+
+        "entry_evidence_candidates": [
+            dict(candidate)
+            for candidate in output[
+                "entry_evidence_candidates"
+            ]
+        ],
+
+        "cycle_registered":
+            output["cycle_registered"],
+
+        "cycle_id":
+            output["cycle_id"],
+
+        "cycle_state":
+            output["cycle_state"],
+
+        "original_side":
+            output["original_side"],
+
+        "original_entry_price":
+            output["original_entry_price"],
+
+        "frozen_atr14":
+            output["frozen_atr14"],
+
+        "hedge_stage":
+            output["hedge_stage"],
+
+        "account_dual_side_enabled":
+            output[
+                "account_dual_side_enabled"
+            ],
+
+        "demo_dual_side_mode_verified":
+            output[
+                "demo_dual_side_mode_verified"
+            ],
+
+        "automatic_transition_authorized": False,
+        "exchange_write": False,
+    }
+
+    # ========================================================
+    # 11.11 EXISTING POSITION MANAGEMENT
+    # NEVER BLOCK IT BASED ON BOT_MODE
+    # ========================================================
+
+    if existing:
+
+        if not output["cycle_registered"]:
+
+            return finish(
+                "POSITION_RECOVERED_PENDING_CYCLE",
+                cycle_result["reason"]
+            )
+
+        if not output[
+            "demo_dual_side_mode_verified"
+        ]:
+
+            return finish(
+                "CYCLE_VERIFIED_PENDING_DEMO_MODE",
+                "DEMO_HEDGE_MODE_UNVERIFIED"
+            )
+
+        # A cycle may be valid, but Unit 11 must
+        # never authorize or submit H1/H2/R1/R2.
+        return finish(
+            "CYCLE_HANDOVER_PREPARED",
+            "EXECUTION_CONTROL_PENDING"
+        )
+
+    # ========================================================
+    # 11.12 FLAT ACCOUNT NEW ENTRY HANDOVER
+    # ========================================================
+
+    if (
+        output["entry_candidate_ready"]
+        and output["new_entry_permitted"]
+        and isinstance(
+            output["entry_candidate"],
+            dict
+        )
+    ):
+
+        return finish(
+            "ENTRY_HANDOVER_PREPARED",
+            "UNIT_12_AUTHORIZATION_REQUIRED"
+        )
+
+    return finish(
+        "IDLE",
+        "NO_EXISTING_POSITION_OR_ENTRY"
+    )
+
+
+# ============================================================
+# 11.13 OFFLINE VALIDATION
+# ============================================================
+
+def unit_11_validation_v1():
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 11 VALIDATION V1 START",
+        flush=True
+    )
+
+    tests = []
+
+    def test(name, condition):
+        tests.append((name, bool(condition)))
+
+    example = [{
+        "orderId": "12345",
+        "symbol": "BTCSUSDT",
+        "side": "BUY",
+        "positionSide": "LONG",
+        "status": "FILLED",
+        "executedQty": "0.0002",
+        "avgPrice": "78000",
+        "time": 1761900000000,
+        "clientOrderId": "unit11-test",
+    }]
+
+    history = (
+        unit_11_v1_normalize_history(
+            example
+        )
+    )
+
+    test(
+        "DEMO HISTORY NORMALIZATION",
+        len(history) == 1,
+    )
+
+    test(
+        "REAL FILL FIELD PARSING",
+        history[0]["average_fill_price"]
+        == "78000",
+    )
+
+    candidates = (
+        unit_11_v1_find_candidates(
+            history,
+            "0.0002",
+            "0",
+        )
+    )
+
+    test(
+        "EXISTING LONG HISTORY CANDIDATE",
+        len(candidates) == 1,
+    )
+
+    test(
+        "HISTORY DOES NOT VERIFY COST BASIS",
+        candidates[0][
+            "current_position_basis_verified"
+        ] is False,
+    )
+
+    position_state = (
+        unit_10_v1_verify_positions({
+            "positions": [{
+                "symbol": "BTCSUSDT",
+                "positionSide": "LONG",
+                "size": "0.0002",
+            }],
+            "long_quantity": "0.0002",
+            "short_quantity": "0",
+        })
+    )
+
+    no_cycle = unit_11_v1_verify_cycle(
+        None,
+        position_state,
+    )
+
+    test(
+        "MISSING CYCLE REJECTED",
+        no_cycle["registered"] is False,
+    )
+
+    sample = {
+        "durably_persisted": True,
+        "entry_fill_evidence_verified": True,
+        "atr_snapshot_evidence_verified": True,
+        "cycle_id": "OFFLINE_TEST",
+        "entry_order_id": "12345",
+        "original_side": "LONG",
+        "original_quantity": "0.0002",
+        "original_entry_price": "78000",
+        "frozen_atr14": "100",
+        "hedge_stage": "INITIAL",
+        "minimum_quantity": "0.0001",
+        "quantity_step": "0.0001",
+    }
+
+    verified = unit_11_v1_verify_cycle(
+        sample,
+        position_state,
+    )
+
+    test(
+        "VALID PERSISTED CYCLE",
+        verified["registered"] is True,
+    )
+
+    sample_no_atr = dict(sample)
+    sample_no_atr["frozen_atr14"] = None
+
+    missing_atr = unit_11_v1_verify_cycle(
+        sample_no_atr,
+        position_state,
+    )
+
+    test(
+        "MISSING FROZEN ATR REJECTED",
+        missing_atr["registered"] is False,
+    )
+
+    sample_no_storage = dict(sample)
+    sample_no_storage["durably_persisted"] = False
+
+    unpersisted = unit_11_v1_verify_cycle(
+        sample_no_storage,
+        position_state,
+    )
+
+    test(
+        "UNPERSISTED CYCLE REJECTED",
+        unpersisted["registered"] is False,
+    )
+
+    sample_wrong_stage = dict(sample)
+    sample_wrong_stage["hedge_stage"] = "H1"
+
+    stage_mismatch = unit_11_v1_verify_cycle(
+        sample_wrong_stage,
+        position_state,
+    )
+
+    test(
+        "INVALID STAGE ALLOCATION REJECTED",
+        stage_mismatch["registered"] is False,
+    )
+
+    test(
+        "READ ONLY HISTORY ENDPOINT",
+        UNIT_11_V1_HISTORY_PATH
+        == "/capi/v3/sim/order/history",
+    )
+
+    passed = sum(
+        int(ok) for _, ok in tests
+    )
+
+    failed = len(tests) - passed
+
+    for name, ok in tests:
+        print(
+            "UNIT 11 TEST:",
+            name,
+            "=",
+            "PASS" if ok else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 11 TESTS PASSED =",
+        passed,
+        flush=True
+    )
+
+    print(
+        "UNIT 11 TESTS FAILED =",
+        failed,
+        flush=True
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT 11 VALIDATION V1 FAILED"
+        )
+
+    print(
+        "UNIT 11 VALIDATION V1 RESULT = PASS",
+        flush=True
+    )
+
+    return True
+
+
+# ============================================================
+# 11.14 EXECUTE UNIT 11
+# ============================================================
+
+FRESH_UNIT_11_VALIDATION_READY = (
+    unit_11_validation_v1()
+)
+
+# No trusted persisted cycle is yet supplied.
+# This avoids inventing historical ATR14
+# for the existing WEEX demo position.
+
+FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
+    fresh_reconstruction_unit_11(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_10_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_9_RESULT,
+        FRESH_RECONSTRUCTION_DEMO_PLAN,
+        persisted_cycle=None,
+    )
+)
+
+FRESH_RECONSTRUCTION_CYCLE_POLICY = (
+    FRESH_RECONSTRUCTION_UNIT_11_RESULT
+)
+
+FRESH_UNIT_11_V1_READY = all((
+    FRESH_UNIT_11_VALIDATION_READY is True,
+
+    FRESH_RECONSTRUCTION_UNIT_11_RESULT.get(
+        "position_reconciled"
+    ) is True,
+
+    FRESH_RECONSTRUCTION_UNIT_11_RESULT.get(
+        "unit_11_version"
+    ) == UNIT_11_V1_VERSION,
+))
+
+print(
+    "FRESH RECONSTRUCTION UNIT 11 V1 READY =",
+    FRESH_UNIT_11_V1_READY,
+    flush=True
+)
+
+print(
+    "UNIT 11 EXCHANGE WRITE = NONE",
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 11 V1
+# UNIT 12 FOLLOWS
+# ============================================================
+
