@@ -9097,3 +9097,1175 @@ print(
 # ============================================================
 
 
+
+# ============================================================
+# START COMPLETE UNIT 9 V5 REPLACEMENT
+# WEEX EXECUTABLE DEMO FUTURES ARCHITECTURE
+#
+# UNIT 8 V8 -> UNIT 9 V5 -> UNIT 10
+#
+# SIGNAL CONTINUITY + ENTRY ADMISSION
+# EXISTING POSITION MANAGEMENT HANDOVER
+# REVERSIBLE ATR H1/H2/R1/R2 PREPARATION
+#
+# NO BACKUPS
+# NO EXCHANGE REQUESTS
+# NO ORDER SUBMISSIONS
+# NO REAL CASH TRADING
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import time
+from decimal import Decimal, InvalidOperation
+
+
+# ============================================================
+# 9.1 NUMERIC VALIDATION
+# ============================================================
+
+def unit_9_v5_decimal(
+    value,
+    name,
+    allow_zero=False,
+):
+
+    if value is None or isinstance(value, bool):
+        raise RuntimeError(
+            "UNIT 9 INVALID " + name
+        )
+
+    try:
+        number = Decimal(str(value))
+    except (
+        InvalidOperation,
+        ValueError,
+        TypeError,
+    ) as exc:
+        raise RuntimeError(
+            "UNIT 9 INVALID " + name
+        ) from exc
+
+    if not number.is_finite():
+        raise RuntimeError(
+            "UNIT 9 NONFINITE " + name
+        )
+
+    if number < 0 or (
+        number == 0 and not allow_zero
+    ):
+        raise RuntimeError(
+            "UNIT 9 INVALID RANGE " + name
+        )
+
+    return number
+
+
+def unit_9_v5_format(value):
+
+    number = Decimal(str(value))
+
+    if number == 0:
+        return "0"
+
+    return format(number.normalize(), "f")
+
+
+# ============================================================
+# 9.2 SIGNAL CONTINUITY STATE
+#
+# IN-MEMORY ONLY.
+# DO NOT TREAT THIS AS DURABLE TRADE STATE.
+# ============================================================
+
+UNIT_9_V5_SIGNAL_STATE = {
+    "fingerprint": None,
+    "count": 0,
+    "first_seen_monotonic": None,
+    "last_seen_monotonic": None,
+    "authorized_fingerprint": None,
+}
+
+
+def unit_9_v5_reset_signal(state):
+
+    state["fingerprint"] = None
+    state["count"] = 0
+    state["first_seen_monotonic"] = None
+    state["last_seen_monotonic"] = None
+
+    # Retain authorization history within the
+    # current process to help prevent duplicate
+    # admission for the same fingerprint.
+
+
+def unit_9_v5_continuity(
+    state,
+    fingerprint,
+    now,
+    required,
+    expiry_seconds,
+):
+
+    if not fingerprint:
+
+        unit_9_v5_reset_signal(state)
+
+        return {
+            "count": 0,
+            "required": required,
+            "verified": False,
+            "expired": False,
+            "duplicate_authorization": False,
+        }
+
+    first = state.get("first_seen_monotonic")
+    last = state.get("last_seen_monotonic")
+
+    expired = (
+        first is not None
+        and now - first > expiry_seconds
+    )
+
+    # Reset whenever the signal changes or
+    # its permitted continuity window expires.
+    if (
+        state.get("fingerprint") != fingerprint
+        or expired
+        or (
+            last is not None
+            and now < last
+        )
+    ):
+        state["fingerprint"] = fingerprint
+        state["count"] = 1
+        state["first_seen_monotonic"] = now
+
+    else:
+        # One count per invocation.
+        # A later continuous scan loop must
+        # supply genuinely refreshed evidence.
+        state["count"] += 1
+
+    state["last_seen_monotonic"] = now
+
+    duplicate = (
+        state.get("authorized_fingerprint")
+        == fingerprint
+    )
+
+    verified = (
+        state["count"] >= required
+        and not duplicate
+    )
+
+    return {
+        "count": state["count"],
+        "required": required,
+        "verified": verified,
+        "expired": expired,
+        "duplicate_authorization": duplicate,
+    }
+
+
+# ============================================================
+# 9.3 POSITION HANDOVER
+#
+# DOES NOT MODIFY EXCHANGE POSITIONS.
+# ============================================================
+
+def unit_9_v5_position_summary(unit_8_result):
+
+    positions = unit_8_result.get("positions")
+
+    if not isinstance(positions, list):
+        raise RuntimeError(
+            "UNIT 9 POSITION LIST INVALID"
+        )
+
+    long_total = Decimal("0")
+    short_total = Decimal("0")
+
+    for position in positions:
+
+        if not isinstance(position, dict):
+            raise RuntimeError(
+                "UNIT 9 POSITION RECORD INVALID"
+            )
+
+        side = position.get("positionSide")
+
+        quantity = unit_9_v5_decimal(
+            position.get("size"),
+            "POSITION QUANTITY",
+            allow_zero=True,
+        )
+
+        if side == "LONG":
+            long_total += quantity
+
+        elif side == "SHORT":
+            short_total += quantity
+
+        else:
+            raise RuntimeError(
+                "UNIT 9 POSITION DIRECTION UNKNOWN"
+            )
+
+    reported_long = unit_9_v5_decimal(
+        unit_8_result.get(
+            "long_position_quantity"
+        ),
+        "REPORTED LONG",
+        allow_zero=True,
+    )
+
+    reported_short = unit_9_v5_decimal(
+        unit_8_result.get(
+            "short_position_quantity"
+        ),
+        "REPORTED SHORT",
+        allow_zero=True,
+    )
+
+    if (
+        long_total != reported_long
+        or short_total != reported_short
+    ):
+        raise RuntimeError(
+            "UNIT 9 POSITION RECONCILIATION FAILED"
+        )
+
+    return {
+        "positions": [dict(p) for p in positions],
+        "long_quantity":
+            unit_9_v5_format(long_total),
+        "short_quantity":
+            unit_9_v5_format(short_total),
+        "position_flat":
+            long_total == 0 and short_total == 0,
+        "reconciled": True,
+    }
+
+
+# ============================================================
+# 9.4 MAIN UNIT 9
+# ============================================================
+
+def fresh_reconstruction_unit_9(
+    config,
+    unit_8_result,
+    unit_7_result=None,
+    continuity_state=None,
+    now_monotonic=None,
+):
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 9 V5 SIGNAL CONTINUITY START",
+        flush=True
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 9 CONFIG INVALID"
+        )
+
+    if not isinstance(unit_8_result, dict):
+        raise RuntimeError(
+            "UNIT 9 UNIT 8 RESULT INVALID"
+        )
+
+    if unit_7_result is None:
+        unit_7_result = (
+            FRESH_RECONSTRUCTION_SIZING_POLICY
+        )
+
+    if not isinstance(unit_7_result, dict):
+        raise RuntimeError(
+            "UNIT 9 UNIT 7 RESULT INVALID"
+        )
+
+    if continuity_state is None:
+        continuity_state = UNIT_9_V5_SIGNAL_STATE
+
+    if now_monotonic is None:
+        now_monotonic = time.monotonic()
+
+    exchange = config.get("exchange", {})
+    strategy = config.get("strategy", {})
+    safety = config.get("safety", {})
+
+    if not all(
+        isinstance(value, dict)
+        for value in (
+            exchange,
+            strategy,
+            safety,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 9 CONFIG SECTIONS INVALID"
+        )
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("demo_order_symbol")
+        != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 9 DEMO CONTRACT INVALID"
+        )
+
+    if safety.get(
+        "real_order_submission_enabled"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 9 REAL CASH MUST BE DISABLED"
+        )
+
+    if unit_8_result.get(
+        "unit_8_version"
+    ) != "UNIT8_V8_REVERSIBLE_ATR_HEDGE":
+        raise RuntimeError(
+            "UNIT 9 REQUIRES UNIT 8 V8"
+        )
+
+    if unit_7_result.get(
+        "unit_7_version"
+    ) != "UNIT7_V11_REVERSIBLE_ATR_HEDGE":
+        raise RuntimeError(
+            "UNIT 9 REQUIRES UNIT 7 V11"
+        )
+
+    # --------------------------------------------------------
+    # NINE-FIELD ORIGINAL UNIT 8 CONTRACT
+    # --------------------------------------------------------
+
+    required_fields = (
+        "status",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "trade_plan",
+        "skip_reason",
+        "read_only",
+    )
+
+    missing = [
+        key for key in required_fields
+        if key not in unit_8_result
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "UNIT 9 MISSING HANDOVER: "
+            + str(missing)
+        )
+
+    if (
+        unit_8_result.get("read_only") is not True
+        or unit_8_result.get(
+            "exchange_write"
+        ) is not False
+        or unit_8_result.get(
+            "order_payload_created"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 9 UPSTREAM SAFETY FAILED"
+        )
+
+    # --------------------------------------------------------
+    # SIGNAL CONTINUITY CONFIGURATION
+    # --------------------------------------------------------
+
+    required = int(
+        strategy.get(
+            "mode_confirmations_required",
+            3
+        )
+    )
+
+    expiry = int(
+        strategy.get(
+            "signal_expiry_seconds",
+            120
+        )
+    )
+
+    if not 1 <= required <= 10:
+        raise RuntimeError(
+            "UNIT 9 CONFIRMATION COUNT INVALID"
+        )
+
+    if not 1 <= expiry <= 3600:
+        raise RuntimeError(
+            "UNIT 9 EXPIRY INVALID"
+        )
+
+    # --------------------------------------------------------
+    # PRESERVE ADJUSTABLE ENTRY MARGIN
+    # --------------------------------------------------------
+
+    margin = unit_9_v5_decimal(
+        unit_7_result.get(
+            "initial_margin_usdt"
+        ),
+        "INITIAL ENTRY MARGIN"
+    )
+
+    margin_source = (
+        unit_7_result.get(
+            "initial_margin_source"
+        )
+    )
+
+    exposure = unit_9_v5_decimal(
+        strategy.get(
+            "exposure_cap_percent",
+            100
+        ),
+        "EXPOSURE CAP"
+    )
+
+    if exposure > Decimal("100"):
+        raise RuntimeError(
+            "UNIT 9 EXPOSURE CAP ABOVE 100"
+        )
+
+    mode = unit_8_result.get(
+        "active_mode", "NONE"
+    )
+
+    direction = unit_8_result.get(
+        "direction", "NONE"
+    )
+
+    # --------------------------------------------------------
+    # MAIN RESULT - UNIT 10 HANDOVER
+    # --------------------------------------------------------
+
+    result = {
+        "unit_9_version":
+            "UNIT9_V5_REVERSIBLE_ATR_HEDGE",
+
+        "status": "IDLE",
+        "skip_reason": "NONE",
+
+        "active_mode": mode,
+        "direction": direction,
+
+        "signal_qualified": (
+            unit_8_result.get(
+                "signal_qualified"
+            ) is True
+        ),
+
+        "execution_intent": False,
+        "trade_plan_ready": False,
+        "trade_plan": None,
+
+        "execution_ready": False,
+        "execution_candidate": None,
+
+        "signal_continuity_verified": False,
+        "confirmations": 0,
+        "confirmations_required": required,
+
+        "signal_expiry_seconds": expiry,
+        "signal_fingerprint": None,
+
+        "entry_margin_usdt":
+            unit_9_v5_format(margin),
+
+        "entry_margin_source":
+            margin_source,
+
+        "entry_margin_verified": True,
+
+        "exposure_cap_percent":
+            float(exposure),
+
+        "leverage_source":
+            "RENDER_MANUAL_CONFIGURATION",
+
+        "exchange_leverage_verified": False,
+
+        "account_dual_side_enabled":
+            unit_8_result.get(
+                "account_dual_side_enabled"
+            ),
+
+        "demo_dual_side_mode_verified":
+            unit_8_result.get(
+                "demo_dual_side_mode_verified"
+            ) is True,
+
+        "position_reconciled": False,
+        "position_flat_verified": False,
+
+        "existing_position_management_required":
+            False,
+
+        "existing_position_management_independent":
+            True,
+
+        "position_management_handover": None,
+
+        "hedge_mode":
+            "REVERSIBLE_ATR_TWO_STAGE",
+
+        "hedge_h1_atr_multiplier": 1.0,
+        "hedge_h2_atr_multiplier": 2.0,
+        "hedge_r1_atr_multiplier": 1.0,
+        "hedge_r2_atr_multiplier": 0.0,
+
+        "cycle_entry_frozen": False,
+        "cycle_atr_frozen": False,
+
+        "new_entry_permitted": False,
+
+        "trade_authorized": False,
+        "order_payload_created": False,
+        "tp_execution_requested": False,
+        "sl_execution_requested": False,
+        "exchange_write": False,
+        "read_only": True,
+    }
+
+    def finish(status, reason):
+
+        result["status"] = status
+        result["skip_reason"] = reason
+
+        print(
+            "UNIT 9 STATUS =",
+            status,
+            flush=True
+        )
+
+        print(
+            "UNIT 9 SKIP REASON =",
+            reason,
+            flush=True
+        )
+
+        print(
+            "UNIT 9 CONFIRMATIONS =",
+            result["confirmations"],
+            "/",
+            result["confirmations_required"],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 CONTINUITY VERIFIED =",
+            result["signal_continuity_verified"],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 EXISTING POSITION MANAGEMENT =",
+            result[
+                "existing_position_management_required"
+            ],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 NEW ENTRY PERMITTED =",
+            result["new_entry_permitted"],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 EXECUTION READY =",
+            result["execution_ready"],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        print(
+            "FRESH RECONSTRUCTION UNIT 9 RESULT = PASS",
+            flush=True
+        )
+
+        print("=" * 80, flush=True)
+
+        return result
+
+    # --------------------------------------------------------
+    # REQUIRE VERIFIED WEEX DEMO READS
+    # --------------------------------------------------------
+
+    if (
+        unit_8_result.get(
+            "demo_balance_verified"
+        ) is not True
+        or unit_8_result.get(
+            "demo_positions_verified"
+        ) is not True
+    ):
+        return finish(
+            "BLOCKED",
+            "UNIT_8_DEMO_ACCOUNT_UNVERIFIED"
+        )
+
+    # --------------------------------------------------------
+    # ACTUAL POSITION RECONCILIATION
+    # --------------------------------------------------------
+
+    position_info = (
+        unit_9_v5_position_summary(
+            unit_8_result
+        )
+    )
+
+    result["position_reconciled"] = True
+
+    result["position_flat_verified"] = (
+        position_info["position_flat"]
+    )
+
+    existing = not position_info[
+        "position_flat"
+    ]
+
+    result[
+        "existing_position_management_required"
+    ] = existing
+
+    result["position_management_handover"] = {
+        "symbol": "BTCUSDT",
+        "demo_symbol": "BTCSUSDT",
+
+        "positions":
+            position_info["positions"],
+
+        "long_quantity":
+            position_info["long_quantity"],
+
+        "short_quantity":
+            position_info["short_quantity"],
+
+        "position_reconciled": True,
+
+        "hedge_mode":
+            "REVERSIBLE_ATR_TWO_STAGE",
+
+        # An existing position is not automatically
+        # a registered hedge cycle.
+        "cycle_registered": False,
+        "original_side": None,
+        "original_entry_price": None,
+        "frozen_atr14": None,
+        "hedge_stage": "UNREGISTERED",
+
+        "automatic_transition_authorized": False,
+
+        "bot_mode_independent": True,
+        "exchange_write": False,
+    }
+
+    print(
+        "UNIT 9 EXISTING LONG BTC =",
+        position_info["long_quantity"],
+        flush=True
+    )
+
+    print(
+        "UNIT 9 EXISTING SHORT BTC =",
+        position_info["short_quantity"],
+        flush=True
+    )
+
+    print(
+        "UNIT 9 POSITION RECONCILED = True",
+        flush=True
+    )
+
+    # --------------------------------------------------------
+    # EXISTING POSITION MANAGEMENT HAS PRIORITY
+    # OVER NEW INITIAL ENTRIES
+    # --------------------------------------------------------
+
+    if existing:
+
+        unit_9_v5_reset_signal(
+            continuity_state
+        )
+
+        return finish(
+            "POSITION_MANAGEMENT_REQUIRED",
+            "EXISTING_DEMO_POSITION"
+        )
+
+    # --------------------------------------------------------
+    # ACCOUNT-LEVEL VERIFICATION
+    # --------------------------------------------------------
+
+    if unit_8_result.get(
+        "account_config_verified"
+    ) is not True:
+
+        unit_9_v5_reset_signal(
+            continuity_state
+        )
+
+        return finish(
+            "BLOCKED",
+            "ACCOUNT_CONFIGURATION_UNVERIFIED"
+        )
+
+    if unit_8_result.get(
+        "account_dual_side_enabled"
+    ) is not True:
+
+        unit_9_v5_reset_signal(
+            continuity_state
+        )
+
+        return finish(
+            "BLOCKED",
+            "ACCOUNT_HEDGE_MODE_NOT_ENABLED"
+        )
+
+    # --------------------------------------------------------
+    # AN IDLE SIGNAL IS NOT AN ERROR
+    # --------------------------------------------------------
+
+    if (
+        unit_7_result.get(
+            "execution_intent"
+        ) is not True
+    ):
+
+        unit_9_v5_reset_signal(
+            continuity_state
+        )
+
+        return finish(
+            "IDLE",
+            unit_7_result.get("skip_reason")
+            or "NO_QUALIFIED_SIGNAL"
+        )
+
+    if unit_7_result.get(
+        "status"
+    ) != "SIZING_READY":
+
+        unit_9_v5_reset_signal(
+            continuity_state
+        )
+
+        return finish(
+            "BLOCKED",
+            "UNIT_7_SIZING_NOT_READY"
+        )
+
+    if (
+        mode not in (
+            "BREAKOUT",
+            "STRUCTURE",
+            "SCALP",
+        )
+        or direction not in (
+            "LONG",
+            "SHORT",
+        )
+    ):
+
+        unit_9_v5_reset_signal(
+            continuity_state
+        )
+
+        return finish(
+            "BLOCKED",
+            "INVALID_SIGNAL_DIRECTION"
+        )
+
+    # --------------------------------------------------------
+    # BUILD SIGNAL CONTINUITY IDENTITY
+    #
+    # WE MUST NOT INFER A CANDLE ID.
+    # USE THE ACTUAL CLOSED CANDLE WHEN AVAILABLE.
+    # --------------------------------------------------------
+
+    candle_id = unit_7_result.get(
+        "closed_candle_id"
+    )
+
+    if candle_id is None:
+
+        return finish(
+            "PENDING_CONTINUITY",
+            "CLOSED_CANDLE_ID_NOT_PROVIDED"
+        )
+
+    fingerprint = (
+        "BTCUSDT",
+        mode,
+        direction,
+        str(candle_id),
+    )
+
+    result["signal_fingerprint"] = (
+        "|".join(fingerprint)
+    )
+
+    continuity = unit_9_v5_continuity(
+        state=continuity_state,
+        fingerprint=fingerprint,
+        now=now_monotonic,
+        required=required,
+        expiry_seconds=expiry,
+    )
+
+    result["confirmations"] = (
+        continuity["count"]
+    )
+
+    result["signal_continuity_verified"] = (
+        continuity["verified"]
+    )
+
+    if continuity["duplicate_authorization"]:
+
+        return finish(
+            "BLOCKED",
+            "DUPLICATE_SIGNAL_AUTHORIZATION"
+        )
+
+    if not continuity["verified"]:
+
+        return finish(
+            "PENDING_CONTINUITY",
+            "SIGNAL_CONFIRMATIONS_INCOMPLETE"
+        )
+
+    # --------------------------------------------------------
+    # DEMO-SPECIFIC HEDGE MODE STILL UNVERIFIED
+    #
+    # CONTINUITY PASS DOES NOT BYPASS THIS GATE.
+    # --------------------------------------------------------
+
+    if unit_8_result.get(
+        "demo_dual_side_mode_verified"
+    ) is not True:
+
+        return finish(
+            "BLOCKED",
+            "DEMO_DUAL_SIDE_SCOPE_UNVERIFIED"
+        )
+
+    # --------------------------------------------------------
+    # PRESERVE THE VERIFIED UNIT 8 PLAN
+    # --------------------------------------------------------
+
+    if (
+        unit_8_result.get(
+            "trade_plan_ready"
+        ) is not True
+        or not isinstance(
+            unit_8_result.get("trade_plan"),
+            dict,
+        )
+        or unit_8_result.get(
+            "account_capacity_pass"
+        ) is not True
+    ):
+
+        return finish(
+            "BLOCKED",
+            "UNIT_8_TRADE_PLAN_NOT_READY"
+        )
+
+    result["trade_plan"] = dict(
+        unit_8_result["trade_plan"]
+    )
+
+    result["trade_plan_ready"] = True
+
+    result["execution_candidate"] = dict(
+        unit_8_result["trade_plan"]
+    )
+
+    # Unit 9 passes eligibility only.
+    # Unit 12 is responsible for BOT_MODE,
+    # order authorization and submission.
+
+    result["execution_intent"] = True
+    result["new_entry_permitted"] = True
+    result["execution_ready"] = True
+
+    continuity_state[
+        "authorized_fingerprint"
+    ] = fingerprint
+
+    return finish(
+        "ENTRY_CANDIDATE_READY",
+        "CONTINUITY_AND_ACCOUNT_CHECKS_PASSED"
+    )
+
+
+# ============================================================
+# 9.5 OFFLINE VALIDATION TESTS
+# ============================================================
+
+def unit_9_validation_v5():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 9 VALIDATION V5 START",
+        flush=True
+    )
+
+    tests = []
+
+    def check(name, condition):
+        tests.append(
+            (name, bool(condition))
+        )
+
+    state = {
+        "fingerprint": None,
+        "count": 0,
+        "first_seen_monotonic": None,
+        "last_seen_monotonic": None,
+        "authorized_fingerprint": None,
+    }
+
+    key = (
+        "BTCUSDT",
+        "STRUCTURE",
+        "LONG",
+        "TEST_CANDLE_1",
+    )
+
+    a = unit_9_v5_continuity(
+        state, key, 100, 3, 120
+    )
+
+    b = unit_9_v5_continuity(
+        state, key, 101, 3, 120
+    )
+
+    c = unit_9_v5_continuity(
+        state, key, 102, 3, 120
+    )
+
+    check(
+        "THREE CONFIRMATION SEQUENCE",
+        a["count"] == 1
+        and b["count"] == 2
+        and c["verified"] is True,
+    )
+
+    changed = unit_9_v5_continuity(
+        state,
+        (
+            "BTCUSDT",
+            "BREAKOUT",
+            "SHORT",
+            "TEST_CANDLE_2",
+        ),
+        103,
+        3,
+        120,
+    )
+
+    check(
+        "SIGNAL CHANGE RESETS CONFIRMATIONS",
+        changed["count"] == 1
+        and changed["verified"] is False,
+    )
+
+    expired = unit_9_v5_continuity(
+        state,
+        (
+            "BTCUSDT",
+            "BREAKOUT",
+            "SHORT",
+            "TEST_CANDLE_2",
+        ),
+        225,
+        3,
+        120,
+    )
+
+    check(
+        "SIGNAL EXPIRY RESETS COUNT",
+        expired["expired"] is True
+        and expired["count"] == 1,
+    )
+
+    state["authorized_fingerprint"] = key
+
+    duplicate = unit_9_v5_continuity(
+        state,
+        key,
+        226,
+        3,
+        120,
+    )
+
+    check(
+        "DUPLICATE AUTHORIZATION BLOCK",
+        duplicate["duplicate_authorization"]
+        is True,
+    )
+
+    positions = {
+        "positions": [
+            {
+                "positionSide": "LONG",
+                "size": "0.0002",
+            },
+            {
+                "positionSide": "SHORT",
+                "size": "0.0001",
+            },
+        ],
+        "long_position_quantity": "0.0002",
+        "short_position_quantity": "0.0001",
+    }
+
+    summary = unit_9_v5_position_summary(
+        positions
+    )
+
+    check(
+        "LONG AND SHORT RECONCILIATION",
+        summary["long_quantity"] == "0.0002"
+        and summary["short_quantity"] == "0.0001"
+        and summary["reconciled"] is True,
+    )
+
+    check(
+        "NONFLAT POSITION MANAGEMENT",
+        summary["position_flat"] is False,
+    )
+
+    idle_state = dict(state)
+
+    idle = unit_9_v5_continuity(
+        idle_state,
+        None,
+        230,
+        3,
+        120,
+    )
+
+    check(
+        "IDLE SIGNAL RESET",
+        idle["count"] == 0
+        and idle["verified"] is False,
+    )
+
+    check(
+        "PRECISE HALF QUANTITY",
+        Decimal("0.0002") / 2
+        == Decimal("0.0001"),
+    )
+
+    passed = sum(
+        int(ok) for _, ok in tests
+    )
+
+    failed = len(tests) - passed
+
+    for name, ok in tests:
+        print(
+            "UNIT 9 TEST:",
+            name,
+            "=",
+            "PASS" if ok else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 9 TESTS PASSED =",
+        passed,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 TESTS FAILED =",
+        failed,
+        flush=True
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT 9 V5 VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 9 VALIDATION V5 RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return True
+
+
+# ============================================================
+# 9.6 EXECUTE UNIT 9
+# ============================================================
+
+FRESH_UNIT_9_VALIDATION_READY = (
+    unit_9_validation_v5()
+)
+
+FRESH_RECONSTRUCTION_UNIT_9_RESULT = (
+    fresh_reconstruction_unit_9(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_DEMO_PLAN,
+        FRESH_RECONSTRUCTION_SIZING_POLICY,
+    )
+)
+
+# ORIGINAL DOWNSTREAM HANDOVER ALIAS
+FRESH_RECONSTRUCTION_ENTRY_POLICY = (
+    FRESH_RECONSTRUCTION_UNIT_9_RESULT
+)
+
+FRESH_UNIT_9_V5_READY = all((
+    FRESH_UNIT_9_VALIDATION_READY is True,
+
+    FRESH_RECONSTRUCTION_UNIT_9_RESULT.get(
+        "position_reconciled"
+    ) is True,
+
+    FRESH_RECONSTRUCTION_UNIT_9_RESULT.get(
+        "unit_9_version"
+    ) == "UNIT9_V5_REVERSIBLE_ATR_HEDGE",
+))
+
+print(
+    "FRESH RECONSTRUCTION UNIT 9 V5 READY =",
+    FRESH_UNIT_9_V5_READY,
+    flush=True
+)
+
+print(
+    "UNIT 9 EXCHANGE WRITE = NONE",
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 9 V5
+# UNIT 10 FOLLOWS
+# ============================================================
