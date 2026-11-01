@@ -12804,3 +12804,1199 @@ print(
 # UNIT 12 FOLLOWS
 # ============================================================
 
+
+
+# ============================================================
+# START COMPLETE UNIT 12 V1
+# WEEX EXECUTABLE DEMO INITIAL ENTRIES
+#
+# UNIT 11 V1 -> UNIT 12 V1 -> UNIT 13
+#
+# BOT_MODE CONTROLS NEW INITIAL ENTRIES ONLY
+# EXISTING POSITION MANAGEMENT INDEPENDENT
+# NO BACKUPS / NO LIVE CASH ORDERS
+#
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import json
+import time
+import hmac
+import base64
+import hashlib
+import uuid
+import urllib.request
+import urllib.error
+
+from pathlib import Path
+from decimal import Decimal, InvalidOperation
+
+
+UNIT_12_V1_VERSION = "UNIT12_V1_DEMO_EXECUTABLE"
+UNIT_12_V1_ORDER_PATH = "/capi/v3/sim/order"
+
+
+# ============================================================
+# 12.1 NUMBERS AND FORMAT
+# ============================================================
+
+def unit_12_v1_decimal(value, name, zero=False):
+    if value is None or isinstance(value, bool):
+        raise ValueError("UNIT 12 INVALID " + name)
+
+    try:
+        result = Decimal(str(value))
+    except (ValueError, TypeError, InvalidOperation):
+        raise ValueError("UNIT 12 INVALID " + name)
+
+    if not result.is_finite():
+        raise ValueError("UNIT 12 NONFINITE " + name)
+
+    if result < 0 or (result == 0 and not zero):
+        raise ValueError("UNIT 12 INVALID RANGE " + name)
+
+    return result
+
+
+def unit_12_v1_str(value):
+    number = Decimal(str(value))
+    if number == 0:
+        return "0"
+    return format(number.normalize(), "f")
+
+
+# ============================================================
+# 12.2 BOT MODE
+# ONLY THIS UNIT CONTROLS NEW INITIAL ENTRIES
+# ============================================================
+
+def unit_12_v1_bot_mode(config):
+    raw = os.getenv(
+        "BOT_MODE",
+        config.get("bot_mode", "PAUSE")
+    )
+
+    mode = str(raw).strip().upper()
+
+    if mode not in ("RUN", "PAUSE"):
+        raise RuntimeError(
+            "UNIT 12 BOT_MODE MUST BE RUN OR PAUSE"
+        )
+
+    return mode
+
+
+# ============================================================
+# 12.3 DURABLE JOURNAL
+#
+# UNIT12_STATE_DIR MUST BE ON A PERSISTENT VOLUME.
+# ORDINARY RENDER EPHEMERAL STORAGE IS NOT SUFFICIENT.
+#
+# AN OPERATOR ATTESTATION DOES NOT BY ITSELF
+# PROVE THAT THE VOLUME SURVIVES REDEPLOYMENT.
+# ============================================================
+
+def unit_12_v1_state_directory():
+
+    directory = os.getenv(
+        "UNIT12_STATE_DIR", ""
+    ).strip()
+
+    acknowledged = os.getenv(
+        "UNIT12_PERSISTENT_DISK_CONFIRMED",
+        "false"
+    ).strip().lower()
+
+    if acknowledged != "true" or not directory:
+        raise RuntimeError(
+            "UNIT 12 PERSISTENT STATE NOT CONFIGURED"
+        )
+
+    path = Path(directory).resolve()
+
+    if not path.is_dir():
+        raise RuntimeError(
+            "UNIT 12 STATE DIRECTORY MISSING"
+        )
+
+    if not os.access(str(path), os.W_OK):
+        raise RuntimeError(
+            "UNIT 12 STATE DIRECTORY NOT WRITABLE"
+        )
+
+    return path
+
+
+def unit_12_v1_atomic_json(path, data):
+
+    # Prevent replacement of existing journal files.
+    # Publish a complete file using one atomic link.
+    temporary = path.with_name(
+        path.name + "." + uuid.uuid4().hex + ".tmp"
+    )
+
+    try:
+        with open(temporary, "x", encoding="utf-8") as f:
+            json.dump(
+                data, f,
+                separators=(",", ":"),
+                sort_keys=True
+            )
+            f.flush()
+            os.fsync(f.fileno())
+
+        os.link(str(temporary), str(path))
+
+        directory_fd = os.open(
+            str(path.parent), os.O_RDONLY
+        )
+
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def unit_12_v1_journal_guard(directory):
+
+    # A pending attempt cannot be retried blindly.
+    # It may have reached WEEX even if the process
+    # failed before receiving a response.
+    for path in directory.glob(
+        "unit12_attempt_*.json"
+    ):
+        raise RuntimeError(
+            "UNIT 12 PREVIOUS ATTEMPT "
+            "REQUIRES RECONCILIATION: "
+            + path.name
+        )
+
+    for path in directory.glob(
+        "unit12_cycle_*.json"
+    ):
+        raise RuntimeError(
+            "UNIT 12 EXISTING CYCLE "
+            "REQUIRES RECONCILIATION: "
+            + path.name
+        )
+
+
+# ============================================================
+# 12.4 SIGNED WEEX DEMO POST
+#
+# POST ONLY TO /capi/v3/sim/order
+# NEVER POST TO /capi/v3/order
+# ============================================================
+
+def unit_12_v1_demo_post(payload):
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    passphrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, passphrase)):
+        raise RuntimeError(
+            "UNIT 12 API CREDENTIALS MISSING"
+        )
+
+    body = json.dumps(
+        payload,
+        separators=(",", ":"),
+        ensure_ascii=False
+    )
+
+    timestamp = str(int(time.time() * 1000))
+
+    message = (
+        timestamp
+        + "POST"
+        + UNIT_12_V1_ORDER_PATH
+        + body
+    )
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            message.encode("utf-8"),
+            hashlib.sha256
+        ).digest()
+    ).decode("utf-8")
+
+    request = urllib.request.Request(
+        (
+            "https://api-contract.weex.com"
+            + UNIT_12_V1_ORDER_PATH
+        ),
+        data=body.encode("utf-8"),
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-PASSPHRASE": passphrase,
+            "ACCESS-TIMESTAMP": timestamp,
+            "Content-Type": "application/json",
+            "locale": "en-US",
+        },
+        method="POST"
+    )
+
+    with urllib.request.urlopen(
+        request, timeout=12
+    ) as response:
+        result = json.loads(
+            response.read().decode("utf-8")
+        )
+
+    if not isinstance(result, dict):
+        raise RuntimeError(
+            "UNIT 12 ORDER RESPONSE INVALID"
+        )
+
+    if "data" in result and isinstance(
+        result["data"], dict
+    ):
+        result = result["data"]
+
+    if result.get("success") is not True:
+        raise RuntimeError(
+            "UNIT 12 ORDER NOT ACCEPTED: "
+            + str(result.get("errorCode"))
+            + " "
+            + str(result.get("errorMessage"))
+        )
+
+    if not result.get("orderId"):
+        raise RuntimeError(
+            "UNIT 12 ORDER ID MISSING"
+        )
+
+    if (
+        str(result.get("clientOrderId"))
+        != payload["newClientOrderId"]
+    ):
+        raise RuntimeError(
+            "UNIT 12 CLIENT ID MISMATCH"
+        )
+
+    return result
+
+
+# ============================================================
+# 12.5 EXCHANGE FILL VERIFICATION
+#
+# USE VERIFIED UNIT 11 DEMO HISTORY PROVIDER.
+# POST ACCEPTANCE IS NOT FILL CONFIRMATION.
+# ============================================================
+
+def unit_12_v1_find_fill(
+    order_id,
+    client_id,
+    expected_side,
+    expected_quantity,
+):
+
+    # Newest page only. If not found, return
+    # pending rather than assuming rejection.
+    records = unit_11_v1_history_get(
+        symbol="BTCSUSDT",
+        page=0,
+        limit=100,
+    )
+
+    matches = [
+        record for record in records
+        if isinstance(record, dict)
+        and (
+            str(record.get("orderId")) == str(order_id)
+            or (
+                client_id
+                and str(record.get("clientOrderId"))
+                == str(client_id)
+            )
+        )
+    ]
+
+    if len(matches) != 1:
+        return None
+
+    record = matches[0]
+
+    if (
+        str(record.get("symbol")).upper()
+        != "BTCSUSDT"
+        or str(record.get("status")).upper()
+        != "FILLED"
+        or str(record.get("positionSide")).upper()
+        != expected_side
+        or str(record.get("side")).upper()
+        != (
+            "BUY" if expected_side == "LONG"
+            else "SELL"
+        )
+    ):
+        return None
+
+    filled_qty = unit_12_v1_decimal(
+        record.get("executedQty"),
+        "FILLED QUANTITY"
+    )
+
+    average_price = unit_12_v1_decimal(
+        record.get("avgPrice"),
+        "FILL PRICE"
+    )
+
+    if filled_qty != expected_quantity:
+        return None
+
+    return {
+        "order_id": str(record["orderId"]),
+        "client_order_id":
+            str(record.get("clientOrderId")),
+        "filled_quantity":
+            unit_12_v1_str(filled_qty),
+        "average_fill_price":
+            unit_12_v1_str(average_price),
+        "fill_update_time":
+            record.get("updateTime"),
+        "status": "FILLED",
+    }
+
+
+# ============================================================
+# 12.6 BUILD MINIMAL, VALID MARKET ORDER
+# ============================================================
+
+def unit_12_v1_payload(
+    direction,
+    quantity,
+    client_id,
+):
+
+    if direction not in ("LONG", "SHORT"):
+        raise ValueError(
+            "UNIT 12 DIRECTION INVALID"
+        )
+
+    quantity = unit_12_v1_decimal(
+        quantity, "QUANTITY"
+    )
+
+    if quantity < Decimal("0.0002"):
+        raise ValueError(
+            "UNIT 12 TWO STAGE MINIMUM NOT MET"
+        )
+
+    if quantity % Decimal("0.0002") != 0:
+        raise ValueError(
+            "UNIT 12 QUANTITY CANNOT SPLIT EQUALLY"
+        )
+
+    if (
+        not isinstance(client_id, str)
+        or not 1 <= len(client_id) <= 36
+    ):
+        raise ValueError(
+            "UNIT 12 CLIENT ID INVALID"
+        )
+
+    return {
+        "symbol": "BTCSUSDT",
+        "side": (
+            "BUY" if direction == "LONG"
+            else "SELL"
+        ),
+        "positionSide": direction,
+        "type": "MARKET",
+        "quantity": unit_12_v1_str(quantity),
+        "newClientOrderId": client_id,
+        "reduceOnly": False,
+    }
+
+
+# ============================================================
+# 12.7 MAIN EXECUTION CONTROLLER
+# ============================================================
+
+def fresh_reconstruction_unit_12(
+    config,
+    unit_11_result,
+    unit_10_result,
+    unit_9_result,
+    unit_8_result,
+    unit_7_result,
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 12 V1 EXECUTABLE DEMO INITIAL ENTRY START",
+        flush=True
+    )
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            config,
+            unit_11_result,
+            unit_10_result,
+            unit_9_result,
+            unit_8_result,
+            unit_7_result,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 12 HANDOVER INVALID"
+        )
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("demo_order_symbol")
+        != "BTCSUSDT"
+        or safety.get(
+            "real_order_submission_enabled"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 12 DEMO ONLY SAFETY FAILED"
+        )
+
+    expected_versions = (
+        (
+            unit_11_result,
+            "unit_11_version",
+            "UNIT11_V1_ATR_CYCLE_RECOVERY",
+        ),
+        (
+            unit_10_result,
+            "unit_10_version",
+            "UNIT10_V1_REVERSIBLE_ATR_HEDGE",
+        ),
+        (
+            unit_9_result,
+            "unit_9_version",
+            "UNIT9_V5_REVERSIBLE_ATR_HEDGE",
+        ),
+        (
+            unit_8_result,
+            "unit_8_version",
+            "UNIT8_V8_REVERSIBLE_ATR_HEDGE",
+        ),
+        (
+            unit_7_result,
+            "unit_7_version",
+            "UNIT7_V11_REVERSIBLE_ATR_HEDGE",
+        ),
+    )
+
+    for source, field, expected in expected_versions:
+        if source.get(field) != expected:
+            raise RuntimeError(
+                "UNIT 12 VERSION MISMATCH: "
+                + field
+            )
+
+    bot_mode = unit_12_v1_bot_mode(config)
+
+    output = {
+        "unit_12_version": UNIT_12_V1_VERSION,
+        "status": "IDLE",
+        "reason": "NONE",
+        "bot_mode": bot_mode,
+
+        "demo_symbol": "BTCSUSDT",
+        "existing_position_management_independent": True,
+        "existing_position_management_required":
+            unit_11_result.get(
+                "existing_position_management_required"
+            ) is True,
+        "position_management_handover":
+            unit_11_result.get(
+                "position_management_handover"
+            ),
+
+        "new_entry_authorized": False,
+        "demo_order_submitted": False,
+        "demo_order_accepted": False,
+        "demo_order_filled": False,
+        "order_id": None,
+        "client_order_id": None,
+
+        "cycle_registered": False,
+        "cycle_id": None,
+        "cycle_state": None,
+
+        "entry_price": None,
+        "entry_quantity": None,
+        "frozen_atr14": None,
+
+        "hedge_transition_authorized": False,
+        "real_cash_order": False,
+        "exchange_write": False,
+    }
+
+    def finish(status, reason):
+
+        output["status"] = status
+        output["reason"] = reason
+
+        print(
+            "UNIT 12 BOT_MODE =",
+            bot_mode, flush=True
+        )
+        print(
+            "UNIT 12 STATUS =",
+            status, flush=True
+        )
+        print(
+            "UNIT 12 REASON =",
+            reason, flush=True
+        )
+        print(
+            "UNIT 12 EXISTING MANAGEMENT INDEPENDENT = True",
+            flush=True
+        )
+        print(
+            "UNIT 12 DEMO ORDER SUBMITTED =",
+            output["demo_order_submitted"],
+            flush=True
+        )
+        print(
+            "UNIT 12 DEMO ORDER FILLED =",
+            output["demo_order_filled"],
+            flush=True
+        )
+        print(
+            "UNIT 12 CYCLE REGISTERED =",
+            output["cycle_registered"],
+            flush=True
+        )
+        print(
+            "UNIT 12 HEDGE TRANSITION AUTHORIZED = False",
+            flush=True
+        )
+        print(
+            "UNIT 12 EXCHANGE WRITE =",
+            (
+                "DEMO_POST"
+                if output["exchange_write"]
+                else "NONE"
+            ),
+            flush=True
+        )
+        print(
+            "FRESH RECONSTRUCTION UNIT 12 RESULT =",
+            "PASS" if not output["exchange_write"]
+            else "SUBMITTED_RECONCILIATION_REQUIRED",
+            flush=True
+        )
+        print("=" * 80, flush=True)
+
+        return output
+
+    # ========================================================
+    # 12.8 POSITION SAFETY ALWAYS PRECEDES BOT_MODE
+    # ========================================================
+
+    if (
+        unit_11_result.get(
+            "position_reconciled"
+        ) is not True
+        or unit_10_result.get(
+            "position_reconciled"
+        ) is not True
+        or unit_9_result.get(
+            "position_reconciled"
+        ) is not True
+        or unit_8_result.get(
+            "demo_positions_verified"
+        ) is not True
+    ):
+        return finish(
+            "BLOCKED",
+            "POSITION_STATE_UNVERIFIED"
+        )
+
+    if output[
+        "existing_position_management_required"
+    ]:
+        return finish(
+            "EXISTING_POSITION_HANDOVER",
+            "NEW_ENTRY_BLOCKED_EXISTING_POSITION"
+        )
+
+    if (
+        unit_8_result.get(
+            "position_flat_verified"
+        ) is not True
+        or unit_10_result.get(
+            "position_flat_verified"
+        ) is not True
+    ):
+        return finish(
+            "BLOCKED",
+            "ACCOUNT_NOT_VERIFIED_FLAT"
+        )
+
+    if bot_mode != "RUN":
+        return finish(
+            "PAUSED",
+            "BOT_MODE_PAUSE_NEW_ENTRIES"
+        )
+
+    # ========================================================
+    # 12.9 ALL NEW ENTRY AUTHORIZATION GATES
+    # ========================================================
+
+    if (
+        unit_8_result.get(
+            "account_config_verified"
+        ) is not True
+        or unit_8_result.get(
+            "account_dual_side_enabled"
+        ) is not True
+        or unit_8_result.get(
+            "account_can_trade"
+        ) is not True
+    ):
+        return finish(
+            "BLOCKED",
+            "WEEX_ACCOUNT_NOT_AUTHORIZED"
+        )
+
+    if (
+        unit_8_result.get(
+            "demo_dual_side_mode_verified"
+        ) is not True
+    ):
+        return finish(
+            "BLOCKED",
+            "DEMO_HEDGE_COMPATIBILITY_UNVERIFIED"
+        )
+
+    if (
+        unit_9_result.get(
+            "status"
+        ) != "ENTRY_CANDIDATE_READY"
+        or unit_9_result.get(
+            "signal_continuity_verified"
+        ) is not True
+        or unit_10_result.get(
+            "entry_candidate_ready"
+        ) is not True
+        or unit_11_result.get(
+            "entry_candidate_ready"
+        ) is not True
+        or unit_11_result.get(
+            "new_entry_permitted"
+        ) is not True
+    ):
+        return finish(
+            "IDLE",
+            "NO_AUTHORIZED_NEW_ENTRY"
+        )
+
+    if (
+        unit_8_result.get(
+            "account_capacity_verified"
+        ) is not True
+        or unit_8_result.get(
+            "account_capacity_pass"
+        ) is not True
+    ):
+        return finish(
+            "BLOCKED",
+            "ACCOUNT_CAPACITY_UNVERIFIED"
+        )
+
+    plan = unit_11_result.get(
+        "entry_candidate"
+    )
+
+    if not isinstance(plan, dict):
+        return finish(
+            "BLOCKED",
+            "ENTRY_PLAN_MISSING"
+        )
+
+    direction = plan.get("direction")
+
+    if direction not in ("LONG", "SHORT"):
+        return finish(
+            "BLOCKED",
+            "ENTRY_DIRECTION_INVALID"
+        )
+
+    try:
+        quantity = unit_12_v1_decimal(
+            plan.get("original_quantity"),
+            "ENTRY QUANTITY"
+        )
+
+        half = unit_12_v1_decimal(
+            plan.get("half_quantity"),
+            "HALF QUANTITY"
+        )
+
+        atr = unit_12_v1_decimal(
+            plan.get("planning_atr14"),
+            "FROZEN ATR REFERENCE"
+        )
+
+        step = unit_12_v1_decimal(
+            unit_7_result.get("quantity_step"),
+            "QUANTITY STEP"
+        )
+
+        minimum = unit_12_v1_decimal(
+            unit_7_result.get("minimum_quantity"),
+            "MINIMUM QUANTITY"
+        )
+
+    except ValueError as exc:
+        return finish(
+            "BLOCKED",
+            str(exc)
+        )
+
+    if (
+        quantity != 2 * half
+        or quantity % step != 0
+        or half % step != 0
+        or half < minimum
+    ):
+        return finish(
+            "BLOCKED",
+            "HEDGE_QUANTITY_INVALID"
+        )
+
+    # A planning ATR must be associated with
+    # the qualified signal. Freshness must be
+    # confirmed before submission; do not use
+    # a stale startup-only market snapshot.
+
+    if plan.get(
+        "atr_snapshot_verified_fresh"
+    ) is not True:
+        return finish(
+            "BLOCKED",
+            "FRESH_ATR_SNAPSHOT_UNVERIFIED"
+        )
+
+    # ========================================================
+    # 12.10 DURABLE STORAGE GATE
+    # ========================================================
+
+    try:
+        directory = (
+            unit_12_v1_state_directory()
+        )
+
+        unit_12_v1_journal_guard(
+            directory
+        )
+
+    except Exception as exc:
+        print(
+            "UNIT 12 STORAGE ERROR =",
+            str(exc),
+            flush=True
+        )
+        return finish(
+            "BLOCKED",
+            "PERSISTENT_ORDER_JOURNAL_NOT_READY"
+        )
+
+    # Unique per attempted order. Journal first,
+    # then POST. Never repeat on uncertain result.
+    client_id = "u12-" + uuid.uuid4().hex[:24]
+
+    payload = unit_12_v1_payload(
+        direction,
+        quantity,
+        client_id,
+    )
+
+    journal_path = directory / (
+        "unit12_attempt_"
+        + client_id
+        + ".json"
+    )
+
+    attempt = {
+        "version": UNIT_12_V1_VERSION,
+        "client_order_id": client_id,
+        "symbol": "BTCSUSDT",
+        "direction": direction,
+        "quantity": unit_12_v1_str(quantity),
+        "atr14_snapshot": unit_12_v1_str(atr),
+        "created_at_ms": int(time.time() * 1000),
+        "request": payload,
+        "state": "SUBMISSION_UNCERTAIN",
+    }
+
+    try:
+        unit_12_v1_atomic_json(
+            journal_path, attempt
+        )
+    except Exception as exc:
+        print(
+            "UNIT 12 JOURNAL WRITE ERROR =",
+            type(exc).__name__,
+            flush=True
+        )
+        return finish(
+            "BLOCKED",
+            "PRE_SUBMISSION_JOURNAL_FAILED"
+        )
+
+    output["client_order_id"] = client_id
+
+    # ========================================================
+    # 12.11 ACTUAL EXECUTABLE DEMO ORDER
+    # ========================================================
+
+    output["new_entry_authorized"] = True
+
+    # Mark possible write before network request.
+    # A timeout cannot prove non-submission.
+    output["exchange_write"] = True
+    output["demo_order_submitted"] = True
+
+    try:
+        accepted = unit_12_v1_demo_post(
+            payload
+        )
+
+    except Exception as exc:
+        print(
+            "UNIT 12 ORDER RESPONSE UNCERTAIN =",
+            type(exc).__name__,
+            str(exc)[:160],
+            flush=True
+        )
+
+        return finish(
+            "SUBMISSION_UNCERTAIN",
+            "MANUAL_ORDER_RECONCILIATION_REQUIRED"
+        )
+
+    output["demo_order_accepted"] = True
+    output["order_id"] = str(
+        accepted["orderId"]
+    )
+
+    # ========================================================
+    # 12.12 CONFIRM FILLED ORDER
+    # ========================================================
+
+    try:
+        fill = unit_12_v1_find_fill(
+            order_id=output["order_id"],
+            client_id=client_id,
+            expected_side=direction,
+            expected_quantity=quantity,
+        )
+
+    except Exception as exc:
+        print(
+            "UNIT 12 FILL LOOKUP ERROR =",
+            str(exc)[:160],
+            flush=True
+        )
+        fill = None
+
+    if fill is None:
+        return finish(
+            "ORDER_ACCEPTED_FILL_PENDING",
+            "HISTORY_RECONCILIATION_REQUIRED"
+        )
+
+    output["demo_order_filled"] = True
+    output["entry_price"] = (
+        fill["average_fill_price"]
+    )
+    output["entry_quantity"] = (
+        fill["filled_quantity"]
+    )
+
+    output["frozen_atr14"] = (
+        unit_12_v1_str(atr)
+    )
+
+    # ========================================================
+    # 12.13 PREPARE DURABLE CYCLE EVIDENCE
+    #
+    # A FILLED ORDER IS NOT ENOUGH.
+    # CURRENT POSITIONS STILL REQUIRE FRESH
+    # EXCHANGE RECONCILIATION IN UNIT 13.
+    # ========================================================
+
+    cycle_id = "cycle-" + client_id
+
+    cycle_record = {
+        "cycle_id": cycle_id,
+        "entry_order_id": output["order_id"],
+        "entry_client_order_id": client_id,
+        "original_side": direction,
+        "original_quantity":
+            fill["filled_quantity"],
+        "original_entry_price":
+            fill["average_fill_price"],
+        "frozen_atr14":
+            unit_12_v1_str(atr),
+        "hedge_stage": "INITIAL",
+        "fill_evidence_verified": True,
+        "entry_fill_evidence_verified": True,
+        "atr_snapshot_evidence_verified": True,
+        "minimum_quantity":
+            unit_12_v1_str(minimum),
+        "quantity_step":
+            unit_12_v1_str(step),
+        "entry_fill_update_time":
+            fill["fill_update_time"],
+        "cycle_registered": True,
+        "durably_persisted": False,
+        "automatic_transition_authorized": False,
+        "execution_environment": "DEMO",
+    }
+
+    cycle_path = directory / (
+        "unit12_cycle_"
+        + client_id
+        + ".json"
+    )
+
+    try:
+        stored = dict(cycle_record)
+        stored["durably_persisted"] = True
+
+        unit_12_v1_atomic_json(
+            cycle_path, stored
+        )
+
+    except Exception as exc:
+        print(
+            "UNIT 12 CYCLE STORAGE ERROR =",
+            type(exc).__name__,
+            flush=True
+        )
+
+        return finish(
+            "FILLED_CYCLE_STORAGE_FAILED",
+            "RECOVERY_REQUIRED"
+        )
+
+    output["cycle_id"] = cycle_id
+    output["cycle_state"] = stored
+    output["cycle_registered"] = True
+
+    return finish(
+        "DEMO_ENTRY_FILLED_CYCLE_SAVED",
+        "UNIT_13_POSITION_RECONCILIATION_REQUIRED"
+    )
+
+
+# ============================================================
+# 12.14 OFFLINE VALIDATION
+# NEVER SUBMITS AN ORDER
+# ============================================================
+
+def unit_12_validation_v1():
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 12 VALIDATION V1 START",
+        flush=True
+    )
+
+    tests = []
+
+    def check(name, condition):
+        tests.append((name, bool(condition)))
+
+    long_order = unit_12_v1_payload(
+        "LONG", "0.0002", "u12-test-long"
+    )
+
+    short_order = unit_12_v1_payload(
+        "SHORT", "0.0002", "u12-test-short"
+    )
+
+    check(
+        "CORRECT DEMO ENDPOINT",
+        UNIT_12_V1_ORDER_PATH
+        == "/capi/v3/sim/order"
+    )
+
+    check(
+        "LONG ORDER SIDE",
+        long_order["side"] == "BUY"
+        and long_order["positionSide"] == "LONG"
+    )
+
+    check(
+        "SHORT ORDER SIDE",
+        short_order["side"] == "SELL"
+        and short_order["positionSide"] == "SHORT"
+    )
+
+    check(
+        "MARKET ORDER PAYLOAD",
+        long_order["type"] == "MARKET"
+        and long_order["symbol"] == "BTCSUSDT"
+    )
+
+    check(
+        "EXACT TWO STAGE MINIMUM",
+        Decimal(long_order["quantity"])
+        == Decimal("0.0002")
+    )
+
+    try:
+        unit_12_v1_payload(
+            "LONG", "0.0001", "u12-too-small"
+        )
+        minimum_blocked = False
+    except ValueError:
+        minimum_blocked = True
+
+    check(
+        "UNSPLITTABLE QUANTITY BLOCKED",
+        minimum_blocked
+    )
+
+    try:
+        unit_12_v1_payload(
+            "LONG", "0.0003", "u12-odd"
+        )
+        odd_blocked = False
+    except ValueError:
+        odd_blocked = True
+
+    check(
+        "ODD STEP QUANTITY BLOCKED",
+        odd_blocked
+    )
+
+    check(
+        "REDUCE ONLY FALSE FOR ENTRY",
+        long_order["reduceOnly"] is False
+    )
+
+    check(
+        "NO LIVE CASH ENDPOINT",
+        "/capi/v3/order"
+        != UNIT_12_V1_ORDER_PATH
+    )
+
+    check(
+        "NO SIMULATED FILL CLAIM",
+        "orderId" not in long_order
+    )
+
+    passed = sum(
+        int(ok) for _, ok in tests
+    )
+
+    failed = len(tests) - passed
+
+    for name, ok in tests:
+        print(
+            "UNIT 12 TEST:",
+            name,
+            "=",
+            "PASS" if ok else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 12 TESTS PASSED =",
+        passed,
+        flush=True
+    )
+
+    print(
+        "UNIT 12 TESTS FAILED =",
+        failed,
+        flush=True
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT 12 VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 12 VALIDATION V1 RESULT = PASS",
+        flush=True
+    )
+
+    return True
+
+
+# ============================================================
+# 12.15 RUN UNIT 12
+# ============================================================
+
+FRESH_UNIT_12_VALIDATION_READY = (
+    unit_12_validation_v1()
+)
+
+FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
+    fresh_reconstruction_unit_12(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_10_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_9_RESULT,
+        FRESH_RECONSTRUCTION_DEMO_PLAN,
+        FRESH_RECONSTRUCTION_SIZING_POLICY,
+    )
+)
+
+FRESH_RECONSTRUCTION_ORDER_POLICY = (
+    FRESH_RECONSTRUCTION_UNIT_12_RESULT
+)
+
+FRESH_UNIT_12_V1_READY = (
+    FRESH_UNIT_12_VALIDATION_READY is True
+    and FRESH_RECONSTRUCTION_UNIT_12_RESULT.get(
+        "unit_12_version"
+    ) == UNIT_12_V1_VERSION
+)
+
+print(
+    "FRESH RECONSTRUCTION UNIT 12 V1 READY =",
+    FRESH_UNIT_12_V1_READY,
+    flush=True
+)
+
+print(
+    "UNIT 12 REAL CASH ORDER = NONE",
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 12 V1
+# UNIT 13 FOLLOWS
+# ============================================================
