@@ -352,30 +352,17 @@ if FRESH_RECONSTRUCTION_UNIT_1_READY is not True:
 
 
 # ============================================================
-# END COMPLETE UNIVERSAL UNIT 1 V1
-# UNIT 2 FOLLOWS
+# UNIVERSAL WEEX — COMPLETE UNIT 2 V4
+# CENTRAL CONFIGURATION AND READINESS FOUNDATION
+# DEMO ONLY — REAL CASH DISABLED
 # ZERO INDENTATION
-# ============================================================
-
-
-
-# ============================================================
-# UNIVERSAL WEEX — COMPLETE UNIT 2 V3
-# CENTRAL CONFIGURATION — FIXED USDT ENTRY MARGIN
-# NO COIN-EQUIVALENT MARGIN AUTHORITY
-# DEMO ONLY / NO EXCHANGE WRITES
 # ============================================================
 
 import os
 from decimal import Decimal, InvalidOperation
 
 
-def u2_v3_number(
-    value,
-    name,
-    minimum=None,
-    maximum=None,
-):
+def u2_v3_number(value, name, minimum=None, maximum=None):
     if isinstance(value, bool):
         raise RuntimeError("UNIT 2 INVALID " + name)
 
@@ -387,19 +374,19 @@ def u2_v3_number(
         ) from exc
 
     if not n.is_finite():
-        raise RuntimeError(
-            "UNIT 2 NONFINITE " + name
-        )
+        raise RuntimeError("UNIT 2 NONFINITE " + name)
 
-    if minimum is not None and n < Decimal(str(minimum)):
-        raise RuntimeError(
-            "UNIT 2 BELOW MINIMUM " + name
-        )
+    if minimum is not None:
+        if n < Decimal(str(minimum)):
+            raise RuntimeError(
+                "UNIT 2 BELOW MINIMUM " + name
+            )
 
-    if maximum is not None and n > Decimal(str(maximum)):
-        raise RuntimeError(
-            "UNIT 2 ABOVE MAXIMUM " + name
-        )
+    if maximum is not None:
+        if n > Decimal(str(maximum)):
+            raise RuntimeError(
+                "UNIT 2 ABOVE MAXIMUM " + name
+            )
 
     return n
 
@@ -407,23 +394,20 @@ def u2_v3_number(
 def u2_v3_env(name, default, minimum=None, maximum=None):
     raw = os.getenv(name, str(default)).strip()
     return u2_v3_number(
-        raw,
-        name,
-        minimum,
-        maximum,
+        raw, name, minimum, maximum
     )
 
 
 def u2_v3_bool(name, default=False):
-    value = os.getenv(
+    raw = os.getenv(
         name,
         "TRUE" if default else "FALSE"
     ).strip().upper()
 
-    if value in ("TRUE", "1", "ON", "YES"):
+    if raw in ("TRUE", "1", "ON", "YES"):
         return True
 
-    if value in ("FALSE", "0", "OFF", "NO"):
+    if raw in ("FALSE", "0", "OFF", "NO"):
         return False
 
     raise RuntimeError(
@@ -435,26 +419,20 @@ def fresh_reconstruction_unit_2():
 
     print("=" * 80, flush=True)
     print(
-        "UNIVERSAL WEEX UNIT 2 V3 START",
-        flush=True,
+        "UNIVERSAL WEEX UNIT 2 V4 START",
+        flush=True
     )
 
-    # ========================================================
-    # 2.1 ONE USDT MARGIN AUTHORITY
-    # ========================================================
+    # --------------------------------------------------------
+    # 2.1 RENDER ENVIRONMENT
+    # --------------------------------------------------------
 
     margin = u2_v3_env(
-        "ENTRY_MARGIN_USDT",
-        "5",
-        minimum="0.01",
+        "ENTRY_MARGIN_USDT", "5", "0.01"
     )
 
-    # Old coin-equivalent mode must not override USDT.
-    margin_mode = "FIXED_USDT"
-
     symbol = os.getenv(
-        "WEEX_SYMBOL",
-        "NEARUSDT",
+        "WEEX_SYMBOL", "NEARUSDT"
     ).strip().upper()
 
     if (
@@ -468,48 +446,34 @@ def fresh_reconstruction_unit_2():
     base_coin = symbol[:-4]
 
     leverage_long = u2_v3_env(
-        "WEEX_LEVERAGE_LONG",
-        "10",
-        minimum="1",
+        "WEEX_LEVERAGE_LONG", "10", "1"
     )
 
     leverage_short = u2_v3_env(
-        "WEEX_LEVERAGE_SHORT",
-        "10",
-        minimum="1",
+        "WEEX_LEVERAGE_SHORT", "10", "1"
     )
 
     exposure_cap = u2_v3_env(
-        "EXPOSURE_CAP_PERCENT",
-        "50",
-        minimum="0.01",
-        maximum="100",
+        "EXPOSURE_CAP_PERCENT", "50",
+        "0.01", "100"
     )
 
     backup_margin = u2_v3_env(
-        "BACKUP_MARGIN_PERCENT",
-        "0.5",
-        minimum="0.01",
-        maximum="100",
+        "BACKUP_MARGIN_PERCENT", "0.5",
+        "0.01", "100"
     )
 
     backup_buffer = u2_v3_env(
-        "BACKUP_BUFFER_PERCENT",
-        "0.3",
-        minimum="0.01",
-        maximum="99",
+        "BACKUP_BUFFER_PERCENT", "0.3",
+        "0.01", "99"
     )
 
     tp1_roi = u2_v3_env(
-        "TP1_NET_ROI_PERCENT",
-        "20",
-        minimum="0.01",
+        "TP1_NET_ROI_PERCENT", "20", "0.01"
     )
 
     tp2_roi = u2_v3_env(
-        "TP2_NET_ROI_PERCENT",
-        "40",
-        minimum="0.01",
+        "TP2_NET_ROI_PERCENT", "40", "0.01"
     )
 
     if tp2_roi <= tp1_roi:
@@ -517,517 +481,348 @@ def fresh_reconstruction_unit_2():
             "UNIT 2 TP2 MUST EXCEED TP1"
         )
 
-    # ========================================================
-    # 2.2 EXCHANGE CONFIGURATION
-    # ========================================================
+    # --------------------------------------------------------
+    # 2.2 EXCHANGE
+    # --------------------------------------------------------
 
     exchange = {
-
         "name": "WEEX",
-
         "api_version": "V3",
-
         "contract_base_url":
             "https://api-contract.weex.com",
-
         "market_symbol": symbol,
-
         "base_coin": base_coin,
-
         "quote_coin": "USDT",
 
-        # Do not assume the public market symbol
-        # is accepted by the private demo endpoint.
+        # Candidate is not executable verification.
         "demo_order_symbol": None,
-
+        "demo_symbol_candidate":
+            base_coin + "SUSDT",
         "demo_symbol_verified": False,
-
         "contract_precision_verified": False,
-
         "contract_value_verified": False,
     }
 
-    # ========================================================
-    # 2.3 CENTRAL ENTRY CONFIGURATION
-    # ========================================================
+    # --------------------------------------------------------
+    # 2.3 ENTRY
+    # --------------------------------------------------------
 
     entry = {
-
-        "margin_mode": margin_mode,
-
-        "initial_margin_mode": margin_mode,
-
+        "margin_mode": "FIXED_USDT",
+        "initial_margin_mode": "FIXED_USDT",
         "fixed_margin_usdt": float(margin),
-
         "entry_margin_usdt": float(margin),
-
         "initial_fixed_usdt": float(margin),
-
-        # Until Unit 3 checks the live market,
-        # this is a configured budget, not an
-        # executable order quantity.
         "configured_margin_usdt": float(margin),
-
         "resolved_margin_usdt": float(margin),
-
         "margin_source": "RENDER_FIXED_USDT",
-
         "coin_equivalent_enabled": False,
-
         "initial_coin_amount": None,
-
         "auto_increase_margin": False,
-
         "require_contract_minimum": True,
-
         "require_tp_partial_feasibility": True,
-
         "require_hedge_half_feasibility": True,
     }
 
+    # --------------------------------------------------------
+    # 2.4 MANUAL LEVERAGE AUTHORITY
+    # --------------------------------------------------------
+
     leverage = {
-
         "long": float(leverage_long),
-
         "short": float(leverage_short),
-
         "authority": "RENDER_MANUAL_INPUT",
 
+        # Do not change leverage on WEEX.
         "exchange_leverage_read_enabled": False,
-
         "exchange_leverage_write_enabled": False,
 
+        # Manual values are configuration evidence,
+        # not independent exchange confirmation.
         "actual_exchange_leverage_verified": False,
     }
 
-    # ========================================================
-    # 2.4 EXECUTION SAFETY
-    # ========================================================
+    # --------------------------------------------------------
+    # 2.5 EXECUTION SAFETY — CORRECTED
+    # --------------------------------------------------------
 
     safety = {
-
         "public_market_data_read_enabled": True,
-
         "demo_account_balance_read_enabled": True,
 
-        "authenticated_api_enabled": False,
+        # Capability permissions for later units.
+        # Each request must still authenticate and
+        # validate its actual exchange response.
+        "authenticated_api_enabled": True,
+        "account_access_enabled": True,
+        "position_access_enabled": True,
+        "order_endpoint_access_enabled": True,
 
-        "account_access_enabled": False,
-
-        "position_access_enabled": False,
-
-        "order_endpoint_access_enabled": False,
-
+        # Unit 2 never submits orders.
         "demo_order_submission_enabled": False,
-
         "real_order_submission_enabled": False,
-
         "exchange_mutation_enabled": False,
 
         "leverage_mutation_enabled": False,
-
         "margin_mode_mutation_enabled": False,
-
         "position_mode_mutation_enabled": False,
-
         "unit2_exchange_write_enabled": False,
 
         "unit12_new_entry_authority": True,
-
         "units13_14_management_independent": True,
+
+        # New readiness policy.
+        "demo_read_permission_enabled": True,
+        "demo_order_write_authority_unit": 12,
+        "require_exchange_backed_verification": True,
+        "allow_unverified_entry": False,
+        "allow_live_cash_orders": False,
     }
 
-    # ========================================================
-    # 2.5 CENTRAL STRATEGY CONFIGURATION
-    # ========================================================
+    # --------------------------------------------------------
+    # 2.6 STRATEGY
+    # --------------------------------------------------------
 
     strategy = {
-
-        "initial_margin_mode": margin_mode,
-
+        "initial_margin_mode": "FIXED_USDT",
         "initial_fixed_usdt": float(margin),
-
         "entry_margin_usdt": float(margin),
-
         "initial_coin_amount": None,
 
         "exposure_cap_percent": float(exposure_cap),
-
         "exposure_cap_max_percent": 100.0,
-
         "exposure_cap_basis":
             "TRADING_ACCOUNT_EQUITY",
-
         "exposure_includes_initial": True,
-
         "exposure_includes_filled_backups": True,
-
         "exposure_includes_pending_margin": True,
 
         "max_backups": 5,
-
         "backup_margin_percent":
             float(backup_margin),
-
         "backup_buffer_percent":
             float(backup_buffer),
-
         "backup_sizing_mode":
             "PERCENT_AVAILABLE_BALANCE",
-
         "backup_trigger_reference":
             "VERIFIED_WEEX_LIQUIDATION_PRICE",
-
         "backup_trigger_recalculation":
             "AFTER_PRECEDING_CONFIRMED_FILL",
-
         "backup_long_liquidation_factor":
             float(
-                Decimal("1") - backup_buffer / 100
+                Decimal("1")
+                - backup_buffer / 100
             ),
-
         "backup_short_liquidation_factor":
             float(
-                Decimal("1") + backup_buffer / 100
+                Decimal("1")
+                + backup_buffer / 100
             ),
-
         "progressive_backup_funding": True,
-
         "full_ladder_reservation_required": False,
 
         "tp1_allocation_percent": 10.0,
-
         "tp2_allocation_percent": 20.0,
-
         "tp3_allocation_percent": 70.0,
 
         "tp1_net_roi_floor_percent":
             float(tp1_roi),
-
         "tp2_net_roi_floor_percent":
             float(tp2_roi),
-
         "tp1_net_roi_target_percent":
             float(tp1_roi),
-
         "tp2_net_roi_target_percent":
             float(tp2_roi),
 
         "tp_calculation_after_verified_fill": True,
-
         "initial_tp_excludes_future_hedge_costs": True,
-
         "initial_tp_excludes_future_backup_costs": True,
 
         "secured_profit_reuse_enabled": False,
-
         "post_tp1_dynamic_break_even": True,
-
         "post_tp2_dynamic_trailing": True,
-
         "tp3_trailing_enabled": True,
-
         "tp3_trailing_reference_percent": 0.20,
-
         "tp3_trailing_min_percent": 0.10,
-
         "tp3_trailing_max_percent": 0.40,
 
         "hedge_mode": "REVERSIBLE_ATR_TWO_STAGE",
-
         "hedge_cycles_maximum": 1,
-
         "hedge_h1_atr_multiple": 1.0,
-
         "hedge_h2_atr_multiple": 2.0,
-
         "hedge_h1_original_percent": 50.0,
-
         "hedge_h1_opposite_percent": 50.0,
-
         "hedge_h2_original_percent": 0.0,
-
         "hedge_h2_opposite_percent": 100.0,
-
         "hedge_recovery_enabled": True,
-
         "second_hedge_cycle_enabled": False,
-
         "post_hedge_backup_enabled": True,
 
         "signal_expiry_seconds": 120,
-
         "loss_cooldown_seconds": 300,
-
         "anti_duplicate_orders": True,
-
         "active_trade_mode_lock": True,
-
         "one_direction_only": True,
-
         "mode_confirmations_required": 2,
     }
 
-    # ========================================================
-    # 2.6 SIGNAL QUALIFICATION POLICY
-    # ========================================================
+    # --------------------------------------------------------
+    # 2.7 SIGNAL QUALIFICATION
+    # --------------------------------------------------------
 
     qualification = {
-
         "common": {
-
             "mode_priority": (
-                "BREAKOUT",
-                "STRUCTURE",
-                "SCALP",
+                "BREAKOUT", "STRUCTURE", "SCALP"
             ),
-
             "unified_market_movement": True,
-
             "use_closed_candles": True,
-
             "protect_developing_candidates": True,
-
             "arbitrate_before_scalp": True,
-
             "scalp_requires_higher_modes_clear": True,
-
             "reject_late_impulse_entry": True,
-
             "direction_votes_required": 2,
-
             "direction_votes_total": 3,
-
             "signal_expiry_seconds": 120,
-
             "candidate_expiry_seconds": 600,
-
             "spike_count_rejection_above": 2,
         },
 
         "breakout": {
-
             "enabled": True,
-
             "priority": 1,
-
             "early_detection_enabled": True,
-
             "developing_candidate_enabled": True,
-
             "support_resistance_lookback": 20,
-
             "developing_proximity_atr": 0.5,
-
             "confirmation_distance_atr": 0.1,
-
             "momentum_lookback_fast": 5,
-
             "momentum_lookback_slow": 15,
-
             "require_momentum_confirmation": True,
-
             "require_direction_agreement": True,
-
             "require_ema_crossover": False,
-
             "retest_mandatory": False,
-
             "allow_preconfirmation": True,
-
             "max_price_extension_atr": 3.0,
-
             "false_breakout_rejection": True,
-
             "volume_confirmation_enabled": False,
-
             "minimum_volume_ratio": 1.2,
-
             "candidate_expiry_seconds": 600,
         },
 
         "structure": {
-
             "enabled": True,
-
             "priority": 2,
-
             "early_detection_enabled": True,
-
             "developing_candidate_enabled": True,
-
             "ema_fast_period": 19,
-
             "ema_middle_period": 50,
-
             "ema_slow_period": 200,
-
             "direction_votes_required": 2,
-
             "require_direction_agreement": True,
-
             "require_ema_crossover": False,
-
             "allow_pullback_entry": True,
-
             "allow_continuation_entry": True,
-
             "pullback_tolerance_atr": 0.75,
-
             "max_price_extension_atr": 2.0,
-
             "reject_trend_exhaustion": True,
-
             "candidate_expiry_seconds": 600,
         },
 
         "scalp": {
-
             "enabled": True,
-
             "priority": 3,
-
             "sideways_preferred": True,
-
             "require_sideways_market": True,
-
             "protect_developing_higher_modes": True,
-
             "quality_threshold": 70.0,
-
             "early_entry_enabled": True,
-
             "reject_late_impulse": True,
-
             "fee_aware_enabled": True,
-
             "estimated_taker_fee_percent": 0.08,
-
             "estimated_slippage_percent": 0.0,
-
             "include_entry_fee": True,
-
             "include_exit_fee": True,
-
             "minimum_fee_coverage_multiplier": 2.0,
-
             "require_positive_estimated_net": True,
-
             "minimum_net_roi_percent": 2.0,
         },
     }
 
-    # ========================================================
-    # 2.7 UNVERIFIED CONTRACT PRECISION
-    # ========================================================
+    # --------------------------------------------------------
+    # 2.8 CONTRACT METADATA
+    # --------------------------------------------------------
 
     market_precision = {
-
         "quantity_step": None,
-
         "minimum_quantity": None,
-
         "price_step": None,
-
         "verified": False,
-
         "authority": "UNIT7_PUBLIC_CONTRACT_METADATA",
     }
 
-    # ========================================================
-    # 2.8 PROTECTION / MANAGEMENT POLICY
-    # ========================================================
+    # --------------------------------------------------------
+    # 2.9 MANAGEMENT RESPONSIBILITIES
+    # --------------------------------------------------------
 
     management = {
-
         "new_entry_unit": 12,
-
         "tp_unit": 13,
-
         "hedge_backup_unit": 14,
-
         "reporting_unit": 15,
 
         "bot_mode_applies_to_new_entries_only": True,
-
         "position_management_independent_of_bot_mode":
             True,
-
         "tp_independent_of_entry_signal": True,
-
         "hedge_independent_of_entry_signal": True,
-
         "backup_independent_of_entry_signal": True,
-
         "require_verified_position_for_management":
             True,
 
         "tp1_net_roi_target_percent":
             float(tp1_roi),
-
         "tp2_net_roi_target_percent":
             float(tp2_roi),
-
         "tp3_trailing_enabled": True,
-
         "secured_profit_protected": True,
-
         "pre_tp1_hedge_cycles_maximum": 1,
-
         "second_hedge_cycle_allowed": False,
-
         "post_hedge_b1_b5_allowed": True,
     }
 
-    # ========================================================
-    # 2.9 COMPLETE HANDOVER
-    # ========================================================
+    # --------------------------------------------------------
+    # 2.10 CONFIGURATION HANDOVER
+    # --------------------------------------------------------
 
     config = {
-
         "exchange": exchange,
-
         "execution_environment": "DEMO",
-
         "entry": entry,
-
         "leverage": leverage,
-
         "safety": safety,
-
         "strategy": strategy,
-
         "qualification": qualification,
-
         "market_precision": market_precision,
-
         "management": management,
 
-        "margin_mode": margin_mode,
-
+        "margin_mode": "FIXED_USDT",
         "entry_margin_usdt": float(margin),
-
-        "initial_margin_mode": margin_mode,
-
+        "initial_margin_mode": "FIXED_USDT",
         "initial_margin_usdt": float(margin),
     }
 
-    # ========================================================
-    # 2.10 INTERNAL VALIDATION
-    # ========================================================
+    # --------------------------------------------------------
+    # 2.11 VALIDATION
+    # --------------------------------------------------------
 
+    assert config["execution_environment"] == "DEMO"
     assert config["margin_mode"] == "FIXED_USDT"
 
     assert (
         config["entry"]["entry_margin_usdt"]
         == config["strategy"]["entry_margin_usdt"]
         == config["entry_margin_usdt"]
-    )
-
-    assert (
-        config["entry"]["initial_margin_mode"]
-        == config["strategy"]["initial_margin_mode"]
-        == "FIXED_USDT"
     )
 
     assert (
@@ -1038,172 +833,199 @@ def fresh_reconstruction_unit_2():
     )
 
     assert strategy["max_backups"] == 5
-
     assert strategy["hedge_cycles_maximum"] == 1
 
-    assert (
-        safety["real_order_submission_enabled"]
-        is False
-    )
+    assert safety["authenticated_api_enabled"] is True
+    assert safety["account_access_enabled"] is True
+    assert safety["position_access_enabled"] is True
 
-    # ========================================================
-    # 2.11 RENDER LOGS
-    # ========================================================
+    assert safety["demo_order_submission_enabled"] is False
+    assert safety["real_order_submission_enabled"] is False
+    assert safety["exchange_mutation_enabled"] is False
+    assert safety["unit2_exchange_write_enabled"] is False
 
-    print(
-        "PASS: UNIVERSAL UNIT 2 V3 CONFIG CREATED",
-        flush=True,
-    )
-
-    print(
-        "TRADING SYMBOL =",
-        symbol,
-        flush=True,
-    )
+    # --------------------------------------------------------
+    # 2.12 RENDER LOGS
+    # --------------------------------------------------------
 
     print(
-        "BASE COIN =",
-        base_coin,
-        flush=True,
+        "PASS: UNIVERSAL UNIT 2 V4 CONFIG CREATED",
+        flush=True
     )
 
+    print("TRADING SYMBOL =", symbol, flush=True)
+    print("BASE COIN =", base_coin, flush=True)
+
     print(
-        "DEMO SYMBOL =",
-        exchange["demo_order_symbol"],
-        flush=True,
+        "DEMO SYMBOL CANDIDATE =",
+        exchange["demo_symbol_candidate"],
+        flush=True
     )
 
     print(
-        "DEMO SYMBOL VERIFIED = False",
-        flush=True,
+        "DEMO SYMBOL VERIFIED =",
+        exchange["demo_symbol_verified"],
+        flush=True
     )
 
     print(
         "INITIAL MARGIN MODE = FIXED_USDT",
-        flush=True,
+        flush=True
     )
 
     print(
         "ENTRY MARGIN USDT =",
         float(margin),
-        flush=True,
+        flush=True
     )
 
     print(
         "COIN EQUIVALENT MARGIN ACTIVE = False",
-        flush=True,
+        flush=True
     )
 
     print(
         "LONG LEVERAGE RENDER =",
         float(leverage_long),
-        flush=True,
+        flush=True
     )
 
     print(
         "SHORT LEVERAGE RENDER =",
         float(leverage_short),
-        flush=True,
+        flush=True
+    )
+
+    print(
+        "LEVERAGE AUTHORITY = RENDER_MANUAL_INPUT",
+        flush=True
     )
 
     print(
         "LEVERAGE API READ = NONE",
-        flush=True,
+        flush=True
     )
 
     print(
         "LEVERAGE API WRITE = NONE",
-        flush=True,
+        flush=True
     )
 
     print(
         "EXPOSURE CAP PERCENT =",
         float(exposure_cap),
-        flush=True,
+        flush=True
     )
 
     print(
-        "BACKUP COUNT = 5",
-        flush=True,
+        "BACKUP COUNT =",
+        strategy["max_backups"],
+        flush=True
     )
 
     print(
         "BACKUP MARGIN PERCENT =",
         float(backup_margin),
-        flush=True,
+        flush=True
     )
 
     print(
         "BACKUP BUFFER PERCENT =",
         float(backup_buffer),
-        flush=True,
+        flush=True
     )
 
     print(
         "TP1 NET ROI TARGET =",
         float(tp1_roi),
-        flush=True,
+        flush=True
     )
 
     print(
         "TP2 NET ROI TARGET =",
         float(tp2_roi),
-        flush=True,
+        flush=True
     )
 
     print(
         "TP ALLOCATION = 10 / 20 / 70",
-        flush=True,
+        flush=True
     )
 
     print(
         "HEDGE MODE = REVERSIBLE_ATR_TWO_STAGE",
-        flush=True,
+        flush=True
     )
 
     print(
         "HEDGE CYCLES MAXIMUM = 1",
-        flush=True,
+        flush=True
     )
 
     print(
         "POST HEDGE = CONDITIONAL B1-B5",
-        flush=True,
+        flush=True
+    )
+
+    print(
+        "DEMO ACCOUNT READ PERMISSION =",
+        safety["authenticated_api_enabled"],
+        flush=True
+    )
+
+    print(
+        "DEMO ACCOUNT READ VERIFIED = False",
+        flush=True
+    )
+
+    print(
+        "DEMO CONTRACT VERIFIED = False",
+        flush=True
+    )
+
+    print(
+        "PENDING ORDERS VERIFIED = False",
+        flush=True
+    )
+
+    print(
+        "POSITION MODE VERIFIED = False",
+        flush=True
     )
 
     print(
         "BOT_MODE AUTHORITY = UNIT 12 NEW ENTRIES",
-        flush=True,
+        flush=True
     )
 
     print(
         "UNIT 13 TP MANAGEMENT INDEPENDENT = True",
-        flush=True,
+        flush=True
     )
 
     print(
         "UNIT 14 HEDGE/BACKUP INDEPENDENT = True",
-        flush=True,
+        flush=True
     )
 
     print(
-        "CONTRACT PRECISION = PENDING UNIT 7",
-        flush=True,
+        "UNIT 2 DEMO ORDER SUBMISSION = DISABLED",
+        flush=True
     )
 
     print(
         "UNIT 2 EXCHANGE WRITE = NONE",
-        flush=True,
+        flush=True
     )
 
     print(
         "REAL CASH EXECUTION = DISABLED",
-        flush=True,
+        flush=True
     )
 
     print(
         "FRESH RECONSTRUCTION UNIT 2 RESULT = PASS",
-        flush=True,
+        flush=True
     )
 
     print("=" * 80, flush=True)
@@ -1212,7 +1034,7 @@ def fresh_reconstruction_unit_2():
 
 
 # ============================================================
-# 2.12 SINGLE CONFIGURATION AUTHORITY
+# SINGLE CENTRAL CONFIGURATION AUTHORITY
 # ============================================================
 
 FRESH_RECONSTRUCTION_CONFIG = (
@@ -1221,11 +1043,10 @@ FRESH_RECONSTRUCTION_CONFIG = (
 
 
 # ============================================================
-# END COMPLETE UNIT 2 V3
+# END COMPLETE UNIVERSAL UNIT 2 V4
 # UNIT 3 FOLLOWS
 # ZERO INDENTATION
 # ============================================================
-
 
 
 # ============================================================
