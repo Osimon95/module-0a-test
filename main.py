@@ -10571,30 +10571,47 @@ def u11_public_get(path):
 
 def u11_extract_symbols(payload):
     """
-    Parse only recognizable explicit symbol records.
-    Never infer eligibility from arbitrary strings.
+    Extract WEEX symbol names from:
+    - Lists of symbol strings
+    - Lists of symbol dictionaries
+    - Nested API response structures
     """
+
     found = set()
 
     def walk(node, depth=0):
-        if depth > 5:
+
+        if depth > 8:
             return
 
-        if isinstance(node, list):
+        if isinstance(node, str):
+            symbol = node.strip().upper()
+
+            if re.fullmatch(
+                r"[A-Z0-9]+(?:USDT|SUSDT)",
+                symbol
+            ):
+                found.add(symbol)
+
+        elif isinstance(node, list):
             for item in node:
                 walk(item, depth + 1)
 
         elif isinstance(node, dict):
+
             symbol = node.get("symbol")
 
             if isinstance(symbol, str):
-                found.add(symbol.upper())
+                walk(symbol, depth + 1)
 
-            for key in ("data", "symbols", "list", "rows"):
+            for key in (
+                "data", "symbols", "list", "rows"
+            ):
                 if key in node:
                     walk(node[key], depth + 1)
 
     walk(payload)
+
     return found
 
 
