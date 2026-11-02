@@ -1481,25 +1481,64 @@ def fresh_reconstruction_unit_3():
             "UNIT 3 PUBLIC MARKET READ DISABLED"
         )
 
-    forbidden = (
+    
+    # ========================================================
+    # UNIT 3 V4 COMPATIBILITY WITH UNIT 2 V4
+    #
+    # Later units may use authenticated DEMO reads.
+    # Unit 3 itself remains PUBLIC GET ONLY.
+    # No order submission or account mutation.
+    # ========================================================
+
+    required_read_permissions = (
+        "public_market_data_read_enabled",
+        "demo_account_balance_read_enabled",
         "authenticated_api_enabled",
         "account_access_enabled",
         "position_access_enabled",
         "order_endpoint_access_enabled",
+    )
+
+    for key in required_read_permissions:
+
+        if safety.get(key) is not True:
+            raise RuntimeError(
+                "UNIT 3 REQUIRED READ PERMISSION MISSING: "
+                + key
+            )
+
+    forbidden_mutations = (
         "demo_order_submission_enabled",
         "real_order_submission_enabled",
         "exchange_mutation_enabled",
         "leverage_mutation_enabled",
         "margin_mode_mutation_enabled",
         "position_mode_mutation_enabled",
+        "unit2_exchange_write_enabled",
     )
 
-    for key in forbidden:
+    for key in forbidden_mutations:
 
         if safety.get(key) is not False:
             raise RuntimeError(
-                "UNIT 3 UNSAFE CONFIG: " + key
+                "UNIT 3 UNSAFE MUTATION CONFIG: "
+                + key
             )
+
+    if config.get("execution_environment") != "DEMO":
+        raise RuntimeError(
+            "UNIT 3 NON-DEMO ENVIRONMENT"
+        )
+
+    print(
+        "PASS: UNIT 3 V4 READ PERMISSIONS COMPATIBLE",
+        flush=True
+    )
+
+    print(
+        "PASS: UNIT 3 EXCHANGE MUTATIONS DISABLED",
+        flush=True
+    )
 
     fixed_margin = unit_3_validate_fixed_margin(
         config
