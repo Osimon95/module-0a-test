@@ -7230,3 +7230,1628 @@ FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
 # ============================================================
 
 
+
+# ============================================================
+# UNIVERSAL WEEX HYBRID BOT
+# COMPLETE UNIT 5 V2 REPLACEMENT
+#
+# UNIT 4 V3 -> UNIT 5 V2 -> UNIT 6
+#
+# TWO QUALIFICATION ROUTES:
+# 1. EARLY_TRANSITION
+# 2. ESTABLISHED_TREND
+#
+# SIDEWAYS -> LONG / SHORT
+# SCALP -> STRUCTURE -> BREAKOUT
+# INDEPENDENT LONG / SHORT SCORES
+# BEST REJECTED CANDIDATE PRESERVED
+# TP1 / TP2 DISTANCE AND COST ANALYSIS
+# UNIT 15 DIAGNOSTIC EVIDENCE
+#
+# LEGACY UNIT 5 INTERFACE RETAINED
+# NO EXCHANGE WRITES
+# ============================================================
+
+import os
+import math
+import time
+
+
+# ============================================================
+# 5.1 VALIDATION HELPERS
+# ============================================================
+
+def unit_5_v2_number(
+    value,
+    name,
+    minimum=None,
+    maximum=None,
+):
+    if isinstance(value, bool):
+        raise RuntimeError(
+            "UNIT 5 INVALID NUMBER: " + name
+        )
+
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError(
+            "UNIT 5 INVALID NUMBER: " + name
+        ) from exc
+
+    if not math.isfinite(result):
+        raise RuntimeError(
+            "UNIT 5 NONFINITE: " + name
+        )
+
+    if minimum is not None and result < minimum:
+        raise RuntimeError(
+            "UNIT 5 BELOW MINIMUM: " + name
+        )
+
+    if maximum is not None and result > maximum:
+        raise RuntimeError(
+            "UNIT 5 ABOVE MAXIMUM: " + name
+        )
+
+    return result
+
+
+def unit_5_v2_env(
+    name,
+    default,
+    minimum=0,
+    maximum=None,
+):
+    raw = os.getenv(name, "")
+
+    if not raw.strip():
+        raw = default
+
+    return unit_5_v2_number(
+        raw,
+        name,
+        minimum,
+        maximum,
+    )
+
+
+def unit_5_v2_bool_env(name, default=False):
+    raw = os.getenv(name, "").strip().upper()
+
+    if not raw:
+        return bool(default)
+
+    if raw in ("1", "TRUE", "YES", "ON"):
+        return True
+
+    if raw in ("0", "FALSE", "NO", "OFF"):
+        return False
+
+    raise RuntimeError(
+        "UNIT 5 INVALID BOOLEAN ENV: " + name
+    )
+
+
+def unit_5_v2_direction(value):
+    if value > 0:
+        return "LONG"
+    if value < 0:
+        return "SHORT"
+    return "NONE"
+
+
+def unit_5_v2_matches(value, side):
+    if side == "LONG":
+        return value > 0
+    if side == "SHORT":
+        return value < 0
+    return False
+
+
+def unit_5_v2_clamp(value):
+    return max(0.0, min(100.0, value))
+
+
+# ============================================================
+# 5.2 MAIN UNIT 5 V2
+# ============================================================
+
+def fresh_reconstruction_unit_5(
+    unit_2_config,
+    unit_4_snapshot,
+):
+
+    print("=" * 80, flush=True)
+
+    log("UNIVERSAL WEEX UNIT 5 V2 START")
+
+    if not isinstance(unit_2_config, dict):
+        raise RuntimeError("UNIT 5 CONFIG INVALID")
+
+    if not isinstance(unit_4_snapshot, dict):
+        raise RuntimeError("UNIT 5 SNAPSHOT INVALID")
+
+    config = unit_2_config
+    analysis = unit_4_snapshot
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+    qualification = config.get("qualification", {})
+
+    if not all(
+        isinstance(x, dict)
+        for x in (exchange, safety, qualification)
+    ):
+        raise RuntimeError(
+            "UNIT 5 CONFIG STRUCTURE INVALID"
+        )
+
+    common = qualification.get("common", {})
+    breakout_cfg = qualification.get("breakout", {})
+    structure_cfg = qualification.get("structure", {})
+    scalp_cfg = qualification.get("scalp", {})
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            common,
+            breakout_cfg,
+            structure_cfg,
+            scalp_cfg,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 5 QUALIFICATION GROUP INVALID"
+        )
+
+    symbol = exchange.get("market_symbol")
+
+    if (
+        not isinstance(symbol, str)
+        or symbol != os.getenv(
+            "TRADING_SYMBOL", ""
+        ).strip().upper()
+        or analysis.get("symbol") != symbol
+        or analysis.get("exchange") != "WEEX"
+        or analysis.get("api_version") != "V3"
+        or analysis.get("price_type") != "MARK"
+        or analysis.get("read_only") is not True
+        or analysis.get(
+            "strategy_evidence_version"
+        ) != "U4_HYBRID_V2"
+        or analysis.get(
+            "qualification_tuning_revision"
+        ) != "UNIT4_UNIVERSAL_V3"
+    ):
+        raise RuntimeError(
+            "UNIT 5 UNIT 4 HANDOVER INVALID"
+        )
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or safety.get(
+            "public_market_data_read_enabled"
+        ) is not True
+        or safety.get(
+            "real_order_submission_enabled"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 5 SAFETY GATE FAILED"
+        )
+
+    if tuple(
+        common.get("mode_priority", ())
+    ) != (
+        "BREAKOUT",
+        "STRUCTURE",
+        "SCALP",
+    ):
+        raise RuntimeError(
+            "UNIT 5 LEGACY MODE CONTRACT INVALID"
+        )
+
+    # ========================================================
+    # 5.3 ANALYSIS FRESHNESS
+    # ========================================================
+
+    market_time_ms = unit_5_v2_number(
+        analysis.get("exchange_time_ms"),
+        "EXCHANGE TIME",
+        1,
+    )
+
+    max_age_seconds = unit_5_v2_env(
+        "UNIT5_MARKET_MAX_AGE_SECONDS",
+        120,
+        1,
+    )
+
+    age_seconds = (
+        time.time()
+        - market_time_ms / 1000
+    )
+
+    if not 0 <= age_seconds <= max_age_seconds:
+        raise RuntimeError(
+            "UNIT 5 STALE ANALYSIS"
+        )
+
+    def n(key):
+        return unit_5_v2_number(
+            analysis.get(key),
+            key,
+        )
+
+    def flag(key):
+        value = analysis.get(key)
+
+        if type(value) is not bool:
+            raise RuntimeError(
+                "UNIT 5 INVALID BOOLEAN: " + key
+            )
+
+        return value
+
+    live_price = n("live_mark_price")
+    latest_close = n("latest_close")
+    previous_close = n("previous_close")
+    atr14 = n("atr14")
+
+    if min(
+        live_price,
+        latest_close,
+        previous_close,
+        atr14,
+    ) <= 0:
+        raise RuntimeError(
+            "UNIT 5 INVALID MARKET VALUES"
+        )
+
+    ema19 = n("ema19")
+    ema50 = n("ema50")
+    ema200 = n("ema200")
+    separation = n("ema19_50_separation_pct")
+    short_move = n("short_term_move_pct")
+    extension_atr = n("price_extension_cluster")
+
+    moves = {
+        period: n("move_" + str(period) + "m_pct")
+        for period in (1, 5, 15, 30, 60, 120)
+    }
+
+    regime_data = analysis.get("market_regime", {})
+    timeframes = analysis.get(
+        "multi_timeframe_analysis", {}
+    )
+    targets = analysis.get(
+        "tp_target_reachability", {}
+    )
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            regime_data,
+            timeframes,
+            targets,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 5 ADAPTIVE DATA INVALID"
+        )
+
+    for timeframe in ("1m", "5m", "15m", "1h"):
+        if not isinstance(
+            timeframes.get(timeframe), dict
+        ):
+            raise RuntimeError(
+                "UNIT 5 MISSING " + timeframe
+            )
+
+    regime = regime_data.get("current")
+
+    if regime not in (
+        "SIDEWAYS",
+        "LONG",
+        "SHORT",
+        "TRANSITION",
+    ):
+        raise RuntimeError(
+            "UNIT 5 INVALID MARKET REGIME"
+        )
+
+    long_pressure = unit_5_v2_number(
+        regime_data.get("bullish_pressure_score"),
+        "LONG PRESSURE",
+        0, 100,
+    )
+
+    short_pressure = unit_5_v2_number(
+        regime_data.get("bearish_pressure_score"),
+        "SHORT PRESSURE",
+        0, 100,
+    )
+
+    buildup_score = unit_5_v2_number(
+        regime_data.get("sideways_buildup_score"),
+        "BUILDUP",
+        0, 100,
+    )
+
+    acceleration = n("momentum_acceleration_atr")
+    atr_expansion = n("atr_expansion_ratio")
+
+    if atr_expansion <= 0:
+        raise RuntimeError(
+            "UNIT 5 INVALID ATR EXPANSION"
+        )
+
+    volume_available = flag(
+        "volume_data_available"
+    )
+
+    volume_ratio = None
+
+    if volume_available:
+        volume_ratio = unit_5_v2_number(
+            analysis.get(
+                "verified_trade_volume_ratio"
+            ),
+            "VOLUME RATIO",
+            0,
+        )
+
+    # ========================================================
+    # 5.4 ADJUSTABLE WEIGHTS
+    # ========================================================
+
+    weights = {
+        "trend": unit_5_v2_env(
+            "UNIT5_WEIGHT_TREND_ALIGNMENT", 20
+        ),
+        "reach": unit_5_v2_env(
+            "UNIT5_WEIGHT_TARGET_REACHABILITY", 25
+        ),
+        "momentum": unit_5_v2_env(
+            "UNIT5_WEIGHT_MOMENTUM_STRENGTH", 20
+        ),
+        "volatility": unit_5_v2_env(
+            "UNIT5_WEIGHT_VOLATILITY_EXPANSION", 10
+        ),
+        "volume": unit_5_v2_env(
+            "UNIT5_WEIGHT_VOLUME_CONFIRMATION", 10
+        ),
+        "timing": unit_5_v2_env(
+            "UNIT5_WEIGHT_ENTRY_TIMING", 10
+        ),
+        "cost": unit_5_v2_env(
+            "UNIT5_WEIGHT_COST_EFFICIENCY", 5
+        ),
+    }
+
+    if abs(sum(weights.values()) - 100) > 0.001:
+        raise RuntimeError(
+            "UNIT 5 WEIGHTS MUST TOTAL 100"
+        )
+
+    # ========================================================
+    # 5.5 TWO-PATH ENTRY THRESHOLDS
+    # ========================================================
+
+    established_score_min = unit_5_v2_env(
+        "UNIT5_ENTRY_SCORE_MIN",
+        75,
+        0, 100,
+    )
+
+    early_score_min = unit_5_v2_env(
+        "UNIT5_EARLY_SCORE_MIN",
+        65,
+        0, 100,
+    )
+
+    established_pressure_min = unit_5_v2_env(
+        "UNIT5_DIRECTION_PRESSURE_MIN",
+        55,
+        0, 100,
+    )
+
+    early_pressure_min = unit_5_v2_env(
+        "UNIT5_EARLY_PRESSURE_MIN",
+        40,
+        0, 100,
+    )
+
+    established_advantage_min = unit_5_v2_env(
+        "UNIT5_PRESSURE_ADVANTAGE_MIN",
+        10,
+        0, 100,
+    )
+
+    early_advantage_min = unit_5_v2_env(
+        "UNIT5_EARLY_PRESSURE_ADVANTAGE_MIN",
+        8,
+        0, 100,
+    )
+
+    established_mtf_min = int(unit_5_v2_env(
+        "UNIT5_MTF_CONFIRMATION_MIN",
+        2,
+        1, 4,
+    ))
+
+    early_mtf_min = int(unit_5_v2_env(
+        "UNIT5_EARLY_MTF_MIN",
+        1,
+        1, 4,
+    ))
+
+    extension_limit = unit_5_v2_env(
+        "UNIT5_ENTRY_MAX_EXTENSION_ATR",
+        2.0,
+        0.01,
+    )
+
+    early_extension_limit = unit_5_v2_env(
+        "UNIT5_EARLY_MAX_EXTENSION_ATR",
+        1.5,
+        0.01,
+    )
+
+    tp2_distance_limit = unit_5_v2_env(
+        "UNIT5_TP2_MAX_ATR1H_DISTANCE",
+        12,
+        0.1,
+    )
+
+    early_tp2_limit = unit_5_v2_env(
+        "UNIT5_EARLY_TP2_MAX_ATR1H",
+        12,
+        0.1,
+    )
+
+    minimum_volume_ratio = unit_5_v2_env(
+        "UNIT5_VOLUME_RATIO_MIN",
+        1.20,
+        0.01,
+    )
+
+    early_momentum_min = unit_5_v2_env(
+        "UNIT5_EARLY_MOMENTUM_MIN_ATR",
+        0.05,
+        0,
+    )
+
+    # Volume may support a signal, but absence
+    # cannot be interpreted as zero activity.
+    # Early volume requirement remains adjustable.
+
+    early_require_volume = unit_5_v2_bool_env(
+        "UNIT5_EARLY_REQUIRE_VOLUME",
+        False,
+    )
+
+    # ========================================================
+    # 5.6 SCORE LONG AND SHORT INDEPENDENTLY
+    # ========================================================
+
+    scored = {}
+
+    fee_policy = config.get("fee_policy", {})
+
+    if not isinstance(fee_policy, dict):
+        raise RuntimeError(
+            "UNIT 5 FEE POLICY INVALID"
+        )
+
+    taker_fee = unit_5_v2_number(
+        fee_policy.get(
+            "estimated_taker_fee_percent",
+            0.08,
+        ),
+        "TAKER FEE",
+        0,
+    )
+
+    slippage = unit_5_v2_env(
+        "UNIT5_EXPECTED_SLIPPAGE_PERCENT",
+        0.05,
+    )
+
+    estimated_cost_pct = (
+        2 * taker_fee + slippage
+    )
+
+    for side in ("LONG", "SHORT"):
+
+        sign = 1 if side == "LONG" else -1
+
+        own_pressure = (
+            long_pressure
+            if side == "LONG"
+            else short_pressure
+        )
+
+        opposite_pressure = (
+            short_pressure
+            if side == "LONG"
+            else long_pressure
+        )
+
+        pressure_advantage = (
+            own_pressure - opposite_pressure
+        )
+
+        own_votes = int(
+            n(
+                "direction_long_votes"
+                if side == "LONG"
+                else "direction_short_votes"
+            )
+        )
+
+        if not 0 <= own_votes <= 3:
+            raise RuntimeError(
+                "UNIT 5 INVALID DIRECTION VOTES"
+            )
+
+        agreeing_frames = sum(
+            tf.get("trend")
+            in (
+                ("LONG", "EARLY_LONG")
+                if side == "LONG"
+                else ("SHORT", "EARLY_SHORT")
+            )
+            for tf in timeframes.values()
+        )
+
+        confirmed_frames = sum(
+            tf.get("trend") == side
+            for tf in timeframes.values()
+        )
+
+        trend_score = unit_5_v2_clamp(
+            60 * agreeing_frames / 4
+            + 40 * confirmed_frames / 4
+        )
+
+        side_momentum = sign * (
+            moves[5] + moves[15]
+        )
+
+        side_acceleration = sign * acceleration
+
+        momentum_scale = max(
+            n("atr_percent") * 10,
+            0.000001,
+        )
+
+        momentum_score = unit_5_v2_clamp(
+            45 * max(
+                0,
+                min(1, side_momentum / momentum_scale),
+            )
+            + 35 * max(
+                0,
+                min(1, side_acceleration),
+            )
+            + 20 * own_votes / 3
+        )
+
+        volatility_score = unit_5_v2_clamp(
+            50 + 100 * (atr_expansion - 1)
+        )
+
+        volume_score = (
+            unit_5_v2_clamp(
+                100 * volume_ratio
+                / minimum_volume_ratio
+            )
+            if volume_available
+            else 50.0
+        )
+
+        target = targets.get(side)
+
+        if not isinstance(target, dict):
+            raise RuntimeError(
+                "UNIT 5 MISSING TARGET " + side
+            )
+
+        tp1_move = unit_5_v2_number(
+            target.get("tp1_move_pct"),
+            "TP1 MOVE",
+            0,
+        )
+
+        tp2_move = unit_5_v2_number(
+            target.get("tp2_move_pct"),
+            "TP2 MOVE",
+            0,
+        )
+
+        atr1h = unit_5_v2_number(
+            timeframes["1h"].get("atr14"),
+            "ATR1H",
+            0.000000001,
+        )
+
+        tp1_atr1h = (
+            live_price * tp1_move / 100
+        ) / atr1h
+
+        tp2_atr1h = (
+            live_price * tp2_move / 100
+        ) / atr1h
+
+        reach_score = unit_5_v2_clamp(
+            100 * max(
+                0,
+                1 - tp2_atr1h
+                / (2 * tp2_distance_limit),
+            )
+        )
+
+        timing_score = unit_5_v2_clamp(
+            100
+            - 55 * min(
+                1,
+                extension_atr / extension_limit,
+            )
+            + 0.15 * pressure_advantage
+        )
+
+        cost_coverage = (
+            tp1_move
+            / max(estimated_cost_pct, 0.000001)
+        )
+
+        cost_score = unit_5_v2_clamp(
+            100 * min(
+                1,
+                cost_coverage / 3,
+            )
+        )
+
+        components = {
+            "trend": trend_score,
+            "reach": reach_score,
+            "momentum": momentum_score,
+            "volatility": volatility_score,
+            "volume": volume_score,
+            "timing": timing_score,
+            "cost": cost_score,
+        }
+
+        total_score = sum(
+            weights[key] * components[key] / 100
+            for key in weights
+        )
+
+        # ================================================
+        # 5.7 PROGRESSIVE DEVELOPMENTAL PHASE
+        # ================================================
+
+        if analysis.get(
+            "breakout_confirmed_" + side.lower()
+        ) is True:
+
+            phase = "BREAKOUT"
+
+        elif analysis.get(
+            "breakout_developing_" + side.lower()
+        ) is True:
+
+            phase = "DEVELOPING_BREAKOUT"
+
+        elif analysis.get(
+            "structure_developing_" + side.lower()
+        ) is True:
+
+            phase = "STRUCTURE"
+
+        elif (
+            own_pressure >= early_pressure_min
+            and own_votes >= 1
+        ):
+
+            phase = "EARLY_SCALP"
+
+        else:
+
+            phase = "BUILDUP"
+
+        # ================================================
+        # 5.8 TWO DISTINCT QUALIFICATION ROUTES
+        # ================================================
+
+        cost_pass = (
+            tp1_move > estimated_cost_pct
+            and tp2_move > tp1_move
+        )
+
+        directional_evidence = (
+            own_votes >= 2
+            and side_momentum > 0
+        )
+
+        volume_pass = (
+            volume_available
+            and volume_ratio >= minimum_volume_ratio
+        )
+
+        established_route = bool(
+            total_score >= established_score_min
+            and own_pressure
+            >= established_pressure_min
+            and pressure_advantage
+            >= established_advantage_min
+            and agreeing_frames
+            >= established_mtf_min
+            and directional_evidence
+            and extension_atr <= extension_limit
+            and tp2_atr1h <= tp2_distance_limit
+            and cost_pass
+            and phase in (
+                "STRUCTURE",
+                "DEVELOPING_BREAKOUT",
+                "BREAKOUT",
+            )
+        )
+
+        # Early route accepts a developing directional
+        # impulse without requiring a fully confirmed
+        # EMA structure or breakout.
+        #
+        # It still requires price direction, momentum,
+        # cost room and conservative extension checks.
+
+        early_route = bool(
+            total_score >= early_score_min
+            and own_pressure >= early_pressure_min
+            and pressure_advantage
+            >= early_advantage_min
+            and agreeing_frames >= early_mtf_min
+            and own_votes >= 2
+            and side_momentum > 0
+            and (
+                side_acceleration >= early_momentum_min
+                or (
+                    sign * moves[1] > 0
+                    and sign * moves[5] > 0
+                )
+            )
+            and extension_atr
+            <= early_extension_limit
+            and tp2_atr1h <= early_tp2_limit
+            and cost_pass
+            and (
+                not early_require_volume
+                or volume_pass
+            )
+        )
+
+        if established_route:
+
+            route = "ESTABLISHED_TREND"
+            qualified = True
+
+        elif early_route:
+
+            route = "EARLY_TRANSITION"
+            qualified = True
+
+        else:
+
+            route = "NONE"
+            qualified = False
+
+        failures = []
+
+        if own_pressure < early_pressure_min:
+            failures.append("PRESSURE_BELOW_EARLY_MIN")
+
+        if pressure_advantage < early_advantage_min:
+            failures.append("PRESSURE_ADVANTAGE_WEAK")
+
+        if agreeing_frames < early_mtf_min:
+            failures.append("MTF_ALIGNMENT_WEAK")
+
+        if not directional_evidence:
+            failures.append("DIRECTIONAL_MOMENTUM_WEAK")
+
+        if side_acceleration < early_momentum_min:
+            failures.append("ACCELERATION_NOT_CONFIRMED")
+
+        if extension_atr > early_extension_limit:
+            failures.append("PRICE_OVEREXTENDED")
+
+        if tp2_atr1h > early_tp2_limit:
+            failures.append("TP2_DISTANCE_HIGH")
+
+        if not cost_pass:
+            failures.append("TARGET_COST_COVERAGE_FAILED")
+
+        if not volume_available:
+            failures.append("VOLUME_UNAVAILABLE")
+
+        if volume_available and not volume_pass:
+            failures.append("LOW_RELATIVE_VOLUME")
+
+        if total_score < early_score_min:
+            failures.append("ENTRY_SCORE_BELOW_EARLY_MIN")
+
+        scored[side] = {
+            "score": round(total_score, 3),
+            "components": {
+                k: round(v, 3)
+                for k, v in components.items()
+            },
+            "pressure": own_pressure,
+            "opposite_pressure": opposite_pressure,
+            "pressure_advantage": pressure_advantage,
+            "agreeing_timeframes": agreeing_frames,
+            "confirmed_timeframes": confirmed_frames,
+            "direction_votes": own_votes,
+            "momentum": side_momentum,
+            "acceleration": side_acceleration,
+            "phase": phase,
+            "entry_route": route,
+            "qualified": qualified,
+            "early_route_pass": early_route,
+            "established_route_pass": established_route,
+            "tp1_move_pct": tp1_move,
+            "tp2_move_pct": tp2_move,
+            "tp1_atr1h": tp1_atr1h,
+            "tp2_atr1h": tp2_atr1h,
+            "cost_coverage": cost_coverage,
+            "volume_pass": volume_pass,
+            "risk_factors": failures,
+        }
+
+    # ========================================================
+    # 5.9 SELECT QUALIFIED DIRECTION
+    #
+    # PRESERVE BEST CANDIDATE EVEN IF REJECTED.
+    # ========================================================
+
+    ranking = sorted(
+        ("LONG", "SHORT"),
+        key=lambda side: (
+            scored[side]["score"],
+            scored[side]["pressure_advantage"],
+        ),
+        reverse=True,
+    )
+
+    best_side = ranking[0]
+    best_record = scored[best_side]
+
+    qualified_sides = [
+        side
+        for side in ranking
+        if scored[side]["qualified"]
+    ]
+
+    if len(qualified_sides) == 2:
+        # Conflicting qualified signals must not
+        # authorize a new entry.
+        qualified_sides = []
+        conflict = True
+    else:
+        conflict = False
+
+    selected_side = (
+        qualified_sides[0]
+        if qualified_sides
+        else "NONE"
+    )
+
+    selected_record = (
+        scored[selected_side]
+        if selected_side != "NONE"
+        else None
+    )
+
+    qualified = selected_record is not None
+
+    direction = (
+        selected_side if qualified else "NONE"
+    )
+
+    def mode_of(phase):
+        if "BREAKOUT" in phase:
+            return "BREAKOUT"
+        if "STRUCTURE" in phase:
+            return "STRUCTURE"
+        return "SCALP"
+
+    candidate_mode = (
+        mode_of(selected_record["phase"])
+        if qualified
+        else "NONE"
+    )
+
+    active_mode = (
+        candidate_mode if qualified
+        else "NONE"
+    )
+
+    candidate_stage = (
+        "QUALIFIED"
+        if qualified
+        else "DEVELOPING"
+        if best_record["score"] >= early_score_min
+        else "REJECTED"
+    )
+
+    reason = (
+        "ADAPTIVE_" + selected_record["entry_route"]
+        if qualified
+        else "CONFLICTING_QUALIFIED_DIRECTIONS"
+        if conflict
+        else "BEST_CANDIDATE_NOT_YET_QUALIFIED"
+    )
+
+    best_mode = mode_of(best_record["phase"])
+
+    # ========================================================
+    # 5.10 PRESERVE ORIGINAL 42-FIELD CANDIDATE
+    # ========================================================
+
+    ema_direction = unit_5_v2_direction(
+        ema19 - ema50
+    )
+
+    legacy_candidate = {
+
+        "symbol": symbol,
+        "qualified": qualified,
+        "active_mode": active_mode,
+        "direction": direction,
+        "qualification_reason": reason,
+
+        "live_mark_price": live_price,
+        "ema19": ema19,
+        "ema50": ema50,
+        "ema200": ema200,
+        "ema19_50_separation_pct": separation,
+        "ema_structure": analysis["ema_structure"],
+        "ema_direction": ema_direction,
+
+        "momentum_direction":
+            unit_5_v2_direction(moves[1]),
+
+        "direction_agreement": bool(
+            qualified
+            and direction == analysis[
+                "direction_evidence"
+            ]
+        ),
+
+        "short_term_move_pct": short_move,
+        "absolute_short_term_move_pct":
+            abs(short_move),
+
+        "previous_close": previous_close,
+        "latest_close": latest_close,
+
+        "price_above_ema19": live_price > ema19,
+        "price_above_ema50": live_price > ema50,
+        "price_above_ema200": live_price > ema200,
+
+        "latest_close_above_previous":
+            latest_close > previous_close,
+
+        "move_1m_pct": moves[1],
+        "move_5m_pct": moves[5],
+        "move_15m_pct": moves[15],
+        "move_30m_pct": moves[30],
+        "move_60m_pct": moves[60],
+        "move_120m_pct": moves[120],
+
+        "momentum_1m_direction":
+            unit_5_v2_direction(moves[1]),
+
+        "momentum_5m_direction":
+            unit_5_v2_direction(moves[5]),
+
+        "momentum_15m_direction":
+            unit_5_v2_direction(moves[15]),
+
+        "momentum_30m_direction":
+            unit_5_v2_direction(moves[30]),
+
+        "momentum_60m_direction":
+            unit_5_v2_direction(moves[60]),
+
+        "momentum_120m_direction":
+            unit_5_v2_direction(moves[120]),
+
+        "scalp_direction":
+            direction if (
+                candidate_mode == "SCALP"
+            ) else "NONE",
+
+        "scalp_move_pct": moves[1],
+        "scalp_1m_support": abs(moves[1]),
+
+        "structure_direction":
+            direction if (
+                candidate_mode == "STRUCTURE"
+            ) else "NONE",
+
+        "structure_move_pct": moves[15],
+
+        "breakout_direction":
+            direction if (
+                candidate_mode == "BREAKOUT"
+            ) else "NONE",
+
+        "breakout_move_pct": moves[5],
+        "breakout_fast_support": abs(moves[5]),
+    }
+
+    if len(legacy_candidate) != 42:
+        raise RuntimeError(
+            "UNIT 5 LEGACY 42-FIELD CONTRACT FAILED"
+        )
+
+    candidate = dict(legacy_candidate)
+
+    # ========================================================
+    # 5.11 EXTENDED UNIT 6 HANDOVER
+    # ========================================================
+
+    selected_votes = (
+        selected_record["direction_votes"]
+        if qualified else 0
+    )
+
+    selected_extension_pass = (
+        extension_atr <= extension_limit
+    )
+
+    candidate.update({
+
+        "candidate_mode": candidate_mode,
+        "candidate_stage": candidate_stage,
+
+        "higher_mode_developing":
+            flag("higher_mode_developing"),
+
+        "breakout_candidate": any((
+            flag("breakout_confirmed_long"),
+            flag("breakout_confirmed_short"),
+            flag("breakout_developing_long"),
+            flag("breakout_developing_short"),
+        )),
+
+        "structure_candidate": any((
+            flag("structure_developing_long"),
+            flag("structure_developing_short"),
+        )),
+
+        "breakout_ready": bool(
+            qualified and candidate_mode == "BREAKOUT"
+        ),
+
+        "structure_ready": bool(
+            qualified and candidate_mode == "STRUCTURE"
+        ),
+
+        "scalp_ready": bool(
+            qualified and candidate_mode == "SCALP"
+        ),
+
+        "sideways_context":
+            flag("sideways_candidate"),
+
+        "direction_evidence":
+            analysis["direction_evidence"],
+
+        "scalp_quality_minimum":
+            established_score_min,
+
+        "scalp_price_weight_percent":
+            weights["timing"],
+
+        "estimated_round_trip_fee_pct":
+            estimated_cost_pct,
+
+        "scalp_minimum_fee_coverage":
+            selected_record["cost_coverage"]
+            if qualified else None,
+
+        "candle_data_fresh": True,
+        "read_only": True,
+        "trade_authorized": False,
+        "order_payload_created": False,
+
+        "strategy_evidence_version":
+            "U5_HYBRID_ADJUSTABLE_V3",
+
+        "unit_4_evidence_version":
+            "U4_HYBRID_V2",
+
+        "classification_revision":
+            "UNIVERSAL_ADAPTIVE_V2",
+
+        "candidate_protected": bool(
+            candidate_stage == "DEVELOPING"
+        ),
+
+        "candidate_age_seconds": age_seconds,
+
+        "classification_source":
+            "UNIT5_ADAPTIVE_V2",
+
+        "original_unit5_qualified": qualified,
+        "original_unit5_mode": candidate_mode,
+        "original_unit5_direction": direction,
+        "original_unit5_reason": reason,
+
+        "original_hybrid_conflict": conflict,
+
+        "optimization_version":
+            "UNIT5_ADAPTIVE_V2",
+
+        "hybrid_structure_qualified": bool(
+            qualified and candidate_mode == "STRUCTURE"
+        ),
+
+        "hybrid_breakout_qualified": bool(
+            qualified and candidate_mode == "BREAKOUT"
+        ),
+
+        "structure_direction_votes": selected_votes,
+
+        "structure_extension_atr": extension_atr,
+
+        "structure_extension_pass":
+            selected_extension_pass,
+
+        "structure_momentum_agreement": bool(
+            qualified and unit_5_v2_matches(
+                moves[15], direction
+            )
+        ),
+
+        "breakout_confirmation_votes": selected_votes,
+
+        "developing_breakout_direction":
+            "LONG"
+            if flag("breakout_developing_long")
+            else "SHORT"
+            if flag("breakout_developing_short")
+            else "NONE",
+
+        "developing_structure_direction":
+            "LONG"
+            if flag("structure_developing_long")
+            else "SHORT"
+            if flag("structure_developing_short")
+            else "NONE",
+
+        "scalp_preliminary": bool(
+            qualified and candidate_mode == "SCALP"
+        ),
+
+        "qualification_tuning_revision":
+            "UNIT5_UNIVERSAL_ADAPTIVE_V2",
+
+        "structure_ema_alignment_mode":
+            analysis.get(
+                "structure_ema_alignment_mode", "EARLY"
+            ),
+
+        "structure_trend_direction":
+            analysis.get(
+                "structure_trend_direction", "NONE"
+            ),
+
+        "structure_votes_pass":
+            selected_votes >= 2,
+
+        "structure_momentum_pass": bool(
+            qualified and unit_5_v2_matches(
+                moves[15], direction
+            )
+        ),
+
+        "breakout_votes_pass":
+            selected_votes >= 2,
+
+        "breakout_momentum_pass": bool(
+            qualified and unit_5_v2_matches(
+                moves[5], direction
+            )
+        ),
+
+        "scalp_preliminary_ema_min_pct":
+            analysis.get(
+                "scalp_preliminary_ema_min_pct"
+            ),
+
+        "scalp_preliminary_move_min_pct":
+            analysis.get(
+                "scalp_preliminary_move_min_pct"
+            ),
+
+        "scalp_sideways_required":
+            scalp_cfg.get(
+                "require_sideways_market", True
+            ),
+
+        "scalp_sideways_pass":
+            flag("sideways_candidate"),
+
+        "scalp_direction_candidate":
+            direction
+            if candidate_mode == "SCALP"
+            else "NONE",
+
+        "scalp_quality_pending_unit6": bool(
+            not qualified
+            and best_mode == "SCALP"
+            and candidate_stage == "DEVELOPING"
+        ),
+
+        # ====================================================
+        # NEW ADAPTIVE V2 EVIDENCE
+        # ====================================================
+
+        "market_regime": regime,
+
+        "market_progression": {
+            side: scored[side]["phase"]
+            for side in ("LONG", "SHORT")
+        },
+
+        "long_entry_quality": scored["LONG"],
+        "short_entry_quality": scored["SHORT"],
+
+        "entry_quality_score":
+            selected_record["score"]
+            if qualified else 0.0,
+
+        "entry_quality_threshold":
+            established_score_min,
+
+        "entry_quality_weights": dict(weights),
+
+        "entry_quality_components":
+            selected_record["components"]
+            if qualified else {},
+
+        "entry_risk_factors":
+            selected_record["risk_factors"]
+            if qualified else [],
+
+        "entry_target_reachability": targets,
+
+        "entry_target_probability_verified":
+            False,
+
+        "entry_route":
+            selected_record["entry_route"]
+            if qualified else "NONE",
+
+        "best_developing_direction":
+            best_side,
+
+        "best_developing_mode":
+            best_mode,
+
+        "best_developing_score":
+            best_record["score"],
+
+        "best_developing_phase":
+            best_record["phase"],
+
+        "best_developing_risk_factors":
+            list(best_record["risk_factors"]),
+
+        "early_entry_threshold":
+            early_score_min,
+
+        "established_entry_threshold":
+            established_score_min,
+
+        "early_entry_route_available":
+            True,
+
+        "established_entry_route_available":
+            True,
+
+        "conversion_evidence": {
+
+            "market_regime": regime,
+
+            "long_pressure": long_pressure,
+            "short_pressure": short_pressure,
+
+            "long_score":
+                scored["LONG"]["score"],
+
+            "short_score":
+                scored["SHORT"]["score"],
+
+            "potential_long_to_short": bool(
+                scored["SHORT"]["qualified"]
+                and short_pressure > long_pressure
+            ),
+
+            "potential_short_to_long": bool(
+                scored["LONG"]["qualified"]
+                and long_pressure > short_pressure
+            ),
+
+            "reversal_confirmed_for_position":
+                False,
+
+            "open_position_verified": False,
+
+            "requires_position_reconciliation":
+                True,
+
+            "hedge_execution_authorized": False,
+        },
+
+        "initial_entry_only": True,
+
+        "position_management_independent":
+            True,
+
+        "hedge_stage_execution_authorized":
+            False,
+
+        "backup_execution_authorized":
+            False,
+
+        "tp_execution_authorized": False,
+
+        "unit15_diagnostic_input": {
+
+            "symbol": symbol,
+            "market_time_ms": market_time_ms,
+
+            "market_regime": regime,
+
+            "qualified": qualified,
+            "candidate_mode": candidate_mode,
+            "candidate_stage": candidate_stage,
+
+            "selected_direction": direction,
+
+            "best_developing_direction": best_side,
+            "best_developing_mode": best_mode,
+
+            "best_developing_score":
+                best_record["score"],
+
+            "entry_route":
+                selected_record["entry_route"]
+                if qualified else "NONE",
+
+            "long_score":
+                scored["LONG"]["score"],
+
+            "short_score":
+                scored["SHORT"]["score"],
+
+            "weights": dict(weights),
+
+            "early_threshold": early_score_min,
+
+            "established_threshold":
+                established_score_min,
+
+            "long_risk_factors":
+                scored["LONG"]["risk_factors"],
+
+            "short_risk_factors":
+                scored["SHORT"]["risk_factors"],
+
+            "target_reachability": targets,
+
+            "trade_outcome_classification":
+                "PENDING_TRADE_HISTORY",
+        },
+    })
+
+    # ========================================================
+    # 5.12 SAFETY CHECK
+    # ========================================================
+
+    if qualified and (
+        direction not in ("LONG", "SHORT")
+        or candidate_mode not in (
+            "SCALP", "STRUCTURE", "BREAKOUT"
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 5 QUALIFIED STATE INVALID"
+        )
+
+    if (
+        candidate["trade_authorized"] is not False
+        or candidate["order_payload_created"] is not False
+        or candidate["read_only"] is not True
+    ):
+        raise RuntimeError(
+            "UNIT 5 WRITE SAFETY FAILED"
+        )
+
+    # ========================================================
+    # 5.13 RENDER LOGS
+    # ========================================================
+
+    print(
+        "UNIT 5 SYMBOL =", symbol,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 MARKET REGIME =", regime,
+        flush=True,
+    )
+
+    for side in ("LONG", "SHORT"):
+
+        data = scored[side]
+
+        print(
+            "UNIT 5", side,
+            "ENTRY SCORE =", data["score"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 5", side,
+            "PHASE =", data["phase"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 5", side,
+            "EARLY ROUTE =", data["early_route_pass"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 5", side,
+            "ESTABLISHED ROUTE =",
+            data["established_route_pass"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 5", side,
+            "RISK FACTORS =", data["risk_factors"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 5", side,
+            "TP1/TP2 ATR1H =",
+            round(data["tp1_atr1h"], 3),
+            round(data["tp2_atr1h"], 3),
+            flush=True,
+        )
+
+    print(
+        "UNIT 5 EARLY THRESHOLD =",
+        early_score_min,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 ESTABLISHED THRESHOLD =",
+        established_score_min,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 BEST DEVELOPING DIRECTION =",
+        best_side,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 BEST DEVELOPING SCORE =",
+        best_record["score"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 BEST DEVELOPING MODE =",
+        best_mode,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 SELECTED DIRECTION =",
+        direction,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 SELECTED MODE =",
+        candidate_mode,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 ENTRY ROUTE =",
+        candidate["entry_route"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 CANDIDATE STAGE =",
+        candidate_stage,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 ENTRY QUALIFIED =",
+        qualified,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 QUALIFICATION REASON =",
+        reason,
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 HISTORICAL TP PROBABILITY = UNVERIFIED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 ORIGINAL FIELDS =",
+        len(legacy_candidate),
+        flush=True,
+    )
+
+    print(
+        "PASS: UNIT 5 V2 ADAPTIVE HANDOVER",
+        flush=True,
+    )
+
+    print(
+        "UNIT 5 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 5 RESULT = PASS",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return candidate
+
+
+# ============================================================
+# 5.14 GLOBAL UNIT 6 HANDOVER
+# ============================================================
+
+FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
+    fresh_reconstruction_unit_5(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+    )
+)
+
+
+# ============================================================
+# END COMPLETE UNIVERSAL UNIT 5 V2
+# UNIT 6 FOLLOWS
+# ZERO INDENTATION
+# ============================================================
