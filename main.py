@@ -7939,3 +7939,192 @@ FRESH_RECONSTRUCTION_UNIT6_RESULT = (
 # ZERO INDENTATION
 # ============================================================
 
+
+
+# ============================================================
+# UNIT 6 V1 — CONTINUITY TEST EXTENSION
+# INSERT AFTER UNIT 6
+# NO EXCHANGE WRITES
+# ============================================================
+
+def fresh_reconstruction_unit_6_continuity_test():
+
+    import copy
+    import time
+
+    original_candidate = copy.deepcopy(
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+    )
+
+    original_analysis = copy.deepcopy(
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+    )
+
+    config = copy.deepcopy(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    state = {
+        "symbol": None,
+        "last_candle_id": None,
+        "last_market_time_ms": None,
+        "last_fingerprint": None,
+        "candidate_direction": "NONE",
+        "candidate_mode": "NONE",
+        "first_seen_ms": None,
+        "last_seen_ms": None,
+        "consecutive_observations": 0,
+        "qualified_observations": 0,
+        "last_outcome": "NONE",
+    }
+
+    now = int(time.time() * 1000)
+
+    base_candle = (
+        now // 60000
+    ) * 60000 - 120000
+
+    def make_scan(
+        candle_id,
+        side,
+        qualified,
+    ):
+
+        candidate = copy.deepcopy(
+            original_candidate
+        )
+
+        analysis = copy.deepcopy(
+            original_analysis
+        )
+
+        market_time = now - 1000
+
+        analysis["exchange_time_ms"] = (
+            market_time
+        )
+
+        analysis["latest_open_time_ms"] = (
+            candle_id
+        )
+
+        candidate[
+            "unit15_diagnostic_input"
+        ]["market_time_ms"] = market_time
+
+        candidate["qualified"] = qualified
+
+        candidate["direction"] = (
+            side if qualified else "NONE"
+        )
+
+        candidate["active_mode"] = (
+            "SCALP" if qualified else "NONE"
+        )
+
+        candidate["best_developing_direction"] = side
+        candidate["best_developing_mode"] = "SCALP"
+
+        candidate["candidate_stage"] = (
+            "QUALIFIED"
+            if qualified
+            else "DEVELOPING"
+        )
+
+        return candidate, analysis
+
+    scenarios = [
+        ("FIRST_QUALIFICATION", base_candle, "SHORT", True, False),
+        ("DUPLICATE_CANDLE", base_candle, "SHORT", True, False),
+        ("SECOND_CANDLE", base_candle + 60000, "SHORT", True, True),
+        ("QUALIFICATION_LOST", base_candle + 120000, "SHORT", False, False),
+        ("DIRECTION_CHANGED", base_candle + 180000, "LONG", True, False),
+    ]
+
+    passed = 0
+    failed = 0
+
+    for (
+        name,
+        candle_id,
+        side,
+        qualified,
+        expected,
+    ) in scenarios:
+
+        candidate, analysis = make_scan(
+            candle_id,
+            side,
+            qualified,
+        )
+
+        result = fresh_reconstruction_unit_6(
+            candidate=candidate,
+            analysis=analysis,
+            config=config,
+            state=state,
+            now_ms=now,
+        )
+
+        actual = result[
+            "entry_continuity_verified"
+        ]
+
+        success = actual is expected
+
+        if success:
+            passed += 1
+        else:
+            failed += 1
+
+        print(
+            "UNIT 6 CONTINUITY TEST =",
+            name,
+            "| EXPECTED =", expected,
+            "| ACTUAL =", actual,
+            "| RESULT =",
+            "PASS" if success else "FAIL",
+            flush=True,
+        )
+
+    print(
+        "UNIT 6 CONTINUITY TESTS PASSED =",
+        passed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 CONTINUITY TESTS FAILED =",
+        failed,
+        flush=True,
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT 6 CONTINUITY VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 6 TWO-CANDLE CONTINUITY = PASS",
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 CONTINUITY TEST EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    return True
+
+
+if os.getenv(
+    "UNIT6_CONTINUITY_TEST",
+    "OFF",
+).strip().upper() == "ON":
+
+    fresh_reconstruction_unit_6_continuity_test()
+
+
+# ============================================================
+# END UNIT 6 CONTINUITY TEST EXTENSION
+# ============================================================
