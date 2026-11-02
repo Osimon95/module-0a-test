@@ -8883,3 +8883,997 @@ FRESH_RECONSTRUCTION_UNIT8_RESULT = (
 # ============================================================
 # END COMPLETE UNIVERSAL WEEX UNIT 8 V1
 # ============================================================
+
+
+
+# ============================================================
+# UNIVERSAL WEEX — COMPLETE UNIT 9 V1
+# ACCOUNT-WIDE DEMO EXPOSURE AND ENTRY SAFETY
+#
+# UNIT 8 -> UNIT 9 -> UNIT 10
+#
+# VERIFIED DEMO POSITIONS ACROSS ALL COINS
+# FIXED USDT MARGIN FROM UNIT 2
+# ENTRY QUANTITY FROM UNIT 7
+# ACCOUNT-WIDE MARGIN EXPOSURE
+# PENDING ORDER EXPOSURE: UNVERIFIED
+# POSITION MODE: UNVERIFIED
+# EXISTING POSITION MANAGEMENT: INDEPENDENT
+#
+# READ ONLY — NO EXCHANGE WRITES
+# ============================================================
+
+import os
+import time
+from decimal import Decimal, InvalidOperation
+
+
+# ============================================================
+# 9.1 STRICT DECIMAL HANDLING
+# ============================================================
+
+def u9_decimal(
+    value,
+    name,
+    allow_negative=False,
+):
+
+    if isinstance(value, bool):
+        raise RuntimeError(
+            "UNIT9 INVALID BOOLEAN " + name
+        )
+
+    try:
+        number = Decimal(str(value))
+    except (
+        InvalidOperation,
+        ValueError,
+        TypeError,
+    ) as exc:
+        raise RuntimeError(
+            "UNIT9 INVALID NUMBER " + name
+        ) from exc
+
+    if not number.is_finite():
+        raise RuntimeError(
+            "UNIT9 NONFINITE NUMBER " + name
+        )
+
+    if not allow_negative and number < 0:
+        raise RuntimeError(
+            "UNIT9 NEGATIVE VALUE " + name
+        )
+
+    return number
+
+
+def u9_text(number):
+    return format(number, "f")
+
+
+def u9_env_number(name, default):
+
+    raw = os.getenv(name, str(default)).strip()
+
+    return u9_decimal(
+        raw,
+        name,
+    )
+
+
+# ============================================================
+# 9.2 FULL ACCOUNT DEMO POSITION READ
+# ============================================================
+
+def u9_read_all_demo_positions():
+
+    key = u8_env_first(
+        "WEEX_API_KEY",
+        "WEEX_ACCESS_KEY",
+    )
+
+    secret = u8_env_first(
+        "WEEX_API_SECRET",
+        "WEEX_SECRET_KEY",
+    )
+
+    passphrase = u8_env_first(
+        "WEEX_API_PASSPHRASE",
+        "WEEX_PASSPHRASE",
+    )
+
+    if not all((key, secret, passphrase)):
+        raise RuntimeError(
+            "UNIT9 DEMO CREDENTIALS MISSING"
+        )
+
+    # Reuse the signed, restricted GET from Unit 8.
+    # Never switch to the live positions endpoint.
+
+    return u8_demo_get(
+        "/capi/v3/sim/position/allPosition",
+        (key, secret, passphrase),
+    )
+
+
+# ============================================================
+# 9.3 ACCOUNT-WIDE POSITION RECONCILIATION
+# ============================================================
+
+def u9_reconcile_positions(records):
+
+    if not isinstance(records, list):
+        raise RuntimeError(
+            "UNIT9 INVALID POSITION ARRAY"
+        )
+
+    positions = []
+
+    observed_margin = Decimal("0")
+    observed_notional = Decimal("0")
+
+    margin_complete = True
+    notional_complete = True
+
+    by_symbol = {}
+
+    for item in records:
+
+        if not isinstance(item, dict):
+            raise RuntimeError(
+                "UNIT9 INVALID POSITION RECORD"
+            )
+
+        symbol = item.get("symbol")
+        side = str(
+            item.get("side", "")
+        ).upper()
+
+        if (
+            not isinstance(symbol, str)
+            or not symbol
+            or side not in ("LONG", "SHORT")
+        ):
+            raise RuntimeError(
+                "UNIT9 INVALID SYMBOL OR SIDE"
+            )
+
+        size = u9_decimal(
+            item.get("size"),
+            "POSITION SIZE",
+        )
+
+        if size == 0:
+            continue
+
+        leverage = None
+
+        if item.get("leverage") not in (
+            None, ""
+        ):
+            leverage = u9_decimal(
+                item["leverage"],
+                "POSITION LEVERAGE",
+            )
+
+            if leverage <= 0:
+                raise RuntimeError(
+                    "UNIT9 INVALID LEVERAGE"
+                )
+
+        # marginSize is the directly reported
+        # margin field when supplied by WEEX.
+        #
+        # Do not estimate missing margin from
+        # quantity * current NEAR price, since
+        # other symbols may have different prices.
+
+        raw_margin = item.get("marginSize")
+
+        margin = None
+
+        if raw_margin not in (None, ""):
+            margin = u9_decimal(
+                raw_margin,
+                "POSITION MARGIN",
+            )
+            observed_margin += margin
+        else:
+            margin_complete = False
+
+        raw_notional = item.get("openValue")
+
+        notional = None
+
+        if raw_notional not in (None, ""):
+            notional = u9_decimal(
+                raw_notional,
+                "POSITION OPEN VALUE",
+            )
+            observed_notional += notional
+        else:
+            notional_complete = False
+
+        margin_type = item.get(
+            "marginType"
+        )
+
+        positions.append({
+
+            "symbol": symbol,
+            "side": side,
+            "quantity": u9_text(size),
+
+            "leverage": (
+                u9_text(leverage)
+                if leverage is not None
+                else None
+            ),
+
+            "margin_type": margin_type,
+
+            "reported_margin_usdt": (
+                u9_text(margin)
+                if margin is not None
+                else None
+            ),
+
+            "open_value_usdt": (
+                u9_text(notional)
+                if notional is not None
+                else None
+            ),
+
+            "margin_verified": (
+                margin is not None
+            ),
+        })
+
+        if symbol not in by_symbol:
+            by_symbol[symbol] = {
+                "long_count": 0,
+                "short_count": 0,
+                "observed_margin": Decimal("0"),
+            }
+
+        if side == "LONG":
+            by_symbol[symbol]["long_count"] += 1
+        else:
+            by_symbol[symbol]["short_count"] += 1
+
+        if margin is not None:
+            by_symbol[symbol][
+                "observed_margin"
+            ] += margin
+
+    symbol_summary = {
+        symbol: {
+            "long_count": data["long_count"],
+            "short_count": data["short_count"],
+            "observed_margin_usdt":
+                u9_text(
+                    data["observed_margin"]
+                ),
+        }
+        for symbol, data in by_symbol.items()
+    }
+
+    return {
+
+        "positions": positions,
+
+        "total_position_count":
+            len(positions),
+
+        "all_positions_flat":
+            len(positions) == 0,
+
+        "observed_position_margin_usdt":
+            u9_text(observed_margin),
+
+        "observed_open_notional_usdt":
+            u9_text(observed_notional),
+
+        "position_margin_fields_complete":
+            margin_complete,
+
+        "position_notional_fields_complete":
+            notional_complete,
+
+        "symbols": symbol_summary,
+
+        "read_verified": True,
+    }
+
+
+# ============================================================
+# 9.4 MAIN ACCOUNT SAFETY CHECK
+# ============================================================
+
+def fresh_reconstruction_unit_9():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIVERSAL WEEX UNIT 9 V1 START",
+        flush=True,
+    )
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+    market = FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    unit6 = FRESH_RECONSTRUCTION_UNIT6_RESULT
+    unit7 = FRESH_RECONSTRUCTION_UNIT7_RESULT
+    unit8 = FRESH_RECONSTRUCTION_UNIT8_RESULT
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            config,
+            market,
+            unit6,
+            unit7,
+            unit8,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT9 HANDOVER INCOMPLETE"
+        )
+
+    symbol = config["exchange"][
+        "market_symbol"
+    ]
+
+    if (
+        config.get(
+            "execution_environment"
+        ) != "DEMO"
+        or symbol != market.get("symbol")
+        or symbol != unit6.get("symbol")
+        or symbol != unit7.get("symbol")
+        or symbol != unit8.get("symbol")
+        or unit8.get(
+            "unit8_revision"
+        ) != "DEMO_ACCOUNT_RECONCILIATION_V1"
+        or unit7.get(
+            "unit7_revision"
+        ) != "UNIVERSAL_USDT_SIZING_V2"
+        or config.get(
+            "safety", {}
+        ).get(
+            "real_order_submission_enabled"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT9 DEMO SAFETY HANDOVER FAILED"
+        )
+
+    margin = u9_decimal(
+        config["entry"][
+            "entry_margin_usdt"
+        ],
+        "ENTRY MARGIN",
+    )
+
+    if margin <= 0:
+        raise RuntimeError(
+            "UNIT9 INVALID ENTRY MARGIN"
+        )
+
+    for name, value in (
+        (
+            "UNIT3",
+            market.get(
+                "entry_margin_usdt"
+            ),
+        ),
+        (
+            "UNIT7",
+            unit7.get(
+                "initial_margin_usdt"
+            ),
+        ),
+        (
+            "UNIT8",
+            unit8.get(
+                "entry_margin_usdt"
+            ),
+        ),
+    ):
+        if u9_decimal(
+            value,
+            name + " MARGIN",
+        ) != margin:
+            raise RuntimeError(
+                "UNIT9 MARGIN MISMATCH: "
+                + name
+            )
+
+    cap_percent = u9_decimal(
+        config["strategy"][
+            "exposure_cap_percent"
+        ],
+        "EXPOSURE CAP",
+    )
+
+    if not (
+        Decimal("0")
+        < cap_percent
+        <= Decimal("100")
+    ):
+        raise RuntimeError(
+            "UNIT9 INVALID EXPOSURE CAP"
+        )
+
+    # This is account entry safety.
+    # A failed new-entry signal does NOT
+    # prevent position reconciliation.
+
+    unit6_ready = (
+        unit6.get(
+            "entry_continuity_verified"
+        ) is True
+    )
+
+    unit7_ready = (
+        unit7.get(
+            "candidate_ready_for_account_checks"
+        ) is True
+    )
+
+    account_read_pass = (
+        unit8.get(
+            "account_read_status"
+        ) == "PASS"
+        and unit8.get(
+            "account_balance_verified"
+        ) is True
+    )
+
+    result = {
+
+        "symbol": symbol,
+
+        "unit9_revision":
+            "DEMO_ACCOUNT_EXPOSURE_V1",
+
+        "margin_mode": "FIXED_USDT",
+
+        "entry_margin_usdt":
+            u9_text(margin),
+
+        "exposure_cap_percent":
+            u9_text(cap_percent),
+
+        "account_read_status":
+            "PENDING",
+
+        "account_wide_positions": [],
+
+        "account_wide_position_count": None,
+
+        "observed_position_margin_usdt":
+            None,
+
+        "observed_open_notional_usdt":
+            None,
+
+        "total_account_equity_usdt":
+            None,
+
+        "available_balance_usdt":
+            None,
+
+        "maximum_margin_exposure_usdt":
+            None,
+
+        "indicative_remaining_capacity_usdt":
+            None,
+
+        "all_positions_flat_verified":
+            False,
+
+        "account_wide_positions_verified":
+            False,
+
+        "position_margin_fields_complete":
+            False,
+
+        "account_wide_exposure_verified":
+            False,
+
+        "pending_orders_verified": False,
+
+        "pending_order_margin_usdt": None,
+
+        "exposure_cap_verified": False,
+
+        "account_position_mode_verified":
+            False,
+
+        "demo_contract_eligibility_verified":
+            False,
+
+        "quantity_encoding_verified":
+            False,
+
+        "leverage_account_verified":
+            False,
+
+        "entry_margin_affordable": False,
+
+        "unit6_continuity_verified":
+            unit6_ready,
+
+        "unit7_candidate_ready":
+            unit7_ready,
+
+        "account_preliminary_margin_pass":
+            False,
+
+        "new_entry_order_authorized": False,
+
+        "trade_authorized": False,
+
+        # Existing positions remain manageable
+        # independently of entry eligibility.
+
+        "existing_position_management_allowed":
+            True,
+
+        "tp_management_blocked":
+            False,
+
+        "atr_hedge_recovery_blocked":
+            False,
+
+        "b1_b5_backup_blocked":
+            False,
+
+        "read_only": True,
+
+        "exchange_write": "NONE",
+    }
+
+    # ========================================================
+    # 9.5 ACCOUNT BALANCE FROM UNIT 8
+    # ========================================================
+
+    if not account_read_pass:
+
+        result["account_read_status"] = (
+            "UNIT8_ACCOUNT_UNVERIFIED"
+        )
+
+    else:
+
+        balance = unit8.get(
+            "account_balance"
+        )
+
+        if not isinstance(balance, dict):
+            raise RuntimeError(
+                "UNIT9 MISSING VERIFIED BALANCE"
+            )
+
+        equity = u9_decimal(
+            balance.get("balance"),
+            "DEMO BALANCE",
+        )
+
+        available = u9_decimal(
+            balance.get(
+                "available_balance"
+            ),
+            "DEMO AVAILABLE",
+        )
+
+        frozen = u9_decimal(
+            balance.get("frozen"),
+            "DEMO FROZEN",
+        )
+
+        # The WEEX balance field is used as
+        # the provisional cap base.
+        #
+        # Exact account equity treatment
+        # needs separate reconciliation.
+
+        maximum_exposure = (
+            equity
+            * cap_percent
+            / Decimal("100")
+        )
+
+        result.update({
+
+            "total_account_equity_usdt":
+                u9_text(equity),
+
+            "available_balance_usdt":
+                u9_text(available),
+
+            "frozen_balance_usdt":
+                u9_text(frozen),
+
+            "maximum_margin_exposure_usdt":
+                u9_text(
+                    maximum_exposure
+                ),
+
+            "entry_margin_affordable":
+                available >= margin,
+        })
+
+        # ====================================================
+        # 9.6 FULL ACCOUNT POSITION RECONCILIATION
+        # ====================================================
+
+        try:
+
+            raw_positions = (
+                u9_read_all_demo_positions()
+            )
+
+            account = u9_reconcile_positions(
+                raw_positions
+            )
+
+            observed_margin = u9_decimal(
+                account[
+                    "observed_position_margin_usdt"
+                ],
+                "OBSERVED MARGIN",
+            )
+
+            indicative_capacity = max(
+                Decimal("0"),
+                maximum_exposure - observed_margin,
+            )
+
+            provisional_margin_pass = (
+                available >= margin
+                and (
+                    observed_margin + margin
+                    <= maximum_exposure
+                )
+            )
+
+            result.update({
+
+                "account_read_status": "PASS",
+
+                "account_wide_positions":
+                    account["positions"],
+
+                "account_wide_position_count":
+                    account[
+                        "total_position_count"
+                    ],
+
+                "all_positions_flat_verified":
+                    account[
+                        "all_positions_flat"
+                    ],
+
+                "account_wide_positions_verified":
+                    True,
+
+                "observed_position_margin_usdt":
+                    account[
+                        "observed_position_margin_usdt"
+                    ],
+
+                "observed_open_notional_usdt":
+                    account[
+                        "observed_open_notional_usdt"
+                    ],
+
+                "position_margin_fields_complete":
+                    account[
+                        "position_margin_fields_complete"
+                    ],
+
+                "indicative_remaining_capacity_usdt":
+                    u9_text(
+                        indicative_capacity
+                    ),
+
+                "account_preliminary_margin_pass":
+                    provisional_margin_pass
+                    and account[
+                        "position_margin_fields_complete"
+                    ],
+
+                "symbols":
+                    account["symbols"],
+            })
+
+            print(
+                "UNIT 9 ACCOUNT-WIDE POSITION COUNT =",
+                account[
+                    "total_position_count"
+                ],
+                flush=True,
+            )
+
+            print(
+                "UNIT 9 ALL POSITIONS FLAT =",
+                account[
+                    "all_positions_flat"
+                ],
+                flush=True,
+            )
+
+            print(
+                "UNIT 9 OBSERVED POSITION MARGIN USDT =",
+                account[
+                    "observed_position_margin_usdt"
+                ],
+                flush=True,
+            )
+
+            print(
+                "UNIT 9 MARGIN FIELDS COMPLETE =",
+                account[
+                    "position_margin_fields_complete"
+                ],
+                flush=True,
+            )
+
+            for (
+                position_symbol,
+                details,
+            ) in account[
+                "symbols"
+            ].items():
+
+                print(
+                    "UNIT 9 SYMBOL =",
+                    position_symbol,
+                    "| LONG COUNT =",
+                    details["long_count"],
+                    "| SHORT COUNT =",
+                    details["short_count"],
+                    "| MARGIN =",
+                    details[
+                        "observed_margin_usdt"
+                    ],
+                    flush=True,
+                )
+
+        except Exception as exc:
+
+            result["account_read_status"] = (
+                "FAILED_"
+                + type(exc).__name__
+            )
+
+            # Keep account data unverified.
+            # Never treat failure as zero exposure.
+
+            print(
+                "UNIT 9 ACCOUNT-WIDE READ ERROR =",
+                type(exc).__name__,
+                flush=True,
+            )
+
+    # ========================================================
+    # 9.7 CONSERVATIVE NEW-ENTRY DECISION
+    # ========================================================
+
+    reasons = []
+
+    if not unit6_ready:
+        reasons.append(
+            "UNIT6_CONTINUITY_NOT_VERIFIED"
+        )
+
+    if not unit7_ready:
+        reasons.append(
+            "UNIT7_CANDIDATE_NOT_READY"
+        )
+
+    if result[
+        "account_read_status"
+    ] != "PASS":
+        reasons.append(
+            "ACCOUNT_WIDE_READ_NOT_VERIFIED"
+        )
+
+    if not result[
+        "account_preliminary_margin_pass"
+    ]:
+        reasons.append(
+            "PRELIMINARY_MARGIN_CHECK_NOT_PASSED"
+        )
+
+    if not result[
+        "pending_orders_verified"
+    ]:
+        reasons.append(
+            "PENDING_ORDERS_NOT_RECONCILED"
+        )
+
+    if not result[
+        "account_position_mode_verified"
+    ]:
+        reasons.append(
+            "POSITION_MODE_NOT_VERIFIED"
+        )
+
+    if not result[
+        "demo_contract_eligibility_verified"
+    ]:
+        reasons.append(
+            "DEMO_CONTRACT_NOT_VERIFIED"
+        )
+
+    if not result[
+        "quantity_encoding_verified"
+    ]:
+        reasons.append(
+            "ORDER_QUANTITY_ENCODING_NOT_VERIFIED"
+        )
+
+    if not result[
+        "leverage_account_verified"
+    ]:
+        reasons.append(
+            "ACCOUNT_LEVERAGE_NOT_VERIFIED"
+        )
+
+    result["new_entry_blocking_reasons"] = (
+        reasons
+    )
+
+    result["new_entry_order_authorized"] = (
+        False
+    )
+
+    result["trade_authorized"] = False
+
+    # ========================================================
+    # 9.8 RENDER VERIFICATION
+    # ========================================================
+
+    print(
+        "UNIT 9 ENTRY MARGIN USDT =",
+        u9_text(margin),
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 EXPOSURE CAP PERCENT =",
+        u9_text(cap_percent),
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 DEMO BALANCE =",
+        result[
+            "total_account_equity_usdt"
+        ],
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 AVAILABLE BALANCE =",
+        result[
+            "available_balance_usdt"
+        ],
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 MAX MARGIN EXPOSURE =",
+        result[
+            "maximum_margin_exposure_usdt"
+        ],
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 INDICATIVE REMAINING CAPACITY =",
+        result[
+            "indicative_remaining_capacity_usdt"
+        ],
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 PRELIMINARY MARGIN PASS =",
+        result[
+            "account_preliminary_margin_pass"
+        ],
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 ACCOUNT-WIDE READ STATUS =",
+        result[
+            "account_read_status"
+        ],
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 PENDING ORDERS VERIFIED = False",
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 EXPOSURE CAP VERIFIED = False",
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 POSITION MODE VERIFIED = False",
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 NEW ENTRY BLOCKING REASONS =",
+        reasons,
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 NEW ENTRY ORDER AUTHORIZED = False",
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 TP MANAGEMENT INDEPENDENT = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 ATR HEDGE RECOVERY INDEPENDENT = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 B1-B5 BACKUP INDEPENDENT = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 DEMO ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 9 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 9 RESULT =",
+        (
+            "PASS"
+            if result[
+                "account_read_status"
+            ] == "PASS"
+            else "INCOMPLETE"
+        ),
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# 9.9 SINGLE EXECUTION / UNIT 10 HANDOVER
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT9_RESULT = (
+    fresh_reconstruction_unit_9()
+)
+
+
+# ============================================================
+# END COMPLETE UNIT 9 V1
+# ZERO INDENTATION
+# ============================================================
