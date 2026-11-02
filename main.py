@@ -10785,6 +10785,90 @@ def fresh_reconstruction_unit_11():
     api_symbols = u11_public_get(
         "/capi/v3/market/apiTradingSymbols"
     )
+    
+    # ====================================================
+    # UNIT 11 PUBLIC SYMBOL RESPONSE DIAGNOSTIC
+    # NO CREDENTIALS / NO EXCHANGE WRITE
+    # ====================================================
+
+    response_data = api_symbols.get("data")
+
+    print(
+        "UNIT 11 SYMBOL RESPONSE TYPE =",
+        type(response_data).__name__,
+        flush=True,
+    )
+
+    if isinstance(response_data, dict):
+        print(
+            "UNIT 11 SYMBOL RESPONSE KEYS =",
+            list(response_data.keys())[:30],
+            flush=True,
+        )
+
+        for key in (
+            "code", "msg", "message",
+            "success", "status"
+        ):
+            if key in response_data:
+                print(
+                    "UNIT 11 SYMBOL RESPONSE " +
+                    key.upper() + " =",
+                    str(response_data[key])[:200],
+                    flush=True,
+                )
+
+        for key in (
+            "data", "symbols", "list", "rows"
+        ):
+            if key in response_data:
+                value = response_data[key]
+
+                print(
+                    "UNIT 11 SYMBOL FIELD =",
+                    key,
+                    "TYPE =",
+                    type(value).__name__,
+                    "LENGTH =",
+                    len(value)
+                    if isinstance(
+                        value, (list, dict, str)
+                    )
+                    else "N/A",
+                    flush=True,
+                )
+
+                if isinstance(value, list):
+                    print(
+                        "UNIT 11 SYMBOL SAMPLE =",
+                        repr(value[:2])[:800],
+                        flush=True,
+                    )
+
+    elif isinstance(response_data, list):
+        print(
+            "UNIT 11 SYMBOL TOP LEVEL COUNT =",
+            len(response_data),
+            flush=True,
+        )
+
+        print(
+            "UNIT 11 SYMBOL SAMPLE =",
+            repr(response_data[:2])[:800],
+            flush=True,
+        )
+
+    else:
+        print(
+            "UNIT 11 SYMBOL RESPONSE PREVIEW =",
+            repr(response_data)[:800],
+            flush=True,
+        )
+
+    # ====================================================
+    # END DIAGNOSTIC
+    # ====================================================
+
 
     listed_symbols = set()
 
