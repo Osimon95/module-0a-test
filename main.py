@@ -7967,3 +7967,919 @@ FRESH_RECONSTRUCTION_UNIT7_RESULT = (
 # ============================================================
 
             
+
+# ============================================================
+# UNIVERSAL WEEX — COMPLETE UNIT 8 V1
+# AUTHENTICATED DEMO BALANCE / POSITION INSPECTION
+#
+# UNIT 7 -> UNIT 8 -> UNIT 9
+#
+# READ-ONLY WEEX SIMULATION ENDPOINTS
+# NO LEVERAGE READ REQUEST WHEN FLAT
+# NO LEVERAGE WRITE
+# NO ORDER SUBMISSION / CANCELLATION
+# NO ACCOUNT OR POSITION MODE MUTATION
+# EXISTING POSITION MANAGEMENT INDEPENDENT
+# ============================================================
+
+import os
+import json
+import time
+import hmac
+import hashlib
+import base64
+import urllib.request
+import urllib.error
+
+from decimal import Decimal, InvalidOperation
+
+
+# ============================================================
+# 8.1 STRICT DECIMAL AND ENV HELPERS
+# ============================================================
+
+def u8_decimal(value, name, allow_zero=True):
+
+    if isinstance(value, bool):
+        raise RuntimeError(
+            "UNIT8 BOOLEAN VALUE: " + name
+        )
+
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise RuntimeError(
+            "UNIT8 INVALID DECIMAL: " + name
+        ) from exc
+
+    if not result.is_finite():
+        raise RuntimeError(
+            "UNIT8 NONFINITE DECIMAL: " + name
+        )
+
+    if not allow_zero and result <= 0:
+        raise RuntimeError(
+            "UNIT8 NONPOSITIVE DECIMAL: " + name
+        )
+
+    return result
+
+
+def u8_optional_decimal(value, name):
+
+    if value is None or value == "":
+        return None
+
+    return u8_decimal(value, name)
+
+
+def u8_fmt(value):
+
+    if value is None:
+        return None
+
+    return format(value, "f")
+
+
+def u8_env_first(*names):
+
+    for name in names:
+        value = os.getenv(name, "").strip()
+
+        if value:
+            return value
+
+    return ""
+
+
+# ============================================================
+# 8.2 AUTHENTICATED DEMO GET ONLY
+# ============================================================
+
+def u8_demo_get(path, credentials):
+
+    allowed_paths = (
+        "/capi/v3/sim/balance",
+        "/capi/v3/sim/position/allPosition",
+    )
+
+    if path not in allowed_paths:
+        raise RuntimeError(
+            "UNIT8 PATH NOT ALLOWED"
+        )
+
+    api_key, secret, passphrase = credentials
+
+    timestamp = str(
+        int(time.time() * 1000)
+    )
+
+    method = "GET"
+
+    # GET with no query string or request body.
+    prehash = (
+        timestamp + method + path
+    )
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            prehash.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("ascii")
+
+    request = urllib.request.Request(
+        url=(
+            "https://api-contract.weex.com"
+            + path
+        ),
+        method="GET",
+        headers={
+            "ACCESS-KEY": api_key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-PASSPHRASE": passphrase,
+            "ACCESS-TIMESTAMP": timestamp,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+
+    if (
+        request.get_method() != "GET"
+        or request.data is not None
+    ):
+        raise RuntimeError(
+            "UNIT8 NON-READ-ONLY REQUEST BLOCKED"
+        )
+
+    timeout = float(
+        os.getenv(
+            "UNIT8_HTTP_TIMEOUT_SECONDS",
+            "15",
+        )
+    )
+
+    if not (0 < timeout <= 60):
+        raise RuntimeError(
+            "UNIT8 INVALID HTTP TIMEOUT"
+        )
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=timeout,
+        ) as response:
+
+            status = response.getcode()
+
+            raw = response.read(
+                2000000
+            ).decode("utf-8")
+
+    except urllib.error.HTTPError as exc:
+
+        # Avoid logging response bodies that may
+        # contain account information.
+
+        raise RuntimeError(
+            "UNIT8 HTTP STATUS "
+            + str(exc.code)
+        ) from exc
+
+    except urllib.error.URLError as exc:
+
+        raise RuntimeError(
+            "UNIT8 DEMO CONNECTION FAILED"
+        ) from exc
+
+    if status != 200:
+        raise RuntimeError(
+            "UNIT8 UNEXPECTED HTTP STATUS"
+        )
+
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "UNIT8 INVALID DEMO JSON"
+        ) from exc
+
+    # A 200 response with an error object
+    # must never be interpreted as a flat
+    # position or a zero balance.
+
+    if isinstance(payload, dict):
+        raise RuntimeError(
+            "UNIT8 UNEXPECTED RESPONSE OBJECT"
+        )
+
+    if not isinstance(payload, list):
+        raise RuntimeError(
+            "UNIT8 RESPONSE IS NOT ARRAY"
+        )
+
+    return payload
+
+
+# ============================================================
+# 8.3 BALANCE VERIFICATION
+# ============================================================
+
+def u8_parse_balance(payload):
+
+    matches = [
+        item
+        for item in payload
+        if (
+            isinstance(item, dict)
+            and item.get("asset") == "SUSDT"
+        )
+    ]
+
+    if len(matches) != 1:
+        raise RuntimeError(
+            "UNIT8 SUSDT BALANCE NOT UNIQUE"
+        )
+
+    account = matches[0]
+
+    total = u8_decimal(
+        account.get("balance"),
+        "DEMO TOTAL BALANCE",
+    )
+
+    available = u8_decimal(
+        account.get("availableBalance"),
+        "DEMO AVAILABLE BALANCE",
+    )
+
+    frozen = u8_decimal(
+        account.get("frozen"),
+        "DEMO FROZEN BALANCE",
+    )
+
+    unrealized = u8_decimal(
+        account.get("unrealizePnl"),
+        "DEMO UNREALIZED PNL",
+    )
+
+    if (
+        total < 0
+        or available < 0
+        or frozen < 0
+    ):
+        raise RuntimeError(
+            "UNIT8 NEGATIVE ACCOUNT FUNDS"
+        )
+
+    return {
+
+        "asset": "SUSDT",
+
+        "balance": u8_fmt(total),
+
+        "available_balance": u8_fmt(
+            available
+        ),
+
+        "frozen": u8_fmt(frozen),
+
+        "unrealized_pnl": u8_fmt(
+            unrealized
+        ),
+
+        "balance_verified": True,
+    }
+
+
+# ============================================================
+# 8.4 POSITION RECONCILIATION
+# ============================================================
+
+def u8_parse_positions(payload, symbol):
+
+    selected = []
+
+    total_long = Decimal("0")
+    total_short = Decimal("0")
+
+    for item in payload:
+
+        if not isinstance(item, dict):
+            raise RuntimeError(
+                "UNIT8 INVALID POSITION RECORD"
+            )
+
+        if item.get("symbol") != symbol:
+            continue
+
+        side = str(
+            item.get("side", "")
+        ).strip().upper()
+
+        if side not in ("LONG", "SHORT"):
+            raise RuntimeError(
+                "UNIT8 UNKNOWN POSITION SIDE"
+            )
+
+        size = u8_decimal(
+            item.get("size"),
+            "POSITION SIZE",
+        )
+
+        if size < 0:
+            raise RuntimeError(
+                "UNIT8 NEGATIVE POSITION SIZE"
+            )
+
+        if size == 0:
+            continue
+
+        leverage = u8_optional_decimal(
+            item.get("leverage"),
+            "POSITION LEVERAGE",
+        )
+
+        if (
+            leverage is not None
+            and leverage <= 0
+        ):
+            raise RuntimeError(
+                "UNIT8 INVALID POSITION LEVERAGE"
+            )
+
+        if side == "LONG":
+            total_long += size
+        else:
+            total_short += size
+
+        selected.append({
+
+            "id": item.get("id"),
+
+            "symbol": symbol,
+
+            "side": side,
+
+            "quantity": u8_fmt(size),
+
+            "leverage": u8_fmt(leverage),
+
+            "margin_type":
+                item.get("marginType"),
+
+            "separated_mode":
+                item.get("separatedMode"),
+
+            "open_value":
+                item.get("openValue"),
+
+            "raw_liquidation_price":
+                item.get("liquidationPrice"),
+
+            "raw_entry_price":
+                item.get("entryPrice"),
+
+            "source":
+                "WEEX_DEMO_POSITION",
+        })
+
+    return {
+
+        "symbol": symbol,
+
+        "positions": selected,
+
+        "position_count": len(selected),
+
+        "flat": len(selected) == 0,
+
+        "long_quantity": u8_fmt(
+            total_long
+        ),
+
+        "short_quantity": u8_fmt(
+            total_short
+        ),
+
+        "both_sides_observed": (
+            total_long > 0
+            and total_short > 0
+        ),
+
+        # Do not infer account settings
+        # from an empty position list.
+        "flat_leverage_verified": False,
+
+        "account_hedge_mode_verified": False,
+
+        "position_reconciliation_verified": True,
+    }
+
+
+# ============================================================
+# 8.5 MAIN UNIT 8
+# ============================================================
+
+def fresh_reconstruction_unit_8():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIVERSAL WEEX UNIT 8 V1 START",
+        flush=True,
+    )
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+    market = FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    unit6 = FRESH_RECONSTRUCTION_UNIT6_RESULT
+    unit7 = FRESH_RECONSTRUCTION_UNIT7_RESULT
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            config,
+            market,
+            unit6,
+            unit7,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT8 HANDOVER MISSING"
+        )
+
+    symbol = config.get(
+        "exchange", {}
+    ).get("market_symbol")
+
+    if (
+        config.get(
+            "execution_environment"
+        ) != "DEMO"
+        or symbol != market.get("symbol")
+        or symbol != unit6.get("symbol")
+        or symbol != unit7.get("symbol")
+        or unit7.get("read_only") is not True
+        or unit7.get("trade_authorized") is not False
+        or unit7.get(
+            "unit7_revision"
+        ) != "UNIVERSAL_USDT_SIZING_V2"
+        or config.get(
+            "safety", {}
+        ).get(
+            "real_order_submission_enabled"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT8 DEMO SAFETY HANDOVER FAILED"
+        )
+
+    # New-entry sizing is separate from
+    # existing-position reconciliation.
+
+    initial_margin = u8_decimal(
+        config["entry"]["entry_margin_usdt"],
+        "ENTRY MARGIN",
+        allow_zero=False,
+    )
+
+    unit7_margin = u8_decimal(
+        unit7.get("initial_margin_usdt"),
+        "UNIT7 ENTRY MARGIN",
+        allow_zero=False,
+    )
+
+    market_margin = u8_decimal(
+        market.get("entry_margin_usdt"),
+        "UNIT3 ENTRY MARGIN",
+        allow_zero=False,
+    )
+
+    if not (
+        initial_margin
+        == unit7_margin
+        == market_margin
+    ):
+        raise RuntimeError(
+            "UNIT8 USDT MARGIN AUTHORITY MISMATCH"
+        )
+
+    cap = u8_decimal(
+        config["strategy"][
+            "exposure_cap_percent"
+        ],
+        "EXPOSURE CAP",
+        allow_zero=False,
+    )
+
+    if cap > 100:
+        raise RuntimeError(
+            "UNIT8 EXPOSURE CAP ABOVE 100"
+        )
+
+    result = {
+
+        "symbol": symbol,
+
+        "execution_environment": "DEMO",
+
+        "entry_margin_usdt":
+            u8_fmt(initial_margin),
+
+        "exposure_cap_percent": u8_fmt(cap),
+
+        "account_read_status":
+            "NOT_STARTED",
+
+        "account_balance": None,
+
+        "positions": [],
+
+        "position_count": None,
+
+        "position_flat_verified": False,
+
+        "long_quantity": None,
+
+        "short_quantity": None,
+
+        "long_position_leverage": None,
+
+        "short_position_leverage": None,
+
+        "account_balance_verified": False,
+
+        "available_margin_verified": False,
+
+        "entry_margin_affordable": False,
+
+        "entry_exposure_verified": False,
+
+        "exposure_cap_verified": False,
+
+        "position_reconciliation_verified": False,
+
+        "demo_contract_eligibility_verified":
+            False,
+
+        "account_hedge_mode_verified": False,
+
+        "position_mode_verified": False,
+
+        "flat_long_leverage_verified": False,
+
+        "flat_short_leverage_verified": False,
+
+        "configured_leverage_account_verified":
+            False,
+
+        "unit7_candidate_ready":
+            unit7.get(
+                "candidate_ready_for_account_checks"
+            ) is True,
+
+        "new_entry_order_authorized": False,
+
+        "trade_authorized": False,
+
+        "position_management_independent":
+            True,
+
+        "tp_management_blocked": False,
+
+        "atr_hedge_recovery_blocked": False,
+
+        "b1_b5_backup_blocked": False,
+
+        "read_only": True,
+
+        "exchange_write": "NONE",
+
+        "unit8_revision":
+            "DEMO_ACCOUNT_RECONCILIATION_V1",
+    }
+
+    # ========================================================
+    # 8.6 CREDENTIAL SELECTION
+    # ========================================================
+
+    api_key = u8_env_first(
+        "WEEX_API_KEY",
+        "WEEX_ACCESS_KEY",
+    )
+
+    api_secret = u8_env_first(
+        "WEEX_API_SECRET",
+        "WEEX_SECRET_KEY",
+    )
+
+    passphrase = u8_env_first(
+        "WEEX_API_PASSPHRASE",
+        "WEEX_PASSPHRASE",
+    )
+
+    if not all((
+        api_key,
+        api_secret,
+        passphrase,
+    )):
+
+        result["account_read_status"] = (
+            "MISSING_DEMO_API_CREDENTIALS"
+        )
+
+        print(
+            "UNIT 8 ACCOUNT READ = "
+            "MISSING DEMO API CREDENTIALS",
+            flush=True,
+        )
+
+    else:
+
+        credentials = (
+            api_key,
+            api_secret,
+            passphrase,
+        )
+
+        try:
+
+            balance_payload = u8_demo_get(
+                "/capi/v3/sim/balance",
+                credentials,
+            )
+
+            position_payload = u8_demo_get(
+                "/capi/v3/sim/position/allPosition",
+                credentials,
+            )
+
+            balance = u8_parse_balance(
+                balance_payload
+            )
+
+            positions = u8_parse_positions(
+                position_payload,
+                symbol,
+            )
+
+            available = u8_decimal(
+                balance["available_balance"],
+                "AVAILABLE",
+            )
+
+            equity = u8_decimal(
+                balance["balance"],
+                "ACCOUNT BALANCE",
+            )
+
+            # First-level funding check only.
+            # Fee reserves and exposure must be
+            # validated in later execution gates.
+
+            affordable = (
+                available >= initial_margin
+            )
+
+            max_capital = (
+                equity * cap / Decimal("100")
+            )
+
+            # We do NOT infer current position
+            # margin from openValue alone.
+            # Pending orders are not loaded here.
+            #
+            # Hence full exposure reconciliation
+            # must remain unverified.
+
+            result.update({
+
+                "account_read_status": "PASS",
+
+                "account_balance": balance,
+
+                "positions":
+                    positions["positions"],
+
+                "position_count":
+                    positions["position_count"],
+
+                "position_flat_verified":
+                    positions["flat"],
+
+                "long_quantity":
+                    positions["long_quantity"],
+
+                "short_quantity":
+                    positions["short_quantity"],
+
+                "account_balance_verified": True,
+
+                "available_margin_verified": True,
+
+                "entry_margin_affordable":
+                    affordable,
+
+                "position_reconciliation_verified":
+                    True,
+
+                "maximum_account_margin_usdt":
+                    u8_fmt(max_capital),
+
+                "account_hedge_mode_verified":
+                    False,
+
+                "position_mode_verified":
+                    False,
+
+                "flat_long_leverage_verified":
+                    False,
+
+                "flat_short_leverage_verified":
+                    False,
+
+                "entry_exposure_verified":
+                    False,
+
+                "exposure_cap_verified": False,
+
+                "new_entry_order_authorized":
+                    False,
+            })
+
+            print(
+                "UNIT 8 DEMO BALANCE ASSET = SUSDT",
+                flush=True,
+            )
+
+            print(
+                "UNIT 8 DEMO BALANCE =",
+                balance["balance"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 8 DEMO AVAILABLE =",
+                balance["available_balance"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 8 DEMO FROZEN =",
+                balance["frozen"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 8 DEMO UNREALIZED PNL =",
+                balance["unrealized_pnl"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 8 POSITION COUNT =",
+                positions["position_count"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 8 POSITION FLAT VERIFIED =",
+                positions["flat"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 8 LONG QUANTITY =",
+                positions["long_quantity"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 8 SHORT QUANTITY =",
+                positions["short_quantity"],
+                flush=True,
+            )
+
+            for position in positions["positions"]:
+
+                print(
+                    "UNIT 8 POSITION =",
+                    position["side"],
+                    "| QTY =",
+                    position["quantity"],
+                    "| LEVERAGE =",
+                    position["leverage"],
+                    "| MARGIN MODE =",
+                    position["margin_type"],
+                    "| SEPARATED MODE =",
+                    position["separated_mode"],
+                    flush=True,
+                )
+
+            print(
+                "UNIT 8 INITIAL MARGIN AFFORDABLE =",
+                affordable,
+                flush=True,
+            )
+
+            print(
+                "UNIT 8 EXPOSURE CAP VERIFIED = False",
+                flush=True,
+            )
+
+            print(
+                "UNIT 8 POSITION MODE VERIFIED = False",
+                flush=True,
+            )
+
+        except Exception as exc:
+
+            # Fail closed without leaking API
+            # credentials or private payloads.
+
+            result["account_read_status"] = (
+                "FAILED_"
+                + type(exc).__name__
+            )
+
+            print(
+                "UNIT 8 ACCOUNT READ FAILURE =",
+                str(exc),
+                flush=True,
+            )
+
+    # ========================================================
+    # 8.7 MANAGEMENT INDEPENDENCE
+    # ========================================================
+
+    print(
+        "UNIT 8 UNIT7 ENTRY CANDIDATE READY =",
+        result["unit7_candidate_ready"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 ACCOUNT READ STATUS =",
+        result["account_read_status"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 TP MANAGEMENT INDEPENDENT = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 ATR HEDGE INDEPENDENT = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 B1-B5 BACKUP INDEPENDENT = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 NEW ENTRY AUTHORIZED = False",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 DEMO ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 8 RESULT =",
+        (
+            "PASS"
+            if result["account_read_status"] == "PASS"
+            else "INCOMPLETE"
+        ),
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# 8.8 SINGLE EXECUTION / UNIT 9 HANDOVER
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT8_RESULT = (
+    fresh_reconstruction_unit_8()
+)
+
+
+# ============================================================
+# END COMPLETE UNIVERSAL WEEX UNIT 8 V1
+# ============================================================
