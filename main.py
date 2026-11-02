@@ -10472,3 +10472,625 @@ FRESH_RECONSTRUCTION_UNIT10_RESULT = (
 # ============================================================
 # END COMPLETE UNIT 10 V1
 # ============================================================
+
+
+
+# ============================================================
+# UNIVERSAL WEEX UNIT 11 V1
+# DEMO CONTRACT / QUANTITY / EXECUTION READINESS
+#
+# INSERT AFTER UNIT 10.
+# READ ONLY — NO POST, PUT OR DELETE.
+# NO LIVE CASH ORDER SUBMISSION.
+# ============================================================
+
+import os
+import re
+import json
+import urllib.request
+import urllib.error
+from decimal import Decimal, InvalidOperation
+
+
+def u11_decimal(value, label, positive=False):
+    if isinstance(value, bool):
+        raise ValueError(label + ": BOOLEAN INVALID")
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        raise ValueError(label + ": INVALID DECIMAL")
+
+    if not result.is_finite():
+        raise ValueError(label + ": NONFINITE")
+
+    if positive and result <= 0:
+        raise ValueError(label + ": NOT POSITIVE")
+
+    return result
+
+
+def u11_number(value):
+    return format(value, "f")
+
+
+def u11_public_get(path):
+    if not path.startswith("/capi/v3/market/"):
+        raise RuntimeError(
+            "UNIT11 NONPUBLIC PATH REJECTED"
+        )
+
+    url = "https://api-contract.weex.com" + path
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "WEEX-Demo-Readiness/1.0",
+        },
+        method="GET",
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request, timeout=12
+        ) as response:
+            status = response.status
+            raw = response.read(2000000)
+    except urllib.error.HTTPError as exc:
+        return {
+            "ok": False,
+            "http_status": exc.code,
+            "error": "HTTP_ERROR",
+            "data": None,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "http_status": None,
+            "error": type(exc).__name__,
+            "data": None,
+        }
+
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return {
+            "ok": False,
+            "http_status": status,
+            "error": "INVALID_JSON",
+            "data": None,
+        }
+
+    return {
+        "ok": status == 200,
+        "http_status": status,
+        "error": None,
+        "data": data,
+    }
+
+
+def u11_extract_symbols(payload):
+    """
+    Parse only recognizable explicit symbol records.
+    Never infer eligibility from arbitrary strings.
+    """
+    found = set()
+
+    def walk(node, depth=0):
+        if depth > 5:
+            return
+
+        if isinstance(node, list):
+            for item in node:
+                walk(item, depth + 1)
+
+        elif isinstance(node, dict):
+            symbol = node.get("symbol")
+
+            if isinstance(symbol, str):
+                found.add(symbol.upper())
+
+            for key in ("data", "symbols", "list", "rows"):
+                if key in node:
+                    walk(node[key], depth + 1)
+
+    walk(payload)
+    return found
+
+
+def u11_validate_plan(plan, label):
+    result = {
+        "valid": False,
+        "reason": "MISSING_PLAN",
+        "quantity": None,
+        "tp_quantities": None,
+        "hedge_half": None,
+    }
+
+    if not isinstance(plan, dict):
+        return result
+
+    if plan.get("quantity_plan_valid") is not True:
+        result["reason"] = "UNIT7_PLAN_INVALID"
+        return result
+
+    try:
+        qty = u11_decimal(
+            plan.get("proposed_quantity"),
+            label + " QUANTITY",
+            positive=True,
+        )
+
+        tp1 = u11_decimal(
+            plan.get("tp1_quantity"),
+            label + " TP1",
+        )
+        tp2 = u11_decimal(
+            plan.get("tp2_quantity"),
+            label + " TP2",
+        )
+        tp3 = u11_decimal(
+            plan.get("tp3_quantity"),
+            label + " TP3",
+        )
+
+        half = u11_decimal(
+            plan.get("h1_original_half_quantity"),
+            label + " HEDGE HALF",
+            positive=True,
+        )
+
+        opposite = u11_decimal(
+            plan.get("h1_opposite_half_quantity"),
+            label + " OPPOSITE HALF",
+            positive=True,
+        )
+
+        full_opposite = u11_decimal(
+            plan.get("h2_full_opposite_quantity"),
+            label + " FULL OPPOSITE",
+            positive=True,
+        )
+
+        contract = plan.get("contract", {})
+        if not isinstance(contract, dict):
+            contract = {}
+
+        if (
+            qty <= 0
+            or min(tp1, tp2, tp3) <= 0
+            or tp1 + tp2 + tp3 != qty
+            or half * 2 != qty
+            or opposite != half
+            or full_opposite != qty
+            or plan.get("exact_tp_split_valid") is not True
+            or plan.get("exact_hedge_split_valid") is not True
+        ):
+            result["reason"] = "SPLIT_MISMATCH"
+            return result
+
+        result.update({
+            "valid": True,
+            "reason": "UNIT7_QUANTITY_ARITHMETIC_PASS",
+            "quantity": u11_number(qty),
+            "tp_quantities": [
+                u11_number(tp1),
+                u11_number(tp2),
+                u11_number(tp3),
+            ],
+            "hedge_half": u11_number(half),
+        })
+
+    except (ValueError, TypeError):
+        result["reason"] = "INVALID_QUANTITY"
+
+    return result
+
+
+def u11_preview(symbol, direction, plan):
+    if not plan["valid"]:
+        return None
+
+    return {
+        "endpoint": "/capi/v3/sim/order",
+        "method": "POST",
+        "body_template": {
+            "symbol": symbol,
+            "side": (
+                "BUY" if direction == "LONG"
+                else "SELL"
+            ),
+            "positionSide": direction,
+            "type": "MARKET",
+            "quantity": plan["quantity"],
+            "newClientOrderId":
+                "GENERATE_UNIQUE_ID_AT_SUBMISSION",
+        },
+        "client_id_generated": False,
+        "verified_executable": False,
+        "submission_authorized": False,
+    }
+
+
+def fresh_reconstruction_unit_11():
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIVERSAL WEEX UNIT 11 V1 START",
+        flush=True,
+    )
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+    unit7 = FRESH_RECONSTRUCTION_UNIT7_RESULT
+    unit8 = FRESH_RECONSTRUCTION_UNIT8_RESULT
+    unit9 = FRESH_RECONSTRUCTION_UNIT9_RESULT
+    unit10 = FRESH_RECONSTRUCTION_UNIT10_RESULT
+
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            config, unit7, unit8,
+            unit9, unit10
+        )
+    ):
+        raise RuntimeError(
+            "UNIT11 REQUIRED HANDOVER MISSING"
+        )
+
+    market_symbol = unit10.get("symbol")
+    demo_symbol = unit10.get(
+        "demo_symbol_candidate"
+    )
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or config.get("safety", {}).get(
+            "real_order_submission_enabled"
+        ) is not False
+        or unit7.get("read_only") is not True
+        or unit8.get("read_only") is not True
+        or unit9.get("read_only") is not True
+        or unit10.get("read_only") is not True
+        or unit10.get("exchange_write") != "NONE"
+        or unit7.get("symbol") != market_symbol
+        or unit8.get("symbol") != market_symbol
+        or unit9.get("symbol") != market_symbol
+    ):
+        raise RuntimeError(
+            "UNIT11 DEMO SAFETY HANDOVER FAILED"
+        )
+
+    if not isinstance(demo_symbol, str):
+        raise RuntimeError(
+            "UNIT11 DEMO SYMBOL MISSING"
+        )
+
+    if not re.fullmatch(
+        r"[A-Z0-9]+SUSDT", demo_symbol
+    ):
+        raise RuntimeError(
+            "UNIT11 INVALID DEMO SYMBOL"
+        )
+
+    entry_margin = u11_decimal(
+        unit10.get("entry_margin_usdt"),
+        "ENTRY MARGIN",
+        positive=True,
+    )
+
+    # ========================================================
+    # 11.1 PUBLIC API SYMBOL CHECK
+    # ========================================================
+
+    api_symbols = u11_public_get(
+        "/capi/v3/market/apiTradingSymbols"
+    )
+
+    listed_symbols = set()
+
+    if api_symbols["ok"]:
+        listed_symbols = u11_extract_symbols(
+            api_symbols["data"]
+        )
+
+    public_market_listed = (
+        market_symbol in listed_symbols
+    )
+
+    demo_symbol_publicly_listed = (
+        demo_symbol in listed_symbols
+    )
+
+    # Public listing is not definitive proof that
+    # this account can trade the demo contract.
+    demo_contract_verified = False
+
+    # ========================================================
+    # 11.2 VALIDATE BOTH SIDES
+    # ========================================================
+
+    long_plan = u11_validate_plan(
+        unit7.get("long_plan"),
+        "LONG",
+    )
+
+    short_plan = u11_validate_plan(
+        unit7.get("short_plan"),
+        "SHORT",
+    )
+
+    arithmetic_verified = (
+        long_plan["valid"]
+        and short_plan["valid"]
+    )
+
+    # Exact exchange-side demo quantity encoding
+    # still requires confirmed demo contract rules
+    # and a controlled exchange execution test.
+    demo_quantity_encoding_verified = False
+
+    # ========================================================
+    # 11.3 DEMO ORDER PAYLOAD PREVIEWS
+    # ========================================================
+
+    previews = {
+        "LONG": u11_preview(
+            demo_symbol, "LONG", long_plan
+        ),
+        "SHORT": u11_preview(
+            demo_symbol, "SHORT", short_plan
+        ),
+    }
+
+    # ========================================================
+    # 11.4 ACCOUNT READINESS
+    # ========================================================
+
+    account_verified = (
+        unit10.get("account_read_verified")
+        is True
+    )
+
+    balance = unit8.get(
+        "account_balance", {}
+    )
+
+    if not isinstance(balance, dict):
+        raise RuntimeError(
+            "UNIT11 BALANCE HANDOVER INVALID"
+        )
+
+    available = u11_decimal(
+        balance.get("available_balance"),
+        "AVAILABLE BALANCE",
+    )
+
+    affordable = available >= entry_margin
+
+    exposure_cap_verified = (
+        unit9.get("exposure_cap_verified")
+        is True
+    )
+
+    pending_orders_verified = (
+        unit9.get("pending_orders_verified")
+        is True
+    )
+
+    # No unsupported demo open-order endpoint
+    # is called or silently substituted.
+    pending_orders_status = (
+        "VERIFIED_UPSTREAM"
+        if pending_orders_verified
+        else "NOT_RECONCILED"
+    )
+
+    position_mode_verified = (
+        unit10.get("position_mode_verified")
+        is True
+    )
+
+    account_leverage_verified = (
+        unit10.get("account_leverage_verified")
+        is True
+    )
+
+    continuity = (
+        unit10.get(
+            "entry_continuity_verified"
+        ) is True
+    )
+
+    candidate = (
+        unit10.get("candidate_ready")
+        is True
+    )
+
+    # ========================================================
+    # 11.5 EXPLICIT READINESS CHECKS
+    # ========================================================
+
+    checks = {
+        "ACCOUNT_READ": account_verified,
+        "ENTRY_MARGIN_AFFORDABLE": affordable,
+        "UNIT7_QUANTITY_ARITHMETIC":
+            arithmetic_verified,
+        "UNIT6_CONTINUITY": continuity,
+        "UNIT7_CANDIDATE": candidate,
+        "PENDING_ORDERS":
+            pending_orders_verified,
+        "EXPOSURE_CAP":
+            exposure_cap_verified,
+        "POSITION_MODE":
+            position_mode_verified,
+        "DEMO_CONTRACT":
+            demo_contract_verified,
+        "DEMO_QUANTITY_ENCODING":
+            demo_quantity_encoding_verified,
+        "ACCOUNT_LEVERAGE":
+            account_leverage_verified,
+    }
+
+    blockers = [
+        name
+        for name, passed in checks.items()
+        if not passed
+    ]
+
+    # This unit never authorizes exchange writes.
+    # Unit 12 must independently refresh and
+    # verify all execution-critical conditions.
+    result = {
+        "unit11_revision":
+            "DEMO_ORDER_READINESS_V1",
+        "symbol": market_symbol,
+        "demo_symbol": demo_symbol,
+        "entry_margin_usdt":
+            u11_number(entry_margin),
+        "available_balance":
+            u11_number(available),
+        "public_symbol_http_status":
+            api_symbols["http_status"],
+        "public_symbol_read_ok":
+            api_symbols["ok"],
+        "public_symbol_count":
+            len(listed_symbols),
+        "market_symbol_publicly_listed":
+            public_market_listed,
+        "demo_symbol_publicly_listed":
+            demo_symbol_publicly_listed,
+        "demo_contract_verified":
+            demo_contract_verified,
+        "long_quantity_plan": long_plan,
+        "short_quantity_plan": short_plan,
+        "quantity_arithmetic_verified":
+            arithmetic_verified,
+        "demo_quantity_encoding_verified":
+            demo_quantity_encoding_verified,
+        "order_previews": previews,
+        "pending_orders_status":
+            pending_orders_status,
+        "pending_orders_verified":
+            pending_orders_verified,
+        "exposure_cap_verified":
+            exposure_cap_verified,
+        "position_mode_verified":
+            position_mode_verified,
+        "account_leverage_verified":
+            account_leverage_verified,
+        "readiness_checks": checks,
+        "blocking_reasons": blockers,
+        "position_management_independent":
+            True,
+        "new_entry_order_authorized":
+            False,
+        "trade_authorized": False,
+        "read_only": True,
+        "exchange_write": "NONE",
+    }
+
+    # ========================================================
+    # 11.6 RENDER DIAGNOSTICS
+    # ========================================================
+
+    print(
+        "UNIT 11 MARKET SYMBOL =",
+        market_symbol, flush=True,
+    )
+    print(
+        "UNIT 11 DEMO SYMBOL =",
+        demo_symbol, flush=True,
+    )
+    print(
+        "UNIT 11 PUBLIC SYMBOL HTTP STATUS =",
+        api_symbols["http_status"], flush=True,
+    )
+    print(
+        "UNIT 11 PUBLIC SYMBOL READ OK =",
+        api_symbols["ok"], flush=True,
+    )
+    print(
+        "UNIT 11 PUBLIC SYMBOL COUNT =",
+        len(listed_symbols), flush=True,
+    )
+    print(
+        "UNIT 11 MARKET SYMBOL PUBLICLY LISTED =",
+        public_market_listed, flush=True,
+    )
+    print(
+        "UNIT 11 DEMO SYMBOL PUBLICLY LISTED =",
+        demo_symbol_publicly_listed, flush=True,
+    )
+    print(
+        "UNIT 11 DEMO CONTRACT VERIFIED =",
+        demo_contract_verified, flush=True,
+    )
+    print(
+        "UNIT 11 LONG QUANTITY PLAN =",
+        long_plan, flush=True,
+    )
+    print(
+        "UNIT 11 SHORT QUANTITY PLAN =",
+        short_plan, flush=True,
+    )
+    print(
+        "UNIT 11 QUANTITY ARITHMETIC VERIFIED =",
+        arithmetic_verified, flush=True,
+    )
+    print(
+        "UNIT 11 DEMO QUANTITY ENCODING VERIFIED =",
+        demo_quantity_encoding_verified,
+        flush=True,
+    )
+    print(
+        "UNIT 11 AVAILABLE BALANCE =",
+        u11_number(available), flush=True,
+    )
+    print(
+        "UNIT 11 ENTRY MARGIN AFFORDABLE =",
+        affordable, flush=True,
+    )
+    print(
+        "UNIT 11 PENDING ORDERS STATUS =",
+        pending_orders_status, flush=True,
+    )
+    print(
+        "UNIT 11 ORDER PREVIEWS =",
+        previews, flush=True,
+    )
+    print(
+        "UNIT 11 READINESS CHECKS =",
+        checks, flush=True,
+    )
+    print(
+        "UNIT 11 BLOCKING REASONS =",
+        blockers, flush=True,
+    )
+    print(
+        "UNIT 11 NEW ENTRY AUTHORIZED = False",
+        flush=True,
+    )
+    print(
+        "UNIT 11 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+    print(
+        "FRESH RECONSTRUCTION UNIT 11 RESULT = PASS",
+        flush=True,
+    )
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# 11.7 UNIT 11 EXECUTION AND UNIT 12 HANDOVER
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT11_RESULT = (
+    fresh_reconstruction_unit_11()
+)
+
+# ============================================================
+# END UNIT 11 V1
+# ============================================================
