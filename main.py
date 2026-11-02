@@ -7129,3 +7129,813 @@ FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
 # UNIT 6 FOLLOWS
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# UNIVERSAL WEEX BOT — COMPLETE UNIT 6 V1
+# SIGNAL CONTINUITY, CANDIDATE TRACKING, ENTRY GATE
+# UNITS 13–14 POSITION MANAGEMENT IS INDEPENDENT
+# PUBLIC-DATA / READ-ONLY; NO ORDER SUBMISSION
+# ============================================================
+
+import os
+import time
+import math
+import copy
+
+
+def u6_num(value, label, minimum=None, maximum=None):
+
+    if isinstance(value, bool):
+        raise ValueError(
+            "UNIT 6 INVALID NUMBER: " + label
+        )
+
+    try:
+        result = float(value)
+
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            "UNIT 6 INVALID NUMBER: " + label
+        ) from exc
+
+    if (
+        not math.isfinite(result)
+        or (
+            minimum is not None
+            and result < minimum
+        )
+        or (
+            maximum is not None
+            and result > maximum
+        )
+    ):
+        raise ValueError(
+            "UNIT 6 NUMBER OUT OF RANGE: " + label
+        )
+
+    return result
+
+
+def u6_env(name, default, minimum=None, maximum=None):
+
+    raw = os.getenv(
+        name,
+        str(default),
+    ).strip()
+
+    return u6_num(
+        raw if raw else default,
+        name,
+        minimum,
+        maximum,
+    )
+
+
+# ============================================================
+# 6.1 VERIFY UNIT 5 V2 AND UNIT 4 V3 HANDOVER
+# ============================================================
+
+def u6_snapshot(candidate, analysis, config):
+
+    if not all(
+        isinstance(item, dict)
+        for item in (
+            candidate,
+            analysis,
+            config,
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 6 MISSING HANDOVER"
+        )
+
+    symbol = config.get(
+        "exchange", {}
+    ).get("market_symbol")
+
+    if (
+        not symbol
+        or symbol != candidate.get("symbol")
+        or symbol != analysis.get("symbol")
+    ):
+        raise RuntimeError(
+            "UNIT 6 SYMBOL MISMATCH"
+        )
+
+    if config.get(
+        "execution_environment"
+    ) != "DEMO":
+        raise RuntimeError(
+            "UNIT 6 DEMO SAFETY FAILED"
+        )
+
+    if (
+        candidate.get(
+            "classification_revision"
+        ) != "UNIVERSAL_ADAPTIVE_V2"
+        or candidate.get("read_only") is not True
+    ):
+        raise RuntimeError(
+            "UNIT 6 EXPECTS UNIT 5 V2"
+        )
+
+    if (
+        candidate.get("trade_authorized") is not False
+        or candidate.get(
+            "order_payload_created"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 6 UNIT 5 SAFETY FAILED"
+        )
+
+    if analysis.get("read_only") is not True:
+        raise RuntimeError(
+            "UNIT 6 UNIT 4 SAFETY FAILED"
+        )
+
+    if config.get(
+        "safety", {}
+    ).get(
+        "real_order_submission_enabled"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 6 LIVE CASH SAFETY FAILED"
+        )
+
+    timestamp = int(
+        u6_num(
+            analysis.get("exchange_time_ms"),
+            "MARKET TIMESTAMP",
+            1,
+        )
+    )
+
+    candidate_ts = int(
+        u6_num(
+            candidate.get(
+                "unit15_diagnostic_input", {}
+            ).get("market_time_ms"),
+            "CANDIDATE TIMESTAMP",
+            1,
+        )
+    )
+
+    if timestamp != candidate_ts:
+        raise RuntimeError(
+            "UNIT 6 MIXED SCAN DATA"
+        )
+
+    age = (
+        time.time() * 1000 - timestamp
+    )
+
+    max_age = (
+        u6_env(
+            "UNIT6_MAX_MARKET_AGE_SECONDS",
+            120,
+            1,
+        ) * 1000
+    )
+
+    if age < 0 or age > max_age:
+        raise RuntimeError(
+            "UNIT 6 STALE DATA"
+        )
+
+    return symbol, timestamp
+
+
+# ============================================================
+# 6.2 IN-MEMORY SIGNAL CONTINUITY STATE
+#
+# WORKS ACROSS SCANS IN SAME PYTHON PROCESS.
+# DOES NOT CLAIM PERSISTENCE ACROSS RENDER RESTARTS.
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT6_STATE = {
+
+    "symbol": None,
+
+    "last_candle_id": None,
+
+    "last_market_time_ms": None,
+
+    "last_fingerprint": None,
+
+    "candidate_direction": "NONE",
+
+    "candidate_mode": "NONE",
+
+    "first_seen_ms": None,
+
+    "last_seen_ms": None,
+
+    "consecutive_observations": 0,
+
+    "qualified_observations": 0,
+
+    "last_outcome": "NONE",
+}
+
+
+# ============================================================
+# 6.3 CONTINUITY ENGINE
+# ============================================================
+
+def fresh_reconstruction_unit_6(
+    candidate=None,
+    analysis=None,
+    config=None,
+    state=None,
+    now_ms=None,
+):
+
+    if candidate is None:
+        candidate = (
+            FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+        )
+
+    if analysis is None:
+        analysis = (
+            FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+        )
+
+    if config is None:
+        config = FRESH_RECONSTRUCTION_CONFIG
+
+    if state is None:
+        state = FRESH_RECONSTRUCTION_UNIT6_STATE
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIVERSAL WEEX UNIT 6 V1 START",
+        flush=True,
+    )
+
+    symbol, market_time_ms = u6_snapshot(
+        candidate,
+        analysis,
+        config,
+    )
+
+    candle_id = int(
+        u6_num(
+            analysis.get(
+                "latest_open_time_ms"
+            ),
+            "CANDLE ID",
+            1,
+        )
+    )
+
+    if now_ms is None:
+        now_ms = int(time.time() * 1000)
+
+    max_life_ms = int(
+        u6_env(
+            "UNIT6_CANDIDATE_MAX_AGE_SECONDS",
+            600,
+            5,
+        ) * 1000
+    )
+
+    min_observations = int(
+        u6_env(
+            "UNIT6_MIN_QUALIFIED_OBSERVATIONS",
+            2,
+            1,
+            20,
+        )
+    )
+
+    track_developing = (
+        os.getenv(
+            "UNIT6_TRACK_DEVELOPING",
+            "TRUE",
+        ).strip().upper()
+        not in (
+            "FALSE",
+            "0",
+            "NO",
+            "OFF",
+        )
+    )
+
+    qualified = candidate.get("qualified")
+
+    if type(qualified) is not bool:
+        raise RuntimeError(
+            "UNIT 6 INVALID QUALIFIED FLAG"
+        )
+
+    best_side = candidate.get(
+        "best_developing_direction"
+    )
+
+    best_mode = candidate.get(
+        "best_developing_mode"
+    )
+
+    direction = candidate.get("direction")
+
+    mode = candidate.get("active_mode")
+
+    if best_side not in (
+        "LONG",
+        "SHORT",
+    ):
+        raise RuntimeError(
+            "UNIT 6 INVALID BEST SIDE"
+        )
+
+    if best_mode not in (
+        "SCALP",
+        "STRUCTURE",
+        "BREAKOUT",
+    ):
+        raise RuntimeError(
+            "UNIT 6 INVALID BEST MODE"
+        )
+
+    if direction not in (
+        "LONG",
+        "SHORT",
+        "NONE",
+    ):
+        raise RuntimeError(
+            "UNIT 6 INVALID DIRECTION"
+        )
+
+    if mode not in (
+        "SCALP",
+        "STRUCTURE",
+        "BREAKOUT",
+        "NONE",
+    ):
+        raise RuntimeError(
+            "UNIT 6 INVALID MODE"
+        )
+
+    if qualified and (
+        direction == "NONE"
+        or mode == "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 6 QUALIFICATION INCONSISTENCY"
+        )
+
+    if not qualified and (
+        direction != "NONE"
+        or mode != "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 6 UNQUALIFIED DIRECTION LEAK"
+        )
+
+    # ========================================================
+    # 6.4 RETAIN DEVELOPING SIGNAL WITHOUT
+    # OVERRIDING THE LATEST UNIT 5 DECISION
+    # ========================================================
+
+    proposed_side = (
+        direction
+        if qualified
+        else best_side
+        if track_developing
+        else "NONE"
+    )
+
+    proposed_mode = (
+        mode
+        if qualified
+        else best_mode
+        if track_developing
+        else "NONE"
+    )
+
+    fingerprint = (
+        symbol,
+        candle_id,
+        proposed_side,
+        proposed_mode,
+    )
+
+    s = copy.deepcopy(state)
+
+    if s.get("symbol") not in (
+        None,
+        symbol,
+    ):
+        s = {
+            "symbol": symbol,
+        }
+
+    previous_ms = s.get(
+        "last_market_time_ms"
+    )
+
+    if (
+        previous_ms is not None
+        and market_time_ms < previous_ms
+    ):
+        raise RuntimeError(
+            "UNIT 6 TIME MOVED BACKWARDS"
+        )
+
+    duplicate_candle = (
+        s.get("last_candle_id")
+        == candle_id
+    )
+
+    same_candidate = (
+        s.get("candidate_direction")
+        == proposed_side
+    )
+
+    expired = bool(
+        s.get("first_seen_ms") is not None
+        and now_ms - s["first_seen_ms"]
+        > max_life_ms
+    )
+
+    changed = bool(
+        s.get("candidate_direction")
+        not in (
+            None,
+            "NONE",
+            proposed_side,
+        )
+    )
+
+    if proposed_side == "NONE":
+
+        s.update(
+            candidate_direction="NONE",
+            candidate_mode="NONE",
+            first_seen_ms=None,
+            last_seen_ms=now_ms,
+            consecutive_observations=0,
+            qualified_observations=0,
+        )
+
+    elif not same_candidate or expired:
+
+        s.update(
+            candidate_direction=proposed_side,
+            candidate_mode=proposed_mode,
+            first_seen_ms=now_ms,
+            last_seen_ms=now_ms,
+            consecutive_observations=1,
+            qualified_observations=(
+                1 if qualified else 0
+            ),
+        )
+
+    else:
+
+        # Developmental mode changes preserve
+        # directional continuity.
+        #
+        # SCALP -> STRUCTURE -> BREAKOUT
+        # does not become a new trading cycle.
+
+        s["candidate_mode"] = proposed_mode
+
+        s["last_seen_ms"] = now_ms
+
+        if not duplicate_candle:
+
+            s["consecutive_observations"] = (
+                int(
+                    s.get(
+                        "consecutive_observations",
+                        0,
+                    )
+                ) + 1
+            )
+
+            s["qualified_observations"] = (
+                int(
+                    s.get(
+                        "qualified_observations",
+                        0,
+                    )
+                ) + 1
+                if qualified else 0
+            )
+
+        elif not qualified:
+
+            s["qualified_observations"] = 0
+
+    # ========================================================
+    # 6.5 INITIAL ENTRY CONTINUITY GATE
+    # ========================================================
+
+    continuity_pass = bool(
+        qualified
+        and s["qualified_observations"]
+        >= min_observations
+        and not expired
+        and not changed
+    )
+
+    if continuity_pass:
+
+        status = (
+            "READY_FOR_DOWNSTREAM_CHECKS"
+        )
+
+    elif qualified:
+
+        status = (
+            "QUALIFIED_AWAITING_CONTINUITY"
+        )
+
+    else:
+
+        status = (
+            "DEVELOPING_OBSERVATION"
+        )
+
+    s.update(
+        symbol=symbol,
+        last_candle_id=candle_id,
+        last_market_time_ms=market_time_ms,
+        last_fingerprint=fingerprint,
+        last_outcome=status,
+    )
+
+    state.clear()
+    state.update(s)
+
+    # ========================================================
+    # 6.6 HANDOVER TO UNIT 7
+    #
+    # QUALIFIED = CONTINUITY PASSED ONLY.
+    # IT IS NOT AN EXECUTABLE ORDER AUTHORIZATION.
+    # ========================================================
+
+    result = {
+
+        "symbol": symbol,
+
+        "unit5_qualified": qualified,
+
+        "unit5_mode": mode,
+
+        "unit5_direction": direction,
+
+        "candidate_mode": (
+            mode if continuity_pass
+            else "NONE"
+        ),
+
+        "active_mode": (
+            mode if continuity_pass
+            else "NONE"
+        ),
+
+        "direction": (
+            direction if continuity_pass
+            else "NONE"
+        ),
+
+        "qualified": continuity_pass,
+
+        "entry_continuity_verified":
+            continuity_pass,
+
+        "entry_authorized": False,
+
+        "trade_authorized": False,
+
+        "order_payload_created": False,
+
+        "read_only": True,
+
+        "entry_status": status,
+
+        "entry_reason": candidate.get(
+            "qualification_reason"
+        ),
+
+        "developing_candidate": {
+
+            "direction": proposed_side,
+
+            "mode": proposed_mode,
+
+            "score": candidate.get(
+                "best_developing_score"
+            ),
+
+            "stage": candidate.get(
+                "candidate_stage"
+            ),
+
+            "risk_factors": list(
+                candidate.get(
+                    "best_developing_risk_factors",
+                    [],
+                )
+            ),
+
+            "first_seen_ms":
+                s.get("first_seen_ms"),
+
+            "consecutive_observations":
+                s.get(
+                    "consecutive_observations"
+                ),
+
+            "qualified_observations":
+                s.get(
+                    "qualified_observations"
+                ),
+
+            "duplicate_candle":
+                duplicate_candle,
+
+            "expired": expired,
+
+            "direction_changed": changed,
+        },
+
+        "unit5_snapshot": copy.deepcopy(
+            candidate
+        ),
+
+        "market_time_ms": market_time_ms,
+
+        "market_candle_id": candle_id,
+
+        # ====================================================
+        # ABSOLUTE MANAGEMENT INDEPENDENCE
+        # ====================================================
+
+        "position_management": {
+
+            "requires_verified_exchange_position":
+                True,
+
+            "units_13_14_independent_of_entry_signal":
+                True,
+
+            "units_13_14_independent_of_bot_mode":
+                True,
+
+            "tp_management_blocked_by_unit6":
+                False,
+
+            "dynamic_break_even_blocked_by_unit6":
+                False,
+
+            "trailing_profit_blocked_by_unit6":
+                False,
+
+            "atr_hedge_recovery_blocked_by_unit6":
+                False,
+
+            "b1_b5_backup_blocked_by_unit6":
+                False,
+
+            "execution_authorized_by_unit6":
+                False,
+        },
+
+        "diagnostic": {
+
+            "qualification_snapshot":
+                copy.deepcopy(
+                    candidate.get(
+                        "unit15_diagnostic_input",
+                        {},
+                    )
+                ),
+
+            "continuity_status": status,
+
+            "duplicate_candle":
+                duplicate_candle,
+
+            "expired": expired,
+
+            "direction_changed": changed,
+
+            "reason": candidate.get(
+                "qualification_reason"
+            ),
+        },
+
+        "unit6_revision":
+            "UNIVERSAL_CONTINUITY_V1",
+    }
+
+    # ========================================================
+    # 6.7 RENDER VERIFICATION LOGS
+    # ========================================================
+
+    print(
+        "UNIT 6 SYMBOL =",
+        symbol,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 UNIT5 QUALIFIED =",
+        qualified,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 BEST DEVELOPING =",
+        proposed_side,
+        proposed_mode,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 DUPLICATE CANDLE =",
+        duplicate_candle,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 QUALIFIED OBSERVATIONS =",
+        s["qualified_observations"],
+        "/",
+        min_observations,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 ENTRY STATUS =",
+        status,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 ENTRY CONTINUITY VERIFIED =",
+        continuity_pass,
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 TP MANAGEMENT INDEPENDENT = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 ATR HEDGE RECOVERY INDEPENDENT = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 B1-B5 BACKUP INDEPENDENT = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 BOT_MODE APPLIES ONLY TO UNIT 12 ENTRIES = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 DEMO ORDER = NONE",
+        flush=True,
+    )
+
+    print(
+        "UNIT 6 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 6 RESULT = PASS",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# 6.8 GLOBAL HANDOVER TO UNIT 7
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT6_RESULT = (
+    fresh_reconstruction_unit_6()
+)
+
+
+# ============================================================
+# END COMPLETE UNIVERSAL UNIT 6 V1
+# UNIT 7 FOLLOWS
+# ZERO INDENTATION
+# ============================================================
+
