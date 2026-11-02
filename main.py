@@ -8132,101 +8132,133 @@ if os.getenv(
 
 
 # ============================================================
-# UNIVERSAL WEEX BOT — COMPLETE UNIT 7 V1
-# VERIFIED FUTURES CONTRACT AND ENTRY QUANTITY PLANNING
+# UNIVERSAL WEEX — COMPLETE UNIT 7 V2
+#
+# PRIMARY POSITION SIZING: USDT
+# INITIAL MARGIN: ENTRY_MARGIN_USDT
+# SEPARATE LONG / SHORT LEVERAGE
+# VERIFIED PUBLIC FUTURES CONTRACT RULES
+# EXACT 10 / 20 / 70 TP QUANTITY ALLOCATION
+# EXACT 50 / 50 STAGED HEDGE QUANTITY
+# MINIMUM REQUIRED USDT MARGIN CALCULATION
+# NO AUTOMATIC INCREASE OF USER MARGIN
 #
 # UNIT 6 -> UNIT 7 -> UNIT 8
-#
-# UNIVERSAL SYMBOL / MANUAL LONG-SHORT LEVERAGE
-# 1 COIN-EQUIVALENT OR FIXED USDT MARGIN
-# PRECISE INTEGER-STEP QUANTITY ALLOCATION
-# TP1 / TP2 / TP3 = 10 / 20 / 70
-# HEDGE H1 / H2 = 50 / 50
-# PREVENT SUB-MINIMUM PARTIAL ORDERS
-# TP, HEDGE, BACKUP MANAGEMENT INDEPENDENT
-#
-# READ ONLY: NO ORDERS, NO ACCOUNT MUTATION
+# READ ONLY — NO EXCHANGE ORDER SUBMISSION
 # ============================================================
 
 import os
 import json
+import time
 import urllib.parse
 import urllib.request
 
-from decimal import Decimal, ROUND_DOWN
+from decimal import (
+    Decimal,
+    ROUND_DOWN,
+    ROUND_CEILING,
+)
 
 
-def u7_decimal(value, label, positive=False):
+# ============================================================
+# 7.1 DECIMAL / ENVIRONMENT HELPERS
+# ============================================================
+
+def u7_v2_decimal(
+    value,
+    name,
+    positive=False,
+):
+
+    if isinstance(value, bool):
+        raise RuntimeError(
+            "UNIT7 INVALID BOOLEAN: " + name
+        )
+
     try:
         result = Decimal(str(value))
     except Exception as exc:
-        raise ValueError(
-            "UNIT7 INVALID " + label
+        raise RuntimeError(
+            "UNIT7 INVALID NUMBER: " + name
         ) from exc
 
     if not result.is_finite():
-        raise ValueError(
-            "UNIT7 NONFINITE " + label
+        raise RuntimeError(
+            "UNIT7 NONFINITE NUMBER: " + name
         )
 
     if positive and result <= 0:
-        raise ValueError(
-            "UNIT7 NONPOSITIVE " + label
+        raise RuntimeError(
+            "UNIT7 NONPOSITIVE NUMBER: " + name
         )
 
     return result
 
 
-def u7_text(value):
+def u7_v2_text(value):
     return format(value, "f")
 
 
-def u7_floor_units(quantity, step):
+def u7_v2_env(
+    name,
+    default,
+    positive=True,
+):
+
+    raw = os.getenv(name, "").strip()
+
+    return u7_v2_decimal(
+        raw if raw else default,
+        name,
+        positive=positive,
+    )
+
+
+def u7_v2_floor(value):
     return int(
-        (quantity / step).to_integral_value(
+        value.to_integral_value(
             rounding=ROUND_DOWN
         )
     )
 
 
-def u7_env_decimal(name, default):
-    raw = os.getenv(name, "").strip()
-    return u7_decimal(
-        raw if raw else default,
-        name,
-        positive=True,
+def u7_v2_ceil(value):
+    return int(
+        value.to_integral_value(
+            rounding=ROUND_CEILING
+        )
     )
 
 
 # ============================================================
-# 7.1 VERIFIED PUBLIC FUTURES SPECIFICATION
+# 7.2 PUBLIC FUTURES CONTRACT INFORMATION
 # ============================================================
 
-def u7_exchange_info(symbol):
+def u7_v2_exchange_info(symbol):
 
-    query = urllib.parse.urlencode({
-        "symbol": symbol
+    parameters = urllib.parse.urlencode({
+        "symbol": symbol,
     })
 
     url = (
         "https://api-contract.weex.com"
         "/capi/v3/market/exchangeInfo?"
-        + query
+        + parameters
+    )
+
+    timeout = float(
+        u7_v2_env(
+            "UNIT7_HTTP_TIMEOUT_SECONDS",
+            "15",
+        )
     )
 
     request = urllib.request.Request(
         url,
         headers={
-            "Accept": "application/json"
+            "Accept": "application/json",
         },
         method="GET",
-    )
-
-    timeout = float(
-        u7_env_decimal(
-            "UNIT7_HTTP_TIMEOUT_SECONDS",
-            "15",
-        )
     )
 
     with urllib.request.urlopen(
@@ -8236,7 +8268,7 @@ def u7_exchange_info(symbol):
 
         if response.status != 200:
             raise RuntimeError(
-                "UNIT7 CONTRACT HTTP FAILED"
+                "UNIT7 EXCHANGE INFO HTTP FAILED"
             )
 
         payload = json.loads(
@@ -8247,152 +8279,171 @@ def u7_exchange_info(symbol):
 
     if not isinstance(payload, dict):
         raise RuntimeError(
-            "UNIT7 INVALID CONTRACT RESPONSE"
+            "UNIT7 INVALID EXCHANGE PAYLOAD"
         )
 
-    symbols = payload.get("symbols")
+    entries = payload.get("symbols")
 
-    if not isinstance(symbols, list):
+    if not isinstance(entries, list):
         raise RuntimeError(
-            "UNIT7 MISSING CONTRACT SYMBOLS"
+            "UNIT7 MISSING CONTRACT LIST"
         )
 
     matches = [
-        item
-        for item in symbols
+        entry
+        for entry in entries
         if (
-            isinstance(item, dict)
-            and item.get("symbol") == symbol
+            isinstance(entry, dict)
+            and entry.get("symbol") == symbol
         )
     ]
 
     if len(matches) != 1:
         raise RuntimeError(
-            "UNIT7 CONTRACT SYMBOL NOT UNIQUE"
+            "UNIT7 CONTRACT NOT FOUND OR DUPLICATED"
         )
 
-    item = matches[0]
+    data = matches[0]
 
-    precision = item.get("quantityPrecision")
+    quantity_precision = data.get(
+        "quantityPrecision"
+    )
 
-    if (
-        isinstance(precision, bool)
-        or not isinstance(precision, int)
-        or not 0 <= precision <= 12
+    price_precision = data.get(
+        "pricePrecision"
+    )
+
+    for name, precision in (
+        ("QUANTITY", quantity_precision),
+        ("PRICE", price_precision),
     ):
-        raise RuntimeError(
-            "UNIT7 QUANTITY PRECISION INVALID"
-        )
+
+        if (
+            isinstance(precision, bool)
+            or not isinstance(precision, int)
+            or not 0 <= precision <= 12
+        ):
+            raise RuntimeError(
+                "UNIT7 INVALID " + name + " PRECISION"
+            )
 
     quantity_step = (
-        Decimal(1).scaleb(-precision)
+        Decimal(1).scaleb(-quantity_precision)
     )
 
-    min_qty = u7_decimal(
-        item.get("minOrderSize"),
-        "MIN ORDER SIZE",
+    price_step = (
+        Decimal(1).scaleb(-price_precision)
+    )
+
+    minimum = u7_v2_decimal(
+        data.get("minOrderSize"),
+        "MINIMUM QUANTITY",
         positive=True,
     )
 
-    max_qty = u7_decimal(
-        item.get("maxOrderSize"),
-        "MAX ORDER SIZE",
+    maximum = u7_v2_decimal(
+        data.get("maxOrderSize"),
+        "MAXIMUM QUANTITY",
         positive=True,
     )
 
-    market_limit = u7_decimal(
-        item.get("marketOpenLimitSize"),
-        "MARKET OPEN LIMIT",
+    market_maximum = u7_v2_decimal(
+        data.get("marketOpenLimitSize"),
+        "MARKET OPEN MAXIMUM",
         positive=True,
     )
 
-    max_position = u7_decimal(
-        item.get("maxPositionSize"),
-        "MAX POSITION SIZE",
+    position_maximum = u7_v2_decimal(
+        data.get("maxPositionSize"),
+        "POSITION MAXIMUM",
         positive=True,
     )
 
-    contract_value = u7_decimal(
-        item.get("contractVal"),
+    contract_value = u7_v2_decimal(
+        data.get("contractVal"),
         "CONTRACT VALUE",
         positive=True,
     )
 
-    min_leverage = u7_decimal(
-        item.get("minLeverage"),
-        "MIN LEVERAGE",
+    minimum_leverage = u7_v2_decimal(
+        data.get("minLeverage"),
+        "MINIMUM LEVERAGE",
         positive=True,
     )
 
-    max_leverage = u7_decimal(
-        item.get("maxLeverage"),
-        "MAX LEVERAGE",
+    maximum_leverage = u7_v2_decimal(
+        data.get("maxLeverage"),
+        "MAXIMUM LEVERAGE",
         positive=True,
     )
 
-    price_precision = item.get(
-        "pricePrecision"
-    )
-
     if (
-        isinstance(price_precision, bool)
-        or not isinstance(price_precision, int)
-        or not 0 <= price_precision <= 12
+        minimum > maximum
+        or minimum_leverage > maximum_leverage
     ):
         raise RuntimeError(
-            "UNIT7 PRICE PRECISION INVALID"
+            "UNIT7 INCONSISTENT CONTRACT LIMITS"
         )
 
     if (
-        min_qty > max_qty
-        or min_leverage > max_leverage
+        data.get("quoteAsset") != "USDT"
+        or data.get("marginAsset") != "USDT"
+        or data.get("contractType") != "PERPETUAL"
     ):
         raise RuntimeError(
-            "UNIT7 INCONSISTENT CONTRACT RULES"
+            "UNIT7 UNSUPPORTED CONTRACT"
         )
 
-    # contractVal is retained as metadata.
-    # It is not automatically assumed to be
-    # a quantity step or multiplier.
+    if data.get("forwardContractFlag") is not True:
+        raise RuntimeError(
+            "UNIT7 NOT VERIFIED USDT-MARGINED"
+        )
 
     return {
+
         "symbol": symbol,
 
-        "base_asset": item.get("baseAsset"),
-        "quote_asset": item.get("quoteAsset"),
-        "margin_asset": item.get("marginAsset"),
+        "base_asset": data.get("baseAsset"),
+        "quote_asset": data.get("quoteAsset"),
+        "margin_asset": data.get("marginAsset"),
 
-        "quantity_precision": precision,
+        "quantity_precision": quantity_precision,
         "quantity_step": quantity_step,
 
         "price_precision": price_precision,
-        "price_step_from_precision":
-            Decimal(1).scaleb(-price_precision),
+        "price_step": price_step,
 
-        "minimum_quantity": min_qty,
-        "maximum_quantity": max_qty,
-        "market_open_limit": market_limit,
-        "maximum_position": max_position,
+        "minimum_quantity": minimum,
+        "maximum_quantity": maximum,
+        "maximum_market_open_quantity":
+            market_maximum,
+
+        "maximum_position_quantity":
+            position_maximum,
 
         "contract_value": contract_value,
 
-        "minimum_leverage": min_leverage,
-        "maximum_leverage": max_leverage,
+        "minimum_leverage": minimum_leverage,
+        "maximum_leverage": maximum_leverage,
 
-        "raw_status": item.get("status"),
-        "contract_type": item.get("contractType"),
+        "status": data.get("status"),
 
         "source": (
             "WEEX_V3_FUTURES_EXCHANGE_INFO"
         ),
 
-        "public_metadata_verified": True,
-        "demo_trade_symbol_verified": False,
+        "public_contract_verified": True,
+
+        # Public contract information does not
+        # verify the private demo order interface.
+        "demo_contract_verified": False,
+
+        "order_quantity_encoding_verified": False,
     }
 
 
 # ============================================================
-# 7.2 VERIFY UNIT 6 / UNIT 3 HANDOVER
+# 7.3 MAIN UNIT 7 V2
 # ============================================================
 
 def fresh_reconstruction_unit_7(
@@ -8404,7 +8455,7 @@ def fresh_reconstruction_unit_7(
     print("=" * 80, flush=True)
 
     print(
-        "UNIVERSAL WEEX UNIT 7 V1 START",
+        "UNIVERSAL WEEX UNIT 7 V2 START",
         flush=True,
     )
 
@@ -8418,48 +8469,57 @@ def fresh_reconstruction_unit_7(
         market = FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
 
     if not all(
-        isinstance(x, dict)
-        for x in (unit6, config, market)
+        isinstance(item, dict)
+        for item in (
+            unit6,
+            config,
+            market,
+        )
     ):
         raise RuntimeError(
             "UNIT7 INVALID HANDOVER"
         )
 
-    exchange = config.get("exchange", {})
+    exchange_cfg = config.get("exchange", {})
     leverage_cfg = config.get("leverage", {})
+    safety = config.get("safety", {})
 
-    if (
-        not isinstance(exchange, dict)
-        or not isinstance(leverage_cfg, dict)
+    if not all(
+        isinstance(x, dict)
+        for x in (
+            exchange_cfg,
+            leverage_cfg,
+            safety,
+        )
     ):
         raise RuntimeError(
-            "UNIT7 INVALID CONFIGURATION"
+            "UNIT7 INVALID CONFIG STRUCTURE"
         )
 
-    symbol = exchange.get("market_symbol")
+    symbol = exchange_cfg.get(
+        "market_symbol"
+    )
 
     if (
         not isinstance(symbol, str)
-        or symbol != unit6.get("symbol")
-        or symbol != market.get("symbol")
-        or config.get(
-            "execution_environment"
-        ) != "DEMO"
-        or unit6.get("read_only") is not True
+        or not symbol
+        or unit6.get("symbol") != symbol
+        or market.get("symbol") != symbol
         or unit6.get(
             "unit6_revision"
         ) != "UNIVERSAL_CONTINUITY_V1"
-        or unit6.get(
-            "trade_authorized"
-        ) is not False
+        or unit6.get("read_only") is not True
+        or unit6.get("trade_authorized") is not False
+        or market.get("read_only") is not True
         or config.get(
-            "safety", {}
-        ).get(
+            "execution_environment"
+        ) != "DEMO"
+        or safety.get(
             "real_order_submission_enabled"
         ) is not False
     ):
         raise RuntimeError(
-            "UNIT7 SAFETY / SYMBOL MISMATCH"
+            "UNIT7 SAFETY / SYMBOL GATE FAILED"
         )
 
     management = unit6.get(
@@ -8468,289 +8528,365 @@ def fresh_reconstruction_unit_7(
 
     if not isinstance(management, dict):
         raise RuntimeError(
-            "UNIT7 MANAGEMENT CONTRACT MISSING"
+            "UNIT7 MANAGEMENT CONTRACT INVALID"
         )
 
-    independence_keys = (
-        "units_13_14_independent_of_entry_signal",
-        "units_13_14_independent_of_bot_mode",
-    )
+    if (
+        management.get(
+            "units_13_14_independent_of_entry_signal"
+        ) is not True
+        or management.get(
+            "units_13_14_independent_of_bot_mode"
+        ) is not True
+        or management.get(
+            "tp_management_blocked_by_unit6"
+        ) is not False
+        or management.get(
+            "b1_b5_backup_blocked_by_unit6"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT7 MANAGEMENT INDEPENDENCE FAILED"
+        )
 
-    for key in independence_keys:
-        if management.get(key) is not True:
-            raise RuntimeError(
-                "UNIT7 MANAGEMENT INDEPENDENCE LOST"
-            )
-
-    price = u7_decimal(
+    price = u7_v2_decimal(
         market.get("price"),
         "MARK PRICE",
         positive=True,
     )
 
-    if market.get("read_only") is not True:
-        raise RuntimeError(
-            "UNIT7 MARKET SNAPSHOT INVALID"
-        )
-
     # ========================================================
-    # 7.3 UNIVERSAL COIN-EQUIVALENT MARGIN
+    # 7.4 USDT IS THE PRIMARY MARGIN AUTHORITY
     # ========================================================
 
-    entry_cfg = config.get("entry", {})
+    margin_usdt = u7_v2_env(
+        "ENTRY_MARGIN_USDT",
+        "4",
+    )
 
-    if not isinstance(entry_cfg, dict):
-        entry_cfg = {}
+    # The entry margin is never silently increased
+    # to achieve minimum contract or TP quantities.
 
-    margin_mode = os.getenv(
-        "INITIAL_MARGIN_MODE",
-        "COIN_EQUIVALENT",
-    ).strip().upper()
-
-    if margin_mode == "COIN_EQUIVALENT":
-
-        initial_coins = u7_env_decimal(
-            "INITIAL_MARGIN_COINS",
-            "1",
-        )
-
-        margin_usdt = initial_coins * price
-
-    elif margin_mode == "FIXED_USDT":
-
-        initial_coins = None
-
-        margin_usdt = u7_env_decimal(
-            "ENTRY_MARGIN_USDT",
-            "2",
-        )
-
-    else:
-        raise RuntimeError(
-            "UNIT7 UNKNOWN MARGIN MODE"
-        )
-
-    long_leverage = u7_decimal(
+    long_leverage = u7_v2_decimal(
         leverage_cfg.get("long"),
         "LONG LEVERAGE",
         positive=True,
     )
 
-    short_leverage = u7_decimal(
+    short_leverage = u7_v2_decimal(
         leverage_cfg.get("short"),
         "SHORT LEVERAGE",
         positive=True,
     )
 
     # ========================================================
-    # 7.4 PUBLIC CONTRACT VERIFICATION
+    # 7.5 GET VERIFIED CONTRACT LIMITS
     # ========================================================
 
-    contract = u7_exchange_info(symbol)
-
-    if (
-        contract["quote_asset"] != "USDT"
-        or contract["margin_asset"] != "USDT"
-    ):
-        raise RuntimeError(
-            "UNIT7 UNSUPPORTED COLLATERAL"
-        )
-
-    if contract["contract_type"] not in (
-        None,
-        "PERPETUAL",
-    ):
-        raise RuntimeError(
-            "UNIT7 UNSUPPORTED CONTRACT TYPE"
-        )
+    contract = u7_v2_exchange_info(symbol)
 
     step = contract["quantity_step"]
     minimum = contract["minimum_quantity"]
 
-    minimum_units = int(
-        (
-            minimum / step
-        ).to_integral_value(
-            rounding="ROUND_CEILING"
-        )
+    maximum = min(
+        contract["maximum_quantity"],
+        contract["maximum_market_open_quantity"],
+        contract["maximum_position_quantity"],
     )
 
-    if minimum_units < 1:
-        raise RuntimeError(
-            "UNIT7 INVALID MINIMUM STEPS"
-        )
+    minimum_steps = u7_v2_ceil(
+        minimum / step
+    )
+
+    # Require exact 10/20/70 TP allocation.
+    # This automatically supports 50/50 halves.
+    #
+    # The initial size must be a multiple of
+    # ten quantity increments.
+
+    minimum_initial_steps = (
+        10 * minimum_steps
+    )
+
+    minimum_initial_qty = (
+        Decimal(minimum_initial_steps) * step
+    )
 
     # ========================================================
-    # 7.5 INDEPENDENT LONG / SHORT SIZING
+    # 7.6 INDEPENDENT LONG / SHORT CALCULATION
     # ========================================================
 
-    side_plans = {}
+    plans = {}
 
     for side, leverage in (
         ("LONG", long_leverage),
         ("SHORT", short_leverage),
     ):
 
-        reasons = []
+        blocking = []
 
-        if not (
+        leverage_valid = (
             contract["minimum_leverage"]
             <= leverage
             <= contract["maximum_leverage"]
-        ):
-            reasons.append(
-                "LEVERAGE_OUTSIDE_CONTRACT_LIMIT"
-            )
-
-        notional = margin_usdt * leverage
-
-        desired_quantity = notional / price
-
-        desired_units = u7_floor_units(
-            desired_quantity,
-            step,
         )
 
-        # To split into 10%, 20%, 70% exactly,
-        # require a multiple of ten quantity steps.
-        #
-        # This also ensures exact 50/50 division.
+        if not leverage_valid:
+            blocking.append(
+                "LEVERAGE_OUTSIDE_EXCHANGE_LIMIT"
+            )
 
-        executable_units = (
-            desired_units // 10
+        # Primary user control:
+        # margin_usdt = fixed USDT capital.
+        #
+        # Leveraged position notional:
+        # margin * leverage.
+
+        desired_notional = (
+            margin_usdt * leverage
+        )
+
+        # WEEX futures market metadata describes
+        # order sizes in base-asset units.
+        #
+        # Do not divide by contractVal again here.
+        # The order endpoint encoding is separately
+        # verified by later units.
+
+        desired_quantity = (
+            desired_notional / price
+        )
+
+        desired_steps = u7_v2_floor(
+            desired_quantity / step
+        )
+
+        executable_steps = (
+            desired_steps // 10
         ) * 10
 
         executable_qty = (
-            Decimal(executable_units) * step
+            Decimal(executable_steps) * step
         )
 
-        tp1_units = executable_units // 10
-        tp2_units = executable_units * 2 // 10
-        tp3_units = executable_units * 7 // 10
-
-        hedge_half_units = executable_units // 2
-
-        tp1_qty = Decimal(tp1_units) * step
-        tp2_qty = Decimal(tp2_units) * step
-        tp3_qty = Decimal(tp3_units) * step
-
-        hedge_half_qty = (
-            Decimal(hedge_half_units) * step
+        tp1_steps = (
+            executable_steps // 10
         )
 
-        if executable_units < 10 * minimum_units:
-            reasons.append(
-                "INITIAL_QUANTITY_CANNOT_SUPPORT_TP1"
+        tp2_steps = (
+            executable_steps * 2 // 10
+        )
+
+        tp3_steps = (
+            executable_steps * 7 // 10
+        )
+
+        half_steps = (
+            executable_steps // 2
+        )
+
+        tp1_qty = Decimal(tp1_steps) * step
+        tp2_qty = Decimal(tp2_steps) * step
+        tp3_qty = Decimal(tp3_steps) * step
+
+        half_qty = (
+            Decimal(half_steps) * step
+        )
+
+        exact_split_valid = (
+            executable_steps
+            >= minimum_initial_steps
+            and tp1_steps >= minimum_steps
+            and tp2_steps >= minimum_steps
+            and tp3_steps >= minimum_steps
+            and half_steps >= minimum_steps
+            and (
+                tp1_steps
+                + tp2_steps
+                + tp3_steps
+                == executable_steps
+            )
+            and (
+                half_steps * 2
+                == executable_steps
+            )
+        )
+
+        if not exact_split_valid:
+            blocking.append(
+                "TP_HEDGE_SPLITS_BELOW_MINIMUM"
             )
 
         if (
-            min(
-                tp1_units,
-                tp2_units,
-                tp3_units,
-                hedge_half_units,
-            )
-            < minimum_units
+            executable_qty < minimum
+            or executable_qty > maximum
         ):
-            reasons.append(
-                "PARTIAL_ORDER_BELOW_MINIMUM"
+            blocking.append(
+                "INITIAL_QUANTITY_OUTSIDE_LIMITS"
             )
 
-        if executable_qty > min(
-            contract["maximum_quantity"],
-            contract["market_open_limit"],
-            contract["maximum_position"],
-        ):
-            reasons.append(
-                "QUANTITY_ABOVE_CONTRACT_MAXIMUM"
-            )
+        actual_notional = (
+            executable_qty * price
+        )
 
-        if (
-            executable_units <= 0
-            or tp1_units + tp2_units + tp3_units
-            != executable_units
-            or hedge_half_units * 2
-            != executable_units
-        ):
-            reasons.append(
-                "QUANTITY_ALLOCATION_INVALID"
-            )
-
-        actual_notional = executable_qty * price
-
-        effective_margin = (
+        actual_margin = (
             actual_notional / leverage
         )
 
-        if effective_margin > margin_usdt:
-            reasons.append(
-                "MARGIN_BUDGET_EXCEEDED"
+        if actual_margin > margin_usdt:
+            blocking.append(
+                "PROPOSED_MARGIN_EXCEEDS_USER_BUDGET"
             )
 
-        # Public contract validation does not
-        # establish demo order eligibility,
-        # account equity or available collateral.
+        # The lowest user-controlled margin that
+        # could support exact allocation at the
+        # current reference mark price.
+        #
+        # Does not include account fee reserve,
+        # exchange minimum notional or slippage.
 
-        side_plans[side] = {
+        minimum_margin = (
+            minimum_initial_qty
+            * price
+            / leverage
+        )
 
-            "leverage": u7_text(leverage),
+        minimum_notional = (
+            minimum_initial_qty * price
+        )
+
+        shortfall = max(
+            Decimal("0"),
+            minimum_margin - margin_usdt,
+        )
+
+        plans[side] = {
+
+            "side": side,
+
+            "leverage": u7_v2_text(
+                leverage
+            ),
+
+            "user_margin_usdt": u7_v2_text(
+                margin_usdt
+            ),
 
             "desired_notional_usdt":
-                u7_text(notional),
-
-            "desired_quantity":
-                u7_text(desired_quantity),
-
-            "desired_quantity_units":
-                desired_units,
-
-            "proposed_quantity":
-                u7_text(executable_qty),
-
-            "proposed_quantity_units":
-                executable_units,
-
-            "effective_margin_usdt":
-                u7_text(effective_margin),
-
-            "tp1_quantity":
-                u7_text(tp1_qty),
-
-            "tp2_quantity":
-                u7_text(tp2_qty),
-
-            "tp3_quantity":
-                u7_text(tp3_qty),
-
-            "h1_original_half_quantity":
-                u7_text(hedge_half_qty),
-
-            "h1_opposite_half_quantity":
-                u7_text(hedge_half_qty),
-
-            "h2_full_opposite_quantity":
-                u7_text(executable_qty),
-
-            "exact_tp_split_valid":
-                (
-                    executable_units >=
-                    10 * minimum_units
+                u7_v2_text(
+                    desired_notional
                 ),
 
-            "exact_hedge_split_valid":
-                (
-                    hedge_half_units >=
-                    minimum_units
+            "desired_base_quantity":
+                u7_v2_text(
+                    desired_quantity
+                ),
+
+            "proposed_quantity":
+                u7_v2_text(
+                    executable_qty
+                ),
+
+            "proposed_quantity_steps":
+                executable_steps,
+
+            "proposed_notional_usdt":
+                u7_v2_text(
+                    actual_notional
+                ),
+
+            "effective_margin_usdt":
+                u7_v2_text(
+                    actual_margin
+                ),
+
+            "tp1_quantity":
+                u7_v2_text(
+                    tp1_qty
+                ),
+
+            "tp2_quantity":
+                u7_v2_text(
+                    tp2_qty
+                ),
+
+            "tp3_quantity":
+                u7_v2_text(
+                    tp3_qty
+                ),
+
+            "tp1_notional_usdt":
+                u7_v2_text(
+                    tp1_qty * price
+                ),
+
+            "tp2_notional_usdt":
+                u7_v2_text(
+                    tp2_qty * price
+                ),
+
+            "tp3_notional_usdt":
+                u7_v2_text(
+                    tp3_qty * price
+                ),
+
+            "h1_original_half_quantity":
+                u7_v2_text(
+                    half_qty
+                ),
+
+            "h1_opposite_half_quantity":
+                u7_v2_text(
+                    half_qty
+                ),
+
+            "h2_full_opposite_quantity":
+                u7_v2_text(
+                    executable_qty
+                ),
+
+            "hedge_half_notional_usdt":
+                u7_v2_text(
+                    half_qty * price
+                ),
+
+            "minimum_initial_quantity":
+                u7_v2_text(
+                    minimum_initial_qty
+                ),
+
+            "minimum_required_notional_usdt":
+                u7_v2_text(
+                    minimum_notional
+                ),
+
+            "minimum_required_margin_usdt":
+                u7_v2_text(
+                    minimum_margin
+                ),
+
+            "margin_shortfall_usdt":
+                u7_v2_text(
+                    shortfall
                 ),
 
             "quantity_plan_valid":
-                len(reasons) == 0,
+                len(blocking) == 0,
 
-            "blocking_reasons": reasons,
+            "exact_tp_split_valid":
+                exact_split_valid,
+
+            "exact_hedge_split_valid":
+                (
+                    executable_steps > 0
+                    and half_steps >= minimum_steps
+                ),
+
+            "blocking_reasons": blocking,
         }
 
     # ========================================================
-    # 7.6 ENTRY ELIGIBILITY IS NOT ORDER PERMISSION
+    # 7.7 STRICT NEW ENTRY GATE
     # ========================================================
 
     continuity = (
@@ -8770,15 +8906,13 @@ def fresh_reconstruction_unit_7(
         "NONE",
     ):
         raise RuntimeError(
-            "UNIT7 INVALID SIGNAL DIRECTION"
+            "UNIT7 INVALID ENTRY DIRECTION"
         )
 
-    selected = (
-        side_plans.get(direction)
-    )
+    selected = plans.get(direction)
 
     sizing_valid = bool(
-        selected
+        selected is not None
         and selected["quantity_plan_valid"]
     )
 
@@ -8787,107 +8921,140 @@ def fresh_reconstruction_unit_7(
     )
 
     if not continuity:
-        reason = (
-            "WAITING_FOR_UNIT6_CONTINUITY"
+
+        entry_reason = (
+            "AWAITING_UNIT6_CONTINUITY"
         )
 
     elif not sizing_valid:
-        reason = (
-            "CONTRACT_QUANTITY_NOT_EXECUTABLE"
+
+        entry_reason = (
+            "USDT_MARGIN_OR_QUANTITY_INVALID"
         )
 
     else:
-        reason = (
-            "SIZING_READY_ACCOUNT_CHECK_PENDING"
+
+        entry_reason = (
+            "SIZING_VALID_ACCOUNT_CHECK_PENDING"
         )
 
     # ========================================================
-    # 7.7 INDEPENDENT MANAGEMENT CONTRACT
+    # 7.8 UNIT 8 HANDOVER
     # ========================================================
 
     result = {
 
         "symbol": symbol,
-        "selected_direction": direction,
 
-        "margin_mode": margin_mode,
+        "margin_mode": "FIXED_USDT",
 
-        "initial_margin_coins": (
-            u7_text(initial_coins)
-            if initial_coins is not None
-            else None
-        ),
+        "initial_margin_coins": None,
 
         "initial_margin_usdt":
-            u7_text(margin_usdt),
+            u7_v2_text(
+                margin_usdt
+            ),
 
-        "mark_price":
-            u7_text(price),
+        "mark_price": u7_v2_text(
+            price
+        ),
+
+        "selected_direction": direction,
+
+        "long_plan": plans["LONG"],
+        "short_plan": plans["SHORT"],
 
         "contract": {
             key: (
-                u7_text(value)
+                u7_v2_text(value)
                 if isinstance(value, Decimal)
                 else value
             )
             for key, value in contract.items()
         },
 
-        "long_plan": side_plans["LONG"],
-        "short_plan": side_plans["SHORT"],
-
         "entry_continuity_verified":
             continuity,
 
-        "entry_sizing_valid": sizing_valid,
+        "entry_sizing_valid":
+            sizing_valid,
 
         "candidate_ready_for_account_checks":
             candidate_ready,
 
-        "entry_status_reason": reason,
+        "entry_status_reason":
+            entry_reason,
 
         "demo_contract_eligibility_verified":
             False,
 
-        "account_balance_verified": False,
-        "free_margin_verified": False,
-        "exposure_cap_verified": False,
-        "position_mode_verified": False,
+        "account_balance_verified":
+            False,
 
-        # This gate applies only to new entries.
-        "new_entry_order_authorized": False,
+        "free_margin_verified":
+            False,
+
+        "exposure_cap_verified":
+            False,
+
+        "position_mode_verified":
+            False,
+
+        "order_quantity_encoding_verified":
+            False,
+
+        "new_entry_order_authorized":
+            False,
+
         "trade_authorized": False,
 
-        # Never disable existing trade management.
         "position_management_independent":
             True,
 
-        "tp_management_blocked":
-            False,
+        "tp_management_blocked": False,
 
-        "dynamic_break_even_blocked":
-            False,
+        "dynamic_break_even_blocked": False,
 
-        "atr_hedge_recovery_blocked":
-            False,
+        "atr_hedge_recovery_blocked": False,
 
-        "b1_b5_backup_blocked":
-            False,
+        "b1_b5_backup_blocked": False,
 
         "read_only": True,
+
         "exchange_write": "NONE",
 
         "unit7_revision":
-            "UNIVERSAL_SIZING_V1",
+            "UNIVERSAL_USDT_SIZING_V2",
     }
 
     # ========================================================
-    # 7.8 RENDER LOGS
+    # 7.9 RENDER VERIFICATION LOGS
     # ========================================================
 
     print(
         "UNIT 7 SYMBOL =",
         symbol,
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 MARGIN MODE = FIXED_USDT",
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 ENTRY MARGIN USDT =",
+        u7_v2_text(
+            margin_usdt
+        ),
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 MARK PRICE =",
+        u7_v2_text(
+            price
+        ),
         flush=True,
     )
 
@@ -8898,14 +9065,26 @@ def fresh_reconstruction_unit_7(
     )
 
     print(
-        "UNIT 7 CONTRACT MIN QTY =",
-        u7_text(minimum),
+        "UNIT 7 MINIMUM QUANTITY =",
+        u7_v2_text(
+            minimum
+        ),
         flush=True,
     )
 
     print(
         "UNIT 7 QUANTITY STEP =",
-        u7_text(step),
+        u7_v2_text(
+            step
+        ),
+        flush=True,
+    )
+
+    print(
+        "UNIT 7 CONTRACT VALUE =",
+        u7_v2_text(
+            contract["contract_value"]
+        ),
         flush=True,
     )
 
@@ -8915,21 +9094,9 @@ def fresh_reconstruction_unit_7(
         flush=True,
     )
 
-    print(
-        "UNIT 7 MARGIN MODE =",
-        margin_mode,
-        flush=True,
-    )
-
-    print(
-        "UNIT 7 INITIAL MARGIN USDT =",
-        u7_text(margin_usdt),
-        flush=True,
-    )
-
     for side in ("LONG", "SHORT"):
 
-        plan = side_plans[side]
+        plan = plans[side]
 
         print(
             "UNIT 7", side,
@@ -8940,14 +9107,21 @@ def fresh_reconstruction_unit_7(
 
         print(
             "UNIT 7", side,
-            "PROPOSED QTY =",
+            "DESIRED NOTIONAL USDT =",
+            plan["desired_notional_usdt"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 7", side,
+            "PROPOSED QUANTITY =",
             plan["proposed_quantity"],
             flush=True,
         )
 
         print(
             "UNIT 7", side,
-            "TP1 / TP2 / TP3 =",
+            "TP1 / TP2 / TP3 QTY =",
             plan["tp1_quantity"],
             plan["tp2_quantity"],
             plan["tp3_quantity"],
@@ -8956,8 +9130,31 @@ def fresh_reconstruction_unit_7(
 
         print(
             "UNIT 7", side,
-            "HEDGE HALF QTY =",
+            "TP1 / TP2 / TP3 NOTIONAL USDT =",
+            plan["tp1_notional_usdt"],
+            plan["tp2_notional_usdt"],
+            plan["tp3_notional_usdt"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 7", side,
+            "HEDGE HALF QUANTITY =",
             plan["h1_original_half_quantity"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 7", side,
+            "MIN REQUIRED MARGIN USDT =",
+            plan["minimum_required_margin_usdt"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 7", side,
+            "MARGIN SHORTFALL USDT =",
+            plan["margin_shortfall_usdt"],
             flush=True,
         )
 
@@ -8976,7 +9173,7 @@ def fresh_reconstruction_unit_7(
         )
 
     print(
-        "UNIT 7 CONTINUITY VERIFIED =",
+        "UNIT 7 ENTRY CONTINUITY VERIFIED =",
         continuity,
         flush=True,
     )
@@ -8993,12 +9190,12 @@ def fresh_reconstruction_unit_7(
     )
 
     print(
-        "UNIT 7 TP MANAGEMENT INDEPENDENT = True",
+        "UNIT 7 TP INDEPENDENT = True",
         flush=True,
     )
 
     print(
-        "UNIT 7 ATR HEDGE RECOVERY INDEPENDENT = True",
+        "UNIT 7 HEDGE RECOVERY INDEPENDENT = True",
         flush=True,
     )
 
@@ -9028,7 +9225,7 @@ def fresh_reconstruction_unit_7(
 
 
 # ============================================================
-# 7.9 HANDOVER TO UNIT 8
+# 7.10 SINGLE EXECUTION / UNIT 8 HANDOVER
 # ============================================================
 
 FRESH_RECONSTRUCTION_UNIT7_RESULT = (
@@ -9037,7 +9234,8 @@ FRESH_RECONSTRUCTION_UNIT7_RESULT = (
 
 
 # ============================================================
-# END COMPLETE UNIVERSAL UNIT 7 V1
-# UNIT 8 FOLLOWS
-# ZERO INDENTATION
+# END COMPLETE UNIVERSAL WEEX UNIT 7 V2
+# NO DUPLICATE UNIT 7 V1 EXECUTION
 # ============================================================
+
+            
