@@ -1891,6 +1891,374 @@ FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
 # ============================================================
 
 
+
+# ============================================================
+# UNIVERSAL WEEX HYBRID BOT
+# COMPLETE UNIT 4 V4 REPLACEMENT
+# PART 1 OF 2
+#
+# MARKET DATA FOUNDATION
+# ADAPTATION OF WORKING UNIT 4 V3
+#
+# UNIT 2 = TRADING SYMBOL AUTHORITY
+# UNIT 3 = VERIFIED MARK PRICE AUTHORITY
+#
+# PUBLIC WEEX MARKET DATA ONLY
+# NO AUTHENTICATED REQUESTS
+# NO DEMO OR LIVE ORDERS
+# NO EXCHANGE WRITES
+# ============================================================
+
+import os
+import json
+import math
+import time
+import urllib.parse
+import urllib.request
+
+from decimal import Decimal
+
+
+# ============================================================
+# 4.1 PRESERVED ADJUSTABLE QUALIFICATION DEFAULTS
+# ============================================================
+
+UNIT_4_V5_TUNING = {
+
+    "common": {
+        "direction_votes_required": 2,
+        "market_age_seconds_max": 120,
+    },
+
+    "breakout": {
+        "lookback_candles": 20,
+        "proximity_atr": 0.50,
+        "confirmation_atr": 0.10,
+        "maximum_extension_atr": 3.0,
+    },
+
+    "structure": {
+        "ema_alignment_mode": "EARLY",
+        "pullback_tolerance_atr": 0.75,
+        "maximum_extension_atr": 2.0,
+    },
+
+    "scalp": {
+        "ema_compression_atr_max": 0.70,
+        "range_atr_max": 8.0,
+        "momentum_atr_max": 1.50,
+        "preliminary_ema_separation_percent": 0.03,
+        "preliminary_move_5m_percent": 0.015,
+    },
+}
+
+
+# ============================================================
+# 4.2 VALIDATION HELPERS
+# ============================================================
+
+def u4v3_num(x, label, minimum=None):
+
+    try:
+        x = float(x)
+
+    except (
+        ValueError,
+        TypeError,
+        OverflowError,
+    ) as exc:
+
+        raise RuntimeError(
+            "UNIT4 INVALID " + label
+        ) from exc
+
+    if not math.isfinite(x):
+
+        raise RuntimeError(
+            "UNIT4 NONFINITE " + label
+        )
+
+    if minimum is not None and x < minimum:
+
+        raise RuntimeError(
+            "UNIT4 INVALID RANGE " + label
+        )
+
+    return x
+
+
+def u4v3_env(key, default, minimum=0):
+
+    return u4v3_num(
+        os.getenv(key, default),
+        key,
+        minimum,
+    )
+
+
+def u4v3_ema(prices, period):
+
+    if len(prices) < period:
+
+        raise RuntimeError(
+            "UNIT4 EMA HISTORY"
+        )
+
+    result = (
+        sum(prices[:period]) / period
+    )
+
+    multiplier = (
+        2 / (period + 1)
+    )
+
+    for price in prices[period:]:
+
+        result = (
+            result
+            + multiplier * (price - result)
+        )
+
+    return result
+
+
+# ============================================================
+# 4.3 PUBLIC WEEX CANDLE RETRIEVAL
+# ============================================================
+
+def u4v3_fetch(
+    symbol,
+    interval,
+    limit,
+    kind="MARK",
+):
+
+    # Only the two public market-data paths
+    # used by the working Unit 4 are allowed.
+
+    if kind == "MARK":
+
+        endpoint = (
+            "/capi/v3/market/markPriceKlines"
+        )
+
+    elif kind == "TRADE":
+
+        endpoint = (
+            "/capi/v3/market/klines"
+        )
+
+    else:
+
+        raise RuntimeError(
+            "UNIT4 INVALID CANDLE TYPE"
+        )
+
+    if (
+        not isinstance(symbol, str)
+        or not symbol
+        or not isinstance(interval, str)
+        or not interval
+        or isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or limit < 1
+        or limit > 1000
+    ):
+
+        raise RuntimeError(
+            "UNIT4 INVALID CANDLE REQUEST"
+        )
+
+    query = urllib.parse.urlencode({
+        "symbol": symbol,
+        "interval": interval,
+        "limit": limit,
+    })
+
+    url = (
+        "https://api-contract.weex.com"
+        + endpoint
+        + "?"
+        + query
+    )
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+        },
+        method="GET",
+    )
+
+    timeout = u4v3_env(
+        "UNIT4_HTTP_TIMEOUT_SECONDS",
+        15,
+        1,
+    )
+
+    with urllib.request.urlopen(
+        request,
+        timeout=timeout,
+    ) as response:
+
+        if response.status != 200:
+
+            raise RuntimeError(
+                "UNIT4 MARKET HTTP ERROR"
+            )
+
+        payload = json.loads(
+            response.read(
+                2000000
+            ).decode("utf-8")
+        )
+
+    if not isinstance(payload, list):
+
+        raise RuntimeError(
+            "UNIT4 INVALID MARKET RESPONSE "
+            + interval
+        )
+
+    return payload
+
+
+# ============================================================
+# 4.4 CLOSED CANDLE NORMALIZATION
+# ============================================================
+
+def u4v3_candles(
+    rows,
+    interval_minutes,
+    reference_time_ms,
+    minimum_history=201,
+):
+
+    normalized = []
+
+    interval_ms = (
+        interval_minutes * 60000
+    )
+
+    for row in rows:
+
+        if (
+            not isinstance(
+                row,
+                (list, tuple),
+            )
+            or len(row) < 7
+        ):
+
+            raise RuntimeError(
+                "UNIT4 INVALID CANDLE SHAPE"
+            )
+
+        start_time = int(row[0])
+        end_time = int(row[6])
+
+        o, h, l, c, v = [
+            u4v3_num(value, "OHLCV")
+            for value in row[1:6]
+        ]
+
+        if not (
+            0 < l
+            <= min(o, c)
+            <= max(o, c)
+            <= h
+        ):
+
+            raise RuntimeError(
+                "UNIT4 INVALID OHLC VALUES"
+            )
+
+        if not (
+            v >= 0
+            and start_time < end_time
+            <= start_time + interval_ms
+        ):
+
+            raise RuntimeError(
+                "UNIT4 INVALID CANDLE METADATA"
+            )
+
+        normalized.append({
+            "open_time_ms": start_time,
+            "open": o,
+            "high": h,
+            "low": l,
+            "close": c,
+            "volume": v,
+            "close_time_ms": end_time,
+        })
+
+    normalized.sort(
+        key=lambda x: x["open_time_ms"]
+    )
+
+    for previous, current in zip(
+        normalized,
+        normalized[1:],
+    ):
+
+        difference = (
+            current["open_time_ms"]
+            - previous["open_time_ms"]
+        )
+
+        if difference != interval_ms:
+
+            raise RuntimeError(
+                "UNIT4 CANDLE GAP OR DUPLICATE"
+            )
+
+    closed = [
+        item
+        for item in normalized
+        if item["close_time_ms"]
+        <= reference_time_ms
+    ]
+
+    if len(closed) < minimum_history:
+
+        raise RuntimeError(
+            "UNIT4 INSUFFICIENT CANDLE HISTORY "
+            + str(interval_minutes)
+        )
+
+    age = (
+        reference_time_ms
+        - closed[-1]["close_time_ms"]
+    )
+
+    if age < 0:
+
+        raise RuntimeError(
+            "UNIT4 FUTURE CLOSED CANDLE"
+        )
+
+    if age > (
+        interval_ms + 120000
+    ):
+
+        raise RuntimeError(
+            "UNIT4 STALE CLOSED CANDLE"
+        )
+
+    return normalized, closed
+
+
+# ============================================================
+# END UNIT 4 V4 — PART 1
+#
+# PART 2 MUST FOLLOW IMMEDIATELY
+# DO NOT INSERT UNIT 5 HERE
+# DO NOT EXECUTE THIS PART ALONE
+# ============================================================
+
+
+
 # ============================================================
 # UNIVERSAL WEEX HYBRID BOT
 # COMPLETE UNIT 4 V3 REPLACEMENT
