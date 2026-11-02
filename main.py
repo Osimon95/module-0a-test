@@ -2455,13 +2455,6 @@ def fresh_reconstruction_unit_4():
     # Unit 2 determines the configured trading symbol.
     # Unit 3 must supply matching verified market data.
     # ========================================================
-
-    if (
-        not isinstance(symbol, str)
-        or not symbol
-        or market.get("symbol") != symbol
-        or market.get("read_only") is not True
-    ):
         
     # ========================================================
     # UNIT 4 V4 — SYMBOL AUTHORITY CORRECTION
