@@ -3594,6 +3594,42 @@ def fresh_reconstruction_unit_4():
         "transition_confirmed_from_previous_snapshot":
             False,
     }
+    
+    # ========================================================
+    # UNIT 4 V4 — DIRECTION RECONCILIATION
+    # ========================================================
+
+    regime_direction_aligned = (
+        direction in ("LONG", "SHORT")
+        and direction == mtf_direction
+    )
+
+    countertrend_developing = (
+        direction in ("LONG", "SHORT")
+        and mtf_direction in ("LONG", "SHORT")
+        and direction != mtf_direction
+    )
+
+    transition_evidence[
+        "regime_direction_aligned"
+    ] = regime_direction_aligned
+
+    transition_evidence[
+        "countertrend_developing"
+    ] = countertrend_developing
+
+    print(
+        "UNIT 4 REGIME/DIRECTION ALIGNED =",
+        regime_direction_aligned,
+        flush=True,
+    )
+
+    print(
+        "UNIT 4 COUNTERTREND DEVELOPING =",
+        countertrend_developing,
+        flush=True,
+    )
+
 
     # ========================================================
     # 4.18 TP1 / TP2 PRICE REACHABILITY
