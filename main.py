@@ -2449,17 +2449,27 @@ def fresh_reconstruction_unit_4():
 
     symbol = exchange["market_symbol"]
 
+    
+    # ========================================================
+    # UNIT 4 V4 — CENTRAL SYMBOL AUTHORITY
+    # Unit 2 determines the configured trading symbol.
+    # Unit 3 must supply matching verified market data.
+    # ========================================================
+
     if (
-        symbol
-        != os.getenv(
-            "TRADING_SYMBOL", ""
-        ).strip().upper()
+        not isinstance(symbol, str)
+        or not symbol
         or market.get("symbol") != symbol
         or market.get("read_only") is not True
     ):
         raise RuntimeError(
             "UNIT4 MARKET HANDOVER FAILED"
         )
+
+    print(
+        "PASS: UNIT 4 SYMBOL AUTHORITY = UNIT 2",
+        flush=True,
+    )
 
     if config.get(
         "execution_environment"
