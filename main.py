@@ -9877,3 +9877,598 @@ FRESH_RECONSTRUCTION_UNIT9_RESULT = (
 # END COMPLETE UNIT 9 V1
 # ZERO INDENTATION
 # ============================================================
+
+
+
+# ============================================================
+# UNIVERSAL WEEX — COMPLETE UNIT 10 V1
+# DEMO EXECUTION READINESS / ACCOUNT RECONCILIATION
+#
+# READ ONLY. NO ORDER SUBMISSION.
+# NO LIVE CASH ENDPOINT.
+# NO LEVERAGE OR POSITION MODE CHANGES.
+# ============================================================
+
+import os
+import re
+import time
+from decimal import Decimal, InvalidOperation
+
+
+def u10_dec(value, name, positive=False):
+    if isinstance(value, bool):
+        raise RuntimeError("UNIT10 INVALID " + name)
+    try:
+        n = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise RuntimeError("UNIT10 INVALID " + name) from exc
+    if not n.is_finite() or (positive and n <= 0):
+        raise RuntimeError("UNIT10 INVALID " + name)
+    return n
+
+
+def u10_fmt(value):
+    return format(value, "f")
+
+
+def u10_bool(value):
+    return value is True
+
+
+def u10_demo_symbol(market_symbol):
+    # The public symbol and demo order symbol
+    # are deliberately distinct.
+    if not isinstance(market_symbol, str):
+        raise RuntimeError("UNIT10 INVALID SYMBOL")
+
+    if not re.fullmatch(r"[A-Z0-9]+USDT", market_symbol):
+        raise RuntimeError("UNIT10 INVALID SYMBOL FORMAT")
+
+    candidate = market_symbol[:-4] + "SUSDT"
+
+    override = os.getenv(
+        "WEEX_DEMO_ORDER_SYMBOL", ""
+    ).strip().upper()
+
+    if override:
+        if not re.fullmatch(r"[A-Z0-9]+SUSDT", override):
+            raise RuntimeError(
+                "UNIT10 INVALID DEMO SYMBOL OVERRIDE"
+            )
+        candidate = override
+
+    # A valid-looking name is NOT proof
+    # that the demo contract is tradable.
+    return candidate
+
+
+def u10_position_evidence(unit8, unit9, symbol):
+    positions = unit9.get("account_wide_positions")
+
+    if not isinstance(positions, list):
+        return {
+            "status": "UNVERIFIED",
+            "selected_positions": [],
+            "observed_sides": [],
+            "position_mode_verified": False,
+        }
+
+    selected = [
+        p for p in positions
+        if isinstance(p, dict)
+        and p.get("symbol") == symbol
+    ]
+
+    sides = sorted({
+        p.get("side")
+        for p in selected
+        if p.get("side") in ("LONG", "SHORT")
+    })
+
+    # Unit 9 does not retain separatedMode
+    # in its normalized position records.
+    # Therefore we cannot prove account mode
+    # from this handover.
+    return {
+        "status": (
+            "POSITIONS_OBSERVED"
+            if selected else "FLAT"
+        ),
+        "selected_positions": selected,
+        "observed_sides": sides,
+        "position_mode_verified": False,
+        "dual_side_execution_verified": False,
+    }
+
+
+def u10_build_order_preview(
+    demo_symbol,
+    direction,
+    plan,
+):
+    if direction not in ("LONG", "SHORT"):
+        return None
+
+    if not isinstance(plan, dict):
+        return None
+
+    if plan.get("quantity_plan_valid") is not True:
+        return None
+
+    qty = u10_dec(
+        plan.get("proposed_quantity"),
+        "ORDER QUANTITY",
+        positive=True,
+    )
+
+    # This is a preview only.
+    # No client ID or signed request is created.
+    return {
+        "endpoint": "/capi/v3/sim/order",
+        "symbol": demo_symbol,
+        "side": (
+            "BUY" if direction == "LONG" else "SELL"
+        ),
+        "positionSide": direction,
+        "type": "MARKET",
+        "quantity": u10_fmt(qty),
+        "preview_only": True,
+        "submission_authorized": False,
+    }
+
+
+def fresh_reconstruction_unit_10():
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIVERSAL WEEX UNIT 10 V1 START",
+        flush=True,
+    )
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+    market = FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    unit6 = FRESH_RECONSTRUCTION_UNIT6_RESULT
+    unit7 = FRESH_RECONSTRUCTION_UNIT7_RESULT
+    unit8 = FRESH_RECONSTRUCTION_UNIT8_RESULT
+    unit9 = FRESH_RECONSTRUCTION_UNIT9_RESULT
+
+    sources = (
+        config, market, unit6,
+        unit7, unit8, unit9,
+    )
+
+    if not all(isinstance(x, dict) for x in sources):
+        raise RuntimeError("UNIT10 HANDOVER MISSING")
+
+    exchange = config.get("exchange", {})
+    safety = config.get("safety", {})
+    strategy = config.get("strategy", {})
+
+    if not all(
+        isinstance(x, dict)
+        for x in (exchange, safety, strategy)
+    ):
+        raise RuntimeError("UNIT10 CONFIG INVALID")
+
+    symbol = exchange.get("market_symbol")
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or safety.get(
+            "real_order_submission_enabled"
+        ) is not False
+        or unit7.get("read_only") is not True
+        or unit8.get("read_only") is not True
+        or unit9.get("read_only") is not True
+        or unit9.get("exchange_write") != "NONE"
+        or any(
+            x.get("symbol") != symbol
+            for x in (
+                market, unit6, unit7, unit8, unit9
+            )
+        )
+    ):
+        raise RuntimeError(
+            "UNIT10 DEMO SAFETY HANDOVER FAILED"
+        )
+
+    # ========================================================
+    # 10.1 CENTRAL USDT MARGIN AUTHORITY
+    # ========================================================
+
+    margins = [
+        u10_dec(
+            config["entry"]["entry_margin_usdt"],
+            "UNIT2 MARGIN",
+            positive=True,
+        ),
+        u10_dec(
+            market["entry_margin_usdt"],
+            "UNIT3 MARGIN",
+            positive=True,
+        ),
+        u10_dec(
+            unit7["initial_margin_usdt"],
+            "UNIT7 MARGIN",
+            positive=True,
+        ),
+        u10_dec(
+            unit8["entry_margin_usdt"],
+            "UNIT8 MARGIN",
+            positive=True,
+        ),
+        u10_dec(
+            unit9["entry_margin_usdt"],
+            "UNIT9 MARGIN",
+            positive=True,
+        ),
+    ]
+
+    if len(set(margins)) != 1:
+        raise RuntimeError(
+            "UNIT10 USDT MARGIN AUTHORITY MISMATCH"
+        )
+
+    entry_margin = margins[0]
+
+    # ========================================================
+    # 10.2 DEMO SYMBOL
+    # ========================================================
+
+    demo_symbol = u10_demo_symbol(symbol)
+
+    # The candidate name alone is insufficient
+    # to verify WEEX demo instrument eligibility.
+    demo_contract_verified = False
+
+    # ========================================================
+    # 10.3 SIGNAL AND SIZING
+    # ========================================================
+
+    continuity = u10_bool(
+        unit6.get("entry_continuity_verified")
+    )
+
+    candidate_ready = u10_bool(
+        unit7.get(
+            "candidate_ready_for_account_checks"
+        )
+    )
+
+    direction = unit7.get(
+        "selected_direction", "NONE"
+    )
+
+    if direction not in ("LONG", "SHORT", "NONE"):
+        raise RuntimeError(
+            "UNIT10 INVALID ENTRY DIRECTION"
+        )
+
+    plans = {
+        "LONG": unit7.get("long_plan"),
+        "SHORT": unit7.get("short_plan"),
+    }
+
+    plan = plans.get(direction)
+
+    preview = u10_build_order_preview(
+        demo_symbol,
+        direction,
+        plan,
+    )
+
+    # ========================================================
+    # 10.4 ACCOUNT AND POSITION EVIDENCE
+    # ========================================================
+
+    account_verified = (
+        unit8.get("account_read_status") == "PASS"
+        and unit9.get("account_read_status") == "PASS"
+        and unit9.get(
+            "account_wide_positions_verified"
+        ) is True
+    )
+
+    evidence = u10_position_evidence(
+        unit8, unit9, demo_symbol
+    )
+
+    account_positions = unit9.get(
+        "account_wide_positions", []
+    )
+
+    observed_leverage = {
+        "LONG": [],
+        "SHORT": [],
+    }
+
+    if isinstance(account_positions, list):
+        for position in account_positions:
+            if not isinstance(position, dict):
+                continue
+
+            if position.get("symbol") not in (
+                symbol, demo_symbol
+            ):
+                continue
+
+            side = position.get("side")
+
+            if side not in observed_leverage:
+                continue
+
+            raw = position.get("leverage")
+
+            if raw not in (None, ""):
+                observed_leverage[side].append(
+                    u10_fmt(
+                        u10_dec(
+                            raw,
+                            "POSITION LEVERAGE",
+                            positive=True,
+                        )
+                    )
+                )
+
+    configured_leverage = {
+        "LONG": u10_fmt(
+            u10_dec(
+                config["leverage"]["long"],
+                "LONG LEVERAGE",
+                positive=True,
+            )
+        ),
+        "SHORT": u10_fmt(
+            u10_dec(
+                config["leverage"]["short"],
+                "SHORT LEVERAGE",
+                positive=True,
+            )
+        ),
+    }
+
+    leverage_status = {}
+
+    for side in ("LONG", "SHORT"):
+        seen = observed_leverage[side]
+
+        if not seen:
+            leverage_status[side] = (
+                "UNVERIFIED_NO_POSITION"
+            )
+        elif all(
+            u10_dec(x, "OBSERVED LEVERAGE")
+            == u10_dec(
+                configured_leverage[side],
+                "CONFIGURED LEVERAGE",
+            )
+            for x in seen
+        ):
+            leverage_status[side] = (
+                "OPEN_POSITION_MATCH"
+            )
+        else:
+            leverage_status[side] = (
+                "OPEN_POSITION_MISMATCH"
+            )
+
+    # Existing positions cannot prove the
+    # leverage setting for future flat entries.
+    future_entry_leverage_verified = False
+
+    # ========================================================
+    # 10.5 ENTRY BLOCKERS
+    # ========================================================
+
+    pending_orders_verified = u10_bool(
+        unit9.get("pending_orders_verified")
+    )
+
+    exposure_verified = u10_bool(
+        unit9.get("exposure_cap_verified")
+    )
+
+    quantity_encoding_verified = False
+    position_mode_verified = False
+
+    checks = {
+        "UNIT6_CONTINUITY": continuity,
+        "UNIT7_CANDIDATE": candidate_ready,
+        "ACCOUNT_RECONCILIATION": account_verified,
+        "PENDING_ORDERS": pending_orders_verified,
+        "EXPOSURE_CAP": exposure_verified,
+        "POSITION_MODE": position_mode_verified,
+        "DEMO_CONTRACT": demo_contract_verified,
+        "QUANTITY_ENCODING": quantity_encoding_verified,
+        "ACCOUNT_LEVERAGE":
+            future_entry_leverage_verified,
+    }
+
+    blockers = [
+        name
+        for name, passed in checks.items()
+        if not passed
+    ]
+
+    # Unit 10 is read-only, regardless of
+    # whether any individual checks pass.
+    authorized = False
+
+    # ========================================================
+    # 10.6 EXISTING POSITION MANAGEMENT HANDOVER
+    # ========================================================
+
+    management = {
+        "independent_of_unit6_signal": True,
+        "independent_of_unit7_sizing": True,
+        "independent_of_bot_mode": True,
+        "account_snapshot_verified": account_verified,
+        "positions": (
+            account_positions
+            if account_verified
+            else []
+        ),
+        "positions_usable_for_execution":
+            account_verified,
+        "tp_execution_authorized": False,
+        "hedge_execution_authorized": False,
+        "backup_execution_authorized": False,
+    }
+
+    result = {
+        "unit10_revision":
+            "DEMO_EXECUTION_READINESS_V1",
+        "symbol": symbol,
+        "demo_symbol_candidate": demo_symbol,
+        "demo_symbol_verified":
+            demo_contract_verified,
+        "entry_margin_usdt":
+            u10_fmt(entry_margin),
+        "configured_leverage":
+            configured_leverage,
+        "observed_position_leverage":
+            observed_leverage,
+        "leverage_status": leverage_status,
+        "account_read_verified":
+            account_verified,
+        "position_evidence": evidence,
+        "entry_direction": direction,
+        "entry_continuity_verified":
+            continuity,
+        "candidate_ready":
+            candidate_ready,
+        "order_preview": preview,
+        "readiness_checks": checks,
+        "blocking_reasons": blockers,
+        "pending_orders_verified":
+            pending_orders_verified,
+        "exposure_cap_verified":
+            exposure_verified,
+        "position_mode_verified":
+            position_mode_verified,
+        "demo_contract_eligibility_verified":
+            demo_contract_verified,
+        "quantity_encoding_verified":
+            quantity_encoding_verified,
+        "account_leverage_verified":
+            future_entry_leverage_verified,
+        "new_entry_order_authorized":
+            authorized,
+        "trade_authorized": False,
+        "position_management": management,
+        "position_management_independent": True,
+        "read_only": True,
+        "exchange_write": "NONE",
+    }
+
+    # ========================================================
+    # 10.7 RENDER LOGS
+    # ========================================================
+
+    print(
+        "UNIT 10 MARKET SYMBOL =",
+        symbol, flush=True,
+    )
+
+    print(
+        "UNIT 10 DEMO SYMBOL CANDIDATE =",
+        demo_symbol, flush=True,
+    )
+
+    print(
+        "UNIT 10 DEMO SYMBOL VERIFIED =",
+        demo_contract_verified, flush=True,
+    )
+
+    print(
+        "UNIT 10 ENTRY MARGIN USDT =",
+        u10_fmt(entry_margin), flush=True,
+    )
+
+    print(
+        "UNIT 10 ACCOUNT READ VERIFIED =",
+        account_verified, flush=True,
+    )
+
+    print(
+        "UNIT 10 POSITION EVIDENCE =",
+        evidence["status"], flush=True,
+    )
+
+    print(
+        "UNIT 10 LONG LEVERAGE STATUS =",
+        leverage_status["LONG"], flush=True,
+    )
+
+    print(
+        "UNIT 10 SHORT LEVERAGE STATUS =",
+        leverage_status["SHORT"], flush=True,
+    )
+
+    print(
+        "UNIT 10 ENTRY DIRECTION =",
+        direction, flush=True,
+    )
+
+    print(
+        "UNIT 10 ENTRY CONTINUITY =",
+        continuity, flush=True,
+    )
+
+    print(
+        "UNIT 10 CANDIDATE READY =",
+        candidate_ready, flush=True,
+    )
+
+    print(
+        "UNIT 10 ORDER PREVIEW =",
+        preview, flush=True,
+    )
+
+    print(
+        "UNIT 10 READINESS CHECKS =",
+        checks, flush=True,
+    )
+
+    print(
+        "UNIT 10 BLOCKING REASONS =",
+        blockers, flush=True,
+    )
+
+    print(
+        "UNIT 10 EXISTING POSITION MANAGEMENT "
+        "INDEPENDENT = True",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 NEW ENTRY AUTHORIZED = False",
+        flush=True,
+    )
+
+    print(
+        "UNIT 10 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 10 RESULT = PASS",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# 10.8 SINGLE EXECUTION / UNIT 11 HANDOVER
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT10_RESULT = (
+    fresh_reconstruction_unit_10()
+)
+
+# ============================================================
+# END COMPLETE UNIT 10 V1
+# ============================================================
