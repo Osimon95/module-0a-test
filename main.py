@@ -466,6 +466,16 @@ contract_precision_verified = False
     # A user-entered symbol is not exchange verification.
     # Unit 12 must require an independent contract check.
 
+
+    # ========================================================
+    # UNIVERSAL DEMO SYMBOL — ORIGINAL BTC CONVENTION
+    # ========================================================
+
+    demo_order_symbol = base_coin + "SUSDT"
+
+    # Derived symbol is a candidate until WEEX verifies it.
+    demo_symbol_candidate = demo_order_symbol
+
 exchange = {
         "name": "WEEX",
         "api_version": "V3",
