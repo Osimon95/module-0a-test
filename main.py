@@ -4448,10 +4448,16 @@ def fresh_reconstruction_unit_5(
     # UNIT 5 V3 — FEE POLICY COMPATIBILITY CORRECTION
     # ============================================================
 
+    
+    # ========================================================
+    # 5.4 FEE POLICY AND SCORING INITIALIZATION
+    # CORRECTED INDENTATION
+    # ========================================================
+
     fee_policy = config.get("fee_policy")
 
     if fee_policy is None:
-    fee_policy = {}
+        fee_policy = {}
 
     if not isinstance(fee_policy, dict):
         raise RuntimeError(
@@ -4474,13 +4480,26 @@ def fresh_reconstruction_unit_5(
         flush=True,
     )
 
-    
     slippage = unit_5_v2_env(
         "UNIT5_EXPECTED_SLIPPAGE_PERCENT",
-        0.05
+        0.05,
+        0,
+        100,
     )
+
     estimated_cost_pct = (
         2 * taker_fee + slippage
+    )
+
+    if estimated_cost_pct <= 0:
+        raise RuntimeError(
+            "UNIT 5 INVALID ESTIMATED COST"
+        )
+
+    print(
+        "UNIT 5 ESTIMATED ROUND TRIP COST % =",
+        estimated_cost_pct,
+        flush=True,
     )
 
     # ========================================================
