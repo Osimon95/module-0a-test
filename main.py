@@ -6241,3 +6241,1239 @@ def unit_7_v12_hedge_policy(config):
 # DO NOT DEPLOY UNTIL PART 2 IS ADDED
 # ============================================================
 
+
+# ============================================================
+# START UNIT 7 V12 - PART 2 OF 2
+# B1-B5 HYBRID BACKUP ENGINE
+# UNIT 6 -> UNIT 7 -> UNIT 8-15
+# ZERO INDENTATION
+# ============================================================
+
+import copy
+import time
+
+
+# ============================================================
+# 7.8 AVAILABLE FUNDS / EXPOSURE CHECK
+# ============================================================
+
+def unit_7_v12_exposure(
+    trading_balance_usdt,
+    available_balance_usdt,
+    existing_margin_usdt,
+    pending_margin_usdt,
+    proposed_margin_usdt,
+    exposure_cap_percent
+):
+
+    trading = unit_7_v12_decimal(
+        trading_balance_usdt,
+        "TRADING BALANCE",
+        True
+    )
+
+    available = unit_7_v12_decimal(
+        available_balance_usdt,
+        "AVAILABLE BALANCE",
+        True
+    )
+
+    existing = unit_7_v12_decimal(
+        existing_margin_usdt,
+        "EXISTING MARGIN",
+        True
+    )
+
+    pending = unit_7_v12_decimal(
+        pending_margin_usdt,
+        "PENDING MARGIN",
+        True
+    )
+
+    proposed = unit_7_v12_decimal(
+        proposed_margin_usdt,
+        "PROPOSED MARGIN",
+        True
+    )
+
+    cap = unit_7_v12_decimal(
+        exposure_cap_percent,
+        "EXPOSURE CAP",
+        True
+    )
+
+    if cap > 100:
+        raise RuntimeError(
+            "UNIT 7 EXPOSURE CAP INVALID"
+        )
+
+    maximum = trading * cap / Decimal("100")
+
+    used = existing + pending
+    projected = used + proposed
+
+    remaining = max(
+        Decimal("0"),
+        maximum - used
+    )
+
+    funds_pass = proposed <= available
+
+    cap_pass = projected <= maximum
+
+    return {
+        "valid": (
+            funds_pass
+            and cap_pass
+            and trading > 0
+        ),
+        "trading_balance_usdt":
+            unit_7_v12_text(trading),
+        "available_balance_usdt":
+            unit_7_v12_text(available),
+        "existing_margin_usdt":
+            unit_7_v12_text(existing),
+        "pending_margin_usdt":
+            unit_7_v12_text(pending),
+        "proposed_margin_usdt":
+            unit_7_v12_text(proposed),
+        "maximum_exposure_usdt":
+            unit_7_v12_text(maximum),
+        "projected_exposure_usdt":
+            unit_7_v12_text(projected),
+        "remaining_capacity_usdt":
+            unit_7_v12_text(remaining),
+        "funds_pass": funds_pass,
+        "exposure_cap_pass": cap_pass
+    }
+
+
+# ============================================================
+# 7.9 B1-B5 ACTIVATION POLICY
+# ============================================================
+
+def unit_7_v12_backup_policy(config):
+
+    strategy = config.get("strategy", {})
+    backup = strategy.get("backup_recovery", {})
+
+    if not isinstance(backup, dict):
+        raise RuntimeError(
+            "UNIT 7 BACKUP CONFIG INVALID"
+        )
+
+    if backup.get("enabled") is not True:
+        raise RuntimeError(
+            "UNIT 7 BACKUP DISABLED"
+        )
+
+    if backup.get("activation") != (
+        "AFTER_FAILED_FIRST_HEDGE_RECOVERY"
+    ):
+        raise RuntimeError(
+            "UNIT 7 BACKUP ACTIVATION MISMATCH"
+        )
+
+    count = int(
+        unit_7_v12_decimal(
+            backup.get("backup_count"),
+            "BACKUP COUNT"
+        )
+    )
+
+    if count != 5:
+        raise RuntimeError(
+            "UNIT 7 BACKUP COUNT MUST BE FIVE"
+        )
+
+    margin_pct = unit_7_v12_decimal(
+        backup.get("margin_percent"),
+        "BACKUP MARGIN PERCENT",
+        True
+    )
+
+    buffer_pct = unit_7_v12_decimal(
+        backup.get("liquidation_buffer_percent"),
+        "BACKUP BUFFER PERCENT",
+        True
+    )
+
+    if margin_pct > 100:
+        raise RuntimeError(
+            "UNIT 7 BACKUP MARGIN PERCENT INVALID"
+        )
+
+    if buffer_pct >= 100:
+        raise RuntimeError(
+            "UNIT 7 BACKUP BUFFER INVALID"
+        )
+
+    return {
+        "enabled": True,
+        "count": 5,
+        "margin_percent": margin_pct,
+        "buffer_percent": buffer_pct,
+        "activation":
+            "AFTER_FAILED_FIRST_HEDGE_RECOVERY",
+        "require_available_funds": True,
+        "require_exposure_cap": True,
+        "require_verified_liquidation_price": True
+    }
+
+
+# ============================================================
+# 7.10 B1-B5 LIQUIDATION BUFFER TRIGGER
+# ============================================================
+
+def unit_7_v12_backup_trigger(
+    direction,
+    liquidation_price,
+    buffer_percent
+):
+
+    liquidation = unit_7_v12_decimal(
+        liquidation_price,
+        "VERIFIED LIQUIDATION PRICE"
+    )
+
+    buffer = unit_7_v12_decimal(
+        buffer_percent,
+        "LIQUIDATION BUFFER",
+        True
+    )
+
+    if buffer >= 100:
+        raise RuntimeError(
+            "UNIT 7 INVALID LIQUIDATION BUFFER"
+        )
+
+    fraction = buffer / Decimal("100")
+
+    if direction == "LONG":
+
+        trigger = liquidation * (
+            Decimal("1") - fraction
+        )
+
+    elif direction == "SHORT":
+
+        trigger = liquidation * (
+            Decimal("1") + fraction
+        )
+
+    else:
+
+        raise RuntimeError(
+            "UNIT 7 INVALID BACKUP DIRECTION"
+        )
+
+    if trigger <= 0:
+        raise RuntimeError(
+            "UNIT 7 INVALID BACKUP TRIGGER"
+        )
+
+    return {
+        "direction": direction,
+        "liquidation_price":
+            unit_7_v12_text(liquidation),
+        "buffer_percent":
+            unit_7_v12_text(buffer),
+        "trigger_price":
+            unit_7_v12_text(trigger),
+        "reference":
+            "LATEST_VERIFIED_LIQUIDATION_PRICE"
+    }
+
+
+# ============================================================
+# 7.11 BACKUP TRIGGER GEOMETRY CHECK
+# ============================================================
+# Important:
+# LONG liquidation is below the market.
+# SHORT liquidation is above the market.
+#
+# The configured 0.3% factors place the trigger
+# beyond liquidation in the adverse direction.
+#
+# That is not a protective pre-liquidation entry.
+# Reject unsafe trigger geometry rather than
+# silently changing the user's configured formula.
+# ============================================================
+
+def unit_7_v12_trigger_geometry(
+    direction,
+    market_price,
+    liquidation_price,
+    trigger_price
+):
+
+    market = unit_7_v12_decimal(
+        market_price,
+        "BACKUP MARKET PRICE"
+    )
+
+    liquidation = unit_7_v12_decimal(
+        liquidation_price,
+        "BACKUP LIQUIDATION PRICE"
+    )
+
+    trigger = unit_7_v12_decimal(
+        trigger_price,
+        "BACKUP TRIGGER PRICE"
+    )
+
+    if direction == "LONG":
+
+        liquidation_side_valid = (
+            liquidation < market
+        )
+
+        pre_liquidation = (
+            liquidation < trigger < market
+        )
+
+    elif direction == "SHORT":
+
+        liquidation_side_valid = (
+            liquidation > market
+        )
+
+        pre_liquidation = (
+            market < trigger < liquidation
+        )
+
+    else:
+
+        raise RuntimeError(
+            "UNIT 7 INVALID DIRECTION"
+        )
+
+    return {
+        "valid": (
+            liquidation_side_valid
+            and pre_liquidation
+        ),
+        "liquidation_side_valid":
+            liquidation_side_valid,
+        "pre_liquidation_trigger":
+            pre_liquidation,
+        "reason": (
+            "PRE_LIQUIDATION_TRIGGER_VALID"
+            if liquidation_side_valid and pre_liquidation
+            else "UNSAFE_LIQUIDATION_TRIGGER_GEOMETRY"
+        )
+    }
+
+
+# ============================================================
+# 7.12 ONE BACKUP QUANTITY CALCULATION
+# ============================================================
+
+def unit_7_v12_backup_quantity(
+    config,
+    direction,
+    market_price,
+    trading_balance_usdt,
+    available_balance_usdt,
+    existing_margin_usdt,
+    pending_margin_usdt,
+    contract
+):
+
+    policy = unit_7_v12_backup_policy(config)
+
+    strategy = config["strategy"]
+
+    margin_pct = policy["margin_percent"]
+
+    available = unit_7_v12_decimal(
+        available_balance_usdt,
+        "BACKUP AVAILABLE BALANCE",
+        True
+    )
+
+    proposed_margin = (
+        available * margin_pct / Decimal("100")
+    )
+
+    exposure = unit_7_v12_exposure(
+        trading_balance_usdt,
+        available_balance_usdt,
+        existing_margin_usdt,
+        pending_margin_usdt,
+        proposed_margin,
+        strategy["exposure_cap_percent"]
+    )
+
+    if not exposure["valid"]:
+
+        return {
+            "valid": False,
+            "reason":
+                "BACKUP_FUNDS_OR_EXPOSURE_BLOCKED",
+            "exposure": exposure
+        }
+
+    if proposed_margin <= 0:
+
+        return {
+            "valid": False,
+            "reason": "BACKUP_MARGIN_ZERO",
+            "exposure": exposure
+        }
+
+    if not contract.get("verified"):
+
+        return {
+            "valid": False,
+            "reason":
+                "BACKUP_CONTRACT_UNVERIFIED",
+            "exposure": exposure
+        }
+
+    leverage = (
+        strategy["long_leverage"]
+        if direction == "LONG"
+        else strategy["short_leverage"]
+    )
+
+    sizing = unit_7_v12_quantity(
+        proposed_margin,
+        leverage,
+        market_price,
+        contract["contract_multiplier"],
+        contract["quantity_step"],
+        contract["minimum_quantity"]
+    )
+
+    if not sizing["valid"]:
+
+        return {
+            "valid": False,
+            "reason": sizing["reason"],
+            "sizing": sizing,
+            "exposure": exposure
+        }
+
+    # Recheck exposure using the rounded,
+    # actual required contract margin.
+
+    actual_exposure = unit_7_v12_exposure(
+        trading_balance_usdt,
+        available_balance_usdt,
+        existing_margin_usdt,
+        pending_margin_usdt,
+        sizing["actual_margin_usdt"],
+        strategy["exposure_cap_percent"]
+    )
+
+    return {
+        "valid": actual_exposure["valid"],
+        "reason": (
+            "BACKUP_QUANTITY_COMPLIANT"
+            if actual_exposure["valid"]
+            else "BACKUP_EXPOSURE_BLOCKED"
+        ),
+        "direction": direction,
+        "quantity": sizing["quantity"],
+        "margin_usdt":
+            sizing["actual_margin_usdt"],
+        "notional_usdt":
+            sizing["actual_notional_usdt"],
+        "leverage":
+            unit_7_v12_text(leverage),
+        "sizing": sizing,
+        "exposure": actual_exposure
+    }
+
+
+# ============================================================
+# 7.13 STATE-VERIFIED B1-B5 PLAN
+# ============================================================
+# This function is callable by downstream units.
+# It NEVER places an exchange order.
+#
+# Required fresh state:
+# - Verified demo account balance
+# - Verified open position
+# - One hedge recovery cycle completed and failed
+# - Latest liquidation price from WEEX
+# - Previous backup fill confirmed
+# - No duplicate or pending backup
+# ============================================================
+
+def unit_7_v12_next_backup(
+    config,
+    position_state,
+    account_state,
+    contract
+):
+
+    blocked = {
+        "valid": False,
+        "execution_authorized": False,
+        "exchange_write": False
+    }
+
+    if not isinstance(position_state, dict):
+        return {
+            **blocked,
+            "reason": "POSITION_STATE_MISSING"
+        }
+
+    if not isinstance(account_state, dict):
+        return {
+            **blocked,
+            "reason": "ACCOUNT_STATE_MISSING"
+        }
+
+    if not contract.get("verified"):
+        return {
+            **blocked,
+            "reason": "CONTRACT_UNVERIFIED"
+        }
+
+    symbol = config["exchange"]["market_symbol"]
+
+    if (
+        position_state.get("symbol") != symbol
+        or account_state.get("symbol") != symbol
+    ):
+        return {
+            **blocked,
+            "reason": "BACKUP_SYMBOL_MISMATCH"
+        }
+
+    if (
+        position_state.get("verified") is not True
+        or account_state.get("verified") is not True
+    ):
+        return {
+            **blocked,
+            "reason": "ACCOUNT_OR_POSITION_UNVERIFIED"
+        }
+
+    if (
+        position_state.get(
+            "first_hedge_cycle_completed"
+        ) is not True
+        or position_state.get(
+            "first_hedge_recovery_failed"
+        ) is not True
+    ):
+        return {
+            **blocked,
+            "reason": "HEDGE_RECOVERY_NOT_FAILED"
+        }
+
+    if position_state.get(
+        "hedge_recovery_cycles"
+    ) != 1:
+        return {
+            **blocked,
+            "reason": "HEDGE_CYCLE_STATE_INVALID"
+        }
+
+    if position_state.get(
+        "position_mode_verified"
+    ) is not True:
+        return {
+            **blocked,
+            "reason": "POSITION_MODE_UNVERIFIED"
+        }
+
+    if position_state.get(
+        "pending_backup_order"
+    ) is True:
+        return {
+            **blocked,
+            "reason": "BACKUP_ALREADY_PENDING"
+        }
+
+    if position_state.get(
+        "unreconciled_orders"
+    ) is True:
+        return {
+            **blocked,
+            "reason": "BACKUP_ORDER_RECONCILIATION_PENDING"
+        }
+
+    filled = position_state.get(
+        "filled_backups"
+    )
+
+    if (
+        not isinstance(filled, int)
+        or isinstance(filled, bool)
+        or not 0 <= filled <= 5
+    ):
+        return {
+            **blocked,
+            "reason": "BACKUP_SEQUENCE_INVALID"
+        }
+
+    if filled == 5:
+        return {
+            **blocked,
+            "reason": "B1_B5_ALREADY_COMPLETED"
+        }
+
+    if (
+        filled > 0
+        and position_state.get(
+            "previous_backup_fill_verified"
+        ) is not True
+    ):
+        return {
+            **blocked,
+            "reason": "PREVIOUS_BACKUP_FILL_UNVERIFIED"
+        }
+
+    direction = position_state.get("direction")
+
+    if direction not in ("LONG", "SHORT"):
+        return {
+            **blocked,
+            "reason": "BACKUP_DIRECTION_INVALID"
+        }
+
+    if position_state.get(
+        "liquidation_price_verified"
+    ) is not True:
+        return {
+            **blocked,
+            "reason": "LIQUIDATION_PRICE_UNVERIFIED"
+        }
+
+    # Require a fresh, reconciled state snapshot.
+    # The downstream adapter must obtain this
+    # from the authenticated WEEX demo account.
+
+    timestamp = position_state.get(
+        "exchange_time_ms"
+    )
+
+    if (
+        not isinstance(timestamp, int)
+        or isinstance(timestamp, bool)
+        or timestamp <= 0
+        or abs(int(time.time() * 1000) - timestamp)
+        > 30000
+    ):
+        return {
+            **blocked,
+            "reason": "BACKUP_POSITION_STATE_STALE"
+        }
+
+    try:
+
+        policy = unit_7_v12_backup_policy(
+            config
+        )
+
+        liquidation = unit_7_v12_backup_trigger(
+            direction,
+            position_state["liquidation_price"],
+            policy["buffer_percent"]
+        )
+
+        market_price = unit_7_v12_decimal(
+            position_state["market_price"],
+            "BACKUP MARKET PRICE"
+        )
+
+        geometry = unit_7_v12_trigger_geometry(
+            direction,
+            market_price,
+            liquidation["liquidation_price"],
+            liquidation["trigger_price"]
+        )
+
+        if not geometry["valid"]:
+            return {
+                **blocked,
+                "reason": geometry["reason"],
+                "backup_number": filled + 1,
+                "trigger": liquidation,
+                "geometry": geometry
+            }
+
+        sizing = unit_7_v12_backup_quantity(
+            config=config,
+            direction=direction,
+            market_price=market_price,
+            trading_balance_usdt=account_state[
+                "trading_balance_usdt"
+            ],
+            available_balance_usdt=account_state[
+                "available_balance_usdt"
+            ],
+            existing_margin_usdt=account_state[
+                "existing_margin_usdt"
+            ],
+            pending_margin_usdt=account_state[
+                "pending_margin_usdt"
+            ],
+            contract=contract
+        )
+
+    except (
+        RuntimeError,
+        KeyError,
+        TypeError,
+        ValueError
+    ) as exc:
+
+        return {
+            **blocked,
+            "reason": "BACKUP_INPUT_INVALID",
+            "detail": str(exc)
+        }
+
+    if not sizing["valid"]:
+        return {
+            **blocked,
+            "reason": sizing["reason"],
+            "sizing": sizing
+        }
+
+    backup_number = filled + 1
+
+    return {
+        "valid": True,
+        "execution_authorized": False,
+        "exchange_write": False,
+        "reason": "BACKUP_PLAN_READY_FOR_REVALIDATION",
+        "backup_number": backup_number,
+        "backup_id": "B" + str(backup_number),
+        "symbol": symbol,
+        "direction": direction,
+        "quantity": sizing["quantity"],
+        "margin_usdt": sizing["margin_usdt"],
+        "trigger": liquidation,
+        "geometry": geometry,
+        "sizing": sizing,
+        "requires_fresh_state_at_submission": True,
+        "requires_price_step_rounding": True,
+        "requires_exchange_order_confirmation": True,
+        "requires_post_fill_liquidation_refresh": True
+    }
+
+
+# ============================================================
+# 7.14 B1-B5 LADDER POLICY HANDOVER
+# ============================================================
+
+def unit_7_v12_backup_ladder(config):
+
+    policy = unit_7_v12_backup_policy(
+        config
+    )
+
+    ladder = []
+
+    for number in range(1, 6):
+
+        ladder.append({
+            "id": "B" + str(number),
+            "sequence": number,
+            "status": "WAITING",
+            "activation":
+                "AFTER_FAILED_FIRST_HEDGE_RECOVERY",
+            "margin_percent_of_available":
+                unit_7_v12_text(
+                    policy["margin_percent"]
+                ),
+            "liquidation_buffer_percent":
+                unit_7_v12_text(
+                    policy["buffer_percent"]
+                ),
+            "recalculate_after_previous_fill":
+                True,
+            "quantity": None,
+            "trigger_price": None,
+            "exchange_write": False,
+            "execution_authorized": False
+        })
+
+    return ladder
+
+
+# ============================================================
+# 7.15 UNIT 6 -> UNIT 7 EXECUTION HANDOVER
+# ============================================================
+
+def fresh_reconstruction_unit_7():
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 7 V12 UNIVERSAL USDT START",
+        flush=True
+    )
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
+    )
+
+    market = globals().get(
+        "FRESH_RECONSTRUCTION_MARKET_SNAPSHOT"
+    )
+
+    analysis = globals().get(
+        "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT"
+    )
+
+    candidate = globals().get(
+        "FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE"
+    )
+
+    if not all(
+        isinstance(item, dict)
+        for item in (
+            config,
+            market,
+            analysis,
+            candidate
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 7 UPSTREAM HANDOVER MISSING"
+        )
+
+    symbol = config["exchange"]["market_symbol"]
+
+    if not all((
+        market.get("symbol") == symbol,
+        analysis.get("symbol") == symbol,
+        candidate.get("symbol") == symbol,
+        config.get("capital_currency") == "USDT",
+        config.get("real_cash_execution_enabled")
+        is False
+    )):
+        raise RuntimeError(
+            "UNIT 7 UNIVERSAL HANDOVER INVALID"
+        )
+
+    contract = unit_7_v12_contract(
+        config
+    )
+
+    hedge_policy = unit_7_v12_hedge_policy(
+        config
+    )
+
+    ladder = unit_7_v12_backup_ladder(
+        config
+    )
+
+    mode = candidate.get(
+        "active_mode", "NONE"
+    )
+
+    direction = candidate.get(
+        "direction", "NONE"
+    )
+
+    intent = (
+        candidate.get("execution_intent") is True
+        and candidate.get("signal_qualified") is True
+        and mode in (
+            "BREAKOUT",
+            "STRUCTURE",
+            "SCALP"
+        )
+        and direction in ("LONG", "SHORT")
+    )
+
+    result = {
+        "unit": 7,
+        "version": "V12_UNIVERSAL_USDT",
+        "symbol": symbol,
+        "base_coin": symbol[:-4],
+        "quote_coin": "USDT",
+        "capital_currency": "USDT",
+        "active_mode": mode,
+        "direction": direction,
+        "signal_qualified":
+            candidate.get("signal_qualified") is True,
+        "execution_intent": intent,
+        "unit_6_candidate": copy.deepcopy(candidate),
+        "contract": contract,
+        "contract_verified": contract["verified"],
+        "hedge_policy": hedge_policy,
+        "backup_ladder": ladder,
+        "backup_count": 5,
+        "backup_activation":
+            "AFTER_FAILED_FIRST_HEDGE_RECOVERY",
+        "backup_calculator":
+            "unit_7_v12_next_backup",
+        "entry_sizing": None,
+        "hedge_quantity_plan": None,
+        "atr_hedge_levels": None,
+        "account_state_verified": False,
+        "position_mode_verified": False,
+        "quantity_valid": False,
+        "execution_authorized": False,
+        "trade_authorized": False,
+        "order_payload_created": False,
+        "exchange_write": False,
+        "read_only": True,
+        "real_cash_execution_enabled": False,
+        "reason": "NO_QUALIFIED_ENTRY"
+    }
+
+    if intent:
+
+        capital = unit_7_v12_capital(
+            config,
+            direction
+        )
+
+        result["capital"] = {
+            key: (
+                unit_7_v12_text(value)
+                if isinstance(value, Decimal)
+                else value
+            )
+            for key, value in capital.items()
+        }
+
+        result["entry_margin_usdt"] = (
+            unit_7_v12_text(
+                capital["margin_usdt"]
+            )
+        )
+
+        result["leverage"] = (
+            unit_7_v12_text(
+                capital["leverage"]
+            )
+        )
+
+        result["exposure_cap_percent"] = (
+            unit_7_v12_text(
+                capital["exposure_cap_percent"]
+            )
+        )
+
+        price = unit_7_v12_decimal(
+            market["price"],
+            "ENTRY MARKET PRICE"
+        )
+
+        atr = unit_7_v12_decimal(
+            analysis["atr14"],
+            "UNIT 4 ATR14"
+        )
+
+        result["atr_hedge_levels"] = (
+            unit_7_v12_atr_levels(
+                price,
+                atr,
+                direction,
+                hedge_policy["stage1_atr"],
+                hedge_policy["stage2_atr"]
+            )
+        )
+
+        if not contract["verified"]:
+
+            result["reason"] = (
+                "CONTRACT_PRECISION_UNVERIFIED"
+            )
+
+        else:
+
+            sizing = unit_7_v12_quantity(
+                capital["margin_usdt"],
+                capital["leverage"],
+                price,
+                contract["contract_multiplier"],
+                contract["quantity_step"],
+                contract["minimum_quantity"]
+            )
+
+            result["entry_sizing"] = sizing
+
+            if not sizing["valid"]:
+
+                result["reason"] = sizing["reason"]
+
+            else:
+
+                hedge_quantity = (
+                    unit_7_v12_hedge_quantity(
+                        sizing["quantity"],
+                        contract["quantity_step"],
+                        contract["minimum_quantity"]
+                    )
+                )
+
+                result["hedge_quantity_plan"] = (
+                    hedge_quantity
+                )
+
+                result["quantity_valid"] = (
+                    hedge_quantity["valid"]
+                )
+
+                if not hedge_quantity["valid"]:
+
+                    result["reason"] = (
+                        hedge_quantity["reason"]
+                    )
+
+                else:
+
+                    result["reason"] = (
+                        "SIZING_PLAN_READY_"
+                        "ACCOUNT_VERIFICATION_PENDING"
+                    )
+
+    print(
+        "UNIT 7 SYMBOL =", symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 MODE =", mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 DIRECTION =", direction,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXECUTION INTENT =", intent,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 CONTRACT VERIFIED =",
+        contract["verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 QUANTITY VALID =",
+        result["quantity_valid"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 HEDGE MODE =",
+        hedge_policy["mode"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 BACKUP COUNT =",
+        len(ladder),
+        flush=True
+    )
+
+    print(
+        "UNIT 7 BACKUP ACTIVATION =",
+        result["backup_activation"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 REASON =",
+        result["reason"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXECUTION AUTHORIZED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 7 RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# 7.16 VALIDATION
+# ============================================================
+
+def unit_7_v12_validation():
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 7 VALIDATION CONFIG MISSING"
+        )
+
+    symbol = config["exchange"]["market_symbol"]
+
+    tests = {}
+
+    tests["UNIVERSAL USDT SYMBOL"] = (
+        symbol.endswith("USDT")
+    )
+
+    tests["BACKUP COUNT FIVE"] = (
+        len(unit_7_v12_backup_ladder(config)) == 5
+    )
+
+    tests["HEDGE POLICY"] = (
+        unit_7_v12_hedge_policy(config)[
+            "maximum_recovery_cycles"
+        ] == 1
+    )
+
+    tests["STEP FLOOR"] = (
+        unit_7_v12_floor(
+            "1.27", "0.1"
+        ) == Decimal("1.2")
+    )
+
+    tests["STEP CEILING"] = (
+        unit_7_v12_ceil(
+            "1.21", "0.1"
+        ) == Decimal("1.3")
+    )
+
+    tests["VALID HALF QUANTITY"] = (
+        unit_7_v12_hedge_quantity(
+            "0.4", "0.1", "0.1"
+        )["valid"] is True
+    )
+
+    tests["REJECT INVALID HALF"] = (
+        unit_7_v12_hedge_quantity(
+            "0.3", "0.1", "0.1"
+        )["valid"] is False
+    )
+
+    tests["LONG TRIGGER FORMULA"] = (
+        unit_7_v12_backup_trigger(
+            "LONG", "100", "0.3"
+        )["trigger_price"] == "99.7"
+    )
+
+    tests["SHORT TRIGGER FORMULA"] = (
+        unit_7_v12_backup_trigger(
+            "SHORT", "100", "0.3"
+        )["trigger_price"] == "100.3"
+    )
+
+    tests["REJECT UNSAFE LONG GEOMETRY"] = (
+        unit_7_v12_trigger_geometry(
+            "LONG", "110", "100", "99.7"
+        )["valid"] is False
+    )
+
+    tests["REJECT UNSAFE SHORT GEOMETRY"] = (
+        unit_7_v12_trigger_geometry(
+            "SHORT", "90", "100", "100.3"
+        )["valid"] is False
+    )
+
+    tests["EXPOSURE CAP"] = (
+        unit_7_v12_exposure(
+            "100",
+            "80",
+            "30",
+            "10",
+            "20",
+            "50"
+        )["valid"] is False
+    )
+
+    passed = 0
+    failed = 0
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 7 V12 VALIDATION START",
+        flush=True
+    )
+
+    for name, condition in tests.items():
+
+        if condition:
+            passed += 1
+        else:
+            failed += 1
+
+        print(
+            "UNIT 7 TEST:",
+            name,
+            "=",
+            "PASS" if condition else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 7 TESTS PASSED =", passed,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 TESTS FAILED =", failed,
+        flush=True
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT 7 VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 7 VALIDATION RESULT = PASS",
+        flush=True
+    )
+
+    return True
+
+
+# ============================================================
+# 7.17 FINAL EXECUTION AND GLOBAL HANDOVER
+# ============================================================
+
+FRESH_UNIT_7_VALIDATION_READY = (
+    unit_7_v12_validation()
+)
+
+FRESH_RECONSTRUCTION_SIZING_PLAN = (
+    fresh_reconstruction_unit_7()
+)
+
+FRESH_RECONSTRUCTION_UNIT_7_RESULT = (
+    FRESH_RECONSTRUCTION_SIZING_PLAN
+)
+
+FRESH_UNIT_7_OPTIMIZATION_READY = (
+    FRESH_UNIT_7_VALIDATION_READY
+)
+
+print(
+    "UNIT 7 UNIVERSAL OPTIMIZATION READY =",
+    FRESH_UNIT_7_OPTIMIZATION_READY,
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 7 V12
+# PART 1 + PART 2
+# UNIT 8 FOLLOWS
+# ZERO INDENTATION
+# ============================================================
