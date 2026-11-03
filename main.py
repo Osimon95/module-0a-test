@@ -7482,6 +7482,311 @@ print(
 
 
 # ============================================================
+# START UNIT 8 V10 PART 1 — ZERO INDENTATION
+# UNIVERSAL DEMO CONTRACT CONFIGURATION
+# ADAPTED FROM WORKING UNIT 8 V9
+# ============================================================
+
+import os
+import re
+from decimal import Decimal, InvalidOperation
+
+
+# ============================================================
+# 8.1 DECIMAL VALIDATION
+# ============================================================
+
+def unit_8_v10_decimal(value, label, allow_zero=False):
+
+    if isinstance(value, bool):
+        raise ValueError(
+            "UNIT 8 INVALID BOOLEAN: " + label
+        )
+
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(
+            "UNIT 8 INVALID NUMBER: " + label
+        ) from exc
+
+    if not number.is_finite():
+        raise ValueError(
+            "UNIT 8 NONFINITE NUMBER: " + label
+        )
+
+    if number < 0 or (number == 0 and not allow_zero):
+        raise ValueError(
+            "UNIT 8 INVALID RANGE: " + label
+        )
+
+    return number
+
+
+def unit_8_v10_format(value):
+
+    return format(
+        Decimal(str(value)).normalize(),
+        "f"
+    )
+
+
+# ============================================================
+# 8.2 UNIVERSAL SYMBOL HANDOVER
+# ============================================================
+
+def unit_8_v10_selected_symbol(config):
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 8 CONFIGURATION MISSING"
+        )
+
+    exchange = config.get("exchange", {})
+
+    market_symbol = exchange.get("market_symbol")
+
+    if not isinstance(market_symbol, str):
+        raise RuntimeError(
+            "UNIT 8 MARKET SYMBOL MISSING"
+        )
+
+    market_symbol = market_symbol.strip().upper()
+
+    if not re.fullmatch(
+        r"[A-Z0-9]{2,20}USDT",
+        market_symbol
+    ):
+        raise RuntimeError(
+            "UNIT 8 INVALID MARKET SYMBOL"
+        )
+
+    base_coin = market_symbol[:-4]
+
+    demo_candidate = base_coin + "SUSDT"
+
+    configured_demo = exchange.get(
+        "demo_order_symbol"
+    )
+
+    if configured_demo != demo_candidate:
+        raise RuntimeError(
+            "UNIT 8 DEMO SYMBOL HANDOVER MISMATCH"
+        )
+
+    return {
+        "market_symbol": market_symbol,
+        "base_coin": base_coin,
+        "quote_coin": "USDT",
+        "demo_symbol_candidate": demo_candidate,
+        "demo_symbol_verified": False,
+    }
+
+
+# ============================================================
+# 8.3 CONTRACT PRECISION VALIDATOR
+# ============================================================
+
+def unit_8_v10_validate_precision(specification):
+
+    if not isinstance(specification, dict):
+        raise ValueError(
+            "UNIT 8 CONTRACT SPECIFICATION MISSING"
+        )
+
+    minimum_quantity = unit_8_v10_decimal(
+        specification.get("minimum_quantity"),
+        "MINIMUM QUANTITY"
+    )
+
+    quantity_step = unit_8_v10_decimal(
+        specification.get("quantity_step"),
+        "QUANTITY STEP"
+    )
+
+    price_step = unit_8_v10_decimal(
+        specification.get("price_step"),
+        "PRICE STEP"
+    )
+
+    contract_multiplier = unit_8_v10_decimal(
+        specification.get("contract_multiplier"),
+        "CONTRACT MULTIPLIER"
+    )
+
+    return {
+        "minimum_quantity":
+            unit_8_v10_format(minimum_quantity),
+
+        "quantity_step":
+            unit_8_v10_format(quantity_step),
+
+        "price_step":
+            unit_8_v10_format(price_step),
+
+        "contract_multiplier":
+            unit_8_v10_format(contract_multiplier),
+
+        "precision_valid": True,
+    }
+
+
+# ============================================================
+# 8.4 STEP-AWARE QUANTITY VALIDATION
+# ============================================================
+
+def unit_8_v10_quantity_valid(
+    quantity,
+    minimum_quantity,
+    quantity_step
+):
+
+    quantity = unit_8_v10_decimal(
+        quantity,
+        "ORDER QUANTITY"
+    )
+
+    minimum_quantity = unit_8_v10_decimal(
+        minimum_quantity,
+        "MINIMUM QUANTITY"
+    )
+
+    quantity_step = unit_8_v10_decimal(
+        quantity_step,
+        "QUANTITY STEP"
+    )
+
+    if quantity < minimum_quantity:
+        return False
+
+    return (
+        quantity % quantity_step
+    ) == 0
+
+
+# ============================================================
+# 8.5 HEDGE HALF-QUANTITY FEASIBILITY
+# ============================================================
+
+def unit_8_v10_hedge_halves_valid(
+    quantity,
+    minimum_quantity,
+    quantity_step
+):
+
+    quantity = unit_8_v10_decimal(
+        quantity,
+        "INITIAL QUANTITY"
+    )
+
+    half = quantity / Decimal("2")
+
+    return (
+        unit_8_v10_quantity_valid(
+            half,
+            minimum_quantity,
+            quantity_step
+        )
+        and
+        unit_8_v10_quantity_valid(
+            quantity - half,
+            minimum_quantity,
+            quantity_step
+        )
+    )
+
+
+# ============================================================
+# 8.6 CONTRACT ACTIVATION GATE
+# ============================================================
+
+def unit_8_v10_contract_gate(
+    symbol_verified,
+    precision_verified,
+    multiplier_verified,
+    quantity_valid,
+    hedge_halves_valid
+):
+
+    return all((
+        symbol_verified is True,
+        precision_verified is True,
+        multiplier_verified is True,
+        quantity_valid is True,
+        hedge_halves_valid is True,
+    ))
+
+
+# ============================================================
+# 8.7 OFFLINE HELPER VALIDATION
+# ============================================================
+
+def unit_8_v10_part1_tests():
+
+    test_config = {
+        "exchange": {
+            "market_symbol": "NEARUSDT",
+            "demo_order_symbol": "NEARSUSDT",
+        }
+    }
+
+    selected = unit_8_v10_selected_symbol(
+        test_config
+    )
+
+    assert (
+        selected["demo_symbol_candidate"]
+        == "NEARSUSDT"
+    )
+
+    test_precision = unit_8_v10_validate_precision({
+        "minimum_quantity": "1",
+        "quantity_step": "1",
+        "price_step": "0.001",
+        "contract_multiplier": "1",
+    })
+
+    assert test_precision["precision_valid"]
+
+    assert unit_8_v10_quantity_valid(
+        "4", "1", "1"
+    )
+
+    assert not unit_8_v10_quantity_valid(
+        "0.5", "1", "1"
+    )
+
+    assert unit_8_v10_hedge_halves_valid(
+        "4", "1", "1"
+    )
+
+    assert not unit_8_v10_hedge_halves_valid(
+        "3", "1", "1"
+    )
+
+    assert not unit_8_v10_contract_gate(
+        False, True, True, True, True
+    )
+
+    print(
+        "UNIT 8 V10 PART 1 OFFLINE VALIDATION = PASS",
+        flush=True
+    )
+
+    return True
+
+
+# These test specifications are illustrative only.
+# They are NOT verified NEAR contract specifications.
+
+# ============================================================
+# END UNIT 8 V10 PART 1 — ZERO INDENTATION
+# PART 2 CONTINUES WITH DEMO ACCOUNT AND CONTRACT READS
+# ============================================================
+
+
+
+# ============================================================
 # UNIT 8 V9 — UNIVERSAL WEEX DEMO ACCOUNT INSPECTION
 # Adapted from 17248 execution and 16414 hedge approach
 # READ ONLY — NO EXCHANGE WRITES
