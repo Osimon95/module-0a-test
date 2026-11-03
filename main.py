@@ -4313,3 +4313,1325 @@ print(
 # UNIT 6 BEGINS BELOW THIS LINE
 # ============================================================
 
+
+# ============================================================
+# START COMPLETE UNIT 6 V10 UNIVERSAL USDT REPLACEMENT
+# ADAPTED FROM 17248 / 16414 REFERENCE MODELS
+# UNIT 4 V6 -> UNIT 5 V9 -> UNIT 6 V10 -> UNIT 7
+# ZERO INDENTATION
+# NO EXCHANGE WRITES IN UNIT 6
+# ============================================================
+
+import math
+import copy
+
+
+# ============================================================
+# 6.1 VALIDATION HELPERS
+# ============================================================
+
+def unit_6_v9_number(value, label):
+
+    if isinstance(value, bool):
+        raise RuntimeError(
+            "UNIT 6 INVALID NUMBER: " + label
+        )
+
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError(
+            "UNIT 6 INVALID NUMBER: " + label
+        ) from exc
+
+    if not math.isfinite(result):
+        raise RuntimeError(
+            "UNIT 6 NONFINITE NUMBER: " + label
+        )
+
+    return result
+
+
+def unit_6_v9_bool(value, label):
+
+    if type(value) is not bool:
+        raise RuntimeError(
+            "UNIT 6 INVALID BOOLEAN: " + label
+        )
+
+    return value
+
+
+def unit_6_v9_clamp(value, minimum, maximum):
+
+    return max(minimum, min(maximum, value))
+
+
+def unit_6_v9_side(value):
+
+    if value > 0:
+        return "LONG"
+
+    if value < 0:
+        return "SHORT"
+
+    return "NONE"
+
+
+# ============================================================
+# 6.2 MAIN ADMISSION ENGINE
+# ============================================================
+
+def fresh_reconstruction_unit_6(
+    unit_2_config,
+    unit_4_analysis,
+    unit_5_candidate
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 6 V10 UNIVERSAL USDT START",
+        flush=True
+    )
+
+    if not all(
+        isinstance(item, dict)
+        for item in (
+            unit_2_config,
+            unit_4_analysis,
+            unit_5_candidate
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 6 INPUT CONTRACT INVALID"
+        )
+
+    config = unit_2_config
+    analysis = unit_4_analysis
+    candidate = unit_5_candidate
+
+    exchange = config.get("exchange", {})
+
+    if not isinstance(exchange, dict):
+        raise RuntimeError(
+            "UNIT 6 EXCHANGE CONFIG INVALID"
+        )
+
+    symbol = exchange.get("market_symbol")
+    base_coin = exchange.get("base_coin")
+    quote_coin = exchange.get("quote_coin")
+
+    if (
+        not isinstance(symbol, str)
+        or not symbol.endswith("USDT")
+        or len(symbol) <= 4
+        or not symbol[:-4].isalnum()
+        or base_coin != symbol[:-4]
+        or quote_coin != "USDT"
+    ):
+        raise RuntimeError(
+            "UNIT 6 UNIVERSAL SYMBOL INVALID"
+        )
+
+    if (
+        analysis.get("symbol") != symbol
+        or candidate.get("symbol") != symbol
+    ):
+        raise RuntimeError(
+            "UNIT 6 SYMBOL HANDOVER MISMATCH"
+        )
+
+    if (
+        analysis.get("strategy_evidence_version")
+        != "U4_HYBRID_V2"
+        or analysis.get(
+            "qualification_tuning_revision"
+        ) not in (
+            "UNIT4_V5_FULLY_INTEGRATED",
+            "UNIT4_V6_UNIVERSAL_USDT"
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 6 UNIT 4 EVIDENCE INVALID"
+        )
+
+    if (
+        candidate.get("strategy_evidence_version")
+        != "U5_HYBRID_ADJUSTABLE_V3"
+        or candidate.get(
+            "qualification_tuning_revision"
+        ) != "UNIT5_V8_FULLY_ADJUSTABLE"
+    ):
+        raise RuntimeError(
+            "UNIT 6 UNIT 5 EVIDENCE INVALID"
+        )
+
+    if (
+        analysis.get("read_only") is not True
+        or candidate.get("read_only") is not True
+        or candidate.get("trade_authorized") is not False
+        or candidate.get("order_payload_created") is not False
+    ):
+        raise RuntimeError(
+            "UNIT 6 INPUT SAFETY FAILED"
+        )
+
+    # ========================================================
+    # 6.3 ORIGINAL ADJUSTABLE STRATEGY CONFIG
+    # ========================================================
+
+    qualification = config.get("qualification")
+
+    if not isinstance(qualification, dict):
+        raise RuntimeError(
+            "UNIT 6 QUALIFICATION CONFIG MISSING"
+        )
+
+    common = qualification.get("common")
+    breakout = qualification.get("breakout")
+    structure = qualification.get("structure")
+    scalp = qualification.get("scalp")
+
+    for name, section in (
+        ("COMMON", common),
+        ("BREAKOUT", breakout),
+        ("STRUCTURE", structure),
+        ("SCALP", scalp)
+    ):
+        if not isinstance(section, dict):
+            raise RuntimeError(
+                "UNIT 6 MISSING SETTINGS: " + name
+            )
+
+    if tuple(common.get("mode_priority", ())) != (
+        "BREAKOUT", "STRUCTURE", "SCALP"
+    ):
+        raise RuntimeError(
+            "UNIT 6 MODE PRIORITY INVALID"
+        )
+
+    strategy = config.get("strategy")
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError(
+            "UNIT 6 STRATEGY CONFIG MISSING"
+        )
+
+    for key in (
+        "anti_duplicate_orders",
+        "one_direction_only",
+        "active_trade_mode_lock",
+        "exclusive_mode"
+    ):
+        if strategy.get(key) is not True:
+            raise RuntimeError(
+                "UNIT 6 SAFETY POLICY DISABLED: " + key
+            )
+
+    # This verifies the existing configuration.
+    # Position and duplicate-order enforcement
+    # must still occur in downstream execution units.
+
+    # ========================================================
+    # 6.4 UNIT 5 CANDIDATE STATE
+    # ========================================================
+
+    mode = candidate.get("candidate_mode", "NONE")
+    stage = candidate.get("candidate_stage", "NONE")
+
+    incoming_mode = candidate.get(
+        "active_mode", "NONE"
+    )
+
+    incoming_side = candidate.get(
+        "direction", "NONE"
+    )
+
+    qualified = unit_6_v9_bool(
+        candidate.get("qualified"),
+        "QUALIFIED"
+    )
+
+    higher_developing = unit_6_v9_bool(
+        candidate.get("higher_mode_developing"),
+        "HIGHER MODE DEVELOPING"
+    )
+
+    breakout_ready = unit_6_v9_bool(
+        candidate.get("breakout_ready"),
+        "BREAKOUT READY"
+    )
+
+    structure_ready = unit_6_v9_bool(
+        candidate.get("structure_ready"),
+        "STRUCTURE READY"
+    )
+
+    scalp_ready = unit_6_v9_bool(
+        candidate.get("scalp_ready"),
+        "SCALP READY"
+    )
+
+    if mode not in (
+        "NONE", "BREAKOUT", "STRUCTURE", "SCALP"
+    ):
+        raise RuntimeError(
+            "UNIT 6 CANDIDATE MODE INVALID"
+        )
+
+    if stage not in (
+        "NONE", "REJECTED", "DEVELOPING",
+        "QUALIFIED", "PENDING_UNIT_6"
+    ):
+        raise RuntimeError(
+            "UNIT 6 CANDIDATE STAGE INVALID"
+        )
+
+    if incoming_mode not in (
+        "NONE", "BREAKOUT", "STRUCTURE"
+    ):
+        raise RuntimeError(
+            "UNIT 6 ACTIVE MODE INVALID"
+        )
+
+    if incoming_side not in (
+        "NONE", "LONG", "SHORT"
+    ):
+        raise RuntimeError(
+            "UNIT 6 DIRECTION INVALID"
+        )
+
+    if qualified != (stage == "QUALIFIED"):
+        raise RuntimeError(
+            "UNIT 6 CONTRADICTORY QUALIFICATION"
+        )
+
+    if qualified and (
+        mode != incoming_mode
+        or incoming_side == "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 6 QUALIFIED STATE MISMATCH"
+        )
+
+    if not qualified and (
+        incoming_mode != "NONE"
+        or incoming_side != "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 6 UNQUALIFIED STATE MISMATCH"
+        )
+
+    if sum((
+        breakout_ready,
+        structure_ready,
+        scalp_ready
+    )) > 1:
+        raise RuntimeError(
+            "UNIT 6 CONFLICTING READY MODES"
+        )
+
+    # ========================================================
+    # 6.5 MARKET DATA
+    # ========================================================
+
+    def a(key):
+        return unit_6_v9_number(
+            analysis.get(key), key
+        )
+
+    def c(key):
+        return unit_6_v9_number(
+            candidate.get(key), key
+        )
+
+    price = a("latest_close")
+    live_price = a("live_mark_price")
+
+    ema19 = a("ema19")
+    ema50 = a("ema50")
+    ema100 = a("ema100")
+    ema200 = a("ema200")
+
+    atr = a("atr14")
+
+    if min(
+        price, live_price,
+        ema19, ema50, ema100, ema200, atr
+    ) <= 0:
+        raise RuntimeError(
+            "UNIT 6 MARKET INDICATORS INVALID"
+        )
+
+    move_1m = a("move_1m_pct")
+    move_5m = a("move_5m_pct")
+    move_15m = a("move_15m_pct")
+
+    atr_pct = atr / price * 100.0
+
+    candle_age = c("candidate_age_seconds")
+
+    policy = config.get("market_data_policy", {})
+
+    if not isinstance(policy, dict):
+        raise RuntimeError(
+            "UNIT 6 MARKET POLICY INVALID"
+        )
+
+    max_age = unit_6_v9_number(
+        policy.get("max_market_age_seconds", 120),
+        "MAXIMUM CANDLE AGE"
+    )
+
+    if max_age <= 0:
+        raise RuntimeError(
+            "UNIT 6 INVALID MARKET AGE LIMIT"
+        )
+
+    fresh = bool(
+        candidate.get("candle_data_fresh") is True
+        and 0 <= candle_age <= max_age
+    )
+
+    # ========================================================
+    # 6.6 SCALP QUALITY CONFIGURATION
+    # ========================================================
+
+    scalp_minimum = unit_6_v9_number(
+        scalp.get("quality_threshold", 70),
+        "SCALP QUALITY MINIMUM"
+    )
+
+    fee_coverage = unit_6_v9_number(
+        scalp.get(
+            "minimum_fee_coverage_multiplier", 2
+        ),
+        "FEE COVERAGE"
+    )
+
+    estimated_fee = c(
+        "estimated_round_trip_fee_pct"
+    )
+
+    if not (
+        0 <= scalp_minimum <= 100
+        and fee_coverage >= 1
+        and estimated_fee >= 0
+    ):
+        raise RuntimeError(
+            "UNIT 6 INVALID QUALITY OR FEE CONFIG"
+        )
+
+    entry_fee_enabled = (
+        scalp.get("include_entry_fee") is True
+    )
+
+    exit_fee_enabled = (
+        scalp.get("include_exit_fee") is True
+    )
+
+    taker_fee = unit_6_v9_number(
+        scalp.get(
+            "estimated_taker_fee_percent", 0
+        ),
+        "TAKER FEE"
+    )
+
+    if taker_fee < 0:
+        raise RuntimeError(
+            "UNIT 6 NEGATIVE FEE INVALID"
+        )
+
+    fee_estimate_verified = bool(
+        entry_fee_enabled
+        and exit_fee_enabled
+        and taker_fee > 0
+        and estimated_fee > 0
+    )
+
+    # This is an estimated fee model, not a
+    # verified exchange settlement record.
+
+    sideways = unit_6_v9_bool(
+        analysis.get("sideways_candidate"),
+        "SIDEWAYS EVIDENCE"
+    )
+
+    sideways_required = unit_6_v9_bool(
+        scalp.get("require_sideways_market", True),
+        "SIDEWAYS REQUIRED"
+    )
+
+    sideways_pass = bool(
+        sideways or not sideways_required
+    )
+
+    # ========================================================
+    # 6.7 DIRECTION PERSISTENCE
+    # ========================================================
+
+    scalp_side = candidate.get(
+        "scalp_direction_candidate", "NONE"
+    )
+
+    if scalp_side not in (
+        "NONE", "LONG", "SHORT"
+    ):
+        raise RuntimeError(
+            "UNIT 6 SCALP SIDE INVALID"
+        )
+
+    direction_1m = unit_6_v9_side(move_1m)
+    direction_5m = unit_6_v9_side(move_5m)
+    direction_15m = unit_6_v9_side(move_15m)
+
+    persistence_directions = (
+        direction_1m,
+        direction_5m,
+        direction_15m
+    )
+
+    persistence_window = len(
+        persistence_directions
+    )
+
+    persistence_required = 2
+
+    persistence_confirmations = sum(
+        direction == scalp_side
+        for direction in persistence_directions
+    ) if scalp_side != "NONE" else 0
+
+    persistence_pass = (
+        persistence_confirmations
+        >= persistence_required
+    )
+
+    fifteen_minute_support_pass = (
+        scalp_side != "NONE"
+        and direction_15m == scalp_side
+    )
+
+    momentum_conflict = bool(
+        scalp_side != "NONE"
+        and direction_5m not in (
+            scalp_side, "NONE"
+        )
+    )
+
+    # ========================================================
+    # 6.8 SCALP QUALITY SCORE
+    # MAXIMUM 100 POINTS
+    # ========================================================
+
+    price_action_score = 0.0
+    persistence_score = 0.0
+    location_score = 0.0
+    ema_score = 0.0
+    volatility_score = 0.0
+
+    ema_separation_pct = (
+        abs(ema19 - ema50) / ema50 * 100.0
+    )
+
+    compression_limit = unit_6_v9_number(
+        scalp.get(
+            "ema_compression_atr_max", 0.7
+        ),
+        "EMA COMPRESSION LIMIT"
+    )
+
+    compression_atr = a("ema_compression_atr")
+
+    ema_compressed = (
+        compression_atr <= compression_limit
+    )
+
+    extension_atr = (
+        abs(price - ema19) / atr
+    )
+
+    extreme_extension = (
+        extension_atr > 1.5
+    )
+
+    spike_ratio = (
+        abs(move_1m)
+        / max(
+            abs(move_5m) / 5.0,
+            0.000001
+        )
+    )
+
+    extreme_spike = (
+        spike_ratio > 2.0
+    )
+
+    late_impulse = bool(
+        extreme_extension
+        and extreme_spike
+    )
+
+    if scalp_side != "NONE":
+
+        if direction_5m == scalp_side:
+            price_action_score += 15
+
+        if direction_1m == scalp_side:
+            price_action_score += 10
+
+        preliminary_move_min = unit_6_v9_number(
+            scalp.get(
+                "preliminary_move_5m_percent",
+                0.015
+            ),
+            "PRELIMINARY MOVE"
+        )
+
+        if abs(move_5m) >= preliminary_move_min:
+            price_action_score += 5
+
+        persistence_score = (
+            20.0
+            * persistence_confirmations
+            / persistence_window
+        )
+
+        location_pass = (
+            price >= ema19
+            if scalp_side == "LONG"
+            else price <= ema19
+        )
+
+        if location_pass:
+            location_score += 10
+
+        ema100_location_pass = (
+            price >= ema100
+            if scalp_side == "LONG"
+            else price <= ema100
+        )
+
+        if ema100_location_pass:
+            location_score += 5
+
+        if ema_compressed:
+            ema_score += 10
+
+        ema_direction_pass = (
+            (
+                scalp_side == "LONG"
+                and ema19 >= ema50
+            )
+            or (
+                scalp_side == "SHORT"
+                and ema19 <= ema50
+            )
+        )
+
+        if ema_direction_pass:
+            ema_score += 5
+
+        if not extreme_extension:
+            volatility_score += 10
+
+        if not extreme_spike:
+            volatility_score += 5
+
+        if not late_impulse:
+            volatility_score += 5
+
+    quality_score = round(
+        unit_6_v9_clamp(
+            price_action_score
+            + persistence_score
+            + location_score
+            + ema_score
+            + volatility_score,
+            0,
+            100
+        ),
+        2
+    )
+
+    quality_pass = (
+        quality_score >= scalp_minimum
+    )
+
+    # ========================================================
+    # 6.9 FEE COVERAGE SCREEN
+    # ========================================================
+
+    projected_move_pct = min(
+        abs(move_5m),
+        atr_pct
+    )
+
+    required_move_pct = (
+        estimated_fee * fee_coverage
+    )
+
+    fee_coverage_pass = bool(
+        fee_estimate_verified
+        and projected_move_pct
+        >= required_move_pct
+    )
+
+    # ========================================================
+    # 6.10 FINAL STRATEGY ARBITRATION
+    # ========================================================
+
+    execution_intent = False
+    signal_qualified = False
+
+    active_mode = "NONE"
+    direction = "NONE"
+
+    admission_reason = (
+        "NO_ACCEPTABLE_CANDIDATE"
+    )
+
+    if not fresh:
+
+        admission_reason = (
+            "MARKET_EVIDENCE_STALE"
+        )
+
+    elif stage == "QUALIFIED":
+
+        if (
+            qualified
+            and mode == "BREAKOUT"
+            and breakout_ready
+            and incoming_side in (
+                "LONG", "SHORT"
+            )
+            and candidate.get(
+                "hybrid_breakout_qualified"
+            ) is True
+        ):
+
+            execution_intent = True
+            signal_qualified = True
+
+            active_mode = "BREAKOUT"
+            direction = incoming_side
+
+            admission_reason = (
+                "BREAKOUT_QUALIFIED_FOR_NEXT_UNITS"
+            )
+
+        elif (
+            qualified
+            and mode == "STRUCTURE"
+            and structure_ready
+            and incoming_side in (
+                "LONG", "SHORT"
+            )
+            and candidate.get(
+                "hybrid_structure_qualified"
+            ) is True
+        ):
+
+            execution_intent = True
+            signal_qualified = True
+
+            active_mode = "STRUCTURE"
+            direction = incoming_side
+
+            admission_reason = (
+                "STRUCTURE_QUALIFIED_FOR_NEXT_UNITS"
+            )
+
+        else:
+
+            admission_reason = (
+                "QUALIFIED_STATE_INCONSISTENT"
+            )
+
+    elif stage == "DEVELOPING":
+
+        admission_reason = (
+            "DEVELOPING_HIGHER_MODE_PROTECTED"
+        )
+
+    elif (
+        stage == "PENDING_UNIT_6"
+        and mode == "SCALP"
+    ):
+
+        if higher_developing:
+
+            admission_reason = (
+                "SCALP_BLOCKED_HIGHER_MODE_DEVELOPING"
+            )
+
+        elif not scalp_ready:
+
+            admission_reason = (
+                "SCALP_NOT_READY"
+            )
+
+        elif scalp_side == "NONE":
+
+            admission_reason = (
+                "SCALP_DIRECTION_MISSING"
+            )
+
+        elif not sideways_pass:
+
+            admission_reason = (
+                "SCALP_SIDEWAYS_REQUIREMENT_FAILED"
+            )
+
+        elif momentum_conflict:
+
+            admission_reason = (
+                "SCALP_MOMENTUM_CONFLICT"
+            )
+
+        elif not persistence_pass:
+
+            admission_reason = (
+                "SCALP_PERSISTENCE_INSUFFICIENT"
+            )
+
+        elif late_impulse:
+
+            admission_reason = (
+                "SCALP_LATE_IMPULSE_REJECTED"
+            )
+
+        elif not quality_pass:
+
+            admission_reason = (
+                "SCALP_QUALITY_BELOW_THRESHOLD"
+            )
+
+        elif not fee_estimate_verified:
+
+            admission_reason = (
+                "SCALP_FEES_NOT_VERIFIED"
+            )
+
+        elif not fee_coverage_pass:
+
+            admission_reason = (
+                "SCALP_FEE_COVERAGE_INSUFFICIENT"
+            )
+
+        else:
+
+            execution_intent = True
+            signal_qualified = True
+
+            active_mode = "SCALP"
+            direction = scalp_side
+
+            admission_reason = (
+                "SCALP_QUALIFIED_FOR_NEXT_UNITS"
+            )
+
+    elif stage == "REJECTED":
+
+        admission_reason = candidate.get(
+            "qualification_reason",
+            "UPSTREAM_CANDIDATE_REJECTED"
+        )
+
+    if active_mode == "SCALP" and (
+        higher_developing
+        or breakout_ready
+        or structure_ready
+    ):
+        raise RuntimeError(
+            "UNIT 6 SCALP PRIORITY VIOLATION"
+        )
+
+    # ========================================================
+    # 6.11 ORIGINAL UNIT 7 OUTPUT CONTRACT
+    # ========================================================
+
+    quality_details = {
+
+        "price_action_score":
+            price_action_score,
+
+        "persistence_score":
+            round(persistence_score, 2),
+
+        "ema_location_score":
+            location_score,
+
+        "ema_quality_score":
+            ema_score,
+
+        "volatility_score":
+            volatility_score,
+
+        "extreme_extension":
+            extreme_extension,
+
+        "extreme_spike":
+            extreme_spike,
+
+        "late_impulse":
+            late_impulse,
+
+        "estimated_move_pct":
+            projected_move_pct,
+
+        "estimated_round_trip_fee_pct":
+            estimated_fee,
+
+        "required_move_pct":
+            required_move_pct,
+
+        "fee_coverage_pass":
+            fee_coverage_pass,
+
+        "fee_estimate_verified":
+            fee_estimate_verified,
+    }
+
+    execution_candidate = {
+
+        "execution_intent": execution_intent,
+        "active_mode": active_mode,
+        "direction": direction,
+        "signal_qualified": signal_qualified,
+
+        "unit_5_reason": candidate.get(
+            "qualification_reason", "UNKNOWN"
+        ),
+
+        "admission_reason": admission_reason,
+
+        "leverage_target": None,
+
+        "leverage_regime":
+            "WEEX_MANUAL_RENDER_CONFIG",
+
+        "sideways_regime": sideways,
+
+        "ema_compressed": ema_compressed,
+
+        "compression_threshold_pct":
+            compression_limit,
+
+        "momentum_conflict":
+            momentum_conflict,
+
+        "persistence_window":
+            persistence_window,
+
+        "persistence_required":
+            persistence_required,
+
+        "persistence_confirmations":
+            persistence_confirmations,
+
+        "persistence_directions":
+            persistence_directions,
+
+        "persistence_pass":
+            persistence_pass,
+
+        "fifteen_minute_support_pass":
+            fifteen_minute_support_pass,
+
+        "scalp_quality_score":
+            quality_score,
+
+        "scalp_quality_minimum":
+            scalp_minimum,
+
+        "scalp_quality_pass":
+            quality_pass,
+
+        "scalp_quality_details":
+            quality_details,
+
+        "candidate_mode": mode,
+        "candidate_stage": stage,
+
+        "higher_mode_developing":
+            higher_developing,
+
+        "unit_5_evidence_version":
+            candidate.get(
+                "strategy_evidence_version"
+            ),
+
+        "unit_4_evidence_version":
+            analysis.get(
+                "strategy_evidence_version"
+            ),
+
+        "classification_version":
+            "UNIT6_V10_UNIVERSAL_USDT",
+
+        "market_data_fresh": fresh,
+
+        "position_sizing_performed": False,
+        "order_payload_created": False,
+        "exchange_write": False,
+        "read_only": True,
+        "trade_authorized": False,
+
+        # Additional universal metadata
+
+        "symbol": symbol,
+        "base_coin": base_coin,
+        "quote_coin": quote_coin,
+        "margin_currency": "USDT",
+
+        "universal_symbol_enabled": True,
+
+        "fee_estimate_verified":
+            fee_estimate_verified,
+
+        "estimated_round_trip_fee_pct":
+            estimated_fee,
+
+        "fee_coverage_pass":
+            fee_coverage_pass,
+    }
+
+    if execution_intent and (
+        active_mode == "NONE"
+        or direction == "NONE"
+        or not signal_qualified
+        or not fresh
+    ):
+        raise RuntimeError(
+            "UNIT 6 EXECUTION INTENT INCONSISTENT"
+        )
+
+    if (
+        execution_candidate["exchange_write"]
+        is not False
+        or execution_candidate["trade_authorized"]
+        is not False
+    ):
+        raise RuntimeError(
+            "UNIT 6 EXECUTION BOUNDARY FAILED"
+        )
+
+    # ========================================================
+    # 6.12 RENDER LOG
+    # ========================================================
+
+    print(
+        "UNIT 6 MARKET SYMBOL =",
+        symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 BASE COIN =",
+        base_coin,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 QUOTE CURRENCY =",
+        quote_coin,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 UNIT 4 EVIDENCE =",
+        analysis.get(
+            "qualification_tuning_revision"
+        ),
+        flush=True
+    )
+
+    print(
+        "UNIT 6 UNIT 5 EVIDENCE =",
+        candidate.get(
+            "strategy_evidence_version"
+        ),
+        flush=True
+    )
+
+    print(
+        "UNIT 6 CANDIDATE MODE =",
+        mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 CANDIDATE STAGE =",
+        stage,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 HIGHER MODE DEVELOPING =",
+        higher_developing,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 SIDEWAYS REGIME =",
+        sideways,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 SCALP DIRECTION =",
+        scalp_side,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 SCALP QUALITY SCORE =",
+        quality_score,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 SCALP QUALITY MINIMUM =",
+        scalp_minimum,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 SCALP QUALITY PASS =",
+        quality_pass,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 SCALP PERSISTENCE =",
+        persistence_confirmations,
+        "/",
+        persistence_required,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 ESTIMATED PRICE MOVE % =",
+        round(projected_move_pct, 6),
+        flush=True
+    )
+
+    print(
+        "UNIT 6 ESTIMATED ROUND TRIP FEE % =",
+        round(estimated_fee, 6),
+        flush=True
+    )
+
+    print(
+        "UNIT 6 REQUIRED FEE COVERAGE % =",
+        round(required_move_pct, 6),
+        flush=True
+    )
+
+    print(
+        "UNIT 6 FEE COVERAGE PASS =",
+        fee_coverage_pass,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 ACTIVE MODE =",
+        active_mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 DIRECTION =",
+        direction,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 SIGNAL QUALIFIED =",
+        signal_qualified,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 EXECUTION INTENT =",
+        execution_intent,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 ADMISSION REASON =",
+        admission_reason,
+        flush=True
+    )
+
+    print(
+        "UNIT 6 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 6 RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return execution_candidate
+
+
+# ============================================================
+# 6.13 VALIDATION
+# ============================================================
+
+def unit_6_validation_v10():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 6 UNIVERSAL VALIDATION V10 START",
+        flush=True
+    )
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
+    )
+
+    analysis = globals().get(
+        "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT"
+    )
+
+    candidate = globals().get(
+        "FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE"
+    )
+
+    if not all(
+        isinstance(item, dict)
+        for item in (
+            config, analysis, candidate
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 6 VALIDATION INPUTS MISSING"
+        )
+
+    exchange = config.get("exchange", {})
+
+    symbol = exchange.get("market_symbol")
+
+    if (
+        not isinstance(symbol, str)
+        or not symbol.endswith("USDT")
+        or analysis.get("symbol") != symbol
+        or candidate.get("symbol") != symbol
+    ):
+        raise RuntimeError(
+            "UNIT 6 VALIDATION SYMBOL FAILED"
+        )
+
+    if (
+        candidate.get("strategy_evidence_version")
+        != "U5_HYBRID_ADJUSTABLE_V3"
+    ):
+        raise RuntimeError(
+            "UNIT 6 VALIDATION UNIT 5 FAILED"
+        )
+
+    result = fresh_reconstruction_unit_6(
+        copy.deepcopy(config),
+        copy.deepcopy(analysis),
+        copy.deepcopy(candidate)
+    )
+
+    required_fields = (
+        "execution_intent",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "admission_reason",
+        "scalp_quality_score",
+        "scalp_quality_details",
+        "candidate_mode",
+        "candidate_stage",
+        "market_data_fresh",
+        "position_sizing_performed",
+        "order_payload_created",
+        "exchange_write",
+        "read_only",
+        "trade_authorized"
+    )
+
+    for field in required_fields:
+
+        if field not in result:
+            raise RuntimeError(
+                "UNIT 6 MISSING HANDOVER: " + field
+            )
+
+    if (
+        result["symbol"] != symbol
+        or result["exchange_write"] is not False
+        or result["order_payload_created"] is not False
+        or result["trade_authorized"] is not False
+    ):
+        raise RuntimeError(
+            "UNIT 6 VALIDATION SAFETY FAILED"
+        )
+
+    print(
+        "UNIT 6 UNIVERSAL SYMBOL TEST = PASS",
+        flush=True
+    )
+
+    print(
+        "UNIT 6 UNIT 5 HANDOVER TEST = PASS",
+        flush=True
+    )
+
+    print(
+        "UNIT 6 UNIT 7 OUTPUT CONTRACT = PASS",
+        flush=True
+    )
+
+    print(
+        "UNIT 6 EXCHANGE WRITE TEST = NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 6 UNIVERSAL VALIDATION RESULT = PASS",
+        flush=True
+    )
+
+    return True
+
+
+# ============================================================
+# 6.14 SINGLE EXECUTION SEQUENCE
+# ============================================================
+
+FRESH_UNIT_6_VALIDATION_READY = (
+    unit_6_validation_v10()
+)
+
+FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
+    fresh_reconstruction_unit_6(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+    )
+)
+
+FRESH_UNIT_6_OPTIMIZATION_READY = True
+
+print(
+    "UNIT 6 UNIVERSAL OPTIMIZATION READY =",
+    FRESH_UNIT_6_OPTIMIZATION_READY,
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 6 V10 UNIVERSAL USDT REPLACEMENT
+# UNIT 7 BEGINS BELOW
+# ============================================================
