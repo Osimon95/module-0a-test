@@ -8224,263 +8224,43 @@ def unit_8_v13_history_rows(raw):
 # ZERO INDENTATION
 # ============================================================
 
-# ============================================================
-# START UNIT 8 V12 — ZERO INDENTATION
-# UNIVERSAL WEEX MARKET + DEMO READ VERIFICATION
-# PRESERVES UNIT 7 V12 HANDOVER
-# NO ORDER SUBMISSION / NO EXCHANGE WRITES
-# ============================================================
-
-import os
-import re
-import json
-import time
-import hmac
-import base64
-import hashlib
-import urllib.request
-import urllib.error
-
-from urllib.parse import urlencode
-from decimal import Decimal, InvalidOperation, ROUND_FLOOR
-
-
-UNIT_8_V12_BASE_URL = "https://api-contract.weex.com"
-
-UNIT_8_V12_PUBLIC_PATHS = frozenset({
-    "/capi/v3/market/exchangeInfo",
-    "/capi/v3/market/apiTradingSymbols",
-})
-
-UNIT_8_V12_PRIVATE_PATHS = frozenset({
-    "/capi/v3/sim/balance",
-    "/capi/v3/sim/position/allPosition",
-    "/capi/v3/sim/order/history",
-    "/capi/v3/account/accountConfig",
-})
 
 
 # ============================================================
-# 8.1 DECIMAL AND RESPONSE HELPERS
+# START UNIT 8 V13 — PART 2 OF 2
+# DEMO VERIFICATION + UNIT 7 HANDOVER
+# ZERO ORDER SUBMISSION
 # ============================================================
-
-def unit_8_v12_number(value, label, allow_zero=False):
-
-    if isinstance(value, bool):
-        raise RuntimeError("UNIT 8 BOOLEAN INVALID: " + label)
-
-    try:
-        number = Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError) as exc:
-        raise RuntimeError("UNIT 8 NUMBER INVALID: " + label) from exc
-
-    if not number.is_finite():
-        raise RuntimeError("UNIT 8 NONFINITE: " + label)
-
-    if number < 0 or (number == 0 and not allow_zero):
-        raise RuntimeError("UNIT 8 RANGE INVALID: " + label)
-
-    return number
-
-
-def unit_8_v12_text(value):
-
-    number = Decimal(str(value))
-
-    if number == 0:
-        return "0"
-
-    return format(number.normalize(), "f")
-
-
-def unit_8_v12_unwrap(payload):
-
-    if not isinstance(payload, (dict, list)):
-        raise RuntimeError("UNIT 8 RESPONSE STRUCTURE INVALID")
-
-    if isinstance(payload, list):
-        return payload
-
-    code = payload.get("code")
-
-    if code is not None and str(code) not in ("0", "200", "00000"):
-        raise RuntimeError("UNIT 8 WEEX RESPONSE CODE " + str(code))
-
-    if "data" in payload:
-        return payload["data"]
-
-    return payload
 
 
 # ============================================================
-# 8.2 RESTRICTED PUBLIC AND PRIVATE GET REQUESTS
+# 8.12 CONTRACT RULE EXTRACTION
 # ============================================================
 
-def unit_8_v12_public_get(path, params=None):
+def unit_8_v13_contract_rules(item):
 
-    if path not in UNIT_8_V12_PUBLIC_PATHS:
-        raise RuntimeError("UNIT 8 PUBLIC PATH BLOCKED")
-
-    query = urlencode(params or {})
-    target = path + ("?" + query if query else "")
-
-    request = urllib.request.Request(
-        UNIT_8_V12_BASE_URL + target,
-        headers={"Accept": "application/json"},
-        method="GET"
-    )
-
-    try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            if response.getcode() != 200:
-                raise RuntimeError("UNIT 8 PUBLIC HTTP STATUS INVALID")
-            payload = json.loads(response.read().decode("utf-8"))
-
-    except urllib.error.HTTPError as exc:
-        raise RuntimeError("UNIT 8 PUBLIC HTTP " + str(exc.code)) from exc
-    except (urllib.error.URLError, TimeoutError) as exc:
-        raise RuntimeError("UNIT 8 PUBLIC NETWORK FAILURE") from exc
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("UNIT 8 PUBLIC JSON INVALID") from exc
-
-    return unit_8_v12_unwrap(payload)
-
-
-def unit_8_v12_private_get(path, params=None):
-
-    if path not in UNIT_8_V12_PRIVATE_PATHS:
-        raise RuntimeError("UNIT 8 PRIVATE PATH BLOCKED")
-
-    key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
-    secret = os.getenv("WEEX_API_SECRET") or os.getenv("API_SECRET")
-    phrase = (
-        os.getenv("WEEX_API_PASSPHRASE")
-        or os.getenv("API_PASSPHRASE")
-    )
-
-    if not all((key, secret, phrase)):
-        raise RuntimeError("UNIT 8 API CREDENTIALS MISSING")
-
-    query = urlencode(params or {})
-    target = path + ("?" + query if query else "")
-    timestamp = str(int(time.time() * 1000))
-    message = timestamp + "GET" + target
-
-    signature = base64.b64encode(
-        hmac.new(
-            secret.encode("utf-8"),
-            message.encode("utf-8"),
-            hashlib.sha256
-        ).digest()
-    ).decode("utf-8")
-
-    request = urllib.request.Request(
-        UNIT_8_V12_BASE_URL + target,
-        headers={
-            "ACCESS-KEY": key,
-            "ACCESS-SIGN": signature,
-            "ACCESS-PASSPHRASE": phrase,
-            "ACCESS-TIMESTAMP": timestamp,
-            "Content-Type": "application/json",
-            "locale": "en-US",
-        },
-        method="GET"
-    )
-
-    try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            if response.getcode() != 200:
-                raise RuntimeError("UNIT 8 PRIVATE HTTP STATUS INVALID")
-            payload = json.loads(response.read().decode("utf-8"))
-
-    except urllib.error.HTTPError as exc:
-        body = ""
-        try:
-            body = exc.read().decode("utf-8")[:300]
-        except Exception:
-            pass
+    if not isinstance(item, dict):
         raise RuntimeError(
-            "UNIT 8 PRIVATE HTTP " + str(exc.code) + " " + body
-        ) from exc
-    except (urllib.error.URLError, TimeoutError) as exc:
-        raise RuntimeError("UNIT 8 PRIVATE NETWORK FAILURE") from exc
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("UNIT 8 PRIVATE JSON INVALID") from exc
+            "UNIT 8 CONTRACT RECORD INVALID"
+        )
 
-    return unit_8_v12_unwrap(payload)
-
-
-# ============================================================
-# 8.3 UNIVERSAL MARKET / DEMO SYMBOL CANDIDATE
-# ============================================================
-
-def unit_8_v12_symbol(config):
-
-    exchange = config.get("exchange", {})
-    if not isinstance(exchange, dict):
-        raise RuntimeError("UNIT 8 EXCHANGE CONFIG INVALID")
-
-    symbol = str(exchange.get("market_symbol", "")).strip().upper()
-
-    if not re.fullmatch(r"[A-Z0-9]{2,20}USDT", symbol):
-        raise RuntimeError("UNIT 8 MARKET SYMBOL INVALID")
-
-    base_coin = symbol[:-4]
-    candidate = base_coin + "SUSDT"
-
-    configured = exchange.get("demo_order_symbol")
-
-    if configured != candidate:
-        raise RuntimeError("UNIT 8 DEMO SYMBOL CANDIDATE MISMATCH")
-
-    return symbol, candidate
-
-
-# ============================================================
-# 8.4 LIVE/API CONTRACT METADATA
-# ============================================================
-
-def unit_8_v12_contract_info(symbol):
-
-    raw = unit_8_v12_public_get(
-        "/capi/v3/market/exchangeInfo",
-        {"symbol": symbol}
+    minimum = unit_8_v13_number(
+        item.get("minOrderSize"),
+        "MINIMUM ORDER SIZE"
     )
 
-    if not isinstance(raw, dict):
-        raise RuntimeError("UNIT 8 EXCHANGE INFO INVALID")
+    multiplier = unit_8_v13_number(
+        item.get("contractVal"),
+        "CONTRACT VALUE"
+    )
 
-    symbols = raw.get("symbols")
+    quantity_precision = item.get(
+        "quantityPrecision"
+    )
 
-    if not isinstance(symbols, list):
-        raise RuntimeError("UNIT 8 EXCHANGE SYMBOL LIST MISSING")
-
-    matches = [
-        item for item in symbols
-        if isinstance(item, dict) and item.get("symbol") == symbol
-    ]
-
-    if len(matches) != 1:
-        raise RuntimeError("UNIT 8 UNIQUE MARKET CONTRACT NOT FOUND")
-
-    item = matches[0]
-
-    if (
-        item.get("baseAsset") != symbol[:-4]
-        or item.get("quoteAsset") != "USDT"
-        or item.get("marginAsset") != "USDT"
-        or item.get("contractType") not in (
-            "PERPETUAL", "TRADIFI_PERPETUAL"
-        )
-    ):
-        raise RuntimeError("UNIT 8 MARKET CONTRACT ASSET/TYPE MISMATCH")
-
-    forward_flag = item.get("forwardContractFlag")
-    if forward_flag is False:
-        raise RuntimeError("UNIT 8 CONTRACT IS NOT USDT MARGINED")
-
-    quantity_precision = item.get("quantityPrecision")
-    price_precision = item.get("pricePrecision")
+    price_precision = item.get(
+        "pricePrecision"
+    )
 
     if (
         type(quantity_precision) is not int
@@ -8488,286 +8268,131 @@ def unit_8_v12_contract_info(symbol):
         or not 0 <= quantity_precision <= 18
         or not 0 <= price_precision <= 18
     ):
-        raise RuntimeError("UNIT 8 CONTRACT PRECISION INVALID")
 
-    minimum = unit_8_v12_number(
-        item.get("minOrderSize"), "MINIMUM BASE QUANTITY"
+        raise RuntimeError(
+            "UNIT 8 CONTRACT PRECISION INVALID"
+        )
+
+    minimum_leverage = unit_8_v13_number(
+        item.get("minLeverage"),
+        "MINIMUM LEVERAGE"
     )
-    contract_value = unit_8_v12_number(
-        item.get("contractVal"), "CONTRACT VALUE"
-    )
-    minimum_leverage = unit_8_v12_number(
-        item.get("minLeverage"), "MINIMUM LEVERAGE"
-    )
-    maximum_leverage = unit_8_v12_number(
-        item.get("maxLeverage"), "MAXIMUM LEVERAGE"
+
+    maximum_leverage = unit_8_v13_number(
+        item.get("maxLeverage"),
+        "MAXIMUM LEVERAGE"
     )
 
     if minimum_leverage > maximum_leverage:
-        raise RuntimeError("UNIT 8 CONTRACT LEVERAGE RANGE INVALID")
-
-    maximum_quantity = None
-    if item.get("maxOrderSize") is not None:
-        maximum_quantity = unit_8_v12_number(
-            item["maxOrderSize"], "MAXIMUM ORDER QUANTITY"
+        raise RuntimeError(
+            "UNIT 8 CONTRACT LEVERAGE LIMITS INVALID"
         )
 
-    quantity_step = Decimal("1").scaleb(-quantity_precision)
-    price_step = Decimal("1").scaleb(-price_precision)
+    quantity_step = Decimal("1").scaleb(
+        -quantity_precision
+    )
 
-    if minimum % quantity_step != 0:
-        raise RuntimeError("UNIT 8 MINIMUM QUANTITY NOT STEP ALIGNED")
+    price_step = Decimal("1").scaleb(
+        -price_precision
+    )
+
+    maximum = None
+
+    if item.get("maxOrderSize") is not None:
+
+        maximum = unit_8_v13_number(
+            item["maxOrderSize"],
+            "MAXIMUM ORDER SIZE"
+        )
 
     return {
-        "symbol": symbol,
+        "symbol": item["symbol"],
         "base_asset": item["baseAsset"],
         "quote_asset": item["quoteAsset"],
         "margin_asset": item["marginAsset"],
         "contract_type": item["contractType"],
-        "forward_contract_flag": forward_flag,
-        "minimum_quantity": unit_8_v12_text(minimum),
-        "maximum_quantity": (
-            unit_8_v12_text(maximum_quantity)
-            if maximum_quantity is not None else None
-        ),
+        "minimum_quantity":
+            unit_8_v13_string(minimum),
+        "maximum_quantity":
+            (
+                unit_8_v13_string(maximum)
+                if maximum is not None
+                else None
+            ),
+        "contract_multiplier":
+            unit_8_v13_string(multiplier),
         "quantity_precision": quantity_precision,
         "price_precision": price_precision,
-        "quantity_step": unit_8_v12_text(quantity_step),
-        "price_step": unit_8_v12_text(price_step),
-        "contract_value": unit_8_v12_text(contract_value),
-        "minimum_leverage": unit_8_v12_text(minimum_leverage),
-        "maximum_leverage": unit_8_v12_text(maximum_leverage),
-        "market_contract_verified": True,
-        "source": "/capi/v3/market/exchangeInfo",
-    }
-
-
-def unit_8_v12_api_symbol_check(symbol):
-
-    raw = unit_8_v12_public_get(
-        "/capi/v3/market/apiTradingSymbols"
-    )
-
-    if not isinstance(raw, list) or not all(
-        isinstance(item, str) for item in raw
-    ):
-        raise RuntimeError("UNIT 8 API TRADING SYMBOL LIST INVALID")
-
-    return symbol in raw
-
-
-# ============================================================
-# 8.5 DEMO BALANCE / POSITIONS / HISTORY
-# ============================================================
-
-def unit_8_v12_balance(raw):
-
-    if isinstance(raw, dict):
-        raw = [raw]
-
-    if not isinstance(raw, list):
-        raise RuntimeError("UNIT 8 DEMO BALANCE INVALID")
-
-    matches = [
-        item for item in raw
-        if isinstance(item, dict)
-        and str(item.get("asset", "")).upper() == "SUSDT"
-    ]
-
-    if len(matches) != 1:
-        raise RuntimeError("UNIT 8 SUSDT BALANCE NOT UNIQUE")
-
-    row = matches[0]
-    available = unit_8_v12_number(
-        row.get("availableBalance"),
-        "DEMO AVAILABLE BALANCE",
-        allow_zero=True
-    )
-
-    return {
-        "asset": "SUSDT",
-        "available_balance": unit_8_v12_text(available),
-        "raw": row,
+        "quantity_step":
+            unit_8_v13_string(quantity_step),
+        "price_step":
+            unit_8_v13_string(price_step),
+        "minimum_leverage":
+            unit_8_v13_string(minimum_leverage),
+        "maximum_leverage":
+            unit_8_v13_string(maximum_leverage),
         "verified": True,
     }
 
 
-def unit_8_v12_positions(raw, demo_symbol):
-
-    if isinstance(raw, dict):
-        raw = [raw]
-
-    if not isinstance(raw, list):
-        raise RuntimeError("UNIT 8 DEMO POSITIONS INVALID")
-
-    totals = {
-        "LONG": Decimal("0"),
-        "SHORT": Decimal("0"),
-    }
-    positions = []
-
-    for item in raw:
-        if not isinstance(item, dict):
-            raise RuntimeError("UNIT 8 POSITION RECORD INVALID")
-
-        item_symbol = str(item.get("symbol", "")).upper()
-
-        if item_symbol != demo_symbol:
-            continue
-
-        quantity_field = next(
-            (
-                key for key in ("size", "total", "holdVol")
-                if item.get(key) is not None
-            ),
-            None
-        )
-
-        if quantity_field is None:
-            raise RuntimeError("UNIT 8 POSITION QUANTITY MISSING")
-
-        quantity = unit_8_v12_number(
-            item[quantity_field],
-            "DEMO POSITION QUANTITY",
-            allow_zero=True
-        )
-
-        if quantity == 0:
-            continue
-
-        sides = {
-            str(item[key]).upper()
-            for key in ("positionSide", "holdSide", "side")
-            if item.get(key) is not None
-            and str(item[key]).upper() in ("LONG", "SHORT")
-        }
-
-        if len(sides) != 1:
-            raise RuntimeError("UNIT 8 POSITION SIDE AMBIGUOUS")
-
-        side = next(iter(sides))
-        totals[side] += quantity
-
-        positions.append({
-            "symbol": item_symbol,
-            "positionSide": side,
-            "size": unit_8_v12_text(quantity),
-            "leverage": item.get("leverage"),
-            "position_id": item.get("id"),
-            "read_only": True,
-        })
-
-    return positions, {
-        side: unit_8_v12_text(quantity)
-        for side, quantity in totals.items()
-    }
-
-
-def unit_8_v12_history_evidence(raw, demo_symbol):
-
-    if isinstance(raw, dict):
-        raw = [raw]
-
-    if not isinstance(raw, list):
-        raise RuntimeError("UNIT 8 DEMO ORDER HISTORY INVALID")
-
-    matching = [
-        item for item in raw
-        if isinstance(item, dict)
-        and str(item.get("symbol", "")).upper() == demo_symbol
-    ]
-
-    executed = []
-    for item in matching:
-        filled = False
-        if item.get("executedQty") is not None:
-            try:
-                filled = (
-                    unit_8_v12_number(
-                        item["executedQty"],
-                        "HISTORY EXECUTED QUANTITY",
-                        allow_zero=True
-                    ) > 0
-                )
-            except RuntimeError:
-                filled = False
-
-        if filled or str(item.get("status", "")).upper() in (
-            "FILLED", "PARTIALLY_FILLED"
-        ):
-            executed.append(item)
-
-    sides = {
-        str(item.get("positionSide", "")).upper()
-        for item in executed
-        if str(item.get("positionSide", "")).upper()
-        in ("LONG", "SHORT")
-    }
-
-    return {
-        "history_read_verified": True,
-        "matching_demo_symbol_records": len(matching),
-        "executed_demo_symbol_records": len(executed),
-        "observed_demo_symbol": bool(matching),
-        "long_side_filled": "LONG" in sides,
-        "short_side_filled": "SHORT" in sides,
-        "dual_side_history_evidence": (
-            "LONG" in sides and "SHORT" in sides
-        ),
-    }
-
-
-
 # ============================================================
-# 8.6 BASE-ASSET ORDER SIZE PREVIEW
+# 8.13 UNIT 7 SIZE PREVIEW
 # ============================================================
 
-def unit_8_v12_size_preview(
-    margin_usdt,
-    leverage,
-    mark_price,
+def unit_8_v13_size_preview(
+    config,
     contract,
+    mark_price,
+    direction
 ):
 
-    margin = unit_8_v12_number(margin_usdt, "ENTRY MARGIN")
-    leverage = unit_8_v12_number(leverage, "LEVERAGE")
-    price = unit_8_v12_number(mark_price, "MARK PRICE")
+    strategy = config.get("strategy", {})
 
-    minimum_leverage = Decimal(contract["minimum_leverage"])
-    maximum_leverage = Decimal(contract["maximum_leverage"])
-
-    if not minimum_leverage <= leverage <= maximum_leverage:
-        raise RuntimeError("UNIT 8 LEVERAGE OUTSIDE CONTRACT LIMITS")
-
-    step = Decimal(contract["quantity_step"])
-    minimum = Decimal(contract["minimum_quantity"])
-    contract_value = Decimal(contract["contract_value"])
-
-    # WEEX demo Place Order quantity is sent in base-asset units.
-    # Therefore: base quantity = USDT notional / mark price.
-    # contract_value is reported for contract-count conversion only;
-    # it must not be applied a second time to base-asset quantity.
-
-    notional = margin * leverage
-    raw_base_quantity = notional / price
-
-    base_quantity = (
-        (raw_base_quantity / step).to_integral_value(
-            rounding=ROUND_FLOOR
-        ) * step
+    margin = unit_8_v13_number(
+        strategy.get("entry_margin_usdt"),
+        "ENTRY MARGIN"
     )
 
-    half_quantity = base_quantity / Decimal("2")
-
-    minimum_valid = (
-        base_quantity >= minimum
-        and base_quantity > 0
-        and base_quantity % step == 0
+    leverage_key = (
+        "long_leverage"
+        if direction == "LONG"
+        else "short_leverage"
     )
 
-    half_valid = (
-        half_quantity >= minimum
-        and half_quantity % step == 0
+    leverage = unit_8_v13_number(
+        strategy.get(leverage_key),
+        "SELECTED LEVERAGE"
+    )
+
+    minimum_leverage = Decimal(
+        contract["minimum_leverage"]
+    )
+
+    maximum_leverage = Decimal(
+        contract["maximum_leverage"]
+    )
+
+    if not (
+        minimum_leverage
+        <= leverage
+        <= maximum_leverage
+    ):
+
+        raise RuntimeError(
+            "UNIT 8 SELECTED LEVERAGE OUTSIDE CONTRACT LIMITS"
+        )
+
+    price = unit_8_v13_number(
+        mark_price,
+        "MARK PRICE"
+    )
+
+    minimum = Decimal(
+        contract["minimum_quantity"]
+    )
+
+    step = Decimal(
+        contract["quantity_step"]
     )
 
     maximum = (
@@ -8776,65 +8401,244 @@ def unit_8_v12_size_preview(
         else None
     )
 
-    maximum_valid = (
-        maximum is None or base_quantity <= maximum
+    notional = margin * leverage
+
+    raw_quantity = notional / price
+
+    quantity = (
+        raw_quantity / step
+    ).to_integral_value(
+        rounding=ROUND_FLOOR
+    ) * step
+
+    half_quantity = quantity / Decimal("2")
+
+    valid = (
+        quantity >= minimum
+        and quantity > 0
+        and (
+            maximum is None
+            or quantity <= maximum
+        )
     )
 
-    required_margin_for_entry = (
-        minimum * price / leverage
-    )
-
-    required_margin_for_two_valid_halves = (
-        (minimum * Decimal("2")) * price / leverage
+    half_valid = (
+        half_quantity >= minimum
+        and half_quantity % step == 0
     )
 
     return {
-        "margin_usdt": unit_8_v12_text(margin),
-        "leverage": unit_8_v12_text(leverage),
-        "mark_price": unit_8_v12_text(price),
-        "notional_usdt": unit_8_v12_text(notional),
-        "raw_base_quantity": unit_8_v12_text(raw_base_quantity),
-        "order_quantity_base_asset": unit_8_v12_text(base_quantity),
-        "half_quantity_base_asset": unit_8_v12_text(half_quantity),
-        "quantity_step": contract["quantity_step"],
-        "minimum_quantity": contract["minimum_quantity"],
-        "contract_value_metadata_only": unit_8_v12_text(contract_value),
-        "minimum_quantity_valid": minimum_valid,
-        "maximum_quantity_valid": maximum_valid,
-        "hedge_half_quantity_valid": half_valid,
-        "initial_order_quantity_valid": (
-            minimum_valid and maximum_valid
-        ),
-        "minimum_margin_for_entry_usdt": (
-            unit_8_v12_text(required_margin_for_entry)
-        ),
-        "minimum_margin_for_two_valid_hedge_halves_usdt": (
-            unit_8_v12_text(required_margin_for_two_valid_halves)
-        ),
-        "quantity_unit": "BASE_ASSET",
+        "margin_usdt":
+            unit_8_v13_string(margin),
+        "leverage":
+            unit_8_v13_string(leverage),
+        "mark_price":
+            unit_8_v13_string(price),
+        "notional_usdt":
+            unit_8_v13_string(notional),
+        "raw_base_quantity":
+            unit_8_v13_string(raw_quantity),
+        "rounded_base_quantity":
+            unit_8_v13_string(quantity),
+        "half_base_quantity":
+            unit_8_v13_string(half_quantity),
+        "initial_quantity_valid": valid,
+        "half_quantity_valid": half_valid,
+        "contract_multiplier":
+            contract["contract_multiplier"],
         "preview_only": True,
+        "order_submitted": False,
     }
 
 
 # ============================================================
-# 8.7 MAIN UNIT 8 V12
+# 8.14 POSITION AND HISTORY SIDE EVIDENCE
 # ============================================================
 
-def unit_8_v12_main():
+def unit_8_v13_side_evidence(
+    positions,
+    history,
+    demo_symbol
+):
 
-    config = globals().get("FRESH_RECONSTRUCTION_CONFIG")
-    unit7 = globals().get("FRESH_RECONSTRUCTION_UNIT_7_RESULT")
+    long_position = Decimal("0")
+    short_position = Decimal("0")
+
+    long_history = False
+    short_history = False
+
+    selected_positions = []
+
+    for item in positions:
+
+        if str(
+            item.get("symbol", "")
+        ).upper() != demo_symbol:
+
+            continue
+
+        side = None
+
+        for key in (
+            "positionSide",
+            "holdSide",
+            "side"
+        ):
+
+            value = item.get(key)
+
+            if isinstance(value, str):
+
+                candidate = value.upper()
+
+                if candidate in ("LONG", "SHORT"):
+                    side = candidate
+                    break
+
+        if side is None:
+            continue
+
+        quantity_field = next(
+            (
+                key
+                for key in (
+                    "size",
+                    "total",
+                    "holdVol",
+                    "positionAmt"
+                )
+                if item.get(key) is not None
+            ),
+            None
+        )
+
+        if quantity_field is None:
+            continue
+
+        quantity = unit_8_v13_number(
+            item[quantity_field],
+            "DEMO POSITION SIZE",
+            allow_zero=True
+        )
+
+        if quantity == 0:
+            continue
+
+        if side == "LONG":
+            long_position += quantity
+        else:
+            short_position += quantity
+
+        selected_positions.append({
+            "symbol": demo_symbol,
+            "positionSide": side,
+            "quantity": unit_8_v13_string(quantity),
+        })
+
+    for item in history:
+
+        if str(
+            item.get("symbol", "")
+        ).upper() != demo_symbol:
+
+            continue
+
+        side = str(
+            item.get("positionSide", "")
+        ).upper()
+
+        status = str(
+            item.get("status", "")
+        ).upper()
+
+        executed = item.get("executedQty", "0")
+
+        try:
+
+            executed_quantity = unit_8_v13_number(
+                executed,
+                "HISTORY EXECUTED QUANTITY",
+                allow_zero=True
+            )
+
+        except ValueError:
+            continue
+
+        if (
+            executed_quantity > 0
+            or status in (
+                "FILLED",
+                "PARTIALLY_FILLED"
+            )
+        ):
+
+            if side == "LONG":
+                long_history = True
+
+            elif side == "SHORT":
+                short_history = True
+
+    positions_both_sides = (
+        long_position > 0
+        and short_position > 0
+    )
+
+    history_both_sides = (
+        long_history
+        and short_history
+    )
+
+    return {
+        "long_position_quantity":
+            unit_8_v13_string(long_position),
+        "short_position_quantity":
+            unit_8_v13_string(short_position),
+        "positions_both_sides": positions_both_sides,
+        "history_both_sides": history_both_sides,
+        "demo_dual_side_evidence": (
+            positions_both_sides
+            or history_both_sides
+        ),
+        "positions": selected_positions,
+    }
+
+
+# ============================================================
+# 8.15 MAIN UNIT 8 V13
+# ============================================================
+
+def unit_8_v13_main():
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
+    )
+
+    unit7 = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_7_RESULT"
+    )
 
     if unit7 is None:
-        unit7 = globals().get("FRESH_RECONSTRUCTION_SIZING_PLAN")
+
+        unit7 = globals().get(
+            "FRESH_RECONSTRUCTION_SIZING_PLAN"
+        )
 
     if not isinstance(config, dict):
-        raise RuntimeError("UNIT 8 UNIT 2 CONFIG MISSING")
+        raise RuntimeError(
+            "UNIT 8 UNIT 2 CONFIG MISSING"
+        )
 
     if not isinstance(unit7, dict):
-        raise RuntimeError("UNIT 8 UNIT 7 HANDOVER MISSING")
+        raise RuntimeError(
+            "UNIT 8 UNIT 7 HANDOVER MISSING"
+        )
 
     safety = config.get("safety", {})
+
+    if not isinstance(safety, dict):
+        raise RuntimeError(
+            "UNIT 8 SAFETY CONFIG INVALID"
+        )
 
     if (
         config.get("execution_environment") != "DEMO"
@@ -8842,36 +8646,49 @@ def unit_8_v12_main():
         or safety.get("real_order_submission_enabled") is not False
         or unit7.get("exchange_write") is not False
     ):
-        raise RuntimeError("UNIT 8 DEMO SAFETY GATE FAILED")
 
-    symbol, demo_candidate = unit_8_v12_symbol(config)
+        raise RuntimeError(
+            "UNIT 8 DEMO SAFETY GATE FAILED"
+        )
+
+    symbol, base_coin, quote_coin = (
+        unit_8_v13_symbol(config)
+    )
 
     if unit7.get("symbol") != symbol:
-        raise RuntimeError("UNIT 8 UNIT 7 SYMBOL MISMATCH")
-
-    direction = unit7.get("direction")
+        raise RuntimeError(
+            "UNIT 8 UNIT 7 SYMBOL MISMATCH"
+        )
 
     result = {
         "unit": 8,
-        "version": "V12_UNIVERSAL_DEMO_READ_VERIFY",
+        "version": "V13_OBSERVED_DEMO_DISCOVERY",
         "symbol": symbol,
         "market_symbol": symbol,
-        "demo_order_symbol": demo_candidate,
-        "demo_symbol_candidate": demo_candidate,
-        "active_mode": unit7.get("active_mode"),
-        "direction": direction,
-        "execution_intent": unit7.get("execution_intent") is True,
+        "base_coin": base_coin,
+        "quote_coin": quote_coin,
 
+        "active_mode": unit7.get("active_mode"),
+        "direction": unit7.get("direction"),
+        "execution_intent":
+            unit7.get("execution_intent") is True,
+
+        "public_contract_list_verified": False,
         "market_contract_verified": False,
         "api_trading_symbol_verified": False,
-        "demo_symbol_verified": False,
-        "demo_contract_verified": False,
-        "contract_precision_verified": False,
-        "contract_value_verified": False,
 
+        "demo_positions_read_verified": False,
+        "demo_history_read_verified": False,
         "demo_balance_verified": False,
-        "demo_positions_verified": False,
-        "demo_order_history_verified": False,
+
+        "demo_symbol_verified": False,
+        "demo_order_symbol": None,
+        "demo_symbol_discovery_method": None,
+        "demo_symbol_evidence": [],
+
+        "demo_contract_verified": False,
+        "demo_order_permission_verified": False,
+
         "account_config_verified": False,
         "account_can_trade": None,
         "account_dual_side_enabled": None,
@@ -8887,197 +8704,88 @@ def unit_8_v12_main():
         "committed_margin": None,
 
         "minimum_quantity": None,
+        "maximum_quantity": None,
         "quantity_step": None,
         "price_step": None,
         "contract_multiplier": None,
+
+        "contract": None,
         "size_preview": None,
-        "verified_entry_sizing": None,
 
         "trade_plan_ready": False,
-        "demo_order_permission_verified": False,
         "execution_authorized": False,
         "real_cash_execution_enabled": False,
         "exchange_write": False,
         "read_only": True,
-        "status": "BLOCKED",
-        "reason": "VERIFICATION_PENDING",
+
+        "status": "STARTING",
+        "reason": "DISCOVERY_PENDING",
         "checked_at_ms": int(time.time() * 1000),
     }
 
+    public_symbols = set()
+    position_rows = []
+    history_rows = []
+    contract = None
+    rules = None
+
+    # --------------------------------------------------------
+    # A. PUBLIC CONTRACT DISCOVERY
+    # --------------------------------------------------------
+
     try:
-        # A. Verify selected live/API market contract.
-        contract = unit_8_v12_contract_info(symbol)
-        result["contract"] = contract
-        result["market_contract_verified"] = True
-        result["contract_precision_verified"] = True
-        result["contract_value_verified"] = True
-        result["minimum_quantity"] = contract["minimum_quantity"]
-        result["quantity_step"] = contract["quantity_step"]
-        result["price_step"] = contract["price_step"]
-        result["contract_multiplier"] = contract["contract_value"]
 
-        # B. Verify public API trading eligibility.
-        result["api_trading_symbol_verified"] = (
-            unit_8_v12_api_symbol_check(symbol)
+        contracts = unit_8_v13_exchange_info()
+
+        public_symbols = {
+            str(item.get("symbol", "")).upper()
+            for item in contracts
+            if isinstance(item, dict)
+            and item.get("symbol")
+        }
+
+        result["public_contract_list_verified"] = (
+            bool(public_symbols)
         )
 
-        # C. Read demo balance.
-        balance = unit_8_v12_balance(
-            unit_8_v12_private_get("/capi/v3/sim/balance")
-        )
-        result["balance"] = balance
-        result["demo_balance_verified"] = True
-        result["available_balance"] = balance["available_balance"]
-
-        raw_balance = balance["raw"]
-
-        if raw_balance.get("equity") is not None:
-            result["account_equity"] = unit_8_v12_text(
-                unit_8_v12_number(
-                    raw_balance["equity"],
-                    "ACCOUNT EQUITY",
-                    allow_zero=True
-                )
-            )
-
-        for field in ("usedMargin", "marginUsed", "positionMargin"):
-            if raw_balance.get(field) is not None:
-                result["committed_margin"] = unit_8_v12_text(
-                    unit_8_v12_number(
-                        raw_balance[field],
-                        "COMMITTED MARGIN",
-                        allow_zero=True
-                    )
-                )
-                break
-
-        # D. Read demo positions. Only the derived demo symbol counts.
-        positions, totals = unit_8_v12_positions(
-            unit_8_v12_private_get(
-                "/capi/v3/sim/position/allPosition"
-            ),
-            demo_candidate
-        )
-        result["positions"] = positions
-        result["demo_positions_verified"] = True
-        result["long_position_quantity"] = totals["LONG"]
-        result["short_position_quantity"] = totals["SHORT"]
-        result["position_flat_verified"] = len(positions) == 0
-
-        # E. Read demo order history without assuming an empty result
-        # proves that the candidate symbol is listed.
-        history = unit_8_v12_private_get(
-            "/capi/v3/sim/order/history",
-            {"limit": 500, "page": 0}
-        )
-        history_evidence = unit_8_v12_history_evidence(
-            history, demo_candidate
-        )
-        result["demo_order_history_verified"] = True
-        result["demo_history_evidence"] = history_evidence
-
-        result["demo_symbol_verified"] = bool(
-            positions or history_evidence["observed_demo_symbol"]
-        )
-        result["demo_contract_verified"] = bool(
-            result["market_contract_verified"]
-            and result["demo_symbol_verified"]
+        contract = unit_8_v13_find_contract(
+            contracts,
+            symbol
         )
 
-        # F. Read account configuration, but do not mislabel it as
-        # proof that the demo account itself is in hedge mode.
-        account = unit_8_v12_private_get(
-            "/capi/v3/account/accountConfig"
-        )
+        if contract is not None:
 
-        if not isinstance(account, dict):
-            raise RuntimeError("UNIT 8 ACCOUNT CONFIG INVALID")
-
-        dual = account.get("dualSidePosition")
-        if type(dual) is not bool:
-            raise RuntimeError("UNIT 8 ACCOUNT DUAL-SIDE FIELD INVALID")
-
-        result["account_config_verified"] = True
-        result["account_dual_side_enabled"] = dual
-
-        can_trade = account.get("canTrade")
-        result["account_can_trade"] = (
-            can_trade if type(can_trade) is bool else None
-        )
-
-        both_open_sides = (
-            Decimal(totals["LONG"]) > 0
-            and Decimal(totals["SHORT"]) > 0
-        )
-
-        result["demo_dual_side_mode_verified"] = bool(
-            both_open_sides
-            or history_evidence["dual_side_history_evidence"]
-        )
-
-        # G. Use the actual Unit 3 mark-price field ("price").
-        market = globals().get(
-            "FRESH_RECONSTRUCTION_MARKET_SNAPSHOT"
-        )
-        if not isinstance(market, dict):
-            market = globals().get(
-                "FRESH_RECONSTRUCTION_UNIT_3_RESULT"
-            )
-
-        mark_price = None
-        if isinstance(market, dict) and market.get("symbol") == symbol:
-            mark_price = market.get("price", market.get("mark_price"))
-
-        # Use Unit 7's selected margin/leverage, preserving its handover.
-        margin = unit7.get("entry_margin_usdt")
-        leverage = unit7.get("leverage")
-
-        if margin is None:
-            margin = config.get("initial_entry_margin_usdt")
-
-        if leverage is None:
-            strategy = config.get("strategy", {})
-            leverage_key = (
-                "long_leverage" if direction == "LONG"
-                else "short_leverage"
-            )
-            leverage = strategy.get(leverage_key)
-
-        if (
-            direction in ("LONG", "SHORT")
-            and mark_price is not None
-            and margin is not None
-            and leverage is not None
-        ):
-            preview = unit_8_v12_size_preview(
-                margin,
-                leverage,
-                mark_price,
+            rules = unit_8_v13_contract_rules(
                 contract
             )
-            result["size_preview"] = preview
-            result["verified_entry_sizing"] = preview
 
-        # H. Read-only verification status. No demo order is submitted.
-        if not result["demo_symbol_verified"]:
-            result["status"] = "READ_COMPLETE"
-            result["reason"] = (
-                "DEMO_SYMBOL_CANDIDATE_NOT_OBSERVED_IN_POSITIONS_OR_HISTORY"
+            result["contract"] = rules
+            result["market_contract_verified"] = True
+
+            result["minimum_quantity"] = (
+                rules["minimum_quantity"]
             )
-        elif not result["demo_dual_side_mode_verified"]:
-            result["status"] = "READ_COMPLETE"
-            result["reason"] = (
-                "DEMO_SYMBOL_OBSERVED_BUT_DEMO_HEDGE_MODE_NOT_PROVEN"
+
+            result["maximum_quantity"] = (
+                rules["maximum_quantity"]
             )
-        elif result["account_can_trade"] is not True:
-            result["status"] = "READ_COMPLETE"
-            result["reason"] = (
-                "DEMO_SYMBOL_AND_HEDGE_EVIDENCE_FOUND_ACCOUNT_TRADE_PERMISSION_UNVERIFIED"
+
+            result["quantity_step"] = (
+                rules["quantity_step"]
             )
+
+            result["price_step"] = (
+                rules["price_step"]
+            )
+
+            result["contract_multiplier"] = (
+                rules["contract_multiplier"]
+            )
+
         else:
-            result["status"] = "READ_COMPLETE"
-            result["reason"] = (
-                "READ_VERIFICATION_COMPLETE_ORDER_PERMISSION_NOT_TESTED"
+
+            result["market_contract_error"] = (
+                "SELECTED_MARKET_CONTRACT_NOT_FOUND"
             )
 
     except (
@@ -9086,162 +8794,793 @@ def unit_8_v12_main():
         KeyError,
         TypeError
     ) as exc:
-        result["status"] = "READ_BLOCKED"
-        result["reason"] = str(exc)
 
-    # Unit 8 is deliberately read-only. Unit 12 owns new-entry gating.
-    result["trade_plan_ready"] = False
+        result["public_contract_error"] = str(exc)
+
+    # --------------------------------------------------------
+    # B. API TRADING SYMBOL ELIGIBILITY
+    # --------------------------------------------------------
+
+    try:
+
+        api_symbols = unit_8_v13_api_symbols()
+
+        result["api_trading_symbol_verified"] = (
+            symbol in api_symbols
+        )
+
+        result["api_trading_symbol_count"] = len(
+            api_symbols
+        )
+
+    except (
+        RuntimeError,
+        ValueError,
+        KeyError,
+        TypeError
+    ) as exc:
+
+        result["api_symbol_error"] = str(exc)
+
+    # --------------------------------------------------------
+    # C. DEMO BALANCE
+    # --------------------------------------------------------
+
+    try:
+
+        balance = unit_8_v13_balance(
+            unit_8_v13_private_get(
+                "/capi/v3/sim/balance"
+            )
+        )
+
+        result["balance"] = balance
+        result["demo_balance_verified"] = True
+
+        result["available_balance"] = (
+            balance["available_balance"]
+        )
+
+        raw_balance = balance["raw"]
+
+        if raw_balance.get("equity") is not None:
+
+            result["account_equity"] = (
+                unit_8_v13_string(
+                    unit_8_v13_number(
+                        raw_balance["equity"],
+                        "ACCOUNT EQUITY",
+                        allow_zero=True
+                    )
+                )
+            )
+
+        for field in (
+            "usedMargin",
+            "marginUsed",
+            "positionMargin"
+        ):
+
+            if raw_balance.get(field) is not None:
+
+                result["committed_margin"] = (
+                    unit_8_v13_string(
+                        unit_8_v13_number(
+                            raw_balance[field],
+                            "COMMITTED MARGIN",
+                            allow_zero=True
+                        )
+                    )
+                )
+
+                break
+
+    except (
+        RuntimeError,
+        ValueError,
+        KeyError,
+        TypeError
+    ) as exc:
+
+        result["demo_balance_error"] = str(exc)
+
+    # --------------------------------------------------------
+    # D. UNFILTERED DEMO POSITIONS
+    # --------------------------------------------------------
+
+    try:
+
+        raw_positions = unit_8_v13_private_get(
+            "/capi/v3/sim/position/allPosition"
+        )
+
+        position_rows = unit_8_v13_position_rows(
+            raw_positions
+        )
+
+        result["demo_positions_read_verified"] = True
+
+        result["demo_position_record_count"] = len(
+            position_rows
+        )
+
+    except (
+        RuntimeError,
+        ValueError,
+        KeyError,
+        TypeError
+    ) as exc:
+
+        result["demo_positions_error"] = str(exc)
+
+    # --------------------------------------------------------
+    # E. UNFILTERED DEMO ORDER HISTORY
+    # --------------------------------------------------------
+
+    try:
+
+        raw_history = unit_8_v13_private_get(
+            "/capi/v3/sim/order/history",
+            {
+                "limit": 1000,
+                "page": 0,
+            }
+        )
+
+        history_rows = unit_8_v13_history_rows(
+            raw_history
+        )
+
+        result["demo_history_read_verified"] = True
+
+        result["demo_history_record_count"] = len(
+            history_rows
+        )
+
+    except (
+        RuntimeError,
+        ValueError,
+        KeyError,
+        TypeError
+    ) as exc:
+
+        result["demo_history_error"] = str(exc)
+
+    # --------------------------------------------------------
+    # F. DISCOVER OBSERVED DEMO SYMBOL
+    # --------------------------------------------------------
+
+    if public_symbols and (
+        result["demo_positions_read_verified"]
+        or result["demo_history_read_verified"]
+    ):
+
+        discovery = unit_8_v13_discover_demo_symbol(
+            position_rows,
+            history_rows,
+            public_symbols,
+            symbol
+        )
+
+        result["demo_symbol_discovery"] = discovery
+
+        result["demo_symbol_verified"] = (
+            discovery["verified"]
+        )
+
+        result["demo_order_symbol"] = (
+            discovery["demo_symbol"]
+        )
+
+        result["demo_symbol_evidence"] = (
+            discovery["evidence"]
+        )
+
+        result["demo_symbol_discovery_method"] = (
+            (
+                discovery["evidence"][0]["discovery_method"]
+                if discovery["evidence"]
+                else None
+            )
+        )
+
+        result["demo_symbol_discovery_reason"] = (
+            discovery["reason"]
+        )
+
+    else:
+
+        result["demo_symbol_discovery_reason"] = (
+            "PUBLIC_OR_DEMO_READ_NOT_AVAILABLE"
+        )
+
+    # --------------------------------------------------------
+    # G. DEMO CONTRACT VERIFICATION
+    # --------------------------------------------------------
+
+    result["demo_contract_verified"] = bool(
+        result["market_contract_verified"]
+        and result["api_trading_symbol_verified"]
+        and result["demo_symbol_verified"]
+    )
+
+    # --------------------------------------------------------
+    # H. SELECTED DEMO POSITIONS
+    # --------------------------------------------------------
+
+    demo_symbol = result.get("demo_order_symbol")
+
+    if demo_symbol:
+
+        side_data = unit_8_v13_side_evidence(
+            position_rows,
+            history_rows,
+            demo_symbol
+        )
+
+        result["positions"] = side_data["positions"]
+
+        result["long_position_quantity"] = (
+            side_data["long_position_quantity"]
+        )
+
+        result["short_position_quantity"] = (
+            side_data["short_position_quantity"]
+        )
+
+        result["position_flat_verified"] = (
+            len(side_data["positions"]) == 0
+        )
+
+        result["demo_dual_side_mode_verified"] = (
+            side_data["demo_dual_side_evidence"]
+        )
+
+        result["side_evidence"] = side_data
+
+    # --------------------------------------------------------
+    # I. ACCOUNT CONFIGURATION
+    # --------------------------------------------------------
+
+    try:
+
+        account = unit_8_v13_private_get(
+            "/capi/v3/account/accountConfig"
+        )
+
+        if isinstance(account, dict):
+
+            result["account_config_verified"] = True
+
+            can_trade = account.get("canTrade")
+
+            if type(can_trade) is bool:
+                result["account_can_trade"] = can_trade
+
+            dual = account.get("dualSidePosition")
+
+            if type(dual) is bool:
+                result["account_dual_side_enabled"] = dual
+
+        else:
+
+            result["account_config_error"] = (
+                "ACCOUNT CONFIG RESPONSE NOT OBJECT"
+            )
+
+    except (
+        RuntimeError,
+        ValueError,
+        KeyError,
+        TypeError
+    ) as exc:
+
+        result["account_config_error"] = str(exc)
+
+    # --------------------------------------------------------
+    # J. OPTIONAL SIZE PREVIEW
+    # --------------------------------------------------------
+
+    market = globals().get(
+        "FRESH_RECONSTRUCTION_MARKET_SNAPSHOT"
+    )
+
+    if not isinstance(market, dict):
+
+        market = globals().get(
+            "FRESH_RECONSTRUCTION_UNIT_3_RESULT"
+        )
+
+    mark_price = None
+
+    if isinstance(market, dict):
+
+        if market.get("symbol") == symbol:
+
+            mark_price = market.get("mark_price")
+
+    direction = unit7.get("direction")
+
+    if (
+        rules is not None
+        and direction in ("LONG", "SHORT")
+        and mark_price is not None
+    ):
+
+        try:
+
+            result["size_preview"] = (
+                unit_8_v13_size_preview(
+                    config,
+                    rules,
+                    mark_price,
+                    direction
+                )
+            )
+
+        except (
+            RuntimeError,
+            ValueError,
+            KeyError,
+            TypeError
+        ) as exc:
+
+            result["size_preview_error"] = str(exc)
+
+    # --------------------------------------------------------
+    # K. FINAL STATUS
+    # --------------------------------------------------------
+
+    all_reads_ok = all((
+        result["public_contract_list_verified"],
+        result["demo_balance_verified"],
+        result["demo_positions_read_verified"],
+        result["demo_history_read_verified"],
+    ))
+
+    if not all_reads_ok:
+
+        result["status"] = "READ_PARTIAL"
+
+        result["reason"] = (
+            "ONE_OR_MORE_EXCHANGE_READS_FAILED"
+        )
+
+    elif not result["market_contract_verified"]:
+
+        result["status"] = "READ_COMPLETE"
+
+        result["reason"] = (
+            "SELECTED_MARKET_CONTRACT_NOT_FOUND"
+        )
+
+    elif not result["api_trading_symbol_verified"]:
+
+        result["status"] = "READ_COMPLETE"
+
+        result["reason"] = (
+            "MARKET_CONTRACT_NOT_API_TRADABLE"
+        )
+
+    elif not result["demo_symbol_verified"]:
+
+        result["status"] = "READ_COMPLETE"
+
+        result["reason"] = (
+            "DEMO_SYMBOL_NOT_YET_DISCOVERED"
+        )
+
+    else:
+
+        result["status"] = "READ_COMPLETE"
+
+        result["reason"] = (
+            "PUBLIC_MARKET_AND_OBSERVED_DEMO_SYMBOL_VERIFIED"
+        )
+
+    # V13 is discovery and verification only.
+    # It does not submit a demo or real order.
+
     result["demo_order_permission_verified"] = False
+    result["trade_plan_ready"] = False
     result["execution_authorized"] = False
-    result["exchange_write"] = False
     result["real_cash_execution_enabled"] = False
+    result["exchange_write"] = False
     result["read_only"] = True
 
-    print("=" * 76, flush=True)
-    print("UNIT 8 V12 MARKET SYMBOL =", symbol, flush=True)
-    print("UNIT 8 V12 DEMO SYMBOL CANDIDATE =", demo_candidate, flush=True)
+    result["checked_at_ms"] = int(
+        time.time() * 1000
+    )
 
-    for field in (
-        "market_contract_verified",
-        "api_trading_symbol_verified",
-        "demo_symbol_verified",
-        "demo_contract_verified",
-        "contract_precision_verified",
-        "contract_value_verified",
-        "demo_balance_verified",
-        "demo_positions_verified",
-        "demo_order_history_verified",
-        "account_config_verified",
-        "account_can_trade",
-        "account_dual_side_enabled",
-        "demo_dual_side_mode_verified",
-        "position_flat_verified",
-        "available_balance",
-        "minimum_quantity",
-        "quantity_step",
-        "price_step",
-        "contract_multiplier",
-        "status",
-        "reason",
-    ):
-        print("UNIT 8", field.upper(), "=", result.get(field), flush=True)
+    # --------------------------------------------------------
+    # L. RENDER LOGS
+    # --------------------------------------------------------
+
+    print("=" * 76, flush=True)
+
+    print(
+        "UNIT 8 V13 MARKET SYMBOL =",
+        symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 V13 BASE COIN =",
+        base_coin,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 PUBLIC CONTRACT LIST VERIFIED =",
+        result["public_contract_list_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 MARKET CONTRACT VERIFIED =",
+        result["market_contract_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 API TRADING SYMBOL VERIFIED =",
+        result["api_trading_symbol_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DEMO POSITIONS READ VERIFIED =",
+        result["demo_positions_read_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DEMO HISTORY READ VERIFIED =",
+        result["demo_history_read_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DEMO HISTORY RECORD COUNT =",
+        result.get("demo_history_record_count"),
+        flush=True
+    )
+
+    print(
+        "UNIT 8 OBSERVED DEMO SYMBOL =",
+        result["demo_order_symbol"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DEMO SYMBOL DISCOVERY METHOD =",
+        result["demo_symbol_discovery_method"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DEMO SYMBOL DISCOVERY REASON =",
+        result["demo_symbol_discovery_reason"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DEMO CONTRACT VERIFIED =",
+        result["demo_contract_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DEMO BALANCE VERIFIED =",
+        result["demo_balance_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 AVAILABLE BALANCE =",
+        result["available_balance"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 ACCOUNT CONFIG VERIFIED =",
+        result["account_config_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 ACCOUNT CAN TRADE =",
+        result["account_can_trade"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 ACCOUNT DUAL SIDE =",
+        result["account_dual_side_enabled"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DEMO DUAL SIDE EVIDENCE =",
+        result["demo_dual_side_mode_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 POSITION FLAT VERIFIED =",
+        result["position_flat_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 LONG POSITION QUANTITY =",
+        result["long_position_quantity"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 SHORT POSITION QUANTITY =",
+        result["short_position_quantity"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 MINIMUM QUANTITY =",
+        result["minimum_quantity"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 QUANTITY STEP =",
+        result["quantity_step"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 PRICE STEP =",
+        result["price_step"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 CONTRACT MULTIPLIER =",
+        result["contract_multiplier"],
+        flush=True
+    )
 
     if result.get("size_preview") is not None:
+
         print(
-            "UNIT 8 VERIFIED BASE-ASSET SIZE PREVIEW =",
+            "UNIT 8 SIZE PREVIEW =",
             result["size_preview"],
             flush=True
         )
 
-    print("UNIT 8 EXECUTION AUTHORIZED = False", flush=True)
-    print("UNIT 8 EXCHANGE WRITE = NONE", flush=True)
+    if result.get("size_preview_error"):
+
+        print(
+            "UNIT 8 SIZE PREVIEW ERROR =",
+            result["size_preview_error"],
+            flush=True
+        )
+
+    for key in (
+        "public_contract_error",
+        "api_symbol_error",
+        "demo_balance_error",
+        "demo_positions_error",
+        "demo_history_error",
+        "account_config_error"
+    ):
+
+        if result.get(key):
+
+            print(
+                "UNIT 8",
+                key.upper(),
+                "=",
+                result[key],
+                flush=True
+            )
+
+    print(
+        "UNIT 8 STATUS =",
+        result["status"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 REASON =",
+        result["reason"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DEMO ORDER PERMISSION VERIFIED = FALSE",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 EXECUTION AUTHORIZED = FALSE",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
     print("=" * 76, flush=True)
 
     return result
 
 
 # ============================================================
-# 8.8 OFFLINE VALIDATION
+# 8.16 OFFLINE VALIDATION
 # ============================================================
 
-def unit_8_v12_tests():
+def unit_8_v13_tests():
 
-    config = {
+    tests = {}
+
+    # Selected symbol is taken from market config.
+    test_config = {
         "exchange": {
-            "market_symbol": "NEARUSDT",
-            "demo_order_symbol": "NEARSUSDT",
+            "market_symbol": "NEARUSDT"
         }
     }
 
-    assert unit_8_v12_symbol(config) == (
-        "NEARUSDT", "NEARSUSDT"
+    symbol, base, quote = unit_8_v13_symbol(
+        test_config
     )
 
-    assert unit_8_v12_text(Decimal("1.200")) == "1.2"
+    tests["UNIVERSAL MARKET SYMBOL"] = (
+        symbol == "NEARUSDT"
+        and base == "NEAR"
+        and quote == "USDT"
+    )
 
-    balance = unit_8_v12_balance([
+    public_symbols = {
+        "NEARUSDT",
+        "BTCUSDT",
+        "ETHUSDT"
+    }
+
+    # A demo symbol is accepted only when
+    # WEEX has actually returned it in a record.
+    observed = unit_8_v13_observed_demo_symbol(
         {
-            "asset": "SUSDT",
-            "availableBalance": "100"
-        }
-    ])
-    assert balance["available_balance"] == "100"
-
-    positions, totals = unit_8_v12_positions(
-        [
-            {
-                "symbol": "NEARSUSDT",
-                "size": "4",
-                "positionSide": "LONG"
-            },
-            {
-                "symbol": "NEARSUSDT",
-                "size": "2",
-                "positionSide": "SHORT"
-            },
-            {
-                "symbol": "BTCUSDT",
-                "size": "99",
-                "positionSide": "LONG"
-            }
-        ],
-        "NEARSUSDT"
+            "symbol": "NEARSUSDT",
+            "positionSide": "LONG"
+        },
+        public_symbols,
+        "NEARUSDT"
     )
 
-    assert len(positions) == 2
-    assert totals["LONG"] == "4"
-    assert totals["SHORT"] == "2"
-
-    history = unit_8_v12_history_evidence(
-        [
-            {"symbol": "NEARSUSDT", "positionSide": "LONG", "executedQty": "1"},
-            {"symbol": "NEARSUSDT", "positionSide": "SHORT", "executedQty": "1"},
-            {"symbol": "BTCUSDT", "positionSide": "LONG", "executedQty": "1"}
-        ],
-        "NEARSUSDT"
-    )
-    assert history["observed_demo_symbol"] is True
-    assert history["dual_side_history_evidence"] is True
-
-    contract = {
-        "minimum_quantity": "0.0001",
-        "maximum_quantity": "1000",
-        "quantity_step": "0.000001",
-        "contract_value": "0.000001",
-        "minimum_leverage": "1",
-        "maximum_leverage": "100",
-    }
-
-    preview = unit_8_v12_size_preview(
-        "0.5",
-        "10",
-        "5",
-        contract
+    tests["OBSERVED DEMO SYMBOL MATCH"] = (
+        observed is not None
+        and observed["demo_symbol"] == "NEARSUSDT"
     )
 
-    # 0.5 USDT margin * 10x / 5 USDT = 1 base coin.
-    # contract_value must not be multiplied into base-asset order qty.
-    assert preview["order_quantity_base_asset"] == "1"
-    assert preview["initial_order_quantity_valid"] is True
+    # No record means no discovery.
+    not_observed = unit_8_v13_discover_demo_symbol(
+        [],
+        [],
+        public_symbols,
+        "NEARUSDT"
+    )
+
+    tests["NO INVENTED DEMO SYMBOL"] = (
+        not_observed["verified"] is False
+        and not_observed["demo_symbol"] is None
+    )
+
+    # Other coin's demo symbol must not be
+    # mistaken for the selected coin.
+    wrong_coin = unit_8_v13_observed_demo_symbol(
+        {
+            "symbol": "BTCSUSDT"
+        },
+        public_symbols,
+        "NEARUSDT"
+    )
+
+    tests["REJECT OTHER COIN DEMO SYMBOL"] = (
+        wrong_coin is None
+    )
+
+    # Explicit base-asset evidence is preferred.
+    explicit = unit_8_v13_observed_demo_symbol(
+        {
+            "symbol": "NEAR-DEMO",
+            "baseAsset": "NEAR"
+        },
+        public_symbols,
+        "NEARUSDT"
+    )
+
+    tests["EXPLICIT BASE ASSET MATCH"] = (
+        explicit is not None
+        and explicit["demo_symbol"] == "NEAR-DEMO"
+    )
+
+    tests["SAFE DECIMAL"] = (
+        unit_8_v13_number(
+            "0",
+            "TEST",
+            allow_zero=True
+        ) == 0
+    )
+
+    tests["DECIMAL FORMAT"] = (
+        unit_8_v13_string(
+            Decimal("1.200")
+        ) == "1.2"
+    )
+
+    passed = 0
+    failed = 0
+
+    print("=" * 76, flush=True)
 
     print(
-        "UNIT 8 V12 OFFLINE VALIDATION = PASS",
+        "UNIT 8 V13 OFFLINE VALIDATION START",
         flush=True
     )
+
+    for name, condition in tests.items():
+
+        if condition:
+            passed += 1
+        else:
+            failed += 1
+
+        print(
+            "UNIT 8 TEST:",
+            name,
+            "=",
+            "PASS" if condition else "FAIL",
+            flush=True
+        )
+
+    print(
+        "UNIT 8 TESTS PASSED =",
+        passed,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 TESTS FAILED =",
+        failed,
+        flush=True
+    )
+
+    if failed:
+
+        raise RuntimeError(
+            "UNIT 8 V13 OFFLINE VALIDATION FAILED"
+        )
+
+    print(
+        "UNIT 8 V13 OFFLINE VALIDATION = PASS",
+        flush=True
+    )
+
+    print("=" * 76, flush=True)
 
     return True
 
 
 # ============================================================
-# 8.9 STARTUP AND GLOBAL HANDOVER
+# 8.17 STARTUP AND GLOBAL HANDOVER
 # ============================================================
 
 FRESH_UNIT_8_VALIDATION_READY = (
-    unit_8_v12_tests()
+    unit_8_v13_tests()
 )
 
 FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
-    unit_8_v12_main()
+    unit_8_v13_main()
 )
 
 FRESH_UNIT_8_OPTIMIZATION_READY = (
@@ -9249,14 +9588,39 @@ FRESH_UNIT_8_OPTIMIZATION_READY = (
 )
 
 FRESH_UNIT_8_VERIFIED_CONTRACT = (
-    FRESH_RECONSTRUCTION_UNIT_8_RESULT.get("contract")
-    if isinstance(FRESH_RECONSTRUCTION_UNIT_8_RESULT, dict)
-    else None
+    FRESH_RECONSTRUCTION_UNIT_8_RESULT.get(
+        "contract"
+    )
+)
+
+print(
+    "UNIT 8 UNIVERSAL OPTIMIZATION READY =",
+    FRESH_UNIT_8_OPTIMIZATION_READY,
+    flush=True
+)
+
+print(
+    "UNIT 8 DEMO SYMBOL OBSERVED =",
+    FRESH_RECONSTRUCTION_UNIT_8_RESULT.get(
+        "demo_order_symbol"
+    ),
+    flush=True
+)
+
+print(
+    "UNIT 8 EXECUTION AUTHORIZED = FALSE",
+    flush=True
+)
+
+print(
+    "UNIT 8 EXCHANGE WRITE = NONE",
+    flush=True
 )
 
 # ============================================================
-# END UNIT 8 V12 — ZERO INDENTATION
+# END COMPLETE UNIT 8 V13
 # UNIT 9 FOLLOWS
+# ZERO INDENTATION
 # ============================================================
 
 
