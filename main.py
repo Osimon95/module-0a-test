@@ -7481,6 +7481,750 @@ print(
 
 
 # ============================================================
+# START UNIT 8 V13 — PART 1 OF 2
+# UNIVERSAL PUBLIC CONTRACT DISCOVERY
+# OBSERVED DEMO SYMBOL DISCOVERY
+# UNITS 1–7 REMAIN UNCHANGED
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import re
+import json
+import time
+import hmac
+import base64
+import hashlib
+import urllib.request
+import urllib.error
+
+from urllib.parse import urlencode
+from decimal import Decimal, InvalidOperation, ROUND_FLOOR
+
+
+UNIT_8_V13_BASE_URL = "https://api-contract.weex.com"
+
+UNIT_8_V13_PUBLIC_PATHS = frozenset({
+    "/capi/v3/market/exchangeInfo",
+    "/capi/v3/market/apiTradingSymbols",
+})
+
+UNIT_8_V13_PRIVATE_PATHS = frozenset({
+    "/capi/v3/sim/balance",
+    "/capi/v3/sim/position/allPosition",
+    "/capi/v3/sim/order/history",
+    "/capi/v3/account/accountConfig",
+})
+
+
+# ============================================================
+# 8.1 SAFE DATA CONVERSION
+# ============================================================
+
+def unit_8_v13_number(
+    value,
+    label,
+    allow_zero=False
+):
+
+    if isinstance(value, bool):
+        raise ValueError(label + ": BOOLEAN")
+
+    try:
+        number = Decimal(str(value))
+
+    except (
+        InvalidOperation,
+        ValueError,
+        TypeError
+    ) as exc:
+
+        raise ValueError(
+            label + ": INVALID"
+        ) from exc
+
+    if not number.is_finite():
+        raise ValueError(label + ": NONFINITE")
+
+    if number < 0 or (
+        number == 0 and not allow_zero
+    ):
+        raise ValueError(label + ": RANGE")
+
+    return number
+
+
+def unit_8_v13_string(value):
+
+    return format(
+        Decimal(str(value)).normalize(),
+        "f"
+    )
+
+
+# ============================================================
+# 8.2 RESPONSE UNWRAPPING
+# ============================================================
+
+def unit_8_v13_unwrap(payload):
+
+    if not isinstance(payload, (dict, list)):
+        raise RuntimeError(
+            "UNIT 8 RESPONSE STRUCTURE INVALID"
+        )
+
+    if isinstance(payload, list):
+        return payload
+
+    code = payload.get("code")
+
+    if (
+        code is not None
+        and str(code) not in (
+            "0",
+            "200",
+            "00000"
+        )
+    ):
+
+        raise RuntimeError(
+            "UNIT 8 WEEX RESPONSE CODE "
+            + str(code)
+        )
+
+    if "data" in payload:
+        return payload["data"]
+
+    return payload
+
+
+def unit_8_v13_rows(payload):
+
+    if isinstance(payload, list):
+        return payload
+
+    if isinstance(payload, dict):
+
+        for key in (
+            "symbols",
+            "list",
+            "rows",
+            "records",
+            "orders",
+            "positions"
+        ):
+
+            value = payload.get(key)
+
+            if isinstance(value, list):
+                return value
+
+    raise RuntimeError(
+        "UNIT 8 EXPECTED LIST NOT FOUND"
+    )
+
+
+# ============================================================
+# 8.3 PUBLIC GET
+# ============================================================
+
+def unit_8_v13_public_get(
+    path,
+    params=None
+):
+
+    if path not in UNIT_8_V13_PUBLIC_PATHS:
+        raise RuntimeError(
+            "UNIT 8 PUBLIC PATH BLOCKED"
+        )
+
+    query = urlencode(params or {})
+
+    url = (
+        UNIT_8_V13_BASE_URL
+        + path
+        + ("?" + query if query else "")
+    )
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "WEEX-UNIT8-V13"
+        },
+        method="GET"
+    )
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15
+        ) as response:
+
+            payload = json.loads(
+                response.read().decode("utf-8")
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        body = ""
+
+        try:
+            body = exc.read().decode("utf-8")[:500]
+        except Exception:
+            pass
+
+        raise RuntimeError(
+            "UNIT 8 PUBLIC HTTP "
+            + str(exc.code)
+            + " "
+            + body
+        ) from exc
+
+    except (
+        urllib.error.URLError,
+        TimeoutError
+    ) as exc:
+
+        raise RuntimeError(
+            "UNIT 8 PUBLIC NETWORK FAILURE"
+        ) from exc
+
+    return unit_8_v13_unwrap(payload)
+
+
+# ============================================================
+# 8.4 AUTHENTICATED DEMO GET
+# ============================================================
+
+def unit_8_v13_private_get(
+    path,
+    params=None
+):
+
+    if path not in UNIT_8_V13_PRIVATE_PATHS:
+        raise RuntimeError(
+            "UNIT 8 PRIVATE PATH BLOCKED"
+        )
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        raise RuntimeError(
+            "UNIT 8 API CREDENTIALS MISSING"
+        )
+
+    query = urlencode(params or {})
+
+    target = (
+        path
+        + ("?" + query if query else "")
+    )
+
+    timestamp = str(
+        int(time.time() * 1000)
+    )
+
+    message = (
+        timestamp
+        + "GET"
+        + target
+    )
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode(),
+            message.encode(),
+            hashlib.sha256
+        ).digest()
+    ).decode()
+
+    request = urllib.request.Request(
+        UNIT_8_V13_BASE_URL + target,
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-PASSPHRASE": phrase,
+            "ACCESS-TIMESTAMP": timestamp,
+            "Content-Type": "application/json",
+            "locale": "en-US",
+        },
+        method="GET"
+    )
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15
+        ) as response:
+
+            payload = json.loads(
+                response.read().decode("utf-8")
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        body = ""
+
+        try:
+            body = exc.read().decode("utf-8")[:500]
+        except Exception:
+            pass
+
+        raise RuntimeError(
+            "UNIT 8 PRIVATE HTTP "
+            + str(exc.code)
+            + " "
+            + body
+        ) from exc
+
+    except (
+        urllib.error.URLError,
+        TimeoutError
+    ) as exc:
+
+        raise RuntimeError(
+            "UNIT 8 PRIVATE NETWORK FAILURE"
+        ) from exc
+
+    return unit_8_v13_unwrap(payload)
+
+
+# ============================================================
+# 8.5 SELECTED RENDER MARKET SYMBOL
+# ============================================================
+
+def unit_8_v13_symbol(config):
+
+    exchange = config.get("exchange", {})
+
+    if not isinstance(exchange, dict):
+        raise RuntimeError(
+            "UNIT 8 EXCHANGE CONFIG INVALID"
+        )
+
+    symbol = str(
+        exchange.get("market_symbol", "")
+    ).strip().upper()
+
+    if not re.fullmatch(
+        r"[A-Z0-9]{2,20}USDT",
+        symbol
+    ):
+
+        raise RuntimeError(
+            "UNIT 8 MARKET SYMBOL INVALID"
+        )
+
+    return (
+        symbol,
+        symbol[:-4],
+        "USDT"
+    )
+
+
+# ============================================================
+# 8.6 COMPLETE PUBLIC CONTRACT LIST
+# ============================================================
+
+def unit_8_v13_exchange_info():
+
+    raw = unit_8_v13_public_get(
+        "/capi/v3/market/exchangeInfo"
+    )
+
+    rows = unit_8_v13_rows(raw)
+
+    valid = []
+
+    for item in rows:
+
+        if not isinstance(item, dict):
+            continue
+
+        symbol = str(
+            item.get("symbol", "")
+        ).upper()
+
+        if not symbol:
+            continue
+
+        valid.append(item)
+
+    if not valid:
+        raise RuntimeError(
+            "UNIT 8 PUBLIC CONTRACT LIST EMPTY"
+        )
+
+    return valid
+
+
+def unit_8_v13_find_contract(
+    contracts,
+    symbol
+):
+
+    matches = [
+        item
+        for item in contracts
+        if item.get("symbol") == symbol
+    ]
+
+    if len(matches) != 1:
+        return None
+
+    item = matches[0]
+
+    if (
+        item.get("baseAsset") != symbol[:-4]
+        or item.get("quoteAsset") != "USDT"
+        or item.get("marginAsset") != "USDT"
+    ):
+        return None
+
+    if item.get("contractType") not in (
+        "PERPETUAL",
+        "TRADIFI_PERPETUAL"
+    ):
+        return None
+
+    return item
+
+
+# ============================================================
+# 8.7 PUBLIC API-TRADING SYMBOL LIST
+# ============================================================
+
+def unit_8_v13_api_symbols():
+
+    raw = unit_8_v13_public_get(
+        "/capi/v3/market/apiTradingSymbols"
+    )
+
+    if isinstance(raw, dict):
+
+        raw = unit_8_v13_rows(raw)
+
+    if not isinstance(raw, list):
+        raise RuntimeError(
+            "UNIT 8 API SYMBOL LIST INVALID"
+        )
+
+    symbols = set()
+
+    for item in raw:
+
+        if isinstance(item, str):
+
+            symbol = item
+
+        elif isinstance(item, dict):
+
+            symbol = item.get("symbol")
+
+        else:
+            continue
+
+        if isinstance(symbol, str):
+
+            symbols.add(
+                symbol.strip().upper()
+            )
+
+    if not symbols:
+        raise RuntimeError(
+            "UNIT 8 API SYMBOL LIST EMPTY"
+        )
+
+    return symbols
+
+
+# ============================================================
+# 8.8 DEMO SYMBOL DISCOVERY
+# ============================================================
+
+def unit_8_v13_observed_demo_symbol(
+    record,
+    public_symbols,
+    selected_market_symbol
+):
+
+    if not isinstance(record, dict):
+        return None
+
+    observed = str(
+        record.get("symbol", "")
+    ).strip().upper()
+
+    if not observed:
+        return None
+
+    # First preference:
+    # explicit base-asset evidence returned by WEEX.
+
+    explicit_base = None
+
+    for key in (
+        "baseAsset",
+        "baseCoin",
+        "baseCurrency"
+    ):
+
+        value = record.get(key)
+
+        if isinstance(value, str) and value:
+            explicit_base = value.upper()
+            break
+
+    if explicit_base:
+
+        if explicit_base == selected_market_symbol[:-4]:
+
+            return {
+                "demo_symbol": observed,
+                "market_symbol": selected_market_symbol,
+                "discovery_method": "EXPLICIT_BASE_ASSET",
+                "source_symbol": observed,
+            }
+
+    # Second preference:
+    # match an observed demo symbol to a real
+    # public market symbol using its observed
+    # SUSDT suffix structure.
+    #
+    # This does not create a demo symbol.
+    # The symbol must already have been returned
+    # by WEEX positions or order history.
+
+    if observed.endswith("SUSDT"):
+
+        derived_market = (
+            observed[:-5] + "USDT"
+        )
+
+        if (
+            derived_market == selected_market_symbol
+            and derived_market in public_symbols
+        ):
+
+            return {
+                "demo_symbol": observed,
+                "market_symbol": derived_market,
+                "discovery_method":
+                    "OBSERVED_DEMO_SYMBOL_MATCHED_TO_PUBLIC_MARKET",
+                "source_symbol": observed,
+            }
+
+    # Some environments may return the same
+    # symbol format in their demo records.
+
+    if (
+        observed == selected_market_symbol
+        and observed in public_symbols
+    ):
+
+        return {
+            "demo_symbol": observed,
+            "market_symbol": observed,
+            "discovery_method": "OBSERVED_EXACT_SYMBOL",
+            "source_symbol": observed,
+        }
+
+    return None
+
+
+def unit_8_v13_discover_demo_symbol(
+    position_rows,
+    history_rows,
+    public_symbols,
+    selected_market_symbol
+):
+
+    evidence = []
+
+    for source_name, rows in (
+        ("DEMO_POSITIONS", position_rows),
+        ("DEMO_ORDER_HISTORY", history_rows)
+    ):
+
+        for record in rows:
+
+            match = unit_8_v13_observed_demo_symbol(
+                record,
+                public_symbols,
+                selected_market_symbol
+            )
+
+            if match:
+
+                match["evidence_source"] = source_name
+
+                evidence.append(match)
+
+    unique = {}
+
+    for item in evidence:
+
+        key = item["demo_symbol"]
+
+        unique.setdefault(
+            key,
+            item
+        )
+
+    if len(unique) == 1:
+
+        return {
+            "verified": True,
+            "demo_symbol": next(iter(unique)),
+            "evidence": list(unique.values()),
+            "reason": "DEMO_SYMBOL_OBSERVED_AND_MATCHED",
+        }
+
+    if len(unique) > 1:
+
+        return {
+            "verified": False,
+            "demo_symbol": None,
+            "evidence": list(unique.values()),
+            "reason": "MULTIPLE_DEMO_SYMBOL_MATCHES",
+        }
+
+    return {
+        "verified": False,
+        "demo_symbol": None,
+        "evidence": [],
+        "reason": "DEMO_SYMBOL_NOT_YET_DISCOVERED",
+    }
+
+
+# ============================================================
+# 8.9 DEMO BALANCE
+# ============================================================
+
+def unit_8_v13_balance(raw):
+
+    if isinstance(raw, dict):
+        raw = [raw]
+
+    if not isinstance(raw, list):
+        raise RuntimeError(
+            "UNIT 8 DEMO BALANCE INVALID"
+        )
+
+    matches = [
+        item
+        for item in raw
+        if isinstance(item, dict)
+        and str(item.get("asset", "")).upper() == "SUSDT"
+    ]
+
+    if len(matches) != 1:
+        raise RuntimeError(
+            "UNIT 8 SUSDT BALANCE NOT UNIQUE"
+        )
+
+    row = matches[0]
+
+    available = unit_8_v13_number(
+        row.get("availableBalance"),
+        "AVAILABLE BALANCE",
+        allow_zero=True
+    )
+
+    return {
+        "verified": True,
+        "asset": "SUSDT",
+        "available_balance":
+            unit_8_v13_string(available),
+        "raw": row,
+    }
+
+
+# ============================================================
+# 8.10 DEMO POSITION PARSING
+# ============================================================
+
+def unit_8_v13_position_rows(raw):
+
+    rows = unit_8_v13_rows(raw)
+
+    positions = []
+
+    for item in rows:
+
+        if not isinstance(item, dict):
+            continue
+
+        quantity_field = next(
+            (
+                key
+                for key in (
+                    "size",
+                    "total",
+                    "holdVol",
+                    "positionAmt"
+                )
+                if item.get(key) is not None
+            ),
+            None
+        )
+
+        if quantity_field is None:
+            continue
+
+        quantity = unit_8_v13_number(
+            item[quantity_field],
+            "POSITION QUANTITY",
+            allow_zero=True
+        )
+
+        if quantity == 0:
+            continue
+
+        positions.append(item)
+
+    return positions
+
+
+# ============================================================
+# 8.11 DEMO HISTORY PARSING
+# ============================================================
+
+def unit_8_v13_history_rows(raw):
+
+    rows = unit_8_v13_rows(raw)
+
+    return [
+        item
+        for item in rows
+        if isinstance(item, dict)
+        and isinstance(item.get("symbol"), str)
+    ]
+
+
+# ============================================================
+# END UNIT 8 V13 PART 1
+# CONTINUE WITH PART 2
+# ZERO INDENTATION
+# ============================================================
+
+# ============================================================
 # START UNIT 8 V12 — ZERO INDENTATION
 # UNIVERSAL WEEX MARKET + DEMO READ VERIFICATION
 # PRESERVES UNIT 7 V12 HANDOVER
