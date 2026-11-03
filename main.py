@@ -1891,6 +1891,814 @@ FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
 # ============================================================
 
 
+
+# ============================================================
+# UNIVERSAL WEEX HYBRID BOT
+# COMPLETE UNIT 4 V4 REPLACEMENT
+# PART 1 OF 2
+#
+# ADAPTIVE MARKET TRANSITION INTELLIGENCE
+# UNIVERSAL COIN SUPPORT FROM UNIT 2
+# UNIT 3 MARKET SNAPSHOT COMPATIBILITY
+#
+# PRESERVES UNIT 5 LEGACY HANDOVER
+# PUBLIC MARKET DATA ONLY
+# NO EXCHANGE WRITES
+# ============================================================
+
+import os
+import json
+import math
+import time
+import urllib.parse
+import urllib.request
+import urllib.error
+
+from decimal import Decimal, InvalidOperation
+
+
+# ============================================================
+# 4.1 ADJUSTABLE QUALIFICATION DEFAULTS
+# ============================================================
+
+UNIT_4_V5_TUNING = {
+
+    "common": {
+        "direction_votes_required": 2,
+        "market_age_seconds_max": 120,
+    },
+
+    "breakout": {
+        "lookback_candles": 20,
+        "proximity_atr": 0.50,
+        "confirmation_atr": 0.10,
+        "maximum_extension_atr": 3.0,
+    },
+
+    "structure": {
+        "ema_alignment_mode": "EARLY",
+        "pullback_tolerance_atr": 0.75,
+        "maximum_extension_atr": 2.0,
+    },
+
+    "scalp": {
+        "ema_compression_atr_max": 0.70,
+        "range_atr_max": 8.0,
+        "momentum_atr_max": 1.50,
+        "preliminary_ema_separation_percent": 0.03,
+        "preliminary_move_5m_percent": 0.015,
+    },
+}
+
+
+# ============================================================
+# 4.2 NUMERIC AND ENVIRONMENT VALIDATION
+# ============================================================
+
+def u4v3_num(x, label, minimum=None):
+
+    if isinstance(x, bool):
+        raise RuntimeError(
+            "UNIT4 BOOLEAN NUMBER: " + label
+        )
+
+    try:
+        result = float(x)
+
+    except (
+        ValueError,
+        TypeError,
+        OverflowError,
+    ) as exc:
+        raise RuntimeError(
+            "UNIT4 INVALID " + label
+        ) from exc
+
+    if not math.isfinite(result):
+        raise RuntimeError(
+            "UNIT4 NONFINITE " + label
+        )
+
+    if minimum is not None and result < minimum:
+        raise RuntimeError(
+            "UNIT4 INVALID RANGE " + label
+        )
+
+    return result
+
+
+def u4v3_env(key, default, minimum=0):
+
+    raw = os.getenv(key, "").strip()
+
+    if not raw:
+        raw = default
+
+    return u4v3_num(
+        raw,
+        key,
+        minimum,
+    )
+
+
+def u4v4_integer_env(
+    key,
+    default,
+    minimum,
+    maximum,
+):
+
+    raw = os.getenv(key, str(default)).strip()
+
+    try:
+        value = Decimal(raw)
+
+    except (
+        InvalidOperation,
+        ValueError,
+        TypeError,
+    ) as exc:
+        raise RuntimeError(
+            "UNIT4 INVALID INTEGER " + key
+        ) from exc
+
+    if (
+        not value.is_finite()
+        or value != value.to_integral_value()
+        or value < minimum
+        or value > maximum
+    ):
+        raise RuntimeError(
+            "UNIT4 INTEGER OUT OF RANGE " + key
+        )
+
+    return int(value)
+
+
+# ============================================================
+# 4.3 EMA CALCULATION
+# ============================================================
+
+def u4v3_ema(prices, period):
+
+    if (
+        not isinstance(prices, (list, tuple))
+        or len(prices) < period
+        or period < 1
+    ):
+        raise RuntimeError(
+            "UNIT4 INSUFFICIENT EMA HISTORY"
+        )
+
+    values = [
+        u4v3_num(
+            price,
+            "EMA PRICE",
+            0.000000000001,
+        )
+        for price in prices
+    ]
+
+    result = sum(
+        values[:period]
+    ) / period
+
+    multiplier = 2.0 / (period + 1)
+
+    for price in values[period:]:
+
+        result += multiplier * (
+            price - result
+        )
+
+    return result
+
+
+# ============================================================
+# 4.4 PUBLIC WEEX CANDLE RETRIEVAL
+#
+# MARKET AND TRADED CANDLE SOURCES
+# GET ONLY
+# ============================================================
+
+def u4v3_fetch(
+    symbol,
+    interval,
+    limit,
+    kind="MARK",
+):
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    exchange = config["exchange"]
+
+    expected_symbol = exchange["market_symbol"]
+
+    if (
+        symbol != expected_symbol
+        or not isinstance(symbol, str)
+        or not symbol.endswith("USDT")
+    ):
+        raise RuntimeError(
+            "UNIT4 SYMBOL AUTHORITY MISMATCH"
+        )
+
+    if interval not in (
+        "1m",
+        "5m",
+        "15m",
+        "1h",
+    ):
+        raise RuntimeError(
+            "UNIT4 INVALID INTERVAL"
+        )
+
+    if (
+        type(limit) is not int
+        or limit < 21
+        or limit > 300
+    ):
+        raise RuntimeError(
+            "UNIT4 INVALID CANDLE LIMIT"
+        )
+
+    if kind == "MARK":
+
+        endpoint = (
+            "/capi/v3/market/markPriceKlines"
+        )
+
+    elif kind == "TRADE":
+
+        endpoint = (
+            "/capi/v3/market/klines"
+        )
+
+    else:
+        raise RuntimeError(
+            "UNIT4 INVALID CANDLE TYPE"
+        )
+
+    base_url = exchange.get(
+        "contract_base_url"
+    )
+
+    if base_url != (
+        "https://api-contract.weex.com"
+    ):
+        raise RuntimeError(
+            "UNIT4 INVALID API BASE URL"
+        )
+
+    query = urllib.parse.urlencode({
+        "symbol": symbol,
+        "interval": interval,
+        "limit": limit,
+    })
+
+    url = (
+        base_url
+        + endpoint
+        + "?"
+        + query
+    )
+
+    request = urllib.request.Request(
+        url=url,
+        method="GET",
+        headers={
+            "Accept": "application/json",
+            "User-Agent":
+                "WEEX-Universal-Unit4-V4",
+        },
+    )
+
+    if (
+        request.get_method() != "GET"
+        or request.data is not None
+    ):
+        raise RuntimeError(
+            "UNIT4 NON READ ONLY REQUEST"
+        )
+
+    timeout = u4v3_env(
+        "UNIT4_HTTP_TIMEOUT_SECONDS",
+        15,
+        1,
+    )
+
+    if timeout > 60:
+        raise RuntimeError(
+            "UNIT4 HTTP TIMEOUT TOO HIGH"
+        )
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=timeout,
+        ) as response:
+
+            if response.status != 200:
+                raise RuntimeError(
+                    "UNIT4 MARKET HTTP ERROR"
+                )
+
+            body = response.read(
+                2000000
+            ).decode("utf-8")
+
+    except urllib.error.HTTPError as exc:
+
+        raise RuntimeError(
+            "UNIT4 HTTP STATUS "
+            + str(exc.code)
+        ) from exc
+
+    except urllib.error.URLError as exc:
+
+        raise RuntimeError(
+            "UNIT4 MARKET CONNECTION FAILED"
+        ) from exc
+
+    try:
+        payload = json.loads(body)
+
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "UNIT4 INVALID MARKET JSON"
+        ) from exc
+
+    if not isinstance(payload, list):
+        raise RuntimeError(
+            "UNIT4 INVALID CANDLE RESPONSE "
+            + interval
+        )
+
+    return payload
+
+
+# ============================================================
+# 4.5 CLOSED CANDLE NORMALIZATION
+#
+# SUPPORTS SEVEN-FIELD LEGACY CANDLES.
+# TIMESTAMPS MUST BE VERIFIED.
+# ============================================================
+
+def u4v3_candles(
+    rows,
+    interval_minutes,
+    reference_time_ms,
+    minimum_history=201,
+):
+
+    if not isinstance(rows, list):
+        raise RuntimeError(
+            "UNIT4 CANDLE ROWS INVALID"
+        )
+
+    if interval_minutes not in (
+        1, 5, 15, 60
+    ):
+        raise RuntimeError(
+            "UNIT4 INVALID CANDLE MINUTES"
+        )
+
+    interval_ms = interval_minutes * 60000
+
+    reference_time_ms = int(
+        reference_time_ms
+    )
+
+    normalized = []
+
+    for row in rows:
+
+        if (
+            not isinstance(row, (list, tuple))
+            or len(row) < 7
+        ):
+            raise RuntimeError(
+                "UNIT4 INVALID CANDLE SHAPE"
+            )
+
+        try:
+            start_time = int(row[0])
+            supplied_end = int(row[6])
+
+        except (
+            ValueError,
+            TypeError,
+            OverflowError,
+        ) as exc:
+            raise RuntimeError(
+                "UNIT4 INVALID CANDLE TIME"
+            ) from exc
+
+        if start_time <= 0:
+            raise RuntimeError(
+                "UNIT4 INVALID OPEN TIME"
+            )
+
+        # Preserve the legacy seventh-field
+        # timestamp contract.
+        #
+        # Do not interpret a volume, turnover,
+        # or unrelated field as a close time.
+        #
+        # Fail closed if the endpoint response
+        # does not satisfy this contract.
+
+        if not (
+            start_time < supplied_end
+            <= start_time + interval_ms
+        ):
+            raise RuntimeError(
+                "UNIT4 CANDLE TIME FORMAT "
+                "UNVERIFIED"
+            )
+
+        o, h, l, c, v = [
+            u4v3_num(
+                value,
+                "OHLCV",
+            )
+            for value in row[1:6]
+        ]
+
+        if not (
+            o > 0
+            and h > 0
+            and l > 0
+            and c > 0
+            and v >= 0
+        ):
+            raise RuntimeError(
+                "UNIT4 INVALID CANDLE VALUES"
+            )
+
+        if not (
+            l <= min(o, c)
+            and max(o, c) <= h
+        ):
+            raise RuntimeError(
+                "UNIT4 INVALID OHLC RANGE"
+            )
+
+        normalized.append({
+            "open_time_ms": start_time,
+            "open": o,
+            "high": h,
+            "low": l,
+            "close": c,
+            "volume": v,
+            "close_time_ms": supplied_end,
+        })
+
+    normalized.sort(
+        key=lambda item: item["open_time_ms"]
+    )
+
+    for previous, current in zip(
+        normalized,
+        normalized[1:],
+    ):
+
+        delta = (
+            current["open_time_ms"]
+            - previous["open_time_ms"]
+        )
+
+        if delta != interval_ms:
+            raise RuntimeError(
+                "UNIT4 CANDLE GAP OR DUPLICATE"
+            )
+
+    closed = [
+        item
+        for item in normalized
+        if item["close_time_ms"]
+        <= reference_time_ms
+    ]
+
+    if len(closed) < minimum_history:
+        raise RuntimeError(
+            "UNIT4 INSUFFICIENT CLOSED HISTORY "
+            + str(interval_minutes)
+        )
+
+    latest_age = (
+        reference_time_ms
+        - closed[-1]["close_time_ms"]
+    )
+
+    if (
+        latest_age < 0
+        or latest_age
+        > interval_ms + 120000
+    ):
+        raise RuntimeError(
+            "UNIT4 STALE CLOSED CANDLE"
+        )
+
+    return normalized, closed
+
+
+# ============================================================
+# 4.6 MULTI-TIMEFRAME EMA / ATR
+#
+# PRESERVES UNIT 5 INDICATOR KEYS
+# ============================================================
+
+def u4v3_indicators(candles):
+
+    if len(candles) < 201:
+        raise RuntimeError(
+            "UNIT4 INDICATOR HISTORY TOO SHORT"
+        )
+
+    prices = [
+        candle["close"]
+        for candle in candles
+    ]
+
+    ema = {
+        period: u4v3_ema(
+            prices,
+            period,
+        )
+        for period in (
+            19, 50, 100, 200
+        )
+    }
+
+    true_ranges = []
+
+    for index in range(
+        1,
+        len(candles),
+    ):
+
+        current = candles[index]
+        previous_close = prices[index - 1]
+
+        true_range = max(
+            current["high"] - current["low"],
+            abs(
+                current["high"]
+                - previous_close
+            ),
+            abs(
+                current["low"]
+                - previous_close
+            ),
+        )
+
+        true_ranges.append(true_range)
+
+    if len(true_ranges) < 48:
+        raise RuntimeError(
+            "UNIT4 ATR HISTORY TOO SHORT"
+        )
+
+    # Current ATR14 uses the last 14
+    # completed true-range observations.
+
+    atr14 = sum(
+        true_ranges[-14:]
+    ) / 14.0
+
+    if atr14 <= 0:
+        raise RuntimeError(
+            "UNIT4 ZERO ATR"
+        )
+
+    # Historical ATR baseline:
+    # 20 previous ATR14 observations,
+    # excluding the current ATR sample.
+
+    historical_atr = []
+
+    for end in range(
+        len(true_ranges) - 20,
+        len(true_ranges),
+    ):
+
+        sample = true_ranges[
+            end - 14:end
+        ]
+
+        historical_atr.append(
+            sum(sample) / 14.0
+        )
+
+    baseline = (
+        sum(historical_atr)
+        / len(historical_atr)
+    )
+
+    if baseline <= 0:
+        baseline = atr14
+
+    if ema[19] > ema[50] > ema[200]:
+        trend = "LONG"
+
+    elif ema[19] < ema[50] < ema[200]:
+        trend = "SHORT"
+
+    elif ema[19] > ema[50]:
+        trend = "EARLY_LONG"
+
+    elif ema[19] < ema[50]:
+        trend = "EARLY_SHORT"
+
+    else:
+        trend = "MIXED"
+
+    acceleration = (
+        (
+            prices[-1] - prices[-4]
+        )
+        - (
+            prices[-4] - prices[-7]
+        )
+    ) / atr14
+
+    return {
+        "ema19": ema[19],
+        "ema50": ema[50],
+        "ema100": ema[100],
+        "ema200": ema[200],
+
+        "atr14": atr14,
+
+        "atr_percent": (
+            100.0 * atr14 / prices[-1]
+        ),
+
+        "atr_expansion_ratio": (
+            atr14 / baseline
+        ),
+
+        "trend": trend,
+
+        "momentum_acceleration_atr":
+            acceleration,
+
+        "move_5_candles_pct": (
+            100.0 * (
+                prices[-1] / prices[-6] - 1
+            )
+        ),
+
+        "move_15_candles_pct": (
+            100.0 * (
+                prices[-1] / prices[-16] - 1
+            )
+        ),
+    }
+
+
+# ============================================================
+# 4.7 FEE-AWARE PRELIMINARY TP ESTIMATION
+#
+# TARGET = NET ROI ON INITIAL MARGIN
+# NOT SIMPLY COIN PRICE MOVEMENT
+#
+# ENTRY AND EXIT FEES ARE ESTIMATES.
+# FUTURE HEDGE/BACKUP COSTS EXCLUDED.
+#
+# ACTUAL FILLED-POSITION TP REMAINS
+# UNIT 13 RESPONSIBILITY.
+# ============================================================
+
+def u4v3_tp(
+    roi_percent,
+    leverage,
+    fee_percent,
+    slippage_percent,
+    other_cost_roi_percent,
+    side,
+):
+
+    try:
+        roi = Decimal(str(roi_percent))
+        lev = Decimal(str(leverage))
+        fee = Decimal(str(fee_percent))
+        slip = Decimal(str(slippage_percent))
+        other = Decimal(
+            str(other_cost_roi_percent)
+        )
+
+    except (
+        InvalidOperation,
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise RuntimeError(
+            "UNIT4 INVALID TP INPUT"
+        ) from exc
+
+    if any(
+        not value.is_finite()
+        for value in (
+            roi, lev, fee, slip, other
+        )
+    ):
+        raise RuntimeError(
+            "UNIT4 NONFINITE TP INPUT"
+        )
+
+    if (
+        roi <= 0
+        or lev <= 0
+        or fee < 0
+        or slip < 0
+        or other < 0
+    ):
+        raise RuntimeError(
+            "UNIT4 INVALID TP PARAMETERS"
+        )
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT4 INVALID TARGET SIDE"
+        )
+
+    hundred = Decimal("100")
+
+    # Required net profit on initial margin.
+    target_roi = (roi + other) / hundred
+
+    # Entry and exit fee rates as fractions
+    # of their respective notional values.
+
+    entry_fee = fee / hundred
+    exit_cost = (fee + slip) / hundred
+
+    # Target price movement x relative
+    # to the entry price.
+    #
+    # Long:
+    # net ROI = L * [
+    #   x - entry_fee - exit_cost*(1+x)
+    # ]
+    #
+    # Short:
+    # net ROI = L * [
+    #   x - entry_fee - exit_cost*(1-x)
+    # ]
+    #
+    # x is positive favorable movement.
+
+    required_base = (
+        target_roi / lev
+        + entry_fee
+        + exit_cost
+    )
+
+    if side == "LONG":
+        denominator = (
+            Decimal("1") - exit_cost
+        )
+
+    else:
+        denominator = (
+            Decimal("1") + exit_cost
+        )
+
+    if denominator <= 0:
+        raise RuntimeError(
+            "UNIT4 INVALID TP DENOMINATOR"
+        )
+
+    movement = (
+        required_base / denominator
+    )
+
+    if (
+        movement <= 0
+        or (
+            side == "SHORT"
+            and movement >= 1
+        )
+    ):
+        raise RuntimeError(
+            "UNIT4 INFEASIBLE TP MOVEMENT"
+        )
+
+    return float(
+        movement * hundred
+    )
+
+
+# ============================================================
+# END UNIT 4 V4 — PART 1 OF 2
+#
+# DO NOT EXECUTE HERE
+# APPEND PART 2 DIRECTLY BELOW
+# ============================================================
+
 # ============================================================
 # UNIVERSAL WEEX HYBRID BOT
 # COMPLETE UNIT 4 V3 REPLACEMENT
