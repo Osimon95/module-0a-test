@@ -7481,6 +7481,500 @@ print(
 
 
 # ============================================================
+# START UNIT 8 V12 — ZERO INDENTATION
+# UNIVERSAL WEEX MARKET + DEMO READ VERIFICATION
+# PRESERVES UNIT 7 V12 HANDOVER
+# NO ORDER SUBMISSION / NO EXCHANGE WRITES
+# ============================================================
+
+import os
+import re
+import json
+import time
+import hmac
+import base64
+import hashlib
+import urllib.request
+import urllib.error
+
+from urllib.parse import urlencode
+from decimal import Decimal, InvalidOperation, ROUND_FLOOR
+
+
+UNIT_8_V12_BASE_URL = "https://api-contract.weex.com"
+
+UNIT_8_V12_PUBLIC_PATHS = frozenset({
+    "/capi/v3/market/exchangeInfo",
+    "/capi/v3/market/apiTradingSymbols",
+})
+
+UNIT_8_V12_PRIVATE_PATHS = frozenset({
+    "/capi/v3/sim/balance",
+    "/capi/v3/sim/position/allPosition",
+    "/capi/v3/sim/order/history",
+    "/capi/v3/account/accountConfig",
+})
+
+
+# ============================================================
+# 8.1 DECIMAL AND RESPONSE HELPERS
+# ============================================================
+
+def unit_8_v12_number(value, label, allow_zero=False):
+
+    if isinstance(value, bool):
+        raise RuntimeError("UNIT 8 BOOLEAN INVALID: " + label)
+
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise RuntimeError("UNIT 8 NUMBER INVALID: " + label) from exc
+
+    if not number.is_finite():
+        raise RuntimeError("UNIT 8 NONFINITE: " + label)
+
+    if number < 0 or (number == 0 and not allow_zero):
+        raise RuntimeError("UNIT 8 RANGE INVALID: " + label)
+
+    return number
+
+
+def unit_8_v12_text(value):
+
+    number = Decimal(str(value))
+
+    if number == 0:
+        return "0"
+
+    return format(number.normalize(), "f")
+
+
+def unit_8_v12_unwrap(payload):
+
+    if not isinstance(payload, (dict, list)):
+        raise RuntimeError("UNIT 8 RESPONSE STRUCTURE INVALID")
+
+    if isinstance(payload, list):
+        return payload
+
+    code = payload.get("code")
+
+    if code is not None and str(code) not in ("0", "200", "00000"):
+        raise RuntimeError("UNIT 8 WEEX RESPONSE CODE " + str(code))
+
+    if "data" in payload:
+        return payload["data"]
+
+    return payload
+
+
+# ============================================================
+# 8.2 RESTRICTED PUBLIC AND PRIVATE GET REQUESTS
+# ============================================================
+
+def unit_8_v12_public_get(path, params=None):
+
+    if path not in UNIT_8_V12_PUBLIC_PATHS:
+        raise RuntimeError("UNIT 8 PUBLIC PATH BLOCKED")
+
+    query = urlencode(params or {})
+    target = path + ("?" + query if query else "")
+
+    request = urllib.request.Request(
+        UNIT_8_V12_BASE_URL + target,
+        headers={"Accept": "application/json"},
+        method="GET"
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            if response.getcode() != 200:
+                raise RuntimeError("UNIT 8 PUBLIC HTTP STATUS INVALID")
+            payload = json.loads(response.read().decode("utf-8"))
+
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError("UNIT 8 PUBLIC HTTP " + str(exc.code)) from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise RuntimeError("UNIT 8 PUBLIC NETWORK FAILURE") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("UNIT 8 PUBLIC JSON INVALID") from exc
+
+    return unit_8_v12_unwrap(payload)
+
+
+def unit_8_v12_private_get(path, params=None):
+
+    if path not in UNIT_8_V12_PRIVATE_PATHS:
+        raise RuntimeError("UNIT 8 PRIVATE PATH BLOCKED")
+
+    key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
+    secret = os.getenv("WEEX_API_SECRET") or os.getenv("API_SECRET")
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        raise RuntimeError("UNIT 8 API CREDENTIALS MISSING")
+
+    query = urlencode(params or {})
+    target = path + ("?" + query if query else "")
+    timestamp = str(int(time.time() * 1000))
+    message = timestamp + "GET" + target
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            message.encode("utf-8"),
+            hashlib.sha256
+        ).digest()
+    ).decode("utf-8")
+
+    request = urllib.request.Request(
+        UNIT_8_V12_BASE_URL + target,
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-PASSPHRASE": phrase,
+            "ACCESS-TIMESTAMP": timestamp,
+            "Content-Type": "application/json",
+            "locale": "en-US",
+        },
+        method="GET"
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            if response.getcode() != 200:
+                raise RuntimeError("UNIT 8 PRIVATE HTTP STATUS INVALID")
+            payload = json.loads(response.read().decode("utf-8"))
+
+    except urllib.error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read().decode("utf-8")[:300]
+        except Exception:
+            pass
+        raise RuntimeError(
+            "UNIT 8 PRIVATE HTTP " + str(exc.code) + " " + body
+        ) from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise RuntimeError("UNIT 8 PRIVATE NETWORK FAILURE") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("UNIT 8 PRIVATE JSON INVALID") from exc
+
+    return unit_8_v12_unwrap(payload)
+
+
+# ============================================================
+# 8.3 UNIVERSAL MARKET / DEMO SYMBOL CANDIDATE
+# ============================================================
+
+def unit_8_v12_symbol(config):
+
+    exchange = config.get("exchange", {})
+    if not isinstance(exchange, dict):
+        raise RuntimeError("UNIT 8 EXCHANGE CONFIG INVALID")
+
+    symbol = str(exchange.get("market_symbol", "")).strip().upper()
+
+    if not re.fullmatch(r"[A-Z0-9]{2,20}USDT", symbol):
+        raise RuntimeError("UNIT 8 MARKET SYMBOL INVALID")
+
+    base_coin = symbol[:-4]
+    candidate = base_coin + "SUSDT"
+
+    configured = exchange.get("demo_order_symbol")
+
+    if configured != candidate:
+        raise RuntimeError("UNIT 8 DEMO SYMBOL CANDIDATE MISMATCH")
+
+    return symbol, candidate
+
+
+# ============================================================
+# 8.4 LIVE/API CONTRACT METADATA
+# ============================================================
+
+def unit_8_v12_contract_info(symbol):
+
+    raw = unit_8_v12_public_get(
+        "/capi/v3/market/exchangeInfo",
+        {"symbol": symbol}
+    )
+
+    if not isinstance(raw, dict):
+        raise RuntimeError("UNIT 8 EXCHANGE INFO INVALID")
+
+    symbols = raw.get("symbols")
+
+    if not isinstance(symbols, list):
+        raise RuntimeError("UNIT 8 EXCHANGE SYMBOL LIST MISSING")
+
+    matches = [
+        item for item in symbols
+        if isinstance(item, dict) and item.get("symbol") == symbol
+    ]
+
+    if len(matches) != 1:
+        raise RuntimeError("UNIT 8 UNIQUE MARKET CONTRACT NOT FOUND")
+
+    item = matches[0]
+
+    if (
+        item.get("baseAsset") != symbol[:-4]
+        or item.get("quoteAsset") != "USDT"
+        or item.get("marginAsset") != "USDT"
+        or item.get("contractType") not in (
+            "PERPETUAL", "TRADIFI_PERPETUAL"
+        )
+    ):
+        raise RuntimeError("UNIT 8 MARKET CONTRACT ASSET/TYPE MISMATCH")
+
+    forward_flag = item.get("forwardContractFlag")
+    if forward_flag is False:
+        raise RuntimeError("UNIT 8 CONTRACT IS NOT USDT MARGINED")
+
+    quantity_precision = item.get("quantityPrecision")
+    price_precision = item.get("pricePrecision")
+
+    if (
+        type(quantity_precision) is not int
+        or type(price_precision) is not int
+        or not 0 <= quantity_precision <= 18
+        or not 0 <= price_precision <= 18
+    ):
+        raise RuntimeError("UNIT 8 CONTRACT PRECISION INVALID")
+
+    minimum = unit_8_v12_number(
+        item.get("minOrderSize"), "MINIMUM BASE QUANTITY"
+    )
+    contract_value = unit_8_v12_number(
+        item.get("contractVal"), "CONTRACT VALUE"
+    )
+    minimum_leverage = unit_8_v12_number(
+        item.get("minLeverage"), "MINIMUM LEVERAGE"
+    )
+    maximum_leverage = unit_8_v12_number(
+        item.get("maxLeverage"), "MAXIMUM LEVERAGE"
+    )
+
+    if minimum_leverage > maximum_leverage:
+        raise RuntimeError("UNIT 8 CONTRACT LEVERAGE RANGE INVALID")
+
+    maximum_quantity = None
+    if item.get("maxOrderSize") is not None:
+        maximum_quantity = unit_8_v12_number(
+            item["maxOrderSize"], "MAXIMUM ORDER QUANTITY"
+        )
+
+    quantity_step = Decimal("1").scaleb(-quantity_precision)
+    price_step = Decimal("1").scaleb(-price_precision)
+
+    if minimum % quantity_step != 0:
+        raise RuntimeError("UNIT 8 MINIMUM QUANTITY NOT STEP ALIGNED")
+
+    return {
+        "symbol": symbol,
+        "base_asset": item["baseAsset"],
+        "quote_asset": item["quoteAsset"],
+        "margin_asset": item["marginAsset"],
+        "contract_type": item["contractType"],
+        "forward_contract_flag": forward_flag,
+        "minimum_quantity": unit_8_v12_text(minimum),
+        "maximum_quantity": (
+            unit_8_v12_text(maximum_quantity)
+            if maximum_quantity is not None else None
+        ),
+        "quantity_precision": quantity_precision,
+        "price_precision": price_precision,
+        "quantity_step": unit_8_v12_text(quantity_step),
+        "price_step": unit_8_v12_text(price_step),
+        "contract_value": unit_8_v12_text(contract_value),
+        "minimum_leverage": unit_8_v12_text(minimum_leverage),
+        "maximum_leverage": unit_8_v12_text(maximum_leverage),
+        "market_contract_verified": True,
+        "source": "/capi/v3/market/exchangeInfo",
+    }
+
+
+def unit_8_v12_api_symbol_check(symbol):
+
+    raw = unit_8_v12_public_get(
+        "/capi/v3/market/apiTradingSymbols"
+    )
+
+    if not isinstance(raw, list) or not all(
+        isinstance(item, str) for item in raw
+    ):
+        raise RuntimeError("UNIT 8 API TRADING SYMBOL LIST INVALID")
+
+    return symbol in raw
+
+
+# ============================================================
+# 8.5 DEMO BALANCE / POSITIONS / HISTORY
+# ============================================================
+
+def unit_8_v12_balance(raw):
+
+    if isinstance(raw, dict):
+        raw = [raw]
+
+    if not isinstance(raw, list):
+        raise RuntimeError("UNIT 8 DEMO BALANCE INVALID")
+
+    matches = [
+        item for item in raw
+        if isinstance(item, dict)
+        and str(item.get("asset", "")).upper() == "SUSDT"
+    ]
+
+    if len(matches) != 1:
+        raise RuntimeError("UNIT 8 SUSDT BALANCE NOT UNIQUE")
+
+    row = matches[0]
+    available = unit_8_v12_number(
+        row.get("availableBalance"),
+        "DEMO AVAILABLE BALANCE",
+        allow_zero=True
+    )
+
+    return {
+        "asset": "SUSDT",
+        "available_balance": unit_8_v12_text(available),
+        "raw": row,
+        "verified": True,
+    }
+
+
+def unit_8_v12_positions(raw, demo_symbol):
+
+    if isinstance(raw, dict):
+        raw = [raw]
+
+    if not isinstance(raw, list):
+        raise RuntimeError("UNIT 8 DEMO POSITIONS INVALID")
+
+    totals = {
+        "LONG": Decimal("0"),
+        "SHORT": Decimal("0"),
+    }
+    positions = []
+
+    for item in raw:
+        if not isinstance(item, dict):
+            raise RuntimeError("UNIT 8 POSITION RECORD INVALID")
+
+        item_symbol = str(item.get("symbol", "")).upper()
+
+        if item_symbol != demo_symbol:
+            continue
+
+        quantity_field = next(
+            (
+                key for key in ("size", "total", "holdVol")
+                if item.get(key) is not None
+            ),
+            None
+        )
+
+        if quantity_field is None:
+            raise RuntimeError("UNIT 8 POSITION QUANTITY MISSING")
+
+        quantity = unit_8_v12_number(
+            item[quantity_field],
+            "DEMO POSITION QUANTITY",
+            allow_zero=True
+        )
+
+        if quantity == 0:
+            continue
+
+        sides = {
+            str(item[key]).upper()
+            for key in ("positionSide", "holdSide", "side")
+            if item.get(key) is not None
+            and str(item[key]).upper() in ("LONG", "SHORT")
+        }
+
+        if len(sides) != 1:
+            raise RuntimeError("UNIT 8 POSITION SIDE AMBIGUOUS")
+
+        side = next(iter(sides))
+        totals[side] += quantity
+
+        positions.append({
+            "symbol": item_symbol,
+            "positionSide": side,
+            "size": unit_8_v12_text(quantity),
+            "leverage": item.get("leverage"),
+            "position_id": item.get("id"),
+            "read_only": True,
+        })
+
+    return positions, {
+        side: unit_8_v12_text(quantity)
+        for side, quantity in totals.items()
+    }
+
+
+def unit_8_v12_history_evidence(raw, demo_symbol):
+
+    if isinstance(raw, dict):
+        raw = [raw]
+
+    if not isinstance(raw, list):
+        raise RuntimeError("UNIT 8 DEMO ORDER HISTORY INVALID")
+
+    matching = [
+        item for item in raw
+        if isinstance(item, dict)
+        and str(item.get("symbol", "")).upper() == demo_symbol
+    ]
+
+    executed = []
+    for item in matching:
+        filled = False
+        if item.get("executedQty") is not None:
+            try:
+                filled = (
+                    unit_8_v12_number(
+                        item["executedQty"],
+                        "HISTORY EXECUTED QUANTITY",
+                        allow_zero=True
+                    ) > 0
+                )
+            except RuntimeError:
+                filled = False
+
+        if filled or str(item.get("status", "")).upper() in (
+            "FILLED", "PARTIALLY_FILLED"
+        ):
+            executed.append(item)
+
+    sides = {
+        str(item.get("positionSide", "")).upper()
+        for item in executed
+        if str(item.get("positionSide", "")).upper()
+        in ("LONG", "SHORT")
+    }
+
+    return {
+        "history_read_verified": True,
+        "matching_demo_symbol_records": len(matching),
+        "executed_demo_symbol_records": len(executed),
+        "observed_demo_symbol": bool(matching),
+        "long_side_filled": "LONG" in sides,
+        "short_side_filled": "SHORT" in sides,
+        "dual_side_history_evidence": (
+            "LONG" in sides and "SHORT" in sides
+        ),
+    }
+
+
+
+# ============================================================
 # START UNIT 8 V11 — ZERO INDENTATION
 # UNIVERSAL WEEX CONTRACT + DEMO ACCOUNT VERIFICATION
 # REPLACES UNIT 8 V10 PARTS 1 AND 2 COMPLETELY
