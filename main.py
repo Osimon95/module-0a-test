@@ -492,7 +492,7 @@ exchange = {
     # ACCOUNT / ORDER SAFETY
     # ========================================================
 
-    safety = {
+safety = {
         "public_market_data_read_enabled": True,
         "demo_account_balance_read_enabled": True,
 
