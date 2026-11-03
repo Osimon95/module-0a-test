@@ -4186,6 +4186,798 @@ def fresh_reconstruction_unit_5(
 
     symbol = exchange["market_symbol"]
 
+    optional_symbol = os.getenv(
+        "TRADING_SYMBOL", ""
+    ).strip().upper()
+
+    if optional_symbol and optional_symbol != symbol:
+        raise RuntimeError(
+            "UNIT 5 RENDER SYMBOL MISMATCH"
+        )
+
+    if (
+        analysis.get("symbol") != symbol
+        or analysis.get("exchange") != "WEEX"
+        or analysis.get("api_version") != "V3"
+        or analysis.get("price_type") != "MARK"
+        or analysis.get("read_only") is not True
+        or analysis.get(
+            "strategy_evidence_version"
+        ) != "U4_HYBRID_V2"
+        or analysis.get(
+            "qualification_tuning_revision"
+        ) != "UNIT4_UNIVERSAL_V3"
+    ):
+        raise RuntimeError(
+            "UNIT 5 UNIT 4 HANDOVER INVALID"
+        )
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or safety.get(
+            "public_market_data_read_enabled"
+        ) is not True
+        or safety.get(
+            "real_order_submission_enabled"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT 5 SAFETY GATE FAILED"
+        )
+
+    if tuple(common["mode_priority"]) != (
+        "BREAKOUT", "STRUCTURE", "SCALP"
+    ):
+        raise RuntimeError(
+            "UNIT 5 MODE PRIORITY INVALID"
+        )
+
+    # ========================================================
+    # 5.3 MARKET DATA
+    # ========================================================
+
+    def n(key):
+        return unit_5_v2_number(
+            analysis.get(key), key
+        )
+
+    def flag(key):
+        value = analysis.get(key)
+        if type(value) is not bool:
+            raise RuntimeError(
+                "UNIT 5 INVALID BOOLEAN: " + key
+            )
+        return value
+
+    market_time_ms = n("exchange_time_ms")
+    age_seconds = (
+        time.time() - market_time_ms / 1000
+    )
+
+    max_age = unit_5_v2_env(
+        "UNIT5_MARKET_MAX_AGE_SECONDS",
+        120, 1
+    )
+
+    if not 0 <= age_seconds <= max_age:
+        raise RuntimeError(
+            "UNIT 5 STALE MARKET"
+        )
+
+    live_price = n("live_mark_price")
+    latest_close = n("latest_close")
+    previous_close = n("previous_close")
+    atr14 = n("atr14")
+
+    if min(
+        live_price, latest_close,
+        previous_close, atr14
+    ) <= 0:
+        raise RuntimeError(
+            "UNIT 5 INVALID MARKET VALUES"
+        )
+
+    ema19 = n("ema19")
+    ema50 = n("ema50")
+    ema200 = n("ema200")
+    separation = n("ema19_50_separation_pct")
+    short_move = n("short_term_move_pct")
+    extension_atr = n("price_extension_cluster")
+
+    moves = {
+        p: n("move_" + str(p) + "m_pct")
+        for p in (1, 5, 15, 30, 60, 120)
+    }
+
+    regime_data = analysis["market_regime"]
+    timeframes = analysis["multi_timeframe_analysis"]
+    targets = analysis["tp_target_reachability"]
+
+    regime = regime_data["current"]
+
+    if regime not in (
+        "SIDEWAYS", "LONG", "SHORT", "TRANSITION"
+    ):
+        raise RuntimeError(
+            "UNIT 5 INVALID REGIME"
+        )
+
+    for tf in ("1m", "5m", "15m", "1h"):
+        if not isinstance(timeframes.get(tf), dict):
+            raise RuntimeError(
+                "UNIT 5 MISSING TIMEFRAME " + tf
+            )
+
+    long_pressure = unit_5_v2_number(
+        regime_data["bullish_pressure_score"],
+        "LONG PRESSURE", 0, 100
+    )
+    short_pressure = unit_5_v2_number(
+        regime_data["bearish_pressure_score"],
+        "SHORT PRESSURE", 0, 100
+    )
+    buildup_score = unit_5_v2_number(
+        regime_data["sideways_buildup_score"],
+        "BUILDUP", 0, 100
+    )
+
+    acceleration = n("momentum_acceleration_atr")
+    atr_expansion = n("atr_expansion_ratio")
+
+    volume_available = flag("volume_data_available")
+    volume_ratio = (
+        n("verified_trade_volume_ratio")
+        if volume_available else None
+    )
+
+    higher_developing = flag(
+        "higher_mode_developing"
+    )
+    sideways = flag("sideways_candidate")
+
+    # ========================================================
+    # 5.4 WEIGHTS AND ADJUSTABLE THRESHOLDS
+    # ========================================================
+
+    weights = {
+        "trend": unit_5_v2_env(
+            "UNIT5_WEIGHT_TREND_ALIGNMENT", 20
+        ),
+        "reach": unit_5_v2_env(
+            "UNIT5_WEIGHT_TARGET_REACHABILITY", 25
+        ),
+        "momentum": unit_5_v2_env(
+            "UNIT5_WEIGHT_MOMENTUM_STRENGTH", 20
+        ),
+        "volatility": unit_5_v2_env(
+            "UNIT5_WEIGHT_VOLATILITY_EXPANSION", 10
+        ),
+        "volume": unit_5_v2_env(
+            "UNIT5_WEIGHT_VOLUME_CONFIRMATION", 10
+        ),
+        "timing": unit_5_v2_env(
+            "UNIT5_WEIGHT_ENTRY_TIMING", 10
+        ),
+        "cost": unit_5_v2_env(
+            "UNIT5_WEIGHT_COST_EFFICIENCY", 5
+        ),
+    }
+
+    if abs(sum(weights.values()) - 100) > 0.001:
+        raise RuntimeError(
+            "UNIT 5 WEIGHTS MUST TOTAL 100"
+        )
+
+    established_min = unit_5_v2_env(
+        "UNIT5_ENTRY_SCORE_MIN", 75, 0, 100
+    )
+    early_min = unit_5_v2_env(
+        "UNIT5_EARLY_SCORE_MIN", 65, 0, 100
+    )
+    pressure_min = unit_5_v2_env(
+        "UNIT5_DIRECTION_PRESSURE_MIN", 55, 0, 100
+    )
+    early_pressure_min = unit_5_v2_env(
+        "UNIT5_EARLY_PRESSURE_MIN", 40, 0, 100
+    )
+    advantage_min = unit_5_v2_env(
+        "UNIT5_PRESSURE_ADVANTAGE_MIN", 10, 0, 100
+    )
+    early_advantage_min = unit_5_v2_env(
+        "UNIT5_EARLY_PRESSURE_ADVANTAGE_MIN",
+        8, 0, 100
+    )
+    mtf_min = int(unit_5_v2_env(
+        "UNIT5_MTF_CONFIRMATION_MIN", 2, 1, 4
+    ))
+    early_mtf_min = int(unit_5_v2_env(
+        "UNIT5_EARLY_MTF_MIN", 1, 1, 4
+    ))
+    extension_limit = unit_5_v2_env(
+        "UNIT5_ENTRY_MAX_EXTENSION_ATR", 2, 0.01
+    )
+    early_extension_limit = unit_5_v2_env(
+        "UNIT5_EARLY_MAX_EXTENSION_ATR",
+        1.5, 0.01
+    )
+    tp2_limit = unit_5_v2_env(
+        "UNIT5_TP2_MAX_ATR1H_DISTANCE",
+        12, 0.1
+    )
+    early_tp2_limit = unit_5_v2_env(
+        "UNIT5_EARLY_TP2_MAX_ATR1H",
+        12, 0.1
+    )
+    volume_min = unit_5_v2_env(
+        "UNIT5_VOLUME_RATIO_MIN", 1.20, 0.01
+    )
+    early_momentum_min = unit_5_v2_env(
+        "UNIT5_EARLY_MOMENTUM_MIN_ATR",
+        0.05, 0
+    )
+    early_require_volume = unit_5_v2_bool_env(
+        "UNIT5_EARLY_REQUIRE_VOLUME", False
+    )
+
+    breakout_countertrend_min = unit_5_v2_env(
+        "UNIT5_BREAKOUT_COUNTERTREND_MTF_MIN",
+        2, 1, 4
+    )
+    breakout_require_volume = unit_5_v2_bool_env(
+        "UNIT5_BREAKOUT_REQUIRE_VOLUME",
+        True
+    )
+    scalp_require_volume = unit_5_v2_bool_env(
+        "UNIT5_SCALP_REQUIRE_VOLUME",
+        True
+    )
+    scalp_min_net_room = unit_5_v2_env(
+        "UNIT5_SCALP_MIN_NET_ROOM_RATIO",
+        2.0, 1
+    )
+
+    # ========================================================
+    # 5.4 FEE POLICY AND SCORING INITIALIZATION
+    # ========================================================
+
+    fee_policy = config.get("fee_policy")
+
+    if fee_policy is None:
+        fee_policy = {}
+
+    if not isinstance(fee_policy, dict):
+        raise RuntimeError(
+            "UNIT 5 INVALID FEE POLICY CONFIG"
+        )
+
+    taker_fee = unit_5_v2_env(
+        "UNIT5_ESTIMATED_TAKER_FEE_PERCENT",
+        fee_policy.get(
+            "estimated_taker_fee_percent",
+            0.08
+        ),
+        0,
+        100,
+    )
+
+    print(
+        "UNIT 5 ESTIMATED TAKER FEE % =",
+        taker_fee,
+        flush=True,
+    )
+
+    slippage = unit_5_v2_env(
+        "UNIT5_EXPECTED_SLIPPAGE_PERCENT",
+        0.05,
+        0,
+        100,
+    )
+
+    estimated_cost_pct = (
+        2 * taker_fee + slippage
+    )
+
+    if estimated_cost_pct <= 0:
+        raise RuntimeError(
+            "UNIT 5 INVALID ESTIMATED COST"
+        )
+
+    print(
+        "UNIT 5 ESTIMATED ROUND TRIP COST % =",
+        estimated_cost_pct,
+        flush=True,
+    )
+
+    # ========================================================
+    # 5.5 INDEPENDENT DIRECTIONAL SCORING
+    # ========================================================
+
+    scored = {}
+
+    for side in ("LONG", "SHORT"):
+
+        sign = 1 if side == "LONG" else -1
+        suffix = side.lower()
+
+        own_pressure = (
+            long_pressure if side == "LONG"
+            else short_pressure
+        )
+        opposite_pressure = (
+            short_pressure if side == "LONG"
+            else long_pressure
+        )
+        advantage = own_pressure - opposite_pressure
+
+        votes = int(n(
+            "direction_long_votes"
+            if side == "LONG"
+            else "direction_short_votes"
+        ))
+
+        if not 0 <= votes <= 3:
+            raise RuntimeError(
+                "UNIT 5 INVALID VOTES"
+            )
+
+        agreeing = sum(
+            tf["trend"] in (
+                ("LONG", "EARLY_LONG")
+                if side == "LONG"
+                else ("SHORT", "EARLY_SHORT")
+            )
+            for tf in timeframes.values()
+        )
+
+        confirmed = sum(
+            tf["trend"] == side
+            for tf in timeframes.values()
+        )
+
+        opposing = sum(
+            tf["trend"] in (
+                ("SHORT", "EARLY_SHORT")
+                if side == "LONG"
+                else ("LONG", "EARLY_LONG")
+            )
+            for tf in timeframes.values()
+        )
+
+        side_momentum = sign * (
+            moves[5] + moves[15]
+        )
+        side_acceleration = sign * acceleration
+
+        trend_score = unit_5_v2_clamp(
+            60 * agreeing / 4
+            + 40 * confirmed / 4
+        )
+
+        momentum_scale = max(
+            n("atr_percent") * 10,
+            0.000001
+        )
+        momentum_score = unit_5_v2_clamp(
+            45 * max(
+                0, min(
+                    1, side_momentum / momentum_scale
+                )
+            )
+            + 35 * max(
+                0, min(1, side_acceleration)
+            )
+            + 20 * votes / 3
+        )
+
+        volatility_score = unit_5_v2_clamp(
+            50 + 100 * (atr_expansion - 1)
+        )
+
+        volume_score = (
+            unit_5_v2_clamp(
+                100 * volume_ratio / volume_min
+            )
+            if volume_available else 50
+        )
+
+        target = targets[side]
+        tp1_move = unit_5_v2_number(
+            target["tp1_move_pct"],
+            "TP1 MOVE", 0
+        )
+        tp2_move = unit_5_v2_number(
+            target["tp2_move_pct"],
+            "TP2 MOVE", 0
+        )
+
+        atr1h = unit_5_v2_number(
+            timeframes["1h"]["atr14"],
+            "ATR1H", 1e-12
+        )
+
+        tp1_atr1h = (
+            live_price * tp1_move / 100 / atr1h
+        )
+        tp2_atr1h = (
+            live_price * tp2_move / 100 / atr1h
+        )
+
+        reach_score = unit_5_v2_clamp(
+            100 * max(
+                0, 1 - tp2_atr1h / (2 * tp2_limit)
+            )
+        )
+
+        timing_score = unit_5_v2_clamp(
+            100 - 55 * min(
+                1, extension_atr / extension_limit
+            ) + 0.15 * advantage
+        )
+
+        cost_coverage = (
+            tp1_move / max(
+                estimated_cost_pct, 1e-9
+            )
+        )
+        cost_score = unit_5_v2_clamp(
+            100 * min(1, cost_coverage / 3)
+        )
+
+        components = {
+            "trend": trend_score,
+            "reach": reach_score,
+            "momentum": momentum_score,
+            "volatility": volatility_score,
+            "volume": volume_score,
+            "timing": timing_score,
+            "cost": cost_score,
+        }
+
+        score = sum(
+            weights[k] * components[k] / 100
+            for k in weights
+        )
+
+        # ====================================================
+        # 5.6 MODE ARBITRATION
+        # ====================================================
+
+        breakout_confirmed = flag(
+            "breakout_confirmed_" + suffix
+        )
+        breakout_developing = flag(
+            "breakout_developing_" + suffix
+        )
+        structure_developing = flag(
+            "structure_developing_" + suffix
+        )
+
+        if breakout_confirmed:
+            mode = "BREAKOUT"
+            phase = "BREAKOUT"
+        elif breakout_developing:
+            mode = "BREAKOUT"
+            phase = "DEVELOPING_BREAKOUT"
+        elif structure_developing:
+            mode = "STRUCTURE"
+            phase = "STRUCTURE"
+        elif sideways and not higher_developing:
+            mode = "SCALP"
+            phase = "EARLY_SCALP"
+        else:
+            mode = "NONE"
+            phase = "BUILDUP"
+
+        volume_pass = bool(
+            volume_available
+            and volume_ratio >= volume_min
+        )
+
+        cost_pass = bool(
+            tp1_move > estimated_cost_pct
+            and tp2_move > tp1_move
+        )
+
+        directional = bool(
+            votes >= 2
+            and side_momentum > 0
+        )
+
+        momentum_early = bool(
+            side_acceleration >= early_momentum_min
+            or (
+                sign * moves[1] > 0
+                and sign * moves[5] > 0
+            )
+        )
+
+        countertrend = bool(
+            opposing >= breakout_countertrend_min
+            and agreeing < opposing
+        )
+
+        breakout_ready = bool(
+            mode == "BREAKOUT"
+            and breakout_confirmed
+            and directional
+            and (
+                not breakout_require_volume
+                or volume_pass
+            )
+            and (
+                not countertrend
+                or (
+                    confirmed >= 2
+                    and volume_pass
+                    and side_acceleration > 0
+                )
+            )
+        )
+
+        structure_ready = bool(
+            mode == "STRUCTURE"
+            and structure_developing
+            and directional
+            and sign * moves[5] > 0
+            and sign * moves[15] > 0
+        )
+
+        scalp_ready = bool(
+            mode == "SCALP"
+            and sideways
+            and not higher_developing
+            and regime == "SIDEWAYS"
+            and directional
+            and cost_coverage >= scalp_min_net_room
+            and (
+                not scalp_require_volume
+                or volume_pass
+            )
+        )
+
+        mode_ready = bool(
+            breakout_ready
+            or structure_ready
+            or scalp_ready
+        )
+
+        early_route = bool(
+            mode_ready
+            and score >= early_min
+            and own_pressure >= early_pressure_min
+            and advantage >= early_advantage_min
+            and agreeing >= early_mtf_min
+            and directional
+            and momentum_early
+            and extension_atr <= early_extension_limit
+            and tp2_atr1h <= early_tp2_limit
+            and cost_pass
+            and (
+                not early_require_volume
+                or volume_pass
+            )
+        )
+
+        established_route = bool(
+            mode_ready
+            and score >= established_min
+            and own_pressure >= pressure_min
+            and advantage >= advantage_min
+            and agreeing >= mtf_min
+            and directional
+            and extension_atr <= extension_limit
+            and tp2_atr1h <= tp2_limit
+            and cost_pass
+        )
+
+        qualified = bool(
+            established_route or early_route
+        )
+
+        route = (
+            "ESTABLISHED_TREND"
+            if established_route
+            else "EARLY_TRANSITION"
+            if early_route
+            else "NONE"
+        )
+
+        failures = []
+
+        if mode == "NONE":
+            failures.append("NO_QUALIFIED_MARKET_MODE")
+        if mode == "BREAKOUT" and not breakout_confirmed:
+            failures.append("BREAKOUT_STILL_DEVELOPING")
+        if mode == "BREAKOUT" and countertrend:
+            failures.append("COUNTERTREND_BREAKOUT")
+        if mode == "SCALP" and higher_developing:
+            failures.append("HIGHER_MODE_PROTECTED")
+        if own_pressure < early_pressure_min:
+            failures.append("PRESSURE_BELOW_EARLY_MIN")
+        if advantage < early_advantage_min:
+            failures.append("PRESSURE_ADVANTAGE_WEAK")
+        if agreeing < early_mtf_min:
+            failures.append("MTF_ALIGNMENT_WEAK")
+        if not directional:
+            failures.append("DIRECTIONAL_MOMENTUM_WEAK")
+        if not momentum_early:
+            failures.append("ACCELERATION_NOT_CONFIRMED")
+        if extension_atr > early_extension_limit:
+            failures.append("PRICE_OVEREXTENDED")
+        if tp2_atr1h > early_tp2_limit:
+            failures.append("TP2_DISTANCE_HIGH")
+        if not cost_pass:
+            failures.append("TARGET_COST_COVERAGE_FAILED")
+        if not volume_available:
+            failures.append("VOLUME_UNAVAILABLE")
+        elif not volume_pass:
+            failures.append("LOW_RELATIVE_VOLUME")
+        if score < early_min:
+            failures.append("ENTRY_SCORE_BELOW_EARLY_MIN")
+
+        scored[side] = {
+            "score": round(score, 3),
+            "components": {
+                k: round(v, 3)
+                for k, v in components.items()
+            },
+            "pressure": own_pressure,
+            "opposite_pressure": opposite_pressure,
+            "pressure_advantage": advantage,
+            "agreeing_timeframes": agreeing,
+            "confirmed_timeframes": confirmed,
+            "opposing_timeframes": opposing,
+            "direction_votes": votes,
+            "momentum": side_momentum,
+            "acceleration": side_acceleration,
+            "phase": phase,
+            "mode": mode,
+            "entry_route": route,
+            "qualified": qualified,
+            "early_route_pass": early_route,
+            "established_route_pass": established_route,
+            "tp1_move_pct": tp1_move,
+            "tp2_move_pct": tp2_move,
+            "tp1_atr1h": tp1_atr1h,
+            "tp2_atr1h": tp2_atr1h,
+            "cost_coverage": cost_coverage,
+            "volume_pass": volume_pass,
+            "countertrend": countertrend,
+            "breakout_ready": breakout_ready,
+            "structure_ready": structure_ready,
+            "scalp_ready": scalp_ready,
+            "risk_factors": failures,
+        }
+
+    # ========================================================
+    # END PART 1
+    # CONTINUE DIRECTLY WITH PART 2, SECTION 5.7
+    # ========================================================
+
+# ============================================================
+# UNIVERSAL WEEX HYBRID BOT
+# COMPLETE UNIT 5 V4 REPLACEMENT
+#
+# ADAPTS UNIT 4 V4
+# PRESERVES ORIGINAL 42-FIELD INTERFACE
+# PRESERVES UNIT 6 EXTENDED HANDOVER
+# BREAKOUT > STRUCTURE > SCALP
+# NO EXCHANGE WRITES
+# ============================================================
+
+import os
+import math
+import time
+
+
+# ============================================================
+# 5.1 VALIDATION HELPERS
+# ============================================================
+
+def unit_5_v2_number(
+    value, name, minimum=None, maximum=None
+):
+    if isinstance(value, bool):
+        raise RuntimeError(
+            "UNIT 5 BOOLEAN NUMBER: " + name
+        )
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError(
+            "UNIT 5 INVALID NUMBER: " + name
+        ) from exc
+
+    if not math.isfinite(result):
+        raise RuntimeError(
+            "UNIT 5 NONFINITE: " + name
+        )
+    if minimum is not None and result < minimum:
+        raise RuntimeError(
+            "UNIT 5 BELOW MINIMUM: " + name
+        )
+    if maximum is not None and result > maximum:
+        raise RuntimeError(
+            "UNIT 5 ABOVE MAXIMUM: " + name
+        )
+    return result
+
+
+def unit_5_v2_env(
+    name, default, minimum=0, maximum=None
+):
+    raw = os.getenv(name, "").strip()
+    return unit_5_v2_number(
+        raw if raw else default,
+        name, minimum, maximum
+    )
+
+
+def unit_5_v2_bool_env(name, default=False):
+    raw = os.getenv(name, "").strip().upper()
+    if not raw:
+        return bool(default)
+    if raw in ("TRUE", "YES", "ON", "1"):
+        return True
+    if raw in ("FALSE", "NO", "OFF", "0"):
+        return False
+    raise RuntimeError(
+        "UNIT 5 INVALID BOOLEAN: " + name
+    )
+
+
+def unit_5_v2_direction(value):
+    return (
+        "LONG" if value > 0
+        else "SHORT" if value < 0
+        else "NONE"
+    )
+
+
+def unit_5_v2_matches(value, side):
+    return (
+        value > 0 if side == "LONG"
+        else value < 0 if side == "SHORT"
+        else False
+    )
+
+
+def unit_5_v2_clamp(value):
+    return max(0.0, min(100.0, value))
+
+
+# ============================================================
+# 5.2 MAIN UNIT 5 ENGINE
+# ============================================================
+
+def fresh_reconstruction_unit_5(
+    unit_2_config,
+    unit_4_snapshot,
+):
+
+    print("=" * 80, flush=True)
+    log("UNIVERSAL WEEX UNIT 5 V4 START")
+
+    if not isinstance(unit_2_config, dict):
+        raise RuntimeError("UNIT 5 CONFIG INVALID")
+
+    if not isinstance(unit_4_snapshot, dict):
+        raise RuntimeError("UNIT 5 SNAPSHOT INVALID")
+
+    config = unit_2_config
+    analysis = unit_4_snapshot
+
+    exchange = config["exchange"]
+    safety = config["safety"]
+    qualification = config["qualification"]
+
+    common = qualification["common"]
+    breakout_cfg = qualification["breakout"]
+    structure_cfg = qualification["structure"]
+    scalp_cfg = qualification["scalp"]
+
+    symbol = exchange["market_symbol"]
+
     # Unit 2 is the authoritative symbol source.
     # TRADING_SYMBOL is checked only if supplied.
 
