@@ -466,7 +466,7 @@ contract_precision_verified = False
     # A user-entered symbol is not exchange verification.
     # Unit 12 must require an independent contract check.
 
-    exchange = {
+exchange = {
         "name": "WEEX",
         "api_version": "V3",
         "contract_base_url":
