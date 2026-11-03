@@ -5635,3 +5635,610 @@ print(
 # END COMPLETE UNIT 6 V10 UNIVERSAL USDT REPLACEMENT
 # UNIT 7 BEGINS BELOW
 # ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 7 V12 - PART 1 OF 2
+# UNIVERSAL USDT FUTURES SIZING
+# ADAPTED FROM 17248 AND 16414 MODELS
+# INITIAL ENTRY + REVERSIBLE ATR HEDGE
+# B1-B5 ENGINE CONTINUES IN PART 2
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import math
+from decimal import (
+    Decimal,
+    InvalidOperation,
+    ROUND_FLOOR,
+    ROUND_CEILING,
+)
+
+
+# ============================================================
+# 7.1 STRICT NUMERIC HELPERS
+# ============================================================
+
+def unit_7_v12_decimal(
+    value,
+    label,
+    allow_zero=False
+):
+
+    if isinstance(value, bool):
+        raise RuntimeError(
+            "UNIT 7 BOOLEAN INVALID: " + label
+        )
+
+    try:
+        result = Decimal(str(value))
+    except (
+        InvalidOperation,
+        TypeError,
+        ValueError
+    ) as exc:
+        raise RuntimeError(
+            "UNIT 7 NUMBER INVALID: " + label
+        ) from exc
+
+    if not result.is_finite():
+        raise RuntimeError(
+            "UNIT 7 NONFINITE: " + label
+        )
+
+    if result < 0 or (
+        result == 0 and not allow_zero
+    ):
+        raise RuntimeError(
+            "UNIT 7 RANGE INVALID: " + label
+        )
+
+    return result
+
+
+def unit_7_v12_text(value):
+
+    number = Decimal(str(value))
+
+    if number == 0:
+        return "0"
+
+    return format(number.normalize(), "f")
+
+
+def unit_7_v12_floor(value, step):
+
+    value = unit_7_v12_decimal(
+        value, "QUANTITY", True
+    )
+
+    step = unit_7_v12_decimal(
+        step, "QUANTITY STEP"
+    )
+
+    return (
+        (value / step).to_integral_value(
+            rounding=ROUND_FLOOR
+        ) * step
+    )
+
+
+def unit_7_v12_ceil(value, step):
+
+    value = unit_7_v12_decimal(
+        value, "QUANTITY", True
+    )
+
+    step = unit_7_v12_decimal(
+        step, "QUANTITY STEP"
+    )
+
+    return (
+        (value / step).to_integral_value(
+            rounding=ROUND_CEILING
+        ) * step
+    )
+
+
+def unit_7_v12_is_step_valid(quantity, step):
+
+    quantity = unit_7_v12_decimal(
+        quantity, "QUANTITY", True
+    )
+
+    step = unit_7_v12_decimal(
+        step, "STEP"
+    )
+
+    return quantity % step == 0
+
+
+# ============================================================
+# 7.2 VERIFIED CONTRACT SPECIFICATION
+# ============================================================
+
+def unit_7_v12_contract(config):
+
+    exchange = config.get("exchange", {})
+    precision = config.get("market_precision", {})
+
+    if not isinstance(exchange, dict):
+        raise RuntimeError(
+            "UNIT 7 EXCHANGE CONFIG MISSING"
+        )
+
+    if not isinstance(precision, dict):
+        raise RuntimeError(
+            "UNIT 7 PRECISION CONFIG MISSING"
+        )
+
+    symbol = exchange.get("market_symbol")
+
+    if (
+        not isinstance(symbol, str)
+        or not symbol.endswith("USDT")
+        or len(symbol) <= 4
+        or exchange.get("base_coin") != symbol[:-4]
+        or exchange.get("quote_coin") != "USDT"
+    ):
+        raise RuntimeError(
+            "UNIT 7 UNIVERSAL SYMBOL INVALID"
+        )
+
+    # Do not invent specifications.
+    # Contract values must come from verified
+    # WEEX instrument metadata.
+
+    verified = all((
+        precision.get("verified") is True,
+        exchange.get(
+            "contract_precision_verified"
+        ) is True,
+        exchange.get(
+            "contract_value_verified"
+        ) is True,
+        precision.get("symbol") == symbol
+    ))
+
+    if not verified:
+
+        return {
+            "verified": False,
+            "symbol": symbol,
+            "quantity_step": None,
+            "minimum_quantity": None,
+            "contract_multiplier": None,
+            "price_step": None,
+            "reason":
+                "WEEX_CONTRACT_SPECIFICATION_UNVERIFIED"
+        }
+
+    step = unit_7_v12_decimal(
+        precision.get("quantity_step"),
+        "QUANTITY STEP"
+    )
+
+    minimum = unit_7_v12_decimal(
+        precision.get("minimum_quantity"),
+        "MINIMUM QUANTITY"
+    )
+
+    multiplier = unit_7_v12_decimal(
+        precision.get("contract_multiplier"),
+        "CONTRACT MULTIPLIER"
+    )
+
+    price_step = unit_7_v12_decimal(
+        precision.get("price_step"),
+        "PRICE STEP"
+    )
+
+    if (
+        precision.get("contract_value") is None
+        or not precision.get("source")
+        or precision.get("source")
+        == "PENDING_DEMO_CONTRACT_VERIFICATION"
+    ):
+        raise RuntimeError(
+            "UNIT 7 CONTRACT VERIFICATION INCOMPLETE"
+        )
+
+    return {
+        "verified": True,
+        "symbol": symbol,
+        "quantity_step": step,
+        "minimum_quantity": minimum,
+        "contract_multiplier": multiplier,
+        "price_step": price_step,
+        "reason": "VERIFIED"
+    }
+
+
+# ============================================================
+# 7.3 MARGIN AND LEVERAGE
+# ============================================================
+
+def unit_7_v12_capital(config, direction):
+
+    strategy = config.get("strategy", {})
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError(
+            "UNIT 7 STRATEGY CONFIG MISSING"
+        )
+
+    margin = unit_7_v12_decimal(
+        strategy.get("initial_entry_margin_usdt"),
+        "INITIAL MARGIN USDT"
+    )
+
+    if direction == "LONG":
+
+        leverage = unit_7_v12_decimal(
+            strategy.get("long_leverage"),
+            "LONG LEVERAGE"
+        )
+
+    elif direction == "SHORT":
+
+        leverage = unit_7_v12_decimal(
+            strategy.get("short_leverage"),
+            "SHORT LEVERAGE"
+        )
+
+    else:
+
+        raise RuntimeError(
+            "UNIT 7 INVALID ENTRY DIRECTION"
+        )
+
+    cap = unit_7_v12_decimal(
+        strategy.get("exposure_cap_percent"),
+        "EXPOSURE CAP",
+        True
+    )
+
+    if cap > 100:
+        raise RuntimeError(
+            "UNIT 7 EXPOSURE CAP ABOVE 100"
+        )
+
+    return {
+        "margin_usdt": margin,
+        "leverage": leverage,
+        "exposure_cap_percent": cap,
+        "notional_usdt": margin * leverage,
+        "leverage_source": "RENDER_MANUAL"
+    }
+
+
+# ============================================================
+# 7.4 UNIVERSAL CONTRACT QUANTITY
+# ============================================================
+
+def unit_7_v12_quantity(
+    margin_usdt,
+    leverage,
+    price,
+    contract_multiplier,
+    quantity_step,
+    minimum_quantity
+):
+
+    margin = unit_7_v12_decimal(
+        margin_usdt, "MARGIN"
+    )
+
+    leverage = unit_7_v12_decimal(
+        leverage, "LEVERAGE"
+    )
+
+    price = unit_7_v12_decimal(
+        price, "MARK PRICE"
+    )
+
+    multiplier = unit_7_v12_decimal(
+        contract_multiplier,
+        "CONTRACT MULTIPLIER"
+    )
+
+    step = unit_7_v12_decimal(
+        quantity_step,
+        "QUANTITY STEP"
+    )
+
+    minimum = unit_7_v12_decimal(
+        minimum_quantity,
+        "MINIMUM QUANTITY"
+    )
+
+    # Contract notional:
+    # quantity * multiplier * price
+    #
+    # Raw quantity:
+    # margin * leverage / (price * multiplier)
+
+    notional = margin * leverage
+
+    raw_quantity = (
+        notional / (price * multiplier)
+    )
+
+    minimum_compliant = unit_7_v12_ceil(
+        minimum, step
+    )
+
+    quantity = unit_7_v12_floor(
+        raw_quantity, step
+    )
+
+    if quantity < minimum_compliant:
+
+        return {
+            "valid": False,
+            "reason":
+                "INITIAL_MARGIN_BELOW_MINIMUM_CONTRACT",
+            "raw_quantity":
+                unit_7_v12_text(raw_quantity),
+            "quantity": "0",
+            "minimum_quantity":
+                unit_7_v12_text(minimum_compliant),
+            "required_margin_usdt":
+                unit_7_v12_text(
+                    minimum_compliant
+                    * multiplier
+                    * price
+                    / leverage
+                )
+        }
+
+    actual_notional = (
+        quantity * multiplier * price
+    )
+
+    actual_margin = (
+        actual_notional / leverage
+    )
+
+    return {
+        "valid": True,
+        "reason": "STEP_COMPLIANT",
+        "raw_quantity":
+            unit_7_v12_text(raw_quantity),
+        "quantity":
+            unit_7_v12_text(quantity),
+        "minimum_quantity":
+            unit_7_v12_text(minimum_compliant),
+        "actual_notional_usdt":
+            unit_7_v12_text(actual_notional),
+        "actual_margin_usdt":
+            unit_7_v12_text(actual_margin)
+    }
+
+
+# ============================================================
+# 7.5 REVERSIBLE 50/50 HEDGE FEASIBILITY
+# ============================================================
+
+def unit_7_v12_hedge_quantity(
+    initial_quantity,
+    quantity_step,
+    minimum_quantity
+):
+
+    quantity = unit_7_v12_decimal(
+        initial_quantity, "INITIAL QUANTITY"
+    )
+
+    step = unit_7_v12_decimal(
+        quantity_step, "QUANTITY STEP"
+    )
+
+    minimum = unit_7_v12_decimal(
+        minimum_quantity, "MINIMUM QUANTITY"
+    )
+
+    minimum_compliant = unit_7_v12_ceil(
+        minimum, step
+    )
+
+    if not unit_7_v12_is_step_valid(
+        quantity, step
+    ):
+        return {
+            "valid": False,
+            "reason": "INITIAL_STEP_INVALID"
+        }
+
+    half = quantity / Decimal("2")
+
+    if not unit_7_v12_is_step_valid(
+        half, step
+    ):
+        return {
+            "valid": False,
+            "reason":
+                "INITIAL_QUANTITY_NOT_DIVISIBLE_50_50"
+        }
+
+    if half < minimum_compliant:
+        return {
+            "valid": False,
+            "reason":
+                "HALF_POSITION_BELOW_MINIMUM"
+        }
+
+    return {
+        "valid": True,
+        "reason": "HEDGE_50_50_FEASIBLE",
+
+        "initial_quantity":
+            unit_7_v12_text(quantity),
+
+        "stage1_close_original":
+            unit_7_v12_text(half),
+
+        "stage1_open_opposite":
+            unit_7_v12_text(half),
+
+        "remaining_original":
+            unit_7_v12_text(half),
+
+        "stage2_close_remaining":
+            unit_7_v12_text(half),
+
+        "stage2_open_opposite":
+            unit_7_v12_text(half),
+
+        "maximum_opposite_quantity":
+            unit_7_v12_text(quantity),
+
+        "minimum_quantity":
+            unit_7_v12_text(minimum_compliant)
+    }
+
+
+# ============================================================
+# 7.6 ATR HEDGE TRIGGER LEVELS
+# ============================================================
+
+def unit_7_v12_atr_levels(
+    entry_price,
+    atr14,
+    direction,
+    stage1_atr=1,
+    stage2_atr=2
+):
+
+    price = unit_7_v12_decimal(
+        entry_price, "ENTRY PRICE"
+    )
+
+    atr = unit_7_v12_decimal(
+        atr14, "ATR14"
+    )
+
+    first = unit_7_v12_decimal(
+        stage1_atr, "STAGE 1 ATR"
+    )
+
+    second = unit_7_v12_decimal(
+        stage2_atr, "STAGE 2 ATR"
+    )
+
+    if second <= first:
+        raise RuntimeError(
+            "UNIT 7 ATR STAGES INVALID"
+        )
+
+    if direction == "LONG":
+
+        trigger1 = price - atr * first
+        trigger2 = price - atr * second
+
+    elif direction == "SHORT":
+
+        trigger1 = price + atr * first
+        trigger2 = price + atr * second
+
+    else:
+        raise RuntimeError(
+            "UNIT 7 INVALID ATR DIRECTION"
+        )
+
+    if min(trigger1, trigger2) <= 0:
+        raise RuntimeError(
+            "UNIT 7 ATR TRIGGER NONPOSITIVE"
+        )
+
+    return {
+        "direction": direction,
+        "atr14": unit_7_v12_text(atr),
+        "stage1_atr": unit_7_v12_text(first),
+        "stage2_atr": unit_7_v12_text(second),
+        "stage1_trigger":
+            unit_7_v12_text(trigger1),
+        "stage2_trigger":
+            unit_7_v12_text(trigger2),
+        "conventional_sl_enabled": False
+    }
+
+
+# ============================================================
+# 7.7 STAGE HEDGE CONFIGURATION
+# ============================================================
+
+def unit_7_v12_hedge_policy(config):
+
+    strategy = config.get("strategy", {})
+    hedge = strategy.get("hedge", {})
+
+    if not isinstance(hedge, dict):
+        raise RuntimeError(
+            "UNIT 7 HEDGE CONFIG MISSING"
+        )
+
+    if hedge.get("enabled") is not True:
+        raise RuntimeError(
+            "UNIT 7 HEDGE CONFIG DISABLED"
+        )
+
+    if hedge.get("mode") != (
+        "REVERSIBLE_ATR_TWO_STAGE"
+    ):
+        raise RuntimeError(
+            "UNIT 7 HEDGE MODE MISMATCH"
+        )
+
+    if hedge.get(
+        "maximum_recovery_cycles"
+    ) != 1:
+        raise RuntimeError(
+            "UNIT 7 RECOVERY CYCLE MUST BE ONE"
+        )
+
+    if hedge.get("repeatable") is not False:
+        raise RuntimeError(
+            "UNIT 7 REPEATED HEDGE NOT ALLOWED"
+        )
+
+    for key in (
+        "stage_1_close_original_percent",
+        "stage_1_open_opposite_percent"
+    ):
+        if Decimal(str(hedge.get(key))) != 50:
+            raise RuntimeError(
+                "UNIT 7 STAGE 1 POLICY INVALID"
+            )
+
+    for key in (
+        "stage_2_close_original_percent",
+        "stage_2_open_opposite_percent"
+    ):
+        if Decimal(str(hedge.get(key))) != 100:
+            raise RuntimeError(
+                "UNIT 7 STAGE 2 POLICY INVALID"
+            )
+
+    return {
+        "enabled": True,
+        "mode": hedge["mode"],
+        "stage1_atr":
+            hedge["trigger_1_atr"],
+        "stage2_atr":
+            hedge["trigger_2_atr"],
+        "maximum_recovery_cycles": 1,
+        "recovery_enabled":
+            hedge.get("recovery_enabled") is True,
+        "conventional_stop_loss_enabled": False
+    }
+
+
+# ============================================================
+# END UNIT 7 V12 PART 1
+# CONTINUE WITH PART 2 AT ZERO INDENTATION
+# DO NOT DEPLOY UNTIL PART 2 IS ADDED
+# ============================================================
+
+
