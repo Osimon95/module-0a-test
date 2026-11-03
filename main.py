@@ -2699,638 +2699,100 @@ def u4v3_tp(
 # APPEND PART 2 DIRECTLY BELOW
 # ============================================================
 
+
+
 # ============================================================
 # UNIVERSAL WEEX HYBRID BOT
-# COMPLETE UNIT 4 V3 REPLACEMENT
+# COMPLETE UNIT 4 V4 REPLACEMENT
+# PART 2 OF 2
 #
-# ADAPTIVE MARKET TRANSITION INTELLIGENCE
-# REFERENCE: 17248 / 16414 MODELS
+# REQUIRES UNIT 4 V4 PART 1 ABOVE
 #
-# SIDEWAYS / LONG / SHORT
-# SCALP -> STRUCTURE -> BREAKOUT
-# MULTI-TIMEFRAME EMA AND ATR
-# DIRECTIONAL PRESSURE / ACCELERATION
-# VERIFIED TRADED MARKET VOLUME
-# TP1 / TP2 REACHABILITY ESTIMATES
-# HEDGE / RECOVERY PRICE EVIDENCE
-# FOUR-CATEGORY DIAGNOSTIC EVIDENCE
-#
-# PRESERVES ORIGINAL UNIT 5 HANDOVER
-# PUBLIC MARKET DATA ONLY
-# NO EXCHANGE WRITES
+# PRESERVES UNIT 5 LEGACY HANDOVER
+# SCALP / STRUCTURE / BREAKOUT
+# ATR HEDGE EVIDENCE
+# TP REACHABILITY ESTIMATES
+# PUBLIC MARKET READ ONLY
+# ZERO INDENTATION DEMARCATION
 # ============================================================
-
-import os
-import json
-import math
-import time
-import urllib.parse
-import urllib.request
-
-from decimal import Decimal
 
 
 # ============================================================
-# 4.1 ADJUSTABLE QUALIFICATION DEFAULTS
-# ============================================================
-
-UNIT_4_V5_TUNING = {
-
-    "common": {
-        "direction_votes_required": 2,
-        "market_age_seconds_max": 120,
-    },
-
-    "breakout": {
-        "lookback_candles": 20,
-        "proximity_atr": 0.50,
-        "confirmation_atr": 0.10,
-        "maximum_extension_atr": 3.0,
-    },
-
-    "structure": {
-        "ema_alignment_mode": "EARLY",
-        "pullback_tolerance_atr": 0.75,
-        "maximum_extension_atr": 2.0,
-    },
-
-    "scalp": {
-        "ema_compression_atr_max": 0.70,
-        "range_atr_max": 8.0,
-        "momentum_atr_max": 1.50,
-        "preliminary_ema_separation_percent": 0.03,
-        "preliminary_move_5m_percent": 0.015,
-    },
-}
-
-
-# ============================================================
-# 4.2 VALIDATION HELPERS
-# ============================================================
-
-def u4v3_num(x, label, minimum=None):
-
-    try:
-        x = float(x)
-
-    except (
-        ValueError,
-        TypeError,
-        OverflowError,
-    ) as exc:
-        raise RuntimeError(
-            "UNIT4 INVALID " + label
-        ) from exc
-
-    if not math.isfinite(x):
-        raise RuntimeError(
-            "UNIT4 NONFINITE " + label
-        )
-
-    if minimum is not None and x < minimum:
-        raise RuntimeError(
-            "UNIT4 INVALID RANGE " + label
-        )
-
-    return x
-
-
-def u4v3_env(key, default, minimum=0):
-
-    return u4v3_num(
-        os.getenv(key, default),
-        key,
-        minimum,
-    )
-
-
-def u4v3_ema(prices, period):
-
-    if len(prices) < period:
-        raise RuntimeError(
-            "UNIT4 EMA HISTORY"
-        )
-
-    result = (
-        sum(prices[:period]) / period
-    )
-
-    multiplier = (
-        2 / (period + 1)
-    )
-
-    for price in prices[period:]:
-
-        result = (
-            result
-            + multiplier * (price - result)
-        )
-
-    return result
-
-
-# ============================================================
-# 4.3 PUBLIC WEEX CANDLE RETRIEVAL
-# ============================================================
-
-def u4v3_fetch(
-    symbol,
-    interval,
-    limit,
-    kind="MARK",
-):
-
-    if kind == "MARK":
-
-        endpoint = (
-            "/capi/v3/market/markPriceKlines"
-        )
-
-    elif kind == "TRADE":
-
-        endpoint = (
-            "/capi/v3/market/klines"
-        )
-
-    else:
-
-        raise RuntimeError(
-            "UNIT4 INVALID CANDLE TYPE"
-        )
-
-    query = urllib.parse.urlencode({
-        "symbol": symbol,
-        "interval": interval,
-        "limit": limit,
-    })
-
-    url = (
-        "https://api-contract.weex.com"
-        + endpoint
-        + "?"
-        + query
-    )
-
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/json",
-        },
-        method="GET",
-    )
-
-    timeout = u4v3_env(
-        "UNIT4_HTTP_TIMEOUT_SECONDS",
-        15,
-        1,
-    )
-
-    with urllib.request.urlopen(
-        request,
-        timeout=timeout,
-    ) as response:
-
-        if response.status != 200:
-            raise RuntimeError(
-                "UNIT4 MARKET HTTP ERROR"
-            )
-
-        payload = json.loads(
-            response.read(
-                2000000
-            ).decode("utf-8")
-        )
-
-    if not isinstance(payload, list):
-        raise RuntimeError(
-            "UNIT4 INVALID MARKET RESPONSE "
-            + interval
-        )
-
-    return payload
-
-
-# ============================================================
-# 4.4 CLOSED CANDLE NORMALIZATION
-# ============================================================
-
-def u4v3_candles(
-    rows,
-    interval_minutes,
-    reference_time_ms,
-    minimum_history=201,
-):
-
-    normalized = []
-
-    interval_ms = (
-        interval_minutes * 60000
-    )
-
-    for row in rows:
-
-        if not isinstance(
-            row,
-            (list, tuple),
-        ) or len(row) < 7:
-
-            raise RuntimeError(
-                "UNIT4 INVALID CANDLE SHAPE"
-            )
-
-        start_time = int(row[0])
-        end_time = int(row[6])
-
-        o, h, l, c, v = [
-            u4v3_num(value, "OHLCV")
-            for value in row[1:6]
-        ]
-
-        if not (
-            0 < l
-            <= min(o, c)
-            <= max(o, c)
-            <= h
-        ):
-            raise RuntimeError(
-                "UNIT4 INVALID OHLC VALUES"
-            )
-
-        if not (
-            v >= 0
-            and start_time < end_time
-            <= start_time + interval_ms
-        ):
-            raise RuntimeError(
-                "UNIT4 INVALID CANDLE METADATA"
-            )
-
-        normalized.append({
-            "open_time_ms": start_time,
-            "open": o,
-            "high": h,
-            "low": l,
-            "close": c,
-            "volume": v,
-            "close_time_ms": end_time,
-        })
-
-    normalized.sort(
-        key=lambda x: x["open_time_ms"]
-    )
-
-    for previous, current in zip(
-        normalized,
-        normalized[1:],
-    ):
-
-        difference = (
-            current["open_time_ms"]
-            - previous["open_time_ms"]
-        )
-
-        if difference != interval_ms:
-
-            raise RuntimeError(
-                "UNIT4 CANDLE GAP OR DUPLICATE"
-            )
-
-    closed = [
-        item
-        for item in normalized
-        if item["close_time_ms"]
-        <= reference_time_ms
-    ]
-
-    if len(closed) < minimum_history:
-
-        raise RuntimeError(
-            "UNIT4 INSUFFICIENT CANDLE HISTORY "
-            + str(interval_minutes)
-        )
-
-    age = (
-        reference_time_ms
-        - closed[-1]["close_time_ms"]
-    )
-
-    if age > (
-        interval_ms + 120000
-    ):
-        raise RuntimeError(
-            "UNIT4 STALE CLOSED CANDLE"
-        )
-
-    return normalized, closed
-
-
-# ============================================================
-# 4.5 MULTI-TIMEFRAME INDICATORS
-# ============================================================
-
-def u4v3_indicators(candles):
-
-    prices = [
-        candle["close"]
-        for candle in candles
-    ]
-
-    ema = {
-        period: u4v3_ema(
-            prices,
-            period,
-        )
-        for period in (
-            19, 50, 100, 200
-        )
-    }
-
-    true_ranges = []
-
-    for index in range(
-        1,
-        len(candles),
-    ):
-
-        item = candles[index]
-        previous = prices[index - 1]
-
-        true_ranges.append(max(
-            item["high"] - item["low"],
-            abs(
-                item["high"] - previous
-            ),
-            abs(
-                item["low"] - previous
-            ),
-        ))
-
-    atr14 = (
-        sum(true_ranges[-14:]) / 14
-    )
-
-    if atr14 <= 0:
-
-        raise RuntimeError(
-            "UNIT4 ZERO ATR"
-        )
-
-    # Historical baseline excludes the
-    # current ATR sample.
-
-    baseline_samples = []
-
-    for index in range(
-        len(true_ranges) - 34,
-        len(true_ranges),
-    ):
-
-        baseline_samples.append(
-            sum(
-                true_ranges[
-                    index - 14:index
-                ]
-            ) / 14
-        )
-
-    baseline = (
-        sum(baseline_samples)
-        / len(baseline_samples)
-    )
-
-    if ema[19] > ema[50] > ema[200]:
-
-        trend = "LONG"
-
-    elif ema[19] < ema[50] < ema[200]:
-
-        trend = "SHORT"
-
-    elif ema[19] > ema[50]:
-
-        trend = "EARLY_LONG"
-
-    elif ema[19] < ema[50]:
-
-        trend = "EARLY_SHORT"
-
-    else:
-
-        trend = "MIXED"
-
-    acceleration = (
-        (
-            prices[-1] - prices[-4]
-        )
-        - (
-            prices[-4] - prices[-7]
-        )
-    ) / atr14
-
-    return {
-        "ema19": ema[19],
-        "ema50": ema[50],
-        "ema100": ema[100],
-        "ema200": ema[200],
-
-        "atr14": atr14,
-
-        "atr_percent": (
-            100 * atr14 / prices[-1]
-        ),
-
-        "atr_expansion_ratio": (
-            atr14 / baseline
-            if baseline > 0
-            else 1.0
-        ),
-
-        "trend": trend,
-
-        "momentum_acceleration_atr":
-            acceleration,
-
-        "move_5_candles_pct": (
-            100 * (
-                prices[-1] / prices[-6] - 1
-            )
-        ),
-
-        "move_15_candles_pct": (
-            100 * (
-                prices[-1] / prices[-16] - 1
-            )
-        ),
-    }
-
-
-# ============================================================
-# 4.6 PRE-ENTRY NET ROI TARGET ESTIMATION
-#
-# ACTUAL TP ORDERS REMAIN UNIT 13 RESPONSIBILITY.
-# ============================================================
-
-def u4v3_tp(
-    roi_percent,
-    leverage,
-    fee_percent,
-    slippage_percent,
-    other_cost_roi_percent,
-    side,
-):
-
-    fee = (
-        Decimal(str(fee_percent))
-        / Decimal("100")
-    )
-
-    exit_cost = (
-        Decimal(str(fee_percent))
-        + Decimal(str(slippage_percent))
-    ) / Decimal("100")
-
-    desired_return = (
-        Decimal(str(roi_percent))
-        + Decimal(str(other_cost_roi_percent))
-    ) / (
-        Decimal("100")
-        * Decimal(str(leverage))
-    )
-
-    required = (
-        desired_return
-        + fee
-        + exit_cost
-    )
-
-    if side == "LONG":
-
-        denominator = (
-            Decimal("1") - exit_cost
-        )
-
-    elif side == "SHORT":
-
-        denominator = (
-            Decimal("1") + exit_cost
-        )
-
-    else:
-
-        raise RuntimeError(
-            "UNIT4 INVALID TARGET SIDE"
-        )
-
-    if denominator <= 0:
-        raise RuntimeError(
-            "UNIT4 INVALID TARGET COST"
-        )
-
-    movement = (
-        required / denominator
-    )
-
-    return float(
-        movement * 100
-    )
-
-
-# ============================================================
-# 4.7 COMPLETE UNIT 4 MARKET ENGINE
+# 4.8 COMPLETE MARKET ANALYSIS ENGINE
 # ============================================================
 
 def fresh_reconstruction_unit_4():
 
     print("=" * 80, flush=True)
 
-    log(
-        "UNIVERSAL WEEX UNIT 4 V3 START"
-    )
+    log("UNIVERSAL WEEX UNIT 4 V4 START")
 
     config = FRESH_RECONSTRUCTION_CONFIG
+    market = FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
 
-    market = (
-        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
-    )
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT4 CONFIG MISSING")
+
+    if not isinstance(market, dict):
+        raise RuntimeError("UNIT4 MARKET MISSING")
 
     exchange = config["exchange"]
+    safety = config["safety"]
+    strategy = config["strategy"]
+    qualification = config["qualification"]
 
     symbol = exchange["market_symbol"]
 
-    
-    # ========================================================
-    # UNIT 4 V4 — CENTRAL SYMBOL AUTHORITY
-    # Unit 2 determines the configured trading symbol.
-    # Unit 3 must supply matching verified market data.
-    # ========================================================
-        
-    # ========================================================
-    # UNIT 4 V4 — SYMBOL AUTHORITY CORRECTION
-    # ========================================================
-
     if (
         not isinstance(symbol, str)
-        or not symbol
+        or not symbol.endswith("USDT")
         or market.get("symbol") != symbol
         or market.get("read_only") is not True
+        or market.get("price_type") != "MARK"
     ):
         raise RuntimeError(
             "UNIT4 MARKET HANDOVER FAILED"
         )
 
-    print(
-        "PASS: UNIT 4 SYMBOL AUTHORITY = UNIT 2",
-        flush=True,
-    )
-
-    if config.get(
-        "execution_environment"
-    ) != "DEMO":
-        raise RuntimeError(
-            "UNIT4 NOT DEMO CONFIG"
-        )
+    if config.get("execution_environment") != "DEMO":
+        raise RuntimeError("UNIT4 NOT DEMO")
 
     if (
-        exchange.get("contract_base_url")
-        != "https://api-contract.weex.com"
+        safety.get("public_market_data_read_enabled")
+        is not True
+        or safety.get("real_order_submission_enabled")
+        is not False
     ):
         raise RuntimeError(
-            "UNIT4 EXCHANGE BASE URL INVALID"
+            "UNIT4 EXECUTION SAFETY FAILED"
         )
 
-    if config.get(
-        "safety", {}
-    ).get(
-        "real_order_submission_enabled"
-    ) is not False:
-        raise RuntimeError(
-            "UNIT4 REAL ORDER SAFETY FAILED"
-        )
-
-    timestamp = int(
-        market["exchange_time_ms"]
-    )
+    timestamp = int(market["exchange_time_ms"])
 
     mark_price = u4v3_num(
-        market["price"],
-        "MARK PRICE",
-        0.000000001,
+        market["price"], "MARK PRICE", 1e-12
     )
 
-    market_age = (
-        int(time.time() * 1000)
-        - timestamp
+    age_ms = int(time.time() * 1000) - timestamp
+
+    max_age_ms = int(
+        u4v3_env(
+            "UNIT4_MARKET_MAX_AGE_SECONDS",
+            120, 1
+        ) * 1000
     )
 
-    if not (
-        0 <= market_age <= 120000
-    ):
-        raise RuntimeError(
-            "UNIT4 STALE MARKET PRICE"
-        )
+    if not 0 <= age_ms <= max_age_ms:
+        raise RuntimeError("UNIT4 STALE MARKET")
+
+    print(
+        "UNIT 4 SYMBOL =", symbol,
+        "MARK PRICE =", mark_price,
+        flush=True
+    )
 
     # ========================================================
-    # 4.8 REQUEST FOUR TIMEFRAMES
+    # 4.9 FOUR-TIMEFRAME PUBLIC MARKET ANALYSIS
     # ========================================================
 
     timeframes = (
@@ -3346,225 +2808,171 @@ def fresh_reconstruction_unit_4():
 
     for interval, minutes in timeframes:
 
-        count = (
-            300 if interval == "1m"
-            else 240
+        count = 300 if interval == "1m" else 240
+
+        rows = u4v3_fetch(
+            symbol, interval, count, "MARK"
         )
 
-        raw = u4v3_fetch(
-            symbol,
-            interval,
-            count,
+        returned, closed = u4v3_candles(
+            rows, minutes, timestamp, 201
         )
 
-        returned, closed = (
-            u4v3_candles(
-                raw,
-                minutes,
-                timestamp,
-            )
-        )
+        returned_by_timeframe[interval] = returned
+        closed_by_timeframe[interval] = closed
 
-        returned_by_timeframe[
-            interval
-        ] = returned
-
-        closed_by_timeframe[
-            interval
-        ] = closed
-
-        timeframe_analysis[
-            interval
-        ] = u4v3_indicators(
-            closed
+        timeframe_analysis[interval] = (
+            u4v3_indicators(closed)
         )
 
     candles = closed_by_timeframe["1m"]
-
     one = timeframe_analysis["1m"]
 
-    prices = [
-        item["close"]
-        for item in candles
-    ]
+    prices = [x["close"] for x in candles]
 
     latest_close = prices[-1]
     previous_close = prices[-2]
 
     atr14 = one["atr14"]
 
-    def movement(period):
-
-        return (
-            100
-            * (
-                latest_close
-                / prices[-period - 1]
-                - 1
-            )
-        )
-
-    # ========================================================
-    # 4.9 MARKET DIRECTION VOTING
-    # ========================================================
-
     ema19 = one["ema19"]
     ema50 = one["ema50"]
     ema100 = one["ema100"]
     ema200 = one["ema200"]
 
+    def movement(period):
+        if period >= len(prices):
+            raise RuntimeError(
+                "UNIT4 MOVEMENT HISTORY SHORT"
+            )
+        return 100.0 * (
+            latest_close / prices[-period - 1] - 1
+        )
+
+    moves = {
+        p: movement(p)
+        for p in (1, 5, 15, 30, 60, 120)
+    }
+
+    # ========================================================
+    # 4.10 DIRECTION VOTING
+    # ========================================================
+
     ema_vote = (
-        "LONG"
-        if ema19 > ema50
-        else "SHORT"
-        if ema19 < ema50
+        "LONG" if ema19 > ema50
+        else "SHORT" if ema19 < ema50
         else "NONE"
     )
 
-    combined_momentum = (
-        movement(5) + movement(15)
-    )
+    combined_momentum = moves[5] + moves[15]
 
     momentum_vote = (
-        "LONG"
-        if combined_momentum > 0
-        else "SHORT"
-        if combined_momentum < 0
+        "LONG" if combined_momentum > 0
+        else "SHORT" if combined_momentum < 0
         else "NONE"
     )
 
     price_vote = (
-        "LONG"
-        if latest_close > ema19
-        else "SHORT"
-        if latest_close < ema19
+        "LONG" if latest_close > ema19
+        else "SHORT" if latest_close < ema19
         else "NONE"
     )
 
-    votes = (
-        ema_vote,
-        momentum_vote,
-        price_vote,
-    )
+    votes = (ema_vote, momentum_vote, price_vote)
 
     long_votes = votes.count("LONG")
     short_votes = votes.count("SHORT")
 
-    if long_votes >= 2:
+    required_votes = int(
+        qualification["common"].get(
+            "direction_votes_required", 2
+        )
+    )
 
-        direction = "LONG"
+    if required_votes not in (2, 3):
+        raise RuntimeError(
+            "UNIT4 INVALID DIRECTION VOTES"
+        )
 
-    elif short_votes >= 2:
-
-        direction = "SHORT"
-
-    else:
-
-        direction = "NONE"
+    direction = (
+        "LONG" if long_votes >= required_votes
+        else "SHORT" if short_votes >= required_votes
+        else "NONE"
+    )
 
     # ========================================================
-    # 4.10 MULTI-TIMEFRAME ALIGNMENT
+    # 4.11 MULTI-TIMEFRAME TREND EVIDENCE
     # ========================================================
 
     bullish_frames = sum(
-        item["trend"] in (
-            "LONG",
-            "EARLY_LONG",
-        )
-        for item
-        in timeframe_analysis.values()
+        x["trend"] in ("LONG", "EARLY_LONG")
+        for x in timeframe_analysis.values()
     )
 
     bearish_frames = sum(
-        item["trend"] in (
-            "SHORT",
-            "EARLY_SHORT",
-        )
-        for item
-        in timeframe_analysis.values()
+        x["trend"] in ("SHORT", "EARLY_SHORT")
+        for x in timeframe_analysis.values()
     )
 
     confirmed_bullish = sum(
-        item["trend"] == "LONG"
-        for item
-        in timeframe_analysis.values()
+        x["trend"] == "LONG"
+        for x in timeframe_analysis.values()
     )
 
     confirmed_bearish = sum(
-        item["trend"] == "SHORT"
-        for item
-        in timeframe_analysis.values()
+        x["trend"] == "SHORT"
+        for x in timeframe_analysis.values()
     )
 
-    if bullish_frames >= 3:
-
-        mtf_direction = "LONG"
-
-    elif bearish_frames >= 3:
-
-        mtf_direction = "SHORT"
-
-    else:
-
-        mtf_direction = "MIXED"
+    mtf_direction = (
+        "LONG" if bullish_frames >= 3
+        else "SHORT" if bearish_frames >= 3
+        else "MIXED"
+    )
 
     # ========================================================
-    # 4.11 BREAKOUT DEVELOPMENT
+    # 4.12 BREAKOUT DEVELOPMENT
+    #
+    # CANDIDATES ARE INDEPENDENT OF FINAL
+    # ENTRY DIRECTION CONFIRMATION.
     # ========================================================
 
     tuning = UNIT_4_V5_TUNING
+    breakout_cfg = tuning["breakout"]
 
-    breakout_settings = tuning["breakout"]
-
-    lookback = int(
-        u4v3_env(
-            "UNIT4_BREAKOUT_LOOKBACK",
-            breakout_settings[
-                "lookback_candles"
-            ],
-            2,
-        )
+    lookback = u4v4_integer_env(
+        "UNIT4_BREAKOUT_LOOKBACK",
+        breakout_cfg["lookback_candles"],
+        2, 80
     )
 
-    lookback = min(
-        lookback,
-        80,
-    )
+    reference = candles[-lookback - 1:-1]
 
-    reference = candles[
-        -lookback - 1:-1
-    ]
-
-    support = min(
-        item["low"]
-        for item in reference
-    )
-
-    resistance = max(
-        item["high"]
-        for item in reference
-    )
+    support = min(x["low"] for x in reference)
+    resistance = max(x["high"] for x in reference)
 
     proximity = u4v3_env(
         "BREAKOUT_PROXIMITY_ATR",
-        breakout_settings[
-            "proximity_atr"
-        ],
+        breakout_cfg["proximity_atr"]
     )
 
     confirmation = u4v3_env(
         "BREAKOUT_CONFIRMATION_ATR",
-        breakout_settings[
-            "confirmation_atr"
-        ],
+        breakout_cfg["confirmation_atr"]
     )
 
     breakout_extension = u4v3_env(
         "BREAKOUT_MAX_EXTENSION_ATR",
-        breakout_settings[
-            "maximum_extension_atr"
-        ],
+        breakout_cfg["maximum_extension_atr"]
     )
+
+    if (
+        confirmation >= breakout_extension
+        or proximity <= 0
+    ):
+        raise RuntimeError(
+            "UNIT4 INVALID BREAKOUT THRESHOLDS"
+        )
 
     long_breakout_distance = (
         latest_close - resistance
@@ -3573,6 +2981,34 @@ def fresh_reconstruction_unit_4():
     short_breakout_distance = (
         support - latest_close
     ) / atr14
+
+    # Detect emerging candidates early.
+    # Momentum or EMA bias must support them,
+    # but full entry qualification is not required.
+
+    long_bias = (
+        ema_vote == "LONG"
+        or momentum_vote == "LONG"
+    )
+
+    short_bias = (
+        ema_vote == "SHORT"
+        or momentum_vote == "SHORT"
+    )
+
+    breakout_developing_long = bool(
+        long_bias
+        and -proximity
+        <= long_breakout_distance
+        <= confirmation
+    )
+
+    breakout_developing_short = bool(
+        short_bias
+        and -proximity
+        <= short_breakout_distance
+        <= confirmation
+    )
 
     breakout_confirmed_long = bool(
         direction == "LONG"
@@ -3588,199 +3024,168 @@ def fresh_reconstruction_unit_4():
         <= breakout_extension
     )
 
-    breakout_developing_long = bool(
-        direction == "LONG"
-        and -proximity
-        <= long_breakout_distance
-        <= confirmation
-    )
-
-    breakout_developing_short = bool(
-        direction == "SHORT"
-        and -proximity
-        <= short_breakout_distance
-        <= confirmation
-    )
-
     # ========================================================
-    # 4.12 STRUCTURE DEVELOPMENT
+    # 4.13 STRUCTURE DEVELOPMENT
+    #
+    # EARLY STRUCTURE AND QUALIFIED STRUCTURE
+    # ARE NOT THE SAME CONDITION.
     # ========================================================
 
-    structure_settings = tuning["structure"]
+    structure_cfg = tuning["structure"]
 
     alignment = os.getenv(
         "STRUCTURE_EMA_MODE",
-        structure_settings[
-            "ema_alignment_mode"
-        ],
-    ).upper()
+        structure_cfg["ema_alignment_mode"]
+    ).strip().upper()
 
-    if alignment not in (
-        "EARLY",
-        "STRICT",
-    ):
+    if alignment not in ("EARLY", "STRICT"):
         raise RuntimeError(
-            "UNIT4 INVALID STRUCTURE MODE"
+            "UNIT4 INVALID STRUCTURE EMA MODE"
         )
-
-    structure_side = (
-        "LONG"
-        if ema19 > ema50
-        else "SHORT"
-        if ema19 < ema50
-        else "NONE"
-    )
-
-    strict_long = (
-        ema19 > ema50 > ema200
-    )
-
-    strict_short = (
-        ema19 < ema50 < ema200
-    )
 
     structure_pullback = u4v3_env(
         "STRUCTURE_PULLBACK_ATR",
-        structure_settings[
-            "pullback_tolerance_atr"
-        ],
+        structure_cfg["pullback_tolerance_atr"]
     )
 
     structure_extension = u4v3_env(
         "STRUCTURE_MAX_EXTENSION_ATR",
-        structure_settings[
-            "maximum_extension_atr"
-        ],
+        structure_cfg["maximum_extension_atr"]
+    )
+
+    if structure_extension <= 0:
+        raise RuntimeError(
+            "UNIT4 INVALID STRUCTURE EXTENSION"
+        )
+
+    strict_long = ema19 > ema50 > ema200
+    strict_short = ema19 < ema50 < ema200
+
+    structure_side = (
+        "LONG" if ema19 > ema50
+        else "SHORT" if ema19 < ema50
+        else "NONE"
     )
 
     price_extension = (
-        abs(latest_close - ema19)
-        / atr14
+        abs(latest_close - ema19) / atr14
     )
 
     structure_fast_ok = (
-        movement(5) > 0
-        if structure_side == "LONG"
-        else movement(5) < 0
-        if structure_side == "SHORT"
+        moves[5] > 0 if structure_side == "LONG"
+        else moves[5] < 0 if structure_side == "SHORT"
         else False
     )
 
     structure_slow_ok = (
-        movement(15) > 0
-        if structure_side == "LONG"
-        else movement(15) < 0
-        if structure_side == "SHORT"
+        moves[15] > 0 if structure_side == "LONG"
+        else moves[15] < 0 if structure_side == "SHORT"
         else False
     )
 
-    strict_alignment_ok = (
-        strict_long
-        if direction == "LONG"
-        else strict_short
-    )
+    # Developing candidates can exist before
+    # all momentum confirmations are complete.
 
-    structure_qualifies = bool(
-        direction == structure_side
-        and direction != "NONE"
-        and price_extension
-        <= structure_extension
+    structure_developing_long = bool(
+        structure_side == "LONG"
+        and long_bias
+        and price_extension <= structure_extension
+        and (
+            moves[5] >= 0
+            or moves[15] >= 0
+            or latest_close >= ema19 - (
+                structure_pullback * atr14
+            )
+        )
         and (
             alignment == "EARLY"
-            or strict_alignment_ok
+            or strict_long
         )
+    )
+
+    structure_developing_short = bool(
+        structure_side == "SHORT"
+        and short_bias
+        and price_extension <= structure_extension
+        and (
+            moves[5] <= 0
+            or moves[15] <= 0
+            or latest_close <= ema19 + (
+                structure_pullback * atr14
+            )
+        )
+        and (
+            alignment == "EARLY"
+            or strict_short
+        )
+    )
+
+    structure_qualified_long = bool(
+        structure_developing_long
+        and direction == "LONG"
         and structure_fast_ok
         and structure_slow_ok
     )
 
-    structure_developing_long = bool(
-        structure_qualifies
-        and direction == "LONG"
-    )
-
-    structure_developing_short = bool(
-        structure_qualifies
+    structure_qualified_short = bool(
+        structure_developing_short
         and direction == "SHORT"
+        and structure_fast_ok
+        and structure_slow_ok
     )
 
     # ========================================================
-    # 4.13 SIDEWAYS BUILDUP
+    # 4.14 SIDEWAYS / SCALP QUALIFICATION
     # ========================================================
 
     ema_cluster = (
-        max(
-            ema19,
-            ema50,
-            ema100,
-            ema200,
-        )
-        - min(
-            ema19,
-            ema50,
-            ema100,
-            ema200,
-        )
+        max(ema19, ema50, ema100, ema200)
+        - min(ema19, ema50, ema100, ema200)
     )
 
-    compression_atr = (
-        ema_cluster / atr14
-    )
+    compression_atr = ema_cluster / atr14
 
     scalp_reference = candles[-21:-1]
 
     scalp_range_atr = (
-        max(
-            item["high"]
-            for item in scalp_reference
-        )
-        - min(
-            item["low"]
-            for item in scalp_reference
-        )
+        max(x["high"] for x in scalp_reference)
+        - min(x["low"] for x in scalp_reference)
     ) / atr14
 
     scalp_momentum_atr = (
-        abs(
-            latest_close - prices[-16]
-        ) / atr14
+        abs(latest_close - prices[-16]) / atr14
+    )
+
+    compression_limit = u4v3_env(
+        "SCALP_COMPRESSION_ATR_MAX", 0.70
+    )
+
+    range_limit = u4v3_env(
+        "SCALP_RANGE_ATR_MAX", 8.0
+    )
+
+    momentum_limit = u4v3_env(
+        "SCALP_MOMENTUM_ATR_MAX", 1.50
     )
 
     higher_mode_developing = any((
-        breakout_confirmed_long,
-        breakout_confirmed_short,
         breakout_developing_long,
         breakout_developing_short,
+        breakout_confirmed_long,
+        breakout_confirmed_short,
         structure_developing_long,
         structure_developing_short,
     ))
 
-    compression_limit = u4v3_env(
-        "SCALP_COMPRESSION_ATR_MAX",
-        0.70,
-    )
-
-    range_limit = u4v3_env(
-        "SCALP_RANGE_ATR_MAX",
-        8.0,
-    )
-
-    momentum_limit = u4v3_env(
-        "SCALP_MOMENTUM_ATR_MAX",
-        1.50,
-    )
-
     sideways_candidate = bool(
-        compression_atr
-        <= compression_limit
-        and scalp_range_atr
-        <= range_limit
-        and scalp_momentum_atr
-        <= momentum_limit
+        compression_atr <= compression_limit
+        and scalp_range_atr <= range_limit
+        and scalp_momentum_atr <= momentum_limit
         and not higher_mode_developing
     )
 
     # ========================================================
-    # 4.14 VERIFIED TRADED MARKET VOLUME
+    # 4.15 TRADED MARKET VOLUME
     # ========================================================
 
     volume_available = False
@@ -3790,28 +3195,17 @@ def fresh_reconstruction_unit_4():
     volume_error = None
 
     try:
-
         trade_rows = u4v3_fetch(
-            symbol,
-            "1m",
-            50,
-            "TRADE",
+            symbol, "1m", 50, "TRADE"
         )
 
-        _, traded_closed = (
-            u4v3_candles(
-                trade_rows,
-                1,
-                timestamp,
-                21,
-            )
+        _, traded_closed = u4v3_candles(
+            trade_rows, 1, timestamp, 21
         )
 
         baseline_volumes = [
-            item["volume"]
-            for item in traded_closed[
-                -21:-1
-            ]
+            x["volume"]
+            for x in traded_closed[-21:-1]
         ]
 
         average_volume20 = (
@@ -3822,313 +3216,222 @@ def fresh_reconstruction_unit_4():
             traded_closed[-1]["volume"]
         )
 
-        volume_available = (
-            average_volume20 > 0
-        )
+        volume_available = average_volume20 > 0
 
         if volume_available:
-
             volume_ratio20 = (
-                latest_volume
-                / average_volume20
+                latest_volume / average_volume20
             )
 
     except Exception as exc:
-
-        volume_error = (
-            str(exc)[:160]
-        )
+        volume_error = str(exc)[:160]
 
     volume_threshold = u4v3_env(
-        "UNIT4_VOLUME_RATIO_MIN",
-        1.20,
+        "UNIT4_VOLUME_RATIO_MIN", 1.20
     )
 
     volume_confirmed = bool(
         volume_available
-        and volume_ratio20
-        >= volume_threshold
+        and volume_ratio20 >= volume_threshold
     )
 
     # ========================================================
-    # 4.15 MOMENTUM ACCELERATION / ATR EXPANSION
+    # 4.16 MOMENTUM / VOLATILITY
     # ========================================================
 
     acceleration = (
-        one[
-            "momentum_acceleration_atr"
-        ]
+        one["momentum_acceleration_atr"]
     )
 
     acceleration_threshold = u4v3_env(
         "UNIT4_MOMENTUM_ACCELERATION_ATR_MIN",
-        0.10,
+        0.10
     )
 
     momentum_accelerating = bool(
         (
             direction == "LONG"
-            and acceleration
-            >= acceleration_threshold
+            and acceleration >= acceleration_threshold
         )
         or (
             direction == "SHORT"
-            and acceleration
-            <= -acceleration_threshold
+            and acceleration <= -acceleration_threshold
         )
     )
 
-    atr_expansion = (
-        one["atr_expansion_ratio"]
-    )
+    atr_expansion = one["atr_expansion_ratio"]
 
     expansion_threshold = u4v3_env(
-        "UNIT4_ATR_EXPANSION_RATIO_MIN",
-        1.10,
+        "UNIT4_ATR_EXPANSION_RATIO_MIN", 1.10
     )
 
     volatility_expanding = bool(
-        atr_expansion
-        >= expansion_threshold
+        atr_expansion >= expansion_threshold
     )
 
     # ========================================================
-    # 4.16 DIRECTIONAL PRESSURE SCORES
+    # 4.17 DIRECTIONAL PRESSURE
     #
-    # THESE ARE DESCRIPTIVE SCORES,
-    # NOT STATISTICAL TP PROBABILITIES.
+    # DESCRIPTIVE SCORES, NOT PROBABILITIES.
     # ========================================================
+
+    def clamp(value):
+        return max(0.0, min(1.0, value))
 
     momentum_reference = max(
-        one["atr_percent"] * 5,
-        0.000000001,
+        one["atr_percent"] * 5, 1e-12
     )
 
-    bullish_momentum_component = max(
-        0,
-        min(
-            1,
-            movement(5)
-            / momentum_reference,
-        ),
+    bullish_momentum_component = clamp(
+        moves[5] / momentum_reference
     )
 
-    bearish_momentum_component = max(
-        0,
-        min(
-            1,
-            -movement(5)
-            / momentum_reference,
-        ),
+    bearish_momentum_component = clamp(
+        -moves[5] / momentum_reference
     )
 
-    bullish_acceleration = max(
-        0,
-        min(1, acceleration),
-    )
-
-    bearish_acceleration = max(
-        0,
-        min(1, -acceleration),
-    )
+    bullish_acceleration = clamp(acceleration)
+    bearish_acceleration = clamp(-acceleration)
 
     bullish_pressure = min(
-        100,
+        100.0,
         25 * long_votes / 3
         + 25 * bullish_frames / 4
         + 25 * bullish_momentum_component
-        + 25 * bullish_acceleration,
+        + 25 * bullish_acceleration
     )
 
     bearish_pressure = min(
-        100,
+        100.0,
         25 * short_votes / 3
         + 25 * bearish_frames / 4
         + 25 * bearish_momentum_component
-        + 25 * bearish_acceleration,
+        + 25 * bearish_acceleration
     )
 
     buildup_score = min(
-        100,
+        100.0,
         50 * max(
-            0,
+            0.0,
             1 - compression_atr
-            / max(
-                compression_limit,
-                0.000000001,
-            ),
+            / max(compression_limit, 1e-12)
         )
         + 25 * max(
-            0,
+            0.0,
             1 - scalp_range_atr
-            / max(
-                range_limit,
-                0.000000001,
-            ),
+            / max(range_limit, 1e-12)
         )
         + 25 * (
-            1 if volatility_expanding
-            else 0
-        ),
+            1 if volatility_expanding else 0
+        )
     )
 
     # ========================================================
-    # 4.17 MARKET REGIME CLASSIFICATION
+    # 4.18 MARKET REGIME AND TRANSITIONS
     # ========================================================
 
     if sideways_candidate:
-
         regime = "SIDEWAYS"
 
     elif mtf_direction == "LONG":
-
         regime = "LONG"
 
     elif mtf_direction == "SHORT":
-
         regime = "SHORT"
 
     else:
-
         regime = "TRANSITION"
 
-    # These are current transition candidates.
-    # Confirmed transitions require previous
-    # snapshots, which Unit 5 will manage.
-
-    transition_evidence = {
-
-        "sideways_to_long": bool(
-            regime == "LONG"
-            and direction == "LONG"
-        ),
-
-        "sideways_to_short": bool(
-            regime == "SHORT"
-            and direction == "SHORT"
-        ),
-
-        "long_to_short": bool(
-            direction == "SHORT"
-            and bearish_frames >= 3
-        ),
-
-        "short_to_long": bool(
-            direction == "LONG"
-            and bullish_frames >= 3
-        ),
-
-        "momentum_accelerating":
-            momentum_accelerating,
-
-        "volatility_expanding":
-            volatility_expanding,
-
-        "transition_confirmed_from_previous_snapshot":
-            False,
-    }
-    
-    # ========================================================
-    # UNIT 4 V4 — DIRECTION RECONCILIATION
-    # ========================================================
-
-    regime_direction_aligned = (
+    regime_direction_aligned = bool(
         direction in ("LONG", "SHORT")
         and direction == mtf_direction
     )
 
-    countertrend_developing = (
+    countertrend_developing = bool(
         direction in ("LONG", "SHORT")
         and mtf_direction in ("LONG", "SHORT")
         and direction != mtf_direction
     )
 
-    transition_evidence[
-        "regime_direction_aligned"
-    ] = regime_direction_aligned
-
-    transition_evidence[
-        "countertrend_developing"
-    ] = countertrend_developing
-
-    print(
-        "UNIT 4 REGIME/DIRECTION ALIGNED =",
-        regime_direction_aligned,
-        flush=True,
-    )
-
-    print(
-        "UNIT 4 COUNTERTREND DEVELOPING =",
-        countertrend_developing,
-        flush=True,
-    )
-
+    transition_evidence = {
+        "sideways_to_long": bool(
+            regime == "LONG"
+            and direction == "LONG"
+        ),
+        "sideways_to_short": bool(
+            regime == "SHORT"
+            and direction == "SHORT"
+        ),
+        "long_to_short": bool(
+            direction == "SHORT"
+            and bearish_frames >= 3
+        ),
+        "short_to_long": bool(
+            direction == "LONG"
+            and bullish_frames >= 3
+        ),
+        "momentum_accelerating":
+            momentum_accelerating,
+        "volatility_expanding":
+            volatility_expanding,
+        "transition_confirmed_from_previous_snapshot":
+            False,
+        "regime_direction_aligned":
+            regime_direction_aligned,
+        "countertrend_developing":
+            countertrend_developing,
+    }
 
     # ========================================================
-    # 4.18 TP1 / TP2 PRICE REACHABILITY
+    # 4.19 PRE-ENTRY TP1 / TP2 REACHABILITY
     # ========================================================
 
-    fee_policy = config.get(
-        "fee_policy",
-        {},
-    )
-
-    leverage_config = config["leverage"]
-
-    strategy = config["strategy"]
+    fee_policy = config.get("fee_policy", {})
 
     fee = u4v3_num(
         fee_policy.get(
             "estimated_taker_fee_percent",
-            0.08,
+            qualification["scalp"].get(
+                "estimated_taker_fee_percent",
+                0.08
+            )
         ),
-        "FEE",
-        0,
+        "TAKER FEE", 0
     )
 
     slippage = u4v3_env(
         "UNIT4_EXIT_SLIPPAGE_RESERVE_PERCENT",
-        0.05,
+        0.05
     )
 
     other_cost = u4v3_env(
         "UNIT4_OTHER_COST_ROI_RESERVE_PERCENT",
-        0.0,
+        0.0
     )
 
     target_distances = {}
     reachability = {}
 
-    for side in (
-        "LONG",
-        "SHORT",
-    ):
+    for side in ("LONG", "SHORT"):
 
         leverage = u4v3_num(
-            leverage_config["long"]
-            if side == "LONG"
-            else leverage_config["short"],
-            "LEVERAGE",
-            0.01,
+            config["leverage"][
+                "long" if side == "LONG"
+                else "short"
+            ],
+            "LEVERAGE", 1
         )
 
         target_distances[side] = {}
-        reachability[side] = {}
 
-        for target_name, roi in (
+        for name, roi in (
             (
                 "tp1",
-                strategy.get(
-                    "tp1_net_roi_floor_percent",
-                    20,
-                ),
+                strategy["tp1_net_roi_floor_percent"]
             ),
             (
                 "tp2",
-                strategy.get(
-                    "tp2_net_roi_floor_percent",
-                    40,
-                ),
+                strategy["tp2_net_roi_floor_percent"]
             ),
         ):
 
@@ -4138,94 +3441,59 @@ def fresh_reconstruction_unit_4():
                 fee,
                 slippage,
                 other_cost,
-                side,
+                side
             )
 
-            target_price = (
-                mark_price
-                * (
-                    1 + required_move / 100
-                    if side == "LONG"
-                    else 1 - required_move / 100
-                )
+            target_price = mark_price * (
+                1 + required_move / 100
+                if side == "LONG"
+                else 1 - required_move / 100
             )
 
             if target_price <= 0:
-
                 raise RuntimeError(
-                    "UNIT4 INVALID TP PRICE"
+                    "UNIT4 INVALID TP TARGET"
                 )
 
             target_distances[side][
-                target_name + "_move_pct"
+                name + "_move_pct"
             ] = required_move
 
             target_distances[side][
-                target_name + "_price"
+                name + "_price"
             ] = target_price
 
             target_distances[side][
-                target_name + "_atr1m"
+                name + "_atr1m"
             ] = (
-                abs(
-                    target_price - mark_price
-                ) / atr14
+                abs(target_price - mark_price)
+                / atr14
             )
 
+        d = target_distances[side]
+
         reachability[side] = {
-
-            "tp1_price":
-                target_distances[
-                    side
-                ]["tp1_price"],
-
-            "tp2_price":
-                target_distances[
-                    side
-                ]["tp2_price"],
-
-            "tp1_move_pct":
-                target_distances[
-                    side
-                ]["tp1_move_pct"],
-
-            "tp2_move_pct":
-                target_distances[
-                    side
-                ]["tp2_move_pct"],
-
-            "tp1_atr1m_distance":
-                target_distances[
-                    side
-                ]["tp1_atr1m"],
-
-            "tp2_atr1m_distance":
-                target_distances[
-                    side
-                ]["tp2_atr1m"],
-
-            "historical_target_hit_rate":
-                None,
-
-            "probability_verified":
-                False,
+            "tp1_price": d["tp1_price"],
+            "tp2_price": d["tp2_price"],
+            "tp1_move_pct": d["tp1_move_pct"],
+            "tp2_move_pct": d["tp2_move_pct"],
+            "tp1_atr1m_distance": d["tp1_atr1m"],
+            "tp2_atr1m_distance": d["tp2_atr1m"],
+            "historical_target_hit_rate": None,
+            "probability_verified": False,
         }
 
     # ========================================================
-    # 4.19 PRESERVE LEGACY MARKET SNAPSHOT
-    # AND ADD V3 OPTIMIZATION EVIDENCE
+    # 4.20 PRESERVE COMPLETE UNIT 5 HANDOVER
     # ========================================================
 
     ema_structure = (
-        "BULLISH"
-        if strict_long
-        else "BEARISH"
-        if strict_short
+        "BULLISH" if strict_long
+        else "BEARISH" if strict_short
         else "MIXED"
     )
 
     snapshot = {
-
         "exchange": "WEEX",
         "api_version": "V3",
         "symbol": symbol,
@@ -4238,10 +3506,8 @@ def fresh_reconstruction_unit_4():
 
         "latest_open_time_ms":
             candles[-1]["open_time_ms"],
-
         "latest_close_time_ms":
             candles[-1]["close_time_ms"],
-
         "exchange_time_ms": timestamp,
 
         "ema19": ema19,
@@ -4250,124 +3516,91 @@ def fresh_reconstruction_unit_4():
         "ema200": ema200,
 
         "ema19_50_separation_pct":
-            abs(ema19 - ema50)
-            / ema50 * 100,
+            abs(ema19 - ema50) / ema50 * 100,
 
         "ema_structure": ema_structure,
+        "short_term_move_pct": moves[1],
 
-        "short_term_move_pct":
-            movement(1),
-
-        "move_1m_pct": movement(1),
-        "move_5m_pct": movement(5),
-        "move_15m_pct": movement(15),
-        "move_30m_pct": movement(30),
-        "move_60m_pct": movement(60),
-        "move_120m_pct": movement(120),
+        "move_1m_pct": moves[1],
+        "move_5m_pct": moves[5],
+        "move_15m_pct": moves[15],
+        "move_30m_pct": moves[30],
+        "move_60m_pct": moves[60],
+        "move_120m_pct": moves[120],
 
         "recent_closed_klines": [
-            dict(item)
-            for item in candles[-60:]
+            dict(x) for x in candles[-60:]
         ],
 
         "candle_count": len(
             returned_by_timeframe["1m"]
         ),
+        "closed_candle_count": len(candles),
 
-        "closed_candle_count":
-            len(candles),
-
-        "newest_returned_candle_closed":
-            (
-                returned_by_timeframe[
-                    "1m"
-                ][-1]["close_time_ms"]
-                <= timestamp
-            ),
+        "newest_returned_candle_closed": (
+            returned_by_timeframe["1m"][-1][
+                "close_time_ms"
+            ] <= timestamp
+        ),
 
         "source":
             "WEEX_V3_PUBLIC_MARK_PRICE_KLINES",
 
         "atr14": atr14,
-
-        "atr_percent":
-            one["atr_percent"],
+        "atr_percent": one["atr_percent"],
 
         "support20": support,
         "resistance20": resistance,
-
         "range20_atr_ratio":
             (resistance - support) / atr14,
 
         "near_resistance": bool(
-            latest_close
-            >= resistance - proximity * atr14
+            latest_close >= resistance
+            - proximity * atr14
         ),
-
         "near_support": bool(
-            latest_close
-            <= support + proximity * atr14
+            latest_close <= support
+            + proximity * atr14
         ),
 
         "breakout_confirmed_long":
             breakout_confirmed_long,
-
         "breakout_confirmed_short":
             breakout_confirmed_short,
-
         "breakout_developing_long":
             breakout_developing_long,
-
         "breakout_developing_short":
             breakout_developing_short,
 
         "structure_developing_long":
             structure_developing_long,
-
         "structure_developing_short":
             structure_developing_short,
-
         "structure_trend_direction":
             structure_side,
-
         "structure_ema_alignment_mode":
             alignment,
-
         "structure_momentum_fast_confirmed":
             structure_fast_ok,
-
         "structure_momentum_slow_confirmed":
             structure_slow_ok,
 
         "sideways_candidate":
             sideways_candidate,
 
-        "direction_long_votes":
-            long_votes,
+        "direction_long_votes": long_votes,
+        "direction_short_votes": short_votes,
+        "direction_evidence": direction,
 
-        "direction_short_votes":
-            short_votes,
-
-        "direction_evidence":
-            direction,
-
-        "ema_cluster_height":
-            ema_cluster,
-
-        "ema_compression_atr":
-            compression_atr,
-
-        "scalp_range_atr":
-            scalp_range_atr,
-
-        "scalp_momentum_atr":
-            scalp_momentum_atr,
+        "ema_cluster_height": ema_cluster,
+        "ema_compression_atr": compression_atr,
+        "scalp_range_atr": scalp_range_atr,
+        "scalp_momentum_atr": scalp_momentum_atr,
 
         "scalp_preliminary_ema_min_pct":
             tuning["scalp"][
                 "preliminary_ema_separation_percent"
             ],
-
         "scalp_preliminary_move_min_pct":
             tuning["scalp"][
                 "preliminary_move_5m_percent"
@@ -4375,297 +3608,161 @@ def fresh_reconstruction_unit_4():
 
         "price_extension_cluster":
             price_extension,
+        "price_overextended": bool(
+            price_extension > structure_extension
+        ),
 
-        "price_overextended":
-            price_extension
-            > structure_extension,
-
-        "average_volume20":
-            average_volume20,
-
-        "latest_volume":
-            latest_volume,
-
-        "volume_ratio20":
-            volume_ratio20,
-
-        "volume_data_available":
-            volume_available,
-
+        "average_volume20": average_volume20,
+        "latest_volume": latest_volume,
+        "volume_ratio20": volume_ratio20,
+        "volume_data_available": volume_available,
         "verified_trade_volume_ratio":
             volume_ratio20,
-
-        "volume_confirmed":
-            volume_confirmed,
-
-        "volume_error":
-            volume_error,
+        "volume_confirmed": volume_confirmed,
+        "volume_error": volume_error,
 
         "multi_timeframe_analysis":
             timeframe_analysis,
-
         "multi_timeframe_direction":
             mtf_direction,
-
         "multi_timeframe_supports_direction":
             direction == mtf_direction,
-
         "multi_timeframe_bullish_count":
             bullish_frames,
-
         "multi_timeframe_bearish_count":
             bearish_frames,
-
         "multi_timeframe_confirmed_bullish":
             confirmed_bullish,
-
         "multi_timeframe_confirmed_bearish":
             confirmed_bearish,
 
         "momentum_acceleration_atr":
             acceleration,
-
         "momentum_accelerating":
             momentum_accelerating,
-
-        "atr_expansion_ratio":
-            atr_expansion,
-
+        "atr_expansion_ratio": atr_expansion,
         "volatility_expanding":
             volatility_expanding,
 
-        "tp_target_reachability":
-            reachability,
-
-        "tp_target_distance":
-            target_distances,
-
-        "tp_probability_verified":
-            False,
-
+        "tp_target_reachability": reachability,
+        "tp_target_distance": target_distances,
+        "tp_probability_verified": False,
         "tp_price_calculation_status":
             "PRE_ENTRY_ESTIMATE_ONLY",
 
-        # ====================================================
-        # V3 MARKET REGIME EVIDENCE
-        # ====================================================
-
         "market_regime": {
-
             "current": regime,
-
             "previous": None,
-
             "confidence": None,
-
             "sideways_buildup_score":
-                round(
-                    buildup_score, 2
-                ),
-
+                round(buildup_score, 2),
             "bullish_pressure_score":
-                round(
-                    bullish_pressure, 2
-                ),
-
+                round(bullish_pressure, 2),
             "bearish_pressure_score":
-                round(
-                    bearish_pressure, 2
-                ),
+                round(bearish_pressure, 2),
         },
 
-        # ====================================================
-        # V3 ENTRY QUALIFICATION EVIDENCE
-        # ====================================================
-
         "entry_evidence": {
-
             "early_long": bool(
                 direction == "LONG"
-                and bullish_pressure
-                > bearish_pressure
+                and bullish_pressure > bearish_pressure
             ),
-
             "early_short": bool(
                 direction == "SHORT"
-                and bearish_pressure
-                > bullish_pressure
+                and bearish_pressure > bullish_pressure
             ),
-
             "structure_long":
                 structure_developing_long,
-
             "structure_short":
                 structure_developing_short,
-
             "breakout_long":
                 breakout_confirmed_long,
-
             "breakout_short":
                 breakout_confirmed_short,
-
             "entry_risk_factors": (
                 (
                     ["UNVERIFIED_VOLUME"]
-                    if not volume_available
-                    else []
+                    if not volume_available else []
                 )
                 +
                 (
                     ["HIGH_EXTENSION"]
                     if price_extension
-                    > structure_extension
-                    else []
+                    > structure_extension else []
                 )
             ),
-
-            "target_reachability":
-                reachability,
+            "target_reachability": reachability,
         },
-
-        # ====================================================
-        # V3 DIRECTION CONVERSION EVIDENCE
-        # ====================================================
 
         "transition_evidence":
             transition_evidence,
 
-        # ====================================================
-        # V3 ATR / RECOVERY EVIDENCE
-        #
-        # POSITION-DEPENDENT VALUES REMAIN
-        # UNKNOWN UNTIL ACTUAL ENTRY/RECONCILIATION.
-        # ====================================================
-
         "protection_evidence": {
-
             "atr14": atr14,
-
-            "entry_atr_frozen":
-                False,
-
-            "adverse_atr_movement":
-                None,
-
-            "recovery_atr_movement":
-                None,
-
-            "h1_price_crossed":
-                False,
-
-            "h2_price_crossed":
-                False,
-
-            "sharp_gap_detected":
-                False,
-
-            "opposite_direction_strength":
-                max(
-                    bullish_pressure,
-                    bearish_pressure,
-                ),
-
-            "position_reconciliation_required":
-                True,
+            "entry_atr_frozen": False,
+            "adverse_atr_movement": None,
+            "recovery_atr_movement": None,
+            "h1_price_crossed": False,
+            "h2_price_crossed": False,
+            "sharp_gap_detected": False,
+            "opposite_direction_strength": max(
+                bullish_pressure, bearish_pressure
+            ),
+            "position_reconciliation_required": True,
         },
-
-        # ====================================================
-        # V3 PROFIT-TARGET EVIDENCE
-        # ====================================================
 
         "profit_evidence": {
-
             "tp1_estimated_price":
                 target_distances.get(
-                    direction,
-                    {},
+                    direction, {}
                 ).get("tp1_price"),
-
             "tp2_estimated_price":
                 target_distances.get(
-                    direction,
-                    {},
+                    direction, {}
                 ).get("tp2_price"),
-
             "tp1_reachability":
                 reachability.get(
-                    direction,
-                    {},
-                ).get(
-                    "tp1_atr1m_distance"
-                ),
-
+                    direction, {}
+                ).get("tp1_atr1m_distance"),
             "tp2_reachability":
                 reachability.get(
-                    direction,
-                    {},
-                ).get(
-                    "tp2_atr1m_distance"
-                ),
-
-            "target_probability_verified":
-                False,
-
-            "confirmed_fills_available":
-                False,
+                    direction, {}
+                ).get("tp2_atr1m_distance"),
+            "target_probability_verified": False,
+            "confirmed_fills_available": False,
         },
 
-        # ====================================================
-        # V3 FOUR-CATEGORY DIAGNOSTIC INPUT
-        #
-        # UNIT 15 PERFORMS OUTCOME CLASSIFICATION.
-        # ====================================================
-
         "diagnostic_evidence": {
-
             "qualification_metrics": {
-
                 "ema_compression_atr":
                     compression_atr,
-
                 "direction_votes_long":
                     long_votes,
-
                 "direction_votes_short":
                     short_votes,
-
                 "atr_expansion_ratio":
                     atr_expansion,
-
                 "volume_ratio20":
                     volume_ratio20,
-
                 "price_extension_atr":
                     price_extension,
             },
-
             "qualification_thresholds": {
-
                 "breakout_proximity_atr":
                     proximity,
-
                 "breakout_confirmation_atr":
                     confirmation,
-
                 "structure_max_extension_atr":
                     structure_extension,
             },
-
             "market_conditions": {
-
                 "regime": regime,
-
-                "mtf_direction":
-                    mtf_direction,
-
+                "mtf_direction": mtf_direction,
                 "atr14": atr14,
             },
-
             "data_quality_flags": {
-
                 "volume_verified":
                     volume_available,
-
                 "historical_tp_probability_verified":
                     False,
             },
@@ -4674,43 +3771,27 @@ def fresh_reconstruction_unit_4():
         "higher_mode_developing":
             higher_mode_developing,
 
-        # Original evidence version retained
-        # for downstream legacy compatibility.
-
+        # Legacy identifiers must remain unchanged.
         "strategy_evidence_version":
             "U4_HYBRID_V2",
-
         "qualification_tuning_revision":
             "UNIT4_UNIVERSAL_V3",
 
         "qualification_settings": {
-
-            "breakout_lookback":
-                lookback,
-
-            "breakout_proximity_atr":
-                proximity,
-
+            "breakout_lookback": lookback,
+            "breakout_proximity_atr": proximity,
             "breakout_confirmation_atr":
                 confirmation,
-
             "structure_pullback_atr":
                 structure_pullback,
-
             "structure_max_extension_atr":
                 structure_extension,
-
             "structure_ema_alignment_mode":
                 alignment,
-
             "scalp_compression_atr":
                 compression_limit,
-
-            "scalp_range_atr":
-                range_limit,
-
-            "scalp_momentum_atr":
-                momentum_limit,
+            "scalp_range_atr": range_limit,
+            "scalp_momentum_atr": momentum_limit,
         },
 
         "read_only": True,
@@ -4719,93 +3800,117 @@ def fresh_reconstruction_unit_4():
     }
 
     # ========================================================
-    # 4.20 PRESERVE QUALIFICATION CONFIG HANDOVER
+    # 4.21 UPDATE EXISTING QUALIFICATION CONFIG
     # ========================================================
 
-    qualification = (
-        config["qualification"]
-    )
-
     qualification["breakout"].update({
-
         "support_resistance_lookback":
             lookback,
-
         "developing_proximity_atr":
             proximity,
-
         "confirmation_distance_atr":
             confirmation,
-
         "max_price_extension_atr":
             breakout_extension,
     })
 
     qualification["structure"].update({
-
-        "ema_alignment_mode":
-            alignment,
-
+        "ema_alignment_mode": alignment,
         "pullback_tolerance_atr":
             structure_pullback,
-
         "max_price_extension_atr":
             structure_extension,
     })
 
     qualification["scalp"].update({
-
         "ema_compression_atr_max":
             compression_limit,
-
-        "range20_atr_max":
-            range_limit,
-
+        "range20_atr_max": range_limit,
         "momentum15_atr_multiplier_max":
             momentum_limit,
     })
 
     # ========================================================
-    # 4.21 RENDER VERIFICATION LOGS
+    # 4.22 HANDOVER VALIDATION
+    # ========================================================
+
+    required_fields = (
+        "symbol",
+        "live_mark_price",
+        "latest_close",
+        "previous_close",
+        "exchange_time_ms",
+        "ema19",
+        "ema50",
+        "ema200",
+        "atr14",
+        "market_regime",
+        "multi_timeframe_analysis",
+        "tp_target_reachability",
+        "entry_evidence",
+        "transition_evidence",
+        "protection_evidence",
+        "profit_evidence",
+        "diagnostic_evidence",
+        "strategy_evidence_version",
+        "qualification_tuning_revision",
+    )
+
+    missing = [
+        key for key in required_fields
+        if key not in snapshot
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "UNIT4 HANDOVER FIELDS MISSING: "
+            + ",".join(missing)
+        )
+
+    if (
+        snapshot["strategy_evidence_version"]
+        != "U4_HYBRID_V2"
+        or snapshot["qualification_tuning_revision"]
+        != "UNIT4_UNIVERSAL_V3"
+        or snapshot["read_only"] is not True
+    ):
+        raise RuntimeError(
+            "UNIT4 LEGACY HANDOVER INVALID"
+        )
+
+    # ========================================================
+    # 4.23 RENDER VERIFICATION LOGS
     # ========================================================
 
     print(
         "UNIT 4 SELECTED SYMBOL =",
-        symbol,
-        flush=True,
+        symbol, flush=True
     )
 
     print(
         "UNIT 4 MARKET REGIME =",
-        regime,
-        flush=True,
+        regime, flush=True
     )
 
     print(
         "UNIT 4 DIRECTION =",
-        direction,
-        flush=True,
+        direction, flush=True
     )
 
     print(
         "UNIT 4 PRESSURE LONG / SHORT =",
         round(bullish_pressure, 2),
         round(bearish_pressure, 2),
-        flush=True,
+        flush=True
     )
 
     print(
         "UNIT 4 SIDEWAYS BUILDUP SCORE =",
         round(buildup_score, 2),
-        flush=True,
+        flush=True
     )
 
-    for interval in timeframe_analysis:
-
-        item = timeframe_analysis[
-            interval
-        ]
-
+    for interval, item in timeframe_analysis.items():
         print(
             "UNIT 4 TIMEFRAME =",
             interval,
@@ -4813,121 +3918,124 @@ def fresh_reconstruction_unit_4():
             item["trend"],
             "ATR =",
             item["atr14"],
-            flush=True,
+            flush=True
         )
 
     print(
         "UNIT 4 MTF DIRECTION =",
-        mtf_direction,
-        flush=True,
+        mtf_direction, flush=True
     )
 
     print(
         "UNIT 4 ATR EXPANSION =",
-        round(
-            atr_expansion,
-            4,
-        ),
-        flush=True,
+        round(atr_expansion, 4),
+        flush=True
     )
 
     print(
         "UNIT 4 MOMENTUM ACCELERATING =",
         momentum_accelerating,
-        flush=True,
+        flush=True
     )
 
     print(
         "UNIT 4 TRADED VOLUME AVAILABLE =",
         volume_available,
-        flush=True,
+        flush=True
     )
 
     print(
         "UNIT 4 VOLUME RATIO =",
         volume_ratio20,
-        flush=True,
+        flush=True
     )
 
     print(
         "UNIT 4 BREAKOUT LONG / SHORT =",
         breakout_confirmed_long,
         breakout_confirmed_short,
-        flush=True,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 BREAKOUT DEVELOPING LONG / SHORT =",
+        breakout_developing_long,
+        breakout_developing_short,
+        flush=True
     )
 
     print(
         "UNIT 4 STRUCTURE LONG / SHORT =",
         structure_developing_long,
         structure_developing_short,
-        flush=True,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 STRUCTURE QUALIFIED LONG / SHORT =",
+        structure_qualified_long,
+        structure_qualified_short,
+        flush=True
+    )
+
+    print(
+        "UNIT 4 HIGHER MODE DEVELOPING =",
+        higher_mode_developing,
+        flush=True
     )
 
     print(
         "UNIT 4 SIDEWAYS CANDIDATE =",
         sideways_candidate,
-        flush=True,
+        flush=True
     )
 
-    for side in (
-        "LONG",
-        "SHORT",
-    ):
+    for side in ("LONG", "SHORT"):
 
-        distances = (
-            target_distances[side]
-        )
+        d = target_distances[side]
 
         print(
-            "UNIT 4",
-            side,
+            "UNIT 4", side,
             "TP1 MOVE % =",
-            round(
-                distances["tp1_move_pct"],
-                4,
-            ),
-            flush=True,
+            round(d["tp1_move_pct"], 4),
+            flush=True
         )
 
         print(
-            "UNIT 4",
-            side,
+            "UNIT 4", side,
             "TP2 MOVE % =",
-            round(
-                distances["tp2_move_pct"],
-                4,
-            ),
-            flush=True,
+            round(d["tp2_move_pct"], 4),
+            flush=True
         )
 
     print(
         "UNIT 4 TARGET PROBABILITY VERIFIED = False",
-        flush=True,
+        flush=True
     )
 
     print(
         "UNIT 4 POSITION/PROFIT EVIDENCE = PRE_ENTRY_ONLY",
-        flush=True,
+        flush=True
     )
 
     print(
         "PASS: UNIT 4 TO UNIT 5 HANDOVER",
-        flush=True,
+        flush=True
     )
 
     print(
         "UNIT 4 EXCHANGE WRITE = NONE",
-        flush=True,
+        flush=True
     )
 
     print(
         "FRESH RECONSTRUCTION UNIT 4 RESULT = PASS",
-        flush=True,
+        flush=True
     )
 
     print(
         "FRESH RECONSTRUCTION UNIT 4 ADAPTER RESULT = PASS",
-        flush=True,
+        flush=True
     )
 
     print("=" * 80, flush=True)
@@ -4936,7 +4044,7 @@ def fresh_reconstruction_unit_4():
 
 
 # ============================================================
-# 4.22 ORIGINAL GLOBAL HANDOVER
+# 4.24 ORIGINAL GLOBAL HANDOVER
 # ============================================================
 
 FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
@@ -4945,11 +4053,12 @@ FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
 
 
 # ============================================================
-# END COMPLETE UNIVERSAL UNIT 4 V3
+# END COMPLETE UNIVERSAL UNIT 4 V4
+#
+# PART 1 + PART 2 FORM ONE UNIT
 # UNIT 5 FOLLOWS
 # ZERO INDENTATION
 # ============================================================
-
 
 # ============================================================
 # UNIVERSAL WEEX HYBRID BOT
