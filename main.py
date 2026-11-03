@@ -2808,3 +2808,812 @@ FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
 # ============================================================
 
 
+
+# START COMPLETE UNIT 5 V9 UNIVERSAL USDT REPLACEMENT
+# FULLY ADJUSTABLE HYBRID CLASSIFICATION
+# WEEX DEMO / ZERO INDENTATION
+# UNIT 4 V5/V6 -> UNIT 5 V9 -> UNIT 6
+# ============================================================
+
+import math
+
+
+# ============================================================
+# 5.1 HELPERS
+# ============================================================
+
+def unit_5_v8_number(value, name):
+
+    if isinstance(value, bool):
+        raise RuntimeError("UNIT 5 INVALID " + name)
+
+    try:
+        value = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError(
+            "UNIT 5 INVALID " + name
+        ) from exc
+
+    if not math.isfinite(value):
+        raise RuntimeError(
+            "UNIT 5 NONFINITE " + name
+        )
+
+    return value
+
+
+def unit_5_v8_direction(value):
+
+    if value > 0:
+        return "LONG"
+    if value < 0:
+        return "SHORT"
+    return "NONE"
+
+
+def unit_5_v8_side_matches(value, side):
+
+    return (
+        value > 0 if side == "LONG"
+        else value < 0 if side == "SHORT"
+        else False
+    )
+
+
+def unit_5_v8_settings(config, group):
+
+    section = config.get("qualification", {})
+
+    if not isinstance(section, dict):
+        raise RuntimeError(
+            "UNIT 5 QUALIFICATION CONFIG INVALID"
+        )
+
+    result = section.get(group)
+
+    if not isinstance(result, dict):
+        raise RuntimeError(
+            "UNIT 5 MISSING CONFIG: " + group
+        )
+
+    return result
+
+
+# ============================================================
+# 5.2 COMPLETE CLASSIFICATION
+# ============================================================
+
+def fresh_reconstruction_unit_5(
+    unit_2_config,
+    unit_4_snapshot
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 5 COMPLETE UNIVERSAL USDT V9 START",
+        flush=True
+    )
+
+    if not isinstance(unit_2_config, dict):
+        raise RuntimeError("UNIT 5 CONFIG INVALID")
+
+    if not isinstance(unit_4_snapshot, dict):
+        raise RuntimeError("UNIT 5 SNAPSHOT INVALID")
+
+    config = unit_2_config
+    analysis = unit_4_snapshot
+
+    common = unit_5_v8_settings(config, "common")
+    b = unit_5_v8_settings(config, "breakout")
+    s = unit_5_v8_settings(config, "structure")
+    p = unit_5_v8_settings(config, "scalp")
+
+    if tuple(common.get("mode_priority", ())) != (
+        "BREAKOUT", "STRUCTURE", "SCALP"
+    ):
+        raise RuntimeError(
+            "UNIT 5 STRATEGY PRIORITY INVALID"
+        )
+
+    if analysis.get(
+        "strategy_evidence_version"
+    ) != "U4_HYBRID_V2":
+        raise RuntimeError(
+            "UNIT 5 UNIT 4 EVIDENCE MISSING"
+        )
+
+    if analysis.get(
+        "qualification_tuning_revision"
+    ) not in (
+        "UNIT4_V5_FULLY_INTEGRATED",
+        "UNIT4_V6_UNIVERSAL_USDT",
+    ):
+        raise RuntimeError(
+            "UNIT 5 COMPATIBLE UNIT 4 V5/V6 REQUIRED"
+        )
+
+    exchange = config.get("exchange", {})
+    if not isinstance(exchange, dict):
+        raise RuntimeError("UNIT 5 EXCHANGE CONFIG INVALID")
+    market_symbol = exchange.get("market_symbol")
+    if (
+        not isinstance(market_symbol, str)
+        or not market_symbol.endswith("USDT")
+        or len(market_symbol) <= 4
+        or not market_symbol[:-4].isalnum()
+        or exchange.get("base_coin") != market_symbol[:-4]
+        or exchange.get("quote_coin") != "USDT"
+    ):
+        raise RuntimeError("UNIT 5 UNIVERSAL USDT SYMBOL INVALID")
+
+    if (
+        analysis.get("exchange") != "WEEX"
+        or analysis.get("api_version") != "V3"
+        or analysis.get("symbol") != market_symbol
+        or analysis.get("price_type") != "MARK"
+        or analysis.get("read_only") is not True
+    ):
+        raise RuntimeError(
+            "UNIT 5 MARKET CONTRACT INVALID"
+        )
+
+    def n(key):
+        return unit_5_v8_number(
+            analysis.get(key), key
+        )
+
+    def flag(key):
+
+        result = analysis.get(key)
+
+        if type(result) is not bool:
+            raise RuntimeError(
+                "UNIT 5 FLAG INVALID: " + key
+            )
+
+        return result
+
+    def setting_number(section, key, fallback=None):
+
+        value = section.get(key, fallback)
+
+        if value is None:
+            raise RuntimeError(
+                "UNIT 5 SETTING MISSING: " + key
+            )
+
+        return unit_5_v8_number(value, key)
+
+    def setting_bool(section, key, fallback=None):
+
+        value = section.get(key, fallback)
+
+        if type(value) is not bool:
+            raise RuntimeError(
+                "UNIT 5 BOOLEAN SETTING INVALID: " + key
+            )
+
+        return value
+
+    # ========================================================
+    # 5.3 MARKET INPUTS
+    # ========================================================
+
+    exchange_ms = n("exchange_time_ms")
+    close_ms = n("latest_close_time_ms")
+
+    candle_age = (
+        exchange_ms - close_ms
+    ) / 1000.0
+
+    market_policy = config.get(
+        "market_data_policy", {}
+    )
+
+    if not isinstance(market_policy, dict):
+        raise RuntimeError(
+            "UNIT 5 MARKET POLICY INVALID"
+        )
+
+    max_age = unit_5_v8_number(
+        market_policy.get(
+            "max_market_age_seconds", 120
+        ),
+        "MAX MARKET AGE"
+    )
+
+    if not 0 <= candle_age <= max_age:
+        raise RuntimeError(
+            "UNIT 5 CANDLE EVIDENCE STALE"
+        )
+
+    live_price = n("live_mark_price")
+    previous_close = n("previous_close")
+    latest_close = n("latest_close")
+
+    ema19 = n("ema19")
+    ema50 = n("ema50")
+    ema200 = n("ema200")
+    atr14 = n("atr14")
+
+    separation = abs(
+        n("ema19_50_separation_pct")
+    )
+
+    if min(
+        live_price, previous_close, latest_close,
+        ema19, ema50, ema200, atr14
+    ) <= 0:
+        raise RuntimeError(
+            "UNIT 5 INVALID MARKET INDICATOR"
+        )
+
+    periods = (1, 5, 15, 30, 60, 120)
+
+    moves = {
+        period: n("move_%dm_pct" % period)
+        for period in periods
+    }
+
+    directions = {
+        period: unit_5_v8_direction(moves[period])
+        for period in periods
+    }
+
+    short_move = n("short_term_move_pct")
+
+    ema_structure = str(
+        analysis.get("ema_structure", "MIXED")
+    ).upper()
+
+    if ema_structure not in (
+        "BULLISH", "BEARISH", "MIXED"
+    ):
+        raise RuntimeError(
+            "UNIT 5 EMA STRUCTURE INVALID"
+        )
+
+    # Diagnostic EMA direction from original classifier.
+    # This does NOT override adjustable STRUCTURE mode.
+
+    bullish = ema19 > ema50 > ema200
+    bearish = ema19 < ema50 < ema200
+
+    ema_direction = (
+        "LONG" if bullish
+        else "SHORT" if bearish
+        else "NONE"
+    )
+
+    if (
+        (bullish and ema_structure != "BULLISH")
+        or (bearish and ema_structure != "BEARISH")
+    ):
+        raise RuntimeError(
+            "UNIT 5 EMA STRUCTURE INCONSISTENT"
+        )
+
+    direction_evidence = str(
+        analysis.get("direction_evidence", "NONE")
+    ).upper()
+
+    if direction_evidence not in (
+        "LONG", "SHORT", "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 5 DIRECTION EVIDENCE INVALID"
+        )
+
+    long_votes = n("direction_long_votes")
+    short_votes = n("direction_short_votes")
+
+    if (
+        long_votes < 0 or short_votes < 0
+        or long_votes + short_votes > 3
+    ):
+        raise RuntimeError(
+            "UNIT 5 DIRECTION VOTES INVALID"
+        )
+
+    def votes_pass(side, section):
+
+        required = setting_number(
+            section,
+            "direction_votes_required",
+            common.get("direction_votes_required", 2)
+        )
+
+        if (
+            required != int(required)
+            or not 1 <= required <= 3
+        ):
+            raise RuntimeError(
+                "UNIT 5 VOTE THRESHOLD INVALID"
+            )
+
+        actual = (
+            long_votes if side == "LONG"
+            else short_votes
+        )
+
+        return actual >= required
+
+    def momentum_pass(side, section):
+
+        fast = int(setting_number(
+            section, "fast_momentum_minutes", 5
+        ))
+
+        slow = int(setting_number(
+            section, "slow_momentum_minutes", 15
+        ))
+
+        if fast not in moves or slow not in moves:
+            raise RuntimeError(
+                "UNIT 5 MOMENTUM WINDOW UNSUPPORTED"
+            )
+
+        require_fast = setting_bool(
+            section, "require_fast_momentum", True
+        )
+
+        require_slow = setting_bool(
+            section, "require_slow_momentum", True
+        )
+
+        return (
+            (
+                not require_fast
+                or unit_5_v8_side_matches(
+                    moves[fast], side
+                )
+            )
+            and (
+                not require_slow
+                or unit_5_v8_side_matches(
+                    moves[slow], side
+                )
+            )
+        )
+
+    # ========================================================
+    # 5.4 STRATEGY EVIDENCE FROM UNIT 4
+    # ========================================================
+
+    b_long = flag("breakout_confirmed_long")
+    b_short = flag("breakout_confirmed_short")
+
+    bd_long = flag("breakout_developing_long")
+    bd_short = flag("breakout_developing_short")
+
+    sd_long = flag("structure_developing_long")
+    sd_short = flag("structure_developing_short")
+
+    sideways_evidence = flag("sideways_candidate")
+    overextended = flag("price_overextended")
+
+    if b_long and b_short:
+        raise RuntimeError(
+            "UNIT 5 CONFLICTING BREAKOUT EVIDENCE"
+        )
+
+    if bd_long and bd_short:
+        raise RuntimeError(
+            "UNIT 5 CONFLICTING DEVELOPING BREAKOUT"
+        )
+
+    if sd_long and sd_short:
+        raise RuntimeError(
+            "UNIT 5 CONFLICTING STRUCTURE EVIDENCE"
+        )
+
+    structure_trend = str(
+        analysis.get(
+            "structure_trend_direction", "NONE"
+        )
+    ).upper()
+
+    structure_ema_mode = str(
+        analysis.get(
+            "structure_ema_alignment_mode", ""
+        )
+    ).upper()
+
+    configured_ema_mode = str(
+        s.get("ema_alignment_mode", "")
+    ).upper()
+
+    if configured_ema_mode not in (
+        "EARLY", "STRICT"
+    ):
+        raise RuntimeError(
+            "UNIT 5 STRUCTURE EMA MODE INVALID"
+        )
+
+    if structure_ema_mode != configured_ema_mode:
+        raise RuntimeError(
+            "UNIT 5 STRUCTURE TUNING NOT SYNCHRONIZED"
+        )
+
+    if structure_trend not in (
+        "LONG", "SHORT", "NONE"
+    ):
+        raise RuntimeError(
+            "UNIT 5 STRUCTURE DIRECTION INVALID"
+        )
+
+    # ========================================================
+    # 5.5 ORIGINAL 42-FIELD CLASSIFIER
+    # ========================================================
+
+    scalp_direction = "NONE"
+
+    if ema19 > ema50 and moves[5] > 0:
+        scalp_direction = "LONG"
+
+    elif ema19 < ema50 and moves[5] < 0:
+        scalp_direction = "SHORT"
+
+    scalp_move = abs(moves[5])
+
+    scalp_1m_support = (
+        scalp_direction in ("LONG", "SHORT")
+        and directions[1] == scalp_direction
+    )
+
+    structure_direction = "NONE"
+
+    if (
+        ema_direction != "NONE"
+        and directions[15] == ema_direction
+    ):
+        structure_direction = ema_direction
+
+    structure_move = abs(moves[15])
+
+    breakout_primary = directions[30]
+
+    breakout_fast_support = (
+        breakout_primary != "NONE"
+        and breakout_primary in (
+            directions[5], directions[15]
+        )
+    )
+
+    breakout_direction = "NONE"
+
+    if (
+        breakout_primary == "LONG"
+        and breakout_fast_support
+        and ema19 > ema50
+        and latest_close > ema19
+        and latest_close > ema200
+    ):
+        breakout_direction = "LONG"
+
+    elif (
+        breakout_primary == "SHORT"
+        and breakout_fast_support
+        and ema19 < ema50
+        and latest_close < ema19
+        and latest_close < ema200
+    ):
+        breakout_direction = "SHORT"
+
+    breakout_move = abs(moves[30])
+
+    # ========================================================
+    # 5.6 ADJUSTABLE BREAKOUT QUALIFICATION
+    # ========================================================
+
+    breakout_side = (
+        "LONG" if b_long
+        else "SHORT" if b_short
+        else "NONE"
+    )
+
+    breakout_enabled = setting_bool(
+        b, "enabled", True
+    )
+
+    breakout_momentum_ok = (
+        breakout_side != "NONE"
+        and momentum_pass(breakout_side, b)
+    )
+
+    breakout_votes_ok = (
+        breakout_side != "NONE"
+        and votes_pass(breakout_side, b)
+    )
+
+    # BREAKOUT ADMISSION
+    # Preserve Unit 4 confirmed breakout evidence.
+    # Do not apply STRUCTURE overextension
+    # to BREAKOUT qualification.
+
+    breakout_qualified = bool(
+        breakout_enabled
+        and breakout_side != "NONE"
+        and breakout_side == direction_evidence
+        and breakout_votes_ok
+        and breakout_momentum_ok
+    )
+
+    print(
+        "UNIT 5 BREAKOUT CONFIRMED =",
+        breakout_side != "NONE",
+        flush=True
+    )
+
+    print(
+        "UNIT 5 BREAKOUT DIRECTION PASS =",
+        breakout_side == direction_evidence,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 BREAKOUT VOTES PASS =",
+        breakout_votes_ok,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 BREAKOUT MOMENTUM PASS =",
+        breakout_momentum_ok,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 STRUCTURE OVEREXTENSION =",
+        overextended,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 BREAKOUT ADMISSION =",
+        breakout_qualified,
+        flush=True
+    )
+
+    # ========================================================
+    # 5.7 ADJUSTABLE STRUCTURE QUALIFICATION
+    # ========================================================
+
+    structure_enabled = setting_bool(
+        s, "enabled", True
+    )
+
+    structure_side = structure_trend
+
+    structure_developing_same_side = (
+        sd_long if structure_side == "LONG"
+        else sd_short if structure_side == "SHORT"
+        else False
+    )
+
+    structure_votes_ok = (
+        structure_side != "NONE"
+        and votes_pass(structure_side, s)
+    )
+
+    structure_momentum_ok = (
+        structure_side != "NONE"
+        and momentum_pass(structure_side, s)
+    )
+
+    extension_atr = (
+        abs(latest_close - ema19) / atr14
+    )
+
+    max_structure_extension = setting_number(
+        s, "max_price_extension_atr", 2.0
+    )
+
+    structure_extension_ok = (
+        extension_atr <= max_structure_extension
+    )
+
+    # STRUCTURE EMA mode is determined by Unit 4.
+    # EARLY does not require EMA200 alignment.
+    # It still requires Unit 4 developing evidence,
+    # sufficient votes, momentum and extension.
+
+    structure_qualified = bool(
+        structure_enabled
+        and structure_side != "NONE"
+        and direction_evidence == structure_side
+        and structure_developing_same_side
+        and structure_votes_ok
+        and structure_momentum_ok
+        and structure_extension_ok
+        and not overextended
+    )
+
+    # ========================================================
+    # 5.8 ADJUSTABLE SCALP PRELIMINARY CONDITIONS
+    # ========================================================
+
+    scalp_enabled = setting_bool(
+        p, "enabled", True
+    )
+
+    scalp_ema_min = setting_number(
+        p,
+        "preliminary_ema_separation_percent",
+        0.03
+    )
+
+    scalp_move_min = setting_number(
+        p,
+        "preliminary_move_5m_percent",
+        0.015
+    )
+
+    if scalp_ema_min < 0 or scalp_move_min < 0:
+        raise RuntimeError(
+            "UNIT 5 SCALP THRESHOLDS INVALID"
+        )
+
+    original_scalp_signal = bool(
+        scalp_direction in ("LONG", "SHORT")
+        and separation >= scalp_ema_min
+        and scalp_move >= scalp_move_min
+    )
+
+    price_first_scalp_signal = bool(
+        directions[5] in ("LONG", "SHORT")
+        and abs(moves[5]) >= scalp_move_min
+        and directions[1] == directions[5]
+    )
+
+    scalp_direction_candidate = scalp_direction
+
+    if (
+        scalp_direction_candidate == "NONE"
+        and price_first_scalp_signal
+    ):
+        scalp_direction_candidate = directions[5]
+
+    scalp_preliminary = bool(
+        scalp_enabled
+        and (
+            original_scalp_signal
+            or price_first_scalp_signal
+        )
+        and scalp_direction_candidate in (
+            "LONG", "SHORT"
+        )
+    )
+
+    scalp_require_sideways = setting_bool(
+        p, "require_sideways_market", True
+    )
+
+    scalp_sideways_ok = (
+        sideways_evidence
+        if scalp_require_sideways
+        else True
+    )
+
+    scalp_quality_minimum = setting_number(
+        p, "quality_threshold", 70.0
+    )
+
+    fee_multiplier = setting_number(
+        p,
+        "minimum_fee_coverage_multiplier",
+        2.0
+    )
+
+    if not (
+        0 <= scalp_quality_minimum <= 100
+        and fee_multiplier >= 1
+    ):
+        raise RuntimeError(
+            "UNIT 5 SCALP QUALITY SETTINGS INVALID"
+        )
+
+    # An optional relaxed sideways policy does not
+    # permit SCALP to override a developing higher mode.
+    # Unit 6 still determines final fee/quality admission.
+
+    # ========================================================
+    # 5.9 HIGHER-PRIORITY CANDIDATE PROTECTION
+    # ========================================================
+
+    breakout_developing = bool(
+        bd_long or bd_short
+    )
+
+    structure_developing = bool(
+        sd_long or sd_short
+    )
+
+    higher_mode_developing = bool(
+        breakout_developing
+        or structure_developing
+    )
+
+    developing_breakout_direction = (
+        "LONG" if bd_long
+        else "SHORT" if bd_short
+        else "NONE"
+    )
+
+    developing_structure_direction = (
+        "LONG" if sd_long
+        else "SHORT" if sd_short
+        else "NONE"
+    )
+
+    qualified = False
+    active_mode = "NONE"
+    direction = "NONE"
+
+    candidate_mode = "NONE"
+    candidate_stage = "NONE"
+
+    reason = "NO_ACCEPTABLE_CANDIDATE"
+
+    breakout_ready = False
+    structure_ready = False
+    scalp_ready = False
+
+    if breakout_qualified:
+
+        qualified = True
+        active_mode = "BREAKOUT"
+        direction = breakout_side
+
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "QUALIFIED"
+
+        breakout_ready = True
+
+        reason = "HYBRID_BREAKOUT_CONFIRMED"
+
+    elif structure_qualified:
+
+        qualified = True
+        active_mode = "STRUCTURE"
+        direction = structure_side
+
+        candidate_mode = "STRUCTURE"
+        candidate_stage = "QUALIFIED"
+
+        structure_ready = True
+
+        reason = "HYBRID_STRUCTURE_QUALIFIED"
+
+    elif breakout_developing:
+
+        candidate_mode = "BREAKOUT"
+        candidate_stage = "DEVELOPING"
+
+        reason = "BREAKOUT_DEVELOPING_PROTECTED"
+
+    elif structure_developing:
+
+        candidate_mode = "STRUCTURE"
+        candidate_stage = "DEVELOPING"
+
+        reason = "STRUCTURE_DEVELOPING_PROTECTED"
+
+    elif scalp_preliminary and scalp_sideways_ok:
+
+        candidate_mode = "SCALP"
+        candidate_stage = "PENDING_UNIT_6"
+
+        scalp_ready = True
+
+        reason = "SCALP_PENDING_UNIT_6_QUALITY"
+
+    elif scalp_preliminary:
+
+        candidate_stage = "REJECTED"
+
+        reason = "SCALP_NOT_SIDEWAYS_MARKET"
+
+    # PART 1 ENDS HERE.
+    # CONTINUE WITH PART 2 AT THE SAME INDENTATION.
+    # DO NOT EXECUTE MAIN.PY UNTIL PART 2 IS ADDED.
