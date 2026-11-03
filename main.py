@@ -1805,3 +1805,254 @@ FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
 # UNIT 4 FOLLOWS
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 4 V5 NEAR ADAPTATION
+# WEEX MARK DATA + EMA + ATR + ADJUSTABLE STRATEGIES
+# ONE COMPLETE UNIT / ZERO INDENTATION
+# NO SEPARATE ADAPTER / NO ORDER SUBMISSION
+# ============================================================
+
+import json
+import math
+import time
+import urllib.parse
+import urllib.request
+import urllib.error
+
+
+# ============================================================
+# 4.1 CENTRAL ADJUSTABLE QUALIFICATION PARAMETERS
+# ============================================================
+# Change values here to tune strategy sensitivity.
+# These settings are also published into Unit 2's
+# qualification configuration for downstream units.
+#
+# EARLY structure uses EMA19/50 direction.
+# STRICT structure uses EMA19/50/200 alignment.
+#
+# SCALP remains subordinate to developing or qualified
+# BREAKOUT and STRUCTURE candidates.
+# ============================================================
+
+UNIT_4_V5_TUNING = {
+
+    "common": {
+        "direction_votes_required": 2,
+        "market_age_seconds_max": 120.0,
+        "candle_age_seconds_max": 120.0,
+    },
+
+    "breakout": {
+        "enabled": True,
+        "developing_candidate_enabled": True,
+        "lookback_candles": 20,
+        "proximity_atr": 0.50,
+        "confirmation_atr": 0.10,
+        "maximum_extension_atr": 3.0,
+        "minimum_atr_percent": 0.0,
+        "direction_votes_required": 2,
+        "fast_momentum_minutes": 5,
+        "slow_momentum_minutes": 15,
+        "require_fast_momentum": True,
+        "require_slow_momentum": False,
+    },
+
+    "structure": {
+        "enabled": True,
+        "ema_alignment_mode": "EARLY",
+        "direction_votes_required": 2,
+        "minimum_ema_separation_percent": 0.0,
+        "pullback_tolerance_atr": 0.75,
+        "allow_continuation_entry": True,
+        "maximum_extension_atr": 2.0,
+        "fast_momentum_minutes": 5,
+        "slow_momentum_minutes": 15,
+        "require_fast_momentum": True,
+        "require_slow_momentum": True,
+    },
+
+    "scalp": {
+        "enabled": True,
+        "require_sideways_market": True,
+        "range_lookback_candles": 20,
+        "ema_compression_atr_max": 0.70,
+        "range_atr_max": 8.0,
+        "momentum_atr_max": 1.50,
+        "preliminary_ema_separation_percent": 0.03,
+        "preliminary_move_5m_percent": 0.015,
+        "quality_threshold": 70.0,
+        "minimum_fee_coverage_multiplier": 2.0,
+    },
+}
+
+
+# ============================================================
+# 4.2 GENERAL VALIDATION HELPERS
+# ============================================================
+
+def unit_4_v5_number(value, name):
+
+    if isinstance(value, bool):
+        raise RuntimeError(
+            "UNIT 4 INVALID NUMBER: " + name
+        )
+
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError(
+            "UNIT 4 INVALID NUMBER: " + name
+        ) from exc
+
+    if not math.isfinite(result):
+        raise RuntimeError(
+            "UNIT 4 NONFINITE NUMBER: " + name
+        )
+
+    return result
+
+
+def unit_4_v5_positive(value, name, allow_zero=True):
+
+    result = unit_4_v5_number(value, name)
+
+    if result < 0 or (result == 0 and not allow_zero):
+        raise RuntimeError(
+            "UNIT 4 INVALID RANGE: " + name
+        )
+
+    return result
+
+
+def unit_4_v5_integer(value, name, minimum, maximum):
+
+    result = unit_4_v5_number(value, name)
+
+    if (
+        not result.is_integer()
+        or not minimum <= result <= maximum
+    ):
+        raise RuntimeError(
+            "UNIT 4 INVALID INTEGER: " + name
+        )
+
+    return int(result)
+
+
+def unit_4_v5_ema(prices, period):
+
+    if len(prices) < period:
+        raise RuntimeError(
+            "UNIT 4 INSUFFICIENT EMA HISTORY"
+        )
+
+    current = sum(prices[:period]) / period
+    alpha = 2.0 / (period + 1.0)
+
+    for price in prices[period:]:
+        current = alpha * price + (1 - alpha) * current
+
+    return current
+
+
+def unit_4_v5_same_direction(move, direction):
+
+    if direction == "LONG":
+        return move > 0
+
+    if direction == "SHORT":
+        return move < 0
+
+    return False
+
+
+# ============================================================
+# 4.3 VALIDATE CLOSED WEEX CANDLES
+# ============================================================
+
+def unit_4_v5_normalize_candles(rows, market_time_ms):
+
+    if not isinstance(rows, list):
+        raise RuntimeError(
+            "UNIT 4 INVALID KLINE RESPONSE"
+        )
+
+    candles = []
+
+    for row in rows:
+
+        if not isinstance(row, (list, tuple)):
+            raise RuntimeError(
+                "UNIT 4 INVALID KLINE ROW"
+            )
+
+        if len(row) < 7:
+            raise RuntimeError(
+                "UNIT 4 INCOMPLETE KLINE ROW"
+            )
+
+        candle = {
+            "open_time_ms": int(row[0]),
+            "open": unit_4_v5_number(row[1], "OPEN"),
+            "high": unit_4_v5_number(row[2], "HIGH"),
+            "low": unit_4_v5_number(row[3], "LOW"),
+            "close": unit_4_v5_number(row[4], "CLOSE"),
+            "volume": unit_4_v5_number(row[5], "VOLUME"),
+            "close_time_ms": int(row[6]),
+        }
+
+        if not (
+            0 < candle["low"]
+            <= min(candle["open"], candle["close"])
+            <= max(candle["open"], candle["close"])
+            <= candle["high"]
+        ):
+            raise RuntimeError(
+                "UNIT 4 INVALID OHLC DATA"
+            )
+
+        if (
+            candle["volume"] < 0
+            or candle["close_time_ms"]
+            <= candle["open_time_ms"]
+        ):
+            raise RuntimeError(
+                "UNIT 4 INVALID CANDLE DATA"
+            )
+
+        candles.append(candle)
+
+    candles.sort(
+        key=lambda item: item["open_time_ms"]
+    )
+
+    for i in range(1, len(candles)):
+
+        if (
+            candles[i]["open_time_ms"]
+            - candles[i - 1]["open_time_ms"]
+        ) != 60000:
+            raise RuntimeError(
+                "UNIT 4 CANDLE GAP OR DUPLICATE"
+            )
+
+    closed = [
+        c for c in candles
+        if c["close_time_ms"] <= market_time_ms
+    ]
+
+    if len(closed) < 200:
+        raise RuntimeError(
+            "UNIT 4 INSUFFICIENT CLOSED HISTORY"
+        )
+
+    return candles, closed
+
+
+# ============================================================
+# END UNIT 4 PART 1
+# PART 2 CONTINUES BELOW THIS LINE
+# DO NOT DEPLOY YET
+# ============================================================
