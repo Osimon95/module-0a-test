@@ -4479,7 +4479,7 @@ slippage = unit_5_v2_env(
         "UNIT5_EXPECTED_SLIPPAGE_PERCENT",
         0.05
     )
-    estimated_cost_pct = (
+estimated_cost_pct = (
         2 * taker_fee + slippage
     )
 
