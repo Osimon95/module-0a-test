@@ -439,19 +439,29 @@ def fresh_reconstruction_unit_2():
     # Public market symbol is separate from demo order symbol.
     # ========================================================
 
-    demo_order_symbol = os.getenv(
-        "WEEX_DEMO_ORDER_SYMBOL", ""
-    ).strip().upper()
+    
+# ORIGINAL 16414 BTC DEMO SYMBOL RELATIONSHIP
+# BTCUSDT -> BTCSUSDT
+# NOW UNIVERSAL FOR RENDER-SELECTED COIN
 
-    if demo_order_symbol:
-        if not re.fullmatch(
-            r"[A-Z0-9]{4,30}", demo_order_symbol
-        ):
-            raise RuntimeError(
-                "UNIT 2 INVALID DEMO ORDER SYMBOL"
-            )
-    else:
-        demo_order_symbol = None
+market_symbol = str(market_symbol).strip().upper()
+
+if not market_symbol.endswith("USDT"):
+    raise RuntimeError("INVALID USDT MARKET SYMBOL")
+
+base_coin = market_symbol[:-4]
+
+if not base_coin:
+    raise RuntimeError("BASE COIN MISSING")
+
+demo_order_symbol = base_coin + "SUSDT"
+
+# Derived using the original BTC naming convention.
+# Exchange confirmation is still required before orders.
+demo_symbol_candidate = demo_order_symbol
+demo_symbol_verified = False
+contract_precision_verified = False
+
 
     # A user-entered symbol is not exchange verification.
     # Unit 12 must require an independent contract check.
