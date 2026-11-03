@@ -4475,7 +4475,7 @@ print(
 )
 
     
-    slippage = unit_5_v2_env(
+slippage = unit_5_v2_env(
         "UNIT5_EXPECTED_SLIPPAGE_PERCENT",
         0.05
     )
