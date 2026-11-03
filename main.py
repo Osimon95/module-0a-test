@@ -5450,10 +5450,10 @@ print(
 
 
 # ============================================================
-# UNIVERSAL WEEX BOT — COMPLETE UNIT 6 V1
-# SIGNAL CONTINUITY, CANDIDATE TRACKING, ENTRY GATE
-# UNITS 13–14 POSITION MANAGEMENT IS INDEPENDENT
-# PUBLIC-DATA / READ-ONLY; NO ORDER SUBMISSION
+# UNIVERSAL WEEX BOT — COMPLETE UNIT 6 V2
+# SIGNAL CONTINUITY AND ENTRY READINESS
+# UNIT 5 V4 -> UNIT 6 V2 -> UNIT 7
+# DEMO ENVIRONMENT / NO EXCHANGE WRITES
 # ============================================================
 
 import os
@@ -5462,34 +5462,35 @@ import math
 import copy
 
 
+# ============================================================
+# 6.1 SAFE CONFIGURATION HELPERS
+# ============================================================
+
 def u6_num(value, label, minimum=None, maximum=None):
 
     if isinstance(value, bool):
-        raise ValueError(
-            "UNIT 6 INVALID NUMBER: " + label
-        )
+        raise ValueError("UNIT 6 INVALID NUMBER: " + label)
 
     try:
         result = float(value)
-
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(
             "UNIT 6 INVALID NUMBER: " + label
         ) from exc
 
-    if (
-        not math.isfinite(result)
-        or (
-            minimum is not None
-            and result < minimum
-        )
-        or (
-            maximum is not None
-            and result > maximum
-        )
-    ):
+    if not math.isfinite(result):
         raise ValueError(
-            "UNIT 6 NUMBER OUT OF RANGE: " + label
+            "UNIT 6 NONFINITE NUMBER: " + label
+        )
+
+    if minimum is not None and result < minimum:
+        raise ValueError(
+            "UNIT 6 NUMBER BELOW MINIMUM: " + label
+        )
+
+    if maximum is not None and result > maximum:
+        raise ValueError(
+            "UNIT 6 NUMBER ABOVE MAXIMUM: " + label
         )
 
     return result
@@ -5497,10 +5498,7 @@ def u6_num(value, label, minimum=None, maximum=None):
 
 def u6_env(name, default, minimum=None, maximum=None):
 
-    raw = os.getenv(
-        name,
-        str(default),
-    ).strip()
+    raw = os.getenv(name, str(default)).strip()
 
     return u6_num(
         raw if raw else default,
@@ -5510,19 +5508,33 @@ def u6_env(name, default, minimum=None, maximum=None):
     )
 
 
+def u6_bool_env(name, default=True):
+
+    raw = os.getenv(
+        name,
+        "TRUE" if default else "FALSE",
+    ).strip().upper()
+
+    if raw in ("TRUE", "1", "YES", "ON"):
+        return True
+
+    if raw in ("FALSE", "0", "NO", "OFF"):
+        return False
+
+    raise ValueError(
+        "UNIT 6 INVALID BOOLEAN ENV: " + name
+    )
+
+
 # ============================================================
-# 6.1 VERIFY UNIT 5 V2 AND UNIT 4 V3 HANDOVER
+# 6.2 UNIT 5 / UNIT 4 HANDOVER VERIFICATION
 # ============================================================
 
 def u6_snapshot(candidate, analysis, config):
 
     if not all(
         isinstance(item, dict)
-        for item in (
-            candidate,
-            analysis,
-            config,
-        )
+        for item in (candidate, analysis, config)
     ):
         raise RuntimeError(
             "UNIT 6 MISSING HANDOVER"
@@ -5534,35 +5546,29 @@ def u6_snapshot(candidate, analysis, config):
 
     if (
         not symbol
-        or symbol != candidate.get("symbol")
-        or symbol != analysis.get("symbol")
+        or candidate.get("symbol") != symbol
+        or analysis.get("symbol") != symbol
     ):
         raise RuntimeError(
             "UNIT 6 SYMBOL MISMATCH"
         )
 
-    if config.get(
-        "execution_environment"
-    ) != "DEMO":
+    if config.get("execution_environment") != "DEMO":
         raise RuntimeError(
             "UNIT 6 DEMO SAFETY FAILED"
         )
 
-    if (
-        candidate.get(
-            "classification_revision"
-        ) != "UNIVERSAL_ADAPTIVE_V2"
-        or candidate.get("read_only") is not True
-    ):
+    if candidate.get(
+        "classification_revision"
+    ) != "UNIVERSAL_ADAPTIVE_V2":
         raise RuntimeError(
-            "UNIT 6 EXPECTS UNIT 5 V2"
+            "UNIT 6 INCOMPATIBLE UNIT 5 REVISION"
         )
 
     if (
-        candidate.get("trade_authorized") is not False
-        or candidate.get(
-            "order_payload_created"
-        ) is not False
+        candidate.get("read_only") is not True
+        or candidate.get("trade_authorized") is not False
+        or candidate.get("order_payload_created") is not False
     ):
         raise RuntimeError(
             "UNIT 6 UNIT 5 SAFETY FAILED"
@@ -5575,11 +5581,9 @@ def u6_snapshot(candidate, analysis, config):
 
     if config.get(
         "safety", {}
-    ).get(
-        "real_order_submission_enabled"
-    ) is not False:
+    ).get("real_order_submission_enabled") is not False:
         raise RuntimeError(
-            "UNIT 6 LIVE CASH SAFETY FAILED"
+            "UNIT 6 REAL CASH SAFETY FAILED"
         )
 
     timestamp = int(
@@ -5602,14 +5606,10 @@ def u6_snapshot(candidate, analysis, config):
 
     if timestamp != candidate_ts:
         raise RuntimeError(
-            "UNIT 6 MIXED SCAN DATA"
+            "UNIT 6 MIXED MARKET SNAPSHOT"
         )
 
-    age = (
-        time.time() * 1000 - timestamp
-    )
-
-    max_age = (
+    max_age_ms = int(
         u6_env(
             "UNIT6_MAX_MARKET_AGE_SECONDS",
             120,
@@ -5617,49 +5617,44 @@ def u6_snapshot(candidate, analysis, config):
         ) * 1000
     )
 
-    if age < 0 or age > max_age:
+    age_ms = int(time.time() * 1000) - timestamp
+
+    if age_ms < -5000 or age_ms > max_age_ms:
         raise RuntimeError(
-            "UNIT 6 STALE DATA"
+            "UNIT 6 STALE OR FUTURE MARKET DATA"
         )
 
     return symbol, timestamp
 
 
 # ============================================================
-# 6.2 IN-MEMORY SIGNAL CONTINUITY STATE
-#
-# WORKS ACROSS SCANS IN SAME PYTHON PROCESS.
-# DOES NOT CLAIM PERSISTENCE ACROSS RENDER RESTARTS.
+# 6.3 CONTINUITY STATE
+# IN-MEMORY ONLY; RESTARTS RESET CONFIRMATIONS
 # ============================================================
 
-FRESH_RECONSTRUCTION_UNIT6_STATE = {
+def u6_new_state(symbol=None):
 
-    "symbol": None,
+    return {
+        "symbol": symbol,
+        "last_candle_id": None,
+        "last_market_time_ms": None,
+        "last_fingerprint": None,
+        "candidate_direction": "NONE",
+        "candidate_mode": "NONE",
+        "first_seen_ms": None,
+        "last_seen_ms": None,
+        "consecutive_observations": 0,
+        "qualified_observations": 0,
+        "last_outcome": "NONE",
+        "last_qualified_candle_id": None,
+    }
 
-    "last_candle_id": None,
 
-    "last_market_time_ms": None,
-
-    "last_fingerprint": None,
-
-    "candidate_direction": "NONE",
-
-    "candidate_mode": "NONE",
-
-    "first_seen_ms": None,
-
-    "last_seen_ms": None,
-
-    "consecutive_observations": 0,
-
-    "qualified_observations": 0,
-
-    "last_outcome": "NONE",
-}
+FRESH_RECONSTRUCTION_UNIT6_STATE = u6_new_state()
 
 
 # ============================================================
-# 6.3 CONTINUITY ENGINE
+# 6.4 COMPLETE CONTINUITY ENGINE
 # ============================================================
 
 def fresh_reconstruction_unit_6(
@@ -5671,14 +5666,10 @@ def fresh_reconstruction_unit_6(
 ):
 
     if candidate is None:
-        candidate = (
-            FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
-        )
+        candidate = FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
 
     if analysis is None:
-        analysis = (
-            FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
-        )
+        analysis = FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
 
     if config is None:
         config = FRESH_RECONSTRUCTION_CONFIG
@@ -5687,9 +5678,8 @@ def fresh_reconstruction_unit_6(
         state = FRESH_RECONSTRUCTION_UNIT6_STATE
 
     print("=" * 80, flush=True)
-
     print(
-        "UNIVERSAL WEEX UNIT 6 V1 START",
+        "UNIVERSAL WEEX UNIT 6 V2 START",
         flush=True,
     )
 
@@ -5701,9 +5691,7 @@ def fresh_reconstruction_unit_6(
 
     candle_id = int(
         u6_num(
-            analysis.get(
-                "latest_open_time_ms"
-            ),
+            analysis.get("latest_open_time_ms"),
             "CANDLE ID",
             1,
         )
@@ -5711,14 +5699,6 @@ def fresh_reconstruction_unit_6(
 
     if now_ms is None:
         now_ms = int(time.time() * 1000)
-
-    max_life_ms = int(
-        u6_env(
-            "UNIT6_CANDIDATE_MAX_AGE_SECONDS",
-            600,
-            5,
-        ) * 1000
-    )
 
     min_observations = int(
         u6_env(
@@ -5729,17 +5709,17 @@ def fresh_reconstruction_unit_6(
         )
     )
 
-    track_developing = (
-        os.getenv(
-            "UNIT6_TRACK_DEVELOPING",
-            "TRUE",
-        ).strip().upper()
-        not in (
-            "FALSE",
-            "0",
-            "NO",
-            "OFF",
-        )
+    max_life_ms = int(
+        u6_env(
+            "UNIT6_CANDIDATE_MAX_AGE_SECONDS",
+            600,
+            5,
+        ) * 1000
+    )
+
+    track_developing = u6_bool_env(
+        "UNIT6_TRACK_DEVELOPING",
+        True,
     )
 
     qualified = candidate.get("qualified")
@@ -5750,59 +5730,58 @@ def fresh_reconstruction_unit_6(
         )
 
     best_side = candidate.get(
-        "best_developing_direction"
+        "best_developing_direction",
+        "NONE",
     )
 
     best_mode = candidate.get(
-        "best_developing_mode"
+        "best_developing_mode",
+        "NONE",
     )
 
-    direction = candidate.get("direction")
+    direction = candidate.get(
+        "direction",
+        "NONE",
+    )
 
-    mode = candidate.get("active_mode")
+    mode = candidate.get(
+        "active_mode",
+        "NONE",
+    )
 
-    if best_side not in (
-        "LONG",
-        "SHORT",
-    ):
+    valid_sides = ("LONG", "SHORT")
+    valid_modes = (
+        "SCALP",
+        "STRUCTURE",
+        "BREAKOUT",
+    )
+
+    if best_side not in valid_sides + ("NONE",):
         raise RuntimeError(
             "UNIT 6 INVALID BEST SIDE"
         )
 
-    if best_mode not in (
-        "SCALP",
-        "STRUCTURE",
-        "BREAKOUT",
-    ):
+    if best_mode not in valid_modes + ("NONE",):
         raise RuntimeError(
             "UNIT 6 INVALID BEST MODE"
         )
 
-    if direction not in (
-        "LONG",
-        "SHORT",
-        "NONE",
-    ):
+    if direction not in valid_sides + ("NONE",):
         raise RuntimeError(
             "UNIT 6 INVALID DIRECTION"
         )
 
-    if mode not in (
-        "SCALP",
-        "STRUCTURE",
-        "BREAKOUT",
-        "NONE",
-    ):
+    if mode not in valid_modes + ("NONE",):
         raise RuntimeError(
             "UNIT 6 INVALID MODE"
         )
 
     if qualified and (
-        direction == "NONE"
-        or mode == "NONE"
+        direction not in valid_sides
+        or mode not in valid_modes
     ):
         raise RuntimeError(
-            "UNIT 6 QUALIFICATION INCONSISTENCY"
+            "UNIT 6 QUALIFIED SIGNAL INCONSISTENCY"
         )
 
     if not qualified and (
@@ -5810,29 +5789,28 @@ def fresh_reconstruction_unit_6(
         or mode != "NONE"
     ):
         raise RuntimeError(
-            "UNIT 6 UNQUALIFIED DIRECTION LEAK"
+            "UNIT 6 UNQUALIFIED SIGNAL LEAK"
         )
 
-    # ========================================================
-    # 6.4 RETAIN DEVELOPING SIGNAL WITHOUT
-    # OVERRIDING THE LATEST UNIT 5 DECISION
-    # ========================================================
+    # No market mode is a valid no-entry condition.
+    # Do not convert NONE into an artificial trade.
 
-    proposed_side = (
-        direction
-        if qualified
-        else best_side
-        if track_developing
-        else "NONE"
+    developing_valid = bool(
+        best_side in valid_sides
+        and best_mode in valid_modes
     )
 
-    proposed_mode = (
-        mode
-        if qualified
-        else best_mode
-        if track_developing
-        else "NONE"
-    )
+    if qualified:
+        proposed_side = direction
+        proposed_mode = mode
+
+    elif track_developing and developing_valid:
+        proposed_side = best_side
+        proposed_mode = best_mode
+
+    else:
+        proposed_side = "NONE"
+        proposed_mode = "NONE"
 
     fingerprint = (
         symbol,
@@ -5843,50 +5821,58 @@ def fresh_reconstruction_unit_6(
 
     s = copy.deepcopy(state)
 
-    if s.get("symbol") not in (
-        None,
-        symbol,
-    ):
-        s = {
-            "symbol": symbol,
-        }
+    if s.get("symbol") not in (None, symbol):
+        s = u6_new_state(symbol)
 
-    previous_ms = s.get(
-        "last_market_time_ms"
-    )
+    previous_ms = s.get("last_market_time_ms")
 
     if (
         previous_ms is not None
         and market_time_ms < previous_ms
     ):
         raise RuntimeError(
-            "UNIT 6 TIME MOVED BACKWARDS"
+            "UNIT 6 MARKET TIME MOVED BACKWARDS"
+        )
+
+    previous_candle = s.get("last_candle_id")
+
+    if (
+        previous_candle is not None
+        and candle_id < previous_candle
+    ):
+        raise RuntimeError(
+            "UNIT 6 CANDLE MOVED BACKWARDS"
         )
 
     duplicate_candle = (
-        s.get("last_candle_id")
-        == candle_id
+        previous_candle == candle_id
     )
 
-    same_candidate = (
-        s.get("candidate_direction")
-        == proposed_side
+    previous_side = s.get(
+        "candidate_direction",
+        "NONE",
     )
 
-    expired = bool(
-        s.get("first_seen_ms") is not None
-        and now_ms - s["first_seen_ms"]
-        > max_life_ms
+    previous_mode = s.get(
+        "candidate_mode",
+        "NONE",
     )
 
     changed = bool(
-        s.get("candidate_direction")
-        not in (
-            None,
-            "NONE",
-            proposed_side,
-        )
+        previous_side not in ("NONE", proposed_side)
+        and proposed_side != "NONE"
     )
+
+    first_seen_ms = s.get("first_seen_ms")
+
+    expired = bool(
+        first_seen_ms is not None
+        and now_ms - first_seen_ms > max_life_ms
+    )
+
+    # ========================================================
+    # 6.5 STATE TRANSITIONS
+    # ========================================================
 
     if proposed_side == "NONE":
 
@@ -5897,9 +5883,12 @@ def fresh_reconstruction_unit_6(
             last_seen_ms=now_ms,
             consecutive_observations=0,
             qualified_observations=0,
+            last_qualified_candle_id=None,
         )
 
-    elif not same_candidate or expired:
+        status = "NO_VALID_MARKET_CANDIDATE"
+
+    elif changed or expired or previous_side == "NONE":
 
         s.update(
             candidate_direction=proposed_side,
@@ -5910,51 +5899,65 @@ def fresh_reconstruction_unit_6(
             qualified_observations=(
                 1 if qualified else 0
             ),
+            last_qualified_candle_id=(
+                candle_id if qualified else None
+            ),
+        )
+
+        status = (
+            "QUALIFIED_AWAITING_CONTINUITY"
+            if qualified
+            else "DEVELOPING_OBSERVATION"
         )
 
     else:
 
-        # Developmental mode changes preserve
-        # directional continuity.
-        #
-        # SCALP -> STRUCTURE -> BREAKOUT
-        # does not become a new trading cycle.
+        # Preserve direction continuity when market mode
+        # evolves, e.g. STRUCTURE -> BREAKOUT.
 
+        s["candidate_direction"] = proposed_side
         s["candidate_mode"] = proposed_mode
-
         s["last_seen_ms"] = now_ms
 
         if not duplicate_candle:
 
             s["consecutive_observations"] = (
                 int(
-                    s.get(
-                        "consecutive_observations",
-                        0,
-                    )
+                    s.get("consecutive_observations", 0)
                 ) + 1
             )
+
+        if not qualified:
+
+            # A lost qualification resets the qualified
+            # sequence but preserves developing direction.
+
+            s["qualified_observations"] = 0
+            s["last_qualified_candle_id"] = None
+
+        elif (
+            s.get("last_qualified_candle_id")
+            != candle_id
+        ):
 
             s["qualified_observations"] = (
                 int(
-                    s.get(
-                        "qualified_observations",
-                        0,
-                    )
+                    s.get("qualified_observations", 0)
                 ) + 1
-                if qualified else 0
             )
 
-        elif not qualified:
+            s["last_qualified_candle_id"] = candle_id
 
-            s["qualified_observations"] = 0
-
-    # ========================================================
-    # 6.5 INITIAL ENTRY CONTINUITY GATE
-    # ========================================================
+        status = (
+            "QUALIFIED_AWAITING_CONTINUITY"
+            if qualified
+            else "DEVELOPING_OBSERVATION"
+        )
 
     continuity_pass = bool(
         qualified
+        and proposed_side in valid_sides
+        and proposed_mode in valid_modes
         and s["qualified_observations"]
         >= min_observations
         and not expired
@@ -5962,22 +5965,7 @@ def fresh_reconstruction_unit_6(
     )
 
     if continuity_pass:
-
-        status = (
-            "READY_FOR_DOWNSTREAM_CHECKS"
-        )
-
-    elif qualified:
-
-        status = (
-            "QUALIFIED_AWAITING_CONTINUITY"
-        )
-
-    else:
-
-        status = (
-            "DEVELOPING_OBSERVATION"
-        )
+        status = "READY_FOR_DOWNSTREAM_CHECKS"
 
     s.update(
         symbol=symbol,
@@ -5991,48 +5979,38 @@ def fresh_reconstruction_unit_6(
     state.update(s)
 
     # ========================================================
-    # 6.6 HANDOVER TO UNIT 7
-    #
-    # QUALIFIED = CONTINUITY PASSED ONLY.
-    # IT IS NOT AN EXECUTABLE ORDER AUTHORIZATION.
+    # 6.6 UNIT 7 HANDOVER
+    # ENTRY READINESS IS NOT EXCHANGE AUTHORIZATION
     # ========================================================
 
     result = {
-
         "symbol": symbol,
 
         "unit5_qualified": qualified,
-
         "unit5_mode": mode,
-
         "unit5_direction": direction,
 
         "candidate_mode": (
-            mode if continuity_pass
-            else "NONE"
+            mode if continuity_pass else "NONE"
         ),
-
         "active_mode": (
-            mode if continuity_pass
-            else "NONE"
+            mode if continuity_pass else "NONE"
         ),
-
         "direction": (
-            direction if continuity_pass
-            else "NONE"
+            direction if continuity_pass else "NONE"
         ),
-
         "qualified": continuity_pass,
 
         "entry_continuity_verified":
             continuity_pass,
 
+        # Unit 6 does not submit or authorize orders.
+        # These fields describe Unit 6's execution
+        # boundary, not permanent Unit 12 blockers.
+
         "entry_authorized": False,
-
         "trade_authorized": False,
-
         "order_payload_created": False,
-
         "read_only": True,
 
         "entry_status": status,
@@ -6042,146 +6020,94 @@ def fresh_reconstruction_unit_6(
         ),
 
         "developing_candidate": {
-
             "direction": proposed_side,
-
             "mode": proposed_mode,
-
             "score": candidate.get(
                 "best_developing_score"
             ),
-
             "stage": candidate.get(
                 "candidate_stage"
             ),
-
             "risk_factors": list(
                 candidate.get(
                     "best_developing_risk_factors",
-                    [],
+                    []
                 )
             ),
-
-            "first_seen_ms":
-                s.get("first_seen_ms"),
-
+            "first_seen_ms": s.get("first_seen_ms"),
             "consecutive_observations":
-                s.get(
-                    "consecutive_observations"
-                ),
-
+                s["consecutive_observations"],
             "qualified_observations":
-                s.get(
-                    "qualified_observations"
-                ),
-
-            "duplicate_candle":
-                duplicate_candle,
-
+                s["qualified_observations"],
+            "duplicate_candle": duplicate_candle,
             "expired": expired,
-
             "direction_changed": changed,
         },
 
-        "unit5_snapshot": copy.deepcopy(
-            candidate
-        ),
-
+        "unit5_snapshot": copy.deepcopy(candidate),
         "market_time_ms": market_time_ms,
-
         "market_candle_id": candle_id,
 
-        # ====================================================
-        # ABSOLUTE MANAGEMENT INDEPENDENCE
-        # ====================================================
-
         "position_management": {
-
-            "requires_verified_exchange_position":
-                True,
-
-            "units_13_14_independent_of_entry_signal":
-                True,
-
-            "units_13_14_independent_of_bot_mode":
-                True,
-
-            "tp_management_blocked_by_unit6":
-                False,
-
-            "dynamic_break_even_blocked_by_unit6":
-                False,
-
-            "trailing_profit_blocked_by_unit6":
-                False,
-
-            "atr_hedge_recovery_blocked_by_unit6":
-                False,
-
-            "b1_b5_backup_blocked_by_unit6":
-                False,
-
-            "execution_authorized_by_unit6":
-                False,
+            "requires_verified_exchange_position": True,
+            "units_13_14_independent_of_entry_signal": True,
+            "units_13_14_independent_of_bot_mode": True,
+            "tp_management_blocked_by_unit6": False,
+            "dynamic_break_even_blocked_by_unit6": False,
+            "trailing_profit_blocked_by_unit6": False,
+            "atr_hedge_recovery_blocked_by_unit6": False,
+            "b1_b5_backup_blocked_by_unit6": False,
+            "execution_authorized_by_unit6": False,
         },
 
         "diagnostic": {
-
-            "qualification_snapshot":
-                copy.deepcopy(
-                    candidate.get(
-                        "unit15_diagnostic_input",
-                        {},
-                    )
-                ),
-
+            "qualification_snapshot": copy.deepcopy(
+                candidate.get(
+                    "unit15_diagnostic_input",
+                    {}
+                )
+            ),
             "continuity_status": status,
-
-            "duplicate_candle":
-                duplicate_candle,
-
+            "duplicate_candle": duplicate_candle,
             "expired": expired,
-
             "direction_changed": changed,
-
             "reason": candidate.get(
                 "qualification_reason"
             ),
+            "minimum_qualified_observations":
+                min_observations,
+            "qualified_observations":
+                s["qualified_observations"],
+            "no_mode_is_valid_idle_state": True,
         },
 
         "unit6_revision":
-            "UNIVERSAL_CONTINUITY_V1",
+            "UNIVERSAL_CONTINUITY_V2",
     }
 
     # ========================================================
-    # 6.7 RENDER VERIFICATION LOGS
+    # 6.7 RENDER LOGS
     # ========================================================
 
     print(
-        "UNIT 6 SYMBOL =",
-        symbol,
+        "UNIT 6 SYMBOL =", symbol,
         flush=True,
     )
-
     print(
-        "UNIT 6 UNIT5 QUALIFIED =",
-        qualified,
+        "UNIT 6 UNIT5 QUALIFIED =", qualified,
         flush=True,
     )
-
     print(
         "UNIT 6 BEST DEVELOPING =",
         proposed_side,
         proposed_mode,
         flush=True,
     )
-
     print(
         "UNIT 6 DUPLICATE CANDLE =",
         duplicate_candle,
         flush=True,
     )
-
     print(
         "UNIT 6 QUALIFIED OBSERVATIONS =",
         s["qualified_observations"],
@@ -6189,54 +6115,52 @@ def fresh_reconstruction_unit_6(
         min_observations,
         flush=True,
     )
-
     print(
         "UNIT 6 ENTRY STATUS =",
         status,
         flush=True,
     )
-
     print(
         "UNIT 6 ENTRY CONTINUITY VERIFIED =",
         continuity_pass,
         flush=True,
     )
-
+    print(
+        "UNIT 6 NO-MODE IDLE SUPPORTED = True",
+        flush=True,
+    )
+    print(
+        "UNIT 6 UNIT7 HANDOVER READY = True",
+        flush=True,
+    )
     print(
         "UNIT 6 TP MANAGEMENT INDEPENDENT = True",
         flush=True,
     )
-
     print(
         "UNIT 6 ATR HEDGE RECOVERY INDEPENDENT = True",
         flush=True,
     )
-
     print(
         "UNIT 6 B1-B5 BACKUP INDEPENDENT = True",
         flush=True,
     )
-
     print(
         "UNIT 6 BOT_MODE APPLIES ONLY TO UNIT 12 ENTRIES = True",
         flush=True,
     )
-
     print(
         "UNIT 6 DEMO ORDER = NONE",
         flush=True,
     )
-
     print(
         "UNIT 6 EXCHANGE WRITE = NONE",
         flush=True,
     )
-
     print(
         "FRESH RECONSTRUCTION UNIT 6 RESULT = PASS",
         flush=True,
     )
-
     print("=" * 80, flush=True)
 
     return result
@@ -6244,6 +6168,7 @@ def fresh_reconstruction_unit_6(
 
 # ============================================================
 # 6.8 GLOBAL HANDOVER TO UNIT 7
+# ZERO INDENTATION
 # ============================================================
 
 FRESH_RECONSTRUCTION_UNIT6_RESULT = (
@@ -6252,9 +6177,8 @@ FRESH_RECONSTRUCTION_UNIT6_RESULT = (
 
 
 # ============================================================
-# END COMPLETE UNIVERSAL UNIT 6 V1
-# UNIT 7 FOLLOWS
-# ZERO INDENTATION
+# END COMPLETE UNIVERSAL UNIT 6 V2
+# KEEP EXISTING CONTINUITY TEST EXTENSION BELOW
 # ============================================================
 
 
