@@ -3617,3 +3617,699 @@ def fresh_reconstruction_unit_5(
     # PART 1 ENDS HERE.
     # CONTINUE WITH PART 2 AT THE SAME INDENTATION.
     # DO NOT EXECUTE MAIN.PY UNTIL PART 2 IS ADDED.
+    
+    # ========================================================
+    # 5.10 REJECTION AND COST DIAGNOSTICS
+    # ========================================================
+
+    breakout_rejection_reason = (
+        "QUALIFIED"
+        if breakout_qualified
+        else "DEVELOPING"
+        if breakout_developing
+        else "DISABLED"
+        if not breakout_enabled
+        else "CONFIRMATION_OR_MOMENTUM_PENDING"
+    )
+
+    structure_rejection_reason = (
+        "QUALIFIED"
+        if structure_qualified
+        else "DEVELOPING"
+        if structure_developing
+        else "DISABLED"
+        if not structure_enabled
+        else "STRUCTURE_EVIDENCE_PENDING"
+    )
+
+    scalp_rejection_reason = (
+        "HIGHER_MODE_PROTECTED"
+        if (
+            breakout_qualified
+            or structure_qualified
+            or higher_mode_developing
+        )
+        else "PENDING_UNIT_6"
+        if scalp_ready
+        else "NOT_SIDEWAYS"
+        if (
+            scalp_preliminary
+            and not scalp_sideways_ok
+        )
+        else "PRELIMINARY_CONDITIONS_FAILED"
+    )
+
+    fee_entry = setting_bool(
+        p, "include_entry_fee", True
+    )
+
+    fee_exit = setting_bool(
+        p, "include_exit_fee", True
+    )
+
+    fee_sides = int(fee_entry) + int(fee_exit)
+
+    taker_fee = setting_number(
+        p, "estimated_taker_fee_percent", 0.08
+    )
+
+    slippage = setting_number(
+        p, "estimated_slippage_percent", 0.0
+    )
+
+    if taker_fee < 0 or slippage < 0:
+        raise RuntimeError(
+            "UNIT 5 INVALID FEE ESTIMATE"
+        )
+
+    round_trip_fee = (
+        taker_fee * fee_sides + slippage
+    )
+
+    # ========================================================
+    # 5.11 PRESERVE ORIGINAL 42 OUTPUT FIELDS
+    # ========================================================
+
+    candidate = {
+
+        "symbol": market_symbol,
+        "qualified": qualified,
+        "active_mode": active_mode,
+        "direction": direction,
+        "qualification_reason": reason,
+
+        "live_mark_price": live_price,
+        "ema19": ema19,
+        "ema50": ema50,
+        "ema200": ema200,
+        "ema19_50_separation_pct": separation,
+        "ema_structure": ema_structure,
+        "ema_direction": ema_direction,
+
+        "momentum_direction": directions[1],
+
+        "direction_agreement": (
+            structure_direction != "NONE"
+        ),
+
+        "short_term_move_pct": short_move,
+
+        "absolute_short_term_move_pct":
+            abs(short_move),
+
+        "previous_close": previous_close,
+        "latest_close": latest_close,
+
+        "price_above_ema19":
+            live_price > ema19,
+
+        "price_above_ema50":
+            live_price > ema50,
+
+        "price_above_ema200":
+            live_price > ema200,
+
+        "latest_close_above_previous":
+            latest_close > previous_close,
+
+        "move_1m_pct": moves[1],
+        "move_5m_pct": moves[5],
+        "move_15m_pct": moves[15],
+        "move_30m_pct": moves[30],
+        "move_60m_pct": moves[60],
+        "move_120m_pct": moves[120],
+
+        "momentum_1m_direction": directions[1],
+        "momentum_5m_direction": directions[5],
+        "momentum_15m_direction": directions[15],
+        "momentum_30m_direction": directions[30],
+        "momentum_60m_direction": directions[60],
+        "momentum_120m_direction": directions[120],
+
+        "scalp_direction": scalp_direction,
+        "scalp_move_pct": scalp_move,
+        "scalp_1m_support": scalp_1m_support,
+
+        "structure_direction": structure_direction,
+        "structure_move_pct": structure_move,
+
+        "breakout_direction": breakout_direction,
+        "breakout_move_pct": breakout_move,
+        "breakout_fast_support":
+            breakout_fast_support,
+    }
+
+    if len(candidate) != 42:
+        raise RuntimeError(
+            "UNIT 5 ORIGINAL 42-FIELD CONTRACT FAILED"
+        )
+
+    # ========================================================
+    # 5.12 EXTENDED HANDOVER TO UNIT 6
+    # ========================================================
+
+    candidate.update({
+
+        "candidate_mode": candidate_mode,
+        "candidate_stage": candidate_stage,
+
+        "higher_mode_developing":
+            higher_mode_developing,
+
+        "breakout_candidate": bool(
+            breakout_qualified
+            or breakout_developing
+        ),
+
+        "structure_candidate": bool(
+            structure_qualified
+            or structure_developing
+        ),
+
+        "breakout_ready": breakout_ready,
+        "structure_ready": structure_ready,
+        "scalp_ready": scalp_ready,
+
+        "sideways_context": sideways_evidence,
+        "direction_evidence": direction_evidence,
+
+        "scalp_quality_minimum":
+            scalp_quality_minimum,
+
+        "scalp_price_weight_percent":
+            setting_number(
+                p, "price_action_weight_percent", 50
+            ),
+
+        "estimated_round_trip_fee_pct":
+            round_trip_fee,
+
+        "scalp_minimum_fee_coverage":
+            fee_multiplier,
+
+        "candle_data_fresh": True,
+        "read_only": True,
+
+        "trade_authorized": False,
+        "order_payload_created": False,
+
+        "strategy_evidence_version":
+            "U5_HYBRID_ADJUSTABLE_V3",
+
+        "unit_4_evidence_version":
+            "U4_HYBRID_V2",
+
+        "classification_revision": "V3.1",
+
+        "candidate_protected": (
+            candidate_stage == "DEVELOPING"
+        ),
+
+        "candidate_age_seconds": candle_age,
+
+        "classification_source":
+            "UNIT5_V9_UNIVERSAL_USDT",
+
+        "original_unit5_qualified": bool(
+            breakout_qualified
+            or structure_qualified
+            or scalp_preliminary
+        ),
+
+        "original_unit5_mode": (
+            "BREAKOUT" if breakout_qualified
+            else "STRUCTURE" if structure_qualified
+            else "SCALP" if scalp_preliminary
+            else "NONE"
+        ),
+
+        "original_unit5_direction": (
+            breakout_side if breakout_qualified
+            else structure_side if structure_qualified
+            else scalp_direction_candidate
+            if scalp_preliminary
+            else "NONE"
+        ),
+
+        "original_unit5_reason":
+            "INTEGRATED_V9_UNIVERSAL_CLASSIFIER",
+
+        "original_hybrid_conflict": False,
+
+        "optimization_version": "UNIT5_V8",
+
+        "hybrid_structure_qualified":
+            structure_qualified,
+
+        "hybrid_breakout_qualified":
+            breakout_qualified,
+
+        "structure_direction_votes": (
+            long_votes if structure_side == "LONG"
+            else short_votes
+            if structure_side == "SHORT"
+            else 0
+        ),
+
+        "structure_extension_atr":
+            extension_atr,
+
+        "structure_extension_pass":
+            structure_extension_ok,
+
+        "structure_momentum_agreement":
+            structure_momentum_ok,
+
+        "breakout_confirmation_votes": (
+            long_votes if breakout_side == "LONG"
+            else short_votes
+            if breakout_side == "SHORT"
+            else 0
+        ),
+
+        "developing_breakout_direction":
+            developing_breakout_direction,
+
+        "developing_structure_direction":
+            developing_structure_direction,
+
+        "scalp_preliminary":
+            scalp_preliminary,
+
+        "qualification_tuning_revision":
+            "UNIT5_V8_FULLY_ADJUSTABLE",
+
+        "structure_ema_alignment_mode":
+            structure_ema_mode,
+
+        "structure_trend_direction":
+            structure_trend,
+
+        "structure_votes_pass":
+            structure_votes_ok,
+
+        "structure_momentum_pass":
+            structure_momentum_ok,
+
+        "breakout_votes_pass":
+            breakout_votes_ok,
+
+        "breakout_momentum_pass":
+            breakout_momentum_ok,
+
+        "scalp_preliminary_ema_min_pct":
+            scalp_ema_min,
+
+        "scalp_preliminary_move_min_pct":
+            scalp_move_min,
+
+        "scalp_sideways_required":
+            scalp_require_sideways,
+
+        "scalp_sideways_pass":
+            scalp_sideways_ok,
+
+        "scalp_direction_candidate":
+            scalp_direction_candidate,
+
+        "scalp_quality_pending_unit6":
+            scalp_ready,
+
+        # Universal market metadata
+
+        "base_coin":
+            market_symbol[:-4],
+
+        "quote_coin": "USDT",
+
+        "margin_currency": "USDT",
+
+        "universal_symbol_enabled": True,
+
+        "unit5_revision":
+            "UNIT5_V9_UNIVERSAL_USDT",
+
+        "breakout_rejection_reason":
+            breakout_rejection_reason,
+
+        "structure_rejection_reason":
+            structure_rejection_reason,
+
+        "scalp_rejection_reason":
+            scalp_rejection_reason,
+    })
+
+    # ========================================================
+    # 5.13 FINAL CONSISTENCY AND SAFETY
+    # ========================================================
+
+    if qualified != (
+        candidate_stage == "QUALIFIED"
+    ):
+        raise RuntimeError(
+            "UNIT 5 QUALIFICATION STATE INVALID"
+        )
+
+    if qualified and (
+        active_mode not in (
+            "BREAKOUT", "STRUCTURE"
+        )
+        or direction not in (
+            "LONG", "SHORT"
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 5 QUALIFIED MODE INVALID"
+        )
+
+    if candidate_mode == "SCALP" and (
+        breakout_qualified
+        or structure_qualified
+        or higher_mode_developing
+    ):
+        raise RuntimeError(
+            "UNIT 5 SCALP PRIORITY VIOLATION"
+        )
+
+    if (
+        candidate["trade_authorized"] is not False
+        or candidate["order_payload_created"] is not False
+    ):
+        raise RuntimeError(
+            "UNIT 5 EXCHANGE WRITE BOUNDARY FAILED"
+        )
+
+    if candidate["symbol"] != market_symbol:
+        raise RuntimeError(
+            "UNIT 5 SYMBOL HANDOVER FAILED"
+        )
+
+    if candidate["quote_coin"] != "USDT":
+        raise RuntimeError(
+            "UNIT 5 QUOTE CURRENCY FAILED"
+        )
+
+    # ========================================================
+    # 5.14 RENDER REPORT
+    # ========================================================
+
+    print(
+        "UNIT 5 MARKET SYMBOL =",
+        market_symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 BASE COIN =",
+        market_symbol[:-4],
+        flush=True
+    )
+
+    print(
+        "UNIT 5 QUOTE CURRENCY = USDT",
+        flush=True
+    )
+
+    print(
+        "UNIT 5 ORIGINAL FIELDS = 42",
+        flush=True
+    )
+
+    print(
+        "UNIT 5 UNIT 4 TUNING =",
+        analysis["qualification_tuning_revision"],
+        flush=True
+    )
+
+    print(
+        "UNIT 5 BREAKOUT QUALIFIED =",
+        breakout_qualified,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 STRUCTURE QUALIFIED =",
+        structure_qualified,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 SCALP PRELIMINARY =",
+        scalp_preliminary,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 HIGHER MODE DEVELOPING =",
+        higher_mode_developing,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 BREAKOUT REJECTION =",
+        breakout_rejection_reason,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 STRUCTURE REJECTION =",
+        structure_rejection_reason,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 SCALP REJECTION =",
+        scalp_rejection_reason,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 SCALP QUALITY TARGET =",
+        scalp_quality_minimum,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 ESTIMATED ROUND TRIP FEE % =",
+        round_trip_fee,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 MODE =",
+        candidate_mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 STAGE =",
+        candidate_stage,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 ACTIVE MODE =",
+        active_mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 DIRECTION =",
+        direction,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 QUALIFIED =",
+        qualified,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 REASON =",
+        reason,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 EVIDENCE VERSION =",
+        candidate["strategy_evidence_version"],
+        flush=True
+    )
+
+    print(
+        "UNIT 5 CANDLE AGE SECONDS =",
+        round(candle_age, 3),
+        flush=True
+    )
+
+    print(
+        "UNIT 5 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 5 RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return candidate
+
+
+# ============================================================
+# 5.15 UNIT 5 UNIVERSAL VALIDATION
+# ============================================================
+
+def unit_5_validation_v8():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 5 UNIVERSAL VALIDATION V9 START",
+        flush=True
+    )
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
+    )
+
+    analysis = globals().get(
+        "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT"
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 5 VALIDATION CONFIG MISSING"
+        )
+
+    if not isinstance(analysis, dict):
+        raise RuntimeError(
+            "UNIT 5 VALIDATION SNAPSHOT MISSING"
+        )
+
+    exchange = config.get("exchange", {})
+
+    if not isinstance(exchange, dict):
+        raise RuntimeError(
+            "UNIT 5 VALIDATION EXCHANGE INVALID"
+        )
+
+    symbol = exchange.get("market_symbol")
+
+    if (
+        not isinstance(symbol, str)
+        or not symbol.endswith("USDT")
+        or len(symbol) <= 4
+    ):
+        raise RuntimeError(
+            "UNIT 5 VALIDATION SYMBOL INVALID"
+        )
+
+    if analysis.get("symbol") != symbol:
+        raise RuntimeError(
+            "UNIT 5 VALIDATION SYMBOL MISMATCH"
+        )
+
+    if exchange.get("quote_coin") != "USDT":
+        raise RuntimeError(
+            "UNIT 5 VALIDATION QUOTE MISMATCH"
+        )
+
+    if analysis.get(
+        "strategy_evidence_version"
+    ) != "U4_HYBRID_V2":
+        raise RuntimeError(
+            "UNIT 5 VALIDATION EVIDENCE MISMATCH"
+        )
+
+    if analysis.get(
+        "qualification_tuning_revision"
+    ) not in (
+        "UNIT4_V5_FULLY_INTEGRATED",
+        "UNIT4_V6_UNIVERSAL_USDT",
+    ):
+        raise RuntimeError(
+            "UNIT 5 VALIDATION REVISION MISMATCH"
+        )
+
+    qualification = config.get(
+        "qualification", {}
+    )
+
+    if not isinstance(qualification, dict):
+        raise RuntimeError(
+            "UNIT 5 VALIDATION TUNING MISSING"
+        )
+
+    for section_name in (
+        "common",
+        "breakout",
+        "structure",
+        "scalp",
+    ):
+
+        if not isinstance(
+            qualification.get(section_name),
+            dict
+        ):
+            raise RuntimeError(
+                "UNIT 5 VALIDATION SECTION MISSING: "
+                + section_name
+            )
+
+    print(
+        "UNIT 5 VALIDATION SYMBOL =",
+        symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 5 VALIDATION QUOTE = USDT",
+        flush=True
+    )
+
+    print(
+        "UNIT 5 VALIDATION UNIT 4 = PASS",
+        flush=True
+    )
+
+    print(
+        "UNIT 5 UNIVERSAL CONFIG VALIDATION = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return True
+
+
+# ============================================================
+# 5.16 GLOBAL EXECUTION
+# ============================================================
+
+FRESH_UNIT_5_VALIDATION_READY = (
+    unit_5_validation_v8()
+)
+
+FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
+    fresh_reconstruction_unit_5(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+    )
+)
+
+FRESH_UNIT_5_OPTIMIZATION_READY = True
+
+print(
+    "UNIT 5 UNIVERSAL OPTIMIZATION READY =",
+    FRESH_UNIT_5_OPTIMIZATION_READY,
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 5 V9 UNIVERSAL USDT REPLACEMENT
+# UNIT 6 BEGINS BELOW THIS LINE
+# ============================================================
+
