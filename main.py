@@ -7481,6 +7481,533 @@ print(
 
 
 # ============================================================
+# START UNIT 8 V15 - PART 1 OF 2
+# UNIVERSAL WEEX FUTURES / SIMULATION DISCOVERY
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import re
+import json
+import time
+import hmac
+import base64
+import hashlib
+import urllib.request
+import urllib.error
+from urllib.parse import urlencode
+from decimal import Decimal, InvalidOperation, ROUND_FLOOR
+
+U8V15_LIVE = "https://api-contract.weex.com"
+U8V15_SIM = "https://api-sim.weex.com"
+
+U8V15_EXCHANGE_INFO = "/capi/v3/market/exchangeInfo"
+U8V15_API_SYMBOLS = "/capi/v3/market/apiTradingSymbols"
+
+U8V15_PRIVATE_PATHS = frozenset((
+    "/capi/v3/sim/balance",
+    "/capi/v3/sim/position/allPosition",
+    "/capi/v3/sim/order/history",
+    "/capi/v3/account/accountConfig",
+))
+
+
+def u8v15_num(value, name, allow_zero=False):
+    if isinstance(value, bool):
+        raise ValueError(name + "_BOOLEAN")
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError(name + "_INVALID")
+    if not number.is_finite():
+        raise ValueError(name + "_NONFINITE")
+    if number < 0 or (number == 0 and not allow_zero):
+        raise ValueError(name + "_RANGE")
+    return number
+
+
+def u8v15_str(value):
+    return format(Decimal(str(value)).normalize(), "f")
+
+
+def u8v15_unwrap(payload):
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        raise RuntimeError("INVALID_JSON_STRUCTURE")
+
+    code = payload.get("code")
+    if code is not None and str(code) not in (
+        "0", "200", "00000"
+    ):
+        raise RuntimeError("WEEX_CODE_" + str(code))
+
+    return payload.get("data", payload)
+
+
+def u8v15_rows(payload):
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        for key in (
+            "symbols", "list", "rows", "records",
+            "orders", "positions"
+        ):
+            if isinstance(payload.get(key), list):
+                return payload[key]
+    raise RuntimeError("EXPECTED_LIST_NOT_FOUND")
+
+
+def u8v15_request(base, path, params=None, private=False):
+    if private:
+        if base != U8V15_LIVE:
+            raise RuntimeError("PRIVATE_BASE_NOT_ALLOWED")
+        if path not in U8V15_PRIVATE_PATHS:
+            raise RuntimeError("PRIVATE_PATH_NOT_ALLOWED")
+    else:
+        if base not in (U8V15_LIVE, U8V15_SIM):
+            raise RuntimeError("PUBLIC_BASE_NOT_ALLOWED")
+        if path not in (
+            U8V15_EXCHANGE_INFO, U8V15_API_SYMBOLS
+        ):
+            raise RuntimeError("PUBLIC_PATH_NOT_ALLOWED")
+
+    query = urlencode(params or {})
+    target = path + ("?" + query if query else "")
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "WEEX-UNIT8-V15",
+    }
+
+    if private:
+        key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
+        secret = (
+            os.getenv("WEEX_API_SECRET")
+            or os.getenv("API_SECRET")
+        )
+        phrase = (
+            os.getenv("WEEX_API_PASSPHRASE")
+            or os.getenv("API_PASSPHRASE")
+        )
+
+        if not all((key, secret, phrase)):
+            raise RuntimeError("API_CREDENTIALS_MISSING")
+
+        timestamp = str(int(time.time() * 1000))
+        signature = base64.b64encode(
+            hmac.new(
+                secret.encode("utf-8"),
+                (timestamp + "GET" + target).encode("utf-8"),
+                hashlib.sha256
+            ).digest()
+        ).decode("utf-8")
+
+        headers.update({
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-PASSPHRASE": phrase,
+            "ACCESS-TIMESTAMP": timestamp,
+            "Content-Type": "application/json",
+            "locale": "en-US",
+        })
+
+    request = urllib.request.Request(
+        base + target,
+        headers=headers,
+        method="GET"
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request, timeout=15
+        ) as response:
+            if response.status != 200:
+                raise RuntimeError(
+                    "HTTP_STATUS_" + str(response.status)
+                )
+            payload = json.loads(
+                response.read().decode("utf-8")
+            )
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            "HTTP_" + str(exc.code)
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            "NETWORK_UNAVAILABLE"
+        ) from exc
+    except (TimeoutError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            "RESPONSE_UNAVAILABLE"
+        ) from exc
+
+    return u8v15_unwrap(payload)
+
+
+def u8v15_directory(base):
+    raw = u8v15_request(base, U8V15_EXCHANGE_INFO)
+    records = u8v15_rows(raw)
+
+    contracts = {}
+    for item in records:
+        if not isinstance(item, dict):
+            continue
+        symbol = item.get("symbol")
+        if not isinstance(symbol, str):
+            continue
+        symbol = symbol.strip().upper()
+        if symbol in contracts:
+            raise RuntimeError("DUPLICATE_CONTRACT_" + symbol)
+        contracts[symbol] = item
+
+    if not contracts:
+        raise RuntimeError("CONTRACT_DIRECTORY_EMPTY")
+
+    return contracts
+
+
+def u8v15_api_directory(base):
+    raw = u8v15_request(base, U8V15_API_SYMBOLS)
+    records = u8v15_rows(raw)
+
+    symbols = set()
+    for item in records:
+        if isinstance(item, str):
+            value = item
+        elif isinstance(item, dict):
+            value = item.get("symbol")
+        else:
+            continue
+
+        if isinstance(value, str) and value.strip():
+            symbols.add(value.strip().upper())
+
+    if not symbols:
+        raise RuntimeError("API_DIRECTORY_EMPTY")
+
+    return symbols
+
+
+def u8v15_rules(item):
+    if not isinstance(item, dict):
+        raise RuntimeError("CONTRACT_RECORD_INVALID")
+
+    required = (
+        "symbol", "baseAsset", "quoteAsset",
+        "marginAsset", "contractType",
+        "minOrderSize", "contractVal",
+        "quantityPrecision", "pricePrecision",
+        "minLeverage", "maxLeverage"
+    )
+
+    for field in required:
+        if item.get(field) is None:
+            raise RuntimeError(
+                "CONTRACT_FIELD_MISSING_" + field
+            )
+
+    minimum = u8v15_num(
+        item["minOrderSize"], "MINIMUM_QUANTITY"
+    )
+    multiplier = u8v15_num(
+        item["contractVal"], "CONTRACT_MULTIPLIER"
+    )
+
+    def precision(value, name):
+        if isinstance(value, bool):
+            raise ValueError(name + "_INVALID")
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            raise ValueError(name + "_INVALID")
+        if str(value) != str(number) or not 0 <= number <= 18:
+            raise ValueError(name + "_INVALID")
+        return number
+
+    qp = precision(
+        item["quantityPrecision"], "QUANTITY_PRECISION"
+    )
+    pp = precision(
+        item["pricePrecision"], "PRICE_PRECISION"
+    )
+
+    quantity_step = Decimal("1").scaleb(-qp)
+    price_step = Decimal("1").scaleb(-pp)
+
+    minimum_leverage = u8v15_num(
+        item["minLeverage"], "MINIMUM_LEVERAGE"
+    )
+    maximum_leverage = u8v15_num(
+        item["maxLeverage"], "MAXIMUM_LEVERAGE"
+    )
+
+    if minimum_leverage > maximum_leverage:
+        raise RuntimeError("LEVERAGE_RANGE_INVALID")
+
+    maximum = item.get("maxOrderSize")
+    if maximum is not None:
+        maximum = u8v15_num(
+            maximum, "MAXIMUM_QUANTITY"
+        )
+        if maximum < minimum:
+            raise RuntimeError("QUANTITY_RANGE_INVALID")
+
+    return {
+        "symbol": str(item["symbol"]).upper(),
+        "base_asset": str(item["baseAsset"]).upper(),
+        "quote_asset": str(item["quoteAsset"]).upper(),
+        "margin_asset": str(item["marginAsset"]).upper(),
+        "contract_type": str(item["contractType"]).upper(),
+        "minimum_quantity": u8v15_str(minimum),
+        "maximum_quantity": (
+            u8v15_str(maximum)
+            if maximum is not None else None
+        ),
+        "quantity_step": u8v15_str(quantity_step),
+        "price_step": u8v15_str(price_step),
+        "contract_multiplier": u8v15_str(multiplier),
+        "minimum_leverage": u8v15_str(minimum_leverage),
+        "maximum_leverage": u8v15_str(maximum_leverage),
+        "quantity_precision": qp,
+        "price_precision": pp,
+        "verified": True,
+    }
+
+
+def u8v15_candidates(symbol):
+    base = symbol[:-4]
+    return (symbol, base + "SUSDT")
+
+
+def u8v15_resolve(symbol, contracts, api_symbols):
+    candidates = u8v15_candidates(symbol)
+    matches = []
+
+    for candidate in candidates:
+        item = contracts.get(candidate)
+        if item is not None:
+            matches.append((candidate, item))
+
+    if not matches:
+        return {
+            "status": "UNSUPPORTED",
+            "reason": "CONTRACT_NOT_IN_DIRECTORY",
+            "symbol": None,
+            "rules": None,
+        }
+
+    eligible = [
+        (candidate, item)
+        for candidate, item in matches
+        if candidate in api_symbols
+    ]
+
+    if not eligible:
+        return {
+            "status": "UNSUPPORTED",
+            "reason": "CONTRACT_NOT_API_TRADABLE",
+            "symbol": None,
+            "rules": None,
+        }
+
+    if len(eligible) != 1:
+        return {
+            "status": "UNVERIFIED",
+            "reason": "AMBIGUOUS_CONTRACT_MAPPING",
+            "symbol": None,
+            "rules": None,
+        }
+
+    candidate, item = eligible[0]
+
+    try:
+        rules = u8v15_rules(item)
+        if (
+            rules["base_asset"] != symbol[:-4]
+            or rules["quote_asset"] != "USDT"
+            or rules["margin_asset"] not in ("USDT", "SUSDT")
+            or rules["contract_type"] not in (
+                "PERPETUAL", "TRADIFI_PERPETUAL"
+            )
+        ):
+            raise RuntimeError("CONTRACT_IDENTITY_MISMATCH")
+    except Exception as exc:
+        return {
+            "status": "UNVERIFIED",
+            "reason": "CONTRACT_RULES_UNVERIFIED",
+            "symbol": None,
+            "rules": None,
+            "error": str(exc),
+        }
+
+    return {
+        "status": "VERIFIED",
+        "reason": "DIRECT_DIRECTORY_AND_API_MATCH",
+        "symbol": candidate,
+        "rules": rules,
+    }
+
+
+def u8v15_balance(raw):
+    rows = raw if isinstance(raw, list) else [raw]
+    matches = [
+        item for item in rows
+        if isinstance(item, dict)
+        and str(item.get("asset", "")).upper() == "SUSDT"
+    ]
+
+    if len(matches) != 1:
+        raise RuntimeError("SUSDT_BALANCE_NOT_UNIQUE")
+
+    item = matches[0]
+    available = u8v15_num(
+        item.get("availableBalance"),
+        "AVAILABLE_BALANCE", allow_zero=True
+    )
+
+    return {
+        "available_balance": u8v15_str(available),
+        "record": item,
+    }
+
+
+def u8v15_position_summary(positions, symbol):
+    selected = []
+    long_quantity = Decimal("0")
+    short_quantity = Decimal("0")
+    unknown = False
+
+    for item in positions:
+        if not isinstance(item, dict):
+            unknown = True
+            continue
+        if str(item.get("symbol", "")).upper() != symbol:
+            continue
+
+        raw = next(
+            (
+                item[key] for key in (
+                    "size", "total", "holdVol", "positionAmt"
+                )
+                if item.get(key) is not None
+            ),
+            None
+        )
+
+        if raw is None:
+            unknown = True
+            continue
+
+        try:
+            quantity = u8v15_num(
+                raw, "POSITION_QUANTITY", allow_zero=True
+            )
+        except ValueError:
+            unknown = True
+            continue
+
+        if quantity == 0:
+            continue
+
+        side = str(
+            item.get("positionSide")
+            or item.get("holdSide")
+            or item.get("side")
+            or ""
+        ).upper()
+
+        if side == "LONG":
+            long_quantity += quantity
+        elif side == "SHORT":
+            short_quantity += quantity
+        else:
+            unknown = True
+            continue
+
+        selected.append({
+            "symbol": symbol,
+            "positionSide": side,
+            "quantity": u8v15_str(quantity),
+        })
+
+    return {
+        "positions": selected,
+        "long_position_quantity": u8v15_str(long_quantity),
+        "short_position_quantity": u8v15_str(short_quantity),
+        "position_flat_verified": (
+            not selected and not unknown
+        ),
+        "position_parsing_verified": not unknown,
+    }
+
+
+def u8v15_size(config, rules, price, direction):
+    strategy = config.get("strategy", {})
+
+    margin = u8v15_num(
+        strategy.get("entry_margin_usdt"),
+        "ENTRY_MARGIN"
+    )
+    leverage = u8v15_num(
+        strategy.get(
+            "long_leverage" if direction == "LONG"
+            else "short_leverage"
+        ),
+        "LEVERAGE"
+    )
+    price = u8v15_num(price, "MARK_PRICE")
+
+    if not (
+        Decimal(rules["minimum_leverage"])
+        <= leverage
+        <= Decimal(rules["maximum_leverage"])
+    ):
+        raise RuntimeError("LEVERAGE_OUTSIDE_LIMITS")
+
+    step = Decimal(rules["quantity_step"])
+    minimum = Decimal(rules["minimum_quantity"])
+    multiplier = Decimal(rules["contract_multiplier"])
+
+    raw = margin * leverage / (price * multiplier)
+    quantity = (
+        (raw / step).to_integral_value(rounding=ROUND_FLOOR)
+        * step
+    )
+
+    half = quantity / 2
+    maximum = rules.get("maximum_quantity")
+
+    valid = quantity >= minimum and quantity > 0
+    if maximum is not None:
+        valid = valid and quantity <= Decimal(maximum)
+
+    return {
+        "margin_usdt": u8v15_str(margin),
+        "leverage": u8v15_str(leverage),
+        "mark_price": u8v15_str(price),
+        "raw_contract_quantity": u8v15_str(raw),
+        "rounded_contract_quantity": u8v15_str(quantity),
+        "half_contract_quantity": u8v15_str(half),
+        "initial_quantity_valid": bool(valid),
+        "half_quantity_valid": bool(
+            half >= minimum and half % step == 0
+        ),
+        "contract_multiplier": rules["contract_multiplier"],
+        "preview_only": True,
+        "order_submitted": False,
+        "quantity_units_confirmed_for_demo_orders": False,
+    }
+
+
+# ============================================================
+# END UNIT 8 V15 - PART 1 OF 2
+# PASTE PART 2 IMMEDIATELY BELOW
+# ZERO INDENTATION
+# ============================================================
+
+
+
+# ============================================================
 # START UNIT 8 V14 - PART 1 OF 2
 # UNIVERSAL WEEX FUTURES AND DEMO DISCOVERY
 # UNITS 1-7 UNCHANGED
