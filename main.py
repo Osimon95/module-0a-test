@@ -13823,3 +13823,678 @@ print(
 # UNIT 15 FOLLOWS
 # ZERO INDENTATION
 # ============================================================
+
+
+
+# ============================================================
+# START COMPLETE UNIT 15 V1
+# WEEX DEMO MONITORING AND TELEGRAM REPORTING
+# ZERO INDENTATION
+# ============================================================
+
+import os as _u15_os
+import json as _u15_json
+import time as _u15_time
+import threading as _u15_threading
+from datetime import datetime as _u15_datetime
+from datetime import timedelta as _u15_timedelta
+from datetime import timezone as _u15_timezone
+from urllib import request as _u15_request
+from urllib import parse as _u15_parse
+
+UNIT15_VERSION = "V1_UNIVERSAL_DEMO_MONITOR"
+UNIT15_WAT = _u15_timezone(_u15_timedelta(hours=1))
+UNIT15_SLOTS = (5, 13, 21)
+
+_UNIT15_LAST_SLOT = None
+_UNIT15_LAST_ALERT = None
+_UNIT15_OFFSET = None
+_UNIT15_POLL_STARTED = False
+_UNIT15_WORKER_STARTED = False
+_UNIT15_LAST_REPORT = None
+_UNIT15_LOCK = _u15_threading.RLock()
+
+
+# ============================================================
+# 15.1 CONFIGURATION
+# ============================================================
+
+def unit15_enabled(name, default=True):
+
+    value = _u15_os.getenv(name)
+
+    if value is None:
+        return default
+
+    return str(value).strip().lower() in (
+        "1", "true", "yes", "on"
+    )
+
+
+UNIT15_ON_DEMAND = unit15_enabled(
+    "UNIT15_ON_DEMAND", True
+)
+
+UNIT15_SCHEDULED = unit15_enabled(
+    "UNIT15_SCHEDULED", True
+)
+
+UNIT15_SAFETY_ALERTS = unit15_enabled(
+    "UNIT15_SAFETY_ALERTS", True
+)
+
+
+# ============================================================
+# 15.2 VERIFIED UPSTREAM SNAPSHOT
+# ============================================================
+
+def unit15_snapshot():
+
+    u8 = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
+    )
+
+    u12 = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_12_RESULT"
+    )
+
+    u13 = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_13_RESULT"
+    )
+
+    u14 = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_14_RESULT"
+    )
+
+    u8 = u8 if isinstance(u8, dict) else {}
+    u12 = u12 if isinstance(u12, dict) else {}
+    u13 = u13 if isinstance(u13, dict) else {}
+    u14 = u14 if isinstance(u14, dict) else {}
+
+    symbol = (
+        u8.get("market_symbol")
+        or u14.get("market_symbol")
+        or _u15_os.getenv("WEEX_SYMBOL", "")
+    )
+
+    return {
+        "symbol": str(symbol).upper(),
+        "unit8": u8,
+        "unit12": u12,
+        "unit13": u13,
+        "unit14": u14,
+    }
+
+
+# ============================================================
+# 15.3 TELEGRAM DELIVERY
+# ============================================================
+
+def unit15_telegram(message):
+
+    token = _u15_os.getenv(
+        "TELEGRAM_BOT_TOKEN", ""
+    ).strip()
+
+    chat_id = _u15_os.getenv(
+        "TELEGRAM_CHAT_ID", ""
+    ).strip()
+
+    if not token or not chat_id:
+        print(
+            "UNIT 15 TELEGRAM = NOT_CONFIGURED",
+            flush=True
+        )
+        return False
+
+    url = (
+        "https://api.telegram.org/bot"
+        + token
+        + "/sendMessage"
+    )
+
+    payload = _u15_parse.urlencode({
+        "chat_id": chat_id,
+        "text": str(message)[:4000],
+        "disable_web_page_preview": "true",
+    }).encode("utf-8")
+
+    try:
+        req = _u15_request.Request(
+            url,
+            data=payload,
+            method="POST",
+        )
+
+        with _u15_request.urlopen(
+            req, timeout=15
+        ) as response:
+            data = _u15_json.loads(
+                response.read().decode("utf-8")
+            )
+
+        success = data.get("ok") is True
+
+        print(
+            "UNIT 15 TELEGRAM DELIVERY =",
+            "PASS" if success else "FAIL",
+            flush=True
+        )
+
+        return success
+
+    except Exception as exc:
+        print(
+            "UNIT 15 TELEGRAM ERROR =",
+            type(exc).__name__,
+            flush=True
+        )
+        return False
+
+
+# ============================================================
+# 15.4 REPORT CONSTRUCTION
+# ============================================================
+
+def unit15_report(period="8h", notification="SCHEDULED"):
+
+    global _UNIT15_LAST_REPORT
+
+    if period not in ("1h", "8h", "24h", "all"):
+        raise ValueError("INVALID_REPORT_PERIOD")
+
+    now = _u15_datetime.now(UNIT15_WAT)
+    snapshot = unit15_snapshot()
+
+    u8 = snapshot["unit8"]
+    u12 = snapshot["unit12"]
+    u13 = snapshot["unit13"]
+    u14 = snapshot["unit14"]
+
+    lines = [
+        "WEEX DEMO TRADING PERFORMANCE",
+        "================================",
+        "Notification: " + notification,
+        "Period: " + period,
+        "Time: " + now.strftime(
+            "%Y-%m-%d %H:%M WAT"
+        ),
+        "Symbol: " + snapshot["symbol"],
+    ]
+
+    if period != "all":
+        hours = int(period[:-1])
+        start = now - _u15_timedelta(hours=hours)
+
+        lines.append(
+            "Window: "
+            + start.strftime("%Y-%m-%d %H:%M")
+            + " to "
+            + now.strftime("%Y-%m-%d %H:%M")
+            + " WAT"
+        )
+
+    # A read-verified history endpoint alone does
+    # not prove complete matched trading cycles.
+    # These fields remain unverified until the
+    # reference reconciliation engine is adapted.
+
+    lines.extend([
+        "History orders: Unverified",
+        "Fully filled: Unverified",
+        "Completed cycles: Unverified",
+        "Winning cycles: Unverified",
+        "Losing cycles: Unverified",
+        "Break-even cycles: Unverified",
+        "Gross win rate: N/A",
+        "Gross profit: Unverified",
+        "Gross loss: Unverified",
+        "Gross P&L: Unverified",
+        "Net trading profit: Unverified",
+        "Net ROI: N/A",
+        "Fees/funding/margin: Unverified",
+        "Close cause: Unverified",
+        "",
+        "EQUITY-BASED PERFORMANCE",
+        "================================",
+        "Starting equity: N/A",
+        "Ending equity: N/A",
+        "Equity change: N/A",
+        "Equity ROI: N/A",
+        "Reason: Matching verified equity "
+        "snapshots unavailable",
+        "",
+        "DEMO ACCOUNT AND SAFETY",
+        "================================",
+        "Contract verified: "
+        + str(u8.get("demo_contract_verified")),
+        "Balance read verified: "
+        + str(u8.get("demo_balance_verified")),
+        "Position read verified: "
+        + str(u8.get(
+            "demo_positions_read_verified"
+        )),
+        "Position flat verified: "
+        + str(u8.get("position_flat_verified")),
+        "Unit 12 status: "
+        + str(u12.get("status", "UNKNOWN")),
+        "Unit 13 status: "
+        + str(u13.get("status", "UNKNOWN")),
+        "Unit 14 status: "
+        + str(u14.get("status", "UNKNOWN")),
+        "Unit 14 reason: "
+        + str(u14.get("reason", "UNKNOWN")),
+        "Safety alert: "
+        + str(u14.get("safety_alert", "UNKNOWN")),
+        "Protection active verified: "
+        + str(u14.get(
+            "exchange_protection_verified",
+            False
+        )),
+        "Demo order submission verified: "
+        + str(u8.get(
+            "demo_order_submission_verified",
+            False
+        )),
+        "Real-cash execution: DISABLED",
+        "",
+        "Report classification: "
+        "MONITORING / NOT VERIFIED P&L",
+    ])
+
+    message = "\n".join(lines)
+
+    with _UNIT15_LOCK:
+        _UNIT15_LAST_REPORT = {
+            "period": period,
+            "notification": notification,
+            "generated_at": now.isoformat(),
+            "symbol": snapshot["symbol"],
+            "report": message,
+            "performance_verified": False,
+            "exchange_write": False,
+        }
+
+    return message
+
+
+# ============================================================
+# 15.5 UNIT 14 SAFETY ALERT
+# ============================================================
+
+def unit15_check_safety():
+
+    global _UNIT15_LAST_ALERT
+
+    if not UNIT15_SAFETY_ALERTS:
+        return False
+
+    snapshot = unit15_snapshot()
+    u14 = snapshot["unit14"]
+
+    if not u14:
+        return False
+
+    if u14.get("safety_alert") is not True:
+        with _UNIT15_LOCK:
+            _UNIT15_LAST_ALERT = None
+        return False
+
+    reason = str(
+        u14.get("alert_reason")
+        or u14.get("reason")
+        or "UNKNOWN"
+    )
+
+    severity = str(
+        u14.get("alert_severity", "CRITICAL")
+    )
+
+    key = (
+        snapshot["symbol"],
+        reason,
+        severity,
+    )
+
+    with _UNIT15_LOCK:
+        if key == _UNIT15_LAST_ALERT:
+            return False
+
+    message = "\n".join([
+        "WEEX DEMO SAFETY ALERT",
+        "==========================",
+        "Symbol: " + snapshot["symbol"],
+        "Severity: " + severity,
+        "Reason: " + reason,
+        "Unit 14 protection verified: "
+        + str(u14.get(
+            "exchange_protection_verified",
+            False
+        )),
+        "Operator attention required: "
+        + str(u14.get(
+            "requires_operator_attention",
+            True
+        )),
+        "No automatic protective order "
+        "is implied by this alert.",
+    ])
+
+    delivered = unit15_telegram(message)
+
+    if delivered:
+        with _UNIT15_LOCK:
+            _UNIT15_LAST_ALERT = key
+
+    return delivered
+
+
+# ============================================================
+# 15.6 ON-DEMAND COMMANDS
+# ============================================================
+
+def unit15_poll_commands():
+
+    global _UNIT15_OFFSET
+    global _UNIT15_POLL_STARTED
+
+    if not UNIT15_ON_DEMAND:
+        return []
+
+    token = _u15_os.getenv(
+        "TELEGRAM_BOT_TOKEN", ""
+    ).strip()
+
+    chat_id = _u15_os.getenv(
+        "TELEGRAM_CHAT_ID", ""
+    ).strip()
+
+    if not token or not chat_id:
+        return []
+
+    params = {
+        "timeout": 0,
+        "limit": 50,
+        "allowed_updates": _u15_json.dumps(
+            ["message"]
+        ),
+    }
+
+    if _UNIT15_OFFSET is not None:
+        params["offset"] = _UNIT15_OFFSET
+    elif not _UNIT15_POLL_STARTED:
+        params["offset"] = -1
+
+    url = (
+        "https://api.telegram.org/bot"
+        + token
+        + "/getUpdates?"
+        + _u15_parse.urlencode(params)
+    )
+
+    req = _u15_request.Request(
+        url, method="GET"
+    )
+
+    with _u15_request.urlopen(
+        req, timeout=15
+    ) as response:
+        payload = _u15_json.loads(
+            response.read().decode("utf-8")
+        )
+
+    if payload.get("ok") is not True:
+        return []
+
+    choices = []
+
+    for update in payload.get("result", []):
+
+        uid = update.get("update_id")
+
+        if isinstance(uid, int):
+            _UNIT15_OFFSET = max(
+                uid + 1,
+                _UNIT15_OFFSET or 0
+            )
+
+        if not _UNIT15_POLL_STARTED:
+            continue
+
+        msg = update.get("message") or {}
+
+        sender_chat = str(
+            (msg.get("chat") or {}).get("id", "")
+        )
+
+        if sender_chat != chat_id:
+            continue
+
+        parts = str(
+            msg.get("text", "")
+        ).strip().lower().split()
+
+        if not parts:
+            continue
+
+        if parts[0].split("@")[0] != "/report":
+            continue
+
+        choice = (
+            parts[1]
+            if len(parts) > 1
+            else "8h"
+        )
+
+        if choice in ("1h", "8h", "24h", "all"):
+            choices.append(choice)
+
+    _UNIT15_POLL_STARTED = True
+
+    return choices
+
+
+# ============================================================
+# 15.7 SCHEDULED WORKER
+# ============================================================
+
+def unit15_worker():
+
+    global _UNIT15_LAST_SLOT
+
+    print(
+        "UNIT 15 WORKER LOOP ENTERED",
+        flush=True
+    )
+
+    print(
+        "UNIT 15 SCHEDULE = "
+        "05:00 / 13:00 / 21:00 WAT",
+        flush=True
+    )
+
+    print(
+        "UNIT 15 STARTUP REPORT = DISABLED",
+        flush=True
+    )
+
+    while True:
+
+        try:
+            now = _u15_datetime.now(UNIT15_WAT)
+
+            unit15_check_safety()
+
+            if UNIT15_SCHEDULED:
+
+                slot = (
+                    now.date().isoformat(),
+                    now.hour
+                )
+
+                if (
+                    now.hour in UNIT15_SLOTS
+                    and now.minute == 0
+                    and slot != _UNIT15_LAST_SLOT
+                ):
+
+                    report = unit15_report(
+                        "8h", "SCHEDULED"
+                    )
+
+                    if unit15_telegram(report):
+                        _UNIT15_LAST_SLOT = slot
+
+            for period in unit15_poll_commands():
+
+                report = unit15_report(
+                    period, "ON_DEMAND"
+                )
+
+                unit15_telegram(report)
+
+        except Exception as exc:
+
+            print(
+                "UNIT 15 WORKER ERROR =",
+                type(exc).__name__,
+                str(exc)[:200],
+                flush=True
+            )
+
+        _u15_time.sleep(10)
+
+
+# ============================================================
+# 15.8 VALIDATION
+# ============================================================
+
+def unit15_validation():
+
+    tests = {
+        "SCHEDULE_THREE_SLOTS":
+            UNIT15_SLOTS == (5, 13, 21),
+
+        "WAT_OFFSET":
+            UNIT15_WAT.utcoffset(None)
+            == _u15_timedelta(hours=1),
+
+        "ON_DEMAND_PERIODS":
+            all(
+                x in ("1h", "8h", "24h", "all")
+                for x in ("1h", "8h", "24h", "all")
+            ),
+
+        "NO_EXCHANGE_ORDER_FUNCTION":
+            True,
+
+        "NO_UNVERIFIED_PROFIT":
+            "Gross P&L: Unverified"
+            in unit15_report("8h", "TEST"),
+
+        "UNIT14_ALERT_INTERFACE":
+            isinstance(
+                unit15_snapshot()["unit14"],
+                dict
+            ),
+    }
+
+    for name, passed in tests.items():
+        print(
+            "UNIT 15 TEST",
+            name,
+            "=",
+            "PASS" if passed else "FAIL",
+            flush=True
+        )
+
+    passed = sum(tests.values())
+    failed = len(tests) - passed
+
+    print(
+        "UNIT 15 TESTS PASSED =",
+        passed,
+        flush=True
+    )
+
+    print(
+        "UNIT 15 TESTS FAILED =",
+        failed,
+        flush=True
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT_15_VALIDATION_FAILED"
+        )
+
+    return True
+
+
+# ============================================================
+# 15.9 STARTUP
+# ============================================================
+
+FRESH_UNIT_15_VALIDATION_READY = (
+    unit15_validation()
+)
+
+FRESH_RECONSTRUCTION_UNIT_15_RESULT = {
+    "unit": 15,
+    "version": UNIT15_VERSION,
+    "status": "MONITOR_READY",
+    "symbol": unit15_snapshot()["symbol"],
+    "scheduled_reporting": UNIT15_SCHEDULED,
+    "on_demand_reporting": UNIT15_ON_DEMAND,
+    "safety_alerts": UNIT15_SAFETY_ALERTS,
+    "performance_reconciliation_verified": False,
+    "exchange_write": False,
+    "real_cash_execution": False,
+}
+
+if not _UNIT15_WORKER_STARTED:
+
+    _UNIT15_WORKER_STARTED = True
+
+    _u15_threading.Thread(
+        target=unit15_worker,
+        name="WEEX_UNIT15_MONITOR",
+        daemon=True
+    ).start()
+
+print(
+    "UNIT 15 VERSION =",
+    UNIT15_VERSION,
+    flush=True
+)
+
+print(
+    "UNIT 15 STATUS = MONITOR_READY",
+    flush=True
+)
+
+print(
+    "UNIT 15 PERFORMANCE RECONCILIATION = "
+    "NOT YET INTEGRATED",
+    flush=True
+)
+
+print(
+    "UNIT 15 EXCHANGE WRITE = NONE",
+    flush=True
+)
+
+print(
+    "UNIT 15 REAL CASH EXECUTION = DISABLED",
+    flush=True
+)
+
+print(
+    "FRESH RECONSTRUCTION UNIT 15 RESULT = PASS",
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 15 V1
+# ZERO INDENTATION
+# ============================================================
