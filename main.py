@@ -7481,6 +7481,375 @@ print(
 
 
 # ============================================================
+# START UNIT 8 V14 - PART 1 OF 2
+# UNIVERSAL WEEX FUTURES AND DEMO DISCOVERY
+# UNITS 1-7 UNCHANGED
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import re
+import json
+import time
+import hmac
+import base64
+import hashlib
+import urllib.request
+import urllib.error
+from urllib.parse import urlencode
+from decimal import Decimal, InvalidOperation, ROUND_FLOOR
+
+UNIT_8_V14_BASE = "https://api-contract.weex.com"
+
+UNIT_8_V14_PUBLIC = frozenset((
+    "/capi/v3/market/exchangeInfo",
+    "/capi/v3/market/apiTradingSymbols",
+))
+
+UNIT_8_V14_PRIVATE = frozenset((
+    "/capi/v3/sim/balance",
+    "/capi/v3/sim/position/allPosition",
+    "/capi/v3/sim/order/history",
+    "/capi/v3/account/accountConfig",
+))
+
+
+def unit_8_v14_decimal(value, name, zero=False):
+    if isinstance(value, bool):
+        raise ValueError(name + "_BOOLEAN")
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError(name + "_INVALID")
+    if not result.is_finite():
+        raise ValueError(name + "_NONFINITE")
+    if result < 0 or (result == 0 and not zero):
+        raise ValueError(name + "_RANGE")
+    return result
+
+
+def unit_8_v14_str(value):
+    return format(Decimal(str(value)).normalize(), "f")
+
+
+def unit_8_v14_unwrap(payload):
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        raise RuntimeError("INVALID_RESPONSE_STRUCTURE")
+    code = payload.get("code")
+    if code is not None and str(code) not in (
+        "0", "200", "00000"
+    ):
+        raise RuntimeError("WEEX_CODE_" + str(code))
+    return payload.get("data", payload)
+
+
+def unit_8_v14_rows(payload):
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        for name in (
+            "symbols", "list", "rows", "records",
+            "orders", "positions"
+        ):
+            if isinstance(payload.get(name), list):
+                return payload[name]
+    raise RuntimeError("EXPECTED_LIST_MISSING")
+
+
+def unit_8_v14_get(path, params=None, private=False):
+    allowed = (
+        UNIT_8_V14_PRIVATE if private
+        else UNIT_8_V14_PUBLIC
+    )
+    if path not in allowed:
+        raise RuntimeError("ENDPOINT_NOT_ALLOWED")
+
+    query = urlencode(params or {})
+    target = path + ("?" + query if query else "")
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "WEEX-UNIT8-V14",
+    }
+
+    if private:
+        key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
+        secret = (
+            os.getenv("WEEX_API_SECRET")
+            or os.getenv("API_SECRET")
+        )
+        phrase = (
+            os.getenv("WEEX_API_PASSPHRASE")
+            or os.getenv("API_PASSPHRASE")
+        )
+        if not all((key, secret, phrase)):
+            raise RuntimeError("API_CREDENTIALS_MISSING")
+
+        stamp = str(int(time.time() * 1000))
+        message = stamp + "GET" + target
+        signature = base64.b64encode(
+            hmac.new(
+                secret.encode(),
+                message.encode(),
+                hashlib.sha256
+            ).digest()
+        ).decode()
+
+        headers.update({
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-PASSPHRASE": phrase,
+            "ACCESS-TIMESTAMP": stamp,
+            "Content-Type": "application/json",
+            "locale": "en-US",
+        })
+
+    request = urllib.request.Request(
+        UNIT_8_V14_BASE + target,
+        headers=headers,
+        method="GET"
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request, timeout=15
+        ) as response:
+            if response.getcode() != 200:
+                raise RuntimeError("HTTP_STATUS_INVALID")
+            payload = json.loads(
+                response.read().decode("utf-8")
+            )
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            "HTTP_ERROR_" + str(exc.code)
+        ) from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise RuntimeError("NETWORK_UNAVAILABLE") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("INVALID_JSON") from exc
+
+    return unit_8_v14_unwrap(payload)
+
+
+def unit_8_v14_contracts():
+    rows = unit_8_v14_rows(unit_8_v14_get(
+        "/capi/v3/market/exchangeInfo"
+    ))
+    contracts = [
+        row for row in rows
+        if isinstance(row, dict)
+        and isinstance(row.get("symbol"), str)
+    ]
+    if not contracts:
+        raise RuntimeError("CONTRACT_DIRECTORY_EMPTY")
+    return contracts
+
+
+def unit_8_v14_api_symbols():
+    rows = unit_8_v14_rows(unit_8_v14_get(
+        "/capi/v3/market/apiTradingSymbols"
+    ))
+    symbols = set()
+    for row in rows:
+        if isinstance(row, str):
+            symbols.add(row.strip().upper())
+        elif isinstance(row, dict):
+            value = row.get("symbol")
+            if isinstance(value, str):
+                symbols.add(value.strip().upper())
+    if not symbols:
+        raise RuntimeError("API_SYMBOL_DIRECTORY_EMPTY")
+    return symbols
+
+
+def unit_8_v14_rules(item):
+    if not isinstance(item, dict):
+        raise RuntimeError("CONTRACT_RECORD_INVALID")
+
+    minimum = unit_8_v14_decimal(
+        item.get("minOrderSize"), "MINIMUM_QUANTITY"
+    )
+    multiplier = unit_8_v14_decimal(
+        item.get("contractVal"), "CONTRACT_VALUE"
+    )
+    qp = item.get("quantityPrecision")
+    pp = item.get("pricePrecision")
+
+    if not (
+        type(qp) is int and 0 <= qp <= 18
+        and type(pp) is int and 0 <= pp <= 18
+    ):
+        raise RuntimeError("CONTRACT_PRECISION_INVALID")
+
+    step = Decimal("1").scaleb(-qp)
+    price_step = Decimal("1").scaleb(-pp)
+    low = unit_8_v14_decimal(
+        item.get("minLeverage"), "MIN_LEVERAGE"
+    )
+    high = unit_8_v14_decimal(
+        item.get("maxLeverage"), "MAX_LEVERAGE"
+    )
+    if low > high:
+        raise RuntimeError("LEVERAGE_LIMITS_INVALID")
+
+    maximum = item.get("maxOrderSize")
+    if maximum is not None:
+        maximum = unit_8_v14_decimal(
+            maximum, "MAXIMUM_QUANTITY"
+        )
+        if maximum < minimum:
+            raise RuntimeError("QUANTITY_LIMITS_INVALID")
+
+    return {
+        "symbol": item["symbol"],
+        "base_asset": item["baseAsset"],
+        "quote_asset": item["quoteAsset"],
+        "margin_asset": item["marginAsset"],
+        "contract_type": item["contractType"],
+        "minimum_quantity": unit_8_v14_str(minimum),
+        "maximum_quantity": (
+            unit_8_v14_str(maximum)
+            if maximum is not None else None
+        ),
+        "quantity_step": unit_8_v14_str(step),
+        "price_step": unit_8_v14_str(price_step),
+        "contract_multiplier": unit_8_v14_str(multiplier),
+        "minimum_leverage": unit_8_v14_str(low),
+        "maximum_leverage": unit_8_v14_str(high),
+        "quantity_precision": qp,
+        "price_precision": pp,
+        "verified": True,
+    }
+
+
+def unit_8_v14_demo_candidates(symbol):
+    # Candidate generation is not verification.
+    base = symbol[:-4]
+    return (base + "SUSDT", symbol)
+
+
+def unit_8_v14_observed_symbols(positions, history):
+    observed = set()
+    for record in positions + history:
+        if isinstance(record, dict):
+            value = record.get("symbol")
+            if isinstance(value, str):
+                observed.add(value.strip().upper())
+    return observed
+
+
+def unit_8_v14_resolve_demo(symbol, positions, history):
+    candidates = unit_8_v14_demo_candidates(symbol)
+    observed = unit_8_v14_observed_symbols(
+        positions, history
+    )
+    matches = [x for x in candidates if x in observed]
+
+    if len(matches) == 1:
+        return {
+            "demo_order_symbol": matches[0],
+            "demo_symbol_verified": True,
+            "discovery_method": "OBSERVED_DEMO_ACCOUNT_RECORD",
+            "reason": "DEMO_SYMBOL_OBSERVED",
+        }
+    if len(matches) > 1:
+        reason = "AMBIGUOUS_DEMO_SYMBOL_MAPPING"
+    else:
+        reason = "DEMO_SYMBOL_NOT_YET_DISCOVERED"
+
+    return {
+        "demo_order_symbol": None,
+        "demo_symbol_verified": False,
+        "discovery_method": None,
+        "reason": reason,
+    }
+
+
+def unit_8_v14_balance(raw):
+    rows = raw if isinstance(raw, list) else [raw]
+    matches = [
+        x for x in rows
+        if isinstance(x, dict)
+        and str(x.get("asset", "")).upper() == "SUSDT"
+    ]
+    if len(matches) != 1:
+        raise RuntimeError("SUSDT_BALANCE_NOT_UNIQUE")
+
+    row = matches[0]
+    available = unit_8_v14_decimal(
+        row.get("availableBalance"),
+        "AVAILABLE_BALANCE", zero=True
+    )
+    return {
+        "verified": True,
+        "asset": "SUSDT",
+        "available_balance": unit_8_v14_str(available),
+        "raw": row,
+    }
+
+
+def unit_8_v14_size(config, rules, price, direction):
+    strategy = config.get("strategy", {})
+    margin = unit_8_v14_decimal(
+        strategy.get("entry_margin_usdt"), "ENTRY_MARGIN"
+    )
+    leverage = unit_8_v14_decimal(
+        strategy.get(
+            "long_leverage" if direction == "LONG"
+            else "short_leverage"
+        ),
+        "LEVERAGE"
+    )
+    if not (
+        Decimal(rules["minimum_leverage"])
+        <= leverage
+        <= Decimal(rules["maximum_leverage"])
+    ):
+        raise RuntimeError("LEVERAGE_OUTSIDE_LIMITS")
+
+    price = unit_8_v14_decimal(price, "MARK_PRICE")
+    multiplier = Decimal(rules["contract_multiplier"])
+    step = Decimal(rules["quantity_step"])
+    minimum = Decimal(rules["minimum_quantity"])
+
+    # Contract quantity, not necessarily base-coin quantity.
+    raw = margin * leverage / (price * multiplier)
+    quantity = (
+        (raw / step).to_integral_value(rounding=ROUND_FLOOR)
+        * step
+    )
+    half = quantity / 2
+    maximum = rules.get("maximum_quantity")
+
+    valid = quantity >= minimum and quantity > 0
+    if maximum is not None:
+        valid = valid and quantity <= Decimal(maximum)
+
+    return {
+        "margin_usdt": unit_8_v14_str(margin),
+        "leverage": unit_8_v14_str(leverage),
+        "mark_price": unit_8_v14_str(price),
+        "raw_contract_quantity": unit_8_v14_str(raw),
+        "rounded_contract_quantity": unit_8_v14_str(quantity),
+        "half_contract_quantity": unit_8_v14_str(half),
+        "initial_quantity_valid": bool(valid),
+        "half_quantity_valid": bool(
+            half >= minimum and half % step == 0
+        ),
+        "contract_multiplier": rules["contract_multiplier"],
+        "preview_only": True,
+        "order_submitted": False,
+    }
+
+
+# ============================================================
+# END UNIT 8 V14 PART 1
+# CONTINUE IMMEDIATELY WITH PART 2
+# ZERO INDENTATION
+# ============================================================
+
+# ============================================================
 # START UNIT 8 V13 — PART 1 OF 2
 # UNIVERSAL PUBLIC CONTRACT DISCOVERY
 # OBSERVED DEMO SYMBOL DISCOVERY
