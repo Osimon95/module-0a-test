@@ -9183,25 +9183,18 @@ def fresh_reconstruction_unit_9(
             symbol,
             contract
         ))
+            requested_quantity = u9_decimal(
+        u9_pick(
+            unit_7_result,
+            "quantity",
+            "entry_quantity",
+            "order_quantity",
+            "contracts",
+            "size",
+        )
+    )
 
-    # ============================================================
-# UNIT 9 V1.1 QUANTITY HANDOVER CORRECTION
-# Uses Unit 8 sizing preview
-# ============================================================
 
-preview = unit_8_result.get("size_preview")
-
-if not isinstance(preview, dict):
-    return finish(u9_idle(
-        "UNIT_8_SIZE_PREVIEW_MISSING",
-        symbol,
-        contract
-    ))
-
-if (
-    preview.get("initial_quantity_valid") is not True
-    or preview.get("half_quantity_valid") is not True
-):
     return finish(u9_idle(
         "UNIT_8_SIZE_PREVIEW_INVALID",
         symbol,
