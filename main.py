@@ -8882,3 +8882,436 @@ print("UNIT 8 EXCHANGE WRITE = NONE", flush=True)
 # ============================================================
 
 
+
+# ============================================================
+# START COMPLETE UNIT 9 REPLACEMENT
+# VERSION: V1 UNIVERSAL DEMO ENTRY HANDOVER
+# ZERO INDENTATION
+# NO EXCHANGE WRITE
+# ============================================================
+
+import os as _u9_os
+from decimal import Decimal as _U9Decimal
+from decimal import InvalidOperation as _U9InvalidOperation
+from decimal import ROUND_DOWN as _U9_ROUND_DOWN
+
+
+def u9_decimal(value):
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = _U9Decimal(str(value))
+        return number if number.is_finite() else None
+    except (ValueError, TypeError, _U9InvalidOperation):
+        return None
+
+
+def u9_pick(source, *names):
+    if not isinstance(source, dict):
+        return None
+    for name in names:
+        if name in source and source[name] is not None:
+            return source[name]
+    return None
+
+
+def u9_truth(value):
+    return value is True
+
+
+def u9_contract_value(contract, *names):
+    value = u9_pick(contract, *names)
+    if value is not None:
+        return value
+
+    if isinstance(contract, dict):
+        for section in ("rules", "contract_rules", "specifications"):
+            nested = contract.get(section)
+            value = u9_pick(nested, *names)
+            if value is not None:
+                return value
+
+    return None
+
+
+def u9_idle(reason, symbol, contract=None):
+    return {
+        "status": "IDLE",
+        "reason": str(reason),
+        "skip_reason": str(reason),
+        "market_symbol": symbol,
+        "demo_order_symbol": None,
+        "contract": contract,
+        "direction": "NONE",
+        "active_mode": "NONE",
+        "signal_qualified": False,
+        "execution_intent": False,
+        "trade_plan_ready": False,
+        "trade_plan": None,
+        "execution_ready": False,
+        "execution_authorized": False,
+        "execution_candidate": None,
+        "order_payload_created": False,
+        "order_submission_authorized": False,
+        "exchange_write": False,
+        "read_only": True,
+    }
+
+
+def fresh_reconstruction_unit_9(
+    config,
+    unit_8_result,
+    unit_7_result=None,
+):
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 9 VERSION = V1_UNIVERSAL_DEMO_HANDOVER",
+        flush=True
+    )
+
+    symbol = _u9_os.getenv(
+        "WEEX_SYMBOL", ""
+    ).strip().upper()
+
+    if not symbol and isinstance(config, dict):
+        exchange = config.get("exchange", {})
+        if isinstance(exchange, dict):
+            symbol = str(
+                exchange.get("market_symbol") or ""
+            ).strip().upper()
+
+    def finish(result):
+        print("UNIT 9 MARKET_SYMBOL =", symbol, flush=True)
+        print(
+            "UNIT 9 STATUS =",
+            result["status"],
+            flush=True
+        )
+        print(
+            "UNIT 9 REASON =",
+            result["reason"],
+            flush=True
+        )
+        print(
+            "UNIT 9 EXECUTION READY =",
+            result["execution_ready"],
+            flush=True
+        )
+        print(
+            "UNIT 9 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+        print(
+            "FRESH RECONSTRUCTION UNIT 9 RESULT = PASS",
+            flush=True
+        )
+        print("=" * 80, flush=True)
+        return result
+
+    if not isinstance(config, dict):
+        return finish(u9_idle(
+            "INVALID_UNIT_2_CONFIG", symbol
+        ))
+
+    if not isinstance(unit_8_result, dict):
+        return finish(u9_idle(
+            "INVALID_UNIT_8_RESULT", symbol
+        ))
+
+    if not isinstance(unit_7_result, dict):
+        return finish(u9_idle(
+            "UNIT_7_HANDOVER_UNAVAILABLE", symbol
+        ))
+
+    if not symbol:
+        return finish(u9_idle(
+            "WEEX_SYMBOL_MISSING", symbol
+        ))
+
+    if config.get("execution_environment") not in (
+        None, "DEMO"
+    ):
+        return finish(u9_idle(
+            "NON_DEMO_ENVIRONMENT", symbol
+        ))
+
+    if unit_8_result.get("status") != "VERIFIED_READ_ONLY":
+        return finish(u9_idle(
+            "UNIT_8_NOT_VERIFIED", symbol
+        ))
+
+    if not u9_truth(
+        unit_8_result.get("demo_contract_verified")
+    ):
+        return finish(u9_idle(
+            "DEMO_CONTRACT_NOT_VERIFIED", symbol
+        ))
+
+    if not u9_truth(
+        unit_8_result.get("demo_balance_verified")
+    ):
+        return finish(u9_idle(
+            "DEMO_BALANCE_NOT_VERIFIED", symbol
+        ))
+
+    if not u9_truth(
+        unit_8_result.get("demo_positions_read_verified")
+    ):
+        return finish(u9_idle(
+            "DEMO_POSITIONS_NOT_VERIFIED", symbol
+        ))
+
+    verified_symbol = str(
+        unit_8_result.get("demo_order_symbol") or ""
+    ).strip().upper()
+
+    if verified_symbol != symbol:
+        return finish(u9_idle(
+            "SYMBOL_HANDOVER_MISMATCH", symbol
+        ))
+
+    contract = unit_8_result.get("contract")
+
+    if not isinstance(contract, dict):
+        return finish(u9_idle(
+            "VERIFIED_CONTRACT_DATA_MISSING", symbol
+        ))
+
+    minimum = u9_decimal(
+        u9_contract_value(
+            contract,
+            "minimum_quantity",
+            "min_quantity",
+            "minQty",
+            "minTradeNum",
+        )
+    )
+
+    step = u9_decimal(
+        u9_contract_value(
+            contract,
+            "quantity_step",
+            "qty_step",
+            "stepSize",
+            "sizeMultiplier",
+        )
+    )
+
+    multiplier = u9_decimal(
+        u9_contract_value(
+            contract,
+            "contract_multiplier",
+            "contractMultiplier",
+            "contractSize",
+        )
+    )
+
+    price_step = u9_decimal(
+        u9_contract_value(
+            contract,
+            "price_step",
+            "tickSize",
+            "priceEndStep",
+        )
+    )
+
+    if any(
+        value is None or value <= 0
+        for value in (
+            minimum, step, multiplier, price_step
+        )
+    ):
+        return finish(u9_idle(
+            "CONTRACT_RULES_INCOMPLETE",
+            symbol,
+            contract
+        ))
+
+    if not u9_truth(
+        unit_8_result.get("position_flat_verified")
+    ):
+        return finish(u9_idle(
+            "POSITION_NOT_CONFIRMED_FLAT",
+            symbol,
+            contract
+        ))
+
+    direction = str(
+        u9_pick(
+            unit_7_result,
+            "direction",
+            "side",
+            "trade_direction",
+        ) or ""
+    ).upper()
+
+    mode = str(
+        u9_pick(
+            unit_7_result,
+            "active_mode",
+            "mode",
+            "strategy_mode",
+        ) or ""
+    ).upper()
+
+    if direction not in ("LONG", "SHORT"):
+        return finish(u9_idle(
+            "NO_QUALIFIED_DIRECTION",
+            symbol,
+            contract
+        ))
+
+    if mode not in (
+        "SCALP", "STRUCTURE", "BREAKOUT"
+    ):
+        return finish(u9_idle(
+            "NO_QUALIFIED_STRATEGY",
+            symbol,
+            contract
+        ))
+
+    intent = u9_pick(
+        unit_7_result,
+        "execution_intent",
+        "trade_authorized",
+        "entry_authorized",
+    )
+
+    if intent is not True:
+        return finish(u9_idle(
+            "UNIT_7_ENTRY_NOT_QUALIFIED",
+            symbol,
+            contract
+        ))
+
+    requested_quantity = u9_decimal(
+        u9_pick(
+            unit_7_result,
+            "quantity",
+            "entry_quantity",
+            "order_quantity",
+            "contracts",
+            "size",
+        )
+    )
+
+    if requested_quantity is None or requested_quantity <= 0:
+        return finish(u9_idle(
+            "UNIT_7_QUANTITY_UNAVAILABLE",
+            symbol,
+            contract
+        ))
+
+    # Never increase the requested position automatically.
+    # Quantity must satisfy the exchange's contract step.
+
+    adjusted_quantity = (
+        requested_quantity / step
+    ).to_integral_value(
+        rounding=_U9_ROUND_DOWN
+    ) * step
+
+    if adjusted_quantity < minimum:
+        return finish(u9_idle(
+            "QUANTITY_BELOW_CONTRACT_MINIMUM",
+            symbol,
+            contract
+        ))
+
+    # Quantity must also permit the two-stage 50/50 hedge.
+    # Both halves must independently satisfy the step/minimum.
+
+    half_quantity = adjusted_quantity / 2
+
+    if (
+        half_quantity < minimum
+        or half_quantity % step != 0
+    ):
+        return finish(u9_idle(
+            "HEDGE_HALF_QUANTITY_NOT_EXECUTABLE",
+            symbol,
+            contract
+        ))
+
+    # Unit 9 validates an entry candidate only.
+    # It cannot grant demo order permission.
+
+    candidate = {
+        "market_symbol": symbol,
+        "demo_order_symbol": verified_symbol,
+        "direction": direction,
+        "active_mode": mode,
+        "quantity": str(adjusted_quantity),
+        "half_quantity": str(half_quantity),
+        "minimum_quantity": str(minimum),
+        "quantity_step": str(step),
+        "price_step": str(price_step),
+        "contract_multiplier": str(multiplier),
+        "unit_7_result": unit_7_result,
+        "contract": contract,
+    }
+
+    result = {
+        "status": "PREPARED_READ_ONLY",
+        "reason": "VALIDATED_ENTRY_CANDIDATE",
+        "skip_reason": None,
+        "market_symbol": symbol,
+        "demo_order_symbol": verified_symbol,
+        "contract": contract,
+        "direction": direction,
+        "active_mode": mode,
+        "signal_qualified": True,
+        "execution_intent": True,
+        "trade_plan_ready": True,
+        "trade_plan": candidate,
+        "execution_ready": False,
+        "execution_authorized": False,
+        "execution_candidate": candidate,
+        "order_payload_created": False,
+        "order_submission_authorized": False,
+        "exchange_write": False,
+        "read_only": True,
+    }
+
+    return finish(result)
+
+
+# ============================================================
+# UNIT 9 STARTUP HANDOVER
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_9_RESULT = (
+    fresh_reconstruction_unit_9(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_8_RESULT,
+        globals().get(
+            "FRESH_RECONSTRUCTION_UNIT_7_RESULT",
+            globals().get(
+                "FRESH_RECONSTRUCTION_SIZING_CANDIDATE"
+            )
+        ),
+    )
+)
+
+FRESH_UNIT_9_OPTIMIZATION_READY = (
+    isinstance(FRESH_RECONSTRUCTION_UNIT_9_RESULT, dict)
+    and FRESH_RECONSTRUCTION_UNIT_9_RESULT.get(
+        "read_only"
+    ) is True
+    and FRESH_RECONSTRUCTION_UNIT_9_RESULT.get(
+        "exchange_write"
+    ) is False
+)
+
+print(
+    "UNIT 9 UNIVERSAL OPTIMIZATION READY =",
+    FRESH_UNIT_9_OPTIMIZATION_READY,
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 9 REPLACEMENT
+# ZERO INDENTATION
+# UNIT 10 CONTINUES BELOW
+# ============================================================
