@@ -9183,7 +9183,7 @@ def fresh_reconstruction_unit_9(
             symbol,
             contract
         ))
-            requested_quantity = u9_decimal(
+    requested_quantity = u9_decimal(
         u9_pick(
             unit_7_result,
             "quantity",
