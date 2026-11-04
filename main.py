@@ -7481,128 +7481,6 @@ print(
 
 
 # ============================================================
-# START UNIT 8 V17 HEDGE-SAFE SIZING REPLACEMENT
-# ZERO INDENTATION
-# ============================================================
-
-def u8v16_size_preview(config, rules, price, direction):
-
-    strategy = config.get("strategy", {})
-
-    margin = u8v16_decimal(
-        strategy.get("entry_margin_usdt"),
-        "ENTRY_MARGIN"
-    )
-
-    leverage = u8v16_decimal(
-        strategy.get(
-            "long_leverage" if direction == "LONG"
-            else "short_leverage"
-        ),
-        "LEVERAGE"
-    )
-
-    price = u8v16_decimal(
-        price, "MARK_PRICE"
-    )
-
-    if not (
-        Decimal(rules["minimum_leverage"])
-        <= leverage
-        <= Decimal(rules["maximum_leverage"])
-    ):
-        raise RuntimeError("LEVERAGE_OUT_OF_RANGE")
-
-    step = Decimal(rules["quantity_step"])
-    minimum = Decimal(rules["minimum_quantity"])
-    multiplier = Decimal(rules["contract_multiplier"])
-
-    if (
-        not step.is_finite()
-        or not minimum.is_finite()
-        or not multiplier.is_finite()
-        or step <= 0
-        or minimum <= 0
-        or multiplier <= 0
-    ):
-        raise RuntimeError("INVALID_CONTRACT_RULES")
-
-    raw = margin * leverage / (price * multiplier)
-
-    # Round downward to whole exchange step units.
-    available_units = int(
-        (raw / step).to_integral_value(
-            rounding=ROUND_FLOOR
-        )
-    )
-
-    # The 50/50 hedge requires an even number
-    # of quantity-step units.
-    safe_units = available_units - (
-        available_units % 2
-    )
-
-    quantity = Decimal(safe_units) * step
-    half = quantity / Decimal("2")
-
-    maximum = rules.get("maximum_quantity")
-
-    initial_valid = (
-        quantity >= minimum
-        and quantity > 0
-        and quantity <= raw
-        and quantity % step == 0
-    )
-
-    if maximum is not None:
-        initial_valid = (
-            initial_valid
-            and quantity <= Decimal(maximum)
-        )
-
-    half_valid = (
-        initial_valid
-        and half >= minimum
-        and half % step == 0
-    )
-
-    valid = bool(
-        initial_valid and half_valid
-    )
-
-    original_quantity = (
-        Decimal(available_units) * step
-    )
-
-    return {
-        "margin_usdt": u8v16_format(margin),
-        "leverage": u8v16_format(leverage),
-        "mark_price": u8v16_format(price),
-        "raw_contract_quantity": u8v16_format(raw),
-        "rounded_contract_quantity": u8v16_format(quantity),
-        "half_contract_quantity": u8v16_format(half),
-        "initial_quantity_valid": valid,
-        "half_quantity_valid": valid,
-        "quantity_adjusted_for_hedge": (
-            quantity != original_quantity
-        ),
-        "quantity_adjustment_reason": (
-            "EVEN_STEP_HEDGE_SIZING"
-            if valid else
-            "INSUFFICIENT_VALID_HEDGE_QUANTITY"
-        ),
-        "preview_only": True,
-        "order_submitted": False,
-        "exchange_order_quantity_units_verified": False,
-    }
-
-# ============================================================
-# END UNIT 8 V17 HEDGE-SAFE SIZING REPLACEMENT
-# ============================================================
-
-
-
-# ============================================================
 # START UNIT 8 V16 - PART 1 OF 2
 # UNIVERSAL CONTRACT DISCOVERY AND ACCOUNT VERIFICATION
 # ZERO INDENTATION
@@ -8107,7 +7985,14 @@ def u8v16_positions(records, symbol):
     }
 
 
+
+# ============================================================
+# START UNIT 8 V17 HEDGE-SAFE SIZING REPLACEMENT
+# ZERO INDENTATION
+# ============================================================
+
 def u8v16_size_preview(config, rules, price, direction):
+
     strategy = config.get("strategy", {})
 
     margin = u8v16_decimal(
@@ -8123,7 +8008,9 @@ def u8v16_size_preview(config, rules, price, direction):
         "LEVERAGE"
     )
 
-    price = u8v16_decimal(price, "MARK_PRICE")
+    price = u8v16_decimal(
+        price, "MARK_PRICE"
+    )
 
     if not (
         Decimal(rules["minimum_leverage"])
@@ -8136,20 +8023,62 @@ def u8v16_size_preview(config, rules, price, direction):
     minimum = Decimal(rules["minimum_quantity"])
     multiplier = Decimal(rules["contract_multiplier"])
 
+    if (
+        not step.is_finite()
+        or not minimum.is_finite()
+        or not multiplier.is_finite()
+        or step <= 0
+        or minimum <= 0
+        or multiplier <= 0
+    ):
+        raise RuntimeError("INVALID_CONTRACT_RULES")
+
     raw = margin * leverage / (price * multiplier)
 
-    quantity = (
-        (raw / step).to_integral_value(rounding=ROUND_FLOOR)
-        * step
+    # Round downward to whole exchange step units.
+    available_units = int(
+        (raw / step).to_integral_value(
+            rounding=ROUND_FLOOR
+        )
     )
 
-    half = quantity / 2
+    # The 50/50 hedge requires an even number
+    # of quantity-step units.
+    safe_units = available_units - (
+        available_units % 2
+    )
+
+    quantity = Decimal(safe_units) * step
+    half = quantity / Decimal("2")
+
     maximum = rules.get("maximum_quantity")
 
-    valid = quantity >= minimum and quantity > 0
+    initial_valid = (
+        quantity >= minimum
+        and quantity > 0
+        and quantity <= raw
+        and quantity % step == 0
+    )
 
     if maximum is not None:
-        valid = valid and quantity <= Decimal(maximum)
+        initial_valid = (
+            initial_valid
+            and quantity <= Decimal(maximum)
+        )
+
+    half_valid = (
+        initial_valid
+        and half >= minimum
+        and half % step == 0
+    )
+
+    valid = bool(
+        initial_valid and half_valid
+    )
+
+    original_quantity = (
+        Decimal(available_units) * step
+    )
 
     return {
         "margin_usdt": u8v16_format(margin),
@@ -8158,20 +8087,23 @@ def u8v16_size_preview(config, rules, price, direction):
         "raw_contract_quantity": u8v16_format(raw),
         "rounded_contract_quantity": u8v16_format(quantity),
         "half_contract_quantity": u8v16_format(half),
-        "initial_quantity_valid": bool(valid),
-        "half_quantity_valid": bool(
-            half >= minimum and half % step == 0
+        "initial_quantity_valid": valid,
+        "half_quantity_valid": valid,
+        "quantity_adjusted_for_hedge": (
+            quantity != original_quantity
+        ),
+        "quantity_adjustment_reason": (
+            "EVEN_STEP_HEDGE_SIZING"
+            if valid else
+            "INSUFFICIENT_VALID_HEDGE_QUANTITY"
         ),
         "preview_only": True,
         "order_submitted": False,
         "exchange_order_quantity_units_verified": False,
     }
 
-
 # ============================================================
-# END UNIT 8 V16 - PART 1 OF 2
-# PASTE PART 2 IMMEDIATELY BELOW
-# ZERO INDENTATION
+# END UNIT 8 V17 HEDGE-SAFE SIZING REPLACEMENT
 # ============================================================
 
 
