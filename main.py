@@ -13346,3 +13346,480 @@ print(
 # END COMPLETE UNIT 13 V1 REPLACEMENT
 # UNIT 14 FOLLOWS
 # ============================================================
+
+
+
+# ============================================================
+# START COMPLETE UNIT 14 V1
+# UNIVERSAL WEEX DEMO SAFETY SUPERVISOR
+# ZERO INDENTATION
+#
+# UNIT 8 + UNIT 12 + UNIT 13 -> UNIT 14
+#
+# EXISTING POSITION SUPERVISION INDEPENDENT OF BOT_MODE
+# NO SIMULATED PROTECTION CLAIMS
+# NO EXCHANGE WRITES
+# NO REAL-CASH EXECUTION
+# ============================================================
+
+from decimal import Decimal as _U14D
+from decimal import InvalidOperation as _U14Invalid
+
+UNIT_14_VERSION = "V1_UNIVERSAL_SAFETY_SUPERVISOR"
+
+
+# ============================================================
+# 14.1 NUMERIC VALIDATION
+# ============================================================
+
+def unit_14_number(value, zero=False):
+
+    if value is None or isinstance(value, bool):
+        return None
+
+    try:
+        number = _U14D(str(value))
+    except (
+        _U14Invalid,
+        ValueError,
+        TypeError,
+    ):
+        return None
+
+    if not number.is_finite():
+        return None
+
+    if number < 0 or (
+        number == 0 and not zero
+    ):
+        return None
+
+    return number
+
+
+# ============================================================
+# 14.2 DEFAULT RESULT
+# ============================================================
+
+def unit_14_result(symbol):
+
+    return {
+        "unit": 14,
+        "version": UNIT_14_VERSION,
+        "market_symbol": symbol,
+        "status": "WAITING",
+        "reason": "POSITION_RECONCILIATION_PENDING",
+        "bot_mode_independent": True,
+        "position_flat_verified": False,
+        "position_verified": False,
+        "position_quantity": None,
+        "contract_verified": False,
+        "quantity_step_valid": False,
+        "tp_plan_valid": False,
+        "hedge_plan_valid": False,
+        "exposure_verified": False,
+        "exchange_protection_verified": False,
+        "protection_active": False,
+        "management_execution_verified": False,
+        "new_entry_authorized": False,
+        "safety_alert": False,
+        "alert_severity": "NONE",
+        "alert_reason": None,
+        "requires_operator_attention": False,
+        "execution_authorized": False,
+        "exchange_write": False,
+        "real_cash_execution": False,
+    }
+
+
+# ============================================================
+# 14.3 SAFETY SUPERVISION
+# ============================================================
+
+def fresh_reconstruction_unit_14(
+    config,
+    unit_8,
+    unit_12,
+    unit_13,
+):
+
+    exchange = (
+        config.get("exchange", {})
+        if isinstance(config, dict)
+        else {}
+    )
+
+    symbol = str(
+        exchange.get("market_symbol", "")
+    ).strip().upper()
+
+    result = unit_14_result(symbol)
+
+    def alert(reason, severity="CRITICAL"):
+
+        result["status"] = "ALERT"
+        result["reason"] = reason
+        result["safety_alert"] = True
+        result["alert_severity"] = severity
+        result["alert_reason"] = reason
+        result["requires_operator_attention"] = True
+
+        return result
+
+    if not symbol.endswith("USDT"):
+        return alert("INVALID_MARKET_SYMBOL")
+
+    if not isinstance(config, dict):
+        return alert("CONFIGURATION_MISSING")
+
+    if config.get(
+        "execution_environment"
+    ) != "DEMO":
+        return alert("DEMO_ENVIRONMENT_REQUIRED")
+
+    if config.get(
+        "real_cash_execution_enabled"
+    ) is not False:
+        return alert("REAL_CASH_SAFETY_MISMATCH")
+
+    if not all(
+        isinstance(x, dict)
+        for x in (unit_8, unit_12, unit_13)
+    ):
+        return alert("UPSTREAM_RESULT_MISSING")
+
+    if str(
+        unit_8.get("market_symbol", "")
+    ).upper() != symbol:
+        return alert("UNIT_8_SYMBOL_MISMATCH")
+
+    if str(
+        unit_13.get("market_symbol", "")
+    ).upper() != symbol:
+        return alert("UNIT_13_SYMBOL_MISMATCH")
+
+    result["contract_verified"] = (
+        unit_8.get(
+            "demo_contract_verified"
+        ) is True
+    )
+
+    if not result["contract_verified"]:
+        return alert("DEMO_CONTRACT_UNVERIFIED")
+
+    if unit_8.get(
+        "demo_positions_read_verified"
+    ) is not True:
+        return alert("POSITION_READ_UNVERIFIED")
+
+    if unit_8.get(
+        "position_flat_verified"
+    ) is True:
+
+        result["position_flat_verified"] = True
+
+        # A flat position requires no position-level
+        # TP or hedge management.
+        result["status"] = "IDLE"
+        result["reason"] = "VERIFIED_FLAT_POSITION"
+        result["alert_severity"] = "NONE"
+
+        return result
+
+    if unit_13.get(
+        "position_verified"
+    ) is not True:
+        return alert(
+            "OPEN_POSITION_NOT_FULLY_RECONCILED"
+        )
+
+    result["position_verified"] = True
+
+    quantity = unit_14_number(
+        unit_13.get("position_quantity")
+    )
+
+    minimum = unit_14_number(
+        unit_8.get("minimum_quantity")
+    )
+
+    step = unit_14_number(
+        unit_8.get("quantity_step")
+    )
+
+    if any(
+        value is None
+        for value in (
+            quantity,
+            minimum,
+            step,
+        )
+    ):
+        return alert("POSITION_PRECISION_INVALID")
+
+    result["position_quantity"] = str(quantity)
+
+    result["quantity_step_valid"] = (
+        quantity >= minimum
+        and quantity % step == 0
+    )
+
+    if not result["quantity_step_valid"]:
+        return alert(
+            "OPEN_POSITION_QUANTITY_INVALID"
+        )
+
+    # ========================================================
+    # TP PLAN VALIDATION
+    # ========================================================
+
+    tp_plan = unit_13.get(
+        "tp_quantity_plan"
+    )
+
+    if not isinstance(tp_plan, dict):
+        return alert("TP_PLAN_MISSING")
+
+    result["tp_plan_valid"] = (
+        tp_plan.get("plan_valid") is True
+    )
+
+    if not result["tp_plan_valid"]:
+        return alert("TP_PLAN_INVALID")
+
+    # ========================================================
+    # HEDGE PLAN VALIDATION
+    # ========================================================
+
+    hedge1 = unit_14_number(
+        unit_13.get("hedge_stage1_price")
+    )
+
+    hedge2 = unit_14_number(
+        unit_13.get("hedge_stage2_price")
+    )
+
+    entry = unit_14_number(
+        unit_13.get("entry_price")
+    )
+
+    side = unit_13.get("position_side")
+
+    if None in (hedge1, hedge2, entry):
+        return alert("ATR_HEDGE_PLAN_INCOMPLETE")
+
+    if side == "LONG":
+
+        geometry_valid = (
+            hedge2 < hedge1 < entry
+        )
+
+    elif side == "SHORT":
+
+        geometry_valid = (
+            entry < hedge1 < hedge2
+        )
+
+    else:
+        geometry_valid = False
+
+    result["hedge_plan_valid"] = (
+        geometry_valid
+    )
+
+    if not geometry_valid:
+        return alert("ATR_HEDGE_GEOMETRY_INVALID")
+
+    # ========================================================
+    # EXPOSURE RECONCILIATION
+    #
+    # No exposure percentage is inferred from
+    # entry margin alone. Existing positions,
+    # pending orders and available account equity
+    # must all be reconciled.
+    # ========================================================
+
+    result["exposure_verified"] = False
+
+    # ========================================================
+    # ACTUAL EXCHANGE PROTECTION
+    #
+    # A calculated TP/hedge price is not proof
+    # that an order exists at WEEX.
+    #
+    # Do not infer order placement from Unit 13.
+    # ========================================================
+
+    result["exchange_protection_verified"] = False
+    result["management_execution_verified"] = False
+    result["protection_active"] = False
+
+    return alert(
+        "OPEN_POSITION_PROTECTION_NOT_VERIFIED"
+    )
+
+
+# ============================================================
+# 14.4 VALIDATION TESTS
+# ============================================================
+
+def unit_14_validation_v1():
+
+    passed = 0
+    failed = 0
+
+    def check(name, condition):
+
+        nonlocal passed, failed
+
+        if condition:
+            passed += 1
+            verdict = "PASS"
+        else:
+            failed += 1
+            verdict = "FAIL"
+
+        print(
+            "UNIT 14 TEST",
+            name,
+            "=",
+            verdict,
+            flush=True
+        )
+
+    sample = unit_14_result("NEARUSDT")
+
+    check(
+        "UNIVERSAL_SYMBOL",
+        sample["market_symbol"] == "NEARUSDT"
+    )
+
+    check(
+        "BOT_MODE_INDEPENDENT",
+        sample["bot_mode_independent"] is True
+    )
+
+    check(
+        "NO_UNVERIFIED_PROTECTION",
+        sample["protection_active"] is False
+    )
+
+    check(
+        "NO_UNVERIFIED_EXECUTION",
+        sample["execution_authorized"] is False
+    )
+
+    check(
+        "NO_EXCHANGE_WRITE",
+        sample["exchange_write"] is False
+    )
+
+    check(
+        "REAL_CASH_DISABLED",
+        sample["real_cash_execution"] is False
+    )
+
+    check(
+        "QUANTITY_VALIDATION",
+        unit_14_number("14") == _U14D("14")
+    )
+
+    check(
+        "INVALID_QUANTITY_REJECTED",
+        unit_14_number("-1") is None
+    )
+
+    print(
+        "UNIT 14 TESTS PASSED =",
+        passed,
+        flush=True
+    )
+
+    print(
+        "UNIT 14 TESTS FAILED =",
+        failed,
+        flush=True
+    )
+
+    if failed:
+        raise RuntimeError(
+            "UNIT_14_VALIDATION_FAILED"
+        )
+
+    return True
+
+
+# ============================================================
+# 14.5 STARTUP AND HANDOVER
+# ============================================================
+
+FRESH_UNIT_14_VALIDATION_READY = (
+    unit_14_validation_v1()
+)
+
+FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
+    fresh_reconstruction_unit_14(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_8_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_12_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_13_RESULT,
+    )
+)
+
+for key in (
+    "status",
+    "reason",
+    "market_symbol",
+    "position_verified",
+    "contract_verified",
+    "quantity_step_valid",
+    "tp_plan_valid",
+    "hedge_plan_valid",
+    "exposure_verified",
+    "exchange_protection_verified",
+    "protection_active",
+    "safety_alert",
+    "alert_severity",
+    "requires_operator_attention",
+    "execution_authorized",
+):
+
+    print(
+        "UNIT 14",
+        key.upper(),
+        "=",
+        FRESH_RECONSTRUCTION_UNIT_14_RESULT.get(key),
+        flush=True
+    )
+
+print(
+    "UNIT 14 EXCHANGE WRITE = NONE",
+    flush=True
+)
+
+print(
+    "UNIT 14 REAL CASH EXECUTION = DISABLED",
+    flush=True
+)
+
+FRESH_UNIT_14_OPTIMIZATION_READY = (
+    FRESH_UNIT_14_VALIDATION_READY
+)
+
+print(
+    "FRESH RECONSTRUCTION UNIT 14 RESULT =",
+    FRESH_RECONSTRUCTION_UNIT_14_RESULT["status"],
+    flush=True
+)
+
+print(
+    "UNIT 14 UNIVERSAL OPTIMIZATION READY =",
+    FRESH_UNIT_14_OPTIMIZATION_READY,
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 14 V1
+# UNIT 15 FOLLOWS
+# ZERO INDENTATION
+# ============================================================
