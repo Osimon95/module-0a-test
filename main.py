@@ -8885,14 +8885,13 @@ print("UNIT 8 EXCHANGE WRITE = NONE", flush=True)
 
 # ============================================================
 # START COMPLETE UNIT 9 REPLACEMENT
-# VERSION: V1 UNIVERSAL DEMO ENTRY HANDOVER
+# UNIT 9 V2 - UNIVERSAL DEMO HANDOVER
 # ZERO INDENTATION
-# NO EXCHANGE WRITE
 # ============================================================
 
 import os as _u9_os
 from decimal import Decimal as _U9Decimal
-from decimal import InvalidOperation as _U9InvalidOperation
+from decimal import InvalidOperation as _U9Invalid
 from decimal import ROUND_DOWN as _U9_ROUND_DOWN
 
 
@@ -8900,34 +8899,33 @@ def u9_decimal(value):
     if value is None or isinstance(value, bool):
         return None
     try:
-        number = _U9Decimal(str(value))
-        return number if number.is_finite() else None
-    except (ValueError, TypeError, _U9InvalidOperation):
+        result = _U9Decimal(str(value))
+        return result if result.is_finite() else None
+    except (ValueError, TypeError, _U9Invalid):
         return None
 
 
-def u9_pick(source, *names):
-    if not isinstance(source, dict):
+def u9_pick(data, *keys):
+    if not isinstance(data, dict):
         return None
-    for name in names:
-        if name in source and source[name] is not None:
-            return source[name]
+    for key in keys:
+        if data.get(key) is not None:
+            return data[key]
     return None
 
 
-def u9_truth(value):
-    return value is True
-
-
-def u9_contract_value(contract, *names):
-    value = u9_pick(contract, *names)
+def u9_contract_pick(contract, *keys):
+    value = u9_pick(contract, *keys)
     if value is not None:
         return value
 
     if isinstance(contract, dict):
-        for section in ("rules", "contract_rules", "specifications"):
-            nested = contract.get(section)
-            value = u9_pick(nested, *names)
+        for section in (
+            "rules",
+            "contract_rules",
+            "specifications",
+        ):
+            value = u9_pick(contract.get(section), *keys)
             if value is not None:
                 return value
 
@@ -8940,7 +8938,7 @@ def u9_idle(reason, symbol, contract=None):
         "reason": str(reason),
         "skip_reason": str(reason),
         "market_symbol": symbol,
-        "demo_order_symbol": None,
+        "demo_order_symbol": symbol,
         "contract": contract,
         "direction": "NONE",
         "active_mode": "NONE",
@@ -8963,10 +8961,11 @@ def fresh_reconstruction_unit_9(
     unit_8_result,
     unit_7_result=None,
 ):
+
     print("=" * 80, flush=True)
     print(
-        "UNIT 9 VERSION = V1_UNIVERSAL_DEMO_HANDOVER",
-        flush=True
+        "UNIT 9 VERSION = V2_UNIVERSAL_DEMO_HANDOVER",
+        flush=True,
     )
 
     symbol = _u9_os.getenv(
@@ -8981,104 +8980,103 @@ def fresh_reconstruction_unit_9(
             ).strip().upper()
 
     def finish(result):
-        print("UNIT 9 MARKET_SYMBOL =", symbol, flush=True)
+        print(
+            "UNIT 9 MARKET_SYMBOL =",
+            symbol,
+            flush=True,
+        )
         print(
             "UNIT 9 STATUS =",
             result["status"],
-            flush=True
+            flush=True,
         )
         print(
             "UNIT 9 REASON =",
             result["reason"],
-            flush=True
+            flush=True,
         )
         print(
             "UNIT 9 EXECUTION READY =",
             result["execution_ready"],
-            flush=True
+            flush=True,
         )
         print(
             "UNIT 9 EXCHANGE WRITE = NONE",
-            flush=True
+            flush=True,
         )
         print(
             "FRESH RECONSTRUCTION UNIT 9 RESULT = PASS",
-            flush=True
+            flush=True,
         )
         print("=" * 80, flush=True)
         return result
 
     if not isinstance(config, dict):
-        return finish(u9_idle(
-            "INVALID_UNIT_2_CONFIG", symbol
-        ))
+        return finish(
+            u9_idle("INVALID_CONFIG", symbol)
+        )
 
     if not isinstance(unit_8_result, dict):
-        return finish(u9_idle(
-            "INVALID_UNIT_8_RESULT", symbol
-        ))
+        return finish(
+            u9_idle("INVALID_UNIT_8_RESULT", symbol)
+        )
 
     if not isinstance(unit_7_result, dict):
-        return finish(u9_idle(
-            "UNIT_7_HANDOVER_UNAVAILABLE", symbol
-        ))
+        return finish(
+            u9_idle("UNIT_7_HANDOVER_MISSING", symbol)
+        )
 
     if not symbol:
-        return finish(u9_idle(
-            "WEEX_SYMBOL_MISSING", symbol
-        ))
+        return finish(
+            u9_idle("WEEX_SYMBOL_MISSING", symbol)
+        )
 
     if config.get("execution_environment") not in (
-        None, "DEMO"
+        None,
+        "DEMO",
     ):
-        return finish(u9_idle(
-            "NON_DEMO_ENVIRONMENT", symbol
-        ))
+        return finish(
+            u9_idle("NON_DEMO_ENVIRONMENT", symbol)
+        )
 
     if unit_8_result.get("status") != "VERIFIED_READ_ONLY":
-        return finish(u9_idle(
-            "UNIT_8_NOT_VERIFIED", symbol
-        ))
+        return finish(
+            u9_idle("UNIT_8_NOT_VERIFIED", symbol)
+        )
 
-    if not u9_truth(
-        unit_8_result.get("demo_contract_verified")
-    ):
-        return finish(u9_idle(
-            "DEMO_CONTRACT_NOT_VERIFIED", symbol
-        ))
+    required_checks = (
+        "demo_contract_verified",
+        "demo_balance_verified",
+        "demo_positions_read_verified",
+    )
 
-    if not u9_truth(
-        unit_8_result.get("demo_balance_verified")
-    ):
-        return finish(u9_idle(
-            "DEMO_BALANCE_NOT_VERIFIED", symbol
-        ))
-
-    if not u9_truth(
-        unit_8_result.get("demo_positions_read_verified")
-    ):
-        return finish(u9_idle(
-            "DEMO_POSITIONS_NOT_VERIFIED", symbol
-        ))
+    for check in required_checks:
+        if unit_8_result.get(check) is not True:
+            return finish(
+                u9_idle(
+                    "UNIT_8_" + check.upper() + "_FAILED",
+                    symbol,
+                )
+            )
 
     verified_symbol = str(
         unit_8_result.get("demo_order_symbol") or ""
     ).strip().upper()
 
     if verified_symbol != symbol:
-        return finish(u9_idle(
-            "SYMBOL_HANDOVER_MISMATCH", symbol
-        ))
+        return finish(
+            u9_idle("SYMBOL_MISMATCH", symbol)
+        )
 
     contract = unit_8_result.get("contract")
 
     if not isinstance(contract, dict):
-        return finish(u9_idle(
-            "VERIFIED_CONTRACT_DATA_MISSING", symbol
-        ))
+        return finish(
+            u9_idle("CONTRACT_MISSING", symbol)
+        )
 
     minimum = u9_decimal(
-        u9_contract_value(
+        u9_contract_pick(
             contract,
             "minimum_quantity",
             "min_quantity",
@@ -9088,7 +9086,7 @@ def fresh_reconstruction_unit_9(
     )
 
     step = u9_decimal(
-        u9_contract_value(
+        u9_contract_pick(
             contract,
             "quantity_step",
             "qty_step",
@@ -9097,17 +9095,8 @@ def fresh_reconstruction_unit_9(
         )
     )
 
-    multiplier = u9_decimal(
-        u9_contract_value(
-            contract,
-            "contract_multiplier",
-            "contractMultiplier",
-            "contractSize",
-        )
-    )
-
     price_step = u9_decimal(
-        u9_contract_value(
+        u9_contract_pick(
             contract,
             "price_step",
             "tickSize",
@@ -9115,26 +9104,42 @@ def fresh_reconstruction_unit_9(
         )
     )
 
+    multiplier = u9_decimal(
+        u9_contract_pick(
+            contract,
+            "contract_multiplier",
+            "contractMultiplier",
+            "contractSize",
+        )
+    )
+
     if any(
         value is None or value <= 0
         for value in (
-            minimum, step, multiplier, price_step
+            minimum,
+            step,
+            price_step,
+            multiplier,
         )
     ):
-        return finish(u9_idle(
-            "CONTRACT_RULES_INCOMPLETE",
-            symbol,
-            contract
-        ))
+        return finish(
+            u9_idle(
+                "CONTRACT_RULES_INCOMPLETE",
+                symbol,
+                contract,
+            )
+        )
 
-    if not u9_truth(
-        unit_8_result.get("position_flat_verified")
-    ):
-        return finish(u9_idle(
-            "POSITION_NOT_CONFIRMED_FLAT",
-            symbol,
-            contract
-        ))
+    if unit_8_result.get(
+        "position_flat_verified"
+    ) is not True:
+        return finish(
+            u9_idle(
+                "POSITION_NOT_FLAT",
+                symbol,
+                contract,
+            )
+        )
 
     direction = str(
         u9_pick(
@@ -9142,7 +9147,7 @@ def fresh_reconstruction_unit_9(
             "direction",
             "side",
             "trade_direction",
-        ) or ""
+        ) or "NONE"
     ).upper()
 
     mode = str(
@@ -9151,77 +9156,102 @@ def fresh_reconstruction_unit_9(
             "active_mode",
             "mode",
             "strategy_mode",
-        ) or ""
+        ) or "NONE"
     ).upper()
 
     if direction not in ("LONG", "SHORT"):
-        return finish(u9_idle(
-            "NO_QUALIFIED_DIRECTION",
-            symbol,
-            contract
-        ))
+        return finish(
+            u9_idle(
+                "NO_QUALIFIED_DIRECTION",
+                symbol,
+                contract,
+            )
+        )
 
     if mode not in (
-        "SCALP", "STRUCTURE", "BREAKOUT"
+        "SCALP",
+        "STRUCTURE",
+        "BREAKOUT",
     ):
-        return finish(u9_idle(
-            "NO_QUALIFIED_STRATEGY",
-            symbol,
-            contract
-        ))
+        return finish(
+            u9_idle(
+                "NO_QUALIFIED_STRATEGY",
+                symbol,
+                contract,
+            )
+        )
 
-    intent = u9_pick(
+    entry_intent = u9_pick(
         unit_7_result,
         "execution_intent",
         "trade_authorized",
         "entry_authorized",
     )
 
-    if intent is not True:
-        return finish(u9_idle(
-            "UNIT_7_ENTRY_NOT_QUALIFIED",
-            symbol,
-            contract
-        ))
-    requested_quantity = u9_decimal(
-        u9_pick(
-            unit_7_result,
-            "quantity",
-            "entry_quantity",
-            "order_quantity",
-            "contracts",
-            "size",
+    if entry_intent is not True:
+        return finish(
+            u9_idle(
+                "UNIT_7_ENTRY_NOT_QUALIFIED",
+                symbol,
+                contract,
+            )
         )
+
+    # ========================================================
+    # VERIFIED UNIT 8 SIZE PREVIEW
+    # ========================================================
+
+    preview = unit_8_result.get("size_preview")
+
+    if not isinstance(preview, dict):
+        return finish(
+            u9_idle(
+                "UNIT_8_SIZE_PREVIEW_MISSING",
+                symbol,
+                contract,
+            )
+        )
+
+    if (
+        preview.get("initial_quantity_valid") is not True
+        or preview.get("half_quantity_valid") is not True
+    ):
+        return finish(
+            u9_idle(
+                "UNIT_8_SIZE_PREVIEW_INVALID",
+                symbol,
+                contract,
+            )
+        )
+
+    if preview.get("order_submitted") is not False:
+        return finish(
+            u9_idle(
+                "SIZE_PREVIEW_SUBMISSION_STATE_UNSAFE",
+                symbol,
+                contract,
+            )
+        )
+
+    requested_quantity = u9_decimal(
+        preview.get("rounded_contract_quantity")
     )
 
+    if (
+        requested_quantity is None
+        or requested_quantity <= 0
+    ):
+        return finish(
+            u9_idle(
+                "UNIT_8_QUANTITY_UNAVAILABLE",
+                symbol,
+                contract,
+            )
+        )
 
-    return finish(u9_idle(
-        "UNIT_8_SIZE_PREVIEW_INVALID",
-        symbol,
-        contract
-    ))
-
-requested_quantity = u9_decimal(
-    preview.get("rounded_contract_quantity")
-)
-
-if requested_quantity is None or requested_quantity <= 0:
-    return finish(u9_idle(
-        "UNIT_8_QUANTITY_UNAVAILABLE",
-        symbol,
-        contract
-    ))
-
-
-    if requested_quantity is None or requested_quantity <= 0:
-        return finish(u9_idle(
-            "UNIT_7_QUANTITY_UNAVAILABLE",
-            symbol,
-            contract
-        ))
-
-    # Never increase the requested position automatically.
-    # Quantity must satisfy the exchange's contract step.
+    # ========================================================
+    # QUANTITY STEP AND 50/50 HEDGE VALIDATION
+    # ========================================================
 
     adjusted_quantity = (
         requested_quantity / step
@@ -9229,30 +9259,45 @@ if requested_quantity is None or requested_quantity <= 0:
         rounding=_U9_ROUND_DOWN
     ) * step
 
-    if adjusted_quantity < minimum:
-        return finish(u9_idle(
-            "QUANTITY_BELOW_CONTRACT_MINIMUM",
-            symbol,
-            contract
-        ))
-
-    # Quantity must also permit the two-stage 50/50 hedge.
-    # Both halves must independently satisfy the step/minimum.
-
     half_quantity = adjusted_quantity / 2
+
+    if adjusted_quantity < minimum:
+        return finish(
+            u9_idle(
+                "QUANTITY_BELOW_MINIMUM",
+                symbol,
+                contract,
+            )
+        )
 
     if (
         half_quantity < minimum
         or half_quantity % step != 0
     ):
-        return finish(u9_idle(
-            "HEDGE_HALF_QUANTITY_NOT_EXECUTABLE",
-            symbol,
-            contract
-        ))
+        return finish(
+            u9_idle(
+                "INVALID_HALF_HEDGE_QUANTITY",
+                symbol,
+                contract,
+            )
+        )
 
-    # Unit 9 validates an entry candidate only.
-    # It cannot grant demo order permission.
+    preview_half = u9_decimal(
+        preview.get("half_contract_quantity")
+    )
+
+    if preview_half != half_quantity:
+        return finish(
+            u9_idle(
+                "HEDGE_QUANTITY_MISMATCH",
+                symbol,
+                contract,
+            )
+        )
+
+    # ========================================================
+    # VALIDATED HANDOVER - NO ORDER AUTHORIZATION
+    # ========================================================
 
     candidate = {
         "market_symbol": symbol,
@@ -9265,8 +9310,9 @@ if requested_quantity is None or requested_quantity <= 0:
         "quantity_step": str(step),
         "price_step": str(price_step),
         "contract_multiplier": str(multiplier),
-        "unit_7_result": unit_7_result,
         "contract": contract,
+        "unit_7_result": unit_7_result,
+        "unit_8_size_preview": preview,
     }
 
     result = {
@@ -9313,7 +9359,10 @@ FRESH_RECONSTRUCTION_UNIT_9_RESULT = (
 )
 
 FRESH_UNIT_9_OPTIMIZATION_READY = (
-    isinstance(FRESH_RECONSTRUCTION_UNIT_9_RESULT, dict)
+    isinstance(
+        FRESH_RECONSTRUCTION_UNIT_9_RESULT,
+        dict,
+    )
     and FRESH_RECONSTRUCTION_UNIT_9_RESULT.get(
         "read_only"
     ) is True
@@ -9325,7 +9374,7 @@ FRESH_UNIT_9_OPTIMIZATION_READY = (
 print(
     "UNIT 9 UNIVERSAL OPTIMIZATION READY =",
     FRESH_UNIT_9_OPTIMIZATION_READY,
-    flush=True
+    flush=True,
 )
 
 # ============================================================
@@ -9333,3 +9382,6 @@ print(
 # ZERO INDENTATION
 # UNIT 10 CONTINUES BELOW
 # ============================================================
+
+
+    
