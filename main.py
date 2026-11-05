@@ -7816,6 +7816,62 @@ def u8v16_rules(item):
 
 
 # ============================================================
+# UNIT 8 V16 - READ-ONLY DEMO CONTRACT DISCOVERY
+# Insert inside the existing Unit 8 function
+# after both simulation directory requests.
+# ============================================================
+
+    base_coin = symbol[:-4]
+
+    if sim_contracts is not None:
+        matching_contracts = {
+            key: value
+            for key, value in sim_contracts.items()
+            if (
+                base_coin in key
+                or str(value.get("baseAsset", "")).upper()
+                == base_coin
+            )
+        }
+
+        print(
+            "UNIT 8 NEAR-RELATED SIM CONTRACTS =",
+            sorted(matching_contracts),
+            flush=True
+        )
+
+        for contract_symbol, item in matching_contracts.items():
+            print(
+                "UNIT 8 SIM CONTRACT DETAILS =",
+                {
+                    "symbol": contract_symbol,
+                    "baseAsset": item.get("baseAsset"),
+                    "quoteAsset": item.get("quoteAsset"),
+                    "marginAsset": item.get("marginAsset"),
+                    "contractType": item.get("contractType"),
+                    "minOrderSize": item.get("minOrderSize"),
+                    "contractVal": item.get("contractVal"),
+                    "quantityPrecision": item.get(
+                        "quantityPrecision"
+                    ),
+                },
+                flush=True
+            )
+
+    if sim_symbols is not None:
+        matching_api_symbols = sorted(
+            item
+            for item in sim_symbols
+            if base_coin in item
+        )
+
+        print(
+            "UNIT 8 NEAR-RELATED SIM API SYMBOLS =",
+            matching_api_symbols,
+            flush=True
+        )
+
+# ============================================================
 # START UNIT 8 V16 DEMO SYMBOL RESOLVER CORRECTION
 # ZERO INDENTATION
 # ============================================================
