@@ -10902,754 +10902,303 @@ print(
 
 
 # ============================================================
-# START COMPLETE UNIT 12 V2 REPLACEMENT
-# WEEX UNIVERSAL DEMO INITIAL ORDER EXECUTION
-#
-# UNIT 11 -> UNIT 12 -> UNIT 13
-# BOT_MODE = RUN / PAUSE
-# UNIT12_JOURNAL_PATH = OPTIONAL LOCAL FILE PATH
-#
-# NO REAL-CASH ORDERS
-# NO LEVERAGE MUTATION
-# NO BACKUP OR TP EXECUTION
+# START COMPLETE UNIT 12 V5
+# ORIGINAL 17248 EXECUTION SEQUENCE
+# ADAPTED TO UNIVERSAL DEMO SYMBOL
 # ZERO INDENTATION
 # ============================================================
 
-import os as _u12_os
-import json as _u12_json
-import time as _u12_time
-import hmac as _u12_hmac
-import base64 as _u12_base64
-import hashlib as _u12_hashlib
-import threading as _u12_threading
-import urllib.request as _u12_request
-import urllib.error as _u12_error
+import os
+import re
+import json
+import time
+import hmac
+import base64
+import hashlib
+import urllib.request
+import urllib.error
 
-from decimal import Decimal as _U12Decimal
-from decimal import InvalidOperation as _U12Invalid
-
-
-UNIT_12_V2_VERSION = "V2_REFERENCE_ADAPTED_DEMO"
-UNIT_12_V2_BASE_URL = "https://api-contract.weex.com"
-UNIT_12_V2_ORDER_PATH = "/capi/v3/sim/order"
-
-_UNIT_12_V2_LOCK = _u12_threading.RLock()
-_UNIT_12_V2_ATTEMPTED_IDS = set()
+from decimal import Decimal, InvalidOperation
 
 
-# ============================================================
-# 12.1 DECIMAL SAFETY
-# ============================================================
+UNIT_12_V5_BASE_URL = "https://api-contract.weex.com"
+UNIT_12_V5_POSITION_PATH = "/capi/v3/sim/position/allPosition"
+UNIT_12_V5_ORDER_PATH = "/capi/v3/sim/order"
 
-def unit_12_v2_decimal(value):
+_UNIT12_V5_ORDER_ATTEMPTS = set()
+
+
+def unit_12_v5_decimal(value, name, allow_zero=False):
 
     if value is None or isinstance(value, bool):
-        raise ValueError("MISSING_DECIMAL")
+        raise RuntimeError("UNIT 12 MISSING " + name)
 
     try:
-        number = _U12Decimal(str(value))
-    except (
-        _U12Invalid,
-        TypeError,
-        ValueError,
-    ):
-        raise ValueError("INVALID_DECIMAL")
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise RuntimeError("UNIT 12 INVALID " + name) from exc
 
-    if not number.is_finite():
-        raise ValueError("NONFINITE_DECIMAL")
+    if not number.is_finite() or number < 0:
+        raise RuntimeError("UNIT 12 INVALID " + name)
+
+    if number == 0 and not allow_zero:
+        raise RuntimeError("UNIT 12 ZERO " + name)
 
     return number
 
 
-def unit_12_v2_text(value):
+def unit_12_v5_symbol(config):
 
-    return str(value).strip().upper()
-
-
-def unit_12_v2_quantity_text(value):
-
-    number = unit_12_v2_decimal(value)
-
-    return format(number, "f")
-
-
-# ============================================================
-# 12.2 ENVIRONMENT AND SYMBOL
-# ============================================================
-
-def unit_12_v2_symbol(config):
-
-    symbol = _u12_os.environ.get(
-        "WEEX_SYMBOL", ""
-    ).strip().upper()
-
-    if not symbol and isinstance(config, dict):
-
-        symbol = str(
-            config.get(
-                "market_symbol",
-                config.get("symbol", "")
-            )
-        ).strip().upper()
+    symbol = os.getenv("WEEX_SYMBOL", "").strip().upper()
 
     if not symbol:
-        raise ValueError("WEEX_SYMBOL_MISSING")
+        symbol = str(
+            config.get("exchange", {}).get("market_symbol", "")
+        ).strip().upper()
 
-    if not symbol.isalnum():
-        raise ValueError("WEEX_SYMBOL_INVALID")
+    if not symbol or not symbol.isalnum():
+        raise RuntimeError("UNIT 12 INVALID WEEX SYMBOL")
 
     return symbol
 
 
-def unit_12_v2_mode():
+def unit_12_v5_client_order_id(original_id, direction):
 
-    mode = _u12_os.environ.get(
-        "BOT_MODE", "PAUSE"
-    ).strip().upper()
+    if not isinstance(original_id, str) or not original_id:
+        raise RuntimeError("UNIT 12 CLIENT ID MISSING")
 
-    if mode not in ("RUN", "PAUSE"):
-        raise ValueError("INVALID_BOT_MODE")
+    if re.fullmatch(r"[.A-Za-z0-9_:/-]{1,36}", original_id):
+        return original_id
 
-    return mode
+    digest = hashlib.sha256(
+        original_id.encode("utf-8")
+    ).hexdigest()[:24]
 
-
-# ============================================================
-# 12.3 LOCAL JOURNAL
-#
-# OPTIONAL PATH:
-# UNIT12_JOURNAL_PATH
-#
-# IF UNSET, USE A LOCAL FILE.
-# THIS IS NOT PERSISTENT STORAGE.
-# ============================================================
-
-def unit_12_v2_journal_path():
-
-    path = _u12_os.environ.get(
-        "UNIT12_JOURNAL_PATH", ""
-    ).strip()
-
-    if not path:
-        path = "/tmp/weex_unit12_journal.jsonl"
-
-    return path
+    return "FR12" + ("L" if direction == "LONG" else "S") + digest
 
 
-def unit_12_v2_journal_write(record):
+def unit_12_v5_result(source, status, reason, symbol):
 
-    path = unit_12_v2_journal_path()
-
-    parent = _u12_os.path.dirname(path)
-
-    if parent:
-        _u12_os.makedirs(
-            parent,
-            exist_ok=True
-        )
-
-    line = _u12_json.dumps(
-        record,
-        separators=(",", ":"),
-        sort_keys=True
-    )
-
-    with open(
-        path,
-        "a",
-        encoding="utf-8"
-    ) as handle:
-
-        handle.write(line + "\n")
-        handle.flush()
-        _u12_os.fsync(handle.fileno())
-
-    return True
-
-
-def unit_12_v2_journal_state():
-
-    path = unit_12_v2_journal_path()
-
-    if not _u12_os.path.exists(path):
-        return {}
-
-    states = {}
-
-    with open(
-        path,
-        "r",
-        encoding="utf-8"
-    ) as handle:
-
-        for line in handle:
-
-            if not line.strip():
-                continue
-
-            record = _u12_json.loads(line)
-
-            if not isinstance(record, dict):
-                raise ValueError(
-                    "JOURNAL_RECORD_INVALID"
-                )
-
-            client_id = record.get(
-                "client_order_id"
-            )
-
-            status = record.get("status")
-
-            if not client_id or not status:
-                raise ValueError(
-                    "JOURNAL_RECORD_INCOMPLETE"
-                )
-
-            states[str(client_id)] = (
-                str(status).upper()
-            )
-
-    return states
-
-
-def unit_12_v2_journal_clear():
-
-    states = unit_12_v2_journal_state()
-
-    unresolved = {
-        client_id: status
-        for client_id, status in states.items()
-        if status not in (
-            "REJECTED_CONFIRMED",
-            "CLOSED_RECONCILED",
-            "CANCELLED_RECONCILED",
-            "NOT_FOUND_RECONCILED",
-        )
-    }
-
-    return len(unresolved) == 0, unresolved
-
-
-# ============================================================
-# 12.4 RESULT CONTRACT
-# ============================================================
-
-def unit_12_v2_result(
-    status,
-    reason,
-    symbol,
-    source=None,
-):
+    if not isinstance(source, dict):
+        source = {}
 
     return {
         "unit": 12,
-        "unit_12_version": UNIT_12_V2_VERSION,
+        "version": "V5_REFERENCE_17248_ADAPTED",
         "status": status,
         "reason": reason,
+        "skip_reason": reason,
         "market_symbol": symbol,
-        "read_only": status not in (
-            "ACCEPTED_NOT_FILL_VERIFIED",
-            "SUBMISSION_OUTCOME_UNKNOWN",
-        ),
+        "active_mode": source.get("active_mode"),
+        "direction": source.get("direction"),
+        "signal_qualified": source.get("signal_qualified") is True,
+        "execution_intent": source.get("execution_intent") is True,
+        "read_only": False,
+        "position_check_attempted": False,
+        "position_check_completed": False,
+        "position_endpoint_access": False,
+        "position_http_status": None,
+        "active_position_exists": False,
+        "active_positions": [],
+        "initial_entry_permitted": False,
+        "duplicate_initial_entry_blocked": False,
+        "management_path_permitted": True,
+        "tp_management_permitted": True,
+        "backup_management_permitted": True,
+        "position_management_available": True,
         "demo_submission_attempted": False,
         "demo_submission_completed": False,
         "demo_order_accepted": False,
         "fill_verified": False,
-        "execution_authorized": False,
-        "exchange_write": False,
+        "real_submission_attempted": False,
         "real_cash_execution": False,
+        "authenticated_request": False,
+        "order_endpoint_access": False,
+        "exchange_write": False,
         "order_id": None,
         "client_order_id": None,
         "order_payload": None,
-        "exchange_response": None,
-        "unit_11_result": source,
-        "position_management_available": True,
+        "http_status": None,
     }
 
 
-# ============================================================
-# 12.5 WEEX DEMO AUTHENTICATION
-# ============================================================
+def unit_12_v5_request(method, path, body=None):
 
-def unit_12_v2_credentials():
-
-    def first(*names):
-
-        for name in names:
-
-            value = _u12_os.environ.get(
-                name, ""
-            ).strip()
-
-            if value:
-                return value
-
-        return ""
-
-    key = first(
-        "WEEX_API_KEY",
-        "API_KEY"
+    allowed = (
+        ("GET", UNIT_12_V5_POSITION_PATH),
+        ("POST", UNIT_12_V5_ORDER_PATH),
     )
 
-    secret = first(
-        "WEEX_API_SECRET",
-        "API_SECRET"
+    if (method, path) not in allowed:
+        raise RuntimeError("UNIT 12 NON-DEMO ENDPOINT BLOCKED")
+
+    if method == "GET" and body is not None:
+        raise RuntimeError("UNIT 12 INVALID GET BODY")
+
+    if method == "POST" and not isinstance(body, dict):
+        raise RuntimeError("UNIT 12 INVALID POST BODY")
+
+    key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
+    secret = os.getenv("WEEX_API_SECRET") or os.getenv("API_SECRET")
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
     )
 
-    passphrase = first(
-        "WEEX_API_PASSPHRASE",
-        "API_PASSPHRASE"
+    if not all((key, secret, phrase)):
+        raise RuntimeError("UNIT 12 WEEX CREDENTIALS MISSING")
+
+    body_text = (
+        json.dumps(body, separators=(",", ":"), ensure_ascii=False)
+        if body is not None else ""
     )
 
-    if not all((key, secret, passphrase)):
-        raise ValueError(
-            "WEEX_API_CREDENTIALS_MISSING"
-        )
+    timestamp = str(int(time.time() * 1000))
 
-    return key, secret, passphrase
+    message = timestamp + method + path + body_text
 
-
-class _Unit12V2NoRedirect(
-    _u12_request.HTTPRedirectHandler
-):
-
-    def redirect_request(
-        self,
-        request,
-        fp,
-        code,
-        msg,
-        headers,
-        newurl,
-    ):
-        return None
-
-
-def unit_12_v2_signed_post(payload):
-
-    key, secret, passphrase = (
-        unit_12_v2_credentials()
-    )
-
-    path = UNIT_12_V2_ORDER_PATH
-
-    if path != "/capi/v3/sim/order":
-        raise RuntimeError(
-            "NON_DEMO_ENDPOINT_FORBIDDEN"
-        )
-
-    body = _u12_json.dumps(
-        payload,
-        separators=(",", ":"),
-        ensure_ascii=False
-    )
-
-    timestamp = str(
-        int(_u12_time.time() * 1000)
-    )
-
-    prehash = (
-        timestamp
-        + "POST"
-        + path
-        + body
-    )
-
-    signature = _u12_base64.b64encode(
-        _u12_hmac.new(
+    signature = base64.b64encode(
+        hmac.new(
             secret.encode("utf-8"),
-            prehash.encode("utf-8"),
-            _u12_hashlib.sha256
+            message.encode("utf-8"),
+            hashlib.sha256,
         ).digest()
     ).decode("utf-8")
 
-    headers = {
-        "ACCESS-KEY": key,
-        "ACCESS-SIGN": signature,
-        "ACCESS-TIMESTAMP": timestamp,
-        "ACCESS-PASSPHRASE": passphrase,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-
-    request = _u12_request.Request(
-        UNIT_12_V2_BASE_URL + path,
-        data=body.encode("utf-8"),
-        headers=headers,
-        method="POST"
-    )
-
-    opener = _u12_request.build_opener(
-        _Unit12V2NoRedirect()
+    request = urllib.request.Request(
+        UNIT_12_V5_BASE_URL + path,
+        data=body_text.encode("utf-8") if method == "POST" else None,
+        method=method,
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": phrase,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
     )
 
     try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            status = response.getcode()
+            raw = response.read().decode("utf-8", errors="replace")
 
-        with opener.open(
-            request,
-            timeout=15
-        ) as response:
-
-            http_status = response.getcode()
-            raw = response.read(65536)
-
-    except _u12_error.HTTPError as exc:
-
-        http_status = exc.code
-        raw = exc.read(65536)
-
-    response_text = raw.decode(
-        "utf-8",
-        errors="replace"
-    )
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        raw = exc.read().decode("utf-8", errors="replace")
 
     try:
-        response_json = _u12_json.loads(
-            response_text
+        data = json.loads(raw)
+    except ValueError:
+        data = {"error": "INVALID_RESPONSE_JSON"}
+
+    return status, data
+
+
+def unit_12_v5_active_positions(rows, symbol):
+
+    if not isinstance(rows, list):
+        raise RuntimeError("UNIT 12 POSITION RESPONSE NOT LIST")
+
+    active = []
+
+    for position in rows:
+
+        if not isinstance(position, dict):
+            raise RuntimeError("UNIT 12 INVALID POSITION RECORD")
+
+        if str(position.get("symbol", "")).upper() != symbol:
+            continue
+
+        size = unit_12_v5_decimal(
+            position.get("size"),
+            "POSITION SIZE",
+            allow_zero=True,
         )
-    except (ValueError, TypeError):
-        response_json = {
-            "raw_response": response_text[:2000]
-        }
 
-    return http_status, response_json
+        if size > 0:
+            active.append(position)
 
-
-# ============================================================
-# 12.6 CLIENT ORDER ID
-# ============================================================
-
-def unit_12_v2_client_id(
-    symbol,
-    direction,
-    source,
-):
-
-    if not source:
-        raise ValueError(
-            "SIGNAL_ID_MISSING"
-        )
-
-    identity = (
-        symbol
-        + "|"
-        + direction
-        + "|"
-        + str(source)
-    )
-
-    digest = _u12_hashlib.sha256(
-        identity.encode("utf-8")
-    ).hexdigest()[:24]
-
-    return "FR12" + digest
+    return active
 
 
-# ============================================================
-# 12.7 UNIT 8 / UNIT 11 HANDOVER
-# ============================================================
+def unit_12_v5_validate_payload(config, upstream, account):
 
-def unit_12_v2_prepare(
-    config,
-    unit_11_result,
-    unit_8_result,
-):
+    if not isinstance(account, dict):
+        raise RuntimeError("UNIT 12 ACCOUNT MISSING")
 
-    symbol = unit_12_v2_symbol(config)
+    symbol = unit_12_v5_symbol(config)
 
-    result = unit_12_v2_result(
-        "BLOCKED",
-        "UNVERIFIED_HANDOVER",
-        symbol,
-        unit_11_result,
-    )
+    if account.get("demo_contract_verified") is not True:
+        raise RuntimeError("UNIT 12 CONTRACT UNVERIFIED")
 
-    if not isinstance(unit_11_result, dict):
+    if account.get("demo_balance_verified") is not True:
+        raise RuntimeError("UNIT 12 BALANCE UNVERIFIED")
 
-        result["reason"] = (
-            "UNIT_11_RESULT_MISSING"
-        )
-        return result
+    if account.get("demo_positions_read_verified") is not True:
+        raise RuntimeError("UNIT 12 POSITION READ UNVERIFIED")
 
-    upstream_status = unit_12_v2_text(
-        unit_11_result.get("status", "")
-    )
+    if account.get("demo_history_read_verified") is not True:
+        raise RuntimeError("UNIT 12 HISTORY UNVERIFIED")
 
-    if upstream_status in (
-        "IDLE",
-        "PAUSED",
-        "BLOCKED",
-        "SKIPPED",
-        "NO_SIGNAL",
-    ):
+    if account.get("account_can_trade") is not True:
+        raise RuntimeError("UNIT 12 ACCOUNT CANNOT TRADE")
 
-        result["status"] = "IDLE"
-        result["reason"] = (
-            "UNIT_11_"
-            + str(
-                unit_11_result.get(
-                    "reason",
-                    upstream_status
-                )
-            )
-        )
-        return result
+    if str(account.get("demo_order_symbol", "")).upper() != symbol:
+        raise RuntimeError("UNIT 12 DEMO SYMBOL MISMATCH")
 
-    if upstream_status not in (
-        "READY",
-        "PREPARED_READ_ONLY",
-    ):
-
-        result["reason"] = (
-            "UNIT_11_NOT_PREPARED"
-        )
-        return result
-
-    if not isinstance(unit_8_result, dict):
-
-        result["reason"] = (
-            "UNIT_8_RESULT_MISSING"
-        )
-        return result
-
-    if unit_8_result.get(
-        "demo_contract_verified"
-    ) is not True:
-
-        result["reason"] = (
-            "DEMO_CONTRACT_UNVERIFIED"
-        )
-        return result
-
-    if unit_8_result.get(
-        "demo_balance_verified"
-    ) is not True:
-
-        result["reason"] = (
-            "DEMO_BALANCE_UNVERIFIED"
-        )
-        return result
-
-    if unit_8_result.get(
-        "demo_positions_read_verified"
-    ) is not True:
-
-        result["reason"] = (
-            "DEMO_POSITIONS_UNVERIFIED"
-        )
-        return result
-
-    if unit_8_result.get(
-        "position_flat_verified"
-    ) is not True:
-
-        result["reason"] = (
-            "DEMO_POSITION_NOT_VERIFIED_FLAT"
-        )
-        return result
-
-    if unit_8_result.get(
-        "demo_history_read_verified"
-    ) is not True:
-
-        result["reason"] = (
-            "DEMO_HISTORY_UNVERIFIED"
-        )
-        return result
-
-    if unit_8_result.get(
-        "account_can_trade"
-    ) is not True:
-
-        result["reason"] = (
-            "ACCOUNT_TRADING_UNVERIFIED"
-        )
-        return result
-
-    demo_symbol = unit_12_v2_text(
-        unit_8_result.get(
-            "demo_order_symbol", ""
-        )
-    )
-
-    if demo_symbol != symbol:
-
-        result["reason"] = (
-            "DEMO_SYMBOL_MISMATCH"
-        )
-        return result
-
-    instruction = unit_11_result.get(
-        "order_instruction"
-    )
+    instruction = upstream.get("order_instruction")
 
     if not isinstance(instruction, dict):
-
-        instruction = unit_11_result.get(
-            "order_payload"
-        )
+        instruction = upstream.get("order_payload")
 
     if not isinstance(instruction, dict):
+        raise RuntimeError("UNIT 12 ORDER INSTRUCTION MISSING")
 
-        result["reason"] = (
-            "UNIT_11_ORDER_MISSING"
-        )
-        return result
-
-    direction = unit_12_v2_text(
-        instruction.get(
-            "positionSide",
-            instruction.get(
-                "direction",
-                unit_11_result.get(
-                    "direction", ""
-                )
-            )
-        )
-    )
+    direction = str(
+        instruction.get("positionSide")
+        or upstream.get("direction", "")
+    ).upper()
 
     if direction not in ("LONG", "SHORT"):
+        raise RuntimeError("UNIT 12 DIRECTION INVALID")
 
-        result["reason"] = (
-            "INVALID_ORDER_DIRECTION"
-        )
-        return result
+    expected_side = "BUY" if direction == "LONG" else "SELL"
 
-    expected_side = (
-        "BUY" if direction == "LONG"
-        else "SELL"
+    if str(instruction.get("symbol", "")).upper() != symbol:
+        raise RuntimeError("UNIT 12 PAYLOAD SYMBOL MISMATCH")
+
+    if str(instruction.get("side", "")).upper() != expected_side:
+        raise RuntimeError("UNIT 12 PAYLOAD SIDE MISMATCH")
+
+    if str(instruction.get("type", "")).upper() != "MARKET":
+        raise RuntimeError("UNIT 12 ORDER TYPE INVALID")
+
+    quantity = unit_12_v5_decimal(
+        instruction.get("quantity"), "QUANTITY"
     )
 
-    side = unit_12_v2_text(
-        instruction.get(
-            "side", expected_side
-        )
+    minimum = unit_12_v5_decimal(
+        account.get("minimum_quantity"), "MINIMUM QUANTITY"
     )
 
-    if side != expected_side:
-
-        result["reason"] = (
-            "ORDER_SIDE_MISMATCH"
-        )
-        return result
-
-    order_type = unit_12_v2_text(
-        instruction.get(
-            "type",
-            instruction.get(
-                "order_type", ""
-            )
-        )
+    step = unit_12_v5_decimal(
+        account.get("quantity_step"), "QUANTITY STEP"
     )
 
-    if order_type != "MARKET":
-
-        result["reason"] = (
-            "ONLY_MARKET_ENTRY_SUPPORTED"
-        )
-        return result
-
-    instruction_symbol = unit_12_v2_text(
-        instruction.get(
-            "symbol",
-            instruction.get(
-                "demo_order_symbol", ""
-            )
-        )
-    )
-
-    if instruction_symbol != symbol:
-
-        result["reason"] = (
-            "UNIT_11_SYMBOL_MISMATCH"
-        )
-        return result
-
-    try:
-
-        quantity = unit_12_v2_decimal(
-            instruction.get("quantity")
-        )
-
-        minimum = unit_12_v2_decimal(
-            unit_8_result.get(
-                "minimum_quantity"
-            )
-        )
-
-        step = unit_12_v2_decimal(
-            unit_8_result.get(
-                "quantity_step"
-            )
-        )
-
-    except (ValueError, TypeError):
-
-        result["reason"] = (
-            "QUANTITY_RULES_INVALID"
-        )
-        return result
-
-    if (
-        quantity <= 0
-        or minimum <= 0
-        or step <= 0
-    ):
-
-        result["reason"] = (
-            "NONPOSITIVE_QUANTITY_RULE"
-        )
-        return result
-
-    if quantity < minimum:
-
-        result["reason"] = (
-            "QUANTITY_BELOW_MINIMUM"
-        )
-        return result
-
-    if quantity % step != 0:
-
-        result["reason"] = (
-            "QUANTITY_STEP_INVALID"
-        )
-        return result
+    if quantity < minimum or quantity % step != 0:
+        raise RuntimeError("UNIT 12 QUANTITY INVALID")
 
     half = quantity / 2
 
-    if (
-        half < minimum
-        or half % step != 0
-    ):
+    if half < minimum or half % step != 0:
+        raise RuntimeError("UNIT 12 HEDGE HALF INVALID")
 
-        result["reason"] = (
-            "HEDGE_HALF_QUANTITY_INVALID"
-        )
-        return result
+    original_id = instruction.get("newClientOrderId")
 
-    candidate = unit_11_result.get(
-        "execution_candidate"
-    )
-
-    if not isinstance(candidate, dict):
-        candidate = {}
-
-    signal_id = (
-        candidate.get("signal_id")
-        or candidate.get("client_order_id")
-        or instruction.get("newClientOrderId")
-    )
-
-    if not signal_id:
-
-        result["reason"] = (
-            "STABLE_SIGNAL_ID_MISSING"
-        )
-        return result
-
-    client_id = unit_12_v2_client_id(
-        symbol,
-        direction,
-        signal_id
+    client_id = unit_12_v5_client_order_id(
+        original_id, direction
     )
 
     payload = {
@@ -11657,366 +11206,266 @@ def unit_12_v2_prepare(
         "side": expected_side,
         "positionSide": direction,
         "type": "MARKET",
-        "quantity": (
-            unit_12_v2_quantity_text(quantity)
-        ),
+        "quantity": format(quantity, "f"),
         "newClientOrderId": client_id,
     }
 
-    result["status"] = "PREPARED"
-    result["reason"] = (
-        "DEMO_ORDER_PREPARED"
-    )
-    result["client_order_id"] = client_id
-    result["order_payload"] = payload
+    return payload, quantity
 
-    return result
-
-
-# ============================================================
-# 12.8 EXECUTION
-# ============================================================
 
 def fresh_reconstruction_unit_12(
-    execution_config,
+    config,
     unit_11_result,
     unit_8_result=None,
 ):
 
-    symbol = unit_12_v2_symbol(
-        execution_config
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT 12 CONFIG INVALID")
+
+    if config.get("execution_environment") != "DEMO":
+        raise RuntimeError("UNIT 12 NON-DEMO ENVIRONMENT")
+
+    if not isinstance(unit_11_result, dict):
+        raise RuntimeError("UNIT 12 UNIT 11 INVALID")
+
+    if unit_8_result is None:
+        unit_8_result = globals().get(
+            "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
+        )
+
+    symbol = unit_12_v5_symbol(config)
+
+    mode = os.getenv("BOT_MODE", "PAUSE").strip().upper()
+
+    if mode not in ("RUN", "PAUSE"):
+        raise RuntimeError("UNIT 12 BOT_MODE INVALID")
+
+    result = unit_12_v5_result(
+        unit_11_result, "IDLE", "NOT_EVALUATED", symbol
+    )
+
+    print("=" * 80, flush=True)
+    print("UNIT 12 V5 REFERENCE EXECUTION START", flush=True)
+    print("UNIT 12 BOT_MODE =", mode, flush=True)
+    print("UNIT 12 SYMBOL =", symbol, flush=True)
+
+    if mode == "PAUSE":
+        result["reason"] = "BOT_MODE_PAUSE"
+        result["skip_reason"] = "BOT_MODE_PAUSE"
+        return result
+
+    upstream_status = str(
+        unit_11_result.get("status", "")
+    ).upper()
+
+    if upstream_status in ("IDLE", "BLOCKED", "SKIPPED"):
+        result["reason"] = str(
+            unit_11_result.get("reason")
+            or unit_11_result.get("skip_reason")
+            or "NO_ACCEPTABLE_CANDIDATE"
+        )
+        result["skip_reason"] = result["reason"]
+        return result
+
+    if upstream_status not in ("READY", "PREPARED_READ_ONLY"):
+        result["status"] = "BLOCKED"
+        result["reason"] = "UNIT_11_NOT_READY"
+        result["skip_reason"] = result["reason"]
+        return result
+
+    try:
+        payload, quantity = unit_12_v5_validate_payload(
+            config, unit_11_result, unit_8_result
+        )
+    except Exception as exc:
+        result["status"] = "BLOCKED"
+        result["reason"] = str(exc)
+        result["skip_reason"] = result["reason"]
+        return result
+
+    client_id = payload["newClientOrderId"]
+
+    result["client_order_id"] = client_id
+    result["order_payload"] = dict(payload)
+
+    print("UNIT 12 CLIENT ORDER ID =", client_id, flush=True)
+    print("UNIT 12 QUANTITY =", format(quantity, "f"), flush=True)
+
+    # ORIGINAL V5 IN-PROCESS DUPLICATE PROTECTION
+
+    if client_id in _UNIT12_V5_ORDER_ATTEMPTS:
+        result["status"] = "ORDER_UNCERTAIN"
+        result["reason"] = "PREVIOUS_CLIENT_ORDER_ATTEMPT"
+        result["skip_reason"] = result["reason"]
+        return result
+
+    # ORIGINAL V5 FRESH AUTHENTICATED POSITION GET
+
+    result["position_check_attempted"] = True
+
+    try:
+        position_http, positions = unit_12_v5_request(
+            "GET", UNIT_12_V5_POSITION_PATH
+        )
+
+        result["authenticated_request"] = True
+        result["position_endpoint_access"] = True
+        result["position_http_status"] = position_http
+
+        if not 200 <= position_http < 300:
+            result["status"] = "POSITION_CHECK_FAILED"
+            result["reason"] = "WEEX_POSITION_HTTP_" + str(position_http)
+            result["skip_reason"] = result["reason"]
+            return result
+
+        active = unit_12_v5_active_positions(
+            positions, symbol
+        )
+
+    except Exception as exc:
+        result["status"] = "POSITION_CHECK_FAILED"
+        result["reason"] = "POSITION_REQUEST_ERROR"
+        result["skip_reason"] = result["reason"]
+
+        print(
+            "UNIT 12 POSITION ERROR =",
+            type(exc).__name__,
+            str(exc)[:180],
+            flush=True
+        )
+        return result
+
+    result["position_check_completed"] = True
+
+    if active:
+        result["status"] = "ACTIVE_POSITION_BLOCK"
+        result["reason"] = "NONZERO_POSITION_BLOCK_INITIAL_ENTRY"
+        result["skip_reason"] = result["reason"]
+        result["active_position_exists"] = True
+        result["active_positions"] = active
+        result["duplicate_initial_entry_blocked"] = True
+        return result
+
+    # ORIGINAL V5 SIGNED DEMO POST
+
+    result["initial_entry_permitted"] = True
+
+    _UNIT12_V5_ORDER_ATTEMPTS.add(client_id)
+
+    result["demo_submission_attempted"] = True
+    result["order_endpoint_access"] = True
+
+    print(
+        "UNIT 12 FRESH FLAT POSITION VERIFIED",
+        flush=True
+    )
+    print(
+        "UNIT 12 SENDING WEEX DEMO ORDER",
+        flush=True
     )
 
     try:
-        mode = unit_12_v2_mode()
-
-    except ValueError as exc:
-
-        return unit_12_v2_result(
-            "BLOCKED",
-            str(exc),
-            symbol,
-            unit_11_result,
+        order_http, response = unit_12_v5_request(
+            "POST", UNIT_12_V5_ORDER_PATH, payload
         )
+    except Exception as exc:
+        result["status"] = "ORDER_UNCERTAIN"
+        result["reason"] = "POST_RESPONSE_UNCERTAIN"
+        result["skip_reason"] = result["reason"]
 
-    prepared = unit_12_v2_prepare(
-        execution_config,
-        unit_11_result,
-        unit_8_result,
-    )
-
-    if prepared["status"] != "PREPARED":
-        return prepared
-
-    if mode == "PAUSE":
-
-        prepared["status"] = "PAUSED"
-        prepared["reason"] = (
-            "MASTER_BOT_MODE_PAUSE"
+        print(
+            "UNIT 12 DO NOT AUTOMATICALLY RETRY",
+            type(exc).__name__,
+            flush=True
         )
+        return result
 
-        return prepared
+    result["http_status"] = order_http
 
-    client_id = prepared[
-        "client_order_id"
-    ]
+    if not isinstance(response, dict):
+        result["status"] = "ORDER_UNCERTAIN"
+        result["reason"] = "UNRECOGNIZED_ORDER_RESPONSE"
+        result["skip_reason"] = result["reason"]
+        return result
 
-    payload = prepared[
-        "order_payload"
-    ]
-
-    with _UNIT_12_V2_LOCK:
-
-        if client_id in _UNIT_12_V2_ATTEMPTED_IDS:
-
-            prepared["status"] = "BLOCKED"
-            prepared["reason"] = (
-                "DUPLICATE_IN_PROCESS"
-            )
-
-            return prepared
-
-        try:
-
-            journal_clear, unresolved = (
-                unit_12_v2_journal_clear()
-            )
-
-        except Exception as exc:
-
-            prepared["status"] = "BLOCKED"
-            prepared["reason"] = (
-                "JOURNAL_READ_FAILED:"
-                + type(exc).__name__
-            )
-
-            return prepared
-
-        if not journal_clear:
-
-            prepared["status"] = "BLOCKED"
-            prepared["reason"] = (
-                "PREVIOUS_ORDER_RECONCILIATION_REQUIRED"
-            )
-            prepared["unresolved_orders"] = (
-                unresolved
-            )
-
-            return prepared
-
-        record = {
-            "timestamp": _u12_time.time(),
-            "status": "POST_STARTED",
-            "client_order_id": client_id,
-            "symbol": symbol,
-            "quantity": payload["quantity"],
-            "side": payload["side"],
-            "positionSide": payload[
-                "positionSide"
-            ],
-        }
-
-        try:
-
-            unit_12_v2_journal_write(
-                record
-            )
-
-        except Exception as exc:
-
-            prepared["status"] = "BLOCKED"
-            prepared["reason"] = (
-                "JOURNAL_WRITE_FAILED:"
-                + type(exc).__name__
-            )
-
-            return prepared
-
-        _UNIT_12_V2_ATTEMPTED_IDS.add(
-            client_id
+    if (
+        not 200 <= order_http < 300
+        or response.get("success") is not True
+    ):
+        result["status"] = "DEMO_REJECTED"
+        result["reason"] = (
+            "WEEX_REJECTED_"
+            + str(response.get("code") or "UNKNOWN")
         )
+        result["skip_reason"] = result["reason"]
 
-        prepared[
-            "demo_submission_attempted"
-        ] = True
-
-        try:
-
-            http_status, response = (
-                unit_12_v2_signed_post(
-                    payload
-                )
-            )
-
-        except Exception as exc:
-
-            prepared["status"] = (
-                "SUBMISSION_OUTCOME_UNKNOWN"
-            )
-
-            prepared["reason"] = (
-                "DEMO_POST_EXCEPTION:"
-                + type(exc).__name__
-            )
-
-            prepared["exchange_write"] = True
-
-            try:
-
-                unit_12_v2_journal_write({
-                    **record,
-                    "timestamp": _u12_time.time(),
-                    "status": "POST_UNKNOWN",
-                })
-
-            except Exception:
-                pass
-
-            return prepared
-
-        prepared["exchange_write"] = True
-        prepared["exchange_response"] = (
-            response
+        print(
+            "UNIT 12 WEEX RESPONSE =",
+            str(response)[:300],
+            flush=True
         )
+        return result
 
-        accepted = False
-        order_id = None
+    order_id = response.get("orderId")
 
-        if isinstance(response, dict):
+    if not order_id:
+        result["status"] = "ORDER_UNCERTAIN"
+        result["reason"] = "SUCCESS_RESPONSE_MISSING_ORDER_ID"
+        result["skip_reason"] = result["reason"]
+        return result
 
-            data = response.get("data")
+    result.update({
+        "status": "DEMO_SUBMITTED",
+        "reason": "NONE",
+        "skip_reason": "NONE",
+        "demo_submission_completed": True,
+        "demo_order_accepted": True,
+        "exchange_write": True,
+        "order_id": str(order_id),
+        "exchange_response": response,
+    })
 
-            if isinstance(data, dict):
+    print("UNIT 12 WEEX ORDER ID =", order_id, flush=True)
+    print("UNIT 12 STATUS = DEMO_SUBMITTED", flush=True)
+    print("UNIT 12 FILL VERIFIED = False", flush=True)
+    print("UNIT 12 REAL CASH EXECUTION = DISABLED", flush=True)
 
-                order_id = (
-                    data.get("orderId")
-                    or data.get("order_id")
-                )
+    return result
 
-            order_id = (
-                order_id
-                or response.get("orderId")
-                or response.get("order_id")
-            )
-
-            accepted = (
-                200 <= http_status < 300
-                and response.get("success") is True
-                and bool(order_id)
-            )
-
-        if accepted:
-
-            prepared["status"] = (
-                "ACCEPTED_NOT_FILL_VERIFIED"
-            )
-
-            prepared["reason"] = (
-                "WEEX_DEMO_ORDER_ACCEPTED"
-            )
-
-            prepared[
-                "demo_submission_completed"
-            ] = True
-
-            prepared[
-                "demo_order_accepted"
-            ] = True
-
-            prepared["order_id"] = (
-                str(order_id)
-            )
-
-            journal_status = (
-                "ACCEPTED_PENDING_RECONCILIATION"
-            )
-
-        elif http_status >= 400:
-
-            prepared["status"] = (
-                "REJECTED"
-            )
-
-            prepared["reason"] = (
-                "WEEX_DEMO_HTTP_REJECTION"
-            )
-
-            journal_status = (
-                "POST_UNKNOWN"
-            )
-
-            # HTTP rejection alone is not proof
-            # that the exchange has no order.
-            # Reconcile before permitting retry.
-
-        else:
-
-            prepared["status"] = (
-                "SUBMISSION_OUTCOME_UNKNOWN"
-            )
-
-            prepared["reason"] = (
-                "WEEX_RESPONSE_NOT_CONFIRMED"
-            )
-
-            journal_status = (
-                "POST_UNKNOWN"
-            )
-
-        try:
-
-            unit_12_v2_journal_write({
-                **record,
-                "timestamp": _u12_time.time(),
-                "status": journal_status,
-                "http_status": http_status,
-                "order_id": order_id,
-            })
-
-        except Exception:
-
-            prepared["reason"] += (
-                ":JOURNAL_RESPONSE_SAVE_FAILED"
-            )
-
-        return prepared
-
-
-# ============================================================
-# 12.9 HYBRID ADAPTER
-# ============================================================
 
 def fresh_unit_12_hybrid_adapter(
     execution_config,
     unit_11_result,
 ):
 
-    unit_8_result = globals().get(
+    account = globals().get(
         "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
     )
-
-    if not isinstance(unit_8_result, dict):
-
-        unit_8_result = globals().get(
-            "FRESH_UNIT_8_RESULT"
-        )
 
     result = fresh_reconstruction_unit_12(
         execution_config,
         unit_11_result,
-        unit_8_result,
+        account,
     )
 
-    print(
-        "UNIT 12 VERSION =",
-        UNIT_12_V2_VERSION,
-        flush=True
-    )
+    if result.get("real_submission_attempted") is not False:
+        raise RuntimeError("UNIT 12 REAL CASH SAFETY FAILURE")
 
-    print(
-        "UNIT 12 MARKET SYMBOL =",
-        result["market_symbol"],
-        flush=True
-    )
-
-    print(
-        "UNIT 12 STATUS =",
-        result["status"],
-        flush=True
-    )
-
-    print(
-        "UNIT 12 REASON =",
-        result["reason"],
-        flush=True
-    )
-
+    print("UNIT 12 STATUS =", result["status"], flush=True)
+    print("UNIT 12 REASON =", result["reason"], flush=True)
     print(
         "UNIT 12 DEMO SUBMISSION ATTEMPTED =",
         result["demo_submission_attempted"],
         flush=True
     )
-
     print(
         "UNIT 12 DEMO ORDER ACCEPTED =",
         result["demo_order_accepted"],
         flush=True
     )
-
-    print(
-        "UNIT 12 FILL VERIFIED =",
-        result["fill_verified"],
-        flush=True
-    )
-
     print(
         "UNIT 12 EXCHANGE WRITE =",
         result["exchange_write"],
-        flush=True
-    )
-
-    print(
-        "UNIT 12 REAL CASH EXECUTION = DISABLED",
         flush=True
     )
 
@@ -12024,177 +11473,7 @@ def fresh_unit_12_hybrid_adapter(
 
 
 # ============================================================
-# 12.10 LOCAL VALIDATION - NO EXCHANGE WRITE
-# ============================================================
-
-def unit_12_validation_v2():
-
-    tests = []
-
-    def check(name, condition):
-
-        tests.append((
-            name,
-            bool(condition)
-        ))
-
-    check(
-        "DEMO_ONLY_ENDPOINT",
-        UNIT_12_V2_ORDER_PATH
-        == "/capi/v3/sim/order"
-    )
-
-    check(
-        "NO_PRODUCTION_ENDPOINT",
-        "/sim/" in UNIT_12_V2_ORDER_PATH
-    )
-
-    check(
-        "UNIVERSAL_SYMBOL",
-        unit_12_v2_symbol({
-            "market_symbol": "NEARUSDT"
-        }) != ""
-    )
-
-    check(
-        "DECIMAL_VALIDATION",
-        unit_12_v2_decimal("2")
-        == _U12Decimal("2")
-    )
-
-    check(
-        "QUANTITY_FORMAT",
-        unit_12_v2_quantity_text("2.000")
-        == "2.000"
-    )
-
-    check(
-        "CLIENT_ID_STABLE",
-        unit_12_v2_client_id(
-            "NEARUSDT",
-            "LONG",
-            "test-candle-1"
-        )
-        == unit_12_v2_client_id(
-            "NEARUSDT",
-            "LONG",
-            "test-candle-1"
-        )
-    )
-
-    check(
-        "CLIENT_ID_DIFFERENT_SIGNAL",
-        unit_12_v2_client_id(
-            "NEARUSDT",
-            "LONG",
-            "test-candle-1"
-        )
-        != unit_12_v2_client_id(
-            "NEARUSDT",
-            "LONG",
-            "test-candle-2"
-        )
-    )
-
-    check(
-        "RESULT_DEFAULT_NO_WRITE",
-        unit_12_v2_result(
-            "IDLE",
-            "TEST",
-            "NEARUSDT"
-        )["exchange_write"] is False
-    )
-
-    check(
-        "RESULT_REAL_CASH_DISABLED",
-        unit_12_v2_result(
-            "IDLE",
-            "TEST",
-            "NEARUSDT"
-        )["real_cash_execution"] is False
-    )
-
-    check(
-        "POSITION_MANAGEMENT_INDEPENDENT",
-        unit_12_v2_result(
-            "IDLE",
-            "TEST",
-            "NEARUSDT"
-        )["position_management_available"]
-        is True
-    )
-
-    passed = sum(
-        1 for _, ok in tests if ok
-    )
-
-    failed = len(tests) - passed
-
-    for name, ok in tests:
-
-        print(
-            "UNIT 12 V2 TEST",
-            name,
-            "=",
-            "PASS" if ok else "FAIL",
-            flush=True
-        )
-
-    print(
-        "UNIT 12 TESTS PASSED =",
-        passed,
-        flush=True
-    )
-
-    print(
-        "UNIT 12 TESTS FAILED =",
-        failed,
-        flush=True
-    )
-
-    if failed:
-        raise RuntimeError(
-            "UNIT_12_V2_VALIDATION_FAILED"
-        )
-
-    return True
-
-
-# ============================================================
-# 12.11 EXECUTE UNIT 12
-# ============================================================
-
-FRESH_UNIT_12_VALIDATION_READY = (
-    unit_12_validation_v2()
-)
-
-FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
-    fresh_unit_12_hybrid_adapter(
-        FRESH_RECONSTRUCTION_CONFIG,
-        FRESH_RECONSTRUCTION_UNIT_11_RESULT,
-    )
-)
-
-FRESH_UNIT_12_OPTIMIZATION_READY = (
-    FRESH_UNIT_12_VALIDATION_READY
-)
-
-print(
-    "FRESH RECONSTRUCTION UNIT 12 RESULT =",
-    FRESH_RECONSTRUCTION_UNIT_12_RESULT[
-        "status"
-    ],
-    flush=True
-)
-
-print(
-    "UNIT 12 UNIVERSAL OPTIMIZATION READY =",
-    FRESH_UNIT_12_OPTIMIZATION_READY,
-    flush=True
-)
-
-# ============================================================
-# END COMPLETE UNIT 12 V2 REPLACEMENT
+# END COMPLETE UNIT 12 V5
 # UNIT 13 FOLLOWS
 # ============================================================
 
