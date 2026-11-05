@@ -7814,66 +7814,74 @@ def u8v16_rules(item):
     }
 
 
+
+# ============================================================
+# START UNIT 8 V16 DEMO SYMBOL RESOLVER CORRECTION
+# ZERO INDENTATION
+# ============================================================
+
 def u8v16_resolve(symbol, contracts, api_symbols):
-    # Candidate generation is not evidence of support.
-    # Only the actual exchange directory establishes support.
 
-    candidates = (
-        symbol,
-        symbol[:-4] + "SUSDT"
-    )
+    symbol = str(symbol).strip().upper()
 
-    eligible = []
-
-    for candidate in candidates:
-        item = contracts.get(candidate)
-
-        if item is not None and candidate in api_symbols:
-            eligible.append((candidate, item))
-
-    if not eligible:
-        found = any(
-            candidate in contracts
-            for candidate in candidates
-        )
-
+    if not symbol.endswith("USDT"):
         return {
             "status": "UNSUPPORTED",
-            "reason": (
-                "NOT_API_TRADABLE"
-                if found else "NOT_IN_SIM_DIRECTORY"
-            ),
+            "reason": "MARKET_SYMBOL_NOT_USDT",
             "symbol": None,
             "rules": None,
         }
 
-    if len(eligible) != 1:
+    base = symbol[:-4]
+    demo_candidate = base + "SUSDT"
+
+    # A simulation-specific contract takes priority.
+    # A normal market symbol is not automatically
+    # a valid demo-order symbol.
+
+    item = contracts.get(demo_candidate)
+
+    if item is None:
         return {
-            "status": "UNVERIFIED",
-            "reason": "AMBIGUOUS_SIM_SYMBOL",
+            "status": "UNSUPPORTED",
+            "reason": "DEMO_SYMBOL_NOT_IN_SIM_DIRECTORY",
             "symbol": None,
             "rules": None,
         }
 
-    selected, item = eligible[0]
+    if demo_candidate not in api_symbols:
+        return {
+            "status": "UNSUPPORTED",
+            "reason": "DEMO_SYMBOL_NOT_API_TRADABLE",
+            "symbol": None,
+            "rules": None,
+        }
 
     try:
         rules = u8v16_rules(item)
 
-        if (
-            rules["base_asset"] != symbol[:-4]
-            or rules["quote_asset"] != "USDT"
-            or rules["margin_asset"] not in ("USDT", "SUSDT")
-            or rules["contract_type"] not in (
-                "PERPETUAL", "TRADIFI_PERPETUAL"
-            )
+        if rules["symbol"] != demo_candidate:
+            raise RuntimeError("DEMO_SYMBOL_IDENTITY_MISMATCH")
+
+        if rules["base_asset"] != base:
+            raise RuntimeError("BASE_ASSET_MISMATCH")
+
+        if rules["quote_asset"] not in ("USDT", "SUSDT"):
+            raise RuntimeError("QUOTE_ASSET_MISMATCH")
+
+        if rules["margin_asset"] not in ("USDT", "SUSDT"):
+            raise RuntimeError("MARGIN_ASSET_MISMATCH")
+
+        if rules["contract_type"] not in (
+            "PERPETUAL",
+            "TRADIFI_PERPETUAL",
         ):
-            raise RuntimeError("CONTRACT_IDENTITY_MISMATCH")
+            raise RuntimeError("CONTRACT_TYPE_MISMATCH")
 
     except Exception as exc:
         return {
             "status": "UNVERIFIED",
-            "reason": "CONTRACT_RULES_UNVERIFIED",
+            "reason": "DEMO_CONTRACT_RULES_UNVERIFIED",
             "symbol": None,
             "rules": None,
             "error": str(exc),
@@ -7881,11 +7889,15 @@ def u8v16_resolve(symbol, contracts, api_symbols):
 
     return {
         "status": "VERIFIED",
-        "reason": "SIM_CONTRACT_DIRECTORY_MATCH",
-        "symbol": selected,
+        "reason": "SIM_SPECIFIC_CONTRACT_VERIFIED",
+        "symbol": demo_candidate,
         "rules": rules,
     }
 
+
+# ============================================================
+# END UNIT 8 V16 DEMO SYMBOL RESOLVER CORRECTION
+# ============================================================
 
 def u8v16_balance(payload):
     rows = payload if isinstance(payload, list) else [payload]
