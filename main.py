@@ -264,7 +264,7 @@ def unit_2_adapted_require(condition, reason):
 def unit_2_universal_symbol():
 
     symbol = os.getenv(
-        "WEEX_SYMBOL", "NEARUSDT"
+        "WEEX_SYMBOL", "BTCUSDT"
     ).strip().upper()
 
     symbol = symbol.replace("/", "").replace("-", "")
