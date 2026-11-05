@@ -8656,6 +8656,12 @@ def unit_8_v16_main():
     except Exception as exc:
         result["errors"]["demo_positions"] = str(exc)
 
+    
+    # ========================================================
+    # UNIT 8 V16 - WEEX DEMO CONTRACT DISCOVERY
+    # READ-ONLY - NO ORDER SUBMISSION
+    # ========================================================
+
     try:
         history = u8v16_rows(
             u8v16_get(
@@ -8671,8 +8677,112 @@ def unit_8_v16_main():
             history
         )
 
+        market_base = symbol[:-4].upper()
+
+        historical_demo_symbols = sorted({
+            str(row.get("symbol", "")).strip().upper()
+            for row in history
+            if isinstance(row, dict)
+            and row.get("symbol")
+        })
+
+        matching_history_symbols = [
+            item for item in historical_demo_symbols
+            if item.startswith(market_base)
+        ]
+
+        print(
+            "UNIT 8 HISTORICAL DEMO SYMBOLS =",
+            historical_demo_symbols,
+            flush=True
+        )
+
+        print(
+            "UNIT 8 MATCHING DEMO HISTORY SYMBOLS =",
+            matching_history_symbols,
+            flush=True
+        )
+
+        if sim_contracts is not None:
+
+            matching_sim_contracts = sorted(
+                item for item in sim_contracts
+                if item.startswith(market_base)
+            )
+
+            print(
+                "UNIT 8 MATCHING SIM DIRECTORY SYMBOLS =",
+                matching_sim_contracts,
+                flush=True
+            )
+
+            for contract_symbol in matching_sim_contracts:
+
+                contract = sim_contracts[
+                    contract_symbol
+                ]
+
+                print(
+                    "UNIT 8 SIM CONTRACT DETAILS =",
+                    {
+                        "symbol": contract_symbol,
+                        "baseAsset": contract.get(
+                            "baseAsset"
+                        ),
+                        "quoteAsset": contract.get(
+                            "quoteAsset"
+                        ),
+                        "marginAsset": contract.get(
+                            "marginAsset"
+                        ),
+                        "contractType": contract.get(
+                            "contractType"
+                        ),
+                        "minOrderSize": contract.get(
+                            "minOrderSize"
+                        ),
+                        "contractVal": contract.get(
+                            "contractVal"
+                        ),
+                    },
+                    flush=True
+                )
+
+        if sim_symbols is not None:
+
+            matching_api_symbols = sorted(
+                item for item in sim_symbols
+                if item.startswith(market_base)
+            )
+
+            print(
+                "UNIT 8 MATCHING SIM API SYMBOLS =",
+                matching_api_symbols,
+                flush=True
+            )
+
+        result["historical_demo_symbols"] = (
+            historical_demo_symbols
+        )
+
+        result["matching_demo_history_symbols"] = (
+            matching_history_symbols
+        )
+
+        print(
+            "UNIT 8 DEMO DISCOVERY EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
     except Exception as exc:
+
         result["errors"]["demo_history"] = str(exc)
+
+        print(
+            "UNIT 8 DEMO DISCOVERY ERROR =",
+            str(exc),
+            flush=True
+        )
 
     try:
         account = u8v16_get(
