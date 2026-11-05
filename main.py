@@ -15442,6 +15442,131 @@ print("=" * 80, flush=True)
 # ZERO INDENTATION
 # ============================================================
 
+# ============================================================
+# START UNIT 11-12 DEMO HANDOVER DIAGNOSTIC V1
+# ZERO INDENTATION
+# NO EXCHANGE WRITE
+# ============================================================
+
+def u1112_handover_diagnostic():
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
+    )
+
+    unit8 = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
+    )
+
+    unit11 = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_11_RESULT"
+    )
+
+    if not all(
+        isinstance(item, dict)
+        for item in (config, unit8, unit11)
+    ):
+        print(
+            "UNIT 11-12 DIAGNOSTIC = MISSING_INPUT",
+            flush=True
+        )
+        return False
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 11-12 HANDOVER DIAGNOSTIC START",
+        flush=True
+    )
+
+    print(
+        "UNIT 11 STATUS =",
+        unit11.get("status"),
+        flush=True
+    )
+
+    print(
+        "UNIT 11 INSTRUCTION PRESENT =",
+        isinstance(
+            unit11.get("order_instruction"),
+            dict
+        ),
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DEMO CONTRACT VERIFIED =",
+        unit8.get("demo_contract_verified"),
+        flush=True
+    )
+
+    # Preparation only: never call the signed POST.
+    prepared = unit_12_v2_prepare(
+        config,
+        unit11,
+        unit8
+    )
+
+    print(
+        "UNIT 12 PREPARATION STATUS =",
+        prepared.get("status"),
+        flush=True
+    )
+
+    print(
+        "UNIT 12 PREPARATION REASON =",
+        prepared.get("reason"),
+        flush=True
+    )
+
+    print(
+        "UNIT 12 CLIENT ID PRESENT =",
+        bool(prepared.get("client_order_id")),
+        flush=True
+    )
+
+    print(
+        "UNIT 12 ORDER PAYLOAD PRESENT =",
+        isinstance(
+            prepared.get("order_payload"),
+            dict
+        ),
+        flush=True
+    )
+
+    print(
+        "UNIT 11-12 DIAGNOSTIC EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return prepared.get("status") == "PREPARED"
+
+
+_U1112_ORIGINAL_SCAN_REFRESH = (
+    scan_refresh_entry_pipeline
+)
+
+def scan_refresh_entry_pipeline():
+
+    prepared, account = (
+        _U1112_ORIGINAL_SCAN_REFRESH()
+    )
+
+    u1112_handover_diagnostic()
+
+    return prepared, account
+
+
+print(
+    "UNIT 11-12 DIAGNOSTIC INSTALLED = TRUE",
+    flush=True
+)
+
+# ============================================================
+# END UNIT 11-12 DEMO HANDOVER DIAGNOSTIC V1
+# ZERO INDENTATION
+# ============================================================
 scan_forever()
 
 # ============================================================
