@@ -11123,24 +11123,45 @@ def unit_12_v5_active_positions(rows, symbol):
     return active
 
 
+
+# ============================================================
+# START UNIT 12 V5 PAYLOAD COMPATIBILITY CORRECTION
+# ZERO INDENTATION
+# ============================================================
+
 def unit_12_v5_validate_payload(config, upstream, account):
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT 12 CONFIG MISSING")
+
+    if not isinstance(upstream, dict):
+        raise RuntimeError("UNIT 12 UNIT 11 RESULT MISSING")
 
     if not isinstance(account, dict):
         raise RuntimeError("UNIT 12 ACCOUNT MISSING")
 
     symbol = unit_12_v5_symbol(config)
 
+    if upstream.get("status") not in (
+        "READY",
+        "PREPARED_READ_ONLY",
+    ):
+        raise RuntimeError("UNIT 12 UNIT 11 NOT PREPARED")
+
+    if upstream.get("signal_qualified") is not True:
+        raise RuntimeError("UNIT 12 SIGNAL NOT QUALIFIED")
+
+    if upstream.get("trade_plan_ready") is not True:
+        raise RuntimeError("UNIT 12 TRADE PLAN NOT READY")
+
     if account.get("demo_contract_verified") is not True:
-        raise RuntimeError("UNIT 12 CONTRACT UNVERIFIED")
+        raise RuntimeError("UNIT 12 CONTRACT NOT VERIFIED")
 
     if account.get("demo_balance_verified") is not True:
-        raise RuntimeError("UNIT 12 BALANCE UNVERIFIED")
+        raise RuntimeError("UNIT 12 BALANCE NOT VERIFIED")
 
     if account.get("demo_positions_read_verified") is not True:
-        raise RuntimeError("UNIT 12 POSITION READ UNVERIFIED")
-
-    if account.get("demo_history_read_verified") is not True:
-        raise RuntimeError("UNIT 12 HISTORY UNVERIFIED")
+        raise RuntimeError("UNIT 12 POSITIONS NOT VERIFIED")
 
     if account.get("account_can_trade") is not True:
         raise RuntimeError("UNIT 12 ACCOUNT CANNOT TRADE")
@@ -11151,67 +11172,154 @@ def unit_12_v5_validate_payload(config, upstream, account):
     instruction = upstream.get("order_instruction")
 
     if not isinstance(instruction, dict):
-        instruction = upstream.get("order_payload")
+        raise RuntimeError("UNIT 12 INSTRUCTION MISSING")
 
-    if not isinstance(instruction, dict):
-        raise RuntimeError("UNIT 12 ORDER INSTRUCTION MISSING")
+    plan = upstream.get("trade_plan")
 
-    direction = str(
-        instruction.get("positionSide")
-        or upstream.get("direction", "")
-    ).upper()
+    if not isinstance(plan, dict):
+        raise RuntimeError("UNIT 12 TRADE PLAN MISSING")
+
+    if instruction.get("trade_plan") != plan:
+        raise RuntimeError("UNIT 12 TRADE PLAN HANDOVER MISMATCH")
+
+    if str(instruction.get("market_symbol", "")).upper() != symbol:
+        raise RuntimeError("UNIT 12 INSTRUCTION SYMBOL MISMATCH")
+
+    if str(instruction.get("demo_order_symbol", "")).upper() != symbol:
+        raise RuntimeError("UNIT 12 DEMO ORDER SYMBOL MISMATCH")
+
+    if instruction.get("position_action") != "OPEN":
+        raise RuntimeError("UNIT 12 NOT AN OPEN INSTRUCTION")
+
+    if instruction.get("market_type") != "DEMO_FUTURES":
+        raise RuntimeError("UNIT 12 NOT A DEMO INSTRUCTION")
+
+    direction = str(instruction.get("direction", "")).upper()
 
     if direction not in ("LONG", "SHORT"):
-        raise RuntimeError("UNIT 12 DIRECTION INVALID")
+        raise RuntimeError("UNIT 12 INVALID DIRECTION")
 
-    expected_side = "BUY" if direction == "LONG" else "SELL"
+    if str(upstream.get("direction", "")).upper() != direction:
+        raise RuntimeError("UNIT 12 DIRECTION HANDOVER MISMATCH")
 
-    if str(instruction.get("symbol", "")).upper() != symbol:
-        raise RuntimeError("UNIT 12 PAYLOAD SYMBOL MISMATCH")
+    if str(plan.get("direction", "")).upper() != direction:
+        raise RuntimeError("UNIT 12 PLAN DIRECTION MISMATCH")
 
-    if str(instruction.get("side", "")).upper() != expected_side:
-        raise RuntimeError("UNIT 12 PAYLOAD SIDE MISMATCH")
+    if str(plan.get("market_symbol", "")).upper() != symbol:
+        raise RuntimeError("UNIT 12 PLAN SYMBOL MISMATCH")
 
-    if str(instruction.get("type", "")).upper() != "MARKET":
+    if instruction.get("strategy_mode") != upstream.get("active_mode"):
+        raise RuntimeError("UNIT 12 STRATEGY MODE MISMATCH")
+
+    if str(instruction.get("order_type", "")).upper() != "MARKET":
         raise RuntimeError("UNIT 12 ORDER TYPE INVALID")
 
     quantity = unit_12_v5_decimal(
-        instruction.get("quantity"), "QUANTITY"
+        instruction.get("quantity"),
+        "QUANTITY",
     )
 
     minimum = unit_12_v5_decimal(
-        account.get("minimum_quantity"), "MINIMUM QUANTITY"
+        account.get("minimum_quantity"),
+        "MINIMUM QUANTITY",
     )
 
     step = unit_12_v5_decimal(
-        account.get("quantity_step"), "QUANTITY STEP"
+        account.get("quantity_step"),
+        "QUANTITY STEP",
     )
 
     if quantity < minimum or quantity % step != 0:
-        raise RuntimeError("UNIT 12 QUANTITY INVALID")
+        raise RuntimeError("UNIT 12 CONTRACT QUANTITY INVALID")
 
-    half = quantity / 2
+    if unit_12_v5_decimal(
+        plan.get("quantity"),
+        "PLAN QUANTITY",
+    ) != quantity:
+        raise RuntimeError("UNIT 12 PLAN QUANTITY MISMATCH")
+
+    if unit_12_v5_decimal(
+        upstream.get("quantity"),
+        "UNIT 11 QUANTITY",
+    ) != quantity:
+        raise RuntimeError("UNIT 12 UNIT 11 QUANTITY MISMATCH")
+
+    half = quantity / Decimal("2")
 
     if half < minimum or half % step != 0:
-        raise RuntimeError("UNIT 12 HEDGE HALF INVALID")
+        raise RuntimeError("UNIT 12 HALF QUANTITY INVALID")
+
+    if unit_12_v5_decimal(
+        instruction.get("half_quantity"),
+        "INSTRUCTION HALF QUANTITY",
+    ) != half:
+        raise RuntimeError("UNIT 12 HALF QUANTITY MISMATCH")
 
     original_id = instruction.get("newClientOrderId")
 
+    if not original_id:
+        analysis = globals().get(
+            "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT"
+        )
+
+        if not isinstance(analysis, dict):
+            raise RuntimeError("UNIT 12 SIGNAL IDENTITY MISSING")
+
+        candle_id = analysis.get("latest_close_time_ms")
+
+        if (
+            not isinstance(candle_id, int)
+            or isinstance(candle_id, bool)
+            or candle_id <= 0
+        ):
+            raise RuntimeError("UNIT 12 CANDLE ID INVALID")
+
+        if not 0 <= int(time.time() * 1000) - candle_id <= 120000:
+            raise RuntimeError("UNIT 12 SIGNAL CANDLE STALE")
+
+        original_id = (
+            symbol + "-"
+            + str(instruction["strategy_mode"]) + "-"
+            + direction + "-"
+            + str(candle_id)
+        )
+
     client_id = unit_12_v5_client_order_id(
-        original_id, direction
+        original_id,
+        direction,
     )
 
     payload = {
         "symbol": symbol,
-        "side": expected_side,
+        "side": "BUY" if direction == "LONG" else "SELL",
         "positionSide": direction,
         "type": "MARKET",
         "quantity": format(quantity, "f"),
         "newClientOrderId": client_id,
     }
 
+    print(
+        "UNIT 12 UNIT 11 INTERNAL INSTRUCTION = ACCEPTED",
+        flush=True
+    )
+
+    print(
+        "UNIT 12 WEEX PAYLOAD CONVERSION = PASS",
+        flush=True
+    )
+
+    print(
+        "UNIT 12 CONTRACT QUANTITY =",
+        format(quantity, "f"),
+        flush=True
+    )
+
     return payload, quantity
 
+
+# ============================================================
+# END UNIT 12 V5 PAYLOAD COMPATIBILITY CORRECTION
+# ============================================================
 
 def fresh_reconstruction_unit_12(
     config,
