@@ -14185,31 +14185,36 @@ def scan_refresh_entry_pipeline():
 
 
 # ============================================================
-# START SCAN UNIT 12 REFERENCE HANDOVER
+# START UNIT 12 V5 SCANNER HANDOVER CORRECTION
 # ZERO INDENTATION
 # ============================================================
 
 def scan_process_unit12(prepared, account):
 
+    global FRESH_RECONSTRUCTION_UNIT_8_RESULT
     global FRESH_RECONSTRUCTION_UNIT_12_RESULT
 
     if not isinstance(prepared, dict):
-        raise RuntimeError("SCAN UNIT 11 INVALID")
+        raise RuntimeError("SCAN UNIT 11 RESULT MISSING")
 
     if not isinstance(account, dict):
-        raise RuntimeError("SCAN UNIT 8 INVALID")
+        raise RuntimeError("SCAN UNIT 8 RESULT MISSING")
 
     FRESH_RECONSTRUCTION_UNIT_8_RESULT = account
 
-    result = fresh_unit_12_hybrid_adapter(
+    result = fresh_reconstruction_unit_12(
         FRESH_RECONSTRUCTION_CONFIG,
         prepared,
+        account,
     )
 
     if not isinstance(result, dict):
-        raise RuntimeError("SCAN UNIT 12 INVALID RESULT")
+        raise RuntimeError("SCAN UNIT 12 RESULT INVALID")
 
     FRESH_RECONSTRUCTION_UNIT_12_RESULT = result
+
+    if result.get("real_submission_attempted") is not False:
+        raise RuntimeError("UNIT 12 REAL CASH SAFETY FAILURE")
 
     print(
         "SCAN UNIT 12 STATUS =",
@@ -14223,11 +14228,29 @@ def scan_process_unit12(prepared, account):
         flush=True
     )
 
+    print(
+        "SCAN UNIT 12 DEMO SUBMISSION ATTEMPTED =",
+        result.get("demo_submission_attempted"),
+        flush=True
+    )
+
+    print(
+        "SCAN UNIT 12 DEMO ORDER ACCEPTED =",
+        result.get("demo_order_accepted"),
+        flush=True
+    )
+
+    print(
+        "SCAN UNIT 12 ORDER ID =",
+        result.get("order_id"),
+        flush=True
+    )
+
     return result
 
 
 # ============================================================
-# END SCAN UNIT 12 REFERENCE HANDOVER
+# END UNIT 12 V5 SCANNER HANDOVER CORRECTION
 # ============================================================
 
 
