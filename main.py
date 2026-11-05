@@ -9129,9 +9129,30 @@ def fresh_reconstruction_unit_9(
         unit_8_result.get("demo_order_symbol") or ""
     ).strip().upper()
 
-    if verified_symbol != symbol:
+    
+# ============================================================
+# UNIT 9 VERIFIED DEMO SYMBOL CORRECTION
+# ZERO INDENTATION REFERENCE
+# ============================================================
+
+    expected_demo_symbol = (
+        symbol[:-4] + "SUSDT"
+    )
+
+    if (
+        verified_symbol != expected_demo_symbol
+        or unit_8_result.get(
+            "simulation_contract_verified"
+        ) is not True
+        or unit_8_result.get(
+            "simulation_api_trading_verified"
+        ) is not True
+    ):
         return finish(
-            u9_idle("SYMBOL_MISMATCH", symbol)
+            u9_idle(
+                "DEMO_SYMBOL_NOT_VERIFIED",
+                symbol
+            )
         )
 
     contract = unit_8_result.get("contract")
