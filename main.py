@@ -15195,9 +15195,257 @@ print(
     flush=True
 )
 
+
+# ============================================================
+# START UNIT 7-8 VERIFIED CONTRACT HANDOVER V2
+# ZERO INDENTATION
+# NO EXCHANGE WRITE
+# ============================================================
+
+import time as _u78_time
+from decimal import Decimal as _U78_Decimal
+
+U78_MAX_CONTRACT_AGE_SECONDS = 120
+
+# Keep the original Unit 7 validator.
+_U78_V2_ORIGINAL = unit_7_v12_contract
+
+
+def u78_v2_decimal(value, name):
+
+    try:
+        result = _U78_Decimal(str(value))
+    except Exception as exc:
+        raise RuntimeError(
+            "U78 INVALID " + name
+        ) from exc
+
+    if not result.is_finite() or result <= 0:
+        raise RuntimeError(
+            "U78 NONPOSITIVE " + name
+        )
+
+    return result
+
+
+def u78_v2_contract(config):
+
+    # Preserve original Unit 7 behavior when
+    # its own verified configuration is complete.
+    original = _U78_V2_ORIGINAL(config)
+
+    if original.get("verified") is True:
+        return original
+
+    exchange = config.get("exchange", {})
+    if not isinstance(exchange, dict):
+        return original
+
+    symbol = str(
+        exchange.get("market_symbol", "")
+    ).strip().upper()
+
+    # Unit 8 result from the preceding scan.
+    unit8 = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
+    )
+
+    if not isinstance(unit8, dict):
+        return original
+
+    # Never mix symbols or environments.
+    if (
+        config.get("execution_environment") != "DEMO"
+        or config.get("real_cash_execution_enabled")
+            is not False
+        or unit8.get("market_symbol") != symbol
+        or unit8.get("demo_order_symbol") != symbol
+    ):
+        return original
+
+    # Require all four independently reported
+    # WEEX contract-verification results.
+    if not all((
+        unit8.get("market_contract_verified") is True,
+        unit8.get("simulation_contract_verified") is True,
+        unit8.get(
+            "simulation_contract_rules_verified"
+        ) is True,
+        unit8.get("demo_contract_verified") is True
+    )):
+        return original
+
+    # Require fresh verification.
+    try:
+        checked_ms = int(
+            unit8["checked_at_ms"]
+        )
+    except (KeyError, TypeError, ValueError):
+        return original
+
+    now_ms = int(_u78_time.time() * 1000)
+
+    age_ms = now_ms - checked_ms
+
+    if (
+        age_ms < 0
+        or age_ms >
+            U78_MAX_CONTRACT_AGE_SECONDS * 1000
+    ):
+        return original
+
+    # Read the values Unit 8 actually verified.
+    try:
+        minimum = u78_v2_decimal(
+            unit8.get("minimum_quantity"),
+            "MINIMUM QUANTITY"
+        )
+
+        step = u78_v2_decimal(
+            unit8.get("quantity_step"),
+            "QUANTITY STEP"
+        )
+
+        price_step = u78_v2_decimal(
+            unit8.get("price_step"),
+            "PRICE STEP"
+        )
+
+        multiplier = u78_v2_decimal(
+            unit8.get("contract_multiplier"),
+            "CONTRACT MULTIPLIER"
+        )
+
+    except RuntimeError:
+        return original
+
+    # Ensure minimum quantity can be represented
+    # exactly using the exchange quantity step.
+    if minimum % step != 0:
+        return original
+
+    # Verify original Unit 7 symbol invariants.
+    if not all((
+        symbol.endswith("USDT"),
+        len(symbol) > 4,
+        exchange.get("base_coin") == symbol[:-4],
+        exchange.get("quote_coin") == "USDT"
+    )):
+        return original
+
+    # Return the same contract interface expected
+    # by the existing Unit 7 sizing functions.
+    #
+    # No fabricated contract_value field is used.
+    # Unit 8's verified multiplier is retained.
+    contract = {
+        "verified": True,
+        "symbol": symbol,
+        "quantity_step": step,
+        "minimum_quantity": minimum,
+        "contract_multiplier": multiplier,
+        "price_step": price_step,
+        "reason": "VERIFIED",
+        "verification_source":
+            "UNIT8_V16_WEEX_VERIFIED_CONTRACT",
+        "verification_time_ms": checked_ms
+    }
+
+    print(
+        "UNIT 7-8 VERIFIED CONTRACT HANDOVER = PASS",
+        flush=True
+    )
+
+    print(
+        "UNIT 7-8 SYMBOL =",
+        symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 7-8 MINIMUM QUANTITY =",
+        minimum,
+        flush=True
+    )
+
+    print(
+        "UNIT 7-8 QUANTITY STEP =",
+        step,
+        flush=True
+    )
+
+    print(
+        "UNIT 7-8 PRICE STEP =",
+        price_step,
+        flush=True
+    )
+
+    print(
+        "UNIT 7-8 CONTRACT MULTIPLIER =",
+        multiplier,
+        flush=True
+    )
+
+    print(
+        "UNIT 7-8 METADATA AGE MS =",
+        age_ms,
+        flush=True
+    )
+
+    print(
+        "UNIT 7-8 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    return contract
+
+
+# Activate the corrected Unit 7 contract adapter.
+unit_7_v12_contract = u78_v2_contract
+
+print("=" * 80, flush=True)
+
+print(
+    "UNIT 7-8 HANDOVER VERSION = V2",
+    flush=True
+)
+
+print(
+    "UNIT 7 ORIGINAL SIZING = PRESERVED",
+    flush=True
+)
+
+print(
+    "UNIT 7 ORIGINAL HEDGE POLICY = PRESERVED",
+    flush=True
+)
+
+print(
+    "UNIT 7 ORIGINAL BACKUP POLICY = PRESERVED",
+    flush=True
+)
+
+print(
+    "UNIT 8 ORIGINAL WEEX INTERFACE = PRESERVED",
+    flush=True
+)
+
+print(
+    "UNIT 7-8 DEMO ORDER SUBMISSION = NOT ENABLED",
+    flush=True
+)
+
+print("=" * 80, flush=True)
+
+# ============================================================
+# END UNIT 7-8 VERIFIED CONTRACT HANDOVER V2
+# ZERO INDENTATION
+# ============================================================
+
 scan_forever()
 
 # ============================================================
 # END COMPLETE CONTINUOUS SCAN CONTROLLER V2
 # ZERO INDENTATION
 # ============================================================
+
