@@ -7871,6 +7871,7 @@ def u8v16_rules(item):
             flush=True
         )
 
+
 # ============================================================
 # START UNIT 8 V16 DEMO SYMBOL RESOLVER CORRECTION
 # ZERO INDENTATION
@@ -7891,69 +7892,178 @@ def u8v16_resolve(symbol, contracts, api_symbols):
     base = symbol[:-4]
     demo_candidate = base + "SUSDT"
 
-    # A simulation-specific contract takes priority.
-    # A normal market symbol is not automatically
-    # a valid demo-order symbol.
+    if not isinstance(contracts, dict):
+        return {
+            "status": "UNVERIFIED",
+            "reason": "SIM_CONTRACT_DIRECTORY_INVALID",
+            "symbol": None,
+            "rules": None,
+        }
+
+    if not isinstance(api_symbols, (set, list, tuple)):
+        return {
+            "status": "UNVERIFIED",
+            "reason": "SIM_API_DIRECTORY_INVALID",
+            "symbol": None,
+            "rules": None,
+        }
+
+    api_symbols = {
+        str(value).strip().upper()
+        for value in api_symbols
+    }
+
+    # First check for an exact demo-specific contract.
 
     item = contracts.get(demo_candidate)
 
-    if item is None:
-        return {
-            "status": "UNSUPPORTED",
-            "reason": "DEMO_SYMBOL_NOT_IN_SIM_DIRECTORY",
-            "symbol": None,
-            "rules": None,
-        }
+    if (
+        item is not None
+        and demo_candidate in api_symbols
+    ):
+        directory_symbol = demo_candidate
+        mapping_mode = "EXACT_DEMO_CONTRACT"
 
-    if demo_candidate not in api_symbols:
-        return {
-            "status": "UNSUPPORTED",
-            "reason": "DEMO_SYMBOL_NOT_API_TRADABLE",
-            "symbol": None,
-            "rules": None,
-        }
+    else:
+        # Some WEEX simulation directories list the
+        # underlying market symbol instead of the
+        # historical demo-order symbol.
+
+        item = contracts.get(symbol)
+
+        if item is None:
+            return {
+                "status": "UNSUPPORTED",
+                "reason": "BTC_CONTRACT_NOT_IN_SIM_DIRECTORY",
+                "symbol": None,
+                "rules": None,
+            }
+
+        if symbol not in api_symbols:
+            return {
+                "status": "UNSUPPORTED",
+                "reason": "MARKET_SYMBOL_NOT_SIM_API_TRADABLE",
+                "symbol": None,
+                "rules": None,
+            }
+
+        directory_symbol = symbol
+        mapping_mode = "MARKET_TO_DEMO_CANDIDATE"
 
     try:
         rules = u8v16_rules(item)
 
-        if rules["symbol"] != demo_candidate:
-            raise RuntimeError("DEMO_SYMBOL_IDENTITY_MISMATCH")
+        if rules["symbol"] != directory_symbol:
+            raise RuntimeError(
+                "SIM_DIRECTORY_SYMBOL_IDENTITY_MISMATCH"
+            )
 
         if rules["base_asset"] != base:
-            raise RuntimeError("BASE_ASSET_MISMATCH")
+            raise RuntimeError(
+                "SIM_BASE_ASSET_MISMATCH"
+            )
 
-        if rules["quote_asset"] not in ("USDT", "SUSDT"):
-            raise RuntimeError("QUOTE_ASSET_MISMATCH")
+        if rules["quote_asset"] not in (
+            "USDT",
+            "SUSDT",
+        ):
+            raise RuntimeError(
+                "SIM_QUOTE_ASSET_MISMATCH"
+            )
 
-        if rules["margin_asset"] not in ("USDT", "SUSDT"):
-            raise RuntimeError("MARGIN_ASSET_MISMATCH")
+        if rules["margin_asset"] not in (
+            "USDT",
+            "SUSDT",
+        ):
+            raise RuntimeError(
+                "SIM_MARGIN_ASSET_MISMATCH"
+            )
 
         if rules["contract_type"] not in (
             "PERPETUAL",
             "TRADIFI_PERPETUAL",
         ):
-            raise RuntimeError("CONTRACT_TYPE_MISMATCH")
+            raise RuntimeError(
+                "SIM_CONTRACT_TYPE_MISMATCH"
+            )
 
     except Exception as exc:
         return {
             "status": "UNVERIFIED",
-            "reason": "DEMO_CONTRACT_RULES_UNVERIFIED",
+            "reason": "SIM_CONTRACT_RULES_UNVERIFIED",
             "symbol": None,
             "rules": None,
             "error": str(exc),
         }
 
+    # Exact demo-specific contract verification
+    # is different from market-to-demo mapping.
+
+    if mapping_mode == "EXACT_DEMO_CONTRACT":
+
+        print(
+            "UNIT 8 RESOLVER MODE =",
+            mapping_mode,
+            flush=True
+        )
+
+        return {
+            "status": "VERIFIED",
+            "reason": "SIM_SPECIFIC_CONTRACT_VERIFIED",
+            "symbol": demo_candidate,
+            "rules": rules,
+        }
+
+    # The simulation directory verified BTCUSDT.
+    # It has NOT independently verified BTCSUSDT
+    # order permissions or quantity units.
+    #
+    # Preserve this distinction. Do not promote
+    # market rules to verified demo-order rules.
+
+    print(
+        "UNIT 8 RESOLVER MODE =",
+        mapping_mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 SIM DIRECTORY SYMBOL =",
+        directory_symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DEMO ORDER CANDIDATE =",
+        demo_candidate,
+        flush=True
+    )
+
+    print(
+        "UNIT 8 SIM MARKET RULES VERIFIED = True",
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DEMO ORDER RULES VERIFIED = False",
+        flush=True
+    )
+
     return {
-        "status": "VERIFIED",
-        "reason": "SIM_SPECIFIC_CONTRACT_VERIFIED",
+        "status": "UNVERIFIED",
+        "reason": "DEMO_ORDER_RULES_PENDING",
         "symbol": demo_candidate,
-        "rules": rules,
+        "rules": None,
+        "market_rules": rules,
+        "market_symbol": symbol,
+        "mapping_mode": mapping_mode,
     }
 
 
 # ============================================================
 # END UNIT 8 V16 DEMO SYMBOL RESOLVER CORRECTION
 # ============================================================
+
 
 def u8v16_balance(payload):
     rows = payload if isinstance(payload, list) else [payload]
