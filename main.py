@@ -14498,3 +14498,706 @@ print(
 # END COMPLETE UNIT 15 V1
 # ZERO INDENTATION
 # ============================================================
+
+
+
+# ============================================================
+# START COMPLETE CONTINUOUS SCAN CONTROLLER V2
+# ADAPTED FROM 17248-LINE REFERENCE
+# CURRENT 15-UNIT NEARUSDT MODEL
+# ZERO INDENTATION
+# ============================================================
+
+import os as _scan_os
+import time as _scan_time
+import threading as _scan_thread
+import traceback as _scan_traceback
+from datetime import datetime as _SCAN_DT
+from datetime import timezone as _SCAN_TZ
+from datetime import timedelta as _SCAN_DELTA
+
+SCAN_VERSION = "V2_REFERENCE_17248_ADAPTED"
+
+SCAN_INTERVAL_SECONDS = int(
+    _scan_os.getenv("SCAN_INTERVAL_SECONDS", "30")
+)
+
+if not 15 <= SCAN_INTERVAL_SECONDS <= 3600:
+    raise RuntimeError(
+        "SCAN_INTERVAL_SECONDS MUST BE 15 TO 3600"
+    )
+
+SCAN_WAT = _SCAN_TZ(_SCAN_DELTA(hours=1))
+SCAN_LOCK = _scan_thread.Lock()
+
+SCAN_NUMBER = 0
+SCAN_LAST_MARKET_SUCCESS = None
+SCAN_LAST_MANAGEMENT_SUCCESS = None
+SCAN_LAST_STATUS = "NOT_STARTED"
+SCAN_LAST_ERROR = None
+
+
+# ============================================================
+# 1. SAFE UNIT 12 FALLBACK
+# ============================================================
+
+def scan_idle_unit12_result(reason):
+
+    return {
+        "unit": 12,
+        "status": "IDLE",
+        "reason": str(reason),
+        "skip_reason": str(reason),
+        "active_mode": "NONE",
+        "direction": "NONE",
+        "signal_qualified": False,
+        "execution_intent": False,
+        "demo_submission_attempted": False,
+        "demo_submission_completed": False,
+        "demo_order_accepted": False,
+        "fill_verified": False,
+        "execution_authorized": False,
+        "exchange_write": False,
+        "real_cash_execution": False,
+        "management_path_permitted": True,
+    }
+
+
+# ============================================================
+# 2. REFRESH UNITS 3 TO 11
+# ============================================================
+
+def scan_refresh_entry_pipeline():
+
+    global FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    global FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+    global FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+    global FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE
+    global FRESH_RECONSTRUCTION_SIZING_PLAN
+    global FRESH_RECONSTRUCTION_UNIT_7_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_8_RESULT
+    global FRESH_UNIT_8_VERIFIED_CONTRACT
+    global FRESH_RECONSTRUCTION_UNIT_9_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_10_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_11_RESULT
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "SCAN CONFIG MISSING"
+        )
+
+    # --------------------------------------------------------
+    # UNIT 3 - MARKET DATA
+    # --------------------------------------------------------
+
+    market = fresh_reconstruction_unit_3()
+
+    if not isinstance(market, dict):
+        raise RuntimeError(
+            "SCAN UNIT 3 INVALID"
+        )
+
+    FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = market
+
+    print(
+        "SCAN UNIT 3 MARKET REFRESH = PASS",
+        flush=True
+    )
+
+    # --------------------------------------------------------
+    # UNIT 4 - TECHNICAL ANALYSIS
+    # --------------------------------------------------------
+
+    analysis = fresh_reconstruction_unit_4()
+
+    if not isinstance(analysis, dict):
+        raise RuntimeError(
+            "SCAN UNIT 4 INVALID"
+        )
+
+    FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = analysis
+
+    # --------------------------------------------------------
+    # UNIT 5 - STRATEGY CLASSIFICATION
+    # --------------------------------------------------------
+
+    candidate = fresh_reconstruction_unit_5(
+        config,
+        analysis
+    )
+
+    if not isinstance(candidate, dict):
+        raise RuntimeError(
+            "SCAN UNIT 5 INVALID"
+        )
+
+    FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
+        candidate
+    )
+
+    # --------------------------------------------------------
+    # UNIT 6 - STRATEGY ARBITRATION
+    # --------------------------------------------------------
+
+    execution = fresh_reconstruction_unit_6(
+        config,
+        analysis,
+        candidate
+    )
+
+    if not isinstance(execution, dict):
+        raise RuntimeError(
+            "SCAN UNIT 6 INVALID"
+        )
+
+    FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
+        execution
+    )
+
+    # --------------------------------------------------------
+    # UNIT 7 - SIZING AND HEDGE POLICY
+    # --------------------------------------------------------
+
+    sizing = fresh_reconstruction_unit_7()
+
+    if not isinstance(sizing, dict):
+        raise RuntimeError(
+            "SCAN UNIT 7 INVALID"
+        )
+
+    FRESH_RECONSTRUCTION_SIZING_PLAN = sizing
+    FRESH_RECONSTRUCTION_UNIT_7_RESULT = sizing
+
+    # --------------------------------------------------------
+    # UNIT 8 - WEEX DEMO ACCOUNT
+    # --------------------------------------------------------
+
+    account = unit_8_v16_main()
+
+    if not isinstance(account, dict):
+        raise RuntimeError(
+            "SCAN UNIT 8 INVALID"
+        )
+
+    FRESH_RECONSTRUCTION_UNIT_8_RESULT = account
+
+    FRESH_UNIT_8_VERIFIED_CONTRACT = (
+        account.get("contract")
+        if account.get("demo_contract_verified") is True
+        else None
+    )
+
+    print(
+        "SCAN UNIT 8 STATUS =",
+        account.get("status"),
+        flush=True
+    )
+
+    # --------------------------------------------------------
+    # UNIT 9 - SIGNAL HANDOVER
+    # --------------------------------------------------------
+
+    entry = fresh_reconstruction_unit_9(
+        config,
+        account,
+        sizing
+    )
+
+    if not isinstance(entry, dict):
+        raise RuntimeError(
+            "SCAN UNIT 9 INVALID"
+        )
+
+    FRESH_RECONSTRUCTION_UNIT_9_RESULT = entry
+
+    # --------------------------------------------------------
+    # UNIT 10 - DEMO EXECUTION BOUNDARY
+    # --------------------------------------------------------
+
+    boundary = fresh_unit_10_hybrid_adapter(
+        config,
+        entry
+    )
+
+    if not isinstance(boundary, dict):
+        raise RuntimeError(
+            "SCAN UNIT 10 INVALID"
+        )
+
+    FRESH_RECONSTRUCTION_UNIT_10_RESULT = boundary
+
+    # --------------------------------------------------------
+    # UNIT 11 - ORDER PREPARATION
+    # --------------------------------------------------------
+
+    prepared = fresh_unit_11_hybrid_adapter(
+        config,
+        boundary
+    )
+
+    if not isinstance(prepared, dict):
+        raise RuntimeError(
+            "SCAN UNIT 11 INVALID"
+        )
+
+    FRESH_RECONSTRUCTION_UNIT_11_RESULT = prepared
+
+    return prepared, account
+
+
+# ============================================================
+# 3. UNIT 12 - CONTROLLED DEMO ENTRY
+# ============================================================
+
+def scan_process_unit12(prepared, account):
+
+    global FRESH_RECONSTRUCTION_UNIT_12_RESULT
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    bot_mode = str(
+        _scan_os.getenv("BOT_MODE", "PAUSE")
+    ).strip().upper()
+
+    if bot_mode != "RUN":
+
+        result = scan_idle_unit12_result(
+            "BOT_MODE_NOT_RUN"
+        )
+
+    elif account.get(
+        "demo_order_permission_verified"
+    ) is not True:
+
+        result = scan_idle_unit12_result(
+            "DEMO_ORDER_PERMISSION_UNVERIFIED"
+        )
+
+    elif account.get(
+        "demo_order_submission_verified"
+    ) is not True:
+
+        result = scan_idle_unit12_result(
+            "DEMO_ORDER_SUBMISSION_UNVERIFIED"
+        )
+
+    elif prepared.get("status") != "PREPARED":
+
+        result = scan_idle_unit12_result(
+            "UNIT_11_NOT_PREPARED"
+        )
+
+    else:
+
+        # This branch can execute only after
+        # upstream demo-order verification.
+        # Unit 12 retains its own duplicate-order,
+        # position and order-format safeguards.
+
+        result = fresh_unit_12_hybrid_adapter(
+            config,
+            prepared
+        )
+
+        if not isinstance(result, dict):
+            raise RuntimeError(
+                "SCAN UNIT 12 INVALID"
+            )
+
+    FRESH_RECONSTRUCTION_UNIT_12_RESULT = result
+
+    print(
+        "SCAN UNIT 12 STATUS =",
+        result.get("status"),
+        flush=True
+    )
+
+    print(
+        "SCAN UNIT 12 REASON =",
+        result.get("reason"),
+        flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# 4. UNCONDITIONAL POSITION MANAGEMENT
+# ============================================================
+
+def scan_manage_position(unit12_result):
+
+    global FRESH_RECONSTRUCTION_UNIT_13_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_14_RESULT
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    account = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
+    )
+
+    if not isinstance(account, dict):
+        raise RuntimeError(
+            "POSITION MANAGEMENT ACCOUNT MISSING"
+        )
+
+    if account.get(
+        "demo_positions_read_verified"
+    ) is not True:
+        raise RuntimeError(
+            "POSITION MANAGEMENT POSITION READ UNVERIFIED"
+        )
+
+    # --------------------------------------------------------
+    # UNIT 13 - POSITION PROTECTION PLANNER
+    # --------------------------------------------------------
+
+    unit13 = fresh_unit_13_hybrid_adapter(
+        config,
+        unit12_result
+    )
+
+    if not isinstance(unit13, dict):
+        raise RuntimeError(
+            "SCAN UNIT 13 INVALID"
+        )
+
+    FRESH_RECONSTRUCTION_UNIT_13_RESULT = unit13
+
+    # --------------------------------------------------------
+    # UNIT 14 - SAFETY SUPERVISOR
+    # --------------------------------------------------------
+
+    unit14 = fresh_reconstruction_unit_14(
+        config,
+        account,
+        unit12_result,
+        unit13
+    )
+
+    if not isinstance(unit14, dict):
+        raise RuntimeError(
+            "SCAN UNIT 14 INVALID"
+        )
+
+    FRESH_RECONSTRUCTION_UNIT_14_RESULT = unit14
+
+    return unit13, unit14
+
+
+# ============================================================
+# 5. FAILURE SAFETY ALERT
+# ============================================================
+
+def scan_publish_failure_alert(reason):
+
+    global FRESH_RECONSTRUCTION_UNIT_14_RESULT
+
+    FRESH_RECONSTRUCTION_UNIT_14_RESULT = {
+        "unit": 14,
+        "market_symbol": str(
+            _scan_os.getenv("WEEX_SYMBOL", "")
+        ).strip().upper(),
+        "status": "ALERT",
+        "reason": "SCAN_REFRESH_OR_MANAGEMENT_FAILED",
+        "safety_alert": True,
+        "alert_severity": "CRITICAL",
+        "alert_reason": str(reason)[:300],
+        "requires_operator_attention": True,
+        "position_verified": False,
+        "exchange_protection_verified": False,
+        "protection_active": False,
+        "execution_authorized": False,
+        "exchange_write": False,
+        "real_cash_execution": False,
+    }
+
+
+# ============================================================
+# 6. ONE COMPLETE SCAN CYCLE
+# ============================================================
+
+def scan_one_cycle():
+
+    global SCAN_NUMBER
+    global SCAN_LAST_MARKET_SUCCESS
+    global SCAN_LAST_MANAGEMENT_SUCCESS
+    global SCAN_LAST_STATUS
+    global SCAN_LAST_ERROR
+
+    if not SCAN_LOCK.acquire(blocking=False):
+
+        print(
+            "SCAN OVERLAP BLOCKED",
+            flush=True
+        )
+        return False
+
+    try:
+
+        SCAN_NUMBER += 1
+
+        print("=" * 80, flush=True)
+
+        print(
+            "CONTINUOUS SCAN NUMBER =",
+            SCAN_NUMBER,
+            flush=True
+        )
+
+        print(
+            "SCAN TIME WAT =",
+            _SCAN_DT.now(SCAN_WAT).isoformat(),
+            flush=True
+        )
+
+        print(
+            "SCAN SYMBOL =",
+            _scan_os.getenv("WEEX_SYMBOL", ""),
+            flush=True
+        )
+
+        print(
+            "SCAN BOT_MODE =",
+            _scan_os.getenv("BOT_MODE", "PAUSE"),
+            flush=True
+        )
+
+        submission = None
+        entry_ok = False
+
+        # ----------------------------------------------------
+        # NEW-ENTRY PIPELINE
+        # ----------------------------------------------------
+
+        try:
+
+            prepared, account = (
+                scan_refresh_entry_pipeline()
+            )
+
+            SCAN_LAST_MARKET_SUCCESS = (
+                _scan_time.time()
+            )
+
+            submission = scan_process_unit12(
+                prepared,
+                account
+            )
+
+            entry_ok = True
+
+        except Exception as exc:
+
+            SCAN_LAST_ERROR = repr(exc)
+
+            print(
+                "SCAN ENTRY PIPELINE ERROR =",
+                SCAN_LAST_ERROR,
+                flush=True
+            )
+
+            _scan_traceback.print_exc()
+
+            submission = scan_idle_unit12_result(
+                "ENTRY_PIPELINE_ERROR"
+            )
+
+        # ----------------------------------------------------
+        # POSITION MANAGEMENT
+        #
+        # ATTEMPT EVEN IF ENTRY PIPELINE FAILED.
+        # DOES NOT DEPEND ON BOT_MODE.
+        # ----------------------------------------------------
+
+        try:
+
+            unit13, unit14 = scan_manage_position(
+                submission
+            )
+
+            SCAN_LAST_MANAGEMENT_SUCCESS = (
+                _scan_time.time()
+            )
+
+            print(
+                "SCAN UNIT 13 STATUS =",
+                unit13.get("status"),
+                flush=True
+            )
+
+            print(
+                "SCAN UNIT 14 STATUS =",
+                unit14.get("status"),
+                flush=True
+            )
+
+            SCAN_LAST_STATUS = (
+                "PASS"
+                if entry_ok
+                else "MANAGEMENT_ONLY"
+            )
+
+        except Exception as exc:
+
+            SCAN_LAST_ERROR = repr(exc)
+
+            SCAN_LAST_STATUS = (
+                "POSITION_MANAGEMENT_ERROR"
+            )
+
+            print(
+                "SCAN MANAGEMENT ERROR =",
+                SCAN_LAST_ERROR,
+                flush=True
+            )
+
+            _scan_traceback.print_exc()
+
+            scan_publish_failure_alert(
+                SCAN_LAST_ERROR
+            )
+
+        print(
+            "SCAN FINAL STATUS =",
+            SCAN_LAST_STATUS,
+            flush=True
+        )
+
+        print(
+            "SCAN EXCHANGE ENVIRONMENT = DEMO",
+            flush=True
+        )
+
+        print(
+            "SCAN CONTINUES = TRUE",
+            flush=True
+        )
+
+        return SCAN_LAST_STATUS in (
+            "PASS",
+            "MANAGEMENT_ONLY"
+        )
+
+    finally:
+
+        SCAN_LOCK.release()
+
+
+# ============================================================
+# 7. FOREVER SCAN LOOP
+# ============================================================
+
+def scan_forever():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "CONTINUOUS SCAN CONTROLLER V2 STARTED",
+        flush=True
+    )
+
+    print(
+        "SCAN INTERVAL SECONDS =",
+        SCAN_INTERVAL_SECONDS,
+        flush=True
+    )
+
+    print(
+        "UNIT 12 = NEW ENTRIES ONLY",
+        flush=True
+    )
+
+    print(
+        "UNIT 13 AND 14 = POSITION MANAGEMENT",
+        flush=True
+    )
+
+    print(
+        "UNIT 15 = INDEPENDENT TELEGRAM MONITOR",
+        flush=True
+    )
+
+    print(
+        "REAL CASH EXECUTION = DISABLED",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    # Units 1-15 have already run their startup
+    # initialization. Begin with one interval delay.
+
+    _scan_time.sleep(SCAN_INTERVAL_SECONDS)
+
+    while True:
+
+        started = _scan_time.monotonic()
+
+        try:
+
+            scan_one_cycle()
+
+        except Exception as exc:
+
+            print(
+                "SCAN SUPERVISOR ERROR =",
+                repr(exc),
+                flush=True
+            )
+
+            _scan_traceback.print_exc()
+
+            scan_publish_failure_alert(
+                repr(exc)
+            )
+
+        elapsed = (
+            _scan_time.monotonic() - started
+        )
+
+        sleep_for = max(
+            5.0,
+            SCAN_INTERVAL_SECONDS - elapsed
+        )
+
+        print(
+            "SCAN ELAPSED SECONDS =",
+            round(elapsed, 2),
+            flush=True
+        )
+
+        print(
+            "SCAN NEXT SLEEP SECONDS =",
+            round(sleep_for, 2),
+            flush=True
+        )
+
+        _scan_time.sleep(sleep_for)
+
+
+# ============================================================
+# 8. START MAIN THREAD FOREVER LOOP
+# ============================================================
+
+print(
+    "CONTINUOUS SCAN VERSION =",
+    SCAN_VERSION,
+    flush=True
+)
+
+print(
+    "CONTINUOUS SCAN MAIN THREAD = ENABLED",
+    flush=True
+)
+
+scan_forever()
+
+# ============================================================
+# END COMPLETE CONTINUOUS SCAN CONTROLLER V2
+# ZERO INDENTATION
+# ============================================================
