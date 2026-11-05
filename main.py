@@ -15443,130 +15443,232 @@ print("=" * 80, flush=True)
 # ============================================================
 
 # ============================================================
-# START UNIT 11-12 DEMO HANDOVER DIAGNOSTIC V1
+# START UNIT 11-12 STABLE SIGNAL HANDOVER V2
 # ZERO INDENTATION
 # NO EXCHANGE WRITE
 # ============================================================
 
-def u1112_handover_diagnostic():
+def u1112_v2_stable_signal(prepared):
 
     config = globals().get(
         "FRESH_RECONSTRUCTION_CONFIG"
     )
 
-    unit8 = globals().get(
-        "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
+    analysis = globals().get(
+        "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT"
     )
 
-    unit11 = globals().get(
-        "FRESH_RECONSTRUCTION_UNIT_11_RESULT"
+    if not isinstance(prepared, dict):
+        return "UNIT_11_RESULT_MISSING"
+
+    if prepared.get("status") != "PREPARED_READ_ONLY":
+        return "NO_PREPARED_ENTRY"
+
+    if not isinstance(config, dict):
+        return "CONFIG_MISSING"
+
+    if not isinstance(analysis, dict):
+        return "ANALYSIS_MISSING"
+
+    instruction = prepared.get("order_instruction")
+
+    if not isinstance(instruction, dict):
+        return "ORDER_INSTRUCTION_MISSING"
+
+    symbol = config.get(
+        "exchange", {}
+    ).get("market_symbol")
+
+    direction = prepared.get("direction")
+    mode = prepared.get("active_mode")
+
+    candle_id = analysis.get(
+        "latest_close_time_ms"
     )
 
-    if not all(
-        isinstance(item, dict)
-        for item in (config, unit8, unit11)
-    ):
-        print(
-            "UNIT 11-12 DIAGNOSTIC = MISSING_INPUT",
-            flush=True
+    if (
+        not isinstance(symbol, str)
+        or not symbol.endswith("USDT")
+        or direction not in ("LONG", "SHORT")
+        or mode not in (
+            "STRUCTURE",
+            "BREAKOUT",
+            "SCALP"
         )
-        return False
+    ):
+        return "SIGNAL_IDENTITY_INVALID"
+
+    if (
+        not isinstance(candle_id, int)
+        or isinstance(candle_id, bool)
+        or candle_id <= 0
+    ):
+        return "CLOSED_CANDLE_ID_INVALID"
+
+    import time
+
+    age_ms = int(time.time() * 1000) - candle_id
+
+    if not 0 <= age_ms <= 120000:
+        return "CLOSED_CANDLE_STALE"
+
+    if prepared.get("market_symbol") != symbol:
+        return "UNIT_11_SYMBOL_MISMATCH"
+
+    if instruction.get("market_symbol") != symbol:
+        return "INSTRUCTION_SYMBOL_MISMATCH"
+
+    if instruction.get("direction") != direction:
+        return "INSTRUCTION_DIRECTION_MISMATCH"
+
+    if instruction.get("strategy_mode") != mode:
+        return "INSTRUCTION_MODE_MISMATCH"
+
+    # Deterministic identifier:
+    # same symbol, direction, strategy and candle
+    # produce the same signal identity.
+
+    signal_id = (
+        symbol
+        + "-"
+        + mode
+        + "-"
+        + direction
+        + "-"
+        + str(candle_id)
+    )
+
+    # Unit 12 already supports this field.
+    # Preserve the existing trade plan and candidate.
+
+    instruction["newClientOrderId"] = signal_id
+
+    print(
+        "UNIT 11-12 STABLE SIGNAL ID =",
+        signal_id,
+        flush=True
+    )
+
+    print(
+        "UNIT 11-12 CLOSED CANDLE AGE MS =",
+        age_ms,
+        flush=True
+    )
+
+    return "STABLE_SIGNAL_ID_READY"
+
+
+def u1112_v2_diagnostic(prepared, account):
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
+    )
 
     print("=" * 80, flush=True)
+
     print(
-        "UNIT 11-12 HANDOVER DIAGNOSTIC START",
+        "UNIT 11-12 HANDOVER V2 START",
         flush=True
     )
 
+    status = u1112_v2_stable_signal(prepared)
+
     print(
-        "UNIT 11 STATUS =",
-        unit11.get("status"),
+        "UNIT 11-12 SIGNAL STATUS =",
+        status,
         flush=True
     )
 
-    print(
-        "UNIT 11 INSTRUCTION PRESENT =",
-        isinstance(
-            unit11.get("order_instruction"),
-            dict
-        ),
-        flush=True
-    )
+    if status != "STABLE_SIGNAL_ID_READY":
 
-    print(
-        "UNIT 8 DEMO CONTRACT VERIFIED =",
-        unit8.get("demo_contract_verified"),
-        flush=True
-    )
+        print(
+            "UNIT 11-12 PREPARATION = SKIPPED",
+            flush=True
+        )
 
-    # Preparation only: never call the signed POST.
-    prepared = unit_12_v2_prepare(
+        print(
+            "UNIT 11-12 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        print("=" * 80, flush=True)
+
+        return False
+
+    result = unit_12_v2_prepare(
         config,
-        unit11,
-        unit8
+        prepared,
+        account
     )
 
     print(
         "UNIT 12 PREPARATION STATUS =",
-        prepared.get("status"),
+        result.get("status"),
         flush=True
     )
 
     print(
         "UNIT 12 PREPARATION REASON =",
-        prepared.get("reason"),
+        result.get("reason"),
         flush=True
     )
 
     print(
         "UNIT 12 CLIENT ID PRESENT =",
-        bool(prepared.get("client_order_id")),
+        bool(result.get("client_order_id")),
         flush=True
     )
 
     print(
         "UNIT 12 ORDER PAYLOAD PRESENT =",
         isinstance(
-            prepared.get("order_payload"),
+            result.get("order_payload"),
             dict
         ),
         flush=True
     )
 
     print(
-        "UNIT 11-12 DIAGNOSTIC EXCHANGE WRITE = NONE",
+        "UNIT 11-12 EXCHANGE WRITE = NONE",
         flush=True
     )
 
     print("=" * 80, flush=True)
 
-    return prepared.get("status") == "PREPARED"
+    return result.get("status") == "PREPARED"
 
 
-_U1112_ORIGINAL_SCAN_REFRESH = (
+# Preserve the original scan refresh function.
+_U1112_V2_ORIGINAL_SCAN_REFRESH = (
     scan_refresh_entry_pipeline
 )
+
 
 def scan_refresh_entry_pipeline():
 
     prepared, account = (
-        _U1112_ORIGINAL_SCAN_REFRESH()
+        _U1112_V2_ORIGINAL_SCAN_REFRESH()
     )
 
-    u1112_handover_diagnostic()
+    u1112_v2_diagnostic(
+        prepared,
+        account
+    )
 
     return prepared, account
 
 
 print(
-    "UNIT 11-12 DIAGNOSTIC INSTALLED = TRUE",
+    "UNIT 11-12 STABLE SIGNAL HANDOVER V2 INSTALLED",
     flush=True
 )
 
 # ============================================================
-# END UNIT 11-12 DEMO HANDOVER DIAGNOSTIC V1
+# END UNIT 11-12 STABLE SIGNAL HANDOVER V2
 # ZERO INDENTATION
 # ============================================================
+
+
 scan_forever()
 
 # ============================================================
