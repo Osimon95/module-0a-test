@@ -9004,7 +9004,11 @@ def u9_idle(reason, symbol, contract=None):
         "reason": str(reason),
         "skip_reason": str(reason),
         "market_symbol": symbol,
-        "demo_order_symbol": symbol,
+        "demo_order_symbol": (
+    contract.get("symbol")
+    if isinstance(contract, dict)
+    else None
+),
         "contract": contract,
         "direction": "NONE",
         "active_mode": "NONE",
