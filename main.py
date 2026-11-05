@@ -14034,238 +14034,29 @@ def scan_refresh_entry_pipeline():
 
 
 # ============================================================
-# START SCAN UNIT 12 V4 - ZERO INDENTATION
-# ADAPTED EARLIER DEMO SUBMISSION METHOD
-# NO PERSISTENT DISK REQUIRED
-# PRESERVES EXISTING UNIT 12 SIGNED POST ENGINE
+# START SCAN UNIT 12 REFERENCE HANDOVER
+# ZERO INDENTATION
 # ============================================================
 
 def scan_process_unit12(prepared, account):
 
     global FRESH_RECONSTRUCTION_UNIT_12_RESULT
 
-    import os
-    import time
-
-    config = FRESH_RECONSTRUCTION_CONFIG
-
-    def blocked(reason):
-        result = scan_idle_unit12_result(reason)
-        FRESH_RECONSTRUCTION_UNIT_12_RESULT = result
-
-        print(
-            "SCAN UNIT 12 STATUS =",
-            result["status"],
-            flush=True
-        )
-        print(
-            "SCAN UNIT 12 REASON =",
-            result["reason"],
-            flush=True
-        )
-        print(
-            "SCAN UNIT 12 EXCHANGE WRITE = NONE",
-            flush=True
-        )
-        return result
-
-    if not isinstance(config, dict):
-        return blocked("CONFIG_MISSING")
-
-    if config.get("execution_environment") != "DEMO":
-        return blocked("NON_DEMO_ENVIRONMENT")
-
-    if config.get("real_cash_execution_enabled") is not False:
-        return blocked("REAL_CASH_SAFETY_FAILED")
-
-    if os.getenv("BOT_MODE", "PAUSE").strip().upper() != "RUN":
-        return blocked("BOT_MODE_NOT_RUN")
-
     if not isinstance(prepared, dict):
-        return blocked("UNIT_11_RESULT_INVALID")
+        raise RuntimeError("SCAN UNIT 11 INVALID")
 
     if not isinstance(account, dict):
-        return blocked("UNIT_8_RESULT_INVALID")
+        raise RuntimeError("SCAN UNIT 8 INVALID")
 
-    if prepared.get("status") != "PREPARED_READ_ONLY":
-        return blocked("UNIT_11_NOT_PREPARED")
-
-    # Existing V2 stable signal validation.
-    signal_status = u1112_v2_stable_signal(prepared)
-
-    if signal_status != "STABLE_SIGNAL_ID_READY":
-        return blocked(
-            "SIGNAL_" + str(signal_status)
-        )
-
-    required_checks = (
-        "demo_contract_verified",
-        "demo_balance_verified",
-        "demo_positions_read_verified",
-        "demo_history_read_verified",
-        "account_config_verified",
-        "position_flat_verified",
-        "demo_dual_side_mode_verified",
-    )
-
-    for field in required_checks:
-        if account.get(field) is not True:
-            return blocked(
-                "ACCOUNT_" + field.upper()
-            )
-
-    if account.get("account_can_trade") is not True:
-        return blocked("ACCOUNT_CANNOT_TRADE")
-
-    if account.get("account_dual_side_enabled") is not True:
-        return blocked("DUAL_SIDE_NOT_ENABLED")
-
-    # Prepare through the existing Unit 12 function.
-
-    preview = unit_12_v2_prepare(
-        config,
-        prepared,
-        account
-    )
-
-    if preview.get("status") != "PREPARED":
-        return blocked(
-            "PREPARATION_"
-            + str(preview.get("reason"))
-        )
-
-    client_id = preview.get("client_order_id")
-    payload = preview.get("order_payload")
-
-    if not isinstance(client_id, str) or not client_id:
-        return blocked("CLIENT_ID_MISSING")
-
-    if not isinstance(payload, dict):
-        return blocked("PAYLOAD_MISSING")
-
-    symbol = config.get(
-        "exchange", {}
-    ).get("market_symbol")
-
-    if (
-        payload.get("symbol") != symbol
-        or account.get("demo_order_symbol") != symbol
-        or payload.get("newClientOrderId") != client_id
-    ):
-        return blocked("ORDER_IDENTITY_MISMATCH")
-
-    # Explicit one-order authorization.
-    # Never automatically authorize all signals.
-
-    armed_id = os.getenv(
-        "UNIT12_DEMO_TEST_CLIENT_ID", ""
-    ).strip()
-
-    if not armed_id:
-        return blocked("DEMO_TEST_NOT_ARMED")
-
-    if armed_id != client_id:
-        return blocked("DEMO_TEST_CLIENT_ID_MISMATCH")
-
-    # Existing Unit 12 in-process duplicate protection.
-
-    if client_id in _UNIT_12_V2_ATTEMPTED_IDS:
-        return blocked("DUPLICATE_IN_PROCESS")
-
-    # Recheck WEEX demo history immediately before POST.
-    # Reject incomplete or ambiguous history.
-
-    try:
-        raw_history = u8v16_get(
-            U8V16_LIVE,
-            "/capi/v3/sim/order/history",
-            {"limit": 1000, "page": 0},
-            private=True
-        )
-
-        history = u8v16_rows(raw_history)
-
-        if not isinstance(history, list):
-            return blocked("HISTORY_INVALID")
-
-        if len(history) >= 1000:
-            return blocked("HISTORY_WINDOW_INCOMPLETE")
-
-        for record in history:
-            if not isinstance(record, dict):
-                return blocked("HISTORY_RECORD_INVALID")
-
-            record_client_id = (
-                record.get("clientOrderId")
-                or record.get("newClientOrderId")
-                or record.get("client_order_id")
-            )
-
-            if str(record_client_id) == client_id:
-                return blocked(
-                    "DUPLICATE_FOUND_IN_WEEX_HISTORY"
-                )
-
-    except Exception as exc:
-        print(
-            "UNIT 12 HISTORY ERROR =",
-            type(exc).__name__,
-            flush=True
-        )
-        return blocked("HISTORY_RECHECK_FAILED")
-
-    # Preserve the existing local journal.
-    # No persistent disk or new journal path required.
-
-    try:
-        states = unit_12_v2_journal_state()
-        clear, unresolved = unit_12_v2_journal_clear()
-
-    except Exception as exc:
-        return blocked(
-            "LOCAL_JOURNAL_ERROR_"
-            + type(exc).__name__
-        )
-
-    if client_id in states:
-        return blocked("CLIENT_ID_ALREADY_ATTEMPTED")
-
-    if not clear:
-        return blocked(
-            "PREVIOUS_ORDER_RECONCILIATION_REQUIRED"
-        )
-
-    # Existing signed demo-only engine.
-    # It handles POST, response parsing and local marker.
-    # No new exchange endpoint is introduced here.
-
-    print(
-        "SCAN UNIT 12 PREFLIGHT = PASS",
-        flush=True
-    )
-    print(
-        "SCAN UNIT 12 HISTORY RECHECK = PASS",
-        flush=True
-    )
-    print(
-        "SCAN UNIT 12 CLIENT ID =",
-        client_id,
-        flush=True
-    )
-    print(
-        "SCAN UNIT 12 EXECUTION PATH = DEMO_ONLY",
-        flush=True
-    )
+    FRESH_RECONSTRUCTION_UNIT_8_RESULT = account
 
     result = fresh_unit_12_hybrid_adapter(
-        config,
-        prepared
+        FRESH_RECONSTRUCTION_CONFIG,
+        prepared,
     )
 
     if not isinstance(result, dict):
-        raise RuntimeError(
-            "SCAN UNIT 12 RESULT INVALID"
-        )
+        raise RuntimeError("SCAN UNIT 12 INVALID RESULT")
 
     FRESH_RECONSTRUCTION_UNIT_12_RESULT = result
 
@@ -14274,19 +14065,10 @@ def scan_process_unit12(prepared, account):
         result.get("status"),
         flush=True
     )
+
     print(
         "SCAN UNIT 12 REASON =",
         result.get("reason"),
-        flush=True
-    )
-    print(
-        "SCAN UNIT 12 ORDER ID =",
-        result.get("order_id"),
-        flush=True
-    )
-    print(
-        "SCAN UNIT 12 FILL VERIFIED =",
-        result.get("fill_verified"),
         flush=True
     )
 
@@ -14294,9 +14076,8 @@ def scan_process_unit12(prepared, account):
 
 
 # ============================================================
-# END SCAN UNIT 12 V4 - ZERO INDENTATION
+# END SCAN UNIT 12 REFERENCE HANDOVER
 # ============================================================
-
 
 
 # ============================================================
