@@ -8783,6 +8783,47 @@ def unit_8_v16_main():
             str(exc),
             flush=True
         )
+        
+
+    
+    # ========================================================
+    # BTC DEMO SYMBOL MAPPING FROM AUTHENTICATED HISTORY
+    # ========================================================
+
+    demo_candidate = "BTCSUSDT"
+
+    history_symbols = set()
+
+    if result["demo_history_read_verified"]:
+        for record in history:
+            if isinstance(record, dict):
+                history_symbol = str(
+                    record.get("symbol", "")
+                ).strip().upper()
+
+                if history_symbol:
+                    history_symbols.add(history_symbol)
+
+    history_match = demo_candidate in history_symbols
+
+    result["demo_history_symbol_matched"] = history_match
+
+    if symbol == "BTCUSDT" and history_match:
+
+        result["demo_order_symbol"] = demo_candidate
+        result["demo_symbol_verified"] = True
+
+        print(
+            "UNIT 8 DEMO SYMBOL FROM HISTORY =",
+            demo_candidate,
+            flush=True
+        )
+
+        print(
+            "UNIT 8 DEMO SYMBOL SOURCE =",
+            "AUTHENTICATED_ORDER_HISTORY",
+            flush=True
+        )
 
     try:
         account = u8v16_get(
