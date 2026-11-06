@@ -18060,6 +18060,322 @@ print(
 # DEMO ORDER AND EXPOSURE RECONCILIATION
 # ============================================================
 
+
+
+# ============================================================
+# START UNIT 13-14 V3 PART 1
+# VERIFIED WEEX DEMO HISTORY READER
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import json
+import time
+import hmac
+import base64
+import hashlib
+import urllib.request
+import urllib.error
+import urllib.parse
+from decimal import Decimal, InvalidOperation
+
+U1314V3_VERSION = "V3_VERIFIED_DEMO_HISTORY_READ"
+U1314V3_HOST = "https://api-contract.weex.com"
+U1314V3_HISTORY = "/capi/v3/sim/order/history"
+
+
+def u1314v3_decimal(value, zero=False):
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        n = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+    if not n.is_finite() or n < 0:
+        return None
+    if n == 0 and not zero:
+        return None
+    return n
+
+
+def u1314v3_demo_symbol(config, unit8):
+    if not isinstance(config, dict):
+        raise RuntimeError("V3_CONFIG_MISSING")
+
+    if config.get("execution_environment") != "DEMO":
+        raise RuntimeError("V3_DEMO_ONLY")
+
+    if config.get("real_cash_execution_enabled") is not False:
+        raise RuntimeError("V3_REAL_CASH_BOUNDARY_FAILED")
+
+    if not isinstance(unit8, dict):
+        raise RuntimeError("V3_UNIT8_MISSING")
+
+    if unit8.get("demo_contract_verified") is not True:
+        raise RuntimeError("V3_DEMO_CONTRACT_UNVERIFIED")
+
+    exchange = config.get("exchange", {})
+    market = str(exchange.get("market_symbol", "")).upper()
+    demo = str(exchange.get("demo_order_symbol", "")).upper()
+
+    if not market.endswith("USDT"):
+        raise RuntimeError("V3_MARKET_SYMBOL_INVALID")
+
+    expected = market[:-4] + "SUSDT"
+
+    if demo != expected:
+        raise RuntimeError("V3_DEMO_SYMBOL_MISMATCH")
+
+    if str(unit8.get("market_symbol", "")).upper() != market:
+        raise RuntimeError("V3_UNIT8_MARKET_MISMATCH")
+
+    return market, demo
+
+
+def u1314v3_private_get(path, params):
+    if path != U1314V3_HISTORY:
+        raise RuntimeError("V3_ENDPOINT_NOT_ALLOWED")
+
+    if not isinstance(params, dict):
+        raise RuntimeError("V3_PARAMETERS_INVALID")
+
+    if set(params) != {"symbol", "limit", "page"}:
+        raise RuntimeError("V3_PARAMETER_SET_INVALID")
+
+    symbol = str(params["symbol"]).upper()
+
+    if not symbol.endswith("SUSDT"):
+        raise RuntimeError("V3_NON_DEMO_SYMBOL_BLOCKED")
+
+    limit = int(params["limit"])
+    page = int(params["page"])
+
+    if not 1 <= limit <= 100:
+        raise RuntimeError("V3_LIMIT_INVALID")
+
+    if not 0 <= page <= 100:
+        raise RuntimeError("V3_PAGE_INVALID")
+
+    key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
+    secret = os.getenv("WEEX_API_SECRET") or os.getenv("API_SECRET")
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        raise RuntimeError("V3_CREDENTIALS_MISSING")
+
+    query = urllib.parse.urlencode({
+        "symbol": symbol,
+        "limit": limit,
+        "page": page,
+    })
+
+    signed_path = path + "?" + query
+    timestamp = str(int(time.time() * 1000))
+    message = timestamp + "GET" + signed_path
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            message.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    request = urllib.request.Request(
+        U1314V3_HOST + signed_path,
+        method="GET",
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": phrase,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "locale": "en-US",
+        },
+    )
+
+    if request.get_method() != "GET" or request.data is not None:
+        raise RuntimeError("V3_READ_ONLY_BOUNDARY_FAILED")
+
+    try:
+        with urllib.request.urlopen(
+            request, timeout=15
+        ) as response:
+            status = response.getcode()
+            raw = response.read().decode("utf-8")
+
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            "V3_DEMO_HISTORY_HTTP_" + str(exc.code)
+        ) from exc
+
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            "V3_DEMO_HISTORY_CONNECTION_FAILED"
+        ) from exc
+
+    if status != 200:
+        raise RuntimeError("V3_DEMO_HISTORY_HTTP_INVALID")
+
+    try:
+        payload = json.loads(raw)
+    except ValueError as exc:
+        raise RuntimeError(
+            "V3_DEMO_HISTORY_JSON_INVALID"
+        ) from exc
+
+    if isinstance(payload, dict):
+        if payload.get("success") is False:
+            raise RuntimeError("V3_DEMO_HISTORY_API_REJECTED")
+
+        code = payload.get("code")
+        if code is not None and str(code) not in (
+            "0", "200", "00000"
+        ):
+            raise RuntimeError(
+                "V3_DEMO_HISTORY_API_CODE_" + str(code)[:20]
+            )
+
+        payload = payload.get("data")
+
+    if not isinstance(payload, list):
+        raise RuntimeError("V3_DEMO_HISTORY_SHAPE_UNVERIFIED")
+
+    return payload
+
+
+def u1314v3_read_history(config, unit8):
+    result = {
+        "status": "UNVERIFIED",
+        "reason": "NOT_REQUESTED",
+        "history_read_verified": False,
+        "history_complete": False,
+        "order_count": None,
+        "open_order_count_in_history": None,
+        "filled_order_count": None,
+        "partial_order_count": None,
+        "cancelled_order_count": None,
+        "execution_authorized": False,
+        "exchange_write": False,
+    }
+
+    try:
+        market, demo = u1314v3_demo_symbol(
+            config, unit8
+        )
+
+        records = u1314v3_private_get(
+            U1314V3_HISTORY,
+            {
+                "symbol": demo,
+                "limit": 100,
+                "page": 0,
+            }
+        )
+
+        accepted = []
+        seen = set()
+
+        for record in records:
+            if not isinstance(record, dict):
+                raise RuntimeError("V3_ORDER_RECORD_INVALID")
+
+            if str(record.get("symbol", "")).upper() != demo:
+                raise RuntimeError("V3_HISTORY_SYMBOL_MISMATCH")
+
+            order_id = record.get("orderId")
+
+            if order_id is None:
+                raise RuntimeError("V3_ORDER_ID_MISSING")
+
+            order_id = str(order_id)
+
+            if order_id in seen:
+                raise RuntimeError("V3_DUPLICATE_ORDER_ID")
+
+            seen.add(order_id)
+
+            status = str(
+                record.get("status", "")
+            ).upper()
+
+            original = u1314v3_decimal(
+                record.get("origQty")
+            )
+
+            executed = u1314v3_decimal(
+                record.get("executedQty"),
+                zero=True
+            )
+
+            if original is None or executed is None:
+                raise RuntimeError("V3_ORDER_QUANTITY_INVALID")
+
+            if executed > original:
+                raise RuntimeError("V3_EXECUTED_EXCEEDS_ORIGINAL")
+
+            accepted.append({
+                "order_id": order_id,
+                "client_order_id": record.get("clientOrderId"),
+                "status": status,
+                "side": record.get("side"),
+                "position_side": record.get("positionSide"),
+                "type": record.get("type"),
+                "price": record.get("price"),
+                "original_quantity": str(original),
+                "executed_quantity": str(executed),
+                "remaining_quantity": str(original - executed),
+                "reduce_only": record.get("reduceOnly"),
+            })
+
+        result.update({
+            "status": "HISTORY_READ_VERIFIED",
+            "reason": "FIRST_PAGE_VALIDATED",
+            "market_symbol": market,
+            "demo_symbol": demo,
+            "history_read_verified": True,
+            "history_complete": len(records) < 100,
+            "order_count": len(accepted),
+            "filled_order_count": sum(
+                x["status"] == "FILLED"
+                for x in accepted
+            ),
+            "partial_order_count": sum(
+                x["status"] in (
+                    "PARTIALLY_FILLED",
+                    "PARTIAL_FILLED",
+                )
+                for x in accepted
+            ),
+            "cancelled_order_count": sum(
+                x["status"] in ("CANCELED", "CANCELLED")
+                for x in accepted
+            ),
+            "open_order_count_in_history": sum(
+                x["status"] in (
+                    "NEW", "OPEN", "PARTIALLY_FILLED",
+                    "PARTIAL_FILLED", "PENDING",
+                )
+                for x in accepted
+            ),
+            "orders": accepted,
+        })
+
+    except Exception as exc:
+        result["status"] = "UNVERIFIED"
+        result["reason"] = str(exc)[:160]
+
+    return result
+
+
+# ============================================================
+# END UNIT 13-14 V3 PART 1
+# ============================================================
+
 scan_forever()
 
 # ============================================================
