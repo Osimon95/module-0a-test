@@ -16426,7 +16426,7 @@ def u813_diag_position_reader(snapshot, symbol):
             _U813_DIAG_QUANTITY_FIELDS
         )
 
-                print(
+        print(
             "UNIT 8-13 OPEN VALUE DIAGNOSTIC",
             flush=True
         )
