@@ -19244,6 +19244,330 @@ print(
 # ZERO INDENTATION
 # ============================================================
 
+
+
+# ============================================================
+# START UNIT 13-14 V6 PART 1
+# VERIFIED POSITION AND FILL EVIDENCE
+# ZERO INDENTATION
+# ============================================================
+
+U1314V6_VERSION = "V6_POSITION_FILL_EVIDENCE"
+
+
+def u1314v6_decimal(value):
+    from decimal import Decimal, InvalidOperation
+
+    if value is None or isinstance(value, bool):
+        return None
+
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
+    if not number.is_finite() or number < 0:
+        return None
+
+    return number
+
+
+def u1314v6_field(record, names):
+    for name in names:
+        if name in record and record[name] is not None:
+            return record[name]
+    return None
+
+
+def u1314v6_position(config, unit8):
+    report = {
+        "verified": False,
+        "reason": "NOT_CHECKED",
+        "position_id": None,
+        "side": None,
+        "quantity": None,
+        "entry_price": None,
+        "leverage": None,
+    }
+
+    if not isinstance(config, dict):
+        report["reason"] = "CONFIG_INVALID"
+        return report
+
+    exchange = config.get("exchange", {})
+
+    if not isinstance(exchange, dict):
+        report["reason"] = "EXCHANGE_CONFIG_INVALID"
+        return report
+
+    symbol = str(
+        exchange.get("market_symbol", "")
+    ).strip().upper()
+
+    if not symbol or not isinstance(unit8, dict):
+        report["reason"] = "UNIT8_OR_SYMBOL_MISSING"
+        return report
+
+    try:
+        status, position = u813v2_verified_position(
+            unit8, symbol
+        )
+    except Exception as exc:
+        report["reason"] = (
+            "ADAPTER_ERROR_" + type(exc).__name__
+        )
+        return report
+
+    report["reason"] = status
+
+    if (
+        status != "VERIFIED_OPEN_POSITION"
+        or not isinstance(position, dict)
+    ):
+        return report
+
+    quantity = u1314v6_decimal(
+        position.get("quantity")
+    )
+
+    entry = u1314v6_decimal(
+        position.get("entryPrice")
+    )
+
+    leverage = u1314v6_decimal(
+        position.get("leverage")
+    )
+
+    side = str(
+        position.get("side", "")
+    ).upper()
+
+    if (
+        quantity is None or quantity <= 0
+        or entry is None or entry <= 0
+        or leverage is None or leverage <= 0
+        or side not in ("LONG", "SHORT")
+    ):
+        report["reason"] = "POSITION_FIELDS_INVALID"
+        return report
+
+    report.update({
+        "verified": True,
+        "reason": "VERIFIED_OPEN_POSITION",
+        "position_id": str(position.get("id", "")),
+        "side": side,
+        "quantity": str(quantity),
+        "entry_price": str(entry),
+        "leverage": str(leverage),
+    })
+
+    return report
+
+
+def u1314v6_fills(config, unit8):
+    report = {
+        "read_verified": False,
+        "details_verified": False,
+        "reason": "NOT_CHECKED",
+        "record_count": None,
+        "unique_order_count": None,
+        "total_quantity": None,
+        "orders": {},
+    }
+
+    try:
+        market, demo = u1314v3_demo_symbol(
+            config, unit8
+        )
+
+        records = u1314v4_get(
+            U1314V4_PATHS["fills"],
+            {"symbol": market}
+        )
+
+    except Exception as exc:
+        report["reason"] = (
+            "FILL_READ_" + type(exc).__name__
+        )
+        return report
+
+    report["read_verified"] = True
+    report["record_count"] = len(records)
+
+    if not records:
+        report["reason"] = "NO_FILL_RECORDS"
+        return report
+
+    grouped = {}
+    seen = set()
+    total = u1314v6_decimal("0")
+
+    for record in records:
+        if not isinstance(record, dict):
+            report["reason"] = "FILL_RECORD_INVALID"
+            return report
+
+        order_id = u1314v6_field(
+            record, ("orderId", "order_id")
+        )
+
+        trade_id = u1314v6_field(
+            record, ("tradeId", "trade_id", "id")
+        )
+
+        quantity = u1314v6_decimal(
+            u1314v6_field(
+                record, ("qty", "quantity", "size")
+            )
+        )
+
+        price = u1314v6_decimal(
+            u1314v6_field(
+                record, ("price", "fillPrice")
+            )
+        )
+
+        timestamp = u1314v6_field(
+            record,
+            ("time", "timestamp", "createdTime")
+        )
+
+        side = u1314v6_field(
+            record, ("side", "tradeSide")
+        )
+
+        if (
+            order_id is None
+            or trade_id is None
+            or quantity is None or quantity <= 0
+            or price is None or price <= 0
+            or timestamp is None
+            or side is None
+        ):
+            report["reason"] = (
+                "FILL_REQUIRED_FIELDS_UNVERIFIED"
+            )
+            return report
+
+        order_id = str(order_id).strip()
+        trade_id = str(trade_id).strip()
+
+        if not order_id or not trade_id:
+            report["reason"] = "FILL_ID_EMPTY"
+            return report
+
+        identity = (order_id, trade_id)
+
+        if identity in seen:
+            report["reason"] = "DUPLICATE_TRADE_ID"
+            return report
+
+        seen.add(identity)
+
+        if order_id not in grouped:
+            grouped[order_id] = {
+                "quantity": u1314v6_decimal("0"),
+                "fill_count": 0,
+                "sides": set(),
+                "timestamps": [],
+            }
+
+        grouped[order_id]["quantity"] += quantity
+        grouped[order_id]["fill_count"] += 1
+        grouped[order_id]["sides"].add(
+            str(side).upper()
+        )
+        grouped[order_id]["timestamps"].append(
+            str(timestamp)
+        )
+
+        total += quantity
+
+    report["orders"] = {
+        order_id: {
+            "quantity": str(data["quantity"]),
+            "fill_count": data["fill_count"],
+            "sides": sorted(data["sides"]),
+            "timestamps_present": len(
+                data["timestamps"]
+            ),
+        }
+        for order_id, data in grouped.items()
+    }
+
+    report["unique_order_count"] = len(grouped)
+    report["total_quantity"] = str(total)
+    report["details_verified"] = True
+    report["reason"] = "FILL_FIELDS_VALIDATED"
+
+    # This verifies fill field integrity only.
+    # It does not verify account identity or
+    # agreement with historical order quantities.
+
+    return report
+
+
+def u1314v6_reconcile(config, unit8, previous):
+    position = u1314v6_position(
+        config, unit8
+    )
+
+    fills = u1314v6_fills(
+        config, unit8
+    )
+
+    v5 = previous.get("unit13_14_v5", {})
+
+    v5_ids_match = (
+        isinstance(v5, dict)
+        and v5.get("all_fill_orders_in_history") is True
+        and v5.get("unmatched_fill_order_count") == 0
+    )
+
+    report = {
+        "version": U1314V6_VERSION,
+        "position": position,
+        "fills": fills,
+        "position_verified": position["verified"],
+        "fill_details_verified": fills["details_verified"],
+        "v5_order_ids_matched": v5_ids_match,
+        "historical_quantity_match_verified": False,
+        "same_demo_account_verified": False,
+        "current_orders_account_bound": False,
+        "account_wide_exposure_verified": False,
+        "exchange_protection_verified": False,
+        "protection_active": False,
+        "execution_authorized": False,
+        "exchange_write": False,
+    }
+
+    if not position["verified"]:
+        report["status"] = "BLOCKED"
+        report["reason"] = "POSITION_UNVERIFIED"
+
+    elif not fills["details_verified"]:
+        report["status"] = "PARTIAL"
+        report["reason"] = "FILL_DETAILS_UNVERIFIED"
+
+    elif not v5_ids_match:
+        report["status"] = "PARTIAL"
+        report["reason"] = "ORDER_ID_MATCH_UNVERIFIED"
+
+    else:
+        report["status"] = "EVIDENCE_VALIDATED"
+        report["reason"] = (
+            "POSITION_AND_FILL_FIELDS_VALIDATED_"
+            "ACCOUNT_BINDING_PENDING"
+        )
+
+    return report
+
+
+# ============================================================
+# END UNIT 13-14 V6 PART 1
+# ZERO INDENTATION
+# ============================================================
+
 scan_forever()
 
 # ============================================================
