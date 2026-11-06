@@ -17525,6 +17525,541 @@ print(
 # END UNIT 13-14 PROTECTION RECONCILIATION V1
 # ============================================================
 
+
+
+# ============================================================
+# START UNIT 13-14 V2
+# DEMO ORDER AND EXPOSURE RECONCILIATION
+# ZERO INDENTATION
+# ============================================================
+
+from decimal import Decimal as _U1314V2_D
+from decimal import InvalidOperation as _U1314V2_Invalid
+
+U1314V2_VERSION = "V2_DEMO_ORDER_EXPOSURE_RECONCILIATION"
+
+
+# ============================================================
+# 1. STRICT NUMERIC PARSER
+# ============================================================
+
+def u1314v2_num(value, allow_zero=False):
+
+    if value is None or isinstance(value, bool):
+        return None
+
+    try:
+        number = _U1314V2_D(str(value))
+    except (
+        _U1314V2_Invalid,
+        ValueError,
+        TypeError,
+    ):
+        return None
+
+    if not number.is_finite():
+        return None
+
+    if number < 0:
+        return None
+
+    if number == 0 and not allow_zero:
+        return None
+
+    return number
+
+
+# ============================================================
+# 2. DEMO POSITION AND ACCOUNT EXPOSURE
+# ============================================================
+
+def u1314v2_exposure(config, unit8, reconciliation):
+
+    result = {
+        "status": "UNVERIFIED",
+        "reason": "EXPOSURE_CHECK_PENDING",
+        "position_value_verified": False,
+        "position_margin_verified": False,
+        "available_balance_verified": False,
+        "account_equity_verified": False,
+        "pending_order_margin_verified": False,
+        "account_wide_exposure_verified": False,
+        "exposure_cap_verified": False,
+        "execution_authorized": False,
+    }
+
+    if not isinstance(unit8, dict):
+        result["reason"] = "UNIT8_MISSING"
+        return result
+
+    if not isinstance(reconciliation, dict):
+        result["reason"] = "V1_RECONCILIATION_MISSING"
+        return result
+
+    if reconciliation.get("status") != "PLAN_RECONCILED":
+        result["reason"] = "V1_PLAN_NOT_RECONCILED"
+        return result
+
+    if unit8.get("demo_positions_read_verified") is not True:
+        result["reason"] = "POSITION_READ_UNVERIFIED"
+        return result
+
+    symbol = str(
+        reconciliation.get("position_id", "")
+    ).strip()
+
+    if not symbol:
+        result["reason"] = "POSITION_ID_MISSING"
+        return result
+
+    market_symbol = str(
+        unit8.get("market_symbol", "")
+    ).strip().upper()
+
+    config_exchange = (
+        config.get("exchange", {})
+        if isinstance(config, dict)
+        else {}
+    )
+
+    if market_symbol != str(
+        config_exchange.get("market_symbol", "")
+    ).strip().upper():
+        result["reason"] = "MARKET_SYMBOL_MISMATCH"
+        return result
+
+    position_status, position = (
+        u813v2_verified_position(
+            unit8,
+            market_symbol
+        )
+    )
+
+    if (
+        position_status != "VERIFIED_OPEN_POSITION"
+        or not isinstance(position, dict)
+    ):
+        result["reason"] = "POSITION_UNVERIFIED"
+        return result
+
+    if str(position.get("id", "")) != symbol:
+        result["reason"] = "POSITION_ID_CHANGED"
+        return result
+
+    quantity = u1314v2_num(
+        position.get("quantity")
+    )
+
+    entry = u1314v2_num(
+        position.get("entryPrice")
+    )
+
+    leverage = u1314v2_num(
+        position.get("leverage")
+    )
+
+    if None in (quantity, entry, leverage):
+        result["reason"] = "POSITION_NUMERIC_INVALID"
+        return result
+
+    # Indicative exposure from the verified position.
+    # Not a substitute for exchange account equity.
+
+    notional = quantity * entry
+    calculated_margin = notional / leverage
+
+    result["position_quantity"] = str(quantity)
+    result["entry_price"] = str(entry)
+    result["leverage"] = str(leverage)
+    result["entry_notional_usdt"] = str(notional)
+    result["calculated_initial_margin_usdt"] = (
+        str(calculated_margin)
+    )
+
+    result["position_value_verified"] = True
+
+    # Validate reported margin without assuming that
+    # initial margin equals current account equity.
+
+    reported_margin = u1314v2_num(
+        position.get("marginSize")
+    )
+
+    if reported_margin is not None:
+
+        result["reported_margin_usdt"] = (
+            str(reported_margin)
+        )
+
+        result["position_margin_verified"] = (
+            abs(reported_margin - calculated_margin)
+            <= _U1314V2_D("0.000001")
+        )
+
+    available = u1314v2_num(
+        unit8.get("available_balance"),
+        allow_zero=True
+    )
+
+    if (
+        unit8.get("demo_balance_verified") is True
+        and available is not None
+    ):
+        result["available_balance_usdt"] = str(available)
+        result["available_balance_verified"] = True
+
+    # Available balance is not total account equity.
+    # Other positions, open-order reservations and
+    # unrealized PnL must be accounted for separately.
+
+    result["status"] = "PARTIAL"
+    result["reason"] = (
+        "ACCOUNT_EQUITY_AND_PENDING_ORDER_MARGIN_REQUIRED"
+    )
+
+    return result
+
+
+# ============================================================
+# 3. EXCHANGE ORDER EVIDENCE
+#
+# No endpoint is called here.
+# Missing order data is UNKNOWN, not an empty order book.
+# ============================================================
+
+def u1314v2_orders(unit8, reconciliation):
+
+    result = {
+        "status": "UNVERIFIED",
+        "reason": "VERIFIED_DEMO_ORDER_READ_REQUIRED",
+        "open_orders_read_verified": False,
+        "order_history_read_verified": False,
+        "fills_read_verified": False,
+        "position_identity_verified": False,
+        "tp1_order_verified": False,
+        "tp2_order_verified": False,
+        "tp3_order_verified": False,
+        "hedge1_order_verified": False,
+        "hedge2_order_verified": False,
+        "tp1_fill_verified": False,
+        "tp2_fill_verified": False,
+        "hedge_fill_verified": False,
+        "duplicate_order_check_verified": False,
+        "pending_quantity_verified": False,
+        "exchange_protection_verified": False,
+        "protection_active": False,
+    }
+
+    if not isinstance(unit8, dict):
+        result["reason"] = "UNIT8_MISSING"
+        return result
+
+    if not isinstance(reconciliation, dict):
+        result["reason"] = "RECONCILIATION_MISSING"
+        return result
+
+    if reconciliation.get("status") != "PLAN_RECONCILED":
+        result["reason"] = "POSITION_PLAN_NOT_RECONCILED"
+        return result
+
+    position_id = reconciliation.get("position_id")
+
+    if position_id is None:
+        result["reason"] = "POSITION_ID_UNVERIFIED"
+        return result
+
+    result["position_identity_verified"] = True
+    result["position_id"] = str(position_id)
+
+    result["tp1_deferred"] = (
+        reconciliation.get("tp1_deferred") is True
+    )
+
+    result["tp2_deferred"] = (
+        reconciliation.get("tp2_deferred") is True
+    )
+
+    result["planned_tp1_quantity"] = (
+        reconciliation.get("tp1_quantity")
+    )
+
+    result["planned_tp2_quantity"] = (
+        reconciliation.get("tp2_quantity")
+    )
+
+    result["planned_tp3_quantity"] = (
+        reconciliation.get("tp3_quantity")
+    )
+
+    # Do not interpret:
+    # - a price crossing as an order fill
+    # - a missing order list as zero pending orders
+    # - a planned hedge as an open opposite position
+    # - a position ID as an order ID
+
+    result["status"] = "AWAITING_EXCHANGE_EVIDENCE"
+    result["reason"] = (
+        "OPEN_ORDERS_HISTORY_AND_FILLS_NOT_VERIFIED"
+    )
+
+    return result
+
+
+# ============================================================
+# 4. COMBINED V2 RECONCILIATION
+# ============================================================
+
+def u1314v2_reconcile(config, unit8, unit13, v1):
+
+    result = {
+        "version": U1314V2_VERSION,
+        "status": "BLOCKED",
+        "reason": "RECONCILIATION_PENDING",
+        "v1_plan_reconciled": False,
+        "position_verified": False,
+        "exposure_verified": False,
+        "orders_verified": False,
+        "fills_verified": False,
+        "protection_active": False,
+        "execution_authorized": False,
+        "exchange_write": False,
+    }
+
+    if not all(
+        isinstance(x, dict)
+        for x in (config, unit8, unit13, v1)
+    ):
+        result["reason"] = "UPSTREAM_DATA_MISSING"
+        return result
+
+    if config.get("execution_environment") != "DEMO":
+        result["reason"] = "DEMO_ONLY"
+        return result
+
+    if config.get("real_cash_execution_enabled") is not False:
+        result["reason"] = "REAL_CASH_BOUNDARY_FAILED"
+        return result
+
+    if v1.get("status") != "PLAN_RECONCILED":
+        result["reason"] = "V1_RECONCILIATION_NOT_READY"
+        return result
+
+    result["v1_plan_reconciled"] = True
+    result["position_verified"] = (
+        v1.get("position_verified") is True
+    )
+
+    exposure = u1314v2_exposure(
+        config,
+        unit8,
+        v1
+    )
+
+    orders = u1314v2_orders(
+        unit8,
+        v1
+    )
+
+    result["exposure"] = exposure
+    result["orders"] = orders
+
+    result["exposure_verified"] = (
+        exposure.get("account_wide_exposure_verified")
+        is True
+        and exposure.get("exposure_cap_verified")
+        is True
+    )
+
+    result["orders_verified"] = (
+        orders.get("open_orders_read_verified")
+        is True
+        and orders.get("order_history_read_verified")
+        is True
+    )
+
+    result["fills_verified"] = (
+        orders.get("fills_read_verified") is True
+    )
+
+    # All three exchange checks remain mandatory.
+    # V2 does not enable submission.
+
+    result["status"] = "PARTIAL_RECONCILIATION"
+    result["reason"] = (
+        "EXCHANGE_ORDER_FILL_AND_ACCOUNT_EQUITY_READ_PENDING"
+    )
+
+    return result
+
+
+# ============================================================
+# 5. PRESERVE V1 UNIT 14
+# ============================================================
+
+_U1314V2_ORIGINAL_UNIT14 = (
+    fresh_reconstruction_unit_14
+)
+
+
+def fresh_reconstruction_unit_14(
+    config,
+    unit_8,
+    unit_12,
+    unit_13,
+):
+
+    original = _U1314V2_ORIGINAL_UNIT14(
+        config,
+        unit_8,
+        unit_12,
+        unit_13
+    )
+
+    if not isinstance(original, dict):
+        raise RuntimeError(
+            "UNIT14_V1_RESULT_INVALID"
+        )
+
+    result = dict(original)
+
+    v1 = result.get("unit13_14_reconciliation")
+
+    v2 = u1314v2_reconcile(
+        config,
+        unit_8,
+        unit_13,
+        v1
+    )
+
+    result["unit13_14_v2"] = v2
+    result["unit13_14_v2_version"] = U1314V2_VERSION
+
+    print(
+        "UNIT 13-14 V2 VERSION =",
+        U1314V2_VERSION,
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V2 STATUS =",
+        v2["status"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V2 REASON =",
+        v2["reason"],
+        flush=True
+    )
+
+    exposure = v2.get("exposure", {})
+    orders = v2.get("orders", {})
+
+    for key in (
+        "position_value_verified",
+        "position_margin_verified",
+        "available_balance_verified",
+        "entry_notional_usdt",
+        "calculated_initial_margin_usdt",
+        "reported_margin_usdt",
+        "available_balance_usdt",
+        "account_equity_verified",
+        "pending_order_margin_verified",
+        "account_wide_exposure_verified",
+        "exposure_cap_verified",
+    ):
+
+        print(
+            "UNIT 13-14 V2 EXPOSURE",
+            key.upper(),
+            "=",
+            exposure.get(key),
+            flush=True
+        )
+
+    for key in (
+        "status",
+        "open_orders_read_verified",
+        "order_history_read_verified",
+        "fills_read_verified",
+        "position_identity_verified",
+        "tp1_deferred",
+        "planned_tp1_quantity",
+        "planned_tp2_quantity",
+        "planned_tp3_quantity",
+        "duplicate_order_check_verified",
+        "exchange_protection_verified",
+    ):
+
+        print(
+            "UNIT 13-14 V2 ORDERS",
+            key.upper(),
+            "=",
+            orders.get(key),
+            flush=True
+        )
+
+    # Never turn a reconciliation report into
+    # permission to submit orders.
+
+    result["execution_authorized"] = False
+    result["exchange_write"] = False
+    result["exchange_protection_verified"] = False
+    result["protection_active"] = False
+    result["management_execution_verified"] = False
+
+    # Preserve any more specific original alert.
+    if result.get("status") not in ("ALERT", "BLOCKED"):
+        result["status"] = "ALERT"
+        result["reason"] = (
+            "EXCHANGE_PROTECTION_NOT_VERIFIED"
+        )
+
+    result["safety_alert"] = True
+    result["alert_severity"] = "CRITICAL"
+    result["requires_operator_attention"] = True
+
+    print(
+        "UNIT 13-14 V2 FINAL STATUS =",
+        result.get("status"),
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V2 FINAL REASON =",
+        result.get("reason"),
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V2 PROTECTION ACTIVE = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V2 EXECUTION AUTHORIZED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V2 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    return result
+
+
+print(
+    "UNIT 13-14 V2 INSTALLED =",
+    U1314V2_VERSION,
+    flush=True
+)
+
+# ============================================================
+# END UNIT 13-14 V2
+# DEMO ORDER AND EXPOSURE RECONCILIATION
+# ============================================================
+
 scan_forever()
 
 # ============================================================
