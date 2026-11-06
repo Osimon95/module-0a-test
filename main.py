@@ -18773,6 +18773,173 @@ def u1314v4_probe(config, unit8):
 # END UNIT 13-14 V4 PART 1
 # ============================================================
 
+
+
+# ============================================================
+# START UNIT 13-14 V4 PART 2
+# PRESERVE V1 V2 V3 AND ADD DIAGNOSTICS
+# ZERO INDENTATION
+# ============================================================
+
+_U1314V4_PREVIOUS_UNIT14 = fresh_reconstruction_unit_14
+
+
+def fresh_reconstruction_unit_14(
+    config,
+    unit_8,
+    unit_12,
+    unit_13,
+):
+
+    previous = _U1314V4_PREVIOUS_UNIT14(
+        config,
+        unit_8,
+        unit_12,
+        unit_13
+    )
+
+    if not isinstance(previous, dict):
+        raise RuntimeError("V4_PREVIOUS_RESULT_INVALID")
+
+    result = dict(previous)
+
+    v3 = result.get("unit13_14_v3", {})
+
+    probe = u1314v4_probe(
+        config,
+        unit_8
+    )
+
+    v4 = {
+        "version": U1314V4_VERSION,
+        "status": probe.get("status"),
+        "reason": probe.get("reason"),
+        "simulation_probe": probe,
+        "v3_history_verified": (
+            isinstance(v3, dict)
+            and v3.get("demo_history_read_verified") is True
+        ),
+        "same_demo_account_verified": False,
+        "current_open_orders_verified": False,
+        "individual_fills_verified": False,
+        "account_equity_verified": False,
+        "account_wide_exposure_verified": False,
+        "duplicate_protection_verified": False,
+        "exchange_protection_verified": False,
+        "protection_active": False,
+        "execution_authorized": False,
+        "exchange_write": False,
+    }
+
+    result["unit13_14_v4"] = v4
+
+    print(
+        "UNIT 13-14 V4 VERSION =",
+        U1314V4_VERSION,
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V4 STATUS =",
+        v4["status"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V4 REASON =",
+        v4["reason"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V4 V3 HISTORY VERIFIED =",
+        v4["v3_history_verified"],
+        flush=True
+    )
+
+    for name in ("positions", "orders", "fills"):
+        print(
+            "UNIT 13-14 V4",
+            name.upper(),
+            "PROBE VERIFIED =",
+            probe.get(name + "_probe_verified", False),
+            flush=True
+        )
+
+        print(
+            "UNIT 13-14 V4",
+            name.upper(),
+            "RECORD COUNT =",
+            probe.get(name + "_record_count"),
+            flush=True
+        )
+
+        print(
+            "UNIT 13-14 V4",
+            name.upper(),
+            "REASON =",
+            probe.get(name + "_reason"),
+            flush=True
+        )
+
+    print(
+        "UNIT 13-14 V4 SAME DEMO ACCOUNT VERIFIED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V4 CURRENT ORDERS VERIFIED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V4 INDIVIDUAL FILLS VERIFIED = False",
+        flush=True
+    )
+
+    result["status"] = "ALERT"
+    result["reason"] = "DEMO_ACCOUNT_ORDER_BINDING_PENDING"
+    result["protection_active"] = False
+    result["exchange_protection_verified"] = False
+    result["execution_authorized"] = False
+    result["exchange_write"] = False
+    result["safety_alert"] = True
+    result["requires_operator_attention"] = True
+
+    print(
+        "UNIT 13-14 V4 FINAL STATUS = ALERT",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V4 PROTECTION ACTIVE = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V4 EXECUTION AUTHORIZED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V4 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    return result
+
+
+print(
+    "UNIT 13-14 V4 INSTALLED =",
+    U1314V4_VERSION,
+    flush=True
+)
+
+# ============================================================
+# END UNIT 13-14 V4 PART 2
+# ZERO INDENTATION
+# ============================================================
+
 scan_forever()
 
 # ============================================================
