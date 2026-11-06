@@ -16998,6 +16998,533 @@ print(
 # END UNIT 4-13 VERIFIED ATR14 HANDOVER V1
 # ============================================================
 
+
+
+# ============================================================
+# START UNIT 13-14 PROTECTION RECONCILIATION V1
+# ============================================================
+
+from decimal import Decimal as _U1314_D
+from decimal import InvalidOperation as _U1314_Invalid
+
+U1314_VERSION = "V1_PROTECTION_RECONCILIATION"
+
+
+# ============================================================
+# 1. STRICT NUMERIC VALIDATION
+# ============================================================
+
+def u1314_number(value, zero=False):
+
+    if value is None or isinstance(value, bool):
+        return None
+
+    try:
+        number = _U1314_D(str(value))
+    except (
+        _U1314_Invalid,
+        ValueError,
+        TypeError,
+    ):
+        return None
+
+    if not number.is_finite():
+        return None
+
+    if number < 0:
+        return None
+
+    if number == 0 and not zero:
+        return None
+
+    return number
+
+
+def u1314_valid_step(quantity, minimum, step):
+
+    return (
+        quantity is not None
+        and minimum is not None
+        and step is not None
+        and quantity >= minimum
+        and quantity % step == 0
+    )
+
+
+# ============================================================
+# 2. RECONCILE UNIT 13 PLAN WITH UNIT 8 CONTRACT
+# ============================================================
+
+def u1314_reconcile(config, unit8, unit13):
+
+    report = {
+        "version": U1314_VERSION,
+        "status": "BLOCKED",
+        "reason": "RECONCILIATION_PENDING",
+        "position_verified": False,
+        "contract_verified": False,
+        "tp_quantity_valid": False,
+        "tp1_deferred": False,
+        "tp2_deferred": False,
+        "hedge_quantity_valid": False,
+        "hedge_geometry_valid": False,
+        "exposure_verified": False,
+        "exchange_protection_verified": False,
+        "protection_active": False,
+        "execution_authorized": False,
+        "exchange_write": False,
+    }
+
+    def stop(reason):
+        report["reason"] = reason
+        return report
+
+    if not all(
+        isinstance(x, dict)
+        for x in (config, unit8, unit13)
+    ):
+        return stop("UPSTREAM_RESULT_MISSING")
+
+    if config.get("execution_environment") != "DEMO":
+        return stop("DEMO_ENVIRONMENT_REQUIRED")
+
+    if config.get(
+        "real_cash_execution_enabled"
+    ) is not False:
+        return stop("REAL_CASH_BOUNDARY_UNVERIFIED")
+
+    exchange = config.get("exchange")
+
+    if not isinstance(exchange, dict):
+        return stop("EXCHANGE_CONFIG_MISSING")
+
+    symbol = str(
+        exchange.get("market_symbol", "")
+    ).strip().upper()
+
+    if not symbol:
+        return stop("MARKET_SYMBOL_MISSING")
+
+    if str(
+        unit8.get("market_symbol", "")
+    ).strip().upper() != symbol:
+        return stop("UNIT8_SYMBOL_MISMATCH")
+
+    if str(
+        unit13.get("market_symbol", "")
+    ).strip().upper() != symbol:
+        return stop("UNIT13_SYMBOL_MISMATCH")
+
+    if unit8.get("status") != "VERIFIED_READ_ONLY":
+        return stop("UNIT8_READ_UNVERIFIED")
+
+    if unit8.get(
+        "demo_contract_verified"
+    ) is not True:
+        return stop("DEMO_CONTRACT_UNVERIFIED")
+
+    if unit8.get(
+        "demo_positions_read_verified"
+    ) is not True:
+        return stop("POSITION_READ_UNVERIFIED")
+
+    report["contract_verified"] = True
+
+    if unit13.get("position_verified") is not True:
+        return stop("UNIT13_POSITION_UNVERIFIED")
+
+    if unit13.get("status") != "PLAN_READY":
+        return stop("UNIT13_PLAN_NOT_READY")
+
+    report["position_verified"] = True
+
+    quantity = u1314_number(
+        unit13.get("position_quantity")
+    )
+
+    minimum = u1314_number(
+        unit8.get("minimum_quantity")
+    )
+
+    step = u1314_number(
+        unit8.get("quantity_step")
+    )
+
+    if not u1314_valid_step(
+        quantity, minimum, step
+    ):
+        return stop("POSITION_QUANTITY_INVALID")
+
+    report["position_quantity"] = str(quantity)
+    report["minimum_quantity"] = str(minimum)
+    report["quantity_step"] = str(step)
+
+    # --------------------------------------------------------
+    # Verify the position against the exchange snapshot.
+    # The Unit 8-13 V2 reader must agree with Unit 13.
+    # --------------------------------------------------------
+
+    position_status, position = (
+        u813v2_verified_position(
+            unit8,
+            symbol
+        )
+    )
+
+    if (
+        position_status != "VERIFIED_OPEN_POSITION"
+        or not isinstance(position, dict)
+    ):
+        return stop(
+            "UNIT8_POSITION_RECONCILIATION_FAILED"
+        )
+
+    verified_quantity = u1314_number(
+        position.get("quantity")
+    )
+
+    if verified_quantity != quantity:
+        return stop("POSITION_QUANTITY_MISMATCH")
+
+    side = str(
+        unit13.get("position_side", "")
+    ).strip().upper()
+
+    if side not in ("LONG", "SHORT"):
+        return stop("POSITION_SIDE_INVALID")
+
+    if side != position.get("positionSide"):
+        return stop("POSITION_SIDE_MISMATCH")
+
+    entry = u1314_number(
+        unit13.get("entry_price")
+    )
+
+    verified_entry = u1314_number(
+        position.get("entryPrice")
+    )
+
+    if (
+        entry is None
+        or verified_entry is None
+        or abs(entry - verified_entry)
+        > _U1314_D("0.00000001")
+    ):
+        return stop("POSITION_ENTRY_MISMATCH")
+
+    report["position_side"] = side
+    report["entry_price"] = str(entry)
+    report["position_id"] = position.get("id")
+
+    # ========================================================
+    # 3. TP QUANTITY RECONCILIATION
+    # ========================================================
+
+    tp = unit13.get("tp_quantity_plan")
+
+    if not isinstance(tp, dict):
+        return stop("TP_QUANTITY_PLAN_MISSING")
+
+    if tp.get("plan_valid") is not True:
+        return stop("TP_QUANTITY_PLAN_INVALID")
+
+    q1 = u1314_number(
+        tp.get("tp1_quantity"),
+        zero=True
+    )
+
+    q2 = u1314_number(
+        tp.get("tp2_quantity"),
+        zero=True
+    )
+
+    q3 = u1314_number(
+        tp.get("tp3_quantity"),
+        zero=True
+    )
+
+    if any(x is None for x in (q1, q2, q3)):
+        return stop("TP_QUANTITY_VALUE_INVALID")
+
+    if q1 + q2 + q3 != quantity:
+        return stop("TP_QUANTITY_SUM_MISMATCH")
+
+    for q in (q1, q2, q3):
+
+        if q == 0:
+            continue
+
+        if not u1314_valid_step(
+            q, minimum, step
+        ):
+            return stop("TP_QUANTITY_STEP_INVALID")
+
+    if q3 < minimum:
+        return stop("TP3_REMAINDER_TOO_SMALL")
+
+    if bool(tp.get("tp1_deferred")) != (q1 == 0):
+        return stop("TP1_DEFERRED_FLAG_MISMATCH")
+
+    if bool(tp.get("tp2_deferred")) != (q2 == 0):
+        return stop("TP2_DEFERRED_FLAG_MISMATCH")
+
+    report["tp_quantity_valid"] = True
+    report["tp1_quantity"] = str(q1)
+    report["tp2_quantity"] = str(q2)
+    report["tp3_quantity"] = str(q3)
+    report["tp1_deferred"] = q1 == 0
+    report["tp2_deferred"] = q2 == 0
+
+    # A deferred TP is not a confirmed fill.
+    report["tp1_fill_verified"] = False
+    report["tp2_fill_verified"] = False
+    report["secured_profit_verified"] = False
+
+    # ========================================================
+    # 4. ATR HEDGE PRICE RECONCILIATION
+    # ========================================================
+
+    hedge1 = u1314_number(
+        unit13.get("hedge_stage1_price")
+    )
+
+    hedge2 = u1314_number(
+        unit13.get("hedge_stage2_price")
+    )
+
+    atr = u1314_number(
+        unit13.get("atr14")
+    )
+
+    tick = u1314_number(
+        unit8.get("price_step")
+    )
+
+    if any(
+        x is None
+        for x in (hedge1, hedge2, atr, tick)
+    ):
+        return stop("ATR_HEDGE_VALUES_MISSING")
+
+    if hedge1 % tick != 0 or hedge2 % tick != 0:
+        return stop("HEDGE_PRICE_STEP_INVALID")
+
+    if side == "SHORT":
+        geometry_valid = entry < hedge1 < hedge2
+    else:
+        geometry_valid = hedge2 < hedge1 < entry
+
+    if not geometry_valid:
+        return stop("ATR_HEDGE_GEOMETRY_INVALID")
+
+    report["hedge_geometry_valid"] = True
+    report["hedge_stage1_price"] = str(hedge1)
+    report["hedge_stage2_price"] = str(hedge2)
+    report["atr14"] = str(atr)
+
+    # ========================================================
+    # 5. STAGED HEDGE QUANTITY RECONCILIATION
+    #
+    # Stage 1 requires a 50% reduction and a
+    # separately verified opposite-side hedge.
+    #
+    # Stage 2 cannot be submitted based solely
+    # on the original quantity. It must use the
+    # latest reconciled position and hedge state.
+    # ========================================================
+
+    half = quantity / _U1314_D("2")
+
+    if not u1314_valid_step(
+        half, minimum, step
+    ):
+        return stop(
+            "STAGE1_HALF_QUANTITY_NOT_EXECUTABLE"
+        )
+
+    report["hedge_quantity_valid"] = True
+    report["stage1_half_quantity"] = str(half)
+    report["stage1_opposite_quantity"] = str(half)
+
+    report["stage2_quantity"] = None
+    report["stage2_quantity_status"] = (
+        "REQUIRES_POST_STAGE1_POSITION_RECONCILIATION"
+    )
+
+    report["hedge_cycle_fill_verified"] = False
+    report["recovery_fill_verified"] = False
+    report["backup_activation_verified"] = False
+
+    # ========================================================
+    # 6. ACCOUNT AND EXCHANGE RECONCILIATION
+    #
+    # The existing Unit 8 snapshot verifies positions,
+    # but this block has not verified all open orders,
+    # account-wide exposure, or protection fills.
+    #
+    # Do not convert calculated plans into execution.
+    # ========================================================
+
+    report["exposure_verified"] = False
+    report["exchange_protection_verified"] = False
+    report["protection_active"] = False
+    report["execution_authorized"] = False
+
+    report["status"] = "PLAN_RECONCILED"
+    report["reason"] = (
+        "EXCHANGE_ORDER_AND_EXPOSURE_RECONCILIATION_PENDING"
+    )
+
+    return report
+
+
+# ============================================================
+# 7. PRESERVE ORIGINAL UNIT 14 SUPERVISOR
+# ============================================================
+
+_U1314_ORIGINAL_UNIT14 = (
+    fresh_reconstruction_unit_14
+)
+
+
+def fresh_reconstruction_unit_14(
+    config,
+    unit_8,
+    unit_12,
+    unit_13,
+):
+
+    reconciliation = u1314_reconcile(
+        config,
+        unit_8,
+        unit_13
+    )
+
+    print(
+        "UNIT 13-14 RECONCILIATION VERSION =",
+        U1314_VERSION,
+        flush=True
+    )
+
+    for key in (
+        "status",
+        "reason",
+        "position_verified",
+        "contract_verified",
+        "position_quantity",
+        "tp_quantity_valid",
+        "tp1_quantity",
+        "tp2_quantity",
+        "tp3_quantity",
+        "tp1_deferred",
+        "tp2_deferred",
+        "hedge_geometry_valid",
+        "hedge_quantity_valid",
+        "stage1_half_quantity",
+        "stage2_quantity_status",
+        "exposure_verified",
+        "exchange_protection_verified",
+    ):
+
+        print(
+            "UNIT 13-14",
+            key.upper(),
+            "=",
+            reconciliation.get(key),
+            flush=True
+        )
+
+    # Always run the original Unit 14 supervisor.
+    # Its safety checks remain authoritative.
+
+    original = _U1314_ORIGINAL_UNIT14(
+        config,
+        unit_8,
+        unit_12,
+        unit_13
+    )
+
+    if not isinstance(original, dict):
+        raise RuntimeError(
+            "UNIT13_14_INVALID_SUPERVISOR_RESULT"
+        )
+
+    result = dict(original)
+
+    result["unit13_14_reconciliation"] = (
+        reconciliation
+    )
+
+    result["unit13_14_version"] = U1314_VERSION
+
+    result["unit13_14_plan_reconciled"] = (
+        reconciliation.get("status")
+        == "PLAN_RECONCILED"
+    )
+
+    # This adapter cannot authorize execution.
+    # A validated plan is not an active order.
+
+    result["execution_authorized"] = False
+    result["exchange_write"] = False
+    result["protection_active"] = False
+
+    if result["unit13_14_plan_reconciled"]:
+
+        result["position_verified"] = True
+        result["quantity_step_valid"] = True
+        result["tp_plan_valid"] = True
+        result["hedge_plan_valid"] = True
+
+        result["status"] = "ALERT"
+        result["reason"] = (
+            "PLAN_RECONCILED_PROTECTION_NOT_VERIFIED"
+        )
+
+        result["safety_alert"] = True
+        result["alert_severity"] = "CRITICAL"
+        result["requires_operator_attention"] = True
+
+    print(
+        "UNIT 13-14 FINAL STATUS =",
+        result.get("status"),
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 FINAL REASON =",
+        result.get("reason"),
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 PROTECTION ACTIVE = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 EXECUTION AUTHORIZED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    return result
+
+
+print(
+    "UNIT 13-14 RECONCILIATION INSTALLED =",
+    U1314_VERSION,
+    flush=True
+)
+
+# ============================================================
+# END UNIT 13-14 PROTECTION RECONCILIATION V1
+# ============================================================
+
 scan_forever()
 
 # ============================================================
