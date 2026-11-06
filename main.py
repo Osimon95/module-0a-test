@@ -20064,6 +20064,129 @@ def u1314v7_reconcile(previous):
 # ============================================================
 
 
+
+# ============================================================
+# START UNIT 13-14 V7 PART 2
+# PRESERVE V1 THROUGH V6
+# ZERO INDENTATION
+# ============================================================
+
+_U1314V7_PREVIOUS_UNIT14 = fresh_reconstruction_unit_14
+
+
+def fresh_reconstruction_unit_14(
+    config,
+    unit_8,
+    unit_12,
+    unit_13,
+):
+
+    previous = _U1314V7_PREVIOUS_UNIT14(
+        config,
+        unit_8,
+        unit_12,
+        unit_13
+    )
+
+    if not isinstance(previous, dict):
+        raise RuntimeError(
+            "V7_PREVIOUS_UNIT14_RESULT_INVALID"
+        )
+
+    result = dict(previous)
+
+    v7 = u1314v7_reconcile(result)
+
+    result["unit13_14_v7"] = v7
+
+    print(
+        "UNIT 13-14 V7 VERSION =",
+        U1314V7_VERSION,
+        flush=True
+    )
+
+    fields = (
+        "status",
+        "reason",
+        "v6_position_verified",
+        "v6_fills_verified",
+        "v5_order_ids_matched",
+        "history_records_verified",
+        "history_record_count",
+        "fill_order_count",
+        "matched_order_count",
+        "quantity_comparison_count",
+        "quantity_mismatch_count",
+        "quantity_missing_count",
+        "unmatched_order_count",
+        "gross_fill_quantity",
+        "current_position_quantity",
+        "historical_quantity_match_verified",
+        "net_position_reconciliation_verified",
+        "same_demo_account_verified",
+        "account_wide_exposure_verified",
+        "exchange_protection_verified",
+    )
+
+    for field in fields:
+        print(
+            "UNIT 13-14 V7",
+            field.upper(),
+            "=",
+            v7.get(field),
+            flush=True
+        )
+
+    # Preserve V1-V6 evidence and existing
+    # position management boundaries.
+    # Do not enable unverified exchange protection.
+
+    result["status"] = "ALERT"
+    result["reason"] = (
+        "V7_NET_POSITION_AND_ACCOUNT_BINDING_PENDING"
+    )
+
+    result["protection_active"] = False
+    result["exchange_protection_verified"] = False
+    result["execution_authorized"] = False
+    result["exchange_write"] = False
+    result["safety_alert"] = True
+    result["requires_operator_attention"] = True
+
+    print(
+        "UNIT 13-14 V7 FINAL STATUS = ALERT",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V7 PROTECTION ACTIVE = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V7 EXECUTION AUTHORIZED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V7 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    return result
+
+
+print(
+    "UNIT 13-14 V7 INSTALLED =",
+    U1314V7_VERSION,
+    flush=True
+)
+
+# ============================================================
+# END UNIT 13-14 V7 PART 2
+# ZERO INDENTATION
+# ============================================================
+
 scan_forever()
 
 # ============================================================
