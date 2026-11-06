@@ -20857,6 +20857,413 @@ def u1314_tp_execute(config, account):
 # END UNIT 13-14 TP EXECUTION - PART 1
 # ============================================================
 
+
+# ============================================================
+# UNIT 13-14 TP3 DYNAMIC TRAILING - PART 2
+# WEEX DEMO EXISTING POSITION MANAGEMENT
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import json
+import hashlib
+from decimal import Decimal
+from pathlib import Path
+
+U1314_TP3_VERSION = "TP3_TRAILING_EXEC_V1"
+
+# Must be on a persistent disk for restart continuity.
+U1314_TP3_STATE_PATH = Path(
+    "/mnt/data/u1314_tp3_state.json"
+)
+
+
+def u1314_tp3_load_state():
+    if not U1314_TP3_STATE_PATH.exists():
+        return {}
+
+    with U1314_TP3_STATE_PATH.open(
+        "r", encoding="utf-8"
+    ) as handle:
+        state = json.load(handle)
+
+    if not isinstance(state, dict):
+        raise RuntimeError("TP3_STATE_INVALID")
+
+    return state
+
+
+def u1314_tp3_save_state(state):
+    path = U1314_TP3_STATE_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    temporary = path.with_suffix(".tmp")
+
+    with temporary.open(
+        "w", encoding="utf-8"
+    ) as handle:
+        json.dump(state, handle, sort_keys=True)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    os.replace(temporary, path)
+
+
+def u1314_tp3_manage(config, account):
+    result = {
+        "version": U1314_TP3_VERSION,
+        "status": "WAITING",
+        "reason": "TP3_NOT_ARMED",
+        "exchange_write": False,
+        "order_id": None,
+        "fill_verified": False,
+    }
+
+    def finish(status, reason):
+        result["status"] = status
+        result["reason"] = reason
+        return result
+
+    if config.get("execution_environment") != "DEMO":
+        return finish("BLOCKED", "DEMO_ONLY_REQUIRED")
+
+    if (
+        account.get("demo_positions_read_verified") is not True
+        or account.get("demo_contract_verified") is not True
+        or account.get("account_can_trade") is not True
+    ):
+        return finish(
+            "BLOCKED", "DEMO_ACCOUNT_UNVERIFIED"
+        )
+
+    settings = unit_13_config()
+    exchange = config["exchange"]
+
+    symbol = str(
+        exchange["demo_order_symbol"]
+    ).upper()
+
+    market_symbol = str(
+        exchange["market_symbol"]
+    ).upper()
+
+    snapshot = globals().get(
+        "FRESH_RECONSTRUCTION_MARKET_SNAPSHOT"
+    )
+
+    if not isinstance(snapshot, dict):
+        return finish(
+            "BLOCKED", "MARKET_SNAPSHOT_MISSING"
+        )
+
+    if str(snapshot.get("symbol")).upper() != market_symbol:
+        return finish(
+            "BLOCKED", "MARKET_SYMBOL_MISMATCH"
+        )
+
+    mark = u1314_tp_decimal(snapshot["price"])
+
+    if mark <= 0:
+        return finish("BLOCKED", "MARK_PRICE_INVALID")
+
+    step = u1314_tp_decimal(
+        account["quantity_step"]
+    )
+
+    minimum = u1314_tp_decimal(
+        account["minimum_quantity"]
+    )
+
+    callback = u1314_tp_decimal(
+        settings["tp3_trailing_percent"]
+    )
+
+    if not Decimal("0.1") <= callback <= Decimal("0.4"):
+        return finish(
+            "BLOCKED", "TRAILING_PERCENT_OUT_OF_RANGE"
+        )
+
+    positions = u1314_tp_positions(symbol)
+
+    if not positions:
+        return finish("IDLE", "NO_ACTIVE_POSITION")
+
+    if len(positions) != 1:
+        return finish(
+            "RECONCILIATION_REQUIRED",
+            "MULTIPLE_POSITIONS"
+        )
+
+    position = positions[0]
+
+    side = str(
+        position.get("positionSide")
+        or position.get("holdSide")
+        or ""
+    ).upper()
+
+    if side not in ("LONG", "SHORT"):
+        return finish(
+            "BLOCKED", "POSITION_SIDE_INVALID"
+        )
+
+    size = u1314_tp_decimal(
+        position["size"]
+    )
+
+    opened = u1314_tp_decimal(
+        position["cumOpenSize"]
+    )
+
+    closed = u1314_tp_decimal(
+        position["cumCloseSize"]
+    )
+
+    if (
+        opened <= 0
+        or closed < 0
+        or opened - closed != size
+    ):
+        return finish(
+            "BLOCKED", "POSITION_HISTORY_MISMATCH"
+        )
+
+    q1 = u1314_tp_floor(
+        opened
+        * settings["tp1_allocation_percent"]
+        / Decimal("100"),
+        step
+    )
+
+    q2 = u1314_tp_floor(
+        opened
+        * settings["tp2_allocation_percent"]
+        / Decimal("100"),
+        step
+    )
+
+    if q1 < minimum:
+        q1 = Decimal("0")
+
+    if q2 < minimum:
+        q2 = Decimal("0")
+
+    if q1 == 0 or q2 == 0:
+        return finish(
+            "WAITING",
+            "TP1_TP2_PARTIAL_QUANTITIES_DEFERRED"
+        )
+
+    if closed < q1 + q2:
+        return finish(
+            "WAITING", "TP2_NOT_CONFIRMED"
+        )
+
+    position_id = str(
+        position.get("id")
+        or (
+            symbol + "|" + side + "|"
+            + str(opened) + "|"
+            + str(
+                position.get("averageEntryPrice")
+                or position.get("avgPrice")
+                or position.get("entryPrice")
+            )
+        )
+    )
+
+    key = hashlib.sha256(
+        position_id.encode("utf-8")
+    ).hexdigest()[:32]
+
+    state = u1314_tp3_load_state()
+
+    existing = state.get(key)
+
+    if existing is None:
+        state[key] = {
+            "side": side,
+            "best_mark": str(mark),
+            "status": "ARMED",
+            "client_id": None,
+        }
+
+        u1314_tp3_save_state(state)
+
+        return finish(
+            "ARMED", "TP3_TRAILING_STARTED"
+        )
+
+    if existing.get("side") != side:
+        return finish(
+            "BLOCKED", "TP3_POSITION_IDENTITY_CHANGED"
+        )
+
+    if existing.get("status") == "ORDER_SUBMITTED":
+        return finish(
+            "RECONCILIATION_REQUIRED",
+            "TP3_ORDER_REQUIRES_FILL_CHECK"
+        )
+
+    if existing.get("status") == "ORDER_ATTEMPTED":
+        return finish(
+            "ORDER_UNCERTAIN",
+            "TP3_PREVIOUS_ORDER_MUST_BE_RECONCILED"
+        )
+
+    if existing.get("status") != "ARMED":
+        return finish(
+            "BLOCKED", "TP3_STATE_INVALID"
+        )
+
+    best = u1314_tp_decimal(
+        existing["best_mark"]
+    )
+
+    if side == "LONG":
+        best = max(best, mark)
+
+        stop = best * (
+            Decimal("1")
+            - callback / Decimal("100")
+        )
+
+        triggered = mark <= stop
+
+    else:
+        best = min(best, mark)
+
+        stop = best * (
+            Decimal("1")
+            + callback / Decimal("100")
+        )
+
+        triggered = mark >= stop
+
+    existing["best_mark"] = str(best)
+
+    result.update({
+        "position_side": side,
+        "position_quantity": str(size),
+        "mark_price": str(mark),
+        "best_mark": str(best),
+        "trailing_stop": str(stop),
+        "trailing_percent": str(callback),
+        "triggered": triggered,
+    })
+
+    u1314_tp3_save_state(state)
+
+    if not triggered:
+        return finish(
+            "TRAILING_ACTIVE",
+            "TRAILING_STOP_NOT_REACHED"
+        )
+
+    quantity = u1314_tp_floor(size, step)
+
+    if quantity < minimum:
+        return finish(
+            "BLOCKED", "REMAINING_QUANTITY_BELOW_MINIMUM"
+        )
+
+    client_id = "TP3" + hashlib.sha256(
+        (key + "|" + str(closed)).encode("utf-8")
+    ).hexdigest()[:28]
+
+    close_side = (
+        "SELL" if side == "LONG" else "BUY"
+    )
+
+    payload = {
+        "symbol": symbol,
+        "side": close_side,
+        "positionSide": side,
+        "type": "MARKET",
+        "quantity": format(quantity, "f"),
+        "newClientOrderId": client_id,
+    }
+
+    # Persist before submitting to avoid blind retries.
+    existing["status"] = "ORDER_ATTEMPTED"
+    existing["client_id"] = client_id
+
+    u1314_tp3_save_state(state)
+
+    try:
+        http, response = unit_12_v5_request(
+            "POST",
+            UNIT_12_V5_ORDER_PATH,
+            payload
+        )
+
+    except Exception as exc:
+        return finish(
+            "ORDER_UNCERTAIN",
+            "TP3_SUBMISSION_" + type(exc).__name__
+        )
+
+    if not isinstance(response, dict):
+        return finish(
+            "ORDER_UNCERTAIN", "INVALID_ORDER_RESPONSE"
+        )
+
+    if not (
+        200 <= http < 300
+        and response.get("success") is True
+        and response.get("orderId")
+    ):
+        return finish(
+            "ORDER_UNCERTAIN", "ORDER_NOT_CONFIRMED"
+        )
+
+    result["exchange_write"] = True
+    result["order_id"] = str(response["orderId"])
+
+    existing["status"] = "ORDER_SUBMITTED"
+    existing["order_id"] = result["order_id"]
+
+    u1314_tp3_save_state(state)
+
+    # Verify the position after submission.
+    try:
+        refreshed = u1314_tp_positions(symbol)
+
+    except Exception:
+        return finish(
+            "FILL_PENDING", "POSITION_RECHECK_FAILED"
+        )
+
+    remaining = [
+        row for row in refreshed
+        if str(
+            row.get("positionSide")
+            or row.get("holdSide")
+            or ""
+        ).upper() == side
+    ]
+
+    if len(remaining) == 0:
+        existing["status"] = "CLOSED"
+        u1314_tp3_save_state(state)
+
+        result["fill_verified"] = True
+
+        return finish(
+            "TP3_CLOSED",
+            "POSITION_FLAT_AFTER_TP3"
+        )
+
+    return finish(
+        "FILL_PENDING",
+        "REMAINING_POSITION_REQUIRES_RECONCILIATION"
+    )
+
+
+# ============================================================
+# END TP3 TRAILING MANAGEMENT
+# ============================================================
+
 scan_forever()
 
 # ============================================================
