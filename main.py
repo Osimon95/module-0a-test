@@ -8960,7 +8960,9 @@ def fresh_reconstruction_unit_10(
         flush=True,
     )
 
-    symbol = u10_symbol(execution_config)
+    if verified_symbol != symbols["demo_order_symbol"]:
+    return stop("DEMO_SYMBOL_MISMATCH")
+    
 
     def finish(result):
         print(
