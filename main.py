@@ -18940,6 +18940,192 @@ print(
 # ZERO INDENTATION
 # ============================================================
 
+
+# ============================================================
+# START UNIT 13-14 V5 PART 1
+# CROSS-VERIFICATION AND ACCOUNT BINDING
+# ZERO INDENTATION
+# ============================================================
+
+U1314V5_VERSION = "V5_CROSS_VERIFICATION"
+
+
+def u1314v5_ids(values):
+    if not isinstance(values, list):
+        return None
+
+    result = []
+
+    for value in values:
+        if value is None:
+            return None
+
+        item = str(value).strip()
+
+        if not item or item.lower() in ("none", "null"):
+            return None
+
+        result.append(item)
+
+    if len(result) != len(set(result)):
+        return None
+
+    return set(result)
+
+
+def u1314v5_reconcile(result, unit8):
+    v3 = result.get("unit13_14_v3", {})
+    v4 = result.get("unit13_14_v4", {})
+
+    output = {
+        "version": U1314V5_VERSION,
+        "status": "UNVERIFIED",
+        "reason": "EVIDENCE_INCOMPLETE",
+        "v3_history_verified": False,
+        "v4_orders_probe_verified": False,
+        "v4_fills_probe_verified": False,
+        "historical_order_ids_verified": False,
+        "fill_order_ids_verified": False,
+        "all_fill_orders_in_history": False,
+        "history_orders_with_fills": 0,
+        "unmatched_fill_order_count": None,
+        "position_verified_by_unit8": False,
+        "same_demo_account_verified": False,
+        "current_open_orders_verified": False,
+        "individual_fill_details_verified": False,
+        "account_wide_exposure_verified": False,
+        "exchange_protection_verified": False,
+        "protection_active": False,
+        "execution_authorized": False,
+        "exchange_write": False,
+    }
+
+    if not isinstance(v3, dict) or not isinstance(v4, dict):
+        return output
+
+    history = v3.get("history", {})
+    probe = v4.get("simulation_probe", {})
+
+    if not isinstance(history, dict):
+        return output
+
+    if not isinstance(probe, dict):
+        return output
+
+    history_ok = (
+        history.get("history_read_verified") is True
+    )
+
+    orders_ok = (
+        probe.get("orders_probe_verified") is True
+    )
+
+    fills_ok = (
+        probe.get("fills_probe_verified") is True
+    )
+
+    output["v3_history_verified"] = history_ok
+    output["v4_orders_probe_verified"] = orders_ok
+    output["v4_fills_probe_verified"] = fills_ok
+
+    history_records = history.get("orders")
+
+    historical_ids = None
+
+    if history_ok and isinstance(history_records, list):
+        historical_ids = u1314v5_ids([
+            record.get("order_id")
+            for record in history_records
+            if isinstance(record, dict)
+        ])
+
+        if (
+            len(history_records)
+            != sum(isinstance(x, dict) for x in history_records)
+        ):
+            historical_ids = None
+
+    output["historical_order_ids_verified"] = (
+        historical_ids is not None
+    )
+
+    # V4 retained fill order IDs but not individual
+    # fill quantities, prices or timestamps.
+    # Repeated order IDs are legitimate for partial fills.
+
+    fill_ids = None
+
+    if fills_ok:
+        raw_fill_ids = probe.get("fill_order_ids")
+
+        if isinstance(raw_fill_ids, list):
+            if all(
+                item is not None
+                and str(item).strip()
+                and str(item).lower() not in ("none", "null")
+                for item in raw_fill_ids
+            ):
+                fill_ids = {
+                    str(item).strip()
+                    for item in raw_fill_ids
+                }
+
+    output["fill_order_ids_verified"] = (
+        fill_ids is not None
+    )
+
+    if historical_ids is not None and fill_ids is not None:
+        unmatched = fill_ids - historical_ids
+        matched = fill_ids & historical_ids
+
+        output["history_orders_with_fills"] = len(matched)
+        output["unmatched_fill_order_count"] = len(unmatched)
+
+        output["all_fill_orders_in_history"] = (
+            len(unmatched) == 0
+            and len(fill_ids) > 0
+        )
+
+    # Unit 8 is the authoritative source for the
+    # currently verified /sim/ demo position.
+    # A successful V4 request to a different host
+    # does not establish the same account identity.
+
+    if isinstance(unit8, dict):
+        output["position_verified_by_unit8"] = (
+            unit8.get("status") == "VERIFIED_READ_ONLY"
+            and unit8.get("positions_read_verified") is True
+        )
+
+    if not history_ok:
+        output["reason"] = "V3_HISTORY_UNVERIFIED"
+
+    elif not orders_ok or not fills_ok:
+        output["reason"] = "V4_ORDER_OR_FILL_PROBE_FAILED"
+
+    elif historical_ids is None or fill_ids is None:
+        output["reason"] = "ORDER_ID_EVIDENCE_INVALID"
+
+    elif not output["all_fill_orders_in_history"]:
+        output["reason"] = "FILL_HISTORY_ORDER_IDS_NOT_MATCHED"
+
+    else:
+        output["status"] = "ORDER_ID_CROSS_CHECK_PASSED"
+        output["reason"] = (
+            "ORDER_IDS_MATCH_ACCOUNT_BINDING_PENDING"
+        )
+
+    # Never infer account identity from identical
+    # credentials, symbols, or order IDs alone.
+
+    return output
+
+
+# ============================================================
+# END UNIT 13-14 V5 PART 1
+# ZERO INDENTATION
+# ============================================================
+
 scan_forever()
 
 # ============================================================
