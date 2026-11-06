@@ -16225,6 +16225,17 @@ _U813_DIAG_QUANTITY_FIELDS = (
     "positionAmt",
     "quantity",
 )
+_U813_DIAG_VALUE_FIELDS = (
+    "openValue",
+    "cumOpenValue",
+    "cumOpenSize",
+    "cumCloseSize",
+    "openFee",
+    "marginSize",
+    "isolatedMargin",
+    "separatedOpenOrderId",
+    "id",
+)
 
 _U813_DIAG_SIDE_FIELDS = (
     "positionSide",
