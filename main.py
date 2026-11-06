@@ -16431,9 +16431,9 @@ def u813_diag_position_reader(snapshot, symbol):
             flush=True
         )
 
-        u813_diag_fields(
-            record,
-            _U813_DIAG_VALUE_FIELDS
+    u813_diag_fields(
+        record,
+        _U813_DIAG_VALUE_FIELDS
         )
         print(
             "UNIT 8-13 SIDE CANDIDATES",
