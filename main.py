@@ -18376,6 +18376,219 @@ def u1314v3_read_history(config, unit8):
 # END UNIT 13-14 V3 PART 1
 # ============================================================
 
+
+# ============================================================
+# START UNIT 13-14 V3 PART 2
+# V1/V2 PRESERVING UNIT 14 HANDOVER
+# ZERO INDENTATION
+# ============================================================
+
+_U1314V3_PREVIOUS_UNIT14 = fresh_reconstruction_unit_14
+
+
+def fresh_reconstruction_unit_14(
+    config,
+    unit_8,
+    unit_12,
+    unit_13,
+):
+
+    previous = _U1314V3_PREVIOUS_UNIT14(
+        config,
+        unit_8,
+        unit_12,
+        unit_13
+    )
+
+    if not isinstance(previous, dict):
+        raise RuntimeError("V3_UNIT14_RESULT_INVALID")
+
+    result = dict(previous)
+
+    history = u1314v3_read_history(
+        config, unit_8
+    )
+
+    v1 = result.get("unit13_14_reconciliation", {})
+    v2 = result.get("unit13_14_v2", {})
+
+    # Position margin: preserve distinct meanings.
+    # Reported margin is exchange data.
+    # Calculated margin is an estimate.
+    # Neither alone proves account-wide exposure.
+
+    margin = {
+        "reported_margin_read_verified": False,
+        "calculated_margin_available": False,
+        "margin_formula_match": False,
+        "difference_usdt": None,
+    }
+
+    if isinstance(v2, dict):
+        exposure = v2.get("exposure", {})
+
+        if isinstance(exposure, dict):
+            reported = u1314v3_decimal(
+                exposure.get("reported_margin_usdt")
+            )
+            calculated = u1314v3_decimal(
+                exposure.get("calculated_initial_margin_usdt")
+            )
+
+            if reported is not None:
+                margin["reported_margin_read_verified"] = (
+                    exposure.get("position_value_verified")
+                    is True
+                )
+                margin["reported_margin_usdt"] = str(reported)
+
+            if calculated is not None:
+                margin["calculated_margin_available"] = True
+                margin["calculated_margin_usdt"] = str(calculated)
+
+            if reported is not None and calculated is not None:
+                difference = reported - calculated
+
+                margin["difference_usdt"] = str(difference)
+
+                margin["margin_formula_match"] = (
+                    abs(difference) <= Decimal("0.000001")
+                )
+
+    history_verified = (
+        history.get("history_read_verified") is True
+    )
+
+    # History may contain orders that are no longer open.
+    # It is not an authoritative current-open-order snapshot.
+    # A filled order is not proof of a particular hedge cycle.
+    # Do not infer protection activity from history alone.
+
+    v3 = {
+        "version": U1314V3_VERSION,
+        "status": (
+            "DEMO_HISTORY_VERIFIED"
+            if history_verified
+            else "DEMO_HISTORY_UNVERIFIED"
+        ),
+        "reason": history.get("reason"),
+        "v1_plan_reconciled": (
+            isinstance(v1, dict)
+            and v1.get("status") == "PLAN_RECONCILED"
+        ),
+        "history": history,
+        "margin": margin,
+        "demo_history_read_verified": history_verified,
+        "current_open_orders_verified": False,
+        "individual_fills_verified": False,
+        "account_equity_verified": False,
+        "pending_order_margin_verified": False,
+        "account_wide_exposure_verified": False,
+        "duplicate_protection_verified": False,
+        "exchange_protection_verified": False,
+        "protection_active": False,
+        "execution_authorized": False,
+        "exchange_write": False,
+    }
+
+    result["unit13_14_v3"] = v3
+
+    print(
+        "UNIT 13-14 V3 VERSION =",
+        U1314V3_VERSION,
+        flush=True
+    )
+
+    for key in (
+        "status",
+        "reason",
+        "history_read_verified",
+        "history_complete",
+        "order_count",
+        "filled_order_count",
+        "partial_order_count",
+        "cancelled_order_count",
+        "open_order_count_in_history",
+    ):
+        print(
+            "UNIT 13-14 V3 HISTORY",
+            key.upper(), "=",
+            history.get(key),
+            flush=True
+        )
+
+    for key in (
+        "reported_margin_read_verified",
+        "calculated_margin_available",
+        "reported_margin_usdt",
+        "calculated_margin_usdt",
+        "difference_usdt",
+        "margin_formula_match",
+    ):
+        print(
+            "UNIT 13-14 V3 MARGIN",
+            key.upper(), "=",
+            margin.get(key),
+            flush=True
+        )
+
+    print(
+        "UNIT 13-14 V3 CURRENT ORDERS VERIFIED = False",
+        flush=True
+    )
+    print(
+        "UNIT 13-14 V3 INDIVIDUAL FILLS VERIFIED = False",
+        flush=True
+    )
+    print(
+        "UNIT 13-14 V3 ACCOUNT EXPOSURE VERIFIED = False",
+        flush=True
+    )
+
+    result["execution_authorized"] = False
+    result["exchange_write"] = False
+    result["exchange_protection_verified"] = False
+    result["protection_active"] = False
+    result["safety_alert"] = True
+    result["requires_operator_attention"] = True
+
+    if result.get("status") not in ("ALERT", "BLOCKED"):
+        result["status"] = "ALERT"
+        result["reason"] = "EXCHANGE_PROTECTION_NOT_VERIFIED"
+
+    print(
+        "UNIT 13-14 V3 FINAL STATUS =",
+        result.get("status"),
+        flush=True
+    )
+    print(
+        "UNIT 13-14 V3 PROTECTION ACTIVE = False",
+        flush=True
+    )
+    print(
+        "UNIT 13-14 V3 EXECUTION AUTHORIZED = False",
+        flush=True
+    )
+    print(
+        "UNIT 13-14 V3 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    return result
+
+
+print(
+    "UNIT 13-14 V3 INSTALLED =",
+    U1314V3_VERSION,
+    flush=True
+)
+
+# ============================================================
+# END UNIT 13-14 V3 PART 2
+# ZERO INDENTATION
+# ============================================================
+
+
 scan_forever()
 
 # ============================================================
