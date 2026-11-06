@@ -16426,6 +16426,15 @@ def u813_diag_position_reader(snapshot, symbol):
             _U813_DIAG_QUANTITY_FIELDS
         )
 
+                print(
+            "UNIT 8-13 OPEN VALUE DIAGNOSTIC",
+            flush=True
+        )
+
+        u813_diag_fields(
+            record,
+            _U813_DIAG_VALUE_FIELDS
+        )
         print(
             "UNIT 8-13 SIDE CANDIDATES",
             flush=True
