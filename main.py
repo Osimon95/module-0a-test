@@ -20187,6 +20187,251 @@ print(
 # ZERO INDENTATION
 # ============================================================
 
+
+
+# ============================================================
+# UNIT 13-14 POSITION MANAGEMENT EXECUTION - STAGE 1
+# DEMO CLOSE INSTRUCTION AND SAFETY VALIDATION
+# PRESERVES UNITS 1-15 AND V1-V7
+# ZERO INDENTATION
+# ============================================================
+
+from decimal import Decimal, InvalidOperation
+import uuid
+
+U1314_EXEC_VERSION = "POSITION_CLOSE_GATE_V1"
+
+
+def u1314_exec_decimal(value):
+
+    if value is None or isinstance(value, bool):
+        raise ValueError("MISSING_NUMERIC_VALUE")
+
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError("INVALID_NUMERIC_VALUE")
+
+    if not number.is_finite() or number <= 0:
+        raise ValueError("NONPOSITIVE_NUMERIC_VALUE")
+
+    return number
+
+
+def u1314_exec_prepare_close(config, unit8):
+
+    result = {
+        "version": U1314_EXEC_VERSION,
+        "status": "BLOCKED",
+        "reason": "NOT_VALIDATED",
+        "execution_authorized": False,
+        "exchange_write": False,
+        "order_payload": None,
+    }
+
+    def block(reason):
+        result["reason"] = reason
+        return result
+
+    if not isinstance(config, dict):
+        return block("CONFIG_INVALID")
+
+    if config.get("execution_environment") != "DEMO":
+        return block("DEMO_ENVIRONMENT_REQUIRED")
+
+    if config.get("real_cash_execution_enabled") is not False:
+        return block("REAL_CASH_EXECUTION_NOT_DISABLED")
+
+    exchange = config.get("exchange", {})
+
+    if not isinstance(exchange, dict):
+        return block("EXCHANGE_CONFIG_INVALID")
+
+    market = str(
+        exchange.get("market_symbol") or ""
+    ).upper()
+
+    demo = str(
+        exchange.get("demo_order_symbol") or ""
+    ).upper()
+
+    if not market or not demo:
+        return block("SYMBOL_CONFIGURATION_MISSING")
+
+    if not isinstance(unit8, dict):
+        return block("UNIT8_RESULT_MISSING")
+
+    try:
+        status, position = u813v2_verified_position(
+            unit8, market
+        )
+    except Exception as exc:
+        return block(
+            "POSITION_ADAPTER_ERROR_"
+            + type(exc).__name__
+        )
+
+    if status != "VERIFIED_OPEN_POSITION":
+        return block("POSITION_" + str(status))
+
+    if not isinstance(position, dict):
+        return block("POSITION_RECORD_INVALID")
+
+    if position.get("demo_order_symbol") != demo:
+        return block("POSITION_DEMO_SYMBOL_MISMATCH")
+
+    side = str(
+        position.get("positionSide") or ""
+    ).upper()
+
+    if side not in ("LONG", "SHORT"):
+        return block("POSITION_SIDE_INVALID")
+
+    try:
+        quantity = u1314_exec_decimal(
+            position.get("quantity")
+        )
+
+        minimum = u1314_exec_decimal(
+            unit8.get("minimum_quantity")
+        )
+
+        step = u1314_exec_decimal(
+            unit8.get("quantity_step")
+        )
+
+    except ValueError as exc:
+        return block(str(exc))
+
+    if quantity < minimum or quantity % step != 0:
+        return block("POSITION_QUANTITY_INVALID")
+
+    # First controlled test: one minimum quantity step,
+    # or the exchange minimum if larger.
+    close_quantity = max(minimum, step)
+
+    # Round upward to the exchange quantity step.
+    close_quantity = (
+        (close_quantity / step)
+        .to_integral_value(rounding="ROUND_CEILING")
+        * step
+    )
+
+    if close_quantity > quantity:
+        return block("INSUFFICIENT_POSITION_QUANTITY")
+
+    remaining = quantity - close_quantity
+
+    if remaining and (
+        remaining < minimum
+        or remaining % step != 0
+    ):
+        return block("INVALID_REMAINING_POSITION")
+
+    transaction_side = (
+        "SELL" if side == "LONG"
+        else "BUY"
+    )
+
+    client_id = (
+        "U14C"
+        + uuid.uuid4().hex[:28]
+    )
+
+    payload = {
+        "symbol": demo,
+        "side": transaction_side,
+        "positionSide": side,
+        "type": "MARKET",
+        "quantity": format(close_quantity, "f"),
+        "reduceOnly": True,
+        "newClientOrderId": client_id,
+    }
+
+    result.update({
+        "status": "CLOSE_INSTRUCTION_PREPARED",
+        "reason": "REDUCE_ONLY_EXCHANGE_SUPPORT_PENDING",
+        "market_symbol": market,
+        "demo_order_symbol": demo,
+        "position_side": side,
+        "transaction_side": transaction_side,
+        "current_quantity": format(quantity, "f"),
+        "close_quantity": format(close_quantity, "f"),
+        "expected_remaining_quantity":
+            format(remaining, "f"),
+        "order_payload": payload,
+        "execution_authorized": False,
+        "exchange_write": False,
+    })
+
+    return result
+
+
+def u1314_exec_stage1_test():
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
+    )
+
+    unit8 = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
+    )
+
+    result = u1314_exec_prepare_close(
+        config, unit8
+    )
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 13-14 EXEC VERSION =",
+        U1314_EXEC_VERSION,
+        flush=True
+    )
+
+    for key in (
+        "status",
+        "reason",
+        "market_symbol",
+        "demo_order_symbol",
+        "position_side",
+        "transaction_side",
+        "current_quantity",
+        "close_quantity",
+        "expected_remaining_quantity",
+        "execution_authorized",
+        "exchange_write",
+    ):
+        print(
+            "UNIT 13-14 EXEC",
+            key.upper(),
+            "=",
+            result.get(key),
+            flush=True
+        )
+
+    print(
+        "UNIT 13-14 EXEC ORDER PAYLOAD =",
+        result.get("order_payload"),
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 EXEC POST SUBMITTED = False",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+U1314_EXEC_STAGE1_RESULT = u1314_exec_stage1_test()
+
+# ============================================================
+# END UNIT 13-14 EXECUTION STAGE 1
+# ZERO INDENTATION
+# ============================================================
+
 scan_forever()
 
 # ============================================================
