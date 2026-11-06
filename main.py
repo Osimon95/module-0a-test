@@ -10753,7 +10753,13 @@ def unit_12_v5_validate_payload(config, upstream, account):
 
     return payload, quantity
 
+symbols = demo_symbol_adapter_u12(
+    config,
+    account,
+)
 
+symbol = symbols["market_symbol"]
+demo_symbol = symbols["demo_order_symbol"]
 # ============================================================
 # END UNIT 12 V5 PAYLOAD COMPATIBILITY CORRECTION
 # ============================================================
