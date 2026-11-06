@@ -18589,6 +18589,190 @@ print(
 # ============================================================
 
 
+# ============================================================
+# START UNIT 13-14 V4 PART 1
+# SIMULATION ACCOUNT AND ORDER DIAGNOSTICS
+# ZERO INDENTATION
+# ============================================================
+
+U1314V4_VERSION = "V4_SIMULATION_ORDER_RECONCILIATION"
+U1314V4_HOST = "https://api-sim.weex.com"
+
+U1314V4_PATHS = {
+    "positions": "/capi/v3/position/allPosition",
+    "orders": "/capi/v3/openOrders",
+    "fills": "/capi/v3/userTrades",
+}
+
+def u1314v4_get(path, params):
+    if path not in U1314V4_PATHS.values():
+        raise RuntimeError("V4_ENDPOINT_NOT_ALLOWED")
+
+    if set(params) != {"symbol"}:
+        raise RuntimeError("V4_PARAMETERS_INVALID")
+
+    symbol = str(params["symbol"]).upper()
+
+    if not symbol.endswith("USDT"):
+        raise RuntimeError("V4_SYMBOL_INVALID")
+
+    key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
+    secret = os.getenv("WEEX_API_SECRET") or os.getenv("API_SECRET")
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        raise RuntimeError("V4_CREDENTIALS_MISSING")
+
+    query = urllib.parse.urlencode({"symbol": symbol})
+    signed_path = path + "?" + query
+    timestamp = str(int(time.time() * 1000))
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode(),
+            (timestamp + "GET" + signed_path).encode(),
+            hashlib.sha256
+        ).digest()
+    ).decode()
+
+    request = urllib.request.Request(
+        U1314V4_HOST + signed_path,
+        method="GET",
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": phrase,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request, timeout=12
+        ) as response:
+            payload = json.loads(
+                response.read().decode("utf-8")
+            )
+
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            "V4_HTTP_" + str(exc.code)
+        ) from exc
+
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            "V4_CONNECTION_FAILED"
+        ) from exc
+
+    if isinstance(payload, dict):
+        if payload.get("success") is False:
+            raise RuntimeError("V4_API_REJECTED")
+
+        code = payload.get("code")
+        if code is not None and str(code) not in (
+            "0", "200", "00000"
+        ):
+            raise RuntimeError("V4_API_ERROR_" + str(code)[:20])
+
+        payload = payload.get("data")
+
+    if not isinstance(payload, list):
+        raise RuntimeError("V4_RESPONSE_SHAPE_UNVERIFIED")
+
+    for record in payload:
+        if not isinstance(record, dict):
+            raise RuntimeError("V4_RECORD_INVALID")
+
+        record_symbol = str(
+            record.get("symbol", "")
+        ).upper()
+
+        if record_symbol != symbol:
+            raise RuntimeError("V4_RESPONSE_SYMBOL_MISMATCH")
+
+    return payload
+
+
+def u1314v4_probe(config, unit8):
+    result = {
+        "status": "UNVERIFIED",
+        "reason": "NOT_STARTED",
+        "same_demo_account_verified": False,
+        "current_orders_verified": False,
+        "fills_verified": False,
+        "positions_probe_verified": False,
+        "execution_authorized": False,
+        "exchange_write": False,
+    }
+
+    try:
+        market, demo = u1314v3_demo_symbol(
+            config, unit8
+        )
+    except Exception as exc:
+        result["reason"] = str(exc)[:120]
+        return result
+
+    result["market_symbol"] = market
+    result["v3_demo_symbol"] = demo
+
+    # The simulation domain uses standard market symbols.
+    # Do not assume this account is identical to the
+    # previously verified /sim/ demo account.
+
+    for name in ("positions", "orders", "fills"):
+        try:
+            records = u1314v4_get(
+                U1314V4_PATHS[name],
+                {"symbol": market}
+            )
+
+            result[name + "_probe_verified"] = True
+            result[name + "_record_count"] = len(records)
+            result[name + "_reason"] = "RESPONSE_VALIDATED"
+
+            if name == "positions":
+                result["position_ids"] = [
+                    str(x.get("id", ""))
+                    for x in records
+                ]
+
+            elif name == "orders":
+                result["order_ids"] = [
+                    str(x.get("orderId", ""))
+                    for x in records
+                ]
+
+            elif name == "fills":
+                result["fill_order_ids"] = [
+                    str(x.get("orderId", ""))
+                    for x in records
+                ]
+
+        except Exception as exc:
+            result[name + "_probe_verified"] = False
+            result[name + "_record_count"] = None
+            result[name + "_reason"] = str(exc)[:120]
+
+    result["status"] = "PROBE_COMPLETED"
+    result["reason"] = "SIMULATION_ACCOUNT_BINDING_PENDING"
+
+    # Probe success does not establish account identity.
+    # Do not promote these observations to verified
+    # current orders or fills until the account is matched.
+
+    return result
+
+
+# ============================================================
+# END UNIT 13-14 V4 PART 1
+# ============================================================
+
 scan_forever()
 
 # ============================================================
