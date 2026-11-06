@@ -19568,6 +19568,201 @@ def u1314v6_reconcile(config, unit8, previous):
 # ZERO INDENTATION
 # ============================================================
 
+
+# ============================================================
+# START UNIT 13-14 V6 PART 2
+# PRESERVE V1 THROUGH V5
+# ZERO INDENTATION
+# ============================================================
+
+_U1314V6_PREVIOUS_UNIT14 = fresh_reconstruction_unit_14
+
+
+def fresh_reconstruction_unit_14(
+    config,
+    unit_8,
+    unit_12,
+    unit_13,
+):
+
+    previous = _U1314V6_PREVIOUS_UNIT14(
+        config,
+        unit_8,
+        unit_12,
+        unit_13
+    )
+
+    if not isinstance(previous, dict):
+        raise RuntimeError(
+            "V6_PREVIOUS_UNIT14_RESULT_INVALID"
+        )
+
+    result = dict(previous)
+
+    v6 = u1314v6_reconcile(
+        config,
+        unit_8,
+        result
+    )
+
+    result["unit13_14_v6"] = v6
+
+    print(
+        "UNIT 13-14 V6 VERSION =",
+        U1314V6_VERSION,
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V6 STATUS =",
+        v6["status"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V6 REASON =",
+        v6["reason"],
+        flush=True
+    )
+
+    position = v6["position"]
+
+    print(
+        "UNIT 13-14 V6 POSITION VERIFIED =",
+        position["verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V6 POSITION REASON =",
+        position["reason"],
+        flush=True
+    )
+
+    if position["verified"]:
+        for field in (
+            "position_id",
+            "side",
+            "quantity",
+            "entry_price",
+            "leverage",
+        ):
+            print(
+                "UNIT 13-14 V6 POSITION",
+                field.upper(),
+                "=",
+                position[field],
+                flush=True
+            )
+
+    fills = v6["fills"]
+
+    print(
+        "UNIT 13-14 V6 FILLS READ VERIFIED =",
+        fills["read_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V6 FILLS DETAILS VERIFIED =",
+        fills["details_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V6 FILLS REASON =",
+        fills["reason"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V6 FILLS RECORD COUNT =",
+        fills["record_count"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V6 FILLS UNIQUE ORDERS =",
+        fills["unique_order_count"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V6 FILLS TOTAL QUANTITY =",
+        fills["total_quantity"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V6 V5 ORDER IDS MATCHED =",
+        v6["v5_order_ids_matched"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V6 HISTORICAL QUANTITY MATCH =",
+        v6["historical_quantity_match_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V6 SAME DEMO ACCOUNT VERIFIED =",
+        v6["same_demo_account_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V6 ACCOUNT EXPOSURE VERIFIED =",
+        v6["account_wide_exposure_verified"],
+        flush=True
+    )
+
+    result["status"] = "ALERT"
+    result["reason"] = (
+        "V6_ACCOUNT_BINDING_AND_PROTECTION_PENDING"
+    )
+
+    result["protection_active"] = False
+    result["exchange_protection_verified"] = False
+    result["execution_authorized"] = False
+    result["exchange_write"] = False
+    result["safety_alert"] = True
+    result["requires_operator_attention"] = True
+
+    print(
+        "UNIT 13-14 V6 FINAL STATUS = ALERT",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V6 PROTECTION ACTIVE = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V6 EXECUTION AUTHORIZED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V6 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    return result
+
+
+print(
+    "UNIT 13-14 V6 INSTALLED =",
+    U1314V6_VERSION,
+    flush=True
+)
+
+# ============================================================
+# END UNIT 13-14 V6 PART 2
+# ZERO INDENTATION
+# ============================================================
+
 scan_forever()
 
 # ============================================================
