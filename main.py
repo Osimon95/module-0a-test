@@ -19763,6 +19763,307 @@ print(
 # ZERO INDENTATION
 # ============================================================
 
+
+# ============================================================
+# START UNIT 13-14 V7 PART 1
+# HISTORICAL ORDER AND FILL RECONCILIATION
+# ZERO INDENTATION
+# ============================================================
+
+U1314V7_VERSION = "V7_HISTORY_FILL_QUANTITY_RECONCILIATION"
+
+
+def u1314v7_first(record, names):
+    if not isinstance(record, dict):
+        return None
+
+    for name in names:
+        value = record.get(name)
+
+        if value is not None and str(value).strip():
+            return value
+
+    return None
+
+
+def u1314v7_quantity(value):
+    from decimal import Decimal, InvalidOperation
+
+    if value is None or isinstance(value, bool):
+        return None
+
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
+    if not number.is_finite() or number < 0:
+        return None
+
+    return number
+
+
+def u1314v7_history_orders(previous):
+    v3 = previous.get("unit13_14_v3", {})
+
+    if not isinstance(v3, dict):
+        return None, "V3_RESULT_MISSING"
+
+    history = v3.get("history", {})
+
+    if not isinstance(history, dict):
+        return None, "V3_HISTORY_MISSING"
+
+    if history.get("history_read_verified") is not True:
+        return None, "V3_HISTORY_UNVERIFIED"
+
+    if history.get("history_complete") is not True:
+        return None, "V3_HISTORY_INCOMPLETE"
+
+    records = history.get("orders")
+
+    if not isinstance(records, list):
+        return None, "V3_ORDER_RECORDS_UNAVAILABLE"
+
+    normalized = {}
+
+    for record in records:
+        if not isinstance(record, dict):
+            return None, "V3_ORDER_RECORD_INVALID"
+
+        order_id = u1314v7_first(
+            record,
+            ("order_id", "orderId", "id")
+        )
+
+        if order_id is None:
+            return None, "V3_ORDER_ID_MISSING"
+
+        order_id = str(order_id).strip()
+
+        if not order_id or order_id in normalized:
+            return None, "V3_ORDER_ID_INVALID_OR_DUPLICATE"
+
+        # Only fields explicitly representing executed
+        # quantity are accepted for quantity comparison.
+        # Original requested quantity is not sufficient.
+
+        executed = u1314v7_first(
+            record,
+            (
+                "executed_quantity",
+                "executedQty",
+                "filled_quantity",
+                "filledQty",
+                "filledSize",
+                "cumExecQty",
+                "cumFilledQty",
+                "dealSize",
+            )
+        )
+
+        normalized[order_id] = {
+            "executed_quantity": (
+                u1314v7_quantity(executed)
+            ),
+            "side": u1314v7_first(
+                record,
+                ("side", "tradeSide")
+            ),
+            "position_effect": u1314v7_first(
+                record,
+                (
+                    "position_effect",
+                    "positionEffect",
+                    "offset",
+                    "openClose",
+                    "tradeType",
+                )
+            ),
+            "status": u1314v7_first(
+                record,
+                ("status", "state", "orderStatus")
+            ),
+        }
+
+    return normalized, "V3_ORDER_RECORDS_NORMALIZED"
+
+
+def u1314v7_reconcile(previous):
+    from decimal import Decimal
+
+    output = {
+        "version": U1314V7_VERSION,
+        "status": "PENDING",
+        "reason": "NOT_EVALUATED",
+        "v6_position_verified": False,
+        "v6_fills_verified": False,
+        "v5_order_ids_matched": False,
+        "history_records_verified": False,
+        "history_record_count": None,
+        "fill_order_count": None,
+        "matched_order_count": 0,
+        "quantity_comparison_count": 0,
+        "quantity_mismatch_count": 0,
+        "quantity_missing_count": 0,
+        "unmatched_order_count": None,
+        "gross_fill_quantity": None,
+        "current_position_quantity": None,
+        "net_position_reconciliation_verified": False,
+        "historical_quantity_match_verified": False,
+        "same_demo_account_verified": False,
+        "account_wide_exposure_verified": False,
+        "exchange_protection_verified": False,
+        "protection_active": False,
+        "execution_authorized": False,
+        "exchange_write": False,
+    }
+
+    v6 = previous.get("unit13_14_v6", {})
+
+    if not isinstance(v6, dict):
+        output["reason"] = "V6_RESULT_MISSING"
+        return output
+
+    position = v6.get("position", {})
+    fills = v6.get("fills", {})
+
+    if not isinstance(position, dict):
+        output["reason"] = "V6_POSITION_MISSING"
+        return output
+
+    if not isinstance(fills, dict):
+        output["reason"] = "V6_FILLS_MISSING"
+        return output
+
+    output["v6_position_verified"] = (
+        position.get("verified") is True
+    )
+
+    output["v6_fills_verified"] = (
+        fills.get("details_verified") is True
+    )
+
+    output["v5_order_ids_matched"] = (
+        v6.get("v5_order_ids_matched") is True
+    )
+
+    output["gross_fill_quantity"] = (
+        fills.get("total_quantity")
+    )
+
+    output["current_position_quantity"] = (
+        position.get("quantity")
+    )
+
+    if not output["v6_position_verified"]:
+        output["reason"] = "POSITION_NOT_VERIFIED"
+        return output
+
+    if not output["v6_fills_verified"]:
+        output["reason"] = "FILL_DETAILS_NOT_VERIFIED"
+        return output
+
+    if not output["v5_order_ids_matched"]:
+        output["reason"] = "V5_ORDER_ID_MATCH_PENDING"
+        return output
+
+    historical, reason = u1314v7_history_orders(
+        previous
+    )
+
+    if historical is None:
+        output["reason"] = reason
+        return output
+
+    output["history_records_verified"] = True
+    output["history_record_count"] = len(historical)
+
+    fill_orders = fills.get("orders")
+
+    if not isinstance(fill_orders, dict):
+        output["reason"] = "V6_FILL_GROUPS_MISSING"
+        return output
+
+    output["fill_order_count"] = len(fill_orders)
+
+    if not fill_orders:
+        output["reason"] = "NO_FILL_ORDERS"
+        return output
+
+    unmatched = set(fill_orders) - set(historical)
+
+    output["unmatched_order_count"] = len(unmatched)
+
+    if unmatched:
+        output["reason"] = "FILL_ORDER_IDS_NOT_IN_HISTORY"
+        return output
+
+    for order_id, fill in fill_orders.items():
+        if not isinstance(fill, dict):
+            output["reason"] = "FILL_GROUP_INVALID"
+            return output
+
+        order = historical[order_id]
+
+        output["matched_order_count"] += 1
+
+        history_qty = order["executed_quantity"]
+
+        fill_qty = u1314v7_quantity(
+            fill.get("quantity")
+        )
+
+        if history_qty is None or fill_qty is None:
+            output["quantity_missing_count"] += 1
+            continue
+
+        output["quantity_comparison_count"] += 1
+
+        if history_qty != fill_qty:
+            output["quantity_mismatch_count"] += 1
+
+    if output["quantity_mismatch_count"] > 0:
+        output["status"] = "MISMATCH"
+        output["reason"] = (
+            "HISTORICAL_EXECUTED_QUANTITY_DIFFERS_FROM_FILLS"
+        )
+        return output
+
+    if output["quantity_missing_count"] > 0:
+        output["status"] = "PARTIAL"
+        output["reason"] = (
+            "HISTORICAL_EXECUTED_QUANTITY_FIELDS_MISSING"
+        )
+        return output
+
+    if output["quantity_comparison_count"] == 0:
+        output["status"] = "PARTIAL"
+        output["reason"] = "NO_QUANTITIES_COMPARABLE"
+        return output
+
+    output["historical_quantity_match_verified"] = True
+
+    # Matching historical quantities is not the same
+    # as verifying the current net open position.
+    # The historical window may exclude older fills,
+    # and open/close effects remain unverified.
+
+    output["status"] = "HISTORICAL_QUANTITIES_MATCHED"
+    output["reason"] = (
+        "ORDER_FILL_QUANTITIES_MATCH_"
+        "NET_POSITION_AND_ACCOUNT_BINDING_PENDING"
+    )
+
+    return output
+
+
+# ============================================================
+# END UNIT 13-14 V7 PART 1
+# ZERO INDENTATION
+# ============================================================
+
+
 scan_forever()
 
 # ============================================================
