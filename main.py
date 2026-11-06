@@ -20432,6 +20432,431 @@ U1314_EXEC_STAGE1_RESULT = u1314_exec_stage1_test()
 # ZERO INDENTATION
 # ============================================================
 
+
+
+# ============================================================
+# UNIT 13-14 TP EXECUTION - PART 1
+# CURRENT 15-UNIT MODEL + 17248 REFERENCE
+# TP1 / TP2 EXISTING DEMO POSITION EXECUTION
+# ZERO INDENTATION
+# ============================================================
+
+from decimal import Decimal, ROUND_DOWN
+import hashlib
+
+U1314_TP_VERSION = "REFERENCE_TP_EXEC_V1"
+
+# Retain the original management handover.
+_U1314_ORIGINAL_MANAGEMENT = scan_manage_position
+
+# Prevent duplicate attempts within the same process.
+_U1314_TP_ATTEMPTS = set()
+
+
+def u1314_tp_decimal(value):
+    if value is None or isinstance(value, bool):
+        raise ValueError("MISSING_NUMERIC_VALUE")
+
+    number = Decimal(str(value))
+
+    if not number.is_finite():
+        raise ValueError("NONFINITE_NUMERIC_VALUE")
+
+    return number
+
+
+def u1314_tp_floor(quantity, step):
+    return (
+        (quantity / step).to_integral_value(
+            rounding=ROUND_DOWN
+        ) * step
+    )
+
+
+def u1314_tp_positions(symbol):
+    status, response = unit_12_v5_request(
+        "GET",
+        UNIT_12_V5_POSITION_PATH
+    )
+
+    if status != 200 or not isinstance(response, list):
+        raise RuntimeError("DEMO_POSITION_READ_FAILED")
+
+    active = []
+
+    for position in response:
+        if not isinstance(position, dict):
+            raise RuntimeError("INVALID_POSITION_RECORD")
+
+        if str(position.get("symbol", "")).upper() != symbol:
+            continue
+
+        quantity = u1314_tp_decimal(
+            position.get("size")
+        )
+
+        if quantity > 0:
+            active.append(position)
+
+    return active
+
+
+def u1314_tp_execute(config, account):
+    result = {
+        "version": U1314_TP_VERSION,
+        "status": "WAITING",
+        "reason": "NO_TP_ACTION",
+        "exchange_write": False,
+        "order_id": None,
+        "tp_stage": None,
+        "fill_verified": False,
+    }
+
+    if config.get("execution_environment") != "DEMO":
+        result["status"] = "BLOCKED"
+        result["reason"] = "DEMO_ONLY"
+        return result
+
+    if account.get("demo_positions_read_verified") is not True:
+        result["status"] = "BLOCKED"
+        result["reason"] = "POSITION_READ_UNVERIFIED"
+        return result
+
+    exchange = config["exchange"]
+
+    market_symbol = exchange["market_symbol"]
+    demo_symbol = exchange["demo_order_symbol"]
+
+    settings = unit_13_config()
+
+    step = u1314_tp_decimal(
+        account["quantity_step"]
+    )
+
+    minimum = u1314_tp_decimal(
+        account["minimum_quantity"]
+    )
+
+    tick = u1314_tp_decimal(
+        account["price_step"]
+    )
+
+    positions = u1314_tp_positions(demo_symbol)
+
+    if not positions:
+        result["status"] = "IDLE"
+        result["reason"] = "NO_EXISTING_POSITION"
+        return result
+
+    if len(positions) != 1:
+        result["status"] = "RECONCILIATION_REQUIRED"
+        result["reason"] = "MULTIPLE_ACTIVE_POSITIONS"
+        return result
+
+    position = positions[0]
+
+    side = str(
+        position.get("positionSide")
+        or position.get("holdSide")
+        or position.get("side")
+        or ""
+    ).upper()
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError("POSITION_SIDE_INVALID")
+
+    size = u1314_tp_decimal(position["size"])
+
+    leverage = u1314_tp_decimal(
+        position["leverage"]
+    )
+
+    if "cumOpenSize" not in position:
+        raise RuntimeError(
+            "CUMULATIVE_OPEN_HISTORY_MISSING"
+        )
+
+    if "cumCloseSize" not in position:
+        raise RuntimeError(
+            "CUMULATIVE_CLOSE_HISTORY_MISSING"
+        )
+
+    cumulative_open = u1314_tp_decimal(
+        position["cumOpenSize"]
+    )
+
+    cumulative_close = u1314_tp_decimal(
+        position["cumCloseSize"]
+    )
+
+    if (
+        cumulative_open <= 0
+        or cumulative_close < 0
+        or cumulative_close > cumulative_open
+        or cumulative_open - cumulative_close != size
+    ):
+        raise RuntimeError(
+            "POSITION_HISTORY_RECONCILIATION_FAILED"
+        )
+
+    entry_value = (
+        position.get("averageEntryPrice")
+        or position.get("avgPrice")
+        or position.get("entryPrice")
+    )
+
+    if entry_value is None:
+        entry = (
+            u1314_tp_decimal(position["openValue"])
+            / size
+        )
+    else:
+        entry = u1314_tp_decimal(entry_value)
+
+    if entry <= 0 or leverage <= 0:
+        raise RuntimeError("ENTRY_OR_LEVERAGE_INVALID")
+
+    market_snapshot = globals().get(
+        "FRESH_RECONSTRUCTION_MARKET_SNAPSHOT"
+    )
+
+    if not isinstance(market_snapshot, dict):
+        raise RuntimeError("MARKET_SNAPSHOT_MISSING")
+
+    if market_snapshot.get("symbol") != market_symbol:
+        raise RuntimeError("MARKET_SYMBOL_MISMATCH")
+
+    mark = u1314_tp_decimal(
+        market_snapshot["price"]
+    )
+
+    if mark <= 0:
+        raise RuntimeError("INVALID_MARK_PRICE")
+
+    fee = u1314_tp_decimal(
+        settings["taker_fee_percent"]
+    )
+
+    # Fee-aware estimate for entry and exit.
+    # This is not a substitute for actual fee records.
+    if side == "LONG":
+        gross_roi = (
+            (mark - entry) / entry
+            * leverage * Decimal("100")
+        )
+    else:
+        gross_roi = (
+            (entry - mark) / entry
+            * leverage * Decimal("100")
+        )
+
+    estimated_fees_roi = (
+        fee * leverage
+        * (Decimal("1") + mark / entry)
+    )
+
+    estimated_net_roi = gross_roi - estimated_fees_roi
+
+    q1 = u1314_tp_floor(
+        cumulative_open
+        * settings["tp1_allocation_percent"]
+        / Decimal("100"),
+        step
+    )
+
+    q2 = u1314_tp_floor(
+        cumulative_open
+        * settings["tp2_allocation_percent"]
+        / Decimal("100"),
+        step
+    )
+
+    # Small contracts defer unexecutable partial closes.
+    if q1 < minimum:
+        q1 = Decimal("0")
+
+    if q2 < minimum:
+        q2 = Decimal("0")
+
+    tp1_completed = (
+        q1 == 0 or cumulative_close >= q1
+    )
+
+    tp2_completed = (
+        q2 == 0 or cumulative_close >= q1 + q2
+    )
+
+    result.update({
+        "position_side": side,
+        "position_quantity": str(size),
+        "entry_price": str(entry),
+        "mark_price": str(mark),
+        "estimated_net_roi_percent":
+            str(estimated_net_roi),
+        "tp1_completed": tp1_completed,
+        "tp2_completed": tp2_completed,
+    })
+
+    stage = None
+    close_quantity = Decimal("0")
+
+    if (
+        not tp2_completed
+        and estimated_net_roi
+        >= settings["tp2_net_roi_percent"]
+    ):
+        stage = "TP2"
+        close_quantity = (
+            q1 + q2 - cumulative_close
+        )
+
+    elif (
+        not tp1_completed
+        and estimated_net_roi
+        >= settings["tp1_net_roi_percent"]
+    ):
+        stage = "TP1"
+        close_quantity = q1 - cumulative_close
+
+    if stage is None:
+        result["status"] = "MONITORING"
+        result["reason"] = "TP_TARGET_NOT_REACHED"
+        return result
+
+    close_quantity = u1314_tp_floor(
+        min(close_quantity, size),
+        step
+    )
+
+    if close_quantity < minimum:
+        result["status"] = "WAITING"
+        result["reason"] = "TP_QUANTITY_BELOW_MINIMUM"
+        return result
+
+    position_identity = str(
+        position.get("id")
+        or (
+            demo_symbol + ":" + side + ":"
+            + str(entry) + ":"
+            + str(cumulative_open)
+        )
+    )
+
+    identity = (
+        position_identity + "|"
+        + stage + "|"
+        + str(cumulative_close)
+    )
+
+    client_id = (
+        "TP"
+        + hashlib.sha256(
+            identity.encode("utf-8")
+        ).hexdigest()[:28]
+    )
+
+    if client_id in _U1314_TP_ATTEMPTS:
+        result["status"] = "ORDER_UNCERTAIN"
+        result["reason"] = "PREVIOUS_ATTEMPT_REQUIRES_RECONCILIATION"
+        return result
+
+    close_side = (
+        "SELL" if side == "LONG" else "BUY"
+    )
+
+    payload = {
+        "symbol": demo_symbol,
+        "side": close_side,
+        "positionSide": side,
+        "type": "MARKET",
+        "quantity": format(close_quantity, "f"),
+        "newClientOrderId": client_id,
+    }
+
+    result["tp_stage"] = stage
+
+    # Record attempt before sending.
+    _U1314_TP_ATTEMPTS.add(client_id)
+
+    try:
+        http, response = unit_12_v5_request(
+            "POST",
+            UNIT_12_V5_ORDER_PATH,
+            payload
+        )
+
+    except Exception as exc:
+        result["status"] = "ORDER_UNCERTAIN"
+        result["reason"] = (
+            "SUBMISSION_EXCEPTION:"
+            + type(exc).__name__
+        )
+        return result
+
+    if not isinstance(response, dict):
+        result["status"] = "ORDER_UNCERTAIN"
+        result["reason"] = "INVALID_ORDER_RESPONSE"
+        return result
+
+    if not (
+        200 <= http < 300
+        and response.get("success") is True
+        and response.get("orderId")
+    ):
+        result["status"] = "ORDER_UNCERTAIN"
+        result["reason"] = "ORDER_NOT_CONFIRMED"
+        return result
+
+    result["exchange_write"] = True
+    result["order_id"] = str(response["orderId"])
+
+    # Order acceptance does not prove a fill.
+    try:
+        refreshed = u1314_tp_positions(
+            demo_symbol
+        )
+
+    except Exception:
+        result["status"] = "FILL_PENDING"
+        result["reason"] = "POSITION_RECHECK_FAILED"
+        return result
+
+    matching = [
+        p for p in refreshed
+        if str(
+            p.get("positionSide")
+            or p.get("holdSide")
+            or p.get("side")
+            or ""
+        ).upper() == side
+    ]
+
+    if len(matching) == 1:
+        new_close = u1314_tp_decimal(
+            matching[0].get("cumCloseSize")
+        )
+
+        if new_close >= cumulative_close + close_quantity:
+            result["status"] = "TP_FILLED"
+            result["reason"] = "CUMULATIVE_CLOSE_VERIFIED"
+            result["fill_verified"] = True
+            return result
+
+    elif len(matching) == 0:
+        result["status"] = "POSITION_FLAT_RECHECK"
+        result["reason"] = "POSITION_DISAPPEARED_AFTER_ORDER"
+        return result
+
+    result["status"] = "FILL_PENDING"
+    result["reason"] = "ORDER_ACCEPTED_FILL_NOT_YET_VERIFIED"
+
+    return result
+
+
+# ============================================================
+# END UNIT 13-14 TP EXECUTION - PART 1
+# ============================================================
+
 scan_forever()
 
 # ============================================================
