@@ -15248,13 +15248,31 @@ print(
 # ============================================================
 
     
+
 # ============================================================
-# START UNIT 11-12 STABLE SIGNAL HANDOVER V2
+# START UNIT 11-12 STABLE SIGNAL HANDOVER V3
+# UNIT 11 V2 -> UNIT 12 V6
 # ZERO INDENTATION
-# NO EXCHANGE WRITE
+# READ-ONLY HANDOVER
 # ============================================================
 
-def u1112_v2_stable_signal(prepared):
+import time as _u1112_time
+import re as _u1112_re
+
+U1112_V3_MAX_CANDLE_AGE_MS = 120000
+
+# Preserve the scanner that refreshes Units 3-11.
+# Install this adapter only once.
+_U1112_V3_ORIGINAL_SCAN_REFRESH = (
+    scan_refresh_entry_pipeline
+)
+
+
+# ============================================================
+# 11-12.1 CONFIGURATION AND SIGNAL VALIDATION
+# ============================================================
+
+def u1112_v3_validate(prepared, account):
 
     config = globals().get(
         "FRESH_RECONSTRUCTION_CONFIG"
@@ -15264,78 +15282,198 @@ def u1112_v2_stable_signal(prepared):
         "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT"
     )
 
+    if not isinstance(config, dict):
+        return "CONFIG_MISSING", None
+
     if not isinstance(prepared, dict):
-        return "UNIT_11_RESULT_MISSING"
+        return "UNIT_11_RESULT_MISSING", None
+
+    if not isinstance(account, dict):
+        return "UNIT_8_RESULT_MISSING", None
 
     if prepared.get("status") != "PREPARED_READ_ONLY":
-        return "NO_PREPARED_ENTRY"
-
-    if not isinstance(config, dict):
-        return "CONFIG_MISSING"
+        return "NO_PREPARED_ENTRY", None
 
     if not isinstance(analysis, dict):
-        return "ANALYSIS_MISSING"
+        return "ANALYSIS_MISSING", None
 
-    instruction = prepared.get("order_instruction")
+    if config.get("execution_environment") != "DEMO":
+        return "DEMO_ENVIRONMENT_REQUIRED", None
+
+    if config.get(
+        "real_cash_execution_enabled"
+    ) is not False:
+        return "REAL_CASH_SAFETY_FAILURE", None
+
+    exchange = config.get("exchange")
+
+    if not isinstance(exchange, dict):
+        return "EXCHANGE_CONFIG_MISSING", None
+
+    market = str(
+        exchange.get("market_symbol") or ""
+    ).strip().upper()
+
+    demo = str(
+        exchange.get("demo_order_symbol") or ""
+    ).strip().upper()
+
+    if (
+        not market.endswith("USDT")
+        or not market.isalnum()
+        or not demo
+        or not demo.isalnum()
+        or market == demo
+    ):
+        return "INVALID_SYMBOL_PAIR", None
+
+    if account.get("status") != "VERIFIED_READ_ONLY":
+        return "UNIT_8_NOT_VERIFIED", None
+
+    if (
+        account.get("market_symbol") != market
+        or account.get("demo_order_symbol") != demo
+    ):
+        return "UNIT_8_SYMBOL_MISMATCH", None
+
+    if (
+        account.get("demo_contract_verified") is not True
+        or account.get("demo_balance_verified") is not True
+        or account.get(
+            "demo_positions_read_verified"
+        ) is not True
+    ):
+        return "UNIT_8_VERIFICATION_INCOMPLETE", None
+
+    if (
+        prepared.get("market_symbol") != market
+        or prepared.get("demo_order_symbol") != demo
+    ):
+        return "UNIT_11_SYMBOL_MISMATCH", None
+
+    if (
+        prepared.get("signal_qualified") is not True
+        or prepared.get("trade_plan_ready") is not True
+        or prepared.get("execution_intent") is not True
+        or prepared.get(
+            "order_preparation_ready"
+        ) is not True
+        or prepared.get(
+            "demo_boundary_ready"
+        ) is not True
+    ):
+        return "UNIT_11_NOT_READY", None
+
+    if (
+        prepared.get("read_only") is not True
+        or prepared.get("exchange_write") is not False
+        or prepared.get(
+            "execution_authorized"
+        ) is not False
+    ):
+        return "UNIT_11_SAFETY_MISMATCH", None
+
+    instruction = prepared.get(
+        "order_instruction"
+    )
+
+    plan = prepared.get("trade_plan")
+    candidate = prepared.get(
+        "execution_candidate"
+    )
 
     if not isinstance(instruction, dict):
-        return "ORDER_INSTRUCTION_MISSING"
+        return "ORDER_INSTRUCTION_MISSING", None
 
-    symbol = config.get(
-        "exchange", {}
-    ).get("market_symbol")
+    if not isinstance(plan, dict):
+        return "TRADE_PLAN_MISSING", None
 
-    direction = prepared.get("direction")
-    mode = prepared.get("active_mode")
+    if not isinstance(candidate, dict):
+        return "EXECUTION_CANDIDATE_MISSING", None
+
+    if (
+        instruction.get("trade_plan") is not plan
+        or instruction.get(
+            "execution_candidate"
+        ) is not candidate
+    ):
+        return "PLAN_IDENTITY_MISMATCH", None
+
+    direction = str(
+        prepared.get("direction") or ""
+    ).upper()
+
+    mode = str(
+        prepared.get("active_mode") or ""
+    ).upper()
+
+    if direction not in ("LONG", "SHORT"):
+        return "INVALID_DIRECTION", None
+
+    if mode not in (
+        "STRUCTURE",
+        "BREAKOUT",
+        "SCALP"
+    ):
+        return "INVALID_STRATEGY_MODE", None
+
+    if (
+        instruction.get("market_symbol") != market
+        or instruction.get("demo_order_symbol") != demo
+        or instruction.get("direction") != direction
+        or instruction.get("strategy_mode") != mode
+    ):
+        return "INSTRUCTION_IDENTITY_MISMATCH", None
+
+    if (
+        plan.get("market_symbol") != market
+        or plan.get("demo_order_symbol") != demo
+        or plan.get("direction") != direction
+        or plan.get("active_mode") != mode
+    ):
+        return "TRADE_PLAN_IDENTITY_MISMATCH", None
+
+    if (
+        instruction.get("position_action") != "OPEN"
+        or instruction.get("market_type") != "DEMO_FUTURES"
+        or instruction.get("order_type") != "MARKET"
+    ):
+        return "INVALID_ORDER_INSTRUCTION", None
+
+    # The handover must not fabricate a WEEX fill,
+    # order ID, or exchange authorization.
+
+    if (
+        instruction.get(
+            "submission_authorized"
+        ) is not False
+        or instruction.get(
+            "weex_payload_verified"
+        ) is not False
+    ):
+        return "INSTRUCTION_SAFETY_MISMATCH", None
 
     candle_id = analysis.get(
         "latest_close_time_ms"
     )
 
     if (
-        not isinstance(symbol, str)
-        or not symbol.endswith("USDT")
-        or direction not in ("LONG", "SHORT")
-        or mode not in (
-            "STRUCTURE",
-            "BREAKOUT",
-            "SCALP"
-        )
-    ):
-        return "SIGNAL_IDENTITY_INVALID"
-
-    if (
         not isinstance(candle_id, int)
         or isinstance(candle_id, bool)
         or candle_id <= 0
     ):
-        return "CLOSED_CANDLE_ID_INVALID"
+        return "CLOSED_CANDLE_ID_INVALID", None
 
-    import time
+    age_ms = (
+        int(_u1112_time.time() * 1000)
+        - candle_id
+    )
 
-    age_ms = int(time.time() * 1000) - candle_id
-
-    if not 0 <= age_ms <= 120000:
-        return "CLOSED_CANDLE_STALE"
-
-    if prepared.get("market_symbol") != symbol:
-        return "UNIT_11_SYMBOL_MISMATCH"
-
-    if instruction.get("market_symbol") != symbol:
-        return "INSTRUCTION_SYMBOL_MISMATCH"
-
-    if instruction.get("direction") != direction:
-        return "INSTRUCTION_DIRECTION_MISMATCH"
-
-    if instruction.get("strategy_mode") != mode:
-        return "INSTRUCTION_MODE_MISMATCH"
-
-    # Deterministic identifier:
-    # same symbol, direction, strategy and candle
-    # produce the same signal identity.
+    if not 0 <= age_ms <= U1112_V3_MAX_CANDLE_AGE_MS:
+        return "CLOSED_CANDLE_STALE", None
 
     signal_id = (
-        symbol
+        market
         + "-"
         + mode
         + "-"
@@ -15344,8 +15482,59 @@ def u1112_v2_stable_signal(prepared):
         + str(candle_id)
     )
 
-    # Unit 12 already supports this field.
-    # Preserve the existing trade plan and candidate.
+    # Deterministic client order identity.
+    # Unit 12 V6 performs its own normalization.
+    if not _u1112_re.fullmatch(
+        r"[A-Z0-9_-]+",
+        signal_id
+    ):
+        return "SIGNAL_ID_INVALID", None
+
+    return "STABLE_SIGNAL_ID_READY", {
+        "signal_id": signal_id,
+        "market_symbol": market,
+        "demo_order_symbol": demo,
+        "direction": direction,
+        "active_mode": mode,
+        "candle_id": candle_id,
+        "candle_age_ms": age_ms,
+        "instruction": instruction,
+    }
+
+
+# ============================================================
+# 11-12.2 STABLE SIGNAL HANDOVER
+# ============================================================
+
+def u1112_v3_stable_signal(prepared, account=None):
+
+    if account is None:
+        account = globals().get(
+            "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
+        )
+
+    status, details = u1112_v3_validate(
+        prepared,
+        account
+    )
+
+    if status != "STABLE_SIGNAL_ID_READY":
+        return status
+
+    instruction = details["instruction"]
+    signal_id = details["signal_id"]
+
+    existing_id = instruction.get(
+        "newClientOrderId"
+    )
+
+    # Never silently replace a different
+    # signal identity already assigned upstream.
+    if (
+        existing_id is not None
+        and existing_id != signal_id
+    ):
+        return "CLIENT_ORDER_ID_CONFLICT"
 
     instruction["newClientOrderId"] = signal_id
 
@@ -15356,28 +15545,44 @@ def u1112_v2_stable_signal(prepared):
     )
 
     print(
+        "UNIT 11-12 MARKET SYMBOL =",
+        details["market_symbol"],
+        flush=True
+    )
+
+    print(
+        "UNIT 11-12 DEMO SYMBOL =",
+        details["demo_order_symbol"],
+        flush=True
+    )
+
+    print(
         "UNIT 11-12 CLOSED CANDLE AGE MS =",
-        age_ms,
+        details["candle_age_ms"],
         flush=True
     )
 
     return "STABLE_SIGNAL_ID_READY"
 
 
-def u1112_v2_diagnostic(prepared, account):
+# ============================================================
+# 11-12.3 READ-ONLY DIAGNOSTIC
+# NO UNIT 12 SUBMISSION
+# ============================================================
 
-    config = globals().get(
-        "FRESH_RECONSTRUCTION_CONFIG"
-    )
+def u1112_v3_diagnostic(prepared, account):
 
     print("=" * 80, flush=True)
 
     print(
-        "UNIT 11-12 HANDOVER V2 START",
+        "UNIT 11-12 HANDOVER V3 START",
         flush=True
     )
 
-    status = u1112_v2_stable_signal(prepared)
+    status = u1112_v3_stable_signal(
+        prepared,
+        account
+    )
 
     print(
         "UNIT 11-12 SIGNAL STATUS =",
@@ -15401,36 +15606,64 @@ def u1112_v2_diagnostic(prepared, account):
 
         return False
 
-    result = unit_12_v2_prepare(
-        config,
-        prepared,
-        account
+    instruction = prepared["order_instruction"]
+
+    # Confirm that Unit 12 V6's validator
+    # exists. Do not invoke its POST function.
+
+    validator_available = callable(
+        globals().get(
+            "unit_12_v5_validate_payload"
+        )
+    )
+
+    executor_available = callable(
+        globals().get(
+            "fresh_reconstruction_unit_12"
+        )
+    )
+
+    client_id = instruction.get(
+        "newClientOrderId"
     )
 
     print(
-        "UNIT 12 PREPARATION STATUS =",
-        result.get("status"),
+        "UNIT 11-12 CLIENT ID PRESENT =",
+        bool(client_id),
         flush=True
     )
 
     print(
-        "UNIT 12 PREPARATION REASON =",
-        result.get("reason"),
+        "UNIT 12 V6 VALIDATOR AVAILABLE =",
+        validator_available,
         flush=True
     )
 
     print(
-        "UNIT 12 CLIENT ID PRESENT =",
-        bool(result.get("client_order_id")),
+        "UNIT 12 V6 EXECUTOR AVAILABLE =",
+        executor_available,
         flush=True
     )
 
     print(
-        "UNIT 12 ORDER PAYLOAD PRESENT =",
-        isinstance(
-            result.get("order_payload"),
-            dict
+        "UNIT 11-12 TRADE PLAN IDENTITY =",
+        instruction.get("trade_plan")
+        is prepared.get("trade_plan"),
+        flush=True
+    )
+
+    print(
+        "UNIT 11-12 EXECUTION CANDIDATE IDENTITY =",
+        instruction.get(
+            "execution_candidate"
+        ) is prepared.get(
+            "execution_candidate"
         ),
+        flush=True
+    )
+
+    print(
+        "UNIT 11-12 ORDER SUBMISSION = NONE",
         flush=True
     )
 
@@ -15439,41 +15672,142 @@ def u1112_v2_diagnostic(prepared, account):
         flush=True
     )
 
+    ready = (
+        bool(client_id)
+        and validator_available
+        and executor_available
+    )
+
+    print(
+        "UNIT 11-12 HANDOVER READY =",
+        ready,
+        flush=True
+    )
+
     print("=" * 80, flush=True)
 
-    return result.get("status") == "PREPARED"
+    return ready
 
 
-# Preserve the original scan refresh function.
-_U1112_V2_ORIGINAL_SCAN_REFRESH = (
-    scan_refresh_entry_pipeline
-)
-
+# ============================================================
+# 11-12.4 SCANNER INTEGRATION
+# PRESERVE ORIGINAL UNIT 3-11 REFRESH
+# ============================================================
 
 def scan_refresh_entry_pipeline():
 
     prepared, account = (
-        _U1112_V2_ORIGINAL_SCAN_REFRESH()
+        _U1112_V3_ORIGINAL_SCAN_REFRESH()
     )
 
-    u1112_v2_diagnostic(
-        prepared,
-        account
-    )
+    if not isinstance(prepared, dict):
+        raise RuntimeError(
+            "UNIT 11-12 INVALID UNIT 11 RESULT"
+        )
+
+    if not isinstance(account, dict):
+        raise RuntimeError(
+            "UNIT 11-12 INVALID UNIT 8 RESULT"
+        )
+
+    status = prepared.get("status")
+
+    if status == "PREPARED_READ_ONLY":
+
+        ready = u1112_v3_diagnostic(
+            prepared,
+            account
+        )
+
+        if not ready:
+            # Fail closed: Unit 12 will see
+            # a blocked upstream instruction.
+            blocked = dict(prepared)
+
+            blocked["status"] = "BLOCKED"
+            blocked["reason"] = (
+                "UNIT_11_12_HANDOVER_NOT_READY"
+            )
+
+            blocked["execution_intent"] = False
+            blocked["order_preparation_ready"] = False
+            blocked["demo_boundary_ready"] = False
+
+            return blocked, account
+
+    else:
+
+        print("=" * 80, flush=True)
+
+        print(
+            "UNIT 11-12 HANDOVER V3 START",
+            flush=True
+        )
+
+        print(
+            "UNIT 11-12 SIGNAL STATUS = NO_PREPARED_ENTRY",
+            flush=True
+        )
+
+        print(
+            "UNIT 11-12 PREPARATION = SKIPPED",
+            flush=True
+        )
+
+        print(
+            "UNIT 11-12 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        print("=" * 80, flush=True)
+
+    # Existing scanner subsequently calls
+    # scan_process_unit12(prepared, account).
+    #
+    # This adapter does not call Unit 12,
+    # preventing duplicate submission.
 
     return prepared, account
 
 
+# ============================================================
+# 11-12.5 INSTALLATION CONFIRMATION
+# ============================================================
+
 print(
-    "UNIT 11-12 STABLE SIGNAL HANDOVER V2 INSTALLED",
+    "UNIT 11-12 HANDOVER VERSION = V3",
+    flush=True
+)
+
+print(
+    "UNIT 11-12 HANDOVER INSTALLED = True",
+    flush=True
+)
+
+print(
+    "UNIT 11-12 UNIT 12 V6 INTERFACE =",
+    callable(
+        globals().get(
+            "fresh_reconstruction_unit_12"
+        )
+    ),
+    flush=True
+)
+
+print(
+    "UNIT 11-12 LEGACY V2 PREPARE CALL = REMOVED",
+    flush=True
+)
+
+print(
+    "UNIT 11-12 HANDOVER EXCHANGE WRITE = NONE",
     flush=True
 )
 
 # ============================================================
-# END UNIT 11-12 STABLE SIGNAL HANDOVER V2
+# END UNIT 11-12 STABLE SIGNAL HANDOVER V3
 # ZERO INDENTATION
 # ============================================================
-
 
 scan_forever()
 
