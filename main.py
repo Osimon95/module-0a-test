@@ -16651,6 +16651,353 @@ print(
 # ZERO INDENTATION
 # ============================================================
 
+
+
+# ============================================================
+# START UNIT 4-13 VERIFIED ATR14 HANDOVER V1
+# ============================================================
+
+from decimal import Decimal as _U413_D
+from decimal import InvalidOperation as _U413_Invalid
+
+U413_HANDOVER_VERSION = "V1_VERIFIED_ATR14"
+
+# Maximum permitted age of the last closed candle.
+# 180 seconds accommodates normal 1-minute candle
+# processing delays without accepting stale analysis.
+U413_MAX_CANDLE_AGE_MS = 180000
+
+
+# ============================================================
+# 1. VERIFIED NUMERIC CONVERSION
+# ============================================================
+
+def u413_positive_decimal(value):
+
+    if value is None or isinstance(value, bool):
+        return None
+
+    try:
+        number = _U413_D(str(value).strip())
+    except (
+        _U413_Invalid,
+        ValueError,
+        TypeError,
+    ):
+        return None
+
+    if not number.is_finite() or number <= 0:
+        return None
+
+    return number
+
+
+def u413_timestamp(value):
+
+    if value is None or isinstance(value, bool):
+        return None
+
+    try:
+        number = int(value)
+    except (ValueError, TypeError):
+        return None
+
+    if number <= 0:
+        return None
+
+    return number
+
+
+# ============================================================
+# 2. UNIT 4 ANALYSIS VERIFICATION
+# ============================================================
+
+def u413_verified_analysis(execution_config):
+
+    analysis = globals().get(
+        "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT"
+    )
+
+    market = globals().get(
+        "FRESH_RECONSTRUCTION_MARKET_SNAPSHOT"
+    )
+
+    if not isinstance(execution_config, dict):
+        return "CONFIG_MISSING", None
+
+    if str(
+        execution_config.get(
+            "execution_environment", ""
+        )
+    ).upper() != "DEMO":
+        return "DEMO_ENVIRONMENT_UNVERIFIED", None
+
+    if execution_config.get(
+        "real_cash_execution_enabled"
+    ) is not False:
+        return "REAL_CASH_BOUNDARY_UNVERIFIED", None
+
+    exchange = execution_config.get("exchange")
+
+    if not isinstance(exchange, dict):
+        return "EXCHANGE_CONFIG_MISSING", None
+
+    expected_symbol = str(
+        exchange.get("market_symbol", "")
+    ).strip().upper()
+
+    if not expected_symbol:
+        return "MARKET_SYMBOL_MISSING", None
+
+    if not isinstance(analysis, dict):
+        return "UNIT4_ANALYSIS_MISSING", None
+
+    if not isinstance(market, dict):
+        return "UNIT3_MARKET_SNAPSHOT_MISSING", None
+
+    analysis_symbol = str(
+        analysis.get("symbol", "")
+    ).strip().upper()
+
+    market_symbol = str(
+        market.get(
+            "symbol",
+            market.get("market_symbol", "")
+        )
+    ).strip().upper()
+
+    if analysis_symbol != expected_symbol:
+        return "UNIT4_SYMBOL_MISMATCH", None
+
+    if market_symbol != expected_symbol:
+        return "UNIT3_SYMBOL_MISMATCH", None
+
+    if analysis.get("read_only") is not True:
+        return "UNIT4_READ_ONLY_UNVERIFIED", None
+
+    atr = u413_positive_decimal(
+        analysis.get("atr14")
+    )
+
+    if atr is None:
+        return "UNIT4_ATR14_INVALID", None
+
+    close_ms = u413_timestamp(
+        analysis.get("latest_close_time_ms")
+    )
+
+    exchange_ms = u413_timestamp(
+        analysis.get("exchange_time_ms")
+    )
+
+    market_ms = u413_timestamp(
+        market.get("exchange_time_ms")
+    )
+
+    if (
+        close_ms is None
+        or exchange_ms is None
+        or market_ms is None
+    ):
+        return "MARKET_TIMESTAMP_UNVERIFIED", None
+
+    if close_ms > exchange_ms:
+        return "UNIT4_FUTURE_CANDLE", None
+
+    if close_ms > market_ms:
+        return "UNIT3_UNIT4_TIME_CONFLICT", None
+
+    if exchange_ms < market_ms:
+        return "UNIT4_ANALYSIS_OLDER_THAN_UNIT3", None
+
+    age_ms = exchange_ms - close_ms
+
+    if age_ms > U413_MAX_CANDLE_AGE_MS:
+        return "UNIT4_ATR14_STALE", None
+
+    # Unit 4 must be based on the current Unit 3
+    # market snapshot, not an earlier scan.
+
+    if exchange_ms - market_ms > 60000:
+        return "UNIT3_UNIT4_REFRESH_MISMATCH", None
+
+    # Confirm ATR14 is measured in quote-price units.
+    # Unit 4 V6 reports ATR14 as USDT per base coin.
+
+    quote = str(
+        exchange.get("quote_currency", "USDT")
+    ).strip().upper()
+
+    if quote != "USDT":
+        return "QUOTE_CURRENCY_UNVERIFIED", None
+
+    verified = {
+        "symbol": expected_symbol,
+        "atr14": str(atr),
+        "latest_close_time_ms": close_ms,
+        "exchange_time_ms": exchange_ms,
+        "atr14_unit": "USDT_PER_BASE_COIN",
+        "source": "UNIT4_VERIFIED_ANALYSIS",
+        "read_only": True,
+        "handover_version": U413_HANDOVER_VERSION,
+    }
+
+    return "VERIFIED", verified
+
+
+# ============================================================
+# 3. PRESERVE ORIGINAL UNIT 13 PLANNER
+# ============================================================
+
+_U413_ORIGINAL_UNIT13_PLANNER = (
+    fresh_reconstruction_unit_13
+)
+
+
+# ============================================================
+# 4. VERIFIED UNIT 4 -> UNIT 13 ADAPTER
+# ============================================================
+
+def fresh_reconstruction_unit_13(
+    execution_config,
+    unit_12_result,
+    unit_8_result=None,
+    market_snapshot=None,
+):
+
+    status, verified_analysis = (
+        u413_verified_analysis(
+            execution_config
+        )
+    )
+
+    print(
+        "UNIT 4-13 HANDOVER VERSION =",
+        U413_HANDOVER_VERSION,
+        flush=True
+    )
+
+    print(
+        "UNIT 4-13 ATR STATUS =",
+        status,
+        flush=True
+    )
+
+    if status == "VERIFIED":
+
+        print(
+            "UNIT 4-13 MARKET SYMBOL =",
+            verified_analysis["symbol"],
+            flush=True
+        )
+
+        print(
+            "UNIT 4-13 VERIFIED ATR14 =",
+            verified_analysis["atr14"],
+            flush=True
+        )
+
+        print(
+            "UNIT 4-13 ATR UNIT =",
+            verified_analysis["atr14_unit"],
+            flush=True
+        )
+
+        print(
+            "UNIT 4-13 CLOSED CANDLE TIME =",
+            verified_analysis["latest_close_time_ms"],
+            flush=True
+        )
+
+        print(
+            "UNIT 4-13 ATR HANDOVER = PASS",
+            flush=True
+        )
+
+        selected_snapshot = verified_analysis
+
+    else:
+
+        print(
+            "UNIT 4-13 ATR HANDOVER = BLOCKED",
+            flush=True
+        )
+
+        # Fail closed: never substitute an unverified
+        # ATR value from the Unit 3 market snapshot.
+        selected_snapshot = {}
+
+    # Preserve all original Unit 13 logic:
+    # position verification, TP calculations,
+    # ATR hedge calculations, backup planning,
+    # and read-only execution restrictions.
+
+    result = _U413_ORIGINAL_UNIT13_PLANNER(
+        execution_config,
+        unit_12_result,
+        unit_8_result,
+        selected_snapshot,
+    )
+
+    if not isinstance(result, dict):
+        raise RuntimeError(
+            "UNIT 4-13 INVALID UNIT13 RESULT"
+        )
+
+    result["unit4_13_handover_version"] = (
+        U413_HANDOVER_VERSION
+    )
+
+    result["unit4_13_atr_status"] = status
+
+    result["unit4_13_atr_verified"] = (
+        status == "VERIFIED"
+    )
+
+    if status != "VERIFIED":
+
+        # Keep original Unit 13's other validation
+        # failures intact. Only identify ATR handover
+        # as the cause when ATR is the actual blocker.
+
+        if result.get("reason") == (
+            "VERIFIED_ATR14_REQUIRED"
+        ):
+            result["reason"] = (
+                "VERIFIED_ATR14_REQUIRED:"
+                + status
+            )
+
+    print(
+        "UNIT 4-13 UNIT13 STATUS =",
+        result.get("status"),
+        flush=True
+    )
+
+    print(
+        "UNIT 4-13 UNIT13 REASON =",
+        result.get("reason"),
+        flush=True
+    )
+
+    print(
+        "UNIT 4-13 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    return result
+
+
+print(
+    "UNIT 4-13 HANDOVER INSTALLED =",
+    U413_HANDOVER_VERSION,
+    flush=True
+)
+
+# ============================================================
+# END UNIT 4-13 VERIFIED ATR14 HANDOVER V1
+# ============================================================
+
 scan_forever()
 
 # ============================================================
