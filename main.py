@@ -15809,6 +15809,387 @@ print(
 # ZERO INDENTATION
 # ============================================================
 
+
+
+# ============================================================
+# START UNIT 8-13 VERIFIED POSITION HANDOVER V1
+# ZERO INDENTATION
+# DEMO ONLY - READ ONLY
+# ============================================================
+
+from decimal import Decimal as _U813_D
+from decimal import InvalidOperation as _U813_Invalid
+
+U813_HANDOVER_VERSION = "V1_VERIFIED_DEMO_POSITION"
+
+
+# ============================================================
+# 1. STRICT DECIMAL VALIDATION
+# ============================================================
+
+def u813_decimal(value, name):
+
+    if value is None or isinstance(value, bool):
+        raise ValueError(name + "_MISSING")
+
+    try:
+        number = _U813_D(str(value))
+    except (
+        _U813_Invalid,
+        ValueError,
+        TypeError
+    ):
+        raise ValueError(name + "_INVALID")
+
+    if not number.is_finite() or number <= 0:
+        raise ValueError(name + "_NONPOSITIVE")
+
+    return number
+
+
+# ============================================================
+# 2. EXCHANGE FIELD EXTRACTION
+# ============================================================
+
+def u813_first(record, keys):
+
+    for key in keys:
+
+        value = record.get(key)
+
+        if value is not None and str(value).strip():
+            return value
+
+    return None
+
+
+# ============================================================
+# 3. VERIFIED DEMO POSITION NORMALIZATION
+# ============================================================
+
+def u813_verified_position(snapshot, market_symbol):
+
+    if not isinstance(snapshot, dict):
+        return "SNAPSHOT_MISSING", None
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
+    )
+
+    if not isinstance(config, dict):
+        return "CONFIG_MISSING", None
+
+    if (
+        config.get("execution_environment")
+        != "DEMO"
+        or config.get(
+            "real_cash_execution_enabled"
+        ) is not False
+    ):
+        return "DEMO_SAFETY_FAILURE", None
+
+    exchange = config.get("exchange")
+
+    if not isinstance(exchange, dict):
+        return "EXCHANGE_CONFIG_MISSING", None
+
+    expected_market = str(
+        exchange.get("market_symbol") or ""
+    ).strip().upper()
+
+    expected_demo = str(
+        exchange.get("demo_order_symbol") or ""
+    ).strip().upper()
+
+    if (
+        not expected_market
+        or not expected_demo
+        or market_symbol != expected_market
+    ):
+        return "CONFIG_SYMBOL_MISMATCH", None
+
+    if (
+        snapshot.get("market_symbol")
+        != expected_market
+        or snapshot.get("demo_order_symbol")
+        != expected_demo
+    ):
+        return "ACCOUNT_SYMBOL_MISMATCH", None
+
+    if (
+        snapshot.get("status")
+        != "VERIFIED_READ_ONLY"
+        or snapshot.get(
+            "demo_contract_verified"
+        ) is not True
+        or snapshot.get(
+            "demo_positions_read_verified"
+        ) is not True
+    ):
+        return "ACCOUNT_NOT_VERIFIED", None
+
+    records = snapshot.get("positions")
+
+    if not isinstance(records, list):
+        return "POSITION_RECORDS_MISSING", None
+
+    if snapshot.get("position_flat_verified") is True:
+
+        if records:
+            return "FLAT_POSITION_CONFLICT", None
+
+        return "VERIFIED_FLAT", None
+
+    matching = []
+
+    for record in records:
+
+        if not isinstance(record, dict):
+            return "INVALID_POSITION_RECORD", None
+
+        symbol = str(
+            record.get("symbol") or ""
+        ).strip().upper()
+
+        if symbol != expected_demo:
+            return "UNEXPECTED_POSITION_SYMBOL", None
+
+        try:
+
+            quantity = u813_decimal(
+                u813_first(
+                    record,
+                    (
+                        "size",
+                        "total",
+                        "holdVol",
+                        "positionAmt",
+                        "quantity"
+                    )
+                ),
+                "POSITION_QUANTITY"
+            )
+
+        except ValueError:
+            return "POSITION_QUANTITY_INVALID", None
+
+        side = str(
+            u813_first(
+                record,
+                (
+                    "positionSide",
+                    "holdSide",
+                    "side"
+                )
+            ) or ""
+        ).strip().upper()
+
+        if side not in ("LONG", "SHORT"):
+            return "POSITION_SIDE_UNVERIFIED", None
+
+        try:
+
+            entry = u813_decimal(
+                u813_first(
+                    record,
+                    (
+                        "averageEntryPrice",
+                        "avgPrice",
+                        "entryPrice",
+                        "openPrice",
+                        "averageOpenPrice"
+                    )
+                ),
+                "ENTRY_PRICE"
+            )
+
+        except ValueError:
+            return "ENTRY_PRICE_UNVERIFIED", None
+
+        leverage_value = u813_first(
+            record,
+            ("leverage",)
+        )
+
+        # No guessed leverage:
+        # use the exchange-reported position value.
+        try:
+
+            leverage = u813_decimal(
+                leverage_value,
+                "POSITION_LEVERAGE"
+            )
+
+        except ValueError:
+            return "POSITION_LEVERAGE_UNVERIFIED", None
+
+        try:
+
+            minimum = u813_decimal(
+                snapshot.get("minimum_quantity"),
+                "MINIMUM_QUANTITY"
+            )
+
+            step = u813_decimal(
+                snapshot.get("quantity_step"),
+                "QUANTITY_STEP"
+            )
+
+        except ValueError:
+            return "CONTRACT_RULES_INVALID", None
+
+        if quantity < minimum:
+            return "POSITION_BELOW_MINIMUM", None
+
+        if quantity % step != 0:
+            return "POSITION_STEP_INVALID", None
+
+        normalized = dict(record)
+
+        normalized.update({
+            "symbol": expected_market,
+            "demo_order_symbol": expected_demo,
+            "quantity": str(quantity),
+            "size": str(quantity),
+            "total": str(quantity),
+            "positionSide": side,
+            "averageEntryPrice": str(entry),
+            "leverage": str(leverage),
+            "position_source": (
+                "WEEX_DEMO_POSITION_SNAPSHOT"
+            ),
+            "position_normalized": True,
+        })
+
+        matching.append(normalized)
+
+    if len(matching) == 0:
+        return "NO_OPEN_POSITION", None
+
+    if len(matching) != 1:
+        return "MULTIPLE_POSITIONS_REQUIRE_RECONCILIATION", None
+
+    return "VERIFIED_OPEN_POSITION", matching[0]
+
+
+# ============================================================
+# 4. ADAPT EXISTING UNIT 13 POSITION READER
+# ============================================================
+
+_U813_ORIGINAL_POSITION_READER = unit_13_position
+
+
+def unit_13_position(snapshot, symbol):
+
+    status, position = u813_verified_position(
+        snapshot,
+        symbol
+    )
+
+    print(
+        "UNIT 8-13 HANDOVER VERSION =",
+        U813_HANDOVER_VERSION,
+        flush=True
+    )
+
+    print(
+        "UNIT 8-13 POSITION STATUS =",
+        status,
+        flush=True
+    )
+
+    print(
+        "UNIT 8-13 MARKET SYMBOL =",
+        symbol,
+        flush=True
+    )
+
+    if status != "VERIFIED_OPEN_POSITION":
+
+        print(
+            "UNIT 8-13 POSITION VERIFIED = False",
+            flush=True
+        )
+
+        print(
+            "UNIT 8-13 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        return None
+
+    print(
+        "UNIT 8-13 DEMO SYMBOL =",
+        position["demo_order_symbol"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8-13 POSITION SIDE =",
+        position["positionSide"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8-13 POSITION QUANTITY =",
+        position["quantity"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8-13 ENTRY PRICE =",
+        position["averageEntryPrice"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8-13 LEVERAGE =",
+        position["leverage"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8-13 POSITION VERIFIED = True",
+        flush=True
+    )
+
+    print(
+        "UNIT 8-13 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    return position
+
+
+# ============================================================
+# 5. INSTALLATION CONFIRMATION
+# ============================================================
+
+print(
+    "UNIT 8-13 POSITION HANDOVER INSTALLED = True",
+    flush=True
+)
+
+print(
+    "UNIT 8-13 HANDOVER MODE = VERIFIED_READ_ONLY",
+    flush=True
+)
+
+print(
+    "UNIT 8-13 REAL CASH EXECUTION = DISABLED",
+    flush=True
+)
+
+print(
+    "UNIT 8-13 EXCHANGE WRITE = NONE",
+    flush=True
+)
+
+# ============================================================
+# END UNIT 8-13 VERIFIED POSITION HANDOVER V1
+# ZERO INDENTATION
+# ============================================================
+
 scan_forever()
 
 # ============================================================
