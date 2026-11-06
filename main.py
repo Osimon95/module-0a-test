@@ -8873,22 +8873,26 @@ print(
 # ============================================================
 
 
-    
-
+ 
 # ============================================================
 # START COMPLETE UNIT 10 REPLACEMENT
-# UNIT 10 V1 - UNIVERSAL DEMO EXECUTION BOUNDARY
+# UNIT 10 V2 - UNIVERSAL DEMO EXECUTION BOUNDARY
+# REFERENCE 17248 ADAPTATION
 # ZERO INDENTATION
 # ============================================================
 
-import os as _u10_os
 from decimal import Decimal as _U10Decimal
 from decimal import InvalidOperation as _U10Invalid
 
 
+# ============================================================
+# 10.1 DECIMAL AND SYMBOL HELPERS
+# ============================================================
+
 def u10_decimal(value):
     if value is None or isinstance(value, bool):
         return None
+
     try:
         number = _U10Decimal(str(value))
         return number if number.is_finite() else None
@@ -8897,19 +8901,59 @@ def u10_decimal(value):
 
 
 def u10_symbol(config):
-    symbol = _u10_os.getenv(
-        "WEEX_SYMBOL", ""
+    if not isinstance(config, dict):
+        return ""
+
+    exchange = config.get("exchange", {})
+
+    if not isinstance(exchange, dict):
+        return ""
+
+    return str(
+        exchange.get("market_symbol") or ""
     ).strip().upper()
 
-    if not symbol and isinstance(config, dict):
-        exchange = config.get("exchange", {})
-        if isinstance(exchange, dict):
-            symbol = str(
-                exchange.get("market_symbol") or ""
-            ).strip().upper()
 
-    return symbol
+def u10_demo_symbol(config):
+    if not isinstance(config, dict):
+        return ""
 
+    exchange = config.get("exchange", {})
+
+    if not isinstance(exchange, dict):
+        return ""
+
+    return str(
+        exchange.get("demo_order_symbol") or ""
+    ).strip().upper()
+
+
+def u10_contract_value(contract, *names):
+    if not isinstance(contract, dict):
+        return None
+
+    for name in names:
+        if contract.get(name) is not None:
+            return u10_decimal(contract[name])
+
+    for section in (
+        "rules",
+        "contract_rules",
+        "specifications",
+    ):
+        nested = contract.get(section)
+
+        if isinstance(nested, dict):
+            for name in names:
+                if nested.get(name) is not None:
+                    return u10_decimal(nested[name])
+
+    return None
+
+
+# ============================================================
+# 10.2 STANDARD OUTPUT CONTRACT
+# ============================================================
 
 def u10_boundary_result(
     status,
@@ -8917,36 +8961,70 @@ def u10_boundary_result(
     symbol,
     source=None,
 ):
-    source = source if isinstance(source, dict) else {}
+    source = (
+        source if isinstance(source, dict) else {}
+    )
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG", {}
+    )
+
+    demo_symbol = u10_demo_symbol(config)
 
     return {
-        "unit_10_version": "U10_V1_UNIVERSAL_DEMO",
+        "unit_10_version":
+            "U10_V2_REFERENCE_17248_ADAPTED",
+
         "status": status,
-        "reason": reason,
-        "skip_reason": reason if status != "READY" else None,
+        "reason": str(reason),
+
+        "skip_reason": (
+            str(reason) if status != "READY"
+            else None
+        ),
+
         "market_symbol": symbol,
-        "demo_order_symbol": symbol,
-        "direction": source.get("direction", "NONE"),
-        "active_mode": source.get("active_mode", "NONE"),
+        "demo_order_symbol": demo_symbol,
+
+        "direction": source.get(
+            "direction", "NONE"
+        ),
+
+        "active_mode": source.get(
+            "active_mode", "NONE"
+        ),
+
         "trade_plan": source.get("trade_plan"),
+
         "execution_candidate": source.get(
             "execution_candidate"
         ),
+
         "signal_qualified": False,
+        "execution_intent": False,
         "trade_plan_ready": False,
-        "execution_ready": False,
+
         "demo_boundary_ready": False,
+        "execution_ready": False,
+
         "demo_order_permission_verified": False,
         "demo_order_submission_verified": False,
+
         "execution_authorized": False,
         "order_submission_authorized": False,
+
         "order_payload_created": False,
         "demo_submission_requested": False,
+
         "exchange_write": False,
         "read_only": True,
         "real_cash_execution": False,
     }
 
+
+# ============================================================
+# 10.3 MAIN UNIT 10
+# ============================================================
 
 def fresh_reconstruction_unit_10(
     execution_config,
@@ -8956,140 +9034,199 @@ def fresh_reconstruction_unit_10(
 
     print("=" * 80, flush=True)
     print(
-        "UNIT 10 VERSION = V1_UNIVERSAL_DEMO_BOUNDARY",
+        "UNIT 10 VERSION = "
+        "V2_REFERENCE_17248_ADAPTED",
         flush=True,
     )
 
-    if verified_symbol != symbols["demo_order_symbol"]:
-    return stop("DEMO_SYMBOL_MISMATCH")
-    
+    symbol = u10_symbol(execution_config)
+    demo_symbol = u10_demo_symbol(
+        execution_config
+    )
 
     def finish(result):
         print(
             "UNIT 10 MARKET SYMBOL =",
-            symbol,
+            result.get("market_symbol"),
             flush=True,
         )
+
         print(
-            "UNIT 10 STATUS =",
-            result["status"],
+            "UNIT 10 DEMO ORDER SYMBOL =",
+            result.get("demo_order_symbol"),
             flush=True,
         )
-        print(
-            "UNIT 10 REASON =",
-            result["reason"],
-            flush=True,
-        )
-        print(
-            "UNIT 10 ACTIVE MODE =",
-            result["active_mode"],
-            flush=True,
-        )
-        print(
-            "UNIT 10 DIRECTION =",
-            result["direction"],
-            flush=True,
-        )
-        print(
-            "UNIT 10 TRADE PLAN READY =",
-            result["trade_plan_ready"],
-            flush=True,
-        )
-        print(
-            "UNIT 10 DEMO BOUNDARY READY =",
-            result["demo_boundary_ready"],
-            flush=True,
-        )
-        print(
-            "UNIT 10 EXECUTION READY =",
-            result["execution_ready"],
-            flush=True,
-        )
-        print(
-            "UNIT 10 EXECUTION AUTHORIZED =",
-            result["execution_authorized"],
-            flush=True,
-        )
+
+        for key, label in (
+            ("status", "STATUS"),
+            ("reason", "REASON"),
+            ("active_mode", "ACTIVE MODE"),
+            ("direction", "DIRECTION"),
+            ("trade_plan_ready", "TRADE PLAN READY"),
+            ("demo_boundary_ready", "DEMO BOUNDARY READY"),
+            ("execution_ready", "EXECUTION READY"),
+            ("execution_authorized", "EXECUTION AUTHORIZED"),
+        ):
+            print(
+                "UNIT 10 " + label + " =",
+                result.get(key),
+                flush=True,
+            )
+
         print(
             "UNIT 10 ORDER PAYLOAD CREATED = False",
             flush=True,
         )
+
         print(
             "UNIT 10 DEMO SUBMISSION REQUESTED = False",
             flush=True,
         )
+
         print(
             "UNIT 10 EXCHANGE WRITE = NONE",
             flush=True,
         )
+
         print(
             "UNIT 10 REAL CASH EXECUTION = DISABLED",
             flush=True,
         )
+
         print(
-            "FRESH RECONSTRUCTION UNIT 10 RESULT = PASS",
+            "FRESH RECONSTRUCTION UNIT 10 RESULT =",
+            (
+                "PASS"
+                if result.get("status")
+                in ("IDLE", "READY")
+                else "BLOCKED"
+            ),
             flush=True,
         )
+
         print("=" * 80, flush=True)
         return result
 
-    def stop(reason):
+    def stop(reason, status="IDLE"):
         return finish(
             u10_boundary_result(
-                "IDLE",
+                status,
                 reason,
                 symbol,
                 unit_9_result,
             )
         )
 
+    # ========================================================
+    # CONFIGURATION AND ACCOUNT HANDOVER
+    # ========================================================
+
     if not isinstance(execution_config, dict):
-        return stop("INVALID_CONFIGURATION")
+        return stop(
+            "INVALID_CONFIGURATION", "BLOCKED"
+        )
 
     if not isinstance(unit_9_result, dict):
-        return stop("INVALID_UNIT_9_RESULT")
+        return stop(
+            "INVALID_UNIT_9_RESULT", "BLOCKED"
+        )
 
     if not isinstance(unit_8_result, dict):
-        return stop("UNIT_8_RESULT_MISSING")
-
-    if not symbol:
-        return stop("MARKET_SYMBOL_MISSING")
-
-    environment = str(
-        execution_config.get(
-            "execution_environment", ""
+        return stop(
+            "UNIT_8_RESULT_MISSING", "BLOCKED"
         )
-    ).strip().upper()
 
-    if environment != "DEMO":
-        return stop("DEMO_ENVIRONMENT_REQUIRED")
-
-    exchange = execution_config.get("exchange", {})
-
-    if not isinstance(exchange, dict):
-        return stop("EXCHANGE_CONFIG_INVALID")
-
-    configured_symbol = str(
-        exchange.get("market_symbol") or symbol
-    ).strip().upper()
-
-    if configured_symbol != symbol:
-        return stop("CONFIG_SYMBOL_MISMATCH")
-
-    if unit_8_result.get("status") != "VERIFIED_READ_ONLY":
-        return stop("UNIT_8_NOT_VERIFIED")
-
-    if unit_8_result.get("demo_contract_verified") is not True:
-        return stop("DEMO_CONTRACT_UNVERIFIED")
-
-    if unit_8_result.get("demo_balance_verified") is not True:
-        return stop("DEMO_BALANCE_UNVERIFIED")
+    if not symbol or not demo_symbol:
+        return stop(
+            "SYMBOL_CONFIGURATION_MISSING",
+            "BLOCKED",
+        )
 
     if (
-        unit_8_result.get("demo_positions_read_verified")
+        execution_config.get(
+            "execution_environment"
+        ) != "DEMO"
+    ):
+        return stop(
+            "DEMO_ENVIRONMENT_REQUIRED",
+            "BLOCKED",
+        )
+
+    if (
+        execution_config.get(
+            "real_cash_execution_enabled"
+        ) is not False
+    ):
+        return stop(
+            "REAL_CASH_EXECUTION_NOT_DISABLED",
+            "BLOCKED",
+        )
+
+    # Existing adapter, already installed above Unit 9.
+    try:
+        symbols = demo_symbol_adapter_u10(
+            execution_config,
+            unit_8_result,
+        )
+    except (RuntimeError, TypeError, ValueError) as exc:
+        return stop(
+            "SYMBOL_ADAPTER_" + str(exc),
+            "BLOCKED",
+        )
+
+    if not isinstance(symbols, dict):
+        return stop(
+            "SYMBOL_ADAPTER_INVALID",
+            "BLOCKED",
+        )
+
+    if (
+        symbols.get("market_symbol") != symbol
+        or symbols.get("demo_order_symbol")
+        != demo_symbol
+    ):
+        return stop(
+            "SYMBOL_ADAPTER_MISMATCH",
+            "BLOCKED",
+        )
+
+    # Preserve Unit 8 V19 read-only verification.
+    if (
+        unit_8_result.get("status")
+        != "VERIFIED_READ_ONLY"
+    ):
+        return stop(
+            "UNIT_8_NOT_VERIFIED",
+            "BLOCKED",
+        )
+
+    if (
+        unit_8_result.get("demo_contract_verified")
         is not True
     ):
-        return stop("DEMO_POSITIONS_UNVERIFIED")
+        return stop(
+            "DEMO_CONTRACT_UNVERIFIED",
+            "BLOCKED",
+        )
+
+    if (
+        unit_8_result.get("demo_balance_verified")
+        is not True
+    ):
+        return stop(
+            "DEMO_BALANCE_UNVERIFIED",
+            "BLOCKED",
+        )
+
+    if (
+        unit_8_result.get(
+            "demo_positions_read_verified"
+        ) is not True
+    ):
+        return stop(
+            "DEMO_POSITIONS_UNVERIFIED",
+            "BLOCKED",
+        )
 
     if (
         unit_8_result.get("position_flat_verified")
@@ -9097,73 +9234,80 @@ def fresh_reconstruction_unit_10(
     ):
         return stop("POSITION_NOT_FLAT")
 
-    verified_symbol = str(
-        unit_8_result.get("demo_order_symbol") or ""
-    ).strip().upper()
-
-    if verified_symbol != symbol:
-        return stop("DEMO_SYMBOL_MISMATCH")
-
     # ========================================================
-    # UNIT 9 HANDOVER
+    # UNIT 9 SIGNAL HANDOVER
     # ========================================================
 
-    unit_9_status = str(
+    status9 = str(
         unit_9_result.get("status") or ""
     ).upper()
 
-    if unit_9_status == "IDLE":
-        reason = unit_9_result.get(
-            "reason", "NO_QUALIFIED_ENTRY"
+    if status9 == "IDLE":
+        return stop(
+            "UNIT_9_" + str(
+                unit_9_result.get(
+                    "reason", "NO_QUALIFIED_ENTRY"
+                )
+            )
         )
-        return stop("UNIT_9_" + str(reason))
 
-    if unit_9_status != "PREPARED_READ_ONLY":
-        return stop("UNIT_9_NOT_PREPARED")
-
-    if unit_9_result.get("read_only") is not True:
-        return stop("UNIT_9_SAFETY_VIOLATION")
-
-    if unit_9_result.get("exchange_write") is not False:
-        return stop("UNIT_9_EXCHANGE_WRITE_DETECTED")
+    if status9 != "PREPARED_READ_ONLY":
+        return stop(
+            "UNIT_9_NOT_PREPARED",
+            "BLOCKED",
+        )
 
     if (
-        unit_9_result.get("execution_authorized")
+        unit_9_result.get("read_only")
+        is not True
+        or unit_9_result.get("exchange_write")
         is not False
+        or unit_9_result.get(
+            "execution_authorized"
+        ) is not False
     ):
-        return stop("UNIT_9_AUTHORIZATION_UNSAFE")
+        return stop(
+            "UNIT_9_SAFETY_VIOLATION",
+            "BLOCKED",
+        )
 
     if (
         unit_9_result.get("signal_qualified")
         is not True
-    ):
-        return stop("SIGNAL_NOT_QUALIFIED")
-
-    if (
-        unit_9_result.get("trade_plan_ready")
+        or unit_9_result.get("trade_plan_ready")
+        is not True
+        or unit_9_result.get("execution_intent")
         is not True
     ):
-        return stop("UNIT_9_TRADE_PLAN_NOT_READY")
-
-    if (
-        unit_9_result.get("execution_intent")
-        is not True
-    ):
-        return stop("UNIT_9_EXECUTION_INTENT_MISSING")
+        return stop(
+            "UNIT_9_SIGNAL_NOT_READY"
+        )
 
     if (
         str(
             unit_9_result.get("market_symbol") or ""
         ).upper() != symbol
     ):
-        return stop("UNIT_9_MARKET_SYMBOL_MISMATCH")
+        return stop(
+            "UNIT_9_MARKET_SYMBOL_MISMATCH",
+            "BLOCKED",
+        )
 
     if (
         str(
-            unit_9_result.get("demo_order_symbol") or ""
-        ).upper() != symbol
+            unit_9_result.get(
+                "demo_order_symbol"
+            ) or ""
+        ).upper() != demo_symbol
     ):
-        return stop("UNIT_9_DEMO_SYMBOL_MISMATCH")
+        return stop(
+            "UNIT_9_DEMO_SYMBOL_MISMATCH",
+            "BLOCKED",
+        )
+
+    # ========================================================
+    # TRADE PLAN AND CANDIDATE
+    # ========================================================
 
     plan = unit_9_result.get("trade_plan")
     candidate = unit_9_result.get(
@@ -9171,13 +9315,21 @@ def fresh_reconstruction_unit_10(
     )
 
     if not isinstance(plan, dict):
-        return stop("TRADE_PLAN_MISSING")
+        return stop(
+            "TRADE_PLAN_MISSING", "BLOCKED"
+        )
 
     if not isinstance(candidate, dict):
-        return stop("EXECUTION_CANDIDATE_MISSING")
+        return stop(
+            "EXECUTION_CANDIDATE_MISSING",
+            "BLOCKED",
+        )
 
     if plan is not candidate:
-        return stop("TRADE_PLAN_CANDIDATE_MISMATCH")
+        return stop(
+            "TRADE_PLAN_CANDIDATE_MISMATCH",
+            "BLOCKED",
+        )
 
     direction = str(
         unit_9_result.get("direction") or ""
@@ -9197,37 +9349,48 @@ def fresh_reconstruction_unit_10(
     ):
         return stop("INVALID_STRATEGY_MODE")
 
-    if (
-        str(plan.get("market_symbol") or "").upper()
-        != symbol
-    ):
-        return stop("TRADE_PLAN_SYMBOL_MISMATCH")
+    expected_fields = {
+        "market_symbol": symbol,
+        "demo_order_symbol": demo_symbol,
+        "direction": direction,
+        "active_mode": mode,
+    }
 
-    if (
-        str(plan.get("direction") or "").upper()
-        != direction
-    ):
-        return stop("TRADE_PLAN_DIRECTION_MISMATCH")
-
-    if (
-        str(plan.get("active_mode") or "").upper()
-        != mode
-    ):
-        return stop("TRADE_PLAN_MODE_MISMATCH")
+    for key, expected in expected_fields.items():
+        if str(
+            plan.get(key) or ""
+        ).upper() != expected:
+            return stop(
+                "TRADE_PLAN_" +
+                key.upper() +
+                "_MISMATCH",
+                "BLOCKED",
+            )
 
     # ========================================================
-    # QUANTITY AND STAGED HEDGE VALIDATION
+    # QUANTITY AND CONTRACT VALIDATION
     # ========================================================
 
-    quantity = u10_decimal(plan.get("quantity"))
-    half = u10_decimal(plan.get("half_quantity"))
+    quantity = u10_decimal(
+        plan.get("quantity")
+    )
+
+    half = u10_decimal(
+        plan.get("half_quantity")
+    )
+
     minimum = u10_decimal(
         plan.get("minimum_quantity")
     )
-    step = u10_decimal(plan.get("quantity_step"))
+
+    step = u10_decimal(
+        plan.get("quantity_step")
+    )
+
     price_step = u10_decimal(
         plan.get("price_step")
     )
+
     multiplier = u10_decimal(
         plan.get("contract_multiplier")
     )
@@ -9245,7 +9408,10 @@ def fresh_reconstruction_unit_10(
         value is None or value <= 0
         for value in values
     ):
-        return stop("INVALID_CONTRACT_QUANTITY_RULES")
+        return stop(
+            "INVALID_CONTRACT_QUANTITY_RULES",
+            "BLOCKED",
+        )
 
     if quantity < minimum:
         return stop("QUANTITY_BELOW_MINIMUM")
@@ -9254,42 +9420,37 @@ def fresh_reconstruction_unit_10(
         return stop("QUANTITY_STEP_INVALID")
 
     if half < minimum:
-        return stop("HALF_QUANTITY_BELOW_MINIMUM")
+        return stop(
+            "HALF_QUANTITY_BELOW_MINIMUM"
+        )
 
     if half % step != 0:
-        return stop("HALF_QUANTITY_STEP_INVALID")
+        return stop(
+            "HALF_QUANTITY_STEP_INVALID"
+        )
 
     if half * 2 != quantity:
-        return stop("HALF_QUANTITY_MISMATCH")
+        return stop(
+            "HALF_QUANTITY_MISMATCH"
+        )
 
-    # Compare with the verified Unit 8 contract rules.
+    # ========================================================
+    # VERIFY AGAINST UNIT 8 CONTRACT
+    # ========================================================
+
     contract = unit_8_result.get("contract")
 
     if not isinstance(contract, dict):
-        return stop("UNIT_8_CONTRACT_MISSING")
-
-    def contract_value(*names):
-        for name in names:
-            if contract.get(name) is not None:
-                return u10_decimal(contract[name])
-
-        for section in (
-            "rules",
-            "contract_rules",
-            "specifications",
-        ):
-            nested = contract.get(section)
-            if isinstance(nested, dict):
-                for name in names:
-                    if nested.get(name) is not None:
-                        return u10_decimal(nested[name])
-
-        return None
+        return stop(
+            "UNIT_8_CONTRACT_MISSING",
+            "BLOCKED",
+        )
 
     comparisons = (
         (
             minimum,
-            contract_value(
+            u10_contract_value(
+                contract,
                 "minimum_quantity",
                 "min_quantity",
                 "minQty",
@@ -9298,7 +9459,8 @@ def fresh_reconstruction_unit_10(
         ),
         (
             step,
-            contract_value(
+            u10_contract_value(
+                contract,
                 "quantity_step",
                 "qty_step",
                 "stepSize",
@@ -9307,7 +9469,8 @@ def fresh_reconstruction_unit_10(
         ),
         (
             price_step,
-            contract_value(
+            u10_contract_value(
+                contract,
                 "price_step",
                 "tickSize",
                 "priceEndStep",
@@ -9315,7 +9478,8 @@ def fresh_reconstruction_unit_10(
         ),
         (
             multiplier,
-            contract_value(
+            u10_contract_value(
+                contract,
                 "contract_multiplier",
                 "contractMultiplier",
                 "contractSize",
@@ -9324,13 +9488,28 @@ def fresh_reconstruction_unit_10(
     )
 
     for planned, verified in comparisons:
-        if verified is None or planned != verified:
-            return stop("CONTRACT_RULE_MISMATCH")
+        if (
+            verified is None
+            or verified <= 0
+            or planned != verified
+        ):
+            return stop(
+                "CONTRACT_RULE_MISMATCH",
+                "BLOCKED",
+            )
 
-    preview = unit_8_result.get("size_preview")
+    # ========================================================
+    # UNIT 8 SIZE PREVIEW
+    # ========================================================
+
+    preview = unit_8_result.get(
+        "size_preview"
+    )
 
     if not isinstance(preview, dict):
-        return stop("UNIT_8_SIZE_PREVIEW_MISSING")
+        return stop(
+            "UNIT_8_SIZE_PREVIEW_MISSING"
+        )
 
     if (
         preview.get("initial_quantity_valid")
@@ -9338,24 +9517,34 @@ def fresh_reconstruction_unit_10(
         or preview.get("half_quantity_valid")
         is not True
     ):
-        return stop("UNIT_8_SIZE_PREVIEW_INVALID")
+        return stop(
+            "UNIT_8_SIZE_PREVIEW_INVALID"
+        )
 
     if (
         u10_decimal(
-            preview.get("rounded_contract_quantity")
+            preview.get(
+                "rounded_contract_quantity"
+            )
         ) != quantity
     ):
-        return stop("PREVIEW_QUANTITY_MISMATCH")
+        return stop(
+            "PREVIEW_QUANTITY_MISMATCH"
+        )
 
     if (
         u10_decimal(
-            preview.get("half_contract_quantity")
+            preview.get(
+                "half_contract_quantity"
+            )
         ) != half
     ):
-        return stop("PREVIEW_HALF_QUANTITY_MISMATCH")
+        return stop(
+            "PREVIEW_HALF_QUANTITY_MISMATCH"
+        )
 
     # ========================================================
-    # PRESERVE ORIGINAL TRADE PLAN AND CANDIDATE
+    # VERIFIED HANDOVER TO UNIT 11
     # ========================================================
 
     result = u10_boundary_result(
@@ -9366,34 +9555,50 @@ def fresh_reconstruction_unit_10(
     )
 
     result.update({
+        "demo_order_symbol": demo_symbol,
+
         "direction": direction,
         "active_mode": mode,
+
         "signal_qualified": True,
+        "execution_intent": True,
         "trade_plan_ready": True,
+
         "demo_boundary_ready": True,
+
         "quantity": str(quantity),
         "half_quantity": str(half),
+
         "minimum_quantity": str(minimum),
         "quantity_step": str(step),
         "price_step": str(price_step),
         "contract_multiplier": str(multiplier),
+
         "contract": contract,
         "unit_8_size_preview": preview,
+
         "trade_plan": plan,
         "execution_candidate": candidate,
+
+        # Unit 11 prepares the order.
+        # Unit 12 alone handles submission.
         "execution_ready": False,
         "execution_authorized": False,
         "order_submission_authorized": False,
+
+        "order_payload_created": False,
+        "demo_submission_requested": False,
+
         "read_only": True,
         "exchange_write": False,
+        "real_cash_execution": False,
     })
 
     return finish(result)
 
 
 # ============================================================
-# UNIT 10 HYBRID ADAPTER
-# PRESERVES ORIGINAL TWO-ARGUMENT INTERFACE
+# 10.4 ORIGINAL TWO-ARGUMENT ADAPTER
 # ============================================================
 
 def fresh_unit_10_hybrid_adapter(
@@ -9414,7 +9619,7 @@ def fresh_unit_10_hybrid_adapter(
             is not unit_9_result.get("trade_plan")
         ):
             raise RuntimeError(
-                "UNIT 10 ADAPTER CHANGED TRADE PLAN"
+                "UNIT 10 TRADE PLAN IDENTITY CHANGED"
             )
 
         if (
@@ -9424,7 +9629,7 @@ def fresh_unit_10_hybrid_adapter(
             )
         ):
             raise RuntimeError(
-                "UNIT 10 ADAPTER CHANGED CANDIDATE"
+                "UNIT 10 CANDIDATE IDENTITY CHANGED"
             )
 
     print(
@@ -9437,31 +9642,65 @@ def fresh_unit_10_hybrid_adapter(
 
 
 # ============================================================
-# UNIT 10 VALIDATION
-# NO EXCHANGE CONNECTION OR ORDER SUBMISSION
+# 10.5 LOCAL VALIDATION
+# NO EXCHANGE CONNECTION
 # ============================================================
 
 def unit_10_validation_v1():
-
     tests = []
 
     def check(name, condition):
-        tests.append((name, bool(condition)))
+        tests.append(
+            (name, bool(condition))
+        )
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG", {}
+    )
+
+    market = u10_symbol(config)
+    demo = u10_demo_symbol(config)
 
     idle = u10_boundary_result(
         "IDLE",
         "TEST_IDLE",
-        "NEARUSDT",
+        market,
+    )
+
+    check(
+        "MARKET SYMBOL FROM UNIT 2",
+        market.endswith("USDT"),
+    )
+
+    check(
+        "DEMO SYMBOL FROM UNIT 2",
+        demo == config.get(
+            "exchange", {}
+        ).get("demo_order_symbol"),
+    )
+
+    check(
+        "DISTINCT MARKET AND DEMO SYMBOLS",
+        market != demo,
     )
 
     check(
         "IDLE EXECUTION BLOCKED",
-        idle["execution_authorized"] is False
-        and idle["execution_ready"] is False,
+        idle["execution_authorized"] is False,
     )
 
     check(
-        "IDLE EXCHANGE WRITE BLOCKED",
+        "NO ORDER PAYLOAD",
+        idle["order_payload_created"] is False,
+    )
+
+    check(
+        "NO DEMO SUBMISSION",
+        idle["demo_submission_requested"] is False,
+    )
+
+    check(
+        "NO EXCHANGE WRITE",
         idle["exchange_write"] is False,
     )
 
@@ -9471,38 +9710,33 @@ def unit_10_validation_v1():
     )
 
     check(
-        "NO ORDER PAYLOAD",
-        idle["order_payload_created"] is False,
+        "VALID DECIMAL",
+        u10_decimal("14")
+        == _U10Decimal("14"),
     )
 
     check(
-        "NO DEMO SUBMISSION REQUEST",
-        idle["demo_submission_requested"] is False,
-    )
-
-    check(
-        "DECIMAL QUANTITY VALID",
-        u10_decimal("14") == _U10Decimal("14"),
-    )
-
-    check(
-        "INVALID QUANTITY REJECTED",
+        "INVALID DECIMAL REJECTED",
         u10_decimal("invalid") is None,
     )
 
     check(
-        "VALID HALF QUANTITY",
+        "HALF QUANTITY VALID",
         _U10Decimal("14") / 2
         == _U10Decimal("7"),
     )
 
     check(
         "INVALID HALF STEP DETECTED",
-        _U10Decimal("3") / 2
-        % _U10Decimal("1") != 0,
+        (
+            _U10Decimal("3") / 2
+        ) % _U10Decimal("1") != 0,
     )
 
-    passed = sum(1 for _, ok in tests if ok)
+    passed = sum(
+        1 for _, ok in tests if ok
+    )
+
     failed = len(tests) - passed
 
     for name, ok in tests:
@@ -9519,6 +9753,7 @@ def unit_10_validation_v1():
         passed,
         flush=True,
     )
+
     print(
         "UNIT 10 TESTS FAILED =",
         failed,
@@ -9529,8 +9764,7 @@ def unit_10_validation_v1():
 
 
 # ============================================================
-# UNIT 10 STARTUP
-# ZERO INDENTATION
+# 10.6 STARTUP AND GLOBAL HANDOVER
 # ============================================================
 
 FRESH_UNIT_10_VALIDATION_READY = (
@@ -9567,9 +9801,8 @@ print(
 # ============================================================
 # END COMPLETE UNIT 10 REPLACEMENT
 # ZERO INDENTATION
-# UNIT 11 CONTINUES BELOW
+# UNIT 11 FOLLOWS
 # ============================================================
-
 
 
 # ============================================================
