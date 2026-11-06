@@ -14738,199 +14738,387 @@ print(
 )
 
 
+
 # ============================================================
-# START UNIT 7-8 VERIFIED CONTRACT HANDOVER V2
+# START UNIT 7-8 VERIFIED CONTRACT HANDOVER V3
+# UNIT 7 V12 / UNIT 8 V19
 # ZERO INDENTATION
 # NO EXCHANGE WRITE
 # ============================================================
 
 import time as _u78_time
 from decimal import Decimal as _U78_Decimal
+from decimal import InvalidOperation as _U78_Invalid
 
 U78_MAX_CONTRACT_AGE_SECONDS = 120
 
-# Keep the original Unit 7 validator.
-_U78_V2_ORIGINAL = unit_7_v12_contract
+# Preserve the original Unit 7 contract function.
+# This adapter must replace V2, not be added after it.
+_U78_V3_ORIGINAL = unit_7_v12_contract
 
 
-def u78_v2_decimal(value, name):
+# ============================================================
+# 7-8.1 NUMERIC VALIDATION
+# ============================================================
+
+def u78_v3_decimal(value, name):
+
+    if value is None or isinstance(value, bool):
+        raise RuntimeError(
+            "U78_MISSING_" + name
+        )
 
     try:
-        result = _U78_Decimal(str(value))
-    except Exception as exc:
+        number = _U78_Decimal(str(value))
+    except (
+        TypeError,
+        ValueError,
+        _U78_Invalid
+    ) as exc:
         raise RuntimeError(
-            "U78 INVALID " + name
+            "U78_INVALID_" + name
         ) from exc
 
-    if not result.is_finite() or result <= 0:
+    if not number.is_finite() or number <= 0:
         raise RuntimeError(
-            "U78 NONPOSITIVE " + name
+            "U78_NONPOSITIVE_" + name
         )
 
-    return result
+    return number
 
 
-def u78_v2_contract(config):
+# ============================================================
+# 7-8.2 SYMBOL VERIFICATION
+# ============================================================
 
-    # Preserve original Unit 7 behavior when
-    # its own verified configuration is complete.
-    original = _U78_V2_ORIGINAL(config)
+def u78_v3_symbols(config, account):
 
-    if original.get("verified") is True:
-        return original
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "U78_CONFIG_INVALID"
+        )
 
-    exchange = config.get("exchange", {})
+    exchange = config.get("exchange")
+
     if not isinstance(exchange, dict):
-        return original
+        raise RuntimeError(
+            "U78_EXCHANGE_CONFIG_INVALID"
+        )
 
-    symbol = str(
-        exchange.get("market_symbol", "")
-    ).strip().upper()
-
-    # Unit 8 result from the preceding scan.
-    unit8 = globals().get(
-        "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
-    )
-
-    if not isinstance(unit8, dict):
-        return original
-
-    # Never mix symbols or environments.
     if (
         config.get("execution_environment") != "DEMO"
-        or config.get("real_cash_execution_enabled")
-            is not False
-        or unit8.get("market_symbol") != symbol
-        or unit8.get("demo_order_symbol") != symbol
+        or config.get(
+            "real_cash_execution_enabled"
+        ) is not False
     ):
-        return original
-
-    # Require all four independently reported
-    # WEEX contract-verification results.
-    if not all((
-        unit8.get("market_contract_verified") is True,
-        unit8.get("simulation_contract_verified") is True,
-        unit8.get(
-            "simulation_contract_rules_verified"
-        ) is True,
-        unit8.get("demo_contract_verified") is True
-    )):
-        return original
-
-    # Require fresh verification.
-    try:
-        checked_ms = int(
-            unit8["checked_at_ms"]
+        raise RuntimeError(
+            "U78_DEMO_ONLY_REQUIRED"
         )
-    except (KeyError, TypeError, ValueError):
-        return original
 
-    now_ms = int(_u78_time.time() * 1000)
+    market = str(
+        exchange.get("market_symbol") or ""
+    ).strip().upper()
 
-    age_ms = now_ms - checked_ms
+    demo = str(
+        exchange.get("demo_order_symbol") or ""
+    ).strip().upper()
+
+    if (
+        not market.endswith("USDT")
+        or not market.isalnum()
+        or not demo.isalnum()
+        or demo == market
+    ):
+        raise RuntimeError(
+            "U78_INVALID_SYMBOL_PAIR"
+        )
+
+    if (
+        exchange.get("base_coin") != market[:-4]
+        or exchange.get("quote_coin") != "USDT"
+    ):
+        raise RuntimeError(
+            "U78_BASE_QUOTE_MISMATCH"
+        )
+
+    if not isinstance(account, dict):
+        raise RuntimeError(
+            "U78_UNIT8_RESULT_MISSING"
+        )
+
+    if (
+        str(
+            account.get("market_symbol") or ""
+        ).upper() != market
+    ):
+        raise RuntimeError(
+            "U78_MARKET_SYMBOL_MISMATCH"
+        )
+
+    if (
+        str(
+            account.get("demo_order_symbol") or ""
+        ).upper() != demo
+    ):
+        raise RuntimeError(
+            "U78_DEMO_SYMBOL_MISMATCH"
+        )
+
+    return market, demo
+
+
+# ============================================================
+# 7-8.3 VERIFIED UNIT 8 CONTRACT
+# ============================================================
+
+def u78_v3_verified_contract(config, account):
+
+    market, demo = u78_v3_symbols(
+        config,
+        account
+    )
+
+    # Unit 8 V19 uses verified market rules
+    # and independently reads the demo account.
+    # Do not claim that an order was accepted.
+
+    if (
+        account.get("status")
+        != "VERIFIED_READ_ONLY"
+    ):
+        raise RuntimeError(
+            "U78_UNIT8_NOT_VERIFIED"
+        )
+
+    required_flags = (
+        "market_contract_verified",
+        "simulation_contract_verified",
+        "simulation_contract_rules_verified",
+        "demo_contract_verified",
+    )
+
+    for field in required_flags:
+        if account.get(field) is not True:
+            raise RuntimeError(
+                "U78_UNVERIFIED_" + field.upper()
+            )
+
+    # Verify the snapshot has not expired.
+
+    checked = account.get("checked_at_ms")
+
+    if (
+        isinstance(checked, bool)
+        or checked is None
+    ):
+        raise RuntimeError(
+            "U78_TIMESTAMP_MISSING"
+        )
+
+    try:
+        checked_ms = int(checked)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "U78_TIMESTAMP_INVALID"
+        ) from exc
+
+    age_ms = (
+        int(_u78_time.time() * 1000)
+        - checked_ms
+    )
 
     if (
         age_ms < 0
         or age_ms >
             U78_MAX_CONTRACT_AGE_SECONDS * 1000
     ):
-        return original
-
-    # Read the values Unit 8 actually verified.
-    try:
-        minimum = u78_v2_decimal(
-            unit8.get("minimum_quantity"),
-            "MINIMUM QUANTITY"
+        raise RuntimeError(
+            "U78_CONTRACT_SNAPSHOT_STALE"
         )
 
-        step = u78_v2_decimal(
-            unit8.get("quantity_step"),
-            "QUANTITY STEP"
+    # Use the actual V19 contract dictionary.
+    # Never manufacture precision or multiplier.
+
+    rules = account.get("contract")
+
+    if not isinstance(rules, dict):
+        raise RuntimeError(
+            "U78_CONTRACT_MISSING"
         )
 
-        price_step = u78_v2_decimal(
-            unit8.get("price_step"),
-            "PRICE STEP"
+    if (
+        str(rules.get("symbol") or "").upper()
+        != market
+    ):
+        raise RuntimeError(
+            "U78_CONTRACT_SYMBOL_MISMATCH"
         )
 
-        multiplier = u78_v2_decimal(
-            unit8.get("contract_multiplier"),
-            "CONTRACT MULTIPLIER"
+    minimum = u78_v3_decimal(
+        rules.get("minimum_quantity"),
+        "MINIMUM_QUANTITY"
+    )
+
+    step = u78_v3_decimal(
+        rules.get("quantity_step"),
+        "QUANTITY_STEP"
+    )
+
+    price_step = u78_v3_decimal(
+        rules.get("price_step"),
+        "PRICE_STEP"
+    )
+
+    multiplier = u78_v3_decimal(
+        rules.get("contract_multiplier"),
+        "CONTRACT_MULTIPLIER"
+    )
+
+    # Verify top-level V19 fields match
+    # the independently parsed contract.
+
+    for name, expected in (
+        ("minimum_quantity", minimum),
+        ("quantity_step", step),
+        ("price_step", price_step),
+        ("contract_multiplier", multiplier),
+    ):
+        actual = u78_v3_decimal(
+            account.get(name),
+            name.upper()
         )
 
-    except RuntimeError:
-        return original
+        if actual != expected:
+            raise RuntimeError(
+                "U78_CONTRACT_FIELD_MISMATCH_"
+                + name.upper()
+            )
 
-    # Ensure minimum quantity can be represented
-    # exactly using the exchange quantity step.
+    # Quantity must be representable using
+    # the verified exchange step.
+
     if minimum % step != 0:
-        return original
+        raise RuntimeError(
+            "U78_MINIMUM_STEP_INCOMPATIBLE"
+        )
 
-    # Verify original Unit 7 symbol invariants.
-    if not all((
-        symbol.endswith("USDT"),
-        len(symbol) > 4,
-        exchange.get("base_coin") == symbol[:-4],
-        exchange.get("quote_coin") == "USDT"
-    )):
-        return original
-
-    # Return the same contract interface expected
-    # by the existing Unit 7 sizing functions.
-    #
-    # No fabricated contract_value field is used.
-    # Unit 8's verified multiplier is retained.
-    contract = {
+    return {
         "verified": True,
-        "symbol": symbol,
+        "symbol": market,
+        "demo_order_symbol": demo,
+
         "quantity_step": step,
         "minimum_quantity": minimum,
         "contract_multiplier": multiplier,
         "price_step": price_step,
+
         "reason": "VERIFIED",
+
         "verification_source":
-            "UNIT8_V16_WEEX_VERIFIED_CONTRACT",
-        "verification_time_ms": checked_ms
+            "UNIT8_V19_VERIFIED_READ_ONLY",
+
+        "verification_time_ms": checked_ms,
+        "metadata_age_ms": age_ms,
+
+        "read_only": True,
+        "exchange_write": False,
     }
 
+
+# ============================================================
+# 7-8.4 UNIT 7 CONTRACT ADAPTER
+# ============================================================
+
+def u78_v3_contract(config):
+
+    # First preserve Unit 7's original
+    # verified configuration behavior.
+
+    original = _U78_V3_ORIGINAL(config)
+
+    if not isinstance(original, dict):
+        raise RuntimeError(
+            "U78_ORIGINAL_CONTRACT_INVALID"
+        )
+
+    if original.get("verified") is True:
+        return original
+
+    account = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
+    )
+
+    if not isinstance(account, dict):
+        return original
+
+    try:
+        verified = u78_v3_verified_contract(
+            config,
+            account
+        )
+
+    except RuntimeError as exc:
+
+        print(
+            "UNIT 7-8 HANDOVER STATUS = PENDING",
+            flush=True
+        )
+
+        print(
+            "UNIT 7-8 HANDOVER REASON =",
+            str(exc),
+            flush=True
+        )
+
+        # Preserve the original unverified
+        # contract. Do not fabricate success.
+
+        return original
+
     print(
-        "UNIT 7-8 VERIFIED CONTRACT HANDOVER = PASS",
+        "UNIT 7-8 HANDOVER STATUS = VERIFIED",
         flush=True
     )
 
     print(
-        "UNIT 7-8 SYMBOL =",
-        symbol,
+        "UNIT 7-8 MARKET SYMBOL =",
+        verified["symbol"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7-8 DEMO SYMBOL =",
+        verified["demo_order_symbol"],
         flush=True
     )
 
     print(
         "UNIT 7-8 MINIMUM QUANTITY =",
-        minimum,
+        verified["minimum_quantity"],
         flush=True
     )
 
     print(
         "UNIT 7-8 QUANTITY STEP =",
-        step,
+        verified["quantity_step"],
         flush=True
     )
 
     print(
         "UNIT 7-8 PRICE STEP =",
-        price_step,
+        verified["price_step"],
         flush=True
     )
 
     print(
         "UNIT 7-8 CONTRACT MULTIPLIER =",
-        multiplier,
+        verified["contract_multiplier"],
         flush=True
     )
 
     print(
         "UNIT 7-8 METADATA AGE MS =",
-        age_ms,
+        verified["metadata_age_ms"],
         flush=True
     )
 
@@ -14939,51 +15127,127 @@ def u78_v2_contract(config):
         flush=True
     )
 
-    return contract
+    return verified
 
-
-# Activate the corrected Unit 7 contract adapter.
-unit_7_v12_contract = u78_v2_contract
-
-print("=" * 80, flush=True)
-
-print(
-    "UNIT 7-8 HANDOVER VERSION = V2",
-    flush=True
-)
-
-print(
-    "UNIT 7 ORIGINAL SIZING = PRESERVED",
-    flush=True
-)
-
-print(
-    "UNIT 7 ORIGINAL HEDGE POLICY = PRESERVED",
-    flush=True
-)
-
-print(
-    "UNIT 7 ORIGINAL BACKUP POLICY = PRESERVED",
-    flush=True
-)
-
-print(
-    "UNIT 8 ORIGINAL WEEX INTERFACE = PRESERVED",
-    flush=True
-)
-
-print(
-    "UNIT 7-8 DEMO ORDER SUBMISSION = NOT ENABLED",
-    flush=True
-)
-
-print("=" * 80, flush=True)
 
 # ============================================================
-# END UNIT 7-8 VERIFIED CONTRACT HANDOVER V2
+# 7-8.5 INSTALL VERIFIED CONTRACT HANDOVER
+# ============================================================
+
+unit_7_v12_contract = u78_v3_contract
+
+
+# ============================================================
+# 7-8.6 READ-ONLY DIAGNOSTIC
+# ============================================================
+
+def u78_v3_diagnostic():
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
+    )
+
+    account = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
+    )
+
+    if not isinstance(config, dict):
+        return False
+
+    if not isinstance(account, dict):
+        return False
+
+    try:
+        verified = u78_v3_verified_contract(
+            config,
+            account
+        )
+
+    except RuntimeError as exc:
+        print(
+            "UNIT 7-8 DIAGNOSTIC = PENDING",
+            flush=True
+        )
+
+        print(
+            "UNIT 7-8 DIAGNOSTIC REASON =",
+            str(exc),
+            flush=True
+        )
+
+        return False
+
+    print(
+        "UNIT 7-8 DIAGNOSTIC = PASS",
+        flush=True
+    )
+
+    print(
+        "UNIT 7-8 VERIFIED MARKET =",
+        verified["symbol"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7-8 VERIFIED DEMO =",
+        verified["demo_order_symbol"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7-8 ORIGINAL SIZING = PRESERVED",
+        flush=True
+    )
+
+    print(
+        "UNIT 7-8 ORIGINAL HEDGE POLICY = PRESERVED",
+        flush=True
+    )
+
+    print(
+        "UNIT 7-8 ORIGINAL BACKUP POLICY = PRESERVED",
+        flush=True
+    )
+
+    print(
+        "UNIT 7-8 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    return True
+
+
+U78_V3_DIAGNOSTIC_READY = (
+    u78_v3_diagnostic()
+)
+
+print(
+    "UNIT 7-8 HANDOVER VERSION = V3",
+    flush=True
+)
+
+print(
+    "UNIT 7-8 ADAPTER INSTALLED = True",
+    flush=True
+)
+
+print(
+    "UNIT 7-8 DIAGNOSTIC READY =",
+    U78_V3_DIAGNOSTIC_READY,
+    flush=True
+)
+
+print(
+    "UNIT 7-8 DEMO ORDER SUBMISSION = NONE",
+    flush=True
+)
+
+# ============================================================
+# END UNIT 7-8 VERIFIED CONTRACT HANDOVER V3
 # ZERO INDENTATION
 # ============================================================
 
+    
 # ============================================================
 # START UNIT 11-12 STABLE SIGNAL HANDOVER V2
 # ZERO INDENTATION
