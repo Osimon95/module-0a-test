@@ -8270,6 +8270,84 @@ FRESH_UNIT_8_VERIFIED_CONTRACT = (
 
 
 # ============================================================
+# START UNIVERSAL DEMO SYMBOL COMPATIBILITY ADAPTER V1
+# ZERO INDENTATION
+# ============================================================
+
+def demo_symbol_adapter_v1(config, unit8=None):
+    if not isinstance(config, dict):
+        raise RuntimeError("SYMBOL_ADAPTER_CONFIG_MISSING")
+
+    if config.get("execution_environment") != "DEMO":
+        raise RuntimeError("SYMBOL_ADAPTER_NOT_DEMO")
+
+    if config.get("real_cash_execution_enabled") is not False:
+        raise RuntimeError("SYMBOL_ADAPTER_REAL_CASH_NOT_DISABLED")
+
+    exchange = config.get("exchange")
+
+    if not isinstance(exchange, dict):
+        raise RuntimeError("SYMBOL_ADAPTER_EXCHANGE_MISSING")
+
+    market = str(
+        exchange.get("market_symbol") or ""
+    ).strip().upper()
+
+    demo = str(
+        exchange.get("demo_order_symbol") or ""
+    ).strip().upper()
+
+    if (
+        not market.endswith("USDT")
+        or not market.isalnum()
+        or not demo.isalnum()
+        or demo == market
+    ):
+        raise RuntimeError("SYMBOL_ADAPTER_INVALID_PAIR")
+
+    # Unit 2 determines both symbols.
+    # Never derive the demo symbol again here.
+
+    if unit8 is not None:
+        if not isinstance(unit8, dict):
+            raise RuntimeError("SYMBOL_ADAPTER_UNIT8_INVALID")
+
+        if str(
+            unit8.get("market_symbol") or ""
+        ).upper() != market:
+            raise RuntimeError("UNIT8_MARKET_SYMBOL_MISMATCH")
+
+        if str(
+            unit8.get("demo_order_symbol") or ""
+        ).upper() != demo:
+            raise RuntimeError("UNIT8_DEMO_SYMBOL_MISMATCH")
+
+    return {
+        "market_symbol": market,
+        "demo_order_symbol": demo,
+        "source": "UNIT_2_EXCHANGE_CONFIG",
+        "unit8_preserved": True,
+        "exchange_write": False,
+    }
+
+
+def demo_symbol_adapter_u10(config, unit8):
+    return demo_symbol_adapter_v1(config, unit8)
+
+
+def demo_symbol_adapter_u11(config, unit8):
+    return demo_symbol_adapter_v1(config, unit8)
+
+
+def demo_symbol_adapter_u12(config, unit8):
+    return demo_symbol_adapter_v1(config, unit8)
+
+
+# ============================================================
+# END UNIVERSAL DEMO SYMBOL COMPATIBILITY ADAPTER V1
+# ============================================================
+
+# ============================================================
 # START COMPLETE UNIT 9 REPLACEMENT
 # UNIT 9 V2 - UNIVERSAL DEMO HANDOVER
 # ZERO INDENTATION
