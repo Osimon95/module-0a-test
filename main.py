@@ -16190,6 +16190,274 @@ print(
 # ZERO INDENTATION
 # ============================================================
 
+
+# ============================================================
+# START UNIT 8-13 POSITION FIELD DIAGNOSTIC V1
+# ZERO INDENTATION - DEMO ONLY - READ ONLY
+# ============================================================
+
+_U813_DIAG_ORIGINAL_READER = unit_13_position
+
+_U813_DIAG_ENTRY_FIELDS = (
+    "averageEntryPrice",
+    "avgPrice",
+    "entryPrice",
+    "openPrice",
+    "averageOpenPrice",
+    "openAvgPrice",
+    "avgOpenPrice",
+    "averagePrice",
+    "holdAvgPrice",
+    "costPrice",
+)
+
+_U813_DIAG_LEVERAGE_FIELDS = (
+    "leverage",
+    "lever",
+    "leverageRatio",
+    "holdLeverage",
+)
+
+_U813_DIAG_QUANTITY_FIELDS = (
+    "size",
+    "total",
+    "holdVol",
+    "positionAmt",
+    "quantity",
+)
+
+_U813_DIAG_SIDE_FIELDS = (
+    "positionSide",
+    "holdSide",
+    "side",
+)
+
+
+def u813_diag_mask(value):
+
+    if value is None:
+        return "MISSING"
+
+    if isinstance(value, (dict, list)):
+        return "NESTED_VALUE"
+
+    return str(value)[:100]
+
+
+def u813_diag_fields(record, names):
+
+    for name in names:
+
+        if name in record:
+
+            print(
+                "UNIT 8-13 FIELD",
+                name,
+                "=",
+                u813_diag_mask(record[name]),
+                flush=True
+            )
+
+
+def u813_diag_position_reader(snapshot, symbol):
+
+    print(
+        "================================================",
+        flush=True
+    )
+
+    print(
+        "UNIT 8-13 FIELD DIAGNOSTIC V1 START",
+        flush=True
+    )
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
+    )
+
+    if not isinstance(config, dict):
+
+        print(
+            "UNIT 8-13 DIAGNOSTIC = CONFIG_MISSING",
+            flush=True
+        )
+
+        return _U813_DIAG_ORIGINAL_READER(
+            snapshot,
+            symbol
+        )
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or config.get(
+            "real_cash_execution_enabled"
+        ) is not False
+    ):
+
+        print(
+            "UNIT 8-13 DIAGNOSTIC = DEMO_GATE_FAILED",
+            flush=True
+        )
+
+        return _U813_DIAG_ORIGINAL_READER(
+            snapshot,
+            symbol
+        )
+
+    if not isinstance(snapshot, dict):
+
+        print(
+            "UNIT 8-13 DIAGNOSTIC = SNAPSHOT_MISSING",
+            flush=True
+        )
+
+        return _U813_DIAG_ORIGINAL_READER(
+            snapshot,
+            symbol
+        )
+
+    print(
+        "UNIT 8-13 SNAPSHOT STATUS =",
+        snapshot.get("status"),
+        flush=True
+    )
+
+    print(
+        "UNIT 8-13 POSITIONS READ VERIFIED =",
+        snapshot.get(
+            "demo_positions_read_verified"
+        ),
+        flush=True
+    )
+
+    print(
+        "UNIT 8-13 MARKET SYMBOL =",
+        symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 8-13 DEMO SYMBOL =",
+        snapshot.get("demo_order_symbol"),
+        flush=True
+    )
+
+    records = snapshot.get("positions")
+
+    if not isinstance(records, list):
+
+        print(
+            "UNIT 8-13 DIAGNOSTIC = POSITIONS_NOT_LIST",
+            flush=True
+        )
+
+        return _U813_DIAG_ORIGINAL_READER(
+            snapshot,
+            symbol
+        )
+
+    print(
+        "UNIT 8-13 POSITION RECORD COUNT =",
+        len(records),
+        flush=True
+    )
+
+    for index, record in enumerate(records):
+
+        if not isinstance(record, dict):
+            continue
+
+        print(
+            "UNIT 8-13 RECORD INDEX =",
+            index,
+            flush=True
+        )
+
+        print(
+            "UNIT 8-13 RECORD FIELD NAMES =",
+            sorted(record.keys()),
+            flush=True
+        )
+
+        print(
+            "UNIT 8-13 RECORD SYMBOL =",
+            record.get("symbol"),
+            flush=True
+        )
+
+        print(
+            "UNIT 8-13 ENTRY PRICE CANDIDATES",
+            flush=True
+        )
+
+        u813_diag_fields(
+            record,
+            _U813_DIAG_ENTRY_FIELDS
+        )
+
+        print(
+            "UNIT 8-13 LEVERAGE CANDIDATES",
+            flush=True
+        )
+
+        u813_diag_fields(
+            record,
+            _U813_DIAG_LEVERAGE_FIELDS
+        )
+
+        print(
+            "UNIT 8-13 QUANTITY CANDIDATES",
+            flush=True
+        )
+
+        u813_diag_fields(
+            record,
+            _U813_DIAG_QUANTITY_FIELDS
+        )
+
+        print(
+            "UNIT 8-13 SIDE CANDIDATES",
+            flush=True
+        )
+
+        u813_diag_fields(
+            record,
+            _U813_DIAG_SIDE_FIELDS
+        )
+
+    print(
+        "UNIT 8-13 DIAGNOSTIC EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "================================================",
+        flush=True
+    )
+
+    return _U813_DIAG_ORIGINAL_READER(
+        snapshot,
+        symbol
+    )
+
+
+unit_13_position = u813_diag_position_reader
+
+print(
+    "UNIT 8-13 FIELD DIAGNOSTIC INSTALLED = True",
+    flush=True
+)
+
+print(
+    "UNIT 8-13 FIELD DIAGNOSTIC MODE = READ_ONLY",
+    flush=True
+)
+
+# ============================================================
+# END UNIT 8-13 POSITION FIELD DIAGNOSTIC V1
+# ZERO INDENTATION
+# ============================================================
+
 scan_forever()
 
 # ============================================================
