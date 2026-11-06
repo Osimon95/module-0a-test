@@ -10747,10 +10747,11 @@ print(
 # ============================================================
 
 
+
 # ============================================================
-# START COMPLETE UNIT 12 V5
-# ORIGINAL 17248 EXECUTION SEQUENCE
-# ADAPTED TO UNIVERSAL DEMO SYMBOL
+# START COMPLETE UNIT 12 V6
+# WEEX UNIVERSAL DEMO ORDER EXECUTION
+# UNIT 11 V2 -> UNIT 12 -> UNIT 13
 # ZERO INDENTATION
 # ============================================================
 
@@ -10771,8 +10772,13 @@ UNIT_12_V5_BASE_URL = "https://api-contract.weex.com"
 UNIT_12_V5_POSITION_PATH = "/capi/v3/sim/position/allPosition"
 UNIT_12_V5_ORDER_PATH = "/capi/v3/sim/order"
 
+# In-process duplicate protection.
 _UNIT12_V5_ORDER_ATTEMPTS = set()
 
+
+# ============================================================
+# 12.1 NUMERIC AND SYMBOL HELPERS
+# ============================================================
 
 def unit_12_v5_decimal(value, name, allow_zero=False):
 
@@ -10782,7 +10788,9 @@ def unit_12_v5_decimal(value, name, allow_zero=False):
     try:
         number = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError) as exc:
-        raise RuntimeError("UNIT 12 INVALID " + name) from exc
+        raise RuntimeError(
+            "UNIT 12 INVALID " + name
+        ) from exc
 
     if not number.is_finite() or number < 0:
         raise RuntimeError("UNIT 12 INVALID " + name)
@@ -10795,15 +10803,34 @@ def unit_12_v5_decimal(value, name, allow_zero=False):
 
 def unit_12_v5_symbol(config):
 
-    symbol = os.getenv("WEEX_SYMBOL", "").strip().upper()
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT 12 CONFIG INVALID")
 
-    if not symbol:
-        symbol = str(
-            config.get("exchange", {}).get("market_symbol", "")
-        ).strip().upper()
+    exchange = config.get("exchange", {})
+
+    symbol = str(
+        exchange.get("market_symbol") or ""
+    ).strip().upper()
+
+    if (
+        not symbol.endswith("USDT")
+        or not symbol.isalnum()
+    ):
+        raise RuntimeError("UNIT 12 MARKET SYMBOL INVALID")
+
+    return symbol
+
+
+def unit_12_v6_demo_symbol(config):
+
+    exchange = config.get("exchange", {})
+
+    symbol = str(
+        exchange.get("demo_order_symbol") or ""
+    ).strip().upper()
 
     if not symbol or not symbol.isalnum():
-        raise RuntimeError("UNIT 12 INVALID WEEX SYMBOL")
+        raise RuntimeError("UNIT 12 DEMO SYMBOL INVALID")
 
     return symbol
 
@@ -10813,60 +10840,98 @@ def unit_12_v5_client_order_id(original_id, direction):
     if not isinstance(original_id, str) or not original_id:
         raise RuntimeError("UNIT 12 CLIENT ID MISSING")
 
-    if re.fullmatch(r"[.A-Za-z0-9_:/-]{1,36}", original_id):
+    if re.fullmatch(
+        r"[.A-Za-z0-9_:/-]{1,36}",
+        original_id
+    ):
         return original_id
 
     digest = hashlib.sha256(
         original_id.encode("utf-8")
     ).hexdigest()[:24]
 
-    return "FR12" + ("L" if direction == "LONG" else "S") + digest
+    return (
+        "FR12"
+        + ("L" if direction == "LONG" else "S")
+        + digest
+    )
 
+
+# ============================================================
+# 12.2 RESULT CONTRACT
+# PRESERVE UNIT 13 HANDOVER
+# ============================================================
 
 def unit_12_v5_result(source, status, reason, symbol):
 
-    if not isinstance(source, dict):
-        source = {}
+    source = source if isinstance(source, dict) else {}
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG", {}
+    )
 
     return {
         "unit": 12,
-        "version": "V5_REFERENCE_17248_ADAPTED",
+        "version": "V6_UNIVERSAL_DEMO_EXECUTION",
+
         "status": status,
         "reason": reason,
         "skip_reason": reason,
+
         "market_symbol": symbol,
+        "demo_order_symbol":
+            unit_12_v6_demo_symbol(config),
+
         "active_mode": source.get("active_mode"),
         "direction": source.get("direction"),
-        "signal_qualified": source.get("signal_qualified") is True,
-        "execution_intent": source.get("execution_intent") is True,
+
+        "signal_qualified":
+            source.get("signal_qualified") is True,
+
+        "execution_intent":
+            source.get("execution_intent") is True,
+
         "read_only": False,
+
         "position_check_attempted": False,
         "position_check_completed": False,
         "position_endpoint_access": False,
         "position_http_status": None,
+
         "active_position_exists": False,
         "active_positions": [],
+
         "initial_entry_permitted": False,
         "duplicate_initial_entry_blocked": False,
+
         "management_path_permitted": True,
         "tp_management_permitted": True,
         "backup_management_permitted": True,
         "position_management_available": True,
+
         "demo_submission_attempted": False,
         "demo_submission_completed": False,
         "demo_order_accepted": False,
         "fill_verified": False,
+
         "real_submission_attempted": False,
         "real_cash_execution": False,
+
         "authenticated_request": False,
         "order_endpoint_access": False,
         "exchange_write": False,
+
         "order_id": None,
         "client_order_id": None,
         "order_payload": None,
         "http_status": None,
     }
 
+
+# ============================================================
+# 12.3 AUTHENTICATED WEEX DEMO REQUEST
+# ORIGINAL REFERENCE ENDPOINTS
+# ============================================================
 
 def unit_12_v5_request(method, path, body=None):
 
@@ -10876,44 +10941,72 @@ def unit_12_v5_request(method, path, body=None):
     )
 
     if (method, path) not in allowed:
-        raise RuntimeError("UNIT 12 NON-DEMO ENDPOINT BLOCKED")
+        raise RuntimeError(
+            "UNIT 12 NON-DEMO ENDPOINT BLOCKED"
+        )
 
     if method == "GET" and body is not None:
         raise RuntimeError("UNIT 12 INVALID GET BODY")
 
-    if method == "POST" and not isinstance(body, dict):
-        raise RuntimeError("UNIT 12 INVALID POST BODY")
+    if method == "POST":
+        if not isinstance(body, dict):
+            raise RuntimeError("UNIT 12 INVALID POST BODY")
 
-    key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
-    secret = os.getenv("WEEX_API_SECRET") or os.getenv("API_SECRET")
+        expected_demo = unit_12_v6_demo_symbol(
+            FRESH_RECONSTRUCTION_CONFIG
+        )
+
+        if body.get("symbol") != expected_demo:
+            raise RuntimeError(
+                "UNIT 12 POST DEMO SYMBOL MISMATCH"
+            )
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
     phrase = (
         os.getenv("WEEX_API_PASSPHRASE")
         or os.getenv("API_PASSPHRASE")
     )
 
     if not all((key, secret, phrase)):
-        raise RuntimeError("UNIT 12 WEEX CREDENTIALS MISSING")
+        raise RuntimeError(
+            "UNIT 12 WEEX CREDENTIALS MISSING"
+        )
 
     body_text = (
-        json.dumps(body, separators=(",", ":"), ensure_ascii=False)
+        json.dumps(
+            body,
+            separators=(",", ":"),
+            ensure_ascii=False
+        )
         if body is not None else ""
     )
 
     timestamp = str(int(time.time() * 1000))
-
     message = timestamp + method + path + body_text
 
     signature = base64.b64encode(
         hmac.new(
             secret.encode("utf-8"),
             message.encode("utf-8"),
-            hashlib.sha256,
+            hashlib.sha256
         ).digest()
     ).decode("utf-8")
 
     request = urllib.request.Request(
         UNIT_12_V5_BASE_URL + path,
-        data=body_text.encode("utf-8") if method == "POST" else None,
+        data=(
+            body_text.encode("utf-8")
+            if method == "POST" else None
+        ),
         method=method,
         headers={
             "ACCESS-KEY": key,
@@ -10926,13 +11019,21 @@ def unit_12_v5_request(method, path, body=None):
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with urllib.request.urlopen(
+            request, timeout=15
+        ) as response:
+
             status = response.getcode()
-            raw = response.read().decode("utf-8", errors="replace")
+
+            raw = response.read().decode(
+                "utf-8", errors="replace"
+            )
 
     except urllib.error.HTTPError as exc:
         status = exc.code
-        raw = exc.read().decode("utf-8", errors="replace")
+        raw = exc.read().decode(
+            "utf-8", errors="replace"
+        )
 
     try:
         data = json.loads(raw)
@@ -10942,25 +11043,36 @@ def unit_12_v5_request(method, path, body=None):
     return status, data
 
 
+# ============================================================
+# 12.4 FRESH DEMO POSITION VERIFICATION
+# ============================================================
+
 def unit_12_v5_active_positions(rows, symbol):
 
     if not isinstance(rows, list):
-        raise RuntimeError("UNIT 12 POSITION RESPONSE NOT LIST")
+        raise RuntimeError(
+            "UNIT 12 POSITION RESPONSE NOT LIST"
+        )
 
     active = []
 
     for position in rows:
 
         if not isinstance(position, dict):
-            raise RuntimeError("UNIT 12 INVALID POSITION RECORD")
+            raise RuntimeError(
+                "UNIT 12 INVALID POSITION RECORD"
+            )
 
-        if str(position.get("symbol", "")).upper() != symbol:
+        if (
+            str(position.get("symbol") or "").upper()
+            != symbol
+        ):
             continue
 
         size = unit_12_v5_decimal(
             position.get("size"),
             "POSITION SIZE",
-            allow_zero=True,
+            allow_zero=True
         )
 
         if size > 0:
@@ -10969,10 +11081,8 @@ def unit_12_v5_active_positions(rows, symbol):
     return active
 
 
-
 # ============================================================
-# START UNIT 12 V5 PAYLOAD COMPATIBILITY CORRECTION
-# ZERO INDENTATION
+# 12.5 UNIT 11 INSTRUCTION VALIDATION
 # ============================================================
 
 def unit_12_v5_validate_payload(config, upstream, account):
@@ -10981,163 +11091,261 @@ def unit_12_v5_validate_payload(config, upstream, account):
         raise RuntimeError("UNIT 12 CONFIG MISSING")
 
     if not isinstance(upstream, dict):
-        raise RuntimeError("UNIT 12 UNIT 11 RESULT MISSING")
+        raise RuntimeError("UNIT 12 UNIT 11 MISSING")
 
     if not isinstance(account, dict):
-        raise RuntimeError("UNIT 12 ACCOUNT MISSING")
+        raise RuntimeError("UNIT 12 UNIT 8 MISSING")
 
-    symbol = unit_12_v5_symbol(config)
+    market = unit_12_v5_symbol(config)
+    demo = unit_12_v6_demo_symbol(config)
 
-    if upstream.get("status") not in (
-        "READY",
-        "PREPARED_READ_ONLY",
+    # Unit 8 V19 remains unchanged.
+    if account.get("status") != "VERIFIED_READ_ONLY":
+        raise RuntimeError("UNIT 12 UNIT 8 NOT VERIFIED")
+
+    if (
+        str(account.get("market_symbol") or "").upper()
+        != market
+        or str(account.get("demo_order_symbol") or "").upper()
+        != demo
     ):
-        raise RuntimeError("UNIT 12 UNIT 11 NOT PREPARED")
+        raise RuntimeError(
+            "UNIT 12 UNIT 8 SYMBOL MISMATCH"
+        )
 
-    if upstream.get("signal_qualified") is not True:
-        raise RuntimeError("UNIT 12 SIGNAL NOT QUALIFIED")
+    if upstream.get("status") != "PREPARED_READ_ONLY":
+        raise RuntimeError(
+            "UNIT 12 UNIT 11 NOT PREPARED"
+        )
 
-    if upstream.get("trade_plan_ready") is not True:
-        raise RuntimeError("UNIT 12 TRADE PLAN NOT READY")
+    if (
+        upstream.get("signal_qualified") is not True
+        or upstream.get("trade_plan_ready") is not True
+        or upstream.get("execution_intent") is not True
+        or upstream.get("order_preparation_ready") is not True
+    ):
+        raise RuntimeError(
+            "UNIT 12 UNIT 11 SIGNAL NOT READY"
+        )
+
+    if (
+        upstream.get("read_only") is not True
+        or upstream.get("exchange_write") is not False
+    ):
+        raise RuntimeError(
+            "UNIT 12 UNIT 11 SAFETY MISMATCH"
+        )
 
     if account.get("demo_contract_verified") is not True:
-        raise RuntimeError("UNIT 12 CONTRACT NOT VERIFIED")
+        raise RuntimeError(
+            "UNIT 12 CONTRACT NOT VERIFIED"
+        )
 
     if account.get("demo_balance_verified") is not True:
-        raise RuntimeError("UNIT 12 BALANCE NOT VERIFIED")
+        raise RuntimeError(
+            "UNIT 12 BALANCE NOT VERIFIED"
+        )
 
-    if account.get("demo_positions_read_verified") is not True:
-        raise RuntimeError("UNIT 12 POSITIONS NOT VERIFIED")
+    if (
+        account.get("demo_positions_read_verified")
+        is not True
+    ):
+        raise RuntimeError(
+            "UNIT 12 POSITIONS NOT VERIFIED"
+        )
 
     if account.get("account_can_trade") is not True:
-        raise RuntimeError("UNIT 12 ACCOUNT CANNOT TRADE")
-
-    if str(account.get("demo_order_symbol", "")).upper() != symbol:
-        raise RuntimeError("UNIT 12 DEMO SYMBOL MISMATCH")
+        raise RuntimeError(
+            "UNIT 12 ACCOUNT CANNOT TRADE"
+        )
 
     instruction = upstream.get("order_instruction")
-
-    if not isinstance(instruction, dict):
-        raise RuntimeError("UNIT 12 INSTRUCTION MISSING")
-
     plan = upstream.get("trade_plan")
 
+    if not isinstance(instruction, dict):
+        raise RuntimeError(
+            "UNIT 12 ORDER INSTRUCTION MISSING"
+        )
+
     if not isinstance(plan, dict):
-        raise RuntimeError("UNIT 12 TRADE PLAN MISSING")
+        raise RuntimeError(
+            "UNIT 12 TRADE PLAN MISSING"
+        )
 
-    if instruction.get("trade_plan") != plan:
-        raise RuntimeError("UNIT 12 TRADE PLAN HANDOVER MISMATCH")
+    if instruction.get("trade_plan") is not plan:
+        raise RuntimeError(
+            "UNIT 12 TRADE PLAN HANDOVER MISMATCH"
+        )
 
-    if str(instruction.get("market_symbol", "")).upper() != symbol:
-        raise RuntimeError("UNIT 12 INSTRUCTION SYMBOL MISMATCH")
+    if (
+        instruction.get("market_symbol") != market
+        or instruction.get("demo_order_symbol") != demo
+        or upstream.get("market_symbol") != market
+        or upstream.get("demo_order_symbol") != demo
+    ):
+        raise RuntimeError(
+            "UNIT 12 SYMBOL HANDOVER MISMATCH"
+        )
 
-    if str(instruction.get("demo_order_symbol", "")).upper() != symbol:
-        raise RuntimeError("UNIT 12 DEMO ORDER SYMBOL MISMATCH")
+    if (
+        instruction.get("position_action") != "OPEN"
+        or instruction.get("market_type") != "DEMO_FUTURES"
+        or instruction.get("order_type") != "MARKET"
+    ):
+        raise RuntimeError(
+            "UNIT 12 INVALID DEMO OPEN INSTRUCTION"
+        )
 
-    if instruction.get("position_action") != "OPEN":
-        raise RuntimeError("UNIT 12 NOT AN OPEN INSTRUCTION")
-
-    if instruction.get("market_type") != "DEMO_FUTURES":
-        raise RuntimeError("UNIT 12 NOT A DEMO INSTRUCTION")
-
-    direction = str(instruction.get("direction", "")).upper()
+    direction = str(
+        instruction.get("direction") or ""
+    ).upper()
 
     if direction not in ("LONG", "SHORT"):
-        raise RuntimeError("UNIT 12 INVALID DIRECTION")
+        raise RuntimeError(
+            "UNIT 12 INVALID DIRECTION"
+        )
 
-    if str(upstream.get("direction", "")).upper() != direction:
-        raise RuntimeError("UNIT 12 DIRECTION HANDOVER MISMATCH")
+    if (
+        str(upstream.get("direction") or "").upper()
+        != direction
+        or str(plan.get("direction") or "").upper()
+        != direction
+    ):
+        raise RuntimeError(
+            "UNIT 12 DIRECTION MISMATCH"
+        )
 
-    if str(plan.get("direction", "")).upper() != direction:
-        raise RuntimeError("UNIT 12 PLAN DIRECTION MISMATCH")
+    if plan.get("market_symbol") != market:
+        raise RuntimeError(
+            "UNIT 12 PLAN MARKET SYMBOL MISMATCH"
+        )
 
-    if str(plan.get("market_symbol", "")).upper() != symbol:
-        raise RuntimeError("UNIT 12 PLAN SYMBOL MISMATCH")
+    if plan.get("demo_order_symbol") != demo:
+        raise RuntimeError(
+            "UNIT 12 PLAN DEMO SYMBOL MISMATCH"
+        )
 
-    if instruction.get("strategy_mode") != upstream.get("active_mode"):
-        raise RuntimeError("UNIT 12 STRATEGY MODE MISMATCH")
-
-    if str(instruction.get("order_type", "")).upper() != "MARKET":
-        raise RuntimeError("UNIT 12 ORDER TYPE INVALID")
+    if (
+        instruction.get("strategy_mode")
+        != upstream.get("active_mode")
+    ):
+        raise RuntimeError(
+            "UNIT 12 STRATEGY MODE MISMATCH"
+        )
 
     quantity = unit_12_v5_decimal(
-        instruction.get("quantity"),
-        "QUANTITY",
+        instruction.get("quantity"), "QUANTITY"
     )
 
     minimum = unit_12_v5_decimal(
-        account.get("minimum_quantity"),
-        "MINIMUM QUANTITY",
+        instruction.get("minimum_quantity"),
+        "MINIMUM QUANTITY"
     )
 
     step = unit_12_v5_decimal(
-        account.get("quantity_step"),
-        "QUANTITY STEP",
+        instruction.get("quantity_step"),
+        "QUANTITY STEP"
+    )
+
+    half = unit_12_v5_decimal(
+        instruction.get("half_quantity"),
+        "HALF QUANTITY"
     )
 
     if quantity < minimum or quantity % step != 0:
-        raise RuntimeError("UNIT 12 CONTRACT QUANTITY INVALID")
-
-    if unit_12_v5_decimal(
-        plan.get("quantity"),
-        "PLAN QUANTITY",
-    ) != quantity:
-        raise RuntimeError("UNIT 12 PLAN QUANTITY MISMATCH")
-
-    if unit_12_v5_decimal(
-        upstream.get("quantity"),
-        "UNIT 11 QUANTITY",
-    ) != quantity:
-        raise RuntimeError("UNIT 12 UNIT 11 QUANTITY MISMATCH")
-
-    half = quantity / Decimal("2")
+        raise RuntimeError(
+            "UNIT 12 QUANTITY STEP INVALID"
+        )
 
     if half < minimum or half % step != 0:
-        raise RuntimeError("UNIT 12 HALF QUANTITY INVALID")
+        raise RuntimeError(
+            "UNIT 12 HALF QUANTITY INVALID"
+        )
+
+    if half * 2 != quantity:
+        raise RuntimeError(
+            "UNIT 12 HALF QUANTITY MISMATCH"
+        )
+
+    for source, name in (
+        (plan, "PLAN"),
+        (upstream, "UNIT 11"),
+    ):
+        if unit_12_v5_decimal(
+            source.get("quantity"),
+            name + " QUANTITY"
+        ) != quantity:
+            raise RuntimeError(
+                "UNIT 12 " + name + " QUANTITY MISMATCH"
+            )
 
     if unit_12_v5_decimal(
-        instruction.get("half_quantity"),
-        "INSTRUCTION HALF QUANTITY",
-    ) != half:
-        raise RuntimeError("UNIT 12 HALF QUANTITY MISMATCH")
+        account.get("minimum_quantity"),
+        "ACCOUNT MINIMUM"
+    ) != minimum:
+        raise RuntimeError(
+            "UNIT 12 ACCOUNT MINIMUM MISMATCH"
+        )
 
+    if unit_12_v5_decimal(
+        account.get("quantity_step"),
+        "ACCOUNT STEP"
+    ) != step:
+        raise RuntimeError(
+            "UNIT 12 ACCOUNT STEP MISMATCH"
+        )
+
+    # Original model: deterministic candle-based client ID.
     original_id = instruction.get("newClientOrderId")
 
     if not original_id:
+
         analysis = globals().get(
             "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT"
         )
 
         if not isinstance(analysis, dict):
-            raise RuntimeError("UNIT 12 SIGNAL IDENTITY MISSING")
+            raise RuntimeError(
+                "UNIT 12 SIGNAL IDENTITY MISSING"
+            )
 
-        candle_id = analysis.get("latest_close_time_ms")
+        candle_id = analysis.get(
+            "latest_close_time_ms"
+        )
 
         if (
             not isinstance(candle_id, int)
             or isinstance(candle_id, bool)
             or candle_id <= 0
         ):
-            raise RuntimeError("UNIT 12 CANDLE ID INVALID")
+            raise RuntimeError(
+                "UNIT 12 CANDLE ID INVALID"
+            )
 
-        if not 0 <= int(time.time() * 1000) - candle_id <= 120000:
-            raise RuntimeError("UNIT 12 SIGNAL CANDLE STALE")
+        age = int(time.time() * 1000) - candle_id
+
+        if not 0 <= age <= 120000:
+            raise RuntimeError(
+                "UNIT 12 SIGNAL CANDLE STALE"
+            )
 
         original_id = (
-            symbol + "-"
+            market + "-"
             + str(instruction["strategy_mode"]) + "-"
             + direction + "-"
             + str(candle_id)
         )
 
     client_id = unit_12_v5_client_order_id(
-        original_id,
-        direction,
+        original_id, direction
     )
 
     payload = {
-        "symbol": symbol,
-        "side": "BUY" if direction == "LONG" else "SELL",
+        "symbol": demo,
+        "side": (
+            "BUY" if direction == "LONG"
+            else "SELL"
+        ),
         "positionSide": direction,
         "type": "MARKET",
         "quantity": format(quantity, "f"),
@@ -11145,32 +11353,22 @@ def unit_12_v5_validate_payload(config, upstream, account):
     }
 
     print(
-        "UNIT 12 UNIT 11 INTERNAL INSTRUCTION = ACCEPTED",
+        "UNIT 12 PAYLOAD DEMO SYMBOL =",
+        demo,
         flush=True
     )
 
     print(
-        "UNIT 12 WEEX PAYLOAD CONVERSION = PASS",
-        flush=True
-    )
-
-    print(
-        "UNIT 12 CONTRACT QUANTITY =",
+        "UNIT 12 PAYLOAD QUANTITY =",
         format(quantity, "f"),
         flush=True
     )
 
     return payload, quantity
 
-symbols = demo_symbol_adapter_u12(
-    config,
-    account,
-)
 
-symbol = symbols["market_symbol"]
-demo_symbol = symbols["demo_order_symbol"]
 # ============================================================
-# END UNIT 12 V5 PAYLOAD COMPATIBILITY CORRECTION
+# 12.6 DEMO ENTRY EXECUTION
 # ============================================================
 
 def fresh_reconstruction_unit_12(
@@ -11180,92 +11378,121 @@ def fresh_reconstruction_unit_12(
 ):
 
     if not isinstance(config, dict):
-        raise RuntimeError("UNIT 12 CONFIG INVALID")
+        raise RuntimeError(
+            "UNIT 12 CONFIG INVALID"
+        )
 
     if config.get("execution_environment") != "DEMO":
-        raise RuntimeError("UNIT 12 NON-DEMO ENVIRONMENT")
+        raise RuntimeError(
+            "UNIT 12 NON-DEMO ENVIRONMENT"
+        )
+
+    if config.get(
+        "real_cash_execution_enabled"
+    ) is not False:
+        raise RuntimeError(
+            "UNIT 12 REAL CASH NOT DISABLED"
+        )
 
     if not isinstance(unit_11_result, dict):
-        raise RuntimeError("UNIT 12 UNIT 11 INVALID")
+        raise RuntimeError(
+            "UNIT 12 UNIT 11 INVALID"
+        )
 
     if unit_8_result is None:
         unit_8_result = globals().get(
             "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
         )
 
-    symbol = unit_12_v5_symbol(config)
+    market = unit_12_v5_symbol(config)
+    demo = unit_12_v6_demo_symbol(config)
 
-    mode = os.getenv("BOT_MODE", "PAUSE").strip().upper()
+    mode = os.getenv(
+        "BOT_MODE", "PAUSE"
+    ).strip().upper()
 
     if mode not in ("RUN", "PAUSE"):
-        raise RuntimeError("UNIT 12 BOT_MODE INVALID")
+        raise RuntimeError(
+            "UNIT 12 BOT_MODE INVALID"
+        )
 
     result = unit_12_v5_result(
-        unit_11_result, "IDLE", "NOT_EVALUATED", symbol
+        unit_11_result,
+        "IDLE",
+        "NOT_EVALUATED",
+        market,
     )
 
     print("=" * 80, flush=True)
-    print("UNIT 12 V5 REFERENCE EXECUTION START", flush=True)
+    print(
+        "UNIT 12 VERSION = V6_UNIVERSAL_DEMO_EXECUTION",
+        flush=True
+    )
     print("UNIT 12 BOT_MODE =", mode, flush=True)
-    print("UNIT 12 SYMBOL =", symbol, flush=True)
+    print("UNIT 12 MARKET SYMBOL =", market, flush=True)
+    print("UNIT 12 DEMO SYMBOL =", demo, flush=True)
 
-    if mode == "PAUSE":
-        result["reason"] = "BOT_MODE_PAUSE"
-        result["skip_reason"] = "BOT_MODE_PAUSE"
+    def stop(status, reason):
+        result["status"] = status
+        result["reason"] = reason
+        result["skip_reason"] = reason
         return result
+
+    # BOT_MODE affects new initial entries only.
+    if mode == "PAUSE":
+        return stop("IDLE", "BOT_MODE_PAUSE")
 
     upstream_status = str(
-        unit_11_result.get("status", "")
+        unit_11_result.get("status") or ""
     ).upper()
 
-    if upstream_status in ("IDLE", "BLOCKED", "SKIPPED"):
-        result["reason"] = str(
-            unit_11_result.get("reason")
-            or unit_11_result.get("skip_reason")
-            or "NO_ACCEPTABLE_CANDIDATE"
+    if upstream_status == "IDLE":
+        return stop(
+            "IDLE",
+            str(
+                unit_11_result.get("reason")
+                or "NO_QUALIFIED_ENTRY"
+            )
         )
-        result["skip_reason"] = result["reason"]
-        return result
 
-    if upstream_status not in ("READY", "PREPARED_READ_ONLY"):
-        result["status"] = "BLOCKED"
-        result["reason"] = "UNIT_11_NOT_READY"
-        result["skip_reason"] = result["reason"]
-        return result
+    if upstream_status != "PREPARED_READ_ONLY":
+        return stop(
+            "BLOCKED",
+            "UNIT_11_NOT_PREPARED"
+        )
 
     try:
         payload, quantity = unit_12_v5_validate_payload(
-            config, unit_11_result, unit_8_result
+            config,
+            unit_11_result,
+            unit_8_result,
         )
     except Exception as exc:
-        result["status"] = "BLOCKED"
-        result["reason"] = str(exc)
-        result["skip_reason"] = result["reason"]
-        return result
+        return stop(
+            "BLOCKED",
+            str(exc)
+        )
 
     client_id = payload["newClientOrderId"]
 
     result["client_order_id"] = client_id
     result["order_payload"] = dict(payload)
 
-    print("UNIT 12 CLIENT ORDER ID =", client_id, flush=True)
-    print("UNIT 12 QUANTITY =", format(quantity, "f"), flush=True)
-
-    # ORIGINAL V5 IN-PROCESS DUPLICATE PROTECTION
-
     if client_id in _UNIT12_V5_ORDER_ATTEMPTS:
-        result["status"] = "ORDER_UNCERTAIN"
-        result["reason"] = "PREVIOUS_CLIENT_ORDER_ATTEMPT"
-        result["skip_reason"] = result["reason"]
-        return result
+        result["duplicate_initial_entry_blocked"] = True
 
-    # ORIGINAL V5 FRESH AUTHENTICATED POSITION GET
+        return stop(
+            "ORDER_UNCERTAIN",
+            "PREVIOUS_CLIENT_ORDER_ATTEMPT"
+        )
 
+    # Fresh authenticated position check.
     result["position_check_attempted"] = True
 
     try:
         position_http, positions = unit_12_v5_request(
-            "GET", UNIT_12_V5_POSITION_PATH
+            "GET",
+            UNIT_12_V5_POSITION_PATH
         )
 
         result["authenticated_request"] = True
@@ -11273,52 +11500,56 @@ def fresh_reconstruction_unit_12(
         result["position_http_status"] = position_http
 
         if not 200 <= position_http < 300:
-            result["status"] = "POSITION_CHECK_FAILED"
-            result["reason"] = "WEEX_POSITION_HTTP_" + str(position_http)
-            result["skip_reason"] = result["reason"]
-            return result
+            return stop(
+                "POSITION_CHECK_FAILED",
+                "WEEX_POSITION_HTTP_"
+                + str(position_http)
+            )
 
         active = unit_12_v5_active_positions(
-            positions, symbol
+            positions,
+            demo
         )
 
     except Exception as exc:
-        result["status"] = "POSITION_CHECK_FAILED"
-        result["reason"] = "POSITION_REQUEST_ERROR"
-        result["skip_reason"] = result["reason"]
-
         print(
-            "UNIT 12 POSITION ERROR =",
+            "UNIT 12 POSITION CHECK ERROR =",
             type(exc).__name__,
             str(exc)[:180],
             flush=True
         )
-        return result
+
+        return stop(
+            "POSITION_CHECK_FAILED",
+            "POSITION_REQUEST_ERROR"
+        )
 
     result["position_check_completed"] = True
 
     if active:
-        result["status"] = "ACTIVE_POSITION_BLOCK"
-        result["reason"] = "NONZERO_POSITION_BLOCK_INITIAL_ENTRY"
-        result["skip_reason"] = result["reason"]
         result["active_position_exists"] = True
         result["active_positions"] = active
         result["duplicate_initial_entry_blocked"] = True
-        return result
 
-    # ORIGINAL V5 SIGNED DEMO POST
+        return stop(
+            "ACTIVE_POSITION_BLOCK",
+            "NONZERO_POSITION_BLOCK_INITIAL_ENTRY"
+        )
 
+    # Fresh flat position established.
     result["initial_entry_permitted"] = True
 
+    # Mark before POST to prevent automatic repeat
+    # after an uncertain response.
     _UNIT12_V5_ORDER_ATTEMPTS.add(client_id)
 
     result["demo_submission_attempted"] = True
-    result["order_endpoint_access"] = True
 
     print(
-        "UNIT 12 FRESH FLAT POSITION VERIFIED",
+        "UNIT 12 FRESH FLAT DEMO POSITION VERIFIED",
         flush=True
     )
+
     print(
         "UNIT 12 SENDING WEEX DEMO ORDER",
         flush=True
@@ -11326,72 +11557,94 @@ def fresh_reconstruction_unit_12(
 
     try:
         order_http, response = unit_12_v5_request(
-            "POST", UNIT_12_V5_ORDER_PATH, payload
+            "POST",
+            UNIT_12_V5_ORDER_PATH,
+            payload
         )
-    except Exception as exc:
-        result["status"] = "ORDER_UNCERTAIN"
-        result["reason"] = "POST_RESPONSE_UNCERTAIN"
-        result["skip_reason"] = result["reason"]
 
+    except Exception as exc:
         print(
-            "UNIT 12 DO NOT AUTOMATICALLY RETRY",
+            "UNIT 12 ORDER RESPONSE UNCERTAIN =",
             type(exc).__name__,
             flush=True
         )
-        return result
 
+        return stop(
+            "ORDER_UNCERTAIN",
+            "POST_RESPONSE_UNCERTAIN"
+        )
+
+    result["order_endpoint_access"] = True
     result["http_status"] = order_http
+    result["exchange_write"] = True
 
     if not isinstance(response, dict):
-        result["status"] = "ORDER_UNCERTAIN"
-        result["reason"] = "UNRECOGNIZED_ORDER_RESPONSE"
-        result["skip_reason"] = result["reason"]
-        return result
+        return stop(
+            "ORDER_UNCERTAIN",
+            "UNRECOGNIZED_ORDER_RESPONSE"
+        )
 
     if (
         not 200 <= order_http < 300
         or response.get("success") is not True
     ):
-        result["status"] = "DEMO_REJECTED"
-        result["reason"] = (
-            "WEEX_REJECTED_"
-            + str(response.get("code") or "UNKNOWN")
-        )
-        result["skip_reason"] = result["reason"]
-
         print(
-            "UNIT 12 WEEX RESPONSE =",
+            "UNIT 12 WEEX ORDER RESPONSE =",
             str(response)[:300],
             flush=True
         )
-        return result
+
+        return stop(
+            "DEMO_REJECTED",
+            "WEEX_REJECTED_"
+            + str(response.get("code") or "UNKNOWN")
+        )
 
     order_id = response.get("orderId")
 
     if not order_id:
-        result["status"] = "ORDER_UNCERTAIN"
-        result["reason"] = "SUCCESS_RESPONSE_MISSING_ORDER_ID"
-        result["skip_reason"] = result["reason"]
-        return result
+        return stop(
+            "ORDER_UNCERTAIN",
+            "SUCCESS_RESPONSE_MISSING_ORDER_ID"
+        )
 
     result.update({
         "status": "DEMO_SUBMITTED",
         "reason": "NONE",
         "skip_reason": "NONE",
+
         "demo_submission_completed": True,
         "demo_order_accepted": True,
-        "exchange_write": True,
+
+        # Fill requires separate verification.
+        "fill_verified": False,
+
         "order_id": str(order_id),
         "exchange_response": response,
     })
 
-    print("UNIT 12 WEEX ORDER ID =", order_id, flush=True)
-    print("UNIT 12 STATUS = DEMO_SUBMITTED", flush=True)
-    print("UNIT 12 FILL VERIFIED = False", flush=True)
-    print("UNIT 12 REAL CASH EXECUTION = DISABLED", flush=True)
+    print(
+        "UNIT 12 WEEX DEMO ORDER ID =",
+        order_id,
+        flush=True
+    )
+
+    print(
+        "UNIT 12 STATUS = DEMO_SUBMITTED",
+        flush=True
+    )
+
+    print(
+        "UNIT 12 FILL VERIFIED = False",
+        flush=True
+    )
 
     return result
 
+
+# ============================================================
+# 12.7 ORIGINAL TWO-ARGUMENT ADAPTER
+# ============================================================
 
 def fresh_unit_12_hybrid_adapter(
     execution_config,
@@ -11409,20 +11662,34 @@ def fresh_unit_12_hybrid_adapter(
     )
 
     if result.get("real_submission_attempted") is not False:
-        raise RuntimeError("UNIT 12 REAL CASH SAFETY FAILURE")
+        raise RuntimeError(
+            "UNIT 12 REAL CASH SAFETY FAILURE"
+        )
 
-    print("UNIT 12 STATUS =", result["status"], flush=True)
-    print("UNIT 12 REASON =", result["reason"], flush=True)
+    print(
+        "UNIT 12 STATUS =",
+        result["status"],
+        flush=True
+    )
+
+    print(
+        "UNIT 12 REASON =",
+        result["reason"],
+        flush=True
+    )
+
     print(
         "UNIT 12 DEMO SUBMISSION ATTEMPTED =",
         result["demo_submission_attempted"],
         flush=True
     )
+
     print(
         "UNIT 12 DEMO ORDER ACCEPTED =",
         result["demo_order_accepted"],
         flush=True
     )
+
     print(
         "UNIT 12 EXCHANGE WRITE =",
         result["exchange_write"],
@@ -11433,9 +11700,7 @@ def fresh_unit_12_hybrid_adapter(
 
 
 # ============================================================
-# START UNIT 12 V5 STARTUP HANDOVER
-# RESTORE ORIGINAL UNIT 12 TO UNIT 13 CONTRACT
-# ZERO INDENTATION
+# 12.8 STARTUP HANDOVER TO UNIT 13
 # ============================================================
 
 FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
@@ -11472,14 +11737,10 @@ print(
 )
 
 # ============================================================
-# END UNIT 12 V5 STARTUP HANDOVER
-# ============================================================
-
-# ============================================================
-# END COMPLETE UNIT 12 V5
+# END COMPLETE UNIT 12 V6
 # UNIT 13 FOLLOWS
+# ZERO INDENTATION
 # ============================================================
-
 
 
 # ============================================================
