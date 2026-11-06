@@ -19126,6 +19126,124 @@ def u1314v5_reconcile(result, unit8):
 # ZERO INDENTATION
 # ============================================================
 
+
+# ============================================================
+# START UNIT 13-14 V5 PART 2
+# PRESERVE V1 THROUGH V4
+# ZERO INDENTATION
+# ============================================================
+
+_U1314V5_PREVIOUS_UNIT14 = fresh_reconstruction_unit_14
+
+
+def fresh_reconstruction_unit_14(
+    config,
+    unit_8,
+    unit_12,
+    unit_13,
+):
+
+    previous = _U1314V5_PREVIOUS_UNIT14(
+        config,
+        unit_8,
+        unit_12,
+        unit_13
+    )
+
+    if not isinstance(previous, dict):
+        raise RuntimeError("V5_UNIT14_RESULT_INVALID")
+
+    result = dict(previous)
+
+    v5 = u1314v5_reconcile(
+        result,
+        unit_8
+    )
+
+    result["unit13_14_v5"] = v5
+
+    print(
+        "UNIT 13-14 V5 VERSION =",
+        U1314V5_VERSION,
+        flush=True
+    )
+
+    for key in (
+        "status",
+        "reason",
+        "v3_history_verified",
+        "v4_orders_probe_verified",
+        "v4_fills_probe_verified",
+        "historical_order_ids_verified",
+        "fill_order_ids_verified",
+        "all_fill_orders_in_history",
+        "history_orders_with_fills",
+        "unmatched_fill_order_count",
+        "position_verified_by_unit8",
+        "same_demo_account_verified",
+        "current_open_orders_verified",
+        "individual_fill_details_verified",
+        "account_wide_exposure_verified",
+        "exchange_protection_verified",
+    ):
+        print(
+            "UNIT 13-14 V5",
+            key.upper(),
+            "=",
+            v5.get(key),
+            flush=True
+        )
+
+    # V5 performs no exchange writes.
+    # Preserve existing demo position management
+    # and prevent unverified protective execution.
+
+    result["status"] = "ALERT"
+    result["reason"] = (
+        "V5_CROSS_CHECK_ACCOUNT_BINDING_PENDING"
+    )
+
+    result["protection_active"] = False
+    result["exchange_protection_verified"] = False
+    result["execution_authorized"] = False
+    result["exchange_write"] = False
+    result["safety_alert"] = True
+    result["requires_operator_attention"] = True
+
+    print(
+        "UNIT 13-14 V5 FINAL STATUS = ALERT",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V5 PROTECTION ACTIVE = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V5 EXECUTION AUTHORIZED = False",
+        flush=True
+    )
+
+    print(
+        "UNIT 13-14 V5 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    return result
+
+
+print(
+    "UNIT 13-14 V5 INSTALLED =",
+    U1314V5_VERSION,
+    flush=True
+)
+
+# ============================================================
+# END UNIT 13-14 V5 PART 2
+# ZERO INDENTATION
+# ============================================================
+
 scan_forever()
 
 # ============================================================
