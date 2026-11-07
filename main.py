@@ -5281,97 +5281,154 @@ def u8_position_snapshot(rows, symbol):
 # 8.6 USDT MARGIN -> EXCHANGE CONTRACT QUANTITY
 # ============================================================
 
-def u8_quantity_plan(proposal, contract):
 
-    margin = u8_decimal(
+def u8_quantity_plan(proposal, contract):
+    """
+    Calculate a new initial demo entry whose TP1 closing
+    allocation meets the exchange's minimum executable size.
+
+    The returned preview retains the existing Unit 9-12
+    interface and uses exchange contract quantity units.
+    """
+    config = FRESH_RECONSTRUCTION_CONFIG
+    strategy = config["strategy"]
+
+    preferred_margin = u8_decimal(
         proposal["requested_margin_usdt"],
         "ENTRY_MARGIN_USDT"
     )
-
     leverage = u8_decimal(
         proposal["leverage"],
         "ENTRY_LEVERAGE"
     )
-
     price = u8_decimal(
         proposal["indicative_mark_price"],
         "ENTRY_MARK_PRICE"
     )
-
     step = u8_decimal(
         contract["quantity_step"],
         "QUANTITY_STEP"
     )
-
     minimum = u8_decimal(
         contract["minimum_quantity"],
         "MINIMUM_QUANTITY"
     )
-
     multiplier = u8_decimal(
         contract["contract_multiplier"],
         "CONTRACT_MULTIPLIER"
     )
+    tp1_percent = u8_decimal(
+        strategy["tp1_allocation_percent"],
+        "TP1_ALLOCATION_PERCENT"
+    )
 
-    requested_notional = margin * leverage
+    if any(
+        value <= 0
+        for value in (
+            preferred_margin,
+            leverage,
+            price,
+            step,
+            minimum,
+            multiplier,
+            tp1_percent
+        )
+    ):
+        raise RuntimeError(
+            "UNIT8_INVALID_MINIMUM_ENTRY_INPUT"
+        )
 
-    # Contract quantity, not USDT quantity.
-    # Multiplier converts each contract to base asset.
+    if tp1_percent >= Decimal("100"):
+        raise RuntimeError(
+            "UNIT8_INVALID_TP1_ALLOCATION"
+        )
+
+    allocation = tp1_percent / Decimal("100")
+
+    def ceil_step(value):
+        return (
+            (value / step).to_integral_value(
+                rounding=ROUND_CEILING
+            ) * step
+        )
+
+    def floor_step(value):
+        return (
+            (value / step).to_integral_value(
+                rounding=ROUND_DOWN
+            ) * step
+        )
+
+    # Exchange-valid minimum closing quantity.
+    executable_minimum = ceil_step(minimum)
+
+    # Smallest initial quantity whose TP1 allocation
+    # can close at least executable_minimum.
+    minimum_entry_quantity = ceil_step(
+        executable_minimum / allocation
+    )
+
+    minimum_entry_margin = (
+        minimum_entry_quantity
+        * multiplier
+        * price
+        / leverage
+    )
+
+    # Preferred margin remains configurable.
+    # Increase it only to the calculated minimum.
+    required_margin = max(
+        preferred_margin,
+        minimum_entry_margin
+    )
+
+    requested_notional = required_margin * leverage
 
     raw_quantity = (
-        requested_notional
-        / (price * multiplier)
+        requested_notional / (price * multiplier)
     )
 
-    quantity = (
-        raw_quantity / step
-    ).to_integral_value(
-        rounding=ROUND_DOWN
-    ) * step
+    quantity = floor_step(raw_quantity)
 
-    minimum_steps = (
-        minimum / step
-    ).to_integral_value(
-        rounding=ROUND_CEILING
-    )
-
-    executable_minimum = minimum_steps * step
+    # Protect against decimal rounding.
+    if quantity < minimum_entry_quantity:
+        quantity = minimum_entry_quantity
 
     actual_notional = (
         quantity * multiplier * price
     )
+    actual_margin = actual_notional / leverage
 
-    actual_margin = (
-        actual_notional / leverage
+    # Verify TP1 is executable after step rounding.
+    tp1_quantity = floor_step(
+        quantity * allocation
+    )
+
+    tp1_executable = (
+        tp1_quantity >= executable_minimum
     )
 
     maximum = contract.get("maximum_quantity")
-
-    valid = (
-        quantity > 0
-        and quantity >= executable_minimum
-        and actual_margin <= margin
-    )
+    maximum_valid = True
 
     if maximum not in (None, ""):
-        valid = (
-            valid
-            and quantity <= u8_decimal(
+        maximum_valid = (
+            quantity <= u8_decimal(
                 maximum,
                 "MAXIMUM_QUANTITY"
             )
         )
 
-    # Stage 1: approximately 50%.
-    # Stage 2: the remaining quantity.
-    # Both use the verified quantity step.
+    valid = (
+        quantity >= executable_minimum
+        and quantity % step == 0
+        and tp1_executable
+        and maximum_valid
+        and actual_margin <= required_margin
+    )
 
-    first_half = (
-        (quantity / 2) / step
-    ).to_integral_value(
-        rounding=ROUND_DOWN
-    ) * step
-
+    # Preserve the original hedge preview interface.
+    first_half = floor_step(quantity / 2)
     remaining_half = quantity - first_half
 
     staged_hedge_valid = (
@@ -5380,20 +5437,77 @@ def u8_quantity_plan(proposal, contract):
         and remaining_half >= executable_minimum
     )
 
+    reason = (
+        "TP1_EXECUTABLE_ENTRY_SIZE_READY"
+        if valid
+        else "TP1_MINIMUM_ENTRY_NOT_COMPLIANT"
+    )
+
+    print(
+        "UNIT 8 PREFERRED ENTRY MARGIN USDT =",
+        u8_text(preferred_margin),
+        flush=True
+    )
+    print(
+        "UNIT 8 TP1 ALLOCATION % =",
+        u8_text(tp1_percent),
+        flush=True
+    )
+    print(
+        "UNIT 8 MINIMUM TP1 CLOSE QUANTITY =",
+        u8_text(executable_minimum),
+        flush=True
+    )
+    print(
+        "UNIT 8 MINIMUM INITIAL QUANTITY =",
+        u8_text(minimum_entry_quantity),
+        flush=True
+    )
+    print(
+        "UNIT 8 MINIMUM INITIAL MARGIN USDT =",
+        u8_text(minimum_entry_margin),
+        flush=True
+    )
+    print(
+        "UNIT 8 REQUIRED ENTRY MARGIN USDT =",
+        u8_text(required_margin),
+        flush=True
+    )
+    print(
+        "UNIT 8 EXECUTABLE TP1 QUANTITY =",
+        u8_text(tp1_quantity),
+        flush=True
+    )
+
     return {
         "valid": bool(valid),
-
-        "reason": (
-            "CONTRACT_QUANTITY_COMPLIANT"
-            if valid
-            else "ENTRY_QUANTITY_NOT_COMPLIANT"
-        ),
+        "reason": reason,
 
         "raw_quantity": u8_text(raw_quantity),
         "quantity": u8_text(quantity),
 
-        "requested_margin_usdt": u8_text(margin),
-        "actual_margin_usdt": u8_text(actual_margin),
+        "requested_margin_usdt":
+            u8_text(required_margin),
+
+        "preferred_margin_usdt":
+            u8_text(preferred_margin),
+
+        "minimum_entry_margin_usdt":
+            u8_text(minimum_entry_margin),
+
+        "minimum_entry_quantity":
+            u8_text(minimum_entry_quantity),
+
+        "minimum_tp1_close_quantity":
+            u8_text(executable_minimum),
+
+        "tp1_executable_quantity":
+            u8_text(tp1_quantity),
+
+        "tp1_executable": bool(tp1_executable),
+
+        "actual_margin_usdt":
+            u8_text(actual_margin),
 
         "requested_notional_usdt":
             u8_text(requested_notional),
@@ -5426,7 +5540,6 @@ def u8_quantity_plan(proposal, contract):
         "exchange_order_units_verified": False,
         "order_submitted": False,
     }
-
 
 # ============================================================
 # 8.7 MAIN UNIT
