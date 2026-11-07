@@ -9111,181 +9111,6 @@ def unit_13_v4_active_positions(
 
 
 
-
-# ============================================================
-# START UNIT 13 V4 - PART 2 OF 2
-# EXISTING DEMO POSITION DETECTION
-# ZERO INDENTATION
-# ============================================================
-
-def fresh_reconstruction_unit_13(
-    config,
-    unit_12_result=None,
-):
-
-    print("=" * 80, flush=True)
-    print(
-        "COMBINED RECONSTRUCTION UNIT 13 START",
-        flush=True
-    )
-
-    result = {
-        "version": UNIT13_V4_VERSION,
-        "status": "STARTED",
-        "position_read_verified": False,
-        "raw_position_count": 0,
-        "position_records": [],
-        "active_position_verified": False,
-        "handover_to_unit_14": "NOT_READY",
-        "management_execution_authorized": False,
-        "exchange_write": False,
-        "errors": [],
-    }
-
-    try:
-        market_symbol, demo_symbol = (
-            unit_13_v4_symbols(config)
-        )
-
-        result["market_symbol"] = market_symbol
-        result["demo_symbol"] = demo_symbol
-
-        # Independent of Unit 12 execution status.
-        response = u12_request(
-            "GET",
-            UNIT13_V4_POSITION,
-        )
-
-        rows = u12_rows(response)
-
-        if not isinstance(rows, list):
-            raise RuntimeError(
-                "POSITION_RESPONSE_NOT_LIST"
-            )
-
-        result["position_read_verified"] = True
-        result["raw_position_count"] = len(rows)
-
-        for index, row in enumerate(rows):
-
-            if not isinstance(row, dict):
-                raise RuntimeError(
-                    "POSITION_RECORD_NOT_DICT"
-                )
-
-            # Preserve exact exchange values.
-            # Do not infer quantity units or entry price.
-            result["position_records"].append({
-                "row_index": index,
-                "symbol": row.get("symbol"),
-                "side": row.get(
-                    "side",
-                    row.get("holdSide")
-                ),
-                "size": row.get(
-                    "size",
-                    row.get("holdVol")
-                ),
-                "total": row.get("total"),
-                "open_value": row.get("openValue"),
-                "entry_price": row.get("entryPrice"),
-                "average_price": row.get("avgPrice"),
-                "leverage": row.get("leverage"),
-                "position_id": row.get(
-                    "positionId",
-                    row.get("id")
-                ),
-                "fields_present": sorted(row.keys()),
-            })
-
-        result["status"] = (
-            "POSITION_RECONCILIATION_PENDING"
-            if rows
-            else "NO_POSITION_ROWS_RETURNED"
-        )
-
-        result["handover_to_unit_14"] = (
-            "READY_FOR_RECONCILIATION"
-        )
-
-    except Exception as exc:
-
-        result["status"] = "POSITION_READ_FAILED"
-
-        result["errors"].append(
-            type(exc).__name__ + ": " + str(exc)
-        )
-
-    print(
-        "UNIT 13 VERSION =",
-        result["version"],
-        flush=True
-    )
-    print(
-        "UNIT 13 STATUS =",
-        result["status"],
-        flush=True
-    )
-    print(
-        "UNIT 13 POSITION READ VERIFIED =",
-        result["position_read_verified"],
-        flush=True
-    )
-    print(
-        "UNIT 13 RAW POSITION COUNT =",
-        result["raw_position_count"],
-        flush=True
-    )
-    print(
-        "UNIT 13 POSITION RECORDS =",
-        result["position_records"],
-        flush=True
-    )
-    print(
-        "UNIT 13 HANDOVER TO UNIT 14 =",
-        result["handover_to_unit_14"],
-        flush=True
-    )
-    print(
-        "UNIT 13 ERRORS =",
-        result["errors"],
-        flush=True
-    )
-    print(
-        "UNIT 13 EXCHANGE WRITE = NONE",
-        flush=True
-    )
-    print("=" * 80, flush=True)
-
-    return result
-
-
-FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
-    fresh_reconstruction_unit_13(
-        FRESH_RECONSTRUCTION_CONFIG,
-        globals().get(
-            "FRESH_RECONSTRUCTION_UNIT_12_RESULT"
-        ),
-    )
-)
-
-FRESH_UNIT_13_OPTIMIZATION_READY = (
-    FRESH_RECONSTRUCTION_UNIT_13_RESULT.get(
-        "handover_to_unit_14"
-    ) == "READY_FOR_RECONCILIATION"
-)
-
-print(
-    "UNIT 13 OPTIMIZATION READY =",
-    FRESH_UNIT_13_OPTIMIZATION_READY,
-    flush=True
-)
-
-# ============================================================
-# END UNIT 13 V4 - PART 2 OF 2
-# UNIT 14 FOLLOWS
-# ============================================================
-
 # ============================================================
 # START UNIT 14 V4
 # PART 1 - ORIGINAL 17248 HISTORY AND RECONCILIATION
@@ -9782,4 +9607,147 @@ FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
 # END UNIT 14 V4 - HISTORY RESTORATION
 # ============================================================
 
+
+# ============================================================
+# UNIT 13 V4 POSITION READ CORRECTION
+# APPEND AFTER UNIT 14 V4
+# ZERO INDENTATION - DEMO GET ONLY
+# ============================================================
+
+def fresh_reconstruction_unit_13(config, unit_12_result=None):
+
+    print("=" * 80, flush=True)
+    print("COMBINED RECONSTRUCTION UNIT 13 START", flush=True)
+
+    result = {
+        "version": UNIT13_V4_VERSION,
+        "status": "STARTED",
+        "position_read_verified": False,
+        "raw_position_count": 0,
+        "position_records": [],
+        "handover_to_unit_14": "NOT_READY",
+        "management_execution_authorized": False,
+        "exchange_write": False,
+        "errors": [],
+    }
+
+    try:
+        market_symbol, demo_symbol = unit_13_v4_symbols(
+            config
+        )
+
+        # Use the already verified Unit 14 demo reader.
+        rows = unit_14_v4_signed_get(
+            UNIT14_V4_POSITION
+        )
+
+        if not isinstance(rows, list):
+            raise RuntimeError(
+                "POSITION_RESPONSE_NOT_LIST"
+            )
+
+        result["position_read_verified"] = True
+        result["raw_position_count"] = len(rows)
+
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict):
+                raise RuntimeError(
+                    "POSITION_RECORD_NOT_DICT"
+                )
+
+            result["position_records"].append({
+                "row_index": index,
+                "symbol": row.get("symbol"),
+                "side": row.get(
+                    "side",
+                    row.get("holdSide")
+                ),
+                "size": row.get(
+                    "size",
+                    row.get("holdVol")
+                ),
+                "total": row.get("total"),
+                "open_value": row.get("openValue"),
+                "entry_price": row.get("entryPrice"),
+                "average_price": row.get("avgPrice"),
+                "leverage": row.get("leverage"),
+                "position_id": row.get(
+                    "positionId",
+                    row.get("id")
+                ),
+                "fields_present": sorted(row.keys()),
+            })
+
+        result["status"] = (
+            "POSITION_RECONCILIATION_PENDING"
+            if rows
+            else "NO_POSITION_ROWS_RETURNED"
+        )
+        result["handover_to_unit_14"] = (
+            "READY_FOR_RECONCILIATION"
+        )
+
+    except Exception as exc:
+        result["status"] = "POSITION_READ_FAILED"
+        result["errors"].append(
+            type(exc).__name__ + ": " + str(exc)
+        )
+
+    print("UNIT 13 VERSION =", result["version"], flush=True)
+    print("UNIT 13 STATUS =", result["status"], flush=True)
+    print(
+        "UNIT 13 POSITION READ VERIFIED =",
+        result["position_read_verified"],
+        flush=True
+    )
+    print(
+        "UNIT 13 RAW POSITION COUNT =",
+        result["raw_position_count"],
+        flush=True
+    )
+    print(
+        "UNIT 13 POSITION RECORDS =",
+        result["position_records"],
+        flush=True
+    )
+    print(
+        "UNIT 13 HANDOVER TO UNIT 14 =",
+        result["handover_to_unit_14"],
+        flush=True
+    )
+    print(
+        "UNIT 13 ERRORS =",
+        result["errors"],
+        flush=True
+    )
+    print("UNIT 13 EXCHANGE WRITE = NONE", flush=True)
+    print("=" * 80, flush=True)
+
+    return result
+
+
+FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
+    fresh_reconstruction_unit_13(
+        FRESH_RECONSTRUCTION_CONFIG,
+        globals().get(
+            "FRESH_RECONSTRUCTION_UNIT_12_RESULT"
+        ),
+    )
+)
+
+FRESH_UNIT_13_OPTIMIZATION_READY = (
+    FRESH_RECONSTRUCTION_UNIT_13_RESULT.get(
+        "handover_to_unit_14"
+    ) == "READY_FOR_RECONCILIATION"
+)
+
+print(
+    "UNIT 13 OPTIMIZATION READY =",
+    FRESH_UNIT_13_OPTIMIZATION_READY,
+    flush=True
+)
+
+# ============================================================
+# END UNIT 13 V4 POSITION READ CORRECTION
+# ============================================================
 
