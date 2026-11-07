@@ -13054,480 +13054,540 @@ def fresh_unit_13_hybrid_adapter(
 
 
 # ============================================================
-# START COMPLETE UNIT 14 V1
-# UNIVERSAL WEEX DEMO SAFETY SUPERVISOR
+# START UNIT 14 V3 - PART 2 OF 2
+# TP3 TRAILING AND POSITION MANAGEMENT
 # ZERO INDENTATION
-#
-# UNIT 8 + UNIT 12 + UNIT 13 -> UNIT 14
-#
-# EXISTING POSITION SUPERVISION INDEPENDENT OF BOT_MODE
-# NO SIMULATED PROTECTION CLAIMS
-# NO EXCHANGE WRITES
-# NO REAL-CASH EXECUTION
 # ============================================================
 
-from decimal import Decimal as _U14D
-from decimal import InvalidOperation as _U14Invalid
+def unit_14_v3_reconcile(history, key):
 
-UNIT_14_VERSION = "V1_UNIVERSAL_SAFETY_SUPERVISOR"
+    existing = set()
+    filled = set()
+
+    for stage in range(1, 6):
+        client_id = unit_14_v3_backup_id(stage, key)
+
+        for order in history:
+            if str(order.get("clientOrderId", "")) != client_id:
+                continue
+
+            status = str(
+                order.get("status", "")
+            ).upper()
+
+            executed = unit_14_v3_D(
+                order.get("executedQty", 0),
+                "EXECUTED QUANTITY",
+                True
+            )
+
+            if status not in (
+                "CANCELED", "CANCELLED",
+                "REJECTED", "EXPIRED"
+            ):
+                existing.add(stage)
+
+            if status == "FILLED" and executed > 0:
+                filled.add(stage)
+
+    completed = 0
+
+    for stage in range(1, 6):
+        if stage in filled:
+            completed = stage
+        else:
+            break
+
+    return completed, existing
 
 
-# ============================================================
-# 14.1 NUMERIC VALIDATION
-# ============================================================
+def unit_14_v3_trigger(
+    side,
+    liquidation,
+    mark,
+    buffer_pct
+):
 
-def unit_14_number(value, zero=False):
+    D = unit_14_v3_D
 
-    if value is None or isinstance(value, bool):
-        return None
+    liquidation = D(
+        liquidation, "LIQUIDATION PRICE"
+    )
+    mark = D(mark, "MARK PRICE")
+    buffer_pct = D(
+        buffer_pct, "BUFFER PERCENT"
+    )
 
-    try:
-        number = _U14D(str(value))
-    except (
-        _U14Invalid,
-        ValueError,
-        TypeError,
-    ):
-        return None
+    fraction = buffer_pct / D(100)
 
-    if not number.is_finite():
-        return None
+    if side == "LONG":
+        trigger = liquidation * (D(1) + fraction)
+        reached = mark <= trigger
 
-    if number < 0 or (
-        number == 0 and not zero
-    ):
-        return None
+    elif side == "SHORT":
+        trigger = liquidation * (D(1) - fraction)
+        reached = mark >= trigger
 
-    return number
+    else:
+        raise RuntimeError("UNIT14_INVALID_SIDE")
+
+    return trigger, reached
 
 
-# ============================================================
-# 14.2 DEFAULT RESULT
-# ============================================================
-
-def unit_14_result(symbol):
+def unit_14_v3_result(unit_13_result):
 
     return {
         "unit": 14,
-        "version": UNIT_14_VERSION,
-        "market_symbol": symbol,
-        "status": "WAITING",
-        "reason": "POSITION_RECONCILIATION_PENDING",
-        "bot_mode_independent": True,
-        "position_flat_verified": False,
-        "position_verified": False,
-        "position_quantity": None,
-        "contract_verified": False,
-        "quantity_step_valid": False,
-        "tp_plan_valid": False,
-        "hedge_plan_valid": False,
-        "exposure_verified": False,
-        "exchange_protection_verified": False,
-        "protection_active": False,
-        "management_execution_verified": False,
-        "new_entry_authorized": False,
-        "safety_alert": False,
-        "alert_severity": "NONE",
-        "alert_reason": None,
-        "requires_operator_attention": False,
-        "execution_authorized": False,
+        "status": "MONITORING",
+        "unit_13_status": unit_13_result.get("status"),
+        "position_exists": False,
+        "tp3_armed": False,
+        "tp3_execution_attempted": False,
+        "tp3_execution_completed": False,
+        "backup_maximum": 5,
+        "backups_filled": 0,
+        "backup_next_stage": None,
+        "backup_execution_attempted": False,
+        "backup_execution_completed": False,
+        "backup_submission_enabled": False,
+        "hedge_recovery_verified": False,
+        "real_submission_attempted": False,
+        "sl_execution_attempted": False,
         "exchange_write": False,
-        "real_cash_execution": False,
+        "skip_reason": "NONE",
     }
 
 
 # ============================================================
-# 14.3 SAFETY SUPERVISION
+# UNIT 14 TP3 RUNTIME
 # ============================================================
+
+_UNIT14_V3_TP3_RUNTIME = globals().setdefault(
+    "_UNIT14_V3_TP3_RUNTIME",
+    {}
+)
+
 
 def fresh_reconstruction_unit_14(
     config,
-    unit_8,
-    unit_12,
-    unit_13,
+    unit_13_result
 ):
-
-    exchange = (
-        config.get("exchange", {})
-        if isinstance(config, dict)
-        else {}
-    )
-
-    symbol = str(
-        exchange.get("market_symbol", "")
-    ).strip().upper()
-
-    result = unit_14_result(symbol)
-
-    def alert(reason, severity="CRITICAL"):
-
-        result["status"] = "ALERT"
-        result["reason"] = reason
-        result["safety_alert"] = True
-        result["alert_severity"] = severity
-        result["alert_reason"] = reason
-        result["requires_operator_attention"] = True
-
-        return result
-
-    if not symbol.endswith("USDT"):
-        return alert("INVALID_MARKET_SYMBOL")
 
     if not isinstance(config, dict):
-        return alert("CONFIGURATION_MISSING")
+        raise RuntimeError("UNIT14_INVALID_CONFIG")
 
-    if config.get(
-        "execution_environment"
-    ) != "DEMO":
-        return alert("DEMO_ENVIRONMENT_REQUIRED")
+    if not isinstance(unit_13_result, dict):
+        raise RuntimeError("UNIT14_INVALID_UNIT13")
 
-    if config.get(
-        "real_cash_execution_enabled"
-    ) is not False:
-        return alert("REAL_CASH_SAFETY_MISMATCH")
+    exchange = config.get("exchange", {})
+    strategy = config.get("strategy", {})
+    precision = config.get("market_precision", {})
 
-    if not all(
-        isinstance(x, dict)
-        for x in (unit_8, unit_12, unit_13)
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("market_symbol")
+            != _u1314_market_symbol()
+        or exchange.get("demo_order_symbol")
+            != _u1314_demo_symbol()
     ):
-        return alert("UPSTREAM_RESULT_MISSING")
+        raise RuntimeError("UNIT14_DEMO_BOUNDARY_FAILED")
 
-    if str(
-        unit_8.get("market_symbol", "")
-    ).upper() != symbol:
-        return alert("UNIT_8_SYMBOL_MISMATCH")
+    D = unit_14_v3_D
 
-    if str(
-        unit_13.get("market_symbol", "")
-    ).upper() != symbol:
-        return alert("UNIT_13_SYMBOL_MISMATCH")
-
-    result["contract_verified"] = (
-        unit_8.get(
-            "demo_contract_verified"
-        ) is True
+    step = D(
+        precision.get("quantity_step"),
+        "QUANTITY STEP"
+    )
+    minimum = D(
+        precision.get("minimum_quantity"),
+        "MINIMUM QUANTITY"
     )
 
-    if not result["contract_verified"]:
-        return alert("DEMO_CONTRACT_UNVERIFIED")
+    callback = D(
+        strategy.get(
+            "tp3_trailing_reference_percent",
+            "0.20"
+        ),
+        "TRAILING PERCENT"
+    )
 
-    if unit_8.get(
-        "demo_positions_read_verified"
-    ) is not True:
-        return alert("POSITION_READ_UNVERIFIED")
+    minimum_callback = D(
+        strategy.get(
+            "tp3_trailing_min_percent",
+            "0.10"
+        ),
+        "MIN TRAILING"
+    )
 
-    if unit_8.get(
-        "position_flat_verified"
-    ) is True:
+    maximum_callback = D(
+        strategy.get(
+            "tp3_trailing_max_percent",
+            "0.40"
+        ),
+        "MAX TRAILING"
+    )
 
-        result["position_flat_verified"] = True
+    if not (
+        minimum_callback
+        <= callback
+        <= maximum_callback
+    ):
+        raise RuntimeError("UNIT14_TRAILING_RANGE_INVALID")
 
-        # A flat position requires no position-level
-        # TP or hedge management.
-        result["status"] = "IDLE"
-        result["reason"] = "VERIFIED_FLAT_POSITION"
-        result["alert_severity"] = "NONE"
+    result = unit_14_v3_result(unit_13_result)
+
+    print("=" * 80, flush=True)
+    print("UNIT 14 V3 POSITION MANAGEMENT", flush=True)
+    print("UNIT 14 BOT_MODE INDEPENDENT = True", flush=True)
+
+    position = unit_14_v3_position()
+
+    if position is None:
+        result["status"] = "IDLE_NO_POSITION"
+        result["skip_reason"] = "NO_ACTIVE_DEMO_POSITION"
+        return result
+
+    side = str(position.get("side", "")).upper()
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError("UNIT14_POSITION_SIDE_INVALID")
+
+    size = D(position.get("size"), "POSITION SIZE")
+    position_id = str(position.get("id", ""))
+
+    if not position_id:
+        raise RuntimeError("UNIT14_POSITION_ID_MISSING")
+
+    mark = unit_14_v3_mark()
+    key = unit_14_v3_trade_key(position)
+
+    history = unit_14_v3_history()
+
+    completed, existing = unit_14_v3_reconcile(
+        history,
+        key
+    )
+
+    result.update({
+        "position_exists": True,
+        "position_id": position_id,
+        "position_side": side,
+        "position_size": str(size),
+        "mark_price": str(mark),
+        "backups_filled": completed,
+        "backup_next_stage": (
+            completed + 1 if completed < 5 else None
+        ),
+    })
+
+    # ========================================================
+    # TP3 ELIGIBILITY
+    # ========================================================
+
+    armed = (
+        unit_13_result.get("tp3_armed") is True
+        and unit_13_result.get("position_id") == position_id
+        and unit_13_result.get("position_side") == side
+        and unit_13_result.get("tp1_completed") is True
+        and unit_13_result.get("tp2_completed") is True
+    )
+
+    result["tp3_armed"] = armed
+
+    if armed:
+
+        state = _UNIT14_V3_TP3_RUNTIME.get(key)
+
+        if state is None:
+            state = {
+                "position_id": position_id,
+                "side": side,
+                "best_mark": str(mark),
+            }
+            _UNIT14_V3_TP3_RUNTIME[key] = state
+
+        if (
+            state["position_id"] != position_id
+            or state["side"] != side
+        ):
+            raise RuntimeError(
+                "UNIT14_TP3_POSITION_IDENTITY_CHANGED"
+            )
+
+        best = D(state["best_mark"], "BEST MARK")
+
+        if side == "LONG":
+            best = max(best, mark)
+            stop = best * (
+                D(1) - callback / D(100)
+            )
+            reached = mark <= stop
+
+        else:
+            best = min(best, mark)
+            stop = best * (
+                D(1) + callback / D(100)
+            )
+            reached = mark >= stop
+
+        state["best_mark"] = str(best)
+
+        result.update({
+            "tp3_best_mark": str(best),
+            "tp3_stop_price": str(stop),
+            "tp3_trailing_percent": str(callback),
+            "tp3_trigger_reached": bool(reached),
+        })
+
+        if reached:
+
+            client_id = (
+                "FR-TP3-" + key
+            )[:36]
+
+            matching = [
+                order for order in history
+                if str(
+                    order.get("clientOrderId", "")
+                ) == client_id
+            ]
+
+            if matching:
+                result["status"] = "TP3_ORDER_EXISTS"
+                result["skip_reason"] = (
+                    "TP3_HISTORY_RECONCILIATION_REQUIRED"
+                )
+                return result
+
+            latest = unit_14_v3_position()
+
+            if latest is None:
+                result["status"] = "POSITION_CLOSED"
+                return result
+
+            if (
+                str(latest.get("id", "")) != position_id
+                or str(latest.get("side", "")).upper() != side
+            ):
+                result["status"] = "POSITION_CHANGED"
+                result["skip_reason"] = (
+                    "TP3_POSITION_RECONCILIATION_REQUIRED"
+                )
+                return result
+
+            latest_size = D(
+                latest.get("size"),
+                "LATEST SIZE"
+            )
+
+            quantity = unit_14_v3_floor(
+                latest_size,
+                step
+            )
+
+            if quantity < minimum:
+                result["status"] = "TP3_SIZE_BELOW_MINIMUM"
+                result["skip_reason"] = (
+                    "EXCHANGE_QUANTITY_TOO_SMALL"
+                )
+                return result
+
+            # No unverified automated writes.
+            # Enable only after WEEX API and
+            # restart reconciliation validation.
+
+            enabled = (
+                os.getenv(
+                    "UNIT14_DEMO_TP3_WRITE",
+                    "false"
+                ).strip().lower() == "true"
+            )
+
+            if not enabled:
+                result["status"] = "TP3_TRIGGER_READY"
+                result["skip_reason"] = (
+                    "DEMO_WRITE_NOT_YET_VALIDATED"
+                )
+                result["tp3_close_quantity"] = str(
+                    quantity
+                )
+                return result
+
+            # Reconciliation before submission.
+            latest_history = unit_14_v3_history()
+
+            if any(
+                str(o.get("clientOrderId", ""))
+                == client_id
+                for o in latest_history
+            ):
+                result["status"] = "TP3_ORDER_EXISTS"
+                return result
+
+            payload = {
+                "symbol": _u1314_demo_symbol(),
+                "side": (
+                    "SELL" if side == "LONG"
+                    else "BUY"
+                ),
+                "positionSide": side,
+                "type": "MARKET",
+                "quantity": format(quantity, "f"),
+                "newClientOrderId": client_id,
+            }
+
+            result["tp3_execution_attempted"] = True
+            result["tp3_client_order_id"] = client_id
+
+            try:
+                reply = unit_14_v3_signed_request(
+                    "POST",
+                    UNIT14_V3_ORDER,
+                    payload=payload
+                )
+            except Exception:
+                result["status"] = "TP3_OUTCOME_UNKNOWN"
+                result["skip_reason"] = (
+                    "RECONCILE_BEFORE_RETRY"
+                )
+                raise
+
+            if (
+                not isinstance(reply, dict)
+                or reply.get("success") is not True
+                or not reply.get("orderId")
+            ):
+                raise RuntimeError(
+                    "UNIT14_TP3_ACK_NOT_VERIFIED"
+                )
+
+            result.update({
+                "status": "TP3_ORDER_ACCEPTED",
+                "tp3_execution_completed": False,
+                "tp3_order_id": str(reply["orderId"]),
+                "exchange_write": True,
+                "skip_reason": "FILL_RECONCILIATION_PENDING",
+            })
+
+            print(
+                "UNIT 14 TP3 ORDER ACCEPTED =",
+                reply["orderId"],
+                flush=True
+            )
+
+            return result
+
+        result["status"] = "TP3_TRAILING_ACTIVE"
+        result["skip_reason"] = "TRAILING_STOP_NOT_REACHED"
+
+        print("UNIT 14 TP3 BEST MARK =", best, flush=True)
+        print("UNIT 14 TP3 STOP =", stop, flush=True)
 
         return result
 
-    if unit_13.get(
-        "position_verified"
-    ) is not True:
-        return alert(
-            "OPEN_POSITION_NOT_FULLY_RECONCILED"
-        )
-
-    result["position_verified"] = True
-
-    quantity = unit_14_number(
-        unit_13.get("position_quantity")
-    )
-
-    minimum = unit_14_number(
-        unit_8.get("minimum_quantity")
-    )
-
-    step = unit_14_number(
-        unit_8.get("quantity_step")
-    )
-
-    if any(
-        value is None
-        for value in (
-            quantity,
-            minimum,
-            step,
-        )
-    ):
-        return alert("POSITION_PRECISION_INVALID")
-
-    result["position_quantity"] = str(quantity)
-
-    result["quantity_step_valid"] = (
-        quantity >= minimum
-        and quantity % step == 0
-    )
-
-    if not result["quantity_step_valid"]:
-        return alert(
-            "OPEN_POSITION_QUANTITY_INVALID"
-        )
-
     # ========================================================
-    # TP PLAN VALIDATION
+    # BACKUP HANDOVER
+    # No backup before failed ATR hedge recovery.
     # ========================================================
 
-    tp_plan = unit_13.get(
-        "tp_quantity_plan"
-    )
+    result["backup_submission_enabled"] = False
 
-    if not isinstance(tp_plan, dict):
-        return alert("TP_PLAN_MISSING")
+    if completed >= 5:
+        result["status"] = "BACKUPS_COMPLETE"
+        result["skip_reason"] = "FIVE_BACKUPS_FILLED"
+        return result
 
-    result["tp_plan_valid"] = (
-        tp_plan.get("plan_valid") is True
-    )
-
-    if not result["tp_plan_valid"]:
-        return alert("TP_PLAN_INVALID")
-
-    # ========================================================
-    # HEDGE PLAN VALIDATION
-    # ========================================================
-
-    hedge1 = unit_14_number(
-        unit_13.get("hedge_stage1_price")
-    )
-
-    hedge2 = unit_14_number(
-        unit_13.get("hedge_stage2_price")
-    )
-
-    entry = unit_14_number(
-        unit_13.get("entry_price")
-    )
-
-    side = unit_13.get("position_side")
-
-    if None in (hedge1, hedge2, entry):
-        return alert("ATR_HEDGE_PLAN_INCOMPLETE")
-
-    if side == "LONG":
-
-        geometry_valid = (
-            hedge2 < hedge1 < entry
-        )
-
-    elif side == "SHORT":
-
-        geometry_valid = (
-            entry < hedge1 < hedge2
-        )
-
-    else:
-        geometry_valid = False
-
-    result["hedge_plan_valid"] = (
-        geometry_valid
-    )
-
-    if not geometry_valid:
-        return alert("ATR_HEDGE_GEOMETRY_INVALID")
-
-    # ========================================================
-    # EXPOSURE RECONCILIATION
-    #
-    # No exposure percentage is inferred from
-    # entry margin alone. Existing positions,
-    # pending orders and available account equity
-    # must all be reconciled.
-    # ========================================================
-
-    result["exposure_verified"] = False
-
-    # ========================================================
-    # ACTUAL EXCHANGE PROTECTION
-    #
-    # A calculated TP/hedge price is not proof
-    # that an order exists at WEEX.
-    #
-    # Do not infer order placement from Unit 13.
-    # ========================================================
-
-    result["exchange_protection_verified"] = False
-    result["management_execution_verified"] = False
-    result["protection_active"] = False
-
-    return alert(
-        "OPEN_POSITION_PROTECTION_NOT_VERIFIED"
-    )
-
-
-# ============================================================
-# 14.4 VALIDATION TESTS
-# ============================================================
-
-def unit_14_validation_v1():
-
-    passed = 0
-    failed = 0
-
-    def check(name, condition):
-
-        nonlocal passed, failed
-
-        if condition:
-            passed += 1
-            verdict = "PASS"
-        else:
-            failed += 1
-            verdict = "FAIL"
-
-        print(
-            "UNIT 14 TEST",
-            name,
-            "=",
-            verdict,
-            flush=True
-        )
-
-    sample = unit_14_result("NEARUSDT")
-
-    check(
-        "UNIVERSAL_SYMBOL",
-        sample["market_symbol"] == "NEARUSDT"
-    )
-
-    check(
-        "BOT_MODE_INDEPENDENT",
-        sample["bot_mode_independent"] is True
-    )
-
-    check(
-        "NO_UNVERIFIED_PROTECTION",
-        sample["protection_active"] is False
-    )
-
-    check(
-        "NO_UNVERIFIED_EXECUTION",
-        sample["execution_authorized"] is False
-    )
-
-    check(
-        "NO_EXCHANGE_WRITE",
-        sample["exchange_write"] is False
-    )
-
-    check(
-        "REAL_CASH_DISABLED",
-        sample["real_cash_execution"] is False
-    )
-
-    check(
-        "QUANTITY_VALIDATION",
-        unit_14_number("14") == _U14D("14")
-    )
-
-    check(
-        "INVALID_QUANTITY_REJECTED",
-        unit_14_number("-1") is None
+    result["status"] = "HEDGE_RECOVERY_HANDOVER_PENDING"
+    result["skip_reason"] = (
+        "BACKUP_REQUIRES_VERIFIED_FAILED_HEDGE_RECOVERY"
     )
 
     print(
-        "UNIT 14 TESTS PASSED =",
-        passed,
+        "UNIT 14 BACKUP SUBMISSION = DISABLED",
         flush=True
     )
-
     print(
-        "UNIT 14 TESTS FAILED =",
-        failed,
+        "UNIT 14 BACKUPS FILLED =",
+        completed,
+        flush=True
+    )
+    print(
+        "UNIT 14 EXCHANGE WRITE =",
+        result["exchange_write"],
         flush=True
     )
 
-    if failed:
-        raise RuntimeError(
-            "UNIT_14_VALIDATION_FAILED"
-        )
-
-    return True
+    return result
 
 
 # ============================================================
-# 14.5 STARTUP AND HANDOVER
+# UNIT 14 HYBRID ADAPTER
 # ============================================================
 
-FRESH_UNIT_14_VALIDATION_READY = (
-    unit_14_validation_v1()
-)
-
-FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
-    fresh_reconstruction_unit_14(
-        FRESH_RECONSTRUCTION_CONFIG,
-        FRESH_RECONSTRUCTION_UNIT_8_RESULT,
-        FRESH_RECONSTRUCTION_UNIT_12_RESULT,
-        FRESH_RECONSTRUCTION_UNIT_13_RESULT,
-    )
-)
-
-for key in (
-    "status",
-    "reason",
-    "market_symbol",
-    "position_verified",
-    "contract_verified",
-    "quantity_step_valid",
-    "tp_plan_valid",
-    "hedge_plan_valid",
-    "exposure_verified",
-    "exchange_protection_verified",
-    "protection_active",
-    "safety_alert",
-    "alert_severity",
-    "requires_operator_attention",
-    "execution_authorized",
+def fresh_unit_14_hybrid_adapter(
+    config,
+    unit_13_result
 ):
 
+    result = fresh_reconstruction_unit_14(
+        config,
+        unit_13_result
+    )
+
+    if not isinstance(result, dict):
+        raise RuntimeError("UNIT14_RESULT_INVALID")
+
+    if result.get("real_submission_attempted") is not False:
+        raise RuntimeError("UNIT14_LIVE_CASH_BLOCKED")
+
+    if result.get("sl_execution_attempted") is not False:
+        raise RuntimeError("UNIT14_UNEXPECTED_SL_EXECUTION")
+
+    return result
+
+
+# ============================================================
+# SINGLE UNIT 13 / UNIT 14 SCANNER HANDOVER
+# ============================================================
+
+def scan_manage_position(unit12_result):
+
+    global FRESH_RECONSTRUCTION_UNIT_13_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_14_RESULT
+
+    config = _u1314_reference_config(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    unit13 = fresh_unit_13_hybrid_adapter(
+        config,
+        unit12_result
+    )
+
+    FRESH_RECONSTRUCTION_UNIT_13_RESULT = unit13
+
+    unit14 = fresh_unit_14_hybrid_adapter(
+        config,
+        unit13
+    )
+
+    FRESH_RECONSTRUCTION_UNIT_14_RESULT = unit14
+
     print(
-        "UNIT 14",
-        key.upper(),
-        "=",
-        FRESH_RECONSTRUCTION_UNIT_14_RESULT.get(key),
+        "UNIT 13/14 MANAGEMENT STATUS =",
+        unit13.get("status"),
+        unit14.get("status"),
         flush=True
     )
 
-print(
-    "UNIT 14 EXCHANGE WRITE = NONE",
-    flush=True
-)
+    return unit13, unit14
 
-print(
-    "UNIT 14 REAL CASH EXECUTION = DISABLED",
-    flush=True
-)
-
-FRESH_UNIT_14_OPTIMIZATION_READY = (
-    FRESH_UNIT_14_VALIDATION_READY
-)
-
-print(
-    "FRESH RECONSTRUCTION UNIT 14 RESULT =",
-    FRESH_RECONSTRUCTION_UNIT_14_RESULT["status"],
-    flush=True
-)
-
-print(
-    "UNIT 14 UNIVERSAL OPTIMIZATION READY =",
-    FRESH_UNIT_14_OPTIMIZATION_READY,
-    flush=True
-)
 
 # ============================================================
-# END COMPLETE UNIT 14 V1
-# UNIT 15 FOLLOWS
-# ZERO INDENTATION
+# END UNIT 14 V3 - PART 2 OF 2
 # ============================================================
-
 
 
 # ============================================================
