@@ -8696,520 +8696,417 @@ print(
 
 
 # ============================================================
-# START COMPLETE UNIT 13 V2
-# WEEX DEMO POSITION PROTECTION AND MANAGEMENT
-# READ-ONLY VALIDATION / UNIT 14 HANDOVER
+# START UNIT 13 V4 - PART 1 OF 2
+# 17248 REFERENCE EXECUTION PATH
+# CURRENT UNIT 2 V10 / UNIT 8 ADAPTATION
+# ZERO INDENTATION
 # ============================================================
 
-from decimal import Decimal, ROUND_DOWN
+import os
+import json
+import time
+import hmac
+import base64
+import hashlib
+import urllib.request
+import urllib.parse
+import urllib.error
+
+from decimal import (
+    Decimal,
+    InvalidOperation,
+    ROUND_DOWN,
+    ROUND_UP,
+)
+
+UNIT13_V4_VERSION = "V4_17248_ADAPTED"
+UNIT13_V4_BASE = "https://api-contract.weex.com"
+UNIT13_V4_POSITION = "/capi/v3/sim/position/allPosition"
+UNIT13_V4_ORDER = "/capi/v3/sim/order"
 
 
-def u13_d(value, default=None):
+def unit_13_v4_D(value, name="NUMBER", allow_zero=False):
+
     if value is None or isinstance(value, bool):
-        return default
+        raise RuntimeError("UNIT 13 MISSING " + name)
+
     try:
-        result = Decimal(str(value))
-        return result if result.is_finite() else default
-    except (ValueError, TypeError, ArithmeticError):
-        return default
+        number = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise RuntimeError(
+            "UNIT 13 INVALID " + name
+        ) from exc
 
-
-def u13_pick(row, *keys):
-    for key in keys:
-        value = row.get(key)
-        if value is not None:
-            return value
-    return None
-
-
-def u13_s(value):
-    return format(value, "f") if value is not None else None
-
-
-def u13_floor(value, step):
-    return (
-        (value / step).to_integral_value(rounding=ROUND_DOWN)
-        * step
-    )
-
-
-def u13_report(result):
-    print("=" * 80, flush=True)
-    print("UNIT 13 VERSION =", result["version"], flush=True)
-    print("UNIT 13 MARKET SYMBOL =", result["market_symbol"], flush=True)
-    print("UNIT 13 DEMO SYMBOL =", result["demo_order_symbol"], flush=True)
-    print("UNIT 13 BOT_MODE =", result["bot_mode"], flush=True)
-    print("UNIT 13 POSITION COUNT =", len(result["positions"]), flush=True)
-    print("UNIT 13 POSITION READ VERIFIED =", result["position_read_verified"], flush=True)
-    print("UNIT 13 STATUS =", result["status"], flush=True)
-    print("UNIT 13 REASON =", result["reason"], flush=True)
-    print("UNIT 13 ERRORS =", result["errors"], flush=True)
-    print("UNIT 13 MANAGEMENT PLANS =", result["management_plans"], flush=True)
-    print("UNIT 13 TP REQUIRED =", result["tp_management_required"], flush=True)
-    print("UNIT 13 HEDGE REQUIRED =", result["hedge_management_required"], flush=True)
-    print("UNIT 13 EXISTING MANAGEMENT INDEPENDENT OF BOT_MODE = True", flush=True)
-    print("UNIT 13 EXCHANGE WRITE = NONE", flush=True)
-    print(
-        "UNIT 13 HANDOVER TO UNIT 14 =",
-        result["handover_to_unit14"],
-        flush=True
-    )
-    print("=" * 80, flush=True)
-    return result
-
-
-def u13_api_success(response):
-    if not isinstance(response, dict):
-        return isinstance(response, list)
-
-    code = response.get("code")
-
-    return str(code) in (
-        "None",
-        "0",
-        "00000",
-        "200"
-    )
-
-
-def u13_normalize_position(raw, market_symbol, demo_symbol):
-    if not isinstance(raw, dict):
-        raise RuntimeError("POSITION_ROW_NOT_OBJECT")
-
-    symbol = str(
-        u13_pick(raw, "symbol", "contractCode") or ""
-    ).upper()
-
-    if symbol not in (market_symbol, demo_symbol):
-        return None
-
-    raw_qty = u13_d(
-        u13_pick(
-            raw, "size", "total", "holdVol",
-            "positionAmt", "quantity"
+    if not number.is_finite():
+        raise RuntimeError(
+            "UNIT 13 NONFINITE " + name
         )
-    )
 
-    if raw_qty is None:
-        raise RuntimeError("POSITION_QUANTITY_MISSING")
+    if number < 0 or (number == 0 and not allow_zero):
+        raise RuntimeError(
+            "UNIT 13 NONPOSITIVE " + name
+        )
 
-    if raw_qty == 0:
-        return None
+    return number
 
-    side = str(
-        u13_pick(raw, "positionSide", "holdSide", "side") or ""
-    ).upper()
 
-    if side in ("BUY", "LONG"):
-        side = "LONG"
-    elif side in ("SELL", "SHORT"):
-        side = "SHORT"
+# ============================================================
+# 1. ORIGINAL 17248 STEP-AWARE TP ALLOCATION
+# ============================================================
+
+def unit_13_v4_allocation(total, step):
+
+    total = unit_13_v4_D(total, "CUM OPEN")
+    step = unit_13_v4_D(step, "QUANTITY STEP")
+
+    units = total / step
+
+    if units != units.to_integral_value():
+        raise RuntimeError(
+            "UNIT 13 CUMULATIVE SIZE NOT STEP ALIGNED"
+        )
+
+    n = int(units)
+
+    if n == 1:
+        n1, n2, n3 = 0, 0, 1
+
+    elif n == 2:
+        n1, n2, n3 = 0, 0, 2
+
     else:
-        raise RuntimeError("POSITION_SIDE_UNVERIFIED")
-
-    entry = u13_d(
-        u13_pick(
-            raw, "entryPrice", "avgPrice",
-            "averageOpenPrice", "openPriceAvg"
+        n1 = int(
+            (Decimal(n) * Decimal("0.10"))
+            .to_integral_value(rounding=ROUND_DOWN)
         )
+
+        n2 = int(
+            (Decimal(n) * Decimal("0.20"))
+            .to_integral_value(rounding=ROUND_DOWN)
+        )
+
+        n3 = n - n1 - n2
+
+    q1 = step * n1
+    q2 = step * n2
+    q3 = step * n3
+
+    if q1 + q2 + q3 != total:
+        raise RuntimeError(
+            "UNIT 13 TP ALLOCATION INCONSISTENT"
+        )
+
+    return q1, q2, q3
+
+
+# ============================================================
+# 2. ORIGINAL 17248 TP PRICE CALCULATION
+# NET ROI TARGETS ARE CONFIGURABLE
+# ============================================================
+
+def unit_13_v4_targets(
+    entry,
+    leverage,
+    side,
+    price_step,
+    tp1_floor,
+    tp2_floor,
+    fee_percent,
+):
+
+    D = unit_13_v4_D
+
+    entry = D(entry, "ENTRY PRICE")
+    leverage = D(leverage, "LEVERAGE")
+    price_step = D(price_step, "PRICE STEP")
+
+    tp1_floor = D(tp1_floor, "TP1 ROI")
+    tp2_floor = D(tp2_floor, "TP2 ROI")
+    fee_percent = D(
+        fee_percent, "TAKER FEE", True
     )
 
-    leverage = u13_d(raw.get("leverage"))
+    if tp2_floor <= tp1_floor:
+        raise RuntimeError(
+            "UNIT 13 TP2 MUST EXCEED TP1"
+        )
 
-    if entry is None or entry <= 0:
-        raise RuntimeError("POSITION_ENTRY_PRICE_UNVERIFIED")
+    # Estimated round-trip fee expressed as a
+    # percentage of entry notional.
+    #
+    # Exact realized net ROI must subsequently
+    # use verified fees and funding.
 
-    if leverage is None or leverage <= 0:
-        raise RuntimeError("POSITION_LEVERAGE_UNVERIFIED")
+    round_trip_fee = fee_percent * Decimal("2")
 
-    return {
-        "symbol": market_symbol,
-        "demo_symbol": demo_symbol,
-        "side": side,
-        "quantity": abs(raw_qty),
-        "entry_price": entry,
-        "leverage": leverage,
-        "liquidation_price": u13_d(
-            u13_pick(
-                raw, "liquidationPrice",
-                "liqPrice", "liquidatePrice"
+    move1 = (
+        (tp1_floor / leverage)
+        + round_trip_fee
+    ) / Decimal("100")
+
+    move2 = (
+        (tp2_floor / leverage)
+        + round_trip_fee
+    ) / Decimal("100")
+
+    side = str(side).upper()
+
+    if side == "LONG":
+
+        raw1 = entry * (Decimal("1") + move1)
+        raw2 = entry * (Decimal("1") + move2)
+
+        rounding = ROUND_UP
+
+    elif side == "SHORT":
+
+        raw1 = entry * (Decimal("1") - move1)
+        raw2 = entry * (Decimal("1") - move2)
+
+        rounding = ROUND_DOWN
+
+        if raw2 <= 0:
+            raise RuntimeError(
+                "UNIT 13 INVALID SHORT TP PRICE"
             )
-        ),
-    }
 
-
-def u13_build_plan(position, mark, atr, contract, config):
-    quantity = position["quantity"]
-    entry = position["entry_price"]
-    leverage = position["leverage"]
-    side = position["side"]
-
-    multiplier = u13_d(contract.get("contract_multiplier"))
-    step = u13_d(contract.get("quantity_step"))
-    minimum = u13_d(contract.get("minimum_quantity"))
-
-    if any(
-        value is None or value <= 0
-        for value in (multiplier, step, minimum, mark)
-    ):
-        raise RuntimeError("CONTRACT_OR_MARK_UNVERIFIED")
-
-    strategy = config.get("strategy", {})
-
-    # Estimated cost model, not verified realized net P&L.
-    taker = u13_d(
-        strategy.get("fee_estimate_taker_rate"),
-        Decimal("0.0008")
-    )
-
-    slippage = u13_d(
-        strategy.get("estimated_slippage_rate"),
-        Decimal("0.0002")
-    )
-
-    if taker is None or slippage is None:
-        raise RuntimeError("COST_MODEL_INVALID")
-
-    if taker < 0 or slippage < 0:
-        raise RuntimeError("COST_MODEL_NEGATIVE")
-
-    direction = Decimal("1") if side == "LONG" else Decimal("-1")
-
-    notional = quantity * multiplier * entry
-    margin = notional / leverage
-
-    gross = (mark - entry) * direction * quantity * multiplier
-
-    estimated_cost = (
-        notional * taker
-        + quantity * multiplier * mark * taker
-        + quantity * multiplier * mark * slippage * 2
-    )
-
-    estimated_net = gross - estimated_cost
-    estimated_roi = estimated_net / margin * 100
-
-    tp1_target = u13_d(
-        config.get("tp1_net_roi_percent"),
-        Decimal("20")
-    )
-
-    tp2_target = u13_d(
-        config.get("tp2_net_roi_percent"),
-        Decimal("40")
-    )
-
-    tp1_qty = u13_floor(quantity * Decimal("0.10"), step)
-    tp2_qty = u13_floor(quantity * Decimal("0.20"), step)
-    tp3_qty = quantity - tp1_qty - tp2_qty
-
-    adverse = (entry - mark) * direction
-
-    hedge_stage = "NONE"
-
-    if atr is not None and atr > 0:
-        if adverse >= atr * 2:
-            hedge_stage = "ATR_STAGE_2"
-        elif adverse >= atr:
-            hedge_stage = "ATR_STAGE_1"
-
-    half = u13_floor(quantity / 2, step)
-
-    tp1_reached = estimated_roi >= tp1_target
-    tp2_reached = estimated_roi >= tp2_target
-
-    if hedge_stage != "NONE":
-        action = hedge_stage + "_CANDIDATE"
-    elif tp2_reached:
-        action = "TP2_CANDIDATE"
-    elif tp1_reached:
-        action = "TP1_CANDIDATE"
     else:
-        action = "MONITOR"
+        raise RuntimeError(
+            "UNIT 13 INVALID POSITION SIDE"
+        )
 
-    return {
-        "side": side,
-        "quantity": u13_s(quantity),
-        "entry_price": u13_s(entry),
-        "mark_price": u13_s(mark),
-        "leverage": u13_s(leverage),
-        "estimated_margin_usdt": u13_s(margin),
-        "gross_pnl_usdt": u13_s(gross),
-        "estimated_cost_usdt": u13_s(estimated_cost),
-        "estimated_net_pnl_usdt": u13_s(estimated_net),
-        "estimated_net_roi_percent": u13_s(estimated_roi),
-        "net_roi_verified": False,
-        "tp1_reached_estimated": tp1_reached,
-        "tp2_reached_estimated": tp2_reached,
-        "tp1_quantity": u13_s(tp1_qty),
-        "tp2_quantity": u13_s(tp2_qty),
-        "tp3_quantity": u13_s(tp3_qty),
-        "tp1_deferred": tp1_qty < minimum,
-        "tp2_deferred": tp2_qty < minimum,
-        "atr14": u13_s(atr),
-        "adverse_distance": u13_s(adverse),
-        "hedge_stage": hedge_stage,
-        "stage1_quantity": u13_s(half),
-        "stage1_quantity_valid": (
-            half >= minimum
-            and quantity - half >= minimum
-        ),
-        "opposite_side": (
-            "SHORT" if side == "LONG" else "LONG"
-        ),
-        "candidate_action": action,
-        "action_authorized": False,
-        "exchange_write": False,
-    }
+    target1 = (
+        (raw1 / price_step)
+        .to_integral_value(rounding=rounding)
+        * price_step
+    )
+
+    target2 = (
+        (raw2 / price_step)
+        .to_integral_value(rounding=rounding)
+        * price_step
+    )
+
+    if side == "LONG" and not (
+        target2 > target1 > entry
+    ):
+        raise RuntimeError(
+            "UNIT 13 LONG TP TARGET ORDER INVALID"
+        )
+
+    if side == "SHORT" and not (
+        entry > target1 > target2
+    ):
+        raise RuntimeError(
+            "UNIT 13 SHORT TP TARGET ORDER INVALID"
+        )
+
+    return target1, target2
 
 
-def fresh_reconstruction_unit_13(config, unit12, unit8):
-    print("=" * 80, flush=True)
-    print("COMBINED RECONSTRUCTION UNIT 13 V2 START", flush=True)
+# ============================================================
+# 3. CURRENT UNIT 2 SYMBOL ADAPTER
+# ============================================================
+
+def unit_13_v4_symbols(config):
 
     if not isinstance(config, dict):
-        raise RuntimeError("UNIT13_CONFIG_NOT_OBJECT")
+        raise RuntimeError(
+            "UNIT 13 INVALID CONFIG"
+        )
 
-    market_symbol = config["exchange"]["market_symbol"]
-    demo_symbol = u12_demo_symbol(market_symbol)
+    if config.get("execution_environment") != "DEMO":
+        raise RuntimeError(
+            "UNIT 13 DEMO ENVIRONMENT REQUIRED"
+        )
 
-    result = {
-        "unit": 13,
-        "version": "V2_DEMO_POSITION_DIAGNOSTIC",
-        "market_symbol": market_symbol,
-        "demo_order_symbol": demo_symbol,
-        "bot_mode": config.get("bot_mode"),
-        "existing_position_management_enabled": True,
-        "independent_of_bot_mode": True,
-        "position_read_verified": False,
-        "position_exists": False,
-        "active_position_exists": False,
-        "positions": [],
-        "management_plans": [],
-        "tp_management_required": False,
-        "hedge_management_required": False,
-        "status": "PENDING",
-        "reason": "NOT_EVALUATED",
-        "errors": [],
-        "exchange_write": False,
-        "handover_to_unit14": "NOT_READY",
-    }
+    if config.get("real_cash_execution_enabled") is not False:
+        raise RuntimeError(
+            "UNIT 13 REAL CASH EXECUTION BLOCKED"
+        )
 
-    def finish(status, reason):
-        result["status"] = status
-        result["reason"] = reason
-        return u13_report(result)
+    exchange = config.get("exchange", {})
 
     if (
-        config.get("execution_environment") != "DEMO"
-        or config.get("real_cash_execution_enabled") is not False
+        exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
     ):
-        return finish("CONFIG_REJECTED", "DEMO_ONLY_REQUIRED")
+        raise RuntimeError(
+            "UNIT 13 INVALID EXCHANGE CONFIG"
+        )
+
+    market_symbol = str(
+        exchange.get("market_symbol", "")
+    ).upper()
+
+    demo_symbol = str(
+        exchange.get("demo_order_symbol", "")
+    ).upper()
+
+    if not market_symbol.endswith("USDT"):
+        raise RuntimeError(
+            "UNIT 13 INVALID MARKET SYMBOL"
+        )
 
     if not demo_symbol:
-        return finish("SYMBOL_UNVERIFIED", "DEMO_SYMBOL_UNAVAILABLE")
-
-    # --------------------------------------------------------
-    # READ ACTUAL DEMO POSITIONS
-    # BOT_MODE DOES NOT RESTRICT THIS OPERATION
-    # --------------------------------------------------------
-
-    try:
-        http_status, response = u12_request(
-            "GET",
-            UNIT12_POSITION_PATH
+        raise RuntimeError(
+            "UNIT 13 DEMO SYMBOL MISSING"
         )
 
-        print("UNIT 13 POSITION HTTP =", http_status, flush=True)
+    return market_symbol, demo_symbol
 
-        if not 200 <= http_status < 300:
-            raise RuntimeError(
-                "POSITION_HTTP_" + str(http_status)
-            )
 
-        if not u13_api_success(response):
-            code = (
-                response.get("code")
-                if isinstance(response, dict)
-                else "UNKNOWN"
-            )
-            raise RuntimeError(
-                "POSITION_API_CODE_" + str(code)
-            )
+# ============================================================
+# 4. VERIFIED UNIT 8 CONTRACT ADAPTER
+# DO NOT INVENT PRECISION
+# ============================================================
 
-        rows = u12_rows(response)
+def unit_13_v4_precision(config, unit8):
 
-        if rows is None:
-            raise RuntimeError("POSITION_ROWS_UNRECOGNIZED")
-
-        if not all(isinstance(row, dict) for row in rows):
-            raise RuntimeError("POSITION_ROWS_INVALID")
-
-        result["position_read_verified"] = True
-
-        print(
-            "UNIT 13 RAW POSITION ROW COUNT =",
-            len(rows),
-            flush=True
+    if not isinstance(unit8, dict):
+        raise RuntimeError(
+            "UNIT 13 UNIT 8 RESULT MISSING"
         )
 
-    except Exception as exc:
-        result["errors"].append(
-            type(exc).__name__ + ": " + str(exc)
-        )
-        return finish(
-            "READ_FAILED",
-            "DEMO_POSITION_READ_FAILED"
-        )
-
-    # --------------------------------------------------------
-    # POSITION NORMALIZATION
-    # --------------------------------------------------------
-
-    try:
-        for raw in rows:
-            position = u13_normalize_position(
-                raw, market_symbol, demo_symbol
-            )
-            if position is not None:
-                result["positions"].append(position)
-
-    except Exception as exc:
-        result["errors"].append(
-            type(exc).__name__ + ": " + str(exc)
-        )
-        return finish(
-            "POSITION_UNVERIFIED",
-            "POSITION_NORMALIZATION_FAILED"
-        )
-
-    result["position_exists"] = bool(result["positions"])
-    result["active_position_exists"] = result["position_exists"]
-
-    if not result["position_exists"]:
-        result["handover_to_unit14"] = "READY"
-        return finish(
-            "FLAT",
-            "NO_EXISTING_DEMO_POSITION"
-        )
-
-    # --------------------------------------------------------
-    # ACTUAL UNIT 3 / UNIT 4 INTERFACES
-    # --------------------------------------------------------
-
-    market = globals().get(
-        "FRESH_RECONSTRUCTION_MARKET_SNAPSHOT",
-        {}
-    )
-
-    analysis = globals().get(
-        "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT",
-        {}
-    )
-
-    if not isinstance(market, dict):
-        market = {}
-
-    if not isinstance(analysis, dict):
-        analysis = {}
-
-    mark = u13_d(market.get("price"))
-    atr = u13_d(analysis.get("atr14"))
-
-    if mark is None or mark <= 0:
-        return finish(
-            "MARKET_UNVERIFIED",
-            "MARK_PRICE_UNAVAILABLE"
-        )
-
-    if atr is None or atr <= 0:
-        return finish(
-            "ATR_UNVERIFIED",
-            "UNIT4_ATR_UNAVAILABLE"
-        )
-
-    contract = (
-        unit8.get("contract")
-        if isinstance(unit8, dict)
-        else None
-    )
+    contract = unit8.get("contract")
 
     if not isinstance(contract, dict):
-        return finish(
-            "CONTRACT_UNVERIFIED",
-            "UNIT8_CONTRACT_UNAVAILABLE"
+        raise RuntimeError(
+            "UNIT 13 VERIFIED CONTRACT MISSING"
         )
 
-    # --------------------------------------------------------
-    # BUILD MANAGEMENT CANDIDATES
-    # --------------------------------------------------------
+    D = unit_13_v4_D
 
-    for position in result["positions"]:
-        try:
-            plan = u13_build_plan(
-                position,
-                mark,
-                atr,
-                contract,
-                config
-            )
-            result["management_plans"].append(plan)
+    quantity_step = D(
+        contract.get("quantity_step"),
+        "QUANTITY STEP"
+    )
 
-        except Exception as exc:
-            result["errors"].append(
-                type(exc).__name__ + ": " + str(exc)
-            )
+    minimum_quantity = D(
+        contract.get("minimum_quantity"),
+        "MINIMUM QUANTITY"
+    )
 
-    if result["errors"]:
-        return finish(
-            "MANAGEMENT_UNVERIFIED",
-            "POSITION_PLAN_INCOMPLETE"
+    price_step_raw = contract.get("price_step")
+
+    if price_step_raw is None:
+        price_step_raw = contract.get(
+            "price_resolution"
         )
 
-    result["tp_management_required"] = any(
-        p["tp1_reached_estimated"]
-        or p["tp2_reached_estimated"]
-        for p in result["management_plans"]
+    price_step = D(
+        price_step_raw,
+        "PRICE STEP"
     )
 
-    result["hedge_management_required"] = any(
-        p["hedge_stage"] != "NONE"
-        for p in result["management_plans"]
+    multiplier = D(
+        contract.get("contract_multiplier"),
+        "CONTRACT MULTIPLIER"
     )
 
-    result["handover_to_unit14"] = "READY"
-
-    return finish(
-        "MONITORING",
-        "POSITION_MANAGEMENT_CANDIDATES_READY"
-    )
+    return {
+        "quantity_step": quantity_step,
+        "minimum_quantity": minimum_quantity,
+        "price_step": price_step,
+        "contract_multiplier": multiplier,
+    }
 
 
 # ============================================================
-# UNIT 13 GLOBAL HANDOVER
+# 5. ORIGINAL WEEX POSITION INTERPRETATION
+# ZERO-SIZE ROWS ARE NOT ACTIVE POSITIONS
 # ============================================================
 
-FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
-    fresh_reconstruction_unit_13(
-        FRESH_RECONSTRUCTION_CONFIG,
-        FRESH_RECONSTRUCTION_UNIT_12_RESULT,
-        FRESH_RECONSTRUCTION_UNIT_8_RESULT
-    )
-)
+def unit_13_v4_active_positions(
+    rows,
+    market_symbol,
+    demo_symbol,
+):
 
-FRESH_UNIT_13_OPTIMIZATION_READY = (
-    FRESH_RECONSTRUCTION_UNIT_13_RESULT.get("status")
-    in ("FLAT", "MONITORING")
-)
+    if not isinstance(rows, list):
+        raise RuntimeError(
+            "UNIT 13 POSITIONS NOT LIST"
+        )
 
-print(
-    "UNIT 13 OPTIMIZATION READY =",
-    FRESH_UNIT_13_OPTIMIZATION_READY,
-    flush=True
-)
+    active = []
+
+    for row in rows:
+
+        if not isinstance(row, dict):
+            raise RuntimeError(
+                "UNIT 13 POSITION ROW MALFORMED"
+            )
+
+        symbol = str(
+            row.get("symbol", "")
+        ).upper()
+
+        if symbol not in (
+            market_symbol,
+            demo_symbol,
+        ):
+            continue
+
+        raw_size = row.get("size")
+
+        if raw_size is None:
+            raw_size = row.get("total")
+
+        size = unit_13_v4_D(
+            raw_size,
+            "POSITION SIZE",
+            True,
+        )
+
+        # Critical correction from reference:
+        # Ignore flat records before checking entry.
+        if size == 0:
+            continue
+
+        side = str(
+            row.get("side")
+            or row.get("holdSide")
+            or row.get("positionSide")
+            or ""
+        ).upper()
+
+        if side in ("BUY", "LONG"):
+            side = "LONG"
+        elif side in ("SELL", "SHORT"):
+            side = "SHORT"
+        else:
+            raise RuntimeError(
+                "UNIT 13 POSITION SIDE UNVERIFIED"
+            )
+
+        open_value = unit_13_v4_D(
+            row.get("openValue"),
+            "POSITION OPEN VALUE",
+        )
+
+        leverage = unit_13_v4_D(
+            row.get("leverage"),
+            "POSITION LEVERAGE",
+        )
+
+        entry = open_value / size
+
+        active.append({
+            "raw": row,
+            "symbol": symbol,
+            "side": side,
+            "size": size,
+            "open_value": open_value,
+            "leverage": leverage,
+            "entry": entry,
+        })
+
+    return active
+
 
 # ============================================================
-# END COMPLETE UNIT 13 V2
+# END UNIT 13 V4 - PART 1 OF 2
+# PART 2 CONTINUES AT ZERO INDENTATION
 # ============================================================
 
 
