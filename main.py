@@ -8577,3 +8577,74 @@ print(
 # END COMPLETE UNIT 12 REPLACEMENT
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# UNIT 12 CONTROLLED INTERFACE DIAGNOSTIC
+# ZERO INDENTATION
+# ============================================================
+
+def unit12_interface_diagnostic():
+
+    u8 = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_8_RESULT", {}
+    )
+    u11 = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_11_RESULT", {}
+    )
+
+    if not isinstance(u8, dict):
+        u8 = {}
+
+    if not isinstance(u11, dict):
+        u11 = {}
+
+    contract = u8.get("contract")
+    request = u11.get("order_request")
+    preview = u8.get("size_preview")
+
+    print("=" * 80, flush=True)
+    print("UNIT 12 INTERFACE DIAGNOSTIC START", flush=True)
+
+    print("UNIT 8 CONTRACT =", contract, flush=True)
+    print("UNIT 8 SIZE PREVIEW =", preview, flush=True)
+
+    print(
+        "UNIT 11 STATUS =",
+        u11.get("status"),
+        flush=True
+    )
+
+    print(
+        "UNIT 11 ORDER REQUEST =",
+        request,
+        flush=True
+    )
+
+    snapshot = globals().get(
+        "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT"
+    )
+
+    print(
+        "UNIT 12 ANALYSIS SNAPSHOT TYPE =",
+        type(snapshot).__name__,
+        flush=True
+    )
+
+    if isinstance(snapshot, dict):
+        print(
+            "UNIT 12 SNAPSHOT KEYS =",
+            list(snapshot.keys()),
+            flush=True
+        )
+
+    print("UNIT 12 DIAGNOSTIC EXCHANGE WRITE = NONE",
+          flush=True)
+    print("UNIT 12 INTERFACE DIAGNOSTIC COMPLETE",
+          flush=True)
+    print("=" * 80, flush=True)
+
+
+unit12_interface_diagnostic()
+
+# END UNIT 12 CONTROLLED INTERFACE DIAGNOSTIC
