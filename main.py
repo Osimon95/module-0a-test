@@ -273,11 +273,7 @@ def unit_2_universal_symbol():
 
     return symbol, symbol[:-4], "USDT"
 
-print("=" * 60, flush=True)
-print("RENDER WEEX_SYMBOL =", repr(os.environ.get("WEEX_SYMBOL")), flush=True)
-print("RENDER MARKET_SYMBOL =", repr(os.environ.get("MARKET_SYMBOL")), flush=True)
-print("RENDER SELECTED SYMBOL =", unit_2_universal_symbol()[0], flush=True)
-print("=" * 60, flush=True)
+
 # ============================================================
 # 2.2 CENTRAL CONFIGURATION
 # ============================================================
@@ -6815,3 +6811,461 @@ FRESH_UNIT_9_OPTIMIZATION_READY = True
 # ============================================================
 
 
+
+# ============================================================
+# START COMPLETE UNIT 10 REPLACEMENT
+# UNIVERSAL DEMO EXECUTION HANDOVER
+# ZERO INDENTATION
+# ============================================================
+
+from decimal import Decimal, InvalidOperation
+
+
+def u10_number(value):
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = Decimal(str(value))
+        return number if number.is_finite() else None
+    except (TypeError, ValueError, InvalidOperation):
+        return None
+
+
+def fresh_reconstruction_unit_10(
+    config,
+    unit9,
+    unit8=None
+):
+    print("=" * 80, flush=True)
+    print(
+        "COMBINED RECONSTRUCTION UNIT 10 START",
+        flush=True
+    )
+
+    if unit8 is None:
+        unit8 = globals().get(
+            "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
+        )
+
+    config = config if isinstance(config, dict) else {}
+    unit9 = unit9 if isinstance(unit9, dict) else {}
+    unit8 = unit8 if isinstance(unit8, dict) else {}
+
+    exchange = config.get("exchange", {})
+    exchange = exchange if isinstance(exchange, dict) else {}
+
+    symbol = str(
+        exchange.get("market_symbol")
+        or config.get("market_symbol")
+        or ""
+    ).strip().upper()
+
+    demo_symbol = str(
+        unit8.get("demo_order_symbol")
+        or ""
+    ).strip().upper()
+
+    mode = str(
+        unit9.get("active_mode") or "NONE"
+    ).upper()
+
+    direction = str(
+        unit9.get("direction") or "NONE"
+    ).upper()
+
+    bot_mode = str(
+        config.get("bot_mode", "PAUSE")
+    ).upper()
+
+    result = {
+        "unit": 10,
+        "version": "U10_UNIVERSAL_DEMO_HANDOVER_V1",
+
+        "market_symbol": symbol,
+        "symbol": symbol,
+        "demo_order_symbol": demo_symbol,
+
+        "execution_environment": "DEMO",
+        "bot_mode": bot_mode,
+
+        "active_mode": mode,
+        "direction": direction,
+
+        "status": "IDLE",
+        "reason": "NOT_EVALUATED",
+        "skip_reason": None,
+
+        "signal_qualified": False,
+        "execution_intent": False,
+
+        "trade_plan": unit9.get("trade_plan"),
+        "execution_candidate":
+            unit9.get("execution_candidate"),
+
+        "trade_plan_ready": False,
+        "demo_boundary_ready": False,
+        "execution_ready": False,
+
+        "quantity": unit9.get("quantity"),
+        "contract": unit8.get("contract"),
+
+        "demo_balance_verified": (
+            unit8.get("demo_balance_verified") is True
+        ),
+
+        "demo_positions_read_verified": (
+            unit8.get("demo_positions_read_verified") is True
+        ),
+
+        "position_flat_verified": (
+            unit8.get("position_flat_verified") is True
+        ),
+
+        "position_management_handover":
+            unit9.get("position_management_handover"),
+
+        "positions": unit8.get("positions", []),
+
+        "long_position_quantity":
+            unit8.get("long_position_quantity"),
+
+        "short_position_quantity":
+            unit8.get("short_position_quantity"),
+
+        "hedge_policy": unit9.get("hedge_policy", {}),
+        "backup_policy": unit9.get("backup_policy", {}),
+
+        "backup_count": unit9.get("backup_count", 5),
+
+        "exposure_cap_percent":
+            unit9.get("exposure_cap_percent"),
+
+        "tp1_net_roi_percent":
+            unit9.get("tp1_net_roi_percent"),
+
+        "tp2_net_roi_percent":
+            unit9.get("tp2_net_roi_percent"),
+
+        "tp_allocation": unit9.get("tp_allocation"),
+
+        "requires_fresh_balance": True,
+        "requires_fresh_position_read": True,
+        "requires_demo_order_response": True,
+
+        "exchange_order_units_verified": (
+            unit8.get("size_preview", {}).get(
+                "exchange_order_units_verified", False
+            )
+            if isinstance(
+                unit8.get("size_preview"), dict
+            )
+            else False
+        ),
+
+        "demo_order_permission_verified": False,
+        "demo_order_submission_verified": False,
+
+        "execution_authorized": False,
+        "order_submission_authorized": False,
+        "order_payload_created": False,
+        "demo_submission_requested": False,
+
+        "read_only": True,
+        "exchange_write": False,
+        "real_cash_execution": False
+    }
+
+    def finish(status, reason):
+        result["status"] = status
+        result["reason"] = reason
+        result["skip_reason"] = (
+            None if status == "READY" else reason
+        )
+
+        for label, key in (
+            ("MARKET SYMBOL", "market_symbol"),
+            ("DEMO ORDER SYMBOL", "demo_order_symbol"),
+            ("BOT_MODE", "bot_mode"),
+            ("MODE", "active_mode"),
+            ("DIRECTION", "direction"),
+            ("SIGNAL QUALIFIED", "signal_qualified"),
+            ("TRADE PLAN READY", "trade_plan_ready"),
+            ("DEMO BOUNDARY READY", "demo_boundary_ready"),
+            ("EXECUTION READY", "execution_ready"),
+            ("EXCHANGE ORDER UNITS VERIFIED",
+             "exchange_order_units_verified"),
+            ("STATUS", "status"),
+            ("REASON", "reason"),
+            ("EXECUTION AUTHORIZED",
+             "execution_authorized")
+        ):
+            print(
+                "UNIT 10 " + label + " =",
+                result.get(key),
+                flush=True
+            )
+
+        print(
+            "UNIT 10 EXISTING POSITION MANAGEMENT = "
+            "INDEPENDENT",
+            flush=True
+        )
+        print(
+            "UNIT 10 HANDOVER TO UNIT 11 = READY",
+            flush=True
+        )
+        print(
+            "UNIT 10 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+        print(
+            "UNIT 10 REAL CASH EXECUTION = DISABLED",
+            flush=True
+        )
+        print(
+            "COMBINED RECONSTRUCTION UNIT 10 RESULT =",
+            "PASS" if status != "ERROR" else "FAIL",
+            flush=True
+        )
+        print("=" * 80, flush=True)
+
+        return result
+
+    # --------------------------------------------------------
+    # DEMO CONFIGURATION
+    # --------------------------------------------------------
+
+    if not symbol:
+        return finish(
+            "ERROR", "MARKET_SYMBOL_MISSING"
+        )
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or config.get("real_cash_execution_enabled")
+        is not False
+    ):
+        return finish(
+            "ERROR", "DEMO_ONLY_CONFIGURATION_REQUIRED"
+        )
+
+    if (
+        unit8.get("market_symbol") != symbol
+        or demo_symbol != symbol
+        or unit9.get("market_symbol") != symbol
+    ):
+        return finish(
+            "ERROR", "SYMBOL_HANDOVER_MISMATCH"
+        )
+
+    # --------------------------------------------------------
+    # PRESERVE PAUSED AND IDLE ENTRIES
+    # --------------------------------------------------------
+
+    status9 = str(
+        unit9.get("status") or "IDLE"
+    ).upper()
+
+    if bot_mode != "RUN":
+        return finish(
+            "PAUSED", "NEW_ENTRIES_PAUSED"
+        )
+
+    if status9 in ("PAUSED", "IDLE", "WAITING"):
+        return finish(
+            status9,
+            str(unit9.get("reason") or "NO_ENTRY")
+        )
+
+    if status9 != "READY":
+        return finish(
+            "WAITING", "UNIT_9_NOT_READY"
+        )
+
+    # --------------------------------------------------------
+    # VERIFY READ HANDOVER
+    # --------------------------------------------------------
+
+    if unit8.get("market_contract_verified") is not True:
+        return finish(
+            "WAITING", "MARKET_CONTRACT_NOT_VERIFIED"
+        )
+
+    if unit8.get("demo_balance_verified") is not True:
+        return finish(
+            "WAITING", "DEMO_BALANCE_NOT_VERIFIED"
+        )
+
+    if (
+        unit8.get("demo_positions_read_verified")
+        is not True
+    ):
+        return finish(
+            "WAITING", "DEMO_POSITIONS_NOT_VERIFIED"
+        )
+
+    if unit8.get("account_can_trade") is not True:
+        return finish(
+            "WAITING", "ACCOUNT_TRADING_UNAVAILABLE"
+        )
+
+    if unit8.get("position_flat_verified") is not True:
+        return finish(
+            "IDLE", "NEW_ENTRY_REQUIRES_FLAT_POSITION"
+        )
+
+    # --------------------------------------------------------
+    # VERIFY UNIT 9 TRADE PLAN
+    # --------------------------------------------------------
+
+    plan = unit9.get("trade_plan")
+    candidate = unit9.get("execution_candidate")
+
+    if not isinstance(plan, dict):
+        return finish(
+            "WAITING", "TRADE_PLAN_MISSING"
+        )
+
+    if not isinstance(candidate, dict):
+        return finish(
+            "WAITING", "EXECUTION_CANDIDATE_MISSING"
+        )
+
+    if (
+        unit9.get("trade_plan_ready") is not True
+        or unit9.get("execution_ready") is not True
+    ):
+        return finish(
+            "WAITING", "UNIT_9_PLAN_NOT_READY"
+        )
+
+    if (
+        plan.get("market_symbol") != symbol
+        or plan.get("demo_order_symbol") != demo_symbol
+        or plan.get("execution_environment") != "DEMO"
+    ):
+        return finish(
+            "WAITING", "TRADE_PLAN_SYMBOL_MISMATCH"
+        )
+
+    if mode not in (
+        "SCALP", "STRUCTURE", "BREAKOUT"
+    ):
+        return finish(
+            "IDLE", "NO_QUALIFIED_MODE"
+        )
+
+    if direction not in ("LONG", "SHORT"):
+        return finish(
+            "IDLE", "NO_QUALIFIED_DIRECTION"
+        )
+
+    quantity = u10_number(plan.get("quantity"))
+    leverage = u10_number(plan.get("leverage"))
+    margin = u10_number(
+        plan.get("entry_margin_usdt")
+    )
+
+    if (
+        quantity is None or quantity <= 0
+        or leverage is None or leverage <= 0
+        or margin is None or margin <= 0
+    ):
+        return finish(
+            "WAITING", "INVALID_ENTRY_SIZING"
+        )
+
+    preview = unit8.get("size_preview")
+
+    if (
+        not isinstance(preview, dict)
+        or preview.get("valid") is not True
+        or u10_number(preview.get("quantity")) != quantity
+    ):
+        return finish(
+            "WAITING", "QUANTITY_PREVIEW_MISMATCH"
+        )
+
+    # --------------------------------------------------------
+    # SUCCESSFUL READ-ONLY HANDOVER
+    # --------------------------------------------------------
+
+    result.update({
+        "status": "READY",
+        "reason": "DEMO_TRADE_PLAN_VALIDATED",
+
+        "signal_qualified": (
+            unit9.get("signal_qualified") is True
+        ),
+
+        "execution_intent": (
+            unit9.get("execution_intent") is True
+        ),
+
+        "trade_plan_ready": True,
+        "demo_boundary_ready": True,
+        "execution_ready": True,
+
+        "quantity": str(quantity),
+        "selected_leverage": str(leverage),
+        "entry_margin_usdt": str(margin),
+
+        "trade_plan": plan,
+        "execution_candidate": candidate,
+
+        # Unit 11 prepares a fresh executable order.
+        # Unit 12 submits it to WEEX demo.
+        # Neither action happens in Unit 10.
+
+        "execution_authorized": False,
+        "order_submission_authorized": False,
+        "order_payload_created": False,
+        "demo_submission_requested": False,
+
+        "exchange_write": False,
+        "read_only": True,
+        "real_cash_execution": False
+    })
+
+    return finish(
+        "READY", "DEMO_TRADE_PLAN_VALIDATED"
+    )
+
+
+# ============================================================
+# UNIT 10 STARTUP EXECUTION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_10_RESULT = (
+    fresh_reconstruction_unit_10(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_9_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_8_RESULT
+    )
+)
+
+FRESH_UNIT_10_OPTIMIZATION_READY = (
+    isinstance(
+        FRESH_RECONSTRUCTION_UNIT_10_RESULT, dict
+    )
+    and FRESH_RECONSTRUCTION_UNIT_10_RESULT.get(
+        "read_only"
+    ) is True
+    and FRESH_RECONSTRUCTION_UNIT_10_RESULT.get(
+        "exchange_write"
+    ) is False
+    and FRESH_RECONSTRUCTION_UNIT_10_RESULT.get(
+        "status"
+    ) in ("READY", "PAUSED", "IDLE", "WAITING")
+)
+
+print(
+    "UNIT 10 OPTIMIZATION READY =",
+    FRESH_UNIT_10_OPTIMIZATION_READY,
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 10 REPLACEMENT
+# ZERO INDENTATION
+# ============================================================
