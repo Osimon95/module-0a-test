@@ -157,6 +157,9 @@ FRESH_RECONSTRUCTION_UNIT_1_READY = (
 # ============================================================
 
 import os
+print("RENDER WEEX_SYMBOL =", repr(os.environ.get("WEEX_SYMBOL")), flush=True)
+print("RENDER MARKET_SYMBOL =", repr(os.environ.get("MARKET_SYMBOL")), flush=True)
+print("RENDER SELECTED SYMBOL =", unit_2_universal_symbol()[0], flush=True)
 import re
 from decimal import Decimal, InvalidOperation
 
