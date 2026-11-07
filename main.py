@@ -9608,23 +9608,183 @@ FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
 # ============================================================
 
 
+
 # ============================================================
-# UNIT 13 V4 POSITION READ CORRECTION
-# APPEND AFTER UNIT 14 V4
-# ZERO INDENTATION - DEMO GET ONLY
+# START UNIT 13 V5 - POSITION RECONCILIATION
+# REPLACES PREVIOUS UNIT 13 PART 2
+# WEEX DEMO READ ONLY
 # ============================================================
 
-def fresh_reconstruction_unit_13(config, unit_12_result=None):
+from decimal import Decimal, InvalidOperation
 
+UNIT13_V5_VERSION = "V5_POSITION_RECONCILIATION"
+
+
+def unit_13_v5_decimal(value, name, allow_zero=False):
+    if value is None or isinstance(value, bool):
+        raise RuntimeError(name + "_MISSING")
+
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise RuntimeError(name + "_INVALID")
+
+    if not number.is_finite():
+        raise RuntimeError(name + "_NONFINITE")
+
+    if number < 0 or (number == 0 and not allow_zero):
+        raise RuntimeError(name + "_NONPOSITIVE")
+
+    return number
+
+
+def unit_13_v5_optional(value):
+    if value is None or value == "":
+        return None
+    return unit_13_v5_decimal(
+        value, "OPTIONAL_NUMBER", True
+    )
+
+
+def unit_13_v5_position(row, demo_symbol):
+    if not isinstance(row, dict):
+        raise RuntimeError("POSITION_RECORD_INVALID")
+
+    symbol = str(row.get("symbol") or "").upper()
+
+    if symbol != demo_symbol:
+        return None
+
+    size = unit_13_v5_decimal(
+        row.get("size"),
+        "POSITION_SIZE",
+        True
+    )
+
+    if size == 0:
+        return None
+
+    side = str(row.get("side") or "").upper()
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError("POSITION_SIDE_UNVERIFIED")
+
+    leverage = unit_13_v5_decimal(
+        row.get("leverage"),
+        "POSITION_LEVERAGE"
+    )
+
+    open_value = unit_13_v5_decimal(
+        row.get("openValue"),
+        "POSITION_OPEN_VALUE"
+    )
+
+    # This is an entry-price candidate, not yet
+    # authorization to submit TP/hedge orders.
+    entry_candidate = open_value / size
+
+    cum_open_size = unit_13_v5_optional(
+        row.get("cumOpenSize")
+    )
+    cum_open_value = unit_13_v5_optional(
+        row.get("cumOpenValue")
+    )
+    cum_close_size = unit_13_v5_optional(
+        row.get("cumCloseSize")
+    )
+
+    cumulative_price = None
+
+    if (
+        cum_open_size is not None
+        and cum_open_size > 0
+        and cum_open_value is not None
+        and cum_open_value > 0
+    ):
+        cumulative_price = (
+            cum_open_value / cum_open_size
+        )
+
+    return {
+        "symbol": symbol,
+        "side": side,
+        "size_btc_reported": str(size),
+        "leverage": str(leverage),
+        "position_id": str(
+            row.get("id") or ""
+        ),
+        "created_time": row.get("createdTime"),
+        "open_value": str(open_value),
+        "entry_price_candidate": str(
+            entry_candidate
+        ),
+        "cumulative_entry_candidate": (
+            str(cumulative_price)
+            if cumulative_price is not None
+            else None
+        ),
+        "cum_open_size": (
+            str(cum_open_size)
+            if cum_open_size is not None
+            else None
+        ),
+        "cum_open_value": (
+            str(cum_open_value)
+            if cum_open_value is not None
+            else None
+        ),
+        "cum_close_size": (
+            str(cum_close_size)
+            if cum_close_size is not None
+            else None
+        ),
+        "liquidation_price": row.get(
+            "liquidatePrice"
+        ),
+        "isolated_margin": row.get(
+            "isolatedMargin"
+        ),
+        "unrealized_pnl": row.get(
+            "unrealizePnl"
+        ),
+        "funding_fee": row.get(
+            "fundingFee"
+        ),
+        "cum_funding_fee": row.get(
+            "cumFundingFee"
+        ),
+        "open_fee": row.get("openFee"),
+        "cum_open_fee": row.get(
+            "cumOpenFee"
+        ),
+        "cum_close_fee": row.get(
+            "cumCloseFee"
+        ),
+        "entry_price_verified": False,
+        "position_quantity_units_verified": False,
+        "management_execution_authorized": False,
+    }
+
+
+def unit_13_v5_reconcile(config):
     print("=" * 80, flush=True)
-    print("COMBINED RECONSTRUCTION UNIT 13 START", flush=True)
+    print(
+        "COMBINED RECONSTRUCTION UNIT 13 V5 START",
+        flush=True
+    )
 
     result = {
-        "version": UNIT13_V4_VERSION,
+        "version": UNIT13_V5_VERSION,
         "status": "STARTED",
         "position_read_verified": False,
+        "history_verified": False,
         "raw_position_count": 0,
-        "position_records": [],
+        "active_position_count": 0,
+        "positions": [],
+        "history_order_count": 0,
+        "history_order_ids": [],
+        "matching_position_order_ids": [],
+        "unmatched_history_order_ids": [],
         "handover_to_unit_14": "NOT_READY",
         "management_execution_authorized": False,
         "exchange_write": False,
@@ -9632,11 +9792,13 @@ def fresh_reconstruction_unit_13(config, unit_12_result=None):
     }
 
     try:
-        market_symbol, demo_symbol = unit_13_v4_symbols(
-            config
+        market_symbol, demo_symbol = (
+            unit_13_v4_symbols(config)
         )
 
-        # Use the already verified Unit 14 demo reader.
+        result["market_symbol"] = market_symbol
+        result["demo_symbol"] = demo_symbol
+
         rows = unit_14_v4_signed_get(
             UNIT14_V4_POSITION
         )
@@ -9649,89 +9811,129 @@ def fresh_reconstruction_unit_13(config, unit_12_result=None):
         result["position_read_verified"] = True
         result["raw_position_count"] = len(rows)
 
-        for index, row in enumerate(rows):
-            if not isinstance(row, dict):
+        for row in rows:
+            position = unit_13_v5_position(
+                row, demo_symbol
+            )
+            if position is not None:
+                result["positions"].append(position)
+
+        result["active_position_count"] = len(
+            result["positions"]
+        )
+
+        history = unit_14_v4_history()
+
+        if not isinstance(history, list):
+            raise RuntimeError(
+                "ORDER_HISTORY_INVALID"
+            )
+
+        result["history_verified"] = True
+        result["history_order_count"] = len(history)
+
+        # Collect actual exchange order IDs.
+        # A shared symbol alone does not prove
+        # that an order belongs to this position.
+        for order in history:
+            if not isinstance(order, dict):
                 raise RuntimeError(
-                    "POSITION_RECORD_NOT_DICT"
+                    "ORDER_HISTORY_ROW_INVALID"
                 )
 
-            result["position_records"].append({
-                "row_index": index,
-                "symbol": row.get("symbol"),
-                "side": row.get(
-                    "side",
-                    row.get("holdSide")
-                ),
-                "size": row.get(
-                    "size",
-                    row.get("holdVol")
-                ),
-                "total": row.get("total"),
-                "open_value": row.get("openValue"),
-                "entry_price": row.get("entryPrice"),
-                "average_price": row.get("avgPrice"),
-                "leverage": row.get("leverage"),
-                "position_id": row.get(
-                    "positionId",
-                    row.get("id")
-                ),
-                "fields_present": sorted(row.keys()),
-            })
+            order_symbol = str(
+                order.get("symbol") or ""
+            ).upper()
 
-        result["status"] = (
-            "POSITION_RECONCILIATION_PENDING"
-            if rows
-            else "NO_POSITION_ROWS_RETURNED"
+            if order_symbol != demo_symbol:
+                continue
+
+            order_id = (
+                order.get("orderId")
+                or order.get("id")
+            )
+
+            if order_id is not None:
+                result["history_order_ids"].append(
+                    str(order_id)
+                )
+
+        result["history_order_ids"] = list(
+            dict.fromkeys(
+                result["history_order_ids"]
+            )
         )
-        result["handover_to_unit_14"] = (
-            "READY_FOR_RECONCILIATION"
+
+        # No reliable order-to-position association
+        # has been established yet.
+        result["unmatched_history_order_ids"] = (
+            result["history_order_ids"][:]
         )
+
+        if result["active_position_count"] == 0:
+            result["status"] = "NO_ACTIVE_POSITION"
+            result["handover_to_unit_14"] = (
+                "READY_FOR_RECONCILIATION"
+            )
+
+        elif result["active_position_count"] == 1:
+            result["status"] = (
+                "POSITION_IDENTIFIED_ORDER_MATCH_PENDING"
+            )
+            result["handover_to_unit_14"] = (
+                "READY_FOR_RECONCILIATION"
+            )
+
+        else:
+            result["status"] = (
+                "MULTIPLE_POSITIONS_RECONCILIATION_PENDING"
+            )
+            result["handover_to_unit_14"] = (
+                "READY_FOR_RECONCILIATION"
+            )
 
     except Exception as exc:
-        result["status"] = "POSITION_READ_FAILED"
+        result["status"] = "RECONCILIATION_FAILED"
         result["errors"].append(
             type(exc).__name__ + ": " + str(exc)
         )
 
-    print("UNIT 13 VERSION =", result["version"], flush=True)
-    print("UNIT 13 STATUS =", result["status"], flush=True)
+    for key in (
+        "version",
+        "status",
+        "market_symbol",
+        "demo_symbol",
+        "position_read_verified",
+        "history_verified",
+        "raw_position_count",
+        "active_position_count",
+        "positions",
+        "history_order_count",
+        "history_order_ids",
+        "matching_position_order_ids",
+        "unmatched_history_order_ids",
+        "handover_to_unit_14",
+        "management_execution_authorized",
+        "errors",
+    ):
+        print(
+            "UNIT 13 V5 " + key.upper() + " =",
+            result.get(key),
+            flush=True
+        )
+
     print(
-        "UNIT 13 POSITION READ VERIFIED =",
-        result["position_read_verified"],
+        "UNIT 13 V5 EXCHANGE WRITE = NONE",
         flush=True
     )
-    print(
-        "UNIT 13 RAW POSITION COUNT =",
-        result["raw_position_count"],
-        flush=True
-    )
-    print(
-        "UNIT 13 POSITION RECORDS =",
-        result["position_records"],
-        flush=True
-    )
-    print(
-        "UNIT 13 HANDOVER TO UNIT 14 =",
-        result["handover_to_unit_14"],
-        flush=True
-    )
-    print(
-        "UNIT 13 ERRORS =",
-        result["errors"],
-        flush=True
-    )
-    print("UNIT 13 EXCHANGE WRITE = NONE", flush=True)
     print("=" * 80, flush=True)
 
     return result
 
 
 FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
-    fresh_reconstruction_unit_13(
-        FRESH_RECONSTRUCTION_CONFIG,
-        globals().get(
-            "FRESH_RECONSTRUCTION_UNIT_12_RESULT"
-        ),
+    unit_13_v5_reconcile(
+        FRESH_RECONSTRUCTION_CONFIG
     )
 )
 
@@ -9742,12 +9944,14 @@ FRESH_UNIT_13_OPTIMIZATION_READY = (
 )
 
 print(
-    "UNIT 13 OPTIMIZATION READY =",
+    "UNIT 13 V5 OPTIMIZATION READY =",
     FRESH_UNIT_13_OPTIMIZATION_READY,
     flush=True
 )
 
 # ============================================================
-# END UNIT 13 V4 POSITION READ CORRECTION
+# END UNIT 13 V5 - POSITION RECONCILIATION
 # ============================================================
+
+
 
