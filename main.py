@@ -14731,8 +14731,10 @@ def scan_process_unit12(prepared, account):
 # ============================================================
 
 
+
 # ============================================================
-# 4. UNCONDITIONAL POSITION MANAGEMENT
+# START CONSOLIDATED POSITION MANAGEMENT HANDOVER
+# ZERO INDENTATION
 # ============================================================
 
 def scan_manage_position(unit12_result):
@@ -14740,59 +14742,127 @@ def scan_manage_position(unit12_result):
     global FRESH_RECONSTRUCTION_UNIT_13_RESULT
     global FRESH_RECONSTRUCTION_UNIT_14_RESULT
 
-    config = FRESH_RECONSTRUCTION_CONFIG
+    if not isinstance(unit12_result, dict):
+        raise RuntimeError(
+            "MANAGEMENT_UNIT12_HANDOVER_INVALID"
+        )
 
-    account = globals().get(
-        "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
+    base_config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
     )
 
-    if not isinstance(account, dict):
+    if not isinstance(base_config, dict):
         raise RuntimeError(
-            "POSITION MANAGEMENT ACCOUNT MISSING"
+            "MANAGEMENT_CONFIGURATION_MISSING"
         )
 
-    if account.get(
-        "demo_positions_read_verified"
-    ) is not True:
+    config = _u1314_reference_config(
+        base_config
+    )
+
+    if config.get("execution_environment") != "DEMO":
         raise RuntimeError(
-            "POSITION MANAGEMENT POSITION READ UNVERIFIED"
+            "MANAGEMENT_DEMO_ONLY"
         )
 
-    # --------------------------------------------------------
-    # UNIT 13 - POSITION PROTECTION PLANNER
-    # --------------------------------------------------------
+    print(
+        "POSITION MANAGEMENT = INDEPENDENT OF BOT_MODE",
+        flush=True
+    )
 
-    unit13 = fresh_unit_13_hybrid_adapter(
+    # Unit 4 ATR handover is evidence for protection.
+    # It must not override the TP execution function.
+
+    atr_status = "UNVERIFIED"
+    atr_snapshot = {}
+
+    verifier = globals().get(
+        "u413_verified_analysis"
+    )
+
+    if callable(verifier):
+
+        atr_status, atr_snapshot = verifier(
+            config
+        )
+
+    atr_verified = (
+        atr_status == "VERIFIED"
+        and isinstance(atr_snapshot, dict)
+        and atr_snapshot.get("read_only") is True
+    )
+
+    print(
+        "MANAGEMENT ATR14 VERIFIED =",
+        atr_verified,
+        flush=True
+    )
+
+    # Direct call to the captured Unit 13 engine.
+    # No legacy four-argument planner.
+
+    unit13 = _U1314_EXECUTION_UNIT13(
         config,
         unit12_result
     )
 
     if not isinstance(unit13, dict):
         raise RuntimeError(
-            "SCAN UNIT 13 INVALID"
+            "MANAGEMENT_UNIT13_RESULT_INVALID"
+        )
+
+    unit13["unit4_13_atr_verified"] = atr_verified
+
+    if atr_verified:
+        unit13["unit4_13_atr_snapshot"] = (
+            atr_snapshot
         )
 
     FRESH_RECONSTRUCTION_UNIT_13_RESULT = unit13
 
-    # --------------------------------------------------------
-    # UNIT 14 - SAFETY SUPERVISOR
-    # --------------------------------------------------------
+    # Direct call to the captured Unit 14 engine.
+    # No V1-V7 wrapper chain.
 
-    unit14 = fresh_reconstruction_unit_14(
+    unit14 = _U1314_EXECUTION_UNIT14(
         config,
-        account,
-        unit12_result,
         unit13
     )
 
     if not isinstance(unit14, dict):
         raise RuntimeError(
-            "SCAN UNIT 14 INVALID"
+            "MANAGEMENT_UNIT14_RESULT_INVALID"
         )
+
+    unit14["unit4_13_atr_verified"] = atr_verified
+
+    if not atr_verified:
+        unit14["atr_hedge_authorized"] = False
 
     FRESH_RECONSTRUCTION_UNIT_14_RESULT = unit14
 
+    print(
+        "MANAGEMENT UNIT 13 STATUS =",
+        unit13.get("status"),
+        flush=True
+    )
+
+    print(
+        "MANAGEMENT UNIT 14 STATUS =",
+        unit14.get("status"),
+        flush=True
+    )
+
+    print(
+        "MANAGEMENT HANDOVER = COMPLETED",
+        flush=True
+    )
+
     return unit13, unit14
+
+
+# ============================================================
+# END CONSOLIDATED POSITION MANAGEMENT HANDOVER
+# ============================================================
 
 
 # ============================================================
