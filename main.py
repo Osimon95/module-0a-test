@@ -6091,3 +6091,722 @@ FRESH_UNIT_8_OPTIMIZATION_READY = True
 
 
 
+
+# ============================================================
+# START COMPLETE UNIT 9 REPLACEMENT
+# UNIT 9 - UNIVERSAL DEMO TRADE PLAN
+# REFERENCES: 17248 AND 18426
+# ZERO INDENTATION
+# ============================================================
+
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
+
+
+def u9_number(value, default=None):
+
+    if value is None or isinstance(value, bool):
+        return default
+
+    try:
+        number = Decimal(str(value))
+        if not number.is_finite():
+            return default
+        return number
+    except (ValueError, TypeError, InvalidOperation):
+        return default
+
+
+def u9_string(value):
+
+    if isinstance(value, Decimal):
+        return format(value, "f")
+
+    return str(value)
+
+
+def u9_config_value(config, key, default=None):
+
+    if not isinstance(config, dict):
+        return default
+
+    if config.get(key) is not None:
+        return config[key]
+
+    strategy = config.get("strategy", {})
+
+    if isinstance(strategy, dict):
+        if strategy.get(key) is not None:
+            return strategy[key]
+
+    return default
+
+
+def u9_result_template(symbol):
+
+    return {
+        "unit": 9,
+        "version": "UNIT9_UNIVERSAL_FORWARD_V1",
+
+        "status": "IDLE",
+        "reason": "NO_ENTRY_CANDIDATE",
+        "skip_reason": "NO_ENTRY_CANDIDATE",
+
+        "symbol": symbol,
+        "market_symbol": symbol,
+        "demo_order_symbol": symbol,
+
+        "active_mode": "NONE",
+        "direction": "NONE",
+
+        "signal_qualified": False,
+        "execution_intent": False,
+
+        "trade_plan_ready": False,
+        "trade_plan": None,
+
+        "execution_ready": False,
+        "execution_candidate": None,
+
+        "quantity": None,
+        "selected_leverage": None,
+
+        "margin_budget_prechecked": False,
+        "margin_budget_fresh_verified": False,
+
+        "trade_authorized": False,
+        "execution_authorized": False,
+        "order_submission_authorized": False,
+        "order_payload_created": False,
+
+        "existing_position_management_enabled": True,
+        "existing_position_management_independent": True,
+
+        "exchange_write": False,
+        "read_only": True,
+        "real_cash_execution_enabled": False,
+
+        "handover_to_unit10": "READY"
+    }
+
+
+def fresh_reconstruction_unit_9(
+    config,
+    unit8,
+    unit7
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "COMBINED RECONSTRUCTION UNIT 9 START",
+        flush=True
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT9_CONFIG_INVALID")
+
+    if not isinstance(unit8, dict):
+        raise RuntimeError("UNIT9_UNIT8_INVALID")
+
+    if not isinstance(unit7, dict):
+        raise RuntimeError("UNIT9_UNIT7_INVALID")
+
+    exchange = config.get("exchange", {})
+
+    symbol = str(
+        exchange.get("market_symbol", "")
+    ).strip().upper()
+
+    if not symbol:
+        raise RuntimeError("UNIT9_SYMBOL_MISSING")
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or config.get("real_cash_execution_enabled")
+        is not False
+    ):
+        raise RuntimeError("UNIT9_DEMO_ONLY")
+
+    if (
+        unit8.get("market_symbol") != symbol
+        or unit8.get("demo_order_symbol") != symbol
+        or unit7.get("symbol") != symbol
+    ):
+        raise RuntimeError(
+            "UNIT9_SYMBOL_HANDOVER_MISMATCH"
+        )
+
+    result = u9_result_template(symbol)
+
+    result["bot_mode"] = str(
+        config.get("bot_mode", "PAUSE")
+    ).upper()
+
+    result["contract"] = unit8.get("contract")
+    result["unit8_status"] = unit8.get("status")
+
+    result["available_balance"] = (
+        unit8.get("available_balance")
+    )
+
+    result["long_position_quantity"] = (
+        unit8.get("long_position_quantity")
+    )
+
+    result["short_position_quantity"] = (
+        unit8.get("short_position_quantity")
+    )
+
+    result["position_flat_verified"] = (
+        unit8.get("position_flat_verified") is True
+    )
+
+    result["position_management_handover"] = (
+        unit7.get("position_management_handover")
+    )
+
+    result["positions"] = unit8.get(
+        "positions", []
+    )
+
+    result["demo_positions_read_verified"] = (
+        unit8.get("demo_positions_read_verified")
+        is True
+    )
+
+    result["hedge_policy"] = unit7.get(
+        "hedge_policy", {}
+    )
+
+    result["backup_policy"] = unit7.get(
+        "backup_policy", {}
+    )
+
+    result["backup_count"] = unit7.get(
+        "backup_count", 5
+    )
+
+    result["exposure_cap_percent"] = (
+        unit7.get(
+            "exposure_cap_percent",
+            u9_config_value(
+                config,
+                "exposure_cap_percent",
+                100
+            )
+        )
+    )
+
+    result["tp1_net_roi_percent"] = u9_config_value(
+        config, "tp1_net_roi_percent", 20
+    )
+
+    result["tp2_net_roi_percent"] = u9_config_value(
+        config, "tp2_net_roi_percent", 40
+    )
+
+    result["tp_allocation"] = {
+        "tp1_percent": 10,
+        "tp2_percent": 20,
+        "tp3_percent": 70
+    }
+
+    def finish(status, reason):
+
+        result["status"] = status
+        result["reason"] = reason
+        result["skip_reason"] = (
+            None if status == "READY" else reason
+        )
+
+        print(
+            "UNIT 9 SYMBOL =",
+            symbol,
+            flush=True
+        )
+
+        print(
+            "UNIT 9 DEMO SYMBOL =",
+            result["demo_order_symbol"],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 BOT_MODE =",
+            result["bot_mode"],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 MODE =",
+            result["active_mode"],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 DIRECTION =",
+            result["direction"],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 QUANTITY =",
+            result["quantity"],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 TRADE PLAN READY =",
+            result["trade_plan_ready"],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 EXECUTION READY =",
+            result["execution_ready"],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 EXISTING POSITION MANAGEMENT =",
+            "INDEPENDENT",
+            flush=True
+        )
+
+        print(
+            "UNIT 9 STATUS =",
+            status,
+            flush=True
+        )
+
+        print(
+            "UNIT 9 REASON =",
+            reason,
+            flush=True
+        )
+
+        print(
+            "UNIT 9 HANDOVER TO UNIT 10 = READY",
+            flush=True
+        )
+
+        print(
+            "UNIT 9 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        print(
+            "COMBINED RECONSTRUCTION UNIT 9 RESULT = PASS",
+            flush=True
+        )
+
+        print("=" * 80, flush=True)
+
+        return result
+
+    # ========================================================
+    # EXISTING POSITION MANAGEMENT REMAINS INDEPENDENT
+    # ========================================================
+
+    # Unit 9 prepares new entry candidates only.
+    # Units 13-14 will manage existing positions.
+    # BOT_MODE=PAUSE must not disable position management.
+
+    mode = str(
+        unit7.get("active_mode", "NONE")
+    ).upper()
+
+    direction = str(
+        unit7.get("direction", "NONE")
+    ).upper()
+
+    result["active_mode"] = mode
+    result["direction"] = direction
+
+    result["signal_qualified"] = (
+        unit7.get("signal_qualified") is True
+    )
+
+    result["execution_intent"] = (
+        unit7.get("new_entry_intent") is True
+    )
+
+    if not result["signal_qualified"]:
+        return finish(
+            "IDLE",
+            "NO_QUALIFIED_ENTRY"
+        )
+
+    if mode not in (
+        "SCALP",
+        "STRUCTURE",
+        "BREAKOUT"
+    ):
+        return finish(
+            "IDLE",
+            "NO_QUALIFIED_MODE"
+        )
+
+    if direction not in ("LONG", "SHORT"):
+        return finish(
+            "IDLE",
+            "NO_QUALIFIED_DIRECTION"
+        )
+
+    if result["bot_mode"] != "RUN":
+        return finish(
+            "PAUSED",
+            "NEW_ENTRIES_PAUSED"
+        )
+
+    if not result["execution_intent"]:
+        return finish(
+            "IDLE",
+            "NO_NEW_ENTRY_INTENT"
+        )
+
+    # ========================================================
+    # UNIT 8 EXCHANGE DATA
+    # ========================================================
+
+    if unit8.get("market_contract_verified") is not True:
+        return finish(
+            "WAITING",
+            "MARKET_CONTRACT_UNAVAILABLE"
+        )
+
+    if unit8.get("demo_balance_verified") is not True:
+        return finish(
+            "WAITING",
+            "DEMO_BALANCE_UNAVAILABLE"
+        )
+
+    if unit8.get("demo_positions_read_verified") is not True:
+        return finish(
+            "WAITING",
+            "DEMO_POSITIONS_UNAVAILABLE"
+        )
+
+    if unit8.get("account_can_trade") is not True:
+        return finish(
+            "WAITING",
+            "ACCOUNT_TRADING_NOT_ENABLED"
+        )
+
+    # This flat-position requirement applies only to
+    # NEW INITIAL ENTRIES, not existing-position
+    # management or hedge/backup execution.
+
+    if not result["position_flat_verified"]:
+        return finish(
+            "IDLE",
+            "EXISTING_POSITION_PRESENT_OR_UNVERIFIED"
+        )
+
+    contract = unit8.get("contract")
+    preview = unit8.get("size_preview")
+
+    if not isinstance(contract, dict):
+        return finish(
+            "WAITING",
+            "CONTRACT_DATA_MISSING"
+        )
+
+    if not isinstance(preview, dict):
+        return finish(
+            "WAITING",
+            "ENTRY_SIZE_PREVIEW_MISSING"
+        )
+
+    if preview.get("valid") is not True:
+        return finish(
+            "WAITING",
+            "ENTRY_QUANTITY_INVALID"
+        )
+
+    # ========================================================
+    # QUANTITY VALIDATION
+    # ========================================================
+
+    quantity = u9_number(
+        preview.get("quantity")
+    )
+
+    minimum = u9_number(
+        contract.get("minimum_quantity")
+    )
+
+    step = u9_number(
+        contract.get("quantity_step")
+    )
+
+    multiplier = u9_number(
+        contract.get("contract_multiplier")
+    )
+
+    leverage = u9_number(
+        preview.get("leverage")
+    )
+
+    entry_margin = u9_number(
+        preview.get("actual_margin_usdt")
+    )
+
+    available = u9_number(
+        unit8.get("available_balance")
+    )
+
+    if any(
+        value is None or value <= 0
+        for value in (
+            quantity,
+            minimum,
+            step,
+            multiplier,
+            leverage,
+            entry_margin
+        )
+    ):
+        return finish(
+            "WAITING",
+            "ENTRY_NUMERIC_DATA_INVALID"
+        )
+
+    if available is None or available < entry_margin:
+        return finish(
+            "WAITING",
+            "INSUFFICIENT_DEMO_BALANCE"
+        )
+
+    if (
+        quantity < minimum
+        or quantity % step != 0
+    ):
+        return finish(
+            "WAITING",
+            "QUANTITY_STEP_OR_MINIMUM_INVALID"
+        )
+
+    maximum = u9_number(
+        contract.get("maximum_quantity")
+    )
+
+    if maximum is not None and quantity > maximum:
+        return finish(
+            "WAITING",
+            "QUANTITY_ABOVE_MAXIMUM"
+        )
+
+    configured_leverage = u9_number(
+        unit7.get(
+            "leverage_long"
+            if direction == "LONG"
+            else "leverage_short"
+        )
+    )
+
+    if (
+        configured_leverage is None
+        or leverage != configured_leverage
+    ):
+        return finish(
+            "WAITING",
+            "LEVERAGE_CONFIGURATION_MISMATCH"
+        )
+
+    # ========================================================
+    # EXPOSURE BUDGET PRECHECK
+    # ========================================================
+
+    exposure_cap = u9_number(
+        result["exposure_cap_percent"]
+    )
+
+    if (
+        exposure_cap is None
+        or exposure_cap <= 0
+        or exposure_cap > 100
+    ):
+        return finish(
+            "WAITING",
+            "EXPOSURE_CAP_INVALID"
+        )
+
+    # Available balance alone is not total equity.
+    # This is a preliminary margin budget check.
+    # Downstream execution must refresh account
+    # balances, exposure and actual position state.
+
+    result["margin_budget_prechecked"] = (
+        entry_margin <= available
+    )
+
+    # ========================================================
+    # PREPARE UNIVERSAL DEMO TRADE PLAN
+    # ========================================================
+
+    first_half = u9_number(
+        preview.get("stage1_quantity")
+    )
+
+    second_half = u9_number(
+        preview.get("stage2_remaining_quantity")
+    )
+
+    staged_hedge_valid = (
+        preview.get("staged_hedge_quantity_valid")
+        is True
+    )
+
+    trade_plan = {
+        "symbol": symbol,
+        "market_symbol": symbol,
+        "demo_order_symbol": symbol,
+
+        "execution_environment": "DEMO",
+
+        "active_mode": mode,
+        "direction": direction,
+
+        "quantity": u9_string(quantity),
+
+        "quantity_unit":
+            preview.get("quantity_unit"),
+
+        "minimum_quantity":
+            u9_string(minimum),
+
+        "quantity_step":
+            u9_string(step),
+
+        "contract_multiplier":
+            u9_string(multiplier),
+
+        "leverage":
+            u9_string(leverage),
+
+        "entry_margin_usdt":
+            u9_string(entry_margin),
+
+        "requested_margin_usdt":
+            preview.get("requested_margin_usdt"),
+
+        "requested_notional_usdt":
+            preview.get("requested_notional_usdt"),
+
+        "actual_notional_usdt":
+            preview.get("actual_notional_usdt"),
+
+        "indicative_mark_price":
+            preview.get("mark_price"),
+
+        "stage1_hedge_quantity":
+            (
+                u9_string(first_half)
+                if first_half is not None
+                else None
+            ),
+
+        "stage2_remaining_quantity":
+            (
+                u9_string(second_half)
+                if second_half is not None
+                else None
+            ),
+
+        "staged_hedge_quantity_valid":
+            staged_hedge_valid,
+
+        "hedge_policy":
+            result["hedge_policy"],
+
+        "backup_policy":
+            result["backup_policy"],
+
+        "backup_count":
+            result["backup_count"],
+
+        "tp1_net_roi_percent":
+            result["tp1_net_roi_percent"],
+
+        "tp2_net_roi_percent":
+            result["tp2_net_roi_percent"],
+
+        "tp_allocation":
+            result["tp_allocation"],
+
+        "contract": contract,
+
+        "unit8_size_preview": preview,
+
+        "requires_fresh_balance": True,
+        "requires_fresh_position_read": True,
+        "requires_demo_order_response": True,
+
+        "order_submitted": False,
+        "real_cash_execution_enabled": False
+    }
+
+    execution_candidate = {
+        "active_mode": mode,
+        "direction": direction,
+        "trade_plan": trade_plan,
+        "execution_environment": "DEMO"
+    }
+
+    result.update({
+        "status": "READY",
+        "reason": "VALIDATED_DEMO_ENTRY_CANDIDATE",
+        "skip_reason": None,
+
+        "trade_plan_ready": True,
+        "trade_plan": trade_plan,
+
+        "execution_ready": True,
+        "execution_candidate": execution_candidate,
+
+        "quantity": u9_string(quantity),
+
+        "selected_leverage":
+            u9_string(leverage),
+
+        "margin_budget_prechecked": True,
+
+        "margin_budget_fresh_verified": False,
+
+        "trade_authorized": False,
+        "execution_authorized": False,
+
+        "order_submission_authorized": False,
+        "order_payload_created": False,
+
+        "exchange_write": False,
+        "read_only": True
+    })
+
+    return finish(
+        "READY",
+        "VALIDATED_DEMO_ENTRY_CANDIDATE"
+    )
+
+
+# ============================================================
+# UNIT 9 STARTUP EXECUTION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_9_RESULT = (
+    fresh_reconstruction_unit_9(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_8_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_7_RESULT
+    )
+)
+
+FRESH_UNIT_9_OPTIMIZATION_READY = True
+
+
+# ============================================================
+# END COMPLETE UNIT 9 REPLACEMENT
+# ZERO INDENTATION
+# ============================================================
+
+
