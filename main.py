@@ -8966,15 +8966,68 @@ def fresh_reconstruction_unit_13_restored():
             "UNIT13_POSITION_QUANTITY_STEP_MISMATCH"
         )
 
+        # ========================================================
+    # RENDER-ADJUSTABLE TP ALLOCATION
+    # ========================================================
+
+    tp1_percent = u13_D(
+        strategy["tp1_allocation_percent"],
+        "TP1_ALLOCATION_PERCENT"
+    )
+
+    tp2_percent = u13_D(
+        strategy["tp2_allocation_percent"],
+        "TP2_ALLOCATION_PERCENT"
+    )
+
+    tp3_percent = (
+        Decimal("100")
+        - tp1_percent
+        - tp2_percent
+    )
+
+    if (
+        tp1_percent <= 0
+        or tp2_percent <= 0
+        or tp3_percent <= 0
+    ):
+        raise RuntimeError(
+            "UNIT13_INVALID_TP_ALLOCATION"
+        )
+
     q1 = u13_floor(
-        cum_open * Decimal("0.10"), step
+        cum_open * tp1_percent / Decimal("100"),
+        step
     )
 
     q2 = u13_floor(
-        cum_open * Decimal("0.20"), step
+        cum_open * tp2_percent / Decimal("100"),
+        step
     )
 
     q3 = cum_open - q1 - q2
+
+    if q1 + q2 + q3 != cum_open:
+        raise RuntimeError(
+            "UNIT13_TP_QUANTITY_MISMATCH"
+        )
+
+    print(
+        "UNIT 13 RENDER TP ALLOCATION =",
+        tp1_percent,
+        tp2_percent,
+        tp3_percent,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP QUANTITIES =",
+        q1,
+        q2,
+        q3,
+        flush=True
+    )
+
 
     tp1, tp2 = u13_targets(
         entry,
