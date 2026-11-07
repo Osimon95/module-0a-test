@@ -9110,3 +9110,501 @@ def unit_13_v4_active_positions(
 # ============================================================
 
 
+
+# ============================================================
+# START UNIT 14 V4
+# PART 1 - ORIGINAL 17248 HISTORY AND RECONCILIATION
+# ZERO INDENTATION
+# DEMO GET REQUESTS ONLY
+# ============================================================
+
+import os
+import json
+import time
+import hmac
+import base64
+import hashlib
+import urllib.request
+import urllib.parse
+import urllib.error
+
+from decimal import Decimal, InvalidOperation
+
+UNIT14_V4_VERSION = "V4_17248_HISTORY_RESTORED"
+UNIT14_V4_BASE = "https://api-contract.weex.com"
+UNIT14_V4_HISTORY = "/capi/v3/sim/order/history"
+UNIT14_V4_POSITION = "/capi/v3/sim/position/allPosition"
+
+
+def unit_14_v4_D(value, name="VALUE", zero=False):
+    if value is None or isinstance(value, bool):
+        raise RuntimeError("UNIT 14 MISSING " + name)
+
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "UNIT 14 INVALID " + name
+        ) from exc
+
+    if not number.is_finite():
+        raise RuntimeError(
+            "UNIT 14 NONFINITE " + name
+        )
+
+    if number < 0 or (number == 0 and not zero):
+        raise RuntimeError(
+            "UNIT 14 NONPOSITIVE " + name
+        )
+
+    return number
+
+
+def unit_14_v4_demo_symbol():
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 14 CONFIG MISSING"
+        )
+
+    if config.get("execution_environment") != "DEMO":
+        raise RuntimeError(
+            "UNIT 14 DEMO ENVIRONMENT REQUIRED"
+        )
+
+    if config.get("real_cash_execution_enabled") is not False:
+        raise RuntimeError(
+            "UNIT 14 REAL CASH EXECUTION BLOCKED"
+        )
+
+    exchange = config.get("exchange", {})
+
+    if not isinstance(exchange, dict):
+        raise RuntimeError(
+            "UNIT 14 EXCHANGE CONFIG INVALID"
+        )
+
+    symbol = str(
+        exchange.get("demo_order_symbol") or ""
+    ).strip().upper()
+
+    if not symbol:
+        raise RuntimeError(
+            "UNIT 14 DEMO SYMBOL MISSING"
+        )
+
+    return symbol
+
+
+# ============================================================
+# ORIGINAL 17248 SIGNED REQUEST PRINCIPLE
+# ALLOWED: DEMO POSITION AND ORDER HISTORY GET
+# ============================================================
+
+def unit_14_v4_signed_get(path, query=""):
+
+    if path not in (
+        UNIT14_V4_HISTORY,
+        UNIT14_V4_POSITION,
+    ):
+        raise RuntimeError(
+            "UNIT 14 NON-DEMO ENDPOINT BLOCKED"
+        )
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        raise RuntimeError(
+            "UNIT 14 DEMO CREDENTIALS MISSING"
+        )
+
+    timestamp = str(int(time.time() * 1000))
+
+    prehash = timestamp + "GET" + path
+
+    if query:
+        prehash += "?" + query
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            prehash.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    url = UNIT14_V4_BASE + path
+
+    if query:
+        url += "?" + query
+
+    request = urllib.request.Request(
+        url,
+        method="GET",
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": phrase,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            status = response.getcode()
+            raw = response.read().decode(
+                "utf-8",
+                errors="replace"
+            )
+
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            "UNIT 14 WEEX HTTP " + str(exc.code)
+        ) from exc
+
+    if not 200 <= status < 300:
+        raise RuntimeError(
+            "UNIT 14 HTTP STATUS " + str(status)
+        )
+
+    try:
+        result = json.loads(raw)
+    except ValueError as exc:
+        raise RuntimeError(
+            "UNIT 14 INVALID RESPONSE JSON"
+        ) from exc
+
+    # The 17248 implementation expects a list.
+    # Do not silently turn an API error into
+    # an empty order history.
+    if not isinstance(result, list):
+        raise RuntimeError(
+            "UNIT 14 UNRECOGNIZED RESPONSE FORMAT"
+        )
+
+    return result
+
+
+# ============================================================
+# RESTORED ORDER HISTORY WITH PAGINATION
+# ============================================================
+
+def unit_14_v4_history():
+
+    symbol = unit_14_v4_demo_symbol()
+
+    orders = []
+    page_limit = 20
+    page_size = 1000
+
+    for page in range(page_limit):
+
+        query = urllib.parse.urlencode({
+            "symbol": symbol,
+            "limit": page_size,
+            "page": page,
+        })
+
+        batch = unit_14_v4_signed_get(
+            UNIT14_V4_HISTORY,
+            query
+        )
+
+        if not all(
+            isinstance(item, dict)
+            for item in batch
+        ):
+            raise RuntimeError(
+                "UNIT 14 MALFORMED ORDER HISTORY"
+            )
+
+        orders.extend(batch)
+
+        if len(batch) < page_size:
+
+            print(
+                "UNIT 14 ORDER HISTORY COMPLETE = True",
+                flush=True
+            )
+            print(
+                "UNIT 14 ORDER HISTORY RECORDS =",
+                len(orders),
+                flush=True
+            )
+
+            return orders
+
+    raise RuntimeError(
+        "UNIT 14 HISTORY PAGINATION INCOMPLETE"
+    )
+
+
+# ============================================================
+# RESTORED ORIGINAL BACKUP ORDER ID CONVENTION
+# ============================================================
+
+def unit_14_v4_backup_id(stage, trade_key):
+
+    if stage not in range(1, 6):
+        raise RuntimeError(
+            "UNIT 14 INVALID BACKUP STAGE"
+        )
+
+    if not trade_key:
+        raise RuntimeError(
+            "UNIT 14 TRADE KEY MISSING"
+        )
+
+    return (
+        "FR-B"
+        + str(stage)
+        + "-"
+        + str(trade_key)
+    )[:36]
+
+
+def unit_14_v4_trade_key(position):
+
+    if not isinstance(position, dict):
+        raise RuntimeError(
+            "UNIT 14 POSITION INVALID"
+        )
+
+    created = str(
+        position.get("createdTime") or ""
+    )
+
+    if created.isdigit():
+        return created[-12:]
+
+    position_id = str(
+        position.get("id") or ""
+    )
+
+    if position_id:
+        return position_id[-12:]
+
+    raise RuntimeError(
+        "UNIT 14 POSITION IDENTITY MISSING"
+    )
+
+
+# ============================================================
+# RESTORED B1-B5 ORDER RECONCILIATION
+# ============================================================
+
+def unit_14_v4_reconcile(history, trade_key):
+
+    if not isinstance(history, list):
+        raise RuntimeError(
+            "UNIT 14 HISTORY INVALID"
+        )
+
+    existing = set()
+    filled = set()
+    order_ids = {}
+
+    for stage in range(1, 6):
+
+        client_id = unit_14_v4_backup_id(
+            stage,
+            trade_key
+        )
+
+        matching = [
+            order
+            for order in history
+            if isinstance(order, dict)
+            and str(
+                order.get("clientOrderId") or ""
+            ) == client_id
+        ]
+
+        for order in matching:
+
+            status = str(
+                order.get("status") or ""
+            ).upper()
+
+            executed = unit_14_v4_D(
+                order.get("executedQty", 0),
+                "EXECUTED QUANTITY",
+                True
+            )
+
+            order_id = (
+                order.get("orderId")
+                or order.get("id")
+            )
+
+            if order_id is not None:
+                order_ids[stage] = str(order_id)
+
+            if status not in (
+                "CANCELED",
+                "CANCELLED",
+                "REJECTED",
+                "EXPIRED",
+            ):
+                existing.add(stage)
+
+            if status == "FILLED" and executed > 0:
+                filled.add(stage)
+
+            if executed > 0 and status != "FILLED":
+                existing.add(stage)
+
+    completed = 0
+
+    for stage in range(1, 6):
+        if stage in filled:
+            completed = stage
+        else:
+            break
+
+    if any(
+        stage > completed + 1
+        for stage in filled
+    ):
+        raise RuntimeError(
+            "UNIT 14 NONSEQUENTIAL BACKUP FILLS"
+        )
+
+    return {
+        "completed_backup_stage": completed,
+        "existing_backup_stages": sorted(existing),
+        "filled_backup_stages": sorted(filled),
+        "backup_order_ids": order_ids,
+    }
+
+
+# ============================================================
+# INITIAL HISTORY RESTORATION CHECK
+# ============================================================
+
+def unit_14_v4_history_check():
+
+    result = {
+        "version": UNIT14_V4_VERSION,
+        "status": "STARTED",
+        "history_verified": False,
+        "order_count": 0,
+        "orders_with_exchange_ids": 0,
+        "position_read_verified": False,
+        "raw_position_count": None,
+        "exchange_write": False,
+        "errors": [],
+    }
+
+    try:
+
+        history = unit_14_v4_history()
+
+        result["history_verified"] = True
+        result["order_count"] = len(history)
+
+        result["orders_with_exchange_ids"] = sum(
+            1
+            for order in history
+            if order.get("orderId") is not None
+            or order.get("id") is not None
+        )
+
+        positions = unit_14_v4_signed_get(
+            UNIT14_V4_POSITION
+        )
+
+        result["position_read_verified"] = True
+        result["raw_position_count"] = len(positions)
+
+        result["status"] = "READ_COMPLETE"
+
+    except Exception as exc:
+
+        result["status"] = "READ_FAILED"
+        result["errors"].append(
+            type(exc).__name__ + ": " + str(exc)
+        )
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 14 VERSION =",
+        result["version"],
+        flush=True
+    )
+    print(
+        "UNIT 14 STATUS =",
+        result["status"],
+        flush=True
+    )
+    print(
+        "UNIT 14 HISTORY VERIFIED =",
+        result["history_verified"],
+        flush=True
+    )
+    print(
+        "UNIT 14 HISTORY ORDER COUNT =",
+        result["order_count"],
+        flush=True
+    )
+    print(
+        "UNIT 14 EXCHANGE ORDER IDS FOUND =",
+        result["orders_with_exchange_ids"],
+        flush=True
+    )
+    print(
+        "UNIT 14 POSITION READ VERIFIED =",
+        result["position_read_verified"],
+        flush=True
+    )
+    print(
+        "UNIT 14 RAW POSITION COUNT =",
+        result["raw_position_count"],
+        flush=True
+    )
+    print(
+        "UNIT 14 ERRORS =",
+        result["errors"],
+        flush=True
+    )
+    print(
+        "UNIT 14 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    return result
+
+
+FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
+    unit_14_v4_history_check()
+)
+
+# ============================================================
+# END UNIT 14 V4 - HISTORY RESTORATION
+# ============================================================
+
+
