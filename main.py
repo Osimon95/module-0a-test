@@ -8700,3 +8700,954 @@ print(
 # ============================================================
 
 
+
+# ============================================================
+# START COMPLETE UNIT 13 V1
+# WEEX DEMO EXISTING POSITION MANAGEMENT
+# INDEPENDENT OF BOT_MODE
+# POSITION READ + TP + ATR HEDGE DECISION ENGINE
+# ZERO INDENTATION
+# ============================================================
+
+from decimal import Decimal, ROUND_DOWN
+
+
+# ============================================================
+# 13.1 NUMERIC HELPERS
+# ============================================================
+
+def u13_number(value, default=None):
+
+    if value is None or isinstance(value, bool):
+        return default
+
+    try:
+        number = Decimal(str(value))
+    except Exception:
+        return default
+
+    if not number.is_finite():
+        return default
+
+    return number
+
+
+def u13_first(item, keys):
+
+    for key in keys:
+        value = item.get(key)
+
+        if value is not None:
+            return value
+
+    return None
+
+
+def u13_floor(value, step):
+
+    return (
+        (value / step).to_integral_value(
+            rounding=ROUND_DOWN
+        ) * step
+    )
+
+
+def u13_string(value):
+
+    if value is None:
+        return None
+
+    return format(value, "f")
+
+
+# ============================================================
+# 13.2 VERIFIED MARKET CONTEXT
+# ============================================================
+
+def u13_market_context():
+
+    market = globals().get(
+        "FRESH_RECONSTRUCTION_MARKET_SNAPSHOT",
+        {}
+    )
+
+    analysis = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_4_RESULT",
+        {}
+    )
+
+    if not isinstance(market, dict):
+        market = {}
+
+    if not isinstance(analysis, dict):
+        analysis = {}
+
+    price = u13_number(market.get("price"))
+
+    atr = u13_number(analysis.get("atr14"))
+
+    return {
+        "mark_price": price,
+        "atr14": atr,
+        "market_symbol": market.get("symbol"),
+        "market_read_only": (
+            market.get("read_only") is True
+        ),
+    }
+
+
+# ============================================================
+# 13.3 POSITION NORMALIZATION
+# ============================================================
+
+def u13_normalize_position(
+    raw,
+    market_symbol,
+    demo_symbol
+):
+
+    if not isinstance(raw, dict):
+        return None
+
+    symbol = str(
+        raw.get("symbol", "")
+    ).upper()
+
+    if symbol not in (
+        market_symbol,
+        demo_symbol
+    ):
+        return None
+
+    side = str(
+        u13_first(
+            raw,
+            (
+                "positionSide",
+                "holdSide",
+                "side"
+            )
+        ) or ""
+    ).upper()
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT13_POSITION_SIDE_UNVERIFIED"
+        )
+
+    quantity = u13_number(
+        u13_first(
+            raw,
+            (
+                "size",
+                "total",
+                "holdVol",
+                "positionAmt"
+            )
+        )
+    )
+
+    if quantity is None:
+        raise RuntimeError(
+            "UNIT13_POSITION_QUANTITY_UNVERIFIED"
+        )
+
+    quantity = abs(quantity)
+
+    if quantity == 0:
+        return None
+
+    entry = u13_number(
+        u13_first(
+            raw,
+            (
+                "entryPrice",
+                "avgPrice",
+                "averageOpenPrice",
+                "openPriceAvg"
+            )
+        )
+    )
+
+    leverage = u13_number(
+        raw.get("leverage")
+    )
+
+    liquidation = u13_number(
+        u13_first(
+            raw,
+            (
+                "liquidationPrice",
+                "liqPrice",
+                "liquidatePrice"
+            )
+        )
+    )
+
+    if entry is None or entry <= 0:
+        raise RuntimeError(
+            "UNIT13_ENTRY_PRICE_UNVERIFIED"
+        )
+
+    if leverage is None or leverage <= 0:
+        raise RuntimeError(
+            "UNIT13_POSITION_LEVERAGE_UNVERIFIED"
+        )
+
+    return {
+        "symbol": market_symbol,
+        "demo_symbol": demo_symbol,
+        "side": side,
+        "quantity": quantity,
+        "entry_price": entry,
+        "leverage": leverage,
+        "liquidation_price": liquidation,
+        "raw": raw,
+    }
+
+
+# ============================================================
+# 13.4 PROFIT AND HEDGE CALCULATIONS
+# ============================================================
+
+def u13_position_plan(
+    position,
+    context,
+    strategy,
+    contract
+):
+
+    mark = context["mark_price"]
+    atr = context["atr14"]
+
+    if mark is None or mark <= 0:
+        raise RuntimeError(
+            "UNIT13_MARK_PRICE_UNVERIFIED"
+        )
+
+    side = position["side"]
+    entry = position["entry_price"]
+    quantity = position["quantity"]
+    leverage = position["leverage"]
+
+    multiplier = u13_number(
+        contract.get("contract_multiplier")
+    )
+
+    step = u13_number(
+        contract.get("quantity_step")
+    )
+
+    minimum = u13_number(
+        contract.get("minimum_quantity")
+    )
+
+    if (
+        multiplier is None or multiplier <= 0
+        or step is None or step <= 0
+        or minimum is None or minimum <= 0
+    ):
+        raise RuntimeError(
+            "UNIT13_CONTRACT_PRECISION_UNVERIFIED"
+        )
+
+    direction = (
+        Decimal("1")
+        if side == "LONG"
+        else Decimal("-1")
+    )
+
+    position_notional = (
+        quantity * multiplier * entry
+    )
+
+    estimated_margin = (
+        position_notional / leverage
+    )
+
+    gross_pnl = (
+        (mark - entry)
+        * direction
+        * quantity
+        * multiplier
+    )
+
+    fee_rate = u13_number(
+        strategy.get(
+            "fee_estimate_taker_rate",
+            "0.0008"
+        )
+    )
+
+    slippage_rate = u13_number(
+        strategy.get(
+            "estimated_slippage_rate",
+            "0.0002"
+        )
+    )
+
+    funding_rate = u13_number(
+        strategy.get(
+            "estimated_funding_rate",
+            "0"
+        )
+    )
+
+    if any(
+        value is None or value < 0
+        for value in (
+            fee_rate,
+            slippage_rate,
+            funding_rate
+        )
+    ):
+        raise RuntimeError(
+            "UNIT13_COST_CONFIGURATION_INVALID"
+        )
+
+    # Estimated costs only.
+    # Actual fees and funding must be reconciled
+    # from confirmed exchange transactions.
+
+    estimated_entry_fee = (
+        position_notional * fee_rate
+    )
+
+    estimated_exit_fee = (
+        quantity * multiplier * mark
+        * fee_rate
+    )
+
+    estimated_slippage = (
+        quantity * multiplier * mark
+        * slippage_rate * 2
+    )
+
+    estimated_funding = (
+        position_notional * funding_rate
+    )
+
+    estimated_costs = (
+        estimated_entry_fee
+        + estimated_exit_fee
+        + estimated_slippage
+        + estimated_funding
+    )
+
+    estimated_net_pnl = (
+        gross_pnl - estimated_costs
+    )
+
+    estimated_net_roi = (
+        estimated_net_pnl
+        / estimated_margin
+        * 100
+    )
+
+    tp1 = u13_number(
+        strategy.get(
+            "tp1_net_roi_percent",
+            "20"
+        )
+    )
+
+    tp2 = u13_number(
+        strategy.get(
+            "tp2_net_roi_percent",
+            "40"
+        )
+    )
+
+    tp1_allocation = u13_number(
+        strategy.get(
+            "tp1_allocation_percent",
+            "10"
+        )
+    )
+
+    tp2_allocation = u13_number(
+        strategy.get(
+            "tp2_allocation_percent",
+            "20"
+        )
+    )
+
+    if (
+        tp1 is None or tp2 is None
+        or tp1 <= 0 or tp2 <= tp1
+        or tp1_allocation is None
+        or tp2_allocation is None
+    ):
+        raise RuntimeError(
+            "UNIT13_TP_CONFIGURATION_INVALID"
+        )
+
+    tp1_quantity = u13_floor(
+        quantity * tp1_allocation / 100,
+        step
+    )
+
+    tp2_quantity = u13_floor(
+        quantity * tp2_allocation / 100,
+        step
+    )
+
+    tp3_quantity = (
+        quantity
+        - tp1_quantity
+        - tp2_quantity
+    )
+
+    tp1_quantity_valid = (
+        tp1_quantity >= minimum
+    )
+
+    tp2_quantity_valid = (
+        tp2_quantity >= minimum
+    )
+
+    # Do not silently increase a TP quantity.
+    # Small positions may require deferral.
+
+    tp1_reached = (
+        estimated_net_roi >= tp1
+    )
+
+    tp2_reached = (
+        estimated_net_roi >= tp2
+    )
+
+    adverse_distance = (
+        (entry - mark) * direction
+    )
+
+    hedge_stage = "NONE"
+
+    if atr is not None and atr > 0:
+
+        if adverse_distance >= atr * 2:
+            hedge_stage = "ATR_STAGE_2"
+
+        elif adverse_distance >= atr:
+            hedge_stage = "ATR_STAGE_1"
+
+    half_quantity = u13_floor(
+        quantity / 2,
+        step
+    )
+
+    remaining_quantity = (
+        quantity - half_quantity
+    )
+
+    half_valid = (
+        half_quantity >= minimum
+        and remaining_quantity >= minimum
+    )
+
+    if hedge_stage == "ATR_STAGE_1":
+        action = "HEDGE_STAGE_1_CANDIDATE"
+
+    elif hedge_stage == "ATR_STAGE_2":
+        action = "HEDGE_STAGE_2_CANDIDATE"
+
+    elif tp2_reached:
+        action = "TP2_CANDIDATE"
+
+    elif tp1_reached:
+        action = "TP1_CANDIDATE"
+
+    else:
+        action = "MONITOR"
+
+    return {
+        "side": side,
+
+        "quantity": u13_string(quantity),
+
+        "entry_price": u13_string(entry),
+        "mark_price": u13_string(mark),
+        "leverage": u13_string(leverage),
+
+        "estimated_margin_usdt":
+            u13_string(estimated_margin),
+
+        "gross_pnl_usdt":
+            u13_string(gross_pnl),
+
+        "estimated_costs_usdt":
+            u13_string(estimated_costs),
+
+        "estimated_net_pnl_usdt":
+            u13_string(estimated_net_pnl),
+
+        "estimated_net_roi_percent":
+            u13_string(estimated_net_roi),
+
+        "tp1_net_roi_percent":
+            u13_string(tp1),
+
+        "tp2_net_roi_percent":
+            u13_string(tp2),
+
+        "tp1_reached": bool(tp1_reached),
+        "tp2_reached": bool(tp2_reached),
+
+        "tp1_quantity":
+            u13_string(tp1_quantity),
+
+        "tp2_quantity":
+            u13_string(tp2_quantity),
+
+        "tp3_quantity":
+            u13_string(tp3_quantity),
+
+        "tp1_quantity_valid":
+            bool(tp1_quantity_valid),
+
+        "tp2_quantity_valid":
+            bool(tp2_quantity_valid),
+
+        "tp1_deferred":
+            not tp1_quantity_valid,
+
+        "tp2_deferred":
+            not tp2_quantity_valid,
+
+        "atr14": u13_string(atr),
+
+        "adverse_distance":
+            u13_string(adverse_distance),
+
+        "hedge_stage": hedge_stage,
+
+        "hedge_stage1_quantity":
+            u13_string(half_quantity),
+
+        "hedge_stage1_quantity_valid":
+            bool(half_valid),
+
+        "hedge_stage2_quantity":
+            u13_string(quantity),
+
+        "opposite_side": (
+            "SHORT" if side == "LONG"
+            else "LONG"
+        ),
+
+        "candidate_action": action,
+
+        "action_authorized": False,
+
+        "fill_state_verified": False,
+
+        "protection_state_verified": False,
+
+        "exchange_write": False,
+    }
+
+
+# ============================================================
+# 13.5 MAIN EXECUTION
+# ============================================================
+
+def fresh_reconstruction_unit_13(
+    config,
+    unit12,
+    unit8
+):
+
+    print("=" * 80, flush=True)
+
+    log(
+        "COMBINED RECONSTRUCTION UNIT 13 START"
+    )
+
+    if not all(
+        isinstance(value, dict)
+        for value in (config, unit12, unit8)
+    ):
+        raise RuntimeError(
+            "UNIT13_HANDOVER_INVALID"
+        )
+
+    if (
+        config.get("execution_environment")
+        != "DEMO"
+        or config.get(
+            "real_cash_execution_enabled"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT13_DEMO_ONLY_REQUIRED"
+        )
+
+    market_symbol = config["exchange"][
+        "market_symbol"
+    ]
+
+    demo_symbol = u12_demo_symbol(
+        market_symbol
+    )
+
+    result = {
+        "unit": 13,
+        "version": "V1_EXISTING_POSITION_ENGINE",
+
+        "market_symbol": market_symbol,
+        "demo_order_symbol": demo_symbol,
+
+        "bot_mode": config.get("bot_mode"),
+
+        "existing_position_management_enabled":
+            True,
+
+        "independent_of_bot_mode": True,
+
+        "status": "READ_PENDING",
+        "reason": "NOT_EVALUATED",
+
+        "active_position_exists": False,
+        "position_exists": False,
+
+        "positions": [],
+        "management_plans": [],
+
+        "tp_management_required": False,
+        "hedge_management_required": False,
+
+        "tp_execution_attempted": False,
+        "tp_execution_completed": False,
+
+        "hedge_execution_attempted": False,
+        "backup_execution_attempted": False,
+
+        "tp3_armed": False,
+
+        "exchange_write": False,
+        "real_submission_attempted": False,
+
+        "errors": [],
+
+        "handover_to_unit14": "READY",
+    }
+
+    # --------------------------------------------------------
+    # ALWAYS READ POSITIONS
+    # EVEN WHEN BOT_MODE = PAUSE
+    # --------------------------------------------------------
+
+    try:
+
+        http_status, response = u12_request(
+            "GET",
+            UNIT12_POSITION_PATH
+        )
+
+        if not 200 <= http_status < 300:
+            raise RuntimeError(
+                "POSITION_HTTP_" + str(http_status)
+            )
+
+        if isinstance(response, dict):
+
+            code = response.get("code")
+
+            if code not in (
+                None, 0, "0", "00000"
+            ):
+                raise RuntimeError(
+                    "POSITION_API_CODE_" + str(code)
+                )
+
+        rows = u12_rows(response)
+
+        if rows is None:
+            raise RuntimeError(
+                "POSITION_RESPONSE_FORMAT_INVALID"
+            )
+
+    except Exception as exc:
+
+        result["status"] = "READ_FAILED"
+        result["reason"] = "DEMO_POSITION_READ_FAILED"
+
+        result["errors"].append(str(exc))
+
+        print(
+            "UNIT 13 STATUS =",
+            result["status"],
+            flush=True
+        )
+
+        print(
+            "UNIT 13 ERRORS =",
+            result["errors"],
+            flush=True
+        )
+
+        return result
+
+    # --------------------------------------------------------
+    # NORMALIZE ACTIVE POSITIONS
+    # --------------------------------------------------------
+
+    try:
+
+        for raw in rows:
+
+            position = u13_normalize_position(
+                raw,
+                market_symbol,
+                demo_symbol
+            )
+
+            if position is not None:
+                result["positions"].append(
+                    position
+                )
+
+    except Exception as exc:
+
+        result["status"] = "POSITION_UNVERIFIED"
+        result["reason"] = (
+            "POSITION_FIELDS_INCOMPLETE"
+        )
+
+        result["errors"].append(str(exc))
+
+        return result
+
+    result["active_position_exists"] = bool(
+        result["positions"]
+    )
+
+    result["position_exists"] = (
+        result["active_position_exists"]
+    )
+
+    if not result["active_position_exists"]:
+
+        result["status"] = "FLAT"
+
+        result["reason"] = (
+            "NO_EXISTING_DEMO_POSITION"
+        )
+
+        print(
+            "UNIT 13 STATUS = FLAT",
+            flush=True
+        )
+
+        print(
+            "UNIT 13 EXISTING POSITION = False",
+            flush=True
+        )
+
+        print(
+            "UNIT 13 BOT_MODE INDEPENDENCE = True",
+            flush=True
+        )
+
+        print(
+            "UNIT 13 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        log(
+            "COMBINED RECONSTRUCTION UNIT 13 "
+            "RESULT = PASS"
+        )
+
+        print("=" * 80, flush=True)
+
+        return result
+
+    # --------------------------------------------------------
+    # ACTIVE POSITION MANAGEMENT PLANS
+    # --------------------------------------------------------
+
+    context = u13_market_context()
+
+    contract = unit8.get("contract")
+
+    if not isinstance(contract, dict):
+
+        result["status"] = "CONTRACT_PENDING"
+
+        result["reason"] = (
+            "VERIFIED_CONTRACT_REQUIRED"
+        )
+
+        return result
+
+    for position in result["positions"]:
+
+        try:
+
+            plan = u13_position_plan(
+                position,
+                context,
+                config.get("strategy", {}),
+                contract
+            )
+
+            result["management_plans"].append(
+                plan
+            )
+
+        except Exception as exc:
+
+            result["errors"].append(str(exc))
+
+    result["tp_management_required"] = any(
+        plan["tp1_reached"]
+        or plan["tp2_reached"]
+        for plan in result["management_plans"]
+    )
+
+    result["hedge_management_required"] = any(
+        plan["hedge_stage"] != "NONE"
+        for plan in result["management_plans"]
+    )
+
+    if result["errors"]:
+
+        result["status"] = "MANAGEMENT_UNVERIFIED"
+
+        result["reason"] = (
+            "POSITION_PLAN_INCOMPLETE"
+        )
+
+    else:
+
+        result["status"] = "MONITORING"
+
+        result["reason"] = (
+            "POSITION_PROTECTION_PLANS_READY"
+        )
+
+    # --------------------------------------------------------
+    # RENDER REPORT
+    # --------------------------------------------------------
+
+    print(
+        "UNIT 13 MARKET SYMBOL =",
+        market_symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 DEMO SYMBOL =",
+        demo_symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 BOT_MODE =",
+        result["bot_mode"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13 EXISTING POSITION =",
+        result["active_position_exists"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13 POSITION COUNT =",
+        len(result["positions"]),
+        flush=True
+    )
+
+    print(
+        "UNIT 13 MANAGEMENT PLANS =",
+        result["management_plans"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP MANAGEMENT REQUIRED =",
+        result["tp_management_required"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13 HEDGE MANAGEMENT REQUIRED =",
+        result["hedge_management_required"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13 STATUS =",
+        result["status"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13 REASON =",
+        result["reason"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13 ERRORS =",
+        result["errors"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13 HANDOVER TO UNIT 14 = READY",
+        flush=True
+    )
+
+    print(
+        "UNIT 13 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    log(
+        "COMBINED RECONSTRUCTION UNIT 13 "
+        "RESULT = PASS"
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# 13.6 STARTUP AND GLOBAL HANDOVER
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
+    fresh_reconstruction_unit_13(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_12_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_8_RESULT
+    )
+)
+
+FRESH_UNIT_13_OPTIMIZATION_READY = (
+    FRESH_RECONSTRUCTION_UNIT_13_RESULT.get(
+        "status"
+    ) in (
+        "FLAT",
+        "MONITORING"
+    )
+)
+
+print(
+    "UNIT 13 OPTIMIZATION READY =",
+    FRESH_UNIT_13_OPTIMIZATION_READY,
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 13 V1
+# UNIT 14 TO FOLLOW
+# ZERO INDENTATION
+# ============================================================
+
+
