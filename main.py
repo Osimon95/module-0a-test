@@ -11896,36 +11896,6 @@ def _u1314_reference_config(config):
 # END UNIT 13 CONFIGURATION ADAPTER CORRECTION
 # ============================================================
 
-def _u1314_reference_config(config):
-    from copy import deepcopy
-
-    mapped = deepcopy(config)
-    t = unit_13_config()
-
-    strategy = mapped.setdefault("strategy", {})
-
-    strategy["tp1_net_roi_floor_percent"] = str(
-        t["tp1_net_roi_percent"]
-    )
-    strategy["tp2_net_roi_floor_percent"] = str(
-        t["tp2_net_roi_percent"]
-    )
-    strategy["futures_taker_fee_percent"] = str(
-        t["taker_fee_percent"]
-    )
-    strategy["tp3_trailing_reference_percent"] = str(
-        t["tp3_trailing_percent"]
-    )
-    strategy["tp3_trailing_min_percent"] = "0.10"
-    strategy["tp3_trailing_max_percent"] = "0.40"
-    strategy["exposure_cap_percent"] = str(
-        t["max_exposure_percent"]
-    )
-    strategy["max_backups"] = 5
-    strategy["backup_available_balance_percent"] = "0.5"
-    strategy["backup_buffer_percent"] = "0.3"
-
-    return mapped
 
 
 UNIT13_V4_BASE = "https://api-contract.weex.com"
