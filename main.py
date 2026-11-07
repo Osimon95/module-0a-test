@@ -17258,12 +17258,7 @@ def fresh_reconstruction_unit_13(
     # ATR hedge calculations, backup planning,
     # and read-only execution restrictions.
 
-    result = _U413_ORIGINAL_UNIT13_PLANNER(
-        execution_config,
-        unit_12_result,
-        unit_8_result,
-        selected_snapshot,
-    )
+
 
     if not isinstance(result, dict):
         raise RuntimeError(
