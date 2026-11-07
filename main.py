@@ -257,6 +257,8 @@ def unit_2_env_bool(name, default=False):
 
 
 def unit_2_universal_symbol():
+    
+print("RENDER SELECTED SYMBOL =", unit_2_universal_symbol()[0], flush=True)
 
     symbol = os.getenv(
         "WEEX_SYMBOL",
