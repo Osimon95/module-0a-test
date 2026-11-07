@@ -14764,6 +14764,106 @@ def scan_manage_position(unit12_result):
     # Direct call to the captured Unit 13 engine.
     # No legacy four-argument planner.
 
+    
+# ============================================================
+# UNIT 8 -> UNIT 13 VERIFIED CONTRACT HANDOVER
+# ZERO INDENTATION AT SECTION LEVEL
+# ============================================================
+
+    from copy import deepcopy
+    from decimal import Decimal
+
+    account = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
+    )
+
+    if not isinstance(account, dict):
+        raise RuntimeError(
+            "UNIT13_UNIT8_ACCOUNT_MISSING"
+        )
+
+    if (
+        account.get("demo_contract_verified") is not True
+        or account.get("demo_positions_read_verified") is not True
+        or account.get("market_symbol")
+            != config["exchange"]["market_symbol"]
+        or account.get("demo_order_symbol")
+            != config["exchange"]["demo_order_symbol"]
+    ):
+        raise RuntimeError(
+            "UNIT13_VERIFIED_DEMO_CONTRACT_HANDOVER_FAILED"
+        )
+
+    contract = account.get("contract")
+
+    if not isinstance(contract, dict):
+        raise RuntimeError(
+            "UNIT13_CONTRACT_RULES_MISSING"
+        )
+
+    precision = {}
+
+    for field in (
+        "quantity_step",
+        "minimum_quantity",
+        "price_step",
+        "contract_multiplier",
+    ):
+
+        value = contract.get(field)
+
+        try:
+            number = Decimal(str(value))
+        except Exception as exc:
+            raise RuntimeError(
+                "UNIT13_INVALID_CONTRACT_" + field
+            ) from exc
+
+        if not number.is_finite() or number <= 0:
+            raise RuntimeError(
+                "UNIT13_INVALID_CONTRACT_" + field
+            )
+
+        precision[field] = str(number)
+
+    if contract.get("symbol") != config["exchange"]["market_symbol"]:
+        raise RuntimeError(
+            "UNIT13_CONTRACT_SYMBOL_MISMATCH"
+        )
+
+    config = deepcopy(config)
+    config["market_precision"] = {
+        **config.get("market_precision", {}),
+        **precision,
+        "verified": True,
+        "symbol": config["exchange"]["market_symbol"],
+        "demo_order_symbol": config["exchange"]["demo_order_symbol"],
+        "source": "UNIT8_VERIFIED_CONTRACT",
+    }
+
+    print(
+        "UNIT 8-13 CONTRACT HANDOVER = PASS",
+        flush=True
+    )
+
+    print(
+        "UNIT 13 QUANTITY STEP =",
+        precision["quantity_step"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13 MINIMUM QUANTITY =",
+        precision["minimum_quantity"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13 PRICE STEP =",
+        precision["price_step"],
+        flush=True
+    )
+
     unit13 = _U1314_EXECUTION_UNIT13(
         config,
         unit12_result
