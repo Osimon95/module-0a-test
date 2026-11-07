@@ -13695,6 +13695,44 @@ def scan_manage_position(unit12_result):
 # ============================================================
 
 
+
+ 
+# ============================================================
+# START CONSOLIDATED UNIT 13-14 EXECUTION REFERENCES
+# ZERO INDENTATION
+# ============================================================
+
+# Capture the actual two-argument execution engines
+# before later legacy wrappers redefine their names.
+
+_U1314_EXECUTION_UNIT13 = fresh_reconstruction_unit_13
+_U1314_EXECUTION_UNIT14 = fresh_reconstruction_unit_14
+
+if _U1314_EXECUTION_UNIT13.__code__.co_argcount != 2:
+    raise RuntimeError(
+        "UNIT13_EXECUTION_SIGNATURE_INVALID"
+    )
+
+if _U1314_EXECUTION_UNIT14.__code__.co_argcount != 2:
+    raise RuntimeError(
+        "UNIT14_EXECUTION_SIGNATURE_INVALID"
+    )
+
+print(
+    "UNIT 13 EXECUTION ENGINE = CAPTURED",
+    flush=True
+)
+
+print(
+    "UNIT 14 EXECUTION ENGINE = CAPTURED",
+    flush=True
+)
+
+# ============================================================
+# END CONSOLIDATED UNIT 13-14 EXECUTION REFERENCES
+# ============================================================
+
+
 # ============================================================
 # START COMPLETE UNIT 15 V1
 # WEEX DEMO MONITORING AND TELEGRAM REPORTING
