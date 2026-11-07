@@ -7898,3 +7898,682 @@ print(
 # END COMPLETE UNIT 11 REPLACEMENT
 # ZERO INDENTATION
 # ============================================================
+
+
+
+# ============================================================
+# START COMPLETE UNIT 12 REPLACEMENT
+# COMBINED 17248 + CURRENT MODEL
+# ACTUAL WEEX DEMO ORDER SUBMISSION
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import json
+import time
+import hmac
+import base64
+import hashlib
+import urllib.request
+import urllib.error
+from decimal import Decimal, InvalidOperation
+
+
+UNIT12_BASE_URL = "https://api-contract.weex.com"
+
+UNIT12_POSITION_PATH = (
+    "/capi/v3/sim/position/allPosition"
+)
+
+UNIT12_ORDER_PATH = "/capi/v3/sim/order"
+
+UNIT12_ATTEMPTED_IDS = set()
+
+
+# ============================================================
+# 12.1 NUMERIC HELPER
+# ============================================================
+
+def u12_decimal(value):
+
+    if value is None or isinstance(value, bool):
+        return None
+
+    try:
+        number = Decimal(str(value))
+        return number if number.is_finite() else None
+    except (ValueError, TypeError, InvalidOperation):
+        return None
+
+
+# ============================================================
+# 12.2 AUTHENTICATED DEMO REQUEST
+# ORIGINAL WORKING SIGNATURE PRINCIPLE
+# ============================================================
+
+def u12_demo_request(method, path, payload=None):
+
+    if (method, path) not in (
+        ("GET", UNIT12_POSITION_PATH),
+        ("POST", UNIT12_ORDER_PATH),
+    ):
+        raise RuntimeError(
+            "UNIT12_NON_DEMO_ENDPOINT_REJECTED"
+        )
+
+    key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
+
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        raise RuntimeError(
+            "UNIT12_DEMO_CREDENTIALS_MISSING"
+        )
+
+    if method == "GET" and payload is not None:
+        raise RuntimeError("UNIT12_INVALID_GET_BODY")
+
+    if method == "POST" and not isinstance(
+        payload, dict
+    ):
+        raise RuntimeError("UNIT12_INVALID_POST_BODY")
+
+    body = (
+        json.dumps(
+            payload,
+            separators=(",", ":"),
+            ensure_ascii=False
+        )
+        if payload is not None else ""
+    )
+
+    timestamp = str(int(time.time() * 1000))
+
+    message = timestamp + method + path + body
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            message.encode("utf-8"),
+            hashlib.sha256
+        ).digest()
+    ).decode("utf-8")
+
+    request = urllib.request.Request(
+        UNIT12_BASE_URL + path,
+        data=(
+            body.encode("utf-8")
+            if method == "POST" else None
+        ),
+        method=method,
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": phrase,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=15
+        ) as response:
+
+            status = response.getcode()
+            raw = response.read().decode("utf-8")
+
+    except urllib.error.HTTPError as exc:
+
+        status = exc.code
+        raw = exc.read().decode(
+            "utf-8", errors="replace"
+        )
+
+    data = json.loads(raw)
+
+    return status, data
+
+
+# ============================================================
+# 12.3 RESPONSE NORMALIZATION
+# ============================================================
+
+def u12_rows(payload):
+
+    if isinstance(payload, list):
+        return payload
+
+    if isinstance(payload, dict):
+
+        if payload.get("success") is False:
+            raise RuntimeError(
+                "UNIT12_POSITION_API_REJECTED"
+            )
+
+        data = payload.get("data", payload)
+
+        if isinstance(data, list):
+            return data
+
+        if isinstance(data, dict):
+            for key in (
+                "list", "rows", "positions", "data"
+            ):
+                if isinstance(data.get(key), list):
+                    return data[key]
+
+    raise RuntimeError(
+        "UNIT12_POSITION_RESPONSE_UNRECOGNIZED"
+    )
+
+
+# ============================================================
+# 12.4 INITIAL ENTRY EXECUTION
+# ============================================================
+
+def fresh_reconstruction_unit_12(
+    config,
+    unit11,
+    unit8
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "COMBINED RECONSTRUCTION UNIT 12 START",
+        flush=True
+    )
+
+    result = {
+        "unit": 12,
+        "version": "U12_17248_ADAPTED_DEMO_V1",
+        "status": "IDLE",
+        "reason": "NOT_EVALUATED",
+        "order_submitted": False,
+        "demo_submission_attempted": False,
+        "demo_submission_completed": False,
+        "exchange_write": False,
+        "real_cash_execution": False,
+        "existing_position_management_independent": True,
+        "order_id": None,
+        "client_order_id": None,
+        "fill_verified": False,
+        "handover_to_unit13": "READY",
+    }
+
+    def finish(status, reason):
+
+        result["status"] = status
+        result["reason"] = reason
+
+        print(
+            "UNIT 12 STATUS =", status,
+            flush=True
+        )
+        print(
+            "UNIT 12 REASON =", reason,
+            flush=True
+        )
+        print(
+            "UNIT 12 ORDER ID =",
+            result["order_id"],
+            flush=True
+        )
+        print(
+            "UNIT 12 EXCHANGE WRITE =",
+            result["exchange_write"],
+            flush=True
+        )
+        print("=" * 80, flush=True)
+
+        return result
+
+    if not all(
+        isinstance(item, dict)
+        for item in (config, unit11, unit8)
+    ):
+        return finish(
+            "ERROR", "INVALID_UPSTREAM_INPUT"
+        )
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or config.get("real_cash_execution_enabled")
+        is not False
+    ):
+        return finish(
+            "ERROR", "NON_DEMO_CONFIGURATION"
+        )
+
+    symbol = str(
+        config.get("market_symbol") or ""
+    ).upper()
+
+    selected_symbol = os.getenv(
+        "WEEX_SYMBOL",
+        os.getenv("MARKET_SYMBOL", "BTCUSDT")
+    ).strip().upper().replace("/", "").replace("-", "")
+
+    if symbol != selected_symbol:
+        return finish(
+            "ERROR", "RENDER_SYMBOL_MISMATCH"
+        )
+
+    demo_symbol = str(
+        unit8.get("demo_order_symbol") or ""
+    ).upper()
+
+    bot_mode = os.getenv(
+        "BOT_MODE", "PAUSE"
+    ).strip().upper()
+
+    print(
+        "UNIT 12 MARKET SYMBOL =", symbol,
+        flush=True
+    )
+    print(
+        "UNIT 12 DEMO SYMBOL =", demo_symbol,
+        flush=True
+    )
+    print(
+        "UNIT 12 BOT_MODE =", bot_mode,
+        flush=True
+    )
+
+    if bot_mode not in ("RUN", "PAUSE"):
+        return finish(
+            "ERROR", "INVALID_BOT_MODE"
+        )
+
+    # Only NEW initial entries are paused.
+    if bot_mode == "PAUSE":
+        return finish(
+            "PAUSED", "NEW_ENTRIES_PAUSED"
+        )
+
+    if unit11.get("status") != "READY":
+        return finish(
+            "IDLE", "UNIT11_NOT_READY"
+        )
+
+    if (
+        unit11.get("order_prepared") is not True
+        or unit11.get("execution_ready") is not True
+        or unit11.get("trade_plan_ready") is not True
+    ):
+        return finish(
+            "IDLE", "NO_PREPARED_ENTRY"
+        )
+
+    if (
+        unit8.get("market_contract_verified") is not True
+        or unit8.get("demo_balance_verified") is not True
+        or unit8.get("demo_positions_read_verified")
+        is not True
+        or unit8.get("account_can_trade") is not True
+    ):
+        return finish(
+            "WAITING", "DEMO_ACCOUNT_NOT_VERIFIED"
+        )
+
+    instruction = unit11.get("order_request")
+
+    if not isinstance(instruction, dict):
+        return finish(
+            "ERROR", "ORDER_REQUEST_MISSING"
+        )
+
+    if any(
+        instruction.get(key) != symbol
+        for key in ("symbol", "market_symbol")
+    ):
+        return finish(
+            "ERROR", "ORDER_SYMBOL_MISMATCH"
+        )
+
+    if (
+        instruction.get("demo_order_symbol")
+        != demo_symbol
+        or demo_symbol != symbol
+    ):
+        return finish(
+            "ERROR", "DEMO_CONTRACT_MISMATCH"
+        )
+
+    if (
+        instruction.get("environment") != "DEMO"
+        or instruction.get("intent")
+        != "OPEN_INITIAL_POSITION"
+        or instruction.get("order_type") != "MARKET"
+    ):
+        return finish(
+            "ERROR", "ORDER_INTENT_INVALID"
+        )
+
+    direction = str(
+        instruction.get("direction") or ""
+    ).upper()
+
+    if direction not in ("LONG", "SHORT"):
+        return finish(
+            "ERROR", "INVALID_DIRECTION"
+        )
+
+    quantity = u12_decimal(
+        instruction.get("quantity")
+    )
+
+    contract = unit8.get("contract", {})
+
+    if not isinstance(contract, dict):
+        return finish(
+            "ERROR", "CONTRACT_MISSING"
+        )
+
+    minimum = u12_decimal(
+        contract.get("minimum_quantity")
+    )
+
+    step = u12_decimal(
+        contract.get("quantity_step")
+    )
+
+    if any(
+        value is None or value <= 0
+        for value in (quantity, minimum, step)
+    ):
+        return finish(
+            "ERROR", "INVALID_CONTRACT_QUANTITY"
+        )
+
+    if quantity < minimum or quantity % step != 0:
+        return finish(
+            "ERROR", "QUANTITY_STEP_INVALID"
+        )
+
+    if (
+        u12_decimal(unit11.get("quantity"))
+        != quantity
+    ):
+        return finish(
+            "ERROR", "UNIT11_QUANTITY_MISMATCH"
+        )
+
+    available = u12_decimal(
+        unit8.get("available_balance")
+    )
+
+    margin = u12_decimal(
+        instruction.get("entry_margin_usdt")
+    )
+
+    if (
+        available is None
+        or margin is None
+        or margin <= 0
+        or available < margin
+    ):
+        return finish(
+            "WAITING", "INSUFFICIENT_DEMO_BALANCE"
+        )
+
+    # Deterministic signal identity.
+    analysis = globals().get(
+        "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT",
+        {}
+    )
+
+    candle_id = (
+        analysis.get("latest_close_time_ms")
+        if isinstance(analysis, dict)
+        else None
+    )
+
+    if not isinstance(candle_id, int):
+        return finish(
+            "WAITING", "SIGNAL_CANDLE_ID_MISSING"
+        )
+
+    age_ms = int(time.time() * 1000) - candle_id
+
+    if not 0 <= age_ms <= 120000:
+        return finish(
+            "WAITING", "SIGNAL_CANDLE_EXPIRED"
+        )
+
+    identity = (
+        symbol + "|"
+        + direction + "|"
+        + str(instruction.get("mode")) + "|"
+        + str(candle_id)
+    )
+
+    client_id = (
+        "FR12"
+        + direction[0]
+        + hashlib.sha256(
+            identity.encode("utf-8")
+        ).hexdigest()[:24]
+    )
+
+    result["client_order_id"] = client_id
+
+    if client_id in UNIT12_ATTEMPTED_IDS:
+        return finish(
+            "ORDER_UNCERTAIN",
+            "PREVIOUS_SUBMISSION_ATTEMPT"
+        )
+
+    payload = {
+        "symbol": demo_symbol,
+        "side": (
+            "BUY" if direction == "LONG"
+            else "SELL"
+        ),
+        "positionSide": direction,
+        "type": "MARKET",
+        "quantity": format(quantity, "f"),
+        "newClientOrderId": client_id,
+    }
+
+    # ========================================================
+    # FRESH WEEX POSITION CHECK
+    # ========================================================
+
+    try:
+        position_http, position_response = (
+            u12_demo_request(
+                "GET",
+                UNIT12_POSITION_PATH
+            )
+        )
+
+        if not 200 <= position_http < 300:
+            return finish(
+                "POSITION_CHECK_FAILED",
+                "POSITION_HTTP_" + str(position_http)
+            )
+
+        positions = u12_rows(position_response)
+
+        active = []
+
+        for position in positions:
+
+            if not isinstance(position, dict):
+                raise RuntimeError(
+                    "INVALID_POSITION_RECORD"
+                )
+
+            if str(
+                position.get("symbol") or ""
+            ).upper() != demo_symbol:
+                continue
+
+            size = u12_decimal(
+                position.get("size")
+            )
+
+            if size is None:
+                raise RuntimeError(
+                    "POSITION_SIZE_UNVERIFIED"
+                )
+
+            if size > 0:
+                active.append(position)
+
+    except Exception as exc:
+
+        print(
+            "UNIT 12 POSITION ERROR =",
+            type(exc).__name__,
+            str(exc)[:180],
+            flush=True
+        )
+
+        return finish(
+            "POSITION_CHECK_FAILED",
+            "FRESH_POSITION_READ_FAILED"
+        )
+
+    if active:
+        return finish(
+            "ACTIVE_POSITION",
+            "INITIAL_ENTRY_ALREADY_EXISTS"
+        )
+
+    # ========================================================
+    # ACTUAL DEMO ORDER POST
+    # ========================================================
+
+    UNIT12_ATTEMPTED_IDS.add(client_id)
+
+    result["demo_submission_attempted"] = True
+
+    print(
+        "UNIT 12 SENDING ACTUAL WEEX DEMO ORDER",
+        flush=True
+    )
+
+    try:
+        http_status, response = u12_demo_request(
+            "POST",
+            UNIT12_ORDER_PATH,
+            payload
+        )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 12 POST ERROR =",
+            type(exc).__name__,
+            str(exc)[:180],
+            flush=True
+        )
+
+        return finish(
+            "ORDER_UNCERTAIN",
+            "POST_RESPONSE_UNCERTAIN"
+        )
+
+    result["exchange_write"] = True
+    result["http_status"] = http_status
+
+    if not isinstance(response, dict):
+        return finish(
+            "ORDER_UNCERTAIN",
+            "INVALID_ORDER_RESPONSE"
+        )
+
+    if (
+        not 200 <= http_status < 300
+        or response.get("success") is not True
+    ):
+        print(
+            "UNIT 12 EXCHANGE RESPONSE =",
+            str(response)[:300],
+            flush=True
+        )
+
+        return finish(
+            "DEMO_REJECTED",
+            "WEEX_ORDER_REJECTED"
+        )
+
+    order_id = response.get("orderId")
+
+    if not order_id:
+        return finish(
+            "ORDER_UNCERTAIN",
+            "ORDER_ID_MISSING"
+        )
+
+    result.update({
+        "status": "DEMO_SUBMITTED",
+        "reason": "WEEX_DEMO_ORDER_ACCEPTED",
+        "order_submitted": True,
+        "demo_submission_completed": True,
+        "demo_order_accepted": True,
+        "order_id": str(order_id),
+        "order_payload": payload,
+        "exchange_response": response,
+        "fill_verified": False,
+    })
+
+    return finish(
+        "DEMO_SUBMITTED",
+        "WEEX_DEMO_ORDER_ACCEPTED"
+    )
+
+
+# ============================================================
+# UNIT 12 GLOBAL EXECUTION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
+    fresh_reconstruction_unit_12(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_11_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_8_RESULT
+    )
+)
+
+FRESH_UNIT_12_OPTIMIZATION_READY = (
+    isinstance(
+        FRESH_RECONSTRUCTION_UNIT_12_RESULT,
+        dict
+    )
+    and FRESH_RECONSTRUCTION_UNIT_12_RESULT.get(
+        "status"
+    ) in (
+        "DEMO_SUBMITTED",
+        "PAUSED",
+        "IDLE",
+        "WAITING",
+        "ACTIVE_POSITION",
+        "POSITION_CHECK_FAILED",
+        "ORDER_UNCERTAIN",
+        "DEMO_REJECTED",
+    )
+)
+
+print(
+    "UNIT 12 OPTIMIZATION READY =",
+    FRESH_UNIT_12_OPTIMIZATION_READY,
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 12 REPLACEMENT
+# ZERO INDENTATION
+# ============================================================
