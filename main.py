@@ -11761,6 +11761,141 @@ def _u1314_demo_symbol():
     ).upper()
 
 
+
+
+# ============================================================
+# START UNIT 13 CONFIGURATION ADAPTER CORRECTION
+# ZERO INDENTATION
+# ============================================================
+
+def _u1314_reference_config(config):
+
+    from copy import deepcopy
+    from decimal import Decimal
+    import os
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT13_CONFIG_NOT_DICT")
+
+    mapped = deepcopy(config)
+    strategy = mapped.setdefault("strategy", {})
+
+    def env_decimal(name, default, allow_zero=False):
+
+        raw = os.getenv(name, str(default))
+
+        try:
+            value = Decimal(str(raw))
+        except Exception as exc:
+            raise RuntimeError(
+                "UNIT13_INVALID_ENV_" + name
+            ) from exc
+
+        if not value.is_finite():
+            raise RuntimeError(
+                "UNIT13_NONFINITE_ENV_" + name
+            )
+
+        if value < 0 or (value == 0 and not allow_zero):
+            raise RuntimeError(
+                "UNIT13_NONPOSITIVE_ENV_" + name
+            )
+
+        return value
+
+    tp1 = env_decimal(
+        "TP1_NET_ROI_PERCENT", "20"
+    )
+
+    tp2 = env_decimal(
+        "TP2_NET_ROI_PERCENT", "40"
+    )
+
+    allocation1 = env_decimal(
+        "TP1_ALLOCATION_PERCENT", "10"
+    )
+
+    allocation2 = env_decimal(
+        "TP2_ALLOCATION_PERCENT", "20"
+    )
+
+    allocation3 = env_decimal(
+        "TP3_ALLOCATION_PERCENT", "70"
+    )
+
+    fee = env_decimal(
+        "WEEX_TAKER_FEE_PERCENT",
+        "0.08",
+        True
+    )
+
+    trailing = env_decimal(
+        "TP3_TRAILING_PERCENT", "0.2"
+    )
+
+    exposure = env_decimal(
+        "MAX_EXPOSURE_PERCENT", "100"
+    )
+
+    if tp2 <= tp1:
+        raise RuntimeError("UNIT13_TP_ORDER_INVALID")
+
+    if allocation1 + allocation2 + allocation3 != 100:
+        raise RuntimeError(
+            "UNIT13_TP_ALLOCATION_NOT_100"
+        )
+
+    if exposure > 100:
+        raise RuntimeError(
+            "UNIT13_EXPOSURE_CAP_ABOVE_100"
+        )
+
+    if not Decimal("0.1") <= trailing <= Decimal("0.4"):
+        raise RuntimeError(
+            "UNIT13_TRAILING_OUT_OF_RANGE"
+        )
+
+    strategy["tp1_net_roi_floor_percent"] = str(tp1)
+    strategy["tp2_net_roi_floor_percent"] = str(tp2)
+    strategy["futures_taker_fee_percent"] = str(fee)
+    strategy["tp3_trailing_reference_percent"] = str(trailing)
+    strategy["tp3_trailing_min_percent"] = "0.1"
+    strategy["tp3_trailing_max_percent"] = "0.4"
+    strategy["exposure_cap_percent"] = str(exposure)
+
+    strategy["tp1_allocation_percent"] = str(allocation1)
+    strategy["tp2_allocation_percent"] = str(allocation2)
+    strategy["tp3_allocation_percent"] = str(allocation3)
+
+    strategy["max_backups"] = 5
+    strategy["backup_available_balance_percent"] = "0.5"
+    strategy["backup_buffer_percent"] = "0.3"
+
+    print(
+        "UNIT 13 CONFIG ADAPTER = PASS",
+        flush=True
+    )
+    print(
+        "UNIT 13 TP1 NET ROI =", tp1,
+        flush=True
+    )
+    print(
+        "UNIT 13 TP2 NET ROI =", tp2,
+        flush=True
+    )
+    print(
+        "UNIT 13 TP ALLOCATION =",
+        allocation1, allocation2, allocation3,
+        flush=True
+    )
+
+    return mapped
+
+
+# ============================================================
+# END UNIT 13 CONFIGURATION ADAPTER CORRECTION
+# ============================================================
+
 def _u1314_reference_config(config):
     from copy import deepcopy
 
