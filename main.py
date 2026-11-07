@@ -12161,6 +12161,451 @@ def unit_13_v4_base_result(unit_12_result, status, reason):
 # END UNIT 13 V4 - PART 1 OF 2
 # ============================================================
 
+
+  
+# ============================================================
+# START UNIT 13 V4 - PART 2 OF 2
+# EXECUTABLE TP1 / TP2 MANAGEMENT
+# REFERENCE 17248 ADAPTED
+# ============================================================
+
+def fresh_reconstruction_unit_13(config, unit_12_result):
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT13_INVALID_CONFIG")
+
+    if not isinstance(unit_12_result, dict):
+        raise RuntimeError("UNIT13_INVALID_UNIT12_RESULT")
+
+    exchange = config.get("exchange", {})
+    strategy = config.get("strategy", {})
+    precision = config.get("market_precision", {})
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("market_symbol") != _u1314_market_symbol()
+        or exchange.get("demo_order_symbol") != _u1314_demo_symbol()
+    ):
+        raise RuntimeError("UNIT13_DEMO_BOUNDARY_FAILED")
+
+    D = unit_13_v4_D
+
+    step = D(precision.get("quantity_step"), "QTY_STEP")
+    minimum = D(precision.get("minimum_quantity"), "MIN_QTY")
+    price_step = D(precision.get("price_step"), "PRICE_STEP")
+
+    tp1_floor = D(
+        strategy.get("tp1_net_roi_floor_percent", 20),
+        "TP1_NET_ROI"
+    )
+    tp2_floor = D(
+        strategy.get("tp2_net_roi_floor_percent", 40),
+        "TP2_NET_ROI"
+    )
+    fee = D(
+        strategy.get("futures_taker_fee_percent", "0.08"),
+        "TAKER_FEE",
+        True
+    )
+
+    trail_ref = D(
+        strategy.get("tp3_trailing_reference_percent", "0.20"),
+        "TP3_TRAIL"
+    )
+    trail_min = D(
+        strategy.get("tp3_trailing_min_percent", "0.10"),
+        "TP3_MIN"
+    )
+    trail_max = D(
+        strategy.get("tp3_trailing_max_percent", "0.40"),
+        "TP3_MAX"
+    )
+
+    if (
+        tp2_floor <= tp1_floor
+        or not (0 < trail_min <= trail_ref <= trail_max)
+    ):
+        raise RuntimeError("UNIT13_TP_SETTINGS_INVALID")
+
+    print("=" * 80, flush=True)
+    print("UNIT 13 V4 EXECUTABLE TP MANAGEMENT START", flush=True)
+    print("UNIT 13 BOT_MODE INDEPENDENT = True", flush=True)
+
+    positions = unit_13_v4_signed_request(
+        "GET",
+        UNIT13_V4_POSITION
+    )
+
+    if not isinstance(positions, list):
+        raise RuntimeError("UNIT13_POSITION_RESPONSE_INVALID")
+
+    active = []
+
+    for position in positions:
+        if not isinstance(position, dict):
+            raise RuntimeError("UNIT13_POSITION_RECORD_INVALID")
+
+        if str(position.get("symbol", "")).upper() != _u1314_demo_symbol():
+            continue
+
+        size_value = D(
+            position.get("size"),
+            "POSITION_SIZE",
+            True
+        )
+
+        if size_value > 0:
+            active.append(position)
+
+    if not active:
+        result = unit_13_v4_base_result(
+            unit_12_result,
+            "IDLE_NO_POSITION",
+            "NO_ACTIVE_DEMO_POSITION"
+        )
+        print("UNIT 13 STATUS = IDLE_NO_POSITION", flush=True)
+        return result
+
+    if len(active) != 1:
+        raise RuntimeError("UNIT13_MULTIPLE_POSITIONS_REQUIRE_MANAGEMENT")
+
+    position = active[0]
+
+    side = str(position.get("side", "")).upper()
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError("UNIT13_POSITION_SIDE_INVALID")
+
+    size = D(position.get("size"), "SIZE")
+    leverage = D(position.get("leverage"), "LEVERAGE")
+    open_value = D(position.get("openValue"), "OPEN_VALUE")
+
+    entry = open_value / size
+
+    if (
+        "cumOpenSize" not in position
+        or "cumCloseSize" not in position
+    ):
+        raise RuntimeError("UNIT13_POSITION_HISTORY_MISSING")
+
+    cum_open = D(
+        position["cumOpenSize"],
+        "CUM_OPEN"
+    )
+    cum_close = D(
+        position["cumCloseSize"],
+        "CUM_CLOSE",
+        True
+    )
+
+    if (
+        cum_open < size
+        or cum_close > cum_open
+        or cum_open - cum_close != size
+    ):
+        raise RuntimeError("UNIT13_POSITION_QUANTITY_MISMATCH")
+
+    q1, q2, q3 = unit_13_v4_allocation(
+        cum_open,
+        step
+    )
+
+    t1, t2 = unit_13_v4_targets(
+        entry,
+        leverage,
+        side,
+        price_step,
+        tp1_floor,
+        tp2_floor,
+        fee
+    )
+
+    mark = unit_13_v4_mark_price()
+
+    done1 = q1 == 0 or cum_close >= q1
+
+    done2 = (
+        done1 if q2 == 0
+        else cum_close >= q1 + q2
+    )
+
+    reached1 = (
+        mark >= t1 if side == "LONG"
+        else mark <= t1
+    )
+
+    reached2 = (
+        mark >= t2 if side == "LONG"
+        else mark <= t2
+    )
+
+    action = "NONE"
+    close_qty = Decimal("0")
+
+    if q2 > 0 and reached2 and not done2:
+        action = "TP2"
+        close_qty = q1 + q2 - cum_close
+
+    elif q1 > 0 and reached1 and not done1:
+        action = "TP1"
+        close_qty = q1 - cum_close
+
+    if close_qty > 0:
+        close_qty = (
+            min(close_qty, size) / step
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        ) * step
+
+    armed = bool(
+        done1 and done2 and q3 > 0 and size > 0
+    )
+
+    result = unit_13_v4_base_result(
+        unit_12_result,
+        "TP3_ARMED" if armed else "MONITORING",
+        (
+            "DYNAMIC_TP3_RUNTIME_REQUIRED"
+            if armed else "TP_TARGET_NOT_REACHED"
+        )
+    )
+
+    entry_notional = entry * size
+
+    pnl = (
+        (mark - entry) * size
+        if side == "LONG"
+        else (entry - mark) * size
+    )
+
+    margin = entry_notional / leverage
+    roi = pnl / margin * Decimal("100")
+
+    result.update({
+        "active_position_exists": True,
+        "position_exists": True,
+        "tp_management_required": True,
+        "position_side": side,
+        "position_size": float(size),
+        "position_id": str(position.get("id", "")),
+        "average_entry_price": float(entry),
+        "entry_price": float(entry),
+        "mark_price": float(mark),
+        "position_leverage": float(leverage),
+        "tp_target_allocation": "10/20/70",
+        "tp1_target": float(t1),
+        "tp2_target": float(t2),
+        "tp1_target_price": str(t1),
+        "tp2_target_price": str(t2),
+        "tp1_quantity": float(q1),
+        "tp2_quantity": float(q2),
+        "tp3_quantity": float(q3),
+        "tp1_completed": done1,
+        "tp2_completed": done2,
+        "tp3_armed": armed,
+        "tp3_trailing_percent": float(trail_ref),
+        "tp3_trailing_reference_percent": float(trail_ref),
+        "tp3_trailing_min_percent": float(trail_min),
+        "tp3_trailing_max_percent": float(trail_max),
+        "tp3_trailing_dynamic": True,
+        "tp1_net_roi_floor_percent": float(tp1_floor),
+        "tp2_net_roi_floor_percent": float(tp2_floor),
+        "tp_action": action,
+        "entry_notional_susdt": float(entry_notional),
+        "estimated_position_margin_susdt": float(margin),
+        "estimated_unrealized_pnl_susdt": float(pnl),
+        "estimated_unrealized_roi_percent": float(roi),
+        "cum_open_size": str(cum_open),
+        "cum_close_size": str(cum_close),
+    })
+
+    print("UNIT 13 POSITION SIDE =", side, flush=True)
+    print("UNIT 13 POSITION SIZE =", size, flush=True)
+    print("UNIT 13 ENTRY PRICE =", entry, flush=True)
+    print("UNIT 13 LEVERAGE =", leverage, flush=True)
+    print("UNIT 13 MARK PRICE =", mark, flush=True)
+    print("UNIT 13 TP1 TARGET =", t1, flush=True)
+    print("UNIT 13 TP2 TARGET =", t2, flush=True)
+    print("UNIT 13 TP1 QUANTITY =", q1, flush=True)
+    print("UNIT 13 TP2 QUANTITY =", q2, flush=True)
+    print("UNIT 13 TP3 QUANTITY =", q3, flush=True)
+    print("UNIT 13 TP ACTION =", action, flush=True)
+
+    if action != "NONE" and close_qty >= minimum:
+
+        position_id = str(
+            position.get("id")
+            or (side + ":" + str(entry))
+        )
+
+        guard_key = (
+            position_id,
+            str(cum_open),
+            str(cum_close),
+            action
+        )
+
+        guard = globals().setdefault(
+            "_UNIT_13_V4_TP_GUARD",
+            set()
+        )
+
+        if guard_key in guard:
+            result["status"] = "ORDER_RECONCILIATION_REQUIRED"
+            result["skip_reason"] = "PREVIOUS_TP_ATTEMPT"
+            print(
+                "UNIT 13 PREVIOUS TP ATTEMPT REQUIRES RECONCILIATION",
+                flush=True
+            )
+            return result
+
+        guard.add(guard_key)
+
+        client_id = (
+            "FR13-"
+            + action
+            + "-"
+            + str(time.time_ns())
+        )[:36]
+
+        close_side = (
+            "SELL" if side == "LONG"
+            else "BUY"
+        )
+
+        payload = {
+            "symbol": _u1314_demo_symbol(),
+            "side": close_side,
+            "positionSide": side,
+            "type": "MARKET",
+            "quantity": format(close_qty, "f"),
+            "newClientOrderId": client_id,
+        }
+
+        result["tp_execution_attempted"] = True
+        result["tp_client_order_id"] = client_id
+        result["tp_close_quantity"] = str(close_qty)
+
+        print(
+            "UNIT 13 DEMO TP SUBMISSION =",
+            action,
+            flush=True
+        )
+        print(
+            "UNIT 13 TP CLOSE QUANTITY =",
+            close_qty,
+            flush=True
+        )
+
+        try:
+            reply = unit_13_v4_signed_request(
+                "POST",
+                UNIT13_V4_ORDER,
+                payload
+            )
+        except Exception:
+            result["status"] = "ORDER_OUTCOME_UNKNOWN"
+            result["skip_reason"] = "RECONCILE_BEFORE_RETRY"
+            print(
+                "UNIT 13 ORDER OUTCOME UNKNOWN - NO BLIND RETRY",
+                flush=True
+            )
+            raise
+
+        if not isinstance(reply, dict):
+            raise RuntimeError("UNIT13_TP_RESPONSE_INVALID")
+
+        if (
+            reply.get("success") is not True
+            or not reply.get("orderId")
+        ):
+            raise RuntimeError(
+                "UNIT13_TP_NOT_ACCEPTED: "
+                + str(reply)[:300]
+            )
+
+        result.update({
+            "status": "TP_ORDER_ACCEPTED",
+            "skip_reason": "FILL_RECONCILIATION_PENDING",
+            "tp_execution_completed": False,
+            "demo_order_executed": False,
+            "tp_order_id": str(reply["orderId"]),
+            "exchange_write": True,
+        })
+
+        print(
+            "UNIT 13 DEMO ORDER ACCEPTED =",
+            reply["orderId"],
+            flush=True
+        )
+
+    elif action != "NONE":
+        result["status"] = "TP_QUANTITY_DEFERRED"
+        result["skip_reason"] = "BELOW_EXCHANGE_MINIMUM"
+
+    print(
+        "UNIT 13 STATUS =",
+        result["status"],
+        flush=True
+    )
+    print(
+        "UNIT 13 TP3 ARMED =",
+        result["tp3_armed"],
+        flush=True
+    )
+    print(
+        "UNIT 13 EXCHANGE WRITE =",
+        result["exchange_write"],
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# UNIT 13 HYBRID ADAPTER
+# ============================================================
+
+def fresh_unit_13_hybrid_adapter(
+    config,
+    unit_12_result
+):
+
+    mapped_config = _u1314_reference_config(config)
+
+    result = fresh_reconstruction_unit_13(
+        mapped_config,
+        unit_12_result
+    )
+
+    if not isinstance(result, dict):
+        raise RuntimeError("UNIT13_RESULT_INVALID")
+
+    if result.get("real_submission_attempted") is not False:
+        raise RuntimeError("UNIT13_LIVE_EXECUTION_FORBIDDEN")
+
+    if result.get("sl_execution_attempted") is not False:
+        raise RuntimeError("UNIT13_UNEXPECTED_SL_EXECUTION")
+
+    if result.get("backup_execution_attempted") is not False:
+        raise RuntimeError("UNIT13_UNEXPECTED_BACKUP_EXECUTION")
+
+    print(
+        "UNIT 13 HYBRID ADAPTER STATUS =",
+        result.get("status"),
+        flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# END UNIT 13 V4 - PART 2 OF 2
+# ============================================================
+  
 # ============================================================
 # START COMPLETE UNIT 13 V1 REPLACEMENT
 # UNIVERSAL WEEX DEMO POSITION MANAGEMENT PLANNER
