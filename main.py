@@ -13654,43 +13654,6 @@ def fresh_unit_14_hybrid_adapter(
 
 
 # ============================================================
-# SINGLE UNIT 13 / UNIT 14 SCANNER HANDOVER
-# ============================================================
-
-def scan_manage_position(unit12_result):
-
-    global FRESH_RECONSTRUCTION_UNIT_13_RESULT
-    global FRESH_RECONSTRUCTION_UNIT_14_RESULT
-
-    config = _u1314_reference_config(
-        FRESH_RECONSTRUCTION_CONFIG
-    )
-
-    unit13 = fresh_unit_13_hybrid_adapter(
-        config,
-        unit12_result
-    )
-
-    FRESH_RECONSTRUCTION_UNIT_13_RESULT = unit13
-
-    unit14 = fresh_unit_14_hybrid_adapter(
-        config,
-        unit13
-    )
-
-    FRESH_RECONSTRUCTION_UNIT_14_RESULT = unit14
-
-    print(
-        "UNIT 13/14 MANAGEMENT STATUS =",
-        unit13.get("status"),
-        unit14.get("status"),
-        flush=True
-    )
-
-    return unit13, unit14
-
-
-# ============================================================
 # END UNIT 14 V3 - PART 2 OF 2
 # ============================================================
 
