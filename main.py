@@ -8987,12 +8987,32 @@ def fresh_reconstruction_unit_13_restored():
     market = fresh_reconstruction_unit_3()
     mark = u13_D(market["price"], "MARK")
 
-    done1 = q1 == 0 or cum_close >= q1
+    # Zero-sized allocations are deferred, not filled.
+tp1_deferred = q1 < minimum
+tp2_deferred = q2 < minimum
 
-    done2 = (
-        done1 if q2 == 0
-        else cum_close >= q1 + q2
-    )
+done1 = (
+    not tp1_deferred
+    and cum_close >= q1
+)
+
+done2 = (
+    not tp2_deferred
+    and done1
+    and cum_close >= q1 + q2
+)
+
+print(
+    "UNIT 13 TP1 DEFERRED =",
+    tp1_deferred,
+    flush=True
+)
+print(
+    "UNIT 13 TP2 DEFERRED =",
+    tp2_deferred,
+    flush=True
+)
+
 
     reached1 = (
         mark >= tp1 if side == "LONG"
