@@ -7902,13 +7902,14 @@ print(
 
 
 # ============================================================
-# START COMPLETE UNIT 12 REPLACEMENT
-# COMBINED 17248 + CURRENT MODEL
-# ACTUAL WEEX DEMO ORDER SUBMISSION
+# START COMPLETE UNIT 12
+# WEEX DEMO SYMBOL-COMPATIBLE ORDER EXECUTION
+# UNIT 11 -> UNIT 12 -> UNIT 13
 # ZERO INDENTATION
 # ============================================================
 
 import os
+import re
 import json
 import time
 import hmac
@@ -7916,8 +7917,11 @@ import base64
 import hashlib
 import urllib.request
 import urllib.error
-from decimal import Decimal, InvalidOperation
 
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
+
+
+UNIT12_VERSION = "V7_DEMO_SYMBOL_COMPATIBLE"
 
 UNIT12_BASE_URL = "https://api-contract.weex.com"
 
@@ -7927,11 +7931,12 @@ UNIT12_POSITION_PATH = (
 
 UNIT12_ORDER_PATH = "/capi/v3/sim/order"
 
+# Prevent repeated attempts within this Python process.
 UNIT12_ATTEMPTED_IDS = set()
 
 
 # ============================================================
-# 12.1 NUMERIC HELPER
+# 12.1 HELPERS
 # ============================================================
 
 def u12_decimal(value):
@@ -7941,27 +7946,121 @@ def u12_decimal(value):
 
     try:
         number = Decimal(str(value))
-        return number if number.is_finite() else None
-    except (ValueError, TypeError, InvalidOperation):
+
+        if number.is_finite():
+            return number
+
+    except (InvalidOperation, TypeError, ValueError):
+        pass
+
+    return None
+
+
+def u12_text(value):
+
+    return format(value, "f")
+
+
+def u12_symbol(value):
+
+    symbol = str(value or "").strip().upper()
+
+    if not re.fullmatch(r"[A-Z0-9]{3,30}", symbol):
         return None
+
+    return symbol
+
+
+def u12_demo_symbol(market_symbol):
+
+    # Explicit Render override takes precedence.
+    configured = u12_symbol(
+        os.getenv("WEEX_DEMO_ORDER_SYMBOL")
+    )
+
+    if configured:
+        return configured
+
+    # Known candidate from the previous demo configuration.
+    # This mapping must still be confirmed by the
+    # actual WEEX demo order response.
+    known_candidates = {
+        "BTCUSDT": "BTCSUSDT"
+    }
+
+    return known_candidates.get(market_symbol)
+
+
+def u12_rows(response):
+
+    if isinstance(response, list):
+        return response
+
+    if not isinstance(response, dict):
+        return None
+
+    data = response.get("data")
+
+    if isinstance(data, list):
+        return data
+
+    if isinstance(data, dict):
+
+        for key in (
+            "list",
+            "rows",
+            "positions",
+            "items"
+        ):
+            if isinstance(data.get(key), list):
+                return data[key]
+
+    return None
+
+
+def u12_client_id(symbol, direction, candle_id):
+
+    source = (
+        symbol + "|"
+        + direction + "|"
+        + str(candle_id)
+    )
+
+    digest = hashlib.sha256(
+        source.encode("utf-8")
+    ).hexdigest()[:24]
+
+    return "FR12" + digest
 
 
 # ============================================================
 # 12.2 AUTHENTICATED DEMO REQUEST
-# ORIGINAL WORKING SIGNATURE PRINCIPLE
 # ============================================================
 
-def u12_demo_request(method, path, payload=None):
+def u12_request(method, path, payload=None):
 
-    if (method, path) not in (
+    allowed = {
         ("GET", UNIT12_POSITION_PATH),
-        ("POST", UNIT12_ORDER_PATH),
-    ):
+        ("POST", UNIT12_ORDER_PATH)
+    }
+
+    if (method, path) not in allowed:
         raise RuntimeError(
-            "UNIT12_NON_DEMO_ENDPOINT_REJECTED"
+            "NON_DEMO_ENDPOINT_BLOCKED"
         )
 
-    key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
+    if method == "POST" and not isinstance(
+        payload, dict
+    ):
+        raise RuntimeError("INVALID_POST_PAYLOAD")
+
+    if method == "GET" and payload is not None:
+        raise RuntimeError("INVALID_GET_PAYLOAD")
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
 
     secret = (
         os.getenv("WEEX_API_SECRET")
@@ -7975,16 +8074,8 @@ def u12_demo_request(method, path, payload=None):
 
     if not all((key, secret, phrase)):
         raise RuntimeError(
-            "UNIT12_DEMO_CREDENTIALS_MISSING"
+            "WEEX_CREDENTIALS_MISSING"
         )
-
-    if method == "GET" and payload is not None:
-        raise RuntimeError("UNIT12_INVALID_GET_BODY")
-
-    if method == "POST" and not isinstance(
-        payload, dict
-    ):
-        raise RuntimeError("UNIT12_INVALID_POST_BODY")
 
     body = (
         json.dumps(
@@ -7992,7 +8083,8 @@ def u12_demo_request(method, path, payload=None):
             separators=(",", ":"),
             ensure_ascii=False
         )
-        if payload is not None else ""
+        if payload is not None
+        else ""
     )
 
     timestamp = str(int(time.time() * 1000))
@@ -8011,7 +8103,8 @@ def u12_demo_request(method, path, payload=None):
         UNIT12_BASE_URL + path,
         data=(
             body.encode("utf-8")
-            if method == "POST" else None
+            if method == "POST"
+            else None
         ),
         method=method,
         headers={
@@ -8020,66 +8113,185 @@ def u12_demo_request(method, path, payload=None):
             "ACCESS-TIMESTAMP": timestamp,
             "ACCESS-PASSPHRASE": phrase,
             "Content-Type": "application/json",
-            "Accept": "application/json",
+            "Accept": "application/json"
         }
     )
 
     try:
+
         with urllib.request.urlopen(
             request,
             timeout=15
         ) as response:
 
-            status = response.getcode()
-            raw = response.read().decode("utf-8")
+            http_status = response.getcode()
+
+            raw = response.read().decode(
+                "utf-8",
+                errors="replace"
+            )
 
     except urllib.error.HTTPError as exc:
 
-        status = exc.code
+        http_status = exc.code
+
         raw = exc.read().decode(
-            "utf-8", errors="replace"
+            "utf-8",
+            errors="replace"
         )
 
-    data = json.loads(raw)
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        data = {
+            "raw_response": raw[:500]
+        }
 
-    return status, data
+    return http_status, data
 
 
 # ============================================================
-# 12.3 RESPONSE NORMALIZATION
+# 12.3 POSITION VERIFICATION
 # ============================================================
 
-def u12_rows(payload):
+def u12_position_check(symbol):
 
-    if isinstance(payload, list):
-        return payload
-
-    if isinstance(payload, dict):
-
-        if payload.get("success") is False:
-            raise RuntimeError(
-                "UNIT12_POSITION_API_REJECTED"
-            )
-
-        data = payload.get("data", payload)
-
-        if isinstance(data, list):
-            return data
-
-        if isinstance(data, dict):
-            for key in (
-                "list", "rows", "positions", "data"
-            ):
-                if isinstance(data.get(key), list):
-                    return data[key]
-
-    raise RuntimeError(
-        "UNIT12_POSITION_RESPONSE_UNRECOGNIZED"
+    http_status, response = u12_request(
+        "GET",
+        UNIT12_POSITION_PATH
     )
 
+    if not 200 <= http_status < 300:
+        return False, "POSITION_HTTP_ERROR"
+
+    if isinstance(response, dict):
+
+        code = response.get("code")
+
+        if code not in (None, 0, "0", "00000"):
+            return False, "POSITION_API_REJECTED"
+
+    rows = u12_rows(response)
+
+    if rows is None:
+        return False, "POSITION_FORMAT_UNVERIFIED"
+
+    for position in rows:
+
+        if not isinstance(position, dict):
+            return False, "INVALID_POSITION_RECORD"
+
+        position_symbol = u12_symbol(
+            position.get("symbol")
+        )
+
+        if position_symbol != symbol:
+            continue
+
+        raw_size = None
+
+        for key in (
+            "size",
+            "total",
+            "holdVol",
+            "positionAmt"
+        ):
+            if position.get(key) is not None:
+                raw_size = position.get(key)
+                break
+
+        size = u12_decimal(raw_size)
+
+        if size is None:
+            return False, "POSITION_SIZE_UNVERIFIED"
+
+        if abs(size) > 0:
+            return False, "ACTIVE_POSITION_EXISTS"
+
+    return True, "DEMO_POSITION_FLAT"
+
 
 # ============================================================
-# 12.4 INITIAL ENTRY EXECUTION
+# 12.4 ORDER QUANTITY CONVERSION
+# ============================================================
+
+def u12_order_quantity(instruction, contract):
+
+    quantity = u12_decimal(
+        instruction.get("quantity")
+    )
+
+    multiplier = u12_decimal(
+        instruction.get("contract_multiplier")
+        or contract.get("contract_multiplier")
+    )
+
+    if quantity is None or quantity <= 0:
+        return None, "INVALID_INTERNAL_QUANTITY"
+
+    if multiplier is None or multiplier <= 0:
+        return None, "INVALID_CONTRACT_MULTIPLIER"
+
+    source_unit = str(
+        instruction.get("quantity_unit") or ""
+    ).upper()
+
+    if source_unit != "EXCHANGE_CONTRACT_UNITS":
+        return None, "SOURCE_QUANTITY_UNIT_UNVERIFIED"
+
+    # Explicitly confirm the demo endpoint's quantity
+    # representation before any order submission.
+    target_unit = str(
+        os.getenv(
+            "WEEX_DEMO_ORDER_QUANTITY_UNIT",
+            "UNVERIFIED"
+        )
+    ).strip().upper()
+
+    if target_unit == "BASE_ASSET":
+
+        calculated = quantity * multiplier
+
+    elif target_unit == "CONTRACT_UNITS":
+
+        calculated = quantity
+
+    else:
+
+        return None, "DEMO_ORDER_QUANTITY_UNIT_UNVERIFIED"
+
+    # The step and minimum must describe the actual
+    # order endpoint's quantity representation.
+    step = u12_decimal(
+        os.getenv("WEEX_DEMO_ORDER_QTY_STEP")
+    )
+
+    minimum = u12_decimal(
+        os.getenv("WEEX_DEMO_ORDER_MIN_QTY")
+    )
+
+    if (
+        step is None
+        or minimum is None
+        or step <= 0
+        or minimum <= 0
+    ):
+        return None, "DEMO_QUANTITY_RULES_UNVERIFIED"
+
+    adjusted = (
+        (calculated / step).to_integral_value(
+            rounding=ROUND_DOWN
+        ) * step
+    )
+
+    if adjusted < minimum:
+        return None, "DEMO_QUANTITY_BELOW_MINIMUM"
+
+    return u12_text(adjusted), "QUANTITY_READY"
+
+
+# ============================================================
+# 12.5 MAIN DEMO EXECUTION
 # ============================================================
 
 def fresh_reconstruction_unit_12(
@@ -8088,176 +8300,211 @@ def fresh_reconstruction_unit_12(
     unit8
 ):
 
+    config = config if isinstance(config, dict) else {}
+    unit11 = unit11 if isinstance(unit11, dict) else {}
+    unit8 = unit8 if isinstance(unit8, dict) else {}
+
+    exchange = config.get("exchange", {})
+
+    if not isinstance(exchange, dict):
+        exchange = {}
+
+    market_symbol = u12_symbol(
+        exchange.get("market_symbol")
+        or config.get("market_symbol")
+    )
+
+    demo_symbol = u12_demo_symbol(market_symbol)
+
+    bot_mode = str(
+        os.getenv(
+            "BOT_MODE",
+            config.get("bot_mode", "PAUSE")
+        )
+    ).strip().upper()
+
+    result = {
+        "unit": 12,
+        "version": UNIT12_VERSION,
+
+        "market_symbol": market_symbol,
+        "demo_order_symbol": demo_symbol,
+
+        "bot_mode": bot_mode,
+
+        "status": "IDLE",
+        "reason": "NOT_EVALUATED",
+
+        "order_id": None,
+        "client_order_id": None,
+
+        "order_request": None,
+        "order_payload": None,
+        "order_response": None,
+
+        "order_submitted": False,
+        "order_accepted": False,
+        "fill_verified": False,
+
+        "exchange_write": False,
+        "real_cash_execution": False,
+
+        "existing_position_management_enabled": True,
+        "existing_position_management_independent": True
+    }
+
     print("=" * 80, flush=True)
     print(
         "COMBINED RECONSTRUCTION UNIT 12 START",
         flush=True
     )
 
-    result = {
-        "unit": 12,
-        "version": "U12_17248_ADAPTED_DEMO_V1",
-        "status": "IDLE",
-        "reason": "NOT_EVALUATED",
-        "order_submitted": False,
-        "demo_submission_attempted": False,
-        "demo_submission_completed": False,
-        "exchange_write": False,
-        "real_cash_execution": False,
-        "existing_position_management_independent": True,
-        "order_id": None,
-        "client_order_id": None,
-        "fill_verified": False,
-        "handover_to_unit13": "READY",
-    }
+    print(
+        "UNIT 12 VERSION =",
+        UNIT12_VERSION,
+        flush=True
+    )
+
+    print(
+        "UNIT 12 MARKET SYMBOL =",
+        market_symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 12 DEMO SYMBOL =",
+        demo_symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 12 BOT_MODE =",
+        bot_mode,
+        flush=True
+    )
 
     def finish(status, reason):
 
         result["status"] = status
         result["reason"] = reason
+        result["skip_reason"] = reason
 
         print(
-            "UNIT 12 STATUS =", status,
+            "UNIT 12 STATUS =",
+            status,
             flush=True
         )
+
         print(
-            "UNIT 12 REASON =", reason,
+            "UNIT 12 REASON =",
+            reason,
             flush=True
         )
+
         print(
             "UNIT 12 ORDER ID =",
             result["order_id"],
             flush=True
         )
+
         print(
             "UNIT 12 EXCHANGE WRITE =",
             result["exchange_write"],
             flush=True
         )
+
+        print(
+            "UNIT 12 REAL CASH EXECUTION = DISABLED",
+            flush=True
+        )
+
         print("=" * 80, flush=True)
 
         return result
 
-    if not all(
-        isinstance(item, dict)
-        for item in (config, unit11, unit8)
-    ):
-        return finish(
-            "ERROR", "INVALID_UPSTREAM_INPUT"
-        )
+    # --------------------------------------------------------
+    # DEMO-ONLY BOUNDARY
+    # --------------------------------------------------------
 
     if (
         config.get("execution_environment") != "DEMO"
-        or config.get("real_cash_execution_enabled")
-        is not False
+        or config.get(
+            "real_cash_execution_enabled"
+        ) is not False
     ):
         return finish(
-            "ERROR", "NON_DEMO_CONFIGURATION"
+            "BLOCKED",
+            "DEMO_ONLY_CONFIGURATION_REQUIRED"
         )
 
-    symbol = str(
-        config.get("market_symbol") or ""
-    ).upper()
-
-    selected_symbol = os.getenv(
-        "WEEX_SYMBOL",
-        os.getenv("MARKET_SYMBOL", "BTCUSDT")
-    ).strip().upper().replace("/", "").replace("-", "")
-
-    if symbol != selected_symbol:
+    if not market_symbol or not demo_symbol:
         return finish(
-            "ERROR", "RENDER_SYMBOL_MISMATCH"
+            "BLOCKED",
+            "DEMO_SYMBOL_MAPPING_UNAVAILABLE"
         )
-
-    demo_symbol = str(
-        unit8.get("demo_order_symbol") or ""
-    ).upper()
-
-    bot_mode = os.getenv(
-        "BOT_MODE", "PAUSE"
-    ).strip().upper()
-
-    print(
-        "UNIT 12 MARKET SYMBOL =", symbol,
-        flush=True
-    )
-    print(
-        "UNIT 12 DEMO SYMBOL =", demo_symbol,
-        flush=True
-    )
-    print(
-        "UNIT 12 BOT_MODE =", bot_mode,
-        flush=True
-    )
 
     if bot_mode not in ("RUN", "PAUSE"):
         return finish(
-            "ERROR", "INVALID_BOT_MODE"
+            "BLOCKED",
+            "INVALID_BOT_MODE"
         )
 
-    # Only NEW initial entries are paused.
+    # BOT_MODE controls initial entries only.
+    # It does not disable Units 13-14 management.
     if bot_mode == "PAUSE":
         return finish(
-            "PAUSED", "NEW_ENTRIES_PAUSED"
+            "PAUSED",
+            "NEW_ENTRIES_PAUSED"
         )
 
-    if unit11.get("status") != "READY":
-        return finish(
-            "IDLE", "UNIT11_NOT_READY"
-        )
+    # --------------------------------------------------------
+    # UNIT 11 HANDOVER
+    # --------------------------------------------------------
 
     if (
-        unit11.get("order_prepared") is not True
+        unit11.get("status") != "READY"
+        or unit11.get("order_prepared") is not True
         or unit11.get("execution_ready") is not True
-        or unit11.get("trade_plan_ready") is not True
     ):
         return finish(
-            "IDLE", "NO_PREPARED_ENTRY"
-        )
-
-    if (
-        unit8.get("market_contract_verified") is not True
-        or unit8.get("demo_balance_verified") is not True
-        or unit8.get("demo_positions_read_verified")
-        is not True
-        or unit8.get("account_can_trade") is not True
-    ):
-        return finish(
-            "WAITING", "DEMO_ACCOUNT_NOT_VERIFIED"
+            "IDLE",
+            "UNIT11_NOT_READY"
         )
 
     instruction = unit11.get("order_request")
 
     if not isinstance(instruction, dict):
         return finish(
-            "ERROR", "ORDER_REQUEST_MISSING"
+            "BLOCKED",
+            "UNIT11_ORDER_REQUEST_MISSING"
         )
 
-    if any(
-        instruction.get(key) != symbol
-        for key in ("symbol", "market_symbol")
-    ):
+    if instruction.get("environment") != "DEMO":
         return finish(
-            "ERROR", "ORDER_SYMBOL_MISMATCH"
+            "BLOCKED",
+            "UNIT11_NON_DEMO_REQUEST"
         )
 
-    if (
-        instruction.get("demo_order_symbol")
-        != demo_symbol
-        or demo_symbol != symbol
+    if instruction.get("intent") != (
+        "OPEN_INITIAL_POSITION"
     ):
         return finish(
-            "ERROR", "DEMO_CONTRACT_MISMATCH"
+            "BLOCKED",
+            "INVALID_ORDER_INTENT"
         )
 
-    if (
-        instruction.get("environment") != "DEMO"
-        or instruction.get("intent")
-        != "OPEN_INITIAL_POSITION"
-        or instruction.get("order_type") != "MARKET"
-    ):
+    if instruction.get("order_type") != "MARKET":
         return finish(
-            "ERROR", "ORDER_INTENT_INVALID"
+            "BLOCKED",
+            "UNSUPPORTED_ORDER_TYPE"
+        )
+
+    if u12_symbol(
+        instruction.get("market_symbol")
+    ) != market_symbol:
+        return finish(
+            "BLOCKED",
+            "MARKET_SYMBOL_MISMATCH"
         )
 
     direction = str(
@@ -8266,104 +8513,96 @@ def fresh_reconstruction_unit_12(
 
     if direction not in ("LONG", "SHORT"):
         return finish(
-            "ERROR", "INVALID_DIRECTION"
+            "BLOCKED",
+            "INVALID_DIRECTION"
         )
 
-    quantity = u12_decimal(
-        instruction.get("quantity")
-    )
+    if (
+        instruction.get("real_cash_execution_enabled")
+        is True
+    ):
+        return finish(
+            "BLOCKED",
+            "REAL_CASH_REQUEST_BLOCKED"
+        )
 
-    contract = unit8.get("contract", {})
+    # --------------------------------------------------------
+    # CONTRACT AND QUANTITY
+    # --------------------------------------------------------
+
+    contract = unit8.get("contract")
 
     if not isinstance(contract, dict):
         return finish(
-            "ERROR", "CONTRACT_MISSING"
+            "BLOCKED",
+            "CONTRACT_METADATA_MISSING"
         )
 
-    minimum = u12_decimal(
-        contract.get("minimum_quantity")
+    if contract.get("verified") is not True:
+        return finish(
+            "BLOCKED",
+            "MARKET_CONTRACT_UNVERIFIED"
+        )
+
+    if u12_symbol(
+        contract.get("symbol")
+    ) != market_symbol:
+        return finish(
+            "BLOCKED",
+            "CONTRACT_SYMBOL_MISMATCH"
+        )
+
+    quantity, quantity_reason = (
+        u12_order_quantity(
+            instruction,
+            contract
+        )
     )
 
-    step = u12_decimal(
-        contract.get("quantity_step")
+    print(
+        "UNIT 12 QUANTITY STATUS =",
+        quantity_reason,
+        flush=True
     )
 
-    if any(
-        value is None or value <= 0
-        for value in (quantity, minimum, step)
-    ):
+    if quantity is None:
         return finish(
-            "ERROR", "INVALID_CONTRACT_QUANTITY"
+            "BLOCKED",
+            quantity_reason
         )
 
-    if quantity < minimum or quantity % step != 0:
-        return finish(
-            "ERROR", "QUANTITY_STEP_INVALID"
-        )
-
-    if (
-        u12_decimal(unit11.get("quantity"))
-        != quantity
-    ):
-        return finish(
-            "ERROR", "UNIT11_QUANTITY_MISMATCH"
-        )
-
-    available = u12_decimal(
-        unit8.get("available_balance")
+    print(
+        "UNIT 12 DEMO ORDER QUANTITY =",
+        quantity,
+        flush=True
     )
 
-    margin = u12_decimal(
-        instruction.get("entry_margin_usdt")
-    )
+    # --------------------------------------------------------
+    # CANDLE-BASED CLIENT ID
+    # --------------------------------------------------------
 
-    if (
-        available is None
-        or margin is None
-        or margin <= 0
-        or available < margin
-    ):
-        return finish(
-            "WAITING", "INSUFFICIENT_DEMO_BALANCE"
-        )
-
-    # Deterministic signal identity.
-    analysis = globals().get(
+    snapshot = globals().get(
         "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT",
         {}
     )
 
-    candle_id = (
-        analysis.get("latest_close_time_ms")
-        if isinstance(analysis, dict)
-        else None
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+
+    candle_id = snapshot.get(
+        "latest_close_time_ms"
     )
 
-    if not isinstance(candle_id, int):
+    if candle_id is None:
         return finish(
-            "WAITING", "SIGNAL_CANDLE_ID_MISSING"
+            "BLOCKED",
+            "SIGNAL_CANDLE_ID_MISSING"
         )
 
-    age_ms = int(time.time() * 1000) - candle_id
-
-    if not 0 <= age_ms <= 120000:
-        return finish(
-            "WAITING", "SIGNAL_CANDLE_EXPIRED"
-        )
-
-    identity = (
-        symbol + "|"
-        + direction + "|"
-        + str(instruction.get("mode")) + "|"
-        + str(candle_id)
-    )
-
-    client_id = (
-        "FR12"
-        + direction[0]
-        + hashlib.sha256(
-            identity.encode("utf-8")
-        ).hexdigest()[:24]
+    client_id = u12_client_id(
+        market_symbol,
+        direction,
+        candle_id
     )
 
     result["client_order_id"] = client_id
@@ -8371,94 +8610,107 @@ def fresh_reconstruction_unit_12(
     if client_id in UNIT12_ATTEMPTED_IDS:
         return finish(
             "ORDER_UNCERTAIN",
-            "PREVIOUS_SUBMISSION_ATTEMPT"
+            "DUPLICATE_ATTEMPT_BLOCKED"
         )
 
     payload = {
         "symbol": demo_symbol,
+
         "side": (
-            "BUY" if direction == "LONG"
+            "BUY"
+            if direction == "LONG"
             else "SELL"
         ),
+
         "positionSide": direction,
+
         "type": "MARKET",
-        "quantity": format(quantity, "f"),
-        "newClientOrderId": client_id,
+
+        "quantity": quantity,
+
+        "newClientOrderId": client_id
     }
 
-    # ========================================================
-    # FRESH WEEX POSITION CHECK
-    # ========================================================
+    result["order_request"] = dict(instruction)
+    result["order_payload"] = dict(payload)
 
-    try:
-        position_http, position_response = (
-            u12_demo_request(
-                "GET",
-                UNIT12_POSITION_PATH
-            )
+    print(
+        "UNIT 12 ORDER PAYLOAD =",
+        payload,
+        flush=True
+    )
+
+    # --------------------------------------------------------
+    # EXPLICIT ORDER AUTHORIZATION
+    # --------------------------------------------------------
+
+    # This additional control is deliberately separate
+    # from BOT_MODE. It prevents a test order from being
+    # sent automatically when Render restarts.
+    #
+    # It is not a substitute for durable idempotency.
+
+    submission_enabled = str(
+        os.getenv(
+            "WEEX_DEMO_ORDER_SUBMISSION",
+            "DISABLED"
+        )
+    ).strip().upper()
+
+    if submission_enabled != "ENABLED":
+        return finish(
+            "PREPARED",
+            "DEMO_SUBMISSION_NOT_ARMED"
         )
 
-        if not 200 <= position_http < 300:
-            return finish(
-                "POSITION_CHECK_FAILED",
-                "POSITION_HTTP_" + str(position_http)
-            )
+    # --------------------------------------------------------
+    # FRESH DEMO POSITION CHECK
+    # --------------------------------------------------------
 
-        positions = u12_rows(position_response)
+    try:
 
-        active = []
-
-        for position in positions:
-
-            if not isinstance(position, dict):
-                raise RuntimeError(
-                    "INVALID_POSITION_RECORD"
-                )
-
-            if str(
-                position.get("symbol") or ""
-            ).upper() != demo_symbol:
-                continue
-
-            size = u12_decimal(
-                position.get("size")
-            )
-
-            if size is None:
-                raise RuntimeError(
-                    "POSITION_SIZE_UNVERIFIED"
-                )
-
-            if size > 0:
-                active.append(position)
+        flat, position_reason = (
+            u12_position_check(demo_symbol)
+        )
 
     except Exception as exc:
 
         print(
             "UNIT 12 POSITION ERROR =",
             type(exc).__name__,
-            str(exc)[:180],
+            str(exc)[:200],
             flush=True
         )
 
         return finish(
             "POSITION_CHECK_FAILED",
-            "FRESH_POSITION_READ_FAILED"
+            "POSITION_REQUEST_FAILED"
         )
 
-    if active:
+    print(
+        "UNIT 12 POSITION CHECK =",
+        position_reason,
+        flush=True
+    )
+
+    if not flat:
         return finish(
-            "ACTIVE_POSITION",
-            "INITIAL_ENTRY_ALREADY_EXISTS"
+            "BLOCKED",
+            position_reason
         )
 
-    # ========================================================
-    # ACTUAL DEMO ORDER POST
-    # ========================================================
+    # --------------------------------------------------------
+    # DEMO ORDER SUBMISSION
+    # --------------------------------------------------------
+
+    # This in-memory guard covers only the current
+    # process. For unattended trading, reconcile
+    # persisted order attempts with exchange history
+    # before enabling automatic retries.
 
     UNIT12_ATTEMPTED_IDS.add(client_id)
 
-    result["demo_submission_attempted"] = True
+    result["exchange_write"] = True
 
     print(
         "UNIT 12 SENDING ACTUAL WEEX DEMO ORDER",
@@ -8466,7 +8718,8 @@ def fresh_reconstruction_unit_12(
     )
 
     try:
-        http_status, response = u12_demo_request(
+
+        http_status, response = u12_request(
             "POST",
             UNIT12_ORDER_PATH,
             payload
@@ -8475,19 +8728,36 @@ def fresh_reconstruction_unit_12(
     except Exception as exc:
 
         print(
-            "UNIT 12 POST ERROR =",
+            "UNIT 12 ORDER ERROR =",
             type(exc).__name__,
-            str(exc)[:180],
+            str(exc)[:200],
             flush=True
         )
 
         return finish(
             "ORDER_UNCERTAIN",
-            "POST_RESPONSE_UNCERTAIN"
+            "ORDER_REQUEST_EXCEPTION_RECONCILE_FIRST"
         )
 
-    result["exchange_write"] = True
-    result["http_status"] = http_status
+    result["order_response"] = response
+
+    print(
+        "UNIT 12 ORDER HTTP STATUS =",
+        http_status,
+        flush=True
+    )
+
+    print(
+        "UNIT 12 EXCHANGE RESPONSE =",
+        response,
+        flush=True
+    )
+
+    if not 200 <= http_status < 300:
+        return finish(
+            "DEMO_REJECTED",
+            "WEEX_ORDER_HTTP_REJECTED"
+        )
 
     if not isinstance(response, dict):
         return finish(
@@ -8495,49 +8765,54 @@ def fresh_reconstruction_unit_12(
             "INVALID_ORDER_RESPONSE"
         )
 
-    if (
-        not 200 <= http_status < 300
-        or response.get("success") is not True
-    ):
-        print(
-            "UNIT 12 EXCHANGE RESPONSE =",
-            str(response)[:300],
-            flush=True
-        )
+    code = response.get("code")
 
+    if code not in (None, 0, "0", "00000"):
         return finish(
             "DEMO_REJECTED",
             "WEEX_ORDER_REJECTED"
         )
 
-    order_id = response.get("orderId")
+    if response.get("success") is False:
+        return finish(
+            "DEMO_REJECTED",
+            "WEEX_ORDER_NOT_SUCCESSFUL"
+        )
+
+    order_data = response.get("data")
+
+    if not isinstance(order_data, dict):
+        order_data = {}
+
+    order_id = (
+        response.get("orderId")
+        or order_data.get("orderId")
+        or order_data.get("order_id")
+    )
 
     if not order_id:
         return finish(
             "ORDER_UNCERTAIN",
-            "ORDER_ID_MISSING"
+            "ORDER_ID_NOT_CONFIRMED"
         )
 
-    result.update({
-        "status": "DEMO_SUBMITTED",
-        "reason": "WEEX_DEMO_ORDER_ACCEPTED",
-        "order_submitted": True,
-        "demo_submission_completed": True,
-        "demo_order_accepted": True,
-        "order_id": str(order_id),
-        "order_payload": payload,
-        "exchange_response": response,
-        "fill_verified": False,
-    })
+    result["order_id"] = str(order_id)
+
+    result["order_submitted"] = True
+    result["order_accepted"] = True
+
+    # Acceptance does not prove a fill.
+    # Units 13-14 must read the resulting
+    # exchange position before managing it.
 
     return finish(
         "DEMO_SUBMITTED",
-        "WEEX_DEMO_ORDER_ACCEPTED"
+        "WEEX_DEMO_ORDER_ACCEPTED_FILL_PENDING"
     )
 
 
 # ============================================================
-# UNIT 12 GLOBAL EXECUTION
+# 12.6 STARTUP EXECUTION
 # ============================================================
 
 FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
@@ -8549,21 +8824,13 @@ FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
 )
 
 FRESH_UNIT_12_OPTIMIZATION_READY = (
-    isinstance(
-        FRESH_RECONSTRUCTION_UNIT_12_RESULT,
-        dict
-    )
-    and FRESH_RECONSTRUCTION_UNIT_12_RESULT.get(
+    FRESH_RECONSTRUCTION_UNIT_12_RESULT.get(
         "status"
     ) in (
-        "DEMO_SUBMITTED",
-        "PAUSED",
         "IDLE",
-        "WAITING",
-        "ACTIVE_POSITION",
-        "POSITION_CHECK_FAILED",
-        "ORDER_UNCERTAIN",
-        "DEMO_REJECTED",
+        "PAUSED",
+        "PREPARED",
+        "DEMO_SUBMITTED"
     )
 )
 
@@ -8574,77 +8841,8 @@ print(
 )
 
 # ============================================================
-# END COMPLETE UNIT 12 REPLACEMENT
+# END COMPLETE UNIT 12
 # ZERO INDENTATION
 # ============================================================
 
 
-# ============================================================
-# UNIT 12 CONTROLLED INTERFACE DIAGNOSTIC
-# ZERO INDENTATION
-# ============================================================
-
-def unit12_interface_diagnostic():
-
-    u8 = globals().get(
-        "FRESH_RECONSTRUCTION_UNIT_8_RESULT", {}
-    )
-    u11 = globals().get(
-        "FRESH_RECONSTRUCTION_UNIT_11_RESULT", {}
-    )
-
-    if not isinstance(u8, dict):
-        u8 = {}
-
-    if not isinstance(u11, dict):
-        u11 = {}
-
-    contract = u8.get("contract")
-    request = u11.get("order_request")
-    preview = u8.get("size_preview")
-
-    print("=" * 80, flush=True)
-    print("UNIT 12 INTERFACE DIAGNOSTIC START", flush=True)
-
-    print("UNIT 8 CONTRACT =", contract, flush=True)
-    print("UNIT 8 SIZE PREVIEW =", preview, flush=True)
-
-    print(
-        "UNIT 11 STATUS =",
-        u11.get("status"),
-        flush=True
-    )
-
-    print(
-        "UNIT 11 ORDER REQUEST =",
-        request,
-        flush=True
-    )
-
-    snapshot = globals().get(
-        "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT"
-    )
-
-    print(
-        "UNIT 12 ANALYSIS SNAPSHOT TYPE =",
-        type(snapshot).__name__,
-        flush=True
-    )
-
-    if isinstance(snapshot, dict):
-        print(
-            "UNIT 12 SNAPSHOT KEYS =",
-            list(snapshot.keys()),
-            flush=True
-        )
-
-    print("UNIT 12 DIAGNOSTIC EXCHANGE WRITE = NONE",
-          flush=True)
-    print("UNIT 12 INTERFACE DIAGNOSTIC COMPLETE",
-          flush=True)
-    print("=" * 80, flush=True)
-
-
-unit12_interface_diagnostic()
-
-# END UNIT 12 CONTROLLED INTERFACE DIAGNOSTIC
