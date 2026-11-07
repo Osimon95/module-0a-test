@@ -7269,3 +7269,632 @@ print(
 # END COMPLETE UNIT 10 REPLACEMENT
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 11 REPLACEMENT
+# WEEX DEMO ORDER PREPARATION
+# REFERENCES: 17248 / 18426 RECONSTRUCTION
+# ZERO INDENTATION
+# ============================================================
+
+from decimal import Decimal, InvalidOperation
+
+
+def u11_decimal(value):
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = Decimal(str(value))
+        if number.is_finite():
+            return number
+    except (InvalidOperation, TypeError, ValueError):
+        pass
+    return None
+
+
+def u11_decimal_string(value):
+    return format(value, "f")
+
+
+def u11_positive(value):
+    number = u11_decimal(value)
+    return number is not None and number > 0
+
+
+def fresh_reconstruction_unit_11(
+    config,
+    unit10,
+    unit9,
+    unit8
+):
+    print("=" * 80, flush=True)
+    print(
+        "COMBINED RECONSTRUCTION UNIT 11 START",
+        flush=True
+    )
+
+    config = config if isinstance(config, dict) else {}
+    unit10 = unit10 if isinstance(unit10, dict) else {}
+    unit9 = unit9 if isinstance(unit9, dict) else {}
+    unit8 = unit8 if isinstance(unit8, dict) else {}
+
+    exchange = config.get("exchange", {})
+    exchange = exchange if isinstance(exchange, dict) else {}
+
+    symbol = str(
+        exchange.get("market_symbol")
+        or config.get("market_symbol")
+        or ""
+    ).strip().upper()
+
+    bot_mode = str(
+        config.get("bot_mode", "PAUSE")
+    ).strip().upper()
+
+    result = {
+        "unit": 11,
+        "version": "U11_DEMO_ORDER_PREPARATION_V1",
+
+        "market_symbol": symbol,
+        "symbol": symbol,
+        "demo_order_symbol": symbol,
+
+        "execution_environment": "DEMO",
+        "bot_mode": bot_mode,
+
+        "status": "IDLE",
+        "reason": "NOT_EVALUATED",
+        "skip_reason": None,
+
+        "active_mode": "NONE",
+        "direction": "NONE",
+
+        "signal_qualified": False,
+        "execution_intent": False,
+
+        "trade_plan_ready": False,
+        "trade_plan": None,
+
+        "order_prepared": False,
+        "order_payload_created": False,
+        "order_request": None,
+
+        "quantity": None,
+        "selected_leverage": None,
+        "entry_margin_usdt": None,
+
+        "order_type": "MARKET",
+        "order_intent": "OPEN_INITIAL_POSITION",
+
+        "requires_fresh_balance": True,
+        "requires_fresh_position_read": True,
+        "requires_demo_order_response": True,
+
+        "exchange_order_units_verified": False,
+        "demo_order_permission_verified": False,
+
+        "execution_ready": False,
+        "execution_authorized": False,
+        "order_submission_authorized": False,
+        "order_submitted": False,
+
+        "existing_position_management_enabled": True,
+        "existing_position_management_independent": True,
+
+        "position_management_handover":
+            unit10.get("position_management_handover")
+            or unit9.get("position_management_handover"),
+
+        "positions": unit8.get("positions", []),
+
+        "long_position_quantity":
+            unit8.get("long_position_quantity"),
+
+        "short_position_quantity":
+            unit8.get("short_position_quantity"),
+
+        "hedge_policy": unit9.get("hedge_policy", {}),
+        "backup_policy": unit9.get("backup_policy", {}),
+        "backup_count": unit9.get("backup_count", 5),
+
+        "exposure_cap_percent":
+            unit9.get("exposure_cap_percent"),
+
+        "tp1_net_roi_percent":
+            unit9.get("tp1_net_roi_percent"),
+
+        "tp2_net_roi_percent":
+            unit9.get("tp2_net_roi_percent"),
+
+        "tp_allocation": unit9.get("tp_allocation"),
+
+        "handover_to_unit12": "READY",
+
+        "read_only": True,
+        "exchange_write": False,
+        "real_cash_execution": False,
+        "real_cash_execution_enabled": False
+    }
+
+    def finish(status, reason):
+        result["status"] = status
+        result["reason"] = reason
+        result["skip_reason"] = (
+            None if status == "READY" else reason
+        )
+
+        for label, key in (
+            ("MARKET SYMBOL", "market_symbol"),
+            ("DEMO ORDER SYMBOL", "demo_order_symbol"),
+            ("BOT_MODE", "bot_mode"),
+            ("MODE", "active_mode"),
+            ("DIRECTION", "direction"),
+            ("SIGNAL QUALIFIED", "signal_qualified"),
+            ("ORDER PREPARED", "order_prepared"),
+            ("QUANTITY", "quantity"),
+            ("SELECTED LEVERAGE", "selected_leverage"),
+            ("ENTRY MARGIN USDT", "entry_margin_usdt"),
+            ("EXCHANGE ORDER UNITS VERIFIED",
+             "exchange_order_units_verified"),
+            ("EXECUTION READY", "execution_ready"),
+            ("STATUS", "status"),
+            ("REASON", "reason"),
+            ("ORDER SUBMISSION AUTHORIZED",
+             "order_submission_authorized")
+        ):
+            print(
+                "UNIT 11 " + label + " =",
+                result.get(key),
+                flush=True
+            )
+
+        print(
+            "UNIT 11 EXISTING POSITION MANAGEMENT = "
+            "INDEPENDENT",
+            flush=True
+        )
+
+        print(
+            "UNIT 11 HANDOVER TO UNIT 12 = READY",
+            flush=True
+        )
+
+        print(
+            "UNIT 11 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        print(
+            "UNIT 11 REAL CASH EXECUTION = DISABLED",
+            flush=True
+        )
+
+        print(
+            "COMBINED RECONSTRUCTION UNIT 11 RESULT =",
+            "FAIL" if status == "ERROR" else "PASS",
+            flush=True
+        )
+
+        print("=" * 80, flush=True)
+
+        return result
+
+    # ========================================================
+    # DEMO-ONLY BOUNDARY
+    # ========================================================
+
+    if not symbol:
+        return finish(
+            "ERROR", "MARKET_SYMBOL_MISSING"
+        )
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or config.get("real_cash_execution_enabled")
+        is not False
+    ):
+        return finish(
+            "ERROR", "DEMO_ONLY_CONFIGURATION_REQUIRED"
+        )
+
+    if (
+        unit10.get("market_symbol") != symbol
+        or unit9.get("market_symbol") != symbol
+        or unit8.get("market_symbol") != symbol
+        or unit8.get("demo_order_symbol") != symbol
+    ):
+        return finish(
+            "ERROR", "SYMBOL_HANDOVER_MISMATCH"
+        )
+
+    # ========================================================
+    # BOT_MODE CONTROLS NEW ENTRIES ONLY
+    # ========================================================
+
+    if bot_mode != "RUN":
+        return finish(
+            "PAUSED", "NEW_ENTRIES_PAUSED"
+        )
+
+    status10 = str(
+        unit10.get("status") or "IDLE"
+    ).upper()
+
+    if status10 != "READY":
+        return finish(
+            "WAITING",
+            "UNIT_10_NOT_READY_" + status10
+        )
+
+    if (
+        unit10.get("trade_plan_ready") is not True
+        or unit10.get("execution_ready") is not True
+    ):
+        return finish(
+            "WAITING", "UNIT_10_PLAN_NOT_READY"
+        )
+
+    if (
+        unit9.get("status") != "READY"
+        or unit9.get("trade_plan_ready") is not True
+        or unit9.get("execution_ready") is not True
+    ):
+        return finish(
+            "WAITING", "UNIT_9_PLAN_NOT_READY"
+        )
+
+    # ========================================================
+    # VALIDATE QUALIFIED SIGNAL
+    # ========================================================
+
+    plan = unit10.get("trade_plan")
+
+    if not isinstance(plan, dict):
+        return finish(
+            "WAITING", "TRADE_PLAN_MISSING"
+        )
+
+    if plan != unit9.get("trade_plan"):
+        return finish(
+            "WAITING", "TRADE_PLAN_HANDOVER_MISMATCH"
+        )
+
+    mode = str(
+        plan.get("active_mode") or "NONE"
+    ).upper()
+
+    direction = str(
+        plan.get("direction") or "NONE"
+    ).upper()
+
+    result["active_mode"] = mode
+    result["direction"] = direction
+
+    if mode not in (
+        "SCALP", "STRUCTURE", "BREAKOUT"
+    ):
+        return finish(
+            "IDLE", "NO_QUALIFIED_MODE"
+        )
+
+    if direction not in ("LONG", "SHORT"):
+        return finish(
+            "IDLE", "NO_QUALIFIED_DIRECTION"
+        )
+
+    if (
+        unit9.get("signal_qualified") is not True
+        or unit9.get("execution_intent") is not True
+        or unit10.get("signal_qualified") is not True
+        or unit10.get("execution_intent") is not True
+    ):
+        return finish(
+            "IDLE", "NO_QUALIFIED_ENTRY_INTENT"
+        )
+
+    result["signal_qualified"] = True
+    result["execution_intent"] = True
+
+    if (
+        plan.get("market_symbol") != symbol
+        or plan.get("demo_order_symbol") != symbol
+        or plan.get("execution_environment") != "DEMO"
+        or plan.get("real_cash_execution_enabled")
+        is not False
+    ):
+        return finish(
+            "ERROR", "TRADE_PLAN_DEMO_MISMATCH"
+        )
+
+    # ========================================================
+    # ACCOUNT AND CONTRACT CHECKS
+    # ========================================================
+
+    if (
+        unit8.get("market_contract_verified") is not True
+        or unit8.get("demo_balance_verified") is not True
+        or unit8.get("demo_positions_read_verified")
+        is not True
+        or unit8.get("account_can_trade") is not True
+    ):
+        return finish(
+            "WAITING", "DEMO_ACCOUNT_READ_INCOMPLETE"
+        )
+
+    # Flat-position rule is for NEW INITIAL ENTRIES.
+    # It does not block hedge, backup or TP management.
+
+    if unit8.get("position_flat_verified") is not True:
+        return finish(
+            "IDLE", "EXISTING_POSITION_PRESENT"
+        )
+
+    contract = unit8.get("contract")
+    preview = unit8.get("size_preview")
+
+    if not isinstance(contract, dict):
+        return finish(
+            "WAITING", "CONTRACT_METADATA_MISSING"
+        )
+
+    if not isinstance(preview, dict):
+        return finish(
+            "WAITING", "SIZE_PREVIEW_MISSING"
+        )
+
+    if preview.get("valid") is not True:
+        return finish(
+            "WAITING", "SIZE_PREVIEW_INVALID"
+        )
+
+    # ========================================================
+    # ORDER QUANTITY AND MARGIN
+    # ========================================================
+
+    quantity = u11_decimal(plan.get("quantity"))
+    leverage = u11_decimal(plan.get("leverage"))
+    margin = u11_decimal(
+        plan.get("entry_margin_usdt")
+    )
+
+    minimum = u11_decimal(
+        contract.get("minimum_quantity")
+    )
+
+    step = u11_decimal(
+        contract.get("quantity_step")
+    )
+
+    multiplier = u11_decimal(
+        contract.get("contract_multiplier")
+    )
+
+    available = u11_decimal(
+        unit8.get("available_balance")
+    )
+
+    mark_price = u11_decimal(
+        plan.get("indicative_mark_price")
+    )
+
+    values = (
+        quantity, leverage, margin,
+        minimum, step, multiplier,
+        mark_price
+    )
+
+    if any(
+        number is None or number <= 0
+        for number in values
+    ):
+        return finish(
+            "WAITING", "INVALID_CONTRACT_OR_ORDER_SIZE"
+        )
+
+    if available is None or available < margin:
+        return finish(
+            "WAITING", "INSUFFICIENT_DEMO_MARGIN"
+        )
+
+    if (
+        quantity < minimum
+        or quantity % step != 0
+        or u11_decimal(preview.get("quantity"))
+        != quantity
+    ):
+        return finish(
+            "WAITING", "ORDER_QUANTITY_NOT_COMPLIANT"
+        )
+
+    maximum = u11_decimal(
+        contract.get("maximum_quantity")
+    )
+
+    if maximum is not None and quantity > maximum:
+        return finish(
+            "WAITING", "ORDER_EXCEEDS_CONTRACT_MAXIMUM"
+        )
+
+    expected_notional = (
+        quantity * multiplier * mark_price
+    )
+
+    expected_margin = expected_notional / leverage
+
+    if expected_notional <= 0 or expected_margin <= 0:
+        return finish(
+            "WAITING", "INVALID_NOTIONAL"
+        )
+
+    preview_margin = u11_decimal(
+        preview.get("actual_margin_usdt")
+    )
+
+    if (
+        preview_margin is None
+        or abs(preview_margin - expected_margin)
+        > Decimal("0.000001")
+    ):
+        return finish(
+            "WAITING", "MARGIN_PREVIEW_MISMATCH"
+        )
+
+    # ========================================================
+    # PREPARE DEMO ORDER INTENT
+    # ========================================================
+
+    # This is a normalized order intent, not the final
+    # WEEX HTTP payload. Unit 12 must map it to the
+    # verified demo API request schema.
+
+    order_request = {
+        "environment": "DEMO",
+        "symbol": symbol,
+        "market_symbol": symbol,
+        "demo_order_symbol": symbol,
+
+        "intent": "OPEN_INITIAL_POSITION",
+        "direction": direction,
+        "mode": mode,
+
+        "order_type": "MARKET",
+        "margin_mode": "ISOLATED",
+
+        "quantity": u11_decimal_string(quantity),
+        "quantity_unit":
+            plan.get("quantity_unit"),
+
+        "contract_multiplier":
+            u11_decimal_string(multiplier),
+
+        "leverage": u11_decimal_string(leverage),
+
+        "entry_margin_usdt":
+            u11_decimal_string(margin),
+
+        "estimated_notional_usdt":
+            u11_decimal_string(expected_notional),
+
+        "indicative_mark_price":
+            u11_decimal_string(mark_price),
+
+        "contract": contract,
+
+        "stage1_hedge_quantity":
+            plan.get("stage1_hedge_quantity"),
+
+        "stage2_remaining_quantity":
+            plan.get("stage2_remaining_quantity"),
+
+        "hedge_policy":
+            plan.get("hedge_policy", {}),
+
+        "backup_policy":
+            plan.get("backup_policy", {}),
+
+        "backup_count":
+            plan.get("backup_count", 5),
+
+        "tp1_net_roi_percent":
+            plan.get("tp1_net_roi_percent"),
+
+        "tp2_net_roi_percent":
+            plan.get("tp2_net_roi_percent"),
+
+        "tp_allocation":
+            plan.get("tp_allocation"),
+
+        "requires_fresh_balance": True,
+        "requires_fresh_position_read": True,
+        "requires_demo_order_response": True,
+
+        "exchange_order_units_verified": (
+            preview.get(
+                "exchange_order_units_verified"
+            ) is True
+        ),
+
+        "order_submitted": False,
+        "real_cash_execution_enabled": False
+    }
+
+    result.update({
+        "status": "READY",
+        "reason": "DEMO_ORDER_INTENT_PREPARED",
+
+        "trade_plan_ready": True,
+        "trade_plan": plan,
+
+        "order_prepared": True,
+        "order_payload_created": False,
+        "order_request": order_request,
+
+        "quantity": u11_decimal_string(quantity),
+        "selected_leverage":
+            u11_decimal_string(leverage),
+
+        "entry_margin_usdt":
+            u11_decimal_string(margin),
+
+        "exchange_order_units_verified": (
+            preview.get(
+                "exchange_order_units_verified"
+            ) is True
+        ),
+
+        "execution_ready": True,
+
+        # Unit 12 owns final demo submission.
+        "execution_authorized": False,
+        "order_submission_authorized": False,
+        "order_submitted": False,
+
+        "read_only": True,
+        "exchange_write": False,
+        "real_cash_execution": False
+    })
+
+    return finish(
+        "READY", "DEMO_ORDER_INTENT_PREPARED"
+    )
+
+
+# ============================================================
+# UNIT 11 STARTUP EXECUTION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_11_RESULT = (
+    fresh_reconstruction_unit_11(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_10_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_9_RESULT,
+        FRESH_RECONSTRUCTION_UNIT_8_RESULT
+    )
+)
+
+FRESH_UNIT_11_OPTIMIZATION_READY = (
+    isinstance(
+        FRESH_RECONSTRUCTION_UNIT_11_RESULT, dict
+    )
+    and FRESH_RECONSTRUCTION_UNIT_11_RESULT.get(
+        "read_only"
+    ) is True
+    and FRESH_RECONSTRUCTION_UNIT_11_RESULT.get(
+        "exchange_write"
+    ) is False
+    and FRESH_RECONSTRUCTION_UNIT_11_RESULT.get(
+        "status"
+    ) in ("READY", "PAUSED", "IDLE", "WAITING")
+)
+
+print(
+    "UNIT 11 OPTIMIZATION READY =",
+    FRESH_UNIT_11_OPTIMIZATION_READY,
+    flush=True
+)
+
+# ============================================================
+# END COMPLETE UNIT 11 REPLACEMENT
+# ZERO INDENTATION
+# ============================================================
