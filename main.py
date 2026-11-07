@@ -8696,417 +8696,487 @@ print(
 
 
 # ============================================================
-# START UNIT 13 V4 - PART 1 OF 2
-# 17248 REFERENCE EXECUTION PATH
-# CURRENT UNIT 2 V10 / UNIT 8 ADAPTATION
+# START COMPLETE UNIT 13 - RESTORED 17248 TP ENGINE
+# WEEX DEMO ONLY - TP1 / TP2 EXECUTION
 # ZERO INDENTATION
 # ============================================================
 
 import os
-import json
 import time
-import hmac
-import base64
 import hashlib
-import urllib.request
-import urllib.parse
-import urllib.error
+from decimal import Decimal, ROUND_DOWN, ROUND_UP
 
-from decimal import (
-    Decimal,
-    InvalidOperation,
-    ROUND_DOWN,
-    ROUND_UP,
-)
-
-UNIT13_V4_VERSION = "V4_17248_ADAPTED"
-UNIT13_V4_BASE = "https://api-contract.weex.com"
-UNIT13_V4_POSITION = "/capi/v3/sim/position/allPosition"
-UNIT13_V4_ORDER = "/capi/v3/sim/order"
+UNIT13_RESTORED_VERSION = "17248_TP_EXECUTION_RESTORED"
 
 
-def unit_13_v4_D(value, name="NUMBER", allow_zero=False):
-
-    if value is None or isinstance(value, bool):
-        raise RuntimeError("UNIT 13 MISSING " + name)
-
+def u13_D(value, name="NUMBER", zero=False):
     try:
         number = Decimal(str(value))
-    except (InvalidOperation, ValueError, TypeError) as exc:
+    except Exception as exc:
         raise RuntimeError(
-            "UNIT 13 INVALID " + name
+            "UNIT13_INVALID_" + name
         ) from exc
 
     if not number.is_finite():
-        raise RuntimeError(
-            "UNIT 13 NONFINITE " + name
-        )
+        raise RuntimeError("UNIT13_NONFINITE_" + name)
 
-    if number < 0 or (number == 0 and not allow_zero):
-        raise RuntimeError(
-            "UNIT 13 NONPOSITIVE " + name
-        )
+    if number < 0 or (number == 0 and not zero):
+        raise RuntimeError("UNIT13_RANGE_" + name)
 
     return number
 
 
-# ============================================================
-# 1. ORIGINAL 17248 STEP-AWARE TP ALLOCATION
-# ============================================================
-
-def unit_13_v4_allocation(total, step):
-
-    total = unit_13_v4_D(total, "CUM OPEN")
-    step = unit_13_v4_D(step, "QUANTITY STEP")
-
-    units = total / step
-
-    if units != units.to_integral_value():
-        raise RuntimeError(
-            "UNIT 13 CUMULATIVE SIZE NOT STEP ALIGNED"
-        )
-
-    n = int(units)
-
-    if n == 1:
-        n1, n2, n3 = 0, 0, 1
-
-    elif n == 2:
-        n1, n2, n3 = 0, 0, 2
-
-    else:
-        n1 = int(
-            (Decimal(n) * Decimal("0.10"))
-            .to_integral_value(rounding=ROUND_DOWN)
-        )
-
-        n2 = int(
-            (Decimal(n) * Decimal("0.20"))
-            .to_integral_value(rounding=ROUND_DOWN)
-        )
-
-        n3 = n - n1 - n2
-
-    q1 = step * n1
-    q2 = step * n2
-    q3 = step * n3
-
-    if q1 + q2 + q3 != total:
-        raise RuntimeError(
-            "UNIT 13 TP ALLOCATION INCONSISTENT"
-        )
-
-    return q1, q2, q3
+def u13_floor(value, step):
+    return (
+        value / step
+    ).to_integral_value(
+        rounding=ROUND_DOWN
+    ) * step
 
 
-# ============================================================
-# 2. ORIGINAL 17248 TP PRICE CALCULATION
-# NET ROI TARGETS ARE CONFIGURABLE
-# ============================================================
+def u13_ceil(value, step):
+    return (
+        value / step
+    ).to_integral_value(
+        rounding=ROUND_UP
+    ) * step
 
-def unit_13_v4_targets(
-    entry,
-    leverage,
-    side,
-    price_step,
-    tp1_floor,
-    tp2_floor,
-    fee_percent,
-):
 
-    D = unit_13_v4_D
-
-    entry = D(entry, "ENTRY PRICE")
-    leverage = D(leverage, "LEVERAGE")
-    price_step = D(price_step, "PRICE STEP")
-
-    tp1_floor = D(tp1_floor, "TP1 ROI")
-    tp2_floor = D(tp2_floor, "TP2 ROI")
-    fee_percent = D(
-        fee_percent, "TAKER FEE", True
+def u13_position():
+    status, response = u12_request(
+        "GET", UNIT12_POSITION_PATH
     )
 
-    if tp2_floor <= tp1_floor:
+    if status != 200:
         raise RuntimeError(
-            "UNIT 13 TP2 MUST EXCEED TP1"
+            "UNIT13_POSITION_HTTP_" + str(status)
         )
 
-    # Estimated round-trip fee expressed as a
-    # percentage of entry notional.
-    #
-    # Exact realized net ROI must subsequently
-    # use verified fees and funding.
-
-    round_trip_fee = fee_percent * Decimal("2")
-
-    move1 = (
-        (tp1_floor / leverage)
-        + round_trip_fee
-    ) / Decimal("100")
-
-    move2 = (
-        (tp2_floor / leverage)
-        + round_trip_fee
-    ) / Decimal("100")
-
-    side = str(side).upper()
-
-    if side == "LONG":
-
-        raw1 = entry * (Decimal("1") + move1)
-        raw2 = entry * (Decimal("1") + move2)
-
-        rounding = ROUND_UP
-
-    elif side == "SHORT":
-
-        raw1 = entry * (Decimal("1") - move1)
-        raw2 = entry * (Decimal("1") - move2)
-
-        rounding = ROUND_DOWN
-
-        if raw2 <= 0:
-            raise RuntimeError(
-                "UNIT 13 INVALID SHORT TP PRICE"
-            )
-
-    else:
-        raise RuntimeError(
-            "UNIT 13 INVALID POSITION SIDE"
-        )
-
-    target1 = (
-        (raw1 / price_step)
-        .to_integral_value(rounding=rounding)
-        * price_step
-    )
-
-    target2 = (
-        (raw2 / price_step)
-        .to_integral_value(rounding=rounding)
-        * price_step
-    )
-
-    if side == "LONG" and not (
-        target2 > target1 > entry
-    ):
-        raise RuntimeError(
-            "UNIT 13 LONG TP TARGET ORDER INVALID"
-        )
-
-    if side == "SHORT" and not (
-        entry > target1 > target2
-    ):
-        raise RuntimeError(
-            "UNIT 13 SHORT TP TARGET ORDER INVALID"
-        )
-
-    return target1, target2
-
-
-# ============================================================
-# 3. CURRENT UNIT 2 SYMBOL ADAPTER
-# ============================================================
-
-def unit_13_v4_symbols(config):
-
-    if not isinstance(config, dict):
-        raise RuntimeError(
-            "UNIT 13 INVALID CONFIG"
-        )
-
-    if config.get("execution_environment") != "DEMO":
-        raise RuntimeError(
-            "UNIT 13 DEMO ENVIRONMENT REQUIRED"
-        )
-
-    if config.get("real_cash_execution_enabled") is not False:
-        raise RuntimeError(
-            "UNIT 13 REAL CASH EXECUTION BLOCKED"
-        )
-
-    exchange = config.get("exchange", {})
-
-    if (
-        exchange.get("name") != "WEEX"
-        or exchange.get("api_version") != "V3"
-    ):
-        raise RuntimeError(
-            "UNIT 13 INVALID EXCHANGE CONFIG"
-        )
-
-    market_symbol = str(
-        exchange.get("market_symbol", "")
-    ).upper()
-
-    demo_symbol = str(
-        exchange.get("demo_order_symbol", "")
-    ).upper()
-
-    if not market_symbol.endswith("USDT"):
-        raise RuntimeError(
-            "UNIT 13 INVALID MARKET SYMBOL"
-        )
-
-    if not demo_symbol:
-        raise RuntimeError(
-            "UNIT 13 DEMO SYMBOL MISSING"
-        )
-
-    return market_symbol, demo_symbol
-
-
-# ============================================================
-# 4. VERIFIED UNIT 8 CONTRACT ADAPTER
-# DO NOT INVENT PRECISION
-# ============================================================
-
-def unit_13_v4_precision(config, unit8):
-
-    if not isinstance(unit8, dict):
-        raise RuntimeError(
-            "UNIT 13 UNIT 8 RESULT MISSING"
-        )
-
-    contract = unit8.get("contract")
-
-    if not isinstance(contract, dict):
-        raise RuntimeError(
-            "UNIT 13 VERIFIED CONTRACT MISSING"
-        )
-
-    D = unit_13_v4_D
-
-    quantity_step = D(
-        contract.get("quantity_step"),
-        "QUANTITY STEP"
-    )
-
-    minimum_quantity = D(
-        contract.get("minimum_quantity"),
-        "MINIMUM QUANTITY"
-    )
-
-    price_step_raw = contract.get("price_step")
-
-    if price_step_raw is None:
-        price_step_raw = contract.get(
-            "price_resolution"
-        )
-
-    price_step = D(
-        price_step_raw,
-        "PRICE STEP"
-    )
-
-    multiplier = D(
-        contract.get("contract_multiplier"),
-        "CONTRACT MULTIPLIER"
-    )
-
-    return {
-        "quantity_step": quantity_step,
-        "minimum_quantity": minimum_quantity,
-        "price_step": price_step,
-        "contract_multiplier": multiplier,
-    }
-
-
-# ============================================================
-# 5. ORIGINAL WEEX POSITION INTERPRETATION
-# ZERO-SIZE ROWS ARE NOT ACTIVE POSITIONS
-# ============================================================
-
-def unit_13_v4_active_positions(
-    rows,
-    market_symbol,
-    demo_symbol,
-):
+    rows = u12_rows(response)
 
     if not isinstance(rows, list):
         raise RuntimeError(
-            "UNIT 13 POSITIONS NOT LIST"
+            "UNIT13_POSITION_RESPONSE_INVALID"
         )
 
-    active = []
+    return rows
 
-    for row in rows:
 
-        if not isinstance(row, dict):
-            raise RuntimeError(
-                "UNIT 13 POSITION ROW MALFORMED"
+def u13_client_id(position_id, action, closed):
+    raw = (
+        str(position_id) + "|"
+        + str(action) + "|"
+        + str(closed)
+    )
+
+    digest = hashlib.sha256(
+        raw.encode("utf-8")
+    ).hexdigest()[:24]
+
+    return "FR13" + digest
+
+
+def u13_targets(entry, leverage, side, strategy, price_step):
+    tp1_roi = u13_D(
+        strategy["tp1_net_roi_percent"],
+        "TP1_ROI"
+    )
+    tp2_roi = u13_D(
+        strategy["tp2_net_roi_percent"],
+        "TP2_ROI"
+    )
+
+    fee_rate = u13_D(
+        strategy.get("fee_estimate_taker_rate", 0.0008),
+        "FEE_RATE",
+        True
+    )
+
+    slippage = u13_D(
+        strategy.get("estimated_slippage_rate", 0),
+        "SLIPPAGE",
+        True
+    )
+
+    funding = u13_D(
+        strategy.get("estimated_funding_rate", 0),
+        "FUNDING",
+        True
+    )
+
+    cost_rate = (
+        fee_rate * 2
+        + slippage
+        + funding
+    )
+
+    def price_for_roi(roi):
+        required_move = (
+            roi / (Decimal("100") * leverage)
+            + cost_rate
+        )
+
+        if side == "LONG":
+            return u13_ceil(
+                entry * (1 + required_move),
+                price_step
             )
 
-        symbol = str(
-            row.get("symbol", "")
-        ).upper()
-
-        if symbol not in (
-            market_symbol,
-            demo_symbol,
-        ):
-            continue
-
-        raw_size = row.get("size")
-
-        if raw_size is None:
-            raw_size = row.get("total")
-
-        size = unit_13_v4_D(
-            raw_size,
-            "POSITION SIZE",
-            True,
+        return u13_floor(
+            entry * (1 - required_move),
+            price_step
         )
 
-        # Critical correction from reference:
-        # Ignore flat records before checking entry.
-        if size == 0:
-            continue
+    return (
+        price_for_roi(tp1_roi),
+        price_for_roi(tp2_roi)
+    )
 
-        side = str(
-            row.get("side")
-            or row.get("holdSide")
-            or row.get("positionSide")
-            or ""
-        ).upper()
 
-        if side in ("BUY", "LONG"):
-            side = "LONG"
-        elif side in ("SELL", "SHORT"):
-            side = "SHORT"
-        else:
-            raise RuntimeError(
-                "UNIT 13 POSITION SIDE UNVERIFIED"
-            )
+def fresh_reconstruction_unit_13_restored():
+    config = FRESH_RECONSTRUCTION_CONFIG
+    exchange = config["exchange"]
+    strategy = config["strategy"]
 
-        open_value = unit_13_v4_D(
-            row.get("openValue"),
-            "POSITION OPEN VALUE",
+    if (
+        config.get("execution_environment") != "DEMO"
+        or config.get("real_cash_execution_enabled") is not False
+        or exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+    ):
+        raise RuntimeError(
+            "UNIT13_DEMO_BOUNDARY_INVALID"
         )
 
-        leverage = unit_13_v4_D(
-            row.get("leverage"),
-            "POSITION LEVERAGE",
+    demo_symbol = str(
+        exchange["demo_order_symbol"]
+    ).upper()
+
+    result = {
+        "version": UNIT13_RESTORED_VERSION,
+        "status": "STARTED",
+        "position_exists": False,
+        "tp_execution_attempted": False,
+        "tp_execution_completed": False,
+        "exchange_write": False,
+        "tp3_armed": False,
+        "hedge_execution": False,
+        "backup_execution": False
+    }
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 13 RESTORED EXECUTION START",
+        flush=True
+    )
+    print(
+        "UNIT 13 MANAGEMENT INDEPENDENT OF BOT_MODE = True",
+        flush=True
+    )
+
+    rows = u13_position()
+
+    active = [
+        row for row in rows
+        if isinstance(row, dict)
+        and str(row.get("symbol", "")).upper()
+            == demo_symbol
+        and u13_D(
+            row.get("size", 0),
+            "POSITION_SIZE",
+            True
+        ) > 0
+    ]
+
+    if not active:
+        result["status"] = "IDLE_NO_POSITION"
+        print(
+            "UNIT 13 STATUS = IDLE_NO_POSITION",
+            flush=True
+        )
+        return result
+
+    if len(active) != 1:
+        raise RuntimeError(
+            "UNIT13_MULTIPLE_ACTIVE_POSITIONS"
         )
 
-        entry = open_value / size
+    p = active[0]
 
-        active.append({
-            "raw": row,
-            "symbol": symbol,
-            "side": side,
-            "size": size,
-            "open_value": open_value,
-            "leverage": leverage,
-            "entry": entry,
-        })
+    side = str(p.get("side", "")).upper()
 
-    return active
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT13_POSITION_SIDE_INVALID"
+        )
 
+    size = u13_D(p["size"], "SIZE")
+    leverage = u13_D(p["leverage"], "LEVERAGE")
+
+    open_value = u13_D(
+        p["openValue"], "OPEN_VALUE"
+    )
+
+    entry = open_value / size
+
+    cum_open = u13_D(
+        p["cumOpenSize"], "CUM_OPEN"
+    )
+    cum_close = u13_D(
+        p["cumCloseSize"], "CUM_CLOSE", True
+    )
+
+    if cum_close > cum_open:
+        raise RuntimeError(
+            "UNIT13_CUMULATIVE_POSITION_INVALID"
+        )
+
+    unit8 = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_8_RESULT"
+    )
+
+    if not isinstance(unit8, dict):
+        raise RuntimeError(
+            "UNIT13_UNIT8_CONTRACT_MISSING"
+        )
+
+    contract = unit8.get("contract", {})
+
+    step = u13_D(
+        contract.get("quantity_step"),
+        "QUANTITY_STEP"
+    )
+
+    minimum = u13_D(
+        contract.get("minimum_quantity"),
+        "MINIMUM_QUANTITY"
+    )
+
+    price_step = u13_D(
+        contract.get("price_step")
+        or contract.get("price_resolution"),
+        "PRICE_STEP"
+    )
+
+    # Position sizes and order quantities must share
+    # the same units before a closing order is submitted.
+    # Do not substitute Unit 8's entry contract count.
+    if u13_floor(size, step) != size:
+        raise RuntimeError(
+            "UNIT13_POSITION_QUANTITY_STEP_MISMATCH"
+        )
+
+    q1 = u13_floor(
+        cum_open * Decimal("0.10"), step
+    )
+
+    q2 = u13_floor(
+        cum_open * Decimal("0.20"), step
+    )
+
+    q3 = cum_open - q1 - q2
+
+    tp1, tp2 = u13_targets(
+        entry,
+        leverage,
+        side,
+        strategy,
+        price_step
+    )
+
+    market = fresh_reconstruction_unit_3()
+    mark = u13_D(market["price"], "MARK")
+
+    done1 = q1 == 0 or cum_close >= q1
+
+    done2 = (
+        done1 if q2 == 0
+        else cum_close >= q1 + q2
+    )
+
+    reached1 = (
+        mark >= tp1 if side == "LONG"
+        else mark <= tp1
+    )
+
+    reached2 = (
+        mark >= tp2 if side == "LONG"
+        else mark <= tp2
+    )
+
+    action = "NONE"
+    close_qty = Decimal("0")
+
+    if reached2 and not done2:
+        action = "TP2"
+        close_qty = q1 + q2 - cum_close
+
+    elif reached1 and not done1:
+        action = "TP1"
+        close_qty = q1 - cum_close
+
+    close_qty = u13_floor(
+        min(close_qty, size),
+        step
+    )
+
+    result.update({
+        "position_exists": True,
+        "position_id": str(p.get("id")),
+        "position_side": side,
+        "position_size": str(size),
+        "entry_price": str(entry),
+        "mark_price": str(mark),
+        "tp1_target": str(tp1),
+        "tp2_target": str(tp2),
+        "tp1_quantity": str(q1),
+        "tp2_quantity": str(q2),
+        "tp3_quantity": str(q3),
+        "tp1_completed": done1,
+        "tp2_completed": done2,
+        "tp_action": action,
+        "tp3_armed": bool(
+            done1 and done2 and size > 0
+        )
+    })
+
+    print(
+        "UNIT 13 POSITION =",
+        demo_symbol, side, size,
+        flush=True
+    )
+    print(
+        "UNIT 13 TP TARGETS =",
+        tp1, tp2,
+        flush=True
+    )
+    print(
+        "UNIT 13 TP ACTION =",
+        action,
+        flush=True
+    )
+
+    if action == "NONE" or close_qty < minimum:
+        result["status"] = "MONITORING"
+        return result
+
+    position_id = str(p.get("id") or "")
+
+    if not position_id:
+        raise RuntimeError(
+            "UNIT13_POSITION_ID_MISSING"
+        )
+
+    client_id = u13_client_id(
+        position_id,
+        action,
+        cum_close
+    )
+
+    # A deterministic ID protects retries within
+    # this process. Exchange-side order reconciliation
+    # is still required after uncertain submissions.
+    guard = globals().setdefault(
+        "_UNIT13_RESTORED_ATTEMPTS",
+        set()
+    )
+
+    if client_id in guard:
+        result["status"] = (
+            "PREVIOUS_ATTEMPT_UNRESOLVED"
+        )
+        return result
+
+    guard.add(client_id)
+
+    payload = {
+        "symbol": demo_symbol,
+        "side": (
+            "SELL" if side == "LONG"
+            else "BUY"
+        ),
+        "positionSide": side,
+        "type": "MARKET",
+        "quantity": format(close_qty, "f"),
+        "newClientOrderId": client_id
+    }
+
+    result["tp_execution_attempted"] = True
+
+    print(
+        "UNIT 13 SUBMITTING DEMO TP =",
+        action,
+        payload["quantity"],
+        flush=True
+    )
+
+    status, response = u12_request(
+        "POST",
+        UNIT12_ORDER_PATH,
+        payload
+    )
+
+    result["exchange_write"] = True
+
+    if status != 200:
+        result["status"] = (
+            "TP_SUBMISSION_NOT_CONFIRMED"
+        )
+        result["http_status"] = status
+        result["exchange_response"] = response
+        return result
+
+    if not isinstance(response, dict):
+        raise RuntimeError(
+            "UNIT13_TP_RESPONSE_INVALID"
+        )
+
+    order_id = (
+        response.get("orderId")
+        or (
+            response.get("data", {}).get("orderId")
+            if isinstance(response.get("data"), dict)
+            else None
+        )
+    )
+
+    if not order_id:
+        result["status"] = (
+            "TP_ORDER_CONFIRMATION_PENDING"
+        )
+        result["exchange_response"] = response
+        return result
+
+    result.update({
+        "status": "TP_ORDER_ACCEPTED",
+        "tp_order_id": str(order_id),
+        "tp_close_quantity": str(close_qty),
+        "tp_execution_completed": False
+    })
+
+    print(
+        "UNIT 13 TP ORDER ACCEPTED =",
+        order_id,
+        flush=True
+    )
+
+    return result
+
+
+FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
+    fresh_reconstruction_unit_13_restored()
+)
+
+FRESH_UNIT_13_OPTIMIZATION_READY = True
+
+print(
+    "UNIT 13 FINAL STATUS =",
+    FRESH_RECONSTRUCTION_UNIT_13_RESULT["status"],
+    flush=True
+)
 
 # ============================================================
-# END UNIT 13 V4 - PART 1 OF 2
-# PART 2 CONTINUES AT ZERO INDENTATION
+# END COMPLETE UNIT 13 RESTORED TP ENGINE
 # ============================================================
 
 
@@ -9606,352 +9676,5 @@ FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
 # ============================================================
 # END UNIT 14 V4 - HISTORY RESTORATION
 # ============================================================
-
-
-
-# ============================================================
-# START UNIT 13 V5 - POSITION RECONCILIATION
-# REPLACES PREVIOUS UNIT 13 PART 2
-# WEEX DEMO READ ONLY
-# ============================================================
-
-from decimal import Decimal, InvalidOperation
-
-UNIT13_V5_VERSION = "V5_POSITION_RECONCILIATION"
-
-
-def unit_13_v5_decimal(value, name, allow_zero=False):
-    if value is None or isinstance(value, bool):
-        raise RuntimeError(name + "_MISSING")
-
-    try:
-        number = Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError):
-        raise RuntimeError(name + "_INVALID")
-
-    if not number.is_finite():
-        raise RuntimeError(name + "_NONFINITE")
-
-    if number < 0 or (number == 0 and not allow_zero):
-        raise RuntimeError(name + "_NONPOSITIVE")
-
-    return number
-
-
-def unit_13_v5_optional(value):
-    if value is None or value == "":
-        return None
-    return unit_13_v5_decimal(
-        value, "OPTIONAL_NUMBER", True
-    )
-
-
-def unit_13_v5_position(row, demo_symbol):
-    if not isinstance(row, dict):
-        raise RuntimeError("POSITION_RECORD_INVALID")
-
-    symbol = str(row.get("symbol") or "").upper()
-
-    if symbol != demo_symbol:
-        return None
-
-    size = unit_13_v5_decimal(
-        row.get("size"),
-        "POSITION_SIZE",
-        True
-    )
-
-    if size == 0:
-        return None
-
-    side = str(row.get("side") or "").upper()
-
-    if side not in ("LONG", "SHORT"):
-        raise RuntimeError("POSITION_SIDE_UNVERIFIED")
-
-    leverage = unit_13_v5_decimal(
-        row.get("leverage"),
-        "POSITION_LEVERAGE"
-    )
-
-    open_value = unit_13_v5_decimal(
-        row.get("openValue"),
-        "POSITION_OPEN_VALUE"
-    )
-
-    # This is an entry-price candidate, not yet
-    # authorization to submit TP/hedge orders.
-    entry_candidate = open_value / size
-
-    cum_open_size = unit_13_v5_optional(
-        row.get("cumOpenSize")
-    )
-    cum_open_value = unit_13_v5_optional(
-        row.get("cumOpenValue")
-    )
-    cum_close_size = unit_13_v5_optional(
-        row.get("cumCloseSize")
-    )
-
-    cumulative_price = None
-
-    if (
-        cum_open_size is not None
-        and cum_open_size > 0
-        and cum_open_value is not None
-        and cum_open_value > 0
-    ):
-        cumulative_price = (
-            cum_open_value / cum_open_size
-        )
-
-    return {
-        "symbol": symbol,
-        "side": side,
-        "size_btc_reported": str(size),
-        "leverage": str(leverage),
-        "position_id": str(
-            row.get("id") or ""
-        ),
-        "created_time": row.get("createdTime"),
-        "open_value": str(open_value),
-        "entry_price_candidate": str(
-            entry_candidate
-        ),
-        "cumulative_entry_candidate": (
-            str(cumulative_price)
-            if cumulative_price is not None
-            else None
-        ),
-        "cum_open_size": (
-            str(cum_open_size)
-            if cum_open_size is not None
-            else None
-        ),
-        "cum_open_value": (
-            str(cum_open_value)
-            if cum_open_value is not None
-            else None
-        ),
-        "cum_close_size": (
-            str(cum_close_size)
-            if cum_close_size is not None
-            else None
-        ),
-        "liquidation_price": row.get(
-            "liquidatePrice"
-        ),
-        "isolated_margin": row.get(
-            "isolatedMargin"
-        ),
-        "unrealized_pnl": row.get(
-            "unrealizePnl"
-        ),
-        "funding_fee": row.get(
-            "fundingFee"
-        ),
-        "cum_funding_fee": row.get(
-            "cumFundingFee"
-        ),
-        "open_fee": row.get("openFee"),
-        "cum_open_fee": row.get(
-            "cumOpenFee"
-        ),
-        "cum_close_fee": row.get(
-            "cumCloseFee"
-        ),
-        "entry_price_verified": False,
-        "position_quantity_units_verified": False,
-        "management_execution_authorized": False,
-    }
-
-
-def unit_13_v5_reconcile(config):
-    print("=" * 80, flush=True)
-    print(
-        "COMBINED RECONSTRUCTION UNIT 13 V5 START",
-        flush=True
-    )
-
-    result = {
-        "version": UNIT13_V5_VERSION,
-        "status": "STARTED",
-        "position_read_verified": False,
-        "history_verified": False,
-        "raw_position_count": 0,
-        "active_position_count": 0,
-        "positions": [],
-        "history_order_count": 0,
-        "history_order_ids": [],
-        "matching_position_order_ids": [],
-        "unmatched_history_order_ids": [],
-        "handover_to_unit_14": "NOT_READY",
-        "management_execution_authorized": False,
-        "exchange_write": False,
-        "errors": [],
-    }
-
-    try:
-        market_symbol, demo_symbol = (
-            unit_13_v4_symbols(config)
-        )
-
-        result["market_symbol"] = market_symbol
-        result["demo_symbol"] = demo_symbol
-
-        rows = unit_14_v4_signed_get(
-            UNIT14_V4_POSITION
-        )
-
-        if not isinstance(rows, list):
-            raise RuntimeError(
-                "POSITION_RESPONSE_NOT_LIST"
-            )
-
-        result["position_read_verified"] = True
-        result["raw_position_count"] = len(rows)
-
-        for row in rows:
-            position = unit_13_v5_position(
-                row, demo_symbol
-            )
-            if position is not None:
-                result["positions"].append(position)
-
-        result["active_position_count"] = len(
-            result["positions"]
-        )
-
-        history = unit_14_v4_history()
-
-        if not isinstance(history, list):
-            raise RuntimeError(
-                "ORDER_HISTORY_INVALID"
-            )
-
-        result["history_verified"] = True
-        result["history_order_count"] = len(history)
-
-        # Collect actual exchange order IDs.
-        # A shared symbol alone does not prove
-        # that an order belongs to this position.
-        for order in history:
-            if not isinstance(order, dict):
-                raise RuntimeError(
-                    "ORDER_HISTORY_ROW_INVALID"
-                )
-
-            order_symbol = str(
-                order.get("symbol") or ""
-            ).upper()
-
-            if order_symbol != demo_symbol:
-                continue
-
-            order_id = (
-                order.get("orderId")
-                or order.get("id")
-            )
-
-            if order_id is not None:
-                result["history_order_ids"].append(
-                    str(order_id)
-                )
-
-        result["history_order_ids"] = list(
-            dict.fromkeys(
-                result["history_order_ids"]
-            )
-        )
-
-        # No reliable order-to-position association
-        # has been established yet.
-        result["unmatched_history_order_ids"] = (
-            result["history_order_ids"][:]
-        )
-
-        if result["active_position_count"] == 0:
-            result["status"] = "NO_ACTIVE_POSITION"
-            result["handover_to_unit_14"] = (
-                "READY_FOR_RECONCILIATION"
-            )
-
-        elif result["active_position_count"] == 1:
-            result["status"] = (
-                "POSITION_IDENTIFIED_ORDER_MATCH_PENDING"
-            )
-            result["handover_to_unit_14"] = (
-                "READY_FOR_RECONCILIATION"
-            )
-
-        else:
-            result["status"] = (
-                "MULTIPLE_POSITIONS_RECONCILIATION_PENDING"
-            )
-            result["handover_to_unit_14"] = (
-                "READY_FOR_RECONCILIATION"
-            )
-
-    except Exception as exc:
-        result["status"] = "RECONCILIATION_FAILED"
-        result["errors"].append(
-            type(exc).__name__ + ": " + str(exc)
-        )
-
-    for key in (
-        "version",
-        "status",
-        "market_symbol",
-        "demo_symbol",
-        "position_read_verified",
-        "history_verified",
-        "raw_position_count",
-        "active_position_count",
-        "positions",
-        "history_order_count",
-        "history_order_ids",
-        "matching_position_order_ids",
-        "unmatched_history_order_ids",
-        "handover_to_unit_14",
-        "management_execution_authorized",
-        "errors",
-    ):
-        print(
-            "UNIT 13 V5 " + key.upper() + " =",
-            result.get(key),
-            flush=True
-        )
-
-    print(
-        "UNIT 13 V5 EXCHANGE WRITE = NONE",
-        flush=True
-    )
-    print("=" * 80, flush=True)
-
-    return result
-
-
-FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
-    unit_13_v5_reconcile(
-        FRESH_RECONSTRUCTION_CONFIG
-    )
-)
-
-FRESH_UNIT_13_OPTIMIZATION_READY = (
-    FRESH_RECONSTRUCTION_UNIT_13_RESULT.get(
-        "handover_to_unit_14"
-    ) == "READY_FOR_RECONCILIATION"
-)
-
-print(
-    "UNIT 13 V5 OPTIMIZATION READY =",
-    FRESH_UNIT_13_OPTIMIZATION_READY,
-    flush=True
-)
-
-# ============================================================
-# END UNIT 13 V5 - POSITION RECONCILIATION
-# ============================================================
-
 
 
