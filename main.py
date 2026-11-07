@@ -7150,6 +7150,75 @@ def u11_positive(value):
     return number is not None and number > 0
 
 
+def u11_minimum_tp1_entry(
+    minimum_close,
+    quantity_step,
+    multiplier,
+    mark_price,
+    leverage,
+    tp1_percent
+):
+    from decimal import Decimal, ROUND_CEILING
+
+    D = lambda value: Decimal(str(value))
+
+    minimum = D(minimum_close)
+    step = D(quantity_step)
+    multiplier = D(multiplier)
+    price = D(mark_price)
+    leverage = D(leverage)
+    allocation = D(tp1_percent) / D("100")
+
+    if any(
+        value <= 0
+        for value in (
+            minimum,
+            step,
+            multiplier,
+            price,
+            leverage,
+            allocation
+        )
+    ):
+        raise ValueError(
+            "INVALID_TP1_MINIMUM_ENTRY_INPUT"
+        )
+
+    minimum_close_units = (
+        minimum / step
+    ).to_integral_value(
+        rounding=ROUND_CEILING
+    )
+
+    executable_tp1 = (
+        minimum_close_units * step
+    )
+
+    minimum_entry_units = (
+        executable_tp1 / allocation / step
+    ).to_integral_value(
+        rounding=ROUND_CEILING
+    )
+
+    minimum_entry_quantity = (
+        minimum_entry_units * step
+    )
+
+    minimum_margin = (
+        minimum_entry_quantity
+        * multiplier
+        * price
+        / leverage
+    )
+
+    return {
+        "minimum_tp1_quantity":
+            executable_tp1,
+        "minimum_entry_quantity":
+            minimum_entry_quantity,
+        "minimum_entry_margin_usdt":
+            minimum_margin
+    }
 def fresh_reconstruction_unit_11(
     config,
     unit10,
