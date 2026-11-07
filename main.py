@@ -149,10 +149,11 @@ FRESH_RECONSTRUCTION_UNIT_1_READY = (
 # ============================================================
 
 
+
 # ============================================================
-# START COMPLETE UNIT 2
-# COMBINED 17248 + 18426 MODEL
-# UNIVERSAL WEEX DEMO CONFIGURATION
+# START COMPLETE UNIT 2 V10
+# 17248 V9 CONFIGURATION PATH + CURRENT MODEL ADAPTER
+# UNIVERSAL USDT / WEEX DEMO ONLY
 # ZERO INDENTATION
 # ============================================================
 
@@ -161,44 +162,27 @@ import re
 from decimal import Decimal, InvalidOperation
 
 
-# ============================================================
-# 2.1 ENVIRONMENT HELPERS
-# ============================================================
-
 def unit_2_v9_number(value, name, allow_zero=False):
-
     if isinstance(value, bool):
         raise RuntimeError("UNIT 2 INVALID " + name)
 
     try:
         number = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError) as exc:
-        raise RuntimeError(
-            "UNIT 2 INVALID " + name
-        ) from exc
+        raise RuntimeError("UNIT 2 INVALID " + name) from exc
 
     if not number.is_finite():
-        raise RuntimeError(
-            "UNIT 2 NONFINITE " + name
-        )
+        raise RuntimeError("UNIT 2 NONFINITE " + name)
 
-    if number < 0 or (
-        number == 0 and not allow_zero
-    ):
-        raise RuntimeError(
-            "UNIT 2 INVALID RANGE " + name
-        )
+    if number < 0 or (number == 0 and not allow_zero):
+        raise RuntimeError("UNIT 2 INVALID RANGE " + name)
 
     return number
 
 
 def unit_2_env_number(
-    names,
-    default,
-    minimum=0,
-    maximum=None
+    names, default, minimum=0, maximum=None
 ):
-
     if isinstance(names, str):
         names = (names,)
 
@@ -206,56 +190,40 @@ def unit_2_env_number(
     raw = str(default)
 
     for name in names:
-        candidate = os.getenv(name)
-
-        if candidate is not None and candidate.strip():
-            raw = candidate.strip()
+        value = os.getenv(name)
+        if value is not None and value.strip():
+            raw = value.strip()
             selected = name
             break
 
     number = unit_2_v9_number(
-        raw,
-        selected,
-        allow_zero=(minimum == 0)
+        raw, selected, allow_zero=(minimum == 0)
     )
 
     if number < Decimal(str(minimum)):
-        raise RuntimeError(
-            "UNIT 2 BELOW MINIMUM: " + selected
-        )
+        raise RuntimeError("UNIT 2 BELOW MINIMUM: " + selected)
 
-    if (
-        maximum is not None
-        and number > Decimal(str(maximum))
-    ):
-        raise RuntimeError(
-            "UNIT 2 ABOVE MAXIMUM: " + selected
-        )
+    if maximum is not None and number > Decimal(str(maximum)):
+        raise RuntimeError("UNIT 2 ABOVE MAXIMUM: " + selected)
 
     return float(number), selected
 
 
 def unit_2_env_bool(name, default=False):
-
     raw = os.getenv(
-        name,
-        "true" if default else "false"
+        name, "true" if default else "false"
     ).strip().lower()
 
-    if raw in ("1", "true", "yes", "on"):
+    if raw in ("true", "1", "yes", "on"):
         return True
 
-    if raw in ("0", "false", "no", "off"):
+    if raw in ("false", "0", "no", "off"):
         return False
 
-    raise RuntimeError(
-        "UNIT 2 INVALID BOOLEAN " + name
-    )
+    raise RuntimeError("UNIT 2 INVALID BOOLEAN " + name)
 
 
 def unit_2_universal_symbol():
-    
-
     symbol = os.getenv(
         "WEEX_SYMBOL",
         os.getenv("MARKET_SYMBOL", "BTCUSDT")
@@ -263,10 +231,7 @@ def unit_2_universal_symbol():
 
     symbol = symbol.replace("/", "").replace("-", "")
 
-    if not re.fullmatch(
-        r"[A-Z0-9]{2,20}USDT",
-        symbol
-    ):
+    if not re.fullmatch(r"[A-Z0-9]{2,20}USDT", symbol):
         raise RuntimeError(
             "UNIT 2 INVALID MARKET SYMBOL: " + symbol
         )
@@ -274,66 +239,44 @@ def unit_2_universal_symbol():
     return symbol, symbol[:-4], "USDT"
 
 
-# ============================================================
-# 2.2 CENTRAL CONFIGURATION
-# ============================================================
-
 def fresh_reconstruction_unit_2():
 
     print("=" * 80, flush=True)
-
-    log(
-        "COMBINED RECONSTRUCTION UNIT 2 START"
+    print(
+        "COMBINED RECONSTRUCTION UNIT 2 V10 START",
+        flush=True
     )
 
     if globals().get(
         "FRESH_RECONSTRUCTION_UNIT_1_READY"
     ) is not True:
-        raise RuntimeError(
-            "UNIT 2 REQUIRES UNIT 1"
-        )
+        raise RuntimeError("UNIT 2 REQUIRES UNIT 1")
 
     market_symbol, base_coin, quote_coin = (
         unit_2_universal_symbol()
     )
-
-    # --------------------------------------------------------
-    # SINGLE BOT MODE
-    # PAUSE DISABLES NEW ENTRIES ONLY
-    # --------------------------------------------------------
 
     bot_mode = os.getenv(
         "BOT_MODE", "PAUSE"
     ).strip().upper()
 
     if bot_mode not in ("RUN", "PAUSE"):
-        raise RuntimeError(
-            "UNIT 2 INVALID BOT_MODE"
-        )
-
-    # --------------------------------------------------------
-    # USDT ENTRY CAPITAL
-    # --------------------------------------------------------
+        raise RuntimeError("UNIT 2 INVALID BOT_MODE")
 
     entry_margin, entry_source = unit_2_env_number(
         (
             "INITIAL_ENTRY_MARGIN_USDT",
             "ENTRY_MARGIN_USDT",
-            "ENTRY_FIXED_USDT",
+            "ENTRY_FIXED_USDT"
         ),
         0.5,
         minimum=0.00000001
     )
 
-    # --------------------------------------------------------
-    # LEVERAGE
-    # MANUALLY SET ON WEEX AND MIRRORED ON RENDER
-    # --------------------------------------------------------
-
     long_leverage, long_source = unit_2_env_number(
         (
             "WEEX_LEVERAGE_LONG",
-            "WEEX_DEMO_LONG_LEVERAGE",
+            "WEEX_DEMO_LONG_LEVERAGE"
         ),
         10,
         minimum=0.00000001
@@ -342,15 +285,11 @@ def fresh_reconstruction_unit_2():
     short_leverage, short_source = unit_2_env_number(
         (
             "WEEX_LEVERAGE_SHORT",
-            "WEEX_DEMO_SHORT_LEVERAGE",
+            "WEEX_DEMO_SHORT_LEVERAGE"
         ),
         10,
         minimum=0.00000001
     )
-
-    # --------------------------------------------------------
-    # EXPOSURE AND BACKUPS
-    # --------------------------------------------------------
 
     exposure_cap, _ = unit_2_env_number(
         "EXPOSURE_CAP_PERCENT",
@@ -373,10 +312,6 @@ def fresh_reconstruction_unit_2():
         maximum=99.999
     )
 
-    # --------------------------------------------------------
-    # PROFIT TARGETS
-    # --------------------------------------------------------
-
     tp1_roi, _ = unit_2_env_number(
         "TP1_NET_ROI_PERCENT",
         20,
@@ -390,9 +325,7 @@ def fresh_reconstruction_unit_2():
     )
 
     if tp2_roi <= tp1_roi:
-        raise RuntimeError(
-            "UNIT 2 TP2 MUST EXCEED TP1"
-        )
+        raise RuntimeError("UNIT 2 TP2 MUST EXCEED TP1")
 
     tp1_allocation, _ = unit_2_env_number(
         "TP1_ALLOCATION_PERCENT",
@@ -413,9 +346,7 @@ def fresh_reconstruction_unit_2():
     )
 
     if tp3_allocation <= 0:
-        raise RuntimeError(
-            "UNIT 2 INVALID TP ALLOCATION"
-        )
+        raise RuntimeError("UNIT 2 INVALID TP ALLOCATION")
 
     trailing_reference, _ = unit_2_env_number(
         "TP3_TRAILING_REFERENCE_PERCENT",
@@ -439,13 +370,9 @@ def fresh_reconstruction_unit_2():
     )
 
     if not (
-        trailing_min
-        <= trailing_reference
-        <= trailing_max
+        trailing_min <= trailing_reference <= trailing_max
     ):
-        raise RuntimeError(
-            "UNIT 2 INVALID TRAILING RANGE"
-        )
+        raise RuntimeError("UNIT 2 INVALID TRAILING RANGE")
 
     fee_rate, _ = unit_2_env_number(
         "WEEX_TAKER_FEE_RATE",
@@ -468,12 +395,21 @@ def fresh_reconstruction_unit_2():
         maximum=0.1
     )
 
-    # --------------------------------------------------------
-    # DEMO SYMBOL IS ONLY A CANDIDATE
-    # UNIT 8 MUST VERIFY THE ACTUAL CONTRACT
-    # --------------------------------------------------------
+    demo_candidate = os.getenv(
+        "WEEX_DEMO_ORDER_SYMBOL",
+        base_coin + "SUSDT"
+    ).strip().upper()
 
-    demo_candidate = base_coin + "SUSDT"
+    if market_symbol == "BTCUSDT":
+        # Preserve the proven Unit 12 mapping.
+        demo_candidate = os.getenv(
+            "WEEX_DEMO_ORDER_SYMBOL",
+            "BTCSUSDT"
+        ).strip().upper()
+
+    # ========================================================
+    # ORIGINAL 17248 EXCHANGE CONTRACT
+    # ========================================================
 
     exchange = {
         "name": "WEEX",
@@ -482,10 +418,11 @@ def fresh_reconstruction_unit_2():
             "https://api-contract.weex.com",
 
         "market_symbol": market_symbol,
+        "demo_order_symbol": demo_candidate,
+
         "base_coin": base_coin,
         "quote_coin": quote_coin,
 
-        "demo_order_symbol": demo_candidate,
         "demo_symbol_candidate": demo_candidate,
         "demo_symbol_verified": False,
 
@@ -497,10 +434,10 @@ def fresh_reconstruction_unit_2():
         "pnl_currency": "USDT",
     }
 
-    # --------------------------------------------------------
-    # UNIT 2 LOCAL SAFETY
-    # LATER DEMO EXECUTION USES INDEPENDENT VERIFICATION
-    # --------------------------------------------------------
+    # ========================================================
+    # ORIGINAL UNIT 2 LOCAL SAFETY CONTRACT
+    # THESE FLAGS DO NOT DISABLE UNIT 12 DEMO EXECUTION
+    # ========================================================
 
     safety = {
         "public_market_data_read_enabled": True,
@@ -522,16 +459,18 @@ def fresh_reconstruction_unit_2():
         "real_cash_execution_enabled": False,
     }
 
-    # --------------------------------------------------------
-    # STRATEGY AND POSITION PROTECTION
-    # --------------------------------------------------------
+    # ========================================================
+    # ORIGINAL 17248 STRATEGY KEYS
+    # PLUS CURRENT PROFIT AND HEDGE SETTINGS
+    # ========================================================
 
     strategy = {
         "initial_fixed_usdt": entry_margin,
+        "initial_margin_percent": 5.0,
+
         "initial_entry_margin_usdt": entry_margin,
         "entry_margin_usdt": entry_margin,
         "entry_margin_source": entry_source,
-        "initial_margin_percent": 5.0,
 
         "long_leverage": long_leverage,
         "short_leverage": short_leverage,
@@ -547,13 +486,13 @@ def fresh_reconstruction_unit_2():
         "max_backups": 5,
 
         "backup_sizing_mode":
-            "PERCENT_OF_AVAILABLE_TRADING_BALANCE",
+            "PERCENT_AVAILABLE_BALANCE",
 
         "backup_trigger_reference":
             "LATEST_VERIFIED_LIQUIDATION_PRICE",
 
         "backup_trigger_recalculation":
-            "AFTER_PREVIOUS_BACKUP_FILL",
+            "AFTER_PRECEDING_CONFIRMED_FILL",
 
         "backup_long_liquidation_factor":
             1.0 - backup_buffer / 100.0,
@@ -566,7 +505,9 @@ def fresh_reconstruction_unit_2():
 
         "exposure_cap_percent": exposure_cap,
         "exposure_cap_max_percent": 100.0,
-        "exposure_cap_basis": "TRADING_BALANCE",
+
+        "exposure_cap_basis":
+            "TRADING_ACCOUNT_EQUITY",
 
         "exposure_includes_initial": True,
         "exposure_includes_filled_backups": True,
@@ -574,6 +515,36 @@ def fresh_reconstruction_unit_2():
 
         "progressive_backup_funding": True,
         "full_ladder_reservation_required": False,
+
+        "tp1_allocation_percent": tp1_allocation,
+        "tp2_allocation_percent": tp2_allocation,
+        "tp3_allocation_percent": tp3_allocation,
+
+        "tp_allocation": (
+            tp1_allocation,
+            tp2_allocation,
+            tp3_allocation
+        ),
+
+        "tp1_net_roi_floor_percent": tp1_roi,
+        "tp2_net_roi_floor_percent": tp2_roi,
+
+        "tp1_net_roi_percent": tp1_roi,
+        "tp2_net_roi_percent": tp2_roi,
+
+        "tp1_tp2_min_roi_separation_percent":
+            tp2_roi - tp1_roi,
+
+        "tp3_mode": "DYNAMIC_TRAILING",
+
+        "tp3_trailing_reference_percent":
+            trailing_reference,
+
+        "tp3_trailing_min_percent":
+            trailing_min,
+
+        "tp3_trailing_max_percent":
+            trailing_max,
 
         "signal_expiry_seconds": 120,
         "loss_cooldown_seconds": 300,
@@ -591,33 +562,6 @@ def fresh_reconstruction_unit_2():
         "fee_estimate_taker_rate": fee_rate,
         "estimated_slippage_rate": slippage_rate,
         "estimated_funding_rate": funding_rate,
-
-        "tp1_net_roi_percent": tp1_roi,
-        "tp2_net_roi_percent": tp2_roi,
-
-        "tp1_net_roi_floor_percent": tp1_roi,
-        "tp2_net_roi_floor_percent": tp2_roi,
-
-        "tp1_allocation_percent": tp1_allocation,
-        "tp2_allocation_percent": tp2_allocation,
-        "tp3_allocation_percent": tp3_allocation,
-
-        "tp_allocation": (
-            tp1_allocation,
-            tp2_allocation,
-            tp3_allocation,
-        ),
-
-        "tp3_mode": "DYNAMIC_TRAILING",
-
-        "tp3_trailing_reference_percent":
-            trailing_reference,
-
-        "tp3_trailing_min_percent":
-            trailing_min,
-
-        "tp3_trailing_max_percent":
-            trailing_max,
 
         "hedge": {
             "enabled": True,
@@ -649,15 +593,12 @@ def fresh_reconstruction_unit_2():
 
             "backup_count": 5,
             "margin_percent": backup_margin,
-
-            "liquidation_buffer_percent":
-                backup_buffer,
+            "liquidation_buffer_percent": backup_buffer,
 
             "require_available_funds": True,
             "require_exposure_cap": True,
 
-            "require_verified_liquidation_price":
-                True,
+            "require_verified_liquidation_price": True,
         },
 
         "profit_protection": {
@@ -674,10 +615,10 @@ def fresh_reconstruction_unit_2():
         },
     }
 
-    # --------------------------------------------------------
-    # VERIFIED PRECISION IS PROVIDED BY UNIT 8
-    # NEVER HARDCODE BTC PRECISION FOR OTHER COINS
-    # --------------------------------------------------------
+    # ========================================================
+    # ORIGINAL PRECISION INTERFACE
+    # VALUES MUST COME FROM VERIFIED UNIT 8 CONTRACT
+    # ========================================================
 
     market_precision = {
         "quantity_step": None,
@@ -688,96 +629,179 @@ def fresh_reconstruction_unit_2():
         "contract_multiplier": None,
 
         "verified": False,
-        "source":
-            "PENDING_DEMO_CONTRACT_VERIFICATION",
+        "source": "PENDING_UNIT8_VERIFICATION",
 
         "symbol": market_symbol,
         "demo_order_symbol": demo_candidate,
     }
 
-    # --------------------------------------------------------
-    # QUALIFICATION
-    # PRESERVE UNIT 4-6 INTERFACES
-    # --------------------------------------------------------
+    # ========================================================
+    # ORIGINAL 17248 QUALIFICATION STRUCTURE
+    # WITH CURRENT UNIT 4-6 COMPATIBILITY
+    # ========================================================
 
     qualification = {
         "common": {
-            "mode_priority": (
-                "BREAKOUT",
-                "STRUCTURE",
-                "SCALP",
-            ),
+            "mode_priority":
+                ("BREAKOUT", "STRUCTURE", "SCALP"),
 
             "direction_votes_required": 2,
-            "confirmations_required": 3,
+            "direction_votes_total": 3,
 
+            "confirmations_required": 3,
             "exclusive_mode": True,
+
+            "use_closed_candles": True,
+            "protect_developing_candidates": True,
             "protect_developing_higher_modes": True,
+
+            "arbitrate_before_scalp": True,
+            "scalp_requires_higher_modes_clear": True,
+
+            "signal_expiry_seconds": 120,
+            "candidate_expiry_seconds": 120,
+
+            "spike_count_rejection_above": 2,
+            "reject_late_impulse_entry": True,
+
             "market_symbol": market_symbol,
         },
 
         "breakout": {
             "enabled": True,
+            "priority": 1,
+
+            "early_detection_enabled": True,
             "developing_candidate_enabled": True,
 
             "support_resistance_lookback": 20,
-            "developing_proximity_atr": 0.5,
-            "confirmation_distance_atr": 0.1,
-
-            "max_price_extension_atr": 3.0,
-            "minimum_atr_percent": 0.0,
+            "developing_proximity_atr": 0.50,
+            "confirmation_distance_atr": 0.10,
 
             "direction_votes_required": 2,
+
+            "momentum_lookback_fast": 5,
+            "momentum_lookback_slow": 15,
 
             "fast_momentum_minutes": 5,
             "slow_momentum_minutes": 15,
 
+            "require_momentum_confirmation": True,
+            "require_direction_agreement": True,
+
             "require_fast_momentum": True,
             "require_slow_momentum": False,
+
+            "require_ema_crossover": False,
+            "retest_mandatory": False,
+            "allow_preconfirmation": True,
+
+            "minimum_atr_percent": 0.0,
+            "max_price_extension_atr": 3.0,
+
+            "spike_rejection_enabled": True,
+            "max_spike_count": 2,
+            "false_breakout_rejection": True,
+
+            "volume_confirmation_enabled": False,
+            "minimum_volume_ratio": 1.20,
+
+            "candidate_expiry_seconds": 120,
         },
 
         "structure": {
             "enabled": True,
+            "priority": 2,
+
+            "early_detection_enabled": True,
+            "developing_candidate_enabled": True,
+
+            "ema_fast_period": 19,
+            "ema_middle_period": 50,
+            "ema_slow_period": 200,
 
             "ema_alignment_mode": "EARLY",
+
             "direction_votes_required": 2,
 
-            "minimum_ema_separation_percent": 0.0,
-            "pullback_tolerance_atr": 0.75,
-
-            "allow_continuation_entry": True,
-            "max_price_extension_atr": 2.0,
+            "momentum_lookback_minutes": 15,
 
             "fast_momentum_minutes": 5,
             "slow_momentum_minutes": 15,
 
             "require_fast_momentum": True,
             "require_slow_momentum": True,
+
+            "require_direction_agreement": True,
+            "require_ema_crossover": False,
+
+            "allow_pullback_entry": True,
+            "allow_continuation_entry": True,
+
+            "pullback_tolerance_atr": 0.75,
+            "max_price_extension_atr": 2.0,
+
+            "minimum_ema_separation_percent": 0.0,
+
+            "retest_mandatory": False,
+            "reject_trend_exhaustion": True,
+
+            "candidate_expiry_seconds": 120,
         },
 
         "scalp": {
             "enabled": True,
+            "priority": 3,
+
+            "sideways_preferred": True,
             "require_sideways_market": True,
+
+            "protect_developing_higher_modes": True,
 
             "quality_threshold": 70.0,
 
-            "ema_compression_atr_max": 0.7,
+            "price_action_weight_percent": 50.0,
+            "other_factors_weight_percent": 50.0,
+
+            "direction_votes_required": 2,
+            "direction_votes_total": 3,
+
+            "max_ema_extension_clusters": 1.5,
+            "max_spike_count": 2,
+
+            "reject_late_impulse": True,
+            "early_entry_enabled": True,
+
+            "ema_compression_atr_max": 0.70,
             "range20_atr_max": 8.0,
             "momentum15_atr_multiplier_max": 1.5,
 
             "preliminary_ema_separation_percent": 0.03,
             "preliminary_move_5m_percent": 0.015,
 
+            "fee_aware_enabled": True,
+
+            "estimated_taker_fee_percent":
+                fee_rate * 100.0,
+
+            "estimated_slippage_percent":
+                slippage_rate * 100.0,
+
+            "include_entry_fee": True,
+            "include_exit_fee": True,
+
             "minimum_fee_coverage_multiplier": 2.0,
+            "require_positive_estimated_net": True,
+            "minimum_net_roi_percent": 2.0,
 
             "blocked_by_developing_breakout": True,
             "blocked_by_developing_structure": True,
         },
     }
 
-    # --------------------------------------------------------
-    # CENTRAL CONFIGURATION
-    # --------------------------------------------------------
+    # ========================================================
+    # CENTRAL CONFIGURATION AND COMPATIBILITY ADAPTER
+    # ========================================================
 
     config = {
         "exchange": exchange,
@@ -810,33 +834,27 @@ def fresh_reconstruction_unit_2():
         "real_cash_execution_enabled": False,
     }
 
-    # --------------------------------------------------------
-    # FINAL CONFIGURATION VALIDATION
-    # --------------------------------------------------------
+    # ========================================================
+    # VALIDATION
+    # ========================================================
 
-    if (
-        exchange["name"] != "WEEX"
-        or exchange["api_version"] != "V3"
-        or config["execution_environment"] != "DEMO"
-    ):
-        raise RuntimeError(
-            "UNIT 2 EXCHANGE CONFIG INVALID"
-        )
+    if exchange["name"] != "WEEX":
+        raise RuntimeError("UNIT 2 INVALID EXCHANGE")
+
+    if exchange["api_version"] != "V3":
+        raise RuntimeError("UNIT 2 INVALID API VERSION")
+
+    if config["execution_environment"] != "DEMO":
+        raise RuntimeError("UNIT 2 DEMO REQUIRED")
 
     if not market_symbol.endswith("USDT"):
-        raise RuntimeError(
-            "UNIT 2 QUOTE CURRENCY INVALID"
-        )
+        raise RuntimeError("UNIT 2 INVALID QUOTE")
 
     if entry_margin <= 0:
-        raise RuntimeError(
-            "UNIT 2 ENTRY MARGIN INVALID"
-        )
+        raise RuntimeError("UNIT 2 INVALID ENTRY MARGIN")
 
-    if not (0 <= exposure_cap <= 100):
-        raise RuntimeError(
-            "UNIT 2 EXPOSURE CAP INVALID"
-        )
+    if not 0 <= exposure_cap <= 100:
+        raise RuntimeError("UNIT 2 INVALID EXPOSURE CAP")
 
     if abs(
         tp1_allocation
@@ -844,95 +862,44 @@ def fresh_reconstruction_unit_2():
         + tp3_allocation
         - 100.0
     ) > 0.000001:
-        raise RuntimeError(
-            "UNIT 2 TP ALLOCATION INVALID"
-        )
+        raise RuntimeError("UNIT 2 INVALID TP ALLOCATION")
 
-    # --------------------------------------------------------
-    # RENDER STARTUP REPORT
-    # --------------------------------------------------------
+    if strategy["max_backups"] != 5:
+        raise RuntimeError("UNIT 2 BACKUP COUNT INVALID")
 
+    if strategy["anti_duplicate_orders"] is not True:
+        raise RuntimeError("UNIT 2 DUPLICATE PROTECTION INVALID")
+
+    if config["real_cash_execution_enabled"] is not False:
+        raise RuntimeError("UNIT 2 REAL CASH MUST BE DISABLED")
+
+    # ========================================================
+    # RENDER DIAGNOSTICS
+    # ========================================================
+
+    print("UNIT 2 VERSION = V10_17248_ADAPTED", flush=True)
+    print("UNIT 2 MARKET SYMBOL =", market_symbol, flush=True)
+    print("UNIT 2 DEMO SYMBOL CANDIDATE =", demo_candidate, flush=True)
+
+    print("UNIT 2 BOT_MODE =", bot_mode, flush=True)
     print(
-        "UNIT 2 MARKET SYMBOL =",
-        market_symbol,
+        "UNIT 2 EXISTING POSITION MANAGEMENT = INDEPENDENT",
         flush=True
     )
 
-    print(
-        "UNIT 2 DEMO SYMBOL CANDIDATE =",
-        demo_candidate,
-        flush=True
-    )
+    print("UNIT 2 ENTRY MARGIN USDT =", entry_margin, flush=True)
+    print("UNIT 2 ENTRY MARGIN SOURCE =", entry_source, flush=True)
 
-    print(
-        "UNIT 2 DEMO CONTRACT VERIFIED = False",
-        flush=True
-    )
+    print("UNIT 2 LONG LEVERAGE =", long_leverage, flush=True)
+    print("UNIT 2 SHORT LEVERAGE =", short_leverage, flush=True)
 
-    print(
-        "UNIT 2 BOT_MODE =",
-        bot_mode,
-        flush=True
-    )
+    print("UNIT 2 EXPOSURE CAP % =", exposure_cap, flush=True)
+    print("UNIT 2 BACKUP COUNT = 5", flush=True)
+    print("UNIT 2 BACKUP MARGIN % =", backup_margin, flush=True)
+    print("UNIT 2 BACKUP BUFFER % =", backup_buffer, flush=True)
 
-    print(
-        "UNIT 2 EXISTING POSITION MANAGEMENT = "
-        "INDEPENDENT OF BOT_MODE",
-        flush=True
-    )
-
-    print(
-        "UNIT 2 ENTRY MARGIN USDT =",
-        entry_margin,
-        flush=True
-    )
-
-    print(
-        "UNIT 2 LONG LEVERAGE =",
-        long_leverage,
-        flush=True
-    )
-
-    print(
-        "UNIT 2 SHORT LEVERAGE =",
-        short_leverage,
-        flush=True
-    )
-
-    print(
-        "UNIT 2 EXPOSURE CAP % =",
-        exposure_cap,
-        flush=True
-    )
-
-    print(
-        "UNIT 2 BACKUP COUNT = 5",
-        flush=True
-    )
-
-    print(
-        "UNIT 2 BACKUP MARGIN % =",
-        backup_margin,
-        flush=True
-    )
-
-    print(
-        "UNIT 2 BACKUP BUFFER % =",
-        backup_buffer,
-        flush=True
-    )
-
-    print(
-        "UNIT 2 TP1 NET ROI % =",
-        tp1_roi,
-        flush=True
-    )
-
-    print(
-        "UNIT 2 TP2 NET ROI % =",
-        tp2_roi,
-        flush=True
-    )
+    print("UNIT 2 TP1 NET ROI % =", tp1_roi, flush=True)
+    print("UNIT 2 TP2 NET ROI % =", tp2_roi, flush=True)
 
     print(
         "UNIT 2 TP ALLOCATION =",
@@ -949,23 +916,26 @@ def fresh_reconstruction_unit_2():
     )
 
     print(
-        "UNIT 2 CONTRACT PRECISION = "
-        "PENDING UNIT 8 VERIFICATION",
+        "UNIT 2 CONTRACT PRECISION = PENDING UNIT 8",
         flush=True
     )
 
     print(
-        "UNIT 2 EXCHANGE WRITE = NONE",
+        "UNIT 2 ORIGINAL 17248 CONFIG INTERFACE = RESTORED",
         flush=True
     )
 
     print(
-        "UNIT 2 REAL CASH EXECUTION = DISABLED",
+        "UNIT 2 CURRENT MODEL INTERFACE = PRESERVED",
         flush=True
     )
 
-    log(
-        "COMBINED RECONSTRUCTION UNIT 2 RESULT = PASS"
+    print("UNIT 2 EXCHANGE WRITE = NONE", flush=True)
+    print("UNIT 2 REAL CASH EXECUTION = DISABLED", flush=True)
+
+    print(
+        "COMBINED RECONSTRUCTION UNIT 2 RESULT = PASS",
+        flush=True
     )
 
     print("=" * 80, flush=True)
@@ -974,14 +944,38 @@ def fresh_reconstruction_unit_2():
 
 
 # ============================================================
-# 2.3 EXECUTION AND GLOBAL HANDOVER
+# ORIGINAL UNIT 2 EXECUTION AND HANDOVER
 # ============================================================
 
 FRESH_RECONSTRUCTION_CONFIG = (
     fresh_reconstruction_unit_2()
 )
 
-FRESH_UNIT_2_OPTIMIZATION_READY = True
+FRESH_UNIT_2_OPTIMIZATION_READY = (
+    isinstance(FRESH_RECONSTRUCTION_CONFIG, dict)
+    and FRESH_RECONSTRUCTION_CONFIG.get(
+        "execution_environment"
+    ) == "DEMO"
+    and isinstance(
+        FRESH_RECONSTRUCTION_CONFIG.get("strategy"),
+        dict
+    )
+    and isinstance(
+        FRESH_RECONSTRUCTION_CONFIG.get("qualification"),
+        dict
+    )
+    and FRESH_RECONSTRUCTION_CONFIG[
+        "strategy"
+    ].get("anti_duplicate_orders") is True
+    and FRESH_RECONSTRUCTION_CONFIG[
+        "strategy"
+    ].get("max_backups") == 5
+)
+
+if not FRESH_UNIT_2_OPTIMIZATION_READY:
+    raise RuntimeError(
+        "UNIT 2 V10 OPTIMIZATION READINESS FAILED"
+    )
 
 print(
     "UNIT 2 HANDOVER READY =",
@@ -989,12 +983,12 @@ print(
     flush=True
 )
 
-
 # ============================================================
-# END COMPLETE UNIT 2
-# UNIT 3 TO FOLLOW
+# END COMPLETE UNIT 2 V10
+# UNIT 3 FOLLOWS
 # ZERO INDENTATION
 # ============================================================
+
 
 
 # ============================================================
