@@ -4379,3 +4379,711 @@ FRESH_RECONSTRUCTION_UNIT_6_RESULT = (
 # UNIT 7 TO FOLLOW
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# START COMPLETE UNIT 7
+# 17248 + 18426 EXECUTABLE ADAPTATION
+# UNIVERSAL USDT ENTRY / ATR HEDGE / BACKUP PLANNING
+# ZERO INDENTATION
+# ============================================================
+
+from decimal import Decimal, InvalidOperation, ROUND_DOWN, ROUND_UP
+
+
+# ============================================================
+# 7.1 DECIMAL AND CONTRACT HELPERS
+# ============================================================
+
+def unit_7_decimal(value, name, zero_allowed=False):
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError("UNIT 7 INVALID " + name)
+
+    if not number.is_finite():
+        raise ValueError("UNIT 7 NONFINITE " + name)
+
+    if number < 0 or (number == 0 and not zero_allowed):
+        raise ValueError("UNIT 7 INVALID " + name)
+
+    return number
+
+
+def unit_7_text(number):
+    return format(number, "f")
+
+
+def unit_7_floor(value, step):
+    return (
+        (value / step).to_integral_value(
+            rounding=ROUND_DOWN
+        ) * step
+    )
+
+
+def unit_7_ceil(value, step):
+    return (
+        (value / step).to_integral_value(
+            rounding=ROUND_UP
+        ) * step
+    )
+
+
+def unit_7_contract(config):
+    precision = config.get("market_precision", {})
+    exchange = config.get("exchange", {})
+    symbol = exchange["market_symbol"]
+
+    verified = (
+        precision.get("verified") is True
+        and precision.get("symbol") == symbol
+        and exchange.get(
+            "contract_precision_verified"
+        ) is True
+        and exchange.get(
+            "contract_value_verified"
+        ) is True
+    )
+
+    result = {
+        "symbol": symbol,
+        "verified": False,
+        "minimum_quantity": None,
+        "quantity_step": None,
+        "contract_multiplier": None,
+        "price_step": None,
+        "reason": "PENDING_UNIT8_CONTRACT_VERIFICATION"
+    }
+
+    if not verified:
+        return result
+
+    for field in (
+        "minimum_quantity",
+        "quantity_step",
+        "contract_multiplier",
+        "price_step"
+    ):
+        result[field] = unit_7_decimal(
+            precision.get(field),
+            field.upper()
+        )
+
+    result["verified"] = True
+    result["reason"] = "VERIFIED"
+    return result
+
+
+# ============================================================
+# 7.2 INITIAL POSITION SIZING
+# ============================================================
+
+def unit_7_entry_quantity(
+    margin,
+    leverage,
+    price,
+    contract
+):
+    notional = margin * leverage
+
+    result = {
+        "valid": False,
+        "reason": "CONTRACT_VERIFICATION_PENDING",
+        "requested_margin_usdt": unit_7_text(margin),
+        "requested_notional_usdt": unit_7_text(notional),
+        "quantity": None,
+        "actual_margin_usdt": None,
+        "actual_notional_usdt": None
+    }
+
+    if not contract["verified"]:
+        return result
+
+    multiplier = contract["contract_multiplier"]
+    step = contract["quantity_step"]
+    minimum = contract["minimum_quantity"]
+
+    raw_quantity = notional / (price * multiplier)
+    quantity = unit_7_floor(raw_quantity, step)
+    minimum_compliant = unit_7_ceil(minimum, step)
+
+    result["raw_quantity"] = unit_7_text(raw_quantity)
+    result["minimum_quantity"] = unit_7_text(
+        minimum_compliant
+    )
+
+    if quantity < minimum_compliant:
+        result["reason"] = (
+            "ENTRY_MARGIN_BELOW_MINIMUM_CONTRACT"
+        )
+        result["required_margin_usdt"] = unit_7_text(
+            minimum_compliant * multiplier * price / leverage
+        )
+        return result
+
+    actual_notional = quantity * multiplier * price
+    actual_margin = actual_notional / leverage
+
+    result.update({
+        "valid": True,
+        "reason": "QUANTITY_STEP_COMPLIANT",
+        "quantity": unit_7_text(quantity),
+        "actual_notional_usdt":
+            unit_7_text(actual_notional),
+        "actual_margin_usdt":
+            unit_7_text(actual_margin)
+    })
+
+    return result
+
+
+# ============================================================
+# 7.3 TWO-STAGE REVERSIBLE ATR HEDGE
+# ============================================================
+
+def unit_7_atr_hedge(
+    entry_price,
+    atr,
+    direction,
+    strategy
+):
+    hedge = strategy.get("hedge", {})
+
+    first = unit_7_decimal(
+        hedge.get("trigger_1_atr", 1),
+        "STAGE1_ATR"
+    )
+
+    second = unit_7_decimal(
+        hedge.get("trigger_2_atr", 2),
+        "STAGE2_ATR"
+    )
+
+    if second <= first:
+        raise ValueError("UNIT 7 ATR STAGE ORDER INVALID")
+
+    if direction == "LONG":
+        trigger1 = entry_price - atr * first
+        trigger2 = entry_price - atr * second
+    else:
+        trigger1 = entry_price + atr * first
+        trigger2 = entry_price + atr * second
+
+    if min(trigger1, trigger2) <= 0:
+        raise ValueError("UNIT 7 ATR TRIGGER INVALID")
+
+    return {
+        "mode": "REVERSIBLE_ATR_TWO_STAGE",
+        "reference": "ACTUAL_FILL_PRICE_REQUIRED",
+        "indicative_entry_price":
+            unit_7_text(entry_price),
+        "atr14": unit_7_text(atr),
+        "stage1_atr": unit_7_text(first),
+        "stage2_atr": unit_7_text(second),
+        "indicative_stage1_trigger":
+            unit_7_text(trigger1),
+        "indicative_stage2_trigger":
+            unit_7_text(trigger2),
+        "stage1_close_original_percent": 50,
+        "stage1_open_opposite_percent": 50,
+        "stage2_close_remaining_percent": 100,
+        "stage2_reverse_remaining_percent": 100,
+        "maximum_recovery_cycles": 1,
+        "conventional_stop_loss_enabled": False,
+        "actual_trigger_levels_pending_fill": True,
+        "stage2_reference_quantity":
+            "REMAINING_POSITION_AFTER_STAGE1",
+        "hedge_execution_pending":
+            "EXCHANGE_POSITION_RECONCILIATION"
+    }
+
+
+# ============================================================
+# 7.4 HEDGE QUANTITY PLANNING
+# ============================================================
+
+def unit_7_hedge_quantities(
+    entry_quantity,
+    contract
+):
+    result = {
+        "valid": False,
+        "reason": "ENTRY_QUANTITY_PENDING",
+        "stage1_close_quantity": None,
+        "stage1_opposite_quantity": None,
+        "stage2_close_remaining_quantity": None,
+        "stage2_opposite_quantity": None
+    }
+
+    if entry_quantity is None or not contract["verified"]:
+        return result
+
+    quantity = unit_7_decimal(
+        entry_quantity, "ENTRY_QUANTITY"
+    )
+
+    step = contract["quantity_step"]
+    minimum = unit_7_ceil(
+        contract["minimum_quantity"], step
+    )
+
+    half = unit_7_floor(
+        quantity * Decimal("0.5"), step
+    )
+
+    remainder = quantity - half
+
+    if half < minimum or remainder < minimum:
+        result["reason"] = (
+            "STAGED_HEDGE_QUANTITY_BELOW_MINIMUM"
+        )
+        return result
+
+    result.update({
+        "valid": True,
+        "reason": "STAGED_QUANTITY_COMPLIANT",
+        "stage1_close_quantity": unit_7_text(half),
+        "stage1_opposite_quantity": unit_7_text(half),
+        "stage2_close_remaining_quantity":
+            unit_7_text(remainder),
+        "stage2_opposite_quantity":
+            unit_7_text(remainder),
+        "requires_fill_reconciliation": True
+    })
+
+    return result
+
+
+# ============================================================
+# 7.5 B1-B5 BACKUP POLICY
+# ============================================================
+
+def unit_7_backup_policy(config):
+    strategy = config.get("strategy", {})
+    backup = strategy.get("backup_recovery", {})
+
+    count = int(backup.get("backup_count", 5))
+
+    margin_pct = unit_7_decimal(
+        backup.get("margin_percent", 0.5),
+        "BACKUP_MARGIN_PERCENT",
+        True
+    )
+
+    buffer_pct = unit_7_decimal(
+        backup.get("liquidation_buffer_percent", 0.3),
+        "BACKUP_BUFFER_PERCENT",
+        True
+    )
+
+    return {
+        "enabled": backup.get("enabled", True),
+        "count": count,
+        "margin_percent": unit_7_text(margin_pct),
+        "buffer_percent": unit_7_text(buffer_pct),
+        "activation":
+            "AFTER_FAILED_FIRST_HEDGE_RECOVERY",
+        "independent_backup_recalculation": True,
+        "require_available_balance": True,
+        "require_verified_liquidation_price": True,
+        "require_exposure_cap": True,
+        "recalculate_after_every_fill": True,
+        "execution_pending": True
+    }
+
+
+def unit_7_next_backup(
+    direction,
+    liquidation_price,
+    available_balance,
+    exposure_remaining_usdt,
+    leverage,
+    price,
+    contract,
+    backup_policy
+):
+    result = {
+        "valid": False,
+        "reason": "BACKUP_CONDITIONS_PENDING",
+        "quantity": None,
+        "trigger_price": None
+    }
+
+    if not contract["verified"]:
+        result["reason"] = "CONTRACT_UNVERIFIED"
+        return result
+
+    liquidation = unit_7_decimal(
+        liquidation_price, "LIQUIDATION_PRICE"
+    )
+
+    balance = unit_7_decimal(
+        available_balance, "AVAILABLE_BALANCE", True
+    )
+
+    remaining = unit_7_decimal(
+        exposure_remaining_usdt,
+        "REMAINING_EXPOSURE",
+        True
+    )
+
+    leverage = unit_7_decimal(
+        leverage, "LEVERAGE"
+    )
+
+    price = unit_7_decimal(price, "PRICE")
+
+    margin_pct = unit_7_decimal(
+        backup_policy["margin_percent"],
+        "BACKUP_PERCENT",
+        True
+    )
+
+    buffer_pct = unit_7_decimal(
+        backup_policy["buffer_percent"],
+        "BUFFER_PERCENT",
+        True
+    )
+
+    if direction == "LONG":
+        trigger = liquidation * (
+            Decimal("1") - buffer_pct / 100
+        )
+    elif direction == "SHORT":
+        trigger = liquidation * (
+            Decimal("1") + buffer_pct / 100
+        )
+    else:
+        result["reason"] = "INVALID_DIRECTION"
+        return result
+
+    if trigger <= 0:
+        result["reason"] = "INVALID_TRIGGER"
+        return result
+
+    margin = min(
+        balance * margin_pct / 100,
+        remaining
+    )
+
+    if margin <= 0:
+        result["reason"] = "NO_MARGIN_CAPACITY"
+        return result
+
+    quantity_plan = unit_7_entry_quantity(
+        margin, leverage, price, contract
+    )
+
+    result.update({
+        "valid": quantity_plan["valid"],
+        "reason": quantity_plan["reason"],
+        "trigger_price": unit_7_text(trigger),
+        "margin_usdt": unit_7_text(margin),
+        "quantity": quantity_plan["quantity"],
+        "quantity_plan": quantity_plan,
+        "requires_live_trigger_confirmation": True
+    })
+
+    return result
+
+
+# ============================================================
+# 7.6 EXECUTABLE UNIT 7 HANDOVER
+# ============================================================
+
+def fresh_reconstruction_unit_7(
+    config,
+    market,
+    analysis,
+    candidate
+):
+    print("=" * 80, flush=True)
+    log("COMBINED RECONSTRUCTION UNIT 7 START")
+
+    if not all(
+        isinstance(item, dict)
+        for item in (config, market, analysis, candidate)
+    ):
+        raise RuntimeError("UNIT 7 UPSTREAM DATA MISSING")
+
+    exchange = config["exchange"]
+    strategy = config.get("strategy", {})
+
+    symbol = exchange["market_symbol"]
+
+    if (
+        market.get("symbol") != symbol
+        or analysis.get("symbol") != symbol
+        or candidate.get("symbol") != symbol
+    ):
+        raise RuntimeError("UNIT 7 SYMBOL MISMATCH")
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or config.get("real_cash_execution_enabled") is not False
+    ):
+        raise RuntimeError("UNIT 7 DEMO ONLY")
+
+    mode = str(
+        candidate.get("active_mode", "NONE")
+    ).upper()
+
+    direction = str(
+        candidate.get("direction", "NONE")
+    ).upper()
+
+    intent = bool(
+        candidate.get("execution_intent") is True
+        and candidate.get("signal_qualified") is True
+        and mode in ("SCALP", "STRUCTURE", "BREAKOUT")
+        and direction in ("LONG", "SHORT")
+    )
+
+    contract = unit_7_contract(config)
+    backup = unit_7_backup_policy(config)
+
+    hedge_config = strategy.get("hedge", {})
+
+    hedge_policy = {
+        "enabled": hedge_config.get("enabled", True),
+        "mode": "REVERSIBLE_ATR_TWO_STAGE",
+        "stage1_atr": hedge_config.get(
+            "trigger_1_atr", 1
+        ),
+        "stage2_atr": hedge_config.get(
+            "trigger_2_atr", 2
+        ),
+        "maximum_recovery_cycles": 1,
+        "recovery_enabled": True,
+        "conventional_stop_loss_enabled": False
+    }
+
+    result = {
+        "unit": 7,
+        "version": "UNIT7_COMBINED_EXECUTABLE",
+        "symbol": symbol,
+        "base_coin": symbol[:-4],
+        "quote_coin": "USDT",
+        "capital_currency": "USDT",
+        "active_mode": mode,
+        "direction": direction,
+        "signal_qualified":
+            candidate.get("signal_qualified") is True,
+        "execution_intent": intent,
+        "unit_6_candidate": candidate,
+        "contract": contract,
+        "contract_verified": contract["verified"],
+        "hedge_policy": hedge_policy,
+        "backup_policy": backup,
+        "backup_ladder": backup,
+        "backup_count": backup["count"],
+        "backup_activation":
+            "AFTER_FAILED_FIRST_HEDGE_RECOVERY",
+        "backup_calculator": "unit_7_next_backup",
+        "entry_sizing": None,
+        "hedge_quantity_plan": None,
+        "atr_hedge_levels": None,
+        "quantity_valid": False,
+        "account_state_verified": False,
+        "position_mode_verified": False,
+        "execution_authorized": False,
+        "trade_authorized": False,
+        "order_payload_created": False,
+        "exchange_write": False,
+        "read_only": True,
+        "real_cash_execution_enabled": False,
+        "reason": "NO_QUALIFIED_ENTRY"
+    }
+
+    if intent:
+        margin = unit_7_decimal(
+            strategy.get(
+                "initial_entry_margin_usdt",
+                config.get("initial_entry_margin_usdt", 0.5)
+            ),
+            "ENTRY_MARGIN_USDT"
+        )
+
+        leverage_key = (
+            "long_leverage"
+            if direction == "LONG"
+            else "short_leverage"
+        )
+
+        leverage_fallback = (
+            config.get("leverage_long", 10)
+            if direction == "LONG"
+            else config.get("leverage_short", 10)
+        )
+
+        leverage = unit_7_decimal(
+            strategy.get(
+                leverage_key, leverage_fallback
+            ),
+            "LEVERAGE"
+        )
+
+        exposure_cap = unit_7_decimal(
+            strategy.get(
+                "exposure_cap_percent",
+                config.get("exposure_cap_percent", 100)
+            ),
+            "EXPOSURE_CAP",
+            True
+        )
+
+        price = unit_7_decimal(
+            market["price"], "MARK_PRICE"
+        )
+
+        atr = unit_7_decimal(
+            analysis["atr14"], "ATR14"
+        )
+
+        result["entry_margin_usdt"] = unit_7_text(
+            margin
+        )
+
+        result["leverage"] = unit_7_text(leverage)
+
+        result["exposure_cap_percent"] = (
+            unit_7_text(exposure_cap)
+        )
+
+        result["requested_notional_usdt"] = (
+            unit_7_text(margin * leverage)
+        )
+
+        result["atr_hedge_levels"] = (
+            unit_7_atr_hedge(
+                price, atr, direction, strategy
+            )
+        )
+
+        sizing = unit_7_entry_quantity(
+            margin, leverage, price, contract
+        )
+
+        result["entry_sizing"] = sizing
+
+        if not contract["verified"]:
+            result["reason"] = (
+                "ENTRY_PLAN_READY_CONTRACT_PENDING_UNIT8"
+            )
+
+        elif not sizing["valid"]:
+            result["reason"] = sizing["reason"]
+
+        else:
+            hedge_quantities = (
+                unit_7_hedge_quantities(
+                    sizing["quantity"], contract
+                )
+            )
+
+            result["hedge_quantity_plan"] = (
+                hedge_quantities
+            )
+
+            result["quantity_valid"] = True
+
+            result["reason"] = (
+                "ENTRY_QUANTITY_READY_"
+                "ACCOUNT_VERIFICATION_PENDING"
+            )
+
+            if not hedge_quantities["valid"]:
+                result["hedge_quantity_warning"] = (
+                    hedge_quantities["reason"]
+                )
+
+    print(
+        "UNIT 7 SYMBOL =", symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 MODE =", mode,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 DIRECTION =", direction,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXECUTION INTENT =", intent,
+        flush=True
+    )
+
+    print(
+        "UNIT 7 CONTRACT VERIFIED =",
+        contract["verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 QUANTITY VALID =",
+        result["quantity_valid"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 HEDGE MODE =",
+        hedge_policy["mode"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 BACKUP COUNT =",
+        backup["count"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 REASON =",
+        result["reason"],
+        flush=True
+    )
+
+    print(
+        "UNIT 7 HANDOVER TO UNIT 8 = READY",
+        flush=True
+    )
+
+    print(
+        "UNIT 7 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    log(
+        "COMBINED RECONSTRUCTION UNIT 7 RESULT = PASS"
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# 7.7 GLOBAL EXECUTION
+# ============================================================
+
+FRESH_RECONSTRUCTION_UNIT_7_RESULT = (
+    fresh_reconstruction_unit_7(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_MARKET_SNAPSHOT,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+        FRESH_RECONSTRUCTION_UNIT_6_RESULT
+    )
+)
+
+FRESH_UNIT_7_OPTIMIZATION_READY = True
+
+
+# ============================================================
+# END COMPLETE UNIT 7
+# ZERO INDENTATION
+# ============================================================
