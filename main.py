@@ -14795,6 +14795,260 @@ def unit_14_v3_result(unit_13_result):
 # 7. MAIN UNIT 14
 # ============================================================
 
+
+# ============================================================
+# UNIT 14 HEDGE STAGE CONTROLLER + H2 MONITOR V1
+# H1 / H2 / R1 / R2 INDEPENDENT MODES
+# DEMO-ONLY CONFIGURATION
+# NO H2 EXCHANGE WRITE IN THIS VERSION
+# ============================================================
+
+def unit_14_stage_modes():
+    import os
+
+    raw = os.getenv(
+        "HEDGE_STAGE_MODES",
+        "H1:DEMO,H2:MONITOR,R1:MONITOR,R2:MONITOR"
+    )
+
+    allowed_stages = {"H1", "H2", "R1", "R2"}
+    allowed_modes = {"MONITOR", "DEMO", "PAUSE"}
+    modes = {}
+
+    for item in raw.split(","):
+        parts = item.strip().upper().split(":")
+
+        if len(parts) != 2:
+            raise RuntimeError(
+                "INVALID HEDGE_STAGE_MODES FORMAT"
+            )
+
+        stage, mode = (x.strip() for x in parts)
+
+        if stage not in allowed_stages:
+            raise RuntimeError(
+                "UNKNOWN HEDGE STAGE: " + stage
+            )
+
+        if mode not in allowed_modes:
+            raise RuntimeError(
+                "INVALID HEDGE MODE: " + mode
+            )
+
+        if stage in modes:
+            raise RuntimeError(
+                "DUPLICATE HEDGE STAGE: " + stage
+            )
+
+        modes[stage] = mode
+
+    if set(modes) != allowed_stages:
+        raise RuntimeError(
+            "HEDGE STAGE CONFIGURATION INCOMPLETE"
+        )
+
+    return modes
+
+
+def unit_14_h2_check(
+    position,
+    mark,
+    qstep,
+    minimum,
+    active_positions,
+):
+    from decimal import Decimal
+
+    D = unit_14_v3_D
+
+    result = {
+        "stage": "H2",
+        "status": "MONITORING",
+        "trigger_reached": False,
+        "execution_authorized": False,
+        "exchange_write": False,
+    }
+
+    if not isinstance(position, dict):
+        result["status"] = "POSITION_UNAVAILABLE"
+        return result
+
+    side = str(
+        position.get("side", "")
+    ).upper()
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "H2 ORIGINAL SIDE INVALID"
+        )
+
+    size = D(
+        position.get("size"),
+        "H2 REMAINING SIZE",
+        True
+    )
+
+    if size <= 0:
+        result["status"] = "NO_REMAINING_ORIGINAL"
+        return result
+
+    snapshot = globals().get(
+        "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT"
+    )
+
+    current_scan = globals().get("SCAN_NUMBER")
+    analysis_scan = globals().get(
+        "UNIT14_H1_ANALYSIS_SCAN"
+    )
+
+    if (
+        not isinstance(snapshot, dict)
+        or current_scan is None
+        or analysis_scan != current_scan
+    ):
+        result["status"] = "STALE_ATR_BLOCKED"
+        return result
+
+    atr = D(
+        snapshot.get("atr14"),
+        "H2 ATR14"
+    )
+
+    if atr <= 0:
+        result["status"] = "INVALID_ATR"
+        return result
+
+    open_value = D(
+        position.get("openValue"),
+        "H2 OPEN VALUE"
+    )
+
+    # This is the exchange's CURRENT average entry.
+    # It is for monitoring only until the original
+    # entry and ATR are reconciled and frozen.
+
+    entry = open_value / size
+
+    if side == "LONG":
+        trigger = entry - Decimal("2") * atr
+        reached = mark <= trigger
+        opposite = "SHORT"
+    else:
+        trigger = entry + Decimal("2") * atr
+        reached = mark >= trigger
+        opposite = "LONG"
+
+    close_qty = unit_14_v3_floor(
+        size,
+        qstep
+    )
+
+    opposite_key = (
+        "BTCSUSDT:" + opposite
+    )
+
+    hedge_position = active_positions.get(
+        opposite_key
+    )
+
+    hedge_size = Decimal("0")
+
+    if hedge_position is not None:
+        hedge_size = D(
+            hedge_position.get("size"),
+            "H2 EXISTING HEDGE SIZE",
+            True
+        )
+
+    executable = (
+        close_qty >= minimum
+        and close_qty > 0
+    )
+
+    result.update({
+        "status": (
+            "TRIGGER_REACHED_MONITOR"
+            if reached
+            else "WAITING_TRIGGER"
+        ),
+        "original_side": side,
+        "opposite_side": opposite,
+        "current_entry": str(entry),
+        "current_atr14": str(atr),
+        "trigger": str(trigger),
+        "mark": str(mark),
+        "trigger_reached": bool(reached),
+        "remaining_original_qty": str(size),
+        "planned_close_qty": str(close_qty),
+        "existing_hedge_qty": str(hedge_size),
+        "quantity_executable": bool(executable),
+        "original_entry_frozen": False,
+        "original_atr_frozen": False,
+        "hedge_reconciled": False,
+        "execution_authorized": False,
+        "exchange_write": False,
+    })
+
+    print(
+        "UNIT 14 H2 STATUS =",
+        result["status"],
+        flush=True
+    )
+    print(
+        "UNIT 14 H2 ORIGINAL SIDE =",
+        side,
+        flush=True
+    )
+    print(
+        "UNIT 14 H2 CURRENT ENTRY =",
+        entry,
+        flush=True
+    )
+    print(
+        "UNIT 14 H2 ATR14 =",
+        atr,
+        flush=True
+    )
+    print(
+        "UNIT 14 H2 TRIGGER =",
+        trigger,
+        flush=True
+    )
+    print(
+        "UNIT 14 H2 MARK =",
+        mark,
+        flush=True
+    )
+    print(
+        "UNIT 14 H2 TRIGGER REACHED =",
+        reached,
+        flush=True
+    )
+    print(
+        "UNIT 14 H2 REMAINING ORIGINAL =",
+        size,
+        flush=True
+    )
+    print(
+        "UNIT 14 H2 EXISTING HEDGE =",
+        hedge_size,
+        flush=True
+    )
+    print(
+        "UNIT 14 H2 EXECUTION AUTHORIZED = False",
+        flush=True
+    )
+    print(
+        "UNIT 14 H2 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    return result
+
+# ============================================================
+# END H2 MONITOR V1
+# ============================================================
+
 def fresh_reconstruction_unit_14(
     config,
     unit_13_result,
