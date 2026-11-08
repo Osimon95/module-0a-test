@@ -14270,6 +14270,198 @@ def unit_14_h1_check(p, mark, qstep, minimum):
         "execution_authorized": False,
     }
 
+
+# ============================================================
+# UNIT 14 H1 - DEMO EXECUTION
+# EXCHANGE-CONFIRMED FILL RECONCILIATION
+# ============================================================
+
+def unit_14_h1_execute(p, h1, qstep, minimum):
+    import time
+
+    if not h1 or not h1.get("reached"):
+        return {"status": "WAITING_TRIGGER"}
+
+    if not h1.get("quantity_executable"):
+        return {"status": "H1_QUANTITY_NOT_EXECUTABLE"}
+
+    side = h1["side"]
+    opposite = h1["hedge_side"]
+    qty = h1["close_quantity"]
+
+    identity = unit_14_v3_trade_key(p)
+    close_id = ("FR-H1-C-" + identity)[:36]
+    hedge_id = ("FR-H1-H-" + identity)[:36]
+
+    def matched(client_id):
+        return [
+            order for order in unit_14_v3_history()
+            if str(order.get("clientOrderId", "")) == client_id
+        ]
+
+    def confirmed_fill(client_id):
+        records = matched(client_id)
+
+        if not records:
+            return None
+
+        quantities = set()
+
+        for order in records:
+            status = str(
+                order.get("status", "")
+            ).upper()
+
+            if status != "FILLED":
+                return None
+
+            value = order.get("executedQty")
+
+            if value is None:
+                return None
+
+            filled = unit_14_v3_D(
+                value,
+                "H1 EXECUTED QUANTITY"
+            )
+
+            quantities.add(filled)
+
+        if len(quantities) != 1:
+            return None
+
+        return quantities.pop()
+
+    attempts = globals().setdefault(
+        "_UNIT14_H1_ORDER_ATTEMPTS",
+        set()
+    )
+
+    if not matched(close_id):
+
+        if close_id in attempts:
+            return {
+                "status": "H1_CLOSE_ACK_UNKNOWN"
+            }
+
+        attempts.add(close_id)
+
+        payload = {
+            "symbol": "BTCSUSDT",
+            "side": (
+                "SELL" if side == "LONG"
+                else "BUY"
+            ),
+            "positionSide": side,
+            "type": "MARKET",
+            "quantity": format(qty, "f"),
+            "newClientOrderId": close_id,
+        }
+
+        reply = unit_14_v3_signed_request(
+            "POST",
+            UNIT14_V3_ORDER,
+            payload=payload
+        )
+
+        if (
+            not isinstance(reply, dict)
+            or reply.get("success") is not True
+            or not reply.get("orderId")
+        ):
+            raise RuntimeError(
+                "H1 CLOSE ACK UNVERIFIED - DO NOT RETRY"
+            )
+
+        print(
+            "UNIT 14 H1 CLOSE ORDER ID =",
+            reply["orderId"],
+            flush=True
+        )
+
+    filled = None
+
+    for _ in range(5):
+        filled = confirmed_fill(close_id)
+
+        if filled is not None:
+            break
+
+        time.sleep(2)
+
+    if filled is None:
+        return {
+            "status": "H1_CLOSE_FILL_PENDING"
+        }
+
+    if (
+        filled < minimum
+        or unit_14_v3_floor(filled, qstep) != filled
+    ):
+        return {
+            "status": "H1_CLOSE_FILL_NOT_HEDGE_EXECUTABLE"
+        }
+
+    if matched(hedge_id):
+        hedge_filled = confirmed_fill(hedge_id)
+
+        return {
+            "status": (
+                "H1_HEDGE_FILLED"
+                if hedge_filled == filled
+                else "H1_HEDGE_PENDING_OR_MISMATCH"
+            ),
+            "close_filled": str(filled),
+            "hedge_filled": str(hedge_filled),
+        }
+
+    if hedge_id in attempts:
+        return {
+            "status": "H1_HEDGE_ACK_UNKNOWN"
+        }
+
+    attempts.add(hedge_id)
+
+    hedge_payload = {
+        "symbol": "BTCSUSDT",
+        "side": (
+            "BUY" if opposite == "LONG"
+            else "SELL"
+        ),
+        "positionSide": opposite,
+        "type": "MARKET",
+        "quantity": format(filled, "f"),
+        "newClientOrderId": hedge_id,
+    }
+
+    reply = unit_14_v3_signed_request(
+        "POST",
+        UNIT14_V3_ORDER,
+        payload=hedge_payload
+    )
+
+    if (
+        not isinstance(reply, dict)
+        or reply.get("success") is not True
+        or not reply.get("orderId")
+    ):
+        raise RuntimeError(
+            "H1 HEDGE ACK UNVERIFIED - DO NOT RETRY"
+        )
+
+    print(
+        "UNIT 14 H1 HEDGE ORDER ID =",
+        reply["orderId"],
+        flush=True
+    )
+
+    return {
+        "status": "H1_HEDGE_SUBMITTED_AWAITING_FILL",
+        "close_filled": str(filled),
+        "hedge_order_id": str(reply["orderId"]),
+        "exchange_write": True,
+    }
+
 def unit_14_v3_reconcile(history, key):
 
     existing = set()
