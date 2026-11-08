@@ -17167,6 +17167,12 @@ def scan_one_cycle():
 
     try:
 
+        
+        # Invalidate H1 analysis at the start of each scan.
+        # A failed Unit 4 refresh must not reuse old ATR.
+
+        globals()["UNIT14_H1_ANALYSIS_SCAN"] = None
+
         SCAN_NUMBER += 1
 
         now = _SCAN_DT.now(SCAN_TZ)
