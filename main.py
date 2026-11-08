@@ -9322,7 +9322,13 @@ def fresh_reconstruction_unit_13_restored():
             "UNIT13_POSITION_ID_MISSING"
         )
 
-        # Reconcile previous submissions across Render restarts.
+        client_id = u13_client_id(
+        position_id,
+        action,
+        cum_close
+    )
+        
+    # Reconcile previous submissions across Render restarts.
     # Do not assume a previous order was unsubmitted
     # merely because the current process has restarted.
 
