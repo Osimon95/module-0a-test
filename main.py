@@ -9465,13 +9465,13 @@ print(
     FRESH_RECONSTRUCTION_UNIT_13_RESULT["status"],
     flush=True
 )
-FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
-    fresh_reconstruction_unit_13_restored()
-)
+
 # ============================================================
 # END COMPLETE UNIT 13 RESTORED TP ENGINE
 # ============================================================
-
+FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
+    fresh_reconstruction_unit_13_restored()
+)
 
 
 # ============================================================
