@@ -14106,48 +14106,25 @@ def unit_14_h1_select_original(positions):
 
     return active.get("BTCSUSDT:" + original_side)
 
+
 def unit_14_v3_position():
+    active = unit_14_v3_positions()
 
-    rows = unit_14_v3_signed_request(
-        "GET",
-        UNIT14_V3_POSITION,
+    if not active:
+        return None
+
+    original_side = os.getenv(
+        "ORIGINAL_POSITION_SIDE", ""
+    ).strip().upper()
+
+    if original_side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT 14 ORIGINAL POSITION SIDE NOT CONFIGURED"
+        )
+
+    return active.get(
+        "BTCSUSDT:" + original_side
     )
-
-    if not isinstance(rows, list):
-        raise RuntimeError(
-            "UNIT 14 POSITION RESPONSE NOT LIST"
-        )
-
-    active = []
-
-    for p in rows:
-
-        if not isinstance(p, dict):
-            raise RuntimeError(
-                "UNIT 14 POSITION RECORD INVALID"
-            )
-
-        if str(
-            p.get("symbol", "")
-        ).upper() != "BTCSUSDT":
-            continue
-
-        size = unit_14_v3_D(
-            p.get("size"),
-            "POSITION SIZE",
-            True,
-        )
-
-        if size > 0:
-            active.append(p)
-
-    if len(active) > 1:
-        raise RuntimeError(
-            "UNIT 14 MULTIPLE BTC POSITIONS"
-        )
-
-    return active[0] if active else None
-
 
 def unit_14_v3_balance():
 
