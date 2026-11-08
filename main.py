@@ -12984,10 +12984,21 @@ def fresh_reconstruction_unit_13(
 
         return result
 
-    if len(active) != 1:
-        raise RuntimeError(
-            "UNIT 13 MULTIPLE ACTIVE POSITIONS"
+        if len(active) != 1:
+
+        selector = globals().get(
+            "unit_14_h1_select_original"
         )
+
+        if not callable(selector):
+            raise RuntimeError(
+                "UNIT 13 MULTIPLE ACTIVE POSITIONS"
+            )
+
+        p = selector(active)
+
+        active = [p]
+    
 
     # ========================================================
     # READ EXCHANGE POSITION
