@@ -12790,6 +12790,55 @@ def unit_13_v4_base_result(unit_12_result, status, reason):
 # 7. MAIN UNIT 13
 # ============================================================
 
+
+def unit_14_h1_select_original(positions):
+    import os
+    from decimal import Decimal
+
+    original_side = os.getenv(
+        "ORIGINAL_POSITION_SIDE", ""
+    ).strip().upper()
+
+    if original_side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "ORIGINAL_POSITION_SIDE MUST BE LONG OR SHORT"
+        )
+
+    selected = []
+
+    for p in positions:
+        if not isinstance(p, dict):
+            continue
+
+        symbol = str(
+            p.get("symbol", "")
+        ).upper()
+
+        side = str(
+            p.get("side", "")
+        ).upper()
+
+        if symbol != "BTCSUSDT":
+            continue
+
+        if side != original_side:
+            continue
+
+        size = Decimal(str(p.get("size", "0")))
+
+        if size > 0:
+            selected.append(p)
+
+    if len(selected) == 0:
+        return None
+
+    if len(selected) > 1:
+        raise RuntimeError(
+            "AMBIGUOUS ORIGINAL POSITION IDENTITY"
+        )
+
+    return selected[0]
+
 def fresh_reconstruction_unit_13(
     config,
     unit_12_result,
