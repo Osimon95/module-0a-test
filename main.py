@@ -14156,6 +14156,96 @@ def unit_14_v3_backup_id(stage, key):
     )[:36]
 
 
+# ============================================================
+# UNIT 14 H1 V1 - READ-ONLY TRIGGER VERIFICATION
+# NO EXCHANGE ORDER SUBMISSION
+# EXISTING B1-B5 REMAINS UNCHANGED
+# ============================================================
+
+def unit_14_h1_check(p, mark, qstep, minimum):
+
+    from decimal import Decimal
+
+    D = unit_14_v3_D
+
+    side = str(p.get("side", "")).upper()
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError("H1 INVALID POSITION SIDE")
+
+    size = D(p.get("size"), "H1 POSITION SIZE")
+    open_value = D(
+        p.get("openValue"),
+        "H1 POSITION OPEN VALUE"
+    )
+
+    if size <= 0:
+        raise RuntimeError("H1 POSITION SIZE INVALID")
+
+    entry = open_value / size
+
+    snapshot = globals().get(
+        "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT"
+    )
+
+    if not isinstance(snapshot, dict):
+        print("UNIT 14 H1 STATUS = ATR_UNAVAILABLE", flush=True)
+        return None
+
+    atr_value = snapshot.get("atr14")
+
+    if atr_value is None:
+        print("UNIT 14 H1 STATUS = ATR_MISSING", flush=True)
+        return None
+
+    atr = D(atr_value, "H1 ATR14")
+
+    if atr <= 0:
+        print("UNIT 14 H1 STATUS = ATR_INVALID", flush=True)
+        return None
+
+    if side == "LONG":
+        trigger = entry - atr
+        reached = mark <= trigger
+        opposite = "SHORT"
+    else:
+        trigger = entry + atr
+        reached = mark >= trigger
+        opposite = "LONG"
+
+    close_qty = unit_14_v3_floor(
+        size / Decimal("2"),
+        qstep
+    )
+
+    executable = (
+        close_qty >= minimum
+        and close_qty > 0
+    )
+
+    print("UNIT 14 H1 SIDE =", side, flush=True)
+    print("UNIT 14 H1 ENTRY =", entry, flush=True)
+    print("UNIT 14 H1 ATR14 =", atr, flush=True)
+    print("UNIT 14 H1 TRIGGER =", trigger, flush=True)
+    print("UNIT 14 H1 MARK =", mark, flush=True)
+    print("UNIT 14 H1 TRIGGER REACHED =", reached, flush=True)
+    print("UNIT 14 H1 CLOSE QUANTITY =", close_qty, flush=True)
+    print("UNIT 14 H1 OPPOSITE SIDE =", opposite, flush=True)
+    print("UNIT 14 H1 QUANTITY EXECUTABLE =", executable, flush=True)
+    print("UNIT 14 H1 EXCHANGE WRITE = NONE", flush=True)
+
+    return {
+        "side": side,
+        "entry": entry,
+        "atr14": atr,
+        "trigger": trigger,
+        "reached": reached,
+        "close_quantity": close_qty,
+        "hedge_side": opposite,
+        "quantity_executable": executable,
+        "execution_authorized": False,
+    }
+
 def unit_14_v3_reconcile(history, key):
 
     existing = set()
