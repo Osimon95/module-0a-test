@@ -9465,7 +9465,9 @@ print(
     FRESH_RECONSTRUCTION_UNIT_13_RESULT["status"],
     flush=True
 )
-
+FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
+    fresh_reconstruction_unit_13_restored()
+)
 # ============================================================
 # END COMPLETE UNIT 13 RESTORED TP ENGINE
 # ============================================================
@@ -9963,9 +9965,7 @@ def unit_14_v4_history_check():
 FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
     unit_14_v4_history_check()
 )
-FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
-    fresh_reconstruction_unit_13_restored()
-)
+
 # ============================================================
 # END UNIT 14 V4 - HISTORY RESTORATION
 # ============================================================
