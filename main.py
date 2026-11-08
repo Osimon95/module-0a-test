@@ -14375,13 +14375,27 @@ unit_14_db_initialize()
 # END SQLITE FOUNDATION V1
 # ============================================================
 
+
 def unit_14_v3_positions():
     rows = unit_14_v3_signed_request(
         "GET",
         UNIT14_V3_POSITION
     )
 
-    return unit_14_refresh_position_locks(rows)
+    # Preserve existing position-lock processing.
+    active_positions = unit_14_refresh_position_locks(
+        rows
+    )
+
+    # Save the exchange position response
+    # to the Render persistent SQLite database.
+    unit_14_db_snapshot(
+        "POSITIONS",
+        rows
+    )
+
+    # Preserve the original return contract.
+    return active_positions
 
 
 def unit_14_h1_select_original(positions):
