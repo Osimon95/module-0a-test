@@ -9270,11 +9270,6 @@ def fresh_reconstruction_unit_13_restored():
         action = "TP2"
         close_qty = q1 + q2 - cum_close
 
-
-    elif reached1 and not done1:
-        action = "TP1"
-        close_qty = q1 - cum_close
-
     close_qty = u13_floor(
         min(close_qty, size),
         step
