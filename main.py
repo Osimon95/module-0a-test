@@ -15336,6 +15336,55 @@ def fresh_reconstruction_unit_14(
     )
 
     
+    # ========================================================
+    # H1 / H2 STAGE MODE CONTROL
+    # ========================================================
+
+    stage_modes = unit_14_stage_modes()
+
+    print(
+        "UNIT 14 HEDGE STAGE MODES =",
+        stage_modes,
+        flush=True
+    )
+
+    active_positions = unit_14_v3_positions()
+
+    h2_result = unit_14_h2_check(
+        p,
+        mark,
+        qstep,
+        minimum,
+        active_positions,
+    )
+
+    result["h2"] = h2_result
+    result["h2_status"] = h2_result["status"]
+    result["h2_mode"] = stage_modes["H2"]
+
+    print(
+        "UNIT 14 H2 MODE =",
+        stage_modes["H2"],
+        flush=True
+    )
+
+    if stage_modes["H2"] == "PAUSE":
+        result["h2_status"] = "PAUSED"
+
+    elif stage_modes["H2"] == "DEMO":
+        # H2 DEMO remains blocked until original
+        # entry, ATR, existing hedge, and persistent
+        # order state are reconciled.
+        result["h2_status"] = (
+            "DEMO_PENDING_EXECUTION_INTEGRATION"
+        )
+
+    print(
+        "UNIT 14 H2 FINAL STATUS =",
+        result["h2_status"],
+        flush=True
+    )
+
     if h1_check is not None and h1_check["reached"]:
         h1_execution = unit_14_h1_execute(
             p,
