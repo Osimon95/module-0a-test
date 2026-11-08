@@ -9322,10 +9322,43 @@ def fresh_reconstruction_unit_13_restored():
             "UNIT13_POSITION_ID_MISSING"
         )
 
-    client_id = u13_client_id(
-        position_id,
-        action,
-        cum_close
+        # Reconcile previous submissions across Render restarts.
+    # Do not assume a previous order was unsubmitted
+    # merely because the current process has restarted.
+
+    history = unit_14_v4_history()
+
+    matching_orders = [
+        order
+        for order in history
+        if isinstance(order, dict)
+        and str(
+            order.get("clientOrderId")
+            or order.get("newClientOrderId")
+            or ""
+        ) == client_id
+    ]
+
+    if matching_orders:
+        result["status"] = (
+            "TP_PREVIOUS_ORDER_REQUIRES_RECONCILIATION"
+        )
+        result["tp_client_order_id"] = client_id
+        result["previous_order_count"] = len(
+            matching_orders
+        )
+
+        print(
+            "UNIT 13 PREVIOUS TP ORDER FOUND =",
+            client_id,
+            flush=True
+        )
+
+        return result
+
+    print(
+        "UNIT 13 TP HISTORY CHECK = NO MATCH",
+        flush=True
     )
 
     # A deterministic ID protects retries within
