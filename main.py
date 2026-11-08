@@ -9262,7 +9262,7 @@ def fresh_reconstruction_unit_13_restored():
     action = "NONE"
     close_qty = Decimal("0")
 
-        if reached1 and not done1:
+    if reached1 and not done1:
         action = "TP1"
         close_qty = q1 - cum_close
 
