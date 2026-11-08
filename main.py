@@ -17034,7 +17034,37 @@ def scan_refresh_entry_pipeline():
         flush=True
     )
 
+    
     analysis = fresh_reconstruction_unit_4()
+
+    if not isinstance(analysis, dict):
+        raise RuntimeError(
+            "SCAN UNIT 4 ANALYSIS INVALID"
+        )
+
+    if analysis.get("atr14") is None:
+        raise RuntimeError(
+            "SCAN UNIT 4 ATR14 MISSING"
+        )
+
+    globals()["FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT"] = (
+        dict(analysis)
+    )
+
+    globals()["UNIT14_H1_ANALYSIS_SCAN"] = SCAN_NUMBER
+
+    print(
+        "SCAN H1 ATR14 HANDOVER =",
+        analysis["atr14"],
+        flush=True
+    )
+
+    print(
+        "SCAN H1 ANALYSIS SCAN =",
+        SCAN_NUMBER,
+        flush=True
+    )
+
 
     # Unit 5: strategy classification
     candidate = fresh_reconstruction_unit_5(
