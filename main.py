@@ -9457,9 +9457,6 @@ def fresh_reconstruction_unit_13_restored():
     return result
 
 
-FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
-    fresh_reconstruction_unit_13_restored()
-)
 
 FRESH_UNIT_13_OPTIMIZATION_READY = True
 
@@ -9971,4 +9968,6 @@ FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
 # END UNIT 14 V4 - HISTORY RESTORATION
 # ============================================================
 
-
+FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
+    fresh_reconstruction_unit_13_restored()
+)
