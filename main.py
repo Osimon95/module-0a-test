@@ -14256,6 +14256,125 @@ unit_14_db_initialize()
 # ============================================================
 
 
+# ============================================================
+# UNIT 14 - PERSISTENT SQLITE FOUNDATION V1
+# READ-ONLY EXCHANGE RECONCILIATION
+# NO EXCHANGE WRITE
+# ============================================================
+
+import os
+import json
+import sqlite3
+from datetime import datetime, timezone
+
+UNIT14_DB_PATH = os.getenv(
+    "POSITION_LOCK_DB_PATH",
+    "/var/data/weex_position_locks.sqlite3"
+)
+
+
+def unit_14_db_connect():
+    db = sqlite3.connect(
+        UNIT14_DB_PATH,
+        timeout=30
+    )
+    db.execute("PRAGMA busy_timeout=30000")
+    return db
+
+
+def unit_14_db_initialize():
+    directory = os.path.dirname(UNIT14_DB_PATH)
+
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+
+    with unit_14_db_connect() as db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS exchange_snapshots (
+                snapshot_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL,
+                captured_at TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            )
+        """)
+
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS execution_orders (
+                client_order_id TEXT PRIMARY KEY,
+                cycle_id TEXT,
+                stage TEXT,
+                action TEXT,
+                requested_quantity TEXT,
+                filled_quantity TEXT DEFAULT '0',
+                exchange_order_id TEXT,
+                status TEXT NOT NULL DEFAULT 'UNKNOWN',
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS stage_state (
+                cycle_id TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                status TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (cycle_id, stage)
+            )
+        """)
+
+    print(
+        "UNIT 14 SQLITE DATABASE = READY",
+        flush=True
+    )
+    print(
+        "UNIT 14 SQLITE PATH =",
+        UNIT14_DB_PATH,
+        flush=True
+    )
+
+
+def unit_14_db_snapshot(source, data):
+    captured_at = datetime.now(
+        timezone.utc
+    ).isoformat()
+
+    payload = json.dumps(
+        data,
+        default=str,
+        separators=(",", ":")
+    )
+
+    with unit_14_db_connect() as db:
+        db.execute("""
+            INSERT INTO exchange_snapshots
+            (source, captured_at, payload_json)
+            VALUES (?, ?, ?)
+        """, (source, captured_at, payload))
+
+    print(
+        "UNIT 14 SQLITE SNAPSHOT SAVED =",
+        source,
+        flush=True
+    )
+
+
+def unit_14_db_snapshot_count(source):
+    with unit_14_db_connect() as db:
+        row = db.execute("""
+            SELECT COUNT(*)
+            FROM exchange_snapshots
+            WHERE source = ?
+        """, (source,)).fetchone()
+
+    return int(row[0])
+
+
+unit_14_db_initialize()
+
+# ============================================================
+# END SQLITE FOUNDATION V1
+# ============================================================
+
 def unit_14_v3_positions():
     rows = unit_14_v3_signed_request(
         "GET",
