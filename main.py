@@ -14657,6 +14657,33 @@ def fresh_reconstruction_unit_14(
         "trade_key": key,
     })
 
+    
+    # ========================================================
+    # UNIT 14 H1 - READ-ONLY CHECK
+    # ========================================================
+
+    h1_check = unit_14_h1_check(
+        p,
+        mark,
+        qstep,
+        minimum
+    )
+
+    if h1_check is None:
+        result["h1_status"] = "ATR_NOT_VERIFIED"
+    elif h1_check["reached"]:
+        result["h1_status"] = (
+            "TRIGGER_REACHED_READ_ONLY"
+        )
+    else:
+        result["h1_status"] = "WAITING_TRIGGER"
+
+    print(
+        "UNIT 14 H1 STATUS =",
+        result["h1_status"],
+        flush=True
+    )
+
     # ========================================================
     # 9. BACKUP HISTORY RECONCILIATION
     # ========================================================
