@@ -12984,21 +12984,28 @@ def fresh_reconstruction_unit_13(
 
         return result
 
-        
-    if len(active) != 1:
+      
+    # ========================================================
+    # UNIT 13 - INDEPENDENT ACTIVE POSITION SELECTION
+    # ========================================================
 
-        selector = globals().get(
-            "unit_14_h1_select_original"
+    selector = globals().get(
+        "unit_14_h1_select_original"
+    )
+
+    if not callable(selector):
+        raise RuntimeError(
+            "UNIT 13 ACTIVE POSITION SELECTOR UNAVAILABLE"
         )
 
-        if not callable(selector):
-            raise RuntimeError(
-                "UNIT 13 MULTIPLE ACTIVE POSITIONS"
-            )
+    p = selector(active)
 
-        p = selector(active)
+    if p is None:
+        raise RuntimeError(
+            "UNIT 13 ORIGINAL POSITION NOT ACTIVE"
+        )
 
-        active = [p]
+    active = [p]
     
 
     # ========================================================
