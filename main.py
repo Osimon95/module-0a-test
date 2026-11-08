@@ -12984,7 +12984,8 @@ def fresh_reconstruction_unit_13(
 
         return result
 
-        if len(active) != 1:
+        
+    if len(active) != 1:
 
         selector = globals().get(
             "unit_14_h1_select_original"
