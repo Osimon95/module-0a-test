@@ -14192,6 +14192,30 @@ def unit_14_h1_check(p, mark, qstep, minimum):
         print("UNIT 14 H1 STATUS = ATR_UNAVAILABLE", flush=True)
         return None
 
+    
+    analysis_scan = globals().get(
+        "UNIT14_H1_ANALYSIS_SCAN"
+    )
+
+    current_scan = globals().get(
+        "SCAN_NUMBER"
+    )
+
+    if (
+        analysis_scan is None
+        or current_scan is None
+        or analysis_scan != current_scan
+    ):
+        print(
+            "UNIT 14 H1 STATUS = STALE_ATR_BLOCKED",
+            flush=True
+        )
+        print(
+            "UNIT 14 H1 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+        return None
+
     atr_value = snapshot.get("atr14")
 
     if atr_value is None:
