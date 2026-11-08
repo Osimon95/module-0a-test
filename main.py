@@ -14878,26 +14878,6 @@ def fresh_reconstruction_unit_14(
     # UNIT 14 H1 - READ-ONLY CHECK
     # ========================================================
 
-    
-    if h1_check is not None and h1_check["reached"]:
-        h1_execution = unit_14_h1_execute(
-            p,
-            h1_check,
-            qstep,
-            minimum
-        )
-
-        result["h1_execution"] = h1_execution
-        result["h1_status"] = h1_execution["status"]
-
-        print(
-            "UNIT 14 H1 EXECUTION STATUS =",
-            result["h1_status"],
-            flush=True
-        )
-
-        return result
-
     h1_check = unit_14_h1_check(
         p,
         mark,
@@ -14919,6 +14899,27 @@ def fresh_reconstruction_unit_14(
         result["h1_status"],
         flush=True
     )
+
+    
+    if h1_check is not None and h1_check["reached"]:
+        h1_execution = unit_14_h1_execute(
+            p,
+            h1_check,
+            qstep,
+            minimum
+        )
+
+        result["h1_execution"] = h1_execution
+        result["h1_status"] = h1_execution["status"]
+
+        print(
+            "UNIT 14 H1 EXECUTION STATUS =",
+            result["h1_status"],
+            flush=True
+        )
+
+        return result
+
 
     # ========================================================
     # 9. BACKUP HISTORY RECONCILIATION
