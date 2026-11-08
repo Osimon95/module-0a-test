@@ -13958,6 +13958,154 @@ def unit_14_v3_signed_request(
 # 3. POSITION, BALANCE AND ORDER HISTORY
 # ============================================================
 
+
+
+# ============================================================
+# UNIT 14 - INDEPENDENT ACTIVE POSITION LOCKS V1
+# NO MASTER TRADE-CYCLE LOCK
+# NO EXCHANGE WRITE
+# ============================================================
+
+import threading
+
+_UNIT14_POSITION_LOCK_GUARD = threading.RLock()
+_UNIT14_POSITION_LOCKS = {}
+
+
+def unit_14_active_position_key(p):
+    if not isinstance(p, dict):
+        raise RuntimeError("POSITION RECORD INVALID")
+
+    symbol = str(p.get("symbol", "")).upper()
+    side = str(p.get("side", "")).upper()
+
+    if symbol != "BTCSUSDT":
+        raise RuntimeError("POSITION SYMBOL INVALID")
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError("POSITION SIDE INVALID")
+
+    # Stable while quantity and entry price change.
+    # Distinguishes simultaneous LONG and SHORT.
+    return symbol + ":" + side
+
+
+def unit_14_active_positions(rows):
+    if not isinstance(rows, list):
+        raise RuntimeError("POSITIONS RESPONSE NOT LIST")
+
+    active = {}
+
+    for p in rows:
+        if not isinstance(p, dict):
+            raise RuntimeError("POSITION RECORD INVALID")
+
+        if str(p.get("symbol", "")).upper() != "BTCSUSDT":
+            continue
+
+        size = unit_14_v3_D(
+            p.get("size"),
+            "ACTIVE POSITION SIZE",
+            True
+        )
+
+        if size <= 0:
+            continue
+
+        key = unit_14_active_position_key(p)
+
+        # Same-side duplicate records cannot safely
+        # be collapsed into a single position.
+        if key in active:
+            raise RuntimeError(
+                "AMBIGUOUS POSITION IDENTITY: " + key
+            )
+
+        active[key] = p
+
+    return active
+
+
+def unit_14_refresh_position_locks(rows):
+    active = unit_14_active_positions(rows)
+
+    with _UNIT14_POSITION_LOCK_GUARD:
+        for key, p in active.items():
+            if key not in _UNIT14_POSITION_LOCKS:
+                _UNIT14_POSITION_LOCKS[key] = {
+                    "key": key,
+                    "lock": threading.RLock(),
+                    "status": "ACTIVE",
+                    "h1_status": "NOT_STARTED",
+                    "h2_status": "NOT_STARTED",
+                    "r1_status": "NOT_STARTED",
+                    "r2_status": "NOT_STARTED",
+                    "pending_order_id": None,
+                    "position": dict(p),
+                }
+            else:
+                state = _UNIT14_POSITION_LOCKS[key]
+                state["position"] = dict(p)
+                state["status"] = "ACTIVE"
+
+        for key, state in _UNIT14_POSITION_LOCKS.items():
+            if key not in active:
+                state["status"] = "NOT_ACTIVE"
+                state["position"] = None
+
+    print(
+        "UNIT 14 ACTIVE POSITION LOCK COUNT =",
+        len(active),
+        flush=True
+    )
+
+    for key in sorted(active):
+        print(
+            "UNIT 14 ACTIVE POSITION LOCK =",
+            key,
+            flush=True
+        )
+
+    return active
+
+
+def unit_14_get_position_lock(key):
+    with _UNIT14_POSITION_LOCK_GUARD:
+        state = _UNIT14_POSITION_LOCKS.get(key)
+
+        if state is None:
+            raise RuntimeError(
+                "ACTIVE POSITION LOCK NOT FOUND: " + key
+            )
+
+        return state
+
+
+def unit_14_v3_positions():
+    rows = unit_14_v3_signed_request(
+        "GET",
+        UNIT14_V3_POSITION
+    )
+
+    return unit_14_refresh_position_locks(rows)
+
+
+def unit_14_h1_select_original(positions):
+    active = unit_14_active_positions(positions)
+
+    # Explicitly configured original side.
+    # Never silently choose the first position.
+    original_side = os.getenv(
+        "ORIGINAL_POSITION_SIDE", ""
+    ).strip().upper()
+
+    if original_side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "SET ORIGINAL_POSITION_SIDE TO LONG OR SHORT"
+        )
+
+    return active.get("BTCSUSDT:" + original_side)
+
 def unit_14_v3_position():
 
     rows = unit_14_v3_signed_request(
