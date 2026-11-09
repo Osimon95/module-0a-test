@@ -17046,7 +17046,13 @@ def fresh_reconstruction_unit_14(
         flush=True
     )
 
-    if h1_check is not None and h1_check["reached"]:
+    
+    if (
+        stage_modes["H1"] == "DEMO"
+        and h1_check is not None
+        and h1_check["reached"]
+        and hedge_reference is not None
+    ):
         h1_execution = unit_14_h1_execute(
             p,
             h1_check,
