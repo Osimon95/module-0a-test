@@ -15288,6 +15288,112 @@ def unit_14_h1_check(p, mark, qstep, minimum):
 
 
 # ============================================================
+# UNIT 14 H1/H2 PERSISTENT ORIGINAL TRADE REFERENCE
+# DEMO ONLY - NO EXCHANGE WRITE
+# ============================================================
+
+def unit_14_hedge_reference(position, h1_check):
+    import sqlite3
+    import os
+    from decimal import Decimal
+
+    if not isinstance(position, dict):
+        return None
+
+    trade_key = unit_14_v3_trade_key(position)
+    side = str(position.get("side", "")).upper()
+
+    if side not in ("LONG", "SHORT"):
+        return None
+
+    db_path = os.getenv(
+        "UNIT14_HEDGE_STATE_DB",
+        "/var/data/weex_hedge_state.sqlite3"
+    )
+
+    with sqlite3.connect(db_path, timeout=10) as db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS hedge_reference (
+                trade_key TEXT PRIMARY KEY,
+                symbol TEXT NOT NULL,
+                original_side TEXT NOT NULL,
+                original_entry TEXT NOT NULL,
+                original_atr TEXT NOT NULL,
+                original_qty TEXT NOT NULL,
+                h1_close_id TEXT NOT NULL,
+                h1_hedge_id TEXT NOT NULL,
+                h2_close_id TEXT NOT NULL,
+                h2_hedge_id TEXT NOT NULL
+            )
+        """)
+
+        row = db.execute(
+            """
+            SELECT original_side, original_entry,
+                   original_atr, original_qty,
+                   h1_close_id, h1_hedge_id,
+                   h2_close_id, h2_hedge_id
+            FROM hedge_reference
+            WHERE trade_key = ?
+            """,
+            (trade_key,)
+        ).fetchone()
+
+        if row is None:
+            if not isinstance(h1_check, dict):
+                return None
+
+            entry = Decimal(str(h1_check["entry"]))
+            atr = Decimal(str(h1_check["atr14"]))
+            qty = Decimal(str(position["size"]))
+
+            if min(entry, atr, qty) <= 0:
+                return None
+
+            ids = (
+                "FR-H1-C-" + trade_key,
+                "FR-H1-H-" + trade_key,
+                "FR-H2-C-" + trade_key,
+                "FR-H2-H-" + trade_key,
+            )
+
+            db.execute(
+                """
+                INSERT INTO hedge_reference VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    trade_key,
+                    "BTCSUSDT",
+                    side,
+                    str(entry),
+                    str(atr),
+                    str(qty),
+                    *ids
+                )
+            )
+
+            db.commit()
+
+            row = (
+                side, str(entry), str(atr), str(qty),
+                *ids
+            )
+
+    return {
+        "trade_key": trade_key,
+        "symbol": "BTCSUSDT",
+        "original_side": row[0],
+        "original_entry": row[1],
+        "original_atr": row[2],
+        "original_qty": row[3],
+        "h1_close_id": row[4],
+        "h1_hedge_id": row[5],
+        "h2_close_id": row[6],
+        "h2_hedge_id": row[7],
+    }
+
+# ============================================================
 # UNIT 14 H1 - DEMO EXECUTION
 # EXCHANGE-CONFIRMED FILL RECONCILIATION
 # ============================================================
