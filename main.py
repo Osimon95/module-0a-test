@@ -19010,6 +19010,24 @@ def scan_one_cycle():
             )
 
             _scan_traceback.print_exc()
+            
+
+        
+        # --------------------------------------------
+        # UNIT 14 PERIODIC OUTSTANDING ORDER PROBE
+        # DIAGNOSTIC ONLY
+        # --------------------------------------------
+
+        try:
+            unit_14_probe_periodic()
+
+        except Exception as exc:
+            print(
+                "SCAN UNIT 14 PROBE ERROR =",
+                type(exc).__name__,
+                str(exc),
+                flush=True
+            )
 
         print(
             "SCAN FINAL STATUS =",
