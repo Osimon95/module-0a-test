@@ -14510,12 +14510,18 @@ def unit_14_v3_history():
                 flush=True
             )
 
+            # Save complete WEEX demo order history
+            # to the persistent SQLite database.
+            unit_14_db_snapshot(
+                "ORDER_HISTORY",
+                orders
+            )
+
             return orders
 
     raise RuntimeError(
         "UNIT 14 HISTORY PAGINATION INCOMPLETE"
     )
-
 
 def unit_14_v3_mark():
 
