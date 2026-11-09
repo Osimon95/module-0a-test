@@ -12838,6 +12838,108 @@ def unit_14_h1_select_original(positions):
 
     return selected[0]
 
+# ============================================================
+# PERMANENT WEEX DEMO POSITION CONTROL
+# INDEPENDENT POSITION INSPECTION
+# NO EXCHANGE ORDER SUBMISSION
+# ============================================================
+
+def demo_position_control_inspect():
+
+    mode = os.getenv(
+        "DEMO_POSITION_CONTROL",
+        "OFF"
+    ).strip().upper()
+
+    allowed = (
+        "OFF",
+        "INSPECT",
+        "STATUS",
+        "CLOSE_LONG",
+        "CLOSE_SHORT",
+        "CLOSE_ALL",
+    )
+
+    if mode not in allowed:
+        raise RuntimeError(
+            "INVALID DEMO_POSITION_CONTROL"
+        )
+
+    if mode == "OFF":
+        return False
+
+    print(
+        "DEMO POSITION CONTROL MODE =",
+        mode,
+        flush=True
+    )
+
+    status, rows = unit_12_v5_request(
+        "GET",
+        UNIT_12_V5_POSITION_PATH
+    )
+
+    if status != 200:
+        raise RuntimeError(
+            "DEMO POSITION READ FAILED: "
+            + str(status)
+        )
+
+    active = unit_12_v5_active_positions(rows)
+
+    print(
+        "DEMO ACTIVE POSITION COUNT =",
+        len(active),
+        flush=True
+    )
+
+    for p in active:
+
+        print(
+            "DEMO POSITION =",
+            json.dumps({
+                "symbol": p.get("symbol"),
+                "side": p.get("side"),
+                "size": p.get("size"),
+                "entryPrice": p.get("entryPrice"),
+                "leverage": p.get("leverage"),
+            }, default=str),
+            flush=True
+        )
+
+    if not active:
+        print(
+            "DEMO POSITION STATUS = FLAT",
+            flush=True
+        )
+
+    if mode.startswith("CLOSE_"):
+        print(
+            "DEMO CLOSE REQUEST =",
+            mode,
+            flush=True
+        )
+        print(
+            "DEMO CLOSE EXECUTION = NOT YET ARMED",
+            flush=True
+        )
+
+        raise RuntimeError(
+            "DEMO CLOSE REQUIRES VERIFIED "
+            "EXCHANGE CLOSING PARAMETERS"
+        )
+
+    return True
+
+
+DEMO_POSITION_CONTROL_READY = (
+    demo_position_control_inspect()
+)
+
+# ============================================================
+# END PERMANENT DEMO POSITION INSPECTION
+# ============================================================
+
 def fresh_reconstruction_unit_13(
     config,
     unit_12_result,
