@@ -16794,6 +16794,46 @@ def fresh_reconstruction_unit_14(
 
     p = unit_14_v3_position()
 
+    
+    # ========================================================
+    # H2 RECOVERY BEFORE ORIGINAL-POSITION IDLE RETURN
+    # ========================================================
+
+    early_stage_modes = unit_14_stage_modes()
+
+    if early_stage_modes["H2"] == "DEMO":
+
+        h2_resume_result = unit_14_h2_resume(
+            early_stage_modes["H2"]
+        )
+
+        print(
+            "UNIT 14 H2 RECOVERY STATUS =",
+            h2_resume_result["status"],
+            flush=True
+        )
+
+        if h2_resume_result["status"] != (
+            "H2_NO_PENDING_TRANSACTION"
+        ):
+
+            result["h2_execution"] = h2_resume_result
+            result["h2_status"] = (
+                h2_resume_result["status"]
+            )
+
+            result["exchange_write"] = (
+                h2_resume_result.get(
+                    "exchange_write", False
+                )
+            )
+
+            result["status"] = (
+                h2_resume_result["status"]
+            )
+
+            return result
+
     if p is None:
 
         result["status"] = "IDLE_NO_POSITION"
