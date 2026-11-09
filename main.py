@@ -15990,6 +15990,306 @@ def unit_14_h2_check(
 # END H2 MONITOR V1
 # ============================================================
 
+
+# ============================================================
+# UNIT 14 H2 - DEMO EXECUTION V1
+# PERSISTENT ORDER INTENT + CONFIRMED FILLS
+# ============================================================
+
+def unit_14_h2_execute(
+    position,
+    reference,
+    mark,
+    qstep,
+    minimum,
+    active_positions,
+    mode,
+):
+    import os
+    import sqlite3
+    import time
+    from decimal import Decimal
+
+    D = unit_14_v3_D
+
+    result = {
+        "stage": "H2",
+        "status": "MONITORING",
+        "execution_authorized": False,
+        "exchange_write": False,
+    }
+
+    if mode != "DEMO":
+        result["status"] = "H2_NOT_IN_DEMO_MODE"
+        return result
+
+    if not isinstance(reference, dict):
+        result["status"] = "H2_REFERENCE_MISSING"
+        return result
+
+    if not isinstance(position, dict):
+        result["status"] = "H2_ORIGINAL_POSITION_MISSING"
+        return result
+
+    if not isinstance(active_positions, dict):
+        result["status"] = "H2_POSITIONS_UNVERIFIED"
+        return result
+
+    side = reference["original_side"]
+    opposite = "SHORT" if side == "LONG" else "LONG"
+
+    if str(position.get("side", "")).upper() != side:
+        result["status"] = "H2_ORIGINAL_SIDE_MISMATCH"
+        return result
+
+    entry = D(reference["original_entry"], "H2 FROZEN ENTRY")
+    atr = D(reference["original_atr"], "H2 FROZEN ATR")
+    original_qty = D(reference["original_qty"], "H2 ORIGINAL QTY")
+    remaining = D(position["size"], "H2 REMAINING QTY")
+
+    if min(entry, atr, original_qty, remaining) <= 0:
+        result["status"] = "H2_INVALID_FROZEN_REFERENCE"
+        return result
+
+    trigger = (
+        entry - Decimal("2") * atr
+        if side == "LONG"
+        else entry + Decimal("2") * atr
+    )
+
+    reached = (
+        mark <= trigger
+        if side == "LONG"
+        else mark >= trigger
+    )
+
+    result.update({
+        "trigger": str(trigger),
+        "trigger_reached": bool(reached),
+        "original_entry_frozen": True,
+        "original_atr_frozen": True,
+    })
+
+    close_id = reference["h2_close_id"]
+    hedge_id = reference["h2_hedge_id"]
+    h1_close_id = reference["h1_close_id"]
+    h1_hedge_id = reference["h1_hedge_id"]
+
+    def order_fill(client_id):
+        records = [
+            x for x in unit_14_v3_history()
+            if str(x.get("clientOrderId", "")) == client_id
+        ]
+
+        if not records:
+            return "ABSENT", Decimal("0")
+
+        if len(records) != 1:
+            return "AMBIGUOUS", Decimal("0")
+
+        record = records[0]
+        status = str(record.get("status", "")).upper()
+
+        if status != "FILLED":
+            return "PENDING", Decimal("0")
+
+        qty = record.get("executedQty")
+
+        if qty is None:
+            return "AMBIGUOUS", Decimal("0")
+
+        filled = D(qty, "H2 VERIFIED FILL")
+
+        if filled <= 0:
+            return "AMBIGUOUS", Decimal("0")
+
+        return "FILLED", filled
+
+    h1_close_status, h1_close_qty = order_fill(h1_close_id)
+    h1_hedge_status, h1_hedge_qty = order_fill(h1_hedge_id)
+
+    if (
+        h1_close_status != "FILLED"
+        or h1_hedge_status != "FILLED"
+        or h1_close_qty != h1_hedge_qty
+    ):
+        result["status"] = "H2_H1_FILLS_NOT_RECONCILED"
+        return result
+
+    if (
+        original_qty - h1_close_qty != remaining
+        or remaining > original_qty
+    ):
+        result["status"] = "H2_ORIGINAL_QUANTITY_MISMATCH"
+        return result
+
+    hedge_position = active_positions.get(
+        "BTCSUSDT:" + opposite
+    )
+
+    if not isinstance(hedge_position, dict):
+        result["status"] = "H2_H1_HEDGE_POSITION_MISSING"
+        return result
+
+    existing_hedge = D(
+        hedge_position.get("size"),
+        "H2 EXISTING HEDGE"
+    )
+
+    if existing_hedge != h1_hedge_qty:
+        result["status"] = "H2_EXISTING_HEDGE_MISMATCH"
+        return result
+
+    close_qty = unit_14_v3_floor(remaining, qstep)
+
+    if (
+        close_qty != remaining
+        or close_qty < minimum
+        or close_qty <= 0
+    ):
+        result["status"] = "H2_CLOSE_QUANTITY_NOT_EXECUTABLE"
+        return result
+
+    # Persistent intent is committed before any POST.
+    db_path = os.getenv(
+        "UNIT14_HEDGE_STATE_DB",
+        "/var/data/weex_hedge_state.sqlite3"
+    )
+
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+
+    with sqlite3.connect(db_path, timeout=10) as db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS h2_order_intents (
+                client_id TEXT PRIMARY KEY,
+                trade_key TEXT NOT NULL,
+                leg TEXT NOT NULL,
+                quantity TEXT NOT NULL,
+                state TEXT NOT NULL
+            )
+        """)
+        db.commit()
+
+    def reserve(client_id, leg, quantity):
+        with sqlite3.connect(db_path, timeout=10) as db:
+            row = db.execute(
+                """
+                SELECT quantity, state
+                FROM h2_order_intents
+                WHERE client_id = ?
+                """,
+                (client_id,)
+            ).fetchone()
+
+            if row is not None:
+                return False
+
+            db.execute(
+                """
+                INSERT INTO h2_order_intents
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    client_id,
+                    reference["trade_key"],
+                    leg,
+                    str(quantity),
+                    "POST_INTENT_RECORDED"
+                )
+            )
+            db.commit()
+            return True
+
+    def submit(client_id, leg, order_side, position_side, qty):
+        if not reserve(client_id, leg, qty):
+            return "PREVIOUS_INTENT_REQUIRES_RECONCILIATION"
+
+        payload = {
+            "symbol": "BTCSUSDT",
+            "side": order_side,
+            "positionSide": position_side,
+            "type": "MARKET",
+            "quantity": format(qty, "f"),
+            "newClientOrderId": client_id,
+        }
+
+        reply = unit_14_v3_signed_request(
+            "POST",
+            UNIT14_V3_ORDER,
+            payload=payload
+        )
+
+        if (
+            not isinstance(reply, dict)
+            or reply.get("success") is not True
+            or not reply.get("orderId")
+        ):
+            return "ACK_UNVERIFIED_DO_NOT_RETRY"
+
+        print(
+            "UNIT 14 H2", leg, "ORDER ID =",
+            reply["orderId"],
+            flush=True
+        )
+
+        result["exchange_write"] = True
+        return "SUBMITTED"
+
+    close_status, close_filled = order_fill(close_id)
+
+    if close_status == "ABSENT":
+        if not reached:
+            result["status"] = "H2_WAITING_ATR2_TRIGGER"
+            return result
+
+        result["execution_authorized"] = True
+
+        outcome = submit(
+            close_id,
+            "CLOSE",
+            "SELL" if side == "LONG" else "BUY",
+            side,
+            close_qty
+        )
+
+        if outcome != "SUBMITTED":
+            result["status"] = "H2_CLOSE_" + outcome
+            return result
+
+        for _ in range(5):
+            time.sleep(2)
+            close_status, close_filled = order_fill(close_id)
+            if close_status == "FILLED":
+                break
+
+    if close_status != "FILLED":
+        result["status"] = "H2_CLOSE_FILL_PENDING"
+        return result
+
+    if close_filled != close_qty:
+        result["status"] = "H2_CLOSE_FILL_QUANTITY_MISMATCH"
+        return result
+
+    hedge_status, hedge_filled = order_fill(hedge_id)
+
+    if hedge_status == "FILLED":
+        result["status"] = (
+            "H2_COMPLETED"
+            if hedge_filled == close_filled
+            else "H2_HEDGE_FILL_MISMATCH"
+        )
+        return result
+
+    if hedge_status != "ABSENT":
+        result["status"] = "H2_HEDGE_FILL_PENDING"
+        return result
+
+    # Stop here until the exchange position snapshot
+    # is refreshed after the H2 close. This prevents
+    # hedging against an unverified position state.
+    result["status"] = "H2_CLOSE_FILLED_REFRESH_REQUIRED"
+    return result
+
 def fresh_reconstruction_unit_14(
     config,
     unit_13_result,
