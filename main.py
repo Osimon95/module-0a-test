@@ -18868,6 +18868,232 @@ def unit_14_probe_periodic():
         flush=True
     )
 
+
+# ============================================================
+# UNIT 14 V3.3 - THREE-TEST DEMO ACCOUNT VERIFICATION
+# READ ONLY - NO EXCHANGE WRITES
+# ============================================================
+
+UNIT14_V33_LAST_RUN = None
+
+
+def unit_14_v33_verify_account():
+
+    global UNIT14_V33_LAST_RUN
+
+    if os.getenv(
+        "UNIT14_IDENTITY_TEST", "OFF"
+    ).strip().upper() != "ON":
+        return
+
+    now = time.monotonic()
+
+    if (
+        UNIT14_V33_LAST_RUN is not None
+        and now - UNIT14_V33_LAST_RUN < 900
+    ):
+        return
+
+    UNIT14_V33_LAST_RUN = now
+
+    print("=" * 70, flush=True)
+    print(
+        "UNIT 14 V3.3 THREE-TEST VERIFICATION START",
+        flush=True
+    )
+
+    # ------------------------------------------------
+    # TEST 1 - AUTHENTICATION CONFIGURATION
+    # ------------------------------------------------
+
+    key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
+    secret = os.getenv("WEEX_API_SECRET") or os.getenv("API_SECRET")
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    credentials_present = all((key, secret, phrase))
+
+    # Both existing request functions resolve the same
+    # environment-variable names. This verifies local
+    # configuration, not remote account identity.
+
+    print(
+        "UNIT 14 V3.3 TEST 1 CREDENTIAL CONFIG =",
+        "PASS" if credentials_present else "FAIL",
+        flush=True
+    )
+
+    # ------------------------------------------------
+    # TEST 2 - DEMO ENVIRONMENT AND CONTRACT
+    # ------------------------------------------------
+
+    position_host = UNIT14_V3_BASE
+    outstanding_host = UNIT14_PROBE_BASE
+
+    position_symbol = "BTCSUSDT"
+    outstanding_symbol = "BTCUSDT"
+
+    print(
+        "UNIT 14 V3.3 POSITION HOST =",
+        position_host,
+        flush=True
+    )
+
+    print(
+        "UNIT 14 V3.3 OUTSTANDING HOST =",
+        outstanding_host,
+        flush=True
+    )
+
+    print(
+        "UNIT 14 V3.3 POSITION SYMBOL =",
+        position_symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 14 V3.3 OUTSTANDING SYMBOL =",
+        outstanding_symbol,
+        flush=True
+    )
+
+    positions = None
+    balance = None
+    outstanding = None
+    history = None
+
+    if credentials_present:
+
+        try:
+            positions = unit_14_v3_signed_request(
+                "GET",
+                UNIT14_V3_POSITION
+            )
+            print(
+                "UNIT 14 V3.3 POSITION READ =",
+                "PASS" if isinstance(positions, list)
+                else "UNEXPECTED_RESPONSE",
+                flush=True
+            )
+        except Exception as exc:
+            print(
+                "UNIT 14 V3.3 POSITION READ ERROR =",
+                type(exc).__name__,
+                flush=True
+            )
+
+        try:
+            balance = unit_14_v3_signed_request(
+                "GET",
+                UNIT14_V3_BALANCE
+            )
+            print(
+                "UNIT 14 V3.3 BALANCE READ =",
+                "PASS" if isinstance(balance, list)
+                else "UNEXPECTED_RESPONSE",
+                flush=True
+            )
+        except Exception as exc:
+            print(
+                "UNIT 14 V3.3 BALANCE READ ERROR =",
+                type(exc).__name__,
+                flush=True
+            )
+
+        try:
+            outstanding = unit_14_probe_outstanding()
+
+            probe_ok = all(
+                outstanding.get(category, {}).get("status")
+                == "READ_OK"
+                for category in (
+                    "REGULAR", "CONDITIONAL", "TRAILING"
+                )
+            )
+
+            print(
+                "UNIT 14 V3.3 OUTSTANDING READ =",
+                "PASS" if probe_ok else "INCOMPLETE",
+                flush=True
+            )
+
+        except Exception as exc:
+            print(
+                "UNIT 14 V3.3 OUTSTANDING ERROR =",
+                type(exc).__name__,
+                flush=True
+            )
+
+    print(
+        "UNIT 14 V3.3 TEST 2 ACCOUNT IDENTITY = UNVERIFIED",
+        flush=True
+    )
+
+    # ------------------------------------------------
+    # TEST 3 - ORDER HISTORY CROSS-CHECK
+    # ------------------------------------------------
+
+    if credentials_present:
+
+        try:
+            history = unit_14_v3_history()
+
+            if not isinstance(history, list):
+                raise RuntimeError(
+                    "UNEXPECTED_HISTORY_RESPONSE"
+                )
+
+            print(
+                "UNIT 14 V3.3 HISTORY RECORDS =",
+                len(history),
+                flush=True
+            )
+
+            print(
+                "UNIT 14 V3.3 HISTORY READ = PASS",
+                flush=True
+            )
+
+        except Exception as exc:
+            print(
+                "UNIT 14 V3.3 HISTORY READ ERROR =",
+                type(exc).__name__,
+                str(exc)[:150],
+                flush=True
+            )
+
+    # The current outstanding probe returns only
+    # category counts, not order IDs. Historical
+    # orders cannot yet be matched to live orders.
+
+    print(
+        "UNIT 14 V3.3 TEST 3 ORDER ID MATCH = UNVERIFIED",
+        flush=True
+    )
+
+    # ------------------------------------------------
+    # FINAL VERDICT
+    # ------------------------------------------------
+
+    print(
+        "UNIT 14 V3.3 ACCOUNT IDENTITY = UNVERIFIED",
+        flush=True
+    )
+
+    print(
+        "UNIT 14 V3.3 RECONCILIATION = UNKNOWN",
+        flush=True
+    )
+
+    print(
+        "UNIT 14 V3.3 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print("=" * 70, flush=True)
+
 # ============================================================
 # 4. ONE SCAN CYCLE
 # ============================================================
