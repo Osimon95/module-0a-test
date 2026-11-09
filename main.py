@@ -16278,6 +16278,25 @@ def fresh_reconstruction_unit_14(
 
     
     # ========================================================
+    # UNIT 14 - PERSISTENT H1/H2 TRADE REFERENCE
+    # ========================================================
+
+    hedge_reference = unit_14_hedge_reference(
+        p,
+        h1_check
+    )
+
+    result["hedge_reference_ready"] = (
+        hedge_reference is not None
+    )
+
+    print(
+        "UNIT 14 HEDGE REFERENCE READY =",
+        result["hedge_reference_ready"],
+        flush=True
+    )
+
+    # ========================================================
     # H1 / H2 STAGE MODE CONTROL
     # ========================================================
 
