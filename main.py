@@ -17364,9 +17364,65 @@ def unit15_equity_snapshot():
 
                 return snapshot
 
+        # UNIT 15 DEMO EQUITY FIELD DIAGNOSTIC
+    # READ ONLY — NO ORDER SUBMISSION
+
+    print(
+        "UNIT 15 EQUITY DIAGNOSTIC START",
+        flush=True
+    )
+
+    for row in rows:
+
+        if not isinstance(row, dict):
+            continue
+
+        if str(
+            row.get("asset", "")
+        ).upper() != "SUSDT":
+            continue
+
+        print(
+            "UNIT 15 SUSDT BALANCE FIELDS =",
+            sorted(row.keys()),
+            flush=True
+        )
+
+        for field in (
+            "equity",
+            "accountEquity",
+            "totalEquity",
+            "marginBalance",
+            "balance",
+            "walletBalance",
+            "availableBalance",
+            "crossWalletBalance",
+            "unrealizedProfit",
+            "unrealizedPnl",
+            "locked",
+            "frozenBalance",
+        ):
+
+            if field not in row:
+                continue
+
+            print(
+                "UNIT 15 BALANCE FIELD",
+                field,
+                "=",
+                unit15_num(row.get(field)),
+                flush=True
+            )
+
+    print(
+        "UNIT 15 EQUITY DIAGNOSTIC END",
+        flush=True
+    )
+
     raise RuntimeError(
         "UNIT 15 EQUITY FIELD UNAVAILABLE"
     )
+
 
 
 def unit15_equity_change(
