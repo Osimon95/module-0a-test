@@ -16905,6 +16905,43 @@ def fresh_reconstruction_unit_14(
         minimum
     )
 
+    
+    # ========================================================
+    # H2 FIRST LEG - DEMO CLOSE EXECUTION
+    # ========================================================
+
+    if stage_modes["H2"] == "DEMO":
+
+        h2_execution = unit_14_h2_execute(
+            p,
+            hedge_reference,
+            mark,
+            qstep,
+            minimum,
+            active_positions,
+            stage_modes["H2"],
+        )
+
+        result["h2_execution"] = h2_execution
+        result["h2_status"] = h2_execution["status"]
+
+        print(
+            "UNIT 14 H2 EXECUTION STATUS =",
+            result["h2_status"],
+            flush=True
+        )
+
+        if h2_execution["status"] not in (
+            "H2_WAITING_ATR2_TRIGGER",
+            "H2_REFERENCE_MISSING",
+            "H2_H1_FILLS_NOT_RECONCILED",
+        ):
+            result["status"] = h2_execution["status"]
+            result["exchange_write"] = (
+                h2_execution.get("exchange_write", False)
+            )
+            return result
+
     if h1_check is None:
         result["h1_status"] = "ATR_NOT_VERIFIED"
     elif h1_check["reached"]:
