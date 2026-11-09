@@ -18761,6 +18761,114 @@ def scan_manage_position(unit12_result):
 
 
 # ============================================================
+# UNIT 14 V3.2 - PERIODIC OUTSTANDING ORDER DIAGNOSTIC
+# READ ONLY - INDEPENDENT OF BOT_MODE
+# ============================================================
+
+UNIT14_PROBE_LAST_RUN = None
+
+
+def unit_14_probe_periodic():
+
+    global UNIT14_PROBE_LAST_RUN
+
+    enabled = os.getenv(
+        "UNIT14_OUTSTANDING_PROBE", "OFF"
+    ).strip().upper()
+
+    if enabled != "ON":
+        print(
+            "UNIT 14 PERIODIC PROBE = DISABLED",
+            flush=True
+        )
+        return
+
+    try:
+        interval = int(os.getenv(
+            "UNIT14_PROBE_INTERVAL_SECONDS", "900"
+        ))
+    except (ValueError, TypeError):
+        interval = 900
+
+    interval = max(60, interval)
+
+    now = time.monotonic()
+
+    if UNIT14_PROBE_LAST_RUN is not None:
+
+        elapsed = now - UNIT14_PROBE_LAST_RUN
+
+        if elapsed < interval:
+            return
+
+    # Reserve the interval before requesting.
+    # A failed request must not cause a
+    # repeated request on every 30-second scan.
+
+    UNIT14_PROBE_LAST_RUN = now
+
+    print(
+        "UNIT 14 PERIODIC PROBE = RUNNING",
+        flush=True
+    )
+
+    try:
+        result = unit_14_probe_outstanding()
+
+        for category in (
+            "REGULAR",
+            "CONDITIONAL",
+            "TRAILING"
+        ):
+
+            item = result.get(category, {})
+
+            print(
+                "UNIT 14 PERIODIC",
+                category,
+                "STATUS =",
+                item.get("status", "UNKNOWN"),
+                flush=True
+            )
+
+            print(
+                "UNIT 14 PERIODIC",
+                category,
+                "COUNT =",
+                item.get("count", "UNKNOWN"),
+                flush=True
+            )
+
+        print(
+            "UNIT 14 PERIODIC ACCOUNT MATCH = UNVERIFIED",
+            flush=True
+        )
+
+        print(
+            "UNIT 14 PERIODIC RECONCILIATION = UNKNOWN",
+            flush=True
+        )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 14 PERIODIC PROBE ERROR =",
+            type(exc).__name__,
+            str(exc),
+            flush=True
+        )
+
+        print(
+            "UNIT 14 PERIODIC RECONCILIATION = UNKNOWN",
+            flush=True
+        )
+
+    print(
+        "UNIT 14 PERIODIC EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+# ============================================================
 # 4. ONE SCAN CYCLE
 # ============================================================
 
