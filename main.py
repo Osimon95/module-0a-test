@@ -17310,7 +17310,11 @@ def unit15_analyze(
 # 8. EQUITY SNAPSHOTS
 # ============================================================
 
+
 def unit15_equity_snapshot():
+
+    # UNIT 15 V4.2 - DEMO EQUITY SNAPSHOT
+    # READ ONLY - NO EXCHANGE WRITE
 
     rows = unit15_get(_UNIT15_BALANCE)
 
@@ -17329,100 +17333,99 @@ def unit15_equity_snapshot():
         ).upper() != "SUSDT":
             continue
 
-        for field in (
-            "equity", "accountEquity",
-            "totalEquity", "marginBalance",
-        ):
-            value = unit15_num(
-                row.get(field)
-            )
+        equity = None
+        source = None
 
-            if value is not None and value >= 0:
-
-                snapshot = {
-                    "time_ms": int(
-                        _u15_time.time() * 1000
-                    ),
-                    "equity": value,
-                    "field": field,
-                }
-
-                _UNIT15_EQUITY_SNAPSHOTS.append(
-                    snapshot
-                )
-
-                # Keep one day of samples locally.
-                cutoff = (
-                    snapshot["time_ms"]
-                    - 25 * 3600 * 1000
-                )
-
-                _UNIT15_EQUITY_SNAPSHOTS[:] = [
-                    s for s in _UNIT15_EQUITY_SNAPSHOTS
-                    if s["time_ms"] >= cutoff
-                ]
-
-                return snapshot
-
-        # UNIT 15 DEMO EQUITY FIELD DIAGNOSTIC
-    # READ ONLY — NO ORDER SUBMISSION
-
-    print(
-        "UNIT 15 EQUITY DIAGNOSTIC START",
-        flush=True
-    )
-
-    for row in rows:
-
-        if not isinstance(row, dict):
-            continue
-
-        if str(
-            row.get("asset", "")
-        ).upper() != "SUSDT":
-            continue
-
-        print(
-            "UNIT 15 SUSDT BALANCE FIELDS =",
-            sorted(row.keys()),
-            flush=True
-        )
-
+        # First preference: explicitly reported equity.
         for field in (
             "equity",
             "accountEquity",
             "totalEquity",
             "marginBalance",
-            "balance",
-            "walletBalance",
-            "availableBalance",
-            "crossWalletBalance",
-            "unrealizedProfit",
-            "unrealizedPnl",
-            "locked",
-            "frozenBalance",
         ):
 
-            if field not in row:
-                continue
+            value = unit15_num(row.get(field))
 
-            print(
-                "UNIT 15 BALANCE FIELD",
-                field,
-                "=",
-                unit15_num(row.get(field)),
-                flush=True
+            if value is not None and value >= 0:
+                equity = value
+                source = field
+                break
+
+        # Fallback for the observed WEEX demo schema.
+        if equity is None:
+
+            balance = unit15_num(
+                row.get("balance")
             )
 
-    print(
-        "UNIT 15 EQUITY DIAGNOSTIC END",
-        flush=True
-    )
+            pnl = unit15_num(
+                row.get("unrealizePnl")
+            )
+
+            if balance is None or balance < 0:
+                raise RuntimeError(
+                    "UNIT 15 BALANCE VALUE INVALID"
+                )
+
+            if pnl is None:
+                raise RuntimeError(
+                    "UNIT 15 UNREALIZED PNL UNAVAILABLE"
+                )
+
+            equity = balance + pnl
+            source = "balance+unrealizePnl"
+
+        if equity < 0:
+            raise RuntimeError(
+                "UNIT 15 CALCULATED EQUITY NEGATIVE"
+            )
+
+        snapshot = {
+            "time_ms": int(
+                _u15_time.time() * 1000
+            ),
+            "equity": equity,
+            "field": source,
+        }
+
+        _UNIT15_EQUITY_SNAPSHOTS.append(
+            snapshot
+        )
+
+        # Preserve original 25-hour retention.
+        cutoff = (
+            snapshot["time_ms"]
+            - 25 * 3600 * 1000
+        )
+
+        _UNIT15_EQUITY_SNAPSHOTS[:] = [
+            s for s in _UNIT15_EQUITY_SNAPSHOTS
+            if s["time_ms"] >= cutoff
+        ]
+
+        print(
+            "UNIT 15 EQUITY SOURCE =",
+            source,
+            flush=True
+        )
+
+        print(
+            "UNIT 15 EQUITY SUSDT =",
+            equity,
+            flush=True
+        )
+
+        print(
+            "UNIT 15 EQUITY SNAPSHOT = PASS",
+            flush=True
+        )
+
+        return snapshot
 
     raise RuntimeError(
-        "UNIT 15 EQUITY FIELD UNAVAILABLE"
+        "UNIT 15 SUSDT ASSET NOT FOUND"
     )
-
+     
 def unit15_equity_change(
     start_ms,
     end_ms,
