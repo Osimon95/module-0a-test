@@ -19275,6 +19275,17 @@ def scan_one_cycle():
         SCAN_LOCK.release()
 
 
+            # UNIT 14 V3.3 - THREE-TEST VERIFICATION
+            try:
+                unit_14_v33_verify_account()
+            except Exception as exc:
+                print(
+                    "UNIT 14 V3.3 DIAGNOSTIC ERROR =",
+                    type(exc).__name__,
+                    str(exc)[:150],
+                    flush=True
+                )
+
 # ============================================================
 # 5. CONTINUOUS MONITORING LOOP
 # ============================================================
