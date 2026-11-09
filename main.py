@@ -16290,6 +16290,310 @@ def unit_14_h2_execute(
     result["status"] = "H2_CLOSE_FILLED_REFRESH_REQUIRED"
     return result
 
+
+# ============================================================
+# UNIT 14 H2 - RESTART-SAFE SECOND LEG
+# RESUME AFTER ORIGINAL POSITION IS CLOSED
+# DEMO ONLY
+# ============================================================
+
+def unit_14_h2_resume(mode):
+    import os
+    import sqlite3
+    from decimal import Decimal
+
+    result = {
+        "status": "H2_NO_PENDING_TRANSACTION",
+        "execution_authorized": False,
+        "exchange_write": False,
+    }
+
+    if mode != "DEMO":
+        return result
+
+    db_path = os.getenv(
+        "UNIT14_HEDGE_STATE_DB",
+        "/var/data/weex_hedge_state.sqlite3"
+    )
+
+    if not os.path.isfile(db_path):
+        return result
+
+    with sqlite3.connect(db_path, timeout=10) as db:
+        tables = {
+            row[0] for row in db.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type = 'table'"
+            )
+        }
+
+        if not {
+            "hedge_reference",
+            "h2_order_intents"
+        }.issubset(tables):
+            return result
+
+        rows = db.execute("""
+            SELECT
+                r.trade_key,
+                r.original_side,
+                r.original_qty,
+                r.h1_close_id,
+                r.h1_hedge_id,
+                r.h2_close_id,
+                r.h2_hedge_id
+            FROM hedge_reference r
+            INNER JOIN h2_order_intents i
+                ON i.client_id = r.h2_close_id
+            WHERE i.leg = 'CLOSE'
+        """).fetchall()
+
+    if not rows:
+        return result
+
+    history = unit_14_v3_history()
+
+    def filled_order(client_id):
+        matching = [
+            x for x in history
+            if str(x.get("clientOrderId", "")) == client_id
+        ]
+
+        if not matching:
+            return "ABSENT", Decimal("0")
+
+        quantities = set()
+
+        for order in matching:
+            if str(order.get("status", "")).upper() != "FILLED":
+                return "PENDING", Decimal("0")
+
+            raw_qty = order.get("executedQty")
+
+            if raw_qty is None:
+                return "UNKNOWN", Decimal("0")
+
+            qty = unit_14_v3_D(
+                raw_qty,
+                "H2 RESUME EXECUTED QUANTITY"
+            )
+
+            if qty <= 0:
+                return "UNKNOWN", Decimal("0")
+
+            quantities.add(qty)
+
+        if len(quantities) != 1:
+            return "UNKNOWN", Decimal("0")
+
+        return "FILLED", quantities.pop()
+
+    pending = []
+
+    for row in rows:
+        (
+            trade_key,
+            original_side,
+            original_qty,
+            h1_close_id,
+            h1_hedge_id,
+            h2_close_id,
+            h2_hedge_id
+        ) = row
+
+        hedge_status, hedge_qty = filled_order(h2_hedge_id)
+
+        if hedge_status == "FILLED":
+            continue
+
+        pending.append(row)
+
+    if not pending:
+        return result
+
+    if len(pending) != 1:
+        result["status"] = "H2_MULTIPLE_PENDING_TRADES_BLOCKED"
+        return result
+
+    (
+        trade_key,
+        original_side,
+        original_qty,
+        h1_close_id,
+        h1_hedge_id,
+        h2_close_id,
+        h2_hedge_id
+    ) = pending[0]
+
+    h1c_status, h1c_qty = filled_order(h1_close_id)
+    h1h_status, h1h_qty = filled_order(h1_hedge_id)
+    h2c_status, h2c_qty = filled_order(h2_close_id)
+    h2h_status, h2h_qty = filled_order(h2_hedge_id)
+
+    if h2c_status != "FILLED":
+        result["status"] = "H2_CLOSE_FILL_PENDING"
+        return result
+
+    if (
+        h1c_status != "FILLED"
+        or h1h_status != "FILLED"
+        or h1c_qty != h1h_qty
+    ):
+        result["status"] = "H2_H1_FILL_RECONCILIATION_FAILED"
+        return result
+
+    original_qty = Decimal(str(original_qty))
+
+    if (
+        original_qty <= 0
+        or h2c_qty <= 0
+        or h1c_qty + h2c_qty != original_qty
+    ):
+        result["status"] = "H2_TOTAL_QUANTITY_MISMATCH"
+        return result
+
+    if original_side not in ("LONG", "SHORT"):
+        result["status"] = "H2_INVALID_ORIGINAL_SIDE"
+        return result
+
+    opposite = (
+        "SHORT" if original_side == "LONG"
+        else "LONG"
+    )
+
+    positions = unit_14_v3_positions()
+
+    original_position = positions.get(
+        "BTCSUSDT:" + original_side
+    )
+
+    hedge_position = positions.get(
+        "BTCSUSDT:" + opposite
+    )
+
+    if original_position is not None:
+        remaining = unit_14_v3_D(
+            original_position.get("size"),
+            "H2 ORIGINAL REMAINING",
+            True
+        )
+
+        if remaining > 0:
+            result["status"] = "H2_ORIGINAL_STILL_OPEN"
+            return result
+
+    if not isinstance(hedge_position, dict):
+        result["status"] = "H2_OPPOSITE_POSITION_MISSING"
+        return result
+
+    existing_hedge = unit_14_v3_D(
+        hedge_position.get("size"),
+        "H2 OPPOSITE POSITION SIZE",
+        True
+    )
+
+    if h2h_status == "FILLED":
+        result["status"] = (
+            "H2_COMPLETED"
+            if (
+                h2h_qty == h2c_qty
+                and existing_hedge == h1h_qty + h2h_qty
+            )
+            else "H2_FINAL_POSITION_MISMATCH"
+        )
+        return result
+
+    if h2h_status != "ABSENT":
+        result["status"] = "H2_HEDGE_ORDER_PENDING"
+        return result
+
+    # A hedge submission is only safe when the
+    # exchange still shows exactly the H1 hedge.
+    if existing_hedge != h1h_qty:
+        result["status"] = "H2_HEDGE_SIZE_NOT_RECONCILED"
+        return result
+
+    with sqlite3.connect(db_path, timeout=10) as db:
+        db.execute("BEGIN IMMEDIATE")
+
+        previous = db.execute(
+            """
+            SELECT state FROM h2_order_intents
+            WHERE client_id = ?
+            """,
+            (h2_hedge_id,)
+        ).fetchone()
+
+        if previous is not None:
+            result["status"] = (
+                "H2_HEDGE_PREVIOUS_INTENT_UNRESOLVED"
+            )
+            return result
+
+        db.execute(
+            """
+            INSERT INTO h2_order_intents
+            (client_id, trade_key, leg, quantity, state)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                h2_hedge_id,
+                trade_key,
+                "HEDGE",
+                str(h2c_qty),
+                "POST_INTENT_RECORDED"
+            )
+        )
+        db.commit()
+
+    payload = {
+        "symbol": "BTCSUSDT",
+        "side": (
+            "BUY" if opposite == "LONG"
+            else "SELL"
+        ),
+        "positionSide": opposite,
+        "type": "MARKET",
+        "quantity": format(h2c_qty, "f"),
+        "newClientOrderId": h2_hedge_id,
+    }
+
+    result["execution_authorized"] = True
+
+    try:
+        reply = unit_14_v3_signed_request(
+            "POST",
+            UNIT14_V3_ORDER,
+            payload=payload
+        )
+    except Exception as exc:
+        result["status"] = "H2_HEDGE_ACK_UNKNOWN"
+        result["error"] = type(exc).__name__
+        return result
+
+    if (
+        not isinstance(reply, dict)
+        or reply.get("success") is not True
+        or not reply.get("orderId")
+    ):
+        result["status"] = "H2_HEDGE_ACK_UNVERIFIED"
+        return result
+
+    result.update({
+        "status": "H2_HEDGE_SUBMITTED_AWAITING_FILL",
+        "exchange_write": True,
+        "hedge_order_id": str(reply["orderId"]),
+        "hedge_client_order_id": h2_hedge_id,
+    })
+
+    print(
+        "UNIT 14 H2 HEDGE ORDER ID =",
+        reply["orderId"],
+        flush=True
+    )
+
+    return result
+
 def fresh_reconstruction_unit_14(
     config,
     unit_13_result,
