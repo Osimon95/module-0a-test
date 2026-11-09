@@ -12838,13 +12838,124 @@ def unit_14_h1_select_original(positions):
 
     return selected[0]
 
+
+ 
 # ============================================================
-# PERMANENT WEEX DEMO POSITION CONTROL
-# INDEPENDENT POSITION INSPECTION
-# NO EXCHANGE ORDER SUBMISSION
+# PERMANENT WEEX DEMO POSITION CONTROL V2
+# DEMO ONLY - PERSISTENT COMMAND PROTECTION
 # ============================================================
 
-def demo_position_control_inspect():
+import os
+import json
+import sqlite3
+import time
+from decimal import Decimal
+
+DEMO_CONTROL_DB = os.getenv(
+    "DEMO_CONTROL_DB",
+    "/var/data/weex_position_locks.sqlite3"
+)
+
+
+def demo_control_database():
+
+    directory = os.path.dirname(DEMO_CONTROL_DB)
+
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+
+    db = sqlite3.connect(
+        DEMO_CONTROL_DB,
+        timeout=20,
+        isolation_level=None
+    )
+
+    db.execute("PRAGMA busy_timeout=20000")
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS
+        demo_manual_commands (
+            command_id TEXT PRIMARY KEY,
+            mode TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            side TEXT NOT NULL,
+            quantity TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            response TEXT
+        )
+    """)
+
+    return db
+
+
+def demo_control_positions():
+
+    http, rows = unit_12_v5_request(
+        "GET",
+        UNIT_12_V5_POSITION_PATH
+    )
+
+    if http != 200:
+        raise RuntimeError(
+            "DEMO POSITION READ FAILED"
+        )
+
+    if not isinstance(rows, list):
+        raise RuntimeError(
+            "DEMO POSITION RESPONSE INVALID"
+        )
+
+    positions = []
+
+    for p in rows:
+
+        if not isinstance(p, dict):
+            raise RuntimeError(
+                "INVALID DEMO POSITION RECORD"
+            )
+
+        size = Decimal(str(p.get("size", "0")))
+
+        if not size.is_finite() or size < 0:
+            raise RuntimeError(
+                "INVALID DEMO POSITION QUANTITY"
+            )
+
+        if size == 0:
+            continue
+
+        symbol = str(
+            p.get("symbol", "")
+        ).upper()
+
+        side = str(
+            p.get("side", "")
+        ).upper()
+
+        if symbol != "BTCSUSDT":
+            raise RuntimeError(
+                "UNEXPECTED ACTIVE DEMO CONTRACT: "
+                + symbol
+            )
+
+        if side not in ("LONG", "SHORT"):
+            raise RuntimeError(
+                "UNKNOWN DEMO POSITION SIDE"
+            )
+
+        positions.append({
+            "symbol": symbol,
+            "side": side,
+            "quantity": format(size, "f"),
+            "leverage": p.get("leverage"),
+            "openValue": p.get("openValue")
+        })
+
+    return positions
+
+
+def demo_position_control():
 
     mode = os.getenv(
         "DEMO_POSITION_CONTROL",
@@ -12857,88 +12968,324 @@ def demo_position_control_inspect():
         "STATUS",
         "CLOSE_LONG",
         "CLOSE_SHORT",
-        "CLOSE_ALL",
+        "CLOSE_ALL"
     )
 
     if mode not in allowed:
         raise RuntimeError(
-            "INVALID DEMO_POSITION_CONTROL"
+            "INVALID DEMO POSITION CONTROL"
         )
 
     if mode == "OFF":
         return False
 
     print(
-        "DEMO POSITION CONTROL MODE =",
+        "DEMO POSITION CONTROL =",
         mode,
         flush=True
     )
 
-    status, rows = unit_12_v5_request(
-        "GET",
-        UNIT_12_V5_POSITION_PATH
-    )
-
-    if status != 200:
+    if os.getenv(
+        "BOT_MODE", ""
+    ).strip().upper() != "PAUSE":
         raise RuntimeError(
-            "DEMO POSITION READ FAILED: "
-            + str(status)
+            "DEMO CONTROL REQUIRES BOT_MODE=PAUSE"
         )
 
-    active = unit_12_v5_active_positions(rows)
+    positions = demo_control_positions()
 
     print(
         "DEMO ACTIVE POSITION COUNT =",
-        len(active),
+        len(positions),
         flush=True
     )
 
-    for p in active:
-
+    for p in positions:
         print(
             "DEMO POSITION =",
-            json.dumps({
-                "symbol": p.get("symbol"),
-                "side": p.get("side"),
-                "size": p.get("size"),
-                "entryPrice": p.get("entryPrice"),
-                "leverage": p.get("leverage"),
-            }, default=str),
+            json.dumps(p),
             flush=True
         )
 
-    if not active:
+    if mode in ("INSPECT", "STATUS"):
         print(
-            "DEMO POSITION STATUS = FLAT",
+            "DEMO CONTROL EXCHANGE WRITE = NONE",
             flush=True
         )
+        return True
 
-    if mode.startswith("CLOSE_"):
+    if not positions:
         print(
-            "DEMO CLOSE REQUEST =",
-            mode,
+            "DEMO ACCOUNT ALREADY FLAT",
             flush=True
         )
-        print(
-            "DEMO CLOSE EXECUTION = NOT YET ARMED",
-            flush=True
-        )
+        return True
 
+    # This version closes one position per command.
+    # Multiple positions require separate commands.
+
+    if len(positions) != 1:
         raise RuntimeError(
-            "DEMO CLOSE REQUIRES VERIFIED "
-            "EXCHANGE CLOSING PARAMETERS"
+            "MULTIPLE POSITIONS: "
+            "INDIVIDUAL CLOSURE REQUIRED"
+        )
+
+    p = positions[0]
+
+    if mode == "CLOSE_LONG" and p["side"] != "LONG":
+        raise RuntimeError(
+            "NO LONG POSITION TO CLOSE"
+        )
+
+    if mode == "CLOSE_SHORT" and p["side"] != "SHORT":
+        raise RuntimeError(
+            "NO SHORT POSITION TO CLOSE"
+        )
+
+    command_id = os.getenv(
+        "DEMO_CONTROL_COMMAND_ID", ""
+    ).strip()
+
+    if (
+        not command_id
+        or len(command_id) > 36
+        or not all(
+            c.isalnum() or c in "-_"
+            for c in command_id
+        )
+    ):
+        raise RuntimeError(
+            "VALID UNIQUE COMMAND ID REQUIRED"
+        )
+
+    arm = os.getenv(
+        "DEMO_CONTROL_ARM",
+        "NO"
+    ).strip().upper()
+
+    if arm != "YES":
+        print(
+            "DEMO CLOSE PREVIEW =",
+            json.dumps(p),
+            flush=True
+        )
+        print(
+            "DEMO CLOSE EXECUTION = DISARMED",
+            flush=True
+        )
+        return True
+
+    # Verify the quantity immediately before submission.
+
+    refreshed = demo_control_positions()
+
+    if len(refreshed) != 1 or refreshed[0] != p:
+        raise RuntimeError(
+            "POSITION CHANGED BEFORE CLOSE"
+        )
+
+    side = (
+        "SELL"
+        if p["side"] == "LONG"
+        else "BUY"
+    )
+
+    payload = {
+        "symbol": "BTCSUSDT",
+        "side": side,
+        "positionSide": p["side"],
+        "type": "MARKET",
+        "quantity": p["quantity"],
+        "newClientOrderId": command_id,
+        "reduceOnly": True
+    }
+
+    # Persistent claim BEFORE network submission.
+    # An uncertain result must never be retried
+    # automatically with the same command ID.
+
+    db = demo_control_database()
+
+    try:
+
+        db.execute(
+            "BEGIN IMMEDIATE"
+        )
+
+        previous = db.execute(
+            """
+            SELECT status
+            FROM demo_manual_commands
+            WHERE command_id = ?
+            """,
+            (command_id,)
+        ).fetchone()
+
+        if previous:
+            db.execute("ROLLBACK")
+            raise RuntimeError(
+                "COMMAND ID ALREADY USED: "
+                + str(previous[0])
+            )
+
+        db.execute(
+            """
+            INSERT INTO demo_manual_commands
+            (
+                command_id, mode, symbol, side,
+                quantity, status, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                command_id,
+                mode,
+                p["symbol"],
+                p["side"],
+                p["quantity"],
+                "CLAIMED",
+                int(time.time())
+            )
+        )
+
+        db.execute("COMMIT")
+
+    finally:
+        db.close()
+
+    print(
+        "DEMO CLOSE ORDER PAYLOAD =",
+        json.dumps(payload),
+        flush=True
+    )
+
+    print(
+        "DEMO CLOSE POST ATTEMPT = TRUE",
+        flush=True
+    )
+
+    # This is the only exchange-write operation
+    # in the manual controller.
+
+    try:
+        http, response = unit_12_v5_request(
+            "POST",
+            UNIT_12_V5_ORDER_PATH,
+            payload
+        )
+    except Exception as exc:
+        print(
+            "DEMO CLOSE OUTCOME = UNCERTAIN",
+            type(exc).__name__,
+            flush=True
+        )
+        raise RuntimeError(
+            "DO NOT RETRY. CHECK ORDER HISTORY."
+        ) from exc
+
+    db = demo_control_database()
+
+    try:
+        db.execute(
+            """
+            UPDATE demo_manual_commands
+            SET status = ?, response = ?
+            WHERE command_id = ?
+            """,
+            (
+                "ACK_RECEIVED",
+                json.dumps(
+                    {
+                        "http": http,
+                        "response": response
+                    },
+                    default=str
+                )[:4000],
+                command_id
+            )
+        )
+    finally:
+        db.close()
+
+    print(
+        "DEMO CLOSE HTTP STATUS =",
+        http,
+        flush=True
+    )
+
+    print(
+        "DEMO CLOSE RESPONSE =",
+        json.dumps(response, default=str)[:1000],
+        flush=True
+    )
+
+    if (
+        http != 200
+        or not isinstance(response, dict)
+        or response.get("success") is not True
+        or not response.get("orderId")
+    ):
+        raise RuntimeError(
+            "DEMO CLOSE NOT CONFIRMED. "
+            "DO NOT RETRY SAME COMMAND."
+        )
+
+    # An order acknowledgement is not a fill.
+    # Check actual exchange position again.
+
+    time.sleep(2)
+
+    remaining = demo_control_positions()
+
+    print(
+        "DEMO REMAINING POSITIONS =",
+        json.dumps(remaining),
+        flush=True
+    )
+
+    if remaining:
+        print(
+            "DEMO CLOSE STATUS = "
+            "POSITION STILL OPEN OR PARTIALLY FILLED",
+            flush=True
+        )
+    else:
+        print(
+            "DEMO CLOSE STATUS = "
+            "POSITION FLAT VERIFIED",
+            flush=True
         )
 
     return True
 
 
 DEMO_POSITION_CONTROL_READY = (
-    demo_position_control_inspect()
+    demo_position_control()
 )
 
+# Stop normal Unit 13-15 startup while
+# manual demo control is active.
+
+if os.getenv(
+    "DEMO_POSITION_CONTROL",
+    "OFF"
+).strip().upper() != "OFF":
+
+    print(
+        "MANUAL DEMO CONTROL COMPLETED",
+        flush=True
+    )
+
+    print(
+        "NORMAL POSITION MANAGEMENT = SUSPENDED",
+        flush=True
+    )
+
+    raise SystemExit(0)
+
 # ============================================================
-# END PERMANENT DEMO POSITION INSPECTION
-# ============================================================
+# END PERMANENT DEMO POSITION CONTROL V2
+# ===========================================================
 
 def fresh_reconstruction_unit_13(
     config,
