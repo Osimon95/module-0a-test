@@ -16203,16 +16203,36 @@ def fresh_reconstruction_unit_14(
         flush=True
     )
 
+    
     if stage_modes["H2"] == "PAUSE":
+        h2_result["execution_authorized"] = False
         result["h2_status"] = "PAUSED"
 
+    elif stage_modes["H2"] == "MONITOR":
+        h2_result["execution_authorized"] = False
+        result["h2_status"] = h2_result["status"]
+
     elif stage_modes["H2"] == "DEMO":
-        # H2 DEMO remains blocked until original
-        # entry, ATR, existing hedge, and persistent
-        # order state are reconciled.
+        h2_ready = all((
+            h2_result.get("trigger_reached") is True,
+            h2_result.get("quantity_executable") is True,
+            h2_result.get("original_entry_frozen") is True,
+            h2_result.get("original_atr_frozen") is True,
+            h2_result.get("hedge_reconciled") is True,
+            h2_result.get("order_state_reconciled") is True,
+        ))
+
+        h2_result["execution_authorized"] = h2_ready
+
         result["h2_status"] = (
-            "DEMO_PENDING_EXECUTION_INTEGRATION"
+            "AUTHORIZED_FOR_DEMO_EXECUTION"
+            if h2_ready
+            else "DEMO_RECONCILIATION_PENDING"
         )
+
+    result["h2_execution_authorized"] = (
+        h2_result["execution_authorized"]
+    )
 
     print(
         "UNIT 14 H2 FINAL STATUS =",
