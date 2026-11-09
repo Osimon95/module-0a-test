@@ -15052,9 +15052,42 @@ def unit_14_probe_outstanding():
     return results
 
 
-if os.getenv(
+# UNIT 14 OUTSTANDING ORDER PROBE ACTIVATION
+
+probe_setting = os.getenv(
     "UNIT14_OUTSTANDING_PROBE", "OFF"
-).strip().upper() == "ON":
+).strip().upper()
+
+print(
+    "UNIT 14 OUTSTANDING PROBE CONFIG =",
+    probe_setting,
+    flush=True
+)
+
+if probe_setting == "ON":
+
+    print(
+        "UNIT 14 OUTSTANDING PROBE ACTIVATED",
+        flush=True
+    )
+
+    try:
+        unit_14_probe_outstanding()
+
+    except Exception as exc:
+        print(
+            "UNIT 14 PROBE FAILED =",
+            type(exc).__name__,
+            str(exc),
+            flush=True
+        )
+
+else:
+
+    print(
+        "UNIT 14 OUTSTANDING PROBE SKIPPED = SWITCH OFF",
+        flush=True
+    )
 
     try:
         unit_14_probe_outstanding()
