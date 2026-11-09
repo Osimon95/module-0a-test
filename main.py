@@ -17423,8 +17423,6 @@ def unit15_equity_snapshot():
         "UNIT 15 EQUITY FIELD UNAVAILABLE"
     )
 
-
-
 def unit15_equity_change(
     start_ms,
     end_ms,
