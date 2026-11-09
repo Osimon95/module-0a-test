@@ -14851,6 +14851,222 @@ def unit_14_v3_history():
         "UNIT 14 HISTORY PAGINATION INCOMPLETE"
     )
 
+
+# ============================================================
+# UNIT 14 V3.1 - DEMO OUTSTANDING ORDER PROBE
+# READ ONLY - NO ORDER SUBMISSION OR CANCELLATION
+# ============================================================
+
+UNIT14_PROBE_BASE = "https://api-sim.weex.com"
+
+UNIT14_PROBE_PATHS = {
+    "REGULAR": "/capi/v3/openOrders",
+    "CONDITIONAL": "/capi/v3/openAlgoOrders",
+    "TRAILING": "/capi/v3/trailing/openOrders",
+}
+
+
+def unit_14_probe_get(path, query):
+
+    if path not in UNIT14_PROBE_PATHS.values():
+        raise RuntimeError(
+            "UNIT 14 PROBE ENDPOINT BLOCKED"
+        )
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        raise RuntimeError(
+            "UNIT 14 PROBE CREDENTIALS MISSING"
+        )
+
+    timestamp = str(int(time.time() * 1000))
+
+    prehash = (
+        timestamp
+        + "GET"
+        + path
+        + "?"
+        + query
+    )
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            prehash.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    request = urllib.request.Request(
+        UNIT14_PROBE_BASE
+        + path
+        + "?"
+        + query,
+        method="GET",
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": phrase,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            raw = response.read().decode(
+                "utf-8"
+            )
+
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            "HTTP " + str(exc.code)
+        ) from exc
+
+    result = json.loads(raw)
+
+    if not isinstance(result, list):
+        raise RuntimeError(
+            "UNEXPECTED RESPONSE TYPE"
+        )
+
+    if not all(
+        isinstance(item, dict)
+        for item in result
+    ):
+        raise RuntimeError(
+            "MALFORMED ORDER RESPONSE"
+        )
+
+    return result
+
+
+def unit_14_probe_outstanding():
+
+    print(
+        "UNIT 14 OUTSTANDING PROBE START",
+        flush=True
+    )
+
+    results = {}
+
+    for name, path in UNIT14_PROBE_PATHS.items():
+
+        # A single bounded page is diagnostic only.
+        # It cannot establish complete reconciliation.
+        query = urllib.parse.urlencode({
+            "symbol": "BTCUSDT",
+            "limit": 100,
+            "page": (
+                1 if name == "CONDITIONAL"
+                else 0
+            ),
+        })
+
+        try:
+            orders = unit_14_probe_get(
+                path,
+                query
+            )
+
+            results[name] = {
+                "status": "READ_OK",
+                "count": len(orders),
+                "complete": len(orders) < 100,
+            }
+
+            print(
+                "UNIT 14 PROBE",
+                name,
+                "COUNT =",
+                len(orders),
+                flush=True
+            )
+
+            if orders:
+                print(
+                    "UNIT 14 PROBE",
+                    name,
+                    "ORDERS PRESENT = TRUE",
+                    flush=True
+                )
+
+        except Exception as exc:
+
+            results[name] = {
+                "status": "ERROR",
+                "error": type(exc).__name__
+                         + ": " + str(exc),
+            }
+
+            print(
+                "UNIT 14 PROBE",
+                name,
+                "ERROR =",
+                type(exc).__name__,
+                str(exc),
+                flush=True
+            )
+
+    # The simulation-server account identity has
+    # not yet been reconciled with the existing
+    # /capi/v3/sim/ demo account.
+    #
+    # Therefore even zero results do not establish
+    # that the existing demo account has no orders.
+
+    print(
+        "UNIT 14 PROBE ACCOUNT MATCH = UNVERIFIED",
+        flush=True
+    )
+
+    print(
+        "UNIT 14 OUTSTANDING RECONCILIATION = UNKNOWN",
+        flush=True
+    )
+
+    print(
+        "UNIT 14 PROBE EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    return results
+
+
+if os.getenv(
+    "UNIT14_OUTSTANDING_PROBE", "OFF"
+).strip().upper() == "ON":
+
+    try:
+        unit_14_probe_outstanding()
+
+    except Exception as exc:
+        print(
+            "UNIT 14 PROBE FAILED =",
+            type(exc).__name__,
+            str(exc),
+            flush=True
+        )
+
 def unit_14_v3_mark():
 
     query = urllib.parse.urlencode({
