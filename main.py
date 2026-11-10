@@ -14810,170 +14810,103 @@ def unit_14_h1_initialize_cycle(p, atr_value):
     finally:
         db.close()
 
-def unit_14_h1_check(p, mark, qstep, minimum):
 
+def unit_14_h1_check(p, mark, qstep, minimum):
     from decimal import Decimal
 
     D = unit_14_v3_D
-
-    side = str(p.get("side", "")).upper()
-
-    if side not in ("LONG", "SHORT"):
-        raise RuntimeError("H1 INVALID POSITION SIDE")
-
-    size = D(p.get("size"), "H1 POSITION SIZE")
-    open_value = D(
-        p.get("openValue"),
-        "H1 POSITION OPEN VALUE"
-    )
-
-    if size <= 0:
-        raise RuntimeError("H1 POSITION SIZE INVALID")
-
-    entry = open_value / size
-
     snapshot = globals().get(
-        "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT"
+        'FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT'
     )
 
-    if not isinstance(snapshot, dict):
-        print("UNIT 14 H1 STATUS = ATR_UNAVAILABLE", flush=True)
+    if not isinstance(snapshot, dict) or snapshot.get('atr14') is None:
+        print('UNIT 14 H1 STATUS = ATR_UNAVAILABLE', flush=True)
         return None
 
-    
-    analysis_scan = globals().get(
-        "UNIT14_H1_ANALYSIS_SCAN"
+    scan = globals().get('UNIT14_H1_ANALYSIS_SCAN')
+    current_scan = globals().get('SCAN_NUMBER')
+
+    if scan is None or current_scan is None or scan != current_scan:
+        print('UNIT 14 H1 STATUS = STALE_ATR_BLOCKED', flush=True)
+        return None
+
+    cycle = unit_14_h1_initialize_cycle(p, snapshot['atr14'])
+
+    if cycle['state'] != 'ACTIVE' or cycle['tp1_filled']:
+        return {
+            'cycle_id': cycle['cycle_id'],
+            'reached': False,
+            'quantity_executable': False,
+            'status': 'TERMINATED_BY_TP1_OR_CYCLE_CLOSED',
+        }
+
+    side = cycle['side']
+    entry = cycle['original_entry']
+    atr = cycle['frozen_atr']
+    original_quantity = cycle['original_quantity']
+
+    mark = D(mark, 'H1 MARK')
+    qstep = D(qstep, 'H1 QSTEP')
+    minimum = D(minimum, 'H1 MINIMUM')
+
+    if qstep <= 0 or minimum <= 0:
+        raise RuntimeError('H1 INVALID QUANTITY PRECISION')
+
+    quantity = unit_14_v3_floor(
+        original_quantity / Decimal('2'), qstep
     )
 
-    current_scan = globals().get(
-        "SCAN_NUMBER"
-    )
-
-    if (
-        analysis_scan is None
-        or current_scan is None
-        or analysis_scan != current_scan
-    ):
-        print(
-            "UNIT 14 H1 STATUS = STALE_ATR_BLOCKED",
-            flush=True
-        )
-        print(
-            "UNIT 14 H1 EXCHANGE WRITE = NONE",
-            flush=True
-        )
-        return None
-
-    atr_value = snapshot.get("atr14")
-
-    if atr_value is None:
-        print("UNIT 14 H1 STATUS = ATR_MISSING", flush=True)
-        return None
-
-    atr = D(atr_value, "H1 ATR14")
-
-    if atr <= 0:
-        print("UNIT 14 H1 STATUS = ATR_INVALID", flush=True)
-        return None
-
-    if side == "LONG":
-        trigger = entry - atr
-        reached = mark <= trigger
-        opposite = "SHORT"
-    else:
+    if side == 'SHORT':
         trigger = entry + atr
         reached = mark >= trigger
-        opposite = "LONG"
+        opposite = 'LONG'
+    else:
+        trigger = entry - atr
+        reached = mark <= trigger
+        opposite = 'SHORT'
 
-    close_qty = unit_14_v3_floor(
-        size / Decimal("2"),
-        qstep
-    )
+    executable = quantity >= minimum and quantity > 0
 
-    executable = (
-        close_qty >= minimum
-        and close_qty > 0
-    )
-
-    print("UNIT 14 H1 SIDE =", side, flush=True)
-    print("UNIT 14 H1 ENTRY =", entry, flush=True)
-    print("UNIT 14 H1 ATR14 =", atr, flush=True)
-    print("UNIT 14 H1 TRIGGER =", trigger, flush=True)
-    print("UNIT 14 H1 MARK =", mark, flush=True)
-    print("UNIT 14 H1 TRIGGER REACHED =", reached, flush=True)
-    print("UNIT 14 H1 CLOSE QUANTITY =", close_qty, flush=True)
-    print("UNIT 14 H1 OPPOSITE SIDE =", opposite, flush=True)
-    print("UNIT 14 H1 QUANTITY EXECUTABLE =", executable, flush=True)
-    print("UNIT 14 H1 EXCHANGE WRITE = NONE", flush=True)
-
-    return {
-        "side": side,
-        "entry": entry,
-        "atr14": atr,
-        "trigger": trigger,
-        "reached": reached,
-        "close_quantity": close_qty,
-        "hedge_side": opposite,
-        "quantity_executable": executable,
-        "execution_authorized": False,
+    result = {
+        'cycle_id': cycle['cycle_id'],
+        'side': side,
+        'entry': entry,
+        'atr14': atr,
+        'trigger': trigger,
+        'reached': reached,
+        'close_quantity': quantity,
+        'hedge_side': opposite,
+        'quantity_executable': executable,
+        'execution_authorized': False,
     }
 
-
-# ============================================================
-# UNIT 14 H1 - DEMO EXECUTION
-# EXCHANGE-CONFIRMED FILL RECONCILIATION
-# ============================================================
-
-
-  
-# ============================================================
-# UNIT 14 H1 V2 - INDEPENDENT WEEX DEMO EXECUTION
-# H1-C AND H1-H ARE SEPARATELY EXECUTABLE
-# SQLITE PERSISTENT SUBMISSION CLAIMS
-# ZERO INDENTATION
-# ============================================================
-
-def unit_14_h1_db():
-
-    import sqlite3
-    import os
-
-    db_path = os.getenv(
-        "UNIT14_EXECUTION_DB",
-        "/var/data/unit14_execution.sqlite3"
+    print(
+        'UNIT 14 H1 CYCLE ID =',
+        result['cycle_id'], flush=True
+    )
+    print(
+        'UNIT 14 H1 ORIGINAL QUANTITY =',
+        original_quantity, flush=True
+    )
+    print(
+        'UNIT 14 H1 FROZEN ATR =',
+        atr, flush=True
+    )
+    print(
+        'UNIT 14 H1 TRIGGER =',
+        trigger, flush=True
+    )
+    print(
+        'UNIT 14 H1 TRIGGER REACHED =',
+        reached, flush=True
+    )
+    print(
+        'UNIT 14 H1 ACTION QUANTITY =',
+        quantity, flush=True
     )
 
-    directory = os.path.dirname(db_path)
-
-    if not directory or not os.path.isdir(directory):
-        raise RuntimeError(
-            "H1 PERSISTENT DATABASE DIRECTORY UNAVAILABLE"
-        )
-
-    db = sqlite3.connect(
-        db_path,
-        timeout=15,
-        isolation_level=None
-    )
-
-    db.execute("PRAGMA busy_timeout=15000")
-    db.execute("PRAGMA journal_mode=WAL")
-
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS h1_orders (
-            client_id TEXT PRIMARY KEY,
-            trade_key TEXT NOT NULL,
-            action TEXT NOT NULL,
-            quantity TEXT NOT NULL,
-            state TEXT NOT NULL,
-            order_id TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    return db
-
-
+    return result
+    
 def unit_14_h1_execute(p, h1, qstep, minimum):
 
     from decimal import Decimal
