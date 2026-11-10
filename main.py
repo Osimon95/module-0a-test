@@ -13144,14 +13144,92 @@ def fresh_reconstruction_unit_13(
 
     mark = unit_13_v4_mark_price()
 
-    done1 = (
-        q1 == 0 or cum_close >= q1
+    
+    # ========================================================
+    # TP1 COMPLETION: EXCHANGE ORDER FILLS ONLY
+    # Never infer TP1 from cumulative position closes.
+    # ========================================================
+
+    import hashlib
+
+    symbol = str(p.get("symbol", "")).upper()
+    position_id = str(p.get("id") or "").strip()
+    created = str(p.get("createdTime") or "").strip()
+
+    if not symbol or not position_id or not created:
+        raise RuntimeError(
+            "UNIT 13 TP CYCLE IDENTITY INCOMPLETE"
+        )
+
+    cycle_identity = "|".join((
+        symbol,
+        side,
+        position_id,
+        created
+    ))
+
+    cycle_id = hashlib.sha256(
+        cycle_identity.encode("utf-8")
+    ).hexdigest()[:32]
+
+    db = unit_14_execution_db()
+
+    try:
+        cycle = db.execute(
+            """
+            SELECT tp1_filled, state
+            FROM execution_cycles
+            WHERE cycle_id = ?
+            """,
+            (cycle_id,)
+        ).fetchone()
+
+        tp1_orders = db.execute(
+            """
+            SELECT quantity, confirmed_filled, state
+            FROM execution_orders
+            WHERE cycle_id = ?
+              AND action = 'TP1'
+            """,
+            (cycle_id,)
+        ).fetchall()
+
+    finally:
+        db.close()
+
+    # A missing cycle is not evidence of TP1 completion.
+    # It must be initialized/reconciled separately.
+
+    if cycle is None:
+        raise RuntimeError(
+            "UNIT 13 TP1 CYCLE RECONCILIATION REQUIRED"
+        )
+
+    # Refresh persisted order fills using WEEX history.
+    # This function must verify TP1 order identity and
+    # executed quantity, not position-size reductions.
+
+    history = unit_14_v3_history()
+
+    tp1_check = unit_14_tp1_verified_fill(
+        history,
+        cycle_id
     )
 
-    done2 = (
-        done1 if q2 == 0
-        else cum_close >= q1 + q2
-    )
+    done1 = bool(tp1_check["tp1_filled"])
+
+    # A zero allocation means TP1 is not applicable.
+    # It is not an exchange-confirmed TP1 fill.
+
+    tp1_applicable = q1 > 0
+
+    tp1_order_exists = bool(tp1_orders)
+
+    # TP2 requires its own exchange-order verification.
+    # Cumulative closed position quantity is forbidden
+    # as a completion indicator for either TP stage.
+
+    done2 = False
 
     reached1 = (
         mark >= t1
@@ -13166,19 +13244,44 @@ def fresh_reconstruction_unit_13(
     )
 
     action = "NONE"
-    close_qty = Decimal(0)
+    close_qty = Decimal("0")
 
-    if q2 > 0 and reached2 and not done2:
-
-        action = "TP2"
-        close_qty = (
-            q1 + q2 - cum_close
-        )
-
-    elif q1 > 0 and reached1 and not done1:
-
+    if (
+        tp1_applicable
+        and reached1
+        and not done1
+        and not tp1_order_exists
+    ):
         action = "TP1"
-        close_qty = q1 - cum_close
+        close_qty = q1
+
+    # TP2 intentionally remains unarmed until its
+    # independent exchange-fill accounting is wired.
+    # Do not calculate it from cumCloseSize.
+
+    print(
+        "UNIT 13 TP1 CYCLE ID =",
+        cycle_id,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP1 EXCHANGE CONFIRMED =",
+        done1,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP1 ORDER EXISTS =",
+        tp1_order_exists,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP1 COMPLETION SOURCE =",
+        "EXCHANGE_TP1_ORDER_FILLS_ONLY",
+        flush=True
+    )
 
     if close_qty > 0:
 
