@@ -14284,6 +14284,120 @@ def unit_14_v3_balance():
     )
 
 
+# ============================================================
+# UNIT 14 - TP1 EXCHANGE FILL VERIFICATION
+# DOES NOT CONFUSE H1 CLOSURES WITH TP1
+# ============================================================
+
+def unit_14_tp1_verified_fill(history, cycle_id=None):
+
+    from decimal import Decimal
+
+    if not isinstance(history, list):
+        raise RuntimeError(
+            "UNIT 14 TP1 HISTORY INVALID"
+        )
+
+    db = unit_14_execution_db()
+
+    try:
+        if cycle_id is None:
+            rows = db.execute(
+                """
+                SELECT client_id, cycle_id, quantity
+                FROM execution_orders
+                WHERE action = 'TP1'
+                """
+            ).fetchall()
+        else:
+            rows = db.execute(
+                """
+                SELECT client_id, cycle_id, quantity
+                FROM execution_orders
+                WHERE action = 'TP1'
+                  AND cycle_id = ?
+                """,
+                (cycle_id,)
+            ).fetchall()
+
+        confirmed = []
+
+        for client_id, recorded_cycle, requested_qty in rows:
+
+            matching = [
+                order for order in history
+                if str(
+                    order.get("clientOrderId", "")
+                ) == client_id
+            ]
+
+            if not matching:
+                continue
+
+            quantities = []
+
+            for order in matching:
+
+                filled_raw = order.get("executedQty")
+
+                if filled_raw is None:
+                    continue
+
+                filled = Decimal(str(filled_raw))
+
+                if not filled.is_finite() or filled < 0:
+                    raise RuntimeError(
+                        "UNIT 14 INVALID TP1 FILL"
+                    )
+
+                if filled > 0:
+                    quantities.append(filled)
+
+            if not quantities:
+                continue
+
+            # Multiple snapshots of the same order
+            # must not be added together.
+            filled_qty = max(quantities)
+
+            if filled_qty > Decimal(str(requested_qty)):
+                raise RuntimeError(
+                    "UNIT 14 TP1 FILL EXCEEDS CLAIM"
+                )
+
+            db.execute(
+                """
+                UPDATE execution_orders
+                SET state = 'PARTIAL_OR_FILLED',
+                    confirmed_filled = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE client_id = ?
+                """,
+                (
+                    str(filled_qty),
+                    client_id
+                )
+            )
+
+            confirmed.append({
+                "client_id": client_id,
+                "cycle_id": recorded_cycle,
+                "filled_quantity": str(filled_qty)
+            })
+
+        return {
+            "tp1_filled": bool(confirmed),
+            "confirmed_orders": confirmed
+        }
+
+    finally:
+        db.close()
+
+
+# ============================================================
+# END TP1 EXCHANGE FILL VERIFICATION
+# ============================================================
+
 def unit_14_v3_history():
 
     orders = []
