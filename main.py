@@ -15924,7 +15924,7 @@ def fresh_reconstruction_unit_14(
 
     if p is None:
 
-    if side not in ("LONG", "SHORT"):
+        if side not in ("LONG", "SHORT"):
         raise RuntimeError(
             "UNIT 14 POSITION SIDE INVALID"
         )
