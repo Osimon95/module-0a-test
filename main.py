@@ -13659,17 +13659,21 @@ def fresh_reconstruction_unit_13(
                 + str(reply)[:400]
             )
 
-        result.update({
-            "status": "TP_EXECUTED",
-            "skip_reason": "NONE",
-            "tp_execution_completed": True,
-            "demo_order_executed": True,
-            "tp_order_id": str(
-                reply["orderId"]
-            ),
-            "tp_close_quantity": str(close_qty),
-            "exchange_write": True,
-        })
+            unit_14_update_execution(
+        client_id,
+        "SUBMITTED",
+        str(reply["orderId"])
+    )
+
+    result.update({
+        "status": "TP_SUBMITTED_AWAITING_FILL",
+        "skip_reason": "NONE",
+        "tp_execution_completed": False,
+        "demo_order_executed": False,
+        "tp_order_id": str(reply["orderId"]),
+        "tp_close_quantity": str(close_qty),
+        "exchange_write": True,
+    })
 
     print(
         "UNIT 13 STATUS =",
