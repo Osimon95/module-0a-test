@@ -13411,37 +13411,93 @@ def fresh_reconstruction_unit_13(
             )
         )
         
+        
         # ====================================================
-        # UNIT 13 - PERSISTENT TP EXECUTION CLAIM
-        # SQLITE /var/data
+        # UNIT 13 - SHARED TP / HEDGE CYCLE IDENTITY
+        # PERSISTENT CLAIM - DEMO ONLY
         # ====================================================
 
         import hashlib
 
-        cycle_identity = (
-            "BTCSUSDT:"
-            + position_id
-            + ":"
-            + str(cum_open)
-        )
+        symbol = str(p.get("symbol", "")).upper()
+        original_side = str(p.get("side", "")).upper()
 
-        claim_identity = (
-            cycle_identity
-            + ":"
-            + action
-            + ":"
-            + str(cum_close)
-        )
+        position_id = str(p.get("id") or "").strip()
+        created = str(p.get("createdTime") or "").strip()
+
+        if (
+            symbol != "BTCSUSDT"
+            or original_side not in ("LONG", "SHORT")
+            or not position_id
+            or not created
+        ):
+            raise RuntimeError(
+                "UNIT 13 STABLE DEMO CYCLE IDENTITY MISSING"
+            )
+
+        # Identical identity formula to Unit 14.
+        identity = "|".join((
+            symbol,
+            original_side,
+            position_id,
+            created
+        ))
+
+        cycle_id = hashlib.sha256(
+            identity.encode("utf-8")
+        ).hexdigest()[:32]
+
+        # The cycle must exist before a TP order is claimed.
+        # A fresh cycle may be initialized from Unit 4 ATR.
+        db = unit_14_execution_db()
+
+        try:
+            cycle = db.execute(
+                """
+                SELECT cycle_id, state, tp1_filled
+                FROM execution_cycles
+                WHERE cycle_id = ?
+                """,
+                (cycle_id,)
+            ).fetchone()
+        finally:
+            db.close()
+
+        if cycle is None:
+
+            snapshot = globals().get(
+                "FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT"
+            )
+
+            if (
+                not isinstance(snapshot, dict)
+                or snapshot.get("atr14") is None
+            ):
+                raise RuntimeError(
+                    "UNIT 13 CANNOT INITIALIZE CYCLE: "
+                    "ATR14 UNAVAILABLE"
+                )
+
+            initialized = unit_14_h1_initialize_cycle(
+                p,
+                snapshot["atr14"]
+            )
+
+            if initialized["cycle_id"] != cycle_id:
+                raise RuntimeError(
+                    "UNIT 13 / UNIT 14 CYCLE MISMATCH"
+                )
+
+        # One stable client ID per TP action per cycle.
+        # Changing cumulative close quantity must not
+        # create another TP1 submission identity.
 
         claim_hash = hashlib.sha256(
-            claim_identity.encode("utf-8")
+            (cycle_id + "|" + action).encode("utf-8")
         ).hexdigest()[:20]
 
         client_id = (
-            "FR13-"
-            + action
-            + "-"
-            + claim_hash
+            "FR13-" + action + "-" + claim_hash
         )[:36]
 
         db = unit_14_execution_db()
@@ -13449,27 +13505,49 @@ def fresh_reconstruction_unit_13(
         try:
             db.execute("BEGIN IMMEDIATE")
 
-            existing = db.execute(
+            cycle = db.execute(
                 """
-                SELECT state, quantity
-                FROM execution_orders
-                WHERE client_id = ?
+                SELECT state, tp1_filled
+                FROM execution_cycles
+                WHERE cycle_id = ?
                 """,
-                (client_id,)
+                (cycle_id,)
             ).fetchone()
 
-            if existing is not None:
+            if cycle is None or cycle[0] != "ACTIVE":
+                db.execute("ROLLBACK")
+                result["skip_reason"] = (
+                    "TP_CYCLE_NOT_ACTIVE"
+                )
+                return result
 
+            if cycle[1]:
+                db.execute("ROLLBACK")
+                result["skip_reason"] = (
+                    "TP1_ALREADY_CONFIRMED"
+                )
+                return result
+
+            existing = db.execute(
+                """
+                SELECT client_id, state, quantity
+                FROM execution_orders
+                WHERE cycle_id = ?
+                  AND action = ?
+                """,
+                (cycle_id, action)
+            ).fetchall()
+
+            if existing:
                 db.execute("COMMIT")
 
                 result["skip_reason"] = (
-                    "TP_PREVIOUS_ATTEMPT_RECONCILIATION_REQUIRED"
+                    "TP_PREVIOUS_ORDER_REQUIRES_RECONCILIATION"
                 )
-
                 result["tp_client_order_id"] = client_id
 
                 print(
-                    "UNIT 13 TP EXISTING CLAIM =",
+                    "UNIT 13 TP EXISTING ORDERS =",
                     existing,
                     flush=True
                 )
@@ -13490,7 +13568,7 @@ def fresh_reconstruction_unit_13(
                 """,
                 (
                     client_id,
-                    cycle_identity,
+                    cycle_id,
                     action,
                     str(close_qty)
                 )
@@ -13499,14 +13577,21 @@ def fresh_reconstruction_unit_13(
             db.execute("COMMIT")
 
         except Exception:
-
             if db.in_transaction:
                 db.execute("ROLLBACK")
-
             raise
 
         finally:
             db.close()
+
+        result["tp_client_order_id"] = client_id
+        result["tp_cycle_id"] = cycle_id
+
+        print(
+            "UNIT 13 TP SHARED CYCLE =",
+            cycle_id,
+            flush=True
+        )
 
         print(
             "UNIT 13 TP PERSISTENT CLAIM =",
@@ -13515,7 +13600,7 @@ def fresh_reconstruction_unit_13(
         )
 
         # ====================================================
-        # END PERSISTENT TP CLAIM
+        # END SHARED TP CLAIM
         # ====================================================
 
         close_side = (
