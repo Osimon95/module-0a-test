@@ -15687,7 +15687,27 @@ def fresh_reconstruction_unit_14(
         )
 
         # Read all active WEEX demo positions.
-        positions = unit_14_v3_positions()
+        
+       
+        positions_response = unit_14_v3_positions()
+
+        if isinstance(positions_response, list):
+            positions = positions_response
+
+        elif isinstance(positions_response, dict):
+            positions = positions_response.get("data")
+
+            if isinstance(positions, dict):
+                positions = positions.get("list")
+
+        else:
+            positions = None
+
+        if not isinstance(positions, list):
+            raise RuntimeError(
+                "UNIT 14 POSITION RESPONSE FORMAT UNVERIFIED"
+            )
+
         active = unit_14_active_positions(positions)
 
         hedge = active.get("BTCSUSDT:" + hedge_side)
