@@ -15703,10 +15703,53 @@ def fresh_reconstruction_unit_14(
         else:
             positions = None
 
+        
         if not isinstance(positions, list):
-            raise RuntimeError(
-                "UNIT 14 POSITION RESPONSE FORMAT UNVERIFIED"
+
+            print(
+                "UNIT 14 RAW POSITION RESPONSE TYPE =",
+                type(positions_response).__name__,
+                flush=True
             )
+
+            if isinstance(positions_response, dict):
+                print(
+                    "UNIT 14 RAW POSITION RESPONSE KEYS =",
+                    list(positions_response.keys()),
+                    flush=True
+                )
+
+                data = positions_response.get("data")
+
+                print(
+                    "UNIT 14 POSITION DATA TYPE =",
+                    type(data).__name__,
+                    flush=True
+                )
+
+                if isinstance(data, dict):
+                    print(
+                        "UNIT 14 POSITION DATA KEYS =",
+                        list(data.keys()),
+                        flush=True
+                    )
+
+            print(
+                "UNIT 14 POSITION NORMALIZATION = FAILED",
+                flush=True
+            )
+
+            result["status"] = (
+                "POSITION_RESPONSE_UNVERIFIED"
+            )
+
+            result["skip_reason"] = (
+                "POSITION_RESPONSE_FORMAT_UNKNOWN"
+            )
+
+            result["exchange_write"] = False
+
+            return result
 
         active = unit_14_active_positions(positions)
 
