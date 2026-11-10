@@ -15578,15 +15578,251 @@ def fresh_reconstruction_unit_14(
 
     p = unit_14_v3_position()
 
+    
     if p is None:
 
-        result["status"] = "IDLE_NO_POSITION"
-        result["skip_reason"] = (
-            "NO_ACTIVE_DEMO_POSITION"
+        from decimal import Decimal
+
+        original_side = os.getenv(
+            "ORIGINAL_POSITION_SIDE", ""
+        ).strip().upper()
+
+        if original_side not in ("LONG", "SHORT"):
+            raise RuntimeError(
+                "UNIT 14 ORIGINAL SIDE NOT CONFIGURED"
+            )
+
+        hedge_side = (
+            "SHORT" if original_side == "LONG"
+            else "LONG"
+        )
+
+        # Read all active WEEX demo positions.
+        positions = unit_14_v3_positions()
+        active = unit_14_active_positions(positions)
+
+        hedge = active.get("BTCSUSDT:" + hedge_side)
+
+        db = unit_14_execution_db()
+
+        try:
+            cycles = db.execute(
+                """
+                SELECT cycle_id, state, tp1_filled
+                FROM execution_cycles
+                WHERE symbol = ?
+                  AND original_side = ?
+                  AND state IN (
+                      'ACTIVE',
+                      'TERMINATED_BY_TP1'
+                  )
+                ORDER BY created_at DESC
+                """,
+                ("BTCSUSDT", original_side)
+            ).fetchall()
+
+            if len(cycles) > 1:
+                raise RuntimeError(
+                    "UNIT 14 MULTIPLE UNRESOLVED CYCLES"
+                )
+
+            saved_cycle = cycles[0] if cycles else None
+
+            if saved_cycle is None:
+
+                if hedge is not None:
+                    result["status"] = (
+                        "UNMANAGED_OPPOSITE_POSITION"
+                    )
+                    result["skip_reason"] = (
+                        "HEDGE_PRESENT_WITHOUT_SAVED_CYCLE"
+                    )
+
+                    print(
+                        "UNIT 14 WARNING = OPPOSITE "
+                        "POSITION REQUIRES RECONCILIATION",
+                        flush=True
+                    )
+
+                    return result
+
+                result["status"] = "IDLE_NO_POSITION"
+                result["skip_reason"] = (
+                    "NO_ACTIVE_DEMO_POSITION"
+                )
+
+                print(
+                    "UNIT 14 STATUS = IDLE_NO_POSITION",
+                    flush=True
+                )
+
+                return result
+
+            cycle_id = saved_cycle[0]
+
+            orders = db.execute(
+                """
+                SELECT action, client_id, quantity,
+                       state, confirmed_filled
+                FROM execution_orders
+                WHERE cycle_id = ?
+                  AND action IN ('H1-C', 'H1-H')
+                """,
+                (cycle_id,)
+            ).fetchall()
+
+        finally:
+            db.close()
+
+        # Reconcile existing orders using WEEX history.
+        # Do not create a replacement order here.
+        history = unit_14_v3_history()
+
+        order_results = {}
+
+        for action, client_id, quantity, state, saved_fill in orders:
+
+            requested = Decimal(str(quantity))
+
+            matches = [
+                item for item in history
+                if str(
+                    item.get("clientOrderId", "")
+                ) == client_id
+            ]
+
+            if matches:
+
+                exchange_ids = {
+                    str(item.get("orderId"))
+                    for item in matches
+                    if item.get("orderId") is not None
+                }
+
+                if len(exchange_ids) > 1:
+                    raise RuntimeError(
+                        "H1 DUPLICATE EXCHANGE ORDER ID"
+                    )
+
+                fills = []
+
+                for item in matches:
+                    filled = Decimal(
+                        str(item.get("executedQty", "0"))
+                    )
+
+                    if not filled.is_finite() or filled < 0:
+                        raise RuntimeError(
+                            "H1 INVALID EXCHANGE FILL"
+                        )
+
+                    fills.append(filled)
+
+                confirmed = max(fills, default=Decimal("0"))
+
+                if confirmed > requested:
+                    raise RuntimeError(
+                        "H1 EXCHANGE FILL EXCEEDS ORDER"
+                    )
+
+                statuses = {
+                    str(item.get("status", "")).upper()
+                    for item in matches
+                }
+
+                if confirmed == requested:
+                    new_state = "FILLED"
+
+                elif confirmed > 0:
+                    new_state = "PARTIAL"
+
+                elif statuses & {
+                    "CANCELED", "CANCELLED",
+                    "REJECTED", "EXPIRED"
+                }:
+                    new_state = "TERMINAL_UNFILLED"
+
+                else:
+                    new_state = "PENDING"
+
+                exchange_order_id = next(
+                    iter(exchange_ids), None
+                )
+
+                unit_14_update_execution(
+                    client_id,
+                    new_state,
+                    exchange_order_id,
+                    confirmed
+                )
+
+                order_results[action] = new_state
+
+            else:
+                # An absent history record is not proof
+                # that the order was never submitted.
+                order_results[action] = (
+                    "EXCHANGE_HISTORY_UNCONFIRMED"
+                )
+
+        # Check TP1 without confusing hedge closures
+        # with take-profit execution.
+        tp1 = unit_14_tp1_verified_fill(
+            history,
+            cycle_id
+        )
+
+        if tp1.get("tp1_filled"):
+            result["h1_status"] = (
+                "TP1_CONFIRMED_RECONCILIATION"
+            )
+
+        result["h1_cycle_id"] = cycle_id
+        result["h1_order_states"] = order_results
+        result["h1_hedge_present"] = hedge is not None
+        result["position_exists"] = False
+
+        if hedge is not None:
+
+            result["status"] = (
+                "ORIGINAL_ABSENT_HEDGE_PRESENT"
+            )
+
+            result["skip_reason"] = (
+                "HEDGE_MANAGEMENT_REQUIRES_RECOVERY_STAGE"
+            )
+
+            print(
+                "UNIT 14 H1 HEDGE STILL ACTIVE =",
+                hedge_side,
+                flush=True
+            )
+
+        else:
+
+            result["status"] = (
+                "ORIGINAL_ABSENT_CYCLE_RECONCILED"
+            )
+
+            result["skip_reason"] = (
+                "VERIFY_CYCLE_FINALIZATION"
+            )
+
+        print(
+            "UNIT 14 H1 CYCLE =",
+            cycle_id,
+            flush=True
         )
 
         print(
-            "UNIT 14 STATUS = IDLE_NO_POSITION",
+            "UNIT 14 H1 ORDER STATES =",
+            order_results,
+            flush=True
+        )
+
+        print(
+            "UNIT 14 H1 TP1 CONFIRMED =",
+            bool(tp1.get("tp1_filled")),
             flush=True
         )
 
@@ -15597,9 +15833,7 @@ def fresh_reconstruction_unit_14(
 
         return result
 
-    side = str(
-        p.get("side", "")
-    ).upper()
+    if p is None:
 
     if side not in ("LONG", "SHORT"):
         raise RuntimeError(
