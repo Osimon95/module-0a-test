@@ -14695,6 +14695,229 @@ def unit_14_update_execution(
 # END PERSISTENT EXECUTION REGISTRY
 # ============================================================
   
+
+# ============================================================
+# UNIT 14 H1 - PERSISTENT FRESH CYCLE INITIALIZATION
+# USES EXISTING /var/data SQLITE REGISTRY
+# NO MANUAL TRADE-SPECIFIC RENDER VARIABLES
+# ============================================================
+
+def unit_14_h1_initialize_cycle(p, atr_value):
+
+    import hashlib
+    from decimal import Decimal
+
+    D = unit_14_v3_D
+
+    if not isinstance(p, dict):
+        raise RuntimeError("H1 POSITION RECORD INVALID")
+
+    symbol = str(p.get("symbol", "")).upper()
+    side = str(p.get("side", "")).upper()
+
+    if symbol != "BTCSUSDT":
+        raise RuntimeError("H1 NON-DEMO SYMBOL BLOCKED")
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError("H1 ORIGINAL SIDE INVALID")
+
+    quantity = D(
+        p.get("size"),
+        "H1 ORIGINAL POSITION QUANTITY"
+    )
+
+    open_value = D(
+        p.get("openValue"),
+        "H1 ORIGINAL OPEN VALUE"
+    )
+
+    atr = D(
+        atr_value,
+        "H1 ORIGINAL ATR14"
+    )
+
+    if quantity <= 0 or open_value <= 0 or atr <= 0:
+        raise RuntimeError(
+            "H1 INVALID INITIAL CYCLE VALUES"
+        )
+
+    # A fresh position must have no previously
+    # closed quantity. Otherwise initialization
+    # would incorrectly freeze a reduced position.
+
+    cumulative_open = D(
+        p.get("cumOpenSize"),
+        "H1 CUMULATIVE OPEN QUANTITY"
+    )
+
+    cumulative_close = D(
+        p.get("cumCloseSize", "0"),
+        "H1 CUMULATIVE CLOSED QUANTITY",
+        True
+    )
+
+    if cumulative_close != 0:
+        raise RuntimeError(
+            "H1 INITIALIZATION REQUIRES "
+            "UNREDUCED ORIGINAL POSITION"
+        )
+
+    if cumulative_open != quantity:
+        raise RuntimeError(
+            "H1 ORIGINAL QUANTITY "
+            "DOES NOT MATCH CUMULATIVE OPEN"
+        )
+
+    entry = open_value / quantity
+
+    # Use the exchange's position creation identity.
+    # Do not derive cycle identity from the current
+    # position size or current market price.
+
+    created = str(
+        p.get("createdTime") or ""
+    ).strip()
+
+    position_id = str(
+        p.get("id") or ""
+    ).strip()
+
+    if not created or not position_id:
+        raise RuntimeError(
+            "H1 EXCHANGE POSITION IDENTITY MISSING"
+        )
+
+    identity = "|".join((
+        symbol,
+        side,
+        position_id,
+        created
+    ))
+
+    cycle_id = hashlib.sha256(
+        identity.encode("utf-8")
+    ).hexdigest()[:32]
+
+    db = unit_14_execution_db()
+
+    try:
+        db.execute("BEGIN IMMEDIATE")
+
+        existing = db.execute(
+            """
+            SELECT
+                symbol,
+                original_side,
+                original_quantity,
+                original_entry,
+                frozen_atr,
+                tp1_filled,
+                state
+            FROM execution_cycles
+            WHERE cycle_id = ?
+            """,
+            (cycle_id,)
+        ).fetchone()
+
+        if existing is None:
+
+            # Never create a second active original
+            # cycle on the same symbol and side.
+
+            conflict = db.execute(
+                """
+                SELECT cycle_id
+                FROM execution_cycles
+                WHERE symbol = ?
+                  AND original_side = ?
+                  AND state = 'ACTIVE'
+                  AND cycle_id != ?
+                """,
+                (symbol, side, cycle_id)
+            ).fetchone()
+
+            if conflict is not None:
+                db.execute("ROLLBACK")
+                raise RuntimeError(
+                    "H1 PREVIOUS ACTIVE CYCLE "
+                    "REQUIRES RECONCILIATION"
+                )
+
+            db.execute(
+                """
+                INSERT INTO execution_cycles (
+                    cycle_id,
+                    symbol,
+                    original_side,
+                    original_quantity,
+                    original_entry,
+                    frozen_atr,
+                    tp1_filled,
+                    state
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 0, 'ACTIVE')
+                """,
+                (
+                    cycle_id,
+                    symbol,
+                    side,
+                    str(quantity),
+                    str(entry),
+                    str(atr)
+                )
+            )
+
+            record = (
+                symbol,
+                side,
+                str(quantity),
+                str(entry),
+                str(atr),
+                0,
+                "ACTIVE"
+            )
+
+            print(
+                "UNIT 14 H1 NEW CYCLE SAVED =",
+                cycle_id,
+                flush=True
+            )
+
+        else:
+            record = existing
+
+            print(
+                "UNIT 14 H1 EXISTING CYCLE LOADED =",
+                cycle_id,
+                flush=True
+            )
+
+        db.execute("COMMIT")
+
+        return {
+            "cycle_id": cycle_id,
+            "symbol": record[0],
+            "side": record[1],
+            "original_quantity": Decimal(record[2]),
+            "original_entry": Decimal(record[3]),
+            "frozen_atr": Decimal(record[4]),
+            "tp1_filled": bool(record[5]),
+            "state": record[6],
+        }
+
+    except Exception:
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+        raise
+
+    finally:
+        db.close()
+
+
+# ============================================================
+# END UNIT 14 H1 CYCLE INITIALIZER
+# ============================================================
+
 def unit_14_h1_check(p, mark, qstep, minimum):
 
     from decimal import Decimal
