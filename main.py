@@ -14457,191 +14457,429 @@ def unit_14_h1_check(p, mark, qstep, minimum):
 # EXCHANGE-CONFIRMED FILL RECONCILIATION
 # ============================================================
 
-def unit_14_h1_execute(p, h1, qstep, minimum):
-    import time
 
-    if not h1 or not h1.get("reached"):
+  
+# ============================================================
+# UNIT 14 H1 V2 - INDEPENDENT WEEX DEMO EXECUTION
+# H1-C AND H1-H ARE SEPARATELY EXECUTABLE
+# SQLITE PERSISTENT SUBMISSION CLAIMS
+# ZERO INDENTATION
+# ============================================================
+
+def unit_14_h1_db():
+
+    import sqlite3
+    import os
+
+    db_path = os.getenv(
+        "UNIT14_EXECUTION_DB",
+        "/var/data/unit14_execution.sqlite3"
+    )
+
+    directory = os.path.dirname(db_path)
+
+    if not directory or not os.path.isdir(directory):
+        raise RuntimeError(
+            "H1 PERSISTENT DATABASE DIRECTORY UNAVAILABLE"
+        )
+
+    db = sqlite3.connect(
+        db_path,
+        timeout=15,
+        isolation_level=None
+    )
+
+    db.execute("PRAGMA busy_timeout=15000")
+    db.execute("PRAGMA journal_mode=WAL")
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS h1_orders (
+            client_id TEXT PRIMARY KEY,
+            trade_key TEXT NOT NULL,
+            action TEXT NOT NULL,
+            quantity TEXT NOT NULL,
+            state TEXT NOT NULL,
+            order_id TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    return db
+
+
+def unit_14_h1_execute(p, h1, qstep, minimum):
+
+    from decimal import Decimal
+
+    D = unit_14_v3_D
+
+    if not isinstance(h1, dict):
+        return {"status": "H1_INVALID_TRIGGER"}
+
+    if not h1.get("reached"):
         return {"status": "WAITING_TRIGGER"}
 
     if not h1.get("quantity_executable"):
         return {"status": "H1_QUANTITY_NOT_EXECUTABLE"}
 
-    side = h1["side"]
-    opposite = h1["hedge_side"]
-    qty = h1["close_quantity"]
+    side = str(h1["side"]).upper()
+    opposite = str(h1["hedge_side"]).upper()
 
-    identity = unit_14_v3_trade_key(p)
-    close_id = ("FR-H1-C-" + identity)[:36]
-    hedge_id = ("FR-H1-H-" + identity)[:36]
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError("H1 INVALID ORIGINAL SIDE")
 
-    def matched(client_id):
-        return [
-            order for order in unit_14_v3_history()
-            if str(order.get("clientOrderId", "")) == client_id
-        ]
+    if opposite != (
+        "SHORT" if side == "LONG" else "LONG"
+    ):
+        raise RuntimeError("H1 INVALID HEDGE SIDE")
 
-    def confirmed_fill(client_id):
-        records = matched(client_id)
-
-        if not records:
-            return None
-
-        quantities = set()
-
-        for order in records:
-            status = str(
-                order.get("status", "")
-            ).upper()
-
-            if status != "FILLED":
-                return None
-
-            value = order.get("executedQty")
-
-            if value is None:
-                return None
-
-            filled = unit_14_v3_D(
-                value,
-                "H1 EXECUTED QUANTITY"
-            )
-
-            quantities.add(filled)
-
-        if len(quantities) != 1:
-            return None
-
-        return quantities.pop()
-
-    attempts = globals().setdefault(
-        "_UNIT14_H1_ORDER_ATTEMPTS",
-        set()
+    qty = D(
+        h1["close_quantity"],
+        "H1 ORDER QUANTITY"
     )
 
-    if not matched(close_id):
+    if (
+        qty < minimum
+        or unit_14_v3_floor(qty, qstep) != qty
+    ):
+        return {"status": "H1_INVALID_ORDER_STEP"}
 
-        if close_id in attempts:
-            return {
-                "status": "H1_CLOSE_ACK_UNKNOWN"
+    key = unit_14_v3_trade_key(p)
+
+    close_id = ("FR-H1-C-" + key)[:36]
+    hedge_id = ("FR-H1-H-" + key)[:36]
+
+    db = unit_14_h1_db()
+
+    actions = (
+        (
+            "CLOSE",
+            close_id,
+            "SELL" if side == "LONG" else "BUY",
+            side
+        ),
+        (
+            "HEDGE",
+            hedge_id,
+            "BUY" if opposite == "LONG" else "SELL",
+            opposite
+        ),
+    )
+
+    results = {}
+
+    try:
+
+        # Obtain a fresh exchange history before
+        # evaluating either independent action.
+
+        history = unit_14_v3_history()
+
+        for action, client_id, order_side, position_side in actions:
+
+            matching = [
+                order for order in history
+                if str(
+                    order.get("clientOrderId", "")
+                ) == client_id
+            ]
+
+            recorded = db.execute(
+                """
+                SELECT quantity, state
+                FROM h1_orders
+                WHERE client_id = ?
+                """,
+                (client_id,)
+            ).fetchone()
+
+            if recorded is not None:
+
+                if D(
+                    recorded[0],
+                    "H1 RECORDED QUANTITY"
+                ) != qty:
+                    results[action] = "QUANTITY_CONFLICT"
+                    continue
+
+            if matching:
+
+                fills = []
+                statuses = []
+
+                for order in matching:
+
+                    status = str(
+                        order.get("status", "")
+                    ).upper()
+
+                    statuses.append(status)
+
+                    executed = D(
+                        order.get("executedQty", 0),
+                        "H1 EXECUTED QUANTITY",
+                        True
+                    )
+
+                    fills.append(executed)
+
+                if (
+                    len(matching) == 1
+                    and statuses[0] == "FILLED"
+                    and fills[0] == qty
+                ):
+
+                    db.execute(
+                        """
+                        INSERT OR IGNORE INTO h1_orders
+                        (client_id, trade_key, action,
+                         quantity, state)
+                        VALUES (?, ?, ?, ?, 'FILLED')
+                        """,
+                        (
+                            client_id,
+                            key,
+                            action,
+                            str(qty)
+                        )
+                    )
+
+                    db.execute(
+                        """
+                        UPDATE h1_orders
+                        SET state = 'FILLED'
+                        WHERE client_id = ?
+                        """,
+                        (client_id,)
+                    )
+
+                    results[action] = "FILLED"
+
+                else:
+
+                    results[action] = (
+                        "EXCHANGE_ORDER_REQUIRES_RECONCILIATION"
+                    )
+
+                continue
+
+            # A previously claimed submission must
+            # never be repeated just because it is
+            # absent from the current history.
+
+            if recorded is not None:
+
+                results[action] = (
+                    "PREVIOUS_SUBMISSION_UNRESOLVED"
+                )
+
+                continue
+
+            # Check that the close still has a
+            # sufficient exchange-confirmed position.
+            # The hedge does not depend on this check.
+
+            if action == "CLOSE":
+
+                current = unit_14_v3_position()
+
+                if current is None:
+                    results[action] = "ORIGINAL_POSITION_MISSING"
+                    continue
+
+                current_side = str(
+                    current.get("side", "")
+                ).upper()
+
+                current_size = D(
+                    current.get("size"),
+                    "H1 CURRENT POSITION SIZE"
+                )
+
+                if (
+                    current_side != side
+                    or current_size < qty
+                ):
+                    results[action] = (
+                        "ORIGINAL_QUANTITY_INSUFFICIENT"
+                    )
+                    continue
+
+            # Reserve the action identity before
+            # sending anything to WEEX.
+            #
+            # This requires persistent /var/data
+            # storage on Render.
+
+            db.execute("BEGIN IMMEDIATE")
+
+            try:
+
+                db.execute(
+                    """
+                    INSERT INTO h1_orders
+                    (client_id, trade_key, action,
+                     quantity, state)
+                    VALUES (?, ?, ?, ?, 'CLAIMED')
+                    """,
+                    (
+                        client_id,
+                        key,
+                        action,
+                        str(qty)
+                    )
+                )
+
+                db.execute("COMMIT")
+
+            except Exception:
+
+                db.execute("ROLLBACK")
+                raise
+
+            payload = {
+                "symbol": "BTCSUSDT",
+                "side": order_side,
+                "positionSide": position_side,
+                "type": "MARKET",
+                "quantity": format(qty, "f"),
+                "newClientOrderId": client_id,
             }
 
-        attempts.add(close_id)
+            try:
 
-        payload = {
-            "symbol": "BTCSUSDT",
-            "side": (
-                "SELL" if side == "LONG"
-                else "BUY"
-            ),
-            "positionSide": side,
-            "type": "MARKET",
-            "quantity": format(qty, "f"),
-            "newClientOrderId": close_id,
-        }
+                reply = unit_14_v3_signed_request(
+                    "POST",
+                    UNIT14_V3_ORDER,
+                    payload=payload
+                )
 
-        reply = unit_14_v3_signed_request(
-            "POST",
-            UNIT14_V3_ORDER,
-            payload=payload
-        )
+            except Exception as exc:
 
-        if (
-            not isinstance(reply, dict)
-            or reply.get("success") is not True
-            or not reply.get("orderId")
-        ):
-            raise RuntimeError(
-                "H1 CLOSE ACK UNVERIFIED - DO NOT RETRY"
+                db.execute(
+                    """
+                    UPDATE h1_orders
+                    SET state = 'ACK_UNKNOWN'
+                    WHERE client_id = ?
+                    """,
+                    (client_id,)
+                )
+
+                results[action] = "ACK_UNKNOWN"
+
+                print(
+                    "UNIT 14 H1",
+                    action,
+                    "SUBMISSION UNCERTAIN =",
+                    repr(exc),
+                    flush=True
+                )
+
+                continue
+
+            if (
+                not isinstance(reply, dict)
+                or reply.get("success") is not True
+                or not reply.get("orderId")
+            ):
+
+                db.execute(
+                    """
+                    UPDATE h1_orders
+                    SET state = 'ACK_UNKNOWN'
+                    WHERE client_id = ?
+                    """,
+                    (client_id,)
+                )
+
+                results[action] = "ACK_UNKNOWN"
+
+                continue
+
+            order_id = str(reply["orderId"])
+
+            db.execute(
+                """
+                UPDATE h1_orders
+                SET state = 'SUBMITTED',
+                    order_id = ?
+                WHERE client_id = ?
+                """,
+                (order_id, client_id)
             )
 
+            results[action] = "SUBMITTED"
+
+            print(
+                "UNIT 14 H1",
+                action,
+                "DEMO ORDER ID =",
+                order_id,
+                flush=True
+            )
+
+        close_state = results.get(
+            "CLOSE", "NOT_EVALUATED"
+        )
+
+        hedge_state = results.get(
+            "HEDGE", "NOT_EVALUATED"
+        )
+
+        complete = (
+            close_state == "FILLED"
+            and hedge_state == "FILLED"
+        )
+
+        status = (
+            "H1_COMPLETE"
+            if complete
+            else "H1_IN_PROGRESS"
+        )
+
         print(
-            "UNIT 14 H1 CLOSE ORDER ID =",
-            reply["orderId"],
+            "UNIT 14 H1 CLOSE STATE =",
+            close_state,
             flush=True
         )
 
-    filled = None
-
-    for _ in range(5):
-        filled = confirmed_fill(close_id)
-
-        if filled is not None:
-            break
-
-        time.sleep(2)
-
-    if filled is None:
-        return {
-            "status": "H1_CLOSE_FILL_PENDING"
-        }
-
-    if (
-        filled < minimum
-        or unit_14_v3_floor(filled, qstep) != filled
-    ):
-        return {
-            "status": "H1_CLOSE_FILL_NOT_HEDGE_EXECUTABLE"
-        }
-
-    if matched(hedge_id):
-        hedge_filled = confirmed_fill(hedge_id)
-
-        return {
-            "status": (
-                "H1_HEDGE_FILLED"
-                if hedge_filled == filled
-                else "H1_HEDGE_PENDING_OR_MISMATCH"
-            ),
-            "close_filled": str(filled),
-            "hedge_filled": str(hedge_filled),
-        }
-
-    if hedge_id in attempts:
-        return {
-            "status": "H1_HEDGE_ACK_UNKNOWN"
-        }
-
-    attempts.add(hedge_id)
-
-    hedge_payload = {
-        "symbol": "BTCSUSDT",
-        "side": (
-            "BUY" if opposite == "LONG"
-            else "SELL"
-        ),
-        "positionSide": opposite,
-        "type": "MARKET",
-        "quantity": format(filled, "f"),
-        "newClientOrderId": hedge_id,
-    }
-
-    reply = unit_14_v3_signed_request(
-        "POST",
-        UNIT14_V3_ORDER,
-        payload=hedge_payload
-    )
-
-    if (
-        not isinstance(reply, dict)
-        or reply.get("success") is not True
-        or not reply.get("orderId")
-    ):
-        raise RuntimeError(
-            "H1 HEDGE ACK UNVERIFIED - DO NOT RETRY"
+        print(
+            "UNIT 14 H1 HEDGE STATE =",
+            hedge_state,
+            flush=True
         )
 
-    print(
-        "UNIT 14 H1 HEDGE ORDER ID =",
-        reply["orderId"],
-        flush=True
-    )
+        print(
+            "UNIT 14 H1 INDEPENDENT EXECUTION = TRUE",
+            flush=True
+        )
 
-    return {
-        "status": "H1_HEDGE_SUBMITTED_AWAITING_FILL",
-        "close_filled": str(filled),
-        "hedge_order_id": str(reply["orderId"]),
-        "exchange_write": True,
-    }
+        print(
+            "UNIT 14 H1 STATUS =",
+            status,
+            flush=True
+        )
+
+        return {
+            "status": status,
+            "close_state": close_state,
+            "hedge_state": hedge_state,
+            "close_client_id": close_id,
+            "hedge_client_id": hedge_id,
+            "quantity": str(qty),
+            "complete": complete,
+            "execution_environment": "DEMO",
+        }
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# END UNIT 14 H1 V2 EXECUTION REPLACEMENT
+# ============================================================
+
 
 def unit_14_v3_reconcile(history, key):
 
