@@ -13410,42 +13410,113 @@ def fresh_reconstruction_unit_13(
                 + str(entry)
             )
         )
+        
+        # ====================================================
+        # UNIT 13 - PERSISTENT TP EXECUTION CLAIM
+        # SQLITE /var/data
+        # ====================================================
 
-        guard_key = (
-            position_id,
-            str(cum_open),
-            str(cum_close),
-            action,
+        import hashlib
+
+        cycle_identity = (
+            "BTCSUSDT:"
+            + position_id
+            + ":"
+            + str(cum_open)
         )
 
-        guard = globals().setdefault(
-            "_UNIT_13_V4_TP_GUARD",
-            set()
+        claim_identity = (
+            cycle_identity
+            + ":"
+            + action
+            + ":"
+            + str(cum_close)
         )
 
-        if guard_key in guard:
-            result["skip_reason"] = (
-                "TP_PREVIOUS_ATTEMPT_UNRESOLVED"
-            )
-
-            print(
-                "UNIT 13 TP DUPLICATE ATTEMPT BLOCKED",
-                flush=True
-            )
-
-            return result
-
-        # Claim before sending. If the request is
-        # ambiguous, do not automatically retry.
-
-        guard.add(guard_key)
+        claim_hash = hashlib.sha256(
+            claim_identity.encode("utf-8")
+        ).hexdigest()[:20]
 
         client_id = (
             "FR13-"
             + action
             + "-"
-            + str(time.time_ns())
+            + claim_hash
         )[:36]
+
+        db = unit_14_execution_db()
+
+        try:
+            db.execute("BEGIN IMMEDIATE")
+
+            existing = db.execute(
+                """
+                SELECT state, quantity
+                FROM execution_orders
+                WHERE client_id = ?
+                """,
+                (client_id,)
+            ).fetchone()
+
+            if existing is not None:
+
+                db.execute("COMMIT")
+
+                result["skip_reason"] = (
+                    "TP_PREVIOUS_ATTEMPT_RECONCILIATION_REQUIRED"
+                )
+
+                result["tp_client_order_id"] = client_id
+
+                print(
+                    "UNIT 13 TP EXISTING CLAIM =",
+                    existing,
+                    flush=True
+                )
+
+                return result
+
+            db.execute(
+                """
+                INSERT INTO execution_orders
+                (
+                    client_id,
+                    cycle_id,
+                    action,
+                    quantity,
+                    state
+                )
+                VALUES (?, ?, ?, ?, 'CLAIMED')
+                """,
+                (
+                    client_id,
+                    cycle_identity,
+                    action,
+                    str(close_qty)
+                )
+            )
+
+            db.execute("COMMIT")
+
+        except Exception:
+
+            if db.in_transaction:
+                db.execute("ROLLBACK")
+
+            raise
+
+        finally:
+            db.close()
+
+        print(
+            "UNIT 13 TP PERSISTENT CLAIM =",
+            client_id,
+            flush=True
+        )
+
+        # ====================================================
+        # END PERSISTENT TP CLAIM
+        # ====================================================
 
         close_side = (
             "SELL"
