@@ -15922,11 +15922,11 @@ def fresh_reconstruction_unit_14(
 
         return result
 
-if p is None:
+    if p is None:
 
-if side not in ("LONG", "SHORT"):
-    raise RuntimeError(
-        "UNIT 14 POSITION SIDE INVALID"
+        if side not in ("LONG", "SHORT"):
+            raise RuntimeError(
+                "UNIT 14 POSITION SIDE INVALID"
         )
 
     size = D(
